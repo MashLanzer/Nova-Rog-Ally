@@ -27,7 +27,9 @@
   "escucha": {
     "activada": true,
     "nombre": "nova",
-    "confianzaMinima": 0.65
+    "confianzaMinima": 0.3,
+    "motor": "vosk",
+    "ganancia": "auto"
   },
   "avisos": {
     "bateriaPct": 15

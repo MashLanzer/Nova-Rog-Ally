@@ -917,9 +917,14 @@ function Say([string]$texto) {
     $t = ($texto -replace '\s+', ' ').Trim()
     if ($t.Length -eq 0) { return }
     if ($t.Length -gt 300) { $t = $t.Substring(0, 300) }
-    # marca cuando hemos hablado: la escucha continua ignora los segundos
-    # siguientes para no despertarse con su propia voz
-    try { $script:finVoz = $sw.ElapsedMilliseconds } catch {}
+    # Silenciar la escucha mientras hablamos. La reproduccion es asincrona, asi
+    # que se estima la duracion por longitud del texto (~70 ms por caracter) y
+    # el bucle principal reanuda al vencer el plazo.
+    try {
+        $script:finVoz = $sw.ElapsedMilliseconds
+        $estimado = [Math]::Min(20000, ($t.Length * 70) + 1200)
+        Pausar-Escucha $estimado
+    } catch {}
     # cadena de respaldo: si la red falla, sigue habiendo voz
     if ($script:ttsProc) { if (Say-Online $t) { return } }
     if ($script:piperProc) { if (Say-Piper $t) { return } }
@@ -950,36 +955,63 @@ function Say([string]$texto) {
 $EscuchaOn = [bool](Get-Cfg 'escucha' 'activada' $true)
 $EscuchaNombre = [string](Get-Cfg 'escucha' 'nombre' 'nova')
 $EscuchaConf = [double](Get-Cfg 'escucha' 'confianzaMinima' 0.65)
-$script:rec = $null
-$script:despertar = $false
-$script:ultimaConf = 0
+$EscuchaMotor = [string](Get-Cfg 'escucha' 'motor' 'vosk')
+# ganancia por software: 'auto' mide el pico real y se ajusta sola
+$EscuchaGanancia = [string](Get-Cfg 'escucha' 'ganancia' 'auto')
+$script:wakeProc = $null
 $script:finVoz = 0
+$MarcaWake = Join-Path $TmpDir "despierta.flag"
+# Mientras exista esta marca, el worker ignora el microfono. Se crea al hablar
+# y al dictar: la voz del propio asistente volvia al microfono con pico 0.99 y
+# hundia su ganancia automatica, dejandolo sordo.
+$MarcaPausa = Join-Path $TmpDir "escucha-pausa.flag"
+$script:pausaHasta = 0
+
+function Pausar-Escucha([int]$ms) {
+    try {
+        [System.IO.File]::WriteAllText($MarcaPausa, 'x')
+        $fin = $sw.ElapsedMilliseconds + $ms
+        if ($fin -gt $script:pausaHasta) { $script:pausaHasta = $fin }
+    } catch {}
+}
+
+function Reanudar-Escucha {
+    try { Remove-Item -LiteralPath $MarcaPausa -Force -ErrorAction SilentlyContinue } catch {}
+    $script:pausaHasta = 0
+}
 
 function Initialize-Escucha {
     if (-not $EscuchaOn) { Log "escucha continua desactivada por configuracion"; return }
+    # DOS MOTORES POSIBLES:
+    #  vosk (por defecto): lee el microfono en Python y AMPLIFICA por software.
+    #    En esta maquina el microfono entra muy bajo (prueba de Windows: 7 %) y
+    #    SAPI lo tomaba por silencio. Vosk da acceso al audio crudo, asi que la
+    #    ganancia se puede corregir; SAPI no lo permitia.
+    #  sapi: worker en C# (wake_worker.exe). Se conserva como alternativa.
+    #    OJO: NO puede ser un script de PowerShell. PowerShell no soporta los
+    #    eventos asincronos de SAPI: el manejador corre en el hilo del
+    #    reconocedor y mata el proceso en silencio. Comprobado dos veces.
     try {
-        Add-Type -AssemblyName System.Speech
-        $cul = New-Object System.Globalization.CultureInfo('es-ES')
-        $script:rec = New-Object System.Speech.Recognition.SpeechRecognitionEngine($cul)
-        $op = New-Object System.Speech.Recognition.Choices
-        foreach ($v in @($EscuchaNombre, "oye $EscuchaNombre", "hola $EscuchaNombre", "$EscuchaNombre escucha")) { $op.Add($v) }
-        $gb = New-Object System.Speech.Recognition.GrammarBuilder
-        $gb.Culture = $cul
-        $gb.Append($op)
-        $script:rec.LoadGrammar((New-Object System.Speech.Recognition.Grammar($gb)))
-        $umbral = $EscuchaConf
-        # El manejador corre en OTRO hilo: solo toca variables simples.
-        # Nada de WinForms ni de escribir en el log desde aqui.
-        $script:rec.Add_SpeechRecognized({
-            $script:ultimaConf = $_.Result.Confidence
-            if ($_.Result.Confidence -ge $umbral) { $script:despertar = $true }
-        }.GetNewClosure())
-        $script:rec.SetInputToDefaultAudioDevice()
-        $script:rec.RecognizeAsync([System.Speech.Recognition.RecognizeMode]::Multiple)
-        Log "escucha continua ACTIVA: di '$EscuchaNombre' (confianza minima $EscuchaConf)"
+        Remove-Item -LiteralPath $MarcaWake -Force -ErrorAction SilentlyContinue
+        if ($EscuchaMotor -eq 'vosk') {
+            $worker = Join-Path $LogDir "wake_vosk.py"
+            if (-not (Test-Path -LiteralPath $worker)) { Log "WARN: falta wake_vosk.py"; return }
+            $script:wakeProc = Start-Process -FilePath $PyExe `
+                -ArgumentList @('-u', $worker, $EscuchaNombre, $MarcaWake, $EventLog, $EscuchaGanancia, $MarcaPausa) `
+                -WorkingDirectory $LogDir -WindowStyle Hidden -PassThru
+        } else {
+            $worker = Join-Path $LogDir "wake_worker.exe"
+            if (-not (Test-Path -LiteralPath $worker)) { Log "WARN: falta wake_worker.exe"; return }
+            $conf = $EscuchaConf.ToString([System.Globalization.CultureInfo]::InvariantCulture)
+            $script:wakeProc = Start-Process -FilePath $worker `
+                -ArgumentList @($EscuchaNombre, $conf, $MarcaWake, $EventLog) `
+                -WindowStyle Hidden -PassThru
+        }
+        $null = $script:wakeProc.Handle
+        Log "escucha continua ACTIVA [$EscuchaMotor] (worker PID=$($script:wakeProc.Id)): di '$EscuchaNombre'"
     } catch {
-        Log ("WARN: escucha continua no disponible: " + $_.Exception.Message)
-        $script:rec = $null
+        Log ("WARN: escucha continua no arranco: " + $_.Exception.Message)
+        $script:wakeProc = $null
     }
 }
 
@@ -1372,6 +1404,9 @@ function Report-Reply($out) {
 # ambos caminos se comporten EXACTAMENTE igual.
 function Start-Dictado([string]$origen) {
     Log "DICTADO ($origen)"
+    # mientras dictas, el worker no debe escuchar: competiria por el microfono
+    # con Win+H y podria tomar tu orden por una activacion
+    Pausar-Escucha 60000
     [System.Media.SystemSounds]::Exclamation.Play()
     if (Show-Capture) {
         Send-WinH
@@ -1398,6 +1433,8 @@ function Finish-Dictation([string]$motivo) {
     Send-Key $VK_ESCAPE
     $text = Wait-DictationText
     $capture.Hide()
+    # se levanta la pausa del dictado; si toca hablar, Say pondra la suya
+    Reanudar-Escucha
     if ($text.Length -gt 0) {
         $plano = ConvertTo-Plain $text
 
@@ -1504,16 +1541,22 @@ while ($true) {
         }
     }
 
-    # --- PALABRA DE ACTIVACION: equivale a mantener ≡ ---
-    if ($script:despertar) {
-        $script:despertar = $false
+    # reanuda la escucha cuando vence la pausa (fin estimado de la voz)
+    if ($script:pausaHasta -gt 0 -and $sw.ElapsedMilliseconds -ge $script:pausaHasta -and -not $script:armed) {
+        Reanudar-Escucha
+    }
+
+    # --- PALABRA DE ACTIVACION ---
+    # El worker deja un archivo marca; aqui solo se mira si existe. Nada de
+    # eventos ni hilos compartidos: eso es lo que mataba el proceso.
+    if ($script:wakeProc -and (Test-Path -LiteralPath $MarcaWake)) {
+        Remove-Item -LiteralPath $MarcaWake -Force -ErrorAction SilentlyContinue
         if ($script:armed -or $script:busy) {
             # ya estabamos escuchando o procesando: se ignora sin ruido
         } elseif (($sw.ElapsedMilliseconds - $script:finVoz) -lt 1500) {
-            # acabamos de hablar: evita que se despierte con su propia voz
+            # acabamos de hablar: evita despertarse con su propia voz
             Log "despertar ignorado (acabamos de hablar)"
         } else {
-            Log ("DESPIERTA por voz, confianza " + [math]::Round($script:ultimaConf, 2))
             Start-Dictado "nombre '$EscuchaNombre'"
         }
     }

@@ -8,8 +8,11 @@ tmp/
 prompt-*.txt
 output-*.txt
 
-# Piper: 97 MB de binario y modelo, se vuelven a descargar si hacen falta
+# Modelos de voz: binarios grandes y descargables. No versionar.
+#   Piper (97 MB):  https://github.com/rhasspy/piper/releases
+#   Vosk  (38 MB):  https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip
 piper/
+vosk/
 
 # Obsidian guarda aqui su configuracion de espacio de trabajo
 memoria/.obsidian/workspace.json
