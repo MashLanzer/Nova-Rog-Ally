@@ -16,6 +16,7 @@
 
 import sys
 import os
+import re
 import json
 import queue
 import time
@@ -50,6 +51,10 @@ GANANCIA_MAX = 40.0
 # Por debajo de esto la ventana es silencio: calibrar con silencio dispararia
 # la ganancia al maximo y luego saturaria la voz.
 UMBRAL_VOZ = 0.008
+# bloques de 250 ms por encima del umbral que hacen falta para recalibrar:
+# con menos, un golpe suelto bastaba para mover la ganancia
+MIN_BLOQUES_VOZ = 4
+PASO_MAX = 4.0
 INTERVALO_PULSO = 15.0    # ajuste rapido; con 60 s tardaba minutos en subir
 
 
@@ -69,6 +74,23 @@ def sin_tildes(s):
 
 
 NOMBRE_PLANO = sin_tildes(NOMBRE)
+# \b = limite de PALABRA. Antes se usaba endswith(), que es coincidencia de
+# subcadena: "genova" o "innova" activaban el asistente.
+PATRON_NOMBRE = re.compile(r"\b" + re.escape(NOMBRE_PLANO) + r"\b")
+# Gramatica CERRADA: se le dice al decodificador que solo existen estas frases
+# (mas [unk] para todo lo demas). Reduce falsos positivos de raiz -el modelo ya
+# no puede "alucinar" el nombre dentro de una conversacion cualquiera- y ademas
+# abarata cada decodificacion, porque el grafo de busqueda es diminuto.
+GRAMATICA = json.dumps([
+    NOMBRE_PLANO,
+    "oye " + NOMBRE_PLANO,
+    "hola " + NOMBRE_PLANO,
+    "ey " + NOMBRE_PLANO,
+    NOMBRE_PLANO + " escucha",
+    NOMBRE_PLANO + " por favor",
+    "[unk]",
+], ensure_ascii=False)
+CONFIANZA_MIN = 0.55
 
 base = os.path.dirname(os.path.abspath(__file__))
 ruta_modelo = os.path.join(base, "vosk", "vosk-model-small-es-0.42")
@@ -76,10 +98,15 @@ if not os.path.isdir(ruta_modelo):
     anota("ERROR: falta el modelo en %s" % ruta_modelo)
     sys.exit(1)
 
+def nuevo_reconocedor():
+    r = KaldiRecognizer(modelo, TASA, GRAMATICA)
+    r.SetWords(True)   # necesario para leer la confianza por palabra
+    return r
+
+
 try:
     modelo = Model(ruta_modelo)
-    rec = KaldiRecognizer(modelo, TASA)
-    rec.SetWords(False)
+    rec = nuevo_reconocedor()
     dispositivo = sd.query_devices(sd.default.device[0])["name"]
 except Exception as e:
     anota("ERROR al iniciar: %s" % e)
@@ -101,7 +128,8 @@ anota("worker Vosk en marcha: nombre='%s' dispositivo='%s' ganancia=%s"
 ultimo_pulso = time.time()
 recortes = 0
 pausado = False
-pico_ventana = 0.0
+picos = []
+bloques_voz = 0
 pico_voz = 0.0          # pico observado cuando SI habia voz reconocible
 ultima_marca = 0.0
 
@@ -124,19 +152,23 @@ try:
                     pausado = True
                     anota("pausa: el asistente habla o dicta, se ignora el microfono")
                 datos = None
-                pico_ventana = 0.0
+                picos = []
+                bloques_voz = 0
                 ultimo_pulso = ahora
             elif pausado:
                 pausado = False
-                rec = KaldiRecognizer(modelo, TASA)
-                rec.SetWords(False)
+                rec = nuevo_reconocedor()
                 anota("pausa: fin, escuchando de nuevo")
 
             if datos is not None:
                 muestras = np.frombuffer(datos, dtype=np.int16).astype(np.float32)
                 pico = float(np.max(np.abs(muestras))) / 32768.0
-                if pico > pico_ventana:
-                    pico_ventana = pico
+                # Se guardan TODOS los picos, no solo el maximo: calibrar con el
+                # maximo dejaba que un solo golpe (o un resto de eco) mandara
+                # sobre toda la ventana. Se usa el percentil 90.
+                picos.append(pico)
+                if pico > UMBRAL_VOZ:
+                    bloques_voz += 1
 
                 if ganancia != 1.0:
                     amplificado = muestras * ganancia
@@ -152,51 +184,61 @@ try:
                     muestras = np.clip(amplificado, -32768, 32767)
                 bloque = muestras.astype(np.int16).tobytes()
 
-                texto = ""
+                # Solo se mira el resultado FINAL: los parciales cambian de
+                # hipotesis constantemente y no traen confianza por palabra.
                 if rec.AcceptWaveform(bloque):
-                    texto = json.loads(rec.Result()).get("text", "")
-                else:
-                    texto = json.loads(rec.PartialResult()).get("partial", "")
-
-                if texto:
-                    plano = sin_tildes(texto)
-                    if pico > pico_voz:
-                        pico_voz = pico
-                    if NOMBRE_PLANO in plano.split() or plano.endswith(NOMBRE_PLANO):
-                        # antirebote: no disparar dos veces por la misma frase
-                        if ahora - ultima_marca > 2.0:
-                            ultima_marca = ahora
-                            anota("ACTIVADO por '%s' (pico %.3f, ganancia x%.1f)"
-                                  % (texto, pico, ganancia))
-                            try:
-                                with open(MARCA, "w", encoding="utf-8") as f:
-                                    f.write(time.strftime("%Y-%m-%dT%H:%M:%S"))
-                            except Exception:
-                                pass
-                            rec = KaldiRecognizer(modelo, TASA)
-                            rec.SetWords(False)
+                    resultado = json.loads(rec.Result())
+                    texto = resultado.get("text", "")
+                    if texto:
+                        plano = sin_tildes(texto)
+                        if pico > pico_voz:
+                            pico_voz = pico
+                        if PATRON_NOMBRE.search(plano):
+                            conf = 0.0
+                            for p in resultado.get("result", []):
+                                if sin_tildes(p.get("word", "")) == NOMBRE_PLANO:
+                                    conf = max(conf, float(p.get("conf", 0.0)))
+                            if conf < CONFIANZA_MIN:
+                                anota("descartado '%s': confianza %.2f < %.2f"
+                                      % (texto, conf, CONFIANZA_MIN))
+                            elif ahora - ultima_marca > 2.0:
+                                # antirebote: no disparar dos veces por lo mismo
+                                ultima_marca = ahora
+                                anota("ACTIVADO por '%s' (confianza %.2f, pico %.3f, ganancia x%.1f)"
+                                      % (texto, conf, pico, ganancia))
+                                try:
+                                    with open(MARCA, "w", encoding="utf-8") as f:
+                                        f.write(time.strftime("%Y-%m-%dT%H:%M:%S"))
+                                except Exception:
+                                    pass
+                                rec = nuevo_reconocedor()
 
             # pulso periodico: estado, nivel y ajuste de ganancia
             if ahora - ultimo_pulso >= INTERVALO_PULSO:
-                # SOLO se calibra si en la ventana hubo voz. Ajustar con
-                # silencio llevaba la ganancia al maximo y luego saturaba.
-                if automatica and pico_ventana > UMBRAL_VOZ:
-                    # pico_ventana es el pico CRUDO, antes de amplificar. La
-                    # ganancia se calcula desde cero: multiplicarla por la
-                    # actual la componia en cada ciclo hasta el tope, y a x60
-                    # la voz salia recortada y Vosk no reconocia nada.
-                    nueva = PICO_OBJETIVO / pico_ventana
-                    nueva = max(GANANCIA_MIN, min(GANANCIA_MAX, nueva))
-                    # asimetrico a proposito: subir rapido (para oirte cuanto
-                    # antes) y bajar despacio (un ruido puntual no debe
-                    # dejarnos sordos durante el minuto siguiente)
+                # Se exige voz SOSTENIDA, no un pico suelto: un transitorio de
+                # 250 ms no debe recalibrar nada.
+                if automatica and bloques_voz >= MIN_BLOQUES_VOZ and picos:
+                    ref = float(np.percentile(np.array(picos), 90))
+                    ref = max(ref, 1e-6)
+                    # El pico es CRUDO, antes de amplificar: la ganancia se
+                    # calcula desde cero. Multiplicarla por la actual la
+                    # componia en cada ciclo hasta el tope, y ahi la voz salia
+                    # recortada y no se reconocia nada.
+                    nueva = max(GANANCIA_MIN, min(GANANCIA_MAX, PICO_OBJETIVO / ref))
+                    # asimetrico: subir rapido, bajar despacio, para que un
+                    # ruido puntual no deje sordo el minuto siguiente
                     factor = 0.6 if nueva > ganancia else 0.2
-                    ganancia = round(ganancia + (nueva - ganancia) * factor, 1)
-                    anota("pulso: pico=%.4f (voz)  ganancia=x%.1f" % (pico_ventana, ganancia))
+                    propuesta = ganancia + (nueva - ganancia) * factor
+                    # segunda red: tope de salto por ciclo
+                    propuesta = max(ganancia - PASO_MAX, min(ganancia + PASO_MAX, propuesta))
+                    ganancia = round(max(GANANCIA_MIN, min(GANANCIA_MAX, propuesta)), 1)
+                    anota("pulso: p90=%.4f bloques_voz=%d  ganancia=x%.1f"
+                          % (ref, bloques_voz, ganancia))
                 else:
-                    anota("pulso: pico=%.4f (silencio, sin recalibrar)  ganancia=x%.1f"
-                          % (pico_ventana, ganancia))
-                pico_ventana = 0.0
+                    anota("pulso: sin voz sostenida (%d bloques), sin recalibrar  ganancia=x%.1f"
+                          % (bloques_voz, ganancia))
+                picos = []
+                bloques_voz = 0
                 ultimo_pulso = ahora
 except Exception as e:
     anota("ERROR en el bucle: %s" % e)

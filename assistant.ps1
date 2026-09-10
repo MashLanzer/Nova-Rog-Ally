@@ -1008,6 +1008,9 @@ function Initialize-Escucha {
                 -WindowStyle Hidden -PassThru
         }
         $null = $script:wakeProc.Handle
+        # Es un portatil de JUEGOS: la escucha nunca debe competir por CPU con
+        # el juego en primer plano.
+        try { $script:wakeProc.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal } catch {}
         Log "escucha continua ACTIVA [$EscuchaMotor] (worker PID=$($script:wakeProc.Id)): di '$EscuchaNombre'"
     } catch {
         Log ("WARN: escucha continua no arranco: " + $_.Exception.Message)
