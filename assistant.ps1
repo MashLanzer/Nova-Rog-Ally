@@ -1488,6 +1488,8 @@ $script:lastChange = 0
 $script:ultimaRespuesta = ""
 $script:bateriaCheck = 0
 $script:bateriaAvisada = $false
+$script:wakeCheck = 0
+$script:wakeIntentos = 0
 $pollErrs = 0
 
 while ($true) {
@@ -1538,6 +1540,29 @@ while ($true) {
         } catch {
             Log "accion error: $($_.Exception.Message)"
             $script:armed = $false
+        }
+    }
+
+    # --- VIGILANCIA DEL WORKER DE ESCUCHA ---
+    # Si muere, la palabra de activacion deja de funcionar EN SILENCIO durante
+    # el resto de la sesion: el bucle solo miraba el archivo marca, que nunca
+    # volveria a aparecer. Se comprueba cada 30 s y se relanza.
+    if ($EscuchaOn -and ($sw.ElapsedMilliseconds - $script:wakeCheck) -ge 30000) {
+        $script:wakeCheck = $sw.ElapsedMilliseconds
+        if ($script:wakeProc -and $script:wakeProc.HasExited) {
+            if ($script:wakeIntentos -lt 3) {
+                $script:wakeIntentos++
+                Log "WARN: el worker de escucha murio; relanzando (intento $($script:wakeIntentos)/3)"
+                $script:wakeProc = $null
+                Initialize-Escucha
+            } elseif ($script:wakeIntentos -eq 3) {
+                $script:wakeIntentos++   # avisar una sola vez
+                Log "ERROR: el worker de escucha no se sostiene; se sigue solo con el boton"
+                Show-Popup "La palabra de activacion fallo. Sigue funcionando el boton."
+                Say "La escucha por voz fallo. Puedes seguir usando el boton."
+            }
+        } elseif ($script:wakeProc) {
+            $script:wakeIntentos = 0   # lleva vivo un rato: se rearman los reintentos
         }
     }
 
