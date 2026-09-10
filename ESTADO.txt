@@ -1,0 +1,95 @@
+﻿ESTADO DEL ASISTENTE DE VOZ  (2026-09-10 17:49)
+================================================
+
+EJECUTANDO AHORA: SÍ — PID 13324
+  Autoarranque por clave Run: intacto.
+  Al arrancar, assistant.log debe mostrar:
+    commands.json cargado: 22 apps, 14 sitios, 9 buscadores
+    voz: es-MX-DaliaNeural (neuronal en linea)
+    biblioteca de Steam: 14 juegos indexados
+
+CÓMO SE USA
+  1. Mantener pulsado ≡ (Menú) ~1,1 s -> se abre el dictado.
+  2. Hablar. La barrita va mostrando lo que oye, en vivo.
+  3. Callar 2,5 s -> SE ENVÍA SOLO. (Mantener ≡ = "enviar ya".)
+  Mantener ≡ MIENTRAS procesa = cancelar.
+  El asistente responde HABLANDO, con voz neuronal mexicana.
+
+DOS RUTAS
+  LOCAL    : menos de 1 segundo, sin LLM. La de uso diario.
+  OPENCODE : 25-160 s. Solo si la orden NO se reconoce entera.
+  En el log se distinguen: "LOCAL:" frente a "RUNNER cmd:".
+
+  Regla: si CUALQUIER parte no se reconoce, no se ejecuta NADA y la
+  frase entera va a opencode. Media orden es peor que ninguna.
+
+QUÉ ENTIENDE LA RUTA LOCAL
+  - Abrir   : abre / ábreme / prende / ponme / métete a / anda a...
+  - Juegos  : "abre little nightmares 3 en steam" (lee tu biblioteca)
+  - Buscar  : busca / búscame / googlea. El lugar puede ir antes:
+              "en youtube busca recetas". Y si pides un sitio conocido
+              ("busca pinterest"), lo ABRE en vez de buscarlo.
+  - Niveles : sube/súbele/baja/bájale/pon, VOLUMEN y BRILLO,
+              al máximo/mínimo o porcentaje exacto:
+              "baja el volumen al 50% y el brillo al 80%"
+  - Historial: "repite", "qué me dijiste"
+  - Al instante: "qué hora es", "qué día es", "cuánta batería",
+              "cuántos juegos tengo", "qué anoté hoy"
+  - Ventanas: "a mitad de pantalla", "a la derecha", "maximiza"
+  - Multimedia: pausa, reproduce, siguiente, anterior, silencia
+  - Memoria : "recuerda que...", "anota...", "apunta..."
+  - Sin verbo: decir solo "steam" o "youtube" ya abre
+  - Varias acciones en una frase:
+      "abre steam, ponme spotify y súbele al volumen"   -> 3 acciones
+
+  Aguanta bien los errores del dictado: "Team" y "steamidos" -> Steam,
+  "little nighters 3" -> Little Nightmares III, "buscal" -> busca.
+
+MEMORIA (carpeta memoria\, es un vault de Obsidian)
+  Ábrela en Obsidian con "Abrir carpeta como almacén".
+  - "recuerda que..." -> se anota AL INSTANTE en memoria\diario\, tal
+    cual lo dijiste, con mayúsculas y acentos.
+  - "¿qué sabes de...?" -> opencode lee la carpeta y responde (tarda).
+
+VOZ
+  Motor actual: es-MX-DaliaNeural (neuronal, EN LÍNEA).
+  Frase nueva 0,8-1,3 s | frase repetida 1-2 ms (caché en tmp\voz\).
+  Respaldo automático si no hay red: Piper (offline) -> voz de Windows.
+  Cambiar voz en config.json -> voz.vozOnline:
+    es-MX-JorgeNeural, es-US-AlonsoNeural, es-CO-SalomeNeural
+  Volver a offline: voz.motor = "piper"
+
+  NOTA: las voces "Natural" de Windows (Dalia del Narrador) NO sirven:
+  Windows no las expone a las aplicaciones. Detalle en TRASPASO.md §7.
+
+SI ALGO NO SE RECONOCE
+  El log escribe: LOCAL descarta: no reconozco '<el trozo exacto>'
+  Eso dice justo qué añadir a commands.json. Amplíalo y reinicia.
+
+SI INSTALAS UN JUEGO NUEVO
+  No hay que hacer nada. Si pides un juego que no está en el índice,
+  relee la biblioteca de Steam y reintenta antes de rendirse.
+
+AVISOS (riesgos que aceptaste)
+  1. opencode corre con --auto y permisos "allow" (bash, edit, MCP de
+     Windows) sobre todo Documents. Una frase mal transcrita puede
+     ejecutar acciones sin pedir confirmación.
+  2. Al enviarse solo tras 2,5 s de silencio, ya no hay un botón final
+     como último control antes de ejecutar.
+  3. La voz en línea envía a Microsoft el texto de cada respuesta nueva,
+     incluido lo que venga de tus notas. Con Piper no pasaba.
+  Detalle en TRASPASO.md §12.
+
+ARCHIVOS CLAVE
+  assistant.ps1    : asistente (NO MOVER: la clave Run lo apunta)
+  commands.json    : vocabulario local  <- AMPLIAR AQUÍ
+  config.json      : rutas, tiempos, voz, logs
+  memoria\         : vault de Obsidian
+  tts_worker.py    : worker de voz en línea
+  assistant-dx.cs  : fuente C# del DLL, con el comando csc
+  tools\diag\      : diag-buttons.ps1 es el calibrador de botones
+
+  Respaldo previo a la limpieza:
+  C:\Users\braya\Documents\voice-ctrl-backup-20260910-102414.zip
+
+  Detalle completo, trampas y próximos pasos: TRASPASO.md

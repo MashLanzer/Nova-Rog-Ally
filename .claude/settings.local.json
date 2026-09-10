@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"C:\\\\Users\\\\braya\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-braya-Documents-voice-ctrl\\\\3513fd93-ba0a-4d8c-a5ad-060932e33c7b\\\\scratchpad\\\\harness3.ps1\")"
+    ]
+  }
+}
