@@ -917,6 +917,9 @@ function Say([string]$texto) {
     $t = ($texto -replace '\s+', ' ').Trim()
     if ($t.Length -eq 0) { return }
     if ($t.Length -gt 300) { $t = $t.Substring(0, 300) }
+    # marca cuando hemos hablado: la escucha continua ignora los segundos
+    # siguientes para no despertarse con su propia voz
+    try { $script:finVoz = $sw.ElapsedMilliseconds } catch {}
     # cadena de respaldo: si la red falla, sigue habiendo voz
     if ($script:ttsProc) { if (Say-Online $t) { return } }
     if ($script:piperProc) { if (Say-Piper $t) { return } }
@@ -934,6 +937,49 @@ function Say([string]$texto) {
         $script:vozPlayer.Play()
     } catch {
         Log ("voz error: " + $_.Exception.Message)
+    }
+}
+
+# =====================================================================
+# ESCUCHA CONTINUA (palabra de activacion)
+# Motor SAPI en es-ES, offline. La gramatica es CERRADA: solo el nombre y sus
+# variantes. Cuanto mas cerrada, menos falsos disparos, porque el motor no
+# tiene otra cosa con la que confundirse. Verificado que rechaza "abre steam",
+# "que hora es" y hasta "no va a llover", que foneticamente se le parece.
+# =====================================================================
+$EscuchaOn = [bool](Get-Cfg 'escucha' 'activada' $true)
+$EscuchaNombre = [string](Get-Cfg 'escucha' 'nombre' 'nova')
+$EscuchaConf = [double](Get-Cfg 'escucha' 'confianzaMinima' 0.65)
+$script:rec = $null
+$script:despertar = $false
+$script:ultimaConf = 0
+$script:finVoz = 0
+
+function Initialize-Escucha {
+    if (-not $EscuchaOn) { Log "escucha continua desactivada por configuracion"; return }
+    try {
+        Add-Type -AssemblyName System.Speech
+        $cul = New-Object System.Globalization.CultureInfo('es-ES')
+        $script:rec = New-Object System.Speech.Recognition.SpeechRecognitionEngine($cul)
+        $op = New-Object System.Speech.Recognition.Choices
+        foreach ($v in @($EscuchaNombre, "oye $EscuchaNombre", "hola $EscuchaNombre", "$EscuchaNombre escucha")) { $op.Add($v) }
+        $gb = New-Object System.Speech.Recognition.GrammarBuilder
+        $gb.Culture = $cul
+        $gb.Append($op)
+        $script:rec.LoadGrammar((New-Object System.Speech.Recognition.Grammar($gb)))
+        $umbral = $EscuchaConf
+        # El manejador corre en OTRO hilo: solo toca variables simples.
+        # Nada de WinForms ni de escribir en el log desde aqui.
+        $script:rec.Add_SpeechRecognized({
+            $script:ultimaConf = $_.Result.Confidence
+            if ($_.Result.Confidence -ge $umbral) { $script:despertar = $true }
+        }.GetNewClosure())
+        $script:rec.SetInputToDefaultAudioDevice()
+        $script:rec.RecognizeAsync([System.Speech.Recognition.RecognizeMode]::Multiple)
+        Log "escucha continua ACTIVA: di '$EscuchaNombre' (confianza minima $EscuchaConf)"
+    } catch {
+        Log ("WARN: escucha continua no disponible: " + $_.Exception.Message)
+        $script:rec = $null
     }
 }
 
@@ -1013,6 +1059,7 @@ elseif ($cmds) {
 } else { Log "WARN: no hay commands.json; todo ira a opencode" }
 
 Initialize-Voz
+Initialize-Escucha
 
 $script:Juegos = Get-JuegosSteam
 $script:JuegosStamp = Get-Date
@@ -1321,6 +1368,28 @@ function Report-Reply($out) {
     Say $reply
 }
 
+# Abre el dictado. La llaman el boton y la palabra de activacion, para que
+# ambos caminos se comporten EXACTAMENTE igual.
+function Start-Dictado([string]$origen) {
+    Log "DICTADO ($origen)"
+    [System.Media.SystemSounds]::Exclamation.Play()
+    if (Show-Capture) {
+        Send-WinH
+        $script:armed = $true
+        # punto de partida para detectar el silencio
+        $script:lastText = ""
+        $script:lastChange = $sw.ElapsedMilliseconds
+    } else {
+        # ABORTAR, no continuar: sin el foco, el dictado escribe en OTRA
+        # ventana y esas pulsaciones disparan cosas sueltas.
+        Log "ABORTADO: sin primer plano; no se abre el dictado"
+        [System.Media.SystemSounds]::Hand.Play()
+        $capture.Hide()
+        Show-Popup "No pude tomar el foco. Dictado cancelado. Intenta de nuevo."
+        $script:armed = $false
+    }
+}
+
 # Cierra el dictado, recoge el texto y lo ejecuta. La llaman tanto el segundo
 # hold del boton como el envio automatico por silencio.
 function Finish-Dictation([string]$motivo) {
@@ -1425,30 +1494,27 @@ while ($true) {
                 Stop-OpencodeJob
                 Show-Popup "Orden cancelada."
             } elseif (-not $script:armed) {
-                Log "DICTADO (mantener ≡ dispara)"
-                [System.Media.SystemSounds]::Exclamation.Play()
-                if (Show-Capture) {
-                    Send-WinH
-                    $script:armed = $true
-                    # punto de partida para detectar el silencio
-                    $script:lastText = ""
-                    $script:lastChange = $sw.ElapsedMilliseconds
-                } else {
-                    # ABORTAR, no continuar: si no tenemos el foco, el dictado
-                    # escribe en OTRA ventana y esas pulsaciones disparan cosas
-                    # sueltas (parece que "ejecuta mientras hablas").
-                    Log "ABORTADO: sin primer plano; no se abre el dictado para no escribir en otra ventana"
-                    [System.Media.SystemSounds]::Hand.Play()
-                    $capture.Hide()
-                    Show-Popup "No pude tomar el foco. Dictado cancelado (habria escrito en otra ventana). Intenta de nuevo."
-                    $script:armed = $false
-                }
+                Start-Dictado "mantener ≡"
             } else {
                 Finish-Dictation "boton"
             }
         } catch {
             Log "accion error: $($_.Exception.Message)"
             $script:armed = $false
+        }
+    }
+
+    # --- PALABRA DE ACTIVACION: equivale a mantener ≡ ---
+    if ($script:despertar) {
+        $script:despertar = $false
+        if ($script:armed -or $script:busy) {
+            # ya estabamos escuchando o procesando: se ignora sin ruido
+        } elseif (($sw.ElapsedMilliseconds - $script:finVoz) -lt 1500) {
+            # acabamos de hablar: evita que se despierte con su propia voz
+            Log "despertar ignorado (acabamos de hablar)"
+        } else {
+            Log ("DESPIERTA por voz, confianza " + [math]::Round($script:ultimaConf, 2))
+            Start-Dictado "nombre '$EscuchaNombre'"
         }
     }
 

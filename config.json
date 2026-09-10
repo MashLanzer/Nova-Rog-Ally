@@ -24,6 +24,14 @@
     "maxLogBytes": 5242880,
     "keepLogs": 3
   },
+  "escucha": {
+    "activada": true,
+    "nombre": "nova",
+    "confianzaMinima": 0.65
+  },
+  "avisos": {
+    "bateriaPct": 15
+  },
   "seguridad": {
     "hashDll": "B72C58682EAE2E82426411D79BC3BCF977C97D944073F3560E1E97662B460558"
   }
