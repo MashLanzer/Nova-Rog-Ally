@@ -44,6 +44,8 @@ $HOLD_MS = [int](Get-Cfg 'input' 'holdMs' 1100)
 # la orden se manda sola y no hace falta el segundo hold. 0 = desactivado
 # (vuelve al comportamiento de pulsar el boton para enviar).
 $AutoSubmitMs = [int](Get-Cfg 'input' 'autoSubmitMs' 2500)
+# aviso proactivo cuando la bateria baja de este porcentaje (0 = desactivado)
+$BateriaAviso = [int](Get-Cfg 'avisos' 'bateriaPct' 15)
 
 $OCODECLI = [string](Get-Cfg 'paths' 'opencodeCli' "C:\Users\braya\AppData\Roaming\npm\node_modules\opencode-ai\bin\opencode.exe")
 $NODEDIR = [string](Get-Cfg 'paths' 'nodeDir' "C:\Program Files\nodejs")
@@ -410,6 +412,24 @@ function Add-Memoria([string]$texto) {
 }
 
 function Resolve-Fragment([string]$f) {
+    # --- perfiles: una frase, varias acciones ("modo juego") ---
+    if ($f -match '^(?:modo|activa el modo|pon el modo|ponte en modo)\s+(.+)$') {
+        $nombre = $Matches[1].Trim()
+        if (Test-Prop $cmds.perfiles $nombre) {
+            $acc = @()
+            foreach ($orden in @($cmds.perfiles.$nombre)) {
+                # cada linea del perfil se resuelve como una orden normal
+                foreach ($fr in @(Split-Compound (Repair-Words (ConvertTo-Plain $orden)))) {
+                    $a = Resolve-Fragment $fr
+                    if ($a) { $acc += $a }
+                }
+            }
+            if ($acc.Count -gt 0) {
+                return (@(@{ kind = 'decir'; desc = "modo $nombre" }) + $acc)
+            }
+        }
+        return $null
+    }
     # "recuerda que X" -> se anota YA, sin pasar por el modelo
     if ($f -match '^(?:recuerda|recuerdame|acuerdate|anota|apunta|guarda|memoriza)\s+(?:que\s+|de\s+que\s+)?(.+)$') {
         return @(@{ kind = 'memoria'; texto = $Matches[1].Trim(); desc = "anotar en la memoria" })
@@ -443,6 +463,9 @@ function Resolve-Fragment([string]$f) {
         }
         '^(?:cuantos juegos|que juegos tengo|mis juegos)\b' {
             return @(@{ kind = 'decir'; desc = ("Tienes " + @($script:Juegos).Count + " juegos instalados en Steam") })
+        }
+        '^(?:deshaz|deshacer|cancela eso|cancelalo|no cancela|revierte|vuelve atras|atras eso)\b' {
+            return @(@{ kind = 'deshacer'; desc = 'deshacer lo ultimo' })
         }
         '^(?:repite|repitelo|repitemelo|que me dijiste|que dijiste|ultima respuesta|la ultima respuesta)\b' {
             $r = $script:ultimaRespuesta
@@ -568,8 +591,72 @@ function Set-Brillo([int]$nivel) {
 
 # Ejecuta la orden si TODA ella se reconoce. Devuelve el resumen, o $null
 # para que la frase siga su camino hacia opencode.
+# Estado para deshacer. Solo se puede revertir lo que se sabe leer y reponer:
+# el brillo (WMI) y los procesos que HEMOS lanzado nosotros. El volumen de
+# Windows no se puede leer sin librerias externas, y las apps abiertas por URI
+# (steam://) no devuelven un proceso propio: eso NO se puede deshacer.
+$script:deshacer = $null
+
+function Save-EstadoParaDeshacer {
+    $b = $null
+    try { $b = (Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness -ErrorAction Stop).CurrentBrightness } catch {}
+    $script:deshacer = @{ brillo = $b; procesos = New-Object System.Collections.ArrayList }
+}
+
+function Invoke-Deshacer {
+    if (-not $script:deshacer) { return "No hay nada que deshacer" }
+    $hecho = @()
+    if ($null -ne $script:deshacer.brillo) {
+        try { Set-Brillo ([int]$script:deshacer.brillo); $hecho += "brillo restaurado" } catch {}
+    }
+    foreach ($pid2 in @($script:deshacer.procesos)) {
+        try {
+            $pr = Get-Process -Id $pid2 -ErrorAction Stop
+            $pr.CloseMainWindow() | Out-Null
+            $hecho += "cerrado $($pr.ProcessName)"
+        } catch {}
+    }
+    $script:deshacer = $null
+    if ($hecho.Count -eq 0) { return "No pude deshacerlo: el volumen y las apps de Steam no se pueden revertir" }
+    return ($hecho -join '; ')
+}
+
+# "aprende que a X le llamo Y": amplia commands.json hablando, sin editar JSON.
+function Add-Alias-Comando([string]$alias, [string]$objetivo) {
+    $alias = (ConvertTo-Plain $alias).Trim()
+    if (-not $alias -or -not $objetivo) { return $null }
+    $destino = Resolve-Target (ConvertTo-Plain $objetivo)
+    if (-not $destino) { return $null }
+    $d = $destino[0]
+    try {
+        $j = Get-Content -LiteralPath $cmdsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($d.kind -eq 'app') {
+            $j.apps | Add-Member -NotePropertyName $alias -NotePropertyValue ([string]$d.target) -Force
+        } else {
+            $j.sitios | Add-Member -NotePropertyName $alias -NotePropertyValue ([string]$d.url) -Force
+        }
+        $txt = $j | ConvertTo-Json -Depth 8
+        [System.IO.File]::WriteAllText($cmdsPath, $txt, (New-Object System.Text.UTF8Encoding($false)))
+        $script:cmds = Get-Content -LiteralPath $cmdsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        Log "APRENDIDO: '$alias' -> $($d.desc)"
+        return "Listo, ahora se que $alias es $($d.desc -replace '^abrir ', '')"
+    } catch {
+        Log ("no pude aprender: " + $_.Exception.Message)
+        return $null
+    }
+}
+
 function Invoke-FastCommand([string]$text) {
     if (-not $cmds) { return $null }
+    # aprender vocabulario hablando (se lee del texto ORIGINAL, sin normalizar)
+    if ($text -match '(?i)^\s*aprende\s+que\s+(?:a\s+)?(.+?)\s+(?:le\s+(?:digo|llamo|dicen)|es|se\s+llama)\s+(.+)$') {
+        $a = $Matches[1].Trim(); $b = $Matches[2].Trim()
+        # "aprende que a spotify le digo musica" -> alias=musica, objetivo=spotify
+        $r = Add-Alias-Comando $b $a
+        if (-not $r) { $r = Add-Alias-Comando $a $b }   # o al reves
+        if ($r) { return $r }
+        return "No supe a que te refieres con eso"
+    }
     # La memoria guarda el texto TAL CUAL se dijo, con mayusculas y acentos.
     # Si se dejara pasar por la normalizacion se archivaria en minusculas y sin
     # tildes, que es justo lo que no quieres leer meses despues en Obsidian.
@@ -596,14 +683,22 @@ function Invoke-FastCommand([string]$text) {
         $acciones += $a
     }
 
+    # se guarda el estado ANTES de tocar nada, para poder deshacer
+    $tocaEstado = @($acciones | Where-Object { $_.kind -in @('brillo', 'volumenPct', 'key', 'app') }).Count -gt 0
+    if ($tocaEstado -and -not ($acciones | Where-Object { $_.kind -eq 'deshacer' })) { Save-EstadoParaDeshacer }
+
     $hechas = @()
     $navegador = $null
     foreach ($a in $acciones) {
         try {
             switch ($a.kind) {
+                # se sustituye la descripcion por el resultado real
+                'deshacer' { $a.desc = (Invoke-Deshacer) }
                 'app' {
-                    Start-Process $a.target -ErrorAction Stop
-                    # si abrio un navegador, las busquedas siguientes van ahi
+                    # con -PassThru para poder cerrarlo si pides deshacer; las
+                    # URI (steam://, shell:appsFolder) no devuelven proceso propio
+                    $pr = Start-Process $a.target -PassThru -ErrorAction Stop
+                    if ($pr -and $script:deshacer) { [void]$script:deshacer.procesos.Add($pr.Id) }
                     if ($a.target -match 'msedge|chrome|firefox') { $navegador = $a.target }
                 }
                 'url' {
@@ -1199,8 +1294,10 @@ function Submit-Command([string]$text, [string]$modo = 'accion') {
 
     $prompt = Expand-Prompt $text     # si pregunta por la memoria, ya viene guiado
     if ($modo -ne 'accion' -and $prompt -eq $text) { $prompt = $PRE_HABLADO + $text }
+    # 'charla' encadena la sesion anterior: recuerda lo hablado antes
+    $extra = if ($modo -eq 'charla') { '--continue' } else { '' }
 
-    if (-not (Start-OpencodeJob $prompt)) {
+    if (-not (Start-OpencodeJob $prompt $extra)) {
         Show-Popup "(no se pudo lanzar opencode; ver assistant.log)"
     }
 }
@@ -1238,6 +1335,16 @@ function Finish-Dictation([string]$motivo) {
         # NO hay modo conversacion persistente. Se probó y fue un error: al
         # quedarse activo se tragaba las ordenes ("Abre steam" acababa en el
         # modelo, que ademas se negaba a ejecutar). Cada frase se enruta sola.
+        #
+        # En su lugar, la charla se pide EXPLICITAMENTE por frase. Encadena la
+        # sesion con --continue, asi que recuerda lo hablado, pero no puede
+        # secuestrar nada: en cuanto dices otra cosa, vuelve al enrutado normal.
+        if ($plano -match '^(?:preguntale a la ia|pregunta a la ia|dile a la ia|consulta a la ia|oye ia|hey ia)\s+(.+)$') {
+            # se recorta del texto ORIGINAL para no perder acentos ni mayusculas
+            $sinPrefijo = $text -replace '(?i)^\s*(?:preg[uú]ntale a la ia|pregunta a la ia|dile a la ia|consulta a la ia|oye ia|hey ia)\s+', ''
+            Submit-Command $sinPrefijo 'charla'
+            return
+        }
 
         # 1) local instantaneo
         $fast = $null
@@ -1272,6 +1379,9 @@ $holdFired = $false
 $script:armed = $false
 $script:lastText = ""
 $script:lastChange = 0
+$script:ultimaRespuesta = ""
+$script:bateriaCheck = 0
+$script:bateriaAvisada = $false
 $pollErrs = 0
 
 while ($true) {
@@ -1369,6 +1479,26 @@ while ($true) {
             Stop-OpencodeJob
             Show-Popup "(timeout: opencode tardo mas de $([Math]::Round($CliTimeoutMs/1000)) s)"
         }
+    }
+
+    # --- aviso proactivo de bateria (se comprueba una vez por minuto) ---
+    if (($sw.ElapsedMilliseconds - $script:bateriaCheck) -ge 60000) {
+        $script:bateriaCheck = $sw.ElapsedMilliseconds
+        try {
+            $bat = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($bat -and $bat.EstimatedChargeRemaining) {
+                $pc = [int]$bat.EstimatedChargeRemaining
+                $cargando = ($bat.BatteryStatus -eq 2)   # 2 = conectado a la red
+                if (-not $cargando -and $pc -le $BateriaAviso -and -not $script:bateriaAvisada) {
+                    $script:bateriaAvisada = $true
+                    Log "AVISO: bateria al $pc %"
+                    Show-Popup "Bateria al $pc por ciento."
+                    Say "Oye, te queda $pc por ciento de bateria."
+                }
+                # rearmar cuando se recupera, para que pueda volver a avisar
+                if ($cargando -or $pc -gt ($BateriaAviso + 10)) { $script:bateriaAvisada = $false }
+            }
+        } catch {}
     }
 
     # cierra el popup al vencer su plazo (antes se esperaba 8 s bloqueando)

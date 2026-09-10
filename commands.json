@@ -86,6 +86,13 @@
                       "reddit":  "https://www.reddit.com/search/?q={q}",
                       "github":  "https://github.com/search?q={q}"
                   },
+    "perfiles":  {
+                     "juego":  ["pon el brillo al 100%", "pon el volumen al 70%", "abre discord"],
+                     "noche":  ["pon el brillo al 15%", "pon el volumen al 25%"],
+                     "trabajo":  ["pon el brillo al 80%", "pon el volumen al 40%", "abre el navegador"],
+                     "cine":  ["pon el brillo al 60%", "pon el volumen al 90%"],
+                     "silencio":  ["pon el volumen al 0%"]
+                 },
     "buscadorPorDefecto":  "google",
     "navegadorPorDefecto":  "msedge.exe"
 }
