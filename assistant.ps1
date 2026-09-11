@@ -199,12 +199,39 @@ function Repair-Verb([string]$f) {
     return $mejor
 }
 
+# Verbos que pueden ABRIR una orden nueva sin conector delante. Hablando
+# seguido no se dicen: "abre steam inicia little nightmare 3" son dos ordenes.
+# Se dejan fuera a proposito los ambiguos en habla normal -"ve", "anda",
+# "entra", "pega", "dale a"-, que aparecen dentro de frases sin ser ordenes.
+$VERBOS_CORTE = '(?:abre|abreme|abrir|ejecuta|inicia|lanza|arranca|prende|sube|subir|aumenta|baja|bajar|reduce|silencia|pausa|reproduce|bloquea|cierra|apaga|minimiza|maximiza|busca|buscame|buscar|googlea)'
+
+# Detras de estos, lo que viene es CONTENIDO y no otra orden: "busca como abrir
+# una lata" es una sola cosa, aunque lleve "abrir" en medio. El corte se apaga
+# al verlos y solo lo reabre un conector explicito.
+$VERBOS_TEXTO = '(?:busca|buscame|buscar|busque|googlea|googleame|investiga|escribe|escribeme|teclea|muestrame|muestra|ensename)'
+
+function Add-CortesSinConector([string]$s) {
+    if (-not $s) { return $s }
+    $palabras = $s -split '\s+'
+    $out = New-Object System.Collections.ArrayList
+    $libre = $false
+    for ($i = 0; $i -lt $palabras.Count; $i++) {
+        $w = $palabras[$i]
+        if ($i -gt 0 -and -not $libre -and $w -match ('^' + $VERBOS_CORTE + '$')) { [void]$out.Add('|') }
+        if ($w -match ('^' + $VERBOS_TEXTO + '$')) { $libre = $true }
+        elseif ($w -in @('y', 'luego', 'despues', 'ademas', 'tambien')) { $libre = $false }
+        [void]$out.Add($w)
+    }
+    return ($out -join ' ')
+}
+
 function Split-Compound([string]$s) {
     # "ademas"/"tambien" son SEPARADORES si les sigue un verbo de accion, y
     # simples muletillas si no. Confundir ambos casos era lo que metia
     # "...ADEMAS sube el volumen" dentro de la busqueda anterior.
     $limpio = [regex]::Replace($s, '\b(?:ademas|tambien)\s+(?=' + $VERBOS + '\b)', ' | ')
     $limpio = Remove-Filler $limpio
+    $limpio = Add-CortesSinConector $limpio
     $parts = [regex]::Split($limpio, '\s*(?:\||,|;|\by\s+luego\b|\by\s+despues\b|\bluego\b|\bdespues\b|\by\b)\s*')
     $res = New-Object System.Collections.ArrayList
     foreach ($p in $parts) {
@@ -748,7 +775,7 @@ function Resolve-Fragment([string]$f) {
             $cul = New-Object System.Globalization.CultureInfo('es-MX')
             return @(@{ kind = 'decir'; desc = ("Hoy es " + (Get-Date).ToString('dddd d "de" MMMM', $cul)) })
         }
-        '^(?:cuanta bateria|cuanta pila|nivel de bateria|como esta la bateria)\b' {
+        '^(?:cuanta bateria|cuanta pila|nivel de bateria|como esta la bateria|como esta la pila|cual es el estado de la bateria|estado de la bateria|cuanto le queda a la bateria|cuanta carga|como va la bateria|que tal la bateria)\b' {
             $b = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Select-Object -First 1
             $t = if ($b -and $b.EstimatedChargeRemaining) { "Bateria al $($b.EstimatedChargeRemaining) por ciento" } else { "No pude leer la bateria" }
             return @(@{ kind = 'decir'; desc = $t })

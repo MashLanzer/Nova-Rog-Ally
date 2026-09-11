@@ -1,0 +1,21 @@
+# --- encadenadas sin conector ---
+abre steam inicia little nightmare 3
+abre steam abre el navegador
+abre la calculadora sube el volumen
+# --- las mismas con "y", que deberian funcionar ya ---
+abre steam y inicia little nightmare 3
+abre la calculadora y sube el volumen
+# --- infinitivos ---
+abrir steam
+abrir el steam y en una segunda ventana buscar pinterest
+subir el brillo
+bajar el volumen
+# --- cobertura que falta ---
+cierra todos los programas
+cierrate
+cual es el estado de la bateria
+como esta la bateria
+que recordatorios tengo
+# --- control: texto libre que NO se debe partir ---
+busca como abrir una lata en google
+busca en youtube abre el telon
