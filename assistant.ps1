@@ -754,6 +754,8 @@ function Resolve-Fragment([string]$f) {
     # el tiempo, con lo que ya se consulto para el avatar de la capsula
     if ($f -match '^(?:que tiempo hace|que clima hace|que clima hay|como esta el clima|como esta el tiempo|va a llover|que temperatura hace|cuantos grados hay|cuantos grados hace)\b') {
         $t = if ($script:clima) { "Ahora mismo $($script:clima.desc), $($script:clima.temp) grados" } else { "No tengo el tiempo a mano; no pude consultarlo" }
+        # el emoji del tiempo sustituye a la carita unos segundos, solo ahora
+        if ($script:clima) { $script:uiClima = $script:clima.emoji; $script:uiClimaHasta = $sw.ElapsedMilliseconds + 9000 }
         return @(@{ kind = 'decir'; desc = $t })
     }
     # --- captura y grabacion (atajos de la barra de juego de Windows) ---
@@ -1672,7 +1674,8 @@ $script:uiPerfil = ''       # ultimo perfil aplicado ("noche" cambia la paleta)
 $script:uiCarga = 0         # % de CPU: la capsula se agita por encima del 85
 $script:uiProgreso = 0      # 0..1 mientras opencode trabaja (linea del borde)
 $script:uiVoz = 0           # indice de la voz que dicto (por tono), 0 = la habitual
-$script:uiClima = ''        # emoji del tiempo: avatar cuando no hay juego
+$script:uiClima = ''        # emoji del tiempo: solo unos segundos cuando se pregunta
+$script:uiClimaHasta = 0
 $script:uiAnimo = 0         # -1..1 segun aciertos y errores de las ultimas 24 h
 
 function ConvertTo-JsonTexto([string]$s) {
@@ -1714,6 +1717,8 @@ function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
         $script:uiUltimo = $json
     }
     $script:uiHasta = if ($ms -gt 0) { $sw.ElapsedMilliseconds + $ms } else { 0 }
+    # si se pregunto el tiempo, que el emoji dure al menos lo que la respuesta
+    if ($script:uiClimaHasta -gt 0 -and $script:uiHasta -gt $script:uiClimaHasta) { $script:uiClimaHasta = $script:uiHasta + 1500 }
 }
 
 # Dispara una animacion sin cambiar el estado (el estado se reescribe igual).
@@ -1851,7 +1856,8 @@ function Update-Clima {
         elseif ($noche) { $emoji = '🌙'; $desc = 'esta despejado' }
         $temp = [int][Math]::Round([double]$cw.temperature)
         $script:clima = @{ emoji = $emoji; desc = $desc; temp = $temp }
-        if ($emoji -ne $script:uiClima) { $script:uiClima = $emoji; Refresh-UI }
+        # el avatar NO cambia solo: la carita manda. El tiempo se ensena solo
+        # cuando se pregunta (Resolve-Fragment) y unos segundos.
         Log "clima: $desc, $temp grados (codigo $codigo)"
     } catch { Log ("clima: no disponible (" + $_.Exception.Message + ")") }
 }
@@ -3395,6 +3401,13 @@ while ($true) {
     # cierra el popup al vencer su plazo (antes se esperaba 8 s bloqueando)
     if ($script:popupUntil -gt 0 -and $sw.ElapsedMilliseconds -ge $script:popupUntil) {
         Close-Popup
+    }
+
+    # el tiempo vuelve a ser la carita al vencer su plazo
+    if ($script:uiClimaHasta -gt 0 -and $sw.ElapsedMilliseconds -ge $script:uiClimaHasta) {
+        $script:uiClimaHasta = 0
+        $script:uiClima = ''
+        Refresh-UI
     }
 
     # --- INTERFAZ: vuelta al reposo y vigilancia del proceso ---

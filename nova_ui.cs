@@ -99,10 +99,11 @@ public class NovaUI : Window
     // --- medidas: el usuario pidio mantener el tamano, que no estorba
     const double ANCHO_BARRA = 340;
     const double ALTO = 44;
-    const double AVATAR = 24;
-    const double DIAM_PUNTO = 14;
-    const double DIAM_INSIGNIA = 9;
-    const double ICONO = 22;
+    // la carita manda: punto grande (20 px en un hueco de 28) y ojos visibles
+    const double AVATAR = 28;
+    const double DIAM_PUNTO = 20;
+    const double DIAM_INSIGNIA = 10;
+    const double ICONO = 26;
     const double MARGEN = 24;
     const double RADIO_BLUR = 22;
     const int BARRAS_ONDA = 14;
@@ -799,9 +800,9 @@ public class NovaUI : Window
         // cerrados al dormir).
         ojoIzq = CrearOjo(); ojoDer = CrearOjo();
         ojoIzq.HorizontalAlignment = HorizontalAlignment.Left;
-        ojoIzq.Margin = new Thickness(DIAM_PUNTO * 0.24, DIAM_PUNTO * 0.36, 0, 0);
+        ojoIzq.Margin = new Thickness(DIAM_PUNTO * 0.21, DIAM_PUNTO * 0.33, 0, 0);
         ojoDer.HorizontalAlignment = HorizontalAlignment.Right;
-        ojoDer.Margin = new Thickness(0, DIAM_PUNTO * 0.36, DIAM_PUNTO * 0.24, 0);
+        ojoDer.Margin = new Thickness(0, DIAM_PUNTO * 0.33, DIAM_PUNTO * 0.21, 0);
         escOjoIzq = new ScaleTransform(1, 1); escOjoDer = new ScaleTransform(1, 1);
         rotOjoIzq = new RotateTransform(0); rotOjoDer = new RotateTransform(0);
         trasOjoIzq = new TranslateTransform(0, 0); trasOjoDer = new TranslateTransform(0, 0);
@@ -812,10 +813,10 @@ public class NovaUI : Window
         cuerpo.Children.Add(ojoDer);
         // el reflejo, mas pequeno y arriba a la izquierda, para dejar sitio a los ojos
         reflejoPunto = new Ellipse();
-        reflejoPunto.Width = DIAM_PUNTO * 0.30; reflejoPunto.Height = DIAM_PUNTO * 0.20;
+        reflejoPunto.Width = DIAM_PUNTO * 0.26; reflejoPunto.Height = DIAM_PUNTO * 0.16;
         reflejoPunto.HorizontalAlignment = HorizontalAlignment.Left;
         reflejoPunto.VerticalAlignment = VerticalAlignment.Top;
-        reflejoPunto.Margin = new Thickness(DIAM_PUNTO * 0.14, DIAM_PUNTO * 0.10, 0, 0);
+        reflejoPunto.Margin = new Thickness(DIAM_PUNTO * 0.16, DIAM_PUNTO * 0.09, 0, 0);
         var reflejoPincel = new LinearGradientBrush();
         reflejoPincel.StartPoint = new Point(0, 0); reflejoPincel.EndPoint = new Point(0, 1);
         reflejoPincel.GradientStops.Add(new GradientStop(Color.FromArgb(0xB0, 0xFF, 0xFF, 0xFF), 0));
@@ -868,7 +869,7 @@ public class NovaUI : Window
     Ellipse CrearOjo()
     {
         var o = new Ellipse();
-        o.Width = DIAM_PUNTO * 0.17; o.Height = DIAM_PUNTO * 0.26;
+        o.Width = DIAM_PUNTO * 0.21; o.Height = DIAM_PUNTO * 0.32;
         o.VerticalAlignment = VerticalAlignment.Top;
         o.Fill = new SolidColorBrush(Color.FromArgb(0xE6, 0x0B, 0x12, 0x24));
         o.RenderTransformOrigin = new Point(0.5, 0.5);
@@ -1930,7 +1931,7 @@ public class NovaUI : Window
         mirada.X = miradaX * 0.5;
         mirada.Y = miradaY * 0.5;
         // los ojos miran mas que el reflejo
-        trasOjoIzq.X = miradaX * 0.7; trasOjoDer.X = miradaX * 0.7;
+        trasOjoIzq.X = miradaX * 1.1; trasOjoDer.X = miradaX * 1.1;
         if (expresion == "normal" || expresion == "atentos" || expresion == "abiertos" || expresion == "cautos" || expresion == "entrecerrados")
         {
             // (la Y de la expresion la lleva la animacion; aqui solo si no hay desplazamiento propio)

@@ -56,8 +56,9 @@ LA CÁPSULA (esquina inferior izquierda) = la cara del asistente
   con la voz real, se sacude en error, enseña el volumen y el brillo cuando
   cambian, dibuja un anillo con el temporizador, avisa en ámbar con poca
   batería, se pone cálida de noche, celebra cada hora de juego con una
-  medalla y cuando estás en un juego muestra SU ICONO como avatar (y si
-  no hay juego, el TIEMPO que hace: "¿qué tiempo hace?" te lo dice).
+  medalla y cuando estás en un juego muestra SU ICONO como avatar. El
+  resto del tiempo es la CARITA (ojos que miran, parpadean y expresan);
+  el tiempo solo aparece unos segundos cuando preguntas "¿qué tiempo hace?".
   GESTICULA con lo que dices: dile "gracias", "hola", "jaja", "te
   quiero", "no", "por favor", "rápido", "tranquilo", "perdón", una
   pregunta... y reacciona distinto a cada cosa (también en inglés y con
