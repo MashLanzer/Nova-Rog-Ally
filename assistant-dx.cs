@@ -44,6 +44,41 @@ public class AX
     [DllImport("xinput1_4.dll")]
     public static extern int XInputGetState(uint dwUserIndex, ref XINPUT_STATE pState);
 
+    // Vibracion del mando (eco tactil: al despertar, al confirmar, al acabar
+    // una tarea larga). Devuelve 0 si el mando existe y acepto la orden.
+    [StructLayout(LayoutKind.Sequential)]
+    public struct XINPUT_VIBRATION
+    {
+        public ushort wLeftMotorSpeed;
+        public ushort wRightMotorSpeed;
+    }
+
+    [DllImport("xinput1_4.dll")]
+    public static extern int XInputSetState(uint dwUserIndex, ref XINPUT_VIBRATION pVibration);
+
+    public static bool Vibrar(uint idx, ushort izquierdo, ushort derecho)
+    {
+        var v = new XINPUT_VIBRATION();
+        v.wLeftMotorSpeed = izquierdo;
+        v.wRightMotorSpeed = derecho;
+        return XInputSetState(idx, ref v) == 0;
+    }
+
+    // Rectangulo de la ventana en primer plano: para capturarla (OCR, contexto
+    // de pantalla para la IA) sin llevarse toda la pantalla.
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+
     [DllImport("user32.dll")]
     public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
 

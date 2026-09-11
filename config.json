@@ -64,7 +64,13 @@
     "charla":  {
                    "activada":  true
                },
+    "mando":  {
+                  "vibracion":  true
+              },
+    "sensores":  {
+                     "acelerometro":  false
+                 },
     "seguridad":  {
-                      "hashDll":  "B72C58682EAE2E82426411D79BC3BCF977C97D944073F3560E1E97662B460558"
+                      "hashDll":  "25A9DB8CDE7510478C6D3ABBE6D20492EDE053815CCB12C1B4667654C2FC9122"
                   }
 }

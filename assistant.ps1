@@ -758,6 +758,10 @@ function Resolve-Fragment([string]$f) {
         if ($script:clima) { $script:uiClima = $script:clima.emoji; $script:uiClimaHasta = $sw.ElapsedMilliseconds + 9000 }
         return @(@{ kind = 'decir'; desc = $t })
     }
+    # --- leer la pantalla (OCR de Windows) ---
+    if ($f -match '^(?:lee|leeme|leer|que dice|que pone|que hay escrito|dime que dice)\s+(?:lo que (?:hay|dice|pone) (?:en\s+)?|en\s+)?(?:la\s+|esta\s+|el\s+)?(?:pantalla|ventana|esto|aqui|texto|mensaje)\b') {
+        return @(@{ kind = 'ocr'; desc = 'leer la pantalla' })
+    }
     # --- captura y grabacion (atajos de la barra de juego de Windows) ---
     switch -regex ($f) {
         '^(?:toma (?:una )?captura|captura (?:de )?pantalla|screenshot|pantallazo)$' {
@@ -1032,6 +1036,29 @@ function Add-Traduccion([string]$original, [string]$traducida) {
     } catch { Log ("no pude guardar la traduccion: " + $_.Exception.Message) }
 }
 
+# ¿La traduccion del modelo se explica por UNA palabra desconocida que
+# corresponde a UNA app o sitio conocidos? Entonces vale la pena aprender esa
+# palabra como alias (sirve para cualquier frase futura).
+$PALABRAS_COMUNES = @('abre','abrir','pon','ponme','busca','en','el','la','los','las','un','una','de','del','al','a','y','con','por','para','que','me','lo','le','mi','tu','su','ya','ahora','porfa','por','favor','steam','juego')
+function Find-Generalizacion([string]$original, [string]$traducida) {
+    if (-not $cmds) { return $null }
+    $po = ConvertTo-Plain $original
+    $pt = ConvertTo-Plain $traducida
+    $wo = @($po -split '\s+' | Where-Object { $_ })
+    $wt = @($pt -split '\s+' | Where-Object { $_ })
+    $alias = @($wo | Where-Object { $_.Length -ge 3 -and $wt -notcontains $_ -and $PALABRAS_COMUNES -notcontains $_ })
+    if ($alias.Count -ne 1) { return $null }
+    $objetivos = @()
+    foreach ($k in @($cmds.apps.PSObject.Properties.Name) + @($cmds.sitios.PSObject.Properties.Name)) {
+        if ($pt -match ('\b' + [regex]::Escape($k) + '\b') -and $po -notmatch ('\b' + [regex]::Escape($k) + '\b')) { $objetivos += $k }
+    }
+    $objetivos = @($objetivos | Select-Object -Unique)
+    if ($objetivos.Count -ne 1) { return $null }
+    # que no sea ya una correccion o alias conocido
+    if (Test-Prop $cmds.apps $alias[0] -or Test-Prop $cmds.sitios $alias[0]) { return $null }
+    return @{ alias = $alias[0]; objetivo = $objetivos[0] }
+}
+
 function Find-Traduccion([string]$text) {
     $t = Get-Traducciones
     if ($t.Count -eq 0) { return $null }
@@ -1052,8 +1079,9 @@ function Find-Traduccion([string]$text) {
 function Test-FastCommand([string]$text) {
     if (-not $cmds -or -not $text) { return $false }
     if ($text -match '(?i)^\s*aprende\s+que\s+') { return $true }
-    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda|memoriza)\s+(?!en\s+\d+)') { return $true }
     $pl = ConvertTo-Plain $text
+    if ($pl -match '^(?:recuerdame|avisame|recordatorio)\s+(?!que\b)(?:hoy|manana|pasado manana|el (?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)|el \d{1,2} de |a las? )') { return $true }   # recordatorio con fecha
+    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda|memoriza)\s+(?!en\s+\d+)') { return $true }
     if ($pl -match '^(?:cuando\s|cada\s+\d+|todos los dias|a las?\s)') { return $false }   # reglas: las decide Invoke-ReglaVoz
     $frags = $null
     try { $frags = Split-Compound (Repair-Words (ConvertTo-Plain $text)) } catch { return $false }
@@ -1085,7 +1113,7 @@ function Invoke-FastCommand([string]$text) {
     # tildes, que es justo lo que no quieres leer meses despues en Obsidian.
     # mismo lookahead que en Resolve-Fragment: "en 20 minutos" es temporizador,
     # no una nota para el diario
-    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda|memoriza)\s+(?!en\s+\d+\s*(?:segundo|minuto|hora))(?:que\s+|de\s+que\s+)?(.+)$') {
+    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda|memoriza)\s+(?!en\s+\d+\s*(?:segundo|minuto|hora))(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?:que\s+|de\s+que\s+)?(.+)$') {
         $frase = $Matches[1].Trim()
         if ($frase.Length -gt 0) {
             $null = Add-Memoria $frase
@@ -1097,6 +1125,10 @@ function Invoke-FastCommand([string]$text) {
             return "Anotado."
         }
     }
+    # recordatorios con fecha y hora reales ("recuerdame manana a las 10 que...")
+    $rec = $null
+    try { $rec = Invoke-RecordatorioVoz $text } catch { Log ("recordatorio: " + $_.Exception.Message); $rec = $null }
+    if ($rec) { return $rec }
     # fechas guardadas: "que fechas tengo"
     if ($text -match '(?i)^\s*(?:que fechas (?:tengo|hay|guardaste)|mis fechas|que cumples hay|que cumpleanos hay)\b') {
         $fs = @(Get-Fechas | Sort-Object md)
@@ -1235,6 +1267,18 @@ function Invoke-FastCommand([string]$text) {
                 'enfocarJuego' {
                     $pr = Get-Process | Where-Object { try { $_.Path -eq $script:juegoExe -and $_.MainWindowHandle -ne 0 } catch { $false } } | Select-Object -First 1
                     if ($pr) { [AX]::ShowWindow($pr.MainWindowHandle, 9) | Out-Null; [void][AX]::ForceForeground($pr.MainWindowHandle) }
+                }
+                'ocr' {
+                    Set-UI 'pensando' 'leyendo la pantalla'
+                    $png = Join-Path $TmpDir 'pantalla.png'
+                    Save-Captura $png | Out-Null
+                    $texto = Invoke-OCR $png
+                    if (-not $texto) { $a.desc = 'No veo texto en la pantalla' }
+                    else {
+                        try { [System.IO.File]::WriteAllText((Join-Path $TmpDir 'ocr.txt'), $texto, (New-Object System.Text.UTF8Encoding($false))) } catch {}
+                        $script:ultimaLectura = $texto
+                        $a.desc = if ($texto.Length -gt 320) { $texto.Substring(0, 320) + '... y sigue' } else { $texto }
+                    }
                 }
                 'buscarEquipo' {
                     Send-WinKey 0x53   # Win+S
@@ -1723,6 +1767,12 @@ function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
 
 # Dispara una animacion sin cambiar el estado (el estado se reescribe igual).
 function Send-UIEvento([string]$evento) {
+    # eco en el mando: lo que la capsula celebra, el mando lo hace sentir
+    switch ($evento) {
+        'hecho' { Start-Vibracion @(50, 60, 50) 18000 }
+        'logro' { Start-Vibracion @(80, 60, 80, 60, 160) 26000 }
+        'aviso' { Start-Vibracion @(120, 80, 120) 22000 }
+    }
     if (-not $UiNuevaOn) { return }
     $script:uiEvento = $evento
     $script:uiEventoN++
@@ -2044,6 +2094,104 @@ function Test-FechasHoy {
 }
 
 # =====================================================================
+# RECORDATORIOS CON FECHA Y HORA: "recuerdame manana a las 10 que llame al
+# medico", "avisame el viernes a las cinco de la tarde que...", "recuerdame
+# a las 3 revisar el horno" (hoy si aun no ha pasado; si no, manana). Se
+# guardan en memoria\recordatorios.json y sobreviven a los reinicios.
+# =====================================================================
+$RecordatoriosPath = Join-Path $MemoriaDir 'recordatorios.json'
+$DIAS_SEMANA = @{ 'lunes' = 1; 'martes' = 2; 'miercoles' = 3; 'jueves' = 4; 'viernes' = 5; 'sabado' = 6; 'domingo' = 0 }
+
+function Get-Recordatorios {
+    $lista = @()
+    if (Test-Path -LiteralPath $RecordatoriosPath) {
+        try { $lista = @(Get-Content -LiteralPath $RecordatoriosPath -Raw -Encoding UTF8 | ConvertFrom-Json) } catch { $lista = @() }
+    }
+    return $lista
+}
+
+function Save-Recordatorios($lista) {
+    $json = if (@($lista).Count -eq 0) { '[]' } else { ConvertTo-Json -InputObject @($lista) -Depth 3 }
+    [System.IO.File]::WriteAllText($RecordatoriosPath, $json, (New-Object System.Text.UTF8Encoding($false)))
+}
+
+function Invoke-RecordatorioVoz([string]$text) {
+    $p = ConvertTo-Plain $text
+    if ($p -match '^(?:que recordatorios (?:tengo|hay)|mis recordatorios|que tengo pendiente|que me tienes que recordar)$') {
+        $rs = @(Get-Recordatorios | Sort-Object cuando)
+        if ($rs.Count -eq 0) { return "No tienes recordatorios. Di, por ejemplo: recuerdame manana a las diez que llame al medico." }
+        $cul = New-Object System.Globalization.CultureInfo('es-MX')
+        return ("Tienes " + $rs.Count + ": " + (($rs | ForEach-Object { ([DateTime]$_.cuando).ToString('dddd d "a las" H:mm', $cul) + ", " + $_.texto }) -join '. '))
+    }
+    if ($p -match '^(?:borra|elimina|quita|olvida)\s+(?:todos\s+)?(?:los\s+)?recordatorios$') { Save-Recordatorios @(); return "Listo, sin recordatorios." }
+    if ($p -notmatch '^(?:recuerdame|avisame|recordatorio|ponme un recordatorio|pon un recordatorio)\s+(?!que\b)(.+)$') { return $null }
+    $resto = $Matches[1]
+    $hoy = (Get-Date).Date
+    $fecha = $null; $hora = -1; $min = 0
+    # dia
+    if ($resto -match '^(?:para\s+)?hoy\b\s*(.*)$') { $fecha = $hoy; $resto = $Matches[1] }
+    elseif ($resto -match '^(?:para\s+)?pasado manana\b\s*(.*)$') { $fecha = $hoy.AddDays(2); $resto = $Matches[1] }
+    elseif ($resto -match '^(?:para\s+)?manana\b\s*(.*)$') { $fecha = $hoy.AddDays(1); $resto = $Matches[1] }
+    elseif ($resto -match '^(?:para\s+)?el\s+(lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b\s*(.*)$') {
+        $d = $DIAS_SEMANA[$Matches[1]]; $resto = $Matches[2]
+        $delta = ($d - [int]$hoy.DayOfWeek + 7) % 7
+        if ($delta -eq 0) { $delta = 7 }   # "el viernes" dicho un viernes = el que viene
+        $fecha = $hoy.AddDays($delta)
+    }
+    elseif ($resto -match '^(?:para\s+)?el\s+(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\b\s*(.*)$') {
+        $dd = [int]$Matches[1]; $mm = $MESES[$Matches[2]]; $resto = $Matches[3]
+        try { $fecha = Get-Date -Year $hoy.Year -Month $mm -Day $dd -Hour 0 -Minute 0 -Second 0 } catch { return "Esa fecha no existe." }
+        if ($fecha.Date -lt $hoy) { $fecha = $fecha.AddYears(1) }
+    }
+    # hora
+    if ($resto -match '^(?:a\s+las?\s+)(\d{1,2}|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)(?::(\d{2})|\s+y\s+media|\s+y\s+cuarto|\s+menos\s+cuarto)?\s*(de la manana|de la tarde|de la noche|am|pm)?\s*(.*)$') {
+        $h = $Matches[1]; if ($HORAS_PALABRA.ContainsKey($h)) { $h = $HORAS_PALABRA[$h] }; $hora = [int]$h
+        if ($Matches[2]) { $min = [int]$Matches[2] } elseif ($Matches[0] -match 'y media') { $min = 30 } elseif ($Matches[0] -match 'y cuarto') { $min = 15 } elseif ($Matches[0] -match 'menos cuarto') { $min = 45; $hora-- }
+        $franja = $Matches[3]; $resto = $Matches[4]
+        if ($franja -match 'tarde|noche|pm' -and $hora -lt 12) { $hora += 12 }
+        if ($franja -match 'manana|am' -and $hora -eq 12) { $hora = 0 }
+        # sin franja y hora "pequena": si ya paso de manana, sera de tarde
+        if (-not $franja -and $hora -le 7 -and $hora -ge 1 -and $null -eq $fecha) { $hora += 12 }
+    }
+    if ($null -eq $fecha -and $hora -lt 0) { return $null }   # no es un recordatorio con fecha
+    $texto = ($resto -replace '^(?:que|de que|de|para|a)\s+', '').Trim()
+    if (-not $texto) { return "¿Que te recuerdo?" }
+    if ($hora -lt 0) { $hora = 9 }   # solo dia: a las 9 de la manana
+    if ($null -eq $fecha) {
+        $fecha = $hoy
+        if ($hoy.AddHours($hora).AddMinutes($min) -le (Get-Date)) { $fecha = $hoy.AddDays(1) }
+    }
+    $cuando = $fecha.Date.AddHours($hora).AddMinutes($min)
+    if ($cuando -le (Get-Date)) { return "Esa hora ya paso." }
+    $lista = @(Get-Recordatorios) + @(New-Object PSObject -Property @{ cuando = $cuando.ToString('s'); texto = $texto })
+    Save-Recordatorios $lista
+    $cul = New-Object System.Globalization.CultureInfo('es-MX')
+    $dicho = if ($cuando.Date -eq $hoy) { "hoy a las " + $cuando.ToString('H:mm', $cul) } elseif ($cuando.Date -eq $hoy.AddDays(1)) { "manana a las " + $cuando.ToString('H:mm', $cul) } else { $cuando.ToString('dddd d "de" MMMM "a las" H:mm', $cul) }
+    Log "RECORDATORIO ($cuando): $texto"
+    Add-Estadistica 'local' "recordatorio: $text"
+    return "Listo, te lo recuerdo $dicho."
+}
+
+function Test-Recordatorios {
+    $lista = @(Get-Recordatorios)
+    if ($lista.Count -eq 0) { return }
+    $ahora = Get-Date
+    $quedan = @()
+    foreach ($r in $lista) {
+        $c = $null
+        try { $c = [DateTime]$r.cuando } catch { continue }
+        if ($c -le $ahora) {
+            Log "RECORDATORIO vence: $($r.texto)"
+            Show-Popup ("Recordatorio: " + $r.texto)
+            Say ("Te recuerdo: " + $r.texto)
+            Send-UIEvento 'aviso'
+            Start-Vibracion @(120, 80, 120)
+        } else { $quedan += $r }
+    }
+    if ($quedan.Count -ne $lista.Count) { Save-Recordatorios $quedan }
+}
+
+# =====================================================================
 # MICRO-CHARLA: un comentario espontaneo al dia, y solo si viene a cuento.
 # =====================================================================
 $CharlaOn = [bool](Get-Cfg 'charla' 'activada' $true)
@@ -2093,15 +2241,38 @@ function Watch-LogrosSteam {
 $script:acelerometro = $null
 $script:acelCheck = 0
 $script:acelUltimo = 0
-try {
-    $null = [Windows.Devices.Sensors.Accelerometer, Windows.Devices.Sensors, ContentType = WindowsRuntime]
-    $script:acelerometro = [Windows.Devices.Sensors.Accelerometer]::GetDefault()
-    if ($script:acelerometro) { Log "acelerometro: disponible" } else { Log "acelerometro: no hay sensor" }
-} catch { $script:acelerometro = $null; Log "acelerometro: no disponible" }
+# Apagado por defecto: en la ROG Ally GetDefault() devuelve un sensor pero
+# GetCurrentReading() tarda 5 s y devuelve null SIEMPRE (probado con
+# ReportInterval fijado). Con sensores.acelerometro = true se intenta, con la
+# guarda de Watch-Acelerometro por si cambia el hardware.
+if ([bool](Get-Cfg 'sensores' 'acelerometro' $false)) {
+    try {
+        $null = [Windows.Devices.Sensors.Accelerometer, Windows.Devices.Sensors, ContentType = WindowsRuntime]
+        $script:acelerometro = [Windows.Devices.Sensors.Accelerometer]::GetDefault()
+        if ($script:acelerometro) { Log "acelerometro: disponible (se probara la primera lectura)" } else { Log "acelerometro: no hay sensor" }
+    } catch { $script:acelerometro = $null; Log "acelerometro: no disponible" }
+}
 
+$script:acelProbado = $false
 function Watch-Acelerometro {
     if (-not $script:acelerometro) { return }
     try {
+        # GUARDA: en la Ally el sensor "existe" pero GetCurrentReading tarda
+        # 5 s y devuelve null. Llamado cada 250 ms bloqueaba el asistente
+        # entero (se descubrio porque las ordenes tardaban 30 s en leerse).
+        # Si la primera lectura es lenta o vacia, se apaga para siempre.
+        if (-not $script:acelProbado) {
+            $script:acelProbado = $true
+            try { $script:acelerometro.ReportInterval = [Math]::Max(100, $script:acelerometro.MinimumReportInterval) } catch {}
+            $t = [System.Diagnostics.Stopwatch]::StartNew()
+            $r0 = $script:acelerometro.GetCurrentReading()
+            if ($t.ElapsedMilliseconds -gt 150 -or -not $r0) {
+                Log ("acelerometro: sin lecturas utiles (" + $t.ElapsedMilliseconds + " ms, nulo=" + ($null -eq $r0) + "); desactivado")
+                $script:acelerometro = $null
+                return
+            }
+            Log "acelerometro: lecturas OK"
+        }
         $r = $script:acelerometro.GetCurrentReading()
         if (-not $r) { return }
         $mag = [Math]::Sqrt($r.AccelerationX * $r.AccelerationX + $r.AccelerationY * $r.AccelerationY + $r.AccelerationZ * $r.AccelerationZ)
@@ -2206,6 +2377,114 @@ function Exit-Juego([string]$nombre) {
         Log "JUEGO: brillo restaurado a $($script:juegoBrilloAntes) al salir de $nombre"
     } catch {}
     $script:juegoBrilloAntes = $null
+}
+
+# =====================================================================
+# VER LA PANTALLA: captura de la ventana activa (o de toda la pantalla) y
+# OCR con el motor integrado de Windows (WinRT, sin instalar nada).
+# =====================================================================
+$script:winrtAsTask = $null
+function Await-WinRT($op, $tipo) {
+    if (-not $script:winrtAsTask) {
+        Add-Type -AssemblyName System.Runtime.WindowsRuntime
+        $script:winrtAsTask = ([System.WindowsRuntimeSystemExtensions].GetMethods() |
+            Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and
+                           $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
+    }
+    $t = $script:winrtAsTask.MakeGenericMethod($tipo).Invoke($null, @($op))
+    if (-not $t.Wait(8000)) { throw "WinRT: sin respuesta en 8 s" }
+    return $t.Result
+}
+
+# Guarda un PNG de la ventana en primer plano (o de toda la pantalla si no
+# hay ventana util). Esconde la capsula un instante para que no salga.
+function Save-Captura([string]$ruta) {
+    if ($UiNuevaOn) { Send-UIEvento 'oculta'; Start-Sleep -Milliseconds 180 }
+    $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+    $x = $b.Left; $y = $b.Top; $w = $b.Width; $h = $b.Height
+    try {
+        $hw = [AX]::GetForegroundWindow()
+        if ($hw -ne [IntPtr]::Zero -and $hw -ne $capture.Handle) {
+            $r = New-Object AX+RECT
+            if ([AX]::GetWindowRect($hw, [ref]$r) -and ($r.Right - $r.Left) -gt 80 -and ($r.Bottom - $r.Top) -gt 60) {
+                $x = [Math]::Max($b.Left, $r.Left); $y = [Math]::Max($b.Top, $r.Top)
+                $w = [Math]::Min($b.Right, $r.Right) - $x; $h = [Math]::Min($b.Bottom, $r.Bottom) - $y
+            }
+        }
+    } catch {}
+    $bmp = New-Object System.Drawing.Bitmap($w, $h)
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    try {
+        $g.CopyFromScreen($x, $y, 0, 0, (New-Object System.Drawing.Size($w, $h)))
+        $bmp.Save($ruta, [System.Drawing.Imaging.ImageFormat]::Png)
+    } finally { $g.Dispose(); $bmp.Dispose() }
+    return $ruta
+}
+
+function Invoke-OCR([string]$png) {
+    $null = [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime]
+    $null = [Windows.Storage.StorageFile, Windows.Storage, ContentType = WindowsRuntime]
+    $null = [Windows.Graphics.Imaging.BitmapDecoder, Windows.Graphics.Imaging, ContentType = WindowsRuntime]
+    $null = [Windows.Globalization.Language, Windows.Globalization, ContentType = WindowsRuntime]
+    $null = [Windows.Storage.Streams.IRandomAccessStream, Windows.Storage.Streams, ContentType = WindowsRuntime]
+    $null = [Windows.Storage.FileAccessMode, Windows.Storage, ContentType = WindowsRuntime]
+    $null = [Windows.Graphics.Imaging.SoftwareBitmap, Windows.Graphics.Imaging, ContentType = WindowsRuntime]
+    $null = [Windows.Media.Ocr.OcrResult, Windows.Foundation, ContentType = WindowsRuntime]
+    $motor = $null
+    try { $motor = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage((New-Object Windows.Globalization.Language 'es')) } catch { $motor = $null }
+    if (-not $motor) { $motor = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages() }
+    if (-not $motor) { throw "no hay motor de OCR (instala el idioma en Windows)" }
+    $archivo = Await-WinRT ([Windows.Storage.StorageFile]::GetFileFromPathAsync($png)) ([Windows.Storage.StorageFile])
+    $flujo = Await-WinRT ($archivo.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
+    $dec = Await-WinRT ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($flujo)) ([Windows.Graphics.Imaging.BitmapDecoder])
+    $bmp = Await-WinRT ($dec.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
+    $res = Await-WinRT ($motor.RecognizeAsync($bmp)) ([Windows.Media.Ocr.OcrResult])
+    try { $flujo.Dispose() } catch {}
+    # una linea por renglon, para que se lea con pausas naturales
+    $lineas = @($res.Lines | ForEach-Object { $_.Text })
+    return (($lineas -join '. ') -replace '\s+', ' ').Trim()
+}
+
+# =====================================================================
+# VIBRACION DEL MANDO: patron de [on, off, on, ...] en ms, sin bloquear; el
+# bucle principal lo va ejecutando. Un eco tactil de lo que hace la capsula.
+# =====================================================================
+$MandoVibracion = [bool](Get-Cfg 'mando' 'vibracion' $true)
+$script:vibraCola = @()
+$script:vibraHasta = 0
+$script:vibraEncendida = $false
+$script:vibraFuerza = 0
+
+$script:vibraSiguienteOn = $true
+$script:vibraAvisado = $false
+
+function Start-Vibracion([int[]]$patron, [int]$fuerza = 22000) {
+    if (-not $MandoVibracion -or -not $patron -or $patron.Count -eq 0) { return }
+    # el patron alterna encendido/apagado empezando por encendido
+    $script:vibraCola = @($patron)
+    $script:vibraFuerza = $fuerza
+    $script:vibraHasta = 0
+    $script:vibraSiguienteOn = $true
+}
+
+function Tick-Vibracion {
+    if ($script:vibraHasta -gt 0) {
+        if ($sw.ElapsedMilliseconds -lt $script:vibraHasta) { return }
+        $script:vibraHasta = 0
+        if ($script:vibraEncendida) { try { [void][AX]::Vibrar(0, 0, 0) } catch {}; $script:vibraEncendida = $false }
+    }
+    if ($script:vibraCola.Count -eq 0) { return }
+    $ms = [int]$script:vibraCola[0]
+    $script:vibraCola = @($script:vibraCola | Select-Object -Skip 1)
+    if ($script:vibraSiguienteOn) {
+        $ok = $false
+        try { $ok = [AX]::Vibrar(0, [uint16]$script:vibraFuerza, [uint16]($script:vibraFuerza / 2)) } catch { $ok = $false }
+        if (-not $script:vibraAvisado) { $script:vibraAvisado = $true; Log ("mando: vibracion " + $(if ($ok) { 'disponible' } else { 'no disponible (sin mando XInput)' })) }
+        if (-not $ok) { $script:vibraCola = @(); return }   # sin mando: fuera
+        $script:vibraEncendida = $true
+    }
+    $script:vibraSiguienteOn = -not $script:vibraSiguienteOn
+    $script:vibraHasta = $sw.ElapsedMilliseconds + $ms
 }
 
 # Win + <tecla>: usado para colocar ventanas (Win+flechas)
@@ -2693,7 +2972,7 @@ Orden del usuario: $text
 "@
 }
 
-function Submit-Command([string]$text, [string]$modo = 'accion') {
+function Submit-Command([string]$text, [string]$modo = 'accion', [string]$adjunto = '') {
     Log "SUBMIT ($modo): $text"
     $script:jobModo = $modo
     $script:jobTextoOriginal = $text
@@ -2717,6 +2996,11 @@ function Submit-Command([string]$text, [string]$modo = 'accion') {
     }
     # 'charla' encadena la sesion anterior: recuerda lo hablado antes
     $extra = if ($modo -eq 'charla') { '--continue' } else { '' }
+    # captura de pantalla como contexto (el CLI admite --file)
+    if ($adjunto -and (Test-Path -LiteralPath $adjunto)) {
+        $extra = ($extra + ' --file ' + (ConvertTo-CmdArg $adjunto)).Trim()
+        $prompt = "Te adjunto una captura de la ventana que tengo delante. " + $prompt
+    }
 
     if (-not (Start-OpencodeJob $prompt $extra)) {
         Show-Popup "(no se pudo lanzar opencode; ver assistant.log)" 'error'
@@ -2750,6 +3034,16 @@ function Report-Reply($out) {
                 Send-UIEvento 'hecho'
                 Show-Popup $r
                 Say $r
+                # AUTOAPRENDIZAJE: si la diferencia es UNA palabra ("calcu" ->
+                # "calculadora"), se propone aprenderla como alias para que
+                # valga en cualquier frase, no solo en esta
+                try {
+                    $gen = Find-Generalizacion $original $propuesta
+                    if ($gen) {
+                        $script:aprenderPendiente = @{ alias = $gen.alias; objetivo = $gen.objetivo
+                            pregunta = ("¿Quieres que " + $gen.alias + " sea siempre " + $gen.objetivo + "?") }
+                    }
+                } catch {}
                 return
             }
             Log "la traduccion no resulto ejecutable; va al agente completo"
@@ -2774,6 +3068,8 @@ function Report-Reply($out) {
     if ($reply.Length -gt 1000) { $reply = $reply.Substring(0, 1000) + " [...]" }
     Log "REPLY: $reply"
     $script:ultimaRespuesta = $reply
+    # tarea larga terminada: un pulso largo en el mando, por si estabas jugando
+    if (($sw.ElapsedMilliseconds - $script:jobStart) -ge 8000) { Start-Vibracion @(220) 24000 }
     Show-Popup $reply
     Say $reply
 }
@@ -2805,6 +3101,18 @@ function Complete-Confirmacion([string]$respuesta) {
     Remove-Item -LiteralPath $MarcaConfirmar -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $RutaConfirmacion -Force -ErrorAction SilentlyContinue
     if (-not $p) { return }
+    # pregunta de aprendizaje: solo un "si" claro ensena; el silencio, no
+    if ($p.tipo -eq 'aprender') {
+        if ($respuesta -eq 'si') {
+            $r = $null
+            try { $r = Add-Alias-Comando $p.alias $p.objetivo } catch { $r = $null }
+            if ($r) { Send-UIEvento 'hecho'; Say "Aprendido: $($p.alias) es $($p.objetivo)." } else { Say "No pude guardarlo." }
+        } else {
+            Log "APRENDER: sin aprender ($respuesta)"
+            if ($respuesta -eq 'no') { Say "Vale, lo dejo." } else { Set-UI 'reposo' }
+        }
+        return
+    }
     if ($respuesta -eq 'no') {
         Log "CONFIRMAR: cancelado por el usuario"
         Set-UI 'error' 'Vale, cancelado' 2000
@@ -2824,6 +3132,9 @@ $script:loTengoCheck = 0
 $script:perdida = $false
 $script:seguimientoPendiente = $false
 $script:enSeguimiento = $false
+$script:seguimientoFactor = 1.0
+$script:aprenderPendiente = $null
+$script:ultimaLectura = ''
 function Test-LoTengo([string]$vista) {
     if ($script:loTengo -or -not $UiNuevaOn -or -not $vista) { return }
     if (($sw.ElapsedMilliseconds - $script:loTengoCheck) -lt 400) { return }
@@ -2852,7 +3163,9 @@ function Start-Dictado([string]$origen) {
         Remove-Item -LiteralPath $RutaParcial -Force -ErrorAction SilentlyContinue
         # en seguimiento, la marca lleva el plazo: si no hay voz en ese tiempo
         # el worker cierra solo y entrega vacio
-        [System.IO.File]::WriteAllText($MarcaDictar, $(if ($seguimiento) { "seguimiento:$SeguimientoMs" } else { 'x' }))
+        $ventana = [int]($SeguimientoMs * $script:seguimientoFactor)
+        [System.IO.File]::WriteAllText($MarcaDictar, $(if ($seguimiento) { "seguimiento:$ventana" } else { 'x' }))
+        Start-Vibracion $(if ($seguimiento) { @(40) } else { @(90) })
         $lbl.Text = "● VOZ..."
         $lbl.ForeColor = [System.Drawing.Color]::LimeGreen
         $capture.Show()
@@ -2924,6 +3237,21 @@ function Process-Texto([string]$text) {
         # cualquier orden real deja preparado el seguimiento (se arma al
         # terminar de hablar); lo que no lleva respuesta hablada lo apaga
         $script:seguimientoPendiente = $true
+        # SEGUIMIENTO INTELIGENTE: si la frase queda "colgando" ("abre steam
+        # y...", "pon el volumen y luego..."), la ventana se alarga; si acaba
+        # en "listo" / "y ya", no hay ventana. La coletilla se quita antes de
+        # ejecutar.
+        $script:seguimientoFactor = 1.0
+        if ($plano -match '\s(?:y|e|o|luego|despues|tambien|ademas|y luego|y despues|y tambien)$' -or $text.Trim().EndsWith(',')) {
+            $script:seguimientoFactor = 2.4
+            $text = ($text -replace '(?i)[\s,]+(?:y|e|o|luego|despu[eé]s|tambi[eé]n|adem[aá]s|y luego|y despu[eé]s|y tambi[eé]n)\s*$', '').Trim()
+            $plano = ConvertTo-Plain $text
+            if (-not $text) { Set-UI 'reposo'; return }
+        } elseif ($plano -match '\s(?:listo|y ya|eso es todo|nada mas|y nada mas)$') {
+            $script:seguimientoFactor = 0
+            $text = ($text -replace '(?i)[\s,]+(?:listo|y ya|eso es todo|nada m[aá]s|y nada m[aá]s)\s*$', '').Trim()
+            $plano = ConvertTo-Plain $text
+        }
 
         # NO hay modo conversacion persistente. Se probó y fue un error: al
         # quedarse activo se tragaba las ordenes ("Abre steam" acababa en el
@@ -2935,7 +3263,27 @@ function Process-Texto([string]$text) {
         if ($plano -match '^(?:preguntale a la ia|pregunta a la ia|dile a la ia|consulta a la ia|oye ia|hey ia)\s+(.+)$') {
             # se recorta del texto ORIGINAL para no perder acentos ni mayusculas
             $sinPrefijo = $text -replace '(?i)^\s*(?:preg[uú]ntale a la ia|pregunta a la ia|dile a la ia|consulta a la ia|oye ia|hey ia)\s+', ''
-            Submit-Command $sinPrefijo 'charla'
+            # si habla de lo que hay delante ("que es esto", "esta ventana",
+            # "lo que ves"), se adjunta una captura de la ventana activa
+            $adjunto = ''
+            if ($plano -match '\b(?:esto|esta ventana|esta pantalla|la pantalla|en pantalla|lo que ves|lo que hay aqui|aqui|esta imagen|este error|este mensaje|esta foto)\b') {
+                try {
+                    $adjunto = Save-Captura (Join-Path $TmpDir 'pantalla.png')
+                    Log "contexto de pantalla adjuntado"
+                    # el modelo puede no ver imagenes: se le da tambien el TEXTO
+                    # de la ventana (OCR), que vale para casi todo (errores,
+                    # mensajes, menus)
+                    try {
+                        Set-UI 'pensando' 'leyendo la pantalla'
+                        $vis = Invoke-OCR $adjunto
+                        if ($vis) {
+                            if ($vis.Length -gt 1500) { $vis = $vis.Substring(0, 1500) }
+                            $sinPrefijo = $sinPrefijo + " [Texto visible en la ventana activa: " + $vis + "]"
+                        }
+                    } catch { Log ("ocr para contexto fallo: " + $_.Exception.Message) }
+                } catch { Log ("captura fallida: " + $_.Exception.Message); $adjunto = '' }
+            }
+            Submit-Command $sinPrefijo 'charla' $adjunto
             return
         }
 
@@ -3147,7 +3495,18 @@ while ($true) {
         Reanudar-Escucha
         # SEGUIMIENTO: acabo de responder a una orden; vuelvo a escuchar un
         # rato sin palabra de activacion por si encadenas otra
-        if ($script:seguimientoPendiente -and $SeguimientoMs -gt 0 -and $DictadoWorker -and $script:wakeProc -and
+        if ($script:aprenderPendiente -and -not $script:busy -and -not $script:pendiente) {
+            # antes del seguimiento, la pregunta de aprendizaje ("¿quieres que
+            # 'calcu' sea siempre 'calculadora'?"); el seguimiento se pierde,
+            # es una pregunta y espera si/no
+            $ap = $script:aprenderPendiente
+            $script:aprenderPendiente = $null
+            $script:pendiente = @{ texto = ''; vence = 0; tipo = 'aprender'; alias = $ap.alias; objetivo = $ap.objetivo }
+            Log "APRENDER: pregunto por '$($ap.alias)' -> '$($ap.objetivo)'"
+            Say $ap.pregunta
+            Set-UI 'escuchando' $ap.pregunta
+            Start-Confirmacion
+        } elseif ($script:seguimientoPendiente -and $SeguimientoMs -gt 0 -and $script:seguimientoFactor -gt 0 -and $DictadoWorker -and $script:wakeProc -and
             -not $script:wakeProc.HasExited -and -not $script:busy -and -not $script:pendiente) {
             Start-Dictado 'seguimiento'
         }
@@ -3328,6 +3687,7 @@ while ($true) {
     if ($minutoAhora -ne $script:minutoVisto) {
         $script:minutoVisto = $minutoAhora
         try { Invoke-Reglas 'hora' $minutoAhora; Invoke-Reglas 'cada' } catch {}
+        try { Test-Recordatorios } catch {}
         $diaAhora = Get-Date -Format 'yyyy-MM-dd'
         if ($diaAhora -ne $script:diaVisto) {
             $script:diaVisto = $diaAhora
@@ -3347,6 +3707,9 @@ while ($true) {
             }
         }
     }
+
+    # --- vibracion del mando (patron en curso) ---
+    if ($script:vibraCola.Count -gt 0 -or $script:vibraHasta -gt 0) { Tick-Vibracion }
 
     # --- acelerometro (cada 250 ms) y logros de Steam (con el juego) ---
     if ($script:acelerometro -and ($sw.ElapsedMilliseconds - $script:acelCheck) -ge 250) { $script:acelCheck = $sw.ElapsedMilliseconds; Watch-Acelerometro }

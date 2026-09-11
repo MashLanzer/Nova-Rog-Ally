@@ -36,6 +36,16 @@ REGLAS (nuevo): "cuando abra elden ring pon modo noche", "cuando la
   60", "cada 45 minutos ...". "qué reglas hay", "borra las reglas".
 FECHAS: "recuerda que el 3 de octubre es el cumple de Ana" -> ese día
   te lo dice. "qué fechas tengo".
+RECORDATORIOS: "recuérdame mañana a las 10 que llame al médico", "avísame
+  el viernes a las 5 de la tarde que...", "recuérdame a las 3 revisar el
+  horno". "qué recordatorios tengo". Sobreviven a reinicios.
+VER LA PANTALLA: "lee la pantalla" / "qué dice esta ventana" te lee el
+  texto de la ventana activa (OCR de Windows). "pregúntale a la IA qué es
+  esto" le manda la captura y el texto de la ventana.
+ENCADENAR MEJOR: si acabas en "y..." espera más (6 s); si acabas en
+  "listo", no espera. El mando VIBRA al despertar, al hacer y al terminar.
+Si el modelo traduce una palabra tuya ("calcu" -> calculadora), te
+  pregunta si la aprende para siempre: di "sí".
 Mientras la IA trabaja, la cápsula dice QUÉ hace ("ejecutando un
   comando", "consultando la web") y una línea abajo marca el avance.
 

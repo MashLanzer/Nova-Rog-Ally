@@ -1872,6 +1872,17 @@ public class NovaUI : Window
             case "logro": Logro(); break;
             case "error": Sacudir(); break;
             case "gesto": Gesto(arg); break;
+            case "oculta":
+                {
+                    // el asistente va a capturar la pantalla (OCR, contexto para
+                    // la IA): la capsula desaparece medio segundo para no salir
+                    Opacity = 0;
+                    var t = new DispatcherTimer();
+                    t.Interval = TimeSpan.FromMilliseconds(600);
+                    t.Tick += delegate { t.Stop(); Opacity = 1; };
+                    t.Start();
+                    break;
+                }
             case "brillo":
                 {
                     double v;

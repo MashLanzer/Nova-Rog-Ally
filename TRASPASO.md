@@ -775,6 +775,60 @@ al pasar del 95 %. La respuesta se saca de los eventos `text`.
   semana anterior tuvo uso y no tiene nota, se escribe en lenguaje hablado
   (órdenes, tropiezos, descartes, gestos).
 
+### Seguimiento inteligente
+Si la orden acaba «colgando» («abre steam y…», «pon el volumen y luego…»,
+o con coma), la ventana de seguimiento se multiplica por 2,4 y la coletilla
+se quita antes de ejecutar; si acaba en «listo» / «y ya» / «nada más», no
+hay ventana. (`$script:seguimientoFactor`.) No hay prosodia real: se usa
+la coletilla como señal de pausa.
+
+### Ver la pantalla
+- «lee la pantalla», «¿qué dice esta ventana?», «lee esto» → `Save-Captura`
+  (rect de la ventana en primer plano vía `AX.GetWindowRect`; la cápsula se
+  esconde 0,6 s con el evento `oculta` para no salir) + `Invoke-OCR` con el
+  **OCR integrado de Windows** (WinRT `Windows.Media.Ocr`, idioma `es` o el
+  del perfil). Lee hasta 320 caracteres; el texto entero queda en
+  `tmp\ocr.txt` y en el popup. Verificado: leyó «Calculator. Standard. CE».
+- «pregúntale a la IA qué es esto / esta ventana / este error» → la captura
+  se adjunta con `--file` **y** el texto OCR va en el prompt («Texto visible
+  en la ventana activa: …»), porque el modelo en uso **no admite imágenes**
+  (contestó eso literalmente); con el texto sí puede ayudar.
+- `Await-WinRT`: AsTask por reflexión con tope de 8 s (aparte del de la voz,
+  que solo se inicializa en el camino de la voz de Windows).
+
+### Recordatorios con fecha y hora (`memoria\recordatorios.json`)
+«recuérdame mañana a las 10 que llame al médico», «avísame el viernes a las
+cinco de la tarde que…», «recuérdame a las 3 revisar el horno» (hoy si no ha
+pasado; si no, mañana), «el 20 de octubre a las 9…», «el lunes que…» (sin
+hora: a las 9). Horas en cifra o palabra, «y media», «y cuarto», «menos
+cuarto», «de la tarde/noche». «qué recordatorios tengo», «borra los
+recordatorios». Se comprueban cada minuto: voz + aviso + vibración.
+Sobreviven a los reinicios. El regex de notas («recuerda que…») excluye
+estas formas para no archivarlas como nota.
+
+### Vibración del mando (`mando.vibracion`)
+`AX.XInputSetState` (mando 0). Patrones `[on, off, on…]` en ms que ejecuta el
+bucle sin bloquear: despertar 90, seguimiento 40, `hecho` 50-60-50, `aviso`
+120-80-120, `logro` 80-60-80-60-160, respuesta de una tarea de más de 8 s
+220. Verificado: «mando: vibracion disponible».
+
+### Autoaprendizaje de descartes
+Cuando el modelo traduce con éxito y la diferencia con la orden original es
+**una sola palabra** que corresponde a **una sola app/sitio** conocidos
+(`Find-Generalizacion`: «ponme la calcu» → «calculadora»), tras responder
+pregunta «¿Quieres que calcu sea siempre calculadora?» y escucha sí/no
+(confirmación con `tipo = 'aprender'`): solo un «sí» claro aprende
+(`Add-Alias-Comando`); el silencio no. Esa pregunta tiene prioridad sobre
+el seguimiento.
+
+### Acelerómetro: NO en la Ally
+`Windows.Devices.Sensors.Accelerometer.GetDefault()` devuelve un sensor,
+pero `GetCurrentReading()` **tarda 5 s y devuelve null siempre** (probado
+también fijando `ReportInterval`). Sondearlo cada 250 ms **bloqueó el
+asistente entero** (las órdenes tardaban 30 s en leerse). Apagado por
+defecto (`sensores.acelerometro = false`); si se activa, la primera lectura
+lenta o vacía lo desactiva sola.
+
 ### Voz por tono
 El worker estima el tono fundamental (autocorrelación, 70-400 Hz) de cada
 orden y agrupa voces por cercanía (±22 Hz) en `tmp\voces.json`; el índice va
