@@ -471,6 +471,14 @@ llegan al agente.
    ✅ **El ruido ya no llega al agente** (§4): el traductor responde `NO` y se
    descarta en ~13 s en vez de 25-160 s, y un descarte ya no deja armada la
    ventana de encadenar (una cascada de ruido se cortaba sola).
+   ✅ **Falsas alarmas de la palabra de activación** (§15): confianza exigida
+   según la longitud de lo reconocido y según si suenan los altavoces.
+   ✅ **`escucha.confianzaMinima` conectado**: el ajuste existía en el config
+   pero no llegaba al worker de Vosk.
+   ✅ **Se puede medir**: `memoria\estadisticas.md` → «Falsas alarmas» cruza
+   activaciones contra órdenes que acabaron en nada.
+   ✅ **Dictado en dos pasos** (§15): rápido siempre, preciso solo al fallar.
+   ✅ **Sordina con plazo**: «no me escuches media hora» (§19).
 2. ✅ **Confirmación cuando la coincidencia es dudosa** (§15).
 3. ✅ **Nivel de micrófono en la onda**: el worker escribe `tmp\ui-nivel.txt`
    (0..1, a 4 Hz) mientras dictas y la interfaz lo lee directamente.
@@ -531,7 +539,10 @@ tiene el micrófono abierto siempre y reconoce **solo** el nombre, con una
 mismo camino que el botón.
 
 Argumentos (en este orden): nombre, ruta de la marca, log, ganancia,
-marca de pausa, marca de dictar, ruta del dictado, ruta del parcial.
+marca de pausa, marca de dictar, ruta del dictado, ruta del parcial, ruta
+del nivel, marca de confirmar, ruta de la confirmación, motor:modelo,
+vocabulario, **confianza mínima**, **marca de repaso**, **ruta del repaso**,
+**modelo preciso**. Los cuatro últimos son del 11/09/2026.
 
 Lo que costó afinar, y por qué está como está:
 
@@ -541,8 +552,23 @@ Lo que costó afinar, y por qué está como está:
   **percentil 90 del audio crudo** (no del amplificado: antes se realimentaba
   y acababa en ×60 con recorte), y solo **cuando hay voz sostenida** (≥4
   bloques), nunca sobre silencio. Límites 0,5-40. Detecta recorte y baja.
-- **Confianza mínima 0,55** y **límite de palabra `\b`** al comparar: sin
-  eso «novato» disparaba (`endswith`).
+- **Confianza mínima** (`config.json` → `escucha.confianzaMinima`, 0,55) y
+  **límite de palabra `\b`** al comparar: sin eso «novato» disparaba
+  (`endswith`). **Ojo**: hasta el 11/09 ese ajuste del config **no llegaba a
+  este worker** —solo al `wake_worker.exe` viejo—, así que el número no hacía
+  nada y de hecho regía el 0,55 escrito en el código.
+- **Dos filtros más contra las falsas alarmas** (11/09). La gramática cerrada
+  tiene un efecto secundario: ante ruido el decodificador **está obligado** a
+  devolver algo de la lista, y devuelve engendros (`ey favor ey nova`, `por
+  hola nova`, `oye nova ey nova`). Así que:
+  1. **A partir de 3 palabras se exige 0,85** de confianza. Cuando la llamas
+     de verdad dices una frase limpia y corta.
+  2. **Si suenan los altavoces, también 0,85.** Se le pregunta a Windows por
+     el pico de la SALIDA (`IAudioMeterInformation` vía `comtypes`: una
+     llamada suelta, sin abrir stream ni gastar CPU, cacheada 150 ms). Medido
+     aquí: silencio 0,0002; fondo suave 0,007; vídeo 0,22-0,30. El umbral
+     está en 0,02. Si el medidor falla, el worker sigue igual que antes. El
+     pulso del log lleva ahora `altavoces=…`.
 - **Pausa**: mientras existe `tmp\escucha-pausa.flag` ignora el audio. La
   crea el asistente al hablar (su propia voz volvía con pico 0,99) y al
   dictar con Win+H (competían por el micro). Se libera en `finally` y por
@@ -565,6 +591,22 @@ Lo que costó afinar, y por qué está como está:
   1-3 s. Si no se puede cargar, cae a Vosk solo. `input.whisperModelo`
   admite `base` (más ligero, menos preciso). Modelo en
   `%USERPROFILE%\.cache\huggingface\hub\models--Systran--faster-whisper-small`.
+- **OÍDO FINO: el dictado va en dos pasos** (11/09). Medido aquí con ocho
+  órdenes locutadas por Piper: `base` falla el **40 %** de las palabras y
+  tarda **0,67×** el tiempo real; `small` falla el **27 %** y tarda
+  **1,92×**. Casi todos los fallos son nombres propios («abrestean» por
+  «abre steam»), que es justo lo que rompe la capa local. Como pagar el
+  triple de tiempo en CADA orden no compensa, se dicta con el rápido y
+  **solo cuando el asistente no reconoce lo que le llegó** se repasa **el
+  mismo audio** con el preciso: el asistente crea `tmp\reintentar.flag`, el
+  worker transcribe `ultimo_audio` con `input.whisperModeloPreciso` y
+  responde por `tmp\reintento.txt`. El asistente **no espera bloqueando**:
+  sigue el bucle y lo recoge cuando llega, con un plazo de 15 s por si el
+  worker no contesta. Una sola vez por orden (`$script:yaReintentado`), o
+  sería un bucle infinito. El repaso va **antes** del filtro de ruido, porque
+  esos destrozos suelen ser de una sola palabra y el filtro los tiraría sin
+  darles la segunda oportunidad. El modelo preciso se carga **perezosamente**
+  (~500 MB, 8 hilos) la primera vez que hace falta.
 - **Dictado por Vosk** (`input.dictado = "vosk"`): mismo camino sin Whisper;
   el modelo pequeño transcribe mal las órdenes. Se conserva como respaldo.
 - **Confirmación sí/no**: cuando la capa local acierta una orden solo por
@@ -731,6 +773,7 @@ sube el volumen» … «y avísame en veinte minutos» … «gracias».
 |---|---|
 | «cierra steam / discord / la calculadora» | `CloseMainWindow` (y `Kill` si no cierra) del proceso de `commands.json` (`Resolve-Proceso`; los URI tienen tabla `$PROCESOS_URI`) |
 | «cierra esta ventana» | Alt+F4 |
+| «no me escuches», «duérmete», «no me escuches media hora», «descansa 2 horas» | **sordina**: crea `tmp\escucha-pausa.flag` durante ese plazo (15 min por defecto) y encola un aviso hablado para el final. El botón ≡ sigue funcionando, así que nunca deja sin asistente, y **siempre lleva plazo**: no es un modo que se quede puesto. Es la respuesta directa a las activaciones falsas mientras ves vídeos |
 | «cierra el juego» | cierra el proceso del juego activo |
 | «cambia a discord», «ve a steam», «enfoca el navegador», «muestra spotify» | restaura y trae al frente su ventana (`ForceForeground`) |
 | «vuelve al juego» | idem con el juego activo |

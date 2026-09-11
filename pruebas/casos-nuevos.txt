@@ -29,3 +29,14 @@ quitate
 cierra steam
 cierra esta ventana
 cierra todo
+# --- sordina: callarle el oido un rato (mejora 6) ---
+no me escuches
+no me escuches 10 minutos
+no me escuches media hora
+descansa 2 horas
+duermete
+deja de escuchar un rato
+ignorame un momento
+# --- control: NO son sordina ---
+no me escuches cuando diga esto
+escuchame

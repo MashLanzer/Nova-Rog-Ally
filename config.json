@@ -9,6 +9,7 @@
                   "autoSubmitMs":  2500,
                   "dictado":  "whisper",
                   "whisperModelo":  "base",
+                  "whisperModeloPreciso":  "small",
                   "seguimientoMs":  2500
               },
     "opencode":  {
@@ -40,7 +41,7 @@
     "escucha":  {
                     "activada":  true,
                     "nombre":  "nova",
-                    "confianzaMinima":  0.3,
+                    "confianzaMinima":  0.55,
                     "motor":  "vosk",
                     "ganancia":  "auto"
                 },

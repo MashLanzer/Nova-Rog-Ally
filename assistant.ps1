@@ -675,11 +675,13 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '') {
         if (-not (Test-Path -LiteralPath $MemoriaDir)) { New-Item -ItemType Directory -Force -Path $MemoriaDir | Out-Null }
         [System.IO.File]::WriteAllText($EstadisticasJson, ($o | ConvertTo-Json -Depth 6), $enc)
 
-        $rutas = @('local', 'aprendida', 'memoria', 'pregunta', 'traducir', 'traducida', 'accion', 'charla', 'descarte', 'error')
+        $rutas = @('activacion', 'local', 'aprendida', 'memoria', 'pregunta', 'traducir', 'traducida', 'accion', 'charla', 'ruido', 'descarte', 'error')
         $sb = New-Object System.Text.StringBuilder
         [void]$sb.AppendLine("# Estadísticas del asistente")
         [void]$sb.AppendLine("")
         [void]$sb.AppendLine("Actualizado: " + (Get-Date -Format 'yyyy-MM-dd HH:mm') + ". La genera el asistente sola; no hace falta editarla.")
+        [void]$sb.AppendLine("")
+        [void]$sb.AppendLine("**activacion**: veces que se desperto al oir su nombre. **ruido**: lo que se descarto por no ser una orden.")
         [void]$sb.AppendLine("")
         [void]$sb.AppendLine("Rutas: **local** (<1 s, sin modelo), **aprendida** (traducción guardada), **memoria** (búsqueda en notas), **pregunta** (modelo sin herramientas), **traducir** → **traducida** (el modelo la convirtió a una orden local y se aprendió), **accion** (agente completo), **charla**, **descarte** (trozo que la capa local no entendió).")
         [void]$sb.AppendLine("")
@@ -690,6 +692,21 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '') {
         foreach ($k in ($s.dias.Keys | Sort-Object -Descending | Select-Object -First 30)) {
             $celdas = $rutas | ForEach-Object { if ($s.dias[$k].ContainsKey($_)) { $s.dias[$k][$_] } else { '' } }
             [void]$sb.AppendLine("| $k | " + ($celdas -join ' | ') + " |")
+        }
+        [void]$sb.AppendLine("")
+        [void]$sb.AppendLine("## Falsas alarmas")
+        [void]$sb.AppendLine("")
+        [void]$sb.AppendLine("De cada vez que se desperto al oir su nombre, cuantas acabaron sin ejecutar nada.")
+        [void]$sb.AppendLine("Si sube, el microfono esta cazando ruido; si las activaciones caen a cero, se ha vuelto sordo.")
+        [void]$sb.AppendLine("")
+        [void]$sb.AppendLine("| día | activaciones | en nada | % |")
+        [void]$sb.AppendLine("|---|---:|---:|---:|")
+        foreach ($k in ($s.dias.Keys | Sort-Object -Descending | Select-Object -First 14)) {
+            $act = 0; $nada = 0
+            if ($s.dias[$k].ContainsKey('activacion')) { $act = $s.dias[$k]['activacion'] }
+            foreach ($r in @('ruido', 'descarte', 'error')) { if ($s.dias[$k].ContainsKey($r)) { $nada += $s.dias[$k][$r] } }
+            $pct = if ($act -gt 0) { [int](100.0 * $nada / $act) } else { 0 }
+            [void]$sb.AppendLine("| $k | $act | $nada | $pct % |")
         }
         [void]$sb.AppendLine("")
         [void]$sb.AppendLine("## No reconocido por la capa local (añadir a commands.json)")
@@ -901,6 +918,30 @@ function Resolve-Fragment([string]$f) {
     # pero el microfono sigue, asi que basta volver a decir su nombre.
     if ($f -match '^(?:cierrate|cierra la capsula|escondete|ocultate|quitate|vete de la pantalla|desaparece|piérdete|pierdete)$') {
         return @(@{ kind = 'esconder'; desc = 'me quito, dime mi nombre cuando me necesites' })
+    }
+    # SORDINA: apagar el oido un rato. Cuando estas viendo un video o jugando
+    # con el sonido alto, el microfono caza ese audio y lo toma por ordenes; en
+    # vez de pelearse con el ruido, se calla. NO es un modo que se quede puesto:
+    # siempre lleva plazo, el boton (mantener ≡) sigue funcionando mientras
+    # tanto, y al volver te avisa en voz alta.
+    if ($f -match '^(?:no me escuches|no escuches|deja de escuchar|dejate de escuchar|duermete|vete a dormir|a dormir|descansa|apaga el oido|no me oigas|ignorame)(?:\s+(?:durante|por|un|una)?\s*(?:(\d+)\s*(minuto|minutos|hora|horas)|(un rato|media hora|un momento|rato)))?$') {
+        # OJO: hay que copiar los grupos ANTES de usar -match otra vez, porque
+        # cada -match reescribe $Matches entero. Con el numero y la unidad
+        # leidos de $Matches despues de comprobar la unidad, decia 'me callo 2'
+        # y se comia el 'horas'.
+        $num = $Matches[1]; $unidad = $Matches[2]; $expr = $Matches[3]
+        $ms = 15 * 60000
+        $comoLoDigo = 'un cuarto de hora'
+        if ($num) {
+            $n = [int]$num
+            if ($unidad -match '^hora') { $ms = $n * 3600000 } else { $ms = $n * 60000 }
+            $comoLoDigo = "$n $unidad"
+        } elseif ($expr -eq 'media hora') {
+            $ms = 30 * 60000
+            $comoLoDigo = 'media hora'
+        }
+        if ($ms -le 0) { return $null }
+        return @(@{ kind = 'sordina'; ms = $ms; desc = "me callo $comoLoDigo; si me necesitas antes, manten el boton" })
     }
     if ($f -match '^(?:minimiza todo|minimizar todo|muestra el escritorio|escritorio|esconde todo|oculta todo)$') { return @(@{ kind = 'winkey'; vk = 0x44; desc = 'mostrar el escritorio' }) }
     if ($f -match '^(?:cambia de ventana|siguiente ventana|otra ventana|alterna)$') { return @(@{ kind = 'alttab'; desc = 'cambiar de ventana' }) }
@@ -1356,6 +1397,14 @@ function Invoke-FastCommand([string]$text) {
                     [System.Windows.Forms.SendKeys]::SendWait($txt)
                 }
                 'esconder' { Set-UI 'retirada' }
+                'sordina' {
+                    Pausar-Escucha $a.ms
+                    # el aviso de vuelta va por la via de los temporizadores, que
+                    # ya sabe hablar sola cuando vence
+                    [void]$script:temporizadores.Add(@{ vence = ($sw.ElapsedMilliseconds + $a.ms + 1500)
+                                                        texto = 'Ya vuelvo a escucharte.'; total = $a.ms })
+                    Log "SORDINA: escucha apagada $([int]($a.ms / 60000)) min"
+                }
                 'cerrarTodo' {
                     $abiertas = @(Get-AppsAbiertas)
                     if ($abiertas.Count -eq 0) {
@@ -1751,6 +1800,10 @@ $SeguimientoMs = [int](Get-Cfg 'input' 'seguimientoMs' 2500)
 # la palabra de activacion). 'windows' es Win+H.
 $DictadoWorker = ($MotorDictado -in @('vosk', 'whisper'))
 $WhisperModelo = [string](Get-Cfg 'input' 'whisperModelo' 'small')
+# Modelo de repaso: el rapido dicta, y solo cuando la orden no se reconoce se
+# repasa el MISMO audio con este (mas lento, bastante mas preciso con los
+# nombres propios). Vacio = desactivado, se dicta solo con el rapido.
+$WhisperPreciso = [string](Get-Cfg 'input' 'whisperModeloPreciso' '')
 $MarcaDictar = Join-Path $TmpDir "dictar.flag"
 # confirmacion por voz de coincidencias dudosas: el worker escucha si/no
 $MarcaConfirmar = Join-Path $TmpDir "confirmar.flag"
@@ -1759,6 +1812,8 @@ $RutaConfirmacion = Join-Path $TmpDir "confirmacion.txt"
 $RutaVocabulario = Join-Path $TmpDir "vocabulario.txt"
 $RutaDictado = Join-Path $TmpDir "dictado.txt"
 $RutaParcial = Join-Path $TmpDir "dictado-parcial.txt"
+$MarcaReintento = Join-Path $TmpDir "reintentar.flag"
+$RutaReintento = Join-Path $TmpDir "reintento.txt"
 # nivel de voz 0..1 que el worker escribe mientras dictas; lo lee la interfaz
 # directamente (nova_ui.exe busca ui-nivel.txt junto a ui-estado.json)
 $RutaNivel = Join-Path $TmpDir "ui-nivel.txt"
@@ -1793,10 +1848,14 @@ function Initialize-Escucha {
         if ($EscuchaMotor -eq 'vosk') {
             $worker = Join-Path $LogDir "wake_vosk.py"
             if (-not (Test-Path -LiteralPath $worker)) { Log "WARN: falta wake_vosk.py"; return }
+            # La confianza minima va TAMBIEN aqui: hasta ahora solo la recibia el
+            # wake_worker.exe viejo, asi que el ajuste del config no hacia nada.
+            $conf = $EscuchaConf.ToString([System.Globalization.CultureInfo]::InvariantCulture)
             $script:wakeProc = Start-Process -FilePath $PyExe `
                 -ArgumentList @('-u', $worker, $EscuchaNombre, $MarcaWake, $EventLog, $EscuchaGanancia,
                                 $MarcaPausa, $MarcaDictar, $RutaDictado, $RutaParcial, $RutaNivel,
-                                $MarcaConfirmar, $RutaConfirmacion, "$MotorDictado`:$WhisperModelo", $RutaVocabulario) `
+                                $MarcaConfirmar, $RutaConfirmacion, "$MotorDictado`:$WhisperModelo", $RutaVocabulario,
+                                $conf, $MarcaReintento, $RutaReintento, $WhisperPreciso) `
                 -WorkingDirectory $LogDir -WindowStyle Hidden -PassThru
         } else {
             $worker = Join-Path $LogDir "wake_worker.exe"
@@ -3362,6 +3421,11 @@ $script:perdida = $false
 $script:seguimientoPendiente = $false
 $script:enSeguimiento = $false
 $script:seguimientoFactor = 1.0
+# --- oido fino: repaso de la ultima orden con el modelo preciso ---
+$script:yaReintentado = $false     # una sola vez por orden, o seria un bucle
+$script:reintentoVence = 0
+$script:reintentoTexto = ''
+$ReintentoMaxMs = 15000            # si no contesta a tiempo, se sigue sin el
 $script:aprenderPendiente = $null
 $script:ultimaLectura = ''
 function Test-LoTengo([string]$vista) {
@@ -3377,6 +3441,11 @@ function Test-LoTengo([string]$vista) {
 # ambos caminos se comporten EXACTAMENTE igual.
 function Start-Dictado([string]$origen) {
     Log "DICTADO ($origen)"
+    $script:yaReintentado = $false
+    # Cuantas veces se despierta por voz. Sin este numero no hay forma de
+    # saber si los filtros de falsas alarmas funcionan o si, al reves, se han
+    # pasado de listos y ya no te oyen.
+    if ($origen -like 'nombre*') { Add-Estadistica 'activacion' }
     $script:loTengo = $false
     $script:perdida = $false
     $script:seguimientoPendiente = $false
@@ -3572,6 +3641,28 @@ function Process-Texto([string]$text) {
                     Show-Popup $r
                     Say $r
                     return
+                }
+            }
+            # 3.4) SEGUNDA OPORTUNIDAD (oido fino). El modelo rapido deforma
+            #      los nombres propios: 'abre steam' llega como 'abrestean' y
+            #      no lo reconoce nadie. Antes de descartarlo por ruido o de
+            #      pagar 13 s de modelo remoto, se repasa el MISMO audio con el
+            #      modelo preciso, que es local. Va aqui, ANTES del filtro de
+            #      ruido, justo porque esos destrozos suelen ser de una palabra.
+            if ($WhisperPreciso -and $DictadoWorker -and -not $script:yaReintentado -and
+                $script:wakeProc -and -not $script:wakeProc.HasExited) {
+                $script:yaReintentado = $true
+                try {
+                    Remove-Item -LiteralPath $RutaReintento -Force -ErrorAction SilentlyContinue
+                    [System.IO.File]::WriteAllText($MarcaReintento, 'x')
+                    $script:reintentoTexto = $text
+                    $script:reintentoVence = $sw.ElapsedMilliseconds + $ReintentoMaxMs
+                    Log "OIDO FINO: no reconoci '$text', pido repaso"
+                    Set-UI 'pensando' 'Afinando el oido'
+                    return
+                } catch {
+                    $script:reintentoVence = 0
+                    Log ('no se pudo pedir el repaso: ' + $_.Exception.Message)
                 }
             }
             # 3.5) FILTRO DE RUIDO. Lo que llega aqui no lo entendio la capa
@@ -3869,6 +3960,34 @@ while ($true) {
             Stop-OpencodeJob
             Add-Estadistica 'error' 'timeout de opencode'
             Show-Popup "(timeout: opencode tardo mas de $([Math]::Round($CliTimeoutMs/1000)) s)" 'error'
+        }
+    }
+
+    # --- OIDO FINO: recoger el repaso (o rendirse cuando vence el plazo) ---
+    # No se espera bloqueando: el bucle sigue vivo, la capsula sigue animandose
+    # y el boton sigue respondiendo mientras el worker repasa el audio.
+    if ($script:reintentoVence -gt 0) {
+        $fino = $null
+        if (Test-Path -LiteralPath $RutaReintento) {
+            try { $fino = [System.IO.File]::ReadAllText($RutaReintento, [System.Text.Encoding]::UTF8) } catch { $fino = '' }
+            Remove-Item -LiteralPath $RutaReintento -Force -ErrorAction SilentlyContinue
+        } elseif ($sw.ElapsedMilliseconds -ge $script:reintentoVence) {
+            Log "OIDO FINO: sin respuesta a tiempo; sigo con lo que tenia"
+            Remove-Item -LiteralPath $MarcaReintento -Force -ErrorAction SilentlyContinue
+            $fino = ''
+        }
+        if ($null -ne $fino) {
+            $script:reintentoVence = 0
+            $orig = $script:reintentoTexto
+            $script:reintentoTexto = ''
+            $limpio = $fino.Trim()
+            if ($limpio -and (ConvertTo-Plain $limpio) -ne (ConvertTo-Plain $orig)) {
+                Log "OIDO FINO: '$orig' -> '$limpio'"
+                Process-Texto $limpio
+            } else {
+                # el oido fino oyo lo mismo (o nada): no hay nada que ganar
+                Process-Texto $orig
+            }
         }
     }
 

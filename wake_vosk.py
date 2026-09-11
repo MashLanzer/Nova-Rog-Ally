@@ -68,6 +68,23 @@ CONFIRMACION = sys.argv[11] if len(sys.argv) > 11 else ""
 # dando la transcripcion parcial en vivo mientras hablas.
 MOTOR_DICTADO = sys.argv[12] if len(sys.argv) > 12 else "vosk"
 VOCABULARIO = sys.argv[13] if len(sys.argv) > 13 else ""
+# --- CONFIANZA MINIMA (config.json -> escucha.confianzaMinima) ---
+# Hasta ahora este worker ignoraba ese ajuste: solo llegaba al wake_worker.exe
+# viejo, asi que el numero del config no hacia absolutamente nada.
+try:
+    CONFIANZA_ARG = float(sys.argv[14]) if len(sys.argv) > 14 else None
+except ValueError:
+    CONFIANZA_ARG = None
+# --- SEGUNDA OPORTUNIDAD (oido fino) ---
+# El modelo rapido ("base") entiende mal los nombres propios: "abrestean" por
+# "abre steam". El preciso ("small") acierta bastante mas, pero tarda unas tres
+# veces mas, y pagar eso en CADA orden no compensa. Asi que se dicta con el
+# rapido y, solo cuando el asistente no reconoce lo que le llego, pide por esta
+# marca que se repase el MISMO audio con el preciso. Lo caro se paga unicamente
+# cuando hace falta.
+REINTENTO = sys.argv[15] if len(sys.argv) > 15 else ""
+REINTENTO_TEXTO = sys.argv[16] if len(sys.argv) > 16 else ""
+MODELO_PRECISO = sys.argv[17] if len(sys.argv) > 17 else ""
 CONFIRMACION_MAX = 5.0
 
 # se da por terminada la frase tras este silencio
@@ -102,6 +119,14 @@ UMBRAL_ACTIVIDAD = 0.006
 ARRASTRE = 4              # bloques que se siguen decodificando tras el silencio
 PREBUFFER = 2             # bloques previos que se recuperan al detectar voz
 INTERVALO_PULSO = 15.0    # ajuste rapido; con 60 s tardaba minutos en subir
+# --- ALTAVOCES ---
+# Por encima de este pico en la SALIDA se considera que esta sonando algo
+# (medido en esta maquina: silencio 0.0002, fondo suave 0.007, video 0.30).
+UMBRAL_ALTAVOZ = 0.02
+# El modelo preciso solo corre a rachas y con prioridad baja: puede permitirse
+# mas hilos que el rapido, que va en el camino de cada orden.
+HILOS_PRECISO = 8
+INTERVALO_MEDIDOR = 0.15   # no tiene sentido preguntar mas a menudo
 
 
 def anota(mensaje):
@@ -112,6 +137,142 @@ def anota(mensaje):
             f.write(time.strftime("%Y-%m-%d %H:%M:%S") + "  [escucha] " + mensaje + "\n")
     except Exception:
         pass
+
+
+# --- MEDIDOR DE LOS ALTAVOCES (mejora 3) ---
+# El worker ya se callaba mientras NOVA habla (archivo PAUSA), pero no cuando
+# suena cualquier otra cosa: un video, un juego o -literalmente lo que paso el
+# 11/09- un Outlast 2 colgado sonando durante horas. Ese audio entraba por el
+# microfono y se convertia en "ordenes". Aqui se le pregunta a Windows cuanto
+# esta sonando por los altavoces; si suena, se desconfia mas de lo que se oye.
+# Se usa IAudioMeterInformation: es una llamada suelta, no abre ningun stream
+# ni consume CPU, y si algo falla el worker sigue igual que antes.
+_medidor = None
+_medidor_roto = False
+_medidor_valor = 0.0
+_medidor_visto = 0.0
+
+
+def _crear_medidor():
+    import ctypes
+    from ctypes import POINTER, c_float
+    import comtypes
+    from comtypes import GUID, COMMETHOD, IUnknown, CLSCTX_ALL
+
+    class IAudioMeterInformation(IUnknown):
+        _iid_ = GUID("{C02216F6-8C67-4B5B-9D00-D008E73E0064}")
+        _methods_ = (COMMETHOD([], ctypes.HRESULT, "GetPeakValue",
+                               (["out"], POINTER(c_float), "pfPeak")),)
+
+    class IMMDevice(IUnknown):
+        _iid_ = GUID("{D666063F-1587-4E43-81F1-B948E807363F}")
+        _methods_ = (COMMETHOD([], ctypes.HRESULT, "Activate",
+                               (["in"], POINTER(GUID), "iid"),
+                               (["in"], ctypes.c_uint, "dwClsCtx"),
+                               (["in"], POINTER(ctypes.c_void_p), "pParams"),
+                               (["out"], POINTER(POINTER(IUnknown)), "ppInterface")),)
+
+    class IMMDeviceEnumerator(IUnknown):
+        _iid_ = GUID("{A95664D2-9614-4F35-A746-DE8DB63617E6}")
+        _methods_ = (
+            COMMETHOD([], ctypes.HRESULT, "NoUsado_EnumAudioEndpoints",
+                      (["in"], ctypes.c_uint, "dataFlow"),
+                      (["in"], ctypes.c_uint, "dwStateMask"),
+                      (["out"], POINTER(POINTER(IUnknown)), "ppDevices")),
+            COMMETHOD([], ctypes.HRESULT, "GetDefaultAudioEndpoint",
+                      (["in"], ctypes.c_uint, "dataFlow"),
+                      (["in"], ctypes.c_uint, "role"),
+                      (["out"], POINTER(POINTER(IMMDevice)), "ppEndpoint")),
+        )
+
+    enum = comtypes.CoCreateInstance(GUID("{BCDE0395-E52F-467C-8E3D-C4579291692E}"),
+                                     IMMDeviceEnumerator, CLSCTX_ALL)
+    dev = enum.GetDefaultAudioEndpoint(0, 0)      # 0 = eRender: los altavoces
+    ptr = dev.Activate(IAudioMeterInformation._iid_, CLSCTX_ALL, None)
+    return ctypes.cast(ptr, POINTER(IAudioMeterInformation))
+
+
+def nivel_salida():
+    """Pico actual de los altavoces (0..1). 0.0 si no se puede medir."""
+    global _medidor, _medidor_roto, _medidor_valor, _medidor_visto
+    if _medidor_roto:
+        return 0.0
+    ahora = time.time()
+    if ahora - _medidor_visto < INTERVALO_MEDIDOR:
+        return _medidor_valor
+    _medidor_visto = ahora
+    try:
+        if _medidor is None:
+            _medidor = _crear_medidor()
+            anota("medidor de altavoces activo: se desconfia del microfono mientras suena algo")
+        _medidor_valor = float(_medidor.GetPeakValue())
+    except Exception as e:
+        _medidor_roto = True
+        _medidor_valor = 0.0
+        anota("WARN: sin medidor de altavoces (%s); se sigue sin el" % e)
+    return _medidor_valor
+
+
+# --- OIDO FINO: el modelo preciso, cargado solo si llega a hacer falta ---
+# Ocupa ~500 MB en RAM, asi que no se carga al arrancar: en esta maquina hay
+# 7,7 GB y el juego manda. La primera vez tarda unos segundos; a partir de ahi
+# se queda listo.
+_preciso = None
+_preciso_roto = False
+
+
+def modelo_preciso():
+    global _preciso, _preciso_roto
+    if _preciso is not None or _preciso_roto or not MODELO_PRECISO:
+        return _preciso
+    try:
+        t0 = time.time()
+        from faster_whisper import WhisperModel
+        _preciso = WhisperModel(MODELO_PRECISO, device="cpu", compute_type="int8",
+                                cpu_threads=HILOS_PRECISO)
+        anota("oido fino '%s' cargado en %.1f s" % (MODELO_PRECISO, time.time() - t0))
+    except Exception as e:
+        _preciso_roto = True
+        anota("WARN: no se pudo cargar el oido fino (%s)" % e)
+    return _preciso
+
+
+def atender_reintento(ultimo_audio):
+    """El asistente no reconocio la orden: se repasa el mismo audio con el
+    modelo preciso. Siempre se contesta algo, aunque sea vacio, porque el
+    asistente esta esperando al otro lado con un plazo."""
+    if not REINTENTO or not os.path.exists(REINTENTO):
+        return False
+    texto = ""
+    try:
+        m = modelo_preciso()
+        if m is not None and ultimo_audio:
+            t0 = time.time()
+            texto = quitar_nombre(transcribir_whisper(ultimo_audio, m))
+            anota("oido fino: '%s' (%.1f s)" % (texto, time.time() - t0))
+        elif not ultimo_audio:
+            anota("oido fino: no queda audio de la orden anterior")
+    except Exception as e:
+        anota("WARN: fallo el oido fino (%s)" % e)
+    escribir(REINTENTO_TEXTO, texto)
+    try:
+        os.remove(REINTENTO)
+    except Exception:
+        pass
+    vaciar_cola("oido fino")
+    return True
+
+
+def umbral_confianza(plano):
+    """Cuanta confianza se le exige al nombre para dar por buena la activacion."""
+    u = CONFIANZA_MIN
+    if len(plano.split()) > PALABRAS_SIN_SOSPECHA:
+        u = max(u, CONFIANZA_LARGA)
+    # Si por los altavoces esta sonando algo, lo que entra por el microfono es
+    # sospechoso por definicion: casi todo el ruido de anoche era eso.
+    if nivel_salida() > UMBRAL_ALTAVOZ:
+        u = max(u, CONFIANZA_LARGA)
+    return u
 
 
 def pct_dec():
@@ -143,7 +304,16 @@ GRAMATICA = json.dumps([
     NOMBRE_PLANO + " por favor",
     "[unk]",
 ], ensure_ascii=False)
-CONFIANZA_MIN = 0.55
+CONFIANZA_MIN = CONFIANZA_ARG if CONFIANZA_ARG is not None else 0.55
+# --- LA FIRMA DEL FALSO POSITIVO ---
+# La gramatica de arriba es CERRADA: ante cualquier ruido el decodificador esta
+# OBLIGADO a devolver algo de esa lista, y lo que devuelve entonces son
+# engendros como "ey favor ey nova" o "por hola nova" (log del 11/09). Cuando
+# de verdad llamas, dices una frase limpia y corta. Asi que a partir de tres
+# palabras se exige mucha mas confianza: no cuesta nada y no toca el caso
+# normal, que es decir "nova" a secas.
+CONFIANZA_LARGA = 0.85
+PALABRAS_SIN_SOSPECHA = 2
 GRAMATICA_SI_NO = json.dumps(["si", "si dale", "dale", "vale", "claro", "ok", "no", "no cancela", "cancela", "[unk]"], ensure_ascii=False)
 PALABRAS_SI = ("si", "dale", "vale", "claro", "ok")
 PALABRAS_NO = ("no", "cancela")
@@ -274,9 +444,10 @@ def anotar_voz(bloques):
         pass
 
 
-def transcribir_whisper(bloques):
+def transcribir_whisper(bloques, modelo=None):
     # bloques: lista de arrays int16 ya amplificados
-    if whisper is None or not bloques:
+    modelo = modelo or whisper
+    if modelo is None or not bloques:
         return ""
     audio = np.concatenate(bloques).astype(np.float32) / 32768.0
     if audio.size < TASA // 4:
@@ -290,7 +461,7 @@ def transcribir_whisper(bloques):
     # contexto, que es lo que queriamos desde el principio.
     # Los tres umbrales descartan el segmento cuando no hay voz de verdad:
     # sin ellos Whisper siempre devuelve algo, aunque el audio sea ruido.
-    segmentos, info = whisper.transcribe(
+    segmentos, info = modelo.transcribe(
         audio, language="es", beam_size=2, best_of=1,
         vad_filter=True, vad_parameters=dict(min_silence_duration_ms=500),
         condition_on_previous_text=False,
@@ -411,6 +582,7 @@ arrastre = 0
 dictando = False
 dictado = []
 audio_dictado = []      # bloques amplificados de la orden, para Whisper
+ultimo_audio = []       # el de la ULTIMA orden, por si hay que repasarlo (oido fino)
 confirmando = False
 conf_inicio = 0.0
 dicta_inicio = 0.0
@@ -453,6 +625,10 @@ try:
                 datos = None
                 rec = nuevo_reconocedor()
                 anota("pausa: fin, escuchando de nuevo")
+
+            # --- el asistente pide repasar la ultima orden con el oido fino ---
+            # Sin 'continue': saltaria tambien el pulso del final del bucle.
+            atender_reintento(ultimo_audio)
 
             # --- entrar y salir del modo dictado ---
             quiere_dictar = bool(DICTAR) and os.path.exists(DICTAR)
@@ -498,6 +674,7 @@ try:
                 anota("dictado: cortado a mano -> '%s'" % texto_final)
                 escribir(TEXTO, texto_final)
                 dictando = False
+                ultimo_audio = audio_dictado
                 audio_dictado = []
                 rec = nuevo_reconocedor()
 
@@ -658,6 +835,7 @@ try:
                         except Exception:
                             pass
                         dictando = False
+                        ultimo_audio = audio_dictado
                         audio_dictado = []
                         rec = nuevo_reconocedor()
                     # en dictado no se evalua la palabra de activacion
@@ -703,14 +881,16 @@ try:
                                 # nada que reconocer.
                                 anota("descartado '%s': sin voz real (pico rafaga %.4f)"
                                       % (texto, pico_rafaga))
-                            elif conf < CONFIANZA_MIN:
-                                anota("descartado '%s': confianza %.2f < %.2f"
-                                      % (texto, conf, CONFIANZA_MIN))
+                            elif conf < umbral_confianza(plano):
+                                anota("descartado '%s': confianza %.2f < %.2f%s"
+                                      % (texto, conf, umbral_confianza(plano),
+                                         "" if len(plano.split()) <= PALABRAS_SIN_SOSPECHA
+                                         else " (frase larga: se exige mas)"))
                             elif ahora - ultima_marca > 2.0:
                                 # antirebote: no disparar dos veces por lo mismo
                                 ultima_marca = ahora
-                                anota("ACTIVADO por '%s' (confianza %.2f, pico %.3f, ganancia x%.1f)"
-                                      % (texto, conf, pico, ganancia))
+                                anota("ACTIVADO por '%s' (confianza %.2f, pico %.3f, ganancia x%.1f, altavoces %.3f)"
+                                      % (texto, conf, pico, ganancia, nivel_salida()))
                                 try:
                                     with open(MARCA, "w", encoding="utf-8") as f:
                                         f.write(time.strftime("%Y-%m-%dT%H:%M:%S"))
@@ -737,12 +917,12 @@ try:
                     # segunda red: tope de salto por ciclo
                     propuesta = max(ganancia - PASO_MAX, min(ganancia + PASO_MAX, propuesta))
                     ganancia = round(max(GANANCIA_MIN, min(GANANCIA_MAX, propuesta)), 1)
-                    anota("pulso: p90=%.4f bloques_voz=%d ganancia=x%.1f decodificado=%d%%"
-                          % (ref, bloques_voz, ganancia, pct_dec()))
+                    anota("pulso: p90=%.4f bloques_voz=%d ganancia=x%.1f decodificado=%d%% altavoces=%.3f"
+                          % (ref, bloques_voz, ganancia, pct_dec(), nivel_salida()))
                     escribir(RUTA_GANANCIA, "%.1f" % ganancia)
                 else:
-                    anota("pulso: sin voz sostenida (%d bloques) ganancia=x%.1f decodificado=%d%%"
-                          % (bloques_voz, ganancia, pct_dec()))
+                    anota("pulso: sin voz sostenida (%d bloques) ganancia=x%.1f decodificado=%d%% altavoces=%.3f"
+                          % (bloques_voz, ganancia, pct_dec(), nivel_salida()))
                 picos = []
                 bloques_voz = 0
                 ultimo_pulso = ahora
