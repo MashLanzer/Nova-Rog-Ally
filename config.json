@@ -1,40 +1,46 @@
 {
-  "paths": {
-    "opencodeCli": "C:\\Users\\braya\\AppData\\Roaming\\npm\\node_modules\\opencode-ai\\bin\\opencode.exe",
-    "nodeDir": "C:\\Program Files\\nodejs",
-    "workDir": "C:\\Users\\braya\\Documents"
-  },
-  "input": {
-    "holdMs": 1100,
-    "autoSubmitMs": 2500
-  },
-  "opencode": {
-    "timeoutMs": 240000
-  },
-  "ui": {
-    "popupMs": 8000
-  },
-  "voz": {
-    "activada": true,
-    "motor": "online",
-    "vozOnline": "es-MX-DaliaNeural",
-    "preferencia": ["Natural", "es-MX", "es-"]
-  },
-  "logging": {
-    "maxLogBytes": 5242880,
-    "keepLogs": 3
-  },
-  "escucha": {
-    "activada": true,
-    "nombre": "nova",
-    "confianzaMinima": 0.3,
-    "motor": "vosk",
-    "ganancia": "auto"
-  },
-  "avisos": {
-    "bateriaPct": 15
-  },
-  "seguridad": {
-    "hashDll": "B72C58682EAE2E82426411D79BC3BCF977C97D944073F3560E1E97662B460558"
-  }
+    "paths":  {
+                  "opencodeCli":  "C:\\Users\\braya\\AppData\\Roaming\\npm\\node_modules\\opencode-ai\\bin\\opencode.exe",
+                  "nodeDir":  "C:\\Program Files\\nodejs",
+                  "workDir":  "C:\\Users\\braya\\Documents"
+              },
+    "input":  {
+                  "holdMs":  1100,
+                  "autoSubmitMs":  2500,
+                  "dictado":  "vosk"
+              },
+    "opencode":  {
+                     "timeoutMs":  240000
+                 },
+    "ui":  {
+               "popupMs":  8000
+           },
+    "voz":  {
+                "activada":  true,
+                "motor":  "online",
+                "vozOnline":  "es-MX-DaliaNeural",
+                "preferencia":  [
+                                    "Natural",
+                                    "es-MX",
+                                    "es-"
+                                ],
+                "saludo":  true
+            },
+    "logging":  {
+                    "maxLogBytes":  5242880,
+                    "keepLogs":  3
+                },
+    "escucha":  {
+                    "activada":  true,
+                    "nombre":  "nova",
+                    "confianzaMinima":  0.3,
+                    "motor":  "vosk",
+                    "ganancia":  "auto"
+                },
+    "avisos":  {
+                   "bateriaPct":  15
+               },
+    "seguridad":  {
+                      "hashDll":  "B72C58682EAE2E82426411D79BC3BCF977C97D944073F3560E1E97662B460558"
+                  }
 }

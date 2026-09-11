@@ -38,6 +38,20 @@ GANANCIA_ARG = sys.argv[4] if len(sys.argv) > 4 else "auto"
 # microfono con pico 0.99 y hundia la ganancia automatica hasta x0.7,
 # dejandolo sordo a la voz real (0.02). Ese era el fallo de "ya no se activa".
 PAUSA = sys.argv[5] if len(sys.argv) > 5 else ""
+# --- DICTADO ---
+# Mientras exista DICTAR, este worker transcribe la frase ENTERA en vez de
+# buscar solo el nombre. Sustituye a Win+H, que era el origen de casi todos
+# los fallos: robaba el foco (y si fallaba, el texto acababa en otra ventana),
+# deformaba palabras, y obligaba a esperar al silencio desde fuera.
+# Al terminar escribe el texto en TEXTO y borra DICTAR.
+DICTAR = sys.argv[6] if len(sys.argv) > 6 else ""
+TEXTO = sys.argv[7] if len(sys.argv) > 7 else ""
+PARCIAL = sys.argv[8] if len(sys.argv) > 8 else ""
+
+# se da por terminada la frase tras este silencio
+SILENCIO_FIN = 1.4
+# tope duro, por si el silencio nunca llega (ruido de fondo constante)
+DICTADO_MAX = 30.0
 
 TASA = 16000
 PICO_OBJETIVO = 0.35      # nivel al que queremos llevar la voz
@@ -121,6 +135,33 @@ def nuevo_reconocedor():
     return r
 
 
+def reconocedor_libre():
+    # sin gramatica: transcripcion abierta, para dictar la orden completa
+    r = KaldiRecognizer(modelo, TASA)
+    r.SetWords(False)
+    return r
+
+
+# Segunda red por si el nombre se cuela igual: se quita del principio de la
+# orden. "nova abre steam" debe ejecutarse como "abre steam".
+PATRON_INICIO = re.compile(
+    r"^\s*(?:oye\s+|hola\s+|ey\s+)?" + re.escape(NOMBRE_PLANO) + r"\b[\s,.]*", re.IGNORECASE)
+
+
+def quitar_nombre(texto):
+    return PATRON_INICIO.sub("", texto or "").strip()
+
+
+def escribir(ruta, contenido):
+    if not ruta:
+        return
+    try:
+        with open(ruta, "w", encoding="utf-8") as f:
+            f.write(contenido)
+    except Exception:
+        pass
+
+
 try:
     modelo = Model(ruta_modelo)
     rec = nuevo_reconocedor()
@@ -146,6 +187,10 @@ ultimo_pulso = time.time()
 recortes = 0
 pausado = False
 arrastre = 0
+dictando = False
+dictado = []
+dicta_inicio = 0.0
+ultima_voz = 0.0
 prebuffer = collections.deque(maxlen=PREBUFFER)
 bloques_totales = 0
 bloques_decodificados = 0
@@ -181,6 +226,36 @@ try:
                 rec = nuevo_reconocedor()
                 anota("pausa: fin, escuchando de nuevo")
 
+            # --- entrar y salir del modo dictado ---
+            quiere_dictar = bool(DICTAR) and os.path.exists(DICTAR)
+            if quiere_dictar and not dictando:
+                dictando = True
+                # Se tira el audio ya encolado: contiene el final de "Nova" y
+                # se transcribia como si fuera la orden.
+                try:
+                    while True:
+                        cola.get_nowait()
+                except queue.Empty:
+                    pass
+                datos = None
+                rec = reconocedor_libre()
+                dictado = []
+                dicta_inicio = ahora
+                ultima_voz = ahora
+                escribir(PARCIAL, "")
+                anota("dictado: escuchando la orden")
+            elif dictando and not quiere_dictar:
+                # el asistente lo corto a mano (boton): se entrega lo que haya
+                texto_final = " ".join([t for t in dictado if t]).strip()
+                parcial = json.loads(rec.FinalResult()).get("text", "")
+                if parcial:
+                    texto_final = (texto_final + " " + parcial).strip()
+                texto_final = quitar_nombre(texto_final)
+                anota("dictado: cortado a mano -> '%s'" % texto_final)
+                escribir(TEXTO, texto_final)
+                dictando = False
+                rec = nuevo_reconocedor()
+
             if datos is not None:
                 muestras = np.frombuffer(datos, dtype=np.int16).astype(np.float32)
                 pico = float(np.max(np.abs(muestras))) / 32768.0
@@ -212,6 +287,40 @@ try:
                     arrastre = ARRASTRE
                 elif arrastre > 0:
                     arrastre -= 1
+
+                # --- MODO DICTADO: transcribir todo, no buscar el nombre ---
+                if dictando:
+                    if pico > UMBRAL_ACTIVIDAD:
+                        ultima_voz = ahora
+                    if rec.AcceptWaveform(bloque):
+                        t = json.loads(rec.Result()).get("text", "")
+                        if t:
+                            dictado.append(t)
+                            escribir(PARCIAL, " ".join(dictado))
+                    else:
+                        p = json.loads(rec.PartialResult()).get("partial", "")
+                        if p:
+                            escribir(PARCIAL, (" ".join(dictado) + " " + p).strip())
+                    # fin por silencio (habiendo oido algo) o por tope duro
+                    hay_algo = len(dictado) > 0 or bool(json.loads(rec.PartialResult()).get("partial", ""))
+                    if ((ahora - ultima_voz) >= SILENCIO_FIN and hay_algo) or \
+                       ((ahora - dicta_inicio) >= DICTADO_MAX):
+                        resto = json.loads(rec.FinalResult()).get("text", "")
+                        if resto:
+                            dictado.append(resto)
+                        texto_final = quitar_nombre(" ".join([t for t in dictado if t]))
+                        anota("dictado: '%s'" % texto_final)
+                        escribir(TEXTO, texto_final)
+                        try:
+                            os.remove(DICTAR)
+                        except Exception:
+                            pass
+                        dictando = False
+                        rec = nuevo_reconocedor()
+                    # en dictado no se evalua la palabra de activacion
+                    if ahora - ultimo_pulso >= INTERVALO_PULSO:
+                        ultimo_pulso = ahora
+                    continue
 
                 # OJO: aqui NO vale un 'continue'. Saltaria tambien el pulso del
                 # final del bucle, que es justo lo que registra el diagnostico y

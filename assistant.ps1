@@ -1125,6 +1125,15 @@ $MarcaWake = Join-Path $TmpDir "despierta.flag"
 # y al dictar: la voz del propio asistente volvia al microfono con pico 0.99 y
 # hundia su ganancia automatica, dejandolo sordo.
 $MarcaPausa = Join-Path $TmpDir "escucha-pausa.flag"
+# --- DICTADO POR VOSK (sustituye a Win+H) ---
+# Win+H era el origen de casi todos los fallos: robaba el foco -y si fallaba,
+# el texto se escribia en OTRA ventana-, deformaba palabras ("steamidos",
+# "little nighters 3") y obligaba a esperar el silencio desde fuera. El worker
+# ya tiene el microfono abierto: dicta el tambien.
+$MotorDictado = [string](Get-Cfg 'input' 'dictado' 'vosk')
+$MarcaDictar = Join-Path $TmpDir "dictar.flag"
+$RutaDictado = Join-Path $TmpDir "dictado.txt"
+$RutaParcial = Join-Path $TmpDir "dictado-parcial.txt"
 $script:pausaHasta = 0
 
 function Pausar-Escucha([int]$ms) {
@@ -1157,7 +1166,8 @@ function Initialize-Escucha {
             $worker = Join-Path $LogDir "wake_vosk.py"
             if (-not (Test-Path -LiteralPath $worker)) { Log "WARN: falta wake_vosk.py"; return }
             $script:wakeProc = Start-Process -FilePath $PyExe `
-                -ArgumentList @('-u', $worker, $EscuchaNombre, $MarcaWake, $EventLog, $EscuchaGanancia, $MarcaPausa) `
+                -ArgumentList @('-u', $worker, $EscuchaNombre, $MarcaWake, $EventLog, $EscuchaGanancia,
+                                $MarcaPausa, $MarcaDictar, $RutaDictado, $RutaParcial) `
                 -WorkingDirectory $LogDir -WindowStyle Hidden -PassThru
         } else {
             $worker = Join-Path $LogDir "wake_worker.exe"
@@ -1691,10 +1701,25 @@ function Report-Reply($out) {
 # ambos caminos se comporten EXACTAMENTE igual.
 function Start-Dictado([string]$origen) {
     Log "DICTADO ($origen)"
-    # mientras dictas, el worker no debe escuchar: competiria por el microfono
-    # con Win+H y podria tomar tu orden por una activacion
-    Pausar-Escucha 60000
     [System.Media.SystemSounds]::Exclamation.Play()
+
+    # --- Dictado por Vosk: ni foco, ni Win+H, ni pausa de escucha ---
+    # El worker ya tiene el microfono; solo hay que decirle que transcriba.
+    if ($MotorDictado -eq 'vosk' -and $script:wakeProc) {
+        Remove-Item -LiteralPath $RutaDictado -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $RutaParcial -Force -ErrorAction SilentlyContinue
+        [System.IO.File]::WriteAllText($MarcaDictar, 'x')
+        $lbl.Text = "● VOZ..."
+        $lbl.ForeColor = [System.Drawing.Color]::LimeGreen
+        $capture.Show()
+        $script:armed = $true
+        $script:dictaInicio = $sw.ElapsedMilliseconds
+        return
+    }
+
+    # --- Camino antiguo (Win+H), solo si se pide por configuracion ---
+    # mientras dictas, el worker no debe escuchar: competiria por el microfono
+    Pausar-Escucha 60000
     if (Show-Capture) {
         Send-WinH
         $script:armed = $true
@@ -1731,6 +1756,12 @@ function Finish-Dictation([string]$motivo) {
         $capture.Hide()
         Reanudar-Escucha
     }
+    Process-Texto $text
+}
+
+# Todo lo que ocurre DESPUES de tener el texto. Lo comparten el dictado por
+# Vosk y el antiguo de Windows, para que se comporten igual.
+function Process-Texto([string]$text) {
     if ($text.Length -gt 0) {
         $plano = ConvertTo-Plain $text
 
@@ -1816,6 +1847,7 @@ $script:pollReintento = 0
 $script:temporizadores = New-Object System.Collections.ArrayList
 $script:juegoCheck = 0
 $script:ultimoObjetivo = ''
+$script:dictaInicio = 0
 $script:jobModo = ''
 $script:jobTextoOriginal = ''
 $pollErrs = 0
@@ -1869,6 +1901,11 @@ while ($true) {
                 Show-Popup "Orden cancelada."
             } elseif (-not $script:armed) {
                 Start-Dictado "mantener ≡"
+            } elseif ($MotorDictado -eq 'vosk' -and $script:wakeProc) {
+                # con Vosk el boton solo dice "ya termine": el worker entrega
+                # lo que lleve transcrito y el bucle lo recoge
+                Log "ENVIAR (boton)"
+                Remove-Item -LiteralPath $MarcaDictar -Force -ErrorAction SilentlyContinue
             } else {
                 Finish-Dictation "boton"
             }
@@ -1924,9 +1961,39 @@ while ($true) {
         }
     }
 
-    # --- ENVIO AUTOMATICO: si el dictado dejo de producir texto, se manda solo.
-    # El segundo hold sigue funcionando como "enviar ya".
-    if ($script:armed -and $AutoSubmitMs -gt 0) {
+    # --- DICTADO POR VOSK: recoger lo transcrito y mostrarlo en vivo ---
+    if ($script:armed -and $MotorDictado -eq 'vosk') {
+        # transcripcion en vivo: ver lo que oye mientras hablas
+        if (Test-Path -LiteralPath $RutaParcial) {
+            try {
+                $par = [System.IO.File]::ReadAllText($RutaParcial, [System.Text.Encoding]::UTF8)
+                $vista = ($par -replace '\s+', ' ').Trim()
+                if ($vista.Length -gt 44) { $vista = "..." + $vista.Substring($vista.Length - 41) }
+                $nuevo = if ($vista) { "● $vista" } else { "● VOZ..." }
+                if ($lbl.Text -ne $nuevo) { $lbl.Text = $nuevo }
+            } catch {}
+        }
+        # el worker ya termino: entrega el texto
+        if (Test-Path -LiteralPath $RutaDictado) {
+            $dic = ''
+            try { $dic = [System.IO.File]::ReadAllText($RutaDictado, [System.Text.Encoding]::UTF8) } catch {}
+            Remove-Item -LiteralPath $RutaDictado -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $MarcaDictar -Force -ErrorAction SilentlyContinue
+            $script:armed = $false
+            $capture.Hide()
+            Process-Texto ($dic.Trim())
+        } elseif (($sw.ElapsedMilliseconds - $script:dictaInicio) -ge 35000) {
+            # red de seguridad: si el worker no responde, no dejar el estado colgado
+            Log "dictado sin respuesta del worker; se cancela"
+            Remove-Item -LiteralPath $MarcaDictar -Force -ErrorAction SilentlyContinue
+            $script:armed = $false
+            $capture.Hide()
+        }
+    }
+
+    # --- ENVIO AUTOMATICO (solo para el dictado antiguo de Windows).
+    # Con Vosk el propio worker detecta el silencio y entrega el texto.
+    if ($script:armed -and $MotorDictado -ne 'vosk' -and $AutoSubmitMs -gt 0) {
         $actual = $tb.Text
         if ($actual -ne $script:lastText) {
             $script:lastText = $actual
