@@ -7,7 +7,7 @@
     "input":  {
                   "holdMs":  1100,
                   "autoSubmitMs":  2500,
-                  "dictado":  "vosk"
+                  "dictado":  "windows"
               },
     "opencode":  {
                      "timeoutMs":  240000
