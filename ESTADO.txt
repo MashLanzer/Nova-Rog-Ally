@@ -33,9 +33,12 @@ LA CÁPSULA (esquina inferior izquierda) = la cara del asistente
   Azul            : hablando; muestra lo que dice.
   Rojo            : algo falló (cancelado, no te escuché...).
   No roba clics ni foco: se puede jugar encima.
-  Está viva: parpadea de vez en cuando, lanza ondas al oír "nova", hace
-  un tic ✓ al ejecutar, "mueve la boca" al hablar, se sacude en error, y
-  cuando estás en un juego muestra SU ICONO como avatar.
+  Está viva: parpadea de vez en cuando, te sigue con la mirada, lanza
+  ondas y chispas al oír "nova", hace un tic ✓ al ejecutar, mueve la boca
+  con la voz real, se sacude en error, enseña el volumen y el brillo cuando
+  cambian, dibuja un anillo con el temporizador, avisa en ámbar con poca
+  batería, se pone cálida de noche, celebra cada hora de juego con una
+  medalla y cuando estás en un juego muestra SU ICONO como avatar.
   Apagarla: config.json -> ui.nueva = false (vuelve la barra vieja).
   Tras tocar nova_ui.cs: tools\compilar-ui.ps1 y reiniciar el asistente.
 

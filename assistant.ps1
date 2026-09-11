@@ -784,6 +784,8 @@ function Set-Brillo([int]$nivel) {
     }
     $met = Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods -ErrorAction Stop
     $null = Invoke-CimMethod -InputObject $met -MethodName WmiSetBrightness -Arguments @{ Timeout = [uint32]1; Brightness = [byte]$destino }
+    # la capsula ensena un sol con la barra del nivel un instante
+    try { Send-UIEvento "brillo:$destino" } catch {}
 }
 
 # Ejecuta la orden si TODA ella se reconoce. Devuelve el resumen, o $null
@@ -981,11 +983,15 @@ function Invoke-FastCommand([string]$text) {
                 'key' { for ($i = 0; $i -lt $a.repeat; $i++) { Send-Key $a.vk } }
                 'brillo' { Set-Brillo $a.nivel }
                 'memoria' { $null = Add-Memoria $a.texto }
-                'decir' { }   # la respuesta ES la descripcion; se dice y ya
+                'decir' {
+                    # la respuesta ES la descripcion; se dice y ya. Si es un
+                    # perfil, la capsula lo sabe ("noche" = paleta calida)
+                    if ($a.desc -match '^modo (\w+)$') { $script:uiPerfil = $Matches[1] }
+                }
                 'temporizador' {
                     $vence = $sw.ElapsedMilliseconds + $a.ms
                     $txt = if ($a.texto) { $a.texto } else { "se acabo el tiempo" }
-                    [void]$script:temporizadores.Add(@{ vence = $vence; texto = $txt })
+                    [void]$script:temporizadores.Add(@{ vence = $vence; texto = $txt; total = $a.ms })
                     $a.desc = "listo, te aviso en $($a.n) $($a.unidad)"
                 }
                 'tiempoJuego' {
@@ -1118,6 +1124,10 @@ function Say-Online([string]$texto) {
         if (-not $tarea.Wait(8000)) { Log "voz online: sin respuesta en 8 s"; return $false }
         $ruta = $tarea.Result
         if (-not $ruta -or $ruta.StartsWith('ERR')) { Log "voz online: $ruta"; return $false }
+        # la capsula mueve la boca con la envolvente de ESTE audio (<mp3>.env);
+        # se avisa justo antes de reproducir para que vayan sincronizados
+        $script:uiAudio = $ruta
+        Refresh-UI
         return (Play-Audio $ruta)
     } catch {
         Log ("voz online error: " + $_.Exception.Message)
@@ -1259,7 +1269,9 @@ function Say([string]$texto) {
         $script:finVoz = $sw.ElapsedMilliseconds
         $estimado = [Math]::Min(20000, ($t.Length * 70) + 1200)
         Pausar-Escucha $estimado
-        # la capsula muestra lo que se dice y vuelve al reposo al callar
+        # la capsula muestra lo que se dice y vuelve al reposo al callar. El
+        # audio se anade despues, cuando se sabe cual es (Say-Online).
+        $script:uiAudio = ''
         Set-UI 'hablando' $t ([Math]::Max($estimado, 2500))
     } catch {}
     # cadena de respaldo: si la red falla, sigue habiendo voz
@@ -1411,6 +1423,10 @@ $script:uiTexto = ''
 $script:uiEvento = ''
 $script:uiEventoN = 0
 $script:juegoExe = ''
+$script:uiAudio = ''        # mp3 que suena; la capsula busca <mp3>.env para mover la boca
+$script:uiBateria = 100
+$script:uiCargando = 0
+$script:uiPerfil = ''       # ultimo perfil aplicado ("noche" cambia la paleta)
 
 function ConvertTo-JsonTexto([string]$s) {
     $t = (($s -replace '[\r\n\t]+', ' ') -replace '\s+', ' ').Trim()
@@ -1423,9 +1439,24 @@ function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
     if ($t.Length -gt 140) { $t = $t.Substring(0, 137) + "..." }
     $script:uiEstado = $estado
     $script:uiTexto = $t
+    # temporizador mas proximo, en tiempo de reloj (ms Unix) para que la
+    # capsula dibuje el anillo con su propio reloj sin que haya que reescribir
+    $tFin = 0; $tTotal = 0
+    if ($script:temporizadores -and $script:temporizadores.Count -gt 0) {
+        $prox = $null
+        foreach ($tp in $script:temporizadores) { if ($null -eq $prox -or $tp.vence -lt $prox.vence) { $prox = $tp } }
+        if ($prox) {
+            $tFin = [DateTimeOffset]::Now.ToUnixTimeMilliseconds() + ($prox.vence - $sw.ElapsedMilliseconds)
+            $tTotal = $prox.total
+        }
+    }
     $json = '{"estado":"' + $estado + '","texto":"' + (ConvertTo-JsonTexto $t) + '","nivel":0' +
             ',"evento":"' + $script:uiEvento + '","n":' + $script:uiEventoN +
-            ',"juego":"' + (ConvertTo-JsonTexto $script:juegoExe) + '"}'
+            ',"juego":"' + (ConvertTo-JsonTexto $script:juegoExe) + '"' +
+            ',"audio":"' + (ConvertTo-JsonTexto $script:uiAudio) + '"' +
+            ',"bateria":' + $script:uiBateria + ',"cargando":' + $script:uiCargando +
+            ',"tempoFin":' + $tFin + ',"tempoTotal":' + $tTotal +
+            ',"perfil":"' + $script:uiPerfil + '"}'
     if ($json -ne $script:uiUltimo) {
         # UTF-8 SIN BOM: la interfaz lo lee tal cual y el BOM colaria un caracter
         try { [System.IO.File]::WriteAllText($RutaUiEstado, $json, (New-Object System.Text.UTF8Encoding $false)) } catch {}
@@ -1530,8 +1561,11 @@ $JuegoAvisoMin = [int](Get-Cfg 'juego' 'avisoMinutos' 120)
 $script:juegoBrilloAntes = $null
 $script:juegoAvisado = $false
 
+$script:juegoHoras = 0
+
 function Enter-Juego([string]$nombre) {
     $script:juegoAvisado = $false
+    $script:juegoHoras = 0
     $script:juegoBrilloAntes = $null
     if (-not $JuegoPerfilEntrar) { return }
     if (-not (Test-Prop $cmds.perfiles $JuegoPerfilEntrar)) { return }
@@ -2096,7 +2130,8 @@ function Complete-Confirmacion([string]$respuesta) {
 # ambos caminos se comporten EXACTAMENTE igual.
 function Start-Dictado([string]$origen) {
     Log "DICTADO ($origen)"
-    [System.Media.SystemSounds]::Exclamation.Play()
+    # con la capsula, el sonido lo pone ella (un tono corto, no la campana)
+    if (-not $UiNuevaOn) { [System.Media.SystemSounds]::Exclamation.Play() }
 
     # --- Dictado por Vosk: ni foco, ni Win+H, ni pausa de escucha ---
     # El worker ya tiene el microfono; solo hay que decirle que transcriba.
@@ -2245,7 +2280,7 @@ function Process-Texto([string]$text) {
     } else {
         # antes esto era mudo: no distinguias "fallo" de "no dije nada"
         Log "vacio, ignorado"
-        [System.Media.SystemSounds]::Hand.Play()
+        if (-not $UiNuevaOn) { [System.Media.SystemSounds]::Hand.Play() }
         Show-Popup "No te escuche. Intenta de nuevo." 'error'
     }
 }
@@ -2496,7 +2531,16 @@ while ($true) {
                 }
                 $script:juegoActivo = $j
                 Refresh-UI   # la capsula cambia de avatar
-            } elseif ($j -and $JuegoAvisoMin -gt 0 -and -not $script:juegoAvisado -and
+            } elseif ($j) {
+                # cada hora completa de juego, una "medalla" en la capsula (sin voz)
+                $horasJugadas = [int][Math]::Floor(($sw.ElapsedMilliseconds - $script:juegoDesde) / 3600000)
+                if ($horasJugadas -gt $script:juegoHoras) {
+                    $script:juegoHoras = $horasJugadas
+                    Log "JUEGO: $horasJugadas h con $j"
+                    Send-UIEvento 'logro'
+                }
+            }
+            if ($j -and $JuegoAvisoMin -gt 0 -and -not $script:juegoAvisado -and
                       (($sw.ElapsedMilliseconds - $script:juegoDesde) -ge ($JuegoAvisoMin * 60000))) {
                 $script:juegoAvisado = $true
                 $horas = [Math]::Round($JuegoAvisoMin / 60.0, 1)
@@ -2517,6 +2561,13 @@ while ($true) {
             if ($bat -and $bat.EstimatedChargeRemaining) {
                 $pc = [int]$bat.EstimatedChargeRemaining
                 $cargando = ($bat.BatteryStatus -eq 2)   # 2 = conectado a la red
+                # la insignia de la capsula avisa por debajo del 20 % y
+                # celebra la carga
+                $cg = if ($cargando) { 1 } else { 0 }
+                if ($pc -ne $script:uiBateria -or $cg -ne $script:uiCargando) {
+                    $script:uiBateria = $pc; $script:uiCargando = $cg
+                    Refresh-UI
+                }
                 if (-not $cargando -and $pc -le $BateriaAviso -and -not $script:bateriaAvisada) {
                     $script:bateriaAvisada = $true
                     Log "AVISO: bateria al $pc %"

@@ -9,44 +9,47 @@
 // COMUNICACION: el asistente escribe un JSON diminuto con el estado; aqui se
 // lee cada 80 ms. Es el mismo patron de archivos que ya usan los workers de
 // voz y de escucha, y evita cualquier problema de hilos.
-//   {"estado","texto","nivel","evento","n","juego"}
-//   estado : reposo | escuchando | pensando | hablando | error
-//   evento : animacion puntual (despierta, hecho, aviso); se dispara cuando
-//            cambia "n", asi que un mismo evento puede repetirse
-//   juego  : ruta del ejecutable del juego en primer plano; su icono pasa a
-//            ser el avatar y el punto se convierte en insignia de estado
-// El nivel del microfono llega por un archivo aparte (ui-nivel.txt) que
-// escribe el worker de escucha a 4 Hz, sin pasar por el asistente.
+//   estado     : reposo | escuchando | pensando | hablando | error
+//   texto      : lo que se muestra
+//   evento + n : animacion puntual (despierta, hecho, aviso, logro,
+//                brillo:NN); se dispara cuando cambia "n"
+//   juego      : ruta del ejecutable del juego en primer plano (su icono es
+//                el avatar; el punto pasa a insignia)
+//   audio      : mp3 que esta sonando; si existe <mp3>.env (envolvente a
+//                20 Hz que escribe el worker de voz), la boca se mueve con
+//                la voz REAL en vez de con silabas simuladas
+//   bateria / cargando : la insignia avisa por debajo del 20 % y celebra
+//                la carga
+//   tempoFin / tempoTotal : temporizador mas proximo (ms Unix / duracion):
+//                anillo que se vacia alrededor del punto
+//   perfil     : "noche" cambia la paleta a calida y el ritmo a lento
+// El nivel del microfono llega por ui-nivel.txt (worker de escucha, 4 Hz).
+// El volumen del sistema se lee AQUI por COM cada 250 ms: asi la capsula
+// reacciona tambien a los botones fisicos, no solo a las ordenes.
 //
-// CRISTAL DE VERDAD, NO PLASTICO:
-// La primera version tenia el relleno opaco y parecia una lamina de plastico.
-// Un cristal deja ver lo de detras, desenfocado. Windows no ofrece desenfoque
-// tras una ventana con forma de capsula (el acrilico de DWM es rectangular y
-// recortar la ventana por region deja bordes dentados), asi que se hace a
-// mano: se captura la pantalla justo detras, se desenfoca en la GPU y se usa
-// como fondo recortado con las esquinas redondas. Encima van un tinte oscuro
-// ligero, un grano apenas perceptible, un reflejo de luz arriba, una linea
-// especular en el canto y una sombra debajo.
+// CRISTAL DE VERDAD, NO PLASTICO: se captura la pantalla justo detras, se
+// desenfoca en la GPU y se usa de fondo recortado; encima tinte ligero,
+// grano apenas perceptible, reflejo arriba, linea especular y sombra.
 //
-// VIDA: nada de esto es funcional, y todo importa. El punto respira en
-// reposo y parpadea de vez en cuando; al oir el nombre lanza ondas; cuando
-// ejecuta algo local hace un tic; al hablar "mueve la boca"; al pensar
-// laten tres puntos; en error se sacude. Son las micro-animaciones que hacen
-// que parezca alguien y no una barra de progreso.
+// VIDA: nada de esto es funcional, y todo importa. Respira, parpadea, mira
+// al raton, lanza ondas y chispas al oir el nombre, hace un tic al ejecutar,
+// mueve la boca con la voz, late pensando y orbita si tarda, se sacude en
+// error, celebra las horas de juego, y suena (poco) al hacerlo.
 //
 // COMPILAR: tools\compilar-ui.ps1
 // USO: nova_ui.exe <ruta del json de estado> [PID del asistente]
-//   Si se da el PID, la interfaz se cierra sola cuando ese proceso muere: asi
-//   no queda una capsula huerfana en pantalla si el asistente se cae.
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Media;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -54,6 +57,44 @@ using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+
+// ---------------------------------------------------------------
+// Volumen maestro de Windows por COM (Core Audio). Solo lo que se usa; el
+// orden de los metodos es el de la vtable y NO se puede cambiar.
+// ---------------------------------------------------------------
+[ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
+class MMDeviceEnumeratorCom { }
+
+[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMMDeviceEnumerator
+{
+    int EnumAudioEndpoints(int dataFlow, int stateMask, out IntPtr devices);
+    int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice device);
+}
+
+[Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMMDevice
+{
+    int Activate(ref Guid iid, int clsCtx, IntPtr activationParams, [MarshalAs(UnmanagedType.IUnknown)] out object iface);
+}
+
+[Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IAudioEndpointVolume
+{
+    int RegisterControlChangeNotify(IntPtr p);
+    int UnregisterControlChangeNotify(IntPtr p);
+    int GetChannelCount(out uint n);
+    int SetMasterVolumeLevel(float db, ref Guid ctx);
+    int SetMasterVolumeLevelScalar(float v, ref Guid ctx);
+    int GetMasterVolumeLevel(out float db);
+    int GetMasterVolumeLevelScalar(out float v);
+    int SetChannelVolumeLevel(uint c, float db, ref Guid ctx);
+    int SetChannelVolumeLevelScalar(uint c, float v, ref Guid ctx);
+    int GetChannelVolumeLevel(uint c, out float db);
+    int GetChannelVolumeLevelScalar(uint c, out float v);
+    int SetMute([MarshalAs(UnmanagedType.Bool)] bool m, ref Guid ctx);
+    int GetMute([MarshalAs(UnmanagedType.Bool)] out bool m);
+}
 
 public class NovaUI : Window
 {
@@ -67,6 +108,7 @@ public class NovaUI : Window
     const double MARGEN = 24;          // holgura para la sombra y el resplandor
     const double RADIO_BLUR = 22;
     const int BARRAS_ONDA = 14;
+    const int PARTICULAS = 6;
 
     static string rutaEstado;
     static string rutaNivel;
@@ -80,19 +122,33 @@ public class NovaUI : Window
     DropShadowEffect resplandor;
     GradientStop bordeAbajo;
     TranslateTransform sacudida;
+    ScaleTransform escalaEnvoltorio;
 
     // el "rostro": punto, o icono del juego con el punto de insignia
     Grid esfera;
-    Ellipse punto, insignia, aroAvatar;
+    Ellipse punto, insignia, aroAvatar, reflejoPunto, orbita;
     Image avatar;
     Ellipse[] anillos;
-    System.Windows.Shapes.Path marcaHecho;
+    Ellipse[] chispas;
+    System.Windows.Shapes.Path marcaHecho, anilloTempo;
     ScaleTransform escalaPunto;
+    TranslateTransform mirada;
+    RotateTransform giroOrbita;
 
     StackPanel onda;
     Rectangle[] barras;
     StackPanel indicadorPensando;
     Ellipse[] puntitos;
+
+    // volumen / brillo: icono + barra que aparecen un instante
+    StackPanel panelNivel;
+    TextBlock glifoNivel;
+    Rectangle barraNivel;
+    DispatcherTimer ocultarNivel;
+    IAudioEndpointVolume volumen;
+    float volAnterior = -1;
+    bool muteAnterior = false;
+    int fallosVolumen = 0;
 
     TextBlock etiqueta;
     Canvas ventanaTexto;
@@ -103,14 +159,30 @@ public class NovaUI : Window
     string estadoActual = "";
     string textoActual = "";
     string juegoActual = "";
+    string audioActual = "";
+    string perfilActual = "";
     int eventoN = -1;
+    int bateria = 100;
+    bool cargando = false;
+    double tempoFin = 0, tempoTotal = 0;
+    bool tempoActivo = false;
     double nivelActual = 0, nivelObjetivo = 0;
     double fase = 0;
     // "boca": cuanto se hincha el punto al hablar
     double boca = 0, bocaObjetivo = 0;
     DateTime proximaSilaba = DateTime.MinValue;
+    double[] envolvente = null;
+    DateTime envInicio = DateTime.MinValue;
+    DateTime pensandoDesde = DateTime.MinValue;
+    bool orbitando = false;
+    bool nocheActual = false;
     Random azar = new Random();
     DispatcherTimer parpadeo;
+    Point raton = new Point(-1, -1);
+    DateTime ratonMovido = DateTime.MinValue;
+    double miradaX = 0, miradaY = 0;
+    SoundPlayer sonDespierta, sonHecho, sonError, sonLogro, sonAviso;
+    bool cerrando = false;
 
     // click-through: la barra nunca debe robar clics al juego
     const int GWL_EXSTYLE = -20;
@@ -120,6 +192,11 @@ public class NovaUI : Window
     [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h, int i);
     [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr h, int i, int v);
     [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr h);
+    [StructLayout(LayoutKind.Sequential)] struct PUNTO { public int X; public int Y; }
+    [StructLayout(LayoutKind.Sequential)] struct RECTA { public int L, T, R, B; }
+    [DllImport("user32.dll")] static extern bool GetCursorPos(out PUNTO p);
+    [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECTA r);
     // Para quedar POR ENCIMA de la barra de tareas. Topmost no basta: la barra
     // tambien lo es y, como esta ventana nunca se activa, la barra acababa
     // encima y tapaba media capsula. Se reafirma el orden en cada cambio de
@@ -160,6 +237,7 @@ public class NovaUI : Window
         Left = area.Left + 12 - MARGEN;
         Top = area.Bottom - ALTO - 12 - MARGEN;
 
+        nocheActual = EsNoche();
         Color acento = ColorDe("reposo");
 
         // ---------- capa 1: sombra de profundidad, negra, hacia abajo ----------
@@ -177,7 +255,12 @@ public class NovaUI : Window
         sombra.Opacity = 0.55;
         envoltorio.Effect = sombra;
         sacudida = new TranslateTransform();
-        envoltorio.RenderTransform = sacudida;
+        escalaEnvoltorio = new ScaleTransform(1, 1);
+        var grupoEnv = new TransformGroup();
+        grupoEnv.Children.Add(escalaEnvoltorio);
+        grupoEnv.Children.Add(sacudida);
+        envoltorio.RenderTransform = grupoEnv;
+        envoltorio.RenderTransformOrigin = new Point(ALTO / 2 / (ANCHO_BARRA), 0.5);
 
         // ---------- capa 2: la capsula, con resplandor de color y borde ----------
         resplandor = new DropShadowEffect();
@@ -227,12 +310,10 @@ public class NovaUI : Window
         blur.KernelType = KernelType.Gaussian;
         blur.RenderingBias = RenderingBias.Performance;
         fondoDesenfocado.Effect = blur;
-        // fondo de reserva por si la captura falla: mismo tono que el tinte
         interior.Background = new SolidColorBrush(Color.FromRgb(0x14, 0x17, 0x1E));
         interior.Children.Add(fondoDesenfocado);
 
-        // 3b: tinte oscuro LIGERO con un punto azul frio. Con 55-70 % de
-        // opacidad el fondo casi no se veia y parecia carton mate.
+        // 3b: tinte oscuro LIGERO con un punto azul frio
         var tinte = new Border();
         var tintePincel = new LinearGradientBrush();
         tintePincel.StartPoint = new Point(0, 0);
@@ -242,7 +323,7 @@ public class NovaUI : Window
         tinte.Background = tintePincel;
         interior.Children.Add(tinte);
 
-        // 3c: grano apenas perceptible. Al 7 % daba textura de papel.
+        // 3c: grano apenas perceptible
         var ruido = new Border();
         ruido.Background = CrearGrano();
         ruido.Opacity = 0.02;
@@ -272,8 +353,7 @@ public class NovaUI : Window
         brilloSuperior.Background = brilloPincel;
         interior.Children.Add(brilloSuperior);
 
-        // 3f: linea especular de 1 px en el canto superior, viva en el centro y
-        // apagada en las puntas: la luz "toca" el cristal en vez de banarlo
+        // 3f: linea especular de 1 px en el canto superior
         var especular = new Border();
         especular.VerticalAlignment = VerticalAlignment.Top;
         especular.Height = 1;
@@ -292,13 +372,51 @@ public class NovaUI : Window
         var fila = new StackPanel();
         fila.Orientation = Orientation.Horizontal;
         fila.VerticalAlignment = VerticalAlignment.Center;
-        // Alineada a la izquierda SIEMPRE: con Stretch, si la fila media mas
-        // que el circulo de reposo WPF la desplazaba y el punto salia cortado.
         fila.HorizontalAlignment = HorizontalAlignment.Left;
         fila.Margin = new Thickness((ALTO - AVATAR) / 2, 0, 0, 0);
 
         ConstruirRostro(acento);
         fila.Children.Add(esfera);
+
+        // volumen / brillo: icono de Segoe MDL2 y barra fina
+        panelNivel = new StackPanel();
+        panelNivel.Orientation = Orientation.Horizontal;
+        panelNivel.VerticalAlignment = VerticalAlignment.Center;
+        panelNivel.Margin = new Thickness(12, 0, 0, 0);
+        panelNivel.Visibility = Visibility.Collapsed;
+        panelNivel.Opacity = 0;
+        glifoNivel = new TextBlock();
+        glifoNivel.FontFamily = new FontFamily("Segoe MDL2 Assets, Segoe Fluent Icons");
+        glifoNivel.FontSize = 15;
+        glifoNivel.Foreground = new SolidColorBrush(Color.FromRgb(0xF2, 0xF5, 0xF8));
+        glifoNivel.VerticalAlignment = VerticalAlignment.Center;
+        glifoNivel.Text = "";
+        panelNivel.Children.Add(glifoNivel);
+        var pista = new Border();
+        pista.Width = 72; pista.Height = 4;
+        pista.CornerRadius = new CornerRadius(2);
+        pista.Background = new SolidColorBrush(Color.FromArgb(0x50, 0xFF, 0xFF, 0xFF));
+        pista.Margin = new Thickness(10, 0, 0, 0);
+        pista.VerticalAlignment = VerticalAlignment.Center;
+        barraNivel = new Rectangle();
+        barraNivel.Height = 4; barraNivel.Width = 36;
+        barraNivel.RadiusX = 2; barraNivel.RadiusY = 2;
+        barraNivel.HorizontalAlignment = HorizontalAlignment.Left;
+        barraNivel.Fill = new SolidColorBrush(acento);
+        pista.Child = barraNivel;
+        panelNivel.Children.Add(pista);
+        fila.Children.Add(panelNivel);
+        ocultarNivel = new DispatcherTimer();
+        ocultarNivel.Interval = TimeSpan.FromMilliseconds(1500);
+        ocultarNivel.Tick += delegate
+        {
+            ocultarNivel.Stop();
+            Desvanecer(panelNivel, 0, 200);
+            var t = new DispatcherTimer();
+            t.Interval = TimeSpan.FromMilliseconds(220);
+            t.Tick += delegate { t.Stop(); panelNivel.Visibility = Visibility.Collapsed; Aplicar(estadoActual, textoActual, false); };
+            t.Start();
+        };
 
         // onda de audio: reacciona al nivel real del microfono
         onda = new StackPanel();
@@ -354,9 +472,8 @@ public class NovaUI : Window
         etiqueta.RenderTransform = desplaz;
 
         // El texto largo NO agranda la capsula: se desplaza dentro de esta
-        // ventana recortada. Es un Canvas y no un Grid a proposito: el Grid
-        // mide al TextBlock con el ancho del hueco y WPF le aplica un recorte
-        // de diseno que viaja con la transformacion, y el texto desaparecia.
+        // ventana recortada. Canvas y no Grid: el Grid aplica al TextBlock un
+        // recorte de diseno que viaja con la transformacion.
         ventanaTexto = new Canvas();
         ventanaTexto.ClipToBounds = true;
         ventanaTexto.Height = 20;
@@ -384,6 +501,9 @@ public class NovaUI : Window
         lienzo.Children.Add(envoltorio);
         Content = lienzo;
 
+        CrearSonidos();
+        IniciarVolumen();
+
         Loaded += delegate
         {
             var h = new WindowInteropHelper(this).Handle;
@@ -393,6 +513,7 @@ public class NovaUI : Window
             PonerEncima();
             Latido();
             CapturarFondo();
+            EntradaEnEscena();
         };
 
         var relojZ = new DispatcherTimer();
@@ -410,8 +531,19 @@ public class NovaUI : Window
         reloj2.Tick += delegate { Tic33(); };
         reloj2.Start();
 
-        // parpadeo: cada 4-9 s, solo en reposo o escuchando. Es lo que mas
-        // "vivo" lo hace con menos: un gesto involuntario.
+        // 4 Hz: volumen del sistema, anillo del temporizador, espera larga
+        var reloj4 = new DispatcherTimer();
+        reloj4.Interval = TimeSpan.FromMilliseconds(250);
+        reloj4.Tick += delegate { Tic250(); };
+        reloj4.Start();
+
+        // mirada: sigue al raton (o a la ventana activa si el raton no se mueve)
+        var relojMirada = new DispatcherTimer();
+        relojMirada.Interval = TimeSpan.FromMilliseconds(66);
+        relojMirada.Tick += delegate { Mirar(); };
+        relojMirada.Start();
+
+        // parpadeo: cada 4-9 s, solo en reposo o escuchando
         parpadeo = new DispatcherTimer();
         parpadeo.Interval = TimeSpan.FromSeconds(5);
         parpadeo.Tick += delegate
@@ -420,6 +552,22 @@ public class NovaUI : Window
             if (estadoActual == "reposo" || estadoActual == "escuchando" || estadoActual == "") { Parpadear(); }
         };
         parpadeo.Start();
+
+        // cargando: un destello verde cada 4 s en la insignia / el punto
+        var relojCarga = new DispatcherTimer();
+        relojCarga.Interval = TimeSpan.FromSeconds(4);
+        relojCarga.Tick += delegate { if (cargando) { DestelloCarga(); } };
+        relojCarga.Start();
+
+        // cada minuto: ¿ha cambiado el animo (noche/dia)?
+        var relojAnimo = new DispatcherTimer();
+        relojAnimo.Interval = TimeSpan.FromSeconds(60);
+        relojAnimo.Tick += delegate
+        {
+            bool n = EsNoche();
+            if (n != nocheActual) { nocheActual = n; Latido(); Aplicar(estadoActual, textoActual, false); }
+        };
+        relojAnimo.Start();
 
         if (pidPadre > 0)
         {
@@ -430,14 +578,15 @@ public class NovaUI : Window
                 bool vivo = true;
                 try { using (var p = Process.GetProcessById(pidPadre)) { vivo = !p.HasExited; } }
                 catch { vivo = false; }
-                if (!vivo) { Application.Current.Shutdown(); }
+                if (!vivo) { vigia.Stop(); SalidaDeEscena(); }
             };
             vigia.Start();
         }
     }
 
     // El punto (o el icono del juego con el punto como insignia), los anillos
-    // de las ondas y la marca del tic, todos en un hueco de 24x24.
+    // de las ondas, las chispas, la marca del tic, el anillo del temporizador
+    // y el punto que orbita, todos en un hueco de 24x24.
     void ConstruirRostro(Color acento)
     {
         esfera = new Grid();
@@ -458,6 +607,52 @@ public class NovaUI : Window
             anillos[i] = a;
             esfera.Children.Add(a);
         }
+
+        // chispas: puntitos que salen disparados al despertar
+        chispas = new Ellipse[PARTICULAS];
+        for (int i = 0; i < PARTICULAS; i++)
+        {
+            var c = new Ellipse();
+            c.Width = 2.5; c.Height = 2.5;
+            c.Fill = new SolidColorBrush(Colors.White);
+            c.Opacity = 0;
+            c.IsHitTestVisible = false;
+            c.RenderTransform = new TranslateTransform(0, 0);
+            chispas[i] = c;
+            esfera.Children.Add(c);
+        }
+
+        // anillo del temporizador: un arco que se va vaciando, mas grande que
+        // el hueco (el Grid no recorta)
+        anilloTempo = new System.Windows.Shapes.Path();
+        anilloTempo.Width = AVATAR + 8; anilloTempo.Height = AVATAR + 8;
+        anilloTempo.Margin = new Thickness(-4);
+        anilloTempo.Stroke = new SolidColorBrush(acento);
+        anilloTempo.StrokeThickness = 2;
+        anilloTempo.StrokeStartLineCap = PenLineCap.Round;
+        anilloTempo.StrokeEndLineCap = PenLineCap.Round;
+        anilloTempo.Opacity = 0;
+        anilloTempo.IsHitTestVisible = false;
+        esfera.Children.Add(anilloTempo);
+
+        // punto que orbita cuando la espera se alarga
+        var pistaOrbita = new Grid();
+        pistaOrbita.Width = AVATAR + 10; pistaOrbita.Height = AVATAR + 10;
+        pistaOrbita.Margin = new Thickness(-5);
+        pistaOrbita.RenderTransformOrigin = new Point(0.5, 0.5);
+        giroOrbita = new RotateTransform(0);
+        pistaOrbita.RenderTransform = giroOrbita;
+        orbita = new Ellipse();
+        orbita.Width = 4; orbita.Height = 4;
+        orbita.HorizontalAlignment = HorizontalAlignment.Center;
+        orbita.VerticalAlignment = VerticalAlignment.Top;
+        orbita.Fill = new SolidColorBrush(acento);
+        var brilloOrb = new DropShadowEffect();
+        brilloOrb.Color = acento; brilloOrb.BlurRadius = 6; brilloOrb.ShadowDepth = 0; brilloOrb.Opacity = 0.9;
+        orbita.Effect = brilloOrb;
+        orbita.Opacity = 0;
+        pistaOrbita.Children.Add(orbita);
+        esfera.Children.Add(pistaOrbita);
 
         // icono del juego: circular, con un aro del color del estado
         avatar = new Image();
@@ -488,17 +683,20 @@ public class NovaUI : Window
         brilloPunto.Color = acento; brilloPunto.BlurRadius = 10; brilloPunto.ShadowDepth = 0; brilloPunto.Opacity = 0.9;
         punto.Effect = brilloPunto;
         cuerpo.Children.Add(punto);
-        var reflejo = new Ellipse();
-        reflejo.Width = DIAM_PUNTO * 0.45; reflejo.Height = DIAM_PUNTO * 0.32;
-        reflejo.HorizontalAlignment = HorizontalAlignment.Left;
-        reflejo.VerticalAlignment = VerticalAlignment.Top;
-        reflejo.Margin = new Thickness(DIAM_PUNTO * 0.22, DIAM_PUNTO * 0.14, 0, 0);
+        // el reflejo es la "pupila": se desplaza hacia donde mira
+        reflejoPunto = new Ellipse();
+        reflejoPunto.Width = DIAM_PUNTO * 0.45; reflejoPunto.Height = DIAM_PUNTO * 0.32;
+        reflejoPunto.HorizontalAlignment = HorizontalAlignment.Left;
+        reflejoPunto.VerticalAlignment = VerticalAlignment.Top;
+        reflejoPunto.Margin = new Thickness(DIAM_PUNTO * 0.22, DIAM_PUNTO * 0.14, 0, 0);
         var reflejoPincel = new LinearGradientBrush();
         reflejoPincel.StartPoint = new Point(0, 0); reflejoPincel.EndPoint = new Point(0, 1);
         reflejoPincel.GradientStops.Add(new GradientStop(Color.FromArgb(0xB0, 0xFF, 0xFF, 0xFF), 0));
         reflejoPincel.GradientStops.Add(new GradientStop(Color.FromArgb(0x10, 0xFF, 0xFF, 0xFF), 1));
-        reflejo.Fill = reflejoPincel;
-        cuerpo.Children.Add(reflejo);
+        reflejoPunto.Fill = reflejoPincel;
+        mirada = new TranslateTransform(0, 0);
+        reflejoPunto.RenderTransform = mirada;
+        cuerpo.Children.Add(reflejoPunto);
         // la marca del tic, encima del punto
         marcaHecho = new System.Windows.Shapes.Path();
         marcaHecho.Data = Geometry.Parse("M 3.2,7.4 L 5.9,10.1 L 10.8,4.4");
@@ -560,9 +758,122 @@ public class NovaUI : Window
         return b;
     }
 
+    // ---------------------------------------------------------------
+    // Sonidos: tonos sintetizados en memoria, cortos y suaves. Nada de la
+    // campana de Windows.
+    // ---------------------------------------------------------------
+    static SoundPlayer Tono(double amplitud, params double[] notasYms)
+    {
+        const int tasa = 22050;
+        var muestras = new List<short>();
+        for (int k = 0; k + 1 < notasYms.Length; k += 2)
+        {
+            double f = notasYms[k];
+            int n = (int)(tasa * notasYms[k + 1] / 1000.0);
+            for (int i = 0; i < n; i++)
+            {
+                double t = (double)i / tasa;
+                // envolvente: ataque 5 ms, caida hacia el final
+                double env = Math.Min(1.0, i / (tasa * 0.005)) * (1.0 - (double)i / n);
+                double v = Math.Sin(2 * Math.PI * f * t) * 0.8 + Math.Sin(2 * Math.PI * f * 2 * t) * 0.2;
+                muestras.Add((short)(v * env * amplitud * 32767));
+            }
+        }
+        int bytes = muestras.Count * 2;
+        var ms = new MemoryStream();
+        var w = new BinaryWriter(ms);
+        w.Write(new[] { 'R', 'I', 'F', 'F' }); w.Write(36 + bytes); w.Write(new[] { 'W', 'A', 'V', 'E' });
+        w.Write(new[] { 'f', 'm', 't', ' ' }); w.Write(16); w.Write((short)1); w.Write((short)1);
+        w.Write(tasa); w.Write(tasa * 2); w.Write((short)2); w.Write((short)16);
+        w.Write(new[] { 'd', 'a', 't', 'a' }); w.Write(bytes);
+        foreach (var s in muestras) { w.Write(s); }
+        w.Flush();
+        ms.Position = 0;
+        var sp = new SoundPlayer(ms);
+        sp.Load();
+        return sp;
+    }
+
+    void CrearSonidos()
+    {
+        try
+        {
+            sonDespierta = Tono(0.16, 523, 70, 784, 90);
+            sonHecho = Tono(0.14, 988, 55);
+            sonError = Tono(0.16, 220, 130);
+            sonLogro = Tono(0.15, 659, 60, 880, 60, 1175, 110);
+            sonAviso = Tono(0.15, 740, 80, 740, 80);
+        }
+        catch { }
+    }
+
+    static void Sonar(SoundPlayer s)
+    {
+        try { if (s != null) { s.Play(); } } catch { }
+    }
+
+    // ---------------------------------------------------------------
+    // Volumen del sistema (COM)
+    // ---------------------------------------------------------------
+    void IniciarVolumen()
+    {
+        try
+        {
+            var enumerador = (IMMDeviceEnumerator)new MMDeviceEnumeratorCom();
+            IMMDevice dispositivo;
+            if (enumerador.GetDefaultAudioEndpoint(0, 0, out dispositivo) != 0) { volumen = null; return; }
+            Guid iid = typeof(IAudioEndpointVolume).GUID;
+            object o;
+            if (dispositivo.Activate(ref iid, 23, IntPtr.Zero, out o) != 0) { volumen = null; return; }
+            volumen = (IAudioEndpointVolume)o;
+            float v; bool m;
+            volumen.GetMasterVolumeLevelScalar(out v);
+            volumen.GetMute(out m);
+            volAnterior = v; muteAnterior = m;
+        }
+        catch { volumen = null; }
+    }
+
+    void VigilarVolumen()
+    {
+        if (volumen == null)
+        {
+            // el dispositivo por defecto puede cambiar (auriculares): reintentar
+            if (++fallosVolumen % 40 == 0) { IniciarVolumen(); }
+            return;
+        }
+        try
+        {
+            float v; bool m;
+            if (volumen.GetMasterVolumeLevelScalar(out v) != 0 || volumen.GetMute(out m) != 0) { volumen = null; return; }
+            bool cambio = (Math.Abs(v - volAnterior) > 0.005f) || (m != muteAnterior);
+            volAnterior = v; muteAnterior = m;
+            if (cambio) { MostrarNivel(m ? "" : (v < 0.01f ? "" : (v < 0.5f ? "" : "")), m ? 0 : v); }
+        }
+        catch { volumen = null; }
+    }
+
+    // La capsula se abre un instante con el icono y una barra. Solo en reposo:
+    // en cualquier otro estado ya hay algo mas importante en pantalla.
+    void MostrarNivel(string glifo, double valor)
+    {
+        if (estadoActual != "reposo" && estadoActual != "") { return; }
+        glifoNivel.Text = glifo;
+        var anchoBarra = new DoubleAnimation(Math.Max(0, Math.Min(1, valor)) * 72, TimeSpan.FromMilliseconds(220));
+        anchoBarra.EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut };
+        barraNivel.BeginAnimation(WidthProperty, anchoBarra);
+        if (panelNivel.Visibility != Visibility.Visible)
+        {
+            panelNivel.Visibility = Visibility.Visible;
+            Desvanecer(panelNivel, 1, 180);
+            double fijo = (ALTO - AVATAR) / 2 + AVATAR + 16 + 2;
+            Expandir(fijo + 12 + 15 + 10 + 72, true);
+        }
+        ocultarNivel.Stop();
+        ocultarNivel.Start();
+    }
+
     // Captura lo que hay detras de la capsula y lo deja desenfocado de fondo.
-    // La ventana se vuelve invisible durante un instante para no capturarse a
-    // si misma; es un parpadeo de ~50 ms que solo ocurre al expandirse.
     void CapturarFondo()
     {
         try
@@ -607,11 +918,23 @@ public class NovaUI : Window
     }
 
     // ---------------------------------------------------------------
-    // Vida: respiracion, parpadeo, boca, ondas, tic, sacudida
+    // Vida
     // ---------------------------------------------------------------
+    static bool EsNoche()
+    {
+        int h = DateTime.Now.Hour;
+        return h >= 22 || h < 7;
+    }
+
+    bool Noche() { return nocheActual || perfilActual == "noche"; }
+    bool BateriaBaja() { return bateria <= 20 && !cargando; }
+
     void Latido()
     {
-        var a = new DoubleAnimation(0.55, 1.0, TimeSpan.FromMilliseconds(1700));
+        // respiracion: normal 1,7 s; de noche mas lenta; con poca bateria, inquieta
+        double periodo = Noche() ? 2600 : 1700;
+        if (BateriaBaja()) { periodo = 900; }
+        var a = new DoubleAnimation(0.55, 1.0, TimeSpan.FromMilliseconds(periodo));
         a.AutoReverse = true;
         a.RepeatBehavior = RepeatBehavior.Forever;
         a.EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut };
@@ -633,7 +956,7 @@ public class NovaUI : Window
         }
     }
 
-    // el punto se hincha con un rebote elastico (al despertar)
+    // el punto se hincha con un rebote elastico
     void Saltar(double cuanto)
     {
         var a = new DoubleAnimation(cuanto, 1.0, TimeSpan.FromMilliseconds(650));
@@ -672,6 +995,31 @@ public class NovaUI : Window
         }
     }
 
+    // chispas que salen disparadas del punto en direcciones aleatorias
+    void Chispas(Color c)
+    {
+        foreach (var ch in chispas)
+        {
+            double ang = azar.NextDouble() * Math.PI * 2;
+            double d = 15 + azar.NextDouble() * 12;
+            ch.Fill = new SolidColorBrush(azar.NextDouble() < 0.5 ? Colors.White : c);
+            var tr = ch.RenderTransform as TranslateTransform;
+            var ax = new DoubleAnimation(0, Math.Cos(ang) * d, TimeSpan.FromMilliseconds(520));
+            var ay = new DoubleAnimation(0, Math.Sin(ang) * d, TimeSpan.FromMilliseconds(520));
+            ax.EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut };
+            ay.EasingFunction = ax.EasingFunction;
+            ax.FillBehavior = FillBehavior.Stop; ay.FillBehavior = FillBehavior.Stop;
+            var op = new DoubleAnimationUsingKeyFrames();
+            op.KeyFrames.Add(new LinearDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+            op.KeyFrames.Add(new LinearDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(180))));
+            op.KeyFrames.Add(new LinearDoubleKeyFrame(0.0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(520))));
+            op.FillBehavior = FillBehavior.Stop;
+            tr.BeginAnimation(TranslateTransform.XProperty, ax);
+            tr.BeginAnimation(TranslateTransform.YProperty, ay);
+            ch.BeginAnimation(OpacityProperty, op);
+        }
+    }
+
     // tic: destello blanco del punto y una marca de "hecho" que aparece y se va
     void MarcarHecho()
     {
@@ -689,6 +1037,7 @@ public class NovaUI : Window
         marcaHecho.BeginAnimation(OpacityProperty, k);
         Saltar(1.35);
         Ondas(1, c);
+        Sonar(sonHecho);
     }
 
     void Sacudir()
@@ -702,15 +1051,97 @@ public class NovaUI : Window
         }
         k.FillBehavior = FillBehavior.Stop;
         sacudida.BeginAnimation(TranslateTransform.XProperty, k);
+        Sonar(sonError);
+    }
+
+    // medalla: oro en el aro, la insignia y el punto, salto y ondas doradas
+    void Logro()
+    {
+        Color oro = Color.FromRgb(0xFF, 0xD3, 0x6A);
+        Color c = ColorDe(estadoActual == "" ? "reposo" : estadoActual);
+        foreach (var b in new[] { punto.Fill, insignia.Fill, aroAvatar.Stroke })
+        {
+            var sb = b as SolidColorBrush;
+            if (sb == null) { continue; }
+            var k = new ColorAnimationUsingKeyFrames();
+            k.KeyFrames.Add(new LinearColorKeyFrame(oro, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(150))));
+            k.KeyFrames.Add(new LinearColorKeyFrame(oro, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(1400))));
+            k.KeyFrames.Add(new LinearColorKeyFrame(c, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(1900))));
+            sb.BeginAnimation(SolidColorBrush.ColorProperty, k);
+        }
+        Saltar(1.5);
+        Ondas(2, oro);
+        Chispas(oro);
+        Sonar(sonLogro);
+    }
+
+    void DestelloCarga()
+    {
+        Color verde = Color.FromRgb(0x3D, 0xF0, 0x9A);
+        Color c = ColorDe(estadoActual == "" ? "reposo" : estadoActual);
+        foreach (var b in new[] { punto.Fill, insignia.Fill })
+        {
+            var sb = b as SolidColorBrush;
+            if (sb == null) { continue; }
+            var k = new ColorAnimationUsingKeyFrames();
+            k.KeyFrames.Add(new LinearColorKeyFrame(verde, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(200))));
+            k.KeyFrames.Add(new LinearColorKeyFrame(c, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(800))));
+            sb.BeginAnimation(SolidColorBrush.ColorProperty, k);
+        }
+    }
+
+    // al arrancar: el punto nace desde el centro con una onda
+    void EntradaEnEscena()
+    {
+        escalaEnvoltorio.ScaleX = 0.2; escalaEnvoltorio.ScaleY = 0.2;
+        envoltorio.Opacity = 0;
+        var s = new DoubleAnimation(0.2, 1.0, TimeSpan.FromMilliseconds(700));
+        s.EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.7 };
+        s.FillBehavior = FillBehavior.Stop;
+        s.Completed += delegate { escalaEnvoltorio.ScaleX = 1; escalaEnvoltorio.ScaleY = 1; };
+        escalaEnvoltorio.BeginAnimation(ScaleTransform.ScaleXProperty, s);
+        escalaEnvoltorio.BeginAnimation(ScaleTransform.ScaleYProperty, s);
+        var o = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(400));
+        envoltorio.BeginAnimation(OpacityProperty, o);
+        var t = new DispatcherTimer();
+        t.Interval = TimeSpan.FromMilliseconds(350);
+        t.Tick += delegate { t.Stop(); Ondas(2, ColorDe("reposo")); };
+        t.Start();
+    }
+
+    // al morir el asistente: se aplasta en una linea y se apaga, como un
+    // tubo de television antiguo
+    void SalidaDeEscena()
+    {
+        if (cerrando) { return; }
+        cerrando = true;
+        var sy = new DoubleAnimation(1.0, 0.04, TimeSpan.FromMilliseconds(220));
+        sy.EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn };
+        var sx = new DoubleAnimation(1.0, 0.0, TimeSpan.FromMilliseconds(260));
+        sx.BeginTime = TimeSpan.FromMilliseconds(200);
+        sx.EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn };
+        sx.Completed += delegate { Application.Current.Shutdown(); };
+        escalaEnvoltorio.BeginAnimation(ScaleTransform.ScaleYProperty, sy);
+        escalaEnvoltorio.BeginAnimation(ScaleTransform.ScaleXProperty, sx);
+        // red de seguridad: si la animacion no llega, cerrar igual
+        var t = new DispatcherTimer();
+        t.Interval = TimeSpan.FromMilliseconds(900);
+        t.Tick += delegate { Application.Current.Shutdown(); };
+        t.Start();
     }
 
     void Evento(string nombre)
     {
+        string arg = "";
+        int dp = nombre.IndexOf(':');
+        if (dp > 0) { arg = nombre.Substring(dp + 1); nombre = nombre.Substring(0, dp); }
         switch (nombre)
         {
             case "despierta":
                 Saltar(1.6);
                 Ondas(2, ColorDe("escuchando"));
+                Chispas(ColorDe("escuchando"));
+                Sonar(sonDespierta);
                 break;
             case "hecho":
                 MarcarHecho();
@@ -718,22 +1149,71 @@ public class NovaUI : Window
             case "aviso":
                 Saltar(1.4);
                 Ondas(2, ColorDe("pensando"));
+                Sonar(sonAviso);
+                break;
+            case "logro":
+                Logro();
                 break;
             case "error":
                 Sacudir();
                 break;
+            case "brillo":
+                {
+                    double v;
+                    if (double.TryParse(arg, NumberStyles.Any, CultureInfo.InvariantCulture, out v)) { MostrarNivel("", v / 100.0); }
+                    break;
+                }
         }
+    }
+
+    // la pupila (el reflejo) se desplaza hacia el raton; si el raton lleva
+    // 8 s quieto, hacia el centro de la ventana activa; si no hay, al frente
+    void Mirar()
+    {
+        double ox = 0, oy = 0;
+        try
+        {
+            PUNTO p;
+            if (GetCursorPos(out p))
+            {
+                if (p.X != raton.X || p.Y != raton.Y) { raton = new Point(p.X, p.Y); ratonMovido = DateTime.UtcNow; }
+            }
+            Point objetivo = new Point(double.NaN, double.NaN);
+            if ((DateTime.UtcNow - ratonMovido).TotalSeconds < 8) { objetivo = raton; }
+            else
+            {
+                IntPtr h = GetForegroundWindow();
+                RECTA r;
+                if (h != IntPtr.Zero && h != hwnd && GetWindowRect(h, out r) && r.R > r.L && r.B > r.T)
+                {
+                    objetivo = new Point((r.L + r.R) / 2.0, (r.T + r.B) / 2.0);
+                }
+            }
+            if (!double.IsNaN(objetivo.X))
+            {
+                Point centro = esfera.PointToScreen(new Point(AVATAR / 2, AVATAR / 2));
+                double dx = objetivo.X - centro.X, dy = objetivo.Y - centro.Y;
+                double dist = Math.Sqrt(dx * dx + dy * dy);
+                if (dist > 30)
+                {
+                    ox = dx / dist * 2.4;
+                    oy = dy / dist * 1.6;
+                }
+            }
+        }
+        catch { }
+        miradaX += (ox - miradaX) * 0.18;
+        miradaY += (oy - miradaY) * 0.18;
+        mirada.X = miradaX;
+        mirada.Y = miradaY;
     }
 
     // 30 veces por segundo: onda del microfono y boca al hablar
     void Tic33()
     {
-        // --- onda ---
         if (onda.Visibility == Visibility.Visible)
         {
             fase += 0.45;
-            // el nivel real llega a 4 Hz (bloques de 250 ms); se persigue con
-            // un suavizado y un minimo lo mantiene respirando en el silencio
             nivelActual += (nivelObjetivo - nivelActual) * 0.22;
             double nivel = Math.Max(nivelActual, 0.18);
             for (int i = 0; i < barras.Length; i++)
@@ -747,17 +1227,26 @@ public class NovaUI : Window
             }
         }
 
-        // --- boca: silabas simuladas mientras habla ---
         if (estadoActual == "hablando")
         {
             var ahora = DateTime.UtcNow;
-            if (ahora >= proximaSilaba)
+            if (envolvente != null)
             {
-                // una de cada cuatro es una pausa entre palabras
+                // boca con la voz REAL: envolvente a 20 Hz; el asistente
+                // arranca la reproduccion ~250 ms despues de avisar
+                double t = (ahora - envInicio).TotalMilliseconds - 300;
+                int idx = (int)(t / 50);
+                if (t < 0) { bocaObjetivo = 0; }
+                else if (idx < envolvente.Length) { bocaObjetivo = envolvente[idx] * 0.5; }
+                else { bocaObjetivo = 0; }
+            }
+            else if (ahora >= proximaSilaba)
+            {
+                // silabas simuladas: una de cada cuatro es una pausa
                 bocaObjetivo = azar.NextDouble() < 0.25 ? 0.0 : 0.12 + azar.NextDouble() * 0.33;
                 proximaSilaba = ahora.AddMilliseconds(80 + azar.NextDouble() * 130);
             }
-            boca += (bocaObjetivo - boca) * 0.4;
+            boca += (bocaObjetivo - boca) * 0.45;
             resplandor.Opacity = 0.45 + boca * 0.9;
         }
         else if (boca > 0.001)
@@ -775,14 +1264,77 @@ public class NovaUI : Window
         }
     }
 
+    // 4 veces por segundo: volumen, anillo del temporizador, espera larga
+    void Tic250()
+    {
+        VigilarVolumen();
+
+        // --- temporizador ---
+        if (tempoFin > 0 && tempoTotal > 0)
+        {
+            double ahora = (DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds;
+            double resta = tempoFin - ahora;
+            if (resta <= 0)
+            {
+                if (tempoActivo)
+                {
+                    tempoActivo = false;
+                    anilloTempo.Opacity = 0;
+                    Ondas(2, ColorDe("pensando"));
+                }
+            }
+            else
+            {
+                double progreso = Math.Max(0, Math.Min(1, resta / tempoTotal));
+                DibujarArco(progreso);
+                if (!tempoActivo) { tempoActivo = true; Desvanecer(anilloTempo, 0.9, 300); }
+            }
+        }
+        else if (tempoActivo)
+        {
+            tempoActivo = false;
+            Desvanecer(anilloTempo, 0, 300);
+        }
+
+        // --- espera larga: los tres puntos se vuelven un punto que orbita ---
+        if (estadoActual == "pensando" && !orbitando && (DateTime.UtcNow - pensandoDesde).TotalSeconds >= 20)
+        {
+            orbitando = true;
+            MostrarPuntitos(false);
+            Desvanecer(orbita, 1, 300);
+            var g = new DoubleAnimation(0, 360, TimeSpan.FromMilliseconds(2400));
+            g.RepeatBehavior = RepeatBehavior.Forever;
+            giroOrbita.BeginAnimation(RotateTransform.AngleProperty, g);
+            Aplicar(estadoActual, textoActual, false);
+        }
+    }
+
+    // arco de 12 en punto en sentido horario, que se acorta con el tiempo
+    void DibujarArco(double fraccion)
+    {
+        double r = (AVATAR + 8) / 2 - 1;
+        double cx = (AVATAR + 8) / 2, cy = cx;
+        if (fraccion >= 0.999) { fraccion = 0.999; }
+        if (fraccion <= 0.002) { anilloTempo.Data = null; return; }
+        double ang = fraccion * Math.PI * 2;
+        Point ini = new Point(cx, cy - r);
+        Point fin = new Point(cx + r * Math.Sin(ang), cy - r * Math.Cos(ang));
+        var fig = new PathFigure();
+        fig.StartPoint = ini;
+        fig.Segments.Add(new ArcSegment(fin, new Size(r, r), 0, fraccion > 0.5, SweepDirection.Clockwise, true));
+        var geo = new PathGeometry();
+        geo.Figures.Add(fig);
+        anilloTempo.Data = geo;
+    }
+
     // ---------------------------------------------------------------
     // Estado
     // ---------------------------------------------------------------
     void LeerEstado()
     {
-        string est = "reposo", txt = "", evento = "", juego = "";
-        double niv = 0;
-        int n = 0;
+        string est = "reposo", txt = "", evento = "", juego = "", audio = "", perfil = "";
+        double niv = 0, tFin = 0, tTotal = 0;
+        int n = 0, bat = 100, carg = 0;
         try
         {
             if (File.Exists(rutaEstado))
@@ -792,14 +1344,18 @@ public class NovaUI : Window
                 txt = Campo(j, "texto", "");
                 evento = Campo(j, "evento", "");
                 juego = Campo(j, "juego", "");
+                audio = Campo(j, "audio", "");
+                perfil = Campo(j, "perfil", "");
                 double.TryParse(Campo(j, "nivel", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out niv);
                 int.TryParse(Campo(j, "n", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out n);
+                int.TryParse(Campo(j, "bateria", "100"), NumberStyles.Any, CultureInfo.InvariantCulture, out bat);
+                int.TryParse(Campo(j, "cargando", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out carg);
+                double.TryParse(Campo(j, "tempoFin", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out tFin);
+                double.TryParse(Campo(j, "tempoTotal", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out tTotal);
             }
         }
         catch { }
 
-        // el nivel del microfono viene por otro archivo, escrito por el worker
-        // de escucha; si lleva mas de 1 s sin actualizarse, es que no dicta
         if (est == "escuchando" && rutaNivel != null)
         {
             try
@@ -813,6 +1369,18 @@ public class NovaUI : Window
             catch { }
         }
         nivelObjetivo = niv;
+        tempoFin = tFin; tempoTotal = tTotal;
+
+        bool repintar = false;
+        bool bajaAntes = BateriaBaja();
+        bateria = bat; cargando = (carg != 0);
+        if (BateriaBaja() != bajaAntes) { Latido(); repintar = true; }
+        if (perfil != perfilActual)
+        {
+            bool nocheAntes = Noche();
+            perfilActual = perfil;
+            if (Noche() != nocheAntes) { Latido(); repintar = true; }
+        }
 
         if (juego != juegoActual)
         {
@@ -820,22 +1388,29 @@ public class NovaUI : Window
             CargarAvatar(juego);
         }
 
+        if (audio != audioActual)
+        {
+            audioActual = audio;
+            envolvente = CargarEnvolvente(audio);
+            envInicio = DateTime.UtcNow;
+        }
+
         if (est != estadoActual || txt != textoActual)
         {
             bool estabaEnReposo = (estadoActual == "" || estadoActual == "reposo");
             bool cambioTexto = (txt != textoActual);
+            string textoAnterior = textoActual;
             estadoActual = est;
             textoActual = txt;
-            // al salir del reposo se refresca lo que hay detras: el escritorio
-            // puede haber cambiado desde la ultima vez
             if (estabaEnReposo && est != "reposo") { CapturarFondo(); }
-            Aplicar(est, txt, cambioTexto);
+            if (est == "pensando" && !orbitando && pensandoDesde == DateTime.MinValue) { pensandoDesde = DateTime.UtcNow; }
+            if (est != "pensando") { pensandoDesde = DateTime.MinValue; if (orbitando) { orbitando = false; Desvanecer(orbita, 0, 200); giroOrbita.BeginAnimation(RotateTransform.AngleProperty, null); } }
+            if (est != "hablando") { envolvente = null; }
+            Aplicar(est, txt, cambioTexto, textoAnterior);
             if (est == "error") { Sacudir(); }
         }
+        else if (repintar) { Aplicar(est, txt, false); }
 
-        // los eventos se disparan por cambio de contador, no por nombre: asi
-        // dos "hecho" seguidos se ven los dos. El primero leido al arrancar
-        // no se reproduce: es de una sesion anterior.
         if (n != eventoN)
         {
             bool primero = (eventoN == -1);
@@ -844,8 +1419,27 @@ public class NovaUI : Window
         }
     }
 
-    // Saca el icono del ejecutable del juego y lo pone de avatar; si no hay
-    // juego (o el icono no se puede leer) vuelve el punto.
+    // <mp3>.env: amplitudes 0..1 a 20 Hz, separadas por espacios (las escribe
+    // el worker de voz al generar el audio)
+    static double[] CargarEnvolvente(string audio)
+    {
+        if (string.IsNullOrEmpty(audio)) { return null; }
+        try
+        {
+            string env = audio + ".env";
+            if (!File.Exists(env)) { return null; }
+            var partes = File.ReadAllText(env).Split(new[] { ' ', '\n', '\r', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            var lista = new List<double>();
+            foreach (var p in partes)
+            {
+                double v;
+                if (double.TryParse(p, NumberStyles.Any, CultureInfo.InvariantCulture, out v)) { lista.Add(Math.Max(0, Math.Min(1, v))); }
+            }
+            return lista.Count > 0 ? lista.ToArray() : null;
+        }
+        catch { return null; }
+    }
+
     void CargarAvatar(string ruta)
     {
         BitmapSource bs = null;
@@ -871,8 +1465,8 @@ public class NovaUI : Window
             aroAvatar.Visibility = Visibility.Visible;
             insignia.Visibility = Visibility.Visible;
             punto.Visibility = Visibility.Collapsed;
+            reflejoPunto.Visibility = Visibility.Collapsed;
             marcaHecho.Visibility = Visibility.Collapsed;
-            // entra creciendo desde el centro
             var s = avatar.RenderTransform as ScaleTransform;
             var a = new DoubleAnimation(0.2, 1.0, TimeSpan.FromMilliseconds(520));
             a.EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.6 };
@@ -888,6 +1482,7 @@ public class NovaUI : Window
             aroAvatar.Visibility = Visibility.Collapsed;
             insignia.Visibility = Visibility.Collapsed;
             punto.Visibility = Visibility.Visible;
+            reflejoPunto.Visibility = Visibility.Visible;
             marcaHecho.Visibility = Visibility.Visible;
             Saltar(0.4);
         }
@@ -927,22 +1522,32 @@ public class NovaUI : Window
             case "pensando": return Color.FromRgb(0xFF, 0xB3, 0x3D);     // ambar
             case "hablando": return Color.FromRgb(0x4D, 0xA6, 0xFF);     // azul
             case "error": return Color.FromRgb(0xFF, 0x5A, 0x5A);        // rojo
-            default: return Color.FromRgb(0x35, 0xE0, 0xC8);             // turquesa en reposo
+            default:
+                if (BateriaBaja()) { return Color.FromRgb(0xFF, 0xA8, 0x3D); }   // ambar inquieto
+                if (Noche()) { return Color.FromRgb(0xFF, 0xB0, 0x7A); }        // melocoton calido
+                return Color.FromRgb(0x35, 0xE0, 0xC8);                          // turquesa
         }
     }
 
-    void Aplicar(string estado, string texto, bool cambioTexto)
+    void Aplicar(string estado, string texto, bool cambioTexto) { Aplicar(estado, texto, cambioTexto, null); }
+
+    void Aplicar(string estado, string texto, bool cambioTexto, string textoAnterior)
     {
         PonerEncima();
         Color c = ColorDe(estado);
         Animar(punto.Fill as SolidColorBrush, c);
         Animar(insignia.Fill as SolidColorBrush, c);
         Animar(aroAvatar.Stroke as SolidColorBrush, c);
+        Animar(orbita.Fill as SolidColorBrush, c);
+        Animar(anilloTempo.Stroke as SolidColorBrush, c);
+        Animar(barraNivel.Fill as SolidColorBrush, c);
         foreach (var p in puntitos) { Animar(p.Fill as SolidColorBrush, c); }
         var bp = punto.Effect as DropShadowEffect;
         if (bp != null) { bp.BeginAnimation(DropShadowEffect.ColorProperty, new ColorAnimation(c, TimeSpan.FromMilliseconds(350))); }
         var bi = insignia.Effect as DropShadowEffect;
         if (bi != null) { bi.BeginAnimation(DropShadowEffect.ColorProperty, new ColorAnimation(c, TimeSpan.FromMilliseconds(350))); }
+        var bo = orbita.Effect as DropShadowEffect;
+        if (bo != null) { bo.BeginAnimation(DropShadowEffect.ColorProperty, new ColorAnimation(c, TimeSpan.FromMilliseconds(350))); }
         bordeAbajo.BeginAnimation(GradientStop.ColorProperty,
             new ColorAnimation(Color.FromArgb(0x66, c.R, c.G, c.B), TimeSpan.FromMilliseconds(350)));
         foreach (var b in barras) { Animar(b.Fill as SolidColorBrush, c); }
@@ -950,28 +1555,52 @@ public class NovaUI : Window
 
         bool expandida = (estado != "reposo") || !string.IsNullOrEmpty(texto);
         bool conOnda = (estado == "escuchando");
-        bool conPuntitos = (estado == "pensando");
+        bool conPuntitos = (estado == "pensando") && !orbitando;
+        bool conNivel = (panelNivel.Visibility == Visibility.Visible);
 
-        // la onda invisible seguia ocupando sitio y cortaba el texto: se
-        // colapsa del todo cuando no se escucha
         onda.Visibility = conOnda ? Visibility.Visible : Visibility.Collapsed;
         Desvanecer(onda, conOnda ? 1 : 0, 220);
         MostrarPuntitos(conPuntitos);
+        if (estado != "reposo" && conNivel)
+        {
+            // algo mas importante: fuera la barra de volumen
+            ocultarNivel.Stop();
+            panelNivel.Visibility = Visibility.Collapsed;
+            panelNivel.Opacity = 0;
+            conNivel = false;
+        }
 
         bool hayTexto = !string.IsNullOrEmpty(texto);
         double anchoOnda = conOnda ? (BARRAS_ONDA * 6 + 12) : 0;
         double anchoPuntitos = conPuntitos ? (3 * 9 + 12) : 0;
-        double fijo = (ALTO - AVATAR) / 2 + AVATAR + anchoOnda + anchoPuntitos + 16 + 2;
+        double anchoNivel = conNivel ? (12 + 15 + 10 + 72) : 0;
+        double fijo = (ALTO - AVATAR) / 2 + AVATAR + anchoOnda + anchoPuntitos + anchoNivel + 16 + 2;
         double disponible = ANCHO_BARRA - fijo - 12;
         double anchoTexto = hayTexto ? MedirTexto(texto) : 0;
         double anchoVentana = Math.Min(anchoTexto, disponible);
 
-        etiqueta.Text = texto;
+        // texto: en la transcripcion en vivo, lo NUEVO se ilumina un instante
+        etiqueta.Inlines.Clear();
+        if (hayTexto && estado == "escuchando" && cambioTexto && !string.IsNullOrEmpty(textoAnterior)
+            && texto.Length > textoAnterior.Length && texto.StartsWith(textoAnterior, StringComparison.Ordinal))
+        {
+            var viejo = new Run(textoAnterior);
+            var nuevo = new Run(texto.Substring(textoAnterior.Length));
+            var pincel = new SolidColorBrush(c);
+            nuevo.Foreground = pincel;
+            var ca = new ColorAnimation(Color.FromRgb(0xF2, 0xF5, 0xF8), TimeSpan.FromMilliseconds(520));
+            ca.BeginTime = TimeSpan.FromMilliseconds(120);
+            pincel.BeginAnimation(SolidColorBrush.ColorProperty, ca);
+            etiqueta.Inlines.Add(viejo);
+            etiqueta.Inlines.Add(nuevo);
+        }
+        else
+        {
+            etiqueta.Text = texto;
+        }
         ventanaTexto.Visibility = hayTexto ? Visibility.Visible : Visibility.Collapsed;
         ventanaTexto.Width = Math.Max(0, anchoVentana);
         Desvanecer(ventanaTexto, hayTexto ? 1 : 0, 220);
-        // el texto nuevo entra deslizando desde abajo (no en la transcripcion
-        // en vivo, que cambia varias veces por segundo)
         if (hayTexto && cambioTexto && estado != "escuchando")
         {
             var sube = new DoubleAnimation(6, 0, TimeSpan.FromMilliseconds(260));
@@ -984,7 +1613,6 @@ public class NovaUI : Window
         desplaz.BeginAnimation(TranslateTransform.XProperty, null);
         if (sobra > 0 && estado == "escuchando")
         {
-            // transcripcion en vivo: lo que importa es el final
             var a = new DoubleAnimation(-sobra, TimeSpan.FromMilliseconds(160));
             a.EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut };
             desplaz.BeginAnimation(TranslateTransform.XProperty, a);
@@ -992,10 +1620,6 @@ public class NovaUI : Window
         }
         else if (sobra > 0)
         {
-            // una pasada, ~100 px/s: se lee al mismo ritmo al que se habla.
-            // La mascara sigue al movimiento: al principio solo se difumina la
-            // derecha (si no, se comia la primera letra), en marcha los dos
-            // lados, y al final solo la izquierda.
             desplaz.X = 0;
             ventanaTexto.OpacityMask = mascaraDer;
             var a = new DoubleAnimation(0, -sobra, TimeSpan.FromMilliseconds(sobra * 10));
@@ -1018,12 +1642,12 @@ public class NovaUI : Window
         }
 
         double destino = ALTO;   // en reposo, un circulo perfecto
-        if (expandida)
+        if (expandida || conNivel)
         {
             double exacto = fijo + (hayTexto ? anchoVentana + 12 : 0);
             destino = Math.Min(ANCHO_BARRA, Math.Max(conOnda ? 150 : 90, exacto));
         }
-        Expandir(destino, expandida);
+        Expandir(destino, expandida || conNivel);
 
         if (estado == "pensando")
         {

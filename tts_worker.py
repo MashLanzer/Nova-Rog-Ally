@@ -20,6 +20,49 @@ except Exception as e:  # noqa: BLE001
     print("ERR no se pudo importar edge_tts: %s" % e, flush=True)
     sys.exit(1)
 
+# ENVOLVENTE PARA LA CAPSULA: junto a cada mp3 se deja <mp3>.env con la
+# amplitud (0..1) cada 50 ms. La interfaz mueve la "boca" del punto con ella,
+# sincronizada con la voz real, en vez de simular silabas. Es opcional: si
+# miniaudio no esta, no hay .env y la capsula simula.
+try:
+    import miniaudio
+    import array
+    import math
+except Exception:  # noqa: BLE001
+    miniaudio = None
+
+VENTANA_MS = 50
+
+
+def escribir_envolvente(ruta_mp3):
+    if miniaudio is None:
+        return
+    ruta_env = ruta_mp3 + ".env"
+    if os.path.exists(ruta_env):
+        return
+    try:
+        d = miniaudio.decode_file(ruta_mp3, output_format=miniaudio.SampleFormat.SIGNED16,
+                                  nchannels=1, sample_rate=16000)
+        muestras = d.samples
+        paso = int(16000 * VENTANA_MS / 1000)
+        valores = []
+        for i in range(0, len(muestras), paso):
+            trozo = muestras[i:i + paso]
+            if not trozo:
+                break
+            rms = math.sqrt(sum(m * m for m in trozo) / len(trozo)) / 32768.0
+            valores.append(rms)
+        if not valores:
+            return
+        # normalizado al pico de la frase y con una curva que abre la boca
+        # con las vocales sin que las consonantes la dejen cerrada
+        pico = max(valores) or 1.0
+        norm = [min(1.0, (v / pico) ** 0.7) for v in valores]
+        with open(ruta_env, "w", encoding="ascii") as f:
+            f.write(" ".join("%.2f" % v for v in norm))
+    except Exception:
+        pass
+
 VOZ = sys.argv[1] if len(sys.argv) > 1 else "es-MX-DaliaNeural"
 SALIDA = sys.argv[2] if len(sys.argv) > 2 else "."
 os.makedirs(SALIDA, exist_ok=True)
@@ -52,6 +95,7 @@ async def principal():
             except Exception as e:  # noqa: BLE001
                 print("ERR %s" % e, flush=True)
                 continue
+        escribir_envolvente(ruta)
         print(ruta, flush=True)
 
 

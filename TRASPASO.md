@@ -641,6 +641,19 @@ Cómo funciona:
 | reposo / escuchando | respiración lenta del punto y un **parpadeo** cada 4-9 s (aplastamiento vertical de 200 ms) |
 | texto nuevo | entra deslizando 6 px desde abajo |
 | `juego` (ruta del exe en el JSON) | el **icono del juego** pasa a ser el avatar (22 px, circular, aro del color del estado) y el punto se vuelve una insignia abajo a la derecha; entra creciendo con rebote |
+| siempre | **mirada**: el reflejo del punto se desplaza (±2 px) hacia el ratón; si lleva 8 s quieto, hacia el centro de la ventana activa |
+| `despierta` | además, **chispas**: 6 partículas salen disparadas del punto y se apagan (520 ms) |
+| `hablando` con `audio` en el JSON | si existe `<mp3>.env` (envolvente RMS a 20 Hz que escribe `tts_worker.py` con `miniaudio`), la boca sigue **la voz real** con 300 ms de retardo; si no, sílabas simuladas |
+| volumen del sistema cambia (COM, cada 250 ms; también los botones físicos) | en reposo, se abre 1,5 s con el glifo de Segoe MDL2 (silencio / bajo / medio / alto) y una barra fina |
+| `brillo:NN` (evento que manda `Set-Brillo`) | lo mismo con un sol |
+| `tempoFin`/`tempoTotal` (temporizador más próximo, ms Unix) | **anillo** de 2 px alrededor del punto que se vacía en sentido horario; al vencer, estalla en ondas |
+| `bateria` ≤ 20 y no `cargando` | el punto/insignia pasa a **ámbar** y la respiración se acelera (0,9 s); `cargando`: destello verde cada 4 s |
+| `perfil` = `noche`, o de 22:00 a 07:00 | paleta **melocotón** y respiración lenta (2,6 s) |
+| `logro` (cada hora completa de juego) | oro en punto, insignia y aro durante 1,4 s, salto, dos ondas doradas, chispas y un arpegio |
+| `pensando` > 20 s | los tres puntos se apagan y un punto **orbita** alrededor del avatar (2,4 s/vuelta) |
+| transcripción en vivo | lo **nuevo** del texto entra en el color del estado y se funde a blanco en 0,5 s |
+| arranque / fin | nace desde el centro con rebote y dos ondas; si el asistente muere, se aplasta en una línea y se apaga como un tubo antiguo |
+| sonidos | tonos sintetizados en memoria (`SoundPlayer`, amplitud 0,15): despertar (523→784 Hz), tic (988 Hz), error (220 Hz), logro (arpegio), aviso (dos notas). El asistente ya no usa la campana de Windows cuando la cápsula está activa |
 
 Cuando hay un juego en primer plano el asistente pone su ejecutable en
 `juego`; `Get-JuegoEnPrimerPlano` guarda la ruta en `$script:juegoExeCandidato`.
