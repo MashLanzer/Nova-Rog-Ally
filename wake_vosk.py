@@ -91,6 +91,12 @@ CONFIRMACION_MAX = 5.0
 SILENCIO_FIN = 1.4
 # tope duro, por si el silencio nunca llega (ruido de fondo constante)
 DICTADO_MAX = 30.0
+# Lo que se le da a Whisper como mucho. Llegar a DICTADO_MAX significa que
+# nunca hubo un silencio: eso no es una orden, es ruido constante. El 11/09
+# hubo 14 transcripciones de 30 s que costaron 181 s de CPU para nada. Una
+# orden de verdad, incluso larga ("recuerdame manana a las diez que..."), cabe
+# de sobra en esto, y se coge el PRINCIPIO porque es donde esta la orden.
+TRANSCRIBIR_MAX = 15.0
 
 TASA = 16000
 PICO_OBJETIVO = 0.35      # nivel al que queremos llevar la voz
@@ -452,6 +458,11 @@ def transcribir_whisper(bloques, modelo=None):
     audio = np.concatenate(bloques).astype(np.float32) / 32768.0
     if audio.size < TASA // 4:
         return ""
+    tope = int(TASA * TRANSCRIBIR_MAX)
+    if audio.size > tope:
+        anota("audio de %.1f s recortado a %.0f s: una orden no dura tanto"
+              % (audio.size / TASA, TRANSCRIBIR_MAX))
+        audio = audio[:tope]
     t0 = time.time()
     # OJO con initial_prompt: Whisper lo trata como TEXTO ANTERIOR y lo
     # CONTINUA cuando el audio es flojo. Con la lista de apps y juegos ahi

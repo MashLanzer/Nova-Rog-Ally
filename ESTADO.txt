@@ -129,6 +129,14 @@ QUÉ ENTIENDE LA RUTA LOCAL
   Aguanta errores del dictado: "Team"/"steamidos" -> Steam,
   "little nighters 3" -> Little Nightmares III, "buscal" -> busca.
 
+JUEGOS COLGADOS (nuevo): "hay algo colgado", "revisa los juegos". Busca
+  procesos de juego SIN ventana (no salen ni en la barra ni en Alt+Tab) que
+  sigan gastando procesador: exactamente lo que pasaba con Outlast 2, vivo
+  y sonando durante horas sin poder cerrarlo. Te dice cuáles y espera un
+  "sí" antes de cerrar nada. También avisa solo, una vez por juego.
+  Wallpaper Engine y compañía no cuentan: gastan un 3 % de un núcleo, y un
+  juego colgado gasta el 87 %.
+
 CALLARLA UN RATO (nuevo): "no me escuches", "duérmete", "no me escuches
   media hora", "descansa 2 horas". Apaga el oído CON PLAZO (por defecto un
   cuarto de hora) y te avisa al volver. Mientras tanto el botón ≡ sigue

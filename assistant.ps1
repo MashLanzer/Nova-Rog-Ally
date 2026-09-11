@@ -474,6 +474,44 @@ function Get-AppsAbiertas {
     return $res
 }
 
+# --- JUEGOS COLGADOS (zombis) ---
+# El 11/09 habia un Outlast 2 vivo desde hacia mas de tres horas, sin ventana
+# en ninguna parte (ni barra de tareas ni Alt+Tab) pero sonando y quemando
+# CPU. No se podia cerrar porque no se podia ver. La firma es esa: proceso de
+# un juego, SIN ventana, y comiendo procesador sin parar.
+# El ultimo detalle es el que evita los falsos positivos: Wallpaper Engine
+# tampoco tiene ventana y tambien esta en steamapps, pero gasta un 3 % de un
+# nucleo; el juego colgado gastaba un 87 %.
+$ZombiMinutos = 20
+$ZombiUsoCPU = 0.30       # fraccion de un nucleo, sostenida desde que arranco
+$script:zombisAvisados = @{}
+$script:zombiCheck = 0
+
+function Get-JuegosZombis {
+    $res = @()
+    $ahora = Get-Date
+    foreach ($pr in (Get-Process -ErrorAction SilentlyContinue)) {
+        try {
+            $ruta = $pr.Path
+            if (-not $ruta -or $ruta -notmatch '(?i)steamapps\common\([^\]+)') { continue }
+            $carpeta = $Matches[1]
+            # utilidades de escritorio que viven sin ventana a proposito
+            if ($carpeta -match '(?i)wallpaper_engine|steamvr|proton|steam linux runtime') { continue }
+            if ($pr.MainWindowTitle) { continue }        # tiene ventana: esta vivo y lo ves
+            $mins = ($ahora - $pr.StartTime).TotalMinutes
+            if ($mins -lt $ZombiMinutos) { continue }
+            $uso = 0.0
+            if ($mins -gt 0) { $uso = $pr.CPU / ($mins * 60.0) }
+            if ($uso -lt $ZombiUsoCPU) { continue }
+            $j = Find-Juego $carpeta
+            $nombre = if ($j) { $j.nombre } else { $carpeta }
+            if ($script:juegoActivo -and $nombre -eq $script:juegoActivo) { continue }
+            $res += @{ proc = $pr; nombre = $nombre; minutos = [int]$mins; uso = $uso }
+        } catch {}
+    }
+    return $res
+}
+
 function Resolve-Proceso([string]$t) {
     if (-not $t -or -not $cmds) { return $null }
     $t = ($t -replace '^(?:a|al|el|la|los|las|mi|un|una)\s+', '').Trim()
@@ -942,6 +980,10 @@ function Resolve-Fragment([string]$f) {
         }
         if ($ms -le 0) { return $null }
         return @(@{ kind = 'sordina'; ms = $ms; desc = "me callo $comoLoDigo; si me necesitas antes, manten el boton" })
+    }
+    # juegos colgados: los que no salen por ningun lado pero siguen sonando
+    if ($f -match '^(?:hay algo colgado|que hay colgado|hay algun juego colgado|algun juego colgado|hay juegos colgados|revisa los juegos|mira si hay algo colgado|cierra los juegos colgados|cierra lo colgado)$') {
+        return @(@{ kind = 'zombis'; desc = 'buscar juegos colgados' })
     }
     if ($f -match '^(?:minimiza todo|minimizar todo|muestra el escritorio|escritorio|esconde todo|oculta todo)$') { return @(@{ kind = 'winkey'; vk = 0x44; desc = 'mostrar el escritorio' }) }
     if ($f -match '^(?:cambia de ventana|siguiente ventana|otra ventana|alterna)$') { return @(@{ kind = 'alttab'; desc = 'cambiar de ventana' }) }
@@ -1427,6 +1469,31 @@ function Invoke-FastCommand([string]$text) {
                             try { if ($pr.CloseMainWindow()) { $cerradas++ } } catch {}
                         }
                         $a.desc = "cerrados $cerradas de $($abiertas.Count)"
+                    }
+                }
+                'zombis' {
+                    $z = @(Get-JuegosZombis)
+                    if ($z.Count -eq 0) {
+                        $a.desc = 'no hay ningun juego colgado'
+                    } elseif (-not $script:confirmado) {
+                        # cerrar un juego pierde lo no guardado: nunca a la primera
+                        $lista = @($z | ForEach-Object {
+                            $h = [int]($_.minutos / 60); $m = $_.minutos % 60
+                            $cuanto = if ($h -gt 0) { "$h horas" } else { "$m minutos" }
+                            "$($_.nombre), abierto desde hace $cuanto"
+                        })
+                        $script:pendiente = @{ texto = 'cierra los juegos colgados'; vence = 0; tipo = 'peligrosa' }
+                        $a.desc = 'sin ventana pero gastando procesador: ' + ($lista -join '; ') + '. ¿Lo cierro?'
+                    } else {
+                        $n = 0
+                        foreach ($x in $z) {
+                            # colgado quiere decir que no responde: CloseMainWindow no
+                            # sirve (no hay ventana) y el cierre suave se ignora, asi
+                            # que aqui si hay que forzarlo. Por eso se pregunta antes.
+                            try { $x.proc.Kill(); $n++ } catch {}
+                            $script:zombisAvisados.Remove($x.proc.Id)
+                        }
+                        $a.desc = if ($n -eq 1) { "cerrado $($z[0].nombre)" } else { "cerrados $n juegos colgados" }
                     }
                 }
                 'cerrarApp' {
@@ -4002,6 +4069,27 @@ while ($true) {
                 Show-Popup $t.texto
                 Say $t.texto
                 Send-UIEvento 'aviso'
+            }
+        }
+    }
+
+    # --- juegos colgados: avisar, NUNCA cerrar por su cuenta ---
+    # Solo avisa (y una vez por proceso): cerrar un juego a la fuerza pierde lo
+    # que no este guardado, y eso lo decide el usuario, no el asistente.
+    if (($sw.ElapsedMilliseconds - $script:zombiCheck) -ge 600000) {
+        $script:zombiCheck = $sw.ElapsedMilliseconds
+        if (-not $script:busy -and -not $script:armed -and -not $script:pendiente) {
+            if ($script:zombisAvisados.Count -gt 20) { $script:zombisAvisados = @{} }
+            foreach ($z in @(Get-JuegosZombis)) {
+                if ($script:zombisAvisados.ContainsKey($z.proc.Id)) { continue }
+                $script:zombisAvisados[$z.proc.Id] = $true
+                $h = [int]($z.minutos / 60)
+                $cuanto = if ($h -gt 0) { "$h horas" } else { "$($z.minutos) minutos" }
+                $msg = "$($z.nombre) lleva $cuanto abierto sin ventana y gastando procesador. Parece colgado. Si quieres, di: cierra lo colgado."
+                Log "ZOMBI: $($z.nombre) PID=$($z.proc.Id) $($z.minutos) min uso=$([Math]::Round($z.uso, 2))"
+                Show-Popup $msg
+                Say $msg
+                break   # de uno en uno: dos avisos seguidos serian una encerrona
             }
         }
     }

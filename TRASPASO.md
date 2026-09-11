@@ -775,6 +775,7 @@ sube el volumen» … «y avísame en veinte minutos» … «gracias».
 | «cierra esta ventana» | Alt+F4 |
 | «no me escuches», «duérmete», «no me escuches media hora», «descansa 2 horas» | **sordina**: crea `tmp\escucha-pausa.flag` durante ese plazo (15 min por defecto) y encola un aviso hablado para el final. El botón ≡ sigue funcionando, así que nunca deja sin asistente, y **siempre lleva plazo**: no es un modo que se quede puesto. Es la respuesta directa a las activaciones falsas mientras ves vídeos |
 | «cierra el juego» | cierra el proceso del juego activo |
+| «hay algo colgado», «revisa los juegos», «cierra lo colgado» | busca procesos bajo `steamapps\common` **sin ventana** y con **uso de CPU sostenido ≥ 30 % de un núcleo** desde que arrancaron, abiertos hace más de 20 min y que no sean el juego activo. Ese último criterio es el que separa un juego colgado (Outlast 2: 87 %) de una utilidad que vive sin ventana a propósito (Wallpaper Engine: 3 %), y además hay lista de exclusión. Enumera y **pide confirmación** (`tipo = 'peligrosa'`, igual que «cierra todos los programas»); solo entonces `Kill()`, porque un proceso colgado ignora `CloseMainWindow`. El bucle además revisa cada 10 min y avisa **una vez por PID**, sin cerrar nada por su cuenta |
 | «cambia a discord», «ve a steam», «enfoca el navegador», «muestra spotify» | restaura y trae al frente su ventana (`ForceForeground`) |
 | «vuelve al juego» | idem con el juego activo |
 | «muestra el escritorio», «minimiza todo» | Win+D |

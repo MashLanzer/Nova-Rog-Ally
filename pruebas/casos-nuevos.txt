@@ -40,3 +40,12 @@ ignorame un momento
 # --- control: NO son sordina ---
 no me escuches cuando diga esto
 escuchame
+# --- juegos colgados ---
+hay algo colgado
+hay algun juego colgado
+revisa los juegos
+cierra lo colgado
+cierra los juegos colgados
+# --- control: NO son lo anterior ---
+cierra el juego
+a que estoy jugando
