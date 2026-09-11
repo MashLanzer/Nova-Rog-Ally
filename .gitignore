@@ -25,6 +25,9 @@ memoria/diario/
 memoria/temas/
 memoria/estadisticas.json
 memoria/estadisticas.md
+memoria/fechas.json
+memoria/semanas/
+reglas.json
 
 # Residuos de diagnostico
 probe-*.txt

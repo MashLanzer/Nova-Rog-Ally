@@ -134,6 +134,16 @@ public class NovaUI : Window
     ScaleTransform escalaPunto;
     TranslateTransform mirada;
     RotateTransform giroOrbita;
+    // ojos: dos pupilas que miran, parpadean y expresan
+    Ellipse ojoIzq, ojoDer;
+    ScaleTransform escOjoIzq, escOjoDer;
+    RotateTransform rotOjoIzq, rotOjoDer;
+    TranslateTransform trasOjoIzq, trasOjoDer;
+    string expresion = "normal";
+    DateTime expresionHasta = DateTime.MaxValue;
+    Rectangle lineaProgreso;
+    double progreso = 0;
+    int voz = 0;
     // gestos: giro, desplazamiento y escala de TODO el rostro
     RotateTransform rotGesto;
     TranslateTransform trasGesto;
@@ -370,6 +380,20 @@ public class NovaUI : Window
         brilloPincel.GradientStops.Add(new GradientStop(Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF), 1));
         brilloSuperior.Background = brilloPincel;
         interior.Children.Add(brilloSuperior);
+
+        // linea de progreso en el borde inferior: se llena mientras opencode
+        // trabaja (voz interna); mas alla del 95 % late, porque ya es espera
+        lineaProgreso = new Rectangle();
+        lineaProgreso.Height = 2;
+        lineaProgreso.HorizontalAlignment = HorizontalAlignment.Left;
+        lineaProgreso.VerticalAlignment = VerticalAlignment.Bottom;
+        lineaProgreso.Margin = new Thickness(ALTO * 0.4, 0, 0, 1);
+        lineaProgreso.RadiusX = 1; lineaProgreso.RadiusY = 1;
+        lineaProgreso.Width = 0;
+        lineaProgreso.Opacity = 0;
+        lineaProgreso.Fill = new SolidColorBrush(acento);
+        lineaProgreso.IsHitTestVisible = false;
+        interior.Children.Add(lineaProgreso);
 
         var especular = new Border();
         especular.VerticalAlignment = VerticalAlignment.Top;
@@ -769,11 +793,29 @@ public class NovaUI : Window
             ecualizador.Children.Add(b);
         }
         cuerpo.Children.Add(ecualizador);
+        // OJOS: dos pupilas oscuras sobre el punto. Es lo que lo convierte en
+        // una cara: miran a donde mira la capsula, parpadean solas y ponen
+        // la expresion del gesto (abiertos, entrecerrados, felices, tristes,
+        // cerrados al dormir).
+        ojoIzq = CrearOjo(); ojoDer = CrearOjo();
+        ojoIzq.HorizontalAlignment = HorizontalAlignment.Left;
+        ojoIzq.Margin = new Thickness(DIAM_PUNTO * 0.24, DIAM_PUNTO * 0.36, 0, 0);
+        ojoDer.HorizontalAlignment = HorizontalAlignment.Right;
+        ojoDer.Margin = new Thickness(0, DIAM_PUNTO * 0.36, DIAM_PUNTO * 0.24, 0);
+        escOjoIzq = new ScaleTransform(1, 1); escOjoDer = new ScaleTransform(1, 1);
+        rotOjoIzq = new RotateTransform(0); rotOjoDer = new RotateTransform(0);
+        trasOjoIzq = new TranslateTransform(0, 0); trasOjoDer = new TranslateTransform(0, 0);
+        var gI = new TransformGroup(); gI.Children.Add(escOjoIzq); gI.Children.Add(rotOjoIzq); gI.Children.Add(trasOjoIzq);
+        var gD = new TransformGroup(); gD.Children.Add(escOjoDer); gD.Children.Add(rotOjoDer); gD.Children.Add(trasOjoDer);
+        ojoIzq.RenderTransform = gI; ojoDer.RenderTransform = gD;
+        cuerpo.Children.Add(ojoIzq);
+        cuerpo.Children.Add(ojoDer);
+        // el reflejo, mas pequeno y arriba a la izquierda, para dejar sitio a los ojos
         reflejoPunto = new Ellipse();
-        reflejoPunto.Width = DIAM_PUNTO * 0.45; reflejoPunto.Height = DIAM_PUNTO * 0.32;
+        reflejoPunto.Width = DIAM_PUNTO * 0.30; reflejoPunto.Height = DIAM_PUNTO * 0.20;
         reflejoPunto.HorizontalAlignment = HorizontalAlignment.Left;
         reflejoPunto.VerticalAlignment = VerticalAlignment.Top;
-        reflejoPunto.Margin = new Thickness(DIAM_PUNTO * 0.22, DIAM_PUNTO * 0.14, 0, 0);
+        reflejoPunto.Margin = new Thickness(DIAM_PUNTO * 0.14, DIAM_PUNTO * 0.10, 0, 0);
         var reflejoPincel = new LinearGradientBrush();
         reflejoPincel.StartPoint = new Point(0, 0); reflejoPincel.EndPoint = new Point(0, 1);
         reflejoPincel.GradientStops.Add(new GradientStop(Color.FromArgb(0xB0, 0xFF, 0xFF, 0xFF), 0));
@@ -821,6 +863,49 @@ public class NovaUI : Window
         sudor = Glifo("●", 6, Color.FromRgb(0x8C, 0xC8, 0xFF), "Segoe UI");
         sudor.Margin = new Thickness(14, 0, 0, 8);
         esfera.Children.Add(sudor);
+    }
+
+    Ellipse CrearOjo()
+    {
+        var o = new Ellipse();
+        o.Width = DIAM_PUNTO * 0.17; o.Height = DIAM_PUNTO * 0.26;
+        o.VerticalAlignment = VerticalAlignment.Top;
+        o.Fill = new SolidColorBrush(Color.FromArgb(0xE6, 0x0B, 0x12, 0x24));
+        o.RenderTransformOrigin = new Point(0.5, 0.5);
+        o.IsHitTestVisible = false;
+        return o;
+    }
+
+    // Expresion de los ojos durante un tiempo (ms <= 0: hasta que se cambie).
+    //   normal | abiertos | entrecerrados | felices | tristes | cerrados | atentos
+    void Expresion(string nombre, int ms)
+    {
+        if (dormido && nombre != "cerrados" && nombre != "normal") { return; }
+        expresion = nombre;
+        expresionHasta = (ms > 0) ? DateTime.UtcNow.AddMilliseconds(ms) : DateTime.MaxValue;
+        double sx = 1, sy = 1, rot = 0, dy = 0;
+        switch (nombre)
+        {
+            case "abiertos": sx = 1.45; sy = 1.45; break;
+            case "entrecerrados": sy = 0.45; break;
+            case "felices": sy = 0.42; dy = -0.7; break;
+            case "tristes": rot = 14; dy = 0.7; break;
+            case "cerrados": sy = 0.12; break;
+            case "atentos": sx = 1.15; sy = 1.15; break;
+            case "cautos": sy = 0.75; break;
+        }
+        int dur = 180;
+        AnimarA(escOjoIzq, ScaleTransform.ScaleXProperty, sx, dur); AnimarA(escOjoDer, ScaleTransform.ScaleXProperty, sx, dur);
+        AnimarA(escOjoIzq, ScaleTransform.ScaleYProperty, sy, dur); AnimarA(escOjoDer, ScaleTransform.ScaleYProperty, sy, dur);
+        AnimarA(rotOjoIzq, RotateTransform.AngleProperty, rot, dur); AnimarA(rotOjoDer, RotateTransform.AngleProperty, -rot, dur);
+        AnimarA(trasOjoIzq, TranslateTransform.YProperty, dy, dur); AnimarA(trasOjoDer, TranslateTransform.YProperty, dy, dur);
+    }
+
+    static void AnimarA(DependencyObject obj, DependencyProperty prop, double hasta, int ms)
+    {
+        var a = new DoubleAnimation(hasta, TimeSpan.FromMilliseconds(ms));
+        a.EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut };
+        ((IAnimatable)obj).BeginAnimation(prop, a);
     }
 
     static LinearGradientBrush Mascara(double ini, double fin)
@@ -953,6 +1038,7 @@ public class NovaUI : Window
     void MostrarNivel(string glifo, double valor)
     {
         if (estadoActual != "reposo" && estadoActual != "") { return; }
+        if (Cine()) { return; }   // en el cine no se molesta
         Despertar();
         glifoNivel.Text = glifo;
         var anchoBarra = new DoubleAnimation(Math.Max(0, Math.Min(1, valor)) * 72, TimeSpan.FromMilliseconds(220));
@@ -1039,12 +1125,31 @@ public class NovaUI : Window
 
     void Parpadear()
     {
+        if (punto.Visibility == Visibility.Visible)
+        {
+            // con ojos, parpadean los OJOS (y el punto apenas se aplasta)
+            if (expresion == "cerrados") { return; }
+            double baseY = (expresion == "entrecerrados") ? 0.45 : (expresion == "felices" ? 0.42 : (expresion == "cautos" ? 0.75 : (expresion == "abiertos" || expresion == "atentos" ? (expresion == "abiertos" ? 1.45 : 1.15) : 1.0)));
+            var ko = new DoubleAnimationUsingKeyFrames();
+            ko.KeyFrames.Add(new EasingDoubleKeyFrame(baseY, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+            ko.KeyFrames.Add(new EasingDoubleKeyFrame(0.08, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(70)), new CubicEase { EasingMode = EasingMode.EaseIn }));
+            ko.KeyFrames.Add(new EasingDoubleKeyFrame(baseY, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(170)), new CubicEase { EasingMode = EasingMode.EaseOut }));
+            ko.FillBehavior = FillBehavior.Stop;
+            escOjoIzq.BeginAnimation(ScaleTransform.ScaleYProperty, ko);
+            escOjoDer.BeginAnimation(ScaleTransform.ScaleYProperty, ko);
+            var kp = new DoubleAnimationUsingKeyFrames();
+            kp.KeyFrames.Add(new EasingDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+            kp.KeyFrames.Add(new EasingDoubleKeyFrame(0.93, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(80))));
+            kp.KeyFrames.Add(new EasingDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(190))));
+            kp.FillBehavior = FillBehavior.Stop;
+            escalaPunto.BeginAnimation(ScaleTransform.ScaleYProperty, kp);
+            return;
+        }
         var k = new DoubleAnimationUsingKeyFrames();
         k.KeyFrames.Add(new EasingDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
         k.KeyFrames.Add(new EasingDoubleKeyFrame(0.12, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(85)), new CubicEase { EasingMode = EasingMode.EaseIn }));
         k.KeyFrames.Add(new EasingDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(200)), new CubicEase { EasingMode = EasingMode.EaseOut }));
         k.FillBehavior = FillBehavior.Stop;
-        escalaPunto.BeginAnimation(ScaleTransform.ScaleYProperty, k);
         if (avatar.Visibility == Visibility.Visible) { (avatar.RenderTransform as ScaleTransform).BeginAnimation(ScaleTransform.ScaleYProperty, k); }
         if (avatarClima.Visibility == Visibility.Visible) { (avatarClima.RenderTransform as ScaleTransform).BeginAnimation(ScaleTransform.ScaleYProperty, k); }
     }
@@ -1253,6 +1358,7 @@ public class NovaUI : Window
     void Dormir()
     {
         dormido = true;
+        Expresion("cerrados", 0);
         Latido();
         Desvanecer(esfera, 0.55, 1500);
         Desvanecer(capsula, 0.75, 1500);
@@ -1266,6 +1372,7 @@ public class NovaUI : Window
         ultimaActividad = DateTime.UtcNow;
         if (!dormido) { return; }
         dormido = false;
+        Expresion("abiertos", 900);
         Latido();
         Desvanecer(esfera, 1, 300);
         Desvanecer(capsula, 1, 300);
@@ -1574,8 +1681,24 @@ public class NovaUI : Window
         ultimoGestoHora = ahora;
         AnotarGesto(nombre);
 
+        // la expresion de los ojos acompana al gesto
         switch (nombre)
         {
+            case "carino": case "gracias": case "risa": case "logro": case "alivio": case "apoyo": case "orgullo": Expresion("felices", 1700); break;
+            case "duda": case "confuso": case "paciencia": case "perdida": Expresion("entrecerrados", 1300); break;
+            case "sorpresa": case "grito": case "sobresalto": case "atencion": Expresion("abiertos", 900); break;
+            case "pena": case "despedida": Expresion("tristes", 1900); break;
+            case "calma": case "susurro": Expresion("entrecerrados", 2500); break;
+        }
+
+        switch (nombre)
+        {
+            case "perdida":
+                // mira a un lado y a otro: "¿por donde iba?"
+                trasGesto.BeginAnimation(TranslateTransform.XProperty, Secuencia(new double[] { 0, -3, 3, -3, 3, 0 }, 260));
+                rotGesto.BeginAnimation(RotateTransform.AngleProperty, Secuencia(new double[] { 0, -8, 8, -8, 8, 0 }, 260));
+                Flotar(pregunta, 2, -6, 1600);
+                break;
             case "alivio":
                 // suspiro: se hincha, aguanta y suelta
                 escalaGesto.BeginAnimation(ScaleTransform.ScaleXProperty, Secuencia(new double[] { 1, 1.18, 1.18, 0.96, 1 }, 260));
@@ -1804,8 +1927,15 @@ public class NovaUI : Window
         catch { }
         miradaX += (ox - miradaX) * 0.18;
         miradaY += (oy - miradaY) * 0.18;
-        mirada.X = miradaX;
-        mirada.Y = miradaY;
+        mirada.X = miradaX * 0.5;
+        mirada.Y = miradaY * 0.5;
+        // los ojos miran mas que el reflejo
+        trasOjoIzq.X = miradaX * 0.7; trasOjoDer.X = miradaX * 0.7;
+        if (expresion == "normal" || expresion == "atentos" || expresion == "abiertos" || expresion == "cautos" || expresion == "entrecerrados")
+        {
+            // (la Y de la expresion la lleva la animacion; aqui solo si no hay desplazamiento propio)
+        }
+        if (Cine()) { cercaAhora = false; }
         if (cercaAhora != cerca)
         {
             cerca = cercaAhora;
@@ -2095,9 +2225,28 @@ public class NovaUI : Window
                 double.TryParse(Campo(j, "tempoFin", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out tFin);
                 double.TryParse(Campo(j, "tempoTotal", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out tTotal);
                 double.TryParse(Campo(j, "animo", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out an);
+                double pr; int vz;
+                double.TryParse(Campo(j, "progreso", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out pr);
+                int.TryParse(Campo(j, "voz", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out vz);
+                if (vz != voz) { voz = vz; }
+                if (Math.Abs(pr - progreso) > 0.005)
+                {
+                    progreso = pr;
+                    double ancho = Math.Max(0, capsula.Width - ALTO * 0.8) * progreso;
+                    AnimarA(lineaProgreso, WidthProperty, ancho, 500);
+                    if (progreso <= 0) { AnimarA(lineaProgreso, OpacityProperty, 0, 300); }
+                    else if (progreso >= 0.95)
+                    {
+                        var lat = new DoubleAnimation(0.35, 0.9, TimeSpan.FromMilliseconds(600));
+                        lat.AutoReverse = true; lat.RepeatBehavior = RepeatBehavior.Forever;
+                        lineaProgreso.BeginAnimation(OpacityProperty, lat);
+                    }
+                    else { AnimarA(lineaProgreso, OpacityProperty, 0.85, 300); }
+                }
             }
         }
         catch { }
+        if (expresion != "normal" && DateTime.UtcNow >= expresionHasta && !dormido) { Expresion("normal", 0); }
 
         if (est == "escuchando" && rutaNivel != null)
         {
@@ -2148,6 +2297,7 @@ public class NovaUI : Window
             if (est != "reposo") { Despertar(); }
             if (estabaEnReposo && est != "reposo") { CapturarFondo(); }
             if (est == "escuchando" && estadoAnterior != "escuchando") { escuchandoDesde = DateTime.UtcNow; ultimoAsentimiento = DateTime.UtcNow; ritmo.Clear(); }
+            if (est == "atenta") { escuchandoDesde = DateTime.UtcNow; }
             if (est != "escuchando" && estadoAnterior == "escuchando")
             {
                 // fin de una orden: si repite la que acabo en pena, determinacion
@@ -2231,6 +2381,9 @@ public class NovaUI : Window
         reflejoPunto.Visibility = punto.Visibility;
         marcaHecho.Visibility = punto.Visibility;
         ecualizador.Visibility = punto.Visibility;
+        // los ojos son del punto: sobre un icono de juego quedarian raros
+        ojoIzq.Visibility = punto.Visibility;
+        ojoDer.Visibility = punto.Visibility;
         if (conAvatar)
         {
             var fe = (bs != null) ? (FrameworkElement)avatar : avatarClima;
@@ -2280,7 +2433,16 @@ public class NovaUI : Window
     {
         switch (estado)
         {
-            case "escuchando": return Color.FromRgb(0x3D, 0xF0, 0x9A);
+            case "escuchando":
+                // un tono por voz (por altura del tono de quien habla)
+                switch (voz)
+                {
+                    case 1: return Color.FromRgb(0x3D, 0xD9, 0xF0);   // cian
+                    case 2: return Color.FromRgb(0xB4, 0x8C, 0xFF);   // violeta
+                    case 3: return Color.FromRgb(0xFF, 0xB3, 0x5A);   // naranja
+                    default: return Color.FromRgb(0x3D, 0xF0, 0x9A);  // verde
+                }
+            case "atenta": return Color.FromRgb(0x33, 0xB8, 0x80);    // verde apagado: "sigo aqui"
             case "pensando": return Color.FromRgb(0xFF, 0xB3, 0x3D);
             case "hablando": return Color.FromRgb(0x4D, 0xA6, 0xFF);
             case "error": return Color.FromRgb(0xFF, 0x5A, 0x5A);
@@ -2320,9 +2482,13 @@ public class NovaUI : Window
         resplandor.BeginAnimation(DropShadowEffect.ColorProperty, new ColorAnimation(c, TimeSpan.FromMilliseconds(350)));
 
         bool expandida = (estado != "reposo") || !string.IsNullOrEmpty(texto);
-        bool conOnda = (estado == "escuchando");
+        bool conOnda = (estado == "escuchando" || estado == "atenta");
         bool conPuntitos = (estado == "pensando") && !orbitando;
         bool conNivel = (panelNivel.Visibility == Visibility.Visible);
+        Animar(lineaProgreso.Fill as SolidColorBrush, c);
+        // ojos: atentos al escuchar, normales el resto (si no hay expresion en curso)
+        if (estado == "escuchando" || estado == "atenta") { if (expresion == "normal") { Expresion("atentos", 0); } }
+        else if (expresion == "atentos") { Expresion("normal", 0); }
 
         onda.Visibility = conOnda ? Visibility.Visible : Visibility.Collapsed;
         Desvanecer(onda, conOnda ? 1 : 0, 220);
@@ -2422,6 +2588,7 @@ public class NovaUI : Window
             destino = Math.Min(ANCHO_BARRA, Math.Max(conOnda ? 150 : 90, exacto));
         }
         Expandir(destino, expandida || conNivel);
+        if (progreso > 0) { AnimarA(lineaProgreso, WidthProperty, Math.Max(0, destino - ALTO * 0.8) * progreso, 440); }
 
         if (estado == "pensando")
         {
@@ -2434,9 +2601,13 @@ public class NovaUI : Window
         else
         {
             resplandor.BeginAnimation(DropShadowEffect.OpacityProperty, null);
-            resplandor.Opacity = cerca ? 0.95 : 0.5;
+            // modo cine (pantalla completa sin juego): halo al minimo
+            bool cine = foco && string.IsNullOrEmpty(juegoActual) && (estado == "reposo" || estado == "");
+            resplandor.Opacity = cine ? 0.15 : (estado == "atenta" ? 0.3 : (cerca ? 0.95 : 0.5));
         }
     }
+
+    bool Cine() { return foco && string.IsNullOrEmpty(juegoActual); }
 
     void MostrarPuntitos(bool si)
     {

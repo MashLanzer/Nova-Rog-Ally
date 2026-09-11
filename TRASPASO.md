@@ -668,6 +668,12 @@ Cómo funciona:
 | idiomas y regionalismos | los patrones incluyen inglés (thanks, hello, please, sorry, yes/nope…) y regionalismos (parce, wey, tío, che, chévere, bacano, quiubo, no manches…) |
 | **gestos propios** | `config.json → ui.gestos: [{gesto, patron}]` → el asistente escribe `tmp\gestos.txt` («gesto\|patrón») al arrancar y la cápsula lo relee cada 30 s. Se evalúan ANTES que los de serie. Gestos válidos: cualquiera de la tabla (carino, gracias, risa, saludo, negar, asentir, duda, apoyo, logro…) |
 | diario de gestos | cada gesto se apunta en `tmp\gestos.log` (fecha, nombre; se recorta a 5000 líneas) y `estadisticas.md` lo resume por día en «Gestos de la cápsula» (sin escucho/lotengo/atención, que son ruido) |
+| **ojos** | dos pupilas (2,4×3,6 px, azul muy oscuro) sobre el punto, con reflejo pequeño arriba a la izquierda. Miran (±1,7 px, más que el reflejo), **parpadean ellas** (el punto apenas se aplasta) y ponen la **expresión** del gesto: *felices* (cariño, gracias, risa, logro, alivio, apoyo, orgullo), *entrecerrados* (duda, confuso, paciencia, perdida, calma, susurro), *abiertos* (sorpresa, grito, sobresalto, atención, al despertar), *tristes* (pena, despedida), *atentos* (escuchando/atenta), *cerrados* (dormida). Sobre un avatar (juego/tiempo) no se dibujan |
+| `progreso` (0..1, del asistente) | línea de 2 px en el borde inferior que se llena; ≥ 0,95 late |
+| `atenta` | verde apagado, onda, halo 0,3: «sigo aquí» tras responder (§18) |
+| `voz` | tinte de la escucha por quien habla (§19) |
+| **cine** (pantalla completa sin juego) | halo 0,15 en reposo, sin barra de volumen ni presencia |
+| `gesto:perdida` (25 s dictando sin que nada encaje) | mira a un lado y a otro, «?» |
 | `pensando` > 40 s | además de orbitar, **suda**: una gota azul le resbala cada 8 s |
 | `carga` ≥ 85 (CPU, cada 30 s) | pulso rápido (1,1 s) y el color base tira a rojo caliente |
 | ratón a < 60 px de la cápsula | **presencia**: el halo se enciende (0,95, radio 34), la mirada se estira y da un saltito; se apaga al alejarse |
@@ -684,6 +690,97 @@ Cómo funciona:
 Cuando hay un juego en primer plano el asistente pone su ejecutable en
 `juego`; `Get-JuegoEnPrimerPlano` guarda la ruta en `$script:juegoExeCandidato`.
 La interfaz saca el icono con `Icon.ExtractAssociatedIcon`.
+
+---
+
+## 18. MODO DE SEGUIMIENTO (encadenar órdenes sin repetir «nova»)
+
+Tras responder a una orden, el asistente **vuelve a escuchar** durante
+`input.seguimientoMs` (2500) sin palabra de activación. Si hablas, es otra
+orden; si no, se cierra en silencio. Cadena típica: «nova, abre steam» … «y
+sube el volumen» … «y avísame en veinte minutos» … «gracias».
+
+- `Process-Texto` deja `$script:seguimientoPendiente`; cuando vence la pausa
+  de la voz (`pausaHasta`, ahora calculada con la **duración real** del MP3
+  vía `<mp3>.env`), el bucle llama a `Start-Dictado 'seguimiento'`.
+- La marca `tmp\dictar.flag` lleva `seguimiento:<ms>`; el worker, si no oye
+  voz sostenida (≥2 bloques) en ese plazo, entrega vacío y cierra
+  (`seguimiento: sin voz`). Con voz, es un dictado normal (Whisper).
+- La cápsula lo muestra en estado **`atenta`** (verde apagado, onda, halo
+  bajo), sin ondas de despertar.
+- «gracias», «nada más», «listo», «ya está» cierran la cadena («De nada»).
+- No se arma tras avisos (temporizador, batería), ni con Win+H (no puede
+  esperar sin robar el foco), ni con una confirmación pendiente.
+- Verificado: tres órdenes encadenadas y cierre con «gracias».
+
+---
+
+## 19. CAPACIDADES DE CONTROL (locales, < 1 s)
+
+| Frase | Qué hace |
+|---|---|
+| «cierra steam / discord / la calculadora» | `CloseMainWindow` (y `Kill` si no cierra) del proceso de `commands.json` (`Resolve-Proceso`; los URI tienen tabla `$PROCESOS_URI`) |
+| «cierra esta ventana» | Alt+F4 |
+| «cierra el juego» | cierra el proceso del juego activo |
+| «cambia a discord», «ve a steam», «enfoca el navegador», «muestra spotify» | restaura y trae al frente su ventana (`ForceForeground`) |
+| «vuelve al juego» | idem con el juego activo |
+| «muestra el escritorio», «minimiza todo» | Win+D |
+| «cambia de ventana» | Alt+Tab |
+| «escribe hola qué tal» | teclea en la app activa (`SendKeys`, con los caracteres especiales escapados) |
+| «pulsa enter / escape / espacio / tab / arriba / abajo / f5 …», «pulsa abajo 3 veces» | tecla virtual |
+| «copia», «pega», «corta», «selecciona todo», «guarda», «deshaz eso», «rehaz», «nueva pestaña», «cierra la pestaña», «recarga» | atajos Ctrl+… |
+| «baja / sube» (sin objeto) | Av Pág / Re Pág |
+| «pon bad bunny en spotify» | `spotify:search:…` |
+| «reproduce lofi en youtube» | búsqueda en YouTube |
+| «busca en el equipo fotos de julio» | Win+S y teclea |
+| «gracias», «hola», «adiós», «cómo estás», «quién eres», «qué puedes hacer» | respuestas sociales locales (antes «gracias» costaba 40 s de modelo) |
+
+### Reglas por voz (`reglas.json`, `Invoke-ReglaVoz` / `Invoke-Reglas`)
+
+«cuando abra elden ring pon modo noche» · «cuando cierre el juego pon el
+brillo al 50» · «cuando la batería baje del 20 bloquea» · «todos los días a
+las 9 pon el brillo al 60» · «a las diez y media de la noche pon modo noche»
+· «cada 45 minutos recuérdame en 0 minutos que estire». Y «qué reglas hay»,
+«borra la regla 2», «borra las reglas». La acción tiene que ser una orden
+local (se valida con `Test-FastCommand`); se interpretan sobre la frase
+ENTERA, antes de partir por «y». Disparadores: entrada/salida de juego
+(`Enter-Juego`/`Exit-Juego`), batería (una vez por cruce, se rearma al subir
+10 puntos), hora (una vez al día) y periódicas. **Trampa PS 5.1**: una
+`ArrayList` vacía devuelta desde una función se desenrolla en `$null`;
+`return ,$lista`.
+
+### Fechas
+«recuerda que el 3 de octubre es el cumple de Ana» → además del diario,
+`memoria\fechas.json`; ese día, al arrancar o al cambiar de día, lo dice y
+medalla. «qué fechas tengo».
+
+### Voz interna (lo que hace opencode)
+`opencode run --format json`: una línea por evento. `Watch-OpencodeProgress`
+lee el archivo de salida cada 600 ms y traduce cada `tool_use` («ejecutando
+un comando», «leyendo un archivo», «consultando la web», «controlando el
+escritorio»…) al texto de `pensando`; además manda `progreso` (transcurrido
+sobre lo esperado por modo: pregunta 18 s, traducir 15 s, charla 20 s,
+acción 60 s) y la cápsula dibuja una **línea en el borde inferior** que late
+al pasar del 95 %. La respuesta se saca de los eventos `text`.
+
+### Micro-charla, logros, acelerómetro, nota semanal
+- `charla.activada`: «tres horas seguidas, un vaso de agua» y «es la una,
+  ¿seguimos?» (con juego), una vez al día cada uno.
+- Logros: `Steam\appcache\stats\UserGameStats_<usuario>_<appid>.bin` cambia
+  cuando cambian las estadísticas del juego activo → medalla (puede haber
+  falsos positivos; tope de una cada 2 min).
+- Acelerómetro (WinRT `Windows.Devices.Sensors.Accelerometer`, presente en la
+  Ally): |a| − 1 g > 0,7 → sobresalto. Se sondea cada 250 ms.
+- `memoria\semanas\AAAA-Www.md`: al arrancar y al cambiar de día, si la
+  semana anterior tuvo uso y no tiene nota, se escribe en lenguaje hablado
+  (órdenes, tropiezos, descartes, gestos).
+
+### Voz por tono
+El worker estima el tono fundamental (autocorrelación, 70-400 Hz) de cada
+orden y agrupa voces por cercanía (±22 Hz) en `tmp\voces.json`; el índice va
+en el JSON (`voz`) y la cápsula tiñe la escucha (verde, cian, violeta,
+naranja). No es identificación de hablante real: separa voces de altura
+distinta.
 
 ---
 

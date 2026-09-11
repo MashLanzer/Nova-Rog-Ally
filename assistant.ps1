@@ -119,7 +119,7 @@ function Send-WinH {
 # Formas de habla latinoamericana incluidas a proposito: subele/bajale/ponme/
 # metete/anda/prende, ademas del imperativo peninsular. Todo va sin tildes
 # porque el texto se normaliza antes de comparar.
-$VERBOS = '(?:abre|abreme|abrele|abrir|abri|abrime|ejecuta|ejecutame|inicia|iniciame|lanza|lanzame|arranca|arrancame|prende|prendeme|pon|ponme|poneme|ponele|pone|mete|metete|entra|entrate|anda|andate|ve|vete|llevame|muestrame|ensename|busca|buscame|buscar|busque|googlea|googleame|investiga|sube|subele|subir|aumenta|baja|bajale|bajar|reduce|silencia|silenciar|mutea|pausa|pausar|reproduce|reproducir|play|siguiente|anterior|bloquea|bloquear|cierra|apaga)'
+$VERBOS = '(?:abre|abreme|abrele|abrir|abri|abrime|ejecuta|ejecutame|inicia|iniciame|lanza|lanzame|arranca|arrancame|prende|prendeme|pon|ponme|poneme|ponele|pone|mete|metete|entra|entrate|anda|andate|ve|vete|llevame|muestrame|muestra|ensename|busca|buscame|buscar|busque|googlea|googleame|investiga|sube|subele|subir|aumenta|baja|bajale|bajar|reduce|silencia|silenciar|mutea|pausa|pausar|reproduce|reproducir|play|siguiente|anterior|bloquea|bloquear|cierra|cierrame|apaga|escribe|escribeme|teclea|pulsa|presiona|aprieta|dale a|cambia|cambiate|pasate|copia|pega|selecciona|guarda|minimiza|maximiza|enfoca)'
 
 # Muletillas y cortesias que el dictado captura pero que NO son parte de la
 # orden. "busca tambien en el navegador X" fallaba justo por esto.
@@ -366,6 +366,32 @@ function Find-Juego([string]$t) {
     return $null
 }
 
+# Nombre hablado de una app -> nombre de PROCESO, para cerrarla o traerla al
+# frente. Se saca del ejecutable de commands.json; los URI (steam://, spotify:)
+# tienen su proceso conocido a mano.
+$PROCESOS_URI = @{ 'steam' = 'steam'; 'spotify' = 'Spotify'; 'discord' = 'Discord'; 'xbox' = 'XboxPcApp'; 'camara' = 'WindowsCamera';
+                   'configuracion' = 'SystemSettings'; 'ajustes' = 'SystemSettings'; 'armoury crate' = 'ArmouryCrate'; 'armoury' = 'ArmouryCrate' }
+function Resolve-Proceso([string]$t) {
+    if (-not $t -or -not $cmds) { return $null }
+    $t = ($t -replace '^(?:a|al|el|la|los|las|mi|un|una)\s+', '').Trim()
+    $t = Repair-Words $t
+    $k = $null
+    if (Test-Prop $cmds.apps $t) { $k = $t } else { $k = Find-Aproximado $t $cmds.apps }
+    if (-not $k) {
+        # tambien un juego instalado: "cierra elden ring"
+        $j = Find-Juego $t
+        if ($j -and $script:juegoActivo -and $j.nombre -eq $script:juegoActivo) { return @{ proceso = '*juego*'; nombre = $j.nombre } }
+        return $null
+    }
+    $target = [string]$cmds.apps.$k
+    $proc = $null
+    if ($PROCESOS_URI.ContainsKey($k)) { $proc = $PROCESOS_URI[$k] }
+    elseif ($target -match '^([\w\-. ]+)\.exe$') { $proc = $Matches[1] }
+    elseif ($target -match '\\([\w\-. ]+)\.exe$') { $proc = $Matches[1] }
+    if (-not $proc) { return $null }
+    return @{ proceso = $proc; nombre = $k }
+}
+
 # Resuelve un nombre suelto contra apps, sitios conocidos o un dominio.
 function Resolve-Target([string]$t) {
     if (-not $t) { return $null }
@@ -610,7 +636,7 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '') {
 
 function Resolve-Fragment([string]$f) {
     # --- perfiles: una frase, varias acciones ("modo juego") ---
-    if ($f -match '^(?:modo|activa el modo|pon el modo|ponte en modo)\s+(.+)$') {
+    if ($f -match '^(?:modo|activa el modo|activa modo|pon el modo|pon modo|ponte en modo|cambia a modo|entra en modo)\s+(.+)$') {
         $nombre = $Matches[1].Trim()
         if (Test-Prop $cmds.perfiles $nombre) {
             $acc = @()
@@ -643,6 +669,16 @@ function Resolve-Fragment([string]$f) {
         # al quitar el lugar aparece un verbo nuevo al frente, que puede venir
         # deformado ("en el navegador buscal X"): hay que repararlo tambien aqui
         $f = Repair-Verb ($f.Substring($loc.Length).Trim())
+    }
+    # --- frases sociales: se contestan aqui, no valen 40 s de modelo ---
+    switch -regex ($f) {
+        '^(?:gracias|muchas gracias|mil gracias|te lo agradezco|gracias nova)$' { return @(@{ kind = 'decir'; desc = (@('De nada.', 'A ti.', 'Para eso estoy.', 'Cuando quieras.') | Get-Random) }) }
+        '^(?:hola|hola nova|buenas|buenos dias|buenas tardes|buenas noches|que tal|que mas|que hay)$' { return @(@{ kind = 'decir'; desc = (@('Hola. Dime.', 'Aqui estoy. ¿Que hacemos?', 'Hola, te escucho.') | Get-Random) }) }
+        '^(?:adios|chao|chau|hasta luego|nos vemos|me voy|hasta manana)$' { return @(@{ kind = 'decir'; desc = (@('Hasta luego.', 'Nos vemos.', 'Aqui estare.') | Get-Random) }) }
+        '^(?:como estas|que tal estas|como vas|como te va|todo bien)$' { return @(@{ kind = 'decir'; desc = (@('Muy bien, lista para lo que digas.', 'De maravilla. ¿Y tu?', 'Bien, con ganas de trabajar.') | Get-Random) }) }
+        '^(?:te quiero|te adoro|eres genial|eres la mejor|eres lo maximo|buen trabajo|bien hecho|me encantas)$' { return @(@{ kind = 'decir'; desc = (@('Y yo a ti.', 'Gracias, me sonrojo.', 'Eso me anima.') | Get-Random) }) }
+        '^(?:quien eres|como te llamas|que eres)$' { return @(@{ kind = 'decir'; desc = "Soy $EscuchaNombre, tu asistente de la consola. Vivo en la esquina de abajo." }) }
+        '^(?:que puedes hacer|que sabes hacer|ayuda|que haces)$' { return @(@{ kind = 'decir'; desc = 'Abro apps y juegos, busco, controlo volumen y brillo, escribo y pulso teclas, cierro ventanas, pongo temporizadores y reglas, anoto en tu memoria y le pregunto a la inteligencia artificial lo que no sepa.' }) }
     }
     # --- preguntas que se responden AQUI mismo, sin modelo ---
     # Preguntarle la hora a un LLM cuesta 13 s y encima puede negarse.
@@ -728,6 +764,70 @@ function Resolve-Fragment([string]$f) {
         '^(?:graba|grabar|clip|guarda el clip|graba los ultimos)\b' {
             return @(@{ kind = 'winaltg'; desc = 'grabar los ultimos segundos' })
         }
+    }
+    # --- CONTROL DE APPS Y VENTANAS (lo que faltaba para "hacer cualquier cosa") ---
+    # cerrar: "cierra steam", "cierra esta ventana", "cierra el juego"
+    if ($f -match '^(?:cierra|cierrame|cerrar|apaga|quita|quitame|mata)\s+(?:el\s+|la\s+|a\s+)?(.+)$') {
+        $obj = $Matches[1].Trim()
+        if ($obj -match '^(?:esta ventana|la ventana|esto|esta|la app|la aplicacion|ventana)$') { return @(@{ kind = 'altf4'; desc = 'cerrar la ventana' }) }
+        if ($obj -match '^(?:el juego|juego|este juego|el videojuego)$') { return @(@{ kind = 'cerrarJuego'; desc = 'cerrar el juego' }) }
+        if ($obj -match '^(?:todo|todas las ventanas|todas)$') { return @(@{ kind = 'winkey'; vk = 0x44; desc = 'mostrar el escritorio' }) }
+        $proc = Resolve-Proceso $obj
+        if ($proc) { return @(@{ kind = 'cerrarApp'; proceso = $proc.proceso; desc = "cerrar $($proc.nombre)" }) }
+        # no se reconoce que cerrar: que siga su camino (puede ser otra cosa)
+    }
+    # cambiar de app: "cambia a discord", "ve a steam", "enfoca el navegador", "muestra spotify"
+    if ($f -match '^(?:cambia a|cambiate a|pasate a|pasa a|enfoca|muestra|muestrame|ve a|vete a|llevame a|ponme en|trae|traeme)\s+(?:el\s+|la\s+|a\s+)?(.+)$') {
+        $obj = $Matches[1].Trim()
+        if ($obj -match '^(?:el escritorio|escritorio)$') { return @(@{ kind = 'winkey'; vk = 0x44; desc = 'mostrar el escritorio' }) }
+        if ($obj -match '^(?:el juego|juego)$' -and $script:juegoActivo) { return @(@{ kind = 'enfocarJuego'; desc = "volver a $($script:juegoActivo)" }) }
+        $proc = Resolve-Proceso $obj
+        if ($proc) { return @(@{ kind = 'enfocar'; proceso = $proc.proceso; desc = "cambiar a $($proc.nombre)" }) }
+    }
+    if ($f -match '^(?:minimiza todo|minimizar todo|muestra el escritorio|escritorio|esconde todo|oculta todo)$') { return @(@{ kind = 'winkey'; vk = 0x44; desc = 'mostrar el escritorio' }) }
+    if ($f -match '^(?:cambia de ventana|siguiente ventana|otra ventana|alterna)$') { return @(@{ kind = 'alttab'; desc = 'cambiar de ventana' }) }
+    # escribir en la app activa: "escribe hola que tal"
+    if ($f -match '^(?:escribe|escribeme|teclea|dicta|pon el texto)\s+(.+)$') {
+        return @(@{ kind = 'escribir'; texto = $Matches[1].Trim(); desc = "escribir '$($Matches[1].Trim())'" })
+    }
+    # teclas: "pulsa enter", "dale a escape", "presiona espacio"
+    if ($f -match '^(?:pulsa|presiona|aprieta|dale a|dale al|toca|oprime)\s+(?:la\s+|el\s+|tecla\s+)?(.+)$') {
+        $k = $Matches[1].Trim()
+        $mapa = @{ 'enter' = 0x0D; 'intro' = 0x0D; 'escape' = 0x1B; 'esc' = 0x1B; 'espacio' = 0x20; 'tab' = 0x09; 'tabulador' = 0x09;
+                   'arriba' = 0x26; 'abajo' = 0x28; 'izquierda' = 0x25; 'derecha' = 0x27; 'borrar' = 0x08; 'retroceso' = 0x08;
+                   'suprimir' = 0x2E; 'inicio' = 0x24; 'fin' = 0x23; 'f5' = 0x74; 'f11' = 0x7A; 'windows' = 0x5B; 'play' = 0xB3; 'pausa' = 0xB3 }
+        $rep = 1
+        if ($k -match '^(.+?)\s+(\d+)\s+veces$') { $k = $Matches[1]; $rep = [Math]::Min(20, [int]$Matches[2]) }
+        if ($mapa.ContainsKey($k)) { return @(@{ kind = 'key'; vk = $mapa[$k]; repeat = $rep; desc = "pulsar $k" }) }
+        return $null
+    }
+    switch -regex ($f) {
+        '^(?:copia|copiar|copia eso|copialo)$' { return @(@{ kind = 'atajo'; teclas = '^c'; desc = 'copiar' }) }
+        '^(?:pega|pegar|pegalo)$' { return @(@{ kind = 'atajo'; teclas = '^v'; desc = 'pegar' }) }
+        '^(?:corta|cortar)$' { return @(@{ kind = 'atajo'; teclas = '^x'; desc = 'cortar' }) }
+        '^(?:selecciona todo|seleccionar todo|selecciona todo el texto)$' { return @(@{ kind = 'atajo'; teclas = '^a'; desc = 'seleccionar todo' }) }
+        '^(?:guarda|guardar|guarda el archivo|guardalo)$' { return @(@{ kind = 'atajo'; teclas = '^s'; desc = 'guardar' }) }
+        '^(?:deshaz eso|deshacer eso|control zeta|control z)$' { return @(@{ kind = 'atajo'; teclas = '^z'; desc = 'deshacer' }) }
+        '^(?:rehaz|rehacer|control y)$' { return @(@{ kind = 'atajo'; teclas = '^y'; desc = 'rehacer' }) }
+        '^(?:nueva pestana|abre una pestana|pestana nueva)$' { return @(@{ kind = 'atajo'; teclas = '^t'; desc = 'nueva pestana' }) }
+        '^(?:cierra la pestana|cierra esta pestana|cerrar pestana)$' { return @(@{ kind = 'atajo'; teclas = '^w'; desc = 'cerrar pestana' }) }
+        '^(?:recarga|recargar|actualiza la pagina|refresca)$' { return @(@{ kind = 'key'; vk = 0x74; repeat = 1; desc = 'recargar' }) }
+        '^(?:pantalla completa del navegador|f once)$' { return @(@{ kind = 'key'; vk = 0x7A; repeat = 1; desc = 'pantalla completa' }) }
+        '^(?:baja|bajar|desplaza hacia abajo|scroll abajo)$' { return @(@{ kind = 'key'; vk = 0x22; repeat = 1; desc = 'bajar la pagina' }) }
+        '^(?:sube|subir|desplaza hacia arriba|scroll arriba)$' { return @(@{ kind = 'key'; vk = 0x21; repeat = 1; desc = 'subir la pagina' }) }
+    }
+    # musica y video: "pon bad bunny en spotify", "reproduce lofi en youtube"
+    if ($f -match '^(?:pon|ponme|reproduce|reproduceme|escuchar|quiero escuchar|toca|tocame)\s+(.+?)\s+en\s+spotify$') {
+        $q = $Matches[1].Trim()
+        return @(@{ kind = 'url'; url = ('spotify:search:' + [Uri]::EscapeDataString($q)); desc = "buscar '$q' en Spotify" })
+    }
+    if ($f -match '^(?:pon|ponme|reproduce|reproduceme|quiero ver|ver|toca)\s+(.+?)\s+en\s+youtube$') {
+        $q = $Matches[1].Trim()
+        return @(@{ kind = 'url'; url = ('https://www.youtube.com/results?search_query=' + [Uri]::EscapeDataString($q)); desc = "buscar '$q' en YouTube" })
+    }
+    # buscar en el equipo (Windows Search): "busca en el equipo fotos de julio"
+    if ($f -match '^(?:busca|buscame|buscar)\s+en\s+(?:el\s+)?(?:equipo|pc|computador|computadora|ordenador|windows|mis archivos)\s+(.+)$') {
+        return @(@{ kind = 'buscarEquipo'; texto = $Matches[1].Trim(); desc = "buscar '$($Matches[1].Trim())' en el equipo" })
     }
     # --- colocacion de ventanas ---
     switch -regex ($f) {
@@ -951,6 +1051,8 @@ function Test-FastCommand([string]$text) {
     if (-not $cmds -or -not $text) { return $false }
     if ($text -match '(?i)^\s*aprende\s+que\s+') { return $true }
     if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda|memoriza)\s+(?!en\s+\d+)') { return $true }
+    $pl = ConvertTo-Plain $text
+    if ($pl -match '^(?:cuando\s|cada\s+\d+|todos los dias|a las?\s)') { return $false }   # reglas: las decide Invoke-ReglaVoz
     $frags = $null
     try { $frags = Split-Compound (Repair-Words (ConvertTo-Plain $text)) } catch { return $false }
     if (-not $frags -or $frags.Count -eq 0) { return $false }
@@ -986,9 +1088,23 @@ function Invoke-FastCommand([string]$text) {
         if ($frase.Length -gt 0) {
             $null = Add-Memoria $frase
             Log "MEMORIA: $frase"
+            # si lleva una fecha ("el 3 de octubre"), ese dia lo celebro
+            $md = $null
+            try { $md = Add-Fecha $frase } catch { $md = $null }
+            if ($md) { return "Anotado. Y ese dia te lo recuerdo." }
             return "Anotado."
         }
     }
+    # fechas guardadas: "que fechas tengo"
+    if ($text -match '(?i)^\s*(?:que fechas (?:tengo|hay|guardaste)|mis fechas|que cumples hay|que cumpleanos hay)\b') {
+        $fs = @(Get-Fechas | Sort-Object md)
+        if ($fs.Count -eq 0) { return "No tienes fechas guardadas. Di, por ejemplo: recuerda que el 3 de octubre es el cumple de Ana." }
+        return ("Tienes " + $fs.Count + ": " + (($fs | ForEach-Object { $_.texto }) -join '; '))
+    }
+    # reglas por voz: se interpretan sobre la frase ENTERA (no se parte por "y")
+    $regla = $null
+    try { $regla = Invoke-ReglaVoz $text } catch { Log ("regla: " + $_.Exception.Message); $regla = $null }
+    if ($regla) { return $regla }
     $frags = Split-Compound (Repair-Words (ConvertTo-Plain $text))
     if (-not $frags -or $frags.Count -eq 0) { return $null }
 
@@ -1085,6 +1201,44 @@ function Invoke-FastCommand([string]$text) {
                 }
                 'winkey' { Send-WinKey $a.vk }
                 'lock' { Start-Process 'rundll32.exe' 'user32.dll,LockWorkStation' -ErrorAction Stop }
+                'altf4' { [AX]::keybd_event([byte]$VK_MENU, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 40; Send-Key 0x73; [AX]::keybd_event([byte]$VK_MENU, 0, $KEYUP, [UIntPtr]::Zero) }
+                'alttab' { [AX]::keybd_event([byte]$VK_MENU, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 40; Send-Key 0x09; Start-Sleep -Milliseconds 40; [AX]::keybd_event([byte]$VK_MENU, 0, $KEYUP, [UIntPtr]::Zero) }
+                'atajo' { [System.Windows.Forms.SendKeys]::SendWait($a.teclas) }
+                'escribir' {
+                    # SendKeys interpreta + ^ % ~ ( ) { }: se escapan entre llaves
+                    $txt = [regex]::Replace($a.texto, '[+^%~(){}\[\]]', { param($m) '{' + $m.Value + '}' })
+                    [System.Windows.Forms.SendKeys]::SendWait($txt)
+                }
+                'cerrarApp' {
+                    $ps = @(Get-Process -Name $a.proceso -ErrorAction SilentlyContinue)
+                    if ($ps.Count -eq 0) { $a.desc = "$($a.desc): no estaba abierta" }
+                    else {
+                        foreach ($pr in $ps) { try { if (-not $pr.CloseMainWindow()) { $pr.Kill() } } catch {} }
+                    }
+                }
+                'cerrarJuego' {
+                    if ($script:juegoActivo -and $script:juegoExe) {
+                        $ps = @(Get-Process | Where-Object { try { $_.Path -eq $script:juegoExe } catch { $false } })
+                        foreach ($pr in $ps) { try { if (-not $pr.CloseMainWindow()) { Start-Sleep -Milliseconds 1500; if (-not $pr.HasExited) { $pr.Kill() } } } catch {} }
+                        $a.desc = "cerrando $($script:juegoActivo)"
+                    } else { $a.desc = 'no hay ningun juego abierto' }
+                }
+                'enfocar' {
+                    $pr = Get-Process -Name $a.proceso -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+                    if ($pr) {
+                        [AX]::ShowWindow($pr.MainWindowHandle, 9) | Out-Null   # SW_RESTORE por si esta minimizada
+                        [void][AX]::ForceForeground($pr.MainWindowHandle)
+                    } else { $a.desc = "$($a.desc): no esta abierta" }
+                }
+                'enfocarJuego' {
+                    $pr = Get-Process | Where-Object { try { $_.Path -eq $script:juegoExe -and $_.MainWindowHandle -ne 0 } catch { $false } } | Select-Object -First 1
+                    if ($pr) { [AX]::ShowWindow($pr.MainWindowHandle, 9) | Out-Null; [void][AX]::ForceForeground($pr.MainWindowHandle) }
+                }
+                'buscarEquipo' {
+                    Send-WinKey 0x53   # Win+S
+                    Start-Sleep -Milliseconds 700
+                    [System.Windows.Forms.SendKeys]::SendWait(([regex]::Replace($a.texto, '[+^%~(){}\[\]]', { param($m) '{' + $m.Value + '}' })))
+                }
             }
             $hechas += $a.desc
         } catch {
@@ -1194,8 +1348,21 @@ function Say-Online([string]$texto) {
         $ruta = $tarea.Result
         if (-not $ruta -or $ruta.StartsWith('ERR')) { Log "voz online: $ruta"; return $false }
         # la capsula mueve la boca con la envolvente de ESTE audio (<mp3>.env);
-        # se avisa justo antes de reproducir para que vayan sincronizados
+        # se avisa justo antes de reproducir para que vayan sincronizados.
+        # La envolvente da ademas la DURACION real: con ella la pausa de la
+        # escucha (y el seguimiento) acaban cuando acaba la voz, no cuando lo
+        # estimaba la cuenta de letras
         $script:uiAudio = $ruta
+        try {
+            $env = $ruta + '.env'
+            if (Test-Path -LiteralPath $env) {
+                $n = ([System.IO.File]::ReadAllText($env).Trim() -split '\s+').Count
+                $dur = $n * 50 + 450
+                $fin = $sw.ElapsedMilliseconds + $dur
+                $script:pausaHasta = $fin
+                $script:uiHasta = [Math]::Max($script:uiHasta, $fin)
+            }
+        } catch {}
         Refresh-UI
         return (Play-Audio $ruta)
     } catch {
@@ -1390,6 +1557,12 @@ $MarcaPausa = Join-Path $TmpDir "escucha-pausa.flag"
 # "little nighters 3") y obligaba a esperar el silencio desde fuera. El worker
 # ya tiene el microfono abierto: dicta el tambien.
 $MotorDictado = [string](Get-Cfg 'input' 'dictado' 'vosk')
+# MODO DE SEGUIMIENTO: tras responder, se vuelve a escuchar durante este
+# tiempo SIN palabra de activacion. Si hablas, es otra orden; si no, se cierra
+# en silencio. Permite encadenar: "nova, abre steam" ... "y sube el volumen"
+# ... "y avisame en veinte minutos". 0 = desactivado. Solo con el dictado del
+# worker (whisper/vosk): Win+H no puede esperar sin robar el foco.
+$SeguimientoMs = [int](Get-Cfg 'input' 'seguimientoMs' 2500)
 # 'vosk' y 'whisper' comparten el camino: el worker de escucha graba la orden
 # y la transcribe (Whisper es mucho mas preciso; Vosk pequeno se queda para
 # la palabra de activacion). 'windows' es Win+H.
@@ -1497,6 +1670,8 @@ $script:uiBateria = 100
 $script:uiCargando = 0
 $script:uiPerfil = ''       # ultimo perfil aplicado ("noche" cambia la paleta)
 $script:uiCarga = 0         # % de CPU: la capsula se agita por encima del 85
+$script:uiProgreso = 0      # 0..1 mientras opencode trabaja (linea del borde)
+$script:uiVoz = 0           # indice de la voz que dicto (por tono), 0 = la habitual
 $script:uiClima = ''        # emoji del tiempo: avatar cuando no hay juego
 $script:uiAnimo = 0         # -1..1 segun aciertos y errores de las ultimas 24 h
 
@@ -1530,7 +1705,9 @@ function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
             ',"tempoFin":' + $tFin + ',"tempoTotal":' + $tTotal +
             ',"perfil":"' + $script:uiPerfil + '"' +
             ',"carga":' + $script:uiCarga + ',"clima":"' + (ConvertTo-JsonTexto $script:uiClima) + '"' +
-            ',"animo":' + ([double]$script:uiAnimo).ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture) + '}'
+            ',"animo":' + ([double]$script:uiAnimo).ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture) +
+            ',"progreso":' + ([double]$script:uiProgreso).ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture) +
+            ',"voz":' + $script:uiVoz + '}'
     if ($json -ne $script:uiUltimo) {
         # UTF-8 SIN BOM: la interfaz lo lee tal cual y el BOM colaria un caracter
         try { [System.IO.File]::WriteAllText($RutaUiEstado, $json, (New-Object System.Text.UTF8Encoding $false)) } catch {}
@@ -1679,10 +1856,323 @@ function Update-Clima {
     } catch { Log ("clima: no disponible (" + $_.Exception.Message + ")") }
 }
 
+# =====================================================================
+# REGLAS POR VOZ: "cuando abra elden ring pon modo noche", "cuando la bateria
+# baje del 20 bloquea", "todos los dias a las 9 pon el brillo al 60", "cada
+# 45 minutos avisame en 0 minutos que descanse". Se guardan en reglas.json y
+# se evaluan desde el bucle principal. La accion es una orden LOCAL (se
+# valida con Test-FastCommand al crearla): nada de texto libre al modelo.
+# =====================================================================
+$ReglasPath = Join-Path $LogDir 'reglas.json'
+$script:reglas = $null
+$HORAS_PALABRA = @{ 'una' = 1; 'dos' = 2; 'tres' = 3; 'cuatro' = 4; 'cinco' = 5; 'seis' = 6; 'siete' = 7; 'ocho' = 8; 'nueve' = 9; 'diez' = 10; 'once' = 11; 'doce' = 12 }
+
+function Get-Reglas {
+    if ($null -ne $script:reglas) { return ,$script:reglas }
+    $script:reglas = New-Object System.Collections.ArrayList
+    if (Test-Path -LiteralPath $ReglasPath) {
+        try {
+            foreach ($r in @(Get-Content -LiteralPath $ReglasPath -Raw -Encoding UTF8 | ConvertFrom-Json)) {
+                [void]$script:reglas.Add(@{ id = [int]$r.id; tipo = [string]$r.tipo; valor = [string]$r.valor; accion = [string]$r.accion; ultima = [string]$r.ultima })
+            }
+        } catch {}
+    }
+    # la coma evita que PowerShell "desenrolle" la lista vacia en $null
+    return ,$script:reglas
+}
+
+function Save-Reglas {
+    try {
+        # foreach sobre la variable, no por tuberia: la lista llega como UN
+        # objeto (por la coma de Get-Reglas) y la tuberia no la desenrollaria
+        $g = Get-Reglas
+        $lista = @()
+        foreach ($x in $g) {
+            $o = New-Object PSObject
+            foreach ($k in 'id', 'tipo', 'valor', 'accion', 'ultima') { $o | Add-Member -NotePropertyName $k -NotePropertyValue $x[$k] }
+            $lista += $o
+        }
+        $json = if ($lista.Count -eq 0) { '[]' } else { ConvertTo-Json -InputObject @($lista) -Depth 4 }
+        [System.IO.File]::WriteAllText($ReglasPath, $json, (New-Object System.Text.UTF8Encoding($false)))
+    } catch { Log ("reglas: no pude guardar: " + $_.Exception.Message) }
+}
+
+function Describe-Regla($r) {
+    $cuando = switch ($r.tipo) {
+        'juegoAbre' { if ($r.valor) { "cuando abras $($r.valor)" } else { 'cuando abras un juego' } }
+        'juegoCierra' { if ($r.valor) { "cuando cierres $($r.valor)" } else { 'cuando cierres el juego' } }
+        'bateria' { "cuando la bateria baje del $($r.valor) por ciento" }
+        'hora' { "todos los dias a las $($r.valor)" }
+        'cada' { "cada $($r.valor) minutos" }
+        default { $r.tipo }
+    }
+    return "$cuando, $($r.accion)"
+}
+
+# Intenta interpretar la frase como regla. Devuelve la respuesta hablada, o
+# $null si no es una regla.
+function Invoke-ReglaVoz([string]$text) {
+    $p = ConvertTo-Plain $text
+    $g = Get-Reglas
+    if ($p -match '^(?:borra|elimina|quita|olvida)\s+(?:todas\s+)?(?:las\s+)?reglas$') {
+        $g.Clear(); Save-Reglas; return "Listo, sin reglas."
+    }
+    if ($p -match '^(?:borra|elimina|quita|olvida)\s+la\s+regla\s+(\d+)$') {
+        $id = [int]$Matches[1]
+        $q = @($g | Where-Object { $_.id -eq $id })
+        if ($q.Count -eq 0) { return "No hay ninguna regla $id" }
+        foreach ($x in $q) { $g.Remove($x) }
+        Save-Reglas; return "Regla $id borrada."
+    }
+    if ($p -match '^(?:que reglas hay|que reglas tengo|mis reglas|cuales son las reglas|lista las reglas|dime las reglas)$') {
+        if ($g.Count -eq 0) { return "No tienes reglas. Puedes decir: cuando abra un juego, pon modo juego." }
+        return ("Tienes " + $g.Count + ": " + (($g | ForEach-Object { "regla $($_.id), " + (Describe-Regla $_) }) -join '. '))
+    }
+    $tipo = $null; $valor = ''; $accion = ''
+    if ($p -match '^cuando\s+(?:se\s+)?(?:abra|inicie|arranque|empiece|entre a|entre en)\s+(?:el\s+|un\s+|cualquier\s+)?(.+?)\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea)\b.*)$') {
+        $tipo = 'juegoAbre'; $obj = $Matches[1].Trim(); $accion = $Matches[2].Trim()
+        if ($obj -notmatch '^(?:juego|videojuego|algo|cualquier cosa)$') { $j = Find-Juego $obj; if ($j) { $valor = $j.nombre } else { return "No conozco el juego '$obj'" } }
+    }
+    elseif ($p -match '^cuando\s+(?:se\s+)?(?:cierre|termine|acabe|salga de|salga del)\s+(?:el\s+|un\s+|cualquier\s+)?(.+?)\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea)\b.*)$') {
+        $tipo = 'juegoCierra'; $obj = $Matches[1].Trim(); $accion = $Matches[2].Trim()
+        if ($obj -notmatch '^(?:juego|videojuego|algo|cualquier cosa)$') { $j = Find-Juego $obj; if ($j) { $valor = $j.nombre } else { return "No conozco el juego '$obj'" } }
+    }
+    elseif ($p -match '^cuando\s+la\s+(?:bateria|pila)\s+(?:baje|este|llegue|caiga)\s+(?:del|al|a|por debajo del|por debajo de|de|menos del)\s+(\d{1,3})\s*(?:por ciento|%)?\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea)\b.*)$') {
+        $tipo = 'bateria'; $valor = [string][int]$Matches[1]; $accion = $Matches[2].Trim()
+    }
+    elseif ($p -match '^(?:todos los dias|cada dia|diariamente|siempre)?\s*a\s+las?\s+(\d{1,2}|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)(?::(\d{2})|\s+y\s+media|\s+y\s+cuarto)?\s*(de la manana|de la tarde|de la noche|am|pm)?\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea)\b.*)$') {
+        $h = $Matches[1]; if ($HORAS_PALABRA.ContainsKey($h)) { $h = $HORAS_PALABRA[$h] }; $h = [int]$h
+        $m = 0
+        if ($Matches[2]) { $m = [int]$Matches[2] } elseif ($Matches[0] -match 'y media') { $m = 30 } elseif ($Matches[0] -match 'y cuarto') { $m = 15 }
+        $franja = $Matches[3]
+        if ($franja -match 'tarde|noche|pm' -and $h -lt 12) { $h += 12 }
+        if ($franja -match 'manana|am' -and $h -eq 12) { $h = 0 }
+        $tipo = 'hora'; $valor = ('{0:00}:{1:00}' -f $h, $m); $accion = $Matches[4].Trim()
+    }
+    elseif ($p -match '^cada\s+(\d+)\s*(minutos?|horas?)\s*,?\s*((?:' + $VERBOS + '|modo|activa|desactiva|bloquea)\b.*)$') {
+        $n = [int]$Matches[1]; if ($Matches[2] -match '^hora') { $n *= 60 }
+        if ($n -lt 1) { return "Cada cuanto tiempo? Necesito al menos un minuto." }
+        $tipo = 'cada'; $valor = [string]$n; $accion = $Matches[3].Trim()
+    }
+    if (-not $tipo) { return $null }
+    if (-not (Test-FastCommand $accion)) { return "Entendi la condicion, pero no reconozco la accion '$accion'. Tiene que ser una orden que yo sepa hacer." }
+    $id = 1; foreach ($x in $g) { if ($x.id -ge $id) { $id = $x.id + 1 } }
+    $r = @{ id = $id; tipo = $tipo; valor = $valor; accion = $accion; ultima = '' }
+    [void]$g.Add($r); Save-Reglas
+    Log ("REGLA $id guardada: " + (Describe-Regla $r))
+    Add-Estadistica 'local' "regla: $text"
+    return ("Regla $id guardada: " + (Describe-Regla $r) + ".")
+}
+
+# Ejecuta las reglas de un tipo cuyo valor encaje.
+function Invoke-Reglas([string]$tipo, [string]$dato = '') {
+    $g = Get-Reglas
+    if ($g.Count -eq 0) { return }
+    $hoy = Get-Date -Format 'yyyy-MM-dd'
+    foreach ($r in @($g)) {
+        if ($r.tipo -ne $tipo) { continue }
+        $dispara = $false
+        switch ($tipo) {
+            'juegoAbre' { $dispara = (-not $r.valor -or $r.valor -eq $dato) }
+            'juegoCierra' { $dispara = (-not $r.valor -or $r.valor -eq $dato) }
+            'bateria' {
+                $pct = [int]$dato
+                if ($pct -le [int]$r.valor) { if ($r.ultima -ne 'baja') { $dispara = $true; $r.ultima = 'baja' } }
+                elseif ($pct -gt ([int]$r.valor + 10)) { $r.ultima = '' }
+            }
+            'hora' { if ($dato -eq $r.valor -and $r.ultima -ne $hoy) { $dispara = $true; $r.ultima = $hoy } }
+            'cada' {
+                $ult = 0; if ($r.ultima) { [double]::TryParse($r.ultima, [ref]$ult) | Out-Null }
+                if (($sw.ElapsedMilliseconds - $ult) -ge ([int]$r.valor * 60000)) { $dispara = $true; $r.ultima = [string]$sw.ElapsedMilliseconds }
+            }
+        }
+        if (-not $dispara) { continue }
+        Log ("REGLA $($r.id) dispara: " + (Describe-Regla $r))
+        $script:confirmado = $true
+        $res = $null
+        try { $res = Invoke-FastCommand $r.accion } catch { $res = $null } finally { $script:confirmado = $false }
+        if ($res) { Send-UIEvento 'hecho'; Say ("Regla $($r.id): $res") } else { Log "REGLA $($r.id): la accion no se pudo ejecutar" }
+    }
+    if ($tipo -in @('bateria', 'hora', 'cada')) { Save-Reglas }
+}
+
+# =====================================================================
+# FECHAS: "recuerda que el 3 de octubre es el cumple de Ana" -> ademas del
+# diario, se guarda en memoria\fechas.json y ese dia lo celebra al arrancar.
+# =====================================================================
+$FechasPath = Join-Path $MemoriaDir 'fechas.json'
+$MESES = @{ 'enero' = 1; 'febrero' = 2; 'marzo' = 3; 'abril' = 4; 'mayo' = 5; 'junio' = 6; 'julio' = 7; 'agosto' = 8; 'septiembre' = 9; 'setiembre' = 9; 'octubre' = 10; 'noviembre' = 11; 'diciembre' = 12 }
+
+function Get-Fechas {
+    $lista = @()
+    if (Test-Path -LiteralPath $FechasPath) {
+        try { $lista = @(Get-Content -LiteralPath $FechasPath -Raw -Encoding UTF8 | ConvertFrom-Json) } catch { $lista = @() }
+    }
+    return $lista
+}
+
+function Add-Fecha([string]$frase) {
+    $p = ConvertTo-Plain $frase
+    if ($p -notmatch '\b(?:el\s+)?(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\b') { return $null }
+    $d = [int]$Matches[1]; $m = $MESES[$Matches[2]]
+    if ($d -lt 1 -or $d -gt 31) { return $null }
+    $md = '{0:00}-{1:00}' -f $m, $d
+    $lista = @(Get-Fechas | Where-Object { -not ($_.md -eq $md -and $_.texto -eq $frase) })
+    $lista += New-Object PSObject -Property @{ md = $md; texto = $frase }
+    try {
+        [System.IO.File]::WriteAllText($FechasPath, (ConvertTo-Json -InputObject @($lista) -Depth 3), (New-Object System.Text.UTF8Encoding($false)))
+        Log "FECHA guardada ($md): $frase"
+    } catch {}
+    return $md
+}
+
+function Test-FechasHoy {
+    $hoy = Get-Date -Format 'MM-dd'
+    $de = @(Get-Fechas | Where-Object { $_.md -eq $hoy })
+    if ($de.Count -eq 0) { return }
+    foreach ($f in $de) {
+        Log "FECHA de hoy: $($f.texto)"
+        Say ("Hoy es un dia especial: " + $f.texto)
+        Send-UIEvento 'logro'
+    }
+}
+
+# =====================================================================
+# MICRO-CHARLA: un comentario espontaneo al dia, y solo si viene a cuento.
+# =====================================================================
+$CharlaOn = [bool](Get-Cfg 'charla' 'activada' $true)
+$script:charlaAgua = ''
+$script:charlaTarde = ''
+
+# =====================================================================
+# LOGROS DE STEAM: Steam reescribe appcache\stats\UserGameStats_<usuario>_<app>.bin
+# cuando cambian los logros del juego que esta corriendo. Se vigila la fecha
+# del archivo del juego activo: si cambia, medalla. (Tambien cambia con otras
+# estadisticas: puede haber algun falso positivo; una medalla de mas no duele.)
+# =====================================================================
+$script:logroArchivo = ''
+$script:logroStamp = [DateTime]::MinValue
+$script:logroUltimo = 0
+
+function Watch-LogrosSteam {
+    if (-not $script:juegoActivo) { $script:logroArchivo = ''; return }
+    try {
+        if (-not $script:logroArchivo) {
+            $j = @($script:Juegos | Where-Object { $_.nombre -eq $script:juegoActivo }) | Select-Object -First 1
+            if (-not $j) { return }
+            $sp = (Get-ItemProperty 'HKCU:\Software\Valve\Steam' -ErrorAction SilentlyContinue).SteamPath -replace '/', '\'
+            $f = Get-ChildItem -LiteralPath (Join-Path $sp 'appcache\stats') -Filter "UserGameStats_*_$($j.id).bin" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $f) { $script:logroArchivo = '-'; return }
+            $script:logroArchivo = $f.FullName
+            $script:logroStamp = $f.LastWriteTimeUtc
+            return
+        }
+        if ($script:logroArchivo -eq '-') { return }
+        $st = [System.IO.File]::GetLastWriteTimeUtc($script:logroArchivo)
+        if ($st -ne $script:logroStamp) {
+            $script:logroStamp = $st
+            if (($sw.ElapsedMilliseconds - $script:logroUltimo) -ge 120000) {
+                $script:logroUltimo = $sw.ElapsedMilliseconds
+                Log "LOGRO (stats de Steam cambiaron) en $($script:juegoActivo)"
+                Send-UIEvento 'logro'
+            }
+        }
+    } catch {}
+}
+
+# =====================================================================
+# ACELEROMETRO (WinRT): un golpe o sacudida de la consola sobresalta a la
+# capsula. Si el sensor no existe, no se hace nada.
+# =====================================================================
+$script:acelerometro = $null
+$script:acelCheck = 0
+$script:acelUltimo = 0
+try {
+    $null = [Windows.Devices.Sensors.Accelerometer, Windows.Devices.Sensors, ContentType = WindowsRuntime]
+    $script:acelerometro = [Windows.Devices.Sensors.Accelerometer]::GetDefault()
+    if ($script:acelerometro) { Log "acelerometro: disponible" } else { Log "acelerometro: no hay sensor" }
+} catch { $script:acelerometro = $null; Log "acelerometro: no disponible" }
+
+function Watch-Acelerometro {
+    if (-not $script:acelerometro) { return }
+    try {
+        $r = $script:acelerometro.GetCurrentReading()
+        if (-not $r) { return }
+        $mag = [Math]::Sqrt($r.AccelerationX * $r.AccelerationX + $r.AccelerationY * $r.AccelerationY + $r.AccelerationZ * $r.AccelerationZ)
+        if ([Math]::Abs($mag - 1.0) -gt 0.7 -and ($sw.ElapsedMilliseconds - $script:acelUltimo) -ge 5000) {
+            $script:acelUltimo = $sw.ElapsedMilliseconds
+            Log ("SACUDIDA: {0:0.00} g" -f $mag)
+            Send-UIEvento 'gesto:sobresalto'
+        }
+    } catch { $script:acelerometro = $null }
+}
+
+# =====================================================================
+# NOTA SEMANAL: memoria\semanas\AAAA-Www.md, escrita en lenguaje hablado a
+# partir de las estadisticas y del diario de gestos. Una por semana vencida.
+# =====================================================================
+function Write-NotaSemanal {
+    try {
+        $hoy = (Get-Date).Date
+        # lunes de ESTA semana; la semana a resumir es la anterior
+        $lunes = $hoy.AddDays(-(([int]$hoy.DayOfWeek + 6) % 7))
+        $ini = $lunes.AddDays(-7); $fin = $lunes.AddDays(-1)
+        $cal = [System.Globalization.CultureInfo]::InvariantCulture.Calendar
+        $semana = $cal.GetWeekOfYear($ini, [System.Globalization.CalendarWeekRule]::FirstFourDayWeek, [DayOfWeek]::Monday)
+        $dir = Join-Path $MemoriaDir 'semanas'
+        $ruta = Join-Path $dir ('{0}-W{1:00}.md' -f $ini.Year, $semana)
+        if (Test-Path -LiteralPath $ruta) { return }
+        $s = Get-Estadisticas
+        $tot = @{}; $dias = 0
+        for ($d = $ini; $d -le $fin; $d = $d.AddDays(1)) {
+            $k = $d.ToString('yyyy-MM-dd')
+            if (-not $s.dias.ContainsKey($k)) { continue }
+            $dias++
+            foreach ($r in $s.dias[$k].Keys) { if (-not $tot.ContainsKey($r)) { $tot[$r] = 0 }; $tot[$r] += $s.dias[$k][$r] }
+        }
+        if ($dias -eq 0) { return }   # semana sin uso: no hay nada que contar
+        $gestos = @{}
+        $gl = Join-Path $TmpDir 'gestos.log'
+        if (Test-Path -LiteralPath $gl) {
+            foreach ($l in [System.IO.File]::ReadAllLines($gl, [System.Text.Encoding]::UTF8)) {
+                if ($l -match '^(\d{4}-\d{2}-\d{2}) \S+ (\S+)$') {
+                    $dd = [DateTime]::ParseExact($Matches[1], 'yyyy-MM-dd', $null)
+                    if ($dd -lt $ini -or $dd -gt $fin) { continue }
+                    if ($Matches[2] -in @('escucho', 'lotengo', 'atencion')) { continue }
+                    if (-not $gestos.ContainsKey($Matches[2])) { $gestos[$Matches[2]] = 0 }
+                    $gestos[$Matches[2]]++
+                }
+            }
+        }
+        $cul = New-Object System.Globalization.CultureInfo('es-MX')
+        $n = 0; foreach ($k in 'local', 'aprendida', 'memoria', 'pregunta', 'traducida', 'accion', 'charla') { if ($tot.ContainsKey($k)) { $n += $tot[$k] } }
+        $rapidas = 0; foreach ($k in 'local', 'aprendida', 'memoria') { if ($rapidas -ne $null -and $tot.ContainsKey($k)) { $rapidas += $tot[$k] } }
+        $errores = if ($tot.ContainsKey('error')) { $tot['error'] } else { 0 }
+        $desc = @($s.descartes | Where-Object { $_ -match '^(\d{4}-\d{2}-\d{2})' -and ([DateTime]::ParseExact($Matches[1], 'yyyy-MM-dd', $null) -ge $ini) -and ([DateTime]::ParseExact($Matches[1], 'yyyy-MM-dd', $null) -le $fin) } | ForEach-Object { $_ -replace '^\S+\s+', '' } | Select-Object -First 5)
+        $sb = New-Object System.Text.StringBuilder
+        [void]$sb.AppendLine("# Semana del " + $ini.ToString('d "de" MMMM', $cul) + " al " + $fin.ToString('d "de" MMMM "de" yyyy', $cul))
+        [void]$sb.AppendLine("")
+        [void]$sb.AppendLine("Esta semana hablamos $dias " + $(if ($dias -eq 1) { 'día' } else { 'días' }) + ". Me pediste $n " + $(if ($n -eq 1) { 'cosa' } else { 'cosas' }) + $(if ($n -gt 0) { ", y $rapidas de ellas las resolví al instante sin pasar por el modelo" } else { '' }) + ".")
+        if ($errores -gt 0) { [void]$sb.AppendLine("Hubo $errores " + $(if ($errores -eq 1) { 'tropiezo' } else { 'tropiezos' }) + " (cancelaciones, dictados vacíos o esperas que se pasaron de tiempo).") }
+        if ($desc.Count -gt 0) { [void]$sb.AppendLine(""); [void]$sb.AppendLine("Cosas que no entendí a la primera y que podrías enseñarme en commands.json: " + (($desc | ForEach-Object { "«$_»" }) -join ', ') + ".") }
+        if ($gestos.Count -gt 0) {
+            $top = @($gestos.GetEnumerator() | Sort-Object -Property Value -Descending | Select-Object -First 4 | ForEach-Object { "$($_.Key) ×$($_.Value)" })
+            [void]$sb.AppendLine(""); [void]$sb.AppendLine("Lo que más me dijiste, según mis gestos: " + ($top -join ', ') + ".")
+            if ($gestos.ContainsKey('carino') -and $gestos['carino'] -ge 3) { [void]$sb.AppendLine("Gracias por los cariños, se notaron.") }
+            if ($gestos.ContainsKey('negar') -and $gestos['negar'] -gt ($n / 3)) { [void]$sb.AppendLine("Hubo bastantes «no»: si algo hago mal a menudo, apúntamelo en la lista de descartes y lo aprendo.") }
+        }
+        if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+        [System.IO.File]::WriteAllText($ruta, $sb.ToString(), (New-Object System.Text.UTF8Encoding($false)))
+        Log "nota semanal escrita: $ruta"
+    } catch { Log ("nota semanal: " + $_.Exception.Message) }
+}
+
 function Enter-Juego([string]$nombre) {
     $script:juegoAvisado = $false
     $script:juegoHoras = 0
     $script:juegoBrilloAntes = $null
+    $script:logroArchivo = ''
+    Invoke-Reglas 'juegoAbre' $nombre
     if (-not $JuegoPerfilEntrar) { return }
     if (-not (Test-Prop $cmds.perfiles $JuegoPerfilEntrar)) { return }
     try { $script:juegoBrilloAntes = (Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness -ErrorAction Stop).CurrentBrightness } catch {}
@@ -1703,6 +2193,7 @@ function Enter-Juego([string]$nombre) {
 }
 
 function Exit-Juego([string]$nombre) {
+    Invoke-Reglas 'juegoCierra' $nombre
     if (-not $JuegoRestaurar -or $null -eq $script:juegoBrilloAntes) { return }
     try {
         Set-Brillo ([int]$script:juegoBrilloAntes)
@@ -2024,7 +2515,14 @@ function Start-OpencodeJob([string]$text, [string]$extra = '') {
         # empiece por guion ("menos i" -> -i) lo parsea yargs como flag.
         # Verificado: con `--` responde bien; sin `--` sale exit=1 en 2s.
         $extraArg = if ($extra) { " $extra" } else { "" }
-        $argLine = "run --auto" + $extraArg + " --dir " + (ConvertTo-CmdArg $WORKDIR) + " -- " + (ConvertTo-CmdArg $msg)
+        # --format json: una linea por evento (tool_use con la herramienta,
+        # text con la respuesta). Asi la capsula puede contar QUE esta haciendo
+        # mientras trabaja, y la respuesta se saca limpia de los eventos text.
+        $argLine = "run --auto --format json" + $extraArg + " --dir " + (ConvertTo-CmdArg $WORKDIR) + " -- " + (ConvertTo-CmdArg $msg)
+        $script:jobLeido = 0
+        $script:jobPasos = 0
+        $script:jobUltimaHerr = ''
+        $script:jobProgresoCheck = 0
         Log "RUNNER cmd: $argLine"
 
         $script:proc = Start-Process -FilePath $OCODECLI -ArgumentList $argLine `
@@ -2043,6 +2541,56 @@ function Start-OpencodeJob([string]$text, [string]$extra = '') {
     $script:jobStart = $sw.ElapsedMilliseconds
     $script:busy = $true
     return $true
+}
+
+# VOZ INTERNA: mientras opencode trabaja, se lee lo que lleva escrito en su
+# salida (eventos JSON) y la capsula cuenta que esta haciendo. Tambien se
+# manda un progreso estimado para la linea del borde inferior.
+$HERRAMIENTAS_ES = @{
+    'bash' = 'ejecutando un comando'; 'read' = 'leyendo un archivo'; 'write' = 'escribiendo un archivo'; 'edit' = 'editando un archivo';
+    'glob' = 'buscando archivos'; 'grep' = 'buscando en archivos'; 'list' = 'mirando carpetas'; 'webfetch' = 'consultando la web';
+    'websearch' = 'buscando en internet'; 'todowrite' = 'planificando'; 'todoread' = 'planificando'; 'task' = 'delegando una tarea'
+}
+$DURACION_ESPERADA = @{ 'pregunta' = 18000; 'traducir' = 15000; 'charla' = 20000; 'accion' = 60000 }
+
+function Watch-OpencodeProgress {
+    if (-not $script:busy -or -not $script:jobOut) { return }
+    if (($sw.ElapsedMilliseconds - $script:jobProgresoCheck) -lt 600) { return }
+    $script:jobProgresoCheck = $sw.ElapsedMilliseconds
+    $herr = ''
+    try {
+        $fs = [System.IO.File]::Open($script:jobOut, 'Open', 'Read', 'ReadWrite')
+        try {
+            if ($fs.Length -gt $script:jobLeido) {
+                $fs.Seek($script:jobLeido, 'Begin') | Out-Null
+                $buf = New-Object byte[] ($fs.Length - $script:jobLeido)
+                $n = $fs.Read($buf, 0, $buf.Length)
+                $script:jobLeido += $n
+                $trozo = [System.Text.Encoding]::UTF8.GetString($buf, 0, $n)
+                foreach ($m in [regex]::Matches($trozo, '"type":"tool_use".{0,200}?"tool":"([^"]+)"')) {
+                    $script:jobPasos++
+                    $herr = $m.Groups[1].Value
+                }
+            }
+        } finally { $fs.Dispose() }
+    } catch {}
+    if ($herr) {
+        $clave = $herr.ToLowerInvariant()
+        $frase = $null
+        if ($HERRAMIENTAS_ES.ContainsKey($clave)) { $frase = $HERRAMIENTAS_ES[$clave] }
+        elseif ($clave -match '^(?:mcp_)?windows') { $frase = 'controlando el escritorio' }
+        elseif ($clave -match 'mcp|__') { $frase = 'usando una herramienta' }
+        else { $frase = "usando $herr" }
+        if ($frase -ne $script:jobUltimaHerr) {
+            $script:jobUltimaHerr = $frase
+            Log "PASO $($script:jobPasos): $herr"
+            Set-UI 'pensando' $frase
+        }
+    }
+    # progreso estimado: tiempo transcurrido sobre lo esperado por modo
+    $esp = if ($DURACION_ESPERADA.ContainsKey($script:jobModo)) { $DURACION_ESPERADA[$script:jobModo] } else { 60000 }
+    $p = [Math]::Min(0.97, ($sw.ElapsedMilliseconds - $script:jobStart) / [double]$esp)
+    if ([Math]::Abs($p - $script:uiProgreso) -ge 0.02) { $script:uiProgreso = [Math]::Round($p, 2); Refresh-UI }
 }
 
 # Recoge la salida del proceso YA terminado y devuelve el texto de respuesta.
@@ -2069,6 +2617,18 @@ function Complete-OpencodeJob {
 
     Log ("RUNNER exit=$code stdout=" + $stdout.Length + "B stderr=" + $stderr.Length + "B")
 
+    # salida en JSON por lineas: la respuesta son los eventos "text"
+    if ($stdout -match '"type":"text"') {
+        $textos = @()
+        foreach ($linea in ($stdout -split "`r?`n")) {
+            if ($linea -notmatch '^\s*\{.*"type":"text"') { continue }
+            try {
+                $ev = $linea | ConvertFrom-Json
+                if ($ev.part -and $ev.part.text) { $textos += [string]$ev.part.text }
+            } catch {}
+        }
+        if ($textos.Count -gt 0) { return @(($textos -join "`n")) }
+    }
     if ($stdout.Trim().Length -gt 0) { return @($stdout) }
     # el CLI manda parte de su salida a stderr; si stdout vino vacio, es el mejor dato que hay
     if ($stderr.Trim().Length -gt 0) { return @("(exit=$code) " + $stderr.Trim()) }
@@ -2255,6 +2815,9 @@ function Complete-Confirmacion([string]$respuesta) {
 # comprobacion cada 400 ms: los parciales cambian varias veces por segundo.
 $script:loTengo = $false
 $script:loTengoCheck = 0
+$script:perdida = $false
+$script:seguimientoPendiente = $false
+$script:enSeguimiento = $false
 function Test-LoTengo([string]$vista) {
     if ($script:loTengo -or -not $UiNuevaOn -or -not $vista) { return }
     if (($sw.ElapsedMilliseconds - $script:loTengoCheck) -lt 400) { return }
@@ -2269,24 +2832,31 @@ function Test-LoTengo([string]$vista) {
 function Start-Dictado([string]$origen) {
     Log "DICTADO ($origen)"
     $script:loTengo = $false
+    $script:perdida = $false
+    $script:seguimientoPendiente = $false
+    $seguimiento = ($origen -eq 'seguimiento')
+    $script:enSeguimiento = $seguimiento
     # con la capsula, el sonido lo pone ella (un tono corto, no la campana)
-    if (-not $UiNuevaOn) { [System.Media.SystemSounds]::Exclamation.Play() }
+    if (-not $UiNuevaOn -and -not $seguimiento) { [System.Media.SystemSounds]::Exclamation.Play() }
 
-    # --- Dictado por Vosk: ni foco, ni Win+H, ni pausa de escucha ---
+    # --- Dictado por el worker (Whisper/Vosk): ni foco, ni Win+H, ni pausa ---
     # El worker ya tiene el microfono; solo hay que decirle que transcriba.
     if ($DictadoWorker -and $script:wakeProc) {
         Remove-Item -LiteralPath $RutaDictado -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $RutaParcial -Force -ErrorAction SilentlyContinue
-        [System.IO.File]::WriteAllText($MarcaDictar, 'x')
+        # en seguimiento, la marca lleva el plazo: si no hay voz en ese tiempo
+        # el worker cierra solo y entrega vacio
+        [System.IO.File]::WriteAllText($MarcaDictar, $(if ($seguimiento) { "seguimiento:$SeguimientoMs" } else { 'x' }))
         $lbl.Text = "● VOZ..."
         $lbl.ForeColor = [System.Drawing.Color]::LimeGreen
         $capture.Show()
-        Set-UI 'escuchando'
-        Send-UIEvento 'despierta'
+        if ($seguimiento) { Set-UI 'atenta' }
+        else { Set-UI 'escuchando'; Send-UIEvento 'despierta' }
         $script:armed = $true
         $script:dictaInicio = $sw.ElapsedMilliseconds
         return
     }
+    if ($seguimiento) { $script:enSeguimiento = $false; return }   # Win+H no puede esperar en silencio
 
     # --- Camino antiguo (Win+H), solo si se pide por configuracion ---
     # mientras dictas, el worker no debe escuchar: competiria por el microfono
@@ -2337,6 +2907,17 @@ function Finish-Dictation([string]$motivo) {
 function Process-Texto([string]$text) {
     if ($text.Length -gt 0) {
         $plano = ConvertTo-Plain $text
+        # en seguimiento, "gracias" / "nada mas" cierran la cadena con elegancia
+        if ($script:enSeguimiento -and $plano -match '^(?:gracias|muchas gracias|ok gracias|vale gracias|nada mas|eso es todo|eso es todo gracias|listo|ya esta|ya|nada|no nada|ok|vale)$') {
+            Log "seguimiento: cerrado con '$text'"
+            $script:enSeguimiento = $false
+            $script:seguimientoPendiente = $false
+            if ($plano -match 'gracias') { Say "De nada." } else { Set-UI 'reposo' }
+            return
+        }
+        # cualquier orden real deja preparado el seguimiento (se arma al
+        # terminar de hablar); lo que no lleva respuesta hablada lo apaga
+        $script:seguimientoPendiente = $true
 
         # NO hay modo conversacion persistente. Se probó y fue un error: al
         # quedarse activo se tragaba las ordenes ("Abre steam" acababa en el
@@ -2448,6 +3029,11 @@ $script:ultimaRespuesta = ""
 $script:bateriaCheck = 0
 $script:bateriaAvisada = $false
 $script:cargaCheck = 0
+$script:minutoVisto = ''
+$script:diaVisto = Get-Date -Format 'yyyy-MM-dd'
+# al arrancar: fechas de hoy y nota de la semana pasada (si toca)
+try { Test-FechasHoy } catch {}
+try { Write-NotaSemanal } catch {}
 $script:wakeCheck = 0
 $script:wakeIntentos = 0
 $script:pollReintento = 0
@@ -2553,6 +3139,13 @@ while ($true) {
     # reanuda la escucha cuando vence la pausa (fin estimado de la voz)
     if ($script:pausaHasta -gt 0 -and $sw.ElapsedMilliseconds -ge $script:pausaHasta -and -not $script:armed) {
         Reanudar-Escucha
+        # SEGUIMIENTO: acabo de responder a una orden; vuelvo a escuchar un
+        # rato sin palabra de activacion por si encadenas otra
+        if ($script:seguimientoPendiente -and $SeguimientoMs -gt 0 -and $DictadoWorker -and $script:wakeProc -and
+            -not $script:wakeProc.HasExited -and -not $script:busy -and -not $script:pendiente) {
+            Start-Dictado 'seguimiento'
+        }
+        $script:seguimientoPendiente = $false
     }
 
     # --- CONFIRMACION PENDIENTE (si / no / plazo) ---
@@ -2601,7 +3194,28 @@ while ($true) {
             Remove-Item -LiteralPath $MarcaDictar -Force -ErrorAction SilentlyContinue
             $script:armed = $false
             $capture.Hide()
-            Process-Texto ($dic.Trim())
+            # la voz que dicto (por tono): la capsula tine la escucha por persona
+            try {
+                $rv = Join-Path $TmpDir 'dictado-voz.txt'
+                if (Test-Path -LiteralPath $rv) {
+                    $v = ([System.IO.File]::ReadAllText($rv).Trim() -split '\s+')[0]
+                    $script:uiVoz = [int]$v
+                    Remove-Item -LiteralPath $rv -Force -ErrorAction SilentlyContinue
+                }
+            } catch {}
+            if ($script:enSeguimiento -and -not $dic.Trim()) {
+                # ventana de seguimiento sin voz: se cierra sin decir nada
+                Log "seguimiento: silencio, se cierra"
+                $script:enSeguimiento = $false
+                Set-UI 'reposo'
+            } else {
+                Process-Texto ($dic.Trim())
+            }
+        }
+        # "me perdi": 25 s dictando sin que nada encaje todavia
+        elseif (-not $script:perdida -and -not $script:loTengo -and ($sw.ElapsedMilliseconds - $script:dictaInicio) -ge 25000) {
+            $script:perdida = $true
+            Send-UIEvento 'gesto:perdida'
         } elseif (($sw.ElapsedMilliseconds - $script:dictaInicio) -ge 35000) {
             # red de seguridad: si el worker no responde, no dejar el estado colgado
             Log "dictado sin respuesta del worker; se cancela"
@@ -2634,10 +3248,13 @@ while ($true) {
 
     # --- atencion al trabajo en curso, sin bloquear el sondeo del boton ---
     if ($script:busy -and $script:proc) {
+        Watch-OpencodeProgress
         if ($script:proc.HasExited) {
+            $script:uiProgreso = 0
             Report-Reply (Complete-OpencodeJob)
         } elseif (($sw.ElapsedMilliseconds - $script:jobStart) -ge $CliTimeoutMs) {
             Log "RUNNER timeout tras $([Math]::Round($CliTimeoutMs/1000)) s"
+            $script:uiProgreso = 0
             Stop-OpencodeJob
             Add-Estadistica 'error' 'timeout de opencode'
             Show-Popup "(timeout: opencode tardo mas de $([Math]::Round($CliTimeoutMs/1000)) s)" 'error'
@@ -2678,6 +3295,7 @@ while ($true) {
                 $script:juegoActivo = $j
                 Refresh-UI   # la capsula cambia de avatar
             } elseif ($j) {
+                Watch-LogrosSteam
                 # cada hora completa de juego, una "medalla" en la capsula (sin voz)
                 $horasJugadas = [int][Math]::Floor(($sw.ElapsedMilliseconds - $script:juegoDesde) / 3600000)
                 if ($horasJugadas -gt $script:juegoHoras) {
@@ -2698,6 +3316,34 @@ while ($true) {
             }
         } catch {}
     }
+
+    # --- reglas por hora y periodicas; fechas; nota semanal (cada minuto) ---
+    $minutoAhora = Get-Date -Format 'HH:mm'
+    if ($minutoAhora -ne $script:minutoVisto) {
+        $script:minutoVisto = $minutoAhora
+        try { Invoke-Reglas 'hora' $minutoAhora; Invoke-Reglas 'cada' } catch {}
+        $diaAhora = Get-Date -Format 'yyyy-MM-dd'
+        if ($diaAhora -ne $script:diaVisto) {
+            $script:diaVisto = $diaAhora
+            try { Test-FechasHoy } catch {}
+            try { Write-NotaSemanal } catch {}
+        }
+        # micro-charla: un comentario si viene a cuento, una vez al dia
+        if ($CharlaOn -and $script:juegoActivo) {
+            $minsJuego = ($sw.ElapsedMilliseconds - $script:juegoDesde) / 60000
+            if ($minsJuego -ge 180 -and $script:charlaAgua -ne $diaAhora) {
+                $script:charlaAgua = $diaAhora
+                Say "Oye, ya van tres horas seguidas. Un vaso de agua no vendria mal."
+            }
+            if ($minutoAhora -ge '01:00' -and $minutoAhora -le '01:05' -and $script:charlaTarde -ne $diaAhora) {
+                $script:charlaTarde = $diaAhora
+                Say "Es la una de la manana. ¿Seguimos, o lo dejamos por hoy?"
+            }
+        }
+    }
+
+    # --- acelerometro (cada 250 ms) y logros de Steam (con el juego) ---
+    if ($script:acelerometro -and ($sw.ElapsedMilliseconds - $script:acelCheck) -ge 250) { $script:acelCheck = $sw.ElapsedMilliseconds; Watch-Acelerometro }
 
     # --- carga de CPU (cada 30 s): la capsula se agita si va al limite ---
     if (($sw.ElapsedMilliseconds - $script:cargaCheck) -ge 30000) {
@@ -2732,6 +3378,7 @@ while ($true) {
                     $script:uiBateria = $pc; $script:uiCargando = $cg
                     Refresh-UI
                 }
+                if (-not $cargando) { Invoke-Reglas 'bateria' ([string]$pc) }
                 if (-not $cargando -and $pc -le $BateriaAviso -and -not $script:bateriaAvisada) {
                     $script:bateriaAvisada = $true
                     Log "AVISO: bateria al $pc %"

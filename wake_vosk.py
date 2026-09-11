@@ -193,6 +193,87 @@ def limpiar_whisper(texto):
     return t
 
 
+# --- VOZ POR TONO ---
+# Estimacion sencilla del tono fundamental (autocorrelacion) de la orden
+# dictada, para distinguir voces por su altura: no es identificacion de
+# hablante de verdad, pero separa razonablemente dos o tres personas. Las
+# voces vistas se guardan junto al estado (voces.json) y se entrega el indice.
+def estimar_f0(bloques):
+    if not bloques:
+        return 0.0
+    audio = np.concatenate(bloques).astype(np.float32) / 32768.0
+    tam = 800   # 50 ms a 16 kHz
+    lo, hi = int(TASA / 400), int(TASA / 70)   # 70-400 Hz
+    f0s = []
+    tramos = 0
+    for i in range(0, len(audio) - tam, tam):
+        if tramos >= 60:
+            break
+        tr = audio[i:i + tam]
+        if float(np.sqrt(np.mean(tr * tr))) < 0.03:
+            continue
+        tramos += 1
+        tr = tr - float(np.mean(tr))
+        ac = np.correlate(tr, tr, mode="full")[tam - 1:]
+        if ac[0] <= 0:
+            continue
+        seg = ac[lo:hi]
+        if seg.size == 0:
+            continue
+        k = int(np.argmax(seg)) + lo
+        if ac[k] / ac[0] < 0.3:
+            continue
+        f0s.append(TASA / float(k))
+    if len(f0s) < 5:
+        return 0.0
+    return float(np.median(f0s))
+
+
+def indice_voz(f0):
+    if f0 <= 0 or not NIVEL:
+        return 0
+    ruta = os.path.join(os.path.dirname(NIVEL), "voces.json")
+    voces = []
+    try:
+        with open(ruta, "r", encoding="utf-8") as f:
+            voces = json.load(f)
+    except Exception:
+        voces = []
+    mejor = -1
+    for i, v in enumerate(voces):
+        if abs(v.get("f0", 0) - f0) <= 22 and (mejor < 0 or abs(voces[mejor]["f0"] - f0) > abs(v["f0"] - f0)):
+            mejor = i
+    if mejor < 0:
+        if len(voces) >= 4:
+            return 0
+        voces.append({"f0": round(f0, 1), "n": 1})
+        mejor = len(voces) - 1
+    else:
+        v = voces[mejor]
+        n = int(v.get("n", 1))
+        v["f0"] = round((v["f0"] * n + f0) / (n + 1), 1)
+        v["n"] = n + 1
+    try:
+        with open(ruta, "w", encoding="utf-8") as f:
+            json.dump(voces, f)
+    except Exception:
+        pass
+    return mejor
+
+
+def anotar_voz(bloques):
+    if not NIVEL:
+        return
+    try:
+        f0 = estimar_f0(bloques)
+        idx = indice_voz(f0)
+        escribir(os.path.join(os.path.dirname(NIVEL), "dictado-voz.txt"), "%d %.0f" % (idx, f0))
+        if f0 > 0:
+            anota("voz: tono %.0f Hz -> voz %d" % (f0, idx))
+    except Exception:
+        pass
+
+
 def transcribir_whisper(bloques):
     # bloques: lista de arrays int16 ya amplificados
     if whisper is None or not bloques:
@@ -319,6 +400,17 @@ try:
             quiere_dictar = bool(DICTAR) and os.path.exists(DICTAR)
             if quiere_dictar and not dictando:
                 dictando = True
+                # SEGUIMIENTO: la marca lleva "seguimiento:<ms>"; si no hay voz
+                # en ese plazo, se cierra en silencio con texto vacio
+                espera_voz = 0.0
+                try:
+                    with open(DICTAR, "r", encoding="utf-8") as f:
+                        contenido = f.read().strip()
+                    if contenido.startswith("seguimiento:"):
+                        espera_voz = float(contenido.split(":", 1)[1]) / 1000.0
+                except Exception:
+                    espera_voz = 0.0
+                hubo_voz = 0
                 # Se tira el audio ya encolado: contiene el final de "Nova" y
                 # se transcribia como si fuera la orden.
                 try:
@@ -446,8 +538,28 @@ try:
                 if dictando:
                     if pico > UMBRAL_ACTIVIDAD:
                         ultima_voz = ahora
-                    if whisper is not None:
-                        audio_dictado.append(muestras.astype(np.int16))
+                        hubo_voz += 1
+                    # seguimiento sin voz: fuera, sin molestar. Cuenta como voz
+                    # que el reconocedor haya sacado ALGO (parcial o final), no
+                    # el nivel: el ruido de fondo pasaba el umbral y la ventana
+                    # se quedaba abierta 30 s
+                    if espera_voz > 0 and (ahora - dicta_inicio) >= espera_voz:
+                        algo = len(dictado) > 0 or bool(json.loads(rec.PartialResult()).get("partial", ""))
+                        if algo:
+                            espera_voz = 0.0   # hay voz: dictado normal
+                    if espera_voz > 0 and (ahora - dicta_inicio) >= espera_voz:
+                        anota("seguimiento: sin voz en %.1f s" % espera_voz)
+                        escribir(TEXTO, "")
+                        try:
+                            os.remove(DICTAR)
+                        except Exception:
+                            pass
+                        dictando = False
+                        audio_dictado = []
+                        rec = nuevo_reconocedor()
+                        continue
+                    # el audio se guarda siempre: lo usan Whisper y el tono de voz
+                    audio_dictado.append(muestras.astype(np.int16))
                     if rec.AcceptWaveform(bloque):
                         t = json.loads(rec.Result()).get("text", "")
                         if t:
@@ -466,6 +578,7 @@ try:
                             dictado.append(resto)
                         texto_vosk = " ".join([t for t in dictado if t])
                         texto_final = texto_vosk
+                        anotar_voz(audio_dictado)
                         if whisper is not None:
                             escribir(PARCIAL, texto_vosk)
                             mejor = transcribir_whisper(audio_dictado)
