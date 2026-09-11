@@ -438,7 +438,9 @@ function Resolve-Fragment([string]$f) {
         return $null
     }
     # "recuerda que X" -> se anota YA, sin pasar por el modelo
-    if ($f -match '^(?:recuerda|recuerdame|acuerdate|anota|apunta|guarda|memoriza)\s+(?:que\s+|de\s+que\s+)?(.+)$') {
+    # El lookahead negativo distingue "recuerdame que X" (nota) de
+    # "recuerdame EN 20 MINUTOS que X" (temporizador), que se resuelve mas abajo.
+    if ($f -match '^(?:recuerda|recuerdame|acuerdate|anota|apunta|guarda|memoriza)\s+(?!en\s+\d+\s*(?:segundo|minuto|hora))(?:que\s+|de\s+que\s+)?(.+)$') {
         return @(@{ kind = 'memoria'; texto = $Matches[1].Trim(); desc = "anotar en la memoria" })
     }
     # El lugar puede preceder al verbo ("en el navegador busca X"). Se separa
@@ -489,6 +491,47 @@ function Resolve-Fragment([string]$f) {
                 }
             }
             return @(@{ kind = 'decir'; desc = $t })
+        }
+    }
+    # --- PRONOMBRES ---
+    # "abrelo" tras haber nombrado algo. Se recuerda SOLO el ultimo objetivo,
+    # no una conversacion entera: asi se habla natural sin el riesgo del modo
+    # persistente que hubo que quitar por tragarse las ordenes.
+    # Incluye "le" a proposito: el corrector de verbos convierte "abrelo" en
+    # "abrele" (distancia 1) antes de llegar aqui.
+    if ($script:ultimoObjetivo -and $f -match '^(abre|abrir|cierra|busca|buscar|pon|inicia|lanza|ejecuta)(?:lo|la|le|los|las|melo|mela|me lo|me la)\b\s*(.*)$') {
+        $verbo = $Matches[1]
+        $resto = $Matches[2].Trim()
+        $f = "$verbo $($script:ultimoObjetivo)"
+        if ($resto) { $f = "$f $resto" }
+    }
+    # --- temporizadores: lo mas util con las manos ocupadas ---
+    if ($f -match '^(?:recuerdame|avisame|despiertame|ponme un temporizador|temporizador|alarma)\s+(?:en|de|dentro de)\s+(\d+)\s*(segundo|segundos|minuto|minutos|hora|horas)\b\s*(?:que|para|de|a)?\s*(.*)$') {
+        $n = [int]$Matches[1]
+        $unidad = $Matches[2]
+        $que = $Matches[3].Trim()
+        $ms = switch -regex ($unidad) {
+            '^segundo' { $n * 1000 }
+            '^minuto' { $n * 60000 }
+            default { $n * 3600000 }
+        }
+        if ($ms -le 0) { return $null }
+        $desc = if ($que) { "aviso en $n $unidad" } else { "temporizador de $n $unidad" }
+        return @(@{ kind = 'temporizador'; ms = $ms; texto = $que; n = $n; unidad = $unidad; desc = $desc })
+    }
+    if ($f -match '^(?:cuanto llevo jugando|cuanto tiempo llevo jugando|hace cuanto juego)\b') {
+        return @(@{ kind = 'tiempoJuego'; desc = 'tiempo de juego' })
+    }
+    if ($f -match '^(?:a que estoy jugando|que estoy jugando|que juego es este)\b') {
+        return @(@{ kind = 'queJuego'; desc = 'juego actual' })
+    }
+    # --- captura y grabacion (atajos de la barra de juego de Windows) ---
+    switch -regex ($f) {
+        '^(?:toma (?:una )?captura|captura (?:de )?pantalla|screenshot|pantallazo)$' {
+            return @(@{ kind = 'winprt'; desc = 'captura de pantalla' })
+        }
+        '^(?:graba|grabar|clip|guarda el clip|graba los ultimos)\b' {
+            return @(@{ kind = 'winaltg'; desc = 'grabar los ultimos segundos' })
         }
     }
     # --- colocacion de ventanas ---
@@ -718,7 +761,9 @@ function Invoke-FastCommand([string]$text) {
     # La memoria guarda el texto TAL CUAL se dijo, con mayusculas y acentos.
     # Si se dejara pasar por la normalizacion se archivaria en minusculas y sin
     # tildes, que es justo lo que no quieres leer meses despues en Obsidian.
-    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda|memoriza)\s+(?:que\s+|de\s+que\s+)?(.+)$') {
+    # mismo lookahead que en Resolve-Fragment: "en 20 minutos" es temporizador,
+    # no una nota para el diario
+    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda|memoriza)\s+(?!en\s+\d+\s*(?:segundo|minuto|hora))(?:que\s+|de\s+que\s+)?(.+)$') {
         $frase = $Matches[1].Trim()
         if ($frase.Length -gt 0) {
             $null = Add-Memoria $frase
@@ -739,6 +784,12 @@ function Invoke-FastCommand([string]$text) {
             return $null   # todo o nada
         }
         $acciones += $a
+    }
+
+    # se recuerda el ultimo objetivo nombrado, para que "abrelo" funcione luego
+    foreach ($a in $acciones) {
+        if ($a.desc -match '^abrir (.+?)( en Steam)?$') { $script:ultimoObjetivo = $Matches[1]; break }
+        if ($a.desc -match "^buscar '(.+?)' en ") { $script:ultimoObjetivo = $Matches[1]; break }
     }
 
     # se guarda el estado ANTES de tocar nada, para poder deshacer
@@ -767,6 +818,25 @@ function Invoke-FastCommand([string]$text) {
                 'brillo' { Set-Brillo $a.nivel }
                 'memoria' { $null = Add-Memoria $a.texto }
                 'decir' { }   # la respuesta ES la descripcion; se dice y ya
+                'temporizador' {
+                    $vence = $sw.ElapsedMilliseconds + $a.ms
+                    $txt = if ($a.texto) { $a.texto } else { "se acabo el tiempo" }
+                    [void]$script:temporizadores.Add(@{ vence = $vence; texto = $txt })
+                    $a.desc = "listo, te aviso en $($a.n) $($a.unidad)"
+                }
+                'tiempoJuego' {
+                    if ($script:juegoActivo) {
+                        $mins = [int](($sw.ElapsedMilliseconds - $script:juegoDesde) / 60000)
+                        $a.desc = "llevas $mins minutos con $($script:juegoActivo)"
+                    } else {
+                        $a.desc = "ahora mismo no detecto ningun juego abierto"
+                    }
+                }
+                'queJuego' {
+                    $a.desc = if ($script:juegoActivo) { "estas jugando a $($script:juegoActivo)" } else { "no detecto ningun juego en primer plano" }
+                }
+                'winprt' { Send-WinKey 0x2C }        # Win+ImprPant: guarda en Imagenes\Capturas
+                'winaltg' { Send-WinAlt 0x47 }       # Win+Alt+G: graba lo ultimo
                 'volumenPct' {
                     # Windows mueve el volumen en pasos del 2 %: se baja a cero
                     # y se sube lo justo. Sin librerias externas no hay via mejor.
@@ -1080,6 +1150,53 @@ function Initialize-Escucha {
         Log ("WARN: escucha continua no arranco: " + $_.Exception.Message)
         $script:wakeProc = $null
     }
+}
+
+# Win + Alt + <tecla>: atajos de la barra de juego (grabar, captura)
+function Send-WinAlt([int]$vk) {
+    [AX]::keybd_event([byte]$VK_LWIN, 0, 0, [UIntPtr]::Zero)
+    [AX]::keybd_event([byte]$VK_MENU, 0, 0, [UIntPtr]::Zero)
+    Start-Sleep -Milliseconds 60
+    [AX]::keybd_event([byte]$vk, 0, 0, [UIntPtr]::Zero)
+    Start-Sleep -Milliseconds 40
+    [AX]::keybd_event([byte]$vk, 0, $KEYUP, [UIntPtr]::Zero)
+    Start-Sleep -Milliseconds 60
+    [AX]::keybd_event([byte]$VK_MENU, 0, $KEYUP, [UIntPtr]::Zero)
+    [AX]::keybd_event([byte]$VK_LWIN, 0, $KEYUP, [UIntPtr]::Zero)
+}
+
+# --- QUE ESTA EN PRIMER PLANO ---
+# Saber a que juegas desbloquea frases naturales ("cuanto llevo jugando",
+# "busca una guia de esto") sin tener que nombrarlo cada vez.
+$script:juegoActivo = $null
+$script:juegoDesde = 0
+
+function Get-ProcesoEnPrimerPlano {
+    try {
+        $h = [AX]::GetForegroundWindow()
+        if ($h -eq [IntPtr]::Zero) { return $null }
+        $hilo = [AX]::GetWindowThreadProcessId($h, [IntPtr]::Zero)
+        if ($hilo -eq 0) { return $null }
+        # el hilo no da el PID directamente: se busca por ventana principal
+        foreach ($p in (Get-Process -ErrorAction SilentlyContinue)) {
+            if ($p.MainWindowHandle -eq $h) { return $p }
+        }
+    } catch {}
+    return $null
+}
+
+# Devuelve el juego de Steam que esta en primer plano, o $null.
+function Get-JuegoEnPrimerPlano {
+    $p = Get-ProcesoEnPrimerPlano
+    if (-not $p) { return $null }
+    $ruta = ''
+    try { $ruta = $p.Path } catch { return $null }
+    if (-not $ruta -or $ruta -notmatch '(?i)steamapps\\common\\([^\\]+)') { return $null }
+    $carpeta = $Matches[1]
+    # la carpeta de instalacion suele parecerse al titulo
+    $j = Find-Juego $carpeta
+    if ($j) { return $j.nombre }
+    return $carpeta
 }
 
 # Win + <tecla>: usado para colocar ventanas (Win+flechas)
@@ -1481,6 +1598,10 @@ function Submit-Command([string]$text, [string]$modo = 'accion') {
         $prompt = Build-PromptTraduccion $text
     } elseif ($modo -ne 'accion' -and $prompt -eq $text) {
         $prompt = $PRE_HABLADO + $text
+    } elseif ($modo -eq 'accion') {
+        # La respuesta se LEE EN VOZ ALTA: el agente contesta como si
+        # escribiera, y tres lineas ya son demasiado para escuchar.
+        $prompt = "Al terminar, resume lo que hiciste en UNA frase corta, sin listas ni markdown, porque se leera en voz alta. " + $prompt
     }
     # 'charla' encadena la sesion anterior: recuerda lo hablado antes
     $extra = if ($modo -eq 'charla') { '--continue' } else { '' }
@@ -1655,6 +1776,9 @@ $script:bateriaAvisada = $false
 $script:wakeCheck = 0
 $script:wakeIntentos = 0
 $script:pollReintento = 0
+$script:temporizadores = New-Object System.Collections.ArrayList
+$script:juegoCheck = 0
+$script:ultimoObjetivo = ''
 $script:jobModo = ''
 $script:jobTextoOriginal = ''
 $pollErrs = 0
@@ -1790,6 +1914,35 @@ while ($true) {
             Stop-OpencodeJob
             Show-Popup "(timeout: opencode tardo mas de $([Math]::Round($CliTimeoutMs/1000)) s)"
         }
+    }
+
+    # --- temporizadores vencidos ---
+    if ($script:temporizadores.Count -gt 0) {
+        for ($i = $script:temporizadores.Count - 1; $i -ge 0; $i--) {
+            $t = $script:temporizadores[$i]
+            if ($sw.ElapsedMilliseconds -ge $t.vence) {
+                $script:temporizadores.RemoveAt($i)
+                Log "TEMPORIZADOR: $($t.texto)"
+                [System.Media.SystemSounds]::Exclamation.Play()
+                Show-Popup $t.texto
+                Say $t.texto
+            }
+        }
+    }
+
+    # --- que juego esta en primer plano (cada 10 s, es una consulta cara) ---
+    if (($sw.ElapsedMilliseconds - $script:juegoCheck) -ge 10000) {
+        $script:juegoCheck = $sw.ElapsedMilliseconds
+        try {
+            $j = Get-JuegoEnPrimerPlano
+            if ($j -ne $script:juegoActivo) {
+                if ($j) {
+                    Log "juego en primer plano: $j"
+                    $script:juegoDesde = $sw.ElapsedMilliseconds
+                }
+                $script:juegoActivo = $j
+            }
+        } catch {}
     }
 
     # --- aviso proactivo de bateria (se comprueba una vez por minuto) ---
