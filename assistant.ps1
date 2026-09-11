@@ -1,4 +1,9 @@
-﻿$ErrorActionPreference = "Stop"
+﻿param([string]$Probar = "")
+# -Probar <archivo>: banco de pruebas. Pasa cada linea del archivo por la
+# capa local SIN ejecutar nada y dice cual reconoce y cual no. Sirve para
+# medir la cobertura del entendimiento con frases reales del log, en vez
+# de tener que decirlas en voz alta una por una.
+$ErrorActionPreference = "Stop"
 
 $LogDir = $PSScriptRoot
 if (-not $LogDir) { $LogDir = "C:\Users\braya\Documents\voice-ctrl" }
@@ -246,6 +251,57 @@ function Get-Distancia([string]$a, [string]$b) {
     return $d[$n, $m]
 }
 
+# Distancia FONETICA. Lo que confunde el dictado casi nunca son letras al azar:
+# son sonidos parecidos, y sobre todo vocales. "stein" por "steam" son dos
+# ediciones -la vocal y la nasal final- y con el tope del 34% una palabra de
+# cinco letras solo perdona una: por eso "abre stein" acababa en el agente.
+# Aqui una confusion de ese tipo cuesta la mitad que un cambio cualquiera.
+# El coste va DOBLADO para no arrastrar decimales: 2 = una edicion entera,
+# 1 = media. El que llama compara contra su tope tambien doblado.
+$script:GruposFon = @(
+    'aeiou',    # vocales entre si: el error mas comun con diferencia
+    'bvp',
+    'ckq',
+    'szc',      # seseo
+    'gj',
+    'mn',       # nasales: "stein"/"steam"
+    'dt',
+    'rl',
+    'yi'
+)
+
+function Test-MismoSonido([char]$x, [char]$y) {
+    foreach ($g in $script:GruposFon) {
+        if ($g.IndexOf($x) -ge 0 -and $g.IndexOf($y) -ge 0) { return $true }
+    }
+    return $false
+}
+
+function Get-DistanciaFon([string]$a, [string]$b) {
+    $n = $a.Length; $m = $b.Length
+    if ($n -eq 0) { return ($m * 2) }
+    if ($m -eq 0) { return ($n * 2) }
+    $d = New-Object 'int[,]' ($n + 1), ($m + 1)
+    for ($i = 0; $i -le $n; $i++) { $d[$i, 0] = $i * 2 }
+    for ($j = 0; $j -le $m; $j++) { $d[0, $j] = $j * 2 }
+    for ($i = 1; $i -le $n; $i++) {
+        for ($j = 1; $j -le $m; $j++) {
+            $ca = $a[$i - 1]; $cb = $b[$j - 1]
+            if ($ca -eq $cb) { $c = 0 }
+            elseif (Test-MismoSonido $ca $cb) { $c = 1 }
+            else { $c = 2 }
+            $borrar = $d[($i - 1), $j] + 2
+            $insertar = $d[$i, ($j - 1)] + 2
+            $sustituir = $d[($i - 1), ($j - 1)] + $c
+            $min = $borrar
+            if ($insertar -lt $min) { $min = $insertar }
+            if ($sustituir -lt $min) { $min = $sustituir }
+            $d[$i, $j] = $min
+        }
+    }
+    return $d[$n, $m]
+}
+
 # El dictado deforma los nombres sin parar ("Team", "steamidos", "espotifai").
 # Perseguirlos uno a uno con una lista fija es una carrera perdida: aqui se
 # acepta la clave conocida que aparezca dentro de lo dictado, o la que quede
@@ -257,11 +313,12 @@ function Find-Aproximado([string]$t, $obj) {
     foreach ($p in $obj.PSObject.Properties) {
         $k = $p.Name
         if ($k.Length -ge 4 -and $t -match ('\b' + [regex]::Escape($k))) { return $k }
-        $tope = [Math]::Max(1, [int][Math]::Floor($k.Length * 0.34))
-        $d = Get-Distancia $t $k
+        # tope en la misma escala doblada que Get-DistanciaFon
+        $tope = [Math]::Max(2, [int][Math]::Floor($k.Length * 0.34) * 2)
+        $d = Get-DistanciaFon $t $k
         if ($d -le $tope -and $d -lt $mejorD) { $mejorD = $d; $mejor = $k }
     }
-    # a dos o mas letras de distancia ya no es seguro: se marca para confirmar
+    # a una edicion entera o mas ya no es seguro: se marca para confirmar
     if ($mejor -and $mejorD -ge 2) { $script:dudosa = $mejor }
     return $mejor
 }
@@ -2496,6 +2553,26 @@ function Send-WinKey([int]$vk) {
     [AX]::keybd_event([byte]$vk, 0, $KEYUP, [UIntPtr]::Zero)
     Start-Sleep -Milliseconds 60
     [AX]::keybd_event([byte]$VK_LWIN, 0, $KEYUP, [UIntPtr]::Zero)
+}
+
+if ($Probar) {
+    if (-not (Test-Path -LiteralPath $Probar)) { Write-Output "no existe: $Probar"; exit 1 }
+    $ok = 0; $no = 0
+    foreach ($linea in (Get-Content -LiteralPath $Probar -Encoding UTF8)) {
+        $t = $linea.Trim()
+        if (-not $t -or $t.StartsWith('#')) { continue }
+        # mismo orden que Process-Texto: reglas y recordatorios se resuelven
+        # antes que las ordenes sueltas, o el banco mentiria
+        $r = $false
+        try { if (Invoke-ReglaVoz $t) { $r = $true } } catch {}
+        if (-not $r) { try { if (Invoke-RecordatorioVoz $t) { $r = $true } } catch {} }
+        if (-not $r) { try { $r = Test-FastCommand $t } catch { $r = $false } }
+        if ($r) { $ok++; Write-Output ("  OK    " + $t) }
+        else    { $no++; Write-Output ("  ->IA  " + $t) }
+    }
+    Write-Output ""
+    Write-Output ("reconocidas en local: $ok de " + ($ok + $no))
+    exit 0
 }
 
 $mutex = New-Object System.Threading.Mutex($false, "Local\VoiceAssistant")
