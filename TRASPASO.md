@@ -2,16 +2,18 @@
 
 > Documento autocontenido para delegar a otra IA o retomar el proyecto.
 > Carpeta: **`C:\Users\braya\Documents\voice-ctrl`**
-> Última actualización: **2026-09-10** (voz neuronal, memoria en Obsidian,
-> juegos de Steam, envío automático).
+> Última actualización: **2026-09-10, noche** (palabra de activación «Nova»,
+> interfaz de cristal `nova_ui.exe`, traducción aprendida, temporizadores,
+> repositorio en GitHub). Las secciones 15-17 son las más recientes.
 
 ---
 
 ## 1. OBJETIVO
 
-Controlar el ASUS ROG Ally **por voz, en segundo plano**: mantener pulsado el
-botón `≡` (menú del mando) → se abre el dictado de Windows y el usuario habla →
-al callar, la orden se ejecuta y el asistente **responde hablando**.
+Controlar el ASUS ROG Ally **por voz, en segundo plano**: decir **«Nova»** (o
+mantener pulsado el botón `≡` del mando) → se abre el dictado y el usuario
+habla → al callar, la orden se ejecuta y el asistente **responde hablando**.
+La cara visible es una cápsula de cristal en la esquina inferior izquierda (§16).
 
 Usuario: `braya`. Windows 11 build 26200, Windows PowerShell 5.1.
 Mando integrado de la ROG Ally. El habla es **español latinoamericano**.
@@ -49,26 +51,30 @@ Mando integrado de la ROG Ally. El habla es **español latinoamericano**.
 
 ## 4. ARQUITECTURA / FLUJO ACTUAL
 
-Un **único proceso**, **máquina de estados no bloqueante**, **dos rutas** de
-ejecución, y tres procesos hijos (opencode cuando toca, el worker de voz, y
-Piper si se usa).
+Un **único proceso** (`assistant.ps1`), **máquina de estados no bloqueante**,
+y varios procesos hijos que se comunican con él **solo por archivos en `tmp\`**
+(nunca por hilos: §11): `wake_vosk.py` (palabra de activación), `tts_worker.py`
+(voz), `nova_ui.exe` (interfaz), opencode cuando toca, Piper si se usa.
 
 ```
-[ mantener ≡ 1,1 s ]
-  → bip + barrita verde + Win+H (dictado de Windows)
+[ decir "nova" ]  ó  [ mantener ≡ 1,1 s ]
+  → bip + cápsula verde con onda + Win+H (dictado de Windows)
 [ el usuario habla ]
-  → la barrita va mostrando la TRANSCRIPCIÓN EN VIVO
+  → la cápsula va mostrando la TRANSCRIPCIÓN EN VIVO
 [ callar 2,5 s  (o mantener ≡ = "enviar ya") ]
   │
+  ├─ "pregúntale a la IA …" → charla con --continue (recuerda lo hablado)
   ├─ RUTA LOCAL (Invoke-FastCommand)  ── <1 s, sin LLM ──────────────
-  │    reconoce la orden entera → la ejecuta → burbuja + voz
-  │
-  └─ RUTA OPENCODE (si NO reconoce alguna parte) ── 25-160 s ────────
+  │    reconoce la orden entera → la ejecuta → cápsula azul + voz
+  ├─ PREGUNTA ($RE_PREGUNTA) → modelo sin herramientas ── ~13 s
+  ├─ TRADUCCIÓN APRENDIDA (traducciones.json) → local ── <1 s
+  ├─ TRADUCIR: el modelo la convierte a una orden conocida ── ~13 s
+  │    se valida con Invoke-FastCommand y se APRENDE; si no, ↓
+  └─ AGENTE COMPLETO ── 25-160 s ─────────────────────────────────────
        Start-OpencodeJob lanza opencode.exe y retorna al instante
-       barrita ámbar "* Procesando... (mantén ≡ para cancelar)"
+       cápsula ámbar "Procesando..." (mantener ≡ = cancelar, taskkill /T)
        [ el bucle SIGUE sondeando el botón cada 30 ms ]
-       → al terminar: burbuja + voz + replies.log
-       → mantener ≡ mientras procesa = cancelar (taskkill /T)
+       → al terminar: cápsula azul + voz + replies.log
 ```
 
 Decisiones de diseño deliberadas:
@@ -219,9 +225,11 @@ garantizado. **No perder tiempo en esto otra vez.**
   costaba 2,5-4,4 s.
 - **Caché por hash** del texto en `tmp\voz\`. Sobrevive a reinicios y hace que
   «Anotado.» o «Abriendo Steam.» salgan en 2 ms.
-- Los MP3 se reproducen con **MCI** (`AX::PlayMp3`, winmm.dll), no con
-  `System.Windows.Media.MediaPlayer`: ese necesita un Dispatcher y encaja mal
-  en el bucle WinForms.
+- Los MP3 se reproducen con **`System.Windows.Media.MediaPlayer`** (WPF,
+  `Play-Audio`). Antes se usaba MCI (`AX::PlayMp3`) y **reportaba éxito sin
+  emitir sonido**: el asistente estuvo mudo un buen rato sin que nadie lo
+  notara. MediaPlayer funciona en el bucle WinForms sin Dispatcher propio
+  (hay un `Start-Sleep 250` tras `Open` para que cargue). MCI queda de respaldo.
 - `ReadLineAsync` con tope de 8 s: si la red se cuelga, el bucle no se bloquea.
 
 ---
@@ -233,7 +241,10 @@ garantizado. **No perder tiempo en esto otra vez.**
 | `abre steam`, `sube el volumen`, `recuerda que…` | Local | < 1 s |
 | `qué hora es`, `cuánta batería`, `repite` | Local | < 1 s |
 | `quién inventó el ajedrez` (`$RE_PREGUNTA`) | Modelo, **sin herramientas** | ~13 s |
-| `crea un archivo en el escritorio` | Agente completo | 25-160 s |
+| `pregúntale a la IA …` | Charla con `--continue` (recuerda la anterior) | ~13 s |
+| orden no reconocida, ya traducida antes | `traducciones.json` → local | < 1 s |
+| orden no reconocida, primera vez | Modelo la **traduce** a una orden conocida; se valida y se aprende | ~13 s |
+| `crea un archivo en el escritorio` | Agente completo (si no se pudo traducir) | 25-160 s |
 
 **Respuestas instantáneas** (no van al modelo): hora, fecha, batería, número de
 juegos, notas del día, repetir la última respuesta. Preguntar la hora a un LLM
@@ -297,14 +308,26 @@ voice-ctrl\
   config.json          # rutas, tiempos, voz, logs
   commands.json        # vocabulario local  <- AMPLIAR AQUÍ
   tts_worker.py        # worker de voz en linea (persistente + cache)
+  wake_vosk.py         # worker de palabra de activacion (y dictado Vosk) §15
+  wake_worker.cs/.exe  # alternativa SAPI en C#, no se usa (escucha.motor=sapi)
+  nova_ui.cs/.exe      # interfaz: capsula de cristal WPF §16
+  traducciones.json    # ordenes aprendidas (se crea sola)
   run-opencode.ps1     # runner suelto; ya NO se usa, sirve para probar el CLI
   memoria\             # vault de Obsidian (§8)
-  piper\               # TTS offline de respaldo (97 MB)
-  tmp\                 # temporales; tmp\voz = cache de audio
-  tools\diag\          # diag-buttons.ps1 (calibrador) y otros
+  piper\               # TTS offline de respaldo (97 MB)      [no en git]
+  vosk\                # modelo es-ES pequeno de Vosk (~40 MB) [no en git]
+  tmp\                 # temporales y archivos-marca; tmp\voz = cache de audio
+  tools\compilar-ui.ps1   # recompila nova_ui.exe
+  tools\subir-a-github.ps1# push desde una consola real (pide credenciales)
+  tools\aprende-descartes.ps1 # que no reconocio la capa local
+  tools\diag\          # diag-buttons.ps1 (calibrador), diag-escucha, diag-vosk
   legacy\voicedict.ps1 # script antiguo, referencia
   assistant.log        # eventos      replies.log  # respuestas completas
 ```
+
+Repositorio: **https://github.com/MashLanzer/Nova-Rog-Ally** (público). Git en
+`C:\Program Files\Git\cmd\git.exe` (no está en el PATH de la terminal del
+asistente). Los `.exe` compilados SÍ se suben, para que clonar sea usable.
 
 Recompilar el DLL:
 
@@ -354,6 +377,23 @@ DLL anterior en `tools\`.
 - **WinForms no es thread-safe**: no tocar `$capture`/`$lbl` desde un runspace.
 - **`--auto` auto-aprueba todo lo que no esté en `"deny"`**: poner algo en
   `"ask"` NO bloquea nada en el flujo por voz (§12).
+- **Nada de eventos asíncronos en PowerShell** (SAPI, `Register-ObjectEvent`
+  sobre reconocedores, runspaces tocando la UI): el manejador corre en otro
+  hilo y **mata el proceso en silencio**. Pasó dos veces. Todo hijo se
+  comunica por archivos-marca en `tmp\` y el bucle los sondea.
+- **MCI (`mciSendString`) puede decir "ok" y no sonar**: ver §7. Comprobar
+  siempre la voz al arrancar (para eso está el saludo).
+- **La voz del propio asistente vuelve al micrófono** (pico 0,99) y hundía la
+  ganancia automática: mientras habla o dicta existe `tmp\escucha-pausa.flag`
+  y el worker ignora el audio. Si la pausa no se libera (hay `finally` para
+  eso), la palabra de activación queda muda un minuto.
+- **La ventana de captura de WinForms NO se puede quitar** aunque la interfaz
+  nueva la tape: el dictado de Windows escribe en la ventana con foco. Se deja
+  con `Opacity = 0.01` (con 0 exacto Windows deja de pintarla y puede perder
+  el foco).
+- **El modelo pequeño de Vosk NO vale para dictar** («abre stein»): sirve
+  para la palabra de activación, no para transcribir órdenes. El grande no
+  cabe (7,7 GB de RAM, ~1 GB libre). Por eso `input.dictado = "windows"`.
 
 ---
 
@@ -393,14 +433,21 @@ llegan al agente.
   lanza con `shell:appsFolder\B9ECED6F.ArmouryCrateSE_qmba6cd70vzyy!App`.
 - ✅ **Historial**: `repite` / `qué me dijiste`.
 - ✅ **Porcentajes exactos** de volumen y brillo.
+- ✅ **Palabra de activación** «Nova» con Vosk (§15).
+- ✅ **Traducción con aprendizaje** de órdenes no reconocidas (§4).
+- ✅ **Temporizadores, contexto de juego, captura/clip, pronombres, deshacer,
+  perfiles** (§17).
+- ✅ **Git**: instalado, repositorio público en GitHub.
+- ✅ **Interfaz nueva** `nova_ui.exe` (§16).
 
 ### Bloqueados
 
 - ❌ **Tarea programada**: `Register-ScheduledTask` da **acceso denegado**
   incluso para una tarea por usuario con disparador «al iniciar sesión». No es
   viable sin admin. La clave `Run` se queda (no da reinicio automático).
-- ⏸ **git**: no está instalado (`winget install Git.Git`). El `.gitignore` ya
-  está escrito.
+- ❌ **Dictado offline preciso**: Vosk pequeño no sirve y el grande no cabe en
+  RAM. Alternativa futura: `faster-whisper` (modelo `small`, ~500 MB), que sí
+  cabría; no probado.
 
 ### Abiertos
 
@@ -410,7 +457,12 @@ llegan al agente.
    aproximación lejana (no por coincidencia exacta ni por contención),
    preguntar «¿Little Nightmares III?» antes de lanzar. Debe llevar
    **autocancelación por tiempo**, para no repetir el error del modo pegajoso.
-3. Ideas nuevas: ver §15.
+3. **Nivel de micrófono en la onda de la interfaz**: el worker podría escribir
+   el nivel en el JSON y la onda reaccionaría a la voz real. Hoy respira sola.
+4. **RAM de `nova_ui.exe`** (~130 MB, casi todo el runtime de WPF). Si molesta:
+   `ui.nueva = false` en `config.json` devuelve la barra antigua.
+5. Comprobar que la cápsula se ve **sobre juegos a pantalla completa
+   exclusiva** (sobre ventana sin bordes sí).
 
 ---
 
@@ -441,4 +493,128 @@ Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
 
 # Vaciar la caché de voz (se regenera sola)
 Get-ChildItem .\tmp\voz -Filter *.mp3 | Remove-Item -Force
+
+# Recompilar la interfaz tras tocar nova_ui.cs (el asistente debe reiniciarse)
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\compilar-ui.ps1
+
+# Subir a GitHub (abre una consola real por si pide credenciales)
+Start-Process powershell -ArgumentList '-NoExit','-File','tools\subir-a-github.ps1'
 ```
+
+`taskkill /T` sobre el asistente se lleva también `wake_vosk.py`,
+`tts_worker.py` y `nova_ui.exe`, que son hijos suyos. La interfaz además se
+cierra sola si el asistente muere (recibe su PID y lo vigila cada 2 s).
+
+---
+
+## 15. ESCUCHA CONTINUA: PALABRA DE ACTIVACIÓN «NOVA»
+
+`wake_vosk.py` es un proceso Python aparte (prioridad *BelowNormal*) que
+tiene el micrófono abierto siempre y reconoce **solo** el nombre, con una
+**gramática cerrada** de Vosk (modelo pequeño es-ES en `vosk\`). Al oírlo crea
+`tmp\despierta.flag`; el bucle principal lo ve y llama a `Start-Dictado`, el
+mismo camino que el botón.
+
+Argumentos (en este orden): nombre, ruta de la marca, log, ganancia,
+marca de pausa, marca de dictar, ruta del dictado, ruta del parcial.
+
+Lo que costó afinar, y por qué está como está:
+
+- **El micrófono de esta máquina entra bajísimo** (prueba de Windows: 7 %,
+  pico crudo 0,02-0,05). SAPI lo tomaba por silencio. Vosk da el audio crudo,
+  así que se **amplifica por software**: ganancia automática calculada sobre el
+  **percentil 90 del audio crudo** (no del amplificado: antes se realimentaba
+  y acababa en ×60 con recorte), y solo **cuando hay voz sostenida** (≥4
+  bloques), nunca sobre silencio. Límites 0,5-40. Detecta recorte y baja.
+- **Confianza mínima 0,55** y **límite de palabra `\b`** al comparar: sin
+  eso «novato» disparaba (`endswith`).
+- **Pausa**: mientras existe `tmp\escucha-pausa.flag` ignora el audio. La
+  crea el asistente al hablar (su propia voz volvía con pico 0,99) y al
+  dictar con Win+H (competían por el micro). Se libera en `finally` y por
+  plazo desde el bucle.
+- **Supervisado**: el bucle mira `HasExited` cada 30 s y relanza (3 intentos);
+  si no se sostiene, avisa por voz y sigue con el botón. Antes moría en
+  silencio y la palabra dejaba de funcionar el resto de la sesión.
+- **Tras cancelar con el botón** la escucha se rearma sola (hubo un bug en que
+  la pausa se quedaba puesta).
+- El pulso `[escucha] pulso: …` en el log cada 15 s dice ganancia, bloques
+  con voz y % decodificado: es el primer sitio donde mirar si «no me oye».
+- **Dictado por Vosk** (`input.dictado = "vosk"`): existe y funciona
+  (transcripción libre, entrega por silencio 1,4 s, quita el nombre del
+  principio, descarta el audio encolado) pero el modelo pequeño transcribe
+  mal las órdenes y el grande no cabe en RAM. **Apagado**; Win+H sigue.
+- Alternativa C# con SAPI (`wake_worker.exe`, `escucha.motor = "sapi"`):
+  funciona pero no amplifica; se conserva por si cambia el micrófono.
+- Diagnóstico: `tools\diag\diag-escucha.ps1` y `tools\diag\diag-vosk.py`.
+
+Config: `escucha.{activada, nombre, motor, ganancia, confianzaMinima}`.
+
+---
+
+## 16. INTERFAZ: LA CÁPSULA DE CRISTAL (`nova_ui.exe`)
+
+Es **la cara visible** del asistente: un punto turquesa con halo, siempre
+visible en la esquina inferior izquierda (12 px del borde), que se expande en
+una cápsula de 340×44 con animación elástica. Estilo pedido por el usuario:
+isla dinámica + cristal oscuro con acento neón. Tamaño: **no cambiar**, es el
+que no molesta.
+
+| Estado | Color | Qué muestra |
+|---|---|---|
+| `reposo` | turquesa `#35E0C8` | solo el punto, latiendo despacio |
+| `escuchando` | verde `#3DF09A` | onda de audio + transcripción en vivo |
+| `pensando` | ámbar `#FFB33D` | «Procesando…» / «Pensando…» / «Entendiendo…», halo pulsando |
+| `hablando` | azul `#4DA6FF` | el texto que está diciendo |
+| `error` | rojo `#FF5A5A` | el aviso (cancelado, no te escuché…) |
+
+Cómo funciona:
+
+- **Proceso WPF aparte** (`nova_ui.cs`, compilar con `tools\compilar-ui.ps1`).
+  WinForms no acelera por hardware y las animaciones iban a tirones; WPF no
+  convive con el bucle del asistente; separado además no puede tumbarlo.
+- El asistente escribe **`tmp\ui-estado.json`**
+  `{"estado","texto","nivel"}` (`Set-UI`) y la interfaz lo lee cada 80 ms.
+  Solo se escribe si cambió. UTF-8 **sin BOM**.
+- **Click-through** (`WS_EX_TRANSPARENT | TOOLWINDOW | NOACTIVATE`): nunca
+  roba clics ni foco al juego. Sin barra de tareas.
+- **Cristal de verdad, no plástico** (fue la crítica al primer intento, que
+  tenía relleno opaco): la cápsula **captura la pantalla que hay detrás** al
+  expandirse (se vuelve invisible 45 ms para no capturarse a sí misma), la
+  desenfoca en GPU (`BlurEffect` 22 px) y la usa de fondo recortado; encima
+  van tinte oscuro translúcido, **grano** fino tipo acrílico, **reflejo** de
+  luz en la mitad superior, borde con luz (claro arriba, color del estado
+  abajo), halo de color y sombra negra hacia abajo. El punto es una esfera con
+  brillo, no un círculo plano. DWM no ofrece acrílico con forma de cápsula.
+- Ancho = medida real del texto (`FormattedText`), tope 340 con elipsis.
+- Recibe el **PID del asistente** y se cierra sola si muere. El asistente la
+  supervisa cada 30 s (3 relanzos) y, si no se sostiene, **vuelve la barra
+  antigua** (`$capture.Opacity = 1`).
+- La **barra antigua sigue existiendo** con opacidad 0,01: Win+H necesita
+  una ventana con foco. Los popups de WinForms solo se abren para textos
+  de más de 80 caracteres (en la cápsula no cabrían).
+- Coste: **~130 MB de RAM** (runtime de WPF), CPU despreciable en reposo.
+  Apagar: `ui.nueva = false`.
+
+---
+
+## 17. LO DEMÁS QUE SE AÑADIÓ (resumen rápido)
+
+- **Temporizadores**: «recuérdame en 20 minutos que…», «avísame en una hora».
+  Se guardan en `$script:temporizadores` y el bucle los vence; la memoria
+  («recuerda que…») lleva un *lookahead* para no tragárselos.
+- **Contexto de juego**: cada 10 s se mira qué proceso de `steamapps\common`
+  está en primer plano (`Get-JuegoEnPrimerPlano`); «¿a qué estoy jugando?» y
+  «¿cuánto llevo jugando?» responden al instante. «captura» / «clip» usan los
+  atajos de la barra de juego (Win+Alt+PrtSc / Win+Alt+G).
+- **Pronombres**: «ábrelo», «ciérralo», «búscalo» resuelven sobre
+  `$script:ultimoObjetivo`.
+- **Deshacer**: «deshaz» restaura volumen/brillo guardados en
+  `Save-EstadoParaDeshacer`.
+- **Perfiles** (`commands.json → perfiles`): juego, noche, trabajo, cine,
+  silencio. «modo noche» aplica varios ajustes de golpe.
+- **Alias por voz**: «cuando diga X quiero decir Y» → `Add-Alias-Comando`.
+- **Aviso de batería** al 15 % (una vez; se rearma al cargar).
+- **Saludo al arrancar** («Listo. Di nova cuando me necesites»): prueba
+  de extremo a extremo de la cadena de audio. `voz.saludo`.
+- **Respuestas cortas**: al agente se le pide resumir en UNA frase porque se
+  lee en voz alta; a las preguntas, sin herramientas (`$PRE_HABLADO`).
