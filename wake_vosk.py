@@ -20,6 +20,7 @@ import re
 import json
 import queue
 import time
+import collections
 import unicodedata
 
 import numpy as np
@@ -55,6 +56,15 @@ UMBRAL_VOZ = 0.008
 # con menos, un golpe suelto bastaba para mover la ganancia
 MIN_BLOQUES_VOZ = 4
 PASO_MAX = 4.0
+# --- PUERTA DE ENERGIA ---
+# Sin esto Vosk decodifica 4 bloques por segundo las 24 horas, aunque no haya
+# nadie hablando, y este worker arranca con Windows en un portatil de juegos.
+# Decodificar es lo caro; medir la energia del bloque es practicamente gratis.
+# Se deja un margen de arrastre para no cortar el final de la palabra, y un
+# pre-buffer para no perder su principio.
+UMBRAL_ACTIVIDAD = 0.006
+ARRASTRE = 4              # bloques que se siguen decodificando tras el silencio
+PREBUFFER = 2             # bloques previos que se recuperan al detectar voz
 INTERVALO_PULSO = 15.0    # ajuste rapido; con 60 s tardaba minutos en subir
 
 
@@ -66,6 +76,13 @@ def anota(mensaje):
             f.write(time.strftime("%Y-%m-%d %H:%M:%S") + "  [escucha] " + mensaje + "\n")
     except Exception:
         pass
+
+
+def pct_dec():
+    # porcentaje de bloques que llegaron al decodificador: mide el ahorro real
+    if bloques_totales <= 0:
+        return 0
+    return int(100.0 * bloques_decodificados / bloques_totales)
 
 
 def sin_tildes(s):
@@ -128,6 +145,10 @@ anota("worker Vosk en marcha: nombre='%s' dispositivo='%s' ganancia=%s"
 ultimo_pulso = time.time()
 recortes = 0
 pausado = False
+arrastre = 0
+prebuffer = collections.deque(maxlen=PREBUFFER)
+bloques_totales = 0
+bloques_decodificados = 0
 picos = []
 bloques_voz = 0
 pico_voz = 0.0          # pico observado cuando SI habia voz reconocible
@@ -184,9 +205,34 @@ try:
                     muestras = np.clip(amplificado, -32768, 32767)
                 bloque = muestras.astype(np.int16).tobytes()
 
+                # PUERTA: si el bloque es silencio y no venimos de voz reciente,
+                # ni se toca el decodificador. Es donde esta el ahorro real.
+                bloques_totales += 1
+                if pico > UMBRAL_ACTIVIDAD:
+                    arrastre = ARRASTRE
+                elif arrastre > 0:
+                    arrastre -= 1
+
+                # OJO: aqui NO vale un 'continue'. Saltaria tambien el pulso del
+                # final del bucle, que es justo lo que registra el diagnostico y
+                # recalibra la ganancia, y durante el silencio -o sea, casi
+                # siempre- dejariamos de hacer ambas cosas.
+                decodificar = (arrastre > 0)
+                if not decodificar:
+                    prebuffer.append(bloque)
+
+                # al arrancar la voz se recupera el pre-buffer, para no perder
+                # el principio de la palabra
+                if decodificar and prebuffer:
+                    for b in prebuffer:
+                        if rec.AcceptWaveform(b):
+                            pass   # descartado: es solo contexto previo
+                    prebuffer.clear()
+                if decodificar:
+                    bloques_decodificados += 1
                 # Solo se mira el resultado FINAL: los parciales cambian de
                 # hipotesis constantemente y no traen confianza por palabra.
-                if rec.AcceptWaveform(bloque):
+                if decodificar and rec.AcceptWaveform(bloque):
                     resultado = json.loads(rec.Result())
                     texto = resultado.get("text", "")
                     if texto:
@@ -232,11 +278,11 @@ try:
                     # segunda red: tope de salto por ciclo
                     propuesta = max(ganancia - PASO_MAX, min(ganancia + PASO_MAX, propuesta))
                     ganancia = round(max(GANANCIA_MIN, min(GANANCIA_MAX, propuesta)), 1)
-                    anota("pulso: p90=%.4f bloques_voz=%d  ganancia=x%.1f"
-                          % (ref, bloques_voz, ganancia))
+                    anota("pulso: p90=%.4f bloques_voz=%d ganancia=x%.1f decodificado=%d%%"
+                          % (ref, bloques_voz, ganancia, pct_dec()))
                 else:
-                    anota("pulso: sin voz sostenida (%d bloques), sin recalibrar  ganancia=x%.1f"
-                          % (bloques_voz, ganancia))
+                    anota("pulso: sin voz sostenida (%d bloques) ganancia=x%.1f decodificado=%d%%"
+                          % (bloques_voz, ganancia, pct_dec()))
                 picos = []
                 bloques_voz = 0
                 ultimo_pulso = ahora
