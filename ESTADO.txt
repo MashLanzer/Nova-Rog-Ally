@@ -90,7 +90,11 @@ RUTAS (de más rápida a más lenta; se elige sola)
   PREGUNTA   : ~13 s. "qué / quién / cómo..." -> el modelo contesta, no actúa.
   TRADUCIR   : ~13 s. Orden nueva no reconocida -> el modelo la convierte a
                una orden conocida, se valida, se ejecuta y SE APRENDE.
-  AGENTE     : 25-160 s. Solo si nada de lo anterior sirvió.
+               Si el modelo dice que NO era una orden (el micrófono cazó un
+               vídeo, el juego o a alguien hablando al lado), se descarta ahí
+               mismo: no se ejecuta nada y no se encadena otra escucha.
+  AGENTE     : 25-160 s. Solo si el modelo marca la frase como TAREA: es una
+               petición de verdad, pero no de las locales.
   "pregúntale a la IA ..." : charla, recuerda lo anterior. Explícito por frase.
 
   Regla: si CUALQUIER parte no se reconoce, no se ejecuta NADA de la

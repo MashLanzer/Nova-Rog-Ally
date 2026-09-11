@@ -69,8 +69,10 @@ y varios procesos hijos que se comunican con él **solo por archivos en `tmp\`**
   ├─ PREGUNTA ($RE_PREGUNTA) → modelo sin herramientas ── ~13 s
   ├─ TRADUCCIÓN APRENDIDA (traducciones.json) → local ── <1 s
   ├─ TRADUCIR: el modelo la convierte a una orden conocida ── ~13 s
-  │    se valida con Invoke-FastCommand y se APRENDE; si no, ↓
-  └─ AGENTE COMPLETO ── 25-160 s ─────────────────────────────────────
+  │    se valida con Invoke-FastCommand y se APRENDE. El modelo responde
+  │    con la orden, con TAREA (es una petición, pero no de las locales)
+  │    o con NO (no era una orden: audio de fondo) → se DESCARTA ahí.
+  └─ AGENTE COMPLETO ── 25-160 s ── solo si el modelo dijo TAREA ──────
        Start-OpencodeJob lanza opencode.exe y retorna al instante
        cápsula ámbar "Procesando..." (mantener ≡ = cancelar, taskkill /T)
        [ el bucle SIGUE sondeando el botón cada 30 ms ]
@@ -84,6 +86,11 @@ Decisiones de diseño deliberadas:
 - **Llamada directa al CLI**, sin `powershell.exe` intermedio (§11).
 - **El popup no bloquea**: se cierra por plazo desde el bucle.
 - **La ruta local es todo-o-nada**: media orden ejecutada es peor que ninguna.
+- **Al agente no se llega por descarte, sino por veredicto.** Antes, todo lo
+  que nadie entendía terminaba en el agente con `--auto`: el micrófono captaba
+  un vídeo de fondo y esa frase se ejecutaba con permiso sobre `Documents`
+  (37 veces solo el 11/09). Ahora quien decide es el traductor, que ya estaba
+  en el camino y no cuesta latencia extra.
 
 ---
 
@@ -461,6 +468,9 @@ llegan al agente.
 
 1. **Ampliar `commands.json`** con el uso real: `memoria\estadisticas.md`
    lista exactamente lo que no se reconoció.
+   ✅ **El ruido ya no llega al agente** (§4): el traductor responde `NO` y se
+   descarta en ~13 s en vez de 25-160 s, y un descarte ya no deja armada la
+   ventana de encadenar (una cascada de ruido se cortaba sola).
 2. ✅ **Confirmación cuando la coincidencia es dudosa** (§15).
 3. ✅ **Nivel de micrófono en la onda**: el worker escribe `tmp\ui-nivel.txt`
    (0..1, a 4 Hz) mientras dictas y la interfaz lo lee directamente.

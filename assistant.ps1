@@ -3154,8 +3154,12 @@ Sitios disponibles: $sitios
 Juegos instalados: $juegos
 
 Responde SOLO con la linea traducida, sin comillas, sin explicacion y sin
-ninguna palabra extra. Si la orden no encaja en ninguna forma, responde
-exactamente: NO
+ninguna palabra extra.
+Si es una peticion de verdad dirigida a un asistente, pero no encaja en
+ninguna de las formas de arriba, responde exactamente: TAREA
+Si NO es una orden dirigida a nadie (conversacion ajena, el audio de un
+video o de una cancion que sonaba de fondo, una frase suelta, inconexa o
+sin sentido), responde exactamente: NO
 
 Orden del usuario: $text
 "@
@@ -3209,7 +3213,30 @@ function Report-Reply($out) {
         $propuesta = ($propuesta -split '[\r\n]' | Where-Object { $_.Trim() } | Select-Object -First 1)
         $propuesta = $propuesta.Trim().Trim('"').Trim("'")
         $original = $script:jobTextoOriginal
-        if ($propuesta -and $propuesta.ToUpperInvariant() -ne 'NO' -and $propuesta.Length -lt 120) {
+        $veredicto = if ($propuesta) { $propuesta.ToUpperInvariant().Trim('.', ' ') } else { '' }
+        # El modelo tiene la ultima palabra sobre si esto era una orden. Casi
+        # nada de lo que llega hasta aqui lo dijo el usuario: es audio que el
+        # microfono le robo a un video, al juego o a alguien hablando al lado.
+        # Escalarlo al agente por si acaso -con --auto y todo Documents- era
+        # regalarle el disco a una frase que nadie pronuncio, y encima costaba
+        # entre 25 y 160 s de espera por cada ruido.
+        if (-not $propuesta -or $veredicto -eq 'NO') {
+            Log "NO era una orden: '$original' (descartado, no llega al agente)"
+        $script:seguimientoPendiente = $false   # un descarte no encadena: era ruido
+            Add-Estadistica 'ruido' $original
+            Send-UIEvento 'gesto:confuso'
+            Show-Popup "No te entendi. Repitelo." 'error'
+            Say "No te entendi"
+            return
+        }
+        # Peticion de verdad, pero fuera del vocabulario local: para eso esta
+        # el agente. Esta es la UNICA puerta que le queda abierta a la voz.
+        if ($veredicto -eq 'TAREA') {
+            Log "peticion fuera del vocabulario local: va al agente completo"
+            Submit-Command $original 'accion'
+            return
+        }
+        if ($propuesta.Length -lt 120) {
             Log "traduccion propuesta: '$original' -> '$propuesta'"
             $r = $null
             # una traduccion del modelo no se confirma por voz: o encaja o no
@@ -3235,12 +3262,18 @@ function Report-Reply($out) {
                 } catch {}
                 return
             }
-            Log "la traduccion no resulto ejecutable; va al agente completo"
+            Log "la traduccion '$propuesta' no resulto ejecutable"
         } else {
-            Log "el modelo no supo traducirlo; va al agente completo"
+            Log "respuesta de traduccion ilegible (demasiado larga): '$propuesta'"
         }
-        # no se pudo traducir: se manda al agente con todas sus herramientas
-        Submit-Command $original 'accion'
+        # Antes esto caia al agente. Ya no: si la capa local rechaza la orden
+        # que propuso el propio modelo, el agente tampoco va a acertar, y mas
+        # vale un "no" en un segundo que dos minutos de espera para nada.
+        Add-Estadistica 'descarte' $original
+        $script:seguimientoPendiente = $false   # un descarte no encadena: era ruido
+        Send-UIEvento 'gesto:confuso'
+        Show-Popup "No pude hacerlo. Dimelo de otra forma." 'error'
+        Say "No pude hacerlo"
         return
     }
 
@@ -3551,6 +3584,7 @@ function Process-Texto([string]$text) {
             $palabras = @(($text -split '\s+') | Where-Object { $_ -ne '' })
             if ($palabras.Count -le 2 -and $text.Length -lt 18) {
                 Log "RUIDO descartado (no llega al agente): '$text'"
+                $script:seguimientoPendiente = $false   # un descarte no encadena: era ruido
                 Add-Estadistica 'ruido' $text
                 Send-UIEvento 'gesto:confuso'
                 Show-Popup "No te entendi. Repitelo." 'error'

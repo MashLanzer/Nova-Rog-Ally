@@ -27,6 +27,8 @@ memoria/estadisticas.json
 memoria/estadisticas.md
 memoria/fechas.json
 memoria/recordatorios.json
+# ordenes aprendidas: son frases dictadas por el usuario
+traducciones.json
 memoria/semanas/
 reglas.json
 
