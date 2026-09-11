@@ -48,6 +48,8 @@ $AutoSubmitMs = [int](Get-Cfg 'input' 'autoSubmitMs' 2500)
 $BateriaAviso = [int](Get-Cfg 'avisos' 'bateriaPct' 15)
 # traducir con el modelo lo que la capa local no entienda, y aprenderlo
 $TraducirOn = [bool](Get-Cfg 'opencode' 'traducir' $true)
+# saludo hablado al arrancar: confirma que la voz funciona
+$SaludoOn = [bool](Get-Cfg 'voz' 'saludo' $true)
 
 $OCODECLI = [string](Get-Cfg 'paths' 'opencodeCli' "C:\Users\braya\AppData\Roaming\npm\node_modules\opencode-ai\bin\opencode.exe")
 $NODEDIR = [string](Get-Cfg 'paths' 'nodeDir' "C:\Program Files\nodejs")
@@ -879,6 +881,31 @@ $TtsWorker = Join-Path $LogDir "tts_worker.py"
 $VozCache = Join-Path $TmpDir "voz"
 $script:ttsProc = $null
 
+# --- REPRODUCCION DE AUDIO ---
+# Se usa MediaPlayer de WPF, NO MCI. MCI informaba 'playing' y la posicion
+# avanzaba, pero en esta maquina no llegaba a los altavoces: el asistente
+# "hablaba" en silencio. MediaPlayer es el metodo con el que el usuario SI
+# escucho las pruebas de voz, asi que esta comprobado que suena aqui.
+$script:reproductor = $null
+
+function Play-Audio([string]$ruta) {
+    if (-not (Test-Path -LiteralPath $ruta)) { return $false }
+    try {
+        if (-not $script:reproductor) {
+            Add-Type -AssemblyName PresentationCore -ErrorAction Stop
+            $script:reproductor = New-Object System.Windows.Media.MediaPlayer
+        }
+        $script:reproductor.Open([Uri]$ruta)
+        # Open es asincrono: sin esta pausa Play() no encuentra nada cargado
+        Start-Sleep -Milliseconds 250
+        $script:reproductor.Play()
+        return $true
+    } catch {
+        Log ("reproduccion fallida, probando MCI: " + $_.Exception.Message)
+        try { [AX]::PlayMp3($ruta); return $true } catch { return $false }
+    }
+}
+
 function Initialize-Online {
     if (-not (Test-Path -LiteralPath $PyExe) -or -not (Test-Path -LiteralPath $TtsWorker)) { return $false }
     try {
@@ -915,8 +942,7 @@ function Say-Online([string]$texto) {
         if (-not $tarea.Wait(8000)) { Log "voz online: sin respuesta en 8 s"; return $false }
         $ruta = $tarea.Result
         if (-not $ruta -or $ruta.StartsWith('ERR')) { Log "voz online: $ruta"; return $false }
-        [AX]::PlayMp3($ruta)
-        return $true
+        return (Play-Audio $ruta)
     } catch {
         Log ("voz online error: " + $_.Exception.Message)
         return $false
@@ -1764,6 +1790,17 @@ function Finish-Dictation([string]$motivo) {
 }
 
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
+
+# Saludo al arrancar: confirma en voz alta que esta lista, y sirve de prueba
+# inmediata de que la cadena de audio funciona de extremo a extremo.
+if ($SaludoOn) {
+    try {
+        $saludo = if ($EscuchaOn) { "Listo. Di $EscuchaNombre cuando me necesites." } else { "Listo." }
+        Log "saludo de arranque"
+        Say $saludo
+    } catch { Log ("saludo fallido: " + $_.Exception.Message) }
+}
+
 $startPrev = $false
 $downSince = 0
 $holdFired = $false
