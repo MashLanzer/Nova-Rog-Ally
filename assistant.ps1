@@ -907,7 +907,12 @@ function Initialize-Voz {
 function Await-Voz($op, $tipo) {
     $m = $script:vozAwait.MakeGenericMethod($tipo)
     $t = $m.Invoke($null, @($op))
-    [void]$t.Wait(-1)
+    # NUNCA Wait(-1): esto se ejecuta dentro del bucle principal, y una espera
+    # infinita congelaria el asistente entero si el sintetizador se cuelga.
+    if (-not $t.Wait(5000)) {
+        Log "voz: la sintesis no respondio en 5 s"
+        return $null
+    }
     return $t.Result
 }
 
@@ -931,6 +936,7 @@ function Say([string]$texto) {
     if (-not $script:vozSyn) { return }
     try {
         $st = Await-Voz ($script:vozSyn.SynthesizeTextToStreamAsync($t)) ([Windows.Media.SpeechSynthesis.SpeechSynthesisStream])
+        if (-not $st) { return }
         $dr = New-Object Windows.Storage.Streams.DataReader($st.GetInputStreamAt(0))
         [void](Await-Voz ($dr.LoadAsync([uint32]$st.Size)) ([uint32]))
         $bytes = New-Object byte[] $st.Size
@@ -1271,7 +1277,10 @@ function Stop-OpencodeJob {
     # opencode.exe huerfano consumiendo CPU (ver TRASPASO.md seccion 9)
     try { & taskkill.exe /PID $script:proc.Id /T /F 2>$null | Out-Null } catch {}
     try { if (-not $script:proc.HasExited) { $script:proc.Kill() } } catch {}
-    try { $script:proc.WaitForExit(5000) | Out-Null } catch {}
+    # Espera CORTA: esto corre dentro del bucle principal y se invoca justo
+    # cuando el usuario esta cancelando. Esperar 5 s dejaba el boton sin
+    # responder en el peor momento posible. El hijo terminara de morir solo.
+    try { $script:proc.WaitForExit(300) | Out-Null } catch {}
     Clear-OpencodeJob
 }
 
@@ -1324,7 +1333,9 @@ function Complete-OpencodeJob {
     $stdout = ""
     $stderr = ""
     try {
-        try { $script:proc.WaitForExit(5000) | Out-Null } catch {}
+        # solo se llega aqui con el proceso YA terminado, asi que retorna al
+        # instante; el tope es una red de seguridad, no una espera real
+        try { $script:proc.WaitForExit(1000) | Out-Null } catch {}
         try { $code = $script:proc.ExitCode } catch {}
         if (Test-Path -LiteralPath $script:jobOut) {
             $stdout = [System.IO.File]::ReadAllText($script:jobOut, [System.Text.Encoding]::UTF8)
@@ -1423,6 +1434,10 @@ function Start-Dictado([string]$origen) {
         Log "ABORTADO: sin primer plano; no se abre el dictado"
         [System.Media.SystemSounds]::Hand.Play()
         $capture.Hide()
+        # IMPRESCINDIBLE: sin esto la pausa de 60 s se queda puesta y la palabra
+        # de activacion queda muda un minuto cada vez que falla el foco, que en
+        # esta maquina no es raro (overlays de ASUS robando el primer plano).
+        Reanudar-Escucha
         Show-Popup "No pude tomar el foco. Dictado cancelado. Intenta de nuevo."
         $script:armed = $false
     }
@@ -1433,11 +1448,16 @@ function Start-Dictado([string]$origen) {
 function Finish-Dictation([string]$motivo) {
     Log "ENVIAR ($motivo)"
     $script:armed = $false
-    Send-Key $VK_ESCAPE
-    $text = Wait-DictationText
-    $capture.Hide()
-    # se levanta la pausa del dictado; si toca hablar, Say pondra la suya
-    Reanudar-Escucha
+    $text = ''
+    try {
+        Send-Key $VK_ESCAPE
+        $text = Wait-DictationText
+    } finally {
+        # en finally: si Send-Key o la captura fallan, la pausa NO puede
+        # quedarse puesta o la escucha se queda muda hasta un minuto
+        $capture.Hide()
+        Reanudar-Escucha
+    }
     if ($text.Length -gt 0) {
         $plano = ConvertTo-Plain $text
 
@@ -1493,13 +1513,17 @@ $script:bateriaCheck = 0
 $script:bateriaAvisada = $false
 $script:wakeCheck = 0
 $script:wakeIntentos = 0
+$script:pollReintento = 0
 $pollErrs = 0
 
 while ($true) {
     [System.Windows.Forms.Application]::DoEvents()
     $startNow = $false
     $pollOk = $true
-    for ($u = 0; $u -lt 4; $u++) {
+    # tras un fallo de XInput se espera 5 s SIN bloquear el bucle: el resto
+    # (escucha, popups, trabajos) tiene que seguir atendiendose
+    $saltarPoll = ($script:pollReintento -gt 0 -and $sw.ElapsedMilliseconds -lt $script:pollReintento)
+    for ($u = 0; (-not $saltarPoll) -and $u -lt 4; $u++) {
         try {
             $state = New-Object AX+XINPUT_STATE
             $r = [AX]::XInputGetState([uint32]$u, [ref]$state)
@@ -1508,15 +1532,19 @@ while ($true) {
                 break
             }
         } catch {
-            # Sin tope, un fallo persistente de XInput escribiria una linea de log
-            # y dormiria 5 s por cada mando en cada ciclo: log inflado y latencia.
+            # NADA de Start-Sleep aqui dentro: estaba en un bucle sobre los 4
+            # mandos, asi que un fallo persistente de XInput dormia hasta 20 s
+            # POR VUELTA con el boton sin responder. El contador solo silenciaba
+            # el log, no evitaba la espera. Ahora se corta el tick y se aplaza
+            # el siguiente intento sin bloquear.
             $pollOk = $false
             $pollErrs++
             if ($pollErrs -le 5) {
                 Log "poll error: $($_.Exception.Message)"
                 if ($pollErrs -eq 5) { Log "poll error: se silencian los siguientes avisos hasta que vuelva a funcionar" }
             }
-            Start-Sleep -Seconds 5
+            $script:pollReintento = $sw.ElapsedMilliseconds + 5000
+            break
         }
     }
     if ($pollOk) { $pollErrs = 0 }
@@ -1556,6 +1584,9 @@ while ($true) {
             if ($script:wakeIntentos -lt 3) {
                 $script:wakeIntentos++
                 Log "WARN: el worker de escucha murio; relanzando (intento $($script:wakeIntentos)/3)"
+                # liberar el handle antes de soltar la referencia: este proceso
+                # vive meses y cada relanzo filtraria uno
+                try { $script:wakeProc.Dispose() } catch {}
                 $script:wakeProc = $null
                 Initialize-Escucha
             } elseif ($script:wakeIntentos -eq 3) {
