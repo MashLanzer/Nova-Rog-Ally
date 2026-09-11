@@ -282,10 +282,22 @@ def transcribir_whisper(bloques):
     if audio.size < TASA // 4:
         return ""
     t0 = time.time()
+    # OJO con initial_prompt: Whisper lo trata como TEXTO ANTERIOR y lo
+    # CONTINUA cuando el audio es flojo. Con la lista de apps y juegos ahi
+    # dentro, el silencio se transcribia como "SILENT BREATH, PEAK, Hollow
+    # Knight..." y esa frase inventada se ejecutaba como si fuera una orden.
+    # hotwords sesga el decodificador hacia esas palabras SIN meterlas en el
+    # contexto, que es lo que queriamos desde el principio.
+    # Los tres umbrales descartan el segmento cuando no hay voz de verdad:
+    # sin ellos Whisper siempre devuelve algo, aunque el audio sea ruido.
     segmentos, info = whisper.transcribe(
         audio, language="es", beam_size=2, best_of=1,
-        vad_filter=False, condition_on_previous_text=False,
-        initial_prompt=leer_vocabulario())
+        vad_filter=True, vad_parameters=dict(min_silence_duration_ms=500),
+        condition_on_previous_text=False,
+        no_speech_threshold=0.6,
+        log_prob_threshold=-1.0,
+        compression_ratio_threshold=2.4,
+        hotwords=leer_vocabulario())
     texto = " ".join(s.text.strip() for s in segmentos).strip()
     anota("whisper: %.1f s de audio en %.2f s -> '%s'" % (audio.size / TASA, time.time() - t0, texto))
     return limpiar_whisper(texto)
@@ -343,8 +355,51 @@ def entrada(datos, marcos, tiempo, estado):
     cola.put(bytes(datos))
 
 
+def vaciar_cola(motivo):
+    # Transcribir con Whisper bloquea este hilo 10-40 s, y el microfono no se
+    # para: la cola se llena de audio viejo. Al volver al bucle se decodificaba
+    # todo ese rato de golpe y a maxima velocidad, con lo que el asistente se
+    # "activaba" con su propia voz y con conversacion de hace medio minuto.
+    # Ese audio ya no vale para nada: se tira.
+    n = 0
+    while True:
+        try:
+            cola.get_nowait()
+            n += 1
+        except queue.Empty:
+            break
+    if n > 2:
+        anota("descartados %.1f s de audio atrasado (%s)" % (n * 0.25, motivo))
+    return n
+
+
 automatica = (GANANCIA_ARG == "auto")
+# La ganancia buena depende del microfono, y no cambia de un dia para otro.
+# Arrancar siempre en x8 significaba varios minutos de audio saturado hasta que
+# la calibracion bajaba sola -justo los minutos en los que no se entendia nada.
+# Se recuerda la ultima y se empieza ahi.
+RUTA_GANANCIA = os.path.join(os.path.dirname(NIVEL), "ganancia.txt") if NIVEL else ""
+
+
+def ganancia_guardada():
+    if not RUTA_GANANCIA:
+        return None
+    try:
+        with open(RUTA_GANANCIA, "r", encoding="utf-8") as f:
+            g = float(f.read().strip())
+        if GANANCIA_MIN <= g <= GANANCIA_MAX:
+            return g
+    except Exception:
+        pass
+    return None
+
+
 ganancia = GANANCIA_INICIAL if automatica else float(GANANCIA_ARG)
+if automatica:
+    _g = ganancia_guardada()
+    if _g is not None:
+        ganancia = _g
+        anota("ganancia recordada de la sesion anterior: x%.1f" % ganancia)
 
 anota("worker Vosk en marcha: nombre='%s' dispositivo='%s' ganancia=%s"
       % (NOMBRE, dispositivo, "auto" if automatica else ganancia))
@@ -366,6 +421,7 @@ bloques_decodificados = 0
 picos = []
 bloques_voz = 0
 pico_voz = 0.0          # pico observado cuando SI habia voz reconocible
+pico_rafaga = 0.0       # pico de la rafaga que se esta decodificando ahora
 ultima_marca = 0.0
 
 try:
@@ -393,6 +449,8 @@ try:
                 ultimo_pulso = ahora
             elif pausado:
                 pausado = False
+                vaciar_cola("fin de pausa")
+                datos = None
                 rec = nuevo_reconocedor()
                 anota("pausa: fin, escuchando de nuevo")
 
@@ -481,11 +539,14 @@ try:
             if datos is not None:
                 muestras = np.frombuffer(datos, dtype=np.int16).astype(np.float32)
                 pico = float(np.max(np.abs(muestras))) / 32768.0
-                # Se guardan TODOS los picos, no solo el maximo: calibrar con el
-                # maximo dejaba que un solo golpe (o un resto de eco) mandara
-                # sobre toda la ventana. Se usa el percentil 90.
-                picos.append(pico)
+                # Se guardan los picos de los bloques CON VOZ, no el maximo
+                # suelto: calibrar con el maximo dejaba que un solo golpe (o un
+                # resto de eco) mandara sobre toda la ventana. Se usa el p90.
+                # Meter tambien los bloques de silencio hundia ese p90 a 0.0000
+                # y la ganancia se iba a x9: entonces el ruido de fondo entraba
+                # amplificado y Vosk "oia" el nombre en el silencio.
                 if pico > UMBRAL_VOZ:
+                    picos.append(pico)
                     bloques_voz += 1
 
                 if ganancia != 1.0:
@@ -506,9 +567,13 @@ try:
                 # ni se toca el decodificador. Es donde esta el ahorro real.
                 bloques_totales += 1
                 if pico > UMBRAL_ACTIVIDAD:
+                    if arrastre <= 0:
+                        pico_rafaga = 0.0   # empieza una rafaga nueva
                     arrastre = ARRASTRE
                 elif arrastre > 0:
                     arrastre -= 1
+                if arrastre > 0 and pico > pico_rafaga:
+                    pico_rafaga = pico
 
                 # --- MODO CONFIRMACION: solo si/no, y rapido (parciales) ---
                 if confirmando:
@@ -584,6 +649,7 @@ try:
                             mejor = transcribir_whisper(audio_dictado)
                             if mejor:
                                 texto_final = mejor
+                            vaciar_cola("transcripcion")
                         texto_final = quitar_nombre(texto_final)
                         anota("dictado: '%s'" % texto_final)
                         escribir(TEXTO, texto_final)
@@ -630,7 +696,14 @@ try:
                             for p in resultado.get("result", []):
                                 if sin_tildes(p.get("word", "")) == NOMBRE_PLANO:
                                     conf = max(conf, float(p.get("conf", 0.0)))
-                            if conf < CONFIANZA_MIN:
+                            if pico_rafaga < UMBRAL_VOZ:
+                                # Vosk daba confianza 1.00 al nombre sobre
+                                # bloques de pico 0.000, o sea silencio puro
+                                # amplificado. Sin haber sonado nada no hay
+                                # nada que reconocer.
+                                anota("descartado '%s': sin voz real (pico rafaga %.4f)"
+                                      % (texto, pico_rafaga))
+                            elif conf < CONFIANZA_MIN:
                                 anota("descartado '%s': confianza %.2f < %.2f"
                                       % (texto, conf, CONFIANZA_MIN))
                             elif ahora - ultima_marca > 2.0:
@@ -666,6 +739,7 @@ try:
                     ganancia = round(max(GANANCIA_MIN, min(GANANCIA_MAX, propuesta)), 1)
                     anota("pulso: p90=%.4f bloques_voz=%d ganancia=x%.1f decodificado=%d%%"
                           % (ref, bloques_voz, ganancia, pct_dec()))
+                    escribir(RUTA_GANANCIA, "%.1f" % ganancia)
                 else:
                     anota("pulso: sin voz sostenida (%d bloques) ganancia=x%.1f decodificado=%d%%"
                           % (bloques_voz, ganancia, pct_dec()))

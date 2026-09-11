@@ -3345,6 +3345,22 @@ function Process-Texto([string]$text) {
                     return
                 }
             }
+            # 3.5) FILTRO DE RUIDO. Lo que llega aqui no lo entendio la capa
+            #      local, y el siguiente paso lo manda al agente con --auto,
+            #      que puede hacer CUALQUIER COSA en el disco. Una frase de una
+            #      o dos palabras sueltas casi nunca es una orden: es el
+            #      microfono mal transcrito ("Oh", "Ok", "El", "Meme"). Antes
+            #      esos restos se ejecutaban y por eso se abrian cosas que
+            #      nadie habia pedido. Se pide repetir en vez de adivinar.
+            $palabras = @(($text -split '\s+') | Where-Object { $_ -ne '' })
+            if ($palabras.Count -le 2 -and $text.Length -lt 18) {
+                Log "RUIDO descartado (no llega al agente): '$text'"
+                Add-Estadistica 'ruido' $text
+                Send-UIEvento 'gesto:confuso'
+                Show-Popup "No te entendi. Repitelo." 'error'
+                Say "No te entendi"
+                return
+            }
             # 4) que el modelo la traduzca a una orden conocida (~13 s) y se
             #    aprenda; si no encaja, cae al agente completo
             if ($script:ultimoDescarte) { Add-Estadistica 'descarte' $script:ultimoDescarte; $script:ultimoDescarte = '' }

@@ -8,7 +8,7 @@
                   "holdMs":  1100,
                   "autoSubmitMs":  2500,
                   "dictado":  "whisper",
-                  "whisperModelo":  "small",
+                  "whisperModelo":  "base",
                   "seguimientoMs":  2500
               },
     "opencode":  {
