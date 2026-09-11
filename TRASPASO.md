@@ -654,6 +654,21 @@ Cómo funciona:
 | transcripción en vivo | lo **nuevo** del texto entra en el color del estado y se funde a blanco en 0,5 s |
 | arranque / fin | nace desde el centro con rebote y dos ondas; si el asistente muere, se aplasta en una línea y se apaga como un tubo antiguo |
 | sonidos | tonos sintetizados en memoria (`SoundPlayer`, amplitud 0,15): despertar (523→784 Hz), tic (988 Hz), error (220 Hz), logro (arpegio), aviso (dos notas). El asistente ya no usa la campana de Windows cuando la cápsula está activa |
+| **gestos** (lo que dices, en vivo) | la cápsula analiza lo NUEVO de la transcripción con expresiones regulares (`GESTOS_USUARIO`, en orden, gana la primera): *cariño* («te quiero», «eres genial»: sonrojo rosa, corazón que sube, salto), *gracias* (cabeceo doble y rubor), *risa* («jaja»: brinquitos), *saludo* («hola», «buenas»: se ladea a un lado y a otro con vaivén), *despedida* (adiós y tono azulado), *negar* («no», «cancela»: giro y vaivén), *asentir* («sí», «dale»), *reverencia* («por favor»: se inclina), *prisa* («rápido», «ya»: vibra y la onda se acelera 3 s), *calma* («tranquilo»: respira lento 12 s), *disculpa* («perdón»: un «oh»), *duda* (interrogativos al inicio o tras «y»/coma: ladea la cabeza y sale un «?»), *atención* («nova» dentro de la frase: salto), *sueño* («duérmete», «silencio»), *sorpresa* («wow», «en serio»: se hincha y onda blanca). Cada gesto tiene 1,5 s de enfriamiento |
+| gestos (lo que ella dice) | al empezar a hablar analiza su propia respuesta (`GESTOS_PROPIOS`): *pena* («No pude…», «No encontré…»: se deja caer y ladea), *orgullo* («Listo», «Hecho», «Anotado», «Abriendo»: se hincha y sube), *duda* («¿…?»), *cariño* («de nada») |
+| gestos (eventos del asistente) | `gesto:confuso` cuando la frase va al modelo por no entenderla en local (niega con la cabeza y «?»), `gesto:sobresalto` al cancelar con el botón (salta hacia atrás y se encoge) |
+| `pensando` > 40 s | además de orbitar, **suda**: una gota azul le resbala cada 8 s |
+| `carga` ≥ 85 (CPU, cada 30 s) | pulso rápido (1,1 s) y el color base tira a rojo caliente |
+| ratón a < 60 px de la cápsula | **presencia**: el halo se enciende (0,95, radio 34), la mirada se estira y da un saltito; se apaga al alejarse |
+| ventana en primer plano **a pantalla completa** (rect = pantalla; se ignoran `Progman`/`WorkerW`/barra) | **foco**: en reposo se encoge a la mitad (un punto de 22 px); se expande normal para hablar. Histéresis de 1 s |
+| 30 min sin actividad, sin juego y sin foco | **sueño**: opacidad al 55 %, respiración de 4,2 s entre 0,22 y 0,45, se deja caer y ladea, y cada 9 s sube una «z». Cualquier estado, evento, gesto o cambio de volumen la **despierta** con un estiramiento vertical |
+| `clima` (emoji, del asistente) | sin juego, el avatar es el **tiempo** (Segoe UI Emoji, monocromo en WPF) con el punto de insignia. El asistente consulta Open-Meteo cada hora; sin `clima.lat/lon` en config pide la ubicación UNA vez a ip-api.com (manda la IP). «¿Qué tiempo hace?» se responde en local con lo cacheado |
+| texto largo desplazándose | **rastro**: una copia desenfocada (radio 5, opacidad 0,35) sigue al texto con 70 ms de retraso |
+| últimos 10 s de un temporizador | **cuenta atrás**: el anillo late (grosor 2→3,6) y el punto hace un tic (1,14) con un «tic» agudo por cada segundo |
+| `hablando` con envolvente | **ecualizador**: cuatro bandas blancas dentro del punto siguen la envolvente con modulación pseudo-espectral |
+| arranque | **firma**: tras las ondas, las chispas dibujan una «N» en tres trazos y se apagan |
+| `animo` (−1..1, del asistente: aciertos − 2·errores en 24 h) | ≤ −0,3: color base apagado (45 % hacia gris) y respiración de 2,3 s; ≥ 0,5: un 12 % más luminoso |
+| ventana normal (no maximizada, no completa) tapando la esquina | **se aparta**: se desliza a la derecha del borde de esa ventana (sin salirse de pantalla) y vuelve al despejarse. Histéresis de 1 s; una ventana que cubre ≥ 90 % de la pantalla no la mueve |
 
 Cuando hay un juego en primer plano el asistente pone su ejecutable en
 `juego`; `Get-JuegoEnPrimerPlano` guarda la ruta en `$script:juegoExeCandidato`.

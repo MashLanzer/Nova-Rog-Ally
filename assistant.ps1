@@ -514,6 +514,16 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '') {
         if (-not $s.dias.ContainsKey($dia)) { $s.dias[$dia] = @{} }
         if (-not $s.dias[$dia].ContainsKey($ruta)) { $s.dias[$dia][$ruta] = 0 }
         $s.dias[$dia][$ruta]++
+        # humor de la capsula: aciertos frente a errores de hoy y ayer
+        try {
+            $ok = 0; $mal = 0
+            foreach ($k in @($dia, (Get-Date).AddDays(-1).ToString('yyyy-MM-dd'))) {
+                if (-not $s.dias.ContainsKey($k)) { continue }
+                foreach ($r in @('local', 'aprendida', 'memoria', 'traducida')) { if ($s.dias[$k].ContainsKey($r)) { $ok += $s.dias[$k][$r] } }
+                if ($s.dias[$k].ContainsKey('error')) { $mal += $s.dias[$k]['error'] }
+            }
+            $script:uiAnimo = [Math]::Max(-1.0, [Math]::Min(1.0, ($ok - 2.0 * $mal) / [Math]::Max(10.0, $ok + $mal)))
+        } catch {}
         $d = ($detalle -replace '\s+', ' ').Trim()
         if ($d.Length -gt 90) { $d = $d.Substring(0, 87) + '...' }
         if ($ruta -eq 'descarte' -and $d) {
@@ -536,7 +546,7 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '') {
         if (-not (Test-Path -LiteralPath $MemoriaDir)) { New-Item -ItemType Directory -Force -Path $MemoriaDir | Out-Null }
         [System.IO.File]::WriteAllText($EstadisticasJson, ($o | ConvertTo-Json -Depth 6), $enc)
 
-        $rutas = @('local', 'aprendida', 'memoria', 'pregunta', 'traducir', 'traducida', 'accion', 'charla', 'descarte')
+        $rutas = @('local', 'aprendida', 'memoria', 'pregunta', 'traducir', 'traducida', 'accion', 'charla', 'descarte', 'error')
         $sb = New-Object System.Text.StringBuilder
         [void]$sb.AppendLine("# Estadísticas del asistente")
         [void]$sb.AppendLine("")
@@ -671,6 +681,11 @@ function Resolve-Fragment([string]$f) {
     }
     if ($f -match '^(?:a que estoy jugando|que estoy jugando|que juego es este)\b') {
         return @(@{ kind = 'queJuego'; desc = 'juego actual' })
+    }
+    # el tiempo, con lo que ya se consulto para el avatar de la capsula
+    if ($f -match '^(?:que tiempo hace|que clima hace|que clima hay|como esta el clima|como esta el tiempo|va a llover|que temperatura hace|cuantos grados hay|cuantos grados hace)\b') {
+        $t = if ($script:clima) { "Ahora mismo $($script:clima.desc), $($script:clima.temp) grados" } else { "No tengo el tiempo a mano; no pude consultarlo" }
+        return @(@{ kind = 'decir'; desc = $t })
     }
     # --- captura y grabacion (atajos de la barra de juego de Windows) ---
     switch -regex ($f) {
@@ -1427,6 +1442,9 @@ $script:uiAudio = ''        # mp3 que suena; la capsula busca <mp3>.env para mov
 $script:uiBateria = 100
 $script:uiCargando = 0
 $script:uiPerfil = ''       # ultimo perfil aplicado ("noche" cambia la paleta)
+$script:uiCarga = 0         # % de CPU: la capsula se agita por encima del 85
+$script:uiClima = ''        # emoji del tiempo: avatar cuando no hay juego
+$script:uiAnimo = 0         # -1..1 segun aciertos y errores de las ultimas 24 h
 
 function ConvertTo-JsonTexto([string]$s) {
     $t = (($s -replace '[\r\n\t]+', ' ') -replace '\s+', ' ').Trim()
@@ -1456,7 +1474,9 @@ function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
             ',"audio":"' + (ConvertTo-JsonTexto $script:uiAudio) + '"' +
             ',"bateria":' + $script:uiBateria + ',"cargando":' + $script:uiCargando +
             ',"tempoFin":' + $tFin + ',"tempoTotal":' + $tTotal +
-            ',"perfil":"' + $script:uiPerfil + '"}'
+            ',"perfil":"' + $script:uiPerfil + '"' +
+            ',"carga":' + $script:uiCarga + ',"clima":"' + (ConvertTo-JsonTexto $script:uiClima) + '"' +
+            ',"animo":' + ([double]$script:uiAnimo).ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture) + '}'
     if ($json -ne $script:uiUltimo) {
         # UTF-8 SIN BOM: la interfaz lo lee tal cual y el BOM colaria un caracter
         try { [System.IO.File]::WriteAllText($RutaUiEstado, $json, (New-Object System.Text.UTF8Encoding $false)) } catch {}
@@ -1562,6 +1582,48 @@ $script:juegoBrilloAntes = $null
 $script:juegoAvisado = $false
 
 $script:juegoHoras = 0
+
+# --- EL TIEMPO (config.json -> clima) ---
+# Una consulta por hora a Open-Meteo (sin clave). Si no hay coordenadas en la
+# configuracion se piden UNA vez a ip-api.com por la IP publica: eso manda la
+# IP a un tercero; con clima.lat/lon en config.json no hace falta.
+$ClimaOn = [bool](Get-Cfg 'clima' 'activada' $true)
+$ClimaLat = Get-Cfg 'clima' 'lat' $null
+$ClimaLon = Get-Cfg 'clima' 'lon' $null
+$script:clima = $null
+$script:climaCheck = -3600000
+
+function Update-Clima {
+    if (-not $ClimaOn) { return }
+    try {
+        if ($null -eq $ClimaLat -or $null -eq $ClimaLon) {
+            $g = Invoke-RestMethod -Uri 'http://ip-api.com/json/?fields=lat,lon,city' -TimeoutSec 4
+            if ($g -and $g.lat) { $script:ClimaLat = [double]$g.lat; $script:ClimaLon = [double]$g.lon; Log "clima: ubicacion por IP ($($g.city))" }
+            else { return }
+        }
+        $cul = [System.Globalization.CultureInfo]::InvariantCulture
+        $u = 'https://api.open-meteo.com/v1/forecast?latitude=' + ([double]$ClimaLat).ToString($cul) + '&longitude=' + ([double]$ClimaLon).ToString($cul) + '&current_weather=true'
+        $r = Invoke-RestMethod -Uri $u -TimeoutSec 4
+        $cw = $r.current_weather
+        if (-not $cw) { return }
+        $codigo = [int]$cw.weathercode
+        $noche = ($cw.is_day -eq 0)
+        # codigos WMO -> emoji + descripcion hablada
+        $emoji = '☀️'; $desc = 'esta despejado'
+        if ($codigo -ge 1 -and $codigo -le 2) { $emoji = '⛅'; $desc = 'hay algunas nubes' }
+        elseif ($codigo -eq 3) { $emoji = '☁️'; $desc = 'esta nublado' }
+        elseif ($codigo -ge 45 -and $codigo -le 48) { $emoji = '🌫️'; $desc = 'hay niebla' }
+        elseif ($codigo -ge 51 -and $codigo -le 67) { $emoji = '🌧️'; $desc = 'esta lloviendo' }
+        elseif ($codigo -ge 71 -and $codigo -le 77) { $emoji = '🌨️'; $desc = 'esta nevando' }
+        elseif ($codigo -ge 80 -and $codigo -le 82) { $emoji = '🌦️'; $desc = 'hay chubascos' }
+        elseif ($codigo -ge 95) { $emoji = '⛈️'; $desc = 'hay tormenta' }
+        elseif ($noche) { $emoji = '🌙'; $desc = 'esta despejado' }
+        $temp = [int][Math]::Round([double]$cw.temperature)
+        $script:clima = @{ emoji = $emoji; desc = $desc; temp = $temp }
+        if ($emoji -ne $script:uiClima) { $script:uiClima = $emoji; Refresh-UI }
+        Log "clima: $desc, $temp grados (codigo $codigo)"
+    } catch { Log ("clima: no disponible (" + $_.Exception.Message + ")") }
+}
 
 function Enter-Juego([string]$nombre) {
     $script:juegoAvisado = $false
@@ -2274,6 +2336,7 @@ function Process-Texto([string]$text) {
             # 4) que el modelo la traduzca a una orden conocida (~13 s) y se
             #    aprenda; si no encaja, cae al agente completo
             if ($script:ultimoDescarte) { Add-Estadistica 'descarte' $script:ultimoDescarte; $script:ultimoDescarte = '' }
+            Send-UIEvento 'gesto:confuso'   # "no te entendi del todo": ladea la cabeza
             if ($TraducirOn) { Submit-Command $text 'traducir' }
             else { Submit-Command $text }
         }
@@ -2281,6 +2344,7 @@ function Process-Texto([string]$text) {
         # antes esto era mudo: no distinguias "fallo" de "no dije nada"
         Log "vacio, ignorado"
         if (-not $UiNuevaOn) { [System.Media.SystemSounds]::Hand.Play() }
+        Add-Estadistica 'error' 'dictado vacio'
         Show-Popup "No te escuche. Intenta de nuevo." 'error'
     }
 }
@@ -2306,6 +2370,7 @@ $script:lastChange = 0
 $script:ultimaRespuesta = ""
 $script:bateriaCheck = 0
 $script:bateriaAvisada = $false
+$script:cargaCheck = 0
 $script:wakeCheck = 0
 $script:wakeIntentos = 0
 $script:pollReintento = 0
@@ -2361,8 +2426,10 @@ while ($true) {
                 # Un hold mientras opencode trabaja = cancelar. Antes esta
                 # pulsacion se perdia: el bucle estaba bloqueado esperando.
                 Log "CANCELAR (hold durante procesamiento)"
-                [System.Media.SystemSounds]::Hand.Play()
+                if (-not $UiNuevaOn) { [System.Media.SystemSounds]::Hand.Play() }
                 Stop-OpencodeJob
+                Add-Estadistica 'error' 'cancelado'
+                Send-UIEvento 'gesto:sobresalto'
                 Show-Popup "Orden cancelada." 'error'
             } elseif (-not $script:armed) {
                 Start-Dictado "mantener ≡"
@@ -2494,6 +2561,7 @@ while ($true) {
         } elseif (($sw.ElapsedMilliseconds - $script:jobStart) -ge $CliTimeoutMs) {
             Log "RUNNER timeout tras $([Math]::Round($CliTimeoutMs/1000)) s"
             Stop-OpencodeJob
+            Add-Estadistica 'error' 'timeout de opencode'
             Show-Popup "(timeout: opencode tardo mas de $([Math]::Round($CliTimeoutMs/1000)) s)" 'error'
         }
     }
@@ -2551,6 +2619,24 @@ while ($true) {
                 Send-UIEvento 'aviso'
             }
         } catch {}
+    }
+
+    # --- carga de CPU (cada 30 s): la capsula se agita si va al limite ---
+    if (($sw.ElapsedMilliseconds - $script:cargaCheck) -ge 30000) {
+        $script:cargaCheck = $sw.ElapsedMilliseconds
+        try {
+            $cpu = (Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | Measure-Object -Property LoadPercentage -Average).Average
+            if ($null -ne $cpu) {
+                $cpu = [int]$cpu
+                if ([Math]::Abs($cpu - $script:uiCarga) -ge 10 -or (($cpu -ge 85) -ne ($script:uiCarga -ge 85))) { $script:uiCarga = $cpu; Refresh-UI }
+            }
+        } catch {}
+    }
+
+    # --- el tiempo (una vez por hora; la primera, a los 20 s de arrancar) ---
+    if ($ClimaOn -and ($sw.ElapsedMilliseconds - $script:climaCheck) -ge 3600000 -and $sw.ElapsedMilliseconds -ge 20000) {
+        $script:climaCheck = $sw.ElapsedMilliseconds
+        Update-Clima
     }
 
     # --- aviso proactivo de bateria (se comprueba una vez por minuto) ---

@@ -38,7 +38,14 @@ LA CÁPSULA (esquina inferior izquierda) = la cara del asistente
   con la voz real, se sacude en error, enseña el volumen y el brillo cuando
   cambian, dibuja un anillo con el temporizador, avisa en ámbar con poca
   batería, se pone cálida de noche, celebra cada hora de juego con una
-  medalla y cuando estás en un juego muestra SU ICONO como avatar.
+  medalla y cuando estás en un juego muestra SU ICONO como avatar (y si
+  no hay juego, el TIEMPO que hace: "¿qué tiempo hace?" te lo dice).
+  GESTICULA con lo que dices: dile "gracias", "hola", "jaja", "te
+  quiero", "no", "por favor", "rápido", "tranquilo", "perdón", una
+  pregunta... y reacciona distinto a cada cosa. Se duerme si pasas 30
+  min sin hablarle, se encoge cuando un juego va a pantalla completa, se
+  aparta si una ventana le tapa la esquina y se enciende si acercas el
+  ratón.
   Apagarla: config.json -> ui.nueva = false (vuelve la barra vieja).
   Tras tocar nova_ui.cs: tools\compilar-ui.ps1 y reiniciar el asistente.
 

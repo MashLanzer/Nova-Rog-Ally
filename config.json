@@ -51,6 +51,11 @@
                          "activada":  true,
                          "esperaMs":  3500
                      },
+    "clima":  {
+                  "activada":  true,
+                  "lat":  null,
+                  "lon":  null
+              },
     "seguridad":  {
                       "hashDll":  "B72C58682EAE2E82426411D79BC3BCF977C97D944073F3560E1E97662B460558"
                   }
