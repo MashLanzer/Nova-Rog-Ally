@@ -46,6 +46,8 @@ $HOLD_MS = [int](Get-Cfg 'input' 'holdMs' 1100)
 $AutoSubmitMs = [int](Get-Cfg 'input' 'autoSubmitMs' 2500)
 # aviso proactivo cuando la bateria baja de este porcentaje (0 = desactivado)
 $BateriaAviso = [int](Get-Cfg 'avisos' 'bateriaPct' 15)
+# traducir con el modelo lo que la capa local no entienda, y aprenderlo
+$TraducirOn = [bool](Get-Cfg 'opencode' 'traducir' $true)
 
 $OCODECLI = [string](Get-Cfg 'paths' 'opencodeCli' "C:\Users\braya\AppData\Roaming\npm\node_modules\opencode-ai\bin\opencode.exe")
 $NODEDIR = [string](Get-Cfg 'paths' 'nodeDir' "C:\Program Files\nodejs")
@@ -148,7 +150,12 @@ function ConvertTo-Plain([string]$s) {
             [void]$sb.Append($c)
         }
     }
-    return ($sb.ToString() -replace '\s+', ' ').Trim().ToLowerInvariant()
+    $t = $sb.ToString()
+    # El dictado antepone signos de apertura, y los patrones anclan en ^: un
+    # simple "¿" delante hacia que "¿que hora es" no coincidiera con nada,
+    # mientras que "que hora es" si. Aparecio en el log del usuario varias veces.
+    $t = $t -replace '[¿?¡!,;:"]', ' '
+    return ($t -replace '\s+', ' ').Trim().ToLowerInvariant()
 }
 
 # corrige errores tipicos del dictado ("painterest" -> "pinterest")
@@ -644,6 +651,57 @@ function Add-Alias-Comando([string]$alias, [string]$objetivo) {
         Log ("no pude aprender: " + $_.Exception.Message)
         return $null
     }
+}
+
+# =====================================================================
+# TRADUCCIONES APRENDIDAS
+# Cuando la capa local no entiende una frase, en vez de mandarla al agente
+# completo (25-160 s) se le pide al modelo que la TRADUZCA a una orden que si
+# conocemos (~13 s, sin herramientas). Si la traduccion es valida se ejecuta en
+# local y se GUARDA: la proxima vez que digas algo parecido tarda <1 s.
+# El modelo nunca ejecuta nada; solo propone texto que se valida contra el
+# vocabulario cerrado antes de hacerle caso.
+# =====================================================================
+$TraduccionesPath = Join-Path $LogDir "traducciones.json"
+$script:traducciones = $null
+
+function Get-Traducciones {
+    if ($null -ne $script:traducciones) { return $script:traducciones }
+    $script:traducciones = @{}
+    if (Test-Path -LiteralPath $TraduccionesPath) {
+        try {
+            $j = Get-Content -LiteralPath $TraduccionesPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($p in $j.PSObject.Properties) { $script:traducciones[$p.Name] = [string]$p.Value }
+        } catch {}
+    }
+    return $script:traducciones
+}
+
+function Add-Traduccion([string]$original, [string]$traducida) {
+    $clave = ConvertTo-Plain $original
+    if (-not $clave -or -not $traducida) { return }
+    $t = Get-Traducciones
+    $t[$clave] = $traducida
+    try {
+        $o = New-Object PSObject
+        foreach ($k in $t.Keys) { $o | Add-Member -NotePropertyName $k -NotePropertyValue $t[$k] -Force }
+        [System.IO.File]::WriteAllText($TraduccionesPath, ($o | ConvertTo-Json -Depth 4), (New-Object System.Text.UTF8Encoding($false)))
+        Log "APRENDIDO: '$original' = '$traducida'"
+    } catch { Log ("no pude guardar la traduccion: " + $_.Exception.Message) }
+}
+
+function Find-Traduccion([string]$text) {
+    $t = Get-Traducciones
+    if ($t.Count -eq 0) { return $null }
+    $clave = ConvertTo-Plain $text
+    if ($t.ContainsKey($clave)) { return $t[$clave] }
+    # tolerancia a variaciones del dictado sobre algo ya aprendido
+    foreach ($k in $t.Keys) {
+        if ([Math]::Abs($k.Length - $clave.Length) -gt 6) { continue }
+        $tope = [Math]::Max(2, [int][Math]::Floor($k.Length * 0.2))
+        if ((Get-Distancia $clave $k) -le $tope) { return $t[$k] }
+    }
+    return $null
 }
 
 function Invoke-FastCommand([string]$text) {
@@ -1378,15 +1436,52 @@ $PRE_HABLADO = 'Responde SOLO con palabras, breve (una o dos frases), en espanol
 # Preguntas: se contestan hablando, no se ejecutan.
 $RE_PREGUNTA = '^(?:que|cual|cuanto|cuantos|cuando|donde|quien|como|por que|para que|sabes|dime|cuentame|explicame|explica|crees|opinas|hablame|es cierto|de verdad)\b'
 
+# Construye la peticion de traduccion. Se le da el vocabulario REAL para que no
+# invente, y se le exige responder solo con la orden, sin explicaciones.
+function Build-PromptTraduccion([string]$text) {
+    $apps = (@($cmds.apps.PSObject.Properties.Name) | Select-Object -First 24) -join ', '
+    $sitios = (@($cmds.sitios.PSObject.Properties.Name) | Select-Object -First 14) -join ', '
+    $juegos = (@($script:Juegos | ForEach-Object { $_.nombre }) | Select-Object -First 20) -join ', '
+    return @"
+Traduce la orden del usuario a UNA sola linea con una de estas formas exactas:
+abre <app>
+abre <sitio>
+abre <juego> en steam
+busca <texto> en <sitio>
+sube el volumen | baja el volumen | pon el volumen al <n>%
+sube el brillo | baja el brillo | pon el brillo al <n>%
+pausa | reproduce | siguiente | anterior | silencia
+maximiza | minimiza | a mitad de pantalla | a la derecha
+bloquea
+modo juego | modo noche | modo trabajo | modo cine | modo silencio
+
+Apps disponibles: $apps
+Sitios disponibles: $sitios
+Juegos instalados: $juegos
+
+Responde SOLO con la linea traducida, sin comillas, sin explicacion y sin
+ninguna palabra extra. Si la orden no encaja en ninguna forma, responde
+exactamente: NO
+
+Orden del usuario: $text
+"@
+}
+
 function Submit-Command([string]$text, [string]$modo = 'accion') {
     Log "SUBMIT ($modo): $text"
+    $script:jobModo = $modo
+    $script:jobTextoOriginal = $text
     $etiqueta = if ($modo -eq 'accion') { "* Procesando..." } else { "* Pensando..." }
     $lbl.Text = "$etiqueta (manten ≡ para cancelar)"
     $lbl.ForeColor = [System.Drawing.Color]::Gold
     $capture.Show()
 
     $prompt = Expand-Prompt $text     # si pregunta por la memoria, ya viene guiado
-    if ($modo -ne 'accion' -and $prompt -eq $text) { $prompt = $PRE_HABLADO + $text }
+    if ($modo -eq 'traducir') {
+        $prompt = Build-PromptTraduccion $text
+    } elseif ($modo -ne 'accion' -and $prompt -eq $text) {
+        $prompt = $PRE_HABLADO + $text
+    }
     # 'charla' encadena la sesion anterior: recuerda lo hablado antes
     $extra = if ($modo -eq 'charla') { '--continue' } else { '' }
 
@@ -1397,6 +1492,37 @@ function Submit-Command([string]$text, [string]$modo = 'accion') {
 
 # Formatea, registra y muestra la respuesta ya recogida.
 function Report-Reply($out) {
+    # --- respuesta a una peticion de TRADUCCION ---
+    # El modelo solo propone texto; aqui se VALIDA contra el vocabulario cerrado
+    # y solo se ejecuta si la capa local lo reconoce. Nunca se ejecuta texto
+    # libre devuelto por el modelo.
+    if ($script:jobModo -eq 'traducir') {
+        $script:jobModo = ''
+        $propuesta = (($out | Out-String) -replace '\s+', ' ').Trim()
+        # el modelo a veces adorna: quedarse con la primera linea util
+        $propuesta = ($propuesta -split '[\r\n]' | Where-Object { $_.Trim() } | Select-Object -First 1)
+        $propuesta = $propuesta.Trim().Trim('"').Trim("'")
+        $original = $script:jobTextoOriginal
+        if ($propuesta -and $propuesta.ToUpperInvariant() -ne 'NO' -and $propuesta.Length -lt 120) {
+            Log "traduccion propuesta: '$original' -> '$propuesta'"
+            $r = $null
+            try { $r = Invoke-FastCommand $propuesta } catch { $r = $null }
+            if ($r) {
+                Add-Traduccion $original $propuesta
+                $script:ultimaRespuesta = $r
+                Show-Popup $r
+                Say $r
+                return
+            }
+            Log "la traduccion no resulto ejecutable; va al agente completo"
+        } else {
+            Log "el modelo no supo traducirlo; va al agente completo"
+        }
+        # no se pudo traducir: se manda al agente con todas sus herramientas
+        Submit-Command $original 'accion'
+        return
+    }
+
     $now = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $full = ($out | Out-String)
     Rotate-Log $ReplyLog
@@ -1489,9 +1615,24 @@ function Finish-Dictation([string]$motivo) {
         elseif ($plano -match $RE_PREGUNTA) {
             Submit-Command $text 'pregunta'
         }
-        # 3) orden: el agente con todas sus herramientas
         else {
-            Submit-Command $text
+            # 3) ¿ya aprendimos a traducir esta orden? entonces es instantanea
+            $apr = Find-Traduccion $text
+            if ($apr) {
+                $r = $null
+                try { $r = Invoke-FastCommand $apr } catch { $r = $null }
+                if ($r) {
+                    Log "APRENDIDA: '$text' -> '$apr' -> $r"
+                    $script:ultimaRespuesta = $r
+                    Show-Popup $r
+                    Say $r
+                    return
+                }
+            }
+            # 4) que el modelo la traduzca a una orden conocida (~13 s) y se
+            #    aprenda; si no encaja, cae al agente completo
+            if ($TraducirOn) { Submit-Command $text 'traducir' }
+            else { Submit-Command $text }
         }
     } else {
         # antes esto era mudo: no distinguias "fallo" de "no dije nada"
@@ -1514,6 +1655,8 @@ $script:bateriaAvisada = $false
 $script:wakeCheck = 0
 $script:wakeIntentos = 0
 $script:pollReintento = 0
+$script:jobModo = ''
+$script:jobTextoOriginal = ''
 $pollErrs = 0
 
 while ($true) {
