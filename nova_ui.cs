@@ -82,6 +82,19 @@ public class NovaUI : Window
     [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h, int i);
     [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr h, int i, int v);
     [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr h);
+    // Para quedar POR ENCIMA de la barra de tareas. Topmost no basta: la barra
+    // tambien lo es y, como esta ventana nunca se activa, la barra acababa
+    // encima y tapaba media capsula. Se reafirma el orden en cada cambio de
+    // estado y cada 1,5 s.
+    static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+    const uint SWP_NOSIZE = 0x0001, SWP_NOMOVE = 0x0002, SWP_NOACTIVATE = 0x0010;
+    [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
+    IntPtr hwnd = IntPtr.Zero;
+
+    void PonerEncima()
+    {
+        if (hwnd != IntPtr.Zero) { SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE); }
+    }
 
     [STAThread]
     public static void Main(string[] args)
@@ -143,7 +156,7 @@ public class NovaUI : Window
         var borde = new LinearGradientBrush();
         borde.StartPoint = new Point(0, 0);
         borde.EndPoint = new Point(0, 1);
-        borde.GradientStops.Add(new GradientStop(Color.FromArgb(0x8A, 0xFF, 0xFF, 0xFF), 0));
+        borde.GradientStops.Add(new GradientStop(Color.FromArgb(0x5C, 0xFF, 0xFF, 0xFF), 0));
         bordeAbajo = new GradientStop(Color.FromArgb(0x55, acento.R, acento.G, acento.B), 1);
         borde.GradientStops.Add(bordeAbajo);
         capsula.BorderBrush = borde;
@@ -181,29 +194,62 @@ public class NovaUI : Window
         var tintePincel = new LinearGradientBrush();
         tintePincel.StartPoint = new Point(0, 0);
         tintePincel.EndPoint = new Point(0, 1);
-        tintePincel.GradientStops.Add(new GradientStop(Color.FromArgb(0x8C, 0x1A, 0x1E, 0x28), 0));
-        tintePincel.GradientStops.Add(new GradientStop(Color.FromArgb(0xB4, 0x0A, 0x0C, 0x12), 1));
+        // El tinte tiene que ser LIGERO: con 55-70 % de opacidad el fondo
+        // desenfocado casi no se veia y el conjunto parecia carton mate.
+        // Un cristal oscuro real deja pasar la mitad de la luz, y con un
+        // toque azul frio, no gris neutro.
+        tintePincel.GradientStops.Add(new GradientStop(Color.FromArgb(0x4A, 0x1A, 0x22, 0x32), 0));
+        tintePincel.GradientStops.Add(new GradientStop(Color.FromArgb(0x78, 0x08, 0x0C, 0x16), 1));
         tinte.Background = tintePincel;
         interior.Children.Add(tinte);
 
-        // 3c: grano fino, como el acrilico de Windows 11. Sin esto el cristal
-        // parece una foto desenfocada; con el, parece un material
+        // 3c: grano apenas perceptible. Al 7 % daba textura de papel; al 2 %
+        // solo rompe el degradado plano sin que se note como textura.
         var ruido = new Border();
         ruido.Background = CrearGrano();
-        ruido.Opacity = 0.07;
+        ruido.Opacity = 0.02;
         interior.Children.Add(ruido);
 
-        // 3d: reflejo de luz en el borde superior
+        // 3d: sombra interior en el borde de abajo: da grosor al cristal
+        var sombraInterior = new Border();
+        sombraInterior.VerticalAlignment = VerticalAlignment.Bottom;
+        sombraInterior.Height = ALTO * 0.4;
+        var sombraPincel = new LinearGradientBrush();
+        sombraPincel.StartPoint = new Point(0, 0);
+        sombraPincel.EndPoint = new Point(0, 1);
+        sombraPincel.GradientStops.Add(new GradientStop(Color.FromArgb(0x00, 0, 0, 0), 0));
+        sombraPincel.GradientStops.Add(new GradientStop(Color.FromArgb(0x48, 0, 0, 0), 1));
+        sombraInterior.Background = sombraPincel;
+        interior.Children.Add(sombraInterior);
+
+        // 3e: reflejo de luz suave en la mitad superior
         brilloSuperior = new Border();
         brilloSuperior.VerticalAlignment = VerticalAlignment.Top;
-        brilloSuperior.Height = ALTO * 0.5;
+        brilloSuperior.Height = ALTO * 0.45;
         var brilloPincel = new LinearGradientBrush();
         brilloPincel.StartPoint = new Point(0, 0);
         brilloPincel.EndPoint = new Point(0, 1);
-        brilloPincel.GradientStops.Add(new GradientStop(Color.FromArgb(0x3C, 0xFF, 0xFF, 0xFF), 0));
+        brilloPincel.GradientStops.Add(new GradientStop(Color.FromArgb(0x24, 0xFF, 0xFF, 0xFF), 0));
         brilloPincel.GradientStops.Add(new GradientStop(Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF), 1));
         brilloSuperior.Background = brilloPincel;
         interior.Children.Add(brilloSuperior);
+
+        // 3f: linea especular de 1 px en el canto superior, mas viva en el
+        // centro y apagada en las puntas: es lo que hace que la luz "toque"
+        // el cristal en vez de banarlo por igual
+        var especular = new Border();
+        especular.VerticalAlignment = VerticalAlignment.Top;
+        especular.Height = 1;
+        especular.Margin = new Thickness(ALTO * 0.5, 1, ALTO * 0.5, 0);
+        var especularPincel = new LinearGradientBrush();
+        especularPincel.StartPoint = new Point(0, 0);
+        especularPincel.EndPoint = new Point(1, 0);
+        especularPincel.GradientStops.Add(new GradientStop(Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF), 0));
+        especularPincel.GradientStops.Add(new GradientStop(Color.FromArgb(0x9A, 0xFF, 0xFF, 0xFF), 0.35));
+        especularPincel.GradientStops.Add(new GradientStop(Color.FromArgb(0x9A, 0xFF, 0xFF, 0xFF), 0.65));
+        especularPincel.GradientStops.Add(new GradientStop(Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF), 1));
+        especular.Background = especularPincel;
+        interior.Children.Add(especular);
 
         // 3e: el contenido
         var fila = new StackPanel();
@@ -281,9 +327,16 @@ public class NovaUI : Window
             var h = new WindowInteropHelper(this).Handle;
             int est = GetWindowLong(h, GWL_EXSTYLE);
             SetWindowLong(h, GWL_EXSTYLE, est | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE);
+            hwnd = h;
+            PonerEncima();
             Latido();
             CapturarFondo();
         };
+
+        var relojZ = new DispatcherTimer();
+        relojZ.Interval = TimeSpan.FromMilliseconds(1500);
+        relojZ.Tick += delegate { PonerEncima(); };
+        relojZ.Start();
 
         var reloj = new DispatcherTimer();
         reloj.Interval = TimeSpan.FromMilliseconds(80);
@@ -474,6 +527,7 @@ public class NovaUI : Window
 
     void Aplicar(string estado, string texto)
     {
+        PonerEncima();
         Color c = ColorDe(estado);
         Animar(punto.Fill as SolidColorBrush, c);
         var bp = punto.Effect as DropShadowEffect;
