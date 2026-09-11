@@ -124,7 +124,7 @@ function Send-WinH {
 # Formas de habla latinoamericana incluidas a proposito: subele/bajale/ponme/
 # metete/anda/prende, ademas del imperativo peninsular. Todo va sin tildes
 # porque el texto se normaliza antes de comparar.
-$VERBOS = '(?:abre|abreme|abrele|abrir|abri|abrime|ejecuta|ejecutame|inicia|iniciame|lanza|lanzame|arranca|arrancame|prende|prendeme|pon|ponme|poneme|ponele|pone|mete|metete|entra|entrate|anda|andate|ve|vete|llevame|muestrame|muestra|ensename|busca|buscame|buscar|busque|googlea|googleame|investiga|sube|subele|subir|aumenta|baja|bajale|bajar|reduce|silencia|silenciar|mutea|pausa|pausar|reproduce|reproducir|play|siguiente|anterior|bloquea|bloquear|cierra|cierrame|apaga|escribe|escribeme|teclea|pulsa|presiona|aprieta|dale a|cambia|cambiate|pasate|copia|pega|selecciona|guarda|minimiza|maximiza|enfoca)'
+$VERBOS = '(?:abre|abreme|abrele|abrir|abri|abrime|ejecuta|ejecutame|inicia|iniciame|lanza|lanzame|arranca|arrancame|prende|prendeme|pon|ponme|poneme|ponele|pone|mete|metete|entra|entrate|anda|andate|ve|vete|llevame|muestrame|muestra|ensename|busca|buscame|buscar|busque|googlea|googleame|investiga|sube|subele|subir|aumenta|baja|bajale|bajar|reduce|silencia|silenciar|mutea|pausa|pausar|reproduce|reproducir|play|siguiente|anterior|bloquea|bloquear|cierra|cierrame|cierrate|apaga|escribe|escribeme|teclea|pulsa|presiona|aprieta|dale a|cambia|cambiate|pasate|copia|pega|selecciona|guarda|minimiza|maximiza|enfoca)'
 
 # Muletillas y cortesias que el dictado captura pero que NO son parte de la
 # orden. "busca tambien en el navegador X" fallaba justo por esto.
@@ -455,6 +455,25 @@ function Find-Juego([string]$t) {
 # tienen su proceso conocido a mano.
 $PROCESOS_URI = @{ 'steam' = 'steam'; 'spotify' = 'Spotify'; 'discord' = 'Discord'; 'xbox' = 'XboxPcApp'; 'camara' = 'WindowsCamera';
                    'configuracion' = 'SystemSettings'; 'ajustes' = 'SystemSettings'; 'armoury crate' = 'ArmouryCrate'; 'armoury' = 'ArmouryCrate' }
+# Programas de usuario abiertos: los que tienen ventana con titulo. Se dejan
+# fuera el propio asistente, su capsula, el escritorio y la barra de tareas,
+# que no son "programas" para quien habla y cerrarlos romperia la sesion.
+$PROCESOS_INTOCABLES = @('explorer', 'nova_ui', 'powershell', 'pwsh', 'ApplicationFrameHost',
+                         'TextInputHost', 'SystemSettings', 'ShellExperienceHost', 'SearchHost')
+
+function Get-AppsAbiertas {
+    $res = @()
+    foreach ($pr in (Get-Process -ErrorAction SilentlyContinue)) {
+        try {
+            if (-not $pr.MainWindowTitle) { continue }
+            if ($pr.Id -eq $PID) { continue }
+            if ($PROCESOS_INTOCABLES -contains $pr.ProcessName) { continue }
+            $res += $pr
+        } catch {}
+    }
+    return $res
+}
+
 function Resolve-Proceso([string]$t) {
     if (-not $t -or -not $cmds) { return $null }
     $t = ($t -replace '^(?:a|al|el|la|los|las|mi|un|una)\s+', '').Trim()
@@ -862,6 +881,10 @@ function Resolve-Fragment([string]$f) {
         if ($obj -match '^(?:esta ventana|la ventana|esto|esta|la app|la aplicacion|ventana)$') { return @(@{ kind = 'altf4'; desc = 'cerrar la ventana' }) }
         if ($obj -match '^(?:el juego|juego|este juego|el videojuego)$') { return @(@{ kind = 'cerrarJuego'; desc = 'cerrar el juego' }) }
         if ($obj -match '^(?:todo|todas las ventanas|todas)$') { return @(@{ kind = 'winkey'; vk = 0x44; desc = 'mostrar el escritorio' }) }
+        # cerrar de verdad, pero preguntando: ver el bloque 'cerrarTodo'
+        if ($obj -match '^(?:todos los programas|los programas|todas las apps|todas las aplicaciones|todo lo abierto|todos los programas abiertos)$') {
+            return @(@{ kind = 'cerrarTodo'; desc = 'cerrar los programas abiertos' })
+        }
         $proc = Resolve-Proceso $obj
         if ($proc) { return @(@{ kind = 'cerrarApp'; proceso = $proc.proceso; desc = "cerrar $($proc.nombre)" }) }
         # no se reconoce que cerrar: que siga su camino (puede ser otra cosa)
@@ -873,6 +896,11 @@ function Resolve-Fragment([string]$f) {
         if ($obj -match '^(?:el juego|juego)$' -and $script:juegoActivo) { return @(@{ kind = 'enfocarJuego'; desc = "volver a $($script:juegoActivo)" }) }
         $proc = Resolve-Proceso $obj
         if ($proc) { return @(@{ kind = 'enfocar'; proceso = $proc.proceso; desc = "cambiar a $($proc.nombre)" }) }
+    }
+    # "cierrate" es la capsula, no el asistente: la carita se va de la pantalla
+    # pero el microfono sigue, asi que basta volver a decir su nombre.
+    if ($f -match '^(?:cierrate|cierra la capsula|escondete|ocultate|quitate|vete de la pantalla|desaparece|piérdete|pierdete)$') {
+        return @(@{ kind = 'esconder'; desc = 'me quito, dime mi nombre cuando me necesites' })
     }
     if ($f -match '^(?:minimiza todo|minimizar todo|muestra el escritorio|escritorio|esconde todo|oculta todo)$') { return @(@{ kind = 'winkey'; vk = 0x44; desc = 'mostrar el escritorio' }) }
     if ($f -match '^(?:cambia de ventana|siguiente ventana|otra ventana|alterna)$') { return @(@{ kind = 'alttab'; desc = 'cambiar de ventana' }) }
@@ -1326,6 +1354,31 @@ function Invoke-FastCommand([string]$text) {
                     # SendKeys interpreta + ^ % ~ ( ) { }: se escapan entre llaves
                     $txt = [regex]::Replace($a.texto, '[+^%~(){}\[\]]', { param($m) '{' + $m.Value + '}' })
                     [System.Windows.Forms.SendKeys]::SendWait($txt)
+                }
+                'esconder' { Set-UI 'retirada' }
+                'cerrarTodo' {
+                    $abiertas = @(Get-AppsAbiertas)
+                    if ($abiertas.Count -eq 0) {
+                        $a.desc = 'no hay ningun programa abierto'
+                    } elseif (-not $script:confirmado) {
+                        # Cerrar programas no se deshace, asi que NUNCA se hace a la
+                        # primera: se dice en voz alta que se va a cerrar y se espera
+                        # un si. El tipo 'peligrosa' hace ademas que callarse cancele,
+                        # al reves que en el resto de confirmaciones.
+                        $nombres = @($abiertas | ForEach-Object { if ($_.MainWindowTitle.Length -gt 40) { $_.ProcessName } else { $_.MainWindowTitle } } | Select-Object -Unique)
+                        $script:pendiente = @{ texto = 'cierra todos los programas'; vence = 0; tipo = 'peligrosa' }
+                        $a.desc = 'voy a cerrar ' + $nombres.Count + ': ' + ($nombres -join ', ') + '. ¿Cierro?'
+                    } else {
+                        $cerradas = 0
+                        foreach ($pr in $abiertas) {
+                            # CloseMainWindow es la X de la ventana: si el programa
+                            # tiene algo sin guardar, lo preguntara el. Nunca se mata
+                            # a la fuerza aqui: perder trabajo por una orden mal oida
+                            # seria el peor fallo posible de todo esto.
+                            try { if ($pr.CloseMainWindow()) { $cerradas++ } } catch {}
+                        }
+                        $a.desc = "cerrados $cerradas de $($abiertas.Count)"
+                    }
                 }
                 'cerrarApp' {
                     $ps = @(Get-Process -Name $a.proceso -ErrorAction SilentlyContinue)
@@ -3247,6 +3300,13 @@ function Complete-Confirmacion([string]$respuesta) {
             Log "APRENDER: sin aprender ($respuesta)"
             if ($respuesta -eq 'no') { Say "Vale, lo dejo." } else { Set-UI 'reposo' }
         }
+        return
+    }
+    # en lo que no se deshace, callarse es que no: al reves que en el resto
+    if ($p.tipo -eq 'peligrosa' -and $respuesta -ne 'si') {
+        Log "CONFIRMAR: no se ejecuta '$($p.texto)' ($respuesta)"
+        Set-UI 'reposo'
+        if ($respuesta -eq 'no') { Say "Vale, lo dejo." }
         return
     }
     if ($respuesta -eq 'no') {

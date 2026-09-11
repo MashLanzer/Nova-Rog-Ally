@@ -1,4 +1,4 @@
-// Nova UI: la cara visible del asistente.
+﻿// Nova UI: la cara visible del asistente.
 //
 // POR QUE UN PROCESO APARTE Y EN WPF:
 // La barra anterior era WinForms, que no tiene aceleracion por hardware: las
@@ -2475,6 +2475,15 @@ public class NovaUI : Window
 
     void Aplicar(string estado, string texto, bool cambioTexto, string textoAnterior)
     {
+        // "retirada": el usuario ha dicho que se quite de la pantalla. La
+        // ventana se va entera, pero el asistente sigue escuchando: en cuanto
+        // cambie a cualquier otro estado -o sea, en cuanto le hable- vuelve.
+        if (estado == "retirada")
+        {
+            if (Visibility == Visibility.Visible) { Visibility = Visibility.Hidden; }
+            return;
+        }
+        if (Visibility != Visibility.Visible) { Visibility = Visibility.Visible; }
         PonerEncima();
         Color c = ColorDe(estado);
         Animar(punto.Fill as SolidColorBrush, c);

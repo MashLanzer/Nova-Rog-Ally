@@ -19,3 +19,13 @@ que recordatorios tengo
 # --- control: texto libre que NO se debe partir ---
 busca como abrir una lata en google
 busca en youtube abre el telon
+# --- cerrar programas y esconderse (anadidos) ---
+cierra todos los programas
+cierra todas las aplicaciones
+cierrate
+escondete
+quitate
+# --- control: NO deben confundirse con lo de arriba ---
+cierra steam
+cierra esta ventana
+cierra todo
