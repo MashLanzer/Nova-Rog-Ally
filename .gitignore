@@ -18,6 +18,14 @@ vosk/
 memoria/.obsidian/workspace.json
 memoria/.obsidian/workspace-mobile.json
 
+# NOTAS PERSONALES: el repositorio es PUBLICO. Lo que dictas con "recuerda
+# que..." y las estadisticas de uso no salen de esta maquina. Solo se
+# versiona el README del vault.
+memoria/diario/
+memoria/temas/
+memoria/estadisticas.json
+memoria/estadisticas.md
+
 # Residuos de diagnostico
 probe-*.txt
 run-out.txt

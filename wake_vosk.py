@@ -54,6 +54,21 @@ PARCIAL = sys.argv[8] if len(sys.argv) > 8 else ""
 # onda de la capsula se mueva con la voz real. La interfaz lo lee directamente:
 # el asistente no esta en medio, asi que no anade latencia a nada.
 NIVEL = sys.argv[9] if len(sys.argv) > 9 else ""
+# --- CONFIRMACION SI/NO ---
+# Mientras exista CONFIRMAR se escucha SOLO si/no con una gramatica cerrada
+# (instantanea y fiable para cuatro palabras) y se escribe la respuesta en
+# CONFIRMACION. Lo usa el asistente cuando acerto una orden por parecido
+# lejano: "¿Little Nightmares III?".
+CONFIRMAR = sys.argv[10] if len(sys.argv) > 10 else ""
+CONFIRMACION = sys.argv[11] if len(sys.argv) > 11 else ""
+# --- MOTOR DE DICTADO: "vosk" o "whisper[:modelo]" ---
+# Vosk pequeno sirve para la palabra de activacion pero transcribe mal las
+# ordenes ("abre stein"). Whisper (faster-whisper, int8 en CPU) es mucho mas
+# preciso: se graba la orden entera y se transcribe al callar. Vosk sigue
+# dando la transcripcion parcial en vivo mientras hablas.
+MOTOR_DICTADO = sys.argv[12] if len(sys.argv) > 12 else "vosk"
+VOCABULARIO = sys.argv[13] if len(sys.argv) > 13 else ""
+CONFIRMACION_MAX = 5.0
 
 # se da por terminada la frase tras este silencio
 SILENCIO_FIN = 1.4
@@ -129,6 +144,9 @@ GRAMATICA = json.dumps([
     "[unk]",
 ], ensure_ascii=False)
 CONFIANZA_MIN = 0.55
+GRAMATICA_SI_NO = json.dumps(["si", "si dale", "dale", "vale", "claro", "ok", "no", "no cancela", "cancela", "[unk]"], ensure_ascii=False)
+PALABRAS_SI = ("si", "dale", "vale", "claro", "ok")
+PALABRAS_NO = ("no", "cancela")
 
 base = os.path.dirname(os.path.abspath(__file__))
 ruta_modelo = os.path.join(base, "vosk", "vosk-model-small-es-0.42")
@@ -147,6 +165,49 @@ def reconocedor_libre():
     r = KaldiRecognizer(modelo, TASA)
     r.SetWords(False)
     return r
+
+
+def reconocedor_si_no():
+    r = KaldiRecognizer(modelo, TASA, GRAMATICA_SI_NO)
+    r.SetWords(False)
+    return r
+
+
+def leer_vocabulario():
+    if not VOCABULARIO:
+        return None
+    try:
+        with open(VOCABULARIO, "r", encoding="utf-8") as f:
+            v = f.read().strip()
+        return v or None
+    except Exception:
+        return None
+
+
+def limpiar_whisper(texto):
+    # Whisper puntua y pone mayusculas; la capa local espera texto plano.
+    # Los puntos internos se vuelven comas (separan ordenes) y el final se quita.
+    t = (texto or "").strip()
+    t = re.sub(r"\s*\.\s+", ", ", t)
+    t = re.sub(r"[.…!?]+$", "", t).strip()
+    return t
+
+
+def transcribir_whisper(bloques):
+    # bloques: lista de arrays int16 ya amplificados
+    if whisper is None or not bloques:
+        return ""
+    audio = np.concatenate(bloques).astype(np.float32) / 32768.0
+    if audio.size < TASA // 4:
+        return ""
+    t0 = time.time()
+    segmentos, info = whisper.transcribe(
+        audio, language="es", beam_size=2, best_of=1,
+        vad_filter=False, condition_on_previous_text=False,
+        initial_prompt=leer_vocabulario())
+    texto = " ".join(s.text.strip() for s in segmentos).strip()
+    anota("whisper: %.1f s de audio en %.2f s -> '%s'" % (audio.size / TASA, time.time() - t0, texto))
+    return limpiar_whisper(texto)
 
 
 # Segunda red por si el nombre se cuela igual: se quita del principio de la
@@ -177,6 +238,23 @@ except Exception as e:
     anota("ERROR al iniciar: %s" % e)
     sys.exit(1)
 
+whisper = None
+if MOTOR_DICTADO.startswith("whisper"):
+    nombre_modelo = MOTOR_DICTADO.split(":", 1)[1] if ":" in MOTOR_DICTADO else "small"
+    try:
+        t0 = time.time()
+        from faster_whisper import WhisperModel
+        # int8 en CPU: ~500 MB con "small". cpu_threads bajo a proposito: es un
+        # portatil de juegos y este proceso corre con prioridad baja.
+        whisper = WhisperModel(nombre_modelo or "small", device="cpu", compute_type="int8", cpu_threads=4)
+        # calentamiento: la primera transcripcion tarda 3 s; mejor ahora que
+        # en la primera orden
+        list(whisper.transcribe(np.zeros(TASA, dtype=np.float32), language="es", beam_size=1)[0])
+        anota("whisper '%s' cargado en %.1f s" % (nombre_modelo, time.time() - t0))
+    except Exception as e:
+        whisper = None
+        anota("WARN: no se pudo cargar Whisper (%s); el dictado usara Vosk" % e)
+
 cola = queue.Queue()
 
 
@@ -196,6 +274,9 @@ pausado = False
 arrastre = 0
 dictando = False
 dictado = []
+audio_dictado = []      # bloques amplificados de la orden, para Whisper
+confirmando = False
+conf_inicio = 0.0
 dicta_inicio = 0.0
 ultima_voz = 0.0
 prebuffer = collections.deque(maxlen=PREBUFFER)
@@ -248,6 +329,7 @@ try:
                 datos = None
                 rec = reconocedor_libre()
                 dictado = []
+                audio_dictado = []
                 dicta_inicio = ahora
                 ultima_voz = ahora
                 escribir(PARCIAL, "")
@@ -258,10 +340,38 @@ try:
                 parcial = json.loads(rec.FinalResult()).get("text", "")
                 if parcial:
                     texto_final = (texto_final + " " + parcial).strip()
+                if whisper is not None:
+                    mejor = transcribir_whisper(audio_dictado)
+                    if mejor:
+                        texto_final = mejor
                 texto_final = quitar_nombre(texto_final)
                 anota("dictado: cortado a mano -> '%s'" % texto_final)
                 escribir(TEXTO, texto_final)
                 dictando = False
+                audio_dictado = []
+                rec = nuevo_reconocedor()
+
+            # --- entrar y salir del modo confirmacion (si/no) ---
+            quiere_confirmar = bool(CONFIRMAR) and os.path.exists(CONFIRMAR)
+            if quiere_confirmar and not confirmando and not pausado and not dictando:
+                confirmando = True
+                try:
+                    while True:
+                        cola.get_nowait()
+                except queue.Empty:
+                    pass
+                datos = None
+                rec = reconocedor_si_no()
+                conf_inicio = ahora
+                anota("confirmacion: esperando si/no")
+            elif confirmando and (not quiere_confirmar or (ahora - conf_inicio) >= CONFIRMACION_MAX):
+                if quiere_confirmar:
+                    anota("confirmacion: sin respuesta")
+                    try:
+                        os.remove(CONFIRMAR)
+                    except Exception:
+                        pass
+                confirmando = False
                 rec = nuevo_reconocedor()
 
             # nivel para la onda de la interfaz, solo mientras se dicta o se
@@ -308,10 +418,36 @@ try:
                 elif arrastre > 0:
                     arrastre -= 1
 
+                # --- MODO CONFIRMACION: solo si/no, y rapido (parciales) ---
+                if confirmando:
+                    texto_c = ""
+                    if rec.AcceptWaveform(bloque):
+                        texto_c = json.loads(rec.Result()).get("text", "")
+                    else:
+                        texto_c = json.loads(rec.PartialResult()).get("partial", "")
+                    palabras = [sin_tildes(w) for w in texto_c.split()]
+                    respuesta = ""
+                    if any(w in PALABRAS_NO for w in palabras):
+                        respuesta = "no"
+                    elif any(w in PALABRAS_SI for w in palabras):
+                        respuesta = "si"
+                    if respuesta:
+                        anota("confirmacion: '%s' -> %s" % (texto_c, respuesta))
+                        escribir(CONFIRMACION, respuesta)
+                        try:
+                            os.remove(CONFIRMAR)
+                        except Exception:
+                            pass
+                        confirmando = False
+                        rec = nuevo_reconocedor()
+                    continue
+
                 # --- MODO DICTADO: transcribir todo, no buscar el nombre ---
                 if dictando:
                     if pico > UMBRAL_ACTIVIDAD:
                         ultima_voz = ahora
+                    if whisper is not None:
+                        audio_dictado.append(muestras.astype(np.int16))
                     if rec.AcceptWaveform(bloque):
                         t = json.loads(rec.Result()).get("text", "")
                         if t:
@@ -328,7 +464,14 @@ try:
                         resto = json.loads(rec.FinalResult()).get("text", "")
                         if resto:
                             dictado.append(resto)
-                        texto_final = quitar_nombre(" ".join([t for t in dictado if t]))
+                        texto_vosk = " ".join([t for t in dictado if t])
+                        texto_final = texto_vosk
+                        if whisper is not None:
+                            escribir(PARCIAL, texto_vosk)
+                            mejor = transcribir_whisper(audio_dictado)
+                            if mejor:
+                                texto_final = mejor
+                        texto_final = quitar_nombre(texto_final)
                         anota("dictado: '%s'" % texto_final)
                         escribir(TEXTO, texto_final)
                         try:
@@ -336,6 +479,7 @@ try:
                         except Exception:
                             pass
                         dictando = False
+                        audio_dictado = []
                         rec = nuevo_reconocedor()
                     # en dictado no se evalua la palabra de activacion
                     if ahora - ultimo_pulso >= INTERVALO_PULSO:

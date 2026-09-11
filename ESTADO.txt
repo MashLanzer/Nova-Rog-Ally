@@ -14,9 +14,17 @@ EJECUTANDO AHORA: SÍ
 CÓMO SE USA
   1. Decir "nova"  (o mantener pulsado ≡ ~1,1 s) -> bip, se abre el dictado.
   2. Hablar. La cápsula se pone verde y va mostrando lo que oye.
-  3. Callar 2,5 s -> SE ENVÍA SOLO. (Mantener ≡ = "enviar ya".)
+  3. Callar 1,4 s -> SE ENVÍA SOLO. (Mantener ≡ = "enviar ya".)
   Mantener ≡ MIENTRAS procesa (cápsula ámbar) = cancelar.
   El asistente responde HABLANDO (cápsula azul con el texto).
+
+  Si no está seguro de a qué te refieres ("¿Little Nightmares III?"),
+  pregunta: di "sí" o "no". Si no contestas en 3,5 s, lo hace.
+
+DICTADO: Whisper (nuevo). Mucho más preciso que Windows y sin robar el
+  foco. Mientras hablas ves la transcripción rápida (Vosk); al callar,
+  Whisper transcribe la orden entera (1-3 s). Si no te convence:
+  config.json -> input.dictado = "windows" (vuelve Win+H).
 
 LA CÁPSULA (esquina inferior izquierda) = la cara del asistente
   Punto turquesa  : en reposo, latiendo.
@@ -25,6 +33,9 @@ LA CÁPSULA (esquina inferior izquierda) = la cara del asistente
   Azul            : hablando; muestra lo que dice.
   Rojo            : algo falló (cancelado, no te escuché...).
   No roba clics ni foco: se puede jugar encima.
+  Está viva: parpadea de vez en cuando, lanza ondas al oír "nova", hace
+  un tic ✓ al ejecutar, "mueve la boca" al hablar, se sacude en error, y
+  cuando estás en un juego muestra SU ICONO como avatar.
   Apagarla: config.json -> ui.nueva = false (vuelve la barra vieja).
   Tras tocar nova_ui.cs: tools\compilar-ui.ps1 y reiniciar el asistente.
 
@@ -69,17 +80,21 @@ SI "NOVA" NO ME OYE
 
 MEMORIA (carpeta memoria\, es un vault de Obsidian)
   - "recuerda que..." -> memoria\diario\ al instante, tal cual lo dijiste.
-  - "¿qué sabes de...?" -> opencode lee la carpeta y responde (tarda).
+  - "¿qué sabes del wifi?" -> busca en tus notas y te lo lee en <1 s.
+    Solo si no encuentra nada se lo pregunta al modelo (tarda).
+  - memoria\estadisticas.md: qué rutas usa cada orden y QUÉ NO RECONOCIÓ
+    (lo que falta en commands.json). La actualiza sola.
+  Las notas y estadísticas NO se suben a GitHub (.gitignore).
+
+JUEGOS (config.json -> juego)
+  Al entrar en un juego aplica el perfil "juego" (brillo/volumen, no abre
+  apps) y guarda el brillo; al salir lo restaura. A las 2 horas te avisa.
 
 VOZ
   es-MX-DaliaNeural (neuronal, EN LÍNEA). Caché en tmp\voz\.
   Respaldo si no hay red: Piper -> voz de Windows.
   Si se queda MUDO: se reproduce con MediaPlayer (WPF); MCI decía "ok"
   sin sonar. El saludo de arranque es la prueba: si no lo oyes, algo falla.
-
-DICTADO
-  Win+H (Windows). Vosk está disponible (input.dictado = "vosk") pero su
-  modelo pequeño transcribe mal y el grande no cabe en 7,7 GB de RAM.
 
 SI ALGO NO SE RECONOCE
   Log: LOCAL descarta: no reconozco '<el trozo exacto>'.

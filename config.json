@@ -7,7 +7,8 @@
     "input":  {
                   "holdMs":  1100,
                   "autoSubmitMs":  2500,
-                  "dictado":  "windows"
+                  "dictado":  "whisper",
+                  "whisperModelo":  "small"
               },
     "opencode":  {
                      "timeoutMs":  240000
@@ -41,6 +42,15 @@
     "avisos":  {
                    "bateriaPct":  15
                },
+    "juego":  {
+                  "perfilAlEntrar":  "juego",
+                  "restaurarAlSalir":  true,
+                  "avisoMinutos":  120
+              },
+    "confirmacion":  {
+                         "activada":  true,
+                         "esperaMs":  3500
+                     },
     "seguridad":  {
                       "hashDll":  "B72C58682EAE2E82426411D79BC3BCF977C97D944073F3560E1E97662B460558"
                   }

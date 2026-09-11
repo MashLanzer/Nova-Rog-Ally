@@ -261,6 +261,8 @@ function Find-Aproximado([string]$t, $obj) {
         $d = Get-Distancia $t $k
         if ($d -le $tope -and $d -lt $mejorD) { $mejorD = $d; $mejor = $k }
     }
+    # a dos o mas letras de distancia ya no es seguro: se marca para confirmar
+    if ($mejor -and $mejorD -ge 2) { $script:dudosa = $mejor }
     return $mejor
 }
 
@@ -347,6 +349,9 @@ function Find-JuegoEn([string]$q, $lista) {
         }
         if ($null -ne $puntos -and $puntos -lt $mejorPuntos) { $mejorPuntos = $puntos; $mejor = $j }
     }
+    # acertado solo por parecido lejano (no por contencion): mejor preguntar
+    # "¿Little Nightmares III?" que lanzar el juego equivocado
+    if ($mejor -and $mejorPuntos -ge 100) { $script:dudosa = $mejor.nombre }
     return $mejor
 }
 
@@ -418,6 +423,146 @@ function Add-Memoria([string]$texto) {
     $linea = "`r`n- **" + (Get-Date -Format 'HH:mm') + "** " + $texto
     [System.IO.File]::AppendAllText($nota, $linea, (New-Object System.Text.UTF8Encoding($false)))
     return $nota
+}
+
+# --- BUSQUEDA LOCAL EN LA MEMORIA (sin modelo) ---
+# "que sabes de X" iba siempre al agente (25-60 s). Casi siempre basta con
+# buscar las palabras clave en las notas y leer las lineas que las contienen:
+# <1 s. Solo si no se encuentra nada se pregunta al modelo, como antes.
+$PALABRAS_VACIAS = @('que','sabes','sobre','de','del','la','el','los','las','un','una','unos','unas','te','dije','dijo',
+    'anote','apunte','recuerdas','acuerdas','en','tus','mis','notas','mi','memoria','me','lo','le','se','y','o','a',
+    'con','por','para','al','es','era','hay','tengo','tienes','tiene','como','cuando','donde','cual','quien','algo',
+    'esto','eso','ese','esa','este','esta','hoy','ayer','ahora','dime','cuentame','acerca','respecto','guardaste')
+
+function Find-EnMemoria([string]$text) {
+    $plano = ConvertTo-Plain $text
+    $claves = @($plano -split '\s+' | Where-Object { $_.Length -ge 3 -and $PALABRAS_VACIAS -notcontains $_ })
+    if ($claves.Count -eq 0) { return $null }
+    $archivos = @()
+    foreach ($d in @($DiarioDir, (Join-Path $MemoriaDir 'temas'))) {
+        if (Test-Path -LiteralPath $d) {
+            $archivos += Get-ChildItem -LiteralPath $d -Filter '*.md' -File -ErrorAction SilentlyContinue | Sort-Object Name -Descending
+        }
+    }
+    $hallazgos = New-Object System.Collections.ArrayList
+    foreach ($f in $archivos) {
+        $lineas = @()
+        try { $lineas = [System.IO.File]::ReadAllLines($f.FullName, [System.Text.Encoding]::UTF8) } catch { continue }
+        foreach ($l in $lineas) {
+            if ($l -match '^\s*#' -or $l.Trim().Length -lt 4) { continue }
+            $lp = ConvertTo-Plain $l
+            $puntos = 0
+            foreach ($c in $claves) {
+                # prefijo o distancia 1 en palabras largas: "recetas" ~ "receta"
+                if ($lp -match ('\b' + [regex]::Escape($c))) { $puntos++; continue }
+                if ($c.Length -ge 5) {
+                    foreach ($w in ($lp -split '\s+')) {
+                        if ([Math]::Abs($w.Length - $c.Length) -le 1 -and (Get-Distancia $w $c) -le 1) { $puntos++; break }
+                    }
+                }
+            }
+            if ($puntos -gt 0) {
+                $limpio = ($l -replace '^\s*-\s*', '' -replace '\*\*(\d\d:\d\d)\*\*\s*', '' -replace '\s+', ' ').Trim()
+                $fecha = ''
+                if ($f.BaseName -match '^(\d{4})-(\d{2})-(\d{2})$') {
+                    $cul = New-Object System.Globalization.CultureInfo('es-MX')
+                    try { $fecha = (Get-Date -Year $Matches[1] -Month $Matches[2] -Day $Matches[3]).ToString('d "de" MMMM', $cul) } catch {}
+                } else { $fecha = $f.BaseName }
+                [void]$hallazgos.Add(@{ puntos = $puntos; texto = $limpio; fecha = $fecha; orden = $hallazgos.Count })
+            }
+        }
+    }
+    if ($hallazgos.Count -eq 0) { return $null }
+    $mejores = @($hallazgos | Sort-Object @{e={$_.puntos};d=$true}, @{e={$_.orden}} | Select-Object -First 3)
+    $frases = @()
+    foreach ($h in $mejores) {
+        $frases += if ($h.fecha) { "$($h.texto) (el $($h.fecha))" } else { $h.texto }
+    }
+    $intro = if ($mejores.Count -eq 1) { "Anotaste: " } else { "Encontre esto: " }
+    return ($intro + ($frases -join '. '))
+}
+
+# --- ESTADISTICAS DE USO (memoria\estadisticas.md) ---
+# Que ruta toma cada orden y que no se reconocio, en una nota de Obsidian que
+# se puede leer sin abrir logs. Dice exactamente que anadir a commands.json.
+$EstadisticasJson = Join-Path $MemoriaDir 'estadisticas.json'
+$EstadisticasMd = Join-Path $MemoriaDir 'estadisticas.md'
+$script:stats = $null
+
+function Get-Estadisticas {
+    if ($null -ne $script:stats) { return $script:stats }
+    $script:stats = @{ dias = @{}; descartes = @(); recientes = @() }
+    if (Test-Path -LiteralPath $EstadisticasJson) {
+        try {
+            $j = Get-Content -LiteralPath $EstadisticasJson -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($d in $j.dias.PSObject.Properties) {
+                $h = @{}
+                foreach ($k in $d.Value.PSObject.Properties) { $h[$k.Name] = [int]$k.Value }
+                $script:stats.dias[$d.Name] = $h
+            }
+            $script:stats.descartes = @($j.descartes | ForEach-Object { [string]$_ })
+            $script:stats.recientes = @($j.recientes | ForEach-Object { [string]$_ })
+        } catch {}
+    }
+    return $script:stats
+}
+
+function Add-Estadistica([string]$ruta, [string]$detalle = '') {
+    try {
+        $s = Get-Estadisticas
+        $dia = Get-Date -Format 'yyyy-MM-dd'
+        if (-not $s.dias.ContainsKey($dia)) { $s.dias[$dia] = @{} }
+        if (-not $s.dias[$dia].ContainsKey($ruta)) { $s.dias[$dia][$ruta] = 0 }
+        $s.dias[$dia][$ruta]++
+        $d = ($detalle -replace '\s+', ' ').Trim()
+        if ($d.Length -gt 90) { $d = $d.Substring(0, 87) + '...' }
+        if ($ruta -eq 'descarte' -and $d) {
+            $s.descartes = @(@("$dia  $d") + @($s.descartes | Where-Object { $_ -notmatch ('  ' + [regex]::Escape($d) + '$') }) | Select-Object -First 30)
+        } elseif ($d) {
+            $s.recientes = @(@((Get-Date -Format 'yyyy-MM-dd HH:mm') + "  [$ruta]  $d") + $s.recientes | Select-Object -First 40)
+        }
+        # json (estado) + markdown (lectura)
+        $o = New-Object PSObject
+        $dias = New-Object PSObject
+        foreach ($k in ($s.dias.Keys | Sort-Object)) {
+            $fila = New-Object PSObject
+            foreach ($r in $s.dias[$k].Keys) { $fila | Add-Member -NotePropertyName $r -NotePropertyValue $s.dias[$k][$r] }
+            $dias | Add-Member -NotePropertyName $k -NotePropertyValue $fila
+        }
+        $o | Add-Member -NotePropertyName dias -NotePropertyValue $dias
+        $o | Add-Member -NotePropertyName descartes -NotePropertyValue @($s.descartes)
+        $o | Add-Member -NotePropertyName recientes -NotePropertyValue @($s.recientes)
+        $enc = New-Object System.Text.UTF8Encoding($false)
+        if (-not (Test-Path -LiteralPath $MemoriaDir)) { New-Item -ItemType Directory -Force -Path $MemoriaDir | Out-Null }
+        [System.IO.File]::WriteAllText($EstadisticasJson, ($o | ConvertTo-Json -Depth 6), $enc)
+
+        $rutas = @('local', 'aprendida', 'memoria', 'pregunta', 'traducir', 'traducida', 'accion', 'charla', 'descarte')
+        $sb = New-Object System.Text.StringBuilder
+        [void]$sb.AppendLine("# Estadísticas del asistente")
+        [void]$sb.AppendLine("")
+        [void]$sb.AppendLine("Actualizado: " + (Get-Date -Format 'yyyy-MM-dd HH:mm') + ". La genera el asistente sola; no hace falta editarla.")
+        [void]$sb.AppendLine("")
+        [void]$sb.AppendLine("Rutas: **local** (<1 s, sin modelo), **aprendida** (traducción guardada), **memoria** (búsqueda en notas), **pregunta** (modelo sin herramientas), **traducir** → **traducida** (el modelo la convirtió a una orden local y se aprendió), **accion** (agente completo), **charla**, **descarte** (trozo que la capa local no entendió).")
+        [void]$sb.AppendLine("")
+        [void]$sb.AppendLine("## Por día")
+        [void]$sb.AppendLine("")
+        [void]$sb.AppendLine("| día | " + ($rutas -join ' | ') + " |")
+        [void]$sb.AppendLine("|---|" + (($rutas | ForEach-Object { '---:' }) -join '|') + "|")
+        foreach ($k in ($s.dias.Keys | Sort-Object -Descending | Select-Object -First 30)) {
+            $celdas = $rutas | ForEach-Object { if ($s.dias[$k].ContainsKey($_)) { $s.dias[$k][$_] } else { '' } }
+            [void]$sb.AppendLine("| $k | " + ($celdas -join ' | ') + " |")
+        }
+        [void]$sb.AppendLine("")
+        [void]$sb.AppendLine("## No reconocido por la capa local (añadir a commands.json)")
+        [void]$sb.AppendLine("")
+        if ($s.descartes.Count -eq 0) { [void]$sb.AppendLine("_nada todavía_") }
+        foreach ($x in $s.descartes) { [void]$sb.AppendLine("- " + $x) }
+        [void]$sb.AppendLine("")
+        [void]$sb.AppendLine("## Últimas órdenes")
+        [void]$sb.AppendLine("")
+        foreach ($x in $s.recientes) { [void]$sb.AppendLine("- " + $x) }
+        [System.IO.File]::WriteAllText($EstadisticasMd, $sb.ToString(), $enc)
+    } catch { Log ("estadisticas: " + $_.Exception.Message) }
 }
 
 function Resolve-Fragment([string]$f) {
@@ -776,6 +921,7 @@ function Invoke-FastCommand([string]$text) {
     $frags = Split-Compound (Repair-Words (ConvertTo-Plain $text))
     if (-not $frags -or $frags.Count -eq 0) { return $null }
 
+    $script:dudosa = $null
     $acciones = @()
     foreach ($f in $frags) {
         $a = Resolve-Fragment $f
@@ -783,9 +929,25 @@ function Invoke-FastCommand([string]$text) {
             # dejar constancia del trozo exacto: es lo que dice que anadir a
             # commands.json en vez de tener que adivinarlo despues
             Log "LOCAL descarta: no reconozco '$f' -> la orden entera va a opencode"
+            # se anota en las estadisticas SOLO si la frase acaba yendo al
+            # modelo como orden (las preguntas siempre se descartan aqui y no
+            # son vocabulario que falte): lo decide Process-Texto
+            $script:ultimoDescarte = $f
             return $null   # todo o nada
         }
         $acciones += $a
+    }
+
+    # --- CONFIRMACION DE COINCIDENCIAS DUDOSAS ---
+    # Si algo se resolvio por parecido lejano, no se ejecuta: se devuelve la
+    # pregunta y se deja la orden pendiente. El bucle principal la ejecuta si
+    # dices "si" o si pasan unos segundos sin respuesta; "no" la cancela. Sin
+    # estado pegajoso: el plazo la limpia sola.
+    if ($ConfirmacionOn -and $script:dudosa -and -not $script:confirmado) {
+        $script:pendiente = @{ texto = $text; vence = 0 }
+        $q = [string]$script:dudosa
+        $script:dudosa = $null
+        return ("¿" + $q + "?")
     }
 
     # se recuerda el ultimo objetivo nombrado, para que "abrelo" funcione luego
@@ -931,12 +1093,26 @@ function Initialize-Online {
 
 function Say-Online([string]$texto) {
     if (-not $script:ttsProc -or $script:ttsProc.HasExited) {
+        # si murio, que el log diga POR QUE: su stderr se guardaba y nadie lo leia
+        if ($script:ttsProc) {
+            try {
+                $err = $script:ttsProc.StandardError.ReadToEnd()
+                if ($err) { Log ("voz online: el worker murio con: " + (($err -replace '\s+', ' ').Trim())) }
+                $script:ttsProc.Dispose()
+            } catch {}
+            $script:ttsProc = $null
+        }
         if (-not (Initialize-Online)) { return $false }
         Start-Sleep -Milliseconds 2000
     }
     try {
-        $script:ttsProc.StandardInput.WriteLine($texto)
-        $script:ttsProc.StandardInput.Flush()
+        # Bytes UTF-8 directos al flujo. .NET Framework no deja fijar la
+        # codificacion de StandardInput y en la consola oculta usaba IBM850:
+        # cada tilde o "¿" mataba al worker (surrogate en el md5). Verificado.
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($texto + "`n")
+        $flujo = $script:ttsProc.StandardInput.BaseStream
+        $flujo.Write($bytes, 0, $bytes.Length)
+        $flujo.Flush()
         # con tope: si la red se cae, no se puede colgar el bucle para siempre
         $tarea = $script:ttsProc.StandardOutput.ReadLineAsync()
         if (-not $tarea.Wait(8000)) { Log "voz online: sin respuesta en 8 s"; return $false }
@@ -1133,7 +1309,17 @@ $MarcaPausa = Join-Path $TmpDir "escucha-pausa.flag"
 # "little nighters 3") y obligaba a esperar el silencio desde fuera. El worker
 # ya tiene el microfono abierto: dicta el tambien.
 $MotorDictado = [string](Get-Cfg 'input' 'dictado' 'vosk')
+# 'vosk' y 'whisper' comparten el camino: el worker de escucha graba la orden
+# y la transcribe (Whisper es mucho mas preciso; Vosk pequeno se queda para
+# la palabra de activacion). 'windows' es Win+H.
+$DictadoWorker = ($MotorDictado -in @('vosk', 'whisper'))
+$WhisperModelo = [string](Get-Cfg 'input' 'whisperModelo' 'small')
 $MarcaDictar = Join-Path $TmpDir "dictar.flag"
+# confirmacion por voz de coincidencias dudosas: el worker escucha si/no
+$MarcaConfirmar = Join-Path $TmpDir "confirmar.flag"
+$RutaConfirmacion = Join-Path $TmpDir "confirmacion.txt"
+# vocabulario (apps, sitios, juegos) para que Whisper acierte los nombres
+$RutaVocabulario = Join-Path $TmpDir "vocabulario.txt"
 $RutaDictado = Join-Path $TmpDir "dictado.txt"
 $RutaParcial = Join-Path $TmpDir "dictado-parcial.txt"
 # nivel de voz 0..1 que el worker escribe mientras dictas; lo lee la interfaz
@@ -1172,7 +1358,8 @@ function Initialize-Escucha {
             if (-not (Test-Path -LiteralPath $worker)) { Log "WARN: falta wake_vosk.py"; return }
             $script:wakeProc = Start-Process -FilePath $PyExe `
                 -ArgumentList @('-u', $worker, $EscuchaNombre, $MarcaWake, $EventLog, $EscuchaGanancia,
-                                $MarcaPausa, $MarcaDictar, $RutaDictado, $RutaParcial, $RutaNivel) `
+                                $MarcaPausa, $MarcaDictar, $RutaDictado, $RutaParcial, $RutaNivel,
+                                $MarcaConfirmar, $RutaConfirmacion, "$MotorDictado`:$WhisperModelo", $RutaVocabulario) `
                 -WorkingDirectory $LogDir -WindowStyle Hidden -PassThru
         } else {
             $worker = Join-Path $LogDir "wake_worker.exe"
@@ -1214,18 +1401,53 @@ $script:uiIntentos = 0
 
 # Estados: reposo | escuchando | pensando | hablando | error.
 # $ms > 0: volver al reposo pasado ese tiempo (si no hay nada mas en marcha).
+# Ademas del estado, el JSON lleva:
+#   evento/n : animacion puntual (despierta, hecho, aviso). La interfaz la
+#              dispara cuando cambia n, asi que el mismo evento puede repetirse.
+#   juego    : ejecutable del juego en primer plano; su icono pasa a ser el
+#              avatar de la capsula y el punto se vuelve insignia de estado.
+$script:uiEstado = 'reposo'
+$script:uiTexto = ''
+$script:uiEvento = ''
+$script:uiEventoN = 0
+$script:juegoExe = ''
+
+function ConvertTo-JsonTexto([string]$s) {
+    $t = (($s -replace '[\r\n\t]+', ' ') -replace '\s+', ' ').Trim()
+    return $t.Replace('\', '\\').Replace('"', '\"')
+}
+
 function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
     if (-not $UiNuevaOn) { return }
     $t = (($texto -replace '[\r\n\t]+', ' ') -replace '\s+', ' ').Trim()
     if ($t.Length -gt 140) { $t = $t.Substring(0, 137) + "..." }
-    $t = $t.Replace('\', '\\').Replace('"', '\"')
-    $json = '{"estado":"' + $estado + '","texto":"' + $t + '","nivel":0}'
+    $script:uiEstado = $estado
+    $script:uiTexto = $t
+    $json = '{"estado":"' + $estado + '","texto":"' + (ConvertTo-JsonTexto $t) + '","nivel":0' +
+            ',"evento":"' + $script:uiEvento + '","n":' + $script:uiEventoN +
+            ',"juego":"' + (ConvertTo-JsonTexto $script:juegoExe) + '"}'
     if ($json -ne $script:uiUltimo) {
         # UTF-8 SIN BOM: la interfaz lo lee tal cual y el BOM colaria un caracter
         try { [System.IO.File]::WriteAllText($RutaUiEstado, $json, (New-Object System.Text.UTF8Encoding $false)) } catch {}
         $script:uiUltimo = $json
     }
     $script:uiHasta = if ($ms -gt 0) { $sw.ElapsedMilliseconds + $ms } else { 0 }
+}
+
+# Dispara una animacion sin cambiar el estado (el estado se reescribe igual).
+function Send-UIEvento([string]$evento) {
+    if (-not $UiNuevaOn) { return }
+    $script:uiEvento = $evento
+    $script:uiEventoN++
+    Refresh-UI
+}
+
+# Reescribe el estado actual (tras cambiar el juego o lanzar un evento) sin
+# tocar el plazo de vuelta al reposo.
+function Refresh-UI {
+    $resta = 0
+    if ($script:uiHasta -gt 0) { $resta = [Math]::Max(1, $script:uiHasta - $sw.ElapsedMilliseconds) }
+    Set-UI $script:uiEstado $script:uiTexto $resta
 }
 
 function Initialize-UI {
@@ -1290,10 +1512,53 @@ function Get-JuegoEnPrimerPlano {
     try { $ruta = $p.Path } catch { return $null }
     if (-not $ruta -or $ruta -notmatch '(?i)steamapps\\common\\([^\\]+)') { return $null }
     $carpeta = $Matches[1]
+    # el ejecutable se guarda aparte: la capsula saca de el el icono del juego
+    $script:juegoExeCandidato = $ruta
     # la carpeta de instalacion suele parecerse al titulo
     $j = Find-Juego $carpeta
     if ($j) { return $j.nombre }
     return $carpeta
+}
+
+# --- RUTINAS DE JUEGO (config.json -> juego) ---
+# Al entrar en un juego se aplica un perfil (por defecto "juego"); al salir se
+# restaura el brillo que habia. El volumen no se puede leer sin librerias
+# externas, asi que no se restaura: se avisa en vez de fingir.
+$JuegoPerfilEntrar = [string](Get-Cfg 'juego' 'perfilAlEntrar' 'juego')
+$JuegoRestaurar = [bool](Get-Cfg 'juego' 'restaurarAlSalir' $true)
+$JuegoAvisoMin = [int](Get-Cfg 'juego' 'avisoMinutos' 120)
+$script:juegoBrilloAntes = $null
+$script:juegoAvisado = $false
+
+function Enter-Juego([string]$nombre) {
+    $script:juegoAvisado = $false
+    $script:juegoBrilloAntes = $null
+    if (-not $JuegoPerfilEntrar) { return }
+    if (-not (Test-Prop $cmds.perfiles $JuegoPerfilEntrar)) { return }
+    try { $script:juegoBrilloAntes = (Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness -ErrorAction Stop).CurrentBrightness } catch {}
+    # NO se abren apps del perfil al entrar solo en un juego (abrir Discord
+    # encima de un juego recien lanzado seria un estorbo): solo niveles
+    $ordenes = @($cmds.perfiles.$JuegoPerfilEntrar) | Where-Object { (ConvertTo-Plain $_) -notmatch '^(?:abre|abrir|lanza|ejecuta)\b' }
+    $hechas = @()
+    foreach ($o in $ordenes) {
+        $r = $null
+        try { $r = Invoke-FastCommand $o } catch { $r = $null }
+        if ($r) { $hechas += $r }
+    }
+    if ($hechas.Count -gt 0) {
+        Log "JUEGO: perfil '$JuegoPerfilEntrar' aplicado al entrar en $nombre"
+        Say "Modo $JuegoPerfilEntrar."
+        Send-UIEvento 'hecho'
+    }
+}
+
+function Exit-Juego([string]$nombre) {
+    if (-not $JuegoRestaurar -or $null -eq $script:juegoBrilloAntes) { return }
+    try {
+        Set-Brillo ([int]$script:juegoBrilloAntes)
+        Log "JUEGO: brillo restaurado a $($script:juegoBrilloAntes) al salir de $nombre"
+    } catch {}
+    $script:juegoBrilloAntes = $null
 }
 
 # Win + <tecla>: usado para colocar ventanas (Win+flechas)
@@ -1377,6 +1642,18 @@ Initialize-UI
 
 $script:Juegos = Get-JuegosSteam
 $script:JuegosStamp = Get-Date
+# Vocabulario para Whisper: nombres propios que el dictado suele destrozar.
+# Se le pasan como "prompt" y los transcribe bien ("Steam", no "stim").
+try {
+    $voc = @($EscuchaNombre)
+    if ($cmds) {
+        $voc += @($cmds.apps.PSObject.Properties.Name | Where-Object { $_ -notmatch '\s' -or $_.Length -le 16 } | Select-Object -First 20)
+        $voc += @($cmds.sitios.PSObject.Properties.Name | Select-Object -First 14)
+    }
+    $voc += @($script:Juegos | ForEach-Object { $_.nombre } | Select-Object -First 20)
+    $voc = @($voc | Where-Object { $_ } | Select-Object -Unique)
+    [System.IO.File]::WriteAllText($RutaVocabulario, (($voc -join ', ') + '.'), (New-Object System.Text.UTF8Encoding($false)))
+} catch {}
 if (@($script:Juegos).Count -gt 0) {
     Log ("biblioteca de Steam: " + @($script:Juegos).Count + " juegos indexados")
 } else {
@@ -1642,7 +1919,7 @@ function Complete-OpencodeJob {
 
 # Si la frase pregunta por algo recordado, se le dice a opencode donde mirar y
 # que responda para ser ESCUCHADA (breve, sin listas ni codigo).
-$RE_MEMORIA = '\b(?:que sabes de|que te dije|que dije|recuerdas|te acuerdas|en tus notas|en mis notas|que anote|que apunte|mi memoria|mis notas)\b'
+$RE_MEMORIA = '\b(?:que sabes (?:de|del|sobre|acerca)|que te dije|que dije|que te conte|recuerdas|te acuerdas|en tus notas|en mis notas|que anote|que apunte|mi memoria|mis notas|que guardaste|que tengo anotado)\b'
 
 function Expand-Prompt([string]$texto) {
     if ((ConvertTo-Plain $texto) -match $RE_MEMORIA) {
@@ -1700,7 +1977,9 @@ function Submit-Command([string]$text, [string]$modo = 'accion') {
     $lbl.Text = "$etiqueta (manten ≡ para cancelar)"
     $lbl.ForeColor = [System.Drawing.Color]::Gold
     $capture.Show()
-    Set-UI 'pensando' $(if ($modo -eq 'accion') { 'Procesando...' } elseif ($modo -eq 'traducir') { 'Entendiendo...' } else { 'Pensando...' })
+    # sin puntos suspensivos: la capsula ya pone tres puntos que laten
+    Set-UI 'pensando' $(if ($modo -eq 'accion') { 'Procesando' } elseif ($modo -eq 'traducir') { 'Entendiendo' } else { 'Pensando' })
+    Add-Estadistica $modo $text
 
     $prompt = Expand-Prompt $text     # si pregunta por la memoria, ya viene guiado
     if ($modo -eq 'traducir') {
@@ -1736,10 +2015,15 @@ function Report-Reply($out) {
         if ($propuesta -and $propuesta.ToUpperInvariant() -ne 'NO' -and $propuesta.Length -lt 120) {
             Log "traduccion propuesta: '$original' -> '$propuesta'"
             $r = $null
+            # una traduccion del modelo no se confirma por voz: o encaja o no
+            $script:confirmado = $true
             try { $r = Invoke-FastCommand $propuesta } catch { $r = $null }
+            $script:confirmado = $false
             if ($r) {
                 Add-Traduccion $original $propuesta
+                Add-Estadistica 'traducida' "$original -> $propuesta"
                 $script:ultimaRespuesta = $r
+                Send-UIEvento 'hecho'
                 Show-Popup $r
                 Say $r
                 return
@@ -1770,6 +2054,44 @@ function Report-Reply($out) {
     Say $reply
 }
 
+# --- confirmacion por voz ---
+$ConfirmacionOn = [bool](Get-Cfg 'confirmacion' 'activada' $true)
+$ConfirmacionMs = [int](Get-Cfg 'confirmacion' 'esperaMs' 3500)
+$script:pendiente = $null
+$script:confirmado = $false
+$script:dudosa = $null
+
+# Pide al worker que escuche un si/no. La pregunta ya se dijo (Say), y el
+# worker esta en pausa mientras suena: el plazo empieza cuando termine.
+function Start-Confirmacion {
+    if (-not $script:pendiente) { return }
+    Remove-Item -LiteralPath $RutaConfirmacion -Force -ErrorAction SilentlyContinue
+    $espera = $ConfirmacionMs
+    if ($script:pausaHasta -gt $sw.ElapsedMilliseconds) { $espera += ($script:pausaHasta - $sw.ElapsedMilliseconds) }
+    $script:pendiente.vence = $sw.ElapsedMilliseconds + $espera
+    if ($script:wakeProc -and -not $script:wakeProc.HasExited) {
+        try { [System.IO.File]::WriteAllText($MarcaConfirmar, 'x') } catch {}
+    }
+}
+
+# Resuelve la orden pendiente: 'si' la ejecuta, 'no' la cancela.
+function Complete-Confirmacion([string]$respuesta) {
+    $p = $script:pendiente
+    $script:pendiente = $null
+    Remove-Item -LiteralPath $MarcaConfirmar -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $RutaConfirmacion -Force -ErrorAction SilentlyContinue
+    if (-not $p) { return }
+    if ($respuesta -eq 'no') {
+        Log "CONFIRMAR: cancelado por el usuario"
+        Set-UI 'error' 'Vale, cancelado' 2000
+        Say "Vale."
+        return
+    }
+    Log "CONFIRMAR: $respuesta -> se ejecuta '$($p.texto)'"
+    $script:confirmado = $true
+    try { Process-Texto $p.texto } finally { $script:confirmado = $false }
+}
+
 # Abre el dictado. La llaman el boton y la palabra de activacion, para que
 # ambos caminos se comporten EXACTAMENTE igual.
 function Start-Dictado([string]$origen) {
@@ -1778,7 +2100,7 @@ function Start-Dictado([string]$origen) {
 
     # --- Dictado por Vosk: ni foco, ni Win+H, ni pausa de escucha ---
     # El worker ya tiene el microfono; solo hay que decirle que transcriba.
-    if ($MotorDictado -eq 'vosk' -and $script:wakeProc) {
+    if ($DictadoWorker -and $script:wakeProc) {
         Remove-Item -LiteralPath $RutaDictado -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $RutaParcial -Force -ErrorAction SilentlyContinue
         [System.IO.File]::WriteAllText($MarcaDictar, 'x')
@@ -1786,6 +2108,7 @@ function Start-Dictado([string]$origen) {
         $lbl.ForeColor = [System.Drawing.Color]::LimeGreen
         $capture.Show()
         Set-UI 'escuchando'
+        Send-UIEvento 'despierta'
         $script:armed = $true
         $script:dictaInicio = $sw.ElapsedMilliseconds
         return
@@ -1797,6 +2120,7 @@ function Start-Dictado([string]$origen) {
     if (Show-Capture) {
         Send-WinH
         Set-UI 'escuchando'
+        Send-UIEvento 'despierta'
         $script:armed = $true
         # punto de partida para detectar el silencio
         $script:lastText = ""
@@ -1856,13 +2180,41 @@ function Process-Texto([string]$text) {
 
         # 1) local instantaneo
         $fast = $null
+        $script:ultimoDescarte = ''
         try { $fast = Invoke-FastCommand $text }
         catch { Log "fast-command error: $($_.Exception.Message)"; $fast = $null }
         if ($fast) {
-            Log "LOCAL: $text -> $fast"
-            $script:ultimaRespuesta = $fast
-            Show-Popup $fast
-            Say $fast
+            if ($script:pendiente) {
+                # coincidencia dudosa: se pregunta y se espera un si/no (o el
+                # plazo). $fast es la pregunta ("¿Little Nightmares III?")
+                Log "CONFIRMAR: '$text' -> $fast"
+                Show-Popup $fast
+                Say $fast
+                Set-UI 'escuchando' $fast
+                Start-Confirmacion
+            } else {
+                Log "LOCAL: $text -> $fast"
+                Add-Estadistica 'local' $text
+                $script:ultimaRespuesta = $fast
+                Send-UIEvento 'hecho'
+                Show-Popup $fast
+                Say $fast
+            }
+        }
+        # 1b) memoria: buscar en las notas ANTES de molestar al modelo
+        elseif ($plano -match $RE_MEMORIA) {
+            $enc = $null
+            try { $enc = Find-EnMemoria $text } catch { $enc = $null }
+            if ($enc) {
+                Log "MEMORIA LOCAL: $text -> $enc"
+                Add-Estadistica 'memoria' $text
+                $script:ultimaRespuesta = $enc
+                Send-UIEvento 'hecho'
+                Show-Popup $enc
+                Say $enc
+            } else {
+                Submit-Command $text 'pregunta'   # Expand-Prompt le dira donde mirar
+            }
         }
         # 2) pregunta: que CONTESTE, no que actue (~13 s en vez de 25-160 s)
         elseif ($plano -match $RE_PREGUNTA) {
@@ -1876,7 +2228,9 @@ function Process-Texto([string]$text) {
                 try { $r = Invoke-FastCommand $apr } catch { $r = $null }
                 if ($r) {
                     Log "APRENDIDA: '$text' -> '$apr' -> $r"
+                    Add-Estadistica 'aprendida' $text
                     $script:ultimaRespuesta = $r
+                    Send-UIEvento 'hecho'
                     Show-Popup $r
                     Say $r
                     return
@@ -1884,6 +2238,7 @@ function Process-Texto([string]$text) {
             }
             # 4) que el modelo la traduzca a una orden conocida (~13 s) y se
             #    aprenda; si no encaja, cae al agente completo
+            if ($script:ultimoDescarte) { Add-Estadistica 'descarte' $script:ultimoDescarte; $script:ultimoDescarte = '' }
             if ($TraducirOn) { Submit-Command $text 'traducir' }
             else { Submit-Command $text }
         }
@@ -1976,7 +2331,7 @@ while ($true) {
                 Show-Popup "Orden cancelada." 'error'
             } elseif (-not $script:armed) {
                 Start-Dictado "mantener ≡"
-            } elseif ($MotorDictado -eq 'vosk' -and $script:wakeProc) {
+            } elseif ($DictadoWorker -and $script:wakeProc) {
                 # con Vosk el boton solo dice "ya termine": el worker entrega
                 # lo que lleve transcrito y el bucle lo recoge
                 Log "ENVIAR (boton)"
@@ -2021,12 +2376,23 @@ while ($true) {
         Reanudar-Escucha
     }
 
+    # --- CONFIRMACION PENDIENTE (si / no / plazo) ---
+    if ($script:pendiente) {
+        $resp = ''
+        if (Test-Path -LiteralPath $RutaConfirmacion) {
+            try { $resp = ([System.IO.File]::ReadAllText($RutaConfirmacion)).Trim().ToLowerInvariant() } catch {}
+            if ($resp -ne 'si' -and $resp -ne 'no') { $resp = '' }
+        }
+        if ($resp) { Complete-Confirmacion $resp }
+        elseif ($sw.ElapsedMilliseconds -ge $script:pendiente.vence) { Complete-Confirmacion 'plazo' }
+    }
+
     # --- PALABRA DE ACTIVACION ---
     # El worker deja un archivo marca; aqui solo se mira si existe. Nada de
     # eventos ni hilos compartidos: eso es lo que mataba el proceso.
     if ($script:wakeProc -and (Test-Path -LiteralPath $MarcaWake)) {
         Remove-Item -LiteralPath $MarcaWake -Force -ErrorAction SilentlyContinue
-        if ($script:armed -or $script:busy) {
+        if ($script:armed -or $script:busy -or $script:pendiente) {
             # ya estabamos escuchando o procesando: se ignora sin ruido
         } elseif (($sw.ElapsedMilliseconds - $script:finVoz) -lt 1500) {
             # acabamos de hablar: evita despertarse con su propia voz
@@ -2037,7 +2403,7 @@ while ($true) {
     }
 
     # --- DICTADO POR VOSK: recoger lo transcrito y mostrarlo en vivo ---
-    if ($script:armed -and $MotorDictado -eq 'vosk') {
+    if ($script:armed -and $DictadoWorker) {
         # transcripcion en vivo: ver lo que oye mientras hablas
         if (Test-Path -LiteralPath $RutaParcial) {
             try {
@@ -2069,7 +2435,7 @@ while ($true) {
 
     # --- ENVIO AUTOMATICO (solo para el dictado antiguo de Windows).
     # Con Vosk el propio worker detecta el silencio y entrega el texto.
-    if ($script:armed -and $MotorDictado -ne 'vosk' -and $AutoSubmitMs -gt 0) {
+    if ($script:armed -and -not $DictadoWorker -and $AutoSubmitMs -gt 0) {
         $actual = $tb.Text
         if ($actual -ne $script:lastText) {
             $script:lastText = $actual
@@ -2107,6 +2473,7 @@ while ($true) {
                 [System.Media.SystemSounds]::Exclamation.Play()
                 Show-Popup $t.texto
                 Say $t.texto
+                Send-UIEvento 'aviso'
             }
         }
     }
@@ -2115,13 +2482,29 @@ while ($true) {
     if (($sw.ElapsedMilliseconds - $script:juegoCheck) -ge 10000) {
         $script:juegoCheck = $sw.ElapsedMilliseconds
         try {
+            $script:juegoExeCandidato = ''
             $j = Get-JuegoEnPrimerPlano
             if ($j -ne $script:juegoActivo) {
+                if ($script:juegoActivo) { Exit-Juego $script:juegoActivo }
                 if ($j) {
                     Log "juego en primer plano: $j"
                     $script:juegoDesde = $sw.ElapsedMilliseconds
+                    $script:juegoExe = $script:juegoExeCandidato
+                    Enter-Juego $j
+                } else {
+                    $script:juegoExe = ''
                 }
                 $script:juegoActivo = $j
+                Refresh-UI   # la capsula cambia de avatar
+            } elseif ($j -and $JuegoAvisoMin -gt 0 -and -not $script:juegoAvisado -and
+                      (($sw.ElapsedMilliseconds - $script:juegoDesde) -ge ($JuegoAvisoMin * 60000))) {
+                $script:juegoAvisado = $true
+                $horas = [Math]::Round($JuegoAvisoMin / 60.0, 1)
+                $cuanto = if ($JuegoAvisoMin -ge 60 -and ($JuegoAvisoMin % 60) -eq 0) { "$([int]$horas) horas" } else { "$JuegoAvisoMin minutos" }
+                if ($cuanto -eq '1 horas') { $cuanto = 'una hora' }
+                Log "JUEGO: aviso de tiempo ($cuanto con $j)"
+                Say "Oye, ya llevas $cuanto con $j."
+                Send-UIEvento 'aviso'
             }
         } catch {}
     }
@@ -2139,6 +2522,7 @@ while ($true) {
                     Log "AVISO: bateria al $pc %"
                     Show-Popup "Bateria al $pc por ciento."
                     Say "Oye, te queda $pc por ciento de bateria."
+                    Send-UIEvento 'aviso'
                 }
                 # rearmar cuando se recupera, para que pueda volver a avisar
                 if ($cargando -or $pc -gt ($BateriaAviso + 10)) { $script:bateriaAvisada = $false }

@@ -393,7 +393,16 @@ DLL anterior en `tools\`.
   el foco).
 - **El modelo pequeño de Vosk NO vale para dictar** («abre stein»): sirve
   para la palabra de activación, no para transcribir órdenes. El grande no
-  cabe (7,7 GB de RAM, ~1 GB libre). Por eso `input.dictado = "windows"`.
+  cabe (7,7 GB de RAM, ~1 GB libre). Por eso el dictado es **Whisper** (§15)
+  o, como respaldo, `input.dictado = "windows"`.
+- **El stdin de un proceso hijo va en IBM850 en la consola oculta**, y .NET
+  Framework no deja fijar `StandardInputEncoding`. Cada tilde o «¿» llegaba
+  al worker de voz como un *surrogate* que reventaba el md5: **el worker
+  moría en silencio con cada frase no ASCII** y se relanzaba (2 s mudo).
+  Solución: el asistente escribe **bytes UTF-8** en `BaseStream` y el worker
+  lee `sys.stdin.buffer` y decodifica a mano. Verificado con «¿calculadora?».
+- **`Start-Sleep 2500` son 2500 SEGUNDOS**, no milisegundos. Un guion de
+  prueba se quedó 41 minutos dormido por esto.
 
 ---
 
@@ -445,18 +454,14 @@ llegan al agente.
 - ❌ **Tarea programada**: `Register-ScheduledTask` da **acceso denegado**
   incluso para una tarea por usuario con disparador «al iniciar sesión». No es
   viable sin admin. La clave `Run` se queda (no da reinicio automático).
-- ❌ **Dictado offline preciso**: Vosk pequeño no sirve y el grande no cabe en
-  RAM. Alternativa futura: `faster-whisper` (modelo `small`, ~500 MB), que sí
-  cabría; no probado.
+- ✅ **Dictado preciso**: `faster-whisper small` (§15). Pendiente de que el
+  usuario lo valide con su voz; el respaldo es `input.dictado = "windows"`.
 
 ### Abiertos
 
-1. **Ampliar `commands.json`** con el uso real. El log escribe
-   `LOCAL descarta: no reconozco '<trozo>'`, que dice exactamente qué falta.
-2. **Confirmación cuando la coincidencia es dudosa**: si se acertó por
-   aproximación lejana (no por coincidencia exacta ni por contención),
-   preguntar «¿Little Nightmares III?» antes de lanzar. Debe llevar
-   **autocancelación por tiempo**, para no repetir el error del modo pegajoso.
+1. **Ampliar `commands.json`** con el uso real: `memoria\estadisticas.md`
+   lista exactamente lo que no se reconoció.
+2. ✅ **Confirmación cuando la coincidencia es dudosa** (§15).
 3. ✅ **Nivel de micrófono en la onda**: el worker escribe `tmp\ui-nivel.txt`
    (0..1, a 4 Hz) mientras dictas y la interfaz lo lee directamente.
 4. **RAM de `nova_ui.exe`** (~130 MB, casi todo el runtime de WPF). Si molesta:
@@ -539,10 +544,29 @@ Lo que costó afinar, y por qué está como está:
   la pausa se quedaba puesta).
 - El pulso `[escucha] pulso: …` en el log cada 15 s dice ganancia, bloques
   con voz y % decodificado: es el primer sitio donde mirar si «no me oye».
-- **Dictado por Vosk** (`input.dictado = "vosk"`): existe y funciona
-  (transcripción libre, entrega por silencio 1,4 s, quita el nombre del
-  principio, descarta el audio encolado) pero el modelo pequeño transcribe
-  mal las órdenes y el grande no cabe en RAM. **Apagado**; Win+H sigue.
+- **Dictado por Whisper** (`input.dictado = "whisper"`, el actual): el
+  worker graba la orden (bloques ya amplificados), Vosk da la transcripción
+  parcial en vivo mientras hablas, y al callar (1,4 s) **faster-whisper**
+  (`small`, int8, CPU, 4 hilos) transcribe el audio entero. Se le pasa como
+  *prompt* el vocabulario de `tmp\vocabulario.txt` (apps, sitios, juegos)
+  para que acierte los nombres propios. Whisper puntúa: los puntos internos
+  se vuelven comas (separan órdenes) y el final se quita. Carga en ~7 s al
+  arrancar, **~460 MB de RAM** en el worker, transcribe una orden corta en
+  1-3 s. Si no se puede cargar, cae a Vosk solo. `input.whisperModelo`
+  admite `base` (más ligero, menos preciso). Modelo en
+  `%USERPROFILE%\.cache\huggingface\hub\models--Systran--faster-whisper-small`.
+- **Dictado por Vosk** (`input.dictado = "vosk"`): mismo camino sin Whisper;
+  el modelo pequeño transcribe mal las órdenes. Se conserva como respaldo.
+- **Confirmación sí/no**: cuando la capa local acierta una orden solo por
+  parecido lejano (juego a distancia de edición, app a ≥2 letras), el
+  asistente pregunta «¿Little Nightmares III?» y crea `tmp\confirmar.flag`;
+  el worker pasa a una gramática cerrada (sí, dale, vale, claro, ok / no,
+  cancela), usa los **parciales** para responder al instante y escribe
+  `tmp\confirmacion.txt`. «No» cancela; «sí» o **3,5 s sin respuesta**
+  ejecutan (`confirmacion.esperaMs`). El plazo empieza al terminar de sonar la
+  pregunta. Sin estado pegajoso: la palabra de activación se ignora solo
+  mientras hay una pregunta pendiente. Las traducciones del modelo no se
+  confirman (o encajan o no).
 - Alternativa C# con SAPI (`wake_worker.exe`, `escucha.motor = "sapi"`):
   funciona pero no amplifica; se conserva por si cambia el micrófono.
 - Diagnóstico: `tools\diag\diag-escucha.ps1` y `tools\diag\diag-vosk.py`.
@@ -602,6 +626,26 @@ Cómo funciona:
 - Coste: **~130 MB de RAM** (runtime de WPF), CPU despreciable en reposo.
   Apagar: `ui.nueva = false`.
 
+**Vida (micro-animaciones).** Además del estado, el JSON lleva
+`evento` + `n` (contador): la cápsula reproduce la animación cuando cambia
+`n`, así que el mismo evento puede repetirse. `Send-UIEvento` en el asistente.
+
+| Evento / momento | Qué hace la cápsula |
+|---|---|
+| `despierta` (al oír «nova» o el botón) | el punto salta con rebote elástico y lanza dos ondas concéntricas verdes |
+| `hecho` (orden local ejecutada, memoria, traducción aprendida) | destello blanco, marca ✓ sobre el punto, una onda |
+| `aviso` (temporizador, batería, tiempo de juego) | salto + dos ondas ámbar |
+| entrar en `error` | la cápsula se sacude en horizontal |
+| `pensando` | tres puntos que laten en cadena junto al texto; el halo respira |
+| `hablando` | el punto «mueve la boca»: sílabas simuladas (80-210 ms, con pausas) hinchan el punto y el halo |
+| reposo / escuchando | respiración lenta del punto y un **parpadeo** cada 4-9 s (aplastamiento vertical de 200 ms) |
+| texto nuevo | entra deslizando 6 px desde abajo |
+| `juego` (ruta del exe en el JSON) | el **icono del juego** pasa a ser el avatar (22 px, circular, aro del color del estado) y el punto se vuelve una insignia abajo a la derecha; entra creciendo con rebote |
+
+Cuando hay un juego en primer plano el asistente pone su ejecutable en
+`juego`; `Get-JuegoEnPrimerPlano` guarda la ruta en `$script:juegoExeCandidato`.
+La interfaz saca el icono con `Icon.ExtractAssociatedIcon`.
+
 ---
 
 ## 17. LO DEMÁS QUE SE AÑADIÓ (resumen rápido)
@@ -625,3 +669,18 @@ Cómo funciona:
   de extremo a extremo de la cadena de audio. `voz.saludo`.
 - **Respuestas cortas**: al agente se le pide resumir en UNA frase porque se
   lee en voz alta; a las preguntas, sin herramientas (`$PRE_HABLADO`).
+- **Memoria sin modelo** (`Find-EnMemoria`): «¿qué sabes del wifi?» busca las
+  palabras clave (sin vacías, con prefijo y distancia 1) en `memoria\diario`
+  y `memoria\temas`, y lee hasta 3 líneas con su fecha, en <1 s. Solo si no
+  encuentra nada va al modelo, como antes.
+- **Rutinas de juego** (`config.json → juego`): al entrar en un juego se
+  aplica el perfil `perfilAlEntrar` (solo los niveles, no las apps: abrir
+  Discord encima de un juego recién lanzado estorba), guardando el brillo; al
+  salir se restaura el brillo (`restaurarAlSalir`; el volumen no se puede
+  leer, así que no se finge). `avisoMinutos` (120): «Oye, ya llevas dos horas
+  con X», una vez por sesión de juego.
+- **Estadísticas** (`memoria\estadisticas.md`, regenerada por
+  `Add-Estadistica` en cada orden; estado en `estadisticas.json`): órdenes
+  por día y ruta, **lo que la capa local no reconoció** (solo cuando la frase
+  acabó yendo al modelo como orden, no las preguntas) y las últimas órdenes.
+  Es la lista de lo que falta en `commands.json`, sin leer logs.

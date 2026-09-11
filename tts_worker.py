@@ -28,9 +28,16 @@ os.makedirs(SALIDA, exist_ok=True)
 async def principal():
     bucle = asyncio.get_event_loop()
     while True:
-        linea = await bucle.run_in_executor(None, sys.stdin.readline)
-        if not linea:
+        # stdin en BINARIO y decodificado como UTF-8 a mano. Con sys.stdin de
+        # texto, Python usaba la pagina de codigos de la consola oculta (850)
+        # y cualquier tilde o "¿" acababa en un surrogate que reventaba el
+        # md5: el worker moria en silencio con cada frase no ASCII y el
+        # asistente lo relanzaba (2 s mudo). El asistente ahora escribe bytes
+        # UTF-8 directamente, sin pasar por el codificador de .NET.
+        cruda = await bucle.run_in_executor(None, sys.stdin.buffer.readline)
+        if not cruda:
             break
+        linea = cruda.decode("utf-8", errors="replace")
         # .NET antepone un BOM a la primera linea de stdin redirigido: si no se
         # quita, esa frase genera un hash distinto y nunca acierta en la cache.
         texto = linea.strip().lstrip("﻿")
