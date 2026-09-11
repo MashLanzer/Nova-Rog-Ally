@@ -1136,6 +1136,9 @@ $MotorDictado = [string](Get-Cfg 'input' 'dictado' 'vosk')
 $MarcaDictar = Join-Path $TmpDir "dictar.flag"
 $RutaDictado = Join-Path $TmpDir "dictado.txt"
 $RutaParcial = Join-Path $TmpDir "dictado-parcial.txt"
+# nivel de voz 0..1 que el worker escribe mientras dictas; lo lee la interfaz
+# directamente (nova_ui.exe busca ui-nivel.txt junto a ui-estado.json)
+$RutaNivel = Join-Path $TmpDir "ui-nivel.txt"
 $script:pausaHasta = 0
 
 function Pausar-Escucha([int]$ms) {
@@ -1169,7 +1172,7 @@ function Initialize-Escucha {
             if (-not (Test-Path -LiteralPath $worker)) { Log "WARN: falta wake_vosk.py"; return }
             $script:wakeProc = Start-Process -FilePath $PyExe `
                 -ArgumentList @('-u', $worker, $EscuchaNombre, $MarcaWake, $EventLog, $EscuchaGanancia,
-                                $MarcaPausa, $MarcaDictar, $RutaDictado, $RutaParcial) `
+                                $MarcaPausa, $MarcaDictar, $RutaDictado, $RutaParcial, $RutaNivel) `
                 -WorkingDirectory $LogDir -WindowStyle Hidden -PassThru
         } else {
             $worker = Join-Path $LogDir "wake_worker.exe"

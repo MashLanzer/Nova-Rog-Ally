@@ -12,7 +12,8 @@
 # Comunicacion: al oir el nombre se crea un archivo marca, igual que el worker
 # anterior. El asistente lo ve, lo borra y actua.
 #
-# Uso: wake_vosk.py <nombre> <rutaMarca> <rutaLog> [ganancia|auto]
+# Uso: wake_vosk.py <nombre> <rutaMarca> <rutaLog> [ganancia|auto] [pausa]
+#      [dictar] [texto] [parcial] [nivel]
 
 import sys
 import os
@@ -47,6 +48,12 @@ PAUSA = sys.argv[5] if len(sys.argv) > 5 else ""
 DICTAR = sys.argv[6] if len(sys.argv) > 6 else ""
 TEXTO = sys.argv[7] if len(sys.argv) > 7 else ""
 PARCIAL = sys.argv[8] if len(sys.argv) > 8 else ""
+# --- NIVEL PARA LA INTERFAZ ---
+# Mientras el asistente dicta (con Win+H este worker esta en pausa, pero el
+# microfono sigue llegando) se escribe aqui el nivel de voz, 0..1, para que la
+# onda de la capsula se mueva con la voz real. La interfaz lo lee directamente:
+# el asistente no esta en medio, asi que no anade latencia a nada.
+NIVEL = sys.argv[9] if len(sys.argv) > 9 else ""
 
 # se da por terminada la frase tras este silencio
 SILENCIO_FIN = 1.4
@@ -209,6 +216,7 @@ try:
                 datos = None
 
             ahora = time.time()
+            crudo = datos   # se conserva para medir el nivel aunque se tire
 
             # PAUSA: el asistente esta hablando o dictando. Se tira el audio
             # sin mirarlo y sin recalibrar; al reanudar se reinicia el
@@ -255,6 +263,18 @@ try:
                 escribir(TEXTO, texto_final)
                 dictando = False
                 rec = nuevo_reconocedor()
+
+            # nivel para la onda de la interfaz, solo mientras se dicta o se
+            # esta en pausa (que es cuando la capsula esta abierta). Se
+            # normaliza con la ganancia actual: la ganancia automatica lleva
+            # la voz normal a ~0.35, asi que hablar normal da ~0.8.
+            if NIVEL and crudo is not None and (pausado or dictando):
+                try:
+                    m = np.frombuffer(crudo, dtype=np.int16).astype(np.float32)
+                    pico_crudo = float(np.max(np.abs(m))) / 32768.0
+                    escribir(NIVEL, "%.3f" % min(1.0, pico_crudo * ganancia / 0.45))
+                except Exception:
+                    pass
 
             if datos is not None:
                 muestras = np.frombuffer(datos, dtype=np.int16).astype(np.float32)

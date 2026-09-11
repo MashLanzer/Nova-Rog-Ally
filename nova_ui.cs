@@ -52,7 +52,9 @@ public class NovaUI : Window
     const int BARRAS_ONDA = 14;
 
     static string rutaEstado;
+    static string rutaNivel;        // ui-nivel.txt junto al estado: lo escribe el worker del microfono
     static int pidPadre = 0;
+    double nivelObjetivo = 0;
 
     Border envoltorio;          // lleva la sombra de profundidad (negra)
     Border capsula;             // lleva el resplandor de color y el borde
@@ -105,6 +107,8 @@ public class NovaUI : Window
     {
         rutaEstado = args.Length > 0 ? args[0] : "ui-estado.json";
         if (args.Length > 1) { int.TryParse(args[1], out pidPadre); }
+        try { rutaNivel = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(rutaEstado)), "ui-nivel.txt"); }
+        catch { rutaNivel = null; }
         var app = new Application();
         app.Run(new NovaUI());
     }
@@ -493,9 +497,11 @@ public class NovaUI : Window
     {
         if (onda.Opacity < 0.05) { return; }
         fase += 0.45;
-        // el asistente no siempre manda nivel; con un minimo la onda respira
-        // sola mientras escucha en vez de quedarse plana como si estuviera muerta
-        double nivel = Math.Max(nivelActual, 0.35);
+        // el nivel real llega a 4 Hz (bloques de 250 ms); se persigue con un
+        // suavizado para que la onda no de saltos, y un minimo la mantiene
+        // respirando en el silencio en vez de quedarse plana
+        nivelActual += (nivelObjetivo - nivelActual) * 0.22;
+        double nivel = Math.Max(nivelActual, 0.18);
         for (int i = 0; i < barras.Length; i++)
         {
             double centro = 1.0 - Math.Abs(i - (barras.Length - 1) / 2.0) / ((barras.Length - 1) / 2.0);
@@ -524,7 +530,21 @@ public class NovaUI : Window
         }
         catch { }
 
-        nivelActual = niv;
+        // el nivel del microfono viene por otro archivo, escrito por el worker
+        // de escucha; si lleva mas de 1 s sin actualizarse, es que no dicta
+        if (est == "escuchando" && rutaNivel != null)
+        {
+            try
+            {
+                if (File.Exists(rutaNivel) && (DateTime.UtcNow - File.GetLastWriteTimeUtc(rutaNivel)).TotalSeconds < 1.0)
+                {
+                    double v;
+                    if (double.TryParse(File.ReadAllText(rutaNivel).Trim(), NumberStyles.Any, CultureInfo.InvariantCulture, out v)) { niv = Math.Max(niv, v); }
+                }
+            }
+            catch { }
+        }
+        nivelObjetivo = niv;
         if (est != estadoActual || txt != textoActual)
         {
             bool estabaEnReposo = (estadoActual == "" || estadoActual == "reposo");

@@ -457,8 +457,8 @@ llegan al agente.
    aproximación lejana (no por coincidencia exacta ni por contención),
    preguntar «¿Little Nightmares III?» antes de lanzar. Debe llevar
    **autocancelación por tiempo**, para no repetir el error del modo pegajoso.
-3. **Nivel de micrófono en la onda de la interfaz**: el worker podría escribir
-   el nivel en el JSON y la onda reaccionaría a la voz real. Hoy respira sola.
+3. ✅ **Nivel de micrófono en la onda**: el worker escribe `tmp\ui-nivel.txt`
+   (0..1, a 4 Hz) mientras dictas y la interfaz lo lee directamente.
 4. **RAM de `nova_ui.exe`** (~130 MB, casi todo el runtime de WPF). Si molesta:
    `ui.nueva = false` en `config.json` devuelve la barra antigua.
 5. Comprobar que la cápsula se ve **sobre juegos a pantalla completa
