@@ -13,7 +13,8 @@
                      "timeoutMs":  240000
                  },
     "ui":  {
-               "popupMs":  8000
+               "popupMs":  8000,
+               "nueva":  true
            },
     "voz":  {
                 "activada":  true,

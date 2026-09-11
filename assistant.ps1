@@ -1083,6 +1083,8 @@ function Say([string]$texto) {
         $script:finVoz = $sw.ElapsedMilliseconds
         $estimado = [Math]::Min(20000, ($t.Length * 70) + 1200)
         Pausar-Escucha $estimado
+        # la capsula muestra lo que se dice y vuelve al reposo al callar
+        Set-UI 'hablando' $t ([Math]::Max($estimado, 2500))
     } catch {}
     # cadena de respaldo: si la red falla, sigue habiendo voz
     if ($script:ttsProc) { if (Say-Online $t) { return } }
@@ -1185,6 +1187,62 @@ function Initialize-Escucha {
     } catch {
         Log ("WARN: escucha continua no arranco: " + $_.Exception.Message)
         $script:wakeProc = $null
+    }
+}
+
+# =====================================================================
+# INTERFAZ (nova_ui.exe): la cara visible del asistente
+# Una capsula de cristal en la esquina inferior izquierda que vive en su
+# propio proceso WPF. Aqui NO se dibuja nada: solo se escribe un JSON con el
+# estado y la interfaz lo lee cada 80 ms. Mismo patron de archivos que los
+# workers de voz y escucha; cero hilos compartidos con este bucle.
+#
+# La barra antigua de WinForms sigue existiendo porque el dictado de Windows
+# necesita una ventana con foco donde escribir, pero se vuelve invisible
+# (opacidad minima) cuando la interfaz nueva esta activa.
+# =====================================================================
+$UiNuevaOn = [bool](Get-Cfg 'ui' 'nueva' $true)
+$RutaUiEstado = Join-Path $TmpDir "ui-estado.json"
+$script:uiProc = $null
+$script:uiUltimo = ''
+$script:uiHasta = 0     # cuando vence, la capsula vuelve al reposo
+$script:uiCheck = 0
+$script:uiIntentos = 0
+
+# Estados: reposo | escuchando | pensando | hablando | error.
+# $ms > 0: volver al reposo pasado ese tiempo (si no hay nada mas en marcha).
+function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
+    if (-not $UiNuevaOn) { return }
+    $t = (($texto -replace '[\r\n\t]+', ' ') -replace '\s+', ' ').Trim()
+    if ($t.Length -gt 140) { $t = $t.Substring(0, 137) + "..." }
+    $t = $t.Replace('\', '\\').Replace('"', '\"')
+    $json = '{"estado":"' + $estado + '","texto":"' + $t + '","nivel":0}'
+    if ($json -ne $script:uiUltimo) {
+        # UTF-8 SIN BOM: la interfaz lo lee tal cual y el BOM colaria un caracter
+        try { [System.IO.File]::WriteAllText($RutaUiEstado, $json, (New-Object System.Text.UTF8Encoding $false)) } catch {}
+        $script:uiUltimo = $json
+    }
+    $script:uiHasta = if ($ms -gt 0) { $sw.ElapsedMilliseconds + $ms } else { 0 }
+}
+
+function Initialize-UI {
+    if (-not $UiNuevaOn) { Log "interfaz nueva desactivada por configuracion"; return }
+    $exe = Join-Path $LogDir "nova_ui.exe"
+    if (-not (Test-Path -LiteralPath $exe)) { Log "WARN: falta nova_ui.exe (compilar con tools\compilar-ui.ps1); sigue la barra antigua"; $script:UiNuevaOn = $false; return }
+    try {
+        # arrancar siempre en reposo: un JSON viejo de otra sesion dejaria la
+        # capsula abierta con un texto rancio
+        $script:uiUltimo = ''
+        Set-UI 'reposo'
+        # se le pasa nuestro PID: si este proceso muere, la capsula se cierra sola
+        $script:uiProc = Start-Process -FilePath $exe -ArgumentList @((ConvertTo-CmdArg $RutaUiEstado), "$PID") `
+            -WorkingDirectory $LogDir -PassThru
+        $null = $script:uiProc.Handle
+        try { $script:uiProc.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal } catch {}
+        Log "interfaz ACTIVA (PID=$($script:uiProc.Id))"
+    } catch {
+        Log ("WARN: la interfaz no arranco: " + $_.Exception.Message)
+        $script:uiProc = $null
     }
 }
 
@@ -1312,6 +1370,7 @@ elseif ($cmds) {
 
 Initialize-Voz
 Initialize-Escucha
+Initialize-UI
 
 $script:Juegos = Get-JuegosSteam
 $script:JuegosStamp = Get-Date
@@ -1351,6 +1410,10 @@ $tb.Height = 1
 $tb.Location = New-Object System.Drawing.Point(0, 0)
 $capture.Controls.Add($lbl)
 $capture.Controls.Add($tb)
+# Con la interfaz nueva, esta barra se vuelve invisible pero SIGUE EXISTIENDO:
+# el dictado de Windows necesita una ventana con foco donde escribir. Con
+# opacidad 0 Windows deja de pintarla; 0,01 la mantiene viva y con foco.
+if ($UiNuevaOn) { $capture.Opacity = 0.01 }
 
 function Show-Capture {
     $tb.Text = ""
@@ -1422,8 +1485,14 @@ function Close-Popup {
     $script:popupUntil = 0
 }
 
-function Show-Popup([string]$text) {
+function Show-Popup([string]$text, [string]$estadoUI = 'hablando') {
     Close-Popup
+    # Con la interfaz nueva el mensaje va a la capsula. El popup antiguo solo
+    # se abre ademas para textos largos, que en 340 px no se podrian leer.
+    if ($UiNuevaOn) {
+        Set-UI $estadoUI $text $PopupMs
+        if ($text.Length -le 80) { return }
+    }
     try {
         $f = New-Object System.Windows.Forms.Form
         $f.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
@@ -1628,6 +1697,7 @@ function Submit-Command([string]$text, [string]$modo = 'accion') {
     $lbl.Text = "$etiqueta (manten ≡ para cancelar)"
     $lbl.ForeColor = [System.Drawing.Color]::Gold
     $capture.Show()
+    Set-UI 'pensando' $(if ($modo -eq 'accion') { 'Procesando...' } elseif ($modo -eq 'traducir') { 'Entendiendo...' } else { 'Pensando...' })
 
     $prompt = Expand-Prompt $text     # si pregunta por la memoria, ya viene guiado
     if ($modo -eq 'traducir') {
@@ -1643,7 +1713,7 @@ function Submit-Command([string]$text, [string]$modo = 'accion') {
     $extra = if ($modo -eq 'charla') { '--continue' } else { '' }
 
     if (-not (Start-OpencodeJob $prompt $extra)) {
-        Show-Popup "(no se pudo lanzar opencode; ver assistant.log)"
+        Show-Popup "(no se pudo lanzar opencode; ver assistant.log)" 'error'
     }
 }
 
@@ -1712,6 +1782,7 @@ function Start-Dictado([string]$origen) {
         $lbl.Text = "● VOZ..."
         $lbl.ForeColor = [System.Drawing.Color]::LimeGreen
         $capture.Show()
+        Set-UI 'escuchando'
         $script:armed = $true
         $script:dictaInicio = $sw.ElapsedMilliseconds
         return
@@ -1722,6 +1793,7 @@ function Start-Dictado([string]$origen) {
     Pausar-Escucha 60000
     if (Show-Capture) {
         Send-WinH
+        Set-UI 'escuchando'
         $script:armed = $true
         # punto de partida para detectar el silencio
         $script:lastText = ""
@@ -1736,7 +1808,7 @@ function Start-Dictado([string]$origen) {
         # de activacion queda muda un minuto cada vez que falla el foco, que en
         # esta maquina no es raro (overlays de ASUS robando el primer plano).
         Reanudar-Escucha
-        Show-Popup "No pude tomar el foco. Dictado cancelado. Intenta de nuevo."
+        Show-Popup "No pude tomar el foco. Dictado cancelado. Intenta de nuevo." 'error'
         $script:armed = $false
     }
 }
@@ -1816,7 +1888,7 @@ function Process-Texto([string]$text) {
         # antes esto era mudo: no distinguias "fallo" de "no dije nada"
         Log "vacio, ignorado"
         [System.Media.SystemSounds]::Hand.Play()
-        Show-Popup "No se capturo texto del dictado."
+        Show-Popup "No te escuche. Intenta de nuevo." 'error'
     }
 }
 
@@ -1898,7 +1970,7 @@ while ($true) {
                 Log "CANCELAR (hold durante procesamiento)"
                 [System.Media.SystemSounds]::Hand.Play()
                 Stop-OpencodeJob
-                Show-Popup "Orden cancelada."
+                Show-Popup "Orden cancelada." 'error'
             } elseif (-not $script:armed) {
                 Start-Dictado "mantener ≡"
             } elseif ($MotorDictado -eq 'vosk' -and $script:wakeProc) {
@@ -1933,7 +2005,7 @@ while ($true) {
             } elseif ($script:wakeIntentos -eq 3) {
                 $script:wakeIntentos++   # avisar una sola vez
                 Log "ERROR: el worker de escucha no se sostiene; se sigue solo con el boton"
-                Show-Popup "La palabra de activacion fallo. Sigue funcionando el boton."
+                Show-Popup "La palabra de activacion fallo. Sigue funcionando el boton." 'error'
                 Say "La escucha por voz fallo. Puedes seguir usando el boton."
             }
         } elseif ($script:wakeProc) {
@@ -1970,7 +2042,7 @@ while ($true) {
                 $vista = ($par -replace '\s+', ' ').Trim()
                 if ($vista.Length -gt 44) { $vista = "..." + $vista.Substring($vista.Length - 41) }
                 $nuevo = if ($vista) { "● $vista" } else { "● VOZ..." }
-                if ($lbl.Text -ne $nuevo) { $lbl.Text = $nuevo }
+                if ($lbl.Text -ne $nuevo) { $lbl.Text = $nuevo; Set-UI 'escuchando' $vista }
             } catch {}
         }
         # el worker ya termino: entrega el texto
@@ -1988,6 +2060,7 @@ while ($true) {
             Remove-Item -LiteralPath $MarcaDictar -Force -ErrorAction SilentlyContinue
             $script:armed = $false
             $capture.Hide()
+            Set-UI 'error' 'Sin respuesta del microfono' 2500
         }
     }
 
@@ -2003,6 +2076,7 @@ while ($true) {
             $vista = ($actual -replace '\s+', ' ').Trim()
             if ($vista.Length -gt 44) { $vista = "..." + $vista.Substring($vista.Length - 41) }
             $lbl.Text = if ($vista) { "● $vista" } else { "● VOZ..." }
+            Set-UI 'escuchando' $vista
         } elseif ($actual.Trim().Length -gt 0 -and ($sw.ElapsedMilliseconds - $script:lastChange) -ge $AutoSubmitMs) {
             try { Finish-Dictation "silencio" }
             catch { Log "auto-envio error: $($_.Exception.Message)"; $script:armed = $false }
@@ -2016,7 +2090,7 @@ while ($true) {
         } elseif (($sw.ElapsedMilliseconds - $script:jobStart) -ge $CliTimeoutMs) {
             Log "RUNNER timeout tras $([Math]::Round($CliTimeoutMs/1000)) s"
             Stop-OpencodeJob
-            Show-Popup "(timeout: opencode tardo mas de $([Math]::Round($CliTimeoutMs/1000)) s)"
+            Show-Popup "(timeout: opencode tardo mas de $([Math]::Round($CliTimeoutMs/1000)) s)" 'error'
         }
     }
 
@@ -2072,6 +2146,31 @@ while ($true) {
     # cierra el popup al vencer su plazo (antes se esperaba 8 s bloqueando)
     if ($script:popupUntil -gt 0 -and $sw.ElapsedMilliseconds -ge $script:popupUntil) {
         Close-Popup
+    }
+
+    # --- INTERFAZ: vuelta al reposo y vigilancia del proceso ---
+    if ($script:uiHasta -gt 0 -and $sw.ElapsedMilliseconds -ge $script:uiHasta) {
+        # solo si no hay nada en marcha: escuchando o pensando mandan
+        if (-not $script:armed -and -not $script:busy) { Set-UI 'reposo' } else { $script:uiHasta = 0 }
+    }
+    if ($UiNuevaOn -and ($sw.ElapsedMilliseconds - $script:uiCheck) -ge 30000) {
+        $script:uiCheck = $sw.ElapsedMilliseconds
+        if ($script:uiProc -and $script:uiProc.HasExited) {
+            if ($script:uiIntentos -lt 3) {
+                $script:uiIntentos++
+                Log "WARN: la interfaz murio; relanzando (intento $($script:uiIntentos)/3)"
+                try { $script:uiProc.Dispose() } catch {}
+                $script:uiProc = $null
+                Initialize-UI
+            } elseif ($script:uiIntentos -eq 3) {
+                $script:uiIntentos++
+                Log "ERROR: la interfaz no se sostiene; vuelve la barra antigua"
+                $script:UiNuevaOn = $false
+                $capture.Opacity = 1
+            }
+        } elseif ($script:uiProc) {
+            $script:uiIntentos = 0
+        }
     }
 
     $startPrev = $startNow
