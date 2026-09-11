@@ -585,7 +585,14 @@ Cómo funciona:
   luz en la mitad superior, borde con luz (claro arriba, color del estado
   abajo), halo de color y sombra negra hacia abajo. El punto es una esfera con
   brillo, no un círculo plano. DWM no ofrece acrílico con forma de cápsula.
-- Ancho = medida real del texto (`FormattedText`), tope 340 con elipsis.
+- Ancho = medida real del texto (`FormattedText`), tope 340. **El texto largo
+  no agranda la cápsula: se desplaza.** Escuchando se ve siempre el final (lo
+  último dicho); hablando recorre el texto una vez a ~100 px/s, que es el
+  ritmo de la voz, con los bordes difuminados. El `TextBlock` va dentro de un
+  `Canvas`, no de un `Grid`: el Grid le aplica un recorte de diseño que viaja
+  con la transformación y el texto desaparecía al moverse.
+- La fila de contenido va alineada a la izquierda explícitamente: con el
+  `Stretch` por defecto, en reposo el punto salía cortado por el recorte.
 - Recibe el **PID del asistente** y se cierra sola si muere. El asistente la
   supervisa cada 30 s (3 relanzos) y, si no se sostiene, **vuelve la barra
   antigua** (`$capture.Opacity = 1`).

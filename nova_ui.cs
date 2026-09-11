@@ -63,6 +63,10 @@ public class NovaUI : Window
     Border brilloSuperior;
     Ellipse punto;
     TextBlock etiqueta;
+    Canvas ventanaTexto;            // recorta el texto; dentro se desplaza
+    TranslateTransform desplaz;
+    LinearGradientBrush mascaraAmbos, mascaraIzq, mascaraDer;
+    int generacionTexto = 0;        // invalida temporizadores de un texto anterior
     StackPanel onda;
     Rectangle[] barras;
     DropShadowEffect resplandor;
@@ -255,7 +259,11 @@ public class NovaUI : Window
         var fila = new StackPanel();
         fila.Orientation = Orientation.Horizontal;
         fila.VerticalAlignment = VerticalAlignment.Center;
-        fila.Margin = new Thickness((ALTO - DIAM_PUNTO) / 2, 0, 16, 0);
+        // Alineada a la izquierda SIEMPRE. Con el valor por defecto (Stretch),
+        // si la fila media mas que el circulo de reposo WPF la desplazaba y el
+        // punto asomaba cortado por el recorte redondo.
+        fila.HorizontalAlignment = HorizontalAlignment.Left;
+        fila.Margin = new Thickness((ALTO - DIAM_PUNTO) / 2, 0, 0, 0);
 
         // el punto: una esfera con su propio reflejo, no un circulo plano
         var esfera = new Grid();
@@ -305,14 +313,56 @@ public class NovaUI : Window
         etiqueta.FontFamily = new FontFamily("Segoe UI Semibold, Segoe UI");
         etiqueta.FontSize = 13.5;
         etiqueta.VerticalAlignment = VerticalAlignment.Center;
-        etiqueta.Margin = new Thickness(12, 0, 0, 0);
-        etiqueta.TextTrimming = TextTrimming.CharacterEllipsis;
-        etiqueta.Opacity = 0;
+        etiqueta.HorizontalAlignment = HorizontalAlignment.Left;
+        etiqueta.TextTrimming = TextTrimming.None;
         var sombraTexto = new DropShadowEffect();
         sombraTexto.Color = Colors.Black; sombraTexto.BlurRadius = 4; sombraTexto.ShadowDepth = 1; sombraTexto.Opacity = 0.7;
         etiqueta.Effect = sombraTexto;
         TextOptions.SetTextRenderingMode(etiqueta, TextRenderingMode.ClearType);
-        fila.Children.Add(etiqueta);
+        desplaz = new TranslateTransform();
+        etiqueta.RenderTransform = desplaz;
+
+        // El texto largo NO agranda la capsula (el tamano es el que el usuario
+        // quiere): se desplaza dentro de esta ventana recortada. Escuchando se
+        // ve siempre el final (lo ultimo dicho); hablando recorre el texto una
+        // vez, al ritmo de la voz. Las mascaras difuminan los bordes.
+        // Es un Canvas y no un Grid a proposito: el Grid mide al TextBlock con
+        // el ancho del hueco y WPF le aplica un recorte de diseno que viaja
+        // con la transformacion, asi que al desplazarse el texto desaparecia.
+        // El Canvas mide a sus hijos sin limite y no recorta.
+        ventanaTexto = new Canvas();
+        ventanaTexto.ClipToBounds = true;
+        ventanaTexto.Height = 20;
+        ventanaTexto.HorizontalAlignment = HorizontalAlignment.Left;
+        ventanaTexto.VerticalAlignment = VerticalAlignment.Center;
+        ventanaTexto.Margin = new Thickness(12, 0, 0, 0);
+        ventanaTexto.Opacity = 0;
+        ventanaTexto.Visibility = Visibility.Collapsed;
+        Canvas.SetLeft(etiqueta, 0);
+        Canvas.SetTop(etiqueta, 0);
+        ventanaTexto.Children.Add(etiqueta);
+        fila.Children.Add(ventanaTexto);
+
+        mascaraDer = new LinearGradientBrush();
+        mascaraDer.StartPoint = new Point(0, 0); mascaraDer.EndPoint = new Point(1, 0);
+        mascaraDer.GradientStops.Add(new GradientStop(Color.FromArgb(0xFF, 0, 0, 0), 0));
+        mascaraDer.GradientStops.Add(new GradientStop(Color.FromArgb(0xFF, 0, 0, 0), 0.91));
+        mascaraDer.GradientStops.Add(new GradientStop(Color.FromArgb(0x00, 0, 0, 0), 1));
+        mascaraDer.Freeze();
+
+        mascaraAmbos = new LinearGradientBrush();
+        mascaraAmbos.StartPoint = new Point(0, 0); mascaraAmbos.EndPoint = new Point(1, 0);
+        mascaraAmbos.GradientStops.Add(new GradientStop(Color.FromArgb(0x00, 0, 0, 0), 0));
+        mascaraAmbos.GradientStops.Add(new GradientStop(Color.FromArgb(0xFF, 0, 0, 0), 0.07));
+        mascaraAmbos.GradientStops.Add(new GradientStop(Color.FromArgb(0xFF, 0, 0, 0), 0.93));
+        mascaraAmbos.GradientStops.Add(new GradientStop(Color.FromArgb(0x00, 0, 0, 0), 1));
+        mascaraAmbos.Freeze();
+        mascaraIzq = new LinearGradientBrush();
+        mascaraIzq.StartPoint = new Point(0, 0); mascaraIzq.EndPoint = new Point(1, 0);
+        mascaraIzq.GradientStops.Add(new GradientStop(Color.FromArgb(0x00, 0, 0, 0), 0));
+        mascaraIzq.GradientStops.Add(new GradientStop(Color.FromArgb(0xFF, 0, 0, 0), 0.09));
+        mascaraIzq.GradientStops.Add(new GradientStop(Color.FromArgb(0xFF, 0, 0, 0), 1));
+        mascaraIzq.Freeze();
 
         interior.Children.Add(fila);
         capsula.Child = interior;
@@ -540,19 +590,65 @@ public class NovaUI : Window
         bool expandida = (estado != "reposo") || !string.IsNullOrEmpty(texto);
         bool conOnda = (estado == "escuchando");
 
-        etiqueta.Text = texto;
-        Desvanecer(etiqueta, string.IsNullOrEmpty(texto) ? 0 : 1, 220);
         // la onda invisible seguia ocupando sitio y cortaba el texto: se
         // colapsa del todo cuando no se escucha
         onda.Visibility = conOnda ? Visibility.Visible : Visibility.Collapsed;
         Desvanecer(onda, conOnda ? 1 : 0, 220);
 
+        bool hayTexto = !string.IsNullOrEmpty(texto);
+        double anchoOnda = conOnda ? (BARRAS_ONDA * 6 + 12) : 0;
+        double fijo = (ALTO - DIAM_PUNTO) / 2 + DIAM_PUNTO + anchoOnda + 16 + 2;
+        double disponible = ANCHO_BARRA - fijo - 12;
+        double anchoTexto = hayTexto ? MedirTexto(texto) : 0;
+        double anchoVentana = Math.Min(anchoTexto, disponible);
+
+        etiqueta.Text = texto;
+        ventanaTexto.Visibility = hayTexto ? Visibility.Visible : Visibility.Collapsed;
+        ventanaTexto.Width = Math.Max(0, anchoVentana);
+        Desvanecer(ventanaTexto, hayTexto ? 1 : 0, 220);
+
+        double sobra = anchoTexto - disponible;
+        int gen = ++generacionTexto;
+        desplaz.BeginAnimation(TranslateTransform.XProperty, null);
+        if (sobra > 0 && estado == "escuchando")
+        {
+            // transcripcion en vivo: lo que importa es el final
+            var a = new DoubleAnimation(-sobra, TimeSpan.FromMilliseconds(160));
+            a.EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut };
+            desplaz.BeginAnimation(TranslateTransform.XProperty, a);
+            ventanaTexto.OpacityMask = mascaraIzq;
+        }
+        else if (sobra > 0)
+        {
+            // una pasada, ~100 px/s: se lee al mismo ritmo al que se habla.
+            // La mascara sigue al movimiento: al principio solo se difumina la
+            // derecha (si no, se comia la primera letra), en marcha los dos
+            // lados, y al final solo la izquierda.
+            desplaz.X = 0;
+            ventanaTexto.OpacityMask = mascaraDer;
+            var a = new DoubleAnimation(0, -sobra, TimeSpan.FromMilliseconds(sobra * 10));
+            a.BeginTime = TimeSpan.FromMilliseconds(900);
+            a.Completed += delegate { if (gen == generacionTexto) { ventanaTexto.OpacityMask = mascaraIzq; } };
+            var arranque = new DispatcherTimer();
+            arranque.Interval = TimeSpan.FromMilliseconds(950);
+            arranque.Tick += delegate
+            {
+                arranque.Stop();
+                if (gen == generacionTexto) { ventanaTexto.OpacityMask = mascaraAmbos; }
+            };
+            arranque.Start();
+            desplaz.BeginAnimation(TranslateTransform.XProperty, a);
+        }
+        else
+        {
+            desplaz.X = 0;
+            ventanaTexto.OpacityMask = null;
+        }
+
         double destino = ALTO;   // en reposo, un circulo perfecto
         if (expandida)
         {
-            double anchoOnda = conOnda ? (BARRAS_ONDA * 6 + 12) : 0;
-            double anchoTexto = string.IsNullOrEmpty(texto) ? 0 : MedirTexto(texto) + 12;
-            double exacto = (ALTO - DIAM_PUNTO) / 2 + DIAM_PUNTO + anchoOnda + anchoTexto + 16 + 2;
+            double exacto = fijo + (hayTexto ? anchoVentana + 12 : 0);
             destino = Math.Min(ANCHO_BARRA, Math.Max(conOnda ? 150 : 90, exacto));
         }
         Expandir(destino, expandida);
