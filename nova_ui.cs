@@ -208,6 +208,22 @@ public class NovaUI : Window
     bool apartada = false;
     int tapadaCuenta = 0;
     Dictionary<string, DateTime> ultimoGesto = new Dictionary<string, DateTime>();
+    // memoria corta de gestos: encadenados, humor de minutos, ritmo, tono
+    string ultimoGestoNombre = "";
+    DateTime ultimoGestoHora = DateTime.MinValue;
+    string ultimaOrden = "";                 // ultimo texto final de la transcripcion
+    DateTime ultimaPena = DateTime.MinValue;
+    DateTime escuchandoDesde = DateTime.MinValue;
+    DateTime ultimoAsentimiento = DateTime.MinValue;
+    string humor = "";                       // "contenta" | "cauta" | ""
+    DateTime humorHasta = DateTime.MinValue;
+    List<DateTime> negaciones = new List<DateTime>();
+    List<KeyValuePair<DateTime, int>> ritmo = new List<KeyValuePair<DateTime, int>>();
+    int gritoCuenta = 0, susurroCuenta = 0;
+    DateTime tonoHasta = DateTime.MinValue;
+    List<string[]> gestosExtra = new List<string[]>();
+    DateTime gestosExtraLeido = DateTime.MinValue;
+    string rutaGestosCfg, rutaGestosLog;
 
     // click-through: la barra nunca debe robar clics al juego
     const int GWL_EXSTYLE = -20;
@@ -241,6 +257,8 @@ public class NovaUI : Window
         try { rutaNivel = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(rutaEstado)), "ui-nivel.txt"); }
         catch { rutaNivel = null; }
         var app = new Application();
+        // un fallo en cualquier animacion no debe tumbar la interfaz
+        app.DispatcherUnhandledException += delegate(object s, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e) { e.Handled = true; };
         app.Run(new NovaUI());
     }
 
@@ -492,6 +510,14 @@ public class NovaUI : Window
 
         CrearSonidos();
         IniciarVolumen();
+        try
+        {
+            string carpeta = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(rutaEstado));
+            rutaGestosCfg = System.IO.Path.Combine(carpeta, "gestos.txt");
+            rutaGestosLog = System.IO.Path.Combine(carpeta, "gestos.log");
+            CargarGestosExtra();
+        }
+        catch { }
 
         Loaded += delegate
         {
@@ -534,7 +560,10 @@ public class NovaUI : Window
         parpadeo.Interval = TimeSpan.FromSeconds(5);
         parpadeo.Tick += delegate
         {
-            parpadeo.Interval = TimeSpan.FromSeconds(4 + azar.NextDouble() * 5);
+            // cauta o hablando rapido: parpadea mas a menudo
+            double baseSeg = (humor == "cauta" && DateTime.UtcNow < humorHasta) ? 2 : 4;
+            if (velocidadOnda > 0.6) { baseSeg = 2.5; }
+            parpadeo.Interval = TimeSpan.FromSeconds(baseSeg + azar.NextDouble() * 5);
             if (!dormido && (estadoActual == "reposo" || estadoActual == "escuchando" || estadoActual == "")) { Parpadear(); }
         };
         parpadeo.Start();
@@ -993,6 +1022,8 @@ public class NovaUI : Window
     {
         double periodo = Noche() ? 2600 : 1700;
         if (Desanimado()) { periodo = 2300; }
+        if (humor == "contenta" && DateTime.UtcNow < humorHasta) { periodo *= 0.8; }
+        if (humor == "cauta" && DateTime.UtcNow < humorHasta) { periodo *= 1.15; }
         if (Agitado()) { periodo = 1100; }
         if (BateriaBaja()) { periodo = 900; }
         if (dormido) { periodo = 4200; }
@@ -1287,23 +1318,32 @@ public class NovaUI : Window
     // Cada entrada: nombre del gesto y la expresion sobre el texto plano. El
     // orden importa: gana el primero que casa. Se evalua sobre lo NUEVO de la
     // transcripcion en vivo, y sobre la respuesta entera al empezar a hablar.
+    // Incluye ingles y regionalismos (parce, wey, tio, che, chevere, bacano):
+    // el mismo gesto para la misma intencion, digas como lo digas.
     static readonly string[][] GESTOS_USUARIO = {
-        new[] { "carino",   @"\b(te quiero|te adoro|me encantas|eres (genial|la mejor|el mejor|increible|lo maximo)|buen trabajo|bien hecho|que linda|que lindo)\b" },
-        new[] { "gracias",  @"\b(gracias|muchas gracias|perfecto|genial|excelente|estupendo|de lujo|brutal|chevere|bacano)\b" },
-        new[] { "risa",     @"\b(ja+ja+|je+je+|jsjs|lol|xd)\b|jajaj" },
-        new[] { "saludo",   @"^\s*(hola|buenas|buenos dias|buenas tardes|buenas noches|que tal|que mas|hey|ey)\b" },
-        new[] { "despedida",@"\b(adios|chao|chau|hasta luego|nos vemos|me voy|buenas noches|hasta manana)\b" },
-        new[] { "negar",    @"^\s*(no|nop|nel|cancela|cancelalo|para|parate|olvidalo|dejalo|nada|asi no|eso no)\b" },
-        new[] { "asentir",  @"^\s*(si|sip|dale|vale|claro|ok|okey|listo|eso|exacto|correcto|hazlo)\b" },
-        new[] { "reverencia", @"\b(por favor|porfa|porfis|te pido|si puedes|serias tan amable)\b" },
-        new[] { "prisa",    @"\b(rapido|ya|apurate|apura|corre|urgente|ahora mismo|de una|volando)\b" },
-        new[] { "calma",    @"\b(despacio|tranquilo|tranqui|calma|sin prisa|con calma|relax)\b" },
-        new[] { "disculpa", @"\b(perdon|lo siento|disculpa|disculpame|mi error|me equivoque)\b" },
+        new[] { "carino",   @"\b(te quiero|te adoro|te amo|me encantas|eres (genial|la mejor|el mejor|increible|lo maximo|lo mejor|una crack|un crack)|buen trabajo|bien hecho|que linda|que lindo|love you|you rock|you're the best)\b" },
+        new[] { "gracias",  @"\b(gracias|muchas gracias|mil gracias|perfecto|genial|excelente|estupendo|de lujo|brutal|chevere|bacano|thanks|thank you|ty|nice|great|awesome)\b" },
+        new[] { "risa",     @"\b(ja+ja+|je+je+|jsjs|lol|lmao|xd|jiji)\b|jajaj|jeje" },
+        new[] { "saludo",   @"^\s*(hola|holi|buenas|buenos dias|buenas tardes|buenas noches|que tal|que mas|que hubo|quiubo|que onda|que hay|hey|ey|hi|hello|what's up|whats up)\b" },
+        new[] { "despedida",@"\b(adios|chao|chau|hasta luego|nos vemos|me voy|hasta manana|bye|see you|good night)\b" },
+        new[] { "paciencia",@"^\s*(eh+|em+|mm+|hmm+|este|a ver|pues|bueno pues|osea|o sea|espera|espérate|esperate|un momento)\b" },
+        new[] { "negar",    @"^\s*(no|nop|nel|nah|nope|no way|cancela|cancelalo|para|parate|olvidalo|dejalo|nada|asi no|eso no)\b" },
+        new[] { "asentir",  @"^\s*(si|sip|dale|vale|claro|ok|okey|okay|yes|yeah|yep|sale|va|de una|listo|eso|exacto|correcto|hazlo)\b" },
+        new[] { "reverencia", @"\b(por favor|porfa|porfis|plis|please|te pido|si puedes|serias tan amable)\b" },
+        new[] { "prisa",    @"\b(rapido|ya|apurate|apura|corre|urgente|ahora mismo|de una|volando|hurry|quick|fast)\b" },
+        new[] { "calma",    @"\b(despacio|tranquilo|tranqui|calma|sin prisa|con calma|relax|slow|easy)\b" },
+        new[] { "disculpa", @"\b(perdon|lo siento|disculpa|disculpame|mi error|me equivoque|sorry|my bad)\b" },
         // al principio del trozo nuevo, o tras "y" / coma: "abre steam y que hora es"
-        new[] { "duda",     @"(^|\by\s+|,\s*)\s*(que|cual|cuales|como|por que|porque|donde|quien|cuanto|cuantos|cuando|sabes|crees)\b" },
+        new[] { "duda",     @"(^|\by\s+|,\s*)\s*(que|cual|cuales|como|por que|porque|donde|quien|cuanto|cuantos|cuando|sabes|crees|what|how|where|when|why)\b" },
         new[] { "atencion", @"\bnova\b" },
-        new[] { "sueno",    @"\b(duerme|duermete|descansa|a dormir|silencio|callate|shh+)\b" },
-        new[] { "sorpresa", @"\b(wow|guau|uy|oh|no puede ser|en serio|increible|que fuerte)\b" },
+        new[] { "sueno",    @"\b(duerme|duermete|descansa|a dormir|silencio|callate|shh+|sleep)\b" },
+        new[] { "sorpresa", @"\b(wow|guau|uy|oh|no puede ser|en serio|increible|que fuerte|omg|no manches|no jodas)\b" },
+        new[] { "carino",   @"\b(parce|parcero|mano|manito|wey|guey|tio|che|bro|crack)\b.*\b(gracias|genial|bien|buena|buenisimo)\b|\b(gracias|genial|bien|buena|buenisimo)\b.*\b(parce|parcero|mano|manito|wey|guey|tio|che|bro|crack)\b" },
+    };
+    // complicidad con el juego: solo cuando hay un juego delante
+    static readonly string[][] GESTOS_JUEGO = {
+        new[] { "logro",  @"\b(lo logre|lo logramos|ganamos|gane|lo mate|lo matamos|lo pase|lo pasamos|por fin|victoria|gg|ez)\b" },
+        new[] { "apoyo",  @"\b(voy a morir|me van a matar|me mataron|me mato|este jefe|otra vez|que dificil|no puedo|imposible|casi|ay no|ayuda|ayudame|vamos|dale que se puede)\b" },
     };
     static readonly string[][] GESTOS_PROPIOS = {
         new[] { "pena",     @"^\s*(no pude|no encontre|no se pudo|no supe|fallo|error|no te escuche|no tengo|no hay nada|no detecto|todavia no)\b" },
@@ -1316,14 +1356,141 @@ public class NovaUI : Window
     {
         string p = Plano(texto);
         if (p.Trim().Length == 0) { return; }
-        foreach (var g in (propio ? GESTOS_PROPIOS : GESTOS_USUARIO))
+        if (propio)
         {
-            try
+            foreach (var g in GESTOS_PROPIOS)
             {
-                if (Regex.IsMatch(p, g[1])) { Gesto(g[0]); return; }
+                try { if (Regex.IsMatch(p, g[1])) { Gesto(g[0]); break; } } catch { }
             }
-            catch { }
+            Entonar(texto);
+            return;
         }
+        // 1) los gestos del usuario (config.json -> ui.gestos), que mandan
+        foreach (var g in gestosExtra)
+        {
+            try { if (Regex.IsMatch(p, g[1])) { Gesto(g[0]); return; } } catch { }
+        }
+        // 2) complicidad con el juego
+        if (!string.IsNullOrEmpty(juegoActual))
+        {
+            foreach (var g in GESTOS_JUEGO)
+            {
+                try { if (Regex.IsMatch(p, g[1])) { Gesto(g[0]); return; } } catch { }
+            }
+        }
+        // 3) el vocabulario general
+        foreach (var g in GESTOS_USUARIO)
+        {
+            try { if (Regex.IsMatch(p, g[1])) { Gesto(g[0]); return; } } catch { }
+        }
+    }
+
+    // gestos propios del usuario: tmp\gestos.txt, una linea "gesto|patron",
+    // lo escribe el asistente desde config.json -> ui.gestos
+    void CargarGestosExtra()
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(rutaGestosCfg) || !File.Exists(rutaGestosCfg)) { gestosExtra.Clear(); return; }
+            var fecha = File.GetLastWriteTimeUtc(rutaGestosCfg);
+            if (fecha == gestosExtraLeido) { return; }
+            gestosExtraLeido = fecha;
+            gestosExtra.Clear();
+            foreach (var linea in File.ReadAllLines(rutaGestosCfg, Encoding.UTF8))
+            {
+                int sep = linea.IndexOf('|');
+                if (sep <= 0) { continue; }
+                string gesto = linea.Substring(0, sep).Trim().ToLowerInvariant();
+                string patron = linea.Substring(sep + 1).Trim();
+                if (gesto.Length == 0 || patron.Length == 0) { continue; }
+                try { new Regex(patron); } catch { continue; }
+                gestosExtra.Add(new[] { gesto, patron });
+            }
+        }
+        catch { }
+    }
+
+    // entonacion visual de lo que ella dice: una pregunta arquea y sube la
+    // mirada; cada cifra que dice es un tic
+    void Entonar(string texto)
+    {
+        if (string.IsNullOrEmpty(texto)) { return; }
+        string t = texto.Trim();
+        if (t.EndsWith("?") || t.StartsWith("¿"))
+        {
+            rotGesto.BeginAnimation(RotateTransform.AngleProperty, Secuencia(new double[] { 0, 7, 7, 7, 0 }, 450));
+            miradaY -= 2.5;
+        }
+        int k = 0;
+        foreach (char ch in t)
+        {
+            if (!char.IsDigit(ch)) { continue; }
+            var t1 = new DispatcherTimer();
+            t1.Interval = TimeSpan.FromMilliseconds(700 + k * 230);
+            t1.Tick += delegate
+            {
+                t1.Stop();
+                if (estadoActual != "hablando") { return; }
+                escalaGesto.BeginAnimation(ScaleTransform.ScaleXProperty, Secuencia(new double[] { 1, 1.1, 1 }, 70));
+                escalaGesto.BeginAnimation(ScaleTransform.ScaleYProperty, Secuencia(new double[] { 1, 1.1, 1 }, 70));
+            };
+            t1.Start();
+            if (++k >= 6) { break; }
+        }
+    }
+
+    // ritmo: palabras por segundo de la transcripcion en vivo. Rapido, todo
+    // se acelera (onda, parpadeo); pausado, todo se relaja.
+    void MedirRitmo(string texto)
+    {
+        int palabras = texto.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).Length;
+        var ahora = DateTime.UtcNow;
+        ritmo.Add(new KeyValuePair<DateTime, int>(ahora, palabras));
+        ritmo.RemoveAll(delegate(KeyValuePair<DateTime, int> kv) { return (ahora - kv.Key).TotalSeconds > 5; });
+        if (ritmo.Count < 3) { return; }
+        var primero = ritmo[0];
+        double segundos = (ahora - primero.Key).TotalSeconds;
+        if (segundos < 1.5) { return; }
+        double pps = (palabras - primero.Value) / segundos;
+        if (prisaHasta != DateTime.MinValue) { return; }   // la prisa manda
+        if (pps >= 3.0) { velocidadOnda = 0.75; }
+        else if (pps > 0 && pps <= 1.2) { velocidadOnda = 0.28; }
+        else { velocidadOnda = 0.45; }
+    }
+
+    // tono: gritar encoge y abre los ojos; susurrar acerca y baja el halo
+    void MedirTono()
+    {
+        if (estadoActual != "escuchando") { gritoCuenta = 0; susurroCuenta = 0; return; }
+        double n = nivelObjetivo;
+        gritoCuenta = (n >= 0.97) ? gritoCuenta + 1 : 0;
+        susurroCuenta = (n > 0.02 && n < 0.22) ? susurroCuenta + 1 : 0;
+        if (DateTime.UtcNow < tonoHasta) { return; }
+        if (gritoCuenta >= 3) { gritoCuenta = 0; Gesto("grito"); }
+        else if (susurroCuenta >= 8 && textoActual.Length > 0) { susurroCuenta = 0; Gesto("susurro"); }
+    }
+
+    void Humor(string nuevo, int minutos)
+    {
+        humor = nuevo;
+        humorHasta = DateTime.UtcNow.AddMinutes(minutos);
+        Latido();
+        double esc = (nuevo == "cauta") ? 0.92 : 1.0;
+        var a = new DoubleAnimation(esc, TimeSpan.FromMilliseconds(600));
+        a.EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut };
+        escalaGesto.BeginAnimation(ScaleTransform.ScaleXProperty, a);
+        escalaGesto.BeginAnimation(ScaleTransform.ScaleYProperty, a);
+        if (estadoActual == "reposo" || estadoActual == "") { Aplicar(estadoActual, textoActual, false); }
+    }
+
+    void AnotarGesto(string nombre)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(rutaGestosLog)) { return; }
+            File.AppendAllText(rutaGestosLog, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " " + nombre + "\r\n", Encoding.UTF8);
+        }
+        catch { }
     }
 
     // anima una propiedad de una transformacion: de "desde" a "hasta"; si
@@ -1389,8 +1556,80 @@ public class NovaUI : Window
         if (ultimoGesto.TryGetValue(nombre, out ultimo) && (DateTime.UtcNow - ultimo).TotalMilliseconds < 1500) { return; }
         ultimoGesto[nombre] = DateTime.UtcNow;
         Despertar();
+        var ahora = DateTime.UtcNow;
+
+        // --- encadenados: el gesto depende del anterior ---
+        if (nombre == "gracias" && ultimoGestoNombre == "pena" && (ahora - ultimoGestoHora).TotalSeconds < 25) { nombre = "alivio"; }
+        if (nombre == "pena") { ultimaPena = ahora; }
+
+        // --- humor de minutos ---
+        if (nombre == "carino" || nombre == "gracias" || nombre == "logro") { Humor("contenta", 2); }
+        if (nombre == "negar")
+        {
+            negaciones.Add(ahora);
+            negaciones.RemoveAll(delegate(DateTime d) { return (ahora - d).TotalSeconds > 60; });
+            if (negaciones.Count >= 2) { Humor("cauta", 2); }
+        }
+        ultimoGestoNombre = nombre;
+        ultimoGestoHora = ahora;
+        AnotarGesto(nombre);
+
         switch (nombre)
         {
+            case "alivio":
+                // suspiro: se hincha, aguanta y suelta
+                escalaGesto.BeginAnimation(ScaleTransform.ScaleXProperty, Secuencia(new double[] { 1, 1.18, 1.18, 0.96, 1 }, 260));
+                escalaGesto.BeginAnimation(ScaleTransform.ScaleYProperty, Secuencia(new double[] { 1, 1.18, 1.18, 0.96, 1 }, 260));
+                Sonrojo(Color.FromRgb(0xC8, 0xF0, 0xDC), 1400);
+                Sonar(sonSuave);
+                break;
+            case "determinacion":
+                // se aprieta y brilla: "esta vez si"
+                escalaGesto.BeginAnimation(ScaleTransform.ScaleXProperty, Secuencia(new double[] { 1, 0.88, 0.88, 1.08, 1 }, 150));
+                escalaGesto.BeginAnimation(ScaleTransform.ScaleYProperty, Secuencia(new double[] { 1, 0.88, 0.88, 1.08, 1 }, 150));
+                Sonrojo(Colors.White, 900);
+                Ondas(1, Colors.White);
+                break;
+            case "paciencia":
+                // parpadeo lento y mirada hacia arriba: "te espero"
+                miradaY -= 3;
+                escalaPunto.BeginAnimation(ScaleTransform.ScaleYProperty, Secuencia(new double[] { 1, 0.2, 0.2, 1 }, 220));
+                break;
+            case "apoyo":
+                // se acerca y brilla: "vamos, tu puedes"
+                escalaGesto.BeginAnimation(ScaleTransform.ScaleXProperty, Secuencia(new double[] { 1, 1.15, 1.15, 1 }, 300));
+                escalaGesto.BeginAnimation(ScaleTransform.ScaleYProperty, Secuencia(new double[] { 1, 1.15, 1.15, 1 }, 300));
+                Sonrojo(Color.FromRgb(0xFF, 0xD3, 0x6A), 1500);
+                Ondas(1, Color.FromRgb(0xFF, 0xD3, 0x6A));
+                Sonar(sonSuave);
+                break;
+            case "logro":
+                Logro();
+                break;
+            case "lotengo":
+                // "ya se lo que quieres": asentimiento anticipado y destello
+                trasGesto.BeginAnimation(TranslateTransform.YProperty, Secuencia(new double[] { 0, 2, 0 }, 120));
+                Sonrojo(Colors.White, 500);
+                Sonar(sonTic);
+                break;
+            case "grito":
+                tonoHasta = ahora.AddSeconds(2);
+                escalaGesto.BeginAnimation(ScaleTransform.ScaleXProperty, Secuencia(new double[] { 1, 0.85, 0.85, 0.85, 1 }, 350));
+                escalaGesto.BeginAnimation(ScaleTransform.ScaleYProperty, Secuencia(new double[] { 1, 0.85, 0.85, 0.85, 1 }, 350));
+                // ojos como platos: el reflejo se agranda
+                reflejoPunto.BeginAnimation(WidthProperty, Secuencia(new double[] { DIAM_PUNTO * 0.45, DIAM_PUNTO * 0.7, DIAM_PUNTO * 0.7, DIAM_PUNTO * 0.45 }, 350));
+                reflejoPunto.BeginAnimation(HeightProperty, Secuencia(new double[] { DIAM_PUNTO * 0.32, DIAM_PUNTO * 0.5, DIAM_PUNTO * 0.5, DIAM_PUNTO * 0.32 }, 350));
+                break;
+            case "susurro":
+                tonoHasta = ahora.AddSeconds(3);
+                escalaGesto.BeginAnimation(ScaleTransform.ScaleXProperty, Secuencia(new double[] { 1, 1.1, 1.1, 1.1, 1 }, 500));
+                escalaGesto.BeginAnimation(ScaleTransform.ScaleYProperty, Secuencia(new double[] { 1, 1.1, 1.1, 1.1, 1 }, 500));
+                resplandor.BeginAnimation(DropShadowEffect.OpacityProperty, Secuencia(new double[] { 0.5, 0.2, 0.2, 0.2, 0.5 }, 500));
+                break;
+            case "escucho":
+                // asentimiento suave mientras sigue una frase larga
+                trasGesto.BeginAnimation(TranslateTransform.YProperty, Secuencia(new double[] { 0, 1.6, 0 }, 180));
+                break;
             case "asentir":
                 // dos cabeceos cortos
                 trasGesto.BeginAnimation(TranslateTransform.YProperty, Secuencia(new double[] { 0, 2.5, 0, 2.5, 0 }, 110));
@@ -1743,7 +1982,18 @@ public class NovaUI : Window
     {
         VigilarVolumen();
         VigilarVentanas();
+        MedirTono();
         if (calmaHasta && DateTime.UtcNow >= calmaFin) { calmaHasta = false; Latido(); }
+        if (humor != "" && DateTime.UtcNow >= humorHasta) { Humor("", 0); }
+        if ((DateTime.UtcNow - gestosExtraLeido).TotalSeconds > 30) { CargarGestosExtra(); }
+        // "te escucho": en frases largas, un asentimiento suave cada ~3,5 s
+        if (estadoActual == "escuchando" && textoActual.Length > 0
+            && (DateTime.UtcNow - escuchandoDesde).TotalSeconds >= 6
+            && (DateTime.UtcNow - ultimoAsentimiento).TotalSeconds >= 3.5)
+        {
+            ultimoAsentimiento = DateTime.UtcNow;
+            Gesto("escucho");
+        }
 
         // --- temporizador ---
         if (tempoFin > 0 && tempoTotal > 0)
@@ -1897,6 +2147,15 @@ public class NovaUI : Window
             textoActual = txt;
             if (est != "reposo") { Despertar(); }
             if (estabaEnReposo && est != "reposo") { CapturarFondo(); }
+            if (est == "escuchando" && estadoAnterior != "escuchando") { escuchandoDesde = DateTime.UtcNow; ultimoAsentimiento = DateTime.UtcNow; ritmo.Clear(); }
+            if (est != "escuchando" && estadoAnterior == "escuchando")
+            {
+                // fin de una orden: si repite la que acabo en pena, determinacion
+                string orden = Plano(textoAnterior).Trim();
+                if (orden.Length > 0 && orden == ultimaOrden && (DateTime.UtcNow - ultimaPena).TotalSeconds < 90) { Gesto("determinacion"); }
+                if (orden.Length > 0) { ultimaOrden = orden; }
+                if (prisaHasta == DateTime.MinValue) { velocidadOnda = 0.45; }
+            }
             if (est == "pensando" && estadoAnterior != "pensando") { pensandoDesde = DateTime.UtcNow; ultimoSudor = DateTime.UtcNow; }
             if (est != "pensando" && orbitando) { orbitando = false; Desvanecer(orbita, 0, 200); giroOrbita.BeginAnimation(RotateTransform.AngleProperty, null); }
             if (est != "hablando") { envolvente = null; }
@@ -1908,6 +2167,7 @@ public class NovaUI : Window
             {
                 string nuevo = (!string.IsNullOrEmpty(textoAnterior) && txt.StartsWith(textoAnterior, StringComparison.Ordinal)) ? txt.Substring(textoAnterior.Length) : txt;
                 AnalizarTexto(nuevo, false);
+                MedirRitmo(txt);
             }
             else if (est == "hablando" && cambioTexto) { AnalizarTexto(txt, true); }
         }

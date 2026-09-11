@@ -571,6 +571,39 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '') {
         [void]$sb.AppendLine("## Últimas órdenes")
         [void]$sb.AppendLine("")
         foreach ($x in $s.recientes) { [void]$sb.AppendLine("- " + $x) }
+        # gestos de la capsula (tmp\gestos.log, lo escribe nova_ui.exe): cuantos
+        # carinos, negaciones, dudas... por dia. Un termometro de la relacion.
+        try {
+            $gl = Join-Path $TmpDir 'gestos.log'
+            if (Test-Path -LiteralPath $gl) {
+                $lineasG = [System.IO.File]::ReadAllLines($gl, [System.Text.Encoding]::UTF8)
+                if ($lineasG.Count -gt 6000) {
+                    $lineasG = $lineasG[($lineasG.Count - 5000)..($lineasG.Count - 1)]
+                    [System.IO.File]::WriteAllLines($gl, [string[]]$lineasG, $enc)
+                }
+                $porDia = @{}
+                foreach ($l in $lineasG) {
+                    if ($l -match '^(\d{4}-\d{2}-\d{2}) \S+ (\S+)$') {
+                        $g = $Matches[2]
+                        if ($g -in @('escucho', 'lotengo', 'atencion')) { continue }   # ruido: pasan a cada rato
+                        if (-not $porDia.ContainsKey($Matches[1])) { $porDia[$Matches[1]] = @{} }
+                        if (-not $porDia[$Matches[1]].ContainsKey($g)) { $porDia[$Matches[1]][$g] = 0 }
+                        $porDia[$Matches[1]][$g]++
+                    }
+                }
+                if ($porDia.Count -gt 0) {
+                    [void]$sb.AppendLine("")
+                    [void]$sb.AppendLine("## Gestos de la cápsula")
+                    [void]$sb.AppendLine("")
+                    [void]$sb.AppendLine("Lo que le dijiste y cómo reaccionó: cariño, gracias, risa, negar, duda, pena, orgullo…")
+                    [void]$sb.AppendLine("")
+                    foreach ($k in ($porDia.Keys | Sort-Object -Descending | Select-Object -First 14)) {
+                        $partes = $porDia[$k].GetEnumerator() | Sort-Object -Property Value -Descending | ForEach-Object { "$($_.Key) ×$($_.Value)" }
+                        [void]$sb.AppendLine("- **$k**: " + ($partes -join ', '))
+                    }
+                }
+            }
+        } catch {}
         [System.IO.File]::WriteAllText($EstadisticasMd, $sb.ToString(), $enc)
     } catch { Log ("estadisticas: " + $_.Exception.Message) }
 }
@@ -909,6 +942,27 @@ function Find-Traduccion([string]$text) {
         if ((Get-Distancia $clave $k) -le $tope) { return $t[$k] }
     }
     return $null
+}
+
+# ¿Reconoceria la capa local esta frase? SOLO resuelve, no ejecuta nada. Se
+# usa sobre la transcripcion EN VIVO para que la capsula asienta ("lo tengo")
+# antes de que termines de hablar.
+function Test-FastCommand([string]$text) {
+    if (-not $cmds -or -not $text) { return $false }
+    if ($text -match '(?i)^\s*aprende\s+que\s+') { return $true }
+    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda|memoriza)\s+(?!en\s+\d+)') { return $true }
+    $frags = $null
+    try { $frags = Split-Compound (Repair-Words (ConvertTo-Plain $text)) } catch { return $false }
+    if (-not $frags -or $frags.Count -eq 0) { return $false }
+    $dudosaAntes = $script:dudosa
+    try {
+        foreach ($f in $frags) {
+            $a = $null
+            try { $a = Resolve-Fragment $f } catch { $a = $null }
+            if (-not $a) { return $false }
+        }
+        return $true
+    } finally { $script:dudosa = $dudosaAntes }
 }
 
 function Invoke-FastCommand([string]$text) {
@@ -1734,6 +1788,14 @@ elseif ($cmds) {
 
 Initialize-Voz
 Initialize-Escucha
+# gestos propios (config.json -> ui.gestos): la capsula los lee de tmp\gestos.txt
+try {
+    $lineas = @()
+    foreach ($g in @(Get-Cfg 'ui' 'gestos' @())) {
+        if ($g.gesto -and $g.patron) { $lineas += ([string]$g.gesto + '|' + [string]$g.patron) }
+    }
+    [System.IO.File]::WriteAllLines((Join-Path $TmpDir 'gestos.txt'), [string[]]$lineas, (New-Object System.Text.UTF8Encoding($false)))
+} catch {}
 Initialize-UI
 
 $script:Juegos = Get-JuegosSteam
@@ -2188,10 +2250,25 @@ function Complete-Confirmacion([string]$respuesta) {
     try { Process-Texto $p.texto } finally { $script:confirmado = $false }
 }
 
+# "Lo tengo": mientras dictas, si lo transcrito hasta ahora ya es una orden
+# que la capa local reconoce, la capsula asiente una vez. Con tope de una
+# comprobacion cada 400 ms: los parciales cambian varias veces por segundo.
+$script:loTengo = $false
+$script:loTengoCheck = 0
+function Test-LoTengo([string]$vista) {
+    if ($script:loTengo -or -not $UiNuevaOn -or -not $vista) { return }
+    if (($sw.ElapsedMilliseconds - $script:loTengoCheck) -lt 400) { return }
+    $script:loTengoCheck = $sw.ElapsedMilliseconds
+    $ok = $false
+    try { $ok = Test-FastCommand $vista } catch { $ok = $false }
+    if ($ok) { $script:loTengo = $true; Send-UIEvento 'gesto:lotengo' }
+}
+
 # Abre el dictado. La llaman el boton y la palabra de activacion, para que
 # ambos caminos se comporten EXACTAMENTE igual.
 function Start-Dictado([string]$origen) {
     Log "DICTADO ($origen)"
+    $script:loTengo = $false
     # con la capsula, el sonido lo pone ella (un tono corto, no la campana)
     if (-not $UiNuevaOn) { [System.Media.SystemSounds]::Exclamation.Play() }
 
@@ -2513,7 +2590,7 @@ while ($true) {
                 $vista = ($par -replace '\s+', ' ').Trim()
                 if ($vista.Length -gt 44) { $vista = "..." + $vista.Substring($vista.Length - 41) }
                 $nuevo = if ($vista) { "● $vista" } else { "● VOZ..." }
-                if ($lbl.Text -ne $nuevo) { $lbl.Text = $nuevo; Set-UI 'escuchando' $vista }
+                if ($lbl.Text -ne $nuevo) { $lbl.Text = $nuevo; Set-UI 'escuchando' $vista; Test-LoTengo $vista }
             } catch {}
         }
         # el worker ya termino: entrega el texto
@@ -2548,6 +2625,7 @@ while ($true) {
             if ($vista.Length -gt 44) { $vista = "..." + $vista.Substring($vista.Length - 41) }
             $lbl.Text = if ($vista) { "● $vista" } else { "● VOZ..." }
             Set-UI 'escuchando' $vista
+            Test-LoTengo $vista
         } elseif ($actual.Trim().Length -gt 0 -and ($sw.ElapsedMilliseconds - $script:lastChange) -ge $AutoSubmitMs) {
             try { Finish-Dictation "silencio" }
             catch { Log "auto-envio error: $($_.Exception.Message)"; $script:armed = $false }

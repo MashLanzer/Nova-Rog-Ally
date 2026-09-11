@@ -15,7 +15,11 @@
                  },
     "ui":  {
                "popupMs":  8000,
-               "nueva":  true
+               "nueva":  true,
+               "gestos":  [
+                              { "gesto":  "carino", "patron":  "\\b(novita|nova linda|nova bonita)\\b" },
+                              { "gesto":  "risa", "patron":  "\\b(que risa|me muero|jajaja)\\b" }
+                          ]
            },
     "voz":  {
                 "activada":  true,

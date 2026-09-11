@@ -42,7 +42,13 @@ LA CÁPSULA (esquina inferior izquierda) = la cara del asistente
   no hay juego, el TIEMPO que hace: "¿qué tiempo hace?" te lo dice).
   GESTICULA con lo que dices: dile "gracias", "hola", "jaja", "te
   quiero", "no", "por favor", "rápido", "tranquilo", "perdón", una
-  pregunta... y reacciona distinto a cada cosa. Se duerme si pasas 30
+  pregunta... y reacciona distinto a cada cosa (también en inglés y con
+  regionalismos: parce, wey, chévere...). Encadena gestos (un "gracias"
+  tras un fallo es alivio), tiene humor de minutos (contenta / cauta),
+  nota si gritas o susurras, sigue tu ritmo al hablar, asiente cuando ya
+  entendió la orden antes de que termines, y te apoya en el juego ("este
+  jefe", "lo logré"). Tus propios gestos: config.json -> ui.gestos.
+  Cuántos gestos por día: memoria\estadisticas.md. Se duerme si pasas 30
   min sin hablarle, se encoge cuando un juego va a pantalla completa, se
   aparta si una ventana le tapa la esquina y se enciende si acercas el
   ratón.
