@@ -1985,7 +1985,10 @@ function Get-Reglas {
     $script:reglas = New-Object System.Collections.ArrayList
     if (Test-Path -LiteralPath $ReglasPath) {
         try {
-            foreach ($r in @(Get-Content -LiteralPath $ReglasPath -Raw -Encoding UTF8 | ConvertFrom-Json)) {
+            # sin @(): ver el comentario de Get-Recordatorios
+            $crudoReglas = Get-Content -LiteralPath $ReglasPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($r in $crudoReglas) {
+                if ($null -eq $r -or -not [string]$r.tipo) { continue }
                 [void]$script:reglas.Add(@{ id = [int]$r.id; tipo = [string]$r.tipo; valor = [string]$r.valor; accion = [string]$r.accion; ultima = [string]$r.ultima })
             }
         } catch {}
@@ -2119,7 +2122,11 @@ $MESES = @{ 'enero' = 1; 'febrero' = 2; 'marzo' = 3; 'abril' = 4; 'mayo' = 5; 'j
 function Get-Fechas {
     $lista = @()
     if (Test-Path -LiteralPath $FechasPath) {
-        try { $lista = @(Get-Content -LiteralPath $FechasPath -Raw -Encoding UTF8 | ConvertFrom-Json) } catch { $lista = @() }
+        # mismo fantasma que en los recordatorios: ver Get-Recordatorios
+        try {
+            $crudo = Get-Content -LiteralPath $FechasPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($x in $crudo) { if ($null -ne $x -and [string]$x.texto) { $lista += $x } }
+        } catch { $lista = @() }
     }
     return $lista
 }
@@ -2162,7 +2169,15 @@ $DIAS_SEMANA = @{ 'lunes' = 1; 'martes' = 2; 'miercoles' = 3; 'jueves' = 4; 'vie
 function Get-Recordatorios {
     $lista = @()
     if (Test-Path -LiteralPath $RecordatoriosPath) {
-        try { $lista = @(Get-Content -LiteralPath $RecordatoriosPath -Raw -Encoding UTF8 | ConvertFrom-Json) } catch { $lista = @() }
+        # OJO con @(...) alrededor de ConvertFrom-Json: con un "[]" en el
+        # archivo, PowerShell 5.1 no devuelve una lista vacia sino una lista de
+        # UN elemento que contiene la lista vacia. Ese fantasma se guardaba
+        # luego como {"value":[],"Count":0} dentro del json y contaba como un
+        # recordatorio de verdad. El foreach sobre el resultado crudo si da 0.
+        try {
+            $crudo = Get-Content -LiteralPath $RecordatoriosPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($x in $crudo) { if ($null -ne $x -and [string]$x.texto) { $lista += $x } }
+        } catch { $lista = @() }
     }
     return $lista
 }
@@ -2557,6 +2572,22 @@ function Send-WinKey([int]$vk) {
 
 if ($Probar) {
     if (-not (Test-Path -LiteralPath $Probar)) { Write-Output "no existe: $Probar"; exit 1 }
+    # Reconocer una orden NO es gratis: "recuerdame manana a las diez que llame
+    # al medico" crea el recordatorio de verdad nada mas detectarlo, y "cuando
+    # abras elden ring..." guarda la regla. La primera version de este banco
+    # llego a escribir ambas cosas en la memoria real. Aqui se desvia a una
+    # carpeta de usar y tirar todo lo que persiste: probar no toca nada tuyo.
+    $pruebaDir = Join-Path ([System.IO.Path]::GetTempPath()) ("nova-prueba-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
+    New-Item -ItemType Directory -Path $pruebaDir -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $pruebaDir 'diario') -Force | Out-Null
+    $MemoriaDir = $pruebaDir
+    $DiarioDir = Join-Path $pruebaDir 'diario'
+    $ReglasPath = Join-Path $pruebaDir 'reglas.json'
+    $RecordatoriosPath = Join-Path $pruebaDir 'recordatorios.json'
+    $FechasPath = Join-Path $pruebaDir 'fechas.json'
+    $TraduccionesPath = Join-Path $pruebaDir 'traducciones.json'
+    $EstadisticasJson = Join-Path $pruebaDir 'estadisticas.json'
+    $EstadisticasMd = Join-Path $pruebaDir 'estadisticas.md'
     $ok = 0; $no = 0
     foreach ($linea in (Get-Content -LiteralPath $Probar -Encoding UTF8)) {
         $t = $linea.Trim()
@@ -2572,6 +2603,7 @@ if ($Probar) {
     }
     Write-Output ""
     Write-Output ("reconocidas en local: $ok de " + ($ok + $no))
+    try { Remove-Item -LiteralPath $pruebaDir -Recurse -Force -ErrorAction SilentlyContinue } catch {}
     exit 0
 }
 
