@@ -5610,6 +5610,60 @@ function Stop-OpencodeJob {
     Clear-OpencodeJob
 }
 
+# EL CEREBRO DE FUERA: la API de Claude para entender, opencode para hacer.
+# Lo que se le pide al modelo casi siempre es traducir una frase a una orden
+# conocida o contestar algo corto. Para eso, opencode es un camion para llevar
+# una carta: tarda 13-160 s porque monta un agente con herramientas. Una llamada
+# directa a la API tarda ~1 s y cuesta centimos al mes.
+# Las TAREAS de verdad ("busca en mis archivos y hazme un resumen") siguen yendo
+# a opencode, que para eso si hace falta un agente con manos.
+$ClaudeOn = [bool](Get-Cfg 'modelo' 'usarClaude' $true)
+# Haiku para traducir: es clasificar una frase contra una lista cerrada, el caso
+# de libro para el modelo rapido. Opus para lo que se contesta hablando, donde
+# la diferencia se nota.
+$ClaudeModeloRapido = [string](Get-Cfg 'modelo' 'rapido' 'claude-haiku-4-5')
+$ClaudeModeloBueno = [string](Get-Cfg 'modelo' 'bueno' 'claude-opus-5')
+$ClaudeScript = Join-Path $LogDir "tools\claude-api.ps1"
+
+function Test-ClaveClaude {
+    foreach ($ambito in @('Process', 'User', 'Machine')) {
+        $v = [Environment]::GetEnvironmentVariable('ANTHROPIC_API_KEY', $ambito)
+        if ($v) { return $true }
+    }
+    return $false
+}
+
+# Misma forma que Start-OpencodeJob a proposito: escribe en los mismos archivos
+# y deja $script:proc, asi que la cancelacion con el boton, el progreso y la
+# recogida funcionan sin cambiar nada de eso.
+function Start-ClaudeJob([string]$texto, [string]$modelo, [int]$maxTokens) {
+    $id = [System.Guid]::NewGuid().ToString("N")
+    $script:jobOut = Join-Path $TmpDir "out-$id.txt"
+    $script:jobErr = Join-Path $TmpDir "err-$id.txt"
+    $script:jobIn = Join-Path $TmpDir "in-$id.txt"
+    if (-not $texto.Trim()) { Clear-OpencodeJob; return $false }
+    try {
+        # el prompt va por ARCHIVO, no por linea de comandos: lleva saltos de
+        # linea, comillas y acentos, y en argv todo eso se destroza
+        [System.IO.File]::WriteAllText($script:jobIn, $texto, (New-Object System.Text.UTF8Encoding($false)))
+        $args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $ClaudeScript,
+                  '-PromptFile', $script:jobIn, '-Modelo', $modelo, '-MaxTokens', [string]$maxTokens)
+        $script:jobLeido = 0; $script:jobPasos = 0; $script:jobUltimaHerr = ''; $script:jobProgresoCheck = 0
+        Log "CLAUDE: $modelo, $($texto.Length) caracteres de prompt"
+        $script:proc = Start-Process -FilePath 'powershell.exe' -ArgumentList $args `
+            -WorkingDirectory $LogDir -WindowStyle Hidden -PassThru `
+            -RedirectStandardOutput $script:jobOut -RedirectStandardError $script:jobErr
+        $null = $script:proc.Handle
+    } catch {
+        Log ("no pude llamar a la API: " + $_.Exception.Message)
+        Clear-OpencodeJob
+        return $false
+    }
+    $script:jobStart = $sw.ElapsedMilliseconds
+    $script:busy = $true
+    return $true
+}
+
 # Lanza opencode.exe DIRECTAMENTE (sin powershell.exe oculto intermedio: ese salto
 # es el spawn "flaky" de TRASPASO.md seccion 9) y RETORNA DE INMEDIATO.
 # Antes se esperaba aqui hasta 240 s, y durante todo ese rato el bucle principal
@@ -5668,7 +5722,9 @@ $HERRAMIENTAS_ES = @{
     'glob' = 'buscando archivos'; 'grep' = 'buscando en archivos'; 'list' = 'mirando carpetas'; 'webfetch' = 'consultando la web';
     'websearch' = 'buscando en internet'; 'todowrite' = 'planificando'; 'todoread' = 'planificando'; 'task' = 'delegando una tarea'
 }
-$DURACION_ESPERADA = @{ 'pregunta' = 18000; 'traducir' = 15000; 'charla' = 20000; 'accion' = 60000 }
+# Con la API son ~1-3 s; con opencode, 15-60. La capsula usa esto para dibujar
+# la barra de espera, y si miente la barra no sirve de nada.
+$DURACION_ESPERADA = @{ 'pregunta' = 4000; 'traducir' = 2500; 'charla' = 5000; 'accion' = 60000 }
 
 function Watch-OpencodeProgress {
     if (-not $script:busy -or -not $script:jobOut) { return }
@@ -5843,6 +5899,17 @@ function Submit-Command([string]$text, [string]$modo = 'accion', [string]$adjunt
         $prompt = "Te adjunto una captura de la ventana que tengo delante. " + $prompt
     }
 
+    # A DONDE VA. Traducir y contestar son una llamada y ya: van a la API, que
+    # tarda ~1 s. 'accion' es una tarea de verdad y necesita un agente con
+    # herramientas: esa sigue siendo de opencode.
+    $porApi = ($ClaudeOn -and $modo -ne 'accion' -and (Test-Path -LiteralPath $ClaudeScript) -and (Test-ClaveClaude))
+    if ($porApi) {
+        # traducir devuelve una linea; hablar, una o dos frases
+        $modelo = if ($modo -eq 'traducir') { $ClaudeModeloRapido } else { $ClaudeModeloBueno }
+        $tope = if ($modo -eq 'traducir') { 60 } else { 400 }
+        if (Start-ClaudeJob $prompt $modelo $tope) { return }
+        Log "la API no arranco; sigo con opencode"
+    }
     if (-not (Start-OpencodeJob $prompt $extra)) {
         Show-Popup "(no se pudo lanzar opencode; ver assistant.log)" 'error'
     }

@@ -1,0 +1,88 @@
+﻿# Llama a la API de Claude y escribe la respuesta por stdout.
+#
+# POR QUE UN SCRIPT APARTE: el asistente lanza a opencode como PROCESO y recoge
+# su salida de un archivo. Haciendo esto igual, la API entra por la misma puerta
+# -misma cancelacion con el boton, mismo progreso en la capsula, misma recogida-
+# sin tocar nada de esa maquinaria. Y el bucle principal no se bloquea.
+#
+#   powershell -File tools\claude-api.ps1 -PromptFile <archivo> [-Modelo ...] [-MaxTokens N]
+#
+# La clave NO se pasa por argumentos: se lee de ANTHROPIC_API_KEY (del proceso o
+# del entorno del usuario). En la linea de comandos la veria cualquiera que mire
+# la lista de procesos.
+param(
+    [Parameter(Mandatory = $true)][string]$PromptFile,
+    [string]$Modelo = 'claude-haiku-4-5',
+    [int]$MaxTokens = 300,
+    [string]$Sistema = ''
+)
+
+$ErrorActionPreference = 'Stop'
+
+function Salir([string]$msg) {
+    # a stdout, no a stderr: el asistente lee stdout y asi el fallo se ve en la
+    # respuesta en vez de perderse
+    Write-Output $msg
+    exit 1
+}
+
+$clave = $env:ANTHROPIC_API_KEY
+if (-not $clave) { $clave = [Environment]::GetEnvironmentVariable('ANTHROPIC_API_KEY', 'User') }
+if (-not $clave) { $clave = [Environment]::GetEnvironmentVariable('ANTHROPIC_API_KEY', 'Machine') }
+if (-not $clave) {
+    Salir "(falta la clave: pon ANTHROPIC_API_KEY en las variables de entorno)"
+}
+
+if (-not (Test-Path -LiteralPath $PromptFile)) { Salir "(no encuentro el prompt)" }
+$prompt = [System.IO.File]::ReadAllText($PromptFile, [System.Text.Encoding]::UTF8)
+if (-not $prompt.Trim()) { Salir "(prompt vacio)" }
+
+$cuerpo = @{
+    model      = $Modelo
+    max_tokens = $MaxTokens
+    messages   = @(@{ role = 'user'; content = $prompt })
+}
+if ($Sistema) { $cuerpo['system'] = $Sistema }
+
+# UTF-8 a mano: Invoke-RestMethod de PowerShell 5.1 manda el cuerpo en la
+# codificacion por defecto y los acentos llegan rotos al modelo.
+$json = $cuerpo | ConvertTo-Json -Depth 6 -Compress
+$bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+
+try {
+    $r = Invoke-RestMethod -Uri 'https://api.anthropic.com/v1/messages' -Method Post `
+        -Headers @{
+            'x-api-key'         = $clave
+            'anthropic-version' = '2023-06-01'
+            'content-type'      = 'application/json; charset=utf-8'
+        } `
+        -Body $bytes -TimeoutSec 60
+} catch {
+    $detalle = $_.Exception.Message
+    # el cuerpo del error dice MUCHO mas que el mensaje (clave mala, saldo,
+    # modelo inexistente...), asi que se intenta leer
+    try {
+        $resp = $_.Exception.Response
+        if ($resp) {
+            $sr = New-Object System.IO.StreamReader($resp.GetResponseStream())
+            $txt = $sr.ReadToEnd()
+            if ($txt) { $detalle = $txt }
+        }
+    } catch {}
+    Salir ("(error de la API: " + (($detalle -replace '\s+', ' ').Trim()) + ")")
+}
+
+$partes = @()
+foreach ($b in @($r.content)) {
+    if ($b.type -eq 'text' -and $b.text) { $partes += [string]$b.text }
+}
+if ($partes.Count -eq 0) { Salir "(la API no devolvio texto)" }
+
+# una linea de coste al final, en stderr, para poder mirarlo sin ensuciar la
+# respuesta que el asistente va a leer en voz alta
+try {
+    $u = $r.usage
+    [Console]::Error.WriteLine("tokens: entrada=$($u.input_tokens) salida=$($u.output_tokens) modelo=$($r.model)")
+} catch {}
+
+Write-Output ($partes -join "`n")

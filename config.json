@@ -64,6 +64,11 @@
                     "soloYoMargenHz":  35,
                     "soloYoMinimo":  12
                 },
+    "modelo":  {
+                   "usarClaude":  true,
+                   "rapido":  "claude-haiku-4-5",
+                   "bueno":  "claude-opus-5"
+               },
     "avisos":  {
                    "sinVoz":  true,
                    "sinVozEnJuego":  true,
