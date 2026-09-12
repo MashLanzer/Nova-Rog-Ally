@@ -34,6 +34,10 @@ Titulo "2e. Siempre encima (sobre una ventana de mentira, sin robar el foco)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-ventana.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2f. Modos por voz (crear, sustituir y borrar en commands.json)"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-modos.ps1') | Select-String 'todo correcto|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2b. Autosordina (se calla sola si el microfono caza ruido en racha)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-autosordina.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }

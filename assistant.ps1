@@ -1088,6 +1088,15 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(?:modo|activa el modo|activa modo|pon el modo|pon modo|ponte en modo|cambia a modo|entra en modo)\s+(.+)$') {
         $nombre = $Matches[1].Trim()
         if (Test-Prop $cmds.perfiles $nombre) {
+            # TOPE DE ANIDAMIENTO. Desde que los modos se pueden crear por voz,
+            # nada impide un "modo a" que llame al "modo b" que llame al "modo a":
+            # sin tope eso es una recursion infinita, o sea, el asistente colgado.
+            if ($script:hondoPerfil -ge 3) {
+                Log "PERFIL: demasiados modos encadenados en '$nombre'; se corta"
+                return $null
+            }
+            $script:hondoPerfil++
+            try {
             $acc = @()
             foreach ($orden in @($cmds.perfiles.$nombre)) {
                 # cada linea del perfil se resuelve como una orden normal
@@ -1099,12 +1108,29 @@ function Resolve-Fragment([string]$f) {
             if ($acc.Count -gt 0) {
                 return (@(@{ kind = 'decir'; desc = "modo $nombre" }) + $acc)
             }
+            } finally { $script:hondoPerfil-- }
         }
         return $null
     }
     # "recuerda que X" -> se anota YA, sin pasar por el modelo
     # El lookahead negativo distingue "recuerdame que X" (nota) de
     # "recuerdame EN 20 MINUTOS que X" (temporizador), que se resuelve mas abajo.
+    # --- modos: verlos y borrarlos hablando ---
+    # CREARLOS no puede estar aqui: "crea el modo x: cierra discord Y pon el
+    # volumen al 30" llega ya partido por la "y", asi que el patron nunca veria
+    # la frase entera. Se resuelve en Invoke-FastCommand, antes de partir, igual
+    # que "aprende que...".
+    if ($f -match '^(?:que|cuantos)\s+modos\s+(?:tengo|hay|conoces|sabes)$' -or
+        $f -match '^(?:mis|lista de)\s+modos$' -or $f -match '^que modos$') {
+        return @(@{ kind = 'verModos'; desc = 'tus modos' })
+    }
+    if ($f -match '^que\s+(?:hace|tiene)\s+(?:el\s+)?modo\s+(.+)$') {
+        return @(@{ kind = 'verModo'; nombre = $Matches[1].Trim(); desc = 'ver un modo' })
+    }
+    if ($f -match '^(?:borra|borrame|quita|elimina|olvida)\s+(?:el\s+)?modo\s+(.+)$') {
+        return @(@{ kind = 'borrarModo'; nombre = $Matches[1].Trim(); desc = 'borrar un modo' })
+    }
+
     # --- portapapeles ---
     # Va ANTES de anotar: si no, "apunta lo copiado" guardaria una nota que
     # dice, literalmente, "lo copiado".
@@ -1654,6 +1680,36 @@ function Invoke-Deshacer {
 }
 
 # "aprende que a X le llamo Y": amplia commands.json hablando, sin editar JSON.
+# Guardar un modo en commands.json. Se escribe como el resto (UTF-8 sin BOM) y
+# se RELEE al vuelo, o el modo recien creado no existiria hasta reiniciar.
+function Add-Perfil([string]$nombre, [string[]]$ordenes) {
+    $nombre = (ConvertTo-Plain $nombre).Trim()
+    if (-not $nombre -or $ordenes.Count -eq 0) { return $false }
+    try {
+        $j = Get-Content -LiteralPath $cmdsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if (-not $j.perfiles) { $j | Add-Member -NotePropertyName perfiles -NotePropertyValue (New-Object PSObject) -Force }
+        $j.perfiles | Add-Member -NotePropertyName $nombre -NotePropertyValue ([string[]]$ordenes) -Force
+        [System.IO.File]::WriteAllText($cmdsPath, ($j | ConvertTo-Json -Depth 8), (New-Object System.Text.UTF8Encoding($false)))
+        $script:cmds = Get-Content -LiteralPath $cmdsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        Log ("MODO CREADO: $nombre -> " + ($ordenes -join '; '))
+        return $true
+    } catch { Log ("no pude crear el modo: " + $_.Exception.Message); return $false }
+}
+
+function Remove-Perfil([string]$nombre) {
+    $nombre = (ConvertTo-Plain $nombre).Trim()
+    if (-not $nombre) { return $false }
+    try {
+        $j = Get-Content -LiteralPath $cmdsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if (-not (Test-Prop $j.perfiles $nombre)) { return $false }
+        $j.perfiles.PSObject.Properties.Remove($nombre)
+        [System.IO.File]::WriteAllText($cmdsPath, ($j | ConvertTo-Json -Depth 8), (New-Object System.Text.UTF8Encoding($false)))
+        $script:cmds = Get-Content -LiteralPath $cmdsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        Log "MODO BORRADO: $nombre"
+        return $true
+    } catch { Log ("no pude borrar el modo: " + $_.Exception.Message); return $false }
+}
+
 function Add-Alias-Comando([string]$alias, [string]$objetivo) {
     $alias = (ConvertTo-Plain $alias).Trim()
     if (-not $alias -or -not $objetivo) { return $null }
@@ -1778,6 +1834,8 @@ function Test-FastCommand([string]$text) {
     # decia si, y luego no habia nada que aprender (y de paso Repair-Verb
     # convertia "aprende" en "prende" y la frase se perdia)
     if ($text -match '(?i)^\s*aprende\s+que\s+(?:a\s+)?(.+?)\s+(?:le\s+(?:digo|llamo|dicen)|es|se\s+llama)\s+(.+)$') { return $true }
+    # el MISMO patron que el ejecutor, o el banco no ve que crear un modo es local
+    if ($text -match '(?i)^\s*(?:crea|crear|haz|hazme|define|guardame)\s+(?:el\s+|un\s+)?modo\s+([^\s:,]{2,20})\s*(?::|,|\s+que\s+|\s+con\s+|\s+)\s*(.+)$') { return $true }
     $pl = ConvertTo-Plain $text
     if ($pl -match '^(?:recuerdame|avisame|recordatorio)\s+(?!que\b)(?:hoy|manana|pasado manana|el (?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)|el \d{1,2} de |a las? )') { return $true }   # recordatorio con fecha
     # ojo: los mismos lookaheads que el ejecutor. Con el patron corto, este
@@ -1822,6 +1880,26 @@ function Invoke-FastCommand([string]$text) {
         if (-not $r) { $r = Add-Alias-Comando $a $b }   # o al reves
         if ($r) { return $r }
         return "No supe a que te refieres con eso"
+    }
+    # CREAR UN MODO HABLANDO. Tiene que ser aqui arriba, sobre la frase ENTERA:
+    # "crea el modo streaming: cierra discord Y pon el volumen al 30" se parte
+    # por esa "y" unas lineas mas abajo, y entonces ningun patron volveria a ver
+    # el nombre del modo junto a sus ordenes.
+    if ($text -match '(?i)^\s*(?:crea|crear|haz|hazme|define|guardame)\s+(?:el\s+|un\s+)?modo\s+([^\s:,]{2,20})\s*(?::|,|\s+que\s+|\s+con\s+|\s+)\s*(.+)$') {
+        $nom = $Matches[1].Trim(); $cuerpo = $Matches[2].Trim()
+        # Se COMPRUEBA que cada trozo se entienda ANTES de guardar nada: un modo
+        # con una linea que no se reconoce es un modo que un dia hace la mitad de
+        # lo que le pides y no dice por que.
+        $lineas = @(); $malas = @()
+        foreach ($fr in @(Split-Ordenes $cuerpo)) {
+            if (-not $fr) { continue }
+            if (Resolve-Fragment $fr) { $lineas += $fr } else { $malas += $fr }
+        }
+        if ($lineas.Count -eq 0) { return "No entendi ninguna de esas ordenes, asi que no he creado nada." }
+        if (-not (Add-Perfil $nom $lineas)) { return "No pude guardar el modo." }
+        $r = "Modo $nom creado, con $($lineas.Count) " + $(if ($lineas.Count -eq 1) { 'orden' } else { 'ordenes' }) + '.'
+        if ($malas.Count -gt 0) { $r += " Esto no lo entendi y lo he dejado fuera: " + ($malas -join '; ') + '.' }
+        return $r
     }
     # La memoria guarda el texto TAL CUAL se dijo, con mayusculas y acentos.
     # Si se dejara pasar por la normalizacion se archivaria en minusculas y sin
@@ -1985,6 +2063,30 @@ function Invoke-FastCommand([string]$text) {
                         $script:ultimaAprendida = ''
                     }
                     $a.desc = if ($olvidada) { "$r. Y olvido que '$olvidada' significaba eso." } else { $r }
+                }
+                'verModos' {
+                    $nn = @()
+                    try { $nn = @($cmds.perfiles.PSObject.Properties.Name) } catch {}
+                    $a.desc = if ($nn.Count -eq 0) { 'no tienes ningun modo' }
+                              else { 'tienes ' + ($nn -join ', ') }
+                }
+                'verModo' {
+                    $nom = ConvertTo-Plain $a.nombre
+                    if (-not (Test-Prop $cmds.perfiles $nom)) {
+                        $a.desc = "no tengo ningun modo que se llame $nom"
+                    } else {
+                        $a.desc = "el modo $nom hace: " + (@($cmds.perfiles.$nom) -join '; ')
+                    }
+                }
+                'borrarModo' {
+                    $nom = ConvertTo-Plain $a.nombre
+                    if (-not (Test-Prop $cmds.perfiles $nom)) {
+                        $a.desc = "no tengo ningun modo que se llame $nom"
+                    } elseif (Remove-Perfil $nom) {
+                        $a.desc = "modo $nom borrado"
+                    } else {
+                        $a.desc = 'no pude borrarlo'
+                    }
                 }
                 'otroMonitor' {
                     # si solo hay una pantalla, mandar Win+Shift+Derecha es tirar
@@ -4632,6 +4734,8 @@ $script:rachaRuido = New-Object System.Collections.ArrayList
 $script:sordinaHasta = 0
 $script:aprenderPendiente = $null
 $script:ultimaLectura = ''
+# Modos dentro de modos: cuantos van encadenados ahora mismo (ver el tope).
+$script:hondoPerfil = 0
 # De que frase aprendida salio la ultima orden, para poder olvidarla si dices
 # "no era eso".
 $script:ultimaAprendida = ''

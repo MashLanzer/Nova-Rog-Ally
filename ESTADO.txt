@@ -207,7 +207,13 @@ QUÉ ENTIENDE LA RUTA LOCAL
   - Temporizadores: "recuérdame en 20 minutos que...", "avísame en una hora"
   - Juego   : "captura", "clip", "a qué estoy jugando", "cuánto llevo jugando"
   - Pronombres: "ábrelo", "ciérralo" (sobre lo último mencionado)
-  - Perfiles: "modo juego / noche / trabajo / cine / silencio"
+  - Perfiles: "modo juego / noche / trabajo / cine / silencio", y ahora se
+                CREAN hablando: "crea el modo streaming: cierra discord y pon
+                el volumen al 30". Antes había que editar commands.json a mano,
+                que es justo lo que no puedes hacer con el mando en las manos.
+                Cada línea se comprueba ANTES de guardar, y si alguna no se
+                entiende te lo dice y la deja fuera. También "¿qué modos
+                tengo?", "¿qué hace el modo juego?" y "borra el modo X".
   - Deshacer: "deshaz"
   - Al instante: hora, fecha, batería, cuántos juegos, qué anoté hoy, repite
   - Sin verbo: decir solo "steam" o "youtube" ya abre
