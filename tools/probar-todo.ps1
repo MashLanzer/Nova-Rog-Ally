@@ -42,6 +42,10 @@ Titulo "2g. Reglas atadas a una descarga de Steam"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-descargas.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2h. Frases que ya te molestaron una vez (y que se curan solas)"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-rechazos.ps1') | Select-String 'todo correcto|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2b. Autosordina (se calla sola si el microfono caza ruido en racha)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-autosordina.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }

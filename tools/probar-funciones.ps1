@@ -27,6 +27,7 @@ Invoke-Expression (Traer 'ConvertTo-Plain')
 Invoke-Expression (Traer 'Test-MismoAudio')
 Invoke-Expression (Traer 'Get-JuegosZombis')
 Invoke-Expression (Traer 'Get-Atragantos')
+Invoke-Expression (Traer 'Get-Trozo')
 
 $mal = 0
 Write-Host "--- Test-MismoAudio (del archivo real) ---"
@@ -111,6 +112,27 @@ $casosA = @(
     @('el ruido de una palabra no sale', (@($at | Where-Object { (ConvertTo-Plain $_.frase) -eq 'eh' }).Count -eq 0))
 )
 foreach ($c in $casosA) {
+    if (-not $c[1]) { $mal++ }
+    "  {0}  {1}" -f $(if ($c[1]) { 'OK  ' } else { 'MAL ' }), $c[0]
+}
+
+# --- Get-Trozo: leer una pantalla larga a cachos ---
+# Lo unico que puede quedar feo aqui es cortar una palabra por la mitad (suena
+# a fallo, no a pausa) y perder o repetir texto al seguir.
+Write-Host ""
+Write-Host "--- Get-Trozo (del archivo real) ---"
+$largo = (1..40 | ForEach-Object { "Frase numero $_ con unas cuantas palabras." }) -join ' '
+$t1 = Get-Trozo $largo 0 120
+$t2 = Get-Trozo $largo $t1.fin 120
+$casosT = @(
+    @('el primer trozo cabe',        ($t1.texto.Length -le 120)),
+    @('no parte una palabra',        ($t1.texto -match '[.\w]$')),
+    @('y dice donde se quedo',       ($t1.fin -gt 0 -and $t1.fin -lt $largo.Length)),
+    @('el segundo sigue, no repite', ($t2.texto -ne $t1.texto -and $largo.Substring($t1.fin).TrimStart().StartsWith($t2.texto.Substring(0, 12)))),
+    @('un texto corto va entero',    ((Get-Trozo 'hola que tal' 0 120).texto -eq 'hola que tal')),
+    @('pasado el final, nada',       ((Get-Trozo 'hola' 99 120).texto -eq ''))
+)
+foreach ($c in $casosT) {
     if (-not $c[1]) { $mal++ }
     "  {0}  {1}" -f $(if ($c[1]) { 'OK  ' } else { 'MAL ' }), $c[0]
 }

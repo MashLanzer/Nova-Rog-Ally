@@ -1319,6 +1319,14 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(?:lee|leeme|leer|que dice|que pone|que hay escrito|dime que dice)\s+(?:lo que (?:hay|dice|pone) (?:en\s+)?|en\s+)?(?:la\s+|esta\s+|el\s+)?(?:pantalla|ventana|esto|aqui|texto|mensaje)\b') {
         return @(@{ kind = 'ocr'; desc = 'leer la pantalla' })
     }
+    # --- seguir leyendo donde se quedo ---
+    # el complemento es OBLIGATORIO: un "sigue" o un "dale" sueltos son dos de
+    # las cosas mas faciles de oir en un video de fondo
+    if ($f -match '^(?:sigue|continua|seguime|dale)\s+(?:leyendo|con la lectura|leyendome)$' -or
+        $f -match '^(?:y\s+)?(?:que|el resto|lo que)\s+(?:mas )?(?:dice|pone|falta|queda)$' -or
+        $f -match '^lee(?:me)?\s+el resto$') {
+        return @(@{ kind = 'seguirLeyendo'; desc = 'seguir leyendo' })
+    }
     # --- apuntar lo que hay en la pantalla, sin dictarlo ---
     if ($f -match '^(?:apunta|anota|guarda|apuntame|anotame)\s+(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$') {
         return @(@{ kind = 'ocrMemoria'; desc = 'apuntar lo que hay en la pantalla' })
@@ -1775,6 +1783,65 @@ function Add-Traduccion([string]$original, [string]$traducida) {
 # corresponde a UNA app o sitio conocidos? Entonces vale la pena aprender esa
 # palabra como alias (sirve para cualquier frase futura).
 $PALABRAS_COMUNES = @('abre','abrir','pon','ponme','busca','en','el','la','los','las','un','una','de','del','al','a','y','con','por','para','que','me','lo','le','mi','tu','su','ya','ahora','porfa','por','favor','steam','juego')
+# =====================================================================
+# FRASES QUE YA TE MOLESTARON UNA VEZ
+# "no era eso" apunta aqui la frase. La proxima vez que llegue exactamente
+# igual no se ejecuta: se pregunta. Y si dices que si, se borra de la lista,
+# porque entonces la querias de verdad: asi se cura sola en vez de quedarse
+# vetada para siempre por una vez que cambiaste de idea.
+# =====================================================================
+$RechazosPath = Join-Path $MemoriaDir 'rechazos.json'
+$script:rechazos = $null
+
+function Get-Rechazos {
+    if ($null -ne $script:rechazos) { return $script:rechazos }
+    $script:rechazos = @{}
+    if (Test-Path -LiteralPath $RechazosPath) {
+        try {
+            $j = Get-Content -LiteralPath $RechazosPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($x in $j.PSObject.Properties) { $script:rechazos[$x.Name] = [int]$x.Value }
+        } catch {}
+    }
+    return $script:rechazos
+}
+
+function Save-Rechazos {
+    try {
+        $h = Get-Rechazos
+        $o = New-Object PSObject
+        foreach ($k in $h.Keys) { $o | Add-Member -NotePropertyName $k -NotePropertyValue $h[$k] -Force }
+        if (-not (Test-Path -LiteralPath $MemoriaDir)) { New-Item -ItemType Directory -Force -Path $MemoriaDir | Out-Null }
+        [System.IO.File]::WriteAllText($RechazosPath, ($o | ConvertTo-Json -Depth 3), (New-Object System.Text.UTF8Encoding($false)))
+    } catch { Log ("no pude guardar los rechazos: " + $_.Exception.Message) }
+}
+
+function Add-Rechazo([string]$texto) {
+    $k = ConvertTo-Plain $texto
+    # una palabra suelta no identifica nada y vetaria media lista de ordenes
+    if (-not $k -or $k -notmatch '\s') { return $false }
+    $h = Get-Rechazos
+    if ($h.ContainsKey($k)) { $h[$k] = [int]$h[$k] + 1 } else { $h[$k] = 1 }
+    Save-Rechazos
+    Log "RECHAZO apuntado: '$k' (van $($h[$k]))"
+    return $true
+}
+
+function Remove-Rechazo([string]$texto) {
+    $k = ConvertTo-Plain $texto
+    $h = Get-Rechazos
+    if (-not $k -or -not $h.ContainsKey($k)) { return $false }
+    $h.Remove($k)
+    Save-Rechazos
+    Log "RECHAZO retirado: '$k' (esta vez si la querias)"
+    return $true
+}
+
+function Test-Rechazada([string]$texto) {
+    $k = ConvertTo-Plain $texto
+    if (-not $k) { return $false }
+    return (Get-Rechazos).ContainsKey($k)
+}
+
 # Olvidar una traduccion aprendida. Hace falta para "no era eso": sin esto,
 # una interpretacion equivocada se queda para siempre y repite el error.
 function Remove-Traduccion([string]$original) {
@@ -1964,6 +2031,16 @@ function Invoke-FastCommand([string]$text) {
     # pregunta y se deja la orden pendiente. El bucle principal la ejecuta si
     # dices "si" o si pasan unos segundos sin respuesta; "no" la cancela. Sin
     # estado pegajoso: el plazo la limpia sola.
+    # YA ME DIJISTE QUE ESTO NO. La misma frase, otra vez: se pregunta en vez
+    # de hacerla. Es la unica defensa contra lo que de verdad pasa -una frase
+    # del video de fondo que la capa local entiende perfectamente-, porque ahi
+    # no hay ninguna traduccion aprendida que borrar.
+    if (-not $script:confirmado -and (Test-Rechazada $text)) {
+        $script:pendiente = @{ texto = $text; vence = 0; tipo = 'rechazada' }
+        $qr = @($acciones | ForEach-Object { $_.desc }) -join ' y '
+        if (-not $qr) { $qr = $text }
+        return "La ultima vez me dijiste que no era eso. ¿$qr?"
+    }
     if ($ConfirmacionOn -and $script:dudosa -and -not $script:confirmado -and -not $script:sinDudosa) {
         $script:pendiente = @{ texto = $text; vence = 0 }
         $q = [string]$script:dudosa
@@ -1975,6 +2052,13 @@ function Invoke-FastCommand([string]$text) {
     foreach ($a in $acciones) {
         if ($a.desc -match '^abrir (.+?)( en Steam)?$') { $script:ultimoObjetivo = $Matches[1]; break }
         if ($a.desc -match "^buscar '(.+?)' en ") { $script:ultimoObjetivo = $Matches[1]; break }
+    }
+
+    # QUE FRASE FUE. Para que "no era eso" sepa a que se refiere. No se apunta
+    # la propia "no era eso", claro, ni "deshaz": eso dejaria sin referencia a
+    # la siguiente queja.
+    if (-not ($acciones | Where-Object { $_.kind -in @('noEraEso', 'deshacer') })) {
+        $script:ultimoEjecutado = $text
     }
 
     # se guarda el estado ANTES de tocar nada, para poder deshacer
@@ -2053,6 +2137,10 @@ function Invoke-FastCommand([string]$text) {
                 'noEraEso' {
                     # 1) deshacer lo que se hiciera
                     $r = Invoke-Deshacer
+                    # 1b) y apuntar la frase, que es lo que evita que vuelva a
+                    #     pasar cuando NO hay ninguna traduccion de por medio
+                    $apuntada = $false
+                    if ($script:ultimoEjecutado) { $apuntada = Add-Rechazo $script:ultimoEjecutado }
                     # 2) y si la orden salio de una traduccion APRENDIDA, borrarla:
                     #    si no, volveria a equivocarse igual la proxima vez. Esto es
                     #    lo que convierte un "no era eso" en algo que sirve.
@@ -2062,7 +2150,9 @@ function Invoke-FastCommand([string]$text) {
                         Remove-Traduccion $olvidada
                         $script:ultimaAprendida = ''
                     }
-                    $a.desc = if ($olvidada) { "$r. Y olvido que '$olvidada' significaba eso." } else { $r }
+                    $a.desc = if ($olvidada) { "$r. Y olvido que '$olvidada' significaba eso." }
+                              elseif ($apuntada) { "$r. Si lo vuelvo a oir, te pregunto antes." }
+                              else { $r }
                 }
                 'verModos' {
                     $nn = @()
@@ -2495,7 +2585,20 @@ function Invoke-FastCommand([string]$text) {
                     else {
                         try { [System.IO.File]::WriteAllText((Join-Path $TmpDir 'ocr.txt'), $texto, (New-Object System.Text.UTF8Encoding($false))) } catch {}
                         $script:ultimaLectura = $texto
-                        $a.desc = if ($texto.Length -gt 320) { $texto.Substring(0, 320) + '... y sigue' } else { $texto }
+                        $trozo = Get-Trozo $texto 0
+                        $script:lecturaPos = $trozo.fin
+                        $a.desc = $trozo.texto + $(if ($trozo.fin -lt $texto.Length) { ' ... Di "sigue leyendo" para el resto.' } else { '' })
+                    }
+                }
+                'seguirLeyendo' {
+                    if (-not $script:ultimaLectura) {
+                        $a.desc = 'no he leido nada todavia'
+                    } elseif ($script:lecturaPos -ge $script:ultimaLectura.Length) {
+                        $a.desc = 'ya no queda mas'
+                    } else {
+                        $trozo = Get-Trozo $script:ultimaLectura $script:lecturaPos
+                        $script:lecturaPos = $trozo.fin
+                        $a.desc = $trozo.texto + $(if ($trozo.fin -lt $script:ultimaLectura.Length) { ' ... y sigue.' } else { '' })
                     }
                 }
                 'ocrMemoria' {
@@ -3840,6 +3943,23 @@ function Save-Captura([string]$ruta) {
     return $ruta
 }
 
+# Un trozo de texto para decir en voz alta, desde $desde. Se corta en un PUNTO
+# y, si no hay, en un espacio: partir una palabra por la mitad suena a fallo,
+# no a pausa. Devuelve el texto y DONDE se quedo, para poder seguir.
+function Get-Trozo([string]$todo, [int]$desde, [int]$largo = 320) {
+    if ($desde -lt 0) { $desde = 0 }
+    if ($desde -ge $todo.Length) { return @{ texto = ''; fin = $todo.Length } }
+    $resto = $todo.Substring($desde)
+    if ($resto.Length -le $largo) { return @{ texto = $resto.Trim(); fin = $todo.Length } }
+    $cacho = $resto.Substring(0, $largo)
+    # el ultimo punto que deje al menos media frase; si no, el ultimo espacio
+    $corte = $cacho.LastIndexOf('. ')
+    if ($corte -lt [int]($largo / 2)) { $corte = $cacho.LastIndexOf(' ') }
+    if ($corte -lt [int]($largo / 2)) { $corte = $largo - 1 }
+    $fin = $desde + $corte + 1
+    return @{ texto = $resto.Substring(0, $corte + 1).Trim(); fin = $fin }
+}
+
 function Invoke-OCR([string]$png) {
     $null = [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime]
     $null = [Windows.Storage.StorageFile, Windows.Storage, ContentType = WindowsRuntime]
@@ -4712,6 +4832,9 @@ function Complete-Confirmacion([string]$respuesta) {
     # en una accion: el microfono capta 'el', se pregunta '¿Edge?', nadie
     # contesta porque nadie sabia que se estaba preguntando, y se abre Edge.
     # Para decir que si hay que decirlo.
+    # DIJISTE QUE SI: entonces la querias. Se quita de la lista de rechazadas,
+    # o se quedaria preguntando por ella el resto de su vida.
+    if ($respuesta -eq 'si' -and $p.tipo -eq 'rechazada') { $null = Remove-Rechazo $p.texto }
     if ($respuesta -ne 'si') {
         Log "CONFIRMAR: no se ejecuta '$($p.texto)' ($respuesta)"
         if ($respuesta -eq 'no') {
@@ -4757,6 +4880,11 @@ $script:rachaRuido = New-Object System.Collections.ArrayList
 $script:sordinaHasta = 0
 $script:aprenderPendiente = $null
 $script:ultimaLectura = ''
+# Por donde va la lectura en voz alta de esa pantalla, para "sigue leyendo".
+$script:lecturaPos = 0
+# La ultima frase que se ejecuto de verdad, para saber a que se refiere un
+# "no era eso".
+$script:ultimoEjecutado = ''
 # Modos dentro de modos: cuantos van encadenados ahora mismo (ver el tope).
 $script:hondoPerfil = 0
 # Que juegos estaban bajando en la vuelta anterior. $null (no vacio) hasta la

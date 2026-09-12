@@ -226,8 +226,17 @@ QUÉ ENTIENDE LA RUTA LOCAL
   - Temporizadores: además de crearlos, "¿cuánto queda?" y "cancela el
                 temporizador". La sordina no se lista ahí (para eso está
                 "escúchame").
+  - Leer la pantalla: "lee la pantalla" / "léeme esto", y ahora "sigue
+                leyendo" / "lee el resto" para lo que no cabía en el primer
+                trozo. Corta en un punto, no a mitad de palabra.
   - "no era eso" : deshace lo último Y, si salió de una interpretación
                 aprendida, la BORRA, para que no vuelva a equivocarse igual.
+                Y ADEMÁS apunta la frase: la próxima vez que llegue exactamente
+                igual NO se ejecuta, se pregunta. Es la única defensa contra lo
+                que de verdad pasa (una frase del vídeo de fondo que la capa
+                local entiende perfectamente), porque ahí no hay ninguna
+                traducción que borrar. Si contestas que sí, se retira de la
+                lista: se cura sola en vez de quedar vetada para siempre.
   - Steam sabe más: "¿cuándo jugué a Outlast?", "¿a qué he jugado esta
                 semana?", "¿cuánto ocupa Elden Ring?", "¿qué se está
                 descargando?", "¿cuánto espacio me queda?"
