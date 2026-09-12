@@ -458,13 +458,36 @@ DLL anterior en `tools\`.
 
 ## 12. SEGURIDAD Y PRIVACIDAD — RIESGOS ACEPTADOS
 
-**Permisos del agente.** `opencode.jsonc` tiene `bash`, `edit`, `webfetch` y
-`mcp__windows__*` en `"allow"`, y se invoca con `--auto` (el CLI lo describe
-como *«dangerous!»*). Con `--dir` sobre todo `Documents`, una frase mal
-transcrita puede ejecutar shell, editar archivos y controlar el escritorio
-**sin confirmación**. Comprobado en vivo: opencode interpretó un «di
-exactamente: …» como orden de teclear y escribió en la ventana enfocada.
-**El usuario conoce el riesgo y ha decidido mantener el acceso total.**
+**Permisos del agente.** Se invoca con `--auto` (el CLI lo describe como
+*«dangerous!»*) y con `--dir` sobre todo `Documents`, así que una frase mal
+transcrita puede ejecutar shell, editar archivos y controlar el escritorio **sin
+confirmación**. Comprobado en vivo: opencode interpretó un «di exactamente: …»
+como orden de teclear y escribió en la ventana enfocada. El usuario conoce el
+riesgo y mantiene el acceso.
+
+**Lo que sí se puso (11/09): una red para lo irreversible.** `"deny"` es la
+única acción que `--auto` respeta, y hubo que aprender a usarla probándola en
+vivo, porque tenía **tres trampas**:
+
+1. **El orden importa: gana la última coincidencia.** Con `"*": "allow"` al
+   final, los `deny` de arriba **no bloquean nada**. El comodín va PRIMERO y las
+   denegaciones DESPUÉS. Así escrito, el agente responde *«hay una regla de
+   permiso que lo bloquea»*.
+2. **El patrón del MCP es `windows*`, no `mcp__windows__*`.** El que había en la
+   config no coincidía con ninguna herramienta: era decorativo. El nombre real
+   se ve en la salida del CLI (`windows_PowerShell`).
+3. **Denegar `bash` no sirve de nada por sí solo.** Con `bash: "deny"` el agente
+   ejecutó el mismo comando por `windows_PowerShell`, que es una puerta paralela
+   sin filtros. Verificado tres veces. Por eso ahora `windows_PowerShell` está
+   en `deny`: si el agente necesita consola la tiene por `bash`, donde sí se
+   aplican los patrones.
+
+La lista corta **solo lo que no tiene vuelta atrás** (borrado recursivo o
+forzado, formateos, registro, apagar o reiniciar, servicios, `git reset --hard`
+/ `push --force`, y el clásico «descarga esto y ejecútalo»). Todo lo demás sigue
+permitido: comprobado que `echo` normal funciona igual. Copia de referencia en
+`opencode.permisos.json` (el archivo que manda es
+`%USERPROFILE%\.config\opencode\opencode.jsonc`).
 
 **Envío automático.** Al enviarse solo tras 2,5 s de silencio, ya no existe el
 segundo botón como último punto de control antes de ejecutar.

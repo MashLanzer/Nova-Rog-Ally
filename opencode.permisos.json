@@ -1,0 +1,59 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "bash": {
+      "*": "allow",
+      "rm -r*": "deny",
+      "rm -f*": "deny",
+      "rm --recursive*": "deny",
+      "rm --force*": "deny",
+      "del /s*": "deny",
+      "del /q*": "deny",
+      "rd /s*": "deny",
+      "rmdir /s*": "deny",
+      "*Remove-Item*-Recurse*": "deny",
+      "*Remove-Item*-Force*": "deny",
+      "*rmdir*/s*": "deny",
+      "format *": "deny",
+      "diskpart*": "deny",
+      "mkfs*": "deny",
+      "cipher /w*": "deny",
+      "fsutil*": "deny",
+      "reg delete*": "deny",
+      "*Remove-ItemProperty*": "deny",
+      "*Remove-Item*HKLM*": "deny",
+      "*Remove-Item*HKCU*": "deny",
+      "shutdown*": "deny",
+      "*Stop-Computer*": "deny",
+      "*Restart-Computer*": "deny",
+      "logoff*": "deny",
+      "sc delete*": "deny",
+      "*Stop-Service*": "deny",
+      "schtasks /delete*": "deny",
+      "git push --force*": "deny",
+      "git push -f*": "deny",
+      "git reset --hard*": "deny",
+      "git clean -f*": "deny",
+      "*Invoke-Expression*": "deny",
+      "*curl*|*sh*": "deny",
+      "*wget*|*sh*": "deny",
+      "*iwr*|*iex*": "deny"
+    },
+    "edit": "allow",
+    "webfetch": "allow",
+    "windows*": "allow",
+    "windows_PowerShell": "deny"
+  },
+  "mcp": {
+    "windows": {
+      "type": "local",
+      "command": [
+        "C:\\Users\\braya\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\windows-mcp.exe",
+        "serve",
+        "--transport",
+        "stdio"
+      ],
+      "enabled": true
+    }
+  }
+}
