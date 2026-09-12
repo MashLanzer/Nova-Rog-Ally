@@ -128,7 +128,7 @@ $VERBOS = '(?:abre|abreme|abrele|abrir|abri|abrime|ejecuta|ejecutame|inicia|inic
 
 # Muletillas y cortesias que el dictado captura pero que NO son parte de la
 # orden. "busca tambien en el navegador X" fallaba justo por esto.
-$FILLER_GLOBAL = '\b(?:tambien|ademas|porfa|porfavor|por favor|gracias|oye|okey|dale|a ver|quiero que|necesito que|me puedes|puedes|podrias|hazme el favor de)\b'
+$FILLER_GLOBAL = '\b(?:tambien|ademas|porfa|porfavor|por favor|gracias|oye|okey|dale(?!\s+al?\b)|a ver|quiero que|necesito que|me puedes|puedes|podrias|hazme el favor de)\b'
 # "a mi"/"ya me"/"me" salen mucho al dictar ("ya me abre steam", "ábreme")
 $FILLER_INI = '^(?:(?:y|luego|despues|ahora|entonces|a mi|ami|ya me|me|pues|este)\s+)+'
 
@@ -185,6 +185,13 @@ $VERBOS_LISTA = (($VERBOS -replace '^\(\?:', '') -replace '\)$', '') -split '\|'
 function Repair-Verb([string]$f) {
     if (-not $f) { return $f }
     $partes = $f -split '\s+', 2
+    # UNA PALABRA SUELTA NO SE REPARA. Al hacerlo, una palabra cualquiera del
+    # castellano se convertia en verbo y, ya reconocida, se ejecutaba saltandose
+    # el filtro de ruido (que solo actua cuando la capa local NO entiende):
+    # 'pesa' -> 'pega' -> Ctrl+V en lo que tuvieras delante, 'copla' -> Ctrl+C,
+    # 'guardia' -> Ctrl+S, 'pasa' -> pausa. Son palabras que salen del altavoz
+    # todo el rato. Un verbo solo, sin objeto, casi nunca es una orden util.
+    if ($partes.Count -lt 2) { return $f }
     $primera = $partes[0]
     if ($primera.Length -lt 4 -or ($VERBOS_LISTA -contains $primera)) { return $f }
     $mejor = $null
@@ -436,11 +443,23 @@ function Find-JuegoEn([string]$q, $lista) {
         # Nightmares. Para que la contencion valga, el trozo tiene que ser
         # sustancial: al menos cuatro letras y un 40 % del titulo.
         if ($q.Length -lt 4) { continue }
-        if (($n.Contains($q) -or $q.Contains($n)) -and ($q.Length * 2.5) -ge $n.Length) {
+        # Contains() es subcadena cruda: 'speaker' contiene 'peak' y lanzaba
+        # PEAK; 'ring' cabe en 'elden ring' y lanzaba ELDEN RING. Y como la
+        # contencion puntua por debajo de 100, ni siquiera pedia confirmacion.
+        # Ahora tiene que ser una PALABRA entera y cubrir la mayor parte del
+        # titulo. Al reves (lo dicho contiene al titulo) sigue valiendo tal cual:
+        # 'outlast dos' para 'Outlast 2'.
+        $contiene = $false
+        if ($n -match ('\b' + [regex]::Escape($q) + '\b') -and $q.Length -ge $n.Length * 0.6) { $contiene = $true }
+        elseif ($q -match ('\b' + [regex]::Escape($n) + '\b')) { $contiene = $true }
+        if ($contiene) {
             $puntos = [Math]::Abs($n.Length - $q.Length)
         } else {
             $d = Get-Distancia $q $n
-            $tope = [Math]::Max(2, [int][Math]::Floor($n.Length * 0.35))
+            # En titulos cortos, un tope de 2 llega a casi cualquier palabra de
+            # cuatro letras: 'pesa' acababa en PEAK. Con menos de seis letras se
+            # exige practicamente clavarlo.
+            $tope = if ($n.Length -lt 6) { 1 } else { [Math]::Max(2, [int][Math]::Floor($n.Length * 0.35)) }
             # +100: cualquier contencion es mejor pista que un parecido lejano
             if ($d -le $tope) { $puntos = $d + 100 }
         }
@@ -525,7 +544,7 @@ function Test-CatalogoRecitado([string]$text) {
     # nada en absoluto.
     if ($text -notmatch ',') { return $false }
     $plano = ConvertTo-Plain $text
-    if ($plano -match ('(?:' + $VERBOS + ')')) { return $false }   # con verbo es una orden de verdad
+    if ($plano -match ('\b(?:' + $VERBOS + ')\b')) { return $false }   # con verbo es una orden de verdad
     $trozos = @($text -split ',' | ForEach-Object { (ConvertTo-Plain $_).Trim() } | Where-Object { $_ })
     if ($trozos.Count -lt 2) { return $false }
     $delCatalogo = 0
@@ -536,9 +555,14 @@ function Test-CatalogoRecitado([string]$text) {
         elseif (Find-Juego $t) { $esNombre = $true }
         if ($esNombre) { $delCatalogo++ }
     }
-    # basta con que DOS trozos sean nombres del catalogo: el resto suele ser
-    # basura del mismo destrozo ('Engine,', 'Throne,')
-    return ($delCatalogo -ge 2)
+    # Basta UNO. Al exigir dos se colaba 'Enhanced Edition, Outlast, Throne,':
+    # solo 'Outlast' emparejaba con la biblioteca y los otros dos eran restos
+    # del mismo destrozo, asi que el filtro lo dejaba pasar y abria el juego.
+    # Una enumeracion por comas, sin un solo verbo, con un nombre de tu
+    # biblioteca dentro, no es una orden que hayas dado: es el modelo
+    # recitando. Si de verdad quieres abrir dos cosas, di el verbo:
+    # 'abre steam y discord'.
+    return ($delCatalogo -ge 1)
 }
 
 function Test-MismoAudio([string]$a, [string]$b) {
@@ -591,7 +615,17 @@ function Resolve-Proceso([string]$t) {
     $t = ($t -replace '^(?:a|al|el|la|los|las|mi|un|una)\s+', '').Trim()
     $t = Repair-Words $t
     $k = $null
-    if (Test-Prop $cmds.apps $t) { $k = $t } else { $k = Find-Aproximado $t $cmds.apps }
+    if (Test-Prop $cmds.apps $t) {
+        $k = $t
+    } elseif (@($t -split '\s+').Count -le 3) {
+        # El MISMO limite que Resolve-Target, y por el mismo motivo: buscar por
+        # parecido dentro de una frase larga encuentra cualquier nombre suelto.
+        # Aqui era peor, porque lo que se resuelve es a quien CERRAR: 'cierra la
+        # ventana del navegador que tengo abierta ahora mismo' acababa en
+        # cerrarApp msedge. Si la frase es larga y no se entiende, que la mire
+        # el modelo.
+        $k = Find-Aproximado $t $cmds.apps
+    }
     if (-not $k) {
         # tambien un juego instalado: "cierra elden ring"
         $j = Find-Juego $t
@@ -888,7 +922,7 @@ function Resolve-Fragment([string]$f) {
     # "recuerda que X" -> se anota YA, sin pasar por el modelo
     # El lookahead negativo distingue "recuerdame que X" (nota) de
     # "recuerdame EN 20 MINUTOS que X" (temporizador), que se resuelve mas abajo.
-    if ($f -match '^(?:recuerda|recuerdame|acuerdate|anota|apunta|guarda|memoriza)\s+(?!en\s+\d+\s*(?:segundo|minuto|hora))(?:que\s+|de\s+que\s+)?(.+)$') {
+    if ($f -match '^(?:recuerda|recuerdame|acuerdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!en\s+\d+\s*(?:segundo|minuto|hora))(?:que\s+|de\s+que\s+)?(.+)$') {
         return @(@{ kind = 'memoria'; texto = $Matches[1].Trim(); desc = "anotar en la memoria" })
     }
     # El lugar puede preceder al verbo ("en el navegador busca X"). Se separa
@@ -1385,7 +1419,7 @@ function Test-FastCommand([string]$text) {
     if ($text -match '(?i)^\s*aprende\s+que\s+') { return $true }
     $pl = ConvertTo-Plain $text
     if ($pl -match '^(?:recuerdame|avisame|recordatorio)\s+(?!que\b)(?:hoy|manana|pasado manana|el (?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)|el \d{1,2} de |a las? )') { return $true }   # recordatorio con fecha
-    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda|memoriza)\s+(?!en\s+\d+)') { return $true }
+    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!en\s+\d+)') { return $true }
     if ($pl -match '^(?:cuando\s|cada\s+\d+|todos los dias|a las?\s)') { return $false }   # reglas: las decide Invoke-ReglaVoz
     # el mismo corte que en Invoke-FastCommand: este es el camino que usan la
     # capsula y el banco de pruebas, y tiene que decir lo mismo que el ejecutor
@@ -1420,7 +1454,7 @@ function Invoke-FastCommand([string]$text) {
     # tildes, que es justo lo que no quieres leer meses despues en Obsidian.
     # mismo lookahead que en Resolve-Fragment: "en 20 minutos" es temporizador,
     # no una nota para el diario
-    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda|memoriza)\s+(?!en\s+\d+\s*(?:segundo|minuto|hora))(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?:que\s+|de\s+que\s+)?(.+)$') {
+    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!en\s+\d+\s*(?:segundo|minuto|hora))(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?:que\s+|de\s+que\s+)?(.+)$') {
         $frase = $Matches[1].Trim()
         if ($frase.Length -gt 0) {
             $null = Add-Memoria $frase
@@ -1475,7 +1509,7 @@ function Invoke-FastCommand([string]$text) {
     # pregunta y se deja la orden pendiente. El bucle principal la ejecuta si
     # dices "si" o si pasan unos segundos sin respuesta; "no" la cancela. Sin
     # estado pegajoso: el plazo la limpia sola.
-    if ($ConfirmacionOn -and $script:dudosa -and -not $script:confirmado) {
+    if ($ConfirmacionOn -and $script:dudosa -and -not $script:confirmado -and -not $script:sinDudosa) {
         $script:pendiente = @{ texto = $text; vence = 0 }
         $q = [string]$script:dudosa
         $script:dudosa = $null
@@ -1680,7 +1714,18 @@ function Invoke-FastCommand([string]$text) {
                     $ps = @(Get-Process -Name $a.proceso -ErrorAction SilentlyContinue)
                     if ($ps.Count -eq 0) { $a.desc = "$($a.desc): no estaba abierta" }
                     else {
-                        foreach ($pr in $ps) { try { if (-not $pr.CloseMainWindow()) { $pr.Kill() } } catch {} }
+                        # Se le da el momento de cerrarse bien, igual que a los
+                        # juegos. Matar de golpe una app que tiene algo sin
+                        # guardar es el peor final posible para una orden mal
+                        # oida, y aqui se hacia sin esperar nada.
+                        foreach ($pr in $ps) {
+                            try {
+                                if (-not $pr.CloseMainWindow()) {
+                                    Start-Sleep -Milliseconds 1500
+                                    if (-not $pr.HasExited) { $pr.Kill() }
+                                }
+                            } catch {}
+                        }
                     }
                 }
                 'cerrarJuego' {
@@ -2065,13 +2110,26 @@ $RutaEstado = Join-Path $TmpDir "escucha-estado.txt"
 # mitad de una partida- y cuando el boton del mando esta mas a mano.
 $MarcaSoloBoton = Join-Path $TmpDir "solo-boton.flag"
 $SoloBotonEnJuego = [bool](Get-Cfg 'escucha' 'soloBotonEnJuego' $true)
-# una marca de una sesion anterior dejaria la palabra apagada sin motivo
-try { Remove-Item -LiteralPath $MarcaSoloBoton -Force -ErrorAction SilentlyContinue } catch {}
 $MarcaReintento = Join-Path $TmpDir "reintentar.flag"
 $RutaReintento = Join-Path $TmpDir "reintento.txt"
 # nivel de voz 0..1 que el worker escribe mientras dictas; lo lee la interfaz
 # directamente (nova_ui.exe busca ui-nivel.txt junto a ui-estado.json)
 $RutaNivel = Join-Path $TmpDir "ui-nivel.txt"
+
+# MARCAS HUERFANAS. Si el asistente murio de golpe -taskkill, cierre de sesion,
+# un cuelgue- sus marcas se quedan puestas y el worker nuevo las obedece como si
+# fueran de ahora. La peor con diferencia es escucha-pausa.flag: el worker nace
+# SORDO, tirando todo el audio, y no hay forma de sacarlo de ahi hablando,
+# porque justamente no oye. Reanudar-Escucha solo la borra si pausaHasta > 0, y
+# en un proceso recien arrancado vale 0, asi que se quedaba puesta para siempre.
+# Una dictar.flag huerfana es mas leve pero tambien molesta: el worker se pone a
+# grabar una orden que nadie esta dictando. Se limpian todas al arrancar.
+foreach ($m in @($MarcaPausa, $MarcaSoloBoton, $MarcaDictar, $MarcaConfirmar, $MarcaReintento, $MarcaWake)) {
+    if (Test-Path -LiteralPath $m) {
+        Log "marca huerfana de la sesion anterior: $(Split-Path -Leaf $m)"
+        try { Remove-Item -LiteralPath $m -Force -ErrorAction SilentlyContinue } catch {}
+    }
+}
 $script:pausaHasta = 0
 
 function Pausar-Escucha([int]$ms) {
@@ -2451,13 +2509,20 @@ function Invoke-ReglaVoz([string]$text) {
         $tipo = 'bateria'; $valor = [string][int]$Matches[1]; $accion = $Matches[2].Trim()
     }
     elseif ($p -match '^(?:todos los dias|cada dia|diariamente|siempre)?\s*a\s+las?\s+(\d{1,2}|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)(?::(\d{2})|\s+y\s+media|\s+y\s+cuarto)?\s*(de la manana|de la tarde|de la noche|am|pm)?\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea)\b.*)$') {
-        $h = $Matches[1]; if ($HORAS_PALABRA.ContainsKey($h)) { $h = $HORAS_PALABRA[$h] }; $h = [int]$h
+        # Los grupos, COPIADOS antes de nada: el primer -match de las lineas de
+        # abajo (la franja) reescribe $Matches entero y $Matches[4] desaparecia.
+        # 'a las 10 de la noche pon modo noche' reventaba con una excepcion que
+        # se tragaba el catch de Invoke-FastCommand, asi que la regla no se
+        # creaba y nadie se enteraba. Lo mismo con 'y media' y 'y cuarto': el
+        # ejemplo de la documentacion llevaba roto desde que se escribio.
+        $g0 = $Matches[0]; $g1 = $Matches[1]; $g2 = $Matches[2]; $g3 = $Matches[3]; $g4 = $Matches[4]
+        $h = $g1; if ($HORAS_PALABRA.ContainsKey($h)) { $h = $HORAS_PALABRA[$h] }; $h = [int]$h
         $m = 0
-        if ($Matches[2]) { $m = [int]$Matches[2] } elseif ($Matches[0] -match 'y media') { $m = 30 } elseif ($Matches[0] -match 'y cuarto') { $m = 15 }
-        $franja = $Matches[3]
+        if ($g2) { $m = [int]$g2 } elseif ($g0 -match 'y media') { $m = 30 } elseif ($g0 -match 'y cuarto') { $m = 15 }
+        $franja = $g3
         if ($franja -match 'tarde|noche|pm' -and $h -lt 12) { $h += 12 }
         if ($franja -match 'manana|am' -and $h -eq 12) { $h = 0 }
-        $tipo = 'hora'; $valor = ('{0:00}:{1:00}' -f $h, $m); $accion = $Matches[4].Trim()
+        $tipo = 'hora'; $valor = ('{0:00}:{1:00}' -f $h, $m); $accion = $g4.Trim()
     }
     elseif ($p -match '^cada\s+(\d+)\s*(minutos?|horas?)\s*,?\s*((?:' + $VERBOS + '|modo|activa|desactiva|bloquea)\b.*)$') {
         $n = [int]$Matches[1]; if ($Matches[2] -match '^hora') { $n *= 60 }
@@ -2611,9 +2676,14 @@ function Invoke-RecordatorioVoz([string]$text) {
     }
     # hora
     if ($resto -match '^(?:a\s+las?\s+)(\d{1,2}|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)(?::(\d{2})|\s+y\s+media|\s+y\s+cuarto|\s+menos\s+cuarto)?\s*(de la manana|de la tarde|de la noche|am|pm)?\s*(.*)$') {
-        $h = $Matches[1]; if ($HORAS_PALABRA.ContainsKey($h)) { $h = $HORAS_PALABRA[$h] }; $hora = [int]$h
-        if ($Matches[2]) { $min = [int]$Matches[2] } elseif ($Matches[0] -match 'y media') { $min = 30 } elseif ($Matches[0] -match 'y cuarto') { $min = 15 } elseif ($Matches[0] -match 'menos cuarto') { $min = 45; $hora-- }
-        $franja = $Matches[3]; $resto = $Matches[4]
+        # mismos cuidados que en las reglas: copiar ANTES de volver a usar
+        # -match. Aqui el fallo era mudo: $resto quedaba vacio y contestaba
+        # '¿Que te recuerdo?', asi que creias haber puesto el recordatorio y no
+        # existia. Pasaba con 'y media', 'y cuarto' y 'menos cuarto'.
+        $g0 = $Matches[0]; $g1 = $Matches[1]; $g2 = $Matches[2]; $g3 = $Matches[3]; $g4 = $Matches[4]
+        $h = $g1; if ($HORAS_PALABRA.ContainsKey($h)) { $h = $HORAS_PALABRA[$h] }; $hora = [int]$h
+        if ($g2) { $min = [int]$g2 } elseif ($g0 -match 'y media') { $min = 30 } elseif ($g0 -match 'y cuarto') { $min = 15 } elseif ($g0 -match 'menos cuarto') { $min = 45; $hora-- }
+        $franja = $g3; $resto = $g4
         if ($franja -match 'tarde|noche|pm' -and $hora -lt 12) { $hora += 12 }
         if ($franja -match 'manana|am' -and $hora -eq 12) { $hora = 0 }
         # sin franja y hora "pequena": si ya paso de manana, sera de tarde
@@ -2988,11 +3058,30 @@ if ($Probar) {
         if (-not $t -or $t.StartsWith('#')) { continue }
         # mismo orden que Process-Texto: reglas y recordatorios se resuelven
         # antes que las ordenes sueltas, o el banco mentiria
-        $r = $false
-        try { if (Invoke-ReglaVoz $t) { $r = $true } } catch {}
-        if (-not $r) { try { if (Invoke-RecordatorioVoz $t) { $r = $true } } catch {} }
+        $r = $false; $via = ''
+        try { if (Invoke-ReglaVoz $t) { $r = $true; $via = 'regla' } } catch { $via = 'REGLA ROTA' ; $r = $false }
+        if (-not $r) { try { if (Invoke-RecordatorioVoz $t) { $r = $true; $via = 'recordatorio' } } catch { $via = 'RECORDATORIO ROTO' } }
         if (-not $r) { try { $r = Test-FastCommand $t } catch { $r = $false } }
-        if ($r) { $ok++; Write-Output ("  OK    " + $t) }
+        if ($r) {
+            $ok++
+            # QUE haria, no solo si lo reconoce. Sin esto, el banco decia 'OK'
+            # a 'pesa' sin contar que eso era un Ctrl+V en lo que tuvieras
+            # delante, ni a 'abre el speaker' que lanzaba PEAK.
+            $comoQue = ''
+            # si lo cogio una regla o un recordatorio, decirlo: la descripcion
+            # de Resolve-Fragment seria otra cosa y despistaria
+            if ($via) { $comoQue = "  ->  [$via]" }
+            elseif ($true) { try {
+                $descs = @()
+                foreach ($fr in @(Split-Compound (Repair-Words (ConvertTo-Plain $t)))) {
+                    $acc = Resolve-Fragment $fr
+                    if ($acc) { $descs += @($acc | ForEach-Object { $_.desc }) }
+                }
+                $descs = @($descs | Where-Object { $_ })
+                if ($descs.Count -gt 0) { $comoQue = '  ->  ' + ($descs -join ' + ') }
+            } catch {} }
+            Write-Output ("  OK    " + $t.PadRight(38) + $comoQue)
+        }
         else    { $no++; Write-Output ("  ->IA  " + $t) }
     }
     Write-Output ""
@@ -3558,10 +3647,16 @@ function Report-Reply($out) {
         if ($propuesta.Length -lt 120) {
             Log "traduccion propuesta: '$original' -> '$propuesta'"
             $r = $null
-            # una traduccion del modelo no se confirma por voz: o encaja o no
-            $script:confirmado = $true
+            # Una traduccion del modelo no se pregunta por parecido: o encaja o
+            # no. Pero OJO con como se hace: antes se usaba $script:confirmado,
+            # que significa 'el usuario ya dijo que si' y apaga TAMBIEN las
+            # confirmaciones de las acciones que no se deshacen. O sea que una
+            # propuesta nacida de un ruido ('cierra todos los programas', 'abre
+            # SILENT BREATH en steam') se ejecutaba a la primera. $sinDudosa
+            # silencia solo la pregunta por parecido, que es lo que se queria.
+            $script:sinDudosa = $true
             try { $r = Invoke-FastCommand $propuesta } catch { $r = $null }
-            $script:confirmado = $false
+            $script:sinDudosa = $false
             if ($r) {
                 Add-Traduccion $original $propuesta
                 Add-Estadistica 'traducida' "$original -> $propuesta"
@@ -3635,6 +3730,9 @@ $ConfirmacionOn = [bool](Get-Cfg 'confirmacion' 'activada' $true)
 $ConfirmacionMs = [int](Get-Cfg 'confirmacion' 'esperaMs' 3500)
 $script:pendiente = $null
 $script:confirmado = $false
+# 'confirmado' = el usuario dijo que si. 'sinDudosa' = no preguntes por
+# parecido, pero lo demas sigue en pie. Confundirlos abria la puerta de atras.
+$script:sinDudosa = $false
 $script:dudosa = $null
 
 # Pide al worker que escuche un si/no. La pregunta ya se dijo (Say), y el

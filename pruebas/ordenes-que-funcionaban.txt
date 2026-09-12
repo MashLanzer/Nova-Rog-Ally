@@ -11,7 +11,6 @@ Freelesign en el navegador buscal Pinterest
 Google
 Inicia little nightmare 3
 Little Nightmares III
-Outlast 2, Atleti de Ragazan,
 Puedes abrir el steam
 Puedes abrir little nightmares 3 en steam
 Puedes abrir steam
@@ -46,3 +45,6 @@ SIRRA, LOS PROGRAMAN
 Abre en navegador y busca pa' interest, además ponte en porisador de 5 minutos
 Sierra, el navegador
 Abre, steam, y busca los huevos en oferta
+
+# Se quito "Outlast 2, Atleti de Ragazan,": tampoco era una orden, era el
+# catalogo recitado por Whisper. Vive en ruido-real.txt.

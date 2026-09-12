@@ -2221,7 +2221,24 @@ public class NovaUI : Window
         {
             if (File.Exists(rutaEstado))
             {
-                string j = File.ReadAllText(rutaEstado, System.Text.Encoding.UTF8);
+                // FileShare.ReadWrite: el asistente reescribe este JSON en cada
+                // parcial del dictado (varias veces por segundo) y File.ReadAllText
+                // abre pidiendo FileShare.Read, que choca con la escritura en curso.
+                // Cada choque lanzaba IOException, el catch de abajo se la tragaba y
+                // -al estar las variables locales inicializadas a los valores por
+                // defecto- la capsula aplicaba 'reposo' como si fuera el estado real:
+                // se colapsaba a media frase, perdia el avatar, reiniciaba el lipsync
+                // y repetia el ultimo evento con su sonido.
+                string j;
+                using (var fs = new FileStream(rutaEstado, FileMode.Open, FileAccess.Read,
+                                              FileShare.ReadWrite | FileShare.Delete))
+                using (var sr = new StreamReader(fs, System.Text.Encoding.UTF8))
+                {
+                    j = sr.ReadToEnd();
+                }
+                // y si lo pillamos a medio escribir, este tic no vale: mejor
+                // quedarse como estabamos que inventarse un estado
+                if (j.Length == 0 || j.TrimEnd()[j.TrimEnd().Length - 1] != '}') { return; }
                 est = Campo(j, "estado", "reposo");
                 txt = Campo(j, "texto", "");
                 evento = Campo(j, "evento", "");
@@ -2257,7 +2274,10 @@ public class NovaUI : Window
                 }
             }
         }
-        catch { }
+        // Si la lectura falla, NO se sigue: las variables locales valen los
+        // valores por defecto y aplicarlos seria fingir que el asistente pidio
+        // 'reposo'. Se salta el tic y se prueba en el siguiente (80 ms).
+        catch { return; }
         if (expresion != "normal" && DateTime.UtcNow >= expresionHasta && !dormido) { Expresion("normal", 0); }
 
         if (est == "escuchando" && rutaNivel != null)

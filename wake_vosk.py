@@ -160,9 +160,12 @@ def anota(mensaje):
 # Se usa IAudioMeterInformation: es una llamada suelta, no abre ningun stream
 # ni consume CPU, y si algo falla el worker sigue igual que antes.
 _medidor = None
-_medidor_roto = False
 _medidor_valor = 0.0
 _medidor_visto = 0.0
+_medidor_fallos = 0
+_medidor_creado = 0.0
+_medidor_reintento = 0.0
+REFRESCO_MEDIDOR = 300.0   # s: rehacerlo por si cambiaste de altavoces a cascos
 
 
 def _crear_medidor():
@@ -205,23 +208,43 @@ def _crear_medidor():
 
 
 def nivel_salida():
-    """Pico actual de los altavoces (0..1). 0.0 si no se puede medir."""
-    global _medidor, _medidor_roto, _medidor_valor, _medidor_visto
-    if _medidor_roto:
-        return 0.0
+    """Pico actual de los altavoces (0..1). 0.0 si no se puede medir.
+
+    De esta medida cuelgan CUATRO protecciones (mas confianza exigida con
+    altavoces, veto con altavoces fuertes, ganancia congelada y freno del
+    detector de recorte). Si se apaga, todas desaparecen en silencio y vuelven
+    los fallos del 11/09. Por eso no se da por perdida a la primera y se rehace
+    cada tanto: el objeto guarda el dispositivo de salida DE CUANDO SE CREO, y
+    al cambiar de altavoces a cascos el viejo devuelve 0.0 sin dar ningun
+    error."""
+    global _medidor, _medidor_valor, _medidor_visto
+    global _medidor_fallos, _medidor_creado, _medidor_reintento
     ahora = time.time()
     if ahora - _medidor_visto < INTERVALO_MEDIDOR:
         return _medidor_valor
     _medidor_visto = ahora
+    # si lleva un rato fallando, se reintenta de vez en cuando, no a cada vuelta
+    if _medidor is None and _medidor_fallos > 3 and ahora - _medidor_reintento < 30.0:
+        return 0.0
+    if _medidor is not None and ahora - _medidor_creado > REFRESCO_MEDIDOR:
+        _medidor = None          # a ver si ha cambiado el dispositivo de salida
     try:
         if _medidor is None:
+            _medidor_reintento = ahora
             _medidor = _crear_medidor()
-            anota("medidor de altavoces activo: se desconfia del microfono mientras suena algo")
+            _medidor_creado = ahora
+            if _medidor_fallos:
+                anota("medidor de altavoces recuperado tras %d fallos" % _medidor_fallos)
+            elif _medidor_creado == ahora and not _medidor_valor:
+                anota("medidor de altavoces activo: se desconfia del microfono mientras suena algo")
+            _medidor_fallos = 0
         _medidor_valor = float(_medidor.GetPeakValue())
-    except Exception as e:
-        _medidor_roto = True
+    except Exception as e:              # noqa: BLE001
+        _medidor = None
+        _medidor_fallos += 1
         _medidor_valor = 0.0
-        anota("WARN: sin medidor de altavoces (%s); se sigue sin el" % e)
+        if _medidor_fallos in (1, 5, 25):
+            anota("WARN: no puedo medir los altavoces (%s); reintentando" % e)
     return _medidor_valor
 
 
@@ -603,9 +626,13 @@ if automatica:
         else:
             ganancia = _g
             anota("ganancia recordada de la sesion anterior: x%.1f" % ganancia)
-# Ultima ganancia calibrada EN SILENCIO. Es la que vale mientras suenen los
-# altavoces, porque la de entonces esta medida sobre el altavoz, no sobre ti.
-ganancia_limpia = ganancia
+# NOTA: aqui hubo una 'ganancia_limpia' como red de seguridad, para recuperar
+# la ultima calibracion hecha en silencio. Era codigo muerto: los dos unicos
+# caminos que bajan la ganancia (el pulso y el detector de recorte) ya
+# comprueban nivel_salida() antes de tocarla, asi que la copia acababa siempre
+# valiendo lo mismo que el original y la recuperacion no podia dispararse
+# jamas. La proteccion de verdad es que el medidor siga vivo, y de eso se
+# encarga nivel_salida(), que se rehace sola si falla o si cambias de salida.
 
 anota("worker Vosk en marcha: nombre='%s' dispositivo='%s' ganancia=%s"
       % (NOMBRE, dispositivo, "auto" if automatica else ganancia))
@@ -660,16 +687,29 @@ try:
                 pausado = False
                 vaciar_cola("fin de pausa")
                 datos = None
-                rec = nuevo_reconocedor()
+                # mismo cuidado que al salir de confirmacion: si hay un dictado
+                # abierto (el asistente hablo en mitad de uno, por ejemplo un
+                # recordatorio), cambiar de reconocedor lo deja mudo
+                if not dictando:
+                    rec = nuevo_reconocedor()
                 anota("pausa: fin, escuchando de nuevo")
 
             # --- el asistente pide repasar la ultima orden con el oido fino ---
             # Sin 'continue': saltaria tambien el pulso del final del bucle.
-            atender_reintento(ultimo_audio)
+            # Y NO mientras se dicta o se confirma: el repaso bloquea el hilo
+            # varios segundos y al terminar vacia la cola, o sea que se llevaria
+            # por delante el audio de la orden que se este dictando ahora mismo.
+            if not dictando and not confirmando:
+                atender_reintento(ultimo_audio)
 
             # --- entrar y salir del modo dictado ---
             quiere_dictar = bool(DICTAR) and os.path.exists(DICTAR)
-            if quiere_dictar and not dictando:
+            # 'not confirmando' es tan necesario como el 'not dictando' que
+            # lleva la entrada a confirmacion: con las dos marcas puestas, el
+            # 'continue' del bloque de confirmacion impedia que el dictado
+            # avanzara nunca, dictar.flag no se borraba y el asistente se
+            # quedaba esperando hasta agotar su plazo.
+            if quiere_dictar and not dictando and not confirmando:
                 dictando = True
                 # SEGUIMIENTO: la marca lleva "seguimiento:<ms>"; si no hay voz
                 # en ese plazo, se cierra en silencio con texto vacio
@@ -707,6 +747,12 @@ try:
                     mejor = transcribir_whisper(audio_dictado)
                     if mejor:
                         texto_final = mejor
+                    # Whisper bloquea el hilo varios segundos y mientras tanto
+                    # la cola se llena. Sin vaciarla, al volver al bucle se
+                    # decodifica de golpe el audio de hace medio minuto con el
+                    # reconocedor de activacion: activaciones fantasma. El
+                    # camino normal ya lo hacia; este, el del boton, no.
+                    vaciar_cola("corte a mano")
                 texto_final = quitar_nombre(texto_final)
                 anota("dictado: cortado a mano -> '%s'" % texto_final)
                 escribir(TEXTO, texto_final)
@@ -736,7 +782,13 @@ try:
                     except Exception:
                         pass
                 confirmando = False
-                rec = nuevo_reconocedor()
+                # OJO: si en esta misma vuelta ya se entro en dictado, el
+                # reconocedor libre acaba de instalarse y no hay que pisarlo con
+                # el de gramatica cerrada. Si se pisa, el dictado deja de dar
+                # parciales, nunca se cumple 'hay_algo' y no termina por
+                # silencio: aguanta hasta el tope de 30 s.
+                if not dictando:
+                    rec = nuevo_reconocedor()
 
             # nivel para la onda de la interfaz, solo mientras se dicta o se
             # esta en pausa (que es cuando la capsula esta abierta). Se
@@ -783,11 +835,6 @@ try:
                                           % (nivel_salida(), ganancia))
                             else:
                                 ganancia = round(max(GANANCIA_MIN, ganancia * 0.6), 1)
-                                # Sin altavoces de por medio, esto SI es tu voz
-                                # saturando: la bajada es buena y pasa a ser la
-                                # calibracion de referencia. Si no, el pulso la
-                                # desharia creyendo que fue culpa del altavoz.
-                                ganancia_limpia = ganancia
                                 anota("recorte detectado: bajando ganancia a x%.1f" % ganancia)
                                 recortes = 0
                                 amplificado = muestras * ganancia
@@ -875,7 +922,18 @@ try:
                         texto_vosk = " ".join([t for t in dictado if t])
                         texto_final = texto_vosk
                         anotar_voz(audio_dictado)
-                        if whisper is not None:
+                        # Cerrar por el tope de 30 s SIN haber oido nada quiere
+                        # decir que eso no era una orden, sino ruido continuo.
+                        # Antes se le daban igual 15 s de ruido a Whisper: unos
+                        # 29 s de CPU con el bucle bloqueado -sordo y sin mirar
+                        # la marca de activacion- para entregar un texto que
+                        # ademas llega cuando el asistente ya se ha rendido.
+                        callado = (not hay_algo) and (ahora - dicta_inicio) >= DICTADO_MAX
+                        if callado:
+                            anota("dictado: %.0f s sin oir nada; no hay nada que transcribir"
+                                  % DICTADO_MAX)
+                            texto_final = ""
+                        if whisper is not None and not callado:
                             escribir(PARCIAL, texto_vosk)
                             mejor = transcribir_whisper(audio_dictado)
                             if mejor:
@@ -975,10 +1033,6 @@ try:
                 # vuelve a ajustar cuando haya silencio.
                 altavoces_altos = nivel_salida() > UMBRAL_ALTAVOZ
                 if automatica and altavoces_altos and bloques_voz >= MIN_BLOQUES_VOZ:
-                    if ganancia < ganancia_limpia:
-                        anota("pulso: se recupera la ganancia de cuando habia silencio (x%.1f -> x%.1f)"
-                              % (ganancia, ganancia_limpia))
-                        ganancia = ganancia_limpia
                     anota("pulso: ganancia congelada en x%.1f (suenan los altavoces: %.3f)"
                           % (ganancia, nivel_salida()))
                     escribir(RUTA_ESTADO, "%.1f|0|%.3f|%d" % (ganancia, nivel_salida(), bloques_voz))
@@ -999,7 +1053,6 @@ try:
                     ganancia = round(max(GANANCIA_MIN, min(GANANCIA_MAX, propuesta)), 1)
                     anota("pulso: p90=%.4f bloques_voz=%d ganancia=x%.1f decodificado=%d%% altavoces=%.3f"
                           % (ref, bloques_voz, ganancia, pct_dec(), nivel_salida()))
-                    ganancia_limpia = ganancia
                     escribir(RUTA_GANANCIA, "%.1f" % ganancia)
                     escribir(RUTA_ESTADO, "%.1f|%.4f|%.3f|%d" % (ganancia, ref, nivel_salida(), bloques_voz))
                 else:
@@ -1008,6 +1061,9 @@ try:
                     escribir(RUTA_ESTADO, "%.1f|0|%.3f|%d" % (ganancia, nivel_salida(), bloques_voz))
                 picos = []
                 bloques_voz = 0
+                # tres recortes sueltos repartidos en horas (un portazo, una
+                # tos) no deben sumarse hasta provocar una bajada espuria
+                recortes = 0
                 ultimo_pulso = ahora
 except Exception as e:
     anota("ERROR en el bucle: %s" % e)

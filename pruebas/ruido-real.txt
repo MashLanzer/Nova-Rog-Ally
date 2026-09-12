@@ -107,3 +107,4 @@ los
 # Se sacaron de aqui 7 frases que SI eran ordenes tuyas, solo que
 # destrozadas por el dictado. Estan en ordenes-que-funcionaban.txt, que es
 # donde tienen sentido: ahi lo bueno es que se reconozcan.
+Outlast 2, Atleti de Ragazan,

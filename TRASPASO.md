@@ -387,6 +387,16 @@ DLL anterior en `tools\`.
 - **`$p.Kill()` no mata el árbol**: usar `taskkill /PID <id> /T /F`.
 - **`$args` es variable automática** dentro de funciones: nunca usarla como
   nombre de parámetro (rompió un script de medición).
+- **Un `` puede colarse como BACKSPACE (0x08) y el patrón compila igual.** El
+  11/09 pasó en **siete líneas a la vez** (el filtro de muletillas, el límite de
+  palabra de los títulos, el lookahead de «guarda»…). Un patrón así no falla:
+  busca un carácter invisible que no aparece nunca, así que la comprobación
+  simplemente no se cumple jamás — «dale a enter» dejó de funcionar y el filtro
+  del catálogo recitado se saltaba su propia comprobación de verbo. Lo peor es
+  que **`tools\probar-regex.ps1` no lo veía**, porque el regex compilaba
+  perfectamente; ahora también avisa de caracteres de control dentro de los
+  patrones. Si editas este archivo con una herramienta que traduzca escapes
+  (Python, sed, un heredoc), comprueba después con ese script.
 - **Un regex mal escrito no da la cara: simplemente no encuentra nada.** El
   11/09 se coló `'(?i)steamapps\common\([^\]+)'` con barras simples. .NET ni
   siquiera podía compilarlo («conjunto [] sin terminar»), pero la llamada estaba
