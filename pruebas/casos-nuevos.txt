@@ -159,3 +159,7 @@ cuando acabe de instalarse un juego avisame
 sigue leyendo
 lee el resto
 que mas dice
+deshaz todo lo de este minuto
+deshaz lo de los ultimos 5 minutos
+deshaz todo lo de la ultima media hora
+deshaz

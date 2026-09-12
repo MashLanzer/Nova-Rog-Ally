@@ -214,7 +214,12 @@ QUÉ ENTIENDE LA RUTA LOCAL
                 Cada línea se comprueba ANTES de guardar, y si alguna no se
                 entiende te lo dice y la deja fuera. También "¿qué modos
                 tengo?", "¿qué hace el modo juego?" y "borra el modo X".
-  - Deshacer: "deshaz"
+  - Deshacer: "deshaz", y ahora con memoria: "deshaz todo lo de este minuto",
+                "deshaz lo de los últimos 5 minutos", "...de la última media
+                hora". Vuelve al brillo y al volumen de como estaban AL
+                PRINCIPIO de esa ventana y cierra lo que se abrió desde
+                entonces. Antes solo se podía deshacer la última orden, y
+                decir "deshaz" dos veces ya no tenía nada que devolver.
   - Al instante: hora, fecha, batería, cuántos juegos, qué anoté hoy, repite
   - Sin verbo: decir solo "steam" o "youtube" ya abre
   - Varias acciones en una frase: "abre steam, ponme spotify y súbele"

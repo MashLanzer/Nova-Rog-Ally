@@ -1210,6 +1210,22 @@ function Resolve-Fragment([string]$f) {
         '^(?:cuantos juegos|que juegos tengo|mis juegos)\b' {
             return @(@{ kind = 'decir'; desc = ("Tienes " + @($script:Juegos).Count + " juegos instalados en Steam") })
         }
+        # con ventana de tiempo PRIMERO: "deshaz todo lo de este minuto" tambien
+        # encaja con el patron de abajo, y ese se quedaria solo con lo ultimo.
+        '^(?:deshaz|deshacer|revierte|vuelve atras)\s+(?:todo\s+)?(?:lo\s+)?(?:que\s+has\s+hecho\s+)?(?:del?\s+|en\s+)?(?:(?:este|esta|el|la|los|las)\s+)?(?:(?:ultimo|ultima|ultimos|ultimas)\s+)?(?:(\d{1,3})\s*)?(minutos?|horas?|media hora|cuarto de hora)$' {
+            # $Matches se pierde en cuanto haya otro -match: se copia ya
+            $cuantos = $Matches[1]; $unidad = $Matches[2]
+            $mins = switch -regex ($unidad) {
+                '^media hora$'     { 30 }
+                '^cuarto de hora$' { 15 }
+                '^horas?$'         { 60 * $(if ($cuantos) { [int]$cuantos } else { 1 }) }
+                default            { $(if ($cuantos) { [int]$cuantos } else { 1 }) }
+            }
+            return @(@{ kind = 'deshacerDesde'; minutos = $mins
+                        desc = $(if ($mins -eq 1) { 'deshacer lo del ultimo minuto' }
+                                 elseif ($mins -ge 60) { "deshacer lo de la ultima " + $(if ($mins -eq 60) { 'hora' } else { [int]($mins / 60).ToString() + ' horas' }) }
+                                 else { "deshacer lo de los ultimos $mins minutos" }) })
+        }
         '^(?:deshaz|deshacer|cancela eso|cancelalo|no cancela|revierte|vuelve atras|atras eso)\b' {
             return @(@{ kind = 'deshacer'; desc = 'deshacer lo ultimo' })
         }
@@ -1639,6 +1655,9 @@ function Set-Brillo([int]$nivel) {
 # Windows no se puede leer sin librerias externas, y las apps abiertas por URI
 # (steam://) no devuelven un proceso propio: eso NO se puede deshacer.
 $script:deshacer = $null
+# Las fotos del estado, con su hora, para poder volver a "hace cinco minutos"
+# y no solo a "la orden anterior".
+$script:historial = New-Object System.Collections.ArrayList
 
 function Save-EstadoParaDeshacer {
     $b = $null
@@ -1647,7 +1666,54 @@ function Save-EstadoParaDeshacer {
     # "deshaz" contestaba literalmente que no podia con el
     $vol = -1
     try { $vol = [AX]::LeerVolumen() } catch {}
-    $script:deshacer = @{ brillo = $b; volumen = $vol; procesos = New-Object System.Collections.ArrayList; juego = $null }
+    $script:deshacer = @{ cuando = (Get-Date); brillo = $b; volumen = $vol
+                          procesos = New-Object System.Collections.ArrayList; juego = $null }
+    # LA PILA. Antes solo existia la ultima foto, asi que "deshaz" dos veces
+    # seguidas ya no tenia nada que devolver. Se guardan las de la ultima hora
+    # y como mucho 40: mas es memoria que nadie va a pedir.
+    [void]$script:historial.Add($script:deshacer)
+    $limite = (Get-Date).AddHours(-1)
+    while ($script:historial.Count -gt 0 -and
+           ($script:historial[0].cuando -lt $limite -or $script:historial.Count -gt 40)) {
+        $script:historial.RemoveAt(0)
+    }
+}
+
+# Vuelve a como estaba hace N minutos: el brillo y el volumen de la foto MAS
+# VIEJA de esa ventana (la ultima no vale: esa es "hace un momento"), y se
+# cierra todo lo que se abrio desde entonces.
+function Invoke-DeshacerDesde([int]$minutos) {
+    if ($minutos -lt 1) { $minutos = 1 }
+    $desde = (Get-Date).AddMinutes(-$minutos)
+    $fotos = @($script:historial | Where-Object { $_.cuando -ge $desde })
+    if ($fotos.Count -eq 0) { return "No he tocado nada en los ultimos $minutos minutos" }
+    $vieja = $fotos[0]
+    $hecho = @()
+    if ($null -ne $vieja.brillo) {
+        try { Set-Brillo ([int]$vieja.brillo); $hecho += "brillo como estaba" } catch {}
+    }
+    if ($null -ne $vieja.volumen -and [int]$vieja.volumen -ge 0) {
+        $vAntes = [int]$vieja.volumen
+        if ([AX]::LeerVolumen() -ne $vAntes) {
+            try { if ([AX]::PonerVolumen($vAntes)) { $hecho += "volumen al $vAntes" } } catch {}
+        }
+    }
+    # los procesos SI son de todas las fotos: se abrieron todos en la ventana
+    $cerrados = 0
+    foreach ($f in $fotos) {
+        foreach ($pid3 in @($f.procesos)) {
+            try {
+                $pr = Get-Process -Id $pid3 -ErrorAction Stop
+                $pr.CloseMainWindow() | Out-Null
+                $cerrados++
+            } catch {}
+        }
+    }
+    if ($cerrados -gt 0) { $hecho += "$cerrados " + $(if ($cerrados -eq 1) { 'programa cerrado' } else { 'programas cerrados' }) }
+    foreach ($f in $fotos) { $script:historial.Remove($f) }
+    $script:deshacer = $null
+    if ($hecho.Count -eq 0) { return "No habia nada que devolver de esos $minutos minutos" }
+    return ("Vuelto a como estaba: " + ($hecho -join '; '))
 }
 
 function Invoke-Deshacer {
@@ -2057,13 +2123,13 @@ function Invoke-FastCommand([string]$text) {
     # QUE FRASE FUE. Para que "no era eso" sepa a que se refiere. No se apunta
     # la propia "no era eso", claro, ni "deshaz": eso dejaria sin referencia a
     # la siguiente queja.
-    if (-not ($acciones | Where-Object { $_.kind -in @('noEraEso', 'deshacer') })) {
+    if (-not ($acciones | Where-Object { $_.kind -in @('noEraEso', 'deshacer', 'deshacerDesde') })) {
         $script:ultimoEjecutado = $text
     }
 
     # se guarda el estado ANTES de tocar nada, para poder deshacer
     $tocaEstado = @($acciones | Where-Object { $_.kind -in @('brillo', 'volumenPct', 'key', 'app') }).Count -gt 0
-    if ($tocaEstado -and -not ($acciones | Where-Object { $_.kind -eq 'deshacer' })) { Save-EstadoParaDeshacer }
+    if ($tocaEstado -and -not ($acciones | Where-Object { $_.kind -in @('deshacer', 'deshacerDesde') })) { Save-EstadoParaDeshacer }
 
     $hechas = @()
     $navegador = $null
@@ -2081,6 +2147,7 @@ function Invoke-FastCommand([string]$text) {
             switch ($a.kind) {
                 # se sustituye la descripcion por el resultado real
                 'deshacer' { $a.desc = (Invoke-Deshacer) }
+                'deshacerDesde' { $a.desc = (Invoke-DeshacerDesde ([int]$a.minutos)) }
                 'app' {
                     # ABRIR UN JUEGO MIENTRAS JUEGAS A OTRA COSA casi nunca es lo
                     # que pediste: es la firma de una orden mal oida. El 11/09 un

@@ -58,6 +58,42 @@ foreach ($archivo in $Archivos) {
     }
 }
 
+# Y LOS CASOS DE UN "switch -regex". Aqui vive buena parte del vocabulario
+# (deshaz, repite, colocar ventanas...) y NO pasan por ningun -match, asi que
+# el recorrido de arriba no los veia. Se colo un "\l" invalido y no rompio un
+# patron: rompio el switch ENTERO, con lo que dejaron de reconocerse 100
+# ordenes de golpe. Un error que revienta en tiempo de ejecucion, ademas,
+# porque el archivo compila igual.
+foreach ($archivo in $Archivos) {
+    if (-not (Test-Path -LiteralPath $archivo)) { continue }
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $archivo), [ref]$null, [ref]$null)
+    $switches = $ast.FindAll({ param($x)
+        $x -is [System.Management.Automation.Language.SwitchStatementAst] -and
+        ($x.Flags -band [System.Management.Automation.Language.SwitchFlags]::Regex) }, $true)
+    foreach ($sw in $switches) {
+        foreach ($caso in $sw.Clauses) {
+            # Clauses da tuplas (condicion, cuerpo): .Item a secas es el indizador
+            # de la tupla, no la condicion
+            $lit = $caso.Item1 -as [System.Management.Automation.Language.StringConstantExpressionAst]
+            if (-not $lit) { continue }    # los compuestos con $VERBOS se comprueban al usarse
+            $patron = $lit.Value
+            $vistos++
+            $control = ($patron.ToCharArray() | Where-Object { [int]$_ -lt 32 -and [int]$_ -notin @(9, 10, 13) })
+            if ($control) {
+                $fallos++
+                $codigos = ($control | ForEach-Object { '0x{0:X2}' -f [int]$_ }) -join ' '
+                Write-Host ("  CONTROL {0}:{1}  caracteres invisibles ({2}) en un caso de switch" -f $archivo, $lit.Extent.StartLineNumber, $codigos) -ForegroundColor Red
+                continue
+            }
+            try { [void][regex]::new($patron) } catch {
+                $fallos++
+                Write-Host ("  ROTO  {0}:{1}  {2}" -f $archivo, $lit.Extent.StartLineNumber, $patron) -ForegroundColor Red
+                Write-Host ("        {0}" -f $_.Exception.Message.Trim())
+            }
+        }
+    }
+}
+
 Write-Host ""
 if ($fallos -eq 0) {
     Write-Host "$vistos patrones comprobados, todos compilan."
