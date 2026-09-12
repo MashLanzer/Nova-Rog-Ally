@@ -135,7 +135,12 @@ QUÉ ENTIENDE LA RUTA LOCAL
   - Juegos  : "abre little nightmares 3 en steam" (lee tu biblioteca)
   - Buscar  : busca / búscame / googlea. "en youtube busca recetas".
               "busca pinterest" ABRE pinterest.
-  - Niveles : volumen y brillo, al máximo/mínimo o porcentaje exacto.
+  - Niveles : volumen y brillo, al máximo/mínimo o porcentaje exacto. El
+              volumen ya se pone DE GOLPE (antes eran 85 pulsaciones de
+              tecla, con sus tics sonando: ~2,5 s para un 70 %), se puede
+              preguntar y "deshaz" lo devuelve. "silencia" y "quita el
+              silencio" son órdenes distintas: antes era una sola que
+              conmutaba, así que decirla dos veces te devolvía el sonido.
   - Ventanas: "a mitad de pantalla", "a la derecha", "maximiza"
   - Multimedia: pausa, reproduce, siguiente, anterior, silencia
   - Memoria : "recuerda que...", "anota...", "apunta..."

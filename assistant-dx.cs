@@ -161,4 +161,143 @@ public class AX
         // lo que cuenta es quien tiene realmente el primer plano
         return GetForegroundWindow() == hWnd;
     }
+
+    // ---------------------------------------------------------------
+    // VOLUMEN DEL SISTEMA (COM), para no moverlo a base de teclazos.
+    // Antes se ponia un porcentaje con 50 pulsaciones de VK_VOLUME_DOWN y
+    // luego N de VK_VOLUME_UP: ~2,5 s de tics sonando encima del juego, y sin
+    // forma de LEER el valor, asi que "deshaz" no podia devolverlo.
+    // La declaracion es la misma que ya usa nova_ui.cs para dibujarlo.
+    // ---------------------------------------------------------------
+    [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
+    class MMDeviceEnumeratorCom { }
+
+    [ComImport, Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IMMDeviceEnumerator
+    {
+        int EnumAudioEndpoints(int dataFlow, int stateMask, out IntPtr devices);
+        int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice device);
+    }
+
+    [ComImport, Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IMMDevice
+    {
+        int Activate(ref Guid iid, int clsCtx, IntPtr activationParams, [MarshalAs(UnmanagedType.IUnknown)] out object iface);
+    }
+
+    [ComImport, Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IAudioEndpointVolume
+    {
+        int RegisterControlChangeNotify(IntPtr p);
+        int UnregisterControlChangeNotify(IntPtr p);
+        int GetChannelCount(out uint n);
+        int SetMasterVolumeLevel(float db, ref Guid ctx);
+        int SetMasterVolumeLevelScalar(float v, ref Guid ctx);
+        int GetMasterVolumeLevel(out float db);
+        int GetMasterVolumeLevelScalar(out float v);
+        int SetChannelVolumeLevel(uint c, float db, ref Guid ctx);
+        int SetChannelVolumeLevelScalar(uint c, float v, ref Guid ctx);
+        int GetChannelVolumeLevel(uint c, out float db);
+        int GetChannelVolumeLevelScalar(uint c, out float v);
+        int SetMute([MarshalAs(UnmanagedType.Bool)] bool m, ref Guid ctx);
+        int GetMute([MarshalAs(UnmanagedType.Bool)] out bool m);
+    }
+
+    // Se cachea el endpoint: crearlo cuesta unos ms y esto se llama a menudo.
+    // Si el dispositivo por defecto cambia (auriculares), el objeto viejo
+    // empieza a fallar; entonces se rehace en la siguiente llamada.
+    static IAudioEndpointVolume _vol;
+
+    static IAudioEndpointVolume Volumen(bool rehacer)
+    {
+        if (_vol != null && !rehacer) { return _vol; }
+        if (_vol != null)
+        {
+            try { Marshal.FinalReleaseComObject(_vol); } catch { }
+            _vol = null;
+        }
+        object enumerador = null, dispositivo = null;
+        try
+        {
+            var en = (IMMDeviceEnumerator)(new MMDeviceEnumeratorCom() as object);
+            enumerador = en;
+            IMMDevice dev;
+            if (en.GetDefaultAudioEndpoint(0, 0, out dev) != 0) { return null; }   // 0 = altavoces
+            dispositivo = dev;
+            Guid iid = typeof(IAudioEndpointVolume).GUID;
+            object o;
+            if (dev.Activate(ref iid, 23, IntPtr.Zero, out o) != 0) { return null; }
+            _vol = (IAudioEndpointVolume)o;
+            return _vol;
+        }
+        catch { return null; }
+        finally
+        {
+            try { if (dispositivo != null && Marshal.IsComObject(dispositivo)) { Marshal.FinalReleaseComObject(dispositivo); } } catch { }
+            try { if (enumerador != null && Marshal.IsComObject(enumerador)) { Marshal.FinalReleaseComObject(enumerador); } } catch { }
+        }
+    }
+
+    /// Volumen actual, 0..100. Devuelve -1 si no se puede leer.
+    public static int LeerVolumen()
+    {
+        for (int intento = 0; intento < 2; intento++)
+        {
+            var v = Volumen(intento > 0);
+            if (v == null) { continue; }
+            try
+            {
+                float f;
+                if (v.GetMasterVolumeLevelScalar(out f) == 0) { return (int)Math.Round(f * 100.0); }
+            }
+            catch { }
+        }
+        return -1;
+    }
+
+    /// Pone el volumen (0..100). Devuelve false si no se pudo.
+    public static bool PonerVolumen(int pct)
+    {
+        if (pct < 0) { pct = 0; }
+        if (pct > 100) { pct = 100; }
+        Guid ctx = Guid.Empty;
+        for (int intento = 0; intento < 2; intento++)
+        {
+            var v = Volumen(intento > 0);
+            if (v == null) { continue; }
+            try { if (v.SetMasterVolumeLevelScalar(pct / 100f, ref ctx) == 0) { return true; } }
+            catch { }
+        }
+        return false;
+    }
+
+    /// 1 silenciado, 0 no, -1 no se pudo leer.
+    public static int LeerSilencio()
+    {
+        for (int intento = 0; intento < 2; intento++)
+        {
+            var v = Volumen(intento > 0);
+            if (v == null) { continue; }
+            try
+            {
+                bool m;
+                if (v.GetMute(out m) == 0) { return m ? 1 : 0; }
+            }
+            catch { }
+        }
+        return -1;
+    }
+
+    public static bool PonerSilencio(bool silencio)
+    {
+        Guid ctx = Guid.Empty;
+        for (int intento = 0; intento < 2; intento++)
+        {
+            var v = Volumen(intento > 0);
+            if (v == null) { continue; }
+            try { if (v.SetMute(silencio, ref ctx) == 0) { return true; } }
+            catch { }
+        }
+        return false;
+    }
 }

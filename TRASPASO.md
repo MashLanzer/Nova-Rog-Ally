@@ -298,6 +298,30 @@ Dos arreglos en `tts_worker.py` (11/09):
   con su `.env`. Probado con 70 MB de mentira: baja a 48 y conserva las
   recientes.
 
+### El volumen, por la API (11/09)
+
+`volumenPct` ponía un porcentaje con **50 pulsaciones de `VK_VOLUME_DOWN` y N de
+`VK_VOLUME_UP`**, a 30 ms cada una: ~2,5 s de tics sonando encima del juego para
+un simple 70 %, y «al máximo» eran otros 50 teclazos. Además el volumen **no se
+podía leer**, y por eso `Invoke-Deshacer` terminaba diciendo que no podía
+revertirlo.
+
+La declaración COM ya estaba escrita en `nova_ui.cs` (la cápsula dibuja el
+volumen); se portó al DLL como `AX::LeerVolumen / PonerVolumen / LeerSilencio /
+PonerSilencio`, cacheando el endpoint y rehaciéndolo si falla (auriculares). Lo
+que cambia arriba:
+
+- `volumenPct` es una llamada, con las teclas como respaldo si la API falla.
+- `volumenRel` (subir/bajar) da un paso exacto de 10 y **dice a cuánto lo dejó**.
+- `silencio` usa el mute real: antes «silencia» era la tecla de conmutar, así que
+  decirlo dos veces devolvía el sonido sin querer. Ahora «quita el silencio» es
+  una orden propia.
+- `Save-EstadoParaDeshacer` guarda el nivel y **«deshaz» lo devuelve**.
+
+Al recompilar el DLL hay que actualizar `config.json → seguridad.hashDll` (si no,
+avisa al arrancar pero no aborta, y eso está bien: dejarte sin asistente por un
+hash sería peor que el riesgo que cubre).
+
 ## 8. MEMORIA PERMANENTE (vault de Obsidian)
 
 Carpeta: **`voice-ctrl\memoria`**. Se abre en Obsidian con *Abrir carpeta como

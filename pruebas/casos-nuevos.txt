@@ -90,3 +90,8 @@ aprende que a spotify le digo musica
 # --- control: formas incompletas ---
 aprende que hola
 cuando llueva
+# --- volumen por API (silenciar y quitar el silencio son distintos) ---
+silencia
+quita el silencio
+pon el volumen al maximo
+sube el volumen

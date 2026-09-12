@@ -1250,10 +1250,14 @@ function Resolve-Fragment([string]$f) {
         if ($f -match '\b(?:volumen|sonido|audio)\b') {
             if ($null -ne $pctVol) {
                 $acc += @{ kind = 'volumenPct'; pct = $pctVol; desc = "volumen al $pctVol por ciento" }
+            } elseif ($max -or $min) {
+                # al maximo o al minimo: un numero, no 50 teclazos (~1,5 s)
+                $acc += @{ kind = 'volumenPct'; pct = $(if ($max) { 100 } else { 0 })
+                           desc = ("volumen al " + $(if ($max) { 'maximo' } else { 'minimo' })) }
             } else {
-                $rep = if ($max -or $min) { 50 } else { 5 }
-                $acc += @{ kind = 'key'; vk = $(if ($sube) { 0xAF } else { 0xAE }); repeat = $rep
-                           desc = ("$(if ($sube) { 'subir' } else { 'bajar' }) volumen" + $(if ($max) { ' al maximo' } elseif ($min) { ' al minimo' } else { '' })) }
+                # un paso de 10, con numero exacto y sin los tics del teclado
+                $acc += @{ kind = 'volumenRel'; sube = $sube; paso = $(if ($sube) { 10 } else { -10 })
+                           desc = ("$(if ($sube) { 'subir' } else { 'bajar' }) volumen") }
             }
         }
         if ($f -match '\bbrillo\b') {
@@ -1270,7 +1274,10 @@ function Resolve-Fragment([string]$f) {
     }
     # --- multimedia y sistema ---
     switch -regex ($f) {
-        '^(?:silencia|silenciar|mutea)\b' { return @(@{ kind = 'key'; vk = 0xAD; repeat = 1; desc = 'silenciar' }) }
+        # el mute de verdad: la tecla CONMUTA, asi que decir "silencia" dos
+        # veces devolvia el sonido sin querer. Y ahora hay como quitarlo.
+        '^(?:silencia|silenciar|mutea|silencio)$' { return @(@{ kind = 'silencio'; silencio = $true; desc = 'silenciar' }) }
+        '^(?:quita el silencio|desilencia|dessilencia|quita el mute|desmutea|vuelve el sonido|pon el sonido)$' { return @(@{ kind = 'silencio'; silencio = $false; desc = 'sonido otra vez' }) }
         '^(?:pausa|pausar|reproduce|reproducir|play)$' { return @(@{ kind = 'key'; vk = 0xB3; repeat = 1; desc = 'play/pausa' }) }
         '^(?:siguiente|pasa|pasala|adelanta)\b' { return @(@{ kind = 'key'; vk = 0xB0; repeat = 1; desc = 'siguiente' }) }
         '^(?:anterior|regresa|atras)\b' { return @(@{ kind = 'key'; vk = 0xB1; repeat = 1; desc = 'anterior' }) }
@@ -1344,7 +1351,11 @@ $script:deshacer = $null
 function Save-EstadoParaDeshacer {
     $b = $null
     try { $b = (Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness -ErrorAction Stop).CurrentBrightness } catch {}
-    $script:deshacer = @{ brillo = $b; procesos = New-Object System.Collections.ArrayList; juego = $null }
+    # el volumen ya se puede leer, asi que ya se puede devolver: antes
+    # "deshaz" contestaba literalmente que no podia con el
+    $vol = -1
+    try { $vol = [AX]::LeerVolumen() } catch {}
+    $script:deshacer = @{ brillo = $b; volumen = $vol; procesos = New-Object System.Collections.ArrayList; juego = $null }
 }
 
 function Invoke-Deshacer {
@@ -1352,6 +1363,12 @@ function Invoke-Deshacer {
     $hecho = @()
     if ($null -ne $script:deshacer.brillo) {
         try { Set-Brillo ([int]$script:deshacer.brillo); $hecho += "brillo restaurado" } catch {}
+    }
+    if ($null -ne $script:deshacer.volumen -and [int]$script:deshacer.volumen -ge 0) {
+        $vAntes = [int]$script:deshacer.volumen
+        if ([AX]::LeerVolumen() -ne $vAntes) {
+            try { if ([AX]::PonerVolumen($vAntes)) { $hecho += "volumen al $vAntes" } } catch {}
+        }
     }
     foreach ($pid2 in @($script:deshacer.procesos)) {
         try {
@@ -1374,7 +1391,7 @@ function Invoke-Deshacer {
         }
     }
     $script:deshacer = $null
-    if ($hecho.Count -eq 0) { return "No pude deshacerlo: el volumen no se puede revertir" }
+    if ($hecho.Count -eq 0) { return "No pude deshacerlo: no habia nada que devolver" }
     return ($hecho -join '; ')
 }
 
@@ -1683,11 +1700,34 @@ function Invoke-FastCommand([string]$text) {
                 'winprt' { Send-WinKey 0x2C }        # Win+ImprPant: guarda en Imagenes\Capturas
                 'winaltg' { Send-WinAlt 0x47 }       # Win+Alt+G: graba lo ultimo
                 'volumenPct' {
-                    # Windows mueve el volumen en pasos del 2 %: se baja a cero
-                    # y se sube lo justo. Sin librerias externas no hay via mejor.
-                    for ($i = 0; $i -lt 50; $i++) { Send-Key 0xAE }
-                    $pasos = [int][Math]::Round($a.pct / 2)
-                    for ($i = 0; $i -lt $pasos; $i++) { Send-Key 0xAF }
+                    # UNA llamada. Antes esto eran 50 pulsaciones de bajar y N de
+                    # subir, con 30 ms entre cada una: ~2,5 s de tics de volumen
+                    # sonando encima del juego para poner un simple 70 %.
+                    # Si la API falla (dispositivo raro), se vuelve al metodo
+                    # viejo: mas vale lento que no hacer nada.
+                    if (-not [AX]::PonerVolumen($a.pct)) {
+                        Log "volumen: la API fallo, voy con las teclas"
+                        for ($i = 0; $i -lt 50; $i++) { Send-Key 0xAE }
+                        $pasos = [int][Math]::Round($a.pct / 2)
+                        for ($i = 0; $i -lt $pasos; $i++) { Send-Key 0xAF }
+                    }
+                }
+                'volumenRel' {
+                    # subir o bajar un paso, pero con numero exacto y sin tics
+                    $ahora = [AX]::LeerVolumen()
+                    if ($ahora -lt 0) {
+                        Send-Key $(if ($a.sube) { 0xAF } else { 0xAE })
+                    } else {
+                        $destino = [Math]::Max(0, [Math]::Min(100, $ahora + $a.paso))
+                        [void][AX]::PonerVolumen($destino)
+                        $a.desc = "volumen al $destino por ciento"
+                    }
+                }
+                'silencio' {
+                    $m = [AX]::LeerSilencio()
+                    $quiere = if ($null -ne $a.silencio) { [bool]$a.silencio } else { ($m -ne 1) }
+                    if (-not [AX]::PonerSilencio($quiere)) { Send-Key 0xAD }
+                    $a.desc = if ($quiere) { 'silencio' } else { 'sonido otra vez' }
                 }
                 'winkey' { Send-WinKey $a.vk }
                 'lock' { Start-Process 'rundll32.exe' 'user32.dll,LockWorkStation' -ErrorAction Stop }
