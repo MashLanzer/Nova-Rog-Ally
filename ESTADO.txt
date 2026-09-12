@@ -245,6 +245,10 @@ QUÉ ENTIENDE LA RUTA LOCAL
   - Steam sabe más: "¿cuándo jugué a Outlast?", "¿a qué he jugado esta
                 semana?", "¿cuánto ocupa Elden Ring?", "¿qué se está
                 descargando?", "¿cuánto espacio me queda?"
+  - "copia la respuesta" / "cópiame lo que dijiste": deja en el portapapeles
+                lo último que te dijo. La tarjeta larga se lee y se va a los 8 s,
+                y no se puede clicar (es así a propósito, para no sacarte del
+                juego), así que la única vía era la voz.
   - Portapapeles: "copia esto", "pégalo", "¿qué tengo copiado?" y
                 "apunta lo copiado" (se va a tus notas). Con el mando en la
                 mano, un Ctrl+C obligaba a soltarlo.
@@ -410,6 +414,17 @@ MEMORIA (carpeta memoria\, es un vault de Obsidian)
 JUEGOS (config.json -> juego)
   Al entrar en un juego aplica el perfil "juego" (brillo/volumen, no abre
   apps) y guarda el brillo; al salir lo restaura. A las 2 horas te avisa.
+
+SONIDOS (nuevo)
+  Windows usaba el MISMO pitido para "te escucho", "hecho" y "no pude", y
+  encima es el que suena cuando va mal cualquier otro programa: oírlo no te
+  decía nada. Ahora son tres, y se distinguen sin mirar:
+      te-oigo   dos notas subiendo   -> abre, pregunta
+      hecho     dos notas bajando    -> cierra, listo
+      no-pude   una grave y plana    -> no ha salido
+  Están en sonidos\ y los genera tools\hacer-sonidos.ps1: son
+  matemáticas, no descargas, así que se pueden leer y afinar. Si borras la
+  carpeta, vuelve solo a los pitidos de Windows.
 
 VOZ
   es-MX-DaliaNeural (neuronal, EN LÍNEA). Caché en tmp\voz\.
