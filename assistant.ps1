@@ -1509,6 +1509,23 @@ function Resolve-Fragment([string]$f) {
         $f -match '^cuanto (?:espacio|sitio) (?:me )?(?:queda|hay|tengo)\b') {
         return @(@{ kind = 'disco'; desc = 'espacio libre' })
     }
+    # --- el tamano de la capsula, a peticion ---
+    # OJO: "hazte mas grande" llega aqui como "hazte mas grande", pero "ponte
+    # mas grande" pasa antes por Repair-Verb, que arregla el verbo de cabeza por
+    # parecido y convierte "ponte" en "ponme". Por eso estan las dos formas.
+    if ($f -match '^(?:(?:hazte|ponte|ponme|vuelvete|hazte ver)\s+)?(?:un poco\s+)?(?:mas\s+)(?:grande|grandota|mayor)$' -or
+        $f -match '^(?:aumenta|agranda|sube)(?:te)?(?:\s+(?:el\s+)?tamano)?$' -or
+        $f -match '^(?:que\s+)?(?:no\s+)?te veo\s*(?:bien|nada)?$') {
+        return @(@{ kind = 'escalaUI'; paso = 1; desc = 'hacerse mas grande' })
+    }
+    if ($f -match '^(?:(?:hazte|ponte|ponme|vuelvete)\s+)?(?:un poco\s+)?(?:mas\s+)(?:pequena|pequeno|chica|chico|chiquita)$' -or
+        $f -match '^(?:reduce|achica|encoge|baja)(?:te)?(?:\s+(?:el\s+)?tamano)?$') {
+        return @(@{ kind = 'escalaUI'; paso = -1; desc = 'hacerse mas pequena' })
+    }
+    if ($f -match '^(?:(?:hazte|ponte|ponme|vuelvete)\s+)?(?:del?\s+)?tamano (?:normal|de siempre|original)$' -or
+        $f -match '^(?:vuelve|recupera)\s+(?:a\s+)?(?:tu\s+)?tamano(?:\s+normal)?$') {
+        return @(@{ kind = 'escalaUI'; paso = 0; desc = 'volver al tamano de siempre' })
+    }
     # --- que solo te obedezca a ti, dicho y quitado hablando ---
     if ($f -match '^(?:hazme caso solo a mi|solo hazme caso a mi|obedeceme solo a mi|solo obedeceme a mi|hazme caso solo a mi voz|no hagas caso a otros|no obedezcas a nadie mas)$') {
         return @(@{ kind = 'soloYo'; valor = $true; desc = 'obedecer solo a tu voz' })
@@ -2644,6 +2661,32 @@ function Invoke-FastCommand([string]$text) {
                     }
                 }
                 'parte' { $a.desc = (Get-ParteGeneral) }
+                'escalaUI' {
+                    $antes = [double]$script:uiEscala
+                    if ([int]$a.paso -eq 0) {
+                        $script:uiEscala = 1.0
+                    } else {
+                        # al escalon de al lado, no a un numero cualquiera: se
+                        # busca el actual en la lista y se avanza uno
+                        $i = 0
+                        for ($k = 0; $k -lt $EscalasUI.Count; $k++) {
+                            if ([Math]::Abs($EscalasUI[$k] - $antes) -lt 0.01) { $i = $k }
+                        }
+                        $i = [Math]::Max(0, [Math]::Min($EscalasUI.Count - 1, $i + [int]$a.paso))
+                        $script:uiEscala = [double]$EscalasUI[$i]
+                    }
+                    if ([Math]::Abs($script:uiEscala - $antes) -lt 0.01) {
+                        $a.desc = if ([int]$a.paso -gt 0) { 'ya estoy todo lo grande que puedo' }
+                                  elseif ([int]$a.paso -lt 0) { 'ya estoy todo lo pequena que puedo' }
+                                  else { 'ya estaba en el tamano de siempre' }
+                    } else {
+                        $pct = [int]($script:uiEscala * 100)
+                        $guardado = Set-Cfg 'ui' 'escala' $script:uiEscala
+                        $a.desc = if ($guardado) { "listo, al $pct por ciento, y me acuerdo" }
+                                  else { "listo, al $pct por ciento, pero no he podido guardarlo para la proxima" }
+                        Refresh-UI
+                    }
+                }
                 'soloYo' {
                     $script:SoloYoOn = [bool]$a.valor
                     $guardado = Set-Cfg 'escucha' 'soloYo' ([bool]$a.valor)
@@ -3593,6 +3636,7 @@ function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
             ',"oido":"' + $oido + '","tempoTipo":"' + $tTipo + '"' +
             ',"haciendo":"' + $script:uiHaciendo + '"' +
             ',"descarga":' + ([double]$script:uiDescarga).ToString('0.000', [System.Globalization.CultureInfo]::InvariantCulture) +
+            ',"escala":' + ([double]$script:uiEscala).ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture) +
             ',"confirmaFin":' + ([long]$script:confirmaFin) + ',"confirmaTotal":' + ([long]$script:confirmaTotal) +
             ',"esquina":"' + $script:esquina + '"' +
             ',"voz":' + $script:uiVoz + '}'
@@ -5355,6 +5399,13 @@ $script:lecturaPos = 0
 # guarda ahi mismo al cambiarla, para que sobreviva al reinicio.
 $script:esquina = [string](Get-Cfg 'ui' 'esquina' 'abajo-izquierda')
 if ($script:esquina -notmatch '^(?:abajo|arriba)-(?:izquierda|derecha)$') { $script:esquina = 'abajo-izquierda' }
+# TAMANO DE LA CAPSULA, recordado igual que la esquina. En la pantalla de 7
+# pulgadas de la Ally el tamano de siempre es pequeno de verdad. Los pasos son
+# discretos a proposito: "un poco mas grande" no significa nada, y con la voz
+# no se ajusta un numero, se sube un escalon.
+$EscalasUI = @(0.75, 1.0, 1.25, 1.5, 1.75, 2.0)
+$script:uiEscala = [double](Get-Cfg 'ui' 'escala' 1.0)
+if ($script:uiEscala -lt 0.75 -or $script:uiEscala -gt 2.0) { $script:uiEscala = 1.0 }
 # La ultima frase que se ejecuto de verdad, para saber a que se refiere un
 # "no era eso".
 $script:ultimoEjecutado = ''

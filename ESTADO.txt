@@ -32,9 +32,9 @@ EJECUTANDO AHORA: SÍ, desde el 12/09 a las 13:57, ya con los cambios de ese
     biblioteca de Steam: 14 juegos indexados
   Y decir en voz alta: "Listo. Di nova cuando me necesites."
 
-LO QUE QUEDA POR HACER: PENDIENTE.md (16 ideas con su porqué, y las trampas
+LO QUE QUEDA POR HACER: PENDIENTE.md (15 ideas con su porqué, y las trampas
   de esta base de código que conviene leer antes de tocar nada). El 12/09 se
-  hicieron la 4, la 9, la 11 y la 14.
+  hicieron la 4, la 9, la 11, la 14 y la 15.
 
 CÓMO SE USA
   1. Decir "nova"  (o mantener pulsado ≡ ~1,1 s) -> bip, se abre el dictado.
@@ -436,6 +436,15 @@ LA CÁPSULA, AL DÍA (nuevo)
     es como el silencio acababa cancelando órdenes buenas. Y el botón ≡
     mantenido vale por un "sí": decirlo en voz alta con un juego sonando es
     justo lo que peor funciona.
+  - TAMAÑO A PETICIÓN (nuevo): "hazte más grande" / "hazte más pequeña" /
+    "tamaño normal". En la pantalla de 7" de la Ally, el tamaño de siempre es
+    pequeño de verdad. Son escalones (75, 100, 125, 150, 175 y 200 %), no un
+    número que ajustar: con la voz no se afina un valor, se sube un escalón, y
+    te dice en cuál se ha quedado. Se recuerda igual que la esquina
+    (config.json -> ui.escala) y al llegar al tope lo dice en vez de callar.
+    Por dentro no se toca ni una medida del diseño: se escala el árbol entero
+    y la ventana con él, así que todo -el cristal, el anillo, la carita, el
+    texto- crece a la vez y sin deformarse.
   - Se le puede decir a qué esquina irse: "ponte arriba a la derecha",
     "vete a la esquina de abajo a la derecha", "¿dónde estás?". Lo recuerda
     (config.json -> ui.esquina). Colocada a la derecha, cuando se aparta de

@@ -138,6 +138,17 @@ public class NovaUI : Window
     TextBlock glifoAccion;
     string haciendoActual = "";     // que accion esta en curso ("" = ninguna)
     double descarga = 0;            // 0..1 de la descarga de Steam mas avanzada
+    // TAMANO A PETICION. En la pantalla de 7 pulgadas de la Ally, 13,5 px es
+    // pequeno de verdad. No se toca ni una medida del diseno: se escala el
+    // arbol entero con un LayoutTransform (no un RenderTransform, que solo
+    // estira los pixeles y ademas se saldria de la ventana) y se agranda la
+    // ventana igual. Todo lo que este en coordenadas de PANTALLA -colocarse en
+    // la esquina, apartarse de una ventana, capturar el fondo del cristal-
+    // tiene que contar con esto: por eso AnchoReal y AltoReal.
+    Grid lienzo;
+    double escalaUI = 1.0;
+    double AnchoReal { get { return ANCHO_BARRA * escalaUI; } }
+    double AltoReal { get { return ALTO * escalaUI; } }
     bool descargaActiva = false;    // el anillo esta contando una descarga
     DateTime haciendoDesde = DateTime.MinValue;
     TextBlock relojEspera;          // los segundos que lleva pensando, a partir de 10
@@ -296,8 +307,8 @@ public class NovaUI : Window
         ShowInTaskbar = false;
         Topmost = true;
         ResizeMode = ResizeMode.NoResize;
-        Width = ANCHO_BARRA + MARGEN * 2;
-        Height = ALTO + MARGEN * 2;
+        Width = (ANCHO_BARRA + MARGEN * 2) * escalaUI;
+        Height = (ALTO + MARGEN * 2) * escalaUI;
 
         Colocar();
         areaColocada = SystemParameters.WorkArea;   // para notar si la pantalla cambia
@@ -576,7 +587,7 @@ public class NovaUI : Window
         capsula.Child = interior;
         envoltorio.Child = capsula;
 
-        var lienzo = new Grid();
+        lienzo = new Grid();
         lienzo.Children.Add(envoltorio);
         Content = lienzo;
 
@@ -1269,10 +1280,10 @@ public class NovaUI : Window
             if (src == null) { return; }
             var m = src.CompositionTarget.TransformToDevice;
             Point origen = capsula.PointToScreen(new Point(0, 0));
-            int x = (int)Math.Round(origen.X - RADIO_BLUR * m.M11);
-            int y = (int)Math.Round(origen.Y - RADIO_BLUR * m.M22);
-            int w = (int)Math.Round((ANCHO_BARRA + RADIO_BLUR * 2) * m.M11);
-            int hgt = (int)Math.Round((ALTO + RADIO_BLUR * 2) * m.M22);
+            int x = (int)Math.Round(origen.X - RADIO_BLUR * escalaUI * m.M11);
+            int y = (int)Math.Round(origen.Y - RADIO_BLUR * escalaUI * m.M22);
+            int w = (int)Math.Round((AnchoReal + RADIO_BLUR * 2 * escalaUI) * m.M11);
+            int hgt = (int)Math.Round((AltoReal + RADIO_BLUR * 2 * escalaUI) * m.M22);
             if (w <= 0 || hgt <= 0) { return; }
 
             double opAntes = Opacity;
@@ -2259,6 +2270,24 @@ public class NovaUI : Window
     // JUEGO, mas todavia: 14 px en vez de 22. Un HUD de juego esta lleno de
     // cosas y ahi cualquier adorno estorba, mientras que en un video a
     // pantalla completa no molesta a nadie que se le vea la cara.
+    // Cambiar de tamano es recolocarse: la esquina se calcula con el ancho y el
+    // alto de verdad, y el cristal ensena el trozo de pantalla de donde ESTABA.
+    void AplicarEscala(double e)
+    {
+        if (e < 0.75) { e = 0.75; }
+        if (e > 2.0) { e = 2.0; }
+        if (Math.Abs(e - escalaUI) < 0.01) { return; }
+        double desplazada = Left - leftBase;   // si estaba apartada, sigue apartada
+        escalaUI = e;
+        if (lienzo != null) { lienzo.LayoutTransform = (e == 1.0) ? null : new ScaleTransform(e, e); }
+        Width = (ANCHO_BARRA + MARGEN * 2) * e;
+        Height = (ALTO + MARGEN * 2) * e;
+        Colocar();
+        Left = leftBase + desplazada;
+        areaColocada = SystemParameters.WorkArea;
+        RecapturarTrasMover(180);
+    }
+
     void EscalaFoco(bool pequena)
     {
         double destino = pequena ? (string.IsNullOrEmpty(juegoActual) ? 0.5 : 0.32) : 1.0;
@@ -2288,14 +2317,14 @@ public class NovaUI : Window
                 {
                     // colocada a la derecha, apartarse hacia la derecha la sacaria
                     // de la pantalla: se aparta al borde IZQUIERDO de la ventana
-                    destino = r.L / esc - ANCHO_BARRA - SEPARACION - MARGEN;
-                    double minimo = SystemParameters.WorkArea.Left + SEPARACION - MARGEN;
+                    destino = r.L / esc - AnchoReal - SEPARACION - MARGEN * escalaUI;
+                    double minimo = SystemParameters.WorkArea.Left + SEPARACION - MARGEN * escalaUI;
                     if (destino < minimo) { destino = minimo; }
                 }
                 else
                 {
-                    destino = r.R / esc + SEPARACION - MARGEN;
-                    double maximo = SystemParameters.PrimaryScreenWidth - ANCHO_BARRA - SEPARACION - MARGEN;
+                    destino = r.R / esc + SEPARACION - MARGEN * escalaUI;
+                    double maximo = SystemParameters.PrimaryScreenWidth - AnchoReal - SEPARACION - MARGEN * escalaUI;
                     if (destino > maximo) { destino = maximo; }
                 }
             }
@@ -2397,12 +2426,12 @@ public class NovaUI : Window
     {
         var area = SystemParameters.WorkArea;
         leftBase = ALaDerecha()
-            ? area.Right - ANCHO_BARRA - SEPARACION - MARGEN
-            : area.Left + SEPARACION - MARGEN;
+            ? area.Right - AnchoReal - SEPARACION - MARGEN * escalaUI
+            : area.Left + SEPARACION - MARGEN * escalaUI;
         Left = leftBase;
         Top = Arriba()
-            ? area.Top + SEPARACION - MARGEN
-            : area.Bottom - ALTO - SEPARACION - MARGEN;
+            ? area.Top + SEPARACION - MARGEN * escalaUI
+            : area.Bottom - AltoReal - SEPARACION - MARGEN * escalaUI;
     }
 
     // Si cambia la resolucion del escritorio (un juego a pantalla completa
@@ -2666,6 +2695,9 @@ public class NovaUI : Window
                 if (vz != voz) { voz = vz; cambioVoz = true; }
                 string oido = Campo(j, "oido", "palabra");
                 string hac = Campo(j, "haciendo", "");
+                double esl;
+                if (double.TryParse(Campo(j, "escala", "1"), NumberStyles.Any, CultureInfo.InvariantCulture, out esl)
+                    && Math.Abs(esl - escalaUI) > 0.01) { AplicarEscala(esl); }
                 double dsc;
                 double.TryParse(Campo(j, "descarga", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out dsc);
                 descarga = Math.Max(0, Math.Min(1, dsc));

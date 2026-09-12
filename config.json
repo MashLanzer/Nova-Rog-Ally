@@ -20,9 +20,16 @@
                "popupMs":  8000,
                "nueva":  true,
                "gestos":  [
-                              { "gesto":  "carino", "patron":  "\\b(novita|nova linda|nova bonita)\\b" },
-                              { "gesto":  "risa", "patron":  "\\b(que risa|me muero|jajaja)\\b" }
-                          ]
+                              {
+                                  "gesto":  "carino",
+                                  "patron":  "\\b(novita|nova linda|nova bonita)\\b"
+                              },
+                              {
+                                  "gesto":  "risa",
+                                  "patron":  "\\b(que risa|me muero|jajaja)\\b"
+                              }
+                          ],
+               "escala":  1
            },
     "voz":  {
                 "activada":  true,

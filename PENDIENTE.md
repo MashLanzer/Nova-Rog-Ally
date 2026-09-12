@@ -72,10 +72,6 @@ ni con batería):
       «Abre Steam y pon modo juego» son dos cosas; que se vean los dos puntos y
       cuál va tachándose. Si falla la segunda, hoy no hay forma de saber cuál fue.
 
-- [ ] **15. Tamaño grande a petición.** — *la que más se nota en la Ally*
-      En la pantalla de 7", 13,5 px es pequeño de verdad. «Hazte más grande» /
-      «más pequeña», recordado como la esquina.
-
 - [ ] **16. Fijar la tarjeta larga.**
       «Déjala ahí» para que no se vaya a los 8 s, «quítala» para cerrarla. Con
       una lista de pasos, ocho segundos no llegan ni para el segundo.
@@ -114,13 +110,16 @@ ni con batería):
   voz que no se parece a la tuya, pregunta en vez de hacerla. Con guardas
   anchas para no molestar: hace falta medida de tono, una voz dueña clara y
   más de 35 Hz de diferencia. `tools\probar-voz-dueno.ps1`.
+- **15. Tamaño a petición.** «Hazte más grande» / «más pequeña» / «tamaño
+  normal», en escalones del 75 al 200 %, recordado como la esquina.
 
 ## Por dónde empezar
 
-Si hay que elegir: la **15**, que es la que más se agradece en la Ally (en 7
-pulgadas, 13,5 px es pequeño de verdad). Después, la **2** y la **7**, que son
-las dos que faltan para no tener que soltar el mando: ordenar sobre una app
-por su nombre, y repetir teclas para moverse por un menú.
+Si hay que elegir: la **2** y la **7**, que son las dos que faltan para no
+tener que soltar el mando con un juego a pantalla completa: ordenar sobre una
+app por su nombre («minimiza Spotify») y repetir teclas para moverse por un
+menú («baja tres veces», «dale a A»). Después la **17** (avisos sin voz), que
+es la pareja natural de las dos.
 
 ---
 
