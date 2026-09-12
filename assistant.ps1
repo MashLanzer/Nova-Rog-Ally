@@ -2203,6 +2203,20 @@ $RutaNivel = Join-Path $TmpDir "ui-nivel.txt"
 # en un proceso recien arrancado vale 0, asi que se quedaba puesta para siempre.
 # Una dictar.flag huerfana es mas leve pero tambien molesta: el worker se pone a
 # grabar una orden que nadie esta dictando. Se limpian todas al arrancar.
+# Restos de peticiones al agente que se cancelaron a mitad (manteniendo el
+# boton): el runner muere antes de borrar sus in-/out-/err-/raw- y se quedan
+# ahi para siempre. Se barren los de hace mas de un dia, nunca los recientes,
+# que pueden estar en uso ahora mismo.
+try {
+    $limite = (Get-Date).AddDays(-1)
+    $restos = @(Get-ChildItem -LiteralPath $TmpDir -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^(?:in|out|err|raw)-[0-9a-f]{16,}' -and $_.LastWriteTime -lt $limite })
+    if ($restos.Count -gt 0) {
+        $restos | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
+        Log "limpieza: $($restos.Count) restos de ordenes canceladas"
+    }
+} catch {}
+
 foreach ($m in @($MarcaPausa, $MarcaSoloBoton, $MarcaDictar, $MarcaConfirmar, $MarcaReintento, $MarcaWake)) {
     if (Test-Path -LiteralPath $m) {
         Log "marca huerfana de la sesion anterior: $(Split-Path -Leaf $m)"
