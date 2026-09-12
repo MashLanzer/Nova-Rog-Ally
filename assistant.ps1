@@ -1742,6 +1742,7 @@ function Invoke-FastCommand([string]$text) {
                 'esconder' { Set-UI 'retirada' }
                 'sordina' {
                     Pausar-Escucha $a.ms
+                    $script:sordinaHasta = $sw.ElapsedMilliseconds + $a.ms
                     # el aviso de vuelta va por la via de los temporizadores, que
                     # ya sabe hablar sola cuando vence
                     [void]$script:temporizadores.Add(@{ vence = ($sw.ElapsedMilliseconds + $a.ms + 1500)
@@ -1810,6 +1811,7 @@ function Invoke-FastCommand([string]$text) {
                 }
                 'despertarEscucha' {
                     Reanudar-Escucha
+                    $script:sordinaHasta = 0
                     # y se retira el aviso de vuelta: ya no hace falta
                     for ($i = $script:temporizadores.Count - 1; $i -ge 0; $i--) {
                         if ($script:temporizadores[$i].tipo -eq 'sordina') { $script:temporizadores.RemoveAt($i) }
@@ -2417,15 +2419,24 @@ function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
     $script:uiTexto = $t
     # temporizador mas proximo, en tiempo de reloj (ms Unix) para que la
     # capsula dibuje el anillo con su propio reloj sin que haya que reescribir
-    $tFin = 0; $tTotal = 0
+    $tFin = 0; $tTotal = 0; $tTipo = ''
     if ($script:temporizadores -and $script:temporizadores.Count -gt 0) {
         $prox = $null
         foreach ($tp in $script:temporizadores) { if ($null -eq $prox -or $tp.vence -lt $prox.vence) { $prox = $tp } }
         if ($prox) {
             $tFin = [DateTimeOffset]::Now.ToUnixTimeMilliseconds() + ($prox.vence - $sw.ElapsedMilliseconds)
             $tTotal = $prox.total
+            if ($prox.tipo) { $tTipo = [string]$prox.tipo }
         }
     }
+    # EN QUE ESTADO ESTA EL OIDO. La capsula lo dibuja: sin esto, estar sorda y
+    # estar escuchando se ven exactamente igual.
+    $oido = 'palabra'
+    if ($script:sordinaHasta -gt $sw.ElapsedMilliseconds) { $oido = 'sorda' }
+    # "solo boton": la palabra esta apagada pero el boton sigue valiendo.
+    # Pasa con un juego delante (marca solo-boton) o si el worker murio.
+    elseif (Test-Path -LiteralPath $MarcaSoloBoton) { $oido = 'boton' }
+    elseif ($EscuchaOn -and (-not $script:wakeProc -or $script:wakeProc.HasExited)) { $oido = 'boton' }
     $json = '{"estado":"' + $estado + '","texto":"' + (ConvertTo-JsonTexto $t) + '","nivel":0' +
             ',"evento":"' + $script:uiEvento + '","n":' + $script:uiEventoN +
             ',"juego":"' + (ConvertTo-JsonTexto $script:juegoExe) + '"' +
@@ -2436,6 +2447,7 @@ function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
             ',"carga":' + $script:uiCarga + ',"clima":"' + (ConvertTo-JsonTexto $script:uiClima) + '"' +
             ',"animo":' + ([double]$script:uiAnimo).ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture) +
             ',"progreso":' + ([double]$script:uiProgreso).ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture) +
+            ',"oido":"' + $oido + '","tempoTipo":"' + $tTipo + '"' +
             ',"voz":' + $script:uiVoz + '}'
     if ($json -ne $script:uiUltimo) {
         # UTF-8 SIN BOM: la interfaz lo lee tal cual y el BOM colaria un caracter
@@ -3987,6 +3999,9 @@ $AutoSordinaRachas = [int](Get-Cfg 'escucha' 'autoSordinaRachas' 3)
 $AutoSordinaVentanaMs = [int](Get-Cfg 'escucha' 'autoSordinaVentanaMin' 5) * 60000
 $AutoSordinaMs = [int](Get-Cfg 'escucha' 'autoSordinaMinutos' 10) * 60000
 $script:rachaRuido = New-Object System.Collections.ArrayList
+# Hasta cuando esta SORDA. No vale $script:pausaHasta: esa misma pausa se usa
+# durante un segundo cada vez que habla, y eso no es estar sorda.
+$script:sordinaHasta = 0
 $script:aprenderPendiente = $null
 $script:ultimaLectura = ''
 function Test-LoTengo([string]$vista) {
@@ -4017,6 +4032,7 @@ function Add-RuidoRacha {
     $mins = [int]($AutoSordinaMs / 60000)
     Log "AUTOSORDINA: $AutoSordinaRachas descartes seguidos; me callo $mins min"
     Pausar-Escucha $AutoSordinaMs
+    $script:sordinaHasta = $sw.ElapsedMilliseconds + $AutoSordinaMs
     [void]$script:temporizadores.Add(@{ vence = ($sw.ElapsedMilliseconds + $AutoSordinaMs + 1500)
                                         texto = 'Ya vuelvo a escucharte.'; total = $AutoSordinaMs
                                         tipo = 'sordina' })

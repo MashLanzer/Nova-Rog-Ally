@@ -132,6 +132,9 @@ public class NovaUI : Window
     Ellipse[] anillos;
     Ellipse[] chispas;
     System.Windows.Shapes.Path marcaHecho, anilloTempo;
+    TextBlock glifoOido;            // micro tachado / mando, segun el estado del oido
+    string oidoActual = "palabra";
+    string tempoTipoActual = "";
     ScaleTransform escalaPunto;
     TranslateTransform mirada;
     RotateTransform giroOrbita;
@@ -850,6 +853,22 @@ public class NovaUI : Window
         insignia.Effect = brilloIns;
         insignia.Visibility = Visibility.Collapsed;
         esfera.Children.Add(insignia);
+
+        // ESTADO DEL OIDO. Al lado contrario de la insignia y bien discreto: es
+        // una respuesta a "¿por que no me oye?", no algo que deba llamar la
+        // atencion. Sin esto, estar sorda y estar escuchando se ven igual, y la
+        // autosordina se activa sola.
+        glifoOido = new TextBlock();
+        glifoOido.FontFamily = new FontFamily("Segoe MDL2 Assets");
+        glifoOido.FontSize = 8;
+        glifoOido.Foreground = new SolidColorBrush(Color.FromRgb(0x9A, 0xA8, 0xC0));
+        glifoOido.Opacity = 0.45;
+        glifoOido.HorizontalAlignment = HorizontalAlignment.Left;
+        glifoOido.VerticalAlignment = VerticalAlignment.Bottom;
+        glifoOido.Margin = new Thickness(-1, 0, 0, -1);
+        glifoOido.IsHitTestVisible = false;
+        glifoOido.Visibility = Visibility.Collapsed;
+        esfera.Children.Add(glifoOido);
 
         // adornos de gestos (arrancan invisibles)
         corazon = Glifo("♥", 10, Color.FromRgb(0xFF, 0x7A, 0xA8), "Segoe UI Symbol");
@@ -2187,6 +2206,27 @@ public class NovaUI : Window
         Top = area.Bottom - ALTO - SEPARACION - MARGEN;
     }
 
+    // El glifo del oido. Sorda: microfono tachado. Solo boton: glifo de mando.
+    // Escuchando: nada, que el caso normal no necesita adorno.
+    void PintarOido()
+    {
+        if (glifoOido == null) { return; }
+        if (oidoActual == "sorda")
+        {
+            glifoOido.Text = "\uEC54";          // microfono tachado
+            glifoOido.Visibility = Visibility.Visible;
+        }
+        else if (oidoActual == "boton")
+        {
+            glifoOido.Text = "\uE7FC";          // mando
+            glifoOido.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            glifoOido.Visibility = Visibility.Collapsed;
+        }
+    }
+
     void Tic250()
     {
         RevisarPantalla();
@@ -2218,10 +2258,15 @@ public class NovaUI : Window
             {
                 double progreso = Math.Max(0, Math.Min(1, resta / tempoTotal));
                 DibujarArco(progreso);
+                bool esSordina = (tempoTipoActual == "sordina");
+                // una sordina no es una alarma: gris malva y sin tics
+                var tinte = esSordina ? Color.FromRgb(0x8E, 0x84, 0xA8) : ColorDe(estadoActual);
+                var pincelAnillo = anilloTempo.Stroke as SolidColorBrush;
+                if (pincelAnillo != null && pincelAnillo.Color != tinte) { Animar(pincelAnillo, tinte); }
                 if (!tempoActivo) { tempoActivo = true; Desvanecer(anilloTempo, 0.9, 300); ultimoSegundo = -1; }
                 // cuenta atras: en los ultimos 10 s, un latido del anillo y un
                 // tic minimo del punto por cada segundo
-                if (resta <= 10000)
+                if (resta <= 10000 && !esSordina)
                 {
                     int seg = (int)Math.Ceiling(resta / 1000.0);
                     if (seg != ultimoSegundo)
@@ -2327,6 +2372,13 @@ public class NovaUI : Window
                 double.TryParse(Campo(j, "progreso", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out pr);
                 int.TryParse(Campo(j, "voz", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out vz);
                 if (vz != voz) { voz = vz; cambioVoz = true; }
+                string oido = Campo(j, "oido", "palabra");
+                tempoTipoActual = Campo(j, "tempoTipo", "");
+                if (oido != oidoActual)
+                {
+                    oidoActual = oido;
+                    PintarOido();
+                }
                 if (Math.Abs(pr - progreso) > 0.005)
                 {
                     progreso = pr;

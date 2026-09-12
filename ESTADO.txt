@@ -164,6 +164,15 @@ JUEGOS COLGADOS (nuevo): "hay algo colgado", "revisa los juegos". Busca
   Wallpaper Engine y compañía no cuentan: gastan un 3 % de un núcleo, y un
   juego colgado gasta el 87 %.
 
+SE VE SI TE ESCUCHA (nuevo): en la esquina de abajo a la izquierda de la
+  carita, un glifo pequeño y discreto dice en qué estado tiene el oído:
+    micrófono tachado -> está en sordina (callada un rato)
+    mando             -> la palabra "nova" está apagada, pero el botón vale
+    nada              -> normal, te está escuchando
+  Y si el anillo del tiempo cuenta una sordina, va en gris malva y SIN los
+  tics de los últimos segundos: es una cuenta atrás para volver a oírte, no
+  una alarma. Antes, sorda o escuchando, se veía exactamente igual.
+
 SE CALLA SOLA SI OYE RUIDO (nuevo): si en cinco minutos descarta tres
   frases seguidas que no eran órdenes, entiende que el micrófono está
   cazando algo que no eres tú (un vídeo, un juego sonando) y se calla diez
