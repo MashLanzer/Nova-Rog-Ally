@@ -72,3 +72,8 @@ pon bad bunny en spotify
 # --- teclas con "dale a" ---
 dale a enter
 dale al escape
+# --- niveles: un numero solo no es un porcentaje ---
+baja el volumen 2 veces
+pon el volumen al 60
+pon el brillo al 20%
+pon el volumen al 60 por ciento

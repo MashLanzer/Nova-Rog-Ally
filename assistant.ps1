@@ -1230,10 +1230,20 @@ function Resolve-Fragment([string]$f) {
         # los dos al 50 %.
         $pctVol = $null
         $pctBri = $null
-        if ($f -match '(?:volumen|sonido|audio)[^0-9]{0,20}(\d{1,3})') {
+        # El numero solo es un PORCENTAJE si lo anuncia un "al"/"a" o si
+        # lleva % / "por ciento" detras. Antes valia cualquier numero cerca
+        # de la palabra, y "baja el volumen 2 veces" acababa poniendolo al
+        # 2 %: lo contrario de lo que pediste, y sin vuelta atras facil.
+        if ($f -match '(?:volumen|sonido|audio)[^0-9]{0,20}?\b(?:al|a)\s+(\d{1,3})\b' -or
+            $f -match '(?:volumen|sonido|audio)[^0-9]{0,20}(\d{1,3})\s*(?:%|por\s*ciento)') {
             $n = [int]$Matches[1]; if ($n -ge 0 -and $n -le 100) { $pctVol = $n }
         }
-        if ($f -match 'brillo[^0-9]{0,20}(\d{1,3})') {
+        # El numero solo es un PORCENTAJE si lo anuncia un "al"/"a" o si
+        # lleva % / "por ciento" detras. Antes valia cualquier numero cerca
+        # de la palabra, y "baja el volumen 2 veces" acababa poniendolo al
+        # 2 %: lo contrario de lo que pediste, y sin vuelta atras facil.
+        if ($f -match 'brillo[^0-9]{0,20}?\b(?:al|a)\s+(\d{1,3})\b' -or
+            $f -match 'brillo[^0-9]{0,20}(\d{1,3})\s*(?:%|por\s*ciento)') {
             $n = [int]$Matches[1]; if ($n -ge 0 -and $n -le 100) { $pctBri = $n }
         }
         $acc = @()
