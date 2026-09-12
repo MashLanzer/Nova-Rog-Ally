@@ -1128,14 +1128,54 @@ function Get-Atragantos {
 # ahora la usan ese patron y el parte general ("como va todo"), que es justo el
 # tipo de dato que no conviene tener contado de dos maneras distintas.
 # $corto: para el parte, donde va junto a otras cinco cosas.
-# TU VOZ, la de la casa: de las que se han visto (tmp\voces.json, que escribe el
-# worker), la que MAS veces ha dictado. No la primera: la primera puede ser
+# TU TONO, aprendido de las ordenes que DE VERDAD se ejecutaron.
+# tmp\voces.json no sirve para esto y conviene entender por que: lo escribe el
+# worker con TODO lo que pasa por el microfono, asi que cuenta tambien el audio
+# de los videos. En esta maquina, 3 de sus 4 ranuras son ruido (171, 148 y 231
+# Hz), y si un dia el ruido dictara mas que tu, el "dueno" pasaria a ser el
+# ruido y el asistente empezaria a desconfiar de ti. Aqui solo entra el tono de
+# lo que se ejecuto: una orden que se reconocio y se hizo.
+# Media movil con tope de muestras, no media de toda la vida: asi el centro se
+# mueve contigo (un microfono nuevo, la voz con los anos) en vez de quedarse
+# clavado en la primera semana.
+$MiVozTope = 60
+function Update-MiVoz([double]$f0) {
+    if ($f0 -le 0) { return }
+    try {
+        $ruta = Join-Path $TmpDir 'mi-voz.json'
+        $m = 0.0; $n = 0
+        if (Test-Path -LiteralPath $ruta) {
+            $d = Get-Content -LiteralPath $ruta -Raw -Encoding UTF8 | ConvertFrom-Json
+            $m = [double]$d.f0; $n = [int]$d.n
+        }
+        # Un salto enorme no puede arrastrar la referencia: si un dia confirmas
+        # a mano una orden dicha por otra persona, esa medida no tiene por que
+        # mover tu tono. Al principio (sin datos) se acepta lo que venga.
+        if ($n -gt 0 -and [Math]::Abs($f0 - $m) -gt 60) { return }
+        if ($n -ge $MiVozTope) { $n = $MiVozTope - 1 }
+        $m = if ($n -eq 0) { $f0 } else { (($m * $n) + $f0) / ($n + 1) }
+        $j = '{"f0":' + ([double]$m).ToString('0.0', [System.Globalization.CultureInfo]::InvariantCulture) + ',"n":' + ($n + 1) + '}'
+        [System.IO.File]::WriteAllText($ruta, $j, (New-Object System.Text.UTF8Encoding($false)))
+    } catch {}
+}
+
+# TU VOZ, la de la casa. Primero la aprendida de tus ordenes (mi-voz.json); si
+# todavia no hay bastantes, se cae a tmp\voces.json, que escribe el worker, y
+# de ahi se coge la que MAS ha dictado. No la primera: la primera puede ser
 # perfectamente un video que sonaba el dia que se estreno el archivo.
-# Devuelve 0 si todavia no hay una voz claramente dominante, y entonces no se
-# pregunta nada: con dos docenas de ordenes repartidas no se puede acusar a
-# nadie de no ser el dueno.
+# Devuelve 0 si todavia no se sabe, y entonces no se pregunta nada: con dos
+# docenas de ordenes repartidas no se puede acusar a nadie de no ser el dueno.
 function Get-VozDuena([string]$ruta = '') {
-    if (-not $ruta) { $ruta = Join-Path $TmpDir 'voces.json' }
+    if (-not $ruta) {
+        $mia = Join-Path $TmpDir 'mi-voz.json'
+        try {
+            if (Test-Path -LiteralPath $mia) {
+                $d = Get-Content -LiteralPath $mia -Raw -Encoding UTF8 | ConvertFrom-Json
+                if ([int]$d.n -ge $SoloYoMinimo -and [double]$d.f0 -gt 0) { return [double]$d.f0 }
+            }
+        } catch {}
+        $ruta = Join-Path $TmpDir 'voces.json'
+    }
     try {
         if (-not (Test-Path -LiteralPath $ruta)) { return 0.0 }
         # OJO: @(algo | ConvertFrom-Json) sobre un array JSON da UN elemento que
@@ -5537,6 +5577,10 @@ function Process-Texto([string]$text) {
             } else {
                 Log "LOCAL: $text -> $fast"
                 Add-Estadistica 'local' $text
+                # esta orden se entendio y se hizo: su tono eres tu. Es la unica
+                # fuente limpia que hay, y la que evita que el ruido acabe
+                # pasando por dueno de la casa.
+                Update-MiVoz $script:ultimaF0
                 $script:ultimaRespuesta = $fast
                 Send-UIEvento 'hecho'
                 Show-Popup $fast
@@ -5573,6 +5617,7 @@ function Process-Texto([string]$text) {
                     $script:ultimaAprendida = $text
                     if ($script:ultimaAprendida) { Log "(si dices 'no era eso', la olvido)" }
                     Add-Estadistica 'aprendida' $text
+                    Update-MiVoz $script:ultimaF0
                     $script:ultimaRespuesta = $r
                     Send-UIEvento 'hecho'
                     Show-Popup $r

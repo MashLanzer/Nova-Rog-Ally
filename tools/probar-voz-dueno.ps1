@@ -12,6 +12,8 @@ function TraerFn([string]$n) {
 }
 Invoke-Expression (TraerFn 'Get-VozDuena')
 Invoke-Expression (TraerFn 'Test-VozExtrana')
+Invoke-Expression (TraerFn 'Update-MiVoz')
+$MiVozTope = 60
 
 # --- mundo de mentira ---
 $TmpDir = Join-Path $env:TEMP 'voz-dueno-prueba'
@@ -82,6 +84,38 @@ $script:ultimaF0 = 231.0
 Ok 'toma el tono de la ultima orden'  (Test-VozExtrana -1 $duena)    $true  'ultimaF0=231'
 $script:ultimaF0 = 0
 Ok 'y si no hay ninguno, calla'       (Test-VozExtrana -1 $duena)    $false 'ultimaF0=0'
+
+Write-Host ""
+Write-Host "--- tu tono, aprendido de las ordenes que SI se ejecutaron ---"
+# tmp\voces.json cuenta todo lo que pasa por el microfono, videos incluidos.
+# Esto solo cuenta lo que se entendio y se hizo, que es la unica fuente limpia.
+$rutaMia = Join-Path $TmpDir 'mi-voz.json'
+Remove-Item $rutaMia -Force -ErrorAction SilentlyContinue
+
+foreach ($hz in @(118, 120, 116, 122, 119, 117, 121, 118, 120, 119, 118, 121)) { Update-MiVoz $hz }
+$mia = Get-Content -LiteralPath $rutaMia -Raw | ConvertFrom-Json
+Ok 'doce ordenes tuyas dan tu tono' ([Math]::Abs([double]$mia.f0 - 119.1) -lt 1.5) $true "f0=$($mia.f0) n=$($mia.n)"
+
+# y con eso ya manda sobre voces.json, aunque alli el ruido tenga mas cuenta
+PonerVoces '[{"f0": 231.0, "n": 90}, {"f0": 119.0, "n": 12}]'
+$dMia = Get-VozDuena
+Ok 'manda lo aprendido, no el ruido del worker' ([Math]::Abs($dMia - 119.1) -lt 1.5) $true "dueña=$dMia"
+
+# un salto enorme (otra persona confirmando a mano) no arrastra la referencia
+Update-MiVoz 240.0
+$mia2 = Get-Content -LiteralPath $rutaMia -Raw | ConvertFrom-Json
+Ok 'un tono lejano no mueve tu media' ([Math]::Abs([double]$mia2.f0 - [double]$mia.f0) -lt 0.01) $true "f0=$($mia2.f0)"
+
+# pero un cambio lento SI: la voz se mueve con los anos y con el microfono
+foreach ($i in 1..40) { Update-MiVoz 150.0 }
+$mia3 = Get-Content -LiteralPath $rutaMia -Raw | ConvertFrom-Json
+Ok 'un cambio lento si te sigue' ([double]$mia3.f0 -gt 140) $true "f0=$($mia3.f0)"
+
+# y f0=0 (sin medida) no ensucia nada
+$antes = (Get-Content -LiteralPath $rutaMia -Raw | ConvertFrom-Json).n
+Update-MiVoz 0
+$despues = (Get-Content -LiteralPath $rutaMia -Raw | ConvertFrom-Json).n
+Ok 'sin medida, no cuenta' ($antes -eq $despues) $true "n=$despues"
 
 Remove-Item $TmpDir -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ""

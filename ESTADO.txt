@@ -378,6 +378,29 @@ QUE SOLO TE OBEDEZCA A TI (nuevo, ACTIVADO): el tono de cada orden dictada
   Medido aquí: con 231 Hz pregunta antes de abrir nada; con 121 Hz (tu voz,
   que está en 119) abre sin preguntar.
 
+  ¿Y SI NO SIEMPRE HABLO IGUAL? No hablas siempre a 119: ese número es la
+  mediana. Las 88 medidas que hay en el log lo dicen: cuando eres tú, el
+  tono va de 104 a 138 Hz; de 140 para arriba, TODO lo medido fue audio
+  ajeno (vídeos en inglés, gente hablando, el catálogo recitado). El margen
+  de 35 Hz deja la ventana en 84-154, o sea tu rango real entero y 16 Hz de
+  sobra por arriba. Y aunque un día te salgas (afónico, susurrando), no
+  bloquea nada: pregunta, y mantener ≡ vale por un sí.
+  Lo que sí NO ve: una voz de vídeo grave, de 110 a 130 Hz, entra dentro de
+  tu ventana y pasaría. Esto no es un portero, es un filtro contra el caso
+  que de verdad pasa aquí, que son voces bastante más agudas que la tuya.
+
+  DE DÓNDE SALE TU TONO. De las órdenes que SE EJECUTARON, guardadas en
+  tmp\mi-voz.json (media móvil de las últimas 60). No de tmp\voces.json,
+  que lo escribe el worker con todo lo que pasa por el micrófono: ahí, de
+  sus cuatro ranuras, tres son ruido (171, 148 y 231 Hz de vídeos), y si un
+  día el ruido dictara más que tú, el "dueño" pasaría a ser el ruido y el
+  asistente empezaría a desconfiar de ti. Con la media móvil, además, el
+  centro se mueve contigo (un micrófono nuevo, la voz con los años) en vez
+  de quedarse clavado en la primera semana; un salto de más de 60 Hz de
+  golpe no la mueve, para que confirmar una orden de otra persona no
+  arrastre tu referencia. Hasta que haya 12 órdenes tuyas medidas, se usa
+  voces.json como respaldo, y si tampoco hay dueño claro, no se pregunta.
+
 FALSAS ALARMAS (nuevo): el micrófono cazaba el audio de los altavoces y lo
   tomaba por órdenes. Ahora:
   - Se le pregunta a Windows si está sonando algo por los altavoces; si
