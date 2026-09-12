@@ -6204,6 +6204,7 @@ $script:dictadoUltimo = ''     # lo ultimo escrito, para "borra lo ultimo" y "ca
 $script:dictadoVentana = [IntPtr]::Zero
 $script:ventanaUsuario = [IntPtr]::Zero   # la que tenias delante al empezar a hablar
 $script:dictadoWinH = $false              # el dictado en curso lo lleva Win+H
+$script:ordenPorWorker = $true            # la orden en curso la transcribe el worker (si no, Win+H)
 $script:dictadoWinHPendiente = $false     # hay que abrirlo en cuanto deje de hablar
 $script:dictadoLineas = 0      # cuantos trozos van escritos, para contarlo al salir
 $script:seguimientoFactor = 1.0
@@ -6344,6 +6345,15 @@ function Start-Dictado([string]$origen) {
         $usaWorker = [bool]$script:juegoActivo
     }
     if ($largo) { $usaWorker = $true }   # el largo se gestiona aparte
+    # EL MOTOR DE ESTA ORDEN, apuntado para el bucle. Antes el bucle miraba el
+    # global $DictadoWorker ("hay worker"), que es SIEMPRE cierto aunque la orden
+    # vaya por Win+H: la recogida del worker se creia a cargo, su red de
+    # seguridad comparaba con el reloj de una orden vieja y cancelaba al
+    # segundo ("dictado sin respuesta del worker", 12/09 19:08), y el envio por
+    # silencio de Win+H no se alcanzaba nunca. motorOrdenes = windows no
+    # funcionaba en absoluto.
+    $script:ordenPorWorker = [bool]($usaWorker -and $script:wakeProc)
+    $script:dictaInicio = $sw.ElapsedMilliseconds
 
     # --- Dictado por el worker (Whisper/Vosk): ni foco, ni Win+H, ni pausa ---
     # El worker ya tiene el microfono; solo hay que decirle que transcriba.
@@ -6723,7 +6733,7 @@ function Process-Texto([string]$text) {
             #      alucino 'SILENT BREATH', y el asistente ABRIO el juego solo
             #      mientras el usuario estaba jugando a otra cosa. El filtro de
             #      ruido existia precisamente para eso y yo lo habia saltado.
-            if ($WhisperPreciso -and $DictadoWorker -and -not $script:yaReintentado -and
+            if ($WhisperPreciso -and $script:ordenPorWorker -and -not $script:yaReintentado -and
                 $script:wakeProc -and -not $script:wakeProc.HasExited -and
                 (Test-MereceRepaso $text)) {
                 $script:yaReintentado = $true
@@ -6742,7 +6752,7 @@ function Process-Texto([string]$text) {
                 }
             }
 
-            if ($WhisperPreciso -and $DictadoWorker -and -not $script:yaReintentado -and
+            if ($WhisperPreciso -and $script:ordenPorWorker -and -not $script:yaReintentado -and
                 -not (Test-MereceRepaso $text)) {
                 # se cuenta para poder ver cuanto se ahorra de verdad
                 Add-Estadistica 'fino-ahorrado' $text
@@ -6871,7 +6881,7 @@ while ($true) {
                 Stop-DictadoLargo 'el boton'
             } elseif (-not $script:armed) {
                 Start-Dictado "mantener ≡"
-            } elseif ($DictadoWorker -and $script:wakeProc) {
+            } elseif ($script:ordenPorWorker -and $script:wakeProc) {
                 # con Vosk el boton solo dice "ya termine": el worker entrega
                 # lo que lleve transcrito y el bucle lo recoge
                 Log "ENVIAR (boton)"
@@ -6998,7 +7008,7 @@ while ($true) {
     }
 
     # --- DICTADO POR VOSK: recoger lo transcrito y mostrarlo en vivo ---
-    if ($script:armed -and $DictadoWorker) {
+    if ($script:armed -and $script:ordenPorWorker) {
         # transcripcion en vivo: ver lo que oye mientras hablas
         if (Test-Path -LiteralPath $RutaParcial) {
             try {
@@ -7070,7 +7080,7 @@ while ($true) {
 
     # --- ENVIO AUTOMATICO (solo para el dictado antiguo de Windows).
     # Con Vosk el propio worker detecta el silencio y entrega el texto.
-    if ($script:armed -and -not $DictadoWorker -and $AutoSubmitMs -gt 0) {
+    if ($script:armed -and -not $script:ordenPorWorker -and $AutoSubmitMs -gt 0) {
         $actual = $tb.Text
         if ($actual -ne $script:lastText) {
             $script:lastText = $actual
@@ -7085,6 +7095,13 @@ while ($true) {
         } elseif ($actual.Trim().Length -gt 0 -and ($sw.ElapsedMilliseconds - $script:lastChange) -ge $AutoSubmitMs) {
             try { Finish-Dictation "silencio" }
             catch { Log "auto-envio error: $($_.Exception.Message)"; $script:armed = $false }
+        } elseif ($actual.Trim().Length -eq 0 -and ($sw.ElapsedMilliseconds - $script:dictaInicio) -ge 10000) {
+            # 10 s sin una sola palabra: Win+H se ha rendido solo (o no oye).
+            # Sin esto se quedaba armado para siempre, con la escucha propia
+            # en pausa y el panel de Windows a la vista.
+            Log "Win+H: 10 s sin texto, se cierra"
+            try { Finish-Dictation "sin voz" }
+            catch { Log "cierre sin voz: $($_.Exception.Message)"; $script:armed = $false }
         }
     }
 
