@@ -61,8 +61,15 @@ def acciones_de(frases):
         f.write("\n".join(utiles) + "\n")
     salida = ""
     try:
+        # La salida de PowerShell se pide en UTF-8. Sin esto sale con la
+        # codificacion de la consola, cualquier frase con tilde o con "¿"
+        # ("Recuérdame en 20 minutos...") no encontraba su accion al leerla
+        # y contaba como FALLO del oido cuando el oido habia acertado. Paso
+        # el 12/09: medium "fallaba" dos frases que habia oido perfectas.
+        orden = ("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
+                 "& '%s' -Probar '%s'" % (os.path.join(RAIZ, "assistant.ps1"), tmp))
         r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
-                            "-File", os.path.join(RAIZ, "assistant.ps1"), "-Probar", tmp],
+                            "-Command", orden],
                            capture_output=True, timeout=600)
         salida = r.stdout.decode("utf-8", "replace")
     except Exception as e:
