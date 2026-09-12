@@ -300,4 +300,183 @@ public class AX
         }
         return false;
     }
+
+    // ---------------------------------------------------------------
+    // VOLUMEN POR APLICACION (mezclador de Windows, por sesiones)
+    // Misma familia COM que el volumen maestro de arriba. Permite bajar el
+    // juego sin bajarle la voz al amigo de Discord, que con el volumen
+    // maestro es imposible.
+    // ---------------------------------------------------------------
+    [ComImport, Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IAudioSessionManager2
+    {
+        int NoUsado_GetAudioSessionControl(IntPtr a, int b, out IntPtr c);
+        int NoUsado_GetSimpleAudioVolume(IntPtr a, int b, out IntPtr c);
+        int GetSessionEnumerator(out IAudioSessionEnumerator ppSessionEnum);
+    }
+
+    [ComImport, Guid("E2F5BB11-0570-40CA-ACDD-3AA01277DEE8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IAudioSessionEnumerator
+    {
+        int GetCount(out int SessionCount);
+        int GetSession(int SessionIndex, out IAudioSessionControl Session);
+    }
+
+    [ComImport, Guid("F4B1A599-7266-4319-A8CA-E70ACB11E8CD"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IAudioSessionControl
+    {
+        int GetState(out int pRetVal);
+    }
+
+    [ComImport, Guid("BFB7FF88-7239-4FC9-8FA2-07C950BE9C6D"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IAudioSessionControl2
+    {
+        int GetState(out int pRetVal);
+        int NoUsado_GetDisplayName(out IntPtr p);
+        int NoUsado_SetDisplayName(string v, ref Guid g);
+        int NoUsado_GetIconPath(out IntPtr p);
+        int NoUsado_SetIconPath(string v, ref Guid g);
+        int NoUsado_GetGroupingParam(out Guid g);
+        int NoUsado_SetGroupingParam(ref Guid g, ref Guid ctx);
+        int NoUsado_RegisterAudioSessionNotification(IntPtr p);
+        int NoUsado_UnregisterAudioSessionNotification(IntPtr p);
+        int NoUsado_GetSessionIdentifier(out IntPtr p);
+        int NoUsado_GetSessionInstanceIdentifier(out IntPtr p);
+        int GetProcessId(out uint pRetVal);
+        int IsSystemSoundsSession();
+        int SetDuckingPreference(bool optOut);
+    }
+
+    [ComImport, Guid("87CE5498-68D6-44E5-9215-6DA47EF883D8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface ISimpleAudioVolume
+    {
+        int SetMasterVolume(float fLevel, ref Guid EventContext);
+        int GetMasterVolume(out float pfLevel);
+        int SetMute(bool bMute, ref Guid EventContext);
+        int GetMute(out bool pbMute);
+    }
+
+    static IAudioSessionEnumerator Sesiones()
+    {
+        object enumerador = null, dispositivo = null;
+        try
+        {
+            var en = (IMMDeviceEnumerator)(new MMDeviceEnumeratorCom() as object);
+            enumerador = en;
+            IMMDevice dev;
+            if (en.GetDefaultAudioEndpoint(0, 0, out dev) != 0) { return null; }
+            dispositivo = dev;
+            Guid iid = typeof(IAudioSessionManager2).GUID;
+            object o;
+            if (dev.Activate(ref iid, 23, IntPtr.Zero, out o) != 0) { return null; }
+            var mgr = (IAudioSessionManager2)o;
+            IAudioSessionEnumerator ses;
+            if (mgr.GetSessionEnumerator(out ses) != 0) { return null; }
+            return ses;
+        }
+        catch { return null; }
+        finally
+        {
+            try { if (dispositivo != null && Marshal.IsComObject(dispositivo)) { Marshal.FinalReleaseComObject(dispositivo); } } catch { }
+            try { if (enumerador != null && Marshal.IsComObject(enumerador)) { Marshal.FinalReleaseComObject(enumerador); } } catch { }
+        }
+    }
+
+    /// PIDs que tienen sonido ACTIVO ahora mismo (estado 1 = activo).
+    /// Con esto se puede responder "¿que esta sonando?".
+    public static int[] PidsConSonido()
+    {
+        var lista = new System.Collections.Generic.List<int>();
+        var ses = Sesiones();
+        if (ses == null) { return lista.ToArray(); }
+        try
+        {
+            int n;
+            if (ses.GetCount(out n) != 0) { return lista.ToArray(); }
+            for (int i = 0; i < n; i++)
+            {
+                IAudioSessionControl c;
+                if (ses.GetSession(i, out c) != 0) { continue; }
+                try
+                {
+                    int estado;
+                    if (c.GetState(out estado) != 0 || estado != 1) { continue; }   // 1 = AudioSessionStateActive
+                    var c2 = c as IAudioSessionControl2;
+                    if (c2 == null) { continue; }
+                    uint pid;
+                    if (c2.GetProcessId(out pid) != 0 || pid == 0) { continue; }
+                    if (!lista.Contains((int)pid)) { lista.Add((int)pid); }
+                }
+                finally { try { Marshal.FinalReleaseComObject(c); } catch { } }
+            }
+        }
+        catch { }
+        finally { try { Marshal.FinalReleaseComObject(ses); } catch { } }
+        return lista.ToArray();
+    }
+
+    // Busca la sesion de un PID y le aplica lo que toque. Se recorre cada vez
+    // en vez de cachear: las sesiones nacen y mueren con las apps.
+    static bool ConSesion(int pid, Func<ISimpleAudioVolume, bool> hacer)
+    {
+        var ses = Sesiones();
+        if (ses == null) { return false; }
+        try
+        {
+            int n;
+            if (ses.GetCount(out n) != 0) { return false; }
+            for (int i = 0; i < n; i++)
+            {
+                IAudioSessionControl c;
+                if (ses.GetSession(i, out c) != 0) { continue; }
+                try
+                {
+                    var c2 = c as IAudioSessionControl2;
+                    if (c2 == null) { continue; }
+                    uint p2;
+                    if (c2.GetProcessId(out p2) != 0 || (int)p2 != pid) { continue; }
+                    var vol = c as ISimpleAudioVolume;
+                    if (vol == null) { continue; }
+                    return hacer(vol);
+                }
+                finally { try { Marshal.FinalReleaseComObject(c); } catch { } }
+            }
+        }
+        catch { }
+        finally { try { Marshal.FinalReleaseComObject(ses); } catch { } }
+        return false;
+    }
+
+    /// Volumen de una app concreta, 0..100. -1 si no tiene sesion de audio.
+    public static int LeerVolumenApp(int pid)
+    {
+        int r = -1;
+        ConSesion(pid, delegate(ISimpleAudioVolume v)
+        {
+            float f;
+            if (v.GetMasterVolume(out f) == 0) { r = (int)Math.Round(f * 100.0); return true; }
+            return false;
+        });
+        return r;
+    }
+
+    public static bool PonerVolumenApp(int pid, int pct)
+    {
+        if (pct < 0) { pct = 0; }
+        if (pct > 100) { pct = 100; }
+        Guid ctx = Guid.Empty;
+        return ConSesion(pid, delegate(ISimpleAudioVolume v)
+        {
+            return v.SetMasterVolume(pct / 100f, ref ctx) == 0;
+        });
+    }
+
+    public static bool SilenciarApp(int pid, bool silencio)
+    {
+        Guid ctx = Guid.Empty;
+        return ConSesion(pid, delegate(ISimpleAudioVolume v)
+        {
+            return v.SetMute(silencio, ref ctx) == 0;
+        });
+    }
 }

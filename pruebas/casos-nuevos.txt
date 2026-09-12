@@ -120,3 +120,15 @@ cuando enchufe el cargador pon el brillo al 100
 cuando queden menos de 20 gigas avisame
 cuando la bateria baje del 15 avisame
 di que ya es hora de dormir
+# --- volumen por aplicacion (mezclador) y que esta sonando ---
+baja el juego
+sube discord
+silencia el navegador
+pon spotify al 40
+que esta sonando
+de donde viene ese ruido
+# --- control: el volumen y el brillo generales NO son del mezclador ---
+sube el volumen
+pon el volumen al 60
+sube el brillo
+abre spotify

@@ -1410,8 +1410,41 @@ function Resolve-Fragment([string]$f) {
         return @(@{ kind = 'url'; url = $url; desc = "buscar '$q' en $sitio" })
     }
     # --- abrir algo, con las variantes latinas de "abrir/ir a" ---
-    if ($f -match '^(?:abre|abreme|abrele|abrir|abri|abrime|ejecuta|ejecutame|inicia|iniciame|lanza|lanzame|arranca|arrancame|prende|prendeme|ponme|poneme|ponele|pone|pon|metete|mete|entrate|entra|andate|anda|vete|ve|llevame|muestrame|ensename)\s+(?:a\s+|al\s+|en\s+|de\s+)?(.+)$') {
+    # el lookahead suelta "pon spotify al 40": eso es volumen de esa app, no
+    # abrirla. Sin el, "pon" (verbo de abrir) se quedaba con la frase entera.
+    if ($f -match '^(?:abre|abreme|abrele|abrir|abri|abrime|ejecuta|ejecutame|inicia|iniciame|lanza|lanzame|arranca|arrancame|prende|prendeme|ponme|poneme|ponele|pone|pon|metete|mete|entrate|entra|andate|anda|vete|ve|llevame|muestrame|ensename)\s+(?!.*\bal\s+\d{1,3}\s*(?:%|por ciento)?$)(?:a\s+|al\s+|en\s+|de\s+)?(.+)$') {
         return (Resolve-Target $Matches[1])
+    }
+    # --- volumen de UNA aplicacion (mezclador de Windows) ---
+    # Va aqui abajo a proposito: si estuviera antes, "sube el volumen" caeria
+    # aqui y acabaria buscando una app llamada "volumen".
+    if ($f -match '^(?:sube|subele|baja|bajale|silencia|mutea|quita el sonido a|pon)\s+(?:el\s+|la\s+|a\s+|al\s+)?(.+?)\s*(?:al\s+(\d{1,3})\s*(?:%|por ciento)?)?$') {
+        $quien = $Matches[1].Trim(); $pct = $Matches[2]
+        # "sube el volumen" y compania NO son esto
+        if ($quien -notmatch '^(?:volumen|sonido|audio|brillo|pantalla)$') {
+            $pr = Resolve-Proceso $quien
+            # "el juego" se acepta SIEMPRE: si no hay ninguno abierto, la
+            # respuesta util es decirlo, no mandar la frase al modelo.
+            if (-not $pr -and $quien -match '^(?:el\s+)?(?:juego|videojuego)$') {
+                $pr = @{ proceso = '*juego*'; nombre = 'el juego' }
+            }
+            if ($pr) {
+                $verbo = ($f -split '\s+')[0]
+                $silenciar = ($verbo -match '^(?:silencia|mutea|quita)')
+                $sube = ($verbo -match '^(?:sube|subele)')
+                $acc = @{ kind = 'volumenApp'; proceso = $pr.proceso; nombre = $pr.nombre
+                          silenciar = $silenciar; sube = $sube }
+                if ($pct) { $acc.pct = [int]$pct }
+                $acc.desc = if ($silenciar) { "silenciar $($pr.nombre)" }
+                            elseif ($pct) { "$($pr.nombre) al $pct por ciento" }
+                            else { "$(if ($sube) { 'subir' } else { 'bajar' }) $($pr.nombre)" }
+                return @($acc)
+            }
+        }
+    }
+    # --- que esta sonando ---
+    if ($f -match '^(?:que (?:esta |se esta )?(?:sonando|suena)|quien (?:esta )?(?:sonando|suena)|de donde (?:viene|sale) (?:el|ese) (?:sonido|ruido|audio))\b') {
+        return @(@{ kind = 'queSuena'; desc = 'que esta sonando' })
     }
     # --- sin verbo: solo el nombre ("steam", "youtube") ---
     # Se marca de donde viene: decir un nombre a secas es comodo para abrir
@@ -1864,6 +1897,60 @@ function Invoke-FastCommand([string]$text) {
                         $tam = if ($act.Count -gt 0) { [double]$act[0].tamano } else { 0 }
                         $a.desc = if ($tam -gt 0) { "$($j.nombre) ocupa $(Format-Gigas $tam)" } else { "no se cuanto ocupa $($j.nombre)" }
                     }
+                }
+                'volumenApp' {
+                    # el juego activo no tiene nombre de proceso fijo: se resuelve
+                    # al vuelo desde el ejecutable que la capsula ya conoce
+                    $pids = @()
+                    if ($a.proceso -eq '*juego*') {
+                        if (-not $script:juegoExe) {
+                            $a.desc = 'no hay ningun juego abierto'
+                            break
+                        }
+                        $pids = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { try { $_.Path -eq $script:juegoExe } catch { $false } } | ForEach-Object { $_.Id })
+                    } else {
+                        $pids = @(Get-Process -Name $a.proceso -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
+                    }
+                    if ($pids.Count -eq 0) {
+                        $a.desc = "$($a.nombre) no esta abierto"
+                    } else {
+                        $hizo = $false
+                        foreach ($pd in $pids) {
+                            if ($a.silenciar) {
+                                if ([AX]::SilenciarApp($pd, $true)) { $hizo = $true }
+                            } elseif ($null -ne $a.pct) {
+                                if ([AX]::PonerVolumenApp($pd, [int]$a.pct)) { $hizo = $true }
+                            } else {
+                                $v = [AX]::LeerVolumenApp($pd)
+                                if ($v -ge 0) {
+                                    $destino = [Math]::Max(0, [Math]::Min(100, $v + $(if ($a.sube) { 20 } else { -20 })))
+                                    if ([AX]::PonerVolumenApp($pd, $destino)) { $hizo = $true; $a.desc = "$($a.nombre) al $destino por ciento" }
+                                }
+                            }
+                        }
+                        if (-not $hizo) { $a.desc = "$($a.nombre) no esta reproduciendo nada ahora mismo" }
+                    }
+                }
+                'queSuena' {
+                    $pids = @()
+                    try { $pids = @([AX]::PidsConSonido()) } catch {}
+                    $nombres = @()
+                    foreach ($pd in $pids) {
+                        try {
+                            $pr = Get-Process -Id $pd -ErrorAction Stop
+                            $n = $pr.ProcessName
+                            # si es un juego de Steam, mejor su nombre de verdad
+                            try {
+                                if ($pr.Path -match '(?i)steamapps\\common\\([^\\]+)') {
+                                    $j = Find-Juego $Matches[1]
+                                    if ($j) { $n = $j.nombre }
+                                }
+                            } catch {}
+                            if ($nombres -notcontains $n) { $nombres += $n }
+                        } catch {}
+                    }
+                    $a.desc = if ($nombres.Count -eq 0) { 'ahora mismo no suena nada' }
+                              else { 'suena ' + ($nombres -join ', ') }
                 }
                 'queJuego' {
                     $a.desc = if ($script:juegoActivo) { "estas jugando a $($script:juegoActivo)" } else { "no detecto ningun juego en primer plano" }

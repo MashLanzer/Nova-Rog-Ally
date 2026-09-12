@@ -71,6 +71,17 @@ FECHAS: "recuerda que el 3 de octubre es el cumple de Ana" -> ese día
 RECORDATORIOS: "recuérdame mañana a las 10 que llame al médico", "avísame
   el viernes a las 5 de la tarde que...", "recuérdame a las 3 revisar el
   horno". "qué recordatorios tengo". Sobreviven a reinicios.
+VOLUMEN POR APLICACIÓN (nuevo): "baja el juego", "sube discord",
+  "silencia el navegador", "pon spotify al 40". Es el mezclador de Windows,
+  por app: bajar el volumen general también le baja la voz a tu amigo de
+  Discord; esto no. Y es lo que no podías hacer sin salir de pantalla
+  completa. "el juego" se refiere al que tengas delante.
+
+¿QUÉ ESTÁ SONANDO? (nuevo): dilo tal cual, o "de dónde viene ese ruido".
+  Te dice qué aplicaciones tienen sonido ahora mismo, con el nombre real
+  del juego si es de Steam. Útil justo cuando el micrófono se pone a cazar
+  audio que no eres tú.
+
 STEAM Y DISCO (nuevo): cosas que el asistente ya leía al arrancar y no
   usaba. Todo en menos de un segundo, sin abrir Steam ni tocar la red:
     "¿cómo va la descarga?"        -> "REANIMAL, 62 por ciento, faltan 5 gigas"
