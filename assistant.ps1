@@ -877,7 +877,7 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '') {
         if (-not (Test-Path -LiteralPath $MemoriaDir)) { New-Item -ItemType Directory -Force -Path $MemoriaDir | Out-Null }
         [System.IO.File]::WriteAllText($EstadisticasJson, ($o | ConvertTo-Json -Depth 6), $enc)
 
-        $rutas = @('activacion', 'local', 'aprendida', 'memoria', 'pregunta', 'traducir', 'traducida', 'accion', 'charla', 'ruido', 'recitado', 'descarte', 'error')
+        $rutas = @('activacion', 'vozwin', 'vozwin-mudo', 'local', 'aprendida', 'memoria', 'pregunta', 'traducir', 'traducida', 'accion', 'charla', 'ruido', 'recitado', 'descarte', 'error')
         $sb = New-Object System.Text.StringBuilder
         [void]$sb.AppendLine("# Estadísticas del asistente")
         [void]$sb.AppendLine("")
@@ -2152,6 +2152,8 @@ $EscuchaMotor = [string](Get-Cfg 'escucha' 'motor' 'vosk')
 $EscuchaGanancia = [string](Get-Cfg 'escucha' 'ganancia' 'auto')
 $script:wakeProc = $null
 $script:vozWinProc = $null
+$script:vozWinCheck = 0
+$script:vozWinIntentos = 0
 $script:finVoz = 0
 $MarcaWake = Join-Path $TmpDir "despierta.flag"
 # Mientras exista esta marca, el worker ignora el microfono. Se crea al hablar
@@ -4304,6 +4306,32 @@ while ($true) {
         }
     }
 
+    # --- VIGILANCIA DEL OIDO DE WINDOWS ---
+    # Si muere, el asistente sigue tan campante con Whisper, asi que el fallo
+    # es invisible: el usuario solo notaria que "ya no acierta como antes".
+    if ($VozWindowsOn -and ($sw.ElapsedMilliseconds - $script:vozWinCheck) -ge 30000) {
+        $script:vozWinCheck = $sw.ElapsedMilliseconds
+        if ($script:vozWinProc -and $script:vozWinProc.HasExited) {
+            if ($script:vozWinIntentos -lt 2) {
+                $script:vozWinIntentos++
+                Log "WARN: el oido de Windows murio; relanzando (intento $($script:vozWinIntentos)/2)"
+                try { $script:vozWinProc.Dispose() } catch {}
+                $script:vozWinProc = $null
+                try {
+                    $wv = Join-Path $LogDir "voz_windows.py"
+                    $script:vozWinProc = Start-Process -FilePath $PyExe `
+                        -ArgumentList @('-u', $wv, $MarcaDictar, $RutaDictadoWin, $EventLog, 'es-ES') `
+                        -WorkingDirectory $LogDir -WindowStyle Hidden -PassThru
+                    $null = $script:vozWinProc.Handle
+                    try { $script:vozWinProc.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal } catch {}
+                } catch { Log ("no se pudo relanzar: " + $_.Exception.Message) }
+            } elseif ($script:vozWinIntentos -eq 2) {
+                $script:vozWinIntentos++   # avisar una sola vez, y sin voz: no es grave
+                Log "ERROR: el oido de Windows no se sostiene; se sigue con Whisper"
+            }
+        }
+    }
+
     # --- VIGILANCIA DEL WORKER DE ESCUCHA ---
     # Si muere, la palabra de activacion deja de funcionar EN SILENCIO durante
     # el resto de la sesion: el bucle solo miraba el archivo marca, que nunca
@@ -4406,6 +4434,11 @@ while ($true) {
                 if ($porWin.Trim()) {
                     if ($porWin.Trim() -ne $dic.Trim()) { Log "DICTADO de Windows: '$($dic.Trim())' -> '$($porWin.Trim())'" }
                     $dic = $porWin
+                    Add-Estadistica 'vozwin' $porWin.Trim()
+                } elseif ($dic.Trim()) {
+                    # oyo Whisper pero Windows no: si esto pasa siempre, ese motor
+                    # no oye este microfono y el ajuste se puede apagar
+                    Add-Estadistica 'vozwin-mudo'
                 }
             }
             Remove-Item -LiteralPath $MarcaDictar -Force -ErrorAction SilentlyContinue
