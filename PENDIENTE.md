@@ -14,12 +14,6 @@ Para retomar: leer esto y `ESTADO.txt` (lo que ya funciona), y pasar
       órdenes por archivo no se controla el foco). Abre el Bloc de notas, di
       "dicta un correo", di una frase y mira. Detalle en `ESTADO.txt`.
 
-- [ ] **Grabar las 20 frases** — `python tools\grabar-ordenes.py` (una sola vez).
-      Es lo único que falta para poder medir si el micrófono te entiende. Hasta
-      que existan esas grabaciones, cualquier cambio en el reconocimiento es una
-      opinión. Después se mide con `python tools\probar-audio.py`, que ya va
-      dentro de `probar-todo.ps1`.
-
 - [ ] **Encender el asistente y probarlo.** Sigue apagado a propósito desde el
       11/09. El comando está al principio de `ESTADO.txt`.
 
@@ -110,6 +104,10 @@ ni con batería):
   cosa: el actual encendido, los hechos apagados, el que falla en rojo.
 - **3. Listas de verdad.** Se añade, se lee, se tacha y se vacía (preguntando
   antes). En `memoria\listas.json`. `tools\probar-listas.ps1`.
+- **Las 20 grabaciones, hechas y explotadas.** De 7 de 20 a 17 de 20 con el
+  mismo audio. Destapó cuatro fallos que llevaban meses ahí y que el banco de
+  texto no podía ver, todos por los números dichos con palabras. Detalle en
+  `ESTADO.txt`, sección "PROBAR CON TU VOZ".
 - **El fallo rojo del banco.** «Se pone siempre encima» llevaba días en rojo y
   era de la prueba, no del asistente: sobre una ventana que nunca se ha
   mostrado, `SetWindowPos(HWND_TOPMOST)` devuelve true sin marcar nada. El

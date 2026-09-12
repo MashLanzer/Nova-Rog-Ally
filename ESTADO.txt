@@ -566,18 +566,44 @@ LA CÁPSULA, AL DÍA (nuevo)
     temporizador. Esos bytes ya se leían y el anillo ya sabía dibujar una
     fracción: esto solo une las dos cosas.
 
-PROBAR CON TU VOZ (nuevo, PENDIENTE DE QUE LO HAGAS TÚ)
-  Todo el banco mide TEXTO. Lo que de verdad falla es el micrófono, y eso no
-  lo ve ninguna prueba. Con veinte grabaciones tuyas, una sola vez:
+PROBAR CON TU VOZ (HECHO el 12/09, y valió la pena)
+  Las veinte grabaciones están en pruebas\audio\ (no se suben a GitHub). Se
+  vuelven a medir con:
 
-      python tools\grabar-ordenes.py      (te va pidiendo las frases)
-      python tools\probar-audio.py        (mide, y ya va en probar-todo)
+      python tools\probar-audio.py        (ya va dentro de probar-todo)
 
-  Pasa TU audio por el mismo camino que usa el asistente -mismo modelo,
-  mismos umbrales, mismas hotwords, misma limpieza- y dice cuántas entiende
-  el modelo rápido y cuántas rescata el oído fino. Sin esto, cualquier cambio
-  en el reconocimiento es una opinión.
-  Las grabaciones se quedan en pruebas\audio\ y NO se suben a GitHub.
+  QUÉ SALIÓ. La primera medida fue 7 de 20. Tras arreglar lo que destapó, 17
+  de 20 (85 %), con EL MISMO audio y sin tocar el modelo ni la distancia al
+  micrófono. Lo que había:
+
+  1. El micrófono está BIEN. Cero clipping, nivel sano (RMS 0,05-0,14). El
+     aviso "saturada" del script de grabación salta con un pico puntual de
+     0,98, que es un golpe de aire, no saturación. No hay que alejarse.
+  2. La prueba MEDÍA MAL. Comparaba texto literal, así que "abre little
+     nightmares tres en steam" oído como "Abre Little Nightmares III en Steam"
+     contaba como fallo... cuando abre el juego perfectamente. Ahora cada
+     transcripción se pasa por la capa local de verdad y se compara la ACCIÓN.
+     Las que salen "OK~" son esas: el texto no es idéntico, el resultado sí.
+  3. Y lo gordo: LOS NÚMEROS DICHOS CON PALABRAS no se convertían, y eso se
+     llevaba por delante cuatro órdenes en silencio:
+        "pon el volumen al setenta"  -> acababa en BAJAR el volumen (!)
+        "pon el juego al ochenta"    -> no se entendía
+        "abre little nightmares tres"-> abría Little Nightmares, el primero
+        "recuérdame en veinte minutos"-> se archivaba como nota del diario
+     Ninguno se veía en el banco de texto, porque allí las frases van con
+     cifras. Arreglado con ConvertTo-Digitos (y "un/una/uno" NO se convierten:
+     son artículos, y convertirlos rompía "dicta un correo").
+  4. Y los errores típicos de este micrófono, ya en el vocabulario: "con el
+     modo noche" por "pon modo noche", "pongo" por "pon", "lea" por "lee",
+     "quanta" por "cuanta", "sierra" por "cierra".
+
+  Lo que sigue fallando, y es honesto que falle: "sube el volumen" se oye
+  "Suelta volumen", "baja el brillo" se oye "Baja el bril", y "pizza" se oye
+  "piscina". Eso ya es el reconocedor, no la capa local.
+
+  El listón está en el 75 % SOBRE EL TOTAL (no sobre el modelo rápido: el
+  asistente pide el oído fino él solo cuando hace falta, así que juzgar solo
+  al rápido era pedirle cuentas a media máquina).
 
 EL OÍDO FINO, MEDIDO (nuevo)
   Cuando la capa local no entiende algo, se repasa el MISMO audio con el

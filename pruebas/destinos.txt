@@ -78,3 +78,13 @@ quita el pan de la lista => quitar pan de la lista
 borra la lista => vaciar la lista
 recuerda que el wifi es 1234 => anotar en la memoria
 apunta esto => apuntar lo que hay en la pantalla
+
+# --- numeros dichos con palabras (medido con las 20 grabaciones del 12/09) ---
+pon el volumen al setenta => volumen al 70 por ciento
+pon el juego al ochenta => el juego al 80 por ciento
+abre little nightmares tres en steam => Little Nightmares III
+recuerdame en veinte minutos que saque la pizza => aviso en 20 minutos
+recuerdame en un minuto que mire el horno => aviso en 1 minuto
+recuerdame en media hora que llame => aviso en 30 minutos
+dicta un correo => dictado largo
+ponme una cancion en spotify => Spotify

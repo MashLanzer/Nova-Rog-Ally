@@ -7,6 +7,15 @@ misma limpieza- y dice cuantas salen bien con el modelo rapido y cuantas
 necesitan el oido fino. Es la unica forma de saber si un cambio en el
 reconocimiento mejora o empeora, en vez de suponerlo.
 
+QUE SE CUENTA COMO ACIERTO. No que el texto salga clavado, sino que el
+asistente HAGA LO MISMO. La primera version comparaba texto literal y por eso
+mentia en las dos direcciones: "abre little nightmares tres en steam" oido como
+"Abre Little Nightmares III en Steam" contaba como FALLO cuando en realidad
+abre el juego perfectamente. Asi que cada transcripcion se pasa por la capa
+local de verdad (assistant.ps1 -Probar) y se compara la ACCION resuelta.
+El texto exacto se sigue enseñando, porque dice cuanta culpa es del oido y
+cuanta de la capa local, pero el numero que manda es el de las acciones.
+
     python tools\\grabar-ordenes.py     (una vez, graba tu voz)
     python tools\\probar-audio.py       (cada vez que se toque el oido)
 
@@ -34,6 +43,45 @@ except Exception as e:  # pragma: no cover
     print("Falta un paquete: %s" % e)
     print("Instala con:  pip install numpy faster-whisper")
     sys.exit(0)
+
+
+def acciones_de(frases):
+    """Que hace la capa local con cada frase. Devuelve {frase: accion}.
+
+    Se llama UNA vez con todas: arrancar assistant.ps1 cuesta segundos, y
+    hacerlo por frase multiplicaria por veinte la espera."""
+    import subprocess
+    import tempfile
+    import io
+    utiles = [f for f in frases if f and f.strip()]
+    if not utiles:
+        return {}
+    tmp = os.path.join(tempfile.gettempdir(), "probar-audio-%d.txt" % os.getpid())
+    with io.open(tmp, "w", encoding="utf-8", newline="\n") as f:
+        f.write("\n".join(utiles) + "\n")
+    salida = ""
+    try:
+        r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                            "-File", os.path.join(RAIZ, "assistant.ps1"), "-Probar", tmp],
+                           capture_output=True, timeout=600)
+        salida = r.stdout.decode("utf-8", "replace")
+    except Exception as e:
+        print("  (no pude preguntarle a la capa local: %s)" % e)
+    finally:
+        try:
+            os.remove(tmp)
+        except Exception:
+            pass
+    res = {}
+    for linea in salida.splitlines():
+        m = re.match(r"^\s*OK\s+(.*?)\s{2,}->\s+(.*)$", linea)
+        if m:
+            res[m.group(1).strip()] = m.group(2).strip()
+            continue
+        m = re.match(r"^\s*->IA\s+(.*)$", linea)
+        if m:
+            res[m.group(1).strip()] = ""
+    return res
 
 
 def lee_wav(ruta):
@@ -117,22 +165,40 @@ def main():
     mr = WhisperModel(rapido, device="cpu", compute_type="int8", cpu_threads=4)
     print("cargado en %.1f s" % (time.time() - t0))
 
-    bien = 0
-    dudosos = []
+    # primero se transcribe todo, y despues se le pregunta a la capa local por
+    # todas las frases de una vez: asi se arranca assistant.ps1 una sola vez
+    oidas = []
     print("")
     for nombre in hay:
         audio = lee_wav(os.path.join(AUDIO, nombre))
         t1 = time.time()
         oido = transcribe(mr, audio, hw)
-        tarda = time.time() - t1
-        quiero = esperado[nombre]
-        ok = plano(oido) == plano(quiero)
+        oidas.append((nombre, esperado[nombre], oido, time.time() - t1))
+
+    acc = acciones_de([q for _, q, _, _ in oidas] + [o for _, _, o, _ in oidas])
+
+    bien = 0
+    dudosos = []
+    for nombre, quiero, oido, tarda in oidas:
+        aQuiero = acc.get(quiero.strip(), "")
+        aOido = acc.get((oido or "").strip(), "")
+        # acierto = la capa local hace LO MISMO. Si ni siquiera la frase buena
+        # se reconoce, se cae al texto: es un caso que hay que arreglar en
+        # commands.json, no un fallo del oido.
+        if aQuiero:
+            ok = (aOido != "" and aOido == aQuiero)
+        else:
+            ok = plano(oido) == plano(quiero)
+        igual = plano(oido) == plano(quiero)
+        marca = "OK " if ok else "MAL"
+        if ok and not igual:
+            marca = "OK~"       # el texto no sale clavado pero hace lo mismo
         if ok:
             bien += 1
         else:
             dudosos.append((nombre, quiero, oido))
         print("  %s  %-38s %-38s %4.1f s"
-              % ("OK " if ok else "MAL", quiero, oido or "(nada)", tarda))
+              % (marca, quiero, oido or "(nada)", tarda))
 
     total = len(hay)
     print("")
@@ -143,25 +209,46 @@ def main():
         print("las que fallaron, con el oido fino (%s):" % preciso)
         mp = WhisperModel(preciso, device="cpu", compute_type="int8", cpu_threads=4)
         rescatadas = 0
+        finas = []
         for nombre, quiero, antes in dudosos:
             audio = lee_wav(os.path.join(AUDIO, nombre))
             t1 = time.time()
-            oido = transcribe(mp, audio, hw)
-            ok = plano(oido) == plano(quiero)
+            finas.append((nombre, quiero, transcribe(mp, audio, hw), time.time() - t1))
+        acc2 = acciones_de([q for _, q, _, _ in finas] + [o for _, _, o, _ in finas])
+        for nombre, quiero, oido, tarda in finas:
+            aQuiero = acc2.get(quiero.strip(), "")
+            aOido = acc2.get((oido or "").strip(), "")
+            if aQuiero:
+                ok = (aOido != "" and aOido == aQuiero)
+            else:
+                ok = plano(oido) == plano(quiero)
+            marca = "OK " if ok else "MAL"
+            if ok and plano(oido) != plano(quiero):
+                marca = "OK~"
             if ok:
                 rescatadas += 1
             print("  %s  %-38s %-38s %4.1f s"
-                  % ("OK " if ok else "MAL", quiero, oido or "(nada)", time.time() - t1))
+                  % (marca, quiero, oido or "(nada)", tarda))
         print("")
         print("el oido fino rescata %d de %d" % (rescatadas, len(dudosos)))
         print("total entendidas: %d de %d" % (bien + rescatadas, total))
 
     # EL LISTON. Se sube a mano cuando se mejora, igual que el 3 del ruido: lo
     # que importa no es el numero absoluto, es que no BAJE sin que nadie mire.
-    liston = 0.60
-    if total and (bien / float(total)) < liston:
-        print("")
-        print("POR DEBAJO del liston (%d%% con el modelo rapido)" % int(liston * 100))
+    #
+    # Se mide sobre el TOTAL, no sobre el modelo rapido. El asistente pide el
+    # oido fino solo cuando el rapido no da nada aprovechable, y lo hace SIEMPRE:
+    # exigirle al rapido un 60% era pedirle cuentas a media maquina. Medido el
+    # 12/09 con las 20 grabaciones de esta casa: 8 de 20 el rapido, 17 de 20 en
+    # total. El liston se pone en 0.75, por debajo de lo medido, para que avise
+    # cuando algo se rompa y no cada vez que una frase salga regular.
+    liston = 0.75
+    logrado = (bien + (rescatadas if dudosos else 0)) / float(total) if total else 1.0
+    print("")
+    print("entendidas en total: %d de %d (%d%%)  -- liston %d%%"
+          % (bien + (rescatadas if dudosos else 0), total, int(logrado * 100), int(liston * 100)))
+    if logrado < liston:
+        print("POR DEBAJO del liston")
         return 1
     return 0
 

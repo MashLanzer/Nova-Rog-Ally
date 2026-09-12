@@ -180,11 +180,29 @@ function Repair-Words([string]$s) {
 # Lista plana de verbos, derivada del propio $VERBOS para no duplicarla.
 $VERBOS_LISTA = (($VERBOS -replace '^\(\?:', '') -replace '\)$', '') -split '\|'
 
+# VERBOS DE CABEZA QUE ESTE MICROFONO SE COME. Lista cerrada, y cada entrada
+# sale de las 20 grabaciones del 12/09, no de suponer: "pon modo noche" se oye
+# "CON el modo noche" y "pon el juego al ochenta" se oye "CON el juego al 80".
+# Va aparte de la correccion por distancia porque "con" tiene tres letras y esa
+# no toca palabras cortas -y hace bien: a distancia 1, cualquier palabra corta
+# del castellano se convierte en un verbo y acaba ejecutandose.
+# Solo se aplica a la PRIMERA palabra y solo si hay algo detras.
+$VERBOS_OIDOS = @{
+    'con'   = 'pon'      # pon modo noche -> con el modo noche
+    'pongo' = 'pon'      # abre steam y pon modo juego -> ... y pongo modo juego
+    'lea'   = 'lee'      # lee la pantalla -> lea la pantalla
+    'sierra' = 'cierra'  # cierra discord -> sierra discord (ya lo pillaba por
+                         # distancia, pero asi no depende de ella)
+}
+
 # El dictado deforma tambien los verbos ("buscal" por "busca"). Se corrige solo
 # la PRIMERA palabra y solo a distancia 1, para no inventar ordenes.
 function Repair-Verb([string]$f) {
     if (-not $f) { return $f }
     $partes = $f -split '\s+', 2
+    if ($partes.Count -gt 1 -and $VERBOS_OIDOS.ContainsKey($partes[0])) {
+        return ($VERBOS_OIDOS[$partes[0]] + ' ' + $partes[1])
+    }
     # UNA PALABRA SUELTA NO SE REPARA. Al hacerlo, una palabra cualquiera del
     # castellano se convertia en verbo y, ya reconocida, se ejecutaba saltandose
     # el filtro de ruido (que solo actua cuando la capa local NO entiende):
@@ -1342,6 +1360,40 @@ $NumerosPalabra = @{
     'seis' = 6; 'siete' = 7; 'ocho' = 8; 'nueve' = 9; 'diez' = 10; 'once' = 11
     'doce' = 12; 'trece' = 13; 'catorce' = 14; 'quince' = 15; 'dieciseis' = 16
     'diecisiete' = 17; 'dieciocho' = 18; 'diecinueve' = 19; 'veinte' = 20
+    'veintiuno' = 21; 'veintidos' = 22; 'veintitres' = 23; 'veinticuatro' = 24
+    'veinticinco' = 25; 'veintiseis' = 26; 'veintisiete' = 27; 'veintiocho' = 28
+    'veintinueve' = 29; 'treinta' = 30; 'cuarenta' = 40; 'cincuenta' = 50
+    'sesenta' = 60; 'setenta' = 70; 'ochenta' = 80; 'noventa' = 90
+    'cien' = 100; 'ciento' = 100
+}
+
+# NUMEROS DICHOS CON PALABRAS.
+# El dictado escribe unas veces "70" y otras "setenta", segun le da, y TODOS los
+# patrones de esta base esperan digitos. Medido con las 20 grabaciones del
+# 12/09, eso se llevaba por delante cuatro ordenes de golpe, y en silencio:
+#   "pon el volumen al setenta"        -> acababa en "baja el volumen" (!)
+#   "pon el juego al ochenta"          -> no se entendia
+#   "abre little nightmares tres"      -> abria Little Nightmares, el primero
+#   "recuerdame en veinte minutos ..." -> se archivaba como nota del diario
+# Ninguno se veia en el banco de texto, porque alli las frases llevan cifras.
+function ConvertTo-Digitos([string]$t) {
+    if (-not $t) { return $t }
+    if ($t -notmatch '(?i)\b(?:un|una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|dieci|veint|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa|cien)') { return $t }
+    # primero los compuestos ("treinta y cinco"), que si no se comerian el
+    # "treinta" por su cuenta y dejarian un "30 y 5" sin sentido
+    $t = [regex]::Replace($t, '(?i)\b(treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa)\s+y\s+(uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve)\b', {
+        param($m)
+        [string]([int]$NumerosPalabra[$m.Groups[1].Value.ToLower()] + [int]$NumerosPalabra[$m.Groups[2].Value.ToLower()])
+    })
+    $t = [regex]::Replace($t, '(?i)\bciento\s+(\d{1,2})\b', { param($m) [string](100 + [int]$m.Groups[1].Value) })
+    # y luego los sueltos. Fuera "un"/"una"/"uno": son articulos mucho mas veces
+    # que numeros ("dicta UN correo", "pon UNA cancion"), y el temporizador ya
+    # entiende "en un minuto" por su cuenta.
+    $sueltos = @($NumerosPalabra.Keys | Where-Object { $_ -notin @('un', 'una', 'uno') })
+    $t = [regex]::Replace($t, '(?i)\b(' + ((@($sueltos) | Sort-Object -Property Length -Descending) -join '|') + ')\b', {
+        param($m) [string]$NumerosPalabra[$m.Groups[1].Value.ToLower()]
+    })
+    return $t
 }
 function Get-Veces([string]$txt) {
     if (-not $txt) { return 1 }
@@ -1352,6 +1404,11 @@ function Get-Veces([string]$txt) {
 }
 
 function Resolve-Fragment([string]$f) {
+    # Los numeros, a cifras, ANTES de mirar ningun patron. Aqui no llega el
+    # texto libre: las notas del diario las coge un atajo anterior con el texto
+    # tal cual, y el dictado largo va por otro camino. Asi que convertir aqui no
+    # le cambia las palabras a nada que se vaya a guardar o a escribir.
+    $f = ConvertTo-Digitos $f
     # --- perfiles: una frase, varias acciones ("modo juego") ---
     if ($f -match '^(?:modo|activa el modo|activa modo|pon el modo|pon modo|ponte en modo|cambia a modo|entra en modo)\s+(.+)$') {
         $nombre = $Matches[1].Trim()
@@ -1443,6 +1500,22 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(?:que (?:tengo )?copiado|que copie|que hay en el portapapeles|que tengo en el portapapeles|que hay copiado)$') {
         return @(@{ kind = 'queCopiado'; desc = 'que tengo copiado' })
     }
+    # EL DICTADO SE COME EL VERBO. "pon el volumen al setenta" llega como
+    # "volumen al 70" mas veces de las que parece (medido en las grabaciones del
+    # 12/09). Con un numero detras no hay ambiguedad: nadie dice "volumen al 70"
+    # sin querer subirlo o bajarlo.
+    if ($f -match '^(?:el\s+)?(?:volumen|sonido)\s+(?:al?\s+)?(\d{1,3})(?:\s*(?:%|por ciento))?$') {
+        $n = [int]$Matches[1]
+        if ($n -ge 0 -and $n -le 100) {
+            return @(@{ kind = 'volumenPct'; nivel = $n; desc = "volumen al $n por ciento" })
+        }
+    }
+    if ($f -match '^(?:el\s+)?brillo\s+(?:al?\s+)?(\d{1,3})(?:\s*(?:%|por ciento))?$') {
+        $n = [int]$Matches[1]
+        if ($n -ge 0 -and $n -le 100) {
+            return @(@{ kind = 'brillo'; nivel = $n; desc = "brillo al $n por ciento" })
+        }
+    }
     # --- LISTAS ---
     # Van ANTES que "apunta ..." (que escribe en el diario), porque "apunta pan
     # en la lista de la compra" encaja tambien alli y acabaria como una linea
@@ -1467,7 +1540,7 @@ function Resolve-Fragment([string]$f) {
         $cosa = $Matches[1].Trim(); $cual2 = $Matches[2]
         if ($cosa) { return @(@{ kind = 'listaQuitar'; cosa = $cosa; lista = $cual2; desc = "quitar $cosa de la lista" }) }
     }
-    if ($f -match '^(?:recuerda|recuerdame|acuerdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!en\s+\d+\s*(?:segundo|minuto|hora))(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?:que\s+|de\s+que\s+)?(.+)$') {
+    if ($f -match '^(?:recuerda|recuerdame|acuerdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!en\s+(?:\d+|un|una|medi[ao])\s*(?:segundo|minuto|hora))(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?:que\s+|de\s+que\s+)?(.+)$') {
         return @(@{ kind = 'memoria'; texto = $Matches[1].Trim(); desc = "anotar en la memoria" })
     }
     # El lugar puede preceder al verbo ("en el navegador busca X"). Se separa
@@ -1559,10 +1632,19 @@ function Resolve-Fragment([string]$f) {
         if ($resto) { $f = "$f $resto" }
     }
     # --- temporizadores: lo mas util con las manos ocupadas ---
-    if ($f -match '^(?:recuerdame|avisame|despiertame|ponme un temporizador|temporizador|alarma)\s+(?:en|de|dentro de)\s+(\d+)\s*(segundo|segundos|minuto|minutos|hora|horas)\b\s*(?:que|para|de|a)?\s*(.*)$') {
-        $n = [int]$Matches[1]
+    if ($f -match '^(?:recuerdame|avisame|despiertame|ponme un temporizador|temporizador|alarma)\s+(?:en|de|dentro de)\s+(\d+|un|una|medi[ao])\s*(segundo|segundos|minuto|minutos|hora|horas)\b\s*(?:que|para|de|a)?\s*(.*)$') {
+        $cuanto = $Matches[1]
         $unidad = $Matches[2]
-        $que = $Matches[3].Trim()
+        $que0 = $Matches[3]
+        # "media hora" son 30 minutos, no media unidad de nada: se convierte
+        # aqui y se dice en minutos, que es como se entiende al oirlo
+        $mitad = ($cuanto -match '^medi[ao]$')
+        $n = if ($mitad) { 30 } elseif ($cuanto -match '^\d+$') { [int]$cuanto } else { 1 }
+        if ($mitad) {
+            $unidad = if ($unidad -like 'hora*') { 'minutos' } else { 'segundos' }
+            if ($unidad -eq 'segundos') { $n = 30 }
+        }
+        $que = $que0.Trim()
         $ms = switch -regex ($unidad) {
             '^segundo' { $n * 1000 }
             '^minuto' { $n * 60000 }
@@ -1793,7 +1875,7 @@ function Resolve-Fragment([string]$f) {
     # vez de pelearse con el ruido, se calla. NO es un modo que se quede puesto:
     # siempre lleva plazo, el boton (mantener ≡) sigue funcionando mientras
     # tanto, y al volver te avisa en voz alta.
-    if ($f -match '^(?:no me escuches|no escuches|deja de escuchar|dejate de escuchar|duermete|vete a dormir|a dormir|descansa|apaga el oido|no me oigas|ignorame)(?:\s+(?:durante|por|un|una)?\s*(?:(\d+)\s*(minuto|minutos|hora|horas)|(un rato|media hora|un momento|rato)))?$') {
+    if ($f -match '^(?:no me escuches|no escuches|deja de escuchar|dejate de escuchar|duermete|vete a dormir|a dormir|descansa|apaga el oido|no me oigas|ignorame)(?:\s+(?:durante|por|en|un|una)?\s*(?:(\d+)\s*(minuto|minutos|hora|horas)|(un rato|media hora|un momento|rato)))?$') {
         # OJO: hay que copiar los grupos ANTES de usar -match otra vez, porque
         # cada -match reescribe $Matches entero. Con el numero y la unidad
         # leidos de $Matches despues de comprobar la unidad, decia 'me callo 2'
@@ -2415,7 +2497,7 @@ function Test-FastCommand([string]$text) {
     # ojo: los mismos lookaheads que el ejecutor. Con el patron corto, este
     # atajo devolvia $true y se saltaba Resolve-Fragment, de modo que el
     # banco no podia ver que "guarda el archivo" acababa en el diario.
-    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!en\s+\d+\s*(?:segundo|minuto|hora))(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?:que\s+|de\s+que\s+)?(.+)$') { return $true }
+    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!en\s+(?:\d+|un|una|medi[ao])\s*(?:segundo|minuto|hora))(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?:que\s+|de\s+que\s+)?(.+)$') { return $true }
     # Reglas y recordatorios con hora: los decide Invoke-ReglaVoz, que SI crea
     # cosas, asi que aqui no se puede llamar. Se responde $true solo si la
     # frase tiene la forma de una regla; el banco las prueba aparte llamando
@@ -2488,7 +2570,7 @@ function Invoke-FastCommand([string]$text) {
     # tildes, que es justo lo que no quieres leer meses despues en Obsidian.
     # mismo lookahead que en Resolve-Fragment: "en 20 minutos" es temporizador,
     # no una nota para el diario
-    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!en\s+\d+\s*(?:segundo|minuto|hora))(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?:que\s+|de\s+que\s+)?(.+)$') {
+    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!en\s+(?:\d+|un|una|medi[ao])\s*(?:segundo|minuto|hora))(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?:que\s+|de\s+que\s+)?(.+)$') {
         $frase = $Matches[1].Trim()
         if ($frase.Length -gt 0) {
             $null = Add-Memoria $frase

@@ -1,6 +1,12 @@
 {
     "_comentario": "Vocabulario de comandos locales (sin LLM). JSON puro: sin comentarios reales. Amplialo libremente; el asistente lo relee en cada arranque.",
     "correcciones": {
+        "quanta": "cuanta",
+        "navegado": "navegador",
+        "sigente": "siguiente",
+        "gamsion": "cancion",
+        "abresteen": "abre steam",
+        "abrestean": "abre steam",
         "painterest": "pinterest",
         "pinteres": "pinterest",
         "pinterrest": "pinterest",
