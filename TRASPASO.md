@@ -527,6 +527,9 @@ Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
 # Vaciar la caché de voz (se regenera sola)
 Get-ChildItem .\tmp\voz -Filter *.mp3 | Remove-Item -Force
 
+# TODAS las comprobaciones de golpe (no necesitan microfono ni arrancar nada)
+powershell -NoProfile -File tools\probar-todo.ps1
+
 # Comprobar que TODOS los patrones compilan como expresion regular
 powershell -NoProfile -File tools\probar-regex.ps1 assistant.ps1
 

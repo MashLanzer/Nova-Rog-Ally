@@ -38,3 +38,11 @@ recuerdame manana a las 10 que llame al medico
 # una orden sino ruido. Emparejaba con ELDEN RING por contencion ("el" esta
 # dentro de "elden ring") y abria el juego sin preguntar. Corregido el 11/09;
 # el caso vive ahora en ruido-real.txt, donde lo bueno es que NO se reconozca.
+# --- ordenes reales sacadas del log, tal como las destrozo el dictado ---
+abre stein
+Puedes abrir el Steam Sieg, ¡Suscríbete
+Busca información sobre el juego que estoy jugando y dime que no me voy a hacer en esta parte
+SIRRA, LOS PROGRAMAN
+Abre en navegador y busca pa' interest, además ponte en porisador de 5 minutos
+Sierra, el navegador
+Abre, steam, y busca los huevos en oferta

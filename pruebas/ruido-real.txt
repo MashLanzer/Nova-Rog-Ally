@@ -9,15 +9,12 @@
 
 nova
 va habrá sting
-abre stein
 Little Nightmares III, Goose Goose Duck, REANIMAL, Little Nightmares III, Goose Goose Duck, REANIMAL, Little Nightmares III,
 Puedes ver el letting
-Puedes abrir el Steam Sieg, ¡Suscríbete
 Daa
 No, este es el otro, este es el resí, el bilge
 Un momento, me agrega tengo, no, no puede
 Revisar que no voy a casar en esta parte por favor, no se que hay que casar
-Busca información sobre el juego que estoy jugando y dime que no me voy a hacer en esta parte
 Hello, Baba, ¿todaguy, Baba
 Ok
 Negoen Subutamari,
@@ -80,14 +77,10 @@ Pueden morre, pidero, pidero
 Voy a dejar abrir el steam
 CERRA DOL,
 Cierra Tolo
-SIRRA, LOS PROGRAMAN
 porfa
-Abre en navegador y busca pa' interest, además ponte en porisador de 5 minutos
 Gracias
 Ganbo de Hasson
 Cierre no veo el
-Sierra, el navegador
-Abre, steam, y busca los huevos en oferta
 es
 Un
 Yo, very pretty simple
@@ -110,3 +103,7 @@ TANLIT, PAKIERABETO PRIMEROY, BETO PRIMEROY, BETO PRIMEROY
 como decía algo para dar vamos tumbado algo capaz
 No me hable, no me gusta, que no hay que ver, que no hay que ver, que no hay que ver, que no hay que ver
 los
+
+# Se sacaron de aqui 7 frases que SI eran ordenes tuyas, solo que
+# destrozadas por el dictado. Estan en ordenes-que-funcionaban.txt, que es
+# donde tienen sentido: ahi lo bueno es que se reconozcan.

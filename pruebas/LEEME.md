@@ -5,6 +5,10 @@ por `#` son comentarios.
 
     powershell -File assistant.ps1 -Probar pruebas\ordenes-que-funcionaban.txt
 
+O todo de una vez, incluyendo los patrones y las funciones sueltas:
+
+    powershell -NoProfile -File tools\probar-todo.ps1
+
 Dice cuales resuelve la capa local (`OK`) y cuales acabarian en el agente
 (`->IA`). No ejecuta ninguna accion y no toca tu memoria: reglas,
 recordatorios, fechas y estadisticas se desvian a una carpeta temporal.

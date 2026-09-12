@@ -58,3 +58,6 @@ como me oyes
 que tal el microfono
 como va la escucha
 me escuchas bien
+# --- lo que el dictado destrozo de verdad (log del 11/09) ---
+sirra los programan
+cierra los programas
