@@ -1,4 +1,4 @@
-ESTADO DEL ASISTENTE DE VOZ  (2026-09-11, noche)
+ESTADO DEL ASISTENTE DE VOZ  (2026-09-12)
 ================================================
 
 EJECUTANDO AHORA: NO. Está APAGADO a propósito.
@@ -209,6 +209,21 @@ QUÉ ENTIENDE LA RUTA LOCAL
   - Al instante: hora, fecha, batería, cuántos juegos, qué anoté hoy, repite
   - Sin verbo: decir solo "steam" o "youtube" ya abre
   - Varias acciones en una frase: "abre steam, ponme spotify y súbele"
+  - Mezclador : "baja el juego", "sube discord", "silencia el navegador",
+                "pon spotify al 40". Sin salir de pantalla completa.
+  - "¿qué está sonando?" : te dice qué programas están dando audio AHORA.
+                Con esto se descubrió que el ruido de fondo era Wallpaper
+                Engine al 100 %.
+  - Temporizadores: además de crearlos, "¿cuánto queda?" y "cancela el
+                temporizador". La sordina no se lista ahí (para eso está
+                "escúchame").
+  - "no era eso" : deshace lo último Y, si salió de una interpretación
+                aprendida, la BORRA, para que no vuelva a equivocarse igual.
+  - Steam sabe más: "¿cuándo jugué a Outlast?", "¿a qué he jugado esta
+                semana?", "¿cuánto ocupa Elden Ring?", "¿qué se está
+                descargando?", "¿cuánto espacio me queda?"
+  - Reglas: "cuando quite el cargador pon el brillo al 30", "cuando la
+                batería baje del 15 avísame".
 
   Aguanta errores del dictado: "Team"/"steamidos" -> Steam,
   "little nighters 3" -> Little Nightmares III, "buscal" -> busca.
@@ -292,6 +307,25 @@ FALSAS ALARMAS (nuevo): el micrófono cazaba el audio de los altavoces y lo
   - memoria\estadisticas.md lleva la cuenta: "Falsas alarmas" dice cuántas
     veces se despertó y cuántas acabaron sin ejecutar nada. Si ese número
     sube, caza ruido; si las activaciones caen a cero, se ha vuelto sorda.
+
+LA CÁPSULA, AL DÍA (nuevo)
+  - Contraste: mide la luz del fondo que ya captura y espesa el cristal
+    cuando es claro. Antes, sobre nieve o sobre un menú blanco, el texto
+    blanco de 13,5 px desaparecía. Y recaptura el fondo al apartarse o al
+    cambiar la resolución: antes enseñaba el trozo de donde ESTABA.
+  - Esperando: a los 10 s aparecen los segundos, y pasada la estimación la
+    barra deja de fingir que mide y va y viene. El 95 % y el 300 % ya no se
+    ven igual, que era lo que impedía decidir si esperar o cancelar.
+  - Correcciones: cuando el repaso reescribe la frase ("abrestean" ->
+    "abre steam") se ve tachado un momento lo que creyó oír, al lado de lo
+    bueno. Ya no parece que te haya entendido mal.
+  - Esperando un sí o un no: color propio (rosa), dice "sí · no" y la línea
+    de abajo se vacía con el plazo. Antes se veía igual que el reposo, que
+    es como el silencio acababa cancelando órdenes buenas. Y el botón ≡
+    mantenido vale por un "sí": decirlo en voz alta con un juego sonando es
+    justo lo que peor funciona.
+  - Respuestas largas: tarjeta de cristal que YA NO ROBA EL FOCO. Antes te
+    sacaba de un juego a pantalla completa.
 
 SI "NOVA" NO ME OYE
   Mira en assistant.log las líneas "[escucha] pulso": dicen la ganancia y
