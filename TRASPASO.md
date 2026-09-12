@@ -971,6 +971,31 @@ distinta.
 
 ---
 
+### Arreglos del 11/09 en la cápsula (revisión a fondo)
+
+- **La lectura del estado ya no inventa.** `File.ReadAllText` pide
+  `FileShare.Read` y choca con la escritura del asistente, que reescribe el JSON
+  en cada parcial del dictado. Medido con dos procesos peleándose: **8,8 % de
+  las lecturas fallaban** (147 de 1668). El `catch` vacío dejaba los valores por
+  defecto y la cápsula aplicaba «reposo» como si el asistente lo hubiera pedido:
+  se colapsaba a media frase, perdía el avatar, reiniciaba el lipsync y repetía
+  el último evento con su sonido. Ahora abre con `FileShare.ReadWrite`, descarta
+  el tic si el JSON está a medio escribir y el `catch` hace `return`.
+- **Se recoloca si cambia la resolución.** `WorkArea` se leía una sola vez, en
+  el constructor: un juego a pantalla completa exclusiva podía dejar la cápsula
+  fuera de la pantalla hasta el siguiente inicio de sesión (meses). `Tic250`
+  comprueba si cambió y la recoloca conservando su desplazamiento.
+- **El color ya no se repinta en cada parcial.** `Aplicar` relanzaba ~29
+  `ColorAnimation` hacia el mismo color varias veces por segundo mientras
+  hablabas. Ahora solo cuando el color cambia de verdad (`colorAplicado`); los
+  efectos que pintan por encima (`MarcarHecho`, `Logro`, `DestelloCarga`,
+  `Sonrojo`) invalidan esa caché.
+- **Los puntitos de «pensando» paraban su opacidad pero no su escala**: dejaban
+  dos relojes `Forever` vivos por punto en cada episodio, decenas al día.
+- **Los objetos COM del volumen se soltaban de verdad.** Al fallar el endpoint
+  (auriculares fuera, servicio de audio reiniciado) se reintenta cada 10 s, y
+  cada intento dejaba tres RCW colgando hasta la siguiente recolección.
+
 ## 17. LO DEMÁS QUE SE AÑADIÓ (resumen rápido)
 
 - **Temporizadores**: «recuérdame en 20 minutos que…», «avísame en una hora».

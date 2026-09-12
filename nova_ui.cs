@@ -288,6 +288,7 @@ public class NovaUI : Window
         leftBase = area.Left + SEPARACION - MARGEN;
         Left = leftBase;
         Top = area.Bottom - ALTO - SEPARACION - MARGEN;
+        areaColocada = area;   // para notar si la pantalla cambia de tamano
 
         nocheActual = EsNoche();
         Color acento = ColorDe("reposo");
@@ -1000,21 +1001,43 @@ public class NovaUI : Window
     // ---------------------------------------------------------------
     void IniciarVolumen()
     {
+        // Se reintenta cada 10 s mientras el endpoint falle (auriculares fuera,
+        // servicio de audio reiniciado), asi que TODO lo que se cree aqui hay
+        // que soltarlo si sale mal: eran tres objetos COM por intento.
+        object enumerador = null;
+        object dispositivo = null;
         try
         {
-            var enumerador = (IMMDeviceEnumerator)new MMDeviceEnumeratorCom();
-            IMMDevice dispositivo;
-            if (enumerador.GetDefaultAudioEndpoint(0, 0, out dispositivo) != 0) { volumen = null; return; }
+            SoltarCom(volumen); volumen = null;
+            var en = (IMMDeviceEnumerator)new MMDeviceEnumeratorCom();
+            enumerador = en;
+            IMMDevice disp;
+            if (en.GetDefaultAudioEndpoint(0, 0, out disp) != 0) { return; }
+            dispositivo = disp;
             Guid iid = typeof(IAudioEndpointVolume).GUID;
             object o;
-            if (dispositivo.Activate(ref iid, 23, IntPtr.Zero, out o) != 0) { volumen = null; return; }
+            if (disp.Activate(ref iid, 23, IntPtr.Zero, out o) != 0) { return; }
             volumen = (IAudioEndpointVolume)o;
             float v; bool m;
             volumen.GetMasterVolumeLevelScalar(out v);
             volumen.GetMute(out m);
             volAnterior = v; muteAnterior = m;
         }
-        catch { volumen = null; }
+        catch { SoltarCom(volumen); volumen = null; }
+        finally
+        {
+            SoltarCom(dispositivo);
+            SoltarCom(enumerador);
+        }
+    }
+
+    // Soltar una referencia COM de verdad, sin esperar al recolector. Se usa
+    // cada vez que el endpoint de audio se da por perdido: si no, cada intento
+    // fallido deja tres objetos vivos y se reintenta cada 10 segundos.
+    static void SoltarCom(object o)
+    {
+        if (o == null) { return; }
+        try { if (Marshal.IsComObject(o)) { Marshal.FinalReleaseComObject(o); } } catch { }
     }
 
     void VigilarVolumen()
@@ -1027,13 +1050,13 @@ public class NovaUI : Window
         try
         {
             float v; bool m;
-            if (volumen.GetMasterVolumeLevelScalar(out v) != 0 || volumen.GetMute(out m) != 0) { volumen = null; return; }
+            if (volumen.GetMasterVolumeLevelScalar(out v) != 0 || volumen.GetMute(out m) != 0) { SoltarCom(volumen); volumen = null; return; }
             bool cambio = (Math.Abs(v - volAnterior) > 0.005f) || (m != muteAnterior);
             volAnterior = v; muteAnterior = m;
             // glifos de Segoe MDL2 Assets: silencio, volumen 0 / medio / alto
             if (cambio) { MostrarNivel(m ? "" : (v < 0.01f ? "" : (v < 0.5f ? "" : "")), m ? 0 : v); }
         }
-        catch { volumen = null; }
+        catch { SoltarCom(volumen); volumen = null; }
     }
 
     void MostrarNivel(string glifo, double valor)
@@ -1253,6 +1276,10 @@ public class NovaUI : Window
 
     void MarcarHecho()
     {
+        // estos efectos pintan por encima y vuelven solos al color del
+        // estado, pero se invalida la cache para que la siguiente pasada de
+        // Aplicar lo restaure sin depender de que la animacion acabe bien
+        colorAplicado = default(Color);
         Color c = ColorDe(estadoActual == "" ? "reposo" : estadoActual);
         var flash = new ColorAnimation(Colors.White, c, TimeSpan.FromMilliseconds(420));
         flash.EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut };
@@ -1285,6 +1312,10 @@ public class NovaUI : Window
 
     void Logro()
     {
+        // estos efectos pintan por encima y vuelven solos al color del
+        // estado, pero se invalida la cache para que la siguiente pasada de
+        // Aplicar lo restaure sin depender de que la animacion acabe bien
+        colorAplicado = default(Color);
         Color oro = Color.FromRgb(0xFF, 0xD3, 0x6A);
         Color c = ColorDe(estadoActual == "" ? "reposo" : estadoActual);
         foreach (var b in new[] { punto.Fill, insignia.Fill, aroAvatar.Stroke })
@@ -1305,6 +1336,10 @@ public class NovaUI : Window
 
     void DestelloCarga()
     {
+        // estos efectos pintan por encima y vuelven solos al color del
+        // estado, pero se invalida la cache para que la siguiente pasada de
+        // Aplicar lo restaure sin depender de que la animacion acabe bien
+        colorAplicado = default(Color);
         Color verde = Color.FromRgb(0x3D, 0xF0, 0x9A);
         Color c = ColorDe(estadoActual == "" ? "reposo" : estadoActual);
         foreach (var b in new[] { punto.Fill, insignia.Fill })
@@ -1645,6 +1680,10 @@ public class NovaUI : Window
 
     void Sonrojo(Color hacia, int ms)
     {
+        // estos efectos pintan por encima y vuelven solos al color del
+        // estado, pero se invalida la cache para que la siguiente pasada de
+        // Aplicar lo restaure sin depender de que la animacion acabe bien
+        colorAplicado = default(Color);
         Color c = ColorDe(estadoActual == "" ? "reposo" : estadoActual);
         foreach (var b in new[] { punto.Fill, insignia.Fill, aroAvatar.Stroke })
         {
@@ -2120,8 +2159,29 @@ public class NovaUI : Window
         }
     }
 
+    // Con que area de trabajo se calculo la posicion actual.
+    static Rect areaColocada;
+
+    // Si cambia la resolucion del escritorio (un juego a pantalla completa
+    // exclusiva, cambiar de monitor) hay que recolocarse: si no, la capsula se
+    // queda en la posicion antigua, a menudo fuera de la pantalla, y no vuelve
+    // hasta el siguiente inicio de sesion. Se conserva el desplazamiento que
+    // tuviera (por ejemplo si esta retirada del borde).
+    void RevisarPantalla()
+    {
+        var area = SystemParameters.WorkArea;
+        if (Math.Abs(area.Bottom - areaColocada.Bottom) < 1 &&
+            Math.Abs(area.Left - areaColocada.Left) < 1) { return; }
+        double desplazado = Left - leftBase;
+        areaColocada = area;
+        leftBase = area.Left + SEPARACION - MARGEN;
+        Left = leftBase + desplazado;
+        Top = area.Bottom - ALTO - SEPARACION - MARGEN;
+    }
+
     void Tic250()
     {
+        RevisarPantalla();
         VigilarVolumen();
         VigilarVentanas();
         MedirTono();
@@ -2491,21 +2551,13 @@ public class NovaUI : Window
         }
     }
 
-    void Aplicar(string estado, string texto, bool cambioTexto) { Aplicar(estado, texto, cambioTexto, null); }
+    // Ultimo color que se pinto, para no repintar lo mismo. Color es struct,
+    // asi que el valor por defecto (transparente) nunca coincide con uno real
+    // y la primera pasada siempre pinta.
+    Color colorAplicado;
 
-    void Aplicar(string estado, string texto, bool cambioTexto, string textoAnterior)
+    void AplicarColor(Color c)
     {
-        // "retirada": el usuario ha dicho que se quite de la pantalla. La
-        // ventana se va entera, pero el asistente sigue escuchando: en cuanto
-        // cambie a cualquier otro estado -o sea, en cuanto le hable- vuelve.
-        if (estado == "retirada")
-        {
-            if (Visibility == Visibility.Visible) { Visibility = Visibility.Hidden; }
-            return;
-        }
-        if (Visibility != Visibility.Visible) { Visibility = Visibility.Visible; }
-        PonerEncima();
-        Color c = ColorDe(estado);
         Animar(punto.Fill as SolidColorBrush, c);
         Animar(insignia.Fill as SolidColorBrush, c);
         Animar(aroAvatar.Stroke as SolidColorBrush, c);
@@ -2521,6 +2573,31 @@ public class NovaUI : Window
         bordeAbajo.BeginAnimation(GradientStop.ColorProperty, new ColorAnimation(Color.FromArgb(0x66, c.R, c.G, c.B), TimeSpan.FromMilliseconds(350)));
         foreach (var b in barras) { Animar(b.Fill as SolidColorBrush, c); }
         resplandor.BeginAnimation(DropShadowEffect.ColorProperty, new ColorAnimation(c, TimeSpan.FromMilliseconds(350)));
+    }
+
+    void Aplicar(string estado, string texto, bool cambioTexto) { Aplicar(estado, texto, cambioTexto, null); }
+
+    void Aplicar(string estado, string texto, bool cambioTexto, string textoAnterior)
+    {
+        // "retirada": el usuario ha dicho que se quite de la pantalla. La
+        // ventana se va entera, pero el asistente sigue escuchando: en cuanto
+        // cambie a cualquier otro estado -o sea, en cuanto le hable- vuelve.
+        if (estado == "retirada")
+        {
+            if (Visibility == Visibility.Visible) { Visibility = Visibility.Hidden; }
+            return;
+        }
+        if (Visibility != Visibility.Visible) { Visibility = Visibility.Visible; }
+        PonerEncima();
+        Color c = ColorDe(estado);
+        // El color solo se rehace cuando CAMBIA de verdad. Antes se relanzaban
+        // las ~29 animaciones en cada parcial del dictado, todas hacia el mismo
+        // color que ya tenian.
+        if (c != colorAplicado)
+        {
+            colorAplicado = c;
+            AplicarColor(c);
+        }
 
         bool expandida = (estado != "reposo") || !string.IsNullOrEmpty(texto);
         bool conOnda = (estado == "escuchando" || estado == "atenta");
@@ -2677,7 +2754,20 @@ public class NovaUI : Window
         else if (!si && indicadorPensando.Visibility == Visibility.Visible)
         {
             indicadorPensando.Visibility = Visibility.Collapsed;
-            foreach (var p in puntitos) { p.BeginAnimation(OpacityProperty, null); p.RenderTransform = null; }
+            foreach (var p in puntitos)
+            {
+                p.BeginAnimation(OpacityProperty, null);
+                // Hay que PARAR las animaciones de la escala, no solo soltar el
+                // transform: si no, se queda con dos relojes Forever vivos que
+                // siguen tictaqueando cada frame hasta que pase el recolector.
+                var st = p.RenderTransform as ScaleTransform;
+                if (st != null)
+                {
+                    st.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                    st.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+                }
+                p.RenderTransform = null;
+            }
         }
     }
 
