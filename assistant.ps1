@@ -5697,10 +5697,23 @@ function Start-OpencodeJob([string]$text, [string]$extra = '') {
         $script:jobProgresoCheck = 0
         Log "RUNNER cmd: $argLine"
 
-        $script:proc = Start-Process -FilePath $OCODECLI -ArgumentList $argLine `
-            -WorkingDirectory $WORKDIR -WindowStyle Hidden -PassThru `
-            -RedirectStandardOutput $script:jobOut -RedirectStandardError $script:jobErr `
-            -RedirectStandardInput $script:jobIn
+        # SIN LA CLAVE DE ANTHROPIC. opencode no tiene credenciales propias: si
+        # hereda ANTHROPIC_API_KEY la usa y cambia de modelo solo
+        # (opencode/big-pickle -> anthropic/claude-sonnet-4-6). El 12/09 la
+        # clave se puso para la API directa, la cuenta no tenia saldo, y desde
+        # el primer arranque que heredo la variable TODAS las tareas de opencode
+        # fallaron con "credit balance too low" (visto en su opencode.db). Se
+        # retira solo mientras se lanza: la API la sigue leyendo por su cuenta.
+        $claveApi = $env:ANTHROPIC_API_KEY
+        Remove-Item Env:ANTHROPIC_API_KEY -ErrorAction SilentlyContinue
+        try {
+            $script:proc = Start-Process -FilePath $OCODECLI -ArgumentList $argLine `
+                -WorkingDirectory $WORKDIR -WindowStyle Hidden -PassThru `
+                -RedirectStandardOutput $script:jobOut -RedirectStandardError $script:jobErr `
+                -RedirectStandardInput $script:jobIn
+        } finally {
+            if ($claveApi) { $env:ANTHROPIC_API_KEY = $claveApi }
+        }
         # tocar .Handle cachea el handle del proceso; sin esto .ExitCode
         # devuelve $null tras salir (quirk de Start-Process -PassThru)
         $null = $script:proc.Handle
