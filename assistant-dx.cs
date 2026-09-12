@@ -113,6 +113,20 @@ public class AX
     [DllImport("user32.dll")]
     public static extern IntPtr SetFocus(IntPtr hWnd);
 
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("gdi32.dll")]
+    public static extern IntPtr CreateRoundRectRgn(int x1, int y1, int x2, int y2, int ancho, int alto);
+
+    // Esquinas redondeadas para la tarjeta: WinForms no las tiene y un
+    // rectangulo gris duro al lado de la capsula de cristal canta muchisimo.
+    public static IntPtr RegionRedonda(int ancho, int alto, int radio)
+    {
+        return CreateRoundRectRgn(0, 0, ancho + 1, alto + 1, radio, radio);
+    }
+
     // Reproduccion de MP3 sin depender de WPF/MediaPlayer, que necesita un
     // Dispatcher y no encaja bien en el bucle WinForms del asistente.
     // MCI reproduce en segundo plano y no bloquea.
@@ -478,5 +492,33 @@ public class AX
         {
             return v.SetMute(silencio, ref ctx) == 0;
         });
+    }
+}
+
+// TARJETA QUE NO ROBA EL FOCO.
+// Sacar una Form corriente con ShowWindow(SW_SHOWNA) no vale: WinForms se la
+// sigue creyendo oculta, sus hijos no se pintan y solo se ve el fondo (medido:
+// cero pixeles de texto). Lo correcto es que la propia Form diga que no quiere
+// activarse al mostrarse; entonces Show() hace su trabajo completo y el juego
+// a pantalla completa ni se entera.
+public class AXTarjeta : System.Windows.Forms.Form
+{
+    const int WS_EX_NOACTIVATE = 0x08000000;
+    const int WS_EX_TOOLWINDOW = 0x00000080;
+    const int WS_EX_TOPMOST    = 0x00000008;
+
+    protected override bool ShowWithoutActivation { get { return true; } }
+
+    protected override System.Windows.Forms.CreateParams CreateParams
+    {
+        get
+        {
+            var cp = base.CreateParams;
+            // TOPMOST aqui y no con la propiedad TopMost: esa lo pone con un
+            // SetWindowPos que SI activa la ventana (medido, era la que te
+            // sacaba del juego).
+            cp.ExStyle |= WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST;
+            return cp;
+        }
     }
 }

@@ -3879,28 +3879,64 @@ function Show-Popup([string]$text, [string]$estadoUI = 'hablando') {
         if ($text.Length -le 80) { return }
     }
     try {
-        $f = New-Object System.Windows.Forms.Form
+        # TARJETA DE CRISTAL, Y SOBRE TODO: SIN ROBAR EL FOCO.
+        # Form.Show() ACTIVA la ventana. Sobre un juego a pantalla completa
+        # exclusiva eso lo saca de pantalla completa o lo minimiza: una
+        # respuesta larga te tiraba de la partida, que es exactamente el tipo
+        # de cosa por la que hubo que apagar el asistente. Aqui se crea el
+        # handle sin mostrarla y se saca con SW_SHOWNA.
+        # AXTarjeta (en el DLL) es una Form que se niega a activarse al
+        # mostrarse; con una Form corriente, Show() te saca del juego
+        $f = New-Object AXTarjeta
         $f.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
         $f.ShowInTaskbar = $false
-        $f.TopMost = $true
-        $f.BackColor = [System.Drawing.Color]::FromArgb(28, 32, 42)
-        $f.ForeColor = [System.Drawing.Color]::White
-        $f.Padding = New-Object System.Windows.Forms.Padding(14)
+        # NADA de $f.TopMost: medido, es justo esa propiedad la que activa la
+        # ventana al mostrarla y te saca del juego. AXTarjeta ya se pone encima
+        # ella sola, con WS_EX_TOPMOST en su estilo.
+        $f.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
+        $f.BackColor = [System.Drawing.Color]::FromArgb(13, 17, 25)
+        $f.ForeColor = [System.Drawing.Color]::FromArgb(238, 243, 248)
+        $f.Opacity = 0.95
+
+        # se mide el texto a mano: con AutoSize el tamano no es fiable hasta
+        # despues de mostrarla, y hace falta ANTES para redondear las esquinas
+        $script:popupFont = New-Object System.Drawing.Font("Segoe UI", 10.5)
+        $margen = 16; $barra = 3; $anchoMax = 560
+        $medida = [System.Windows.Forms.TextRenderer]::MeasureText(
+            $text, $script:popupFont,
+            (New-Object System.Drawing.Size($anchoMax, 0)),
+            ([System.Windows.Forms.TextFormatFlags]::WordBreak))
+        $anchoF = [Math]::Min($anchoMax, $medida.Width) + $margen * 2 + $barra + 6
+        $altoF = $medida.Height + $margen * 2
+        $f.ClientSize = New-Object System.Drawing.Size($anchoF, $altoF)
+
+        # el filo de acento a la izquierda, el mismo verde de la capsula
+        $bar = New-Object System.Windows.Forms.Panel
+        $bar.Dock = [System.Windows.Forms.DockStyle]::Left
+        $bar.Width = $barra
+        $bar.BackColor = [System.Drawing.Color]::FromArgb(53, 224, 200)
         $l = New-Object System.Windows.Forms.Label
         $l.Text = $text
         $l.AutoSize = $false
-        $l.MaximumSize = New-Object System.Drawing.Size(600, 0)
-        $l.ForeColor = $f.ForeColor
-        $l.BackColor = $f.BackColor
-        $script:popupFont = New-Object System.Drawing.Font("Segoe UI", 10.5)
-        $l.Font = $script:popupFont
         $l.Dock = [System.Windows.Forms.DockStyle]::Fill
+        $l.Padding = New-Object System.Windows.Forms.Padding($margen, $margen, $margen, $margen)
+        $l.Font = $script:popupFont
+        $l.ForeColor = $f.ForeColor
+        $l.BackColor = [System.Drawing.Color]::Transparent
         $f.Controls.Add($l)
-        $f.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
-        $f.AutoSize = $true
-        $f.AutoSizeMode = [System.Windows.Forms.AutoSizeMode]::GrowAndShrink
+        $f.Controls.Add($bar)
+
         $s2 = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
-        $f.Location = New-Object System.Drawing.Point(($s2.Right - $f.Width - 24), ($s2.Bottom - $f.Height - 48))
+        # encima de la capsula, no debajo: la capsula vive en la esquina
+        $f.Location = New-Object System.Drawing.Point(($s2.Right - $f.Width - 24), ($s2.Bottom - $f.Height - 78))
+
+        # esquinas redondeadas (el handle se crea aqui, sin mostrar nada)
+        $null = $f.Handle
+        try {
+            $rgn = [AX]::RegionRedonda($f.Width, $f.Height, 16)
+            if ($rgn -ne [IntPtr]::Zero) { $f.Region = [System.Drawing.Region]::FromHrgn($rgn) }
+        } catch {}
+
         $f.Show()
         [System.Media.SystemSounds]::Asterisk.Play()
         # NO se espera aqui: antes este bucle bloqueaba 8 s el sondeo del boton.
