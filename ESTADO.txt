@@ -238,6 +238,9 @@ QUÉ ENTIENDE LA RUTA LOCAL
                 que han acabado sin entenderse, en el modelo o en error MÁS DE
                 UNA VEZ, contadas. Esos datos llevaban días guardándose y no
                 los miraba nadie. También salen en estadisticas.md.
+  - Reglas: "cuando termine de descargarse Elden Ring, ábrelo" (mira las
+                descargas de Steam cada minuto y salta cuando una DEJA de
+                bajar, no cuando está instalada),
   - Reglas: "cuando quite el cargador pon el brillo al 30", "cuando la
                 batería baje del 15 avísame".
 

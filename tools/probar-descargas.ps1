@@ -1,0 +1,86 @@
+﻿# Reglas atadas a una descarga de Steam, del archivo real.
+# Dos cosas pueden salir mal y las dos se comprueban aquí:
+#   1. "cuando termine de descargarse X" encaja TAMBIÉN con la regla de cerrar
+#      un juego ("cuando termine X"), así que si el orden se cambia, la de la
+#      descarga deja de existir sin que nadie se entere.
+#   2. El disparo va por FLANCO (bajando -> ya no bajando). Si mirara solo
+#      "está instalado", cada juego instalado dispararía la regla en cada
+#      vuelta del bucle, es decir, cada minuto, para siempre.
+$ErrorActionPreference = 'Stop'
+$raiz = Split-Path -Parent $PSScriptRoot
+$ruta = Join-Path $raiz 'assistant.ps1'
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($ruta, [ref]$null, [ref]$null)
+function Traer([string]$n) {
+    $fn = $ast.Find({ param($x) $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq $n }, $true)
+    if (-not $fn) { throw "no encuentro $n" }
+    return $fn.Extent.Text
+}
+# el MISMO $VERBOS del archivo real: una copia a mano se queda vieja
+$VERBOS = ($ast.Find({ param($x)
+    $x -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+    $x.Left.Extent.Text -eq '$VERBOS' }, $true)).Right.Extent.Text.Trim("'")
+
+$script:reglas = New-Object System.Collections.ArrayList
+# la coma no es un adorno: sin ella PowerShell ENUMERA la lista y, vacia,
+# devuelve $null, con lo que la funcion de verdad reventaba al anadir
+function Get-Reglas { return ,$script:reglas }
+function Save-Reglas { }
+function Log($m) { }
+function Add-Estadistica($a, $b) { }
+function Send-UIEvento($e) { }
+function Say($t) { $script:dicho += @($t) }
+function Test-FastCommand($t) { return $true }   # aquí se prueba la CONDICIÓN
+function Invoke-FastCommand($t) { $script:ejecutado += @($t); return "ok" }
+$script:juegosDeMentira = @('ELDEN RING', 'OUTLAST 2')
+function Find-Juego($t) {
+    foreach ($j in $script:juegosDeMentira) {
+        if ((ConvertTo-Plain $j) -eq (ConvertTo-Plain $t)) { return @{ nombre = $j } }
+    }
+    return $null
+}
+$script:confirmado = $false
+Invoke-Expression (Traer 'ConvertTo-Plain')
+Invoke-Expression (Traer 'Describe-Regla')
+Invoke-Expression (Traer 'Invoke-ReglaVoz')
+Invoke-Expression (Traer 'Invoke-Reglas')
+
+$fallos = 0
+function Comp($etiqueta, $ok, $detalle) {
+    Write-Host ("  {0}  {1,-40} {2}" -f $(if ($ok) { 'OK ' } else { 'MAL' }), $etiqueta, $detalle)
+    if (-not $ok) { $script:fallos++ }
+}
+
+# --- crear la regla ---
+$r1 = Invoke-ReglaVoz 'cuando termine de descargarse elden ring abrelo'
+$re = @($script:reglas)[-1]
+Comp 'se crea la regla' ($r1 -and $re.tipo -eq 'descarga') "tipo=$($re.tipo)"
+Comp 'con el juego bien resuelto' ($re.valor -eq 'ELDEN RING') "valor='$($re.valor)'"
+Comp '"abrelo" se traduce al juego' ($re.accion -eq 'abre ELDEN RING') "accion='$($re.accion)'"
+
+# --- y NO le roba la suya a "cuando termine X" (cerrar un juego) ---
+$null = Invoke-ReglaVoz 'cuando termine outlast 2 pon modo noche'
+$re2 = @($script:reglas)[-1]
+Comp 'cerrar un juego sigue siendo cerrar' ($re2.tipo -eq 'juegoCierra') "tipo=$($re2.tipo)"
+
+# --- una descarga sin nombre vale, y es "cualquiera" ---
+$null = Invoke-ReglaVoz 'cuando termine de bajarse un juego avisame'
+$re3 = @($script:reglas)[-1]
+Comp 'sin nombre, vale cualquier descarga' ($re3.tipo -eq 'descarga' -and -not $re3.valor) "valor='$($re3.valor)'"
+
+# --- "abrelo" sin juego no se puede resolver, y se dice ---
+$script:reglas.Clear()
+$r4 = Invoke-ReglaVoz 'cuando termine de bajarse un juego abrelo'
+Comp '"abrelo" sin nombre lo avisa' (($r4 -match 'que juego') -and $script:reglas.Count -eq 0) ''
+
+# --- el disparo ---
+$script:reglas.Clear()
+$null = Invoke-ReglaVoz 'cuando termine de descargarse elden ring abrelo'
+$script:ejecutado = @(); $script:dicho = @()
+Invoke-Reglas 'descarga' 'OUTLAST 2'
+Comp 'otro juego no la dispara' ($script:ejecutado.Count -eq 0) ''
+Invoke-Reglas 'descarga' 'ELDEN RING'
+Comp 'el suyo si la dispara' ($script:ejecutado.Count -eq 1 -and $script:ejecutado[0] -eq 'abre ELDEN RING') ("[" + ($script:ejecutado -join '|') + "]")
+
+Write-Host ""
+if ($fallos) { Write-Host "$fallos casos MAL"; exit 1 }
+Write-Host "todo correcto"

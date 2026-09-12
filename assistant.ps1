@@ -1850,8 +1850,8 @@ function Test-FastCommand([string]$text) {
     # OJO: solo las formas que DE VERDAD son una regla. Con un '^cuando\s' a
     # secas se colaban preguntas sobre el pasado -"cuando jugue a outlast"- que
     # no son reglas y acababan en el modelo por nada.
-    if ($pl -match '^(?:cuando\s+(?:se\s+)?(?:abra|abras|inicie|inicies|arranque|empiece|entre|cierre|cierres|termine|acabe|salga|la bateria|la pila|quite|quites|enchufe|enchufes|ponga|pongas|conecte|desconecte)|cada\s+\d+\s*(?:minuto|hora)|todos los dias|a las?\s)') {
-        return [bool]($pl -match ('(?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b'))
+    if ($pl -match '^(?:cuando\s+(?:se\s+)?(?:abra|abras|inicie|inicies|arranque|empiece|entre|cierre|cierres|termine|acabe|complete|salga|la bateria|la pila|quite|quites|enchufe|enchufes|ponga|pongas|conecte|desconecte)|cada\s+\d+\s*(?:minuto|hora)|todos los dias|a las?\s)') {
+        return [bool]($pl -match ('(?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame|abrelo|abrela|ejecutalo|lanzalo|inicialo|arrancalo|juegalo)\b'))
     }
     # el mismo corte que en Invoke-FastCommand: este es el camino que usan la
     # capsula y el banco de pruebas, y tiene que decir lo mismo que el ejecutor
@@ -3296,6 +3296,7 @@ function Describe-Regla($r) {
         'cargadorQuita' { 'cuando quites el cargador' }
         'cargadorPone' { 'cuando enchufes el cargador' }
         'disco' { "cuando queden menos de $($r.valor) gigas" }
+        'descarga' { if ($r.valor) { "cuando termine de descargarse $($r.valor)" } else { 'cuando termine una descarga' } }
         'hora' { "todos los dias a las $($r.valor)" }
         'cada' { "cada $($r.valor) minutos" }
         default { $r.tipo }
@@ -3326,6 +3327,26 @@ function Invoke-ReglaVoz([string]$text) {
     if ($p -match '^cuando\s+(?:se\s+)?(?:abra|inicie|arranque|empiece|entre a|entre en)\s+(?:el\s+|un\s+|cualquier\s+)?(.+?)\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
         $tipo = 'juegoAbre'; $obj = $Matches[1].Trim(); $accion = $Matches[2].Trim()
         if ($obj -notmatch '^(?:juego|videojuego|algo|cualquier cosa)$') { $j = Find-Juego $obj; if ($j) { $valor = $j.nombre } else { return "No conozco el juego '$obj'" } }
+    }
+    # DESCARGAS: "cuando termine de descargarse elden ring, abrelo"
+    # Ojo con el orden: esta va ANTES que la de "cuando termine X" (cerrar un
+    # juego), porque "cuando termine de descargarse X" tambien encaja alli y
+    # se quedaria con ella.
+    elseif ($p -match '^cuando\s+(?:se\s+)?(?:termine|acabe|complete)\s+(?:de\s+)?(?:descargar|bajar|instalar)(?:se)?\s*(?:el\s+|la\s+|un\s+)?(.*?)\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame|abrelo|abrela|ejecutalo|lanzalo|inicialo|arrancalo|juegalo)\b.*)$') {
+        $tipo = 'descarga'; $obj = $Matches[1].Trim(); $accion = $Matches[2].Trim()
+        $valor = ''
+        if ($obj -and $obj -notmatch '^(?:algo|cualquier cosa|lo que sea|juego|videojuego|el juego|descarga|la descarga)$') {
+            $j = Find-Juego $obj
+            if ($j) { $valor = $j.nombre } else { return "No conozco el juego '$obj'" }
+        }
+        # "abrelo" es la forma NATURAL aqui y no vale en ninguna otra regla, porque
+        # en las demas no hay un "lo" evidente. Aqui si lo hay: el juego que acaba
+        # de bajarse. Se traduce ya, que la accion se guarda como texto y luego la
+        # ejecuta Invoke-FastCommand sin saber de que regla vino.
+        if ($accion -match '^(?:abrelo|abrela|ejecutalo|lanzalo|inicialo|arrancalo|juegalo)$') {
+            if (-not $valor) { return "Dime que juego: 'abrelo' no se a que se refiere si no nombras uno." }
+            $accion = "abre $valor"
+        }
     }
     elseif ($p -match '^cuando\s+(?:se\s+)?(?:cierre|termine|acabe|salga de|salga del)\s+(?:el\s+|un\s+|cualquier\s+)?(.+?)\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
         $tipo = 'juegoCierra'; $obj = $Matches[1].Trim(); $accion = $Matches[2].Trim()
@@ -3372,6 +3393,7 @@ function Invoke-ReglaVoz([string]$text) {
     if ($accion -match '^(?:avisa|avisame)$') {
         $queDecir = switch ($tipo) {
             'disco' { "queda poco espacio en el disco, menos de $valor gigas" }
+            'descarga' { if ($valor) { "$valor ha terminado de descargarse" } else { 'ha terminado una descarga' } }
             'bateria' { "te queda poca bateria, menos del $valor por ciento" }
             'cargadorQuita' { 'has quitado el cargador' }
             'cargadorPone' { 'ya esta cargando' }
@@ -3415,6 +3437,7 @@ function Invoke-Reglas([string]$tipo, [string]$dato = '') {
                 if ($gb -le [double]$r.valor) { if ($r.ultima -ne 'poco') { $dispara = $true; $r.ultima = 'poco' } }
                 elseif ($gb -gt ([double]$r.valor + 5)) { $r.ultima = '' }
             }
+            'descarga' { $dispara = (-not $r.valor -or $r.valor -eq $dato) }
             'hora' { if ($dato -eq $r.valor -and $r.ultima -ne $hoy) { $dispara = $true; $r.ultima = $hoy } }
             'cada' {
                 $ult = 0; if ($r.ultima) { [double]::TryParse($r.ultima, [ref]$ult) | Out-Null }
@@ -4736,6 +4759,10 @@ $script:aprenderPendiente = $null
 $script:ultimaLectura = ''
 # Modos dentro de modos: cuantos van encadenados ahora mismo (ver el tope).
 $script:hondoPerfil = 0
+# Que juegos estaban bajando en la vuelta anterior. $null (no vacio) hasta la
+# primera lectura: al arrancar no se sabe que estaba bajando antes, y anunciar
+# ahi un final seria inventarselo.
+$script:bajandoAntes = $null
 # De que frase aprendida salio la ultima orden, para poder olvidarla si dices
 # "no era eso".
 $script:ultimaAprendida = ''
@@ -5595,6 +5622,29 @@ while ($true) {
                 try {
                     $rt = [int]$bat.EstimatedRunTime
                     if ($rt -gt 0 -and $rt -lt 1000) { $script:bateriaMin = $rt }
+                } catch {}
+                # DESCARGAS DE STEAM: por FLANCO. Lo que dispara es que un juego
+                # DEJE de estar bajando, no que este instalado; si no, cada juego
+                # ya instalado dispararia la regla en cada vuelta. La primera
+                # lectura solo toma nota: al arrancar no se sabe que estaba
+                # bajando antes, y anunciar entonces seria inventarse un final.
+                try {
+                    if (@(Get-Reglas | Where-Object { $_.tipo -eq 'descarga' }).Count -gt 0) {
+                        $null = Update-Juegos
+                        $ahoraBajan = @{}
+                        foreach ($jj in @($script:Juegos)) { if ($jj.bajando) { $ahoraBajan[$jj.nombre] = $true } }
+                        if ($null -eq $script:bajandoAntes) {
+                            $script:bajandoAntes = $ahoraBajan
+                        } else {
+                            foreach ($nm in @($script:bajandoAntes.Keys)) {
+                                if (-not $ahoraBajan.ContainsKey($nm)) {
+                                    Log "DESCARGA terminada: $nm"
+                                    Invoke-Reglas 'descarga' $nm
+                                }
+                            }
+                            $script:bajandoAntes = $ahoraBajan
+                        }
+                    }
                 } catch {}
                 # DISCO: se mira aqui mismo, que ya estamos en el chequeo por minuto
                 try {

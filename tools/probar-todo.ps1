@@ -38,6 +38,10 @@ Titulo "2f. Modos por voz (crear, sustituir y borrar en commands.json)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-modos.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2g. Reglas atadas a una descarga de Steam"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-descargas.ps1') | Select-String 'todo correcto|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2b. Autosordina (se calla sola si el microfono caza ruido en racha)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-autosordina.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
