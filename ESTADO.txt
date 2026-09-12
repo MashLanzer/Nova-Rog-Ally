@@ -19,7 +19,13 @@ CÓMO SE USA
   El asistente responde HABLANDO (cápsula azul con el texto).
 
   Si no está seguro de a qué te refieres ("¿Little Nightmares III?"),
-  pregunta: di "sí" o "no". Si no contestas en 3,5 s, lo hace.
+  pregunta: di "sí" o "no". CALLARSE YA NO ES QUE SÍ (cambió el 11/09):
+  si no contestas, NO lo hace. Antes el silencio valía por un sí a los
+  3,5 s, y con el micrófono cazando ruido eso abría cosas solo: captaba
+  "el", preguntaba "¿Edge?", nadie contestaba porque nadie sabía que
+  estaba preguntando, y lo abría.
+  Decir solo el NOMBRE DE UN JUEGO ("Silent Breath") también pregunta
+  antes: es cómodo, pero es justo la forma en que el ruido abría juegos.
 
 ENCADENAR (nuevo): tras responder, sigue escuchando 2,5 s (cápsula en
   verde apagado). Habla y es otra orden, sin decir "nova". Calla y se

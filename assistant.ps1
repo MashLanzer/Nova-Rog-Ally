@@ -335,6 +335,12 @@ function Get-DistanciaFon([string]$a, [string]$b) {
 # a pocas ediciones de distancia.
 function Find-Aproximado([string]$t, $obj) {
     if (-not $obj -or -not $t) { return $null }
+    # Con dos o tres letras se llega a casi cualquier nombre corto en dos
+    # ediciones: 'el' -> 'edge'. Y el ruido del microfono son justo palabras
+    # asi ('el', 'es', 'eh', 'los'). Sin un minimo de longitud, cualquier
+    # carraspeo abria una aplicacion. Los nombres que se dicen enteros siguen
+    # funcionando: la coincidencia exacta se comprueba antes que esta.
+    if ($t.Length -lt 4) { return $null }
     $mejor = $null
     $mejorD = 999
     foreach ($p in $obj.PSObject.Properties) {
@@ -423,7 +429,14 @@ function Find-JuegoEn([string]$q, $lista) {
         $n = $j.plano
         if ($n -eq $q) { return $j }
         $puntos = $null
-        if ($n.Contains($q) -or $q.Contains($n)) {
+        # UNA CONSULTA CORTA 'CONTIENE' A MEDIA BIBLIOTECA. 'el' esta dentro de
+        # 'elden ring', y como la contencion puntuaba mejor que cualquier
+        # parecido, un simple articulo abria el juego SIN preguntar siquiera.
+        # Salio en el corpus de ruido real: 'el' -> ELDEN RING, 'es' -> Little
+        # Nightmares. Para que la contencion valga, el trozo tiene que ser
+        # sustancial: al menos cuatro letras y un 40 % del titulo.
+        if ($q.Length -lt 4) { continue }
+        if (($n.Contains($q) -or $q.Contains($n)) -and ($q.Length * 2.5) -ge $n.Length) {
             $puntos = [Math]::Abs($n.Length - $q.Length)
         } else {
             $d = Get-Distancia $q $n
@@ -494,6 +507,40 @@ $script:zombiCheck = 0
 # comparten ni un trozo de palabra, no es que oyera mejor: es que se lo invento.
 # 'abrestean' -> 'abre steam' si comparte ('abre' esta dentro), y ese es el caso
 # para el que existe el repaso.
+# LA FIRMA DE LA ALUCINACION DE WHISPER.
+# A Whisper se le pasan tus apps y juegos como pistas (hotwords) para que
+# acierte los nombres propios. El efecto secundario es que, cuando lo que oye
+# NO es voz, devuelve justo esos nombres, en fila y separados por comas:
+#   'SILENT BREATH, PEAK, Hollow Knight, Outlast 2, Little Nightmares III,'
+#   'Engine, Little Nightmares II, Goose Duck, REANIMAL,'
+# La capa local se lo tragaba como una orden multiple y abria los cinco juegos.
+# Salieron 6 casos asi en los 103 dictados reales del log. Nadie pide abrir
+# cinco juegos de golpe y sin un verbo: eso no es una orden, es el modelo
+# recitando el catalogo que le dimos.
+function Test-CatalogoRecitado([string]$text) {
+    if (-not $cmds -or -not $text) { return $false }
+    # OJO: las comas se miran en el texto ORIGINAL. ConvertTo-Plain las
+    # convierte en espacios (para que '¿que hora es' case con los patrones),
+    # asi que sobre el plano esta senal no existe y la funcion no detectaba
+    # nada en absoluto.
+    if ($text -notmatch ',') { return $false }
+    $plano = ConvertTo-Plain $text
+    if ($plano -match ('(?:' + $VERBOS + ')')) { return $false }   # con verbo es una orden de verdad
+    $trozos = @($text -split ',' | ForEach-Object { (ConvertTo-Plain $_).Trim() } | Where-Object { $_ })
+    if ($trozos.Count -lt 2) { return $false }
+    $delCatalogo = 0
+    foreach ($t in $trozos) {
+        $esNombre = $false
+        if (Test-Prop $cmds.apps $t) { $esNombre = $true }
+        elseif (Test-Prop $cmds.sitios $t) { $esNombre = $true }
+        elseif (Find-Juego $t) { $esNombre = $true }
+        if ($esNombre) { $delCatalogo++ }
+    }
+    # basta con que DOS trozos sean nombres del catalogo: el resto suele ser
+    # basura del mismo destrozo ('Engine,', 'Throne,')
+    return ($delCatalogo -ge 2)
+}
+
 function Test-MismoAudio([string]$a, [string]$b) {
     $pa = ConvertTo-Plain $a
     $pb = ConvertTo-Plain $b
@@ -1163,7 +1210,13 @@ function Resolve-Fragment([string]$f) {
         return (Resolve-Target $Matches[1])
     }
     # --- sin verbo: solo el nombre ("steam", "youtube") ---
-    return (Resolve-Target $f)
+    # Se marca de donde viene: decir un nombre a secas es comodo para abrir
+    # steam, pero es tambien la forma en que el ruido abre juegos solo
+    # ('SILENT BREATH' salio 4 veces en el log sin que nadie lo dijera). Al
+    # ejecutar, un JUEGO sin verbo se pregunta antes.
+    $sv = Resolve-Target $f
+    if ($sv) { foreach ($x in $sv) { $x.sinVerbo = $true } }
+    return $sv
 }
 
 # Brillo por WMI. nivel: 0-100 absoluto, -1 = subir un paso, -2 = bajar un paso.
@@ -1334,6 +1387,9 @@ function Test-FastCommand([string]$text) {
     if ($pl -match '^(?:recuerdame|avisame|recordatorio)\s+(?!que\b)(?:hoy|manana|pasado manana|el (?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)|el \d{1,2} de |a las? )') { return $true }   # recordatorio con fecha
     if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda|memoriza)\s+(?!en\s+\d+)') { return $true }
     if ($pl -match '^(?:cuando\s|cada\s+\d+|todos los dias|a las?\s)') { return $false }   # reglas: las decide Invoke-ReglaVoz
+    # el mismo corte que en Invoke-FastCommand: este es el camino que usan la
+    # capsula y el banco de pruebas, y tiene que decir lo mismo que el ejecutor
+    if (Test-CatalogoRecitado $text) { return $false }
     $frags = $null
     try { $frags = Split-Compound (Repair-Words (ConvertTo-Plain $text)) } catch { return $false }
     if (-not $frags -or $frags.Count -eq 0) { return $false }
@@ -1390,6 +1446,10 @@ function Invoke-FastCommand([string]$text) {
     $regla = $null
     try { $regla = Invoke-ReglaVoz $text } catch { Log ("regla: " + $_.Exception.Message); $regla = $null }
     if ($regla) { return $regla }
+    if (Test-CatalogoRecitado $text) {
+        Log "LOCAL descarta: '$text' es el catalogo recitado, no una orden"
+        return $null
+    }
     $frags = Split-Compound (Repair-Words (ConvertTo-Plain $text))
     if (-not $frags -or $frags.Count -eq 0) { return $null }
 
@@ -1446,9 +1506,10 @@ function Invoke-FastCommand([string]$text) {
                     # Se pregunta antes, igual que con 'cierra todos los programas'.
                     $esJuego = ($a.target -match 'steam://rungameid')
                     $comoSeLlama = ($a.desc -replace '^abrir\s+', '' -replace '\s+en Steam$', '')
-                    if ($esJuego -and $script:juegoActivo -and -not $script:confirmado) {
+                    if ($esJuego -and -not $script:confirmado -and ($script:juegoActivo -or $a.sinVerbo)) {
                         $script:pendiente = @{ texto = "abre $comoSeLlama en steam"; vence = 0; tipo = 'peligrosa' }
-                        $a.desc = "estas jugando a $($script:juegoActivo). ¿Abro $comoSeLlama?"
+                        $a.desc = if ($script:juegoActivo) { "estas jugando a $($script:juegoActivo). ¿Abro $comoSeLlama?" }
+                                  else { "¿Abro $comoSeLlama?" }
                     } else {
                         # con -PassThru para poder cerrarlo si pides deshacer; las
                         # URI (steam://, shell:appsFolder) no devuelven proceso propio
@@ -3608,17 +3669,20 @@ function Complete-Confirmacion([string]$respuesta) {
         }
         return
     }
-    # en lo que no se deshace, callarse es que no: al reves que en el resto
-    if ($p.tipo -eq 'peligrosa' -and $respuesta -ne 'si') {
+    # CALLARSE NO EJECUTA NADA, tampoco en las dudosas. Antes el silencio valia
+    # por un si a los 3,5 s, y eso convertia cada coincidencia floja del ruido
+    # en una accion: el microfono capta 'el', se pregunta '¿Edge?', nadie
+    # contesta porque nadie sabia que se estaba preguntando, y se abre Edge.
+    # Para decir que si hay que decirlo.
+    if ($respuesta -ne 'si') {
         Log "CONFIRMAR: no se ejecuta '$($p.texto)' ($respuesta)"
-        Set-UI 'reposo'
-        if ($respuesta -eq 'no') { Say "Vale, lo dejo." }
-        return
-    }
-    if ($respuesta -eq 'no') {
-        Log "CONFIRMAR: cancelado por el usuario"
-        Set-UI 'error' 'Vale, cancelado' 2000
-        Say "Vale."
+        if ($respuesta -eq 'no') {
+            Set-UI 'error' 'Vale, cancelado' 2000
+            Say "Vale, lo dejo."
+        } else {
+            # silencio: ni se ejecuta ni se habla, que a lo mejor no habia nadie
+            Set-UI 'reposo'
+        }
         return
     }
     Log "CONFIRMAR: $respuesta -> se ejecuta '$($p.texto)'"

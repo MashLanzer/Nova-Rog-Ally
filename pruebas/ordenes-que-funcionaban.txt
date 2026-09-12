@@ -26,7 +26,6 @@ abre la calculadora
 borra las reglas
 borra los recordatorios
 cuando abra elden ring pon modo noche
-el
 lee la pantalla
 que recordatorios tengo
 que reglas hay
@@ -34,3 +33,8 @@ recuerda que el 15 de septiembre es el cumple de Ana
 recuerda que la clave del wifi es patata frita
 recuerdame manana a las 10 que llame al medico
 ¿A que estoy jugando
+
+# Se quito "el": estaba aqui porque la capa local lo reconocia, pero no era
+# una orden sino ruido. Emparejaba con ELDEN RING por contencion ("el" esta
+# dentro de "elden ring") y abria el juego sin preguntar. Corregido el 11/09;
+# el caso vive ahora en ruido-real.txt, donde lo bueno es que NO se reconozca.
