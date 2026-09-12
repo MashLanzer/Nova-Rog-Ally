@@ -2170,10 +2170,13 @@ public class NovaUI : Window
         }
     }
 
-    // en foco y reposo, la capsula se encoge a la mitad (un punto de 22 px)
+    // En foco y reposo la capsula se encoge. Y si lo que hay delante es un
+    // JUEGO, mas todavia: 14 px en vez de 22. Un HUD de juego esta lleno de
+    // cosas y ahi cualquier adorno estorba, mientras que en un video a
+    // pantalla completa no molesta a nadie que se le vea la cara.
     void EscalaFoco(bool pequena)
     {
-        double destino = pequena ? 0.5 : 1.0;
+        double destino = pequena ? (string.IsNullOrEmpty(juegoActual) ? 0.5 : 0.32) : 1.0;
         var a = new DoubleAnimation(destino, TimeSpan.FromMilliseconds(420));
         a.EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut };
         escalaEnvoltorio.BeginAnimation(ScaleTransform.ScaleXProperty, a);
@@ -2581,7 +2584,13 @@ public class NovaUI : Window
         }
         if (juego != juegoActual || clima != climaActual)
         {
+            bool cambioJuego = (juego != juegoActual);
             juegoActual = juego;
+            // entrar o salir de un juego cambia CUANTO se encoge, y antes solo se
+            // recalculaba al cambiar el foco: al arrancar un juego con la capsula
+            // ya en foco, se quedaba con el tamano del video. Solo si cambio el
+            // JUEGO: el clima entra por la misma puerta y no pinta nada aqui.
+            if (cambioJuego) { EscalaFoco(foco && (estadoActual == "reposo" || estadoActual == "")); }
             climaActual = clima;
             CargarAvatar(juego, clima);
         }

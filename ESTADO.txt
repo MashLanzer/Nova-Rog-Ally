@@ -357,6 +357,9 @@ LA CÁPSULA, AL DÍA (nuevo)
     es como el silencio acababa cancelando órdenes buenas. Y el botón ≡
     mantenido vale por un "sí": decirlo en voz alta con un juego sonando es
     justo lo que peor funciona.
+  - Con un juego delante y en reposo, la cápsula se encoge a un punto de
+    14 px (con un vídeo a pantalla completa, 22: un HUD de juego está lleno
+    de cosas y ahí cualquier adorno estorba más).
   - Respuestas largas: tarjeta de cristal que YA NO ROBA EL FOCO. Antes te
     sacaba de un juego a pantalla completa.
 
