@@ -134,6 +134,12 @@ public class NovaUI : Window
     Ellipse[] chispas;
     System.Windows.Shapes.Path marcaHecho, anilloTempo;
     TextBlock glifoOido;            // micro tachado / mando, segun el estado del oido
+    Grid capaAccion;                // disco con la forma de lo que va a hacer
+    TextBlock glifoAccion;
+    string haciendoActual = "";     // que accion esta en curso ("" = ninguna)
+    double descarga = 0;            // 0..1 de la descarga de Steam mas avanzada
+    bool descargaActiva = false;    // el anillo esta contando una descarga
+    DateTime haciendoDesde = DateTime.MinValue;
     TextBlock relojEspera;          // los segundos que lleva pensando, a partir de 10
     TextBlock pistaSiNo;            // "sí · no" mientras espera una confirmacion
     TranslateTransform corrProgreso;// para el barrido cuando ya no se sabe cuanto falta
@@ -921,6 +927,88 @@ public class NovaUI : Window
         sudor = Glifo("●", 6, Color.FromRgb(0x8C, 0xC8, 0xFF), "Segoe UI");
         sudor.Margin = new Thickness(14, 0, 0, 8);
         esfera.Children.Add(sudor);
+
+        // QUE VA A HACER, ANTES DE HACERLO. El asistente enciende esto justo
+        // antes de ejecutar cada accion que toca el sistema. Va la ULTIMA de la
+        // esfera a proposito: tiene que verse tambien sobre el icono del juego,
+        // que ocupa el hueco entero. El disco oscuro es lo que la hace legible
+        // encima de cualquier avatar.
+        capaAccion = new Grid();
+        capaAccion.Width = AVATAR; capaAccion.Height = AVATAR;
+        capaAccion.IsHitTestVisible = false;
+        capaAccion.Opacity = 0;
+        capaAccion.RenderTransformOrigin = new Point(0.5, 0.5);
+        capaAccion.RenderTransform = new ScaleTransform(1, 1);
+        var discoAccion = new Ellipse();
+        discoAccion.Width = AVATAR; discoAccion.Height = AVATAR;
+        discoAccion.Fill = new SolidColorBrush(Color.FromArgb(0xDD, 0x0A, 0x0F, 0x18));
+        capaAccion.Children.Add(discoAccion);
+        glifoAccion = new TextBlock();
+        glifoAccion.FontFamily = new FontFamily("Segoe MDL2 Assets");
+        glifoAccion.FontSize = 13;
+        glifoAccion.Foreground = Brushes.White;
+        glifoAccion.HorizontalAlignment = HorizontalAlignment.Center;
+        glifoAccion.VerticalAlignment = VerticalAlignment.Center;
+        glifoAccion.IsHitTestVisible = false;
+        capaAccion.Children.Add(glifoAccion);
+        esfera.Children.Add(capaAccion);
+    }
+
+    // Una forma por familia de accion, no una por orden: lo que hay que poder
+    // distinguir de un vistazo es si va a abrir algo, tocar el sonido o mover
+    // una ventana. Comprobados uno a uno contra la fuente antes de elegirlos:
+    // un codigo que no existe en Segoe MDL2 no falla, sale un cuadrado.
+    static string GlifoDeAccion(string clave)
+    {
+        switch (clave)
+        {
+            case "app":      return "\uE8A7";   // abrir en ventana
+            case "web":      return "\uE774";   // globo
+            case "sonido":   return "\uE767";   // altavoz
+            case "mudo":     return "\uE74F";   // altavoz tachado
+            case "brillo":   return "\uE706";   // sol
+            case "tecla":    return "\uE765";   // teclado
+            case "escribir": return "\uE70F";   // lapiz
+            case "captura":  return "\uE722";   // camara
+            case "ventana":  return "\uE737";   // ventana
+            case "cerrar":   return "\uE8BB";   // aspa
+            case "bloqueo":  return "\uE72E";   // candado
+            case "nota":     return "\uE70B";   // nota
+            case "tiempo":   return "\uE916";   // cronometro
+            case "copia":    return "\uE8C8";   // copiar
+            case "pantalla": return "\uE7F4";   // monitor
+            case "deshacer": return "\uE7A7";   // flecha de deshacer
+            default:         return "";
+        }
+    }
+
+    // Se enciende de golpe (90 ms) porque la accion no espera: si tardara en
+    // aparecer lo que se veria seria el final de algo ya hecho. Se apaga mas
+    // despacio, que es cuando ya da igual.
+    void PintarHaciendo(string clave)
+    {
+        if (capaAccion == null) { return; }
+        string g = GlifoDeAccion(clave);
+        haciendoActual = clave;
+        haciendoDesde = DateTime.UtcNow;
+        if (string.IsNullOrEmpty(g))
+        {
+            // todo se apaga por esta misma puerta, incluido el tic de seguridad
+            haciendoActual = "";
+            Desvanecer(capaAccion, 0, 200);
+            return;
+        }
+        glifoAccion.Text = g;
+        Desvanecer(capaAccion, 1, 90);
+        var esc = capaAccion.RenderTransform as ScaleTransform;
+        if (esc != null)
+        {
+            var a = new DoubleAnimation(0.55, 1, TimeSpan.FromMilliseconds(170));
+            a.EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.5 };
+            a.FillBehavior = FillBehavior.Stop;
+            esc.BeginAnimation(ScaleTransform.ScaleXProperty, a);
+            esc.BeginAnimation(ScaleTransform.ScaleYProperty, a);
+        }
     }
 
     Ellipse CrearOjo()
@@ -2358,6 +2446,9 @@ public class NovaUI : Window
     void Tic250()
     {
         RevisarPantalla();
+        // Si el asistente se cae con una accion a medias, el glifo se quedaria
+        // encendido para siempre. Ninguna accion local llega a 6 s.
+        if (haciendoActual != "" && (DateTime.UtcNow - haciendoDesde).TotalSeconds > 6) { PintarHaciendo(""); }
         VigilarVolumen();
         VigilarVentanas();
         MedirTono();
@@ -2391,6 +2482,8 @@ public class NovaUI : Window
                 var tinte = esSordina ? Color.FromRgb(0x8E, 0x84, 0xA8) : ColorDe(estadoActual);
                 var pincelAnillo = anilloTempo.Stroke as SolidColorBrush;
                 if (pincelAnillo != null && pincelAnillo.Color != tinte) { Animar(pincelAnillo, tinte); }
+                // un temporizador manda sobre la descarga: es lo que vence
+                if (descargaActiva) { descargaActiva = false; }
                 if (!tempoActivo) { tempoActivo = true; Desvanecer(anilloTempo, 0.9, 300); ultimoSegundo = -1; }
                 // cuenta atras: en los ultimos 10 s, un latido del anillo y un
                 // tic minimo del punto por cada segundo
@@ -2408,7 +2501,21 @@ public class NovaUI : Window
                 }
             }
         }
-        else if (tempoActivo) { tempoActivo = false; Desvanecer(anilloTempo, 0, 300); }
+        else if (descarga > 0.001)
+        {
+            // EL ANILLO, CUANDO NO HAY TEMPORIZADOR: lo que lleva descargado.
+            // Los bytes ya se leian y el anillo ya sabia dibujar una fraccion;
+            // esto solo une las dos cosas. Va en su propio azul y mas apagado
+            // que una cuenta atras: es un dato de fondo, no una alarma. Y
+            // CRECE, al reves que el temporizador, que se vacia.
+            if (tempoActivo) { tempoActivo = false; }
+            DibujarArco(descarga);
+            var tinteD = Color.FromRgb(0x5A, 0xA9, 0xE6);
+            var pincelD = anilloTempo.Stroke as SolidColorBrush;
+            if (pincelD != null && pincelD.Color != tinteD) { Animar(pincelD, tinteD); }
+            if (!descargaActiva) { descargaActiva = true; Desvanecer(anilloTempo, 0.55, 400); }
+        }
+        else if (tempoActivo || descargaActiva) { tempoActivo = false; descargaActiva = false; Desvanecer(anilloTempo, 0, 300); }
 
         // --- esperando un si o un no: la linea de abajo se vacia ---
         if (estadoActual == "confirmando" && confirmaFin > 0 && confirmaTotal > 0)
@@ -2558,6 +2665,11 @@ public class NovaUI : Window
                 int.TryParse(Campo(j, "voz", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out vz);
                 if (vz != voz) { voz = vz; cambioVoz = true; }
                 string oido = Campo(j, "oido", "palabra");
+                string hac = Campo(j, "haciendo", "");
+                double dsc;
+                double.TryParse(Campo(j, "descarga", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out dsc);
+                descarga = Math.Max(0, Math.Min(1, dsc));
+                if (hac != haciendoActual) { PintarHaciendo(hac); }
                 string esq = Campo(j, "esquina", "abajo-izquierda");
                 // vacia = la de siempre: un estado escrito por una version vieja
                 // no tiene por que mandar la capsula a ningun sitio raro

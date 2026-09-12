@@ -1,10 +1,14 @@
 ESTADO DEL ASISTENTE DE VOZ  (2026-09-12)
 ================================================
 
-EJECUTANDO AHORA: NO. Está APAGADO a propósito.
-  Se cerró el 11/09 a las 20:30 porque se activaba solo mientras jugabas y
-  abría cosas que nadie había pedido. Las causas están corregidas (ver más
-  abajo), pero NO se ha vuelto a encender: eso lo decides tú.
+EJECUTANDO AHORA: SÍ, desde el 12/09 a las 13:23. No lo encendió nadie: lo
+  arrancó la clave Run al iniciar sesión en Windows. Se había cerrado el 11/09
+  a las 20:30 porque se activaba solo mientras jugabas y abría cosas que nadie
+  había pedido; esas causas están corregidas (ver más abajo).
+  OJO: lo que está corriendo es la versión ANTERIOR a los cambios del 12/09
+  (el glifo de qué va a hacer, el anillo de la descarga y el arreglo del aviso
+  de descarga terminada). Para que los tome hay que reiniciarlo: cerrar el
+  proceso de assistant.ps1 y volver a lanzarlo.
 
   Para encenderlo:
     Start-Process powershell -ArgumentList '-NoProfile','-WindowStyle','Hidden',
@@ -27,8 +31,9 @@ EJECUTANDO AHORA: NO. Está APAGADO a propósito.
     biblioteca de Steam: 14 juegos indexados
   Y decir en voz alta: "Listo. Di nova cuando me necesites."
 
-LO QUE QUEDA POR HACER: PENDIENTE.md (20 ideas con su porqué, y las trampas
-  de esta base de código que conviene leer antes de tocar nada).
+LO QUE QUEDA POR HACER: PENDIENTE.md (18 ideas con su porqué, y las trampas
+  de esta base de código que conviene leer antes de tocar nada). El 12/09 se
+  hicieron la 11 y la 14.
 
 CÓMO SE USA
   1. Decir "nova"  (o mantener pulsado ≡ ~1,1 s) -> bip, se abre el dictado.
@@ -111,6 +116,15 @@ STEAM Y DISCO (nuevo): cosas que el asistente ya leía al arrancar y no
     "¿cuánto ocupa elden ring?"    -> "ELDEN RING ocupa 66 gigas"
   Y cuando una descarga TERMINA te avisa, una sola vez, sin abrir nada:
   pones 70 GB a bajar, te vas a jugar y te lo dice cuando acaba.
+  ESTO ESTABA ROTO desde que se escribió, y se arregló el 12/09: el aviso no
+  saltó NUNCA. La variable que guarda "qué estaba bajando la vuelta anterior"
+  se declaraba dos veces (una vacía y otra a $null, que es la que ganaba), y
+  con $null la comparación reventaba en cada pasada; lo único que se veía era
+  una excepción en assistant.log cada dos minutos. Además la compartían DOS
+  sitios con claves distintas -el aviso por ID de Steam, y las reglas "cuando
+  termine de descargarse X" por NOMBRE-, así que cada uno veía las claves del
+  otro como descargas recién terminadas. Ahora son dos variables, y la primera
+  lectura solo toma nota: al arrancar no se sabe qué estaba bajando antes.
 
 APUNTAR LO QUE VES (nuevo): "apunta esto", "guarda este código", "anota
   lo que dice la pantalla". Lee la pantalla con OCR y lo guarda en tu diario
@@ -374,6 +388,20 @@ LA CÁPSULA, AL DÍA (nuevo)
     de cosas y ahí cualquier adorno estorba más).
   - Respuestas largas: tarjeta de cristal que YA NO ROBA EL FOCO. Antes te
     sacaba de un juego a pantalla completa.
+  - SE VE QUÉ VA A HACER, ANTES DE HACERLO (nuevo): justo antes de cada acción
+    que toca el sistema, en el hueco de la carita aparece la forma de lo que
+    viene: abrir algo, el altavoz, el sol del brillo, una ventana, el aspa de
+    cerrar, el candado, el lápiz, el cronómetro... Una forma se reconoce de un
+    vistazo; para cuando has leído el texto de la respuesta, la acción ya pasó
+    y no queda nada que cancelar. NO añade ninguna espera: se enciende antes de
+    tocar nada y se apaga al terminar. Las órdenes que solo CONSULTAN (la hora,
+    a qué juegas, qué modos tienes) no llevan glifo: ahí no hay nada que parar.
+  - EL ANILLO, CUANDO NO HAY TEMPORIZADOR (nuevo): dibuja lo que lleva la
+    descarga de Steam más avanzada, en su propio azul y más apagado, porque es
+    un dato de fondo y no una alarma. Crece (el del temporizador se vacía), se
+    refresca cada dos minutos, y si arranca un temporizador manda el
+    temporizador. Esos bytes ya se leían y el anillo ya sabía dibujar una
+    fracción: esto solo une las dos cosas.
 
 PROBAR CON TU VOZ (nuevo, PENDIENTE DE QUE LO HAGAS TÚ)
   Todo el banco mide TEXTO. Lo que de verdad falla es el micrófono, y eso no

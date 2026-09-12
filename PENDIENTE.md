@@ -75,11 +75,6 @@ ni con batería):
 
 ## Interfaz y visuales
 
-- [ ] **11. Que se vea qué va a hacer, antes de hacerlo.** — *la que sigue la línea de hoy*
-      Un icono mínimo durante el respiro de 250 ms: la app, el altavoz, la
-      ventana. Leer texto tarda más que reaccionar a una forma, y ahí es donde
-      querrías cancelar.
-
 - [ ] **12. Distinguir «lo hago yo» de «esto lo lleva el agente».**
       Hoy `pensando` es idéntico para 0,3 s locales y para 160 s del agente
       completo. Saberlo desde el primer instante cambia si esperas o cancelas.
@@ -87,10 +82,6 @@ ni con batería):
 - [ ] **13. Cola visible con varias órdenes.**
       «Abre Steam y pon modo juego» son dos cosas; que se vean los dos puntos y
       cuál va tachándose. Si falla la segunda, hoy no hay forma de saber cuál fue.
-
-- [ ] **14. El anillo del avatar como progreso de la descarga.** — *casi gratis*
-      Los bytes ya se leen cada minuto y el anillo ya sabe dibujar una fracción
-      (lo hace con los temporizadores). Es unir dos cosas que ya están.
 
 - [ ] **15. Tamaño grande a petición.** — *la que más se nota en la Ally*
       En la pantalla de 7", 13,5 px es pequeño de verdad. «Hazte más grande» /
@@ -119,12 +110,20 @@ ni con batería):
 
 ---
 
+## Hechas (12/09/2026)
+
+- **11. Que se vea qué va a hacer, antes de hacerlo.** Un glifo en el hueco de
+  la carita justo antes de cada acción que toca el sistema, sin añadir espera.
+  Detalle en `ESTADO.txt`, sección de la cápsula.
+- **14. El anillo del avatar como progreso de la descarga.** Y de paso salió
+  que el aviso de "ya se descargó" no había funcionado nunca: una variable
+  declarada dos veces y compartida por dos usos con claves distintas.
+
 ## Por dónde empezar
 
-Si hay que elegir: la **9** y la **11**, porque siguen la línea de lo que se
-arregló estos días (que no actúe sin que se lo pidas, y que veas qué va a pasar
-antes de que pase). La **4** y la **14** son casi gratis porque los datos ya
-están recogidos. Y la **15** es la que más se agradece en la Ally.
+Si hay que elegir: la **9**, porque sigue la línea de lo que se arregló estos
+días (que no actúe sin que se lo pidas). La **4** es casi gratis porque los
+datos ya están recogidos. Y la **15** es la que más se agradece en la Ally.
 
 ---
 

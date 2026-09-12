@@ -596,9 +596,11 @@ $script:zombisAvisados = @{}
 $script:zombiCheck = 0
 # Descargas: que estaba bajando la ultima vez que se miro, para notar cuando
 # una termina. Sin esto habria que preguntar a Steam, que es justo lo que no
-# se puede hacer sin salir del juego.
-$script:bajandoAntes = @{}
-$script:descargaCheck = 0
+# se puede hacer sin salir del juego. Se declara mas abajo, con las demas
+# variables de flanco: aqui estaba DUPLICADA y la de abajo la pisaba.
+# -120000: la primera lectura se hace al arrancar, no a los dos minutos. Solo
+# toma nota (no anuncia finales), y asi el anillo de la descarga sale enseguida.
+$script:descargaCheck = -120000
 # Si estaba cargando la ultima vez que se miro. $null = todavia no se sabe,
 # para no disparar una regla en el primer chequeo tras arrancar.
 $script:cargandoAntes = $null
@@ -2225,6 +2227,8 @@ function Invoke-FastCommand([string]$text) {
     $acciones = @($acciones)
     for ($iAcc = 0; $iAcc -lt $acciones.Count; $iAcc++) {
         $a = $acciones[$iAcc]
+        # ANTES de tocar nada: que se vea lo que viene
+        Set-UIHaciendo $a.kind
         try {
             switch ($a.kind) {
                 # se sustituye la descripcion por el resultado real
@@ -2819,6 +2823,7 @@ function Invoke-FastCommand([string]$text) {
             Start-Sleep -Milliseconds 250
         }
     }
+    Set-UIHaciendo ''
     return ($hechas -join '; ')
 }
 
@@ -3324,6 +3329,8 @@ $script:uiVoz = 0           # indice de la voz que dicto (por tono), 0 = la habi
 $script:uiClima = ''        # emoji del tiempo: solo unos segundos cuando se pregunta
 $script:uiClimaHasta = 0
 $script:uiAnimo = 0         # -1..1 segun aciertos y errores de las ultimas 24 h
+$script:uiHaciendo = ''     # QUE se esta ejecutando ahora mismo (glifo en la capsula)
+$script:uiDescarga = 0      # 0..1 de la descarga de Steam mas avanzada (anillo)
 
 function ConvertTo-JsonTexto([string]$s) {
     $t = (($s -replace '[\r\n\t]+', ' ') -replace '\s+', ' ').Trim()
@@ -3367,6 +3374,8 @@ function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
             ',"animo":' + ([double]$script:uiAnimo).ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture) +
             ',"progreso":' + ([double]$script:uiProgreso).ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture) +
             ',"oido":"' + $oido + '","tempoTipo":"' + $tTipo + '"' +
+            ',"haciendo":"' + $script:uiHaciendo + '"' +
+            ',"descarga":' + ([double]$script:uiDescarga).ToString('0.000', [System.Globalization.CultureInfo]::InvariantCulture) +
             ',"confirmaFin":' + ([long]$script:confirmaFin) + ',"confirmaTotal":' + ([long]$script:confirmaTotal) +
             ',"esquina":"' + $script:esquina + '"' +
             ',"voz":' + $script:uiVoz + '}'
@@ -3400,6 +3409,43 @@ function Refresh-UI {
     $resta = 0
     if ($script:uiHasta -gt 0) { $resta = [Math]::Max(1, $script:uiHasta - $sw.ElapsedMilliseconds) }
     Set-UI $script:uiEstado $script:uiTexto $resta
+}
+
+# QUE VA A HACER, ANTES DE HACERLO
+# Cada accion que toca el sistema enciende un glifo en la capsula JUSTO ANTES de
+# ejecutarse: la app, el altavoz, la ventana. Una forma se reconoce de un
+# vistazo; leer el texto tarda mas que la accion en pasar, y para entonces ya no
+# hay nada que cancelar. NO anade ninguna espera: el glifo se ve durante lo que
+# tarde la accion y el respiro de 250 ms que la sigue. Las ordenes que solo
+# CONSULTAN (la hora, a que juegas, que modos hay) no llevan glifo: no hay nada
+# que cancelar y el parpadeo solo seria ruido.
+$GlifosAccion = @{
+    'app' = 'app'; 'url' = 'web'; 'buscarEquipo' = 'web'
+    'volumenPct' = 'sonido'; 'volumenRel' = 'sonido'; 'volumenApp' = 'sonido'
+    'silencio' = 'mudo'
+    'brillo' = 'brillo'
+    'key' = 'tecla'; 'atajo' = 'tecla'; 'winkey' = 'tecla'; 'winaltg' = 'tecla'; 'alttab' = 'tecla'
+    'escribir' = 'escribir'
+    'winprt' = 'captura'
+    'otroMonitor' = 'ventana'; 'siempreEncima' = 'ventana'; 'esconder' = 'ventana'
+    'enfocar' = 'ventana'; 'enfocarJuego' = 'ventana'
+    'cerrarApp' = 'cerrar'; 'cerrarJuego' = 'cerrar'; 'cerrarTodo' = 'cerrar'; 'zombis' = 'cerrar'
+    'lock' = 'bloqueo'
+    'memoria' = 'nota'; 'ocrMemoria' = 'nota'; 'apuntarCopiado' = 'nota'
+    'temporizador' = 'tiempo'; 'quitarTempo' = 'tiempo'
+    'copiar' = 'copia'; 'pegar' = 'copia'; 'copiarRespuesta' = 'copia'
+    'ocr' = 'pantalla'; 'seguirLeyendo' = 'pantalla'
+    'deshacer' = 'deshacer'; 'deshacerDesde' = 'deshacer'; 'noEraEso' = 'deshacer'
+}
+function Set-UIHaciendo([string]$kind) {
+    if (-not $UiNuevaOn) { return }
+    $g = ''
+    if ($kind) { $g = [string]$GlifosAccion[$kind] }
+    # solo se reescribe el estado si CAMBIA: dos teclas seguidas no valen dos
+    # escrituras del JSON ni dos animaciones de entrada
+    if ($g -eq $script:uiHaciendo) { return }
+    $script:uiHaciendo = $g
+    Refresh-UI
 }
 
 function Initialize-UI {
@@ -5100,7 +5146,12 @@ $script:hondoPerfil = 0
 # Que juegos estaban bajando en la vuelta anterior. $null (no vacio) hasta la
 # primera lectura: al arrancar no se sabe que estaba bajando antes, y anunciar
 # ahi un final seria inventarselo.
+# SON DOS, y no una: el aviso hablado compara por ID de Steam y las reglas
+# ("cuando termine de descargarse X, abrelo") comparan por NOMBRE. Compartian
+# variable, asi que cada uno veia las claves del otro como descargas que
+# acababan de terminar y disparaba reglas con un numero por nombre.
 $script:bajandoAntes = $null
+$script:bajandoReglas = $null
 # De que frase aprendida salio la ultima orden, para poder olvidarla si dices
 # "no era eso".
 $script:ultimaAprendida = ''
@@ -5807,15 +5858,38 @@ while ($true) {
         $script:descargaCheck = $sw.ElapsedMilliseconds
         try {
             $ahoraBajan = @{}
+            # De paso, LO QUE LLEVA la mas avanzada: son los mismos bytes que ya
+            # se acaban de leer, y la capsula ya sabe dibujar una fraccion en el
+            # anillo. Se elige la mas avanzada porque es la que va a terminar
+            # antes, que es lo que se quiere saber mirando de reojo.
+            $frac = 0.0
             foreach ($j in @(Get-JuegosSteam)) {
-                if ($j.bajando) { $ahoraBajan[[string]$j.id] = $j.nombre }
+                if ($j.bajando) {
+                    $ahoraBajan[[string]$j.id] = $j.nombre
+                    if ([double]$j.total -gt 0) {
+                        $f = [double]$j.descargado / [double]$j.total
+                        if ($f -gt $frac) { $frac = [Math]::Max(0.0, [Math]::Min(1.0, $f)) }
+                    }
+                }
             }
-            foreach ($id in @($script:bajandoAntes.Keys)) {
-                if (-not $ahoraBajan.ContainsKey($id)) {
-                    $nom = [string]$script:bajandoAntes[$id]
-                    Log "DESCARGA terminada: $nom"
-                    Show-Popup "$nom ya se descargo."
-                    Say "$nom ya acabo de descargarse."
+            # solo se reescribe el estado si el anillo se movio de verdad (1 %)
+            if ([Math]::Abs($frac - $script:uiDescarga) -gt 0.01) {
+                $script:uiDescarga = $frac
+                Refresh-UI
+            }
+            # La PRIMERA lectura solo toma nota. Sin esta guarda, $null llegaba
+            # al foreach, @($null.Keys) daba una lista con un $null dentro y
+            # ContainsKey($null) reventaba la vuelta entera: la variable no se
+            # llegaba a guardar nunca y el aviso de "ya se descargo" no salto
+            # una sola vez, solo una excepcion en el log cada dos minutos.
+            if ($null -ne $script:bajandoAntes) {
+                foreach ($id in @($script:bajandoAntes.Keys)) {
+                    if (-not $ahoraBajan.ContainsKey($id)) {
+                        $nom = [string]$script:bajandoAntes[$id]
+                        Log "DESCARGA terminada: $nom"
+                        Show-Popup "$nom ya se descargo."
+                        Say "$nom ya acabo de descargarse."
+                    }
                 }
             }
             $script:bajandoAntes = $ahoraBajan
@@ -5983,16 +6057,16 @@ while ($true) {
                         $null = Update-Juegos
                         $ahoraBajan = @{}
                         foreach ($jj in @($script:Juegos)) { if ($jj.bajando) { $ahoraBajan[$jj.nombre] = $true } }
-                        if ($null -eq $script:bajandoAntes) {
-                            $script:bajandoAntes = $ahoraBajan
+                        if ($null -eq $script:bajandoReglas) {
+                            $script:bajandoReglas = $ahoraBajan
                         } else {
-                            foreach ($nm in @($script:bajandoAntes.Keys)) {
+                            foreach ($nm in @($script:bajandoReglas.Keys)) {
                                 if (-not $ahoraBajan.ContainsKey($nm)) {
-                                    Log "DESCARGA terminada: $nm"
+                                    Log "DESCARGA terminada (regla): $nm"
                                     Invoke-Reglas 'descarga' $nm
                                 }
                             }
-                            $script:bajandoAntes = $ahoraBajan
+                            $script:bajandoReglas = $ahoraBajan
                         }
                     }
                 } catch {}

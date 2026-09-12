@@ -1,4 +1,4 @@
-# Comprueba que el JSON que el asistente escribe para la capsula sigue siendo
+﻿# Comprueba que el JSON que el asistente escribe para la capsula sigue siendo
 # valido y lleva los campos nuevos. Se saca Set-UI DEL ARCHIVO REAL.
 $ruta = 'C:\Users\braya\Documents\voice-ctrl\assistant.ps1'
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($ruta, [ref]$null, [ref]$null)
@@ -72,6 +72,38 @@ try {
 } catch { $okC = $false }
 Write-Host ("  {0}  {1,-26} estado='{2}' plazo={3}" -f $(if ($okC) { 'OK ' } else { 'MAL' }), 'esperando si/no', $jc.estado, $jc.confirmaTotal)
 if (-not $okC) { $fallos++ }
+
+# LOS DOS CAMPOS NUEVOS: que esta haciendo (el glifo) y como va la descarga
+# (el anillo). El decimal es lo delicado: con la cultura de esta maquina un
+# 0,650 con coma rompe el JSON entero, y entonces la capsula no falla de forma
+# visible: se queda con el ultimo estado bueno y no hay manera de saber por que.
+$script:temporizadores.Clear()
+$script:confirmaFin = 0; $script:confirmaTotal = 0
+$script:uiHaciendo = 'sonido'; $script:uiDescarga = 0.65
+$script:uiUltimo = ''
+Set-UI 'reposo' 'bajando el volumen'
+$txtD = Get-Content -Raw -LiteralPath $RutaUiEstado
+$okD = $false; $jd = $null
+try {
+    $jd = $txtD | ConvertFrom-Json
+    $okD = ($jd.haciendo -eq 'sonido') -and ($txtD -match '"descarga":0\.650')
+} catch { $okD = $false }
+Write-Host ("  {0}  {1,-26} haciendo='{2}' descarga={3}" -f $(if ($okD) { 'OK ' } else { 'MAL' }), 'accion en curso', $jd.haciendo, $jd.descarga)
+if (-not $okD) { $fallos++ }
+
+# y que al terminar se APAGUEN los dos: un glifo que se queda encendido dice
+# que esta haciendo algo cuando ya no hace nada
+$script:uiHaciendo = ''; $script:uiDescarga = 0
+$script:uiUltimo = ''
+Set-UI 'reposo' 'listo'
+$txtE = Get-Content -Raw -LiteralPath $RutaUiEstado
+$okE = $false; $je = $null
+try {
+    $je = $txtE | ConvertFrom-Json
+    $okE = ($je.haciendo -eq '') -and ([double]$je.descarga -eq 0)
+} catch { $okE = $false }
+Write-Host ("  {0}  {1,-26} haciendo='{2}' descarga={3}" -f $(if ($okE) { 'OK ' } else { 'MAL' }), 'y se apagan al acabar', $je.haciendo, $je.descarga)
+if (-not $okE) { $fallos++ }
 
 Remove-Item $RutaUiEstado -Force -ErrorAction SilentlyContinue
 Write-Host ""
