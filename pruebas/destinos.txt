@@ -1,0 +1,54 @@
+# A DONDE tiene que ir cada frase, no solo que se entienda.
+#
+# El resto del banco cuenta cuantas frases resuelve la capa local. Eso no ve
+# las COLISIONES: dos ordenes distintas pueden entenderse las dos y aun asi
+# una haberse tragado a la otra. Paso de verdad el 12/09: al anadir "sube el
+# tamano" y "baja el tamano", el patron se comio "sube" y "baja" a secas, que
+# desde siempre son pagina arriba y pagina abajo. Las dos seguian
+# reconociendose, el numero del banco no se movio, y el navegador se quedo sin
+# poder pasar pagina.
+#
+# Formato:  frase  =>  trozo que TIENE que aparecer en lo que responde
+# Lineas que empiezan por # son comentarios.
+
+# --- las que se pisan entre si por el verbo ---
+baja => bajar la pagina
+sube => subir la pagina
+sube el tamano => mas grande
+baja el tamano => mas pequena
+hazte mas grande => mas grande
+hazte mas pequena => mas pequena
+tamano normal => tamano de siempre
+
+# --- "como va ..." tiene cuatro dueños distintos ---
+como va todo => parte general
+como va la descarga => descargas
+como va la bateria => Bateria al
+como va la escucha => escucha
+cuanto espacio me queda => espacio libre
+
+# --- moverse por un menu, que son flechas y no pagina ---
+abajo tres veces => abajo 3 veces
+arriba dos veces => arriba 2 veces
+baja tres veces => abajo 3 veces
+atras => pulsar atras
+acepta => pulsar acepta
+dale a la a => pulsar A
+pulsa la equis => pulsar X
+dale al 1 => pulsar 1
+pulsa enter => pulsar enter
+
+# --- la voz y la esquina, que tambien empiezan por verbos parecidos ---
+hazme caso solo a mi => obedecer solo a tu voz
+haz caso a todos => obedecer a cualquiera
+reconoces mi voz => que voces conozco
+ponte arriba a la derecha => arriba a la derecha
+donde estas => donde esta la capsula
+
+# --- silenciar y quitar el silencio son dos ordenes, no una que conmuta ---
+silencia => silenciar
+quita el silencio => sonido otra vez
+
+# --- y las que se responden al instante, que no deben irse al modelo ---
+que hora es => Son las
+copia la respuesta => copiar la respuesta

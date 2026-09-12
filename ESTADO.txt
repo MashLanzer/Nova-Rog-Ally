@@ -32,9 +32,9 @@ EJECUTANDO AHORA: SÍ, desde el 12/09 a las 13:57, ya con los cambios de ese
     biblioteca de Steam: 14 juegos indexados
   Y decir en voz alta: "Listo. Di nova cuando me necesites."
 
-LO QUE QUEDA POR HACER: PENDIENTE.md (15 ideas con su porqué, y las trampas
+LO QUE QUEDA POR HACER: PENDIENTE.md (14 ideas con su porqué, y las trampas
   de esta base de código que conviene leer antes de tocar nada). El 12/09 se
-  hicieron la 4, la 9, la 11, la 14 y la 15.
+  hicieron la 4, la 7, la 9, la 11, la 14 y la 15.
 
 CÓMO SE USA
   1. Decir "nova"  (o mantener pulsado ≡ ~1,1 s) -> bip, se abre el dictado.
@@ -229,6 +229,14 @@ QUÉ ENTIENDE LA RUTA LOCAL
                 "mándala al otro monitor" (si solo hay una pantalla, lo dice
                 en vez de mandar la combinación al vacío), "ponla siempre
                 encima" y "quítale el siempre encima".
+  - Menús con las manos ocupadas (nuevo): "abajo tres veces", "arriba dos",
+                "izquierda", "atrás", "acepta", "dale a la a", "pulsa el 1".
+                Son FLECHAS de verdad, que en un menú avanzar de página no mueve
+                la selección; y entiende "tres veces", no solo "3 veces", que es
+                como lo escribe el dictado. Tope de 20: pasarse de teclas en un
+                menú no se puede deshacer. OJO: "baja" y "sube" a secas siguen
+                siendo página abajo y página arriba, como siempre; solo se
+                convierten en flecha cuando dices cuántas veces.
   - Multimedia: pausa, reproduce, siguiente, anterior, silencia
   - Memoria : "recuerda que...", "anota...", "apunta..."
   - Temporizadores: "recuérdame en 20 minutos que...", "avísame en una hora"

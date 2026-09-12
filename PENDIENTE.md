@@ -48,10 +48,6 @@ ni con batería):
       «Avísame diez minutos antes de las diez». Hay «a las diez» y hay «en veinte
       minutos», pero no lo que de verdad pides antes de una partida.
 
-- [ ] **7. Teclas y botones repetidos para menús.**
-      «Baja tres veces», «dale a A», «atrás dos veces». Con un juego a pantalla
-      completa y el mando en la mano, es lo único que no se puede hacer hablando.
-
 - [ ] **8. Copia de seguridad de lo aprendido.**
       Traducciones, modos, reglas, rechazos y notas a un zip con fecha, con una
       frase. Un JSON corrupto se lleva por delante meses de ajustes sin aviso.
@@ -112,14 +108,17 @@ ni con batería):
   más de 35 Hz de diferencia. `tools\probar-voz-dueno.ps1`.
 - **15. Tamaño a petición.** «Hazte más grande» / «más pequeña» / «tamaño
   normal», en escalones del 75 al 200 %, recordado como la esquina.
+- **7. Teclas repetidas para menús.** «Abajo tres veces», «atrás», «dale a la
+  a». Flechas de verdad, y números dichos con palabras. De paso salió que el
+  banco no veía las colisiones entre órdenes parecidas: ahora hay
+  `pruebas\destinos.txt` y `tools\probar-destinos.ps1`.
 
 ## Por dónde empezar
 
-Si hay que elegir: la **2** y la **7**, que son las dos que faltan para no
-tener que soltar el mando con un juego a pantalla completa: ordenar sobre una
-app por su nombre («minimiza Spotify») y repetir teclas para moverse por un
-menú («baja tres veces», «dale a A»). Después la **17** (avisos sin voz), que
-es la pareja natural de las dos.
+Si hay que elegir: la **2** («minimiza Spotify» sin ponerlo delante), que es
+lo que queda para no tener que soltar el mando. Después la **17** (avisos sin
+voz), que es su pareja natural: con un juego delante, ni hablarte encima ni
+que no te enteres.
 
 ---
 

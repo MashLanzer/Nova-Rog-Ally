@@ -189,3 +189,10 @@ hazte mas pequena
 reduce el tamano
 tamano normal
 vuelve a tu tamano
+abajo tres veces
+atras dos veces
+acepta
+dale a la a
+pulsa el 1
+izquierda
+derecha cuatro veces

@@ -1283,6 +1283,26 @@ function Get-ParteGeneral {
     return ($partes -join ', ')
 }
 
+# CUANTAS VECES. El dictado escribe "tres veces", no "3 veces", asi que sin
+# esta tabla la mitad de las ordenes de menu no se entienden. El tope de 20 es
+# el mismo que ya tenia "pulsa X N veces": con la voz, pasarse de teclas es
+# mucho peor que quedarse corto, porque deshacer 40 pulsaciones en un menu de
+# juego no se puede.
+$VECES_TOPE = 20
+$NumerosPalabra = @{
+    'un' = 1; 'una' = 1; 'uno' = 1; 'dos' = 2; 'tres' = 3; 'cuatro' = 4; 'cinco' = 5
+    'seis' = 6; 'siete' = 7; 'ocho' = 8; 'nueve' = 9; 'diez' = 10; 'once' = 11
+    'doce' = 12; 'trece' = 13; 'catorce' = 14; 'quince' = 15; 'dieciseis' = 16
+    'diecisiete' = 17; 'dieciocho' = 18; 'diecinueve' = 19; 'veinte' = 20
+}
+function Get-Veces([string]$txt) {
+    if (-not $txt) { return 1 }
+    $t = $txt.Trim().ToLower()
+    if ($t -match '^\d{1,2}$') { return [Math]::Max(1, [Math]::Min($VECES_TOPE, [int]$t)) }
+    if ($NumerosPalabra.ContainsKey($t)) { return [int]$NumerosPalabra[$t] }
+    return 1
+}
+
 function Resolve-Fragment([string]$f) {
     # --- perfiles: una frase, varias acciones ("modo juego") ---
     if ($f -match '^(?:modo|activa el modo|activa modo|pon el modo|pon modo|ponte en modo|cambia a modo|entra en modo)\s+(.+)$') {
@@ -1509,17 +1529,48 @@ function Resolve-Fragment([string]$f) {
         $f -match '^cuanto (?:espacio|sitio) (?:me )?(?:queda|hay|tengo)\b') {
         return @(@{ kind = 'disco'; desc = 'espacio libre' })
     }
+    # --- MOVERSE POR UN MENU SIN SOLTAR EL MANDO ---
+    # Con un juego a pantalla completa, esto es lo unico que no se podia hacer
+    # hablando: habia "pulsa abajo", pero una sola vez, y un menu son cinco.
+    # "abajo tres veces", "izquierda dos", "atras", "acepta".
+    # Son FLECHAS, no pagina arriba/abajo: en un menu, avanzar de pagina no
+    # mueve la seleccion. Por eso "baja" a secas se deja como estaba (sigue
+    # siendo pagina abajo, que es lo que hace falta en el navegador) y solo se
+    # convierte en flecha cuando dices cuantas veces.
+    $DIRECCIONES = @{
+        'abajo' = 0x28; 'arriba' = 0x26; 'izquierda' = 0x25; 'derecha' = 0x27
+        'atras' = 0x1B; 'acepta' = 0x0D; 'aceptar' = 0x0D; 'entra' = 0x0D
+        'entrar' = 0x0D; 'confirma' = 0x0D; 'adelante' = 0x0D
+    }
+    if ($f -match '^(?:(?:pulsa|presiona|dale a|dale al|ve|vete|muevete|mueve|desplazate)\s+)?(?:la\s+|el\s+|tecla\s+|flecha\s+|hacia\s+|a la\s+|al\s+)?(abajo|arriba|izquierda|derecha|atras|acepta|aceptar|entra|entrar|confirma|adelante)(?:\s+(\d{1,2}|\w+)\s*(?:veces|vez))?$') {
+        # $Matches se pisa con el siguiente -match: se copia ya
+        $dir = $Matches[1]; $cuantas = $Matches[2]
+        $veces = Get-Veces $cuantas
+        $comoSeDice = if ($veces -gt 1) { "$dir $veces veces" } else { $dir }
+        return @(@{ kind = 'key'; vk = $DIRECCIONES[$dir]; repeat = $veces; desc = "pulsar $comoSeDice" })
+    }
+    # y los verbos de desplazar, SOLO cuando dices cuantas: ahi ya no hablas de
+    # la pagina, hablas de moverte por una lista
+    if ($f -match '^(baja|bajar|sube|subir)\s+(\d{1,2}|\w+)\s*(?:veces|vez)$') {
+        $verbo = $Matches[1]; $cuantas2 = $Matches[2]
+        $veces = Get-Veces $cuantas2
+        $vk = if ($verbo -like 'baj*') { 0x28 } else { 0x26 }
+        $comoSeDice = if ($verbo -like 'baj*') { 'abajo' } else { 'arriba' }
+        return @(@{ kind = 'key'; vk = $vk; repeat = $veces; desc = "pulsar $comoSeDice $veces veces" })
+    }
     # --- el tamano de la capsula, a peticion ---
     # OJO: "hazte mas grande" llega aqui como "hazte mas grande", pero "ponte
     # mas grande" pasa antes por Repair-Verb, que arregla el verbo de cabeza por
     # parecido y convierte "ponte" en "ponme". Por eso estan las dos formas.
     if ($f -match '^(?:(?:hazte|ponte|ponme|vuelvete|hazte ver)\s+)?(?:un poco\s+)?(?:mas\s+)(?:grande|grandota|mayor)$' -or
-        $f -match '^(?:aumenta|agranda|sube)(?:te)?(?:\s+(?:el\s+)?tamano)?$' -or
-        $f -match '^(?:que\s+)?(?:no\s+)?te veo\s*(?:bien|nada)?$') {
+        $f -match '^(?:aumenta|agranda)(?:\s+(?:el\s+)?tamano)?$' -or
+        $f -match '^(?:sube|aumenta|agranda)\s+(?:el\s+)?tamano$' -or
+        $f -match '^(?:que\s+)?no te veo\s*(?:bien|nada)?$') {
         return @(@{ kind = 'escalaUI'; paso = 1; desc = 'hacerse mas grande' })
     }
     if ($f -match '^(?:(?:hazte|ponte|ponme|vuelvete)\s+)?(?:un poco\s+)?(?:mas\s+)(?:pequena|pequeno|chica|chico|chiquita)$' -or
-        $f -match '^(?:reduce|achica|encoge|baja)(?:te)?(?:\s+(?:el\s+)?tamano)?$') {
+        $f -match '^(?:reduce|achica|encoge)(?:\s+(?:el\s+)?tamano)?$' -or
+        $f -match '^(?:baja|reduce|achica|encoge)\s+(?:el\s+)?tamano$') {
         return @(@{ kind = 'escalaUI'; paso = -1; desc = 'hacerse mas pequena' })
     }
     if ($f -match '^(?:(?:hazte|ponte|ponme|vuelvete)\s+)?(?:del?\s+)?tamano (?:normal|de siempre|original)$' -or
@@ -1685,8 +1736,28 @@ function Resolve-Fragment([string]$f) {
                    'arriba' = 0x26; 'abajo' = 0x28; 'izquierda' = 0x25; 'derecha' = 0x27; 'borrar' = 0x08; 'retroceso' = 0x08;
                    'suprimir' = 0x2E; 'inicio' = 0x24; 'fin' = 0x23; 'f5' = 0x74; 'f11' = 0x7A; 'windows' = 0x5B; 'play' = 0xB3; 'pausa' = 0xB3 }
         $rep = 1
-        if ($k -match '^(.+?)\s+(\d+)\s+veces$') { $k = $Matches[1]; $rep = [Math]::Min(20, [int]$Matches[2]) }
+        # "tres veces" ademas de "3 veces": el dictado escribe la palabra
+        if ($k -match '^(.+?)\s+(\d{1,2}|\w+)\s+(?:veces|vez)$') {
+            $kk = $Matches[1]; $cuantas = $Matches[2]
+            $v = Get-Veces $cuantas
+            # solo si de verdad era un numero: "dale a la tecla veces" no
+            if ($v -gt 1 -or $cuantas -match '^(?:1|un|una|uno)$') { $k = $kk; $rep = $v }
+        }
         if ($mapa.ContainsKey($k)) { return @(@{ kind = 'key'; vk = $mapa[$k]; repeat = $rep; desc = "pulsar $k" }) }
+        # UNA LETRA O UN NUMERO SUELTO: "dale a la a", "pulsa el 1". En un menu
+        # de juego es lo que hay que poder decir, y el mapa de arriba solo tiene
+        # teclas con nombre. Se admite tambien la letra dicha sola ("a", "be").
+        $letras = @{ 'be' = 'b'; 'ce' = 'c'; 'de' = 'd'; 'efe' = 'f'; 'ge' = 'g'; 'hache' = 'h'
+                     'jota' = 'j'; 'ka' = 'k'; 'ele' = 'l'; 'eme' = 'm'; 'ene' = 'n'; 'pe' = 'p'
+                     'cu' = 'q'; 'ere' = 'r'; 'erre' = 'r'; 'ese' = 's'; 'te' = 't'; 'uve' = 'v'
+                     'equis' = 'x'; 'ye' = 'y'; 'zeta' = 'z' }
+        if ($letras.ContainsKey($k)) { $k = $letras[$k] }
+        if ($k -match '^[a-z]$') {
+            return @(@{ kind = 'key'; vk = [int][char]([string]$k).ToUpper(); repeat = $rep; desc = "pulsar $($k.ToUpper())" })
+        }
+        if ($k -match '^\d$') {
+            return @(@{ kind = 'key'; vk = (0x30 + [int]$k); repeat = $rep; desc = "pulsar $k" })
+        }
         return $null
     }
     switch -regex ($f) {

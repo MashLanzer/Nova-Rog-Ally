@@ -27,3 +27,9 @@ recordatorios, fechas y estadisticas se desvian a una carpeta temporal.
   11/09 son 9, y de esos 6 son ordenes de verdad que estaban mezcladas.
 - `casos-nuevos.txt`: casos concretos que se estan trabajando, con sus
   controles (frases que NO se deben partir ni reconocer de mas).
+- `destinos.txt`: a DONDE tiene que ir cada frase, no solo que se entienda.
+  Los demas archivos cuentan cuantas resuelve la capa local, y ese numero no
+  ve las COLISIONES: dos ordenes pueden entenderse las dos y una haberse
+  comido a la otra sin que el total se mueva. Paso el 12/09 con "sube" y
+  "baja", que se los trago el patron del tamano de la capsula. Se pasa con
+  `tools\probar-destinos.ps1` y va dentro de `probar-todo.ps1`.
