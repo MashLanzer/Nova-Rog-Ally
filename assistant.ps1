@@ -2151,6 +2151,7 @@ $EscuchaMotor = [string](Get-Cfg 'escucha' 'motor' 'vosk')
 # ganancia por software: 'auto' mide el pico real y se ajusta sola
 $EscuchaGanancia = [string](Get-Cfg 'escucha' 'ganancia' 'auto')
 $script:wakeProc = $null
+$script:vozWinProc = $null
 $script:finVoz = 0
 $MarcaWake = Join-Path $TmpDir "despierta.flag"
 # Mientras exista esta marca, el worker ignora el microfono. Se crea al hablar
@@ -2187,6 +2188,13 @@ $RutaVocabulario = Join-Path $TmpDir "vocabulario.txt"
 $RutaDictado = Join-Path $TmpDir "dictado.txt"
 $RutaParcial = Join-Path $TmpDir "dictado-parcial.txt"
 $RutaEstado = Join-Path $TmpDir "escucha-estado.txt"
+# --- DICTADO CON EL MOTOR DE WINDOWS (el de Win+H, sin su ventana) ---
+# Convive con Whisper en vez de sustituirlo: los dos oyen la misma orden y
+# se prefiere lo que diga Windows SI dice algo. Esa API escucha el microfono
+# ella misma y no acepta audio amplificado, asi que puede no oir este micro,
+# que entra a 0.02-0.05; por eso viene apagado y por eso hay respaldo.
+$VozWindowsOn = [bool](Get-Cfg 'input' 'vozWindows' $false)
+$RutaDictadoWin = Join-Path $TmpDir "dictado-winrt.txt"
 # Mientras hay un juego delante, la palabra de activacion se apaga y solo vale
 # el boton. Es cuando mas molesta equivocarse -el 11/09 abrio un juego solo en
 # mitad de una partida- y cuando el boton del mando esta mas a mano.
@@ -2275,6 +2283,21 @@ function Initialize-Escucha {
                 -WindowStyle Hidden -PassThru
         }
         $null = $script:wakeProc.Handle
+        # el oido de Windows, si esta activado: otro proceso aparte, que mira
+        # la MISMA marca de dictado y escribe en su propio archivo
+        if ($VozWindowsOn) {
+            $wv = Join-Path $LogDir "voz_windows.py"
+            if (Test-Path -LiteralPath $wv) {
+                try {
+                    $script:vozWinProc = Start-Process -FilePath $PyExe `
+                        -ArgumentList @('-u', $wv, $MarcaDictar, $RutaDictadoWin, $EventLog, 'es-ES') `
+                        -WorkingDirectory $LogDir -WindowStyle Hidden -PassThru
+                    $null = $script:vozWinProc.Handle
+                    try { $script:vozWinProc.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal } catch {}
+                    Log "dictado de Windows ACTIVO (worker PID=$($script:vozWinProc.Id))"
+                } catch { Log ("WARN: no arranco el dictado de Windows: " + $_.Exception.Message) }
+            } else { Log "WARN: falta voz_windows.py" }
+        }
         # Es un portatil de JUEGOS: la escucha nunca debe competir por CPU con
         # el juego en primer plano.
         try { $script:wakeProc.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal } catch {}
@@ -4370,6 +4393,18 @@ while ($true) {
             $dic = ''
             try { $dic = [System.IO.File]::ReadAllText($RutaDictado, [System.Text.Encoding]::UTF8) } catch {}
             Remove-Item -LiteralPath $RutaDictado -Force -ErrorAction SilentlyContinue
+            # ¿dijo algo el motor de Windows? Entonces se prefiere lo suyo. Si no
+            # llego nada -o no oye este microfono- se sigue con lo de Whisper,
+            # que es justo lo que hace que activarlo no pueda empeorar nada.
+            if ($VozWindowsOn -and (Test-Path -LiteralPath $RutaDictadoWin)) {
+                $porWin = ''
+                try { $porWin = [System.IO.File]::ReadAllText($RutaDictadoWin, [System.Text.Encoding]::UTF8) } catch {}
+                Remove-Item -LiteralPath $RutaDictadoWin -Force -ErrorAction SilentlyContinue
+                if ($porWin.Trim()) {
+                    if ($porWin.Trim() -ne $dic.Trim()) { Log "DICTADO de Windows: '$($dic.Trim())' -> '$($porWin.Trim())'" }
+                    $dic = $porWin
+                }
+            }
             Remove-Item -LiteralPath $MarcaDictar -Force -ErrorAction SilentlyContinue
             $script:armed = $false
             $capture.Hide()

@@ -167,6 +167,18 @@ CALLARLA UN RATO (nuevo): "no me escuches", "duérmete", "no me escuches
   Para volver antes: "escúchame" / "vuelve a escucharme" / "despierta"
   (con el botón, que es lo que sigue vivo mientras está sorda).
 
+DICTADO CON EL MOTOR DE WINDOWS (nuevo, APAGADO): el mismo motor que
+  usa Win+H -el que te entendía bien- pero SIN abrir Win+H y sin robarte
+  el foco. Está montado y sin activar, porque falta comprobar una cosa:
+  esa API escucha el micrófono ella misma y no acepta el audio ya
+  amplificado, y tu micro entra flojísimo. Para comprobarlo:
+      python tools\probar-voz-windows.py      (cinco frases, un minuto)
+  Si te oye, actívalo con: config.json -> input.vozWindows = true
+  No sustituye a Whisper, CONVIVE con él: los dos oyen la misma orden y se
+  usa lo que diga Windows solo si dice algo. Si no oye, no se pierde nada.
+  Requisitos ya cumplidos: paquete winsdk instalado y Configuración >
+  Privacidad y seguridad > Voz > Reconocimiento en línea activado.
+
 ¿CÓMO ME OYES? (nuevo): pregúntaselo tal cual, o "qué tal el micrófono".
   Te dice en una frase si entras bajo (y cuánto amplifica), si están
   sonando los altavoces, y cuántas veces se despertó hoy para nada. Es lo

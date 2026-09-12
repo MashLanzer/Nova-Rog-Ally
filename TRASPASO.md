@@ -690,6 +690,31 @@ Lo que costó afinar, y por qué está como está:
   completo**: hay supervisión y se relanza, pero cada muerte se lleva el
   dictado en curso, deja las marcas puestas y vuelve a pagar los ~7 s de carga
   de Whisper. Ahora se anota el fallo, se rehace el reconocedor y se sigue.
+- **DICTADO CON EL MOTOR DE WINDOWS** (`voz_windows.py`, `input.vozWindows`,
+  apagado por defecto). Es el motor de Win+H **sin su ventana**: el usuario
+  decía que le entendía mucho mejor que Whisper, y el número lo respalda
+  (base falla el 40 % de las palabras, small el 27 %). Se abandonó Win+H
+  porque roba el foco, no por el motor.
+  - Requiere `pip install winsdk` (ya instalado) y **Reconocimiento de voz en
+    línea** activado en Configuración (`HasAccepted = 1` en
+    `HKCU:...Speech_OneCore\Settings\OnlineSpeechPrivacy`). Sin eso el dictado
+    libre no compila; la gramática cerrada sí, y esa es offline.
+  - **Convive, no sustituye.** Vigila la MISMA marca (`dictar.flag`) que
+    `wake_vosk.py` —cero protocolo nuevo— y escribe en `tmp\dictado-winrt.txt`.
+    Al recoger el dictado, el asistente prefiere ese texto **si lo hay**; si
+    no llega, sigue con el de Whisper. Tampoco entrega lo que el propio motor
+    marca como `rechazada`. Así, activarlo no puede empeorar nada.
+  - **La incógnita que queda**: esa API escucha el micrófono ella misma y no
+    acepta audio ya tratado, así que **no recibe la amplificación por software**
+    del worker. Con la voz entrando a 0,02-0,05, puede que no oiga nada — es
+    lo mismo que le pasaba a SAPI. `tools\probar-voz-windows.py` lo resuelve en
+    un minuto, pero hace falta hablar: no se puede probar leyendo código.
+  - Probado sin voz: arranca, prepara el motor, escucha al ver la marca y al
+    no oír nada se rinde en ~5 s sin escribir. Y **la prueba de reproducir
+    audio por los altavoces no vale**: el pipeline de Windows cancela el eco a
+    propósito, o sea que le estábamos dando justo lo que ignora. De hecho eso
+    sugiere que este motor sería inmune a los falsos positivos por audio de
+    fondo que han dado tanta guerra.
 - **Dictado por Vosk** (`input.dictado = "vosk"`): mismo camino sin Whisper;
   el modelo pequeño transcribe mal las órdenes. Se conserva como respaldo.
 - **Confirmación sí/no**: cuando la capa local acierta una orden solo por

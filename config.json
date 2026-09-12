@@ -10,6 +10,7 @@
                   "dictado":  "whisper",
                   "whisperModelo":  "base",
                   "whisperModeloPreciso":  "small",
+                  "vozWindows":  false,
                   "seguimientoMs":  2500
               },
     "opencode":  {
