@@ -19,10 +19,14 @@ $script:juegoActivo = $null
 $ZombiMinutos = 20
 $ZombiUsoCPU = 0.30
 function Find-Juego($t) { return $null }   # sin biblioteca: usa el nombre de la carpeta
+# las estadisticas se sustituyen por datos de mentira: lo que se prueba es
+# Get-Atragantos, no de donde vienen los numeros
+function Get-Estadisticas { return $script:stats }
 
 Invoke-Expression (Traer 'ConvertTo-Plain')
 Invoke-Expression (Traer 'Test-MismoAudio')
 Invoke-Expression (Traer 'Get-JuegosZombis')
+Invoke-Expression (Traer 'Get-Atragantos')
 
 $mal = 0
 Write-Host "--- Test-MismoAudio (del archivo real) ---"
@@ -81,5 +85,35 @@ $real = @(Get-JuegosZombis)
 if ($real.Count -eq 0) { "  ninguno colgado" } else { foreach ($x in $real) { "  COLGADO: $($x.nombre) ($($x.minutos) min)" } }
 
 Write-Host ""
+# --- Get-Atragantos: que ordenes fallan mas de una vez ---
+# Lo delicado es que NO cuente ruido de una palabra y que agrupe bien lo que
+# vino por caminos distintos (descarte hoy, modelo ayer): si no agrupa, la
+# frase que mas falla se lee igual que una que fallo una vez y ya.
+Write-Host ""
+Write-Host "--- Get-Atragantos (del archivo real) ---"
+$script:stats = @{
+    dias = @{}
+    descartes = @('2026-09-12  pon musica', '2026-09-11  pon musica', '2026-09-10  abre el disco duro', '2026-09-09  eh')
+    recientes = @(
+        '2026-09-12 21:03  [traducir]  pon musica',
+        '2026-09-12 20:10  [local]  abre steam',
+        '2026-09-11 19:00  [error]  cierra el juego',
+        '2026-09-11 18:00  [error]  cierra el juego'
+    )
+}
+$at = @(Get-Atragantos)
+$casosA = @(
+    @('la que mas falla va primera', ($at.Count -gt 0 -and (ConvertTo-Plain $at[0].frase) -eq 'pon musica')),
+    @('y cuenta las tres veces',     ($at.Count -gt 0 -and $at[0].veces -eq 3)),
+    @('junta descarte y modelo',     ($at.Count -gt 0 -and $at[0].rutas.Count -eq 2)),
+    @('el error tambien cuenta',     (@($at | Where-Object { (ConvertTo-Plain $_.frase) -eq 'cierra el juego' -and $_.veces -eq 2 }).Count -eq 1)),
+    @('una orden que fue bien no sale', (@($at | Where-Object { (ConvertTo-Plain $_.frase) -eq 'abre steam' }).Count -eq 0)),
+    @('el ruido de una palabra no sale', (@($at | Where-Object { (ConvertTo-Plain $_.frase) -eq 'eh' }).Count -eq 0))
+)
+foreach ($c in $casosA) {
+    if (-not $c[1]) { $mal++ }
+    "  {0}  {1}" -f $(if ($c[1]) { 'OK  ' } else { 'MAL ' }), $c[0]
+}
+
 if ($mal -gt 0) { Write-Host "$mal casos MAL"; exit 1 }
 Write-Host "todo correcto"

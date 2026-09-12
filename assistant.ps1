@@ -962,6 +962,24 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '') {
         if ($s.descartes.Count -eq 0) { [void]$sb.AppendLine("_nada todavía_") }
         foreach ($x in $s.descartes) { [void]$sb.AppendLine("- " + $x) }
         [void]$sb.AppendLine("")
+        # LO QUE SE LE ATRAGANTA. Arriba ya estaban los descartes sueltos, pero
+        # sin contar: una frase que falla cinco veces se leia igual que una que
+        # fallo una vez y nunca mas. Agrupado y contado, se ve que arreglar.
+        try {
+            $at = @(Get-Atragantos | Where-Object { $_.veces -ge 2 } | Select-Object -First 12)
+            if ($at.Count -gt 0) {
+                [void]$sb.AppendLine("## Lo que más se me atraganta")
+                [void]$sb.AppendLine("")
+                [void]$sb.AppendLine('Frases que acabaron sin entenderse, en el modelo o en error, MÁS DE UNA VEZ. Para arreglar una: di "aprende que <la frase> es <la orden buena>".')
+                [void]$sb.AppendLine("")
+                [void]$sb.AppendLine("| veces | frase | qué pasó |")
+                [void]$sb.AppendLine("|---:|---|---|")
+                foreach ($x in $at) {
+                    [void]$sb.AppendLine("| $($x.veces) | $($x.frase) | " + ($x.rutas -join ", ") + " |")
+                }
+                [void]$sb.AppendLine("")
+            }
+        } catch {}
         [void]$sb.AppendLine("## Últimas órdenes")
         [void]$sb.AppendLine("")
         foreach ($x in $s.recientes) { [void]$sb.AppendLine("- " + $x) }
@@ -1002,6 +1020,69 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '') {
     } catch { Log ("estadisticas: " + $_.Exception.Message) }
 }
 
+# QUE SE ME ATRAGANTA. Las ordenes que acabaron en el modelo, en nada o en un
+# error, agrupadas y contadas. Estos datos ya se guardaban desde hace dias y
+# nadie los miraba nunca: el unico sitio donde se veia que algo fallaba era el
+# log, y para eso hay que ir a buscarlo. Devuelve una lista ordenada de
+# @{ frase; veces; rutas }.
+# El portapapeles, con red. Get-Clipboard puede fallar (otro proceso lo tiene
+# abierto) y ahi lo correcto es contestar "no tienes nada", no reventar.
+function Get-Portapapeles {
+    try {
+        $t = Get-Clipboard -Format Text -ErrorAction SilentlyContinue
+        if ($t -is [array]) { $t = $t -join " " }
+        return ([string]$t).Trim()
+    } catch { return '' }
+}
+
+# Un vistazo corto y decible. Se lee EN VOZ ALTA, asi que no tiene sentido
+# soltar mil caracteres ni las lineas en crudo.
+function Get-Ojeada([string]$t) {
+    $x = (($t -replace '[\r\n]+', ' ') -replace '\s{2,}', ' ').Trim()
+    if ($x.Length -gt 90) { $x = $x.Substring(0, 90) + '...' }
+    return $x
+}
+
+function Get-Atragantos {
+    $s = Get-Estadisticas
+    $cuenta = @{}; $rutasDe = @{}; $comoSeDijo = @{}
+    $apuntar = {
+        param($frase, $ruta)
+        $k = ConvertTo-Plain $frase
+        if (-not $k -or $k.Length -lt 3) { return }
+        # una palabra suelta casi siempre es ruido, no una orden que falle
+        if ($k -notmatch '\s') { return }
+        if (-not $cuenta.ContainsKey($k)) { $cuenta[$k] = 0; $rutasDe[$k] = @(); $comoSeDijo[$k] = $frase }
+        $cuenta[$k]++
+        if ($rutasDe[$k] -notcontains $ruta) { $rutasDe[$k] += $ruta }
+    }
+    foreach ($x in @($s.descartes)) {
+        # "2026-09-12  abre el disco duro"
+        $f = $x; if ($x -match '^\d{4}-\d{2}-\d{2}\s+(.+)$') { $f = $Matches[1] }
+        & $apuntar $f 'no lo entendi'
+    }
+    foreach ($x in @($s.recientes)) {
+        # "2026-09-12 21:03  [traducir]  pon musica"
+        if ($x -notmatch '^\S+\s+\S+\s+\[([^\]]+)\]\s+(.+)$') { continue }
+        # copiar YA: cualquier -match posterior se lleva $Matches por delante
+        $ruta = $Matches[1]; $f = $Matches[2]
+        $etiqueta = switch ($ruta) {
+            'traducir' { 'tuve que preguntarle al modelo' }
+            'accion'   { 'tuve que preguntarle al modelo' }
+            'pregunta' { 'tuve que preguntarle al modelo' }
+            'error'    { 'acabo en error' }
+            default    { '' }
+        }
+        if (-not $etiqueta) { continue }
+        & $apuntar $f $etiqueta
+    }
+    $lista = @()
+    foreach ($k in $cuenta.Keys) {
+        $lista += @{ frase = $comoSeDijo[$k]; veces = $cuenta[$k]; rutas = $rutasDe[$k] }
+    }
+    return @($lista | Sort-Object -Property @{ Expression = { $_.veces }; Descending = $true }, @{ Expression = { $_.frase } })
+}
+
 function Resolve-Fragment([string]$f) {
     # --- perfiles: una frase, varias acciones ("modo juego") ---
     if ($f -match '^(?:modo|activa el modo|activa modo|pon el modo|pon modo|ponte en modo|cambia a modo|entra en modo)\s+(.+)$') {
@@ -1024,6 +1105,24 @@ function Resolve-Fragment([string]$f) {
     # "recuerda que X" -> se anota YA, sin pasar por el modelo
     # El lookahead negativo distingue "recuerdame que X" (nota) de
     # "recuerdame EN 20 MINUTOS que X" (temporizador), que se resuelve mas abajo.
+    # --- portapapeles ---
+    # Va ANTES de anotar: si no, "apunta lo copiado" guardaria una nota que
+    # dice, literalmente, "lo copiado".
+    if ($f -match '^(?:apunta|anota|guarda)\s+(?:lo|el|eso|esto)\s+(?:que\s+tengo\s+)?(?:copiado|del portapapeles)$' -or
+        $f -match '^guarda (?:esto|eso) en (?:mis )?(?:notas|la memoria|el diario)$') {
+        return @(@{ kind = 'apuntarCopiado'; desc = 'guardar lo copiado' })
+    }
+    if ($f -match '^(?:copia|copiame|copiar)(?:\s+(?:esto|eso|lo|aqui))?$' -or
+        $f -match '^copialo$') {
+        return @(@{ kind = 'copiar'; desc = 'copiar' })
+    }
+    if ($f -match '^(?:pega|pegame|pegar)(?:\s+(?:esto|eso|lo|aqui|aca))?$' -or
+        $f -match '^pegalo$') {
+        return @(@{ kind = 'pegar'; desc = 'pegar' })
+    }
+    if ($f -match '^(?:que (?:tengo )?copiado|que copie|que hay en el portapapeles|que tengo en el portapapeles|que hay copiado)$') {
+        return @(@{ kind = 'queCopiado'; desc = 'que tengo copiado' })
+    }
     if ($f -match '^(?:recuerda|recuerdame|acuerdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!en\s+\d+\s*(?:segundo|minuto|hora))(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?:que\s+|de\s+que\s+)?(.+)$') {
         return @(@{ kind = 'memoria'; texto = $Matches[1].Trim(); desc = "anotar en la memoria" })
     }
@@ -1134,6 +1233,10 @@ function Resolve-Fragment([string]$f) {
     # --- "no era eso": deshacer Y no repetir el error ---
     if ($f -match '^(?:no era eso|eso no era|no era esto|no te pedi eso|eso no|no queria eso|no era lo que dije)$') {
         return @(@{ kind = 'noEraEso'; desc = 'deshacer y olvidar esa interpretacion' })
+    }
+    # --- en que fallo ---
+    if ($f -match '^(?:que (?:me )?(?:estas |estoy )?entend\w* mal|en que fall\w*|que (?:no )?(?:entiendes|te cuesta|se te atraganta)|que se te atraganta|donde fall\w*)\b') {
+        return @(@{ kind = 'queFallo'; desc = 'en que fallo' })
     }
     # --- temporizadores: consultar y cancelar ---
     if ($f -match '^(?:cuanto (?:queda|falta)|que queda)\s*(?:del?\s+)?(?:temporizador|aviso|alarma|cuenta atras)?$' -or
@@ -1870,6 +1973,45 @@ function Invoke-FastCommand([string]$text) {
                         $script:ultimaAprendida = ''
                     }
                     $a.desc = if ($olvidada) { "$r. Y olvido que '$olvidada' significaba eso." } else { $r }
+                }
+                'copiar' {
+                    [System.Windows.Forms.SendKeys]::SendWait('^c')
+                    # se espera a que la ventana de verdad copie: sin esta pausa
+                    # se lee el portapapeles ANTERIOR y te dice una cosa por otra
+                    Start-Sleep -Milliseconds 250
+                    $t = Get-Portapapeles
+                    $a.desc = if ($t) { 'copiado: ' + (Get-Ojeada $t) } else { 'copiado' }
+                }
+                'pegar' {
+                    [System.Windows.Forms.SendKeys]::SendWait('^v')
+                    $a.desc = 'pegado'
+                }
+                'queCopiado' {
+                    $t = Get-Portapapeles
+                    $a.desc = if ($t) { 'tienes copiado: ' + (Get-Ojeada $t) }
+                              else { 'no tienes nada copiado' }
+                }
+                'apuntarCopiado' {
+                    $t = Get-Portapapeles
+                    if (-not $t) {
+                        $a.desc = 'no tienes nada copiado'
+                    } else {
+                        $limpio = (($t -replace '[\r\n]+', ' / ') -replace '\s{2,}', ' ').Trim()
+                        if ($limpio.Length -gt 600) { $limpio = $limpio.Substring(0, 600) + ' [...]' }
+                        $null = Add-Memoria ("(copiado) " + $limpio)
+                        # se lee el principio: asi sabes QUE guardo al momento
+                        $a.desc = 'apuntado: ' + (Get-Ojeada $t)
+                    }
+                }
+                'queFallo' {
+                    $at = @(Get-Atragantos | Where-Object { $_.veces -ge 2 } | Select-Object -First 4)
+                    if ($at.Count -eq 0) {
+                        $a.desc = 'de lo que llevo apuntado, nada se me ha atragantado mas de una vez'
+                    } else {
+                        $partes = foreach ($x in $at) { "$($x.frase), $($x.veces) veces ($($x.rutas -join ' y '))" }
+                        $a.desc = 'lo que mas se me atraganta: ' + ($partes -join '; ') +
+                                  '. Si me dices "aprende que" y luego la frase y la orden buena, no vuelve a pasar.'
+                    }
                 }
                 'verTempo' {
                     # la sordina vive en esta misma lista y no es un aviso tuyo

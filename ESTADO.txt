@@ -222,6 +222,13 @@ QUÉ ENTIENDE LA RUTA LOCAL
   - Steam sabe más: "¿cuándo jugué a Outlast?", "¿a qué he jugado esta
                 semana?", "¿cuánto ocupa Elden Ring?", "¿qué se está
                 descargando?", "¿cuánto espacio me queda?"
+  - Portapapeles: "copia esto", "pégalo", "¿qué tengo copiado?" y
+                "apunta lo copiado" (se va a tus notas). Con el mando en la
+                mano, un Ctrl+C obligaba a soltarlo.
+  - "¿en qué fallas?" / "¿qué me estás entendiendo mal?": te dice las frases
+                que han acabado sin entenderse, en el modelo o en error MÁS DE
+                UNA VEZ, contadas. Esos datos llevaban días guardándose y no
+                los miraba nadie. También salen en estadisticas.md.
   - Reglas: "cuando quite el cargador pon el brillo al 30", "cuando la
                 batería baje del 15 avísame".
 
