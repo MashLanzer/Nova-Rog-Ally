@@ -1686,6 +1686,18 @@ function Resolve-Fragment([string]$f) {
     # --- DICTADO LARGO ---
     # El dictado de siempre es para ordenes cortas; para escribir un mensaje no
     # sirve. Esto entra en modo continuo escribiendo en la ventana de delante.
+    # con destino: "dicta un correo en el bloc de notas", "dicta en discord"
+    if ($f -match '^(?:dicta|dictame|escribe|toma)\s+(?:un\s+|una\s+|el\s+|la\s+)?(?:correo|mensaje|texto|nota larga|dictado|carta|email|whatsapp)?\s*(?:en|a)\s+(?:el\s+|la\s+|los\s+)?(.+)$' -or
+        $f -match '^(?:empieza|empezar|entra)\s+(?:a\s+|en\s+(?:modo\s+)?)?dicta(?:r|do)\s+(?:en|a)\s+(?:el\s+|la\s+)?(.+)$') {
+        $donde = $Matches[1].Trim()
+        $pr = Resolve-Proceso $donde
+        if ($pr) {
+            return @(@{ kind = 'dictadoLargo'; proceso = $pr.proceso; desc = "dictado largo en $($pr.nombre)" })
+        }
+        # si no se sabe a que app se refiere, NO se entra a ciegas: escribir en
+        # la ventana equivocada es peor que no escribir
+        return @(@{ kind = 'decir'; desc = "no se cual es $donde. Ponla delante y dime dicta un correo" })
+    }
     if ($f -match '^(?:dicta|dictame|escribe|toma)\s+(?:un\s+|una\s+|el\s+|la\s+)?(?:correo|mensaje|texto|nota larga|dictado|carta|email|whatsapp)$' -or
         $f -match '^(?:empieza|empezar|entra)\s+(?:a\s+|en\s+(?:modo\s+)?)?dicta(?:r|do)$' -or
         $f -match '^(?:modo\s+)?dictado(?:\s+largo)?$' -or
@@ -3021,6 +3033,19 @@ function Invoke-FastCommand([string]$text) {
                     # la que tenias TU delante al empezar a hablar, no la que
                     # tiene el foco ahora (que ya es la del asistente)
                     $script:dictadoVentana = $script:ventanaUsuario
+                    # ...salvo que hayas dicho a cual: entonces se pone delante
+                    if ($a.proceso) {
+                        $pd = Get-Process -Name $a.proceso -ErrorAction SilentlyContinue |
+                              Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+                        if (-not $pd) {
+                            $a.desc = "$($a.desc): no esta abierta"
+                            break
+                        }
+                        [void][AX]::ShowWindow($pd.MainWindowHandle, 9)   # por si estaba minimizada
+                        [void][AX]::ForceForeground($pd.MainWindowHandle)
+                        Start-Sleep -Milliseconds 200
+                        $script:dictadoVentana = $pd.MainWindowHandle
+                    }
                     # QUE VENTANA es, en el log: si algun dia el texto aparece
                     # donde no debe, este numero es lo unico que lo explica
                     Log ("DICTADO LARGO: escribire en la ventana " + $script:dictadoVentana)

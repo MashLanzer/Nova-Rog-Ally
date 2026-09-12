@@ -846,21 +846,25 @@ public class NovaUI : Window
         brilloPunto.Color = acento; brilloPunto.BlurRadius = 10; brilloPunto.ShadowDepth = 0; brilloPunto.Opacity = 0.9;
         punto.Effect = brilloPunto;
         cuerpo.Children.Add(punto);
-        // ecualizador: cuatro bandas dentro del punto mientras habla
+        // ECUALIZADOR: las cuatro bandas de cuando habla, DEBAJO de los ojos.
+        // Estaban centradas en el punto, o sea justo encima de las pupilas, y
+        // se tapaban unas a otras: la cara desaparecia cada vez que hablaba.
+        // Abajo funcionan como una boca -que es lo que son- y ya no estorban.
         ecualizador = new StackPanel();
         ecualizador.Orientation = Orientation.Horizontal;
         ecualizador.HorizontalAlignment = HorizontalAlignment.Center;
-        ecualizador.VerticalAlignment = VerticalAlignment.Center;
+        ecualizador.VerticalAlignment = VerticalAlignment.Bottom;
+        ecualizador.Margin = new Thickness(0, 0, 0, DIAM_PUNTO * 0.16);
         ecualizador.Opacity = 0;
         ecualizador.IsHitTestVisible = false;
         bandas = new Rectangle[4];
         for (int i = 0; i < 4; i++)
         {
             var b = new Rectangle();
-            b.Width = 1.4; b.Height = 2;
-            b.RadiusX = 0.7; b.RadiusY = 0.7;
-            b.Margin = new Thickness(0.55, 0, 0.55, 0);
-            b.VerticalAlignment = VerticalAlignment.Center;
+            b.Width = 1.3; b.Height = 1.4;
+            b.RadiusX = 0.65; b.RadiusY = 0.65;
+            b.Margin = new Thickness(0.5, 0, 0.5, 0);
+            b.VerticalAlignment = VerticalAlignment.Bottom;
             b.Fill = new SolidColorBrush(Color.FromArgb(0xC8, 0xFF, 0xFF, 0xFF));
             bandas[i] = b;
             ecualizador.Children.Add(b);
@@ -2431,8 +2435,8 @@ public class NovaUI : Window
                 for (int i = 0; i < bandas.Length; i++)
                 {
                     double mod = 0.55 + 0.45 * Math.Sin(tt * (7 + i * 3.1) + i * 1.3);
-                    double h = 1.5 + e * mod * 7.5;
-                    bandas[i].Height = Math.Max(1.5, Math.Min(9, h));
+                    double h = 1.2 + e * mod * 4.2;
+                    bandas[i].Height = Math.Max(1.2, Math.Min(5.2, h));
                 }
                 if (ecualizador.Opacity < 0.05) { Desvanecer(ecualizador, 1, 200); }
             }

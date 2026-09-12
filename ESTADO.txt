@@ -194,6 +194,11 @@ DICTADO LARGO (nuevo, PENDIENTE DE QUE LO PRUEBES TÚ)
                             con Ctrl+Z: deshacer en una ventana ajena puede
                             tirar de cosas que no ha escrito el asistente)
     "cambia X por Y"     -> reescribe el último trozo con el cambio
+  Se le puede decir DÓNDE: "dicta un correo en el bloc de notas", "dicta en
+  discord". Entonces pone esa ventana delante él solo (y la restaura si estaba
+  minimizada) y dicta ahí, así no hay que acordarse de hacer clic primero. Si
+  no sabe qué app es, NO entra a ciegas: lo dice. Escribir un correo entero en
+  la ventana equivocada es peor que no escribirlo.
   Se sale de TRES formas, a propósito: diciendo "ya está" (o "para de dictar"),
   manteniendo ≡, y solo, a los 10 minutos sin escribir nada
   (config.json -> input.dictadoLargoMinutos). Un modo que escribe en la ventana
@@ -553,6 +558,9 @@ LA CÁPSULA, AL DÍA (nuevo)
     y no queda nada que cancelar. NO añade ninguna espera: se enciende antes de
     tocar nada y se apaga al terminar. Las órdenes que solo CONSULTAN (la hora,
     a qué juegas, qué modos tienes) no llevan glifo: ahí no hay nada que parar.
+  - Las barritas de cuando habla van DEBAJO de los ojos, no encima: estaban
+    centradas en el punto, o sea justo sobre las pupilas, y la cara desaparecía
+    cada vez que hablaba. Abajo funcionan como una boca, que es lo que son.
   - SE VE CUÁNTAS COSAS SON Y POR CUÁL VA (nuevo): "abre Steam y pon modo
     juego" son dos cosas. Ahora, cuando una orden lleva más de una, aparece una
     fila de puntos en la esquina de abajo: el que se está haciendo encendido y
