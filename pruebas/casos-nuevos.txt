@@ -114,3 +114,9 @@ cuanto pesa silent breath
 # --- control: las reglas de verdad siguen siendo reglas ---
 cuando abra elden ring pon modo noche
 cuando la bateria baje del 20 bloquea
+# --- reglas nuevas: cargador y disco, y "avisame" como accion ---
+cuando quite el cargador pon el brillo al 30
+cuando enchufe el cargador pon el brillo al 100
+cuando queden menos de 20 gigas avisame
+cuando la bateria baje del 15 avisame
+di que ya es hora de dormir

@@ -53,9 +53,19 @@ CONTROL (nuevo, todo en local): "cierra steam", "cierra esta ventana",
   escritorio", "escribe hola qué tal", "pulsa enter", "copia", "pega",
   "selecciona todo", "guarda", "nueva pestaña", "pon bad bunny en
   spotify", "reproduce lofi en youtube", "busca en el equipo fotos".
-REGLAS (nuevo): "cuando abra elden ring pon modo noche", "cuando la
-  batería baje del 20 bloquea", "todos los días a las 9 pon el brillo al
-  60", "cada 45 minutos ...". "qué reglas hay", "borra las reglas".
+REGLAS: "cuando abra elden ring pon modo noche", "cuando la batería baje
+  del 20 bloquea", "todos los días a las 9 pon el brillo al 60", "cada 45
+  minutos ...". "qué reglas hay", "borra las reglas".
+  NUEVOS DISPARADORES: el CARGADOR ("cuando quite el cargador pon el brillo
+  al 30", "cuando lo enchufe pon el brillo al 100") y el DISCO ("cuando
+  queden menos de 20 gigas avísame"). El del cargador salta al enchufar o
+  desenchufar, no cada minuto.
+  Y ahora una regla puede sólo HABLAR: "di que ya es hora de dormir". Antes
+  no había forma y había que recurrir al truco de "recuérdame en 0 minutos
+  que...". Si acabas la regla con "avísame", se traduce sola a un aviso
+  hablado con el texto del disparador.
+  La BATERÍA ya se dice en tiempo: "batería al 34 por ciento, te quedan
+  unos 1 h 20 min" (enchufada dice "cargada y enchufada").
 FECHAS: "recuerda que el 3 de octubre es el cumple de Ana" -> ese día
   te lo dice. "qué fechas tengo".
 RECORDATORIOS: "recuérdame mañana a las 10 que llame al médico", "avísame

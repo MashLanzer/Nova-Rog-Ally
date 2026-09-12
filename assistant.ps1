@@ -599,6 +599,10 @@ $script:zombiCheck = 0
 # se puede hacer sin salir del juego.
 $script:bajandoAntes = @{}
 $script:descargaCheck = 0
+# Si estaba cargando la ultima vez que se miro. $null = todavia no se sabe,
+# para no disparar una regla en el primer chequeo tras arrancar.
+$script:cargandoAntes = $null
+$script:bateriaMin = 0
 
 # ¿El repaso del oido fino tiene algo que ver con lo que se oyo primero?
 # Al modelo preciso se le pasa la lista de tus apps y juegos como pista, y con
@@ -1057,7 +1061,25 @@ function Resolve-Fragment([string]$f) {
         }
         '^(?:cuanta bateria|cuanta pila|nivel de bateria|como esta la bateria|como esta la pila|cual es el estado de la bateria|estado de la bateria|cuanto le queda a la bateria|cuanta carga|como va la bateria|que tal la bateria)\b' {
             $b = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Select-Object -First 1
-            $t = if ($b -and $b.EstimatedChargeRemaining) { "Bateria al $($b.EstimatedChargeRemaining) por ciento" } else { "No pude leer la bateria" }
+            if (-not $b -or -not $b.EstimatedChargeRemaining) {
+                return @(@{ kind = 'decir'; desc = "No pude leer la bateria" })
+            }
+            $pc = [int]$b.EstimatedChargeRemaining
+            $t = "Bateria al $pc por ciento"
+            if ($b.BatteryStatus -eq 2) {
+                $t += if ($pc -ge 99) { ", cargada y enchufada" } else { " y cargando" }
+            } else {
+                # EstimatedRunTime: Windows devuelve un centinela enorme
+                # (71582788) mientras esta enchufado, asi que solo vale si es un
+                # numero de minutos con sentido.
+                $min = 0
+                try { $rt = [int]$b.EstimatedRunTime; if ($rt -gt 0 -and $rt -lt 1000) { $min = $rt } } catch {}
+                if ($min -gt 0) {
+                    $h = [int][Math]::Floor($min / 60); $m = $min % 60
+                    $cuanto = if ($h -ge 1) { "$h h $m min" } else { "$m minutos" }
+                    $t += ", te quedan unos $cuanto"
+                }
+            }
             return @(@{ kind = 'decir'; desc = $t })
         }
         '^(?:cuantos juegos|que juegos tengo|mis juegos)\b' {
@@ -1144,6 +1166,12 @@ function Resolve-Fragment([string]$f) {
         # el emoji del tiempo sustituye a la carita unos segundos, solo ahora
         if ($script:clima) { $script:uiClima = $script:clima.emoji; $script:uiClimaHasta = $sw.ElapsedMilliseconds + 9000 }
         return @(@{ kind = 'decir'; desc = $t })
+    }
+    # --- decir algo en voz alta ---
+    # Existe sobre todo para las REGLAS: antes una regla no podia hablar y la
+    # documentacion recurria al truco de "recuerdame en 0 minutos que...".
+    if ($f -match '^(?:di|dime|avisa|avisame)\s+(?:que\s+)?(.+)$') {
+        return @(@{ kind = 'decir'; desc = $Matches[1].Trim() })
     }
     # --- leer la pantalla (OCR de Windows) ---
     if ($f -match '^(?:lee|leeme|leer|que dice|que pone|que hay escrito|dime que dice)\s+(?:lo que (?:hay|dice|pone) (?:en\s+)?|en\s+)?(?:la\s+|esta\s+|el\s+)?(?:pantalla|ventana|esto|aqui|texto|mensaje)\b') {
@@ -1587,7 +1615,7 @@ function Test-FastCommand([string]$text) {
     # secas se colaban preguntas sobre el pasado -"cuando jugue a outlast"- que
     # no son reglas y acababan en el modelo por nada.
     if ($pl -match '^(?:cuando\s+(?:se\s+)?(?:abra|abras|inicie|inicies|arranque|empiece|entre|cierre|cierres|termine|acabe|salga|la bateria|la pila|quite|quites|enchufe|enchufes|ponga|pongas|conecte|desconecte)|cada\s+\d+\s*(?:minuto|hora)|todos los dias|a las?\s)') {
-        return [bool]($pl -match ('(?:' + $VERBOS + '|modo|activa|desactiva|bloquea)\b'))
+        return [bool]($pl -match ('(?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b'))
     }
     # el mismo corte que en Invoke-FastCommand: este es el camino que usan la
     # capsula y el banco de pruebas, y tiene que decir lo mismo que el ejecutor
@@ -2822,6 +2850,9 @@ function Describe-Regla($r) {
         'juegoAbre' { if ($r.valor) { "cuando abras $($r.valor)" } else { 'cuando abras un juego' } }
         'juegoCierra' { if ($r.valor) { "cuando cierres $($r.valor)" } else { 'cuando cierres el juego' } }
         'bateria' { "cuando la bateria baje del $($r.valor) por ciento" }
+        'cargadorQuita' { 'cuando quites el cargador' }
+        'cargadorPone' { 'cuando enchufes el cargador' }
+        'disco' { "cuando queden menos de $($r.valor) gigas" }
         'hora' { "todos los dias a las $($r.valor)" }
         'cada' { "cada $($r.valor) minutos" }
         default { $r.tipo }
@@ -2849,18 +2880,29 @@ function Invoke-ReglaVoz([string]$text) {
         return ("Tienes " + $g.Count + ": " + (($g | ForEach-Object { "regla $($_.id), " + (Describe-Regla $_) }) -join '. '))
     }
     $tipo = $null; $valor = ''; $accion = ''
-    if ($p -match '^cuando\s+(?:se\s+)?(?:abra|inicie|arranque|empiece|entre a|entre en)\s+(?:el\s+|un\s+|cualquier\s+)?(.+?)\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea)\b.*)$') {
+    if ($p -match '^cuando\s+(?:se\s+)?(?:abra|inicie|arranque|empiece|entre a|entre en)\s+(?:el\s+|un\s+|cualquier\s+)?(.+?)\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
         $tipo = 'juegoAbre'; $obj = $Matches[1].Trim(); $accion = $Matches[2].Trim()
         if ($obj -notmatch '^(?:juego|videojuego|algo|cualquier cosa)$') { $j = Find-Juego $obj; if ($j) { $valor = $j.nombre } else { return "No conozco el juego '$obj'" } }
     }
-    elseif ($p -match '^cuando\s+(?:se\s+)?(?:cierre|termine|acabe|salga de|salga del)\s+(?:el\s+|un\s+|cualquier\s+)?(.+?)\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea)\b.*)$') {
+    elseif ($p -match '^cuando\s+(?:se\s+)?(?:cierre|termine|acabe|salga de|salga del)\s+(?:el\s+|un\s+|cualquier\s+)?(.+?)\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
         $tipo = 'juegoCierra'; $obj = $Matches[1].Trim(); $accion = $Matches[2].Trim()
         if ($obj -notmatch '^(?:juego|videojuego|algo|cualquier cosa)$') { $j = Find-Juego $obj; if ($j) { $valor = $j.nombre } else { return "No conozco el juego '$obj'" } }
     }
-    elseif ($p -match '^cuando\s+la\s+(?:bateria|pila)\s+(?:baje|este|llegue|caiga)\s+(?:del|al|a|por debajo del|por debajo de|de|menos del)\s+(\d{1,3})\s*(?:por ciento|%)?\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea)\b.*)$') {
+    elseif ($p -match '^cuando\s+la\s+(?:bateria|pila)\s+(?:baje|este|llegue|caiga)\s+(?:del|al|a|por debajo del|por debajo de|de|menos del)\s+(\d{1,3})\s*(?:por ciento|%)?\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
         $tipo = 'bateria'; $valor = [string][int]$Matches[1]; $accion = $Matches[2].Trim()
     }
-    elseif ($p -match '^(?:todos los dias|cada dia|diariamente|siempre)?\s*a\s+las?\s+(\d{1,2}|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)(?::(\d{2})|\s+y\s+media|\s+y\s+cuarto)?\s*(de la manana|de la tarde|de la noche|am|pm)?\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea)\b.*)$') {
+    # CARGADOR: "cuando quite el cargador pon el brillo al 30"
+    elseif ($p -match '^cuando\s+(?:lo\s+|la\s+)?(?:quite|quites|desenchufe|desenchufes|saque|saques|desconecte|desconectes)\s+(?:el\s+)?(?:cargador|cable|corriente|enchufe)\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
+        $tipo = 'cargadorQuita'; $valor = ''; $accion = $Matches[1].Trim()
+    }
+    elseif ($p -match '^cuando\s+(?:lo\s+|la\s+)?(?:enchufe|enchufes|conecte|conectes|ponga|pongas)\s+(?:el\s+)?(?:cargador|cable|corriente|enchufe|a cargar)\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
+        $tipo = 'cargadorPone'; $valor = ''; $accion = $Matches[1].Trim()
+    }
+    # DISCO: "cuando queden menos de 20 gigas avisame"
+    elseif ($p -match '^cuando\s+(?:queden|quede|haya|tenga)\s+menos\s+de\s+(\d{1,4})\s*(?:gigas?|gb|g)\b\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
+        $tipo = 'disco'; $valor = [string][int]$Matches[1]; $accion = $Matches[2].Trim()
+    }
+    elseif ($p -match '^(?:todos los dias|cada dia|diariamente|siempre)?\s*a\s+las?\s+(\d{1,2}|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)(?::(\d{2})|\s+y\s+media|\s+y\s+cuarto)?\s*(de la manana|de la tarde|de la noche|am|pm)?\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
         # Los grupos, COPIADOS antes de nada: el primer -match de las lineas de
         # abajo (la franja) reescribe $Matches entero y $Matches[4] desaparecia.
         # 'a las 10 de la noche pon modo noche' reventaba con una excepcion que
@@ -2876,12 +2918,26 @@ function Invoke-ReglaVoz([string]$text) {
         if ($franja -match 'manana|am' -and $h -eq 12) { $h = 0 }
         $tipo = 'hora'; $valor = ('{0:00}:{1:00}' -f $h, $m); $accion = $g4.Trim()
     }
-    elseif ($p -match '^cada\s+(\d+)\s*(minutos?|horas?)\s*,?\s*((?:' + $VERBOS + '|modo|activa|desactiva|bloquea)\b.*)$') {
+    elseif ($p -match '^cada\s+(\d+)\s*(minutos?|horas?)\s*,?\s*((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
         $n = [int]$Matches[1]; if ($Matches[2] -match '^hora') { $n *= 60 }
         if ($n -lt 1) { return "Cada cuanto tiempo? Necesito al menos un minuto." }
         $tipo = 'cada'; $valor = [string]$n; $accion = $Matches[3].Trim()
     }
     if (-not $tipo) { return $null }
+    # "avisame" a secas no es una accion ejecutable, pero es lo que se dice.
+    # Se convierte en un aviso hablado con el texto del propio disparador.
+    if ($accion -match '^(?:avisa|avisame)$') {
+        $queDecir = switch ($tipo) {
+            'disco' { "queda poco espacio en el disco, menos de $valor gigas" }
+            'bateria' { "te queda poca bateria, menos del $valor por ciento" }
+            'cargadorQuita' { 'has quitado el cargador' }
+            'cargadorPone' { 'ya esta cargando' }
+            'juegoAbre' { 'ya abriste el juego' }
+            'juegoCierra' { 'ya cerraste el juego' }
+            default { 'aviso' }
+        }
+        $accion = "di $queDecir"
+    }
     if (-not (Test-FastCommand $accion)) { return "Entendi la condicion, pero no reconozco la accion '$accion'. Tiene que ser una orden que yo sepa hacer." }
     $id = 1; foreach ($x in $g) { if ($x.id -ge $id) { $id = $x.id + 1 } }
     $r = @{ id = $id; tipo = $tipo; valor = $valor; accion = $accion; ultima = '' }
@@ -2907,6 +2963,15 @@ function Invoke-Reglas([string]$tipo, [string]$dato = '') {
                 if ($pct -le [int]$r.valor) { if ($r.ultima -ne 'baja') { $dispara = $true; $r.ultima = 'baja' } }
                 elseif ($pct -gt ([int]$r.valor + 10)) { $r.ultima = '' }
             }
+            'cargadorQuita' { $dispara = ($dato -eq 'quita') }
+            'cargadorPone' { $dispara = ($dato -eq 'pone') }
+            'disco' {
+                # igual que la bateria: solo al cruzar el umbral, y se rearma
+                # cuando vuelve a haber holgura (5 gigas de margen)
+                $gb = [double]$dato
+                if ($gb -le [double]$r.valor) { if ($r.ultima -ne 'poco') { $dispara = $true; $r.ultima = 'poco' } }
+                elseif ($gb -gt ([double]$r.valor + 5)) { $r.ultima = '' }
+            }
             'hora' { if ($dato -eq $r.valor -and $r.ultima -ne $hoy) { $dispara = $true; $r.ultima = $hoy } }
             'cada' {
                 $ult = 0; if ($r.ultima) { [double]::TryParse($r.ultima, [ref]$ult) | Out-Null }
@@ -2920,7 +2985,7 @@ function Invoke-Reglas([string]$tipo, [string]$dato = '') {
         try { $res = Invoke-FastCommand $r.accion } catch { $res = $null } finally { $script:confirmado = $false }
         if ($res) { Send-UIEvento 'hecho'; Say ("Regla $($r.id): $res") } else { Log "REGLA $($r.id): la accion no se pudo ejecutar" }
     }
-    if ($tipo -in @('bateria', 'hora', 'cada')) { Save-Reglas }
+    if ($tipo -in @('bateria', 'hora', 'cada', 'disco')) { Save-Reglas }
 }
 
 # =====================================================================
@@ -4993,6 +5058,29 @@ while ($true) {
                     Refresh-UI
                 }
                 if (-not $cargando) { Invoke-Reglas 'bateria' ([string]$pc) }
+                # CARGADOR: solo en el FLANCO, cuando cambia. Por estado se
+                # repetiria cada minuto mientras siguiera enchufado.
+                if ($null -ne $script:cargandoAntes -and $cg -ne $script:cargandoAntes) {
+                    Invoke-Reglas 'cargadorQuita' $(if ($cg -eq 0) { 'quita' } else { '' })
+                    Invoke-Reglas 'cargadorPone' $(if ($cg -eq 1) { 'pone' } else { '' })
+                    Log "cargador: $(if ($cg -eq 1) { 'enchufado' } else { 'desenchufado' })"
+                }
+                $script:cargandoAntes = $cg
+                # cuanto tiempo queda, que es lo que decide si empiezas otra
+                # partida. Viene en el mismo objeto que ya se acaba de leer.
+                $script:bateriaMin = 0
+                try {
+                    $rt = [int]$bat.EstimatedRunTime
+                    if ($rt -gt 0 -and $rt -lt 1000) { $script:bateriaMin = $rt }
+                } catch {}
+                # DISCO: se mira aqui mismo, que ya estamos en el chequeo por minuto
+                try {
+                    $di = New-Object System.IO.DriveInfo('C')
+                    if ($di.IsReady) {
+                        $gbLibres = [Math]::Round($di.AvailableFreeSpace / 1073741824.0, 1)
+                        Invoke-Reglas 'disco' ([string]$gbLibres)
+                    }
+                } catch {}
                 if (-not $cargando -and $pc -le $BateriaAviso -and -not $script:bateriaAvisada) {
                     $script:bateriaAvisada = $true
                     Log "AVISO: bateria al $pc %"
