@@ -194,9 +194,15 @@ DICTADO LARGO (nuevo, PENDIENTE DE QUE LO PRUEBES TÚ)
                             con Ctrl+Z: deshacer en una ventana ajena puede
                             tirar de cosas que no ha escrito el asistente)
     "cambia X por Y"     -> reescribe el último trozo con el cambio
+  LO ESCRIBE WIN+H, no el asistente: es el motor que de verdad te entiende, y
+  aquí su pega no existe (el foco TIENE que estar en tu ventana, que es donde
+  se escribe). El asistente abre Win+H solo, después de callarse -si lo abriera
+  antes se transcribiría a sí mismo- y aparta su ventanita de la vista.
+  Se sale con el BOTÓN ≡ mantenido. Por voz ya no: dirías "ya está" y Win+H lo
+  escribiría en tu correo.
   Se le puede decir DÓNDE: "dicta un correo en el bloc de notas", "dicta en
-  discord". Entonces pone esa ventana delante él solo (y la restaura si estaba
-  minimizada) y dicta ahí, así no hay que acordarse de hacer clic primero. Si
+  discord". Pone esa ventana delante él solo, la restaura si estaba minimizada
+  y, SI NO ESTÁ ABIERTA, LA ABRE y espera hasta 6 s a que salga. Si
   no sabe qué app es, NO entra a ciegas: lo dice. Escribir un correo entero en
   la ventana equivocada es peor que no escribirlo.
   Se sale de TRES formas, a propósito: diciendo "ya está" (o "para de dictar"),
@@ -219,6 +225,27 @@ DICTADO LARGO (nuevo, PENDIENTE DE QUE LO PRUEBES TÚ)
   desde aquí. Pruébalo tú: abre el Bloc de notas, di "dicta un correo", di una
   frase y mira. Si no aparece, en assistant.log está la línea
   "DICTADO LARGO: escribiré en la ventana <número>", que es lo que lo explica.
+
+CON QUÉ TE OYE, Y CUÁNDO (cambiado el 12/09 tras medirlo)
+  Hay DOS motores y ahora cada uno se usa donde sirve:
+    - WIN+H (el dictado de voz de Windows 11, que reconoce EN LA NUBE) te
+      entiende muchísimo mejor. Medido: Whisper acierta 8 de 20 con el modelo
+      rápido; con Win+H se dictaron 900 caracteres casi sin un error. Su pega
+      es que para leer lo que dices hay que traer al frente la ventana del
+      asistente, y con un juego a pantalla completa eso te saca de la partida.
+    - WHISPER (base + small, en local) no molesta nunca, pero falla más.
+  Por eso: JUGANDO se usa Whisper; el resto del tiempo, Win+H. Lo decide él
+  solo (config.json -> input.motorOrdenes: auto / windows / worker).
+  Y la ventanita de Windows que salía tapando la pantalla se aparta sola: es
+  "Experiencia de entrada de Windows" (proceso TextInputHost) y admite que la
+  muevan. Se MUEVE, no se oculta: ocultarla del todo hace que Windows dé el
+  dictado por cerrado.
+
+  OJO, no confundir con el OTRO motor de Windows, el de la API
+  (SpeechRecognizer local de OneCore), que estuvo activado días y NUNCA
+  entregó una palabra: seis rondas seguidas con el micrófono para él solo,
+  seis rechazos con texto vacío. Está desactivado (input.vozWindows = false).
+  No es el mismo que Win+H aunque lo parezca.
 
 DICTADO: Whisper, en dos pasos (nuevo). Mientras hablas ves la
   transcripción rápida (Vosk); al callar, el modelo RÁPIDO (base) transcribe

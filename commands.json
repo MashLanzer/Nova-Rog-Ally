@@ -1,6 +1,9 @@
 {
     "_comentario": "Vocabulario de comandos locales (sin LLM). JSON puro: sin comentarios reales. Amplialo libremente; el asistente lo relee en cada arranque.",
     "correcciones": {
+        "blog de notas": "bloc de notas",
+        "bloq de notas": "bloc de notas",
+        "block de notas": "bloc de notas",
         "quanta": "cuanta",
         "navegado": "navegador",
         "sigente": "siguiente",

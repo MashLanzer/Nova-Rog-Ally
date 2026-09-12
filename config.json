@@ -6,12 +6,14 @@
               },
     "input":  {
                   "dictadoLargoMinutos":  10,
+                  "dictadoLargoMotor":  "windows",
+                  "motorOrdenes":  "auto",
                   "holdMs":  1100,
                   "autoSubmitMs":  2500,
                   "dictado":  "whisper",
                   "whisperModelo":  "base",
                   "whisperModeloPreciso":  "small",
-                  "vozWindows":  true,
+                  "vozWindows":  false,
                   "seguimientoMs":  2500
               },
     "opencode":  {

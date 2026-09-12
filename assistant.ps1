@@ -1692,7 +1692,13 @@ function Resolve-Fragment([string]$f) {
         $donde = $Matches[1].Trim()
         $pr = Resolve-Proceso $donde
         if ($pr) {
-            return @(@{ kind = 'dictadoLargo'; proceso = $pr.proceso; desc = "dictado largo en $($pr.nombre)" })
+            # con que se abre, por si no lo esta: sale del mismo commands.json
+            # que usa "abre el bloc de notas"
+            $conQue = $null
+            $objN = @(Resolve-Target $donde)
+            if ($objN.Count -gt 0 -and $objN[0].kind -eq 'app' -and $objN[0].target) { $conQue = [string]$objN[0].target }
+            return @(@{ kind = 'dictadoLargo'; proceso = $pr.proceso; abrir = $conQue
+                        desc = "dictado largo en $($pr.nombre)" })
         }
         # si no se sabe a que app se refiere, NO se entra a ciegas: escribir en
         # la ventana equivocada es peor que no escribir
@@ -3037,6 +3043,25 @@ function Invoke-FastCommand([string]$text) {
                     if ($a.proceso) {
                         $pd = Get-Process -Name $a.proceso -ErrorAction SilentlyContinue |
                               Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+                        if (-not $pd -and $a.abrir) {
+                            # no esta abierta: se abre. Decir "dicta en el bloc
+                            # de notas" y que conteste "no esta abierta" es
+                            # mandar al usuario a hacer a mano justo lo que
+                            # acaba de pedir.
+                            Log "DICTADO LARGO: $($a.proceso) no estaba abierta; la abro"
+                            try { Start-Process $a.abrir -ErrorAction Stop } catch {
+                                $a.desc = "$($a.desc): no pude abrirla"
+                                break
+                            }
+                            # esperar a que aparezca la ventana, hasta 6 s: una
+                            # app fria tarda, y sin ventana no hay donde dictar
+                            for ($esp = 0; $esp -lt 30; $esp++) {
+                                Start-Sleep -Milliseconds 200
+                                $pd = Get-Process -Name $a.proceso -ErrorAction SilentlyContinue |
+                                      Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+                                if ($pd) { break }
+                            }
+                        }
                         if (-not $pd) {
                             $a.desc = "$($a.desc): no esta abierta"
                             break
@@ -3053,8 +3078,17 @@ function Invoke-FastCommand([string]$text) {
                     $script:dictadoLargoHasta = $sw.ElapsedMilliseconds + $DictadoLargoMs
                     $script:dictadoUltimo = ''
                     $script:dictadoLineas = 0
-                    Log "DICTADO LARGO: empieza (plazo $([int]($DictadoLargoMs / 60000)) min)"
-                    $a.desc = 'te escribo lo que digas en la ventana de delante. Para salir, di ya esta o manten el boton'
+                    $script:dictadoWinH = ($DictadoLargoMotor -eq 'windows')
+                    Log "DICTADO LARGO: empieza (motor $DictadoLargoMotor, plazo $([int]($DictadoLargoMs / 60000)) min)"
+                    if ($script:dictadoWinH) {
+                        # NO se abre aqui: el asistente esta a punto de contestar
+                        # en voz alta, y Win+H transcribiria su propia voz. Se
+                        # deja pedido y lo abre el bucle en cuanto se calle.
+                        $script:dictadoWinHPendiente = $true
+                        $a.desc = 'voy, abro el dictado de Windows. Cuando acabes, manten el boton'
+                    } else {
+                        $a.desc = 'te escribo lo que digas en la ventana de delante. Para salir, di ya esta o manten el boton'
+                    }
                 }
                 'escalaUI' {
                     $antes = [double]$script:uiEscala
@@ -5205,7 +5239,50 @@ $scr = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
 Add-Type -Namespace Nova -Name Win -MemberDefinition @'
 [DllImport("user32.dll")]
 public static extern int GetWindowThreadProcessId(IntPtr hWnd, out int pid);
+public delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
+[DllImport("user32.dll")]
+public static extern bool EnumWindows(EnumProc cb, IntPtr lParam);
+[DllImport("user32.dll", CharSet = CharSet.Unicode)]
+public static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder s, int max);
+[DllImport("user32.dll")]
+public static extern bool IsWindowVisible(IntPtr hWnd);
+[DllImport("user32.dll")]
+public static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
 '@ -ErrorAction SilentlyContinue
+
+# LA VENTANITA DE WIN+H, FUERA DE LA VISTA.
+# El dictado de Windows abre una ventana suya ("Experiencia de entrada de
+# Windows", clase Windows.UI.Core.CoreWindow, proceso TextInputHost) que ocupa
+# la pantalla entera y tapa lo que estas escribiendo. No se puede quitar, pero
+# SI se puede mover: comprobado, admite SetWindowPos y sigue dictando.
+# Se mueve, no se oculta con ShowWindow: ocultarla del todo hace que Windows la
+# de por cerrada y corte el dictado.
+function Hide-VentanaDictado {
+    $movidas = 0
+    try {
+        $cb = [Nova.Win+EnumProc] {
+            param($h, $l)
+            if (-not [Nova.Win]::IsWindowVisible($h)) { return $true }
+            $sb = New-Object System.Text.StringBuilder 128
+            [void][Nova.Win]::GetClassName($h, $sb, 128)
+            if ($sb.ToString() -ne 'Windows.UI.Core.CoreWindow') { return $true }
+            $pidV = 0
+            [void][Nova.Win]::GetWindowThreadProcessId($h, [ref]$pidV)
+            $pr = Get-Process -Id $pidV -ErrorAction SilentlyContinue
+            if (-not $pr -or $pr.ProcessName -ne 'TextInputHost') { return $true }
+            $SWP_NOSIZE = 0x0001; $SWP_NOACTIVATE = 0x0010; $SWP_NOZORDER = 0x0004
+            if ([Nova.Win]::SetWindowPos($h, [IntPtr]::Zero, -3000, -3000, 0, 0,
+                                         ($SWP_NOSIZE -bor $SWP_NOACTIVATE -bor $SWP_NOZORDER))) {
+                $script:ventanasDictado += 1
+            }
+            return $true
+        }
+        $script:ventanasDictado = 0
+        [void][Nova.Win]::EnumWindows($cb, [IntPtr]::Zero)
+        $movidas = $script:ventanasDictado
+    } catch { Log ("no pude apartar la ventana del dictado: " + $_.Exception.Message) }
+    return $movidas
+}
 function Get-PidDeVentana([IntPtr]$h) {
     if ($h -eq [IntPtr]::Zero) { return 0 }
     $p = 0
@@ -5893,6 +5970,31 @@ $script:enSeguimiento = $false
 # escribe en la ventana de delante y del que no se sabe salir seria lo peor que
 # hay aqui dentro.
 $DictadoLargoMs = [int](Get-Cfg 'input' 'dictadoLargoMinutos' 10) * 60000
+# CON QUE SE DICTA LO LARGO.
+# "windows" = Win+H, el dictado de voz de Windows 11. Es OTRO motor que el de
+# la API (SpeechRecognitionTopicConstraint), que en esta maquina rechaza todo:
+# Win+H reconoce EN LA NUBE y entiende bien; el de la API es el local de
+# OneCore y no da una. Medido el 12/09, seis rondas seguidas con el microfono
+# para el solo: seis rechazos con texto vacio.
+# El pero de Win+H siempre fue que ROBA EL FOCO. Para una orden suelta eso es
+# inservible mientras juegas, pero para el dictado largo da igual: el foco TIENE
+# que estar en la ventana donde se escribe, que es justo lo que hace falta. Y
+# escribe Windows directamente, asi que no hay que teclear nada ni acertar con
+# la transcripcion.
+# "propio" = el camino de Whisper, escribiendo con SendKeys. Se queda por si
+# algun dia Win+H no esta o molesta.
+$DictadoLargoMotor = [string](Get-Cfg 'input' 'dictadoLargoMotor' 'windows')
+
+# CADA MOTOR DONDE SIRVE.
+# Win+H (el dictado de Windows, que reconoce en la nube) entiende muchisimo
+# mejor: medido con las 20 grabaciones, Whisper acierta 8 de 20 con el modelo
+# rapido; Win+H escribio 900 caracteres casi sin un error. Pero para leer lo que
+# dices hay que traer al frente la ventana del asistente, y con un juego a
+# pantalla completa eso te saca de la partida.
+# Asi que se elige por situacion: jugando, Whisper (no molesta); el resto del
+# tiempo, Win+H (acierta). "auto" es eso; "worker" fuerza Whisper siempre y
+# "windows" fuerza Win+H siempre.
+$DictadoMotor = [string](Get-Cfg 'input' 'motorOrdenes' 'auto')
 $script:dictandoLargo = $false
 $script:dictadoLargoHasta = 0
 $script:dictadoUltimo = ''     # lo ultimo escrito, para "borra lo ultimo" y "cambia X por Y"
@@ -5904,6 +6006,11 @@ $script:dictadoUltimo = ''     # lo ultimo escrito, para "borra lo ultimo" y "ca
 # texto acabo en otro sitio.
 $script:dictadoVentana = [IntPtr]::Zero
 $script:ventanaUsuario = [IntPtr]::Zero   # la que tenias delante al empezar a hablar
+$script:dictadoWinH = $false              # el dictado en curso lo lleva Win+H
+$script:dictadoWinHPendiente = $false     # hay que abrirlo en cuanto deje de hablar
+$script:dictadoOcultarHasta = 0           # hasta cuando insistir en apartar su ventana
+$script:dictadoOcultarUltimo = 0
+$script:ventanasDictado = 0
 $script:dictadoLineas = 0      # cuantos trozos van escritos, para contarlo al salir
 $script:seguimientoFactor = 1.0
 # --- oido fino: repaso de la ultima orden con el modelo preciso ---
@@ -6033,9 +6140,20 @@ function Start-Dictado([string]$origen) {
     # con la capsula, el sonido lo pone ella (un tono corto, no la campana)
     if (-not $UiNuevaOn -and -not $seguimiento) { Play-Sonido 'te-oigo' ([System.Media.SystemSounds]::Exclamation) }
 
+    # QUE MOTOR PARA ESTA ORDEN. Jugando manda no molestar; fuera del juego manda
+    # acertar. El dictado largo va siempre por su camino, que ya lo decidio antes.
+    $usaWorker = $DictadoWorker
+    if ($DictadoMotor -eq 'worker') { $usaWorker = $true }
+    elseif ($DictadoMotor -eq 'windows') { $usaWorker = $false }
+    elseif ($DictadoMotor -eq 'auto' -and -not $largo) {
+        # sin juego delante, Win+H; con juego, el worker
+        $usaWorker = [bool]$script:juegoActivo
+    }
+    if ($largo) { $usaWorker = $true }   # el largo se gestiona aparte
+
     # --- Dictado por el worker (Whisper/Vosk): ni foco, ni Win+H, ni pausa ---
     # El worker ya tiene el microfono; solo hay que decirle que transcriba.
-    if ($DictadoWorker -and $script:wakeProc) {
+    if ($usaWorker -and $script:wakeProc) {
         Remove-Item -LiteralPath $RutaDictado -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $RutaParcial -Force -ErrorAction SilentlyContinue
         # en seguimiento, la marca lleva el plazo: si no hay voz en ese tiempo
@@ -6062,6 +6180,9 @@ function Start-Dictado([string]$origen) {
     Pausar-Escucha 60000
     if (Show-Capture) {
         Send-WinH
+        # la ventana del dictado de Windows, fuera de la vista (se insiste un
+        # par de segundos: tarda en existir)
+        $script:dictadoOcultarHasta = $sw.ElapsedMilliseconds + 2500
         Set-UI 'escuchando'
         Send-UIEvento 'despierta'
         $script:armed = $true
@@ -6097,6 +6218,11 @@ function Finish-Dictation([string]$motivo) {
         # quedarse puesta o la escucha se queda muda hasta un minuto
         $capture.Hide()
         Reanudar-Escucha
+        # y el foco vuelve a lo TUYO. Sin esto, cada orden por Win+H te deja
+        # escribiendo en la ventana invisible del asistente.
+        if ($script:ventanaUsuario -ne [IntPtr]::Zero) {
+            try { [void][AX]::ForceForeground($script:ventanaUsuario) } catch {}
+        }
     }
     Process-Texto $text
 }
@@ -6138,6 +6264,14 @@ function Write-EnVentana([string]$texto) {
 
 function Stop-DictadoLargo([string]$porque = '') {
     if (-not $script:dictandoLargo) { return }
+    $script:dictadoWinHPendiente = $false
+    if ($script:dictadoWinH) {
+        # Win+H se cierra con el mismo atajo con el que se abre
+        Send-WinH
+        Start-Sleep -Milliseconds 200
+        $script:dictadoWinH = $false
+        Reanudar-Escucha
+    }
     $script:dictandoLargo = $false
     $script:dictadoLargoHasta = 0
     $script:dictadoVentana = [IntPtr]::Zero
@@ -6813,12 +6947,46 @@ while ($true) {
         }
     }
 
+    # --- abrir Win+H en cuanto el asistente se calle ---
+    # Tiene que ser DESPUES de hablar (si no, se transcribe a si mismo) y con la
+    # ventana de destino delante, porque Win+H escribe donde este el cursor.
+    if ($script:dictadoWinHPendiente -and $script:pausaHasta -le 0 -and -not $script:busy) {
+        $script:dictadoWinHPendiente = $false
+        if ($script:dictadoVentana -ne [IntPtr]::Zero) {
+            [void][AX]::ForceForeground($script:dictadoVentana)
+            Start-Sleep -Milliseconds 250
+        }
+        # el oido propio se calla mientras: si no, Vosk y Windows se pelean por
+        # el microfono y no gana ninguno. El boton sigue vivo, que es la salida.
+        Pausar-Escucha $DictadoLargoMs
+        Send-WinH
+        Log "DICTADO LARGO: Win+H abierto sobre la ventana $($script:dictadoVentana)"
+        # y su ventana, fuera de la vista. Tarda en aparecer, asi que se intenta
+        # varias veces en el primer segundo y medio.
+        $script:dictadoOcultarHasta = $sw.ElapsedMilliseconds + 2500
+        Set-UI 'escuchando' 'dictando con Windows... manten el boton para terminar'
+    }
+
+    # --- apartar la ventanita del dictado de Windows ---
+    # Tarda un poco en existir, asi que se insiste durante un par de segundos.
+    if ($script:dictadoOcultarHasta -gt 0) {
+        if ($sw.ElapsedMilliseconds -ge $script:dictadoOcultarHasta) {
+            $script:dictadoOcultarHasta = 0
+        } elseif (($sw.ElapsedMilliseconds - $script:dictadoOcultarUltimo) -ge 250) {
+            $script:dictadoOcultarUltimo = $sw.ElapsedMilliseconds
+            if ((Hide-VentanaDictado) -gt 0) {
+                Log "DICTADO LARGO: la ventana del dictado, apartada de la vista"
+                $script:dictadoOcultarHasta = 0
+            }
+        }
+    }
+
     # --- el dictado largo se vuelve a abrir solo ---
     # Va SUELTO en el bucle, no colgado de "acabo de hablar": en este modo el
     # asistente no dice nada, asi que aquel bloque no se alcanza nunca y el modo
     # escribia un trozo y se quedaba sordo. Se espera a que no haya pausa de voz
     # en marcha para no competir por el microfono.
-    if ($script:dictandoLargo -and -not $script:armed -and -not $script:busy -and -not $script:pendiente -and
+    if ($script:dictandoLargo -and -not $script:dictadoWinH -and -not $script:armed -and -not $script:busy -and -not $script:pendiente -and
         $script:pausaHasta -le 0 -and $DictadoWorker -and $script:wakeProc -and -not $script:wakeProc.HasExited) {
         Start-Dictado 'largo'
     }
