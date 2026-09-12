@@ -86,6 +86,13 @@ Decisiones de diseño deliberadas:
   (`$capture`, `$lbl`) **no son thread-safe**. El bucle principal planifica.
 - **Llamada directa al CLI**, sin `powershell.exe` intermedio (§11).
 - **El popup no bloquea**: se cierra por plazo desde el bucle.
+- **El respiro de 250 ms entre acciones es selectivo** (11/09). Existe porque
+  dos `SendKeys` seguidos se pisan y porque lanzar una URL antes de que su
+  navegador exista no funciona, pero estaba puesto tras **cada** acción y
+  también tras la última: «modo juego» regalaba un segundo entero en la ruta
+  que se vende como «menos de 1 s». Ahora solo va detrás de las que tocan el
+  sistema (`$RESPIRO`, 19 kinds) y nunca al final. Medido con
+  `tools\medir-respiros.ps1`: en siete órdenes típicas, 3750 ms → 1500 ms.
 - **La ruta local es todo-o-nada**: media orden ejecutada es peor que ninguna.
   Y hay que vigilarlo: `abre steam y discord` **abría solo Steam** hasta el
   11/09. «discord» no empieza por verbo, así que se pegaba al fragmento

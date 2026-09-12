@@ -1610,7 +1610,16 @@ function Invoke-FastCommand([string]$text) {
 
     $hechas = @()
     $navegador = $null
-    foreach ($a in $acciones) {
+    # Tras estas acciones hay que dar un respiro: son las que mandan teclas o
+    # abren cosas, y si se encadenan sin pausa se pisan entre si (dos SendKeys
+    # seguidos, o lanzar la URL antes de que el navegador exista). Las demas
+    # -decir, anotar, consultar- no tocan nada de fuera y no necesitan nada.
+    $RESPIRO = @('app', 'url', 'key', 'atajo', 'escribir', 'winkey', 'altf4', 'alttab',
+                 'enfocar', 'enfocarJuego', 'buscarEquipo', 'winprt', 'winaltg',
+                 'volumenPct', 'brillo', 'lock', 'cerrarApp', 'cerrarJuego', 'cerrarTodo')
+    $acciones = @($acciones)
+    for ($iAcc = 0; $iAcc -lt $acciones.Count; $iAcc++) {
+        $a = $acciones[$iAcc]
         try {
             switch ($a.kind) {
                 # se sustituye la descripcion por el resultado real
@@ -1850,7 +1859,10 @@ function Invoke-FastCommand([string]$text) {
         } catch {
             $hechas += ($a.desc + " [FALLO: " + $_.Exception.Message + "]")
         }
-        Start-Sleep -Milliseconds 250
+        # solo si esta accion toco el sistema Y queda alguna por hacer
+        if ($iAcc -lt ($acciones.Count - 1) -and $RESPIRO -contains $a.kind) {
+            Start-Sleep -Milliseconds 250
+        }
     }
     return ($hechas -join '; ')
 }
