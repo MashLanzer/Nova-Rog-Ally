@@ -67,6 +67,7 @@ y varios procesos hijos que se comunican con él **solo por archivos en `tmp\`**
   ├─ RUTA LOCAL (Invoke-FastCommand)  ── <1 s, sin LLM ──────────────
   │    reconoce la orden entera → la ejecuta → cápsula azul + voz
   ├─ PREGUNTA ($RE_PREGUNTA) → modelo sin herramientas ── ~13 s
+  │    también puede responder NO ("esto no iba conmigo") → se descarta
   ├─ TRADUCCIÓN APRENDIDA (traducciones.json) → local ── <1 s
   ├─ TRADUCIR: el modelo la convierte a una orden conocida ── ~13 s
   │    se valida con Invoke-FastCommand y se APRENDE. El modelo responde
@@ -569,6 +570,17 @@ Lo que costó afinar, y por qué está como está:
      aquí: silencio 0,0002; fondo suave 0,007; vídeo 0,22-0,30. El umbral
      está en 0,02. Si el medidor falla, el worker sigue igual que antes. El
      pulso del log lleva ahora `altavoces=…`.
+  3. **La ganancia no se recalibra mientras suenan.** Es el reverso del
+     problema, y se vio en vivo: con los altavoces a 0,55 el AGC medía ese
+     audio y bajaba la ganancia a **x0,7**; con la voz entrando a 0,02-0,05,
+     eso es quedarse sordo justo cuando quieres decir «nova, pausa». Se
+     guarda `ganancia_limpia` (la última calibrada en silencio) y se recupera
+     mientras haya ruido de salida. El detector de recorte inmediato hace lo
+     mismo, porque si no los dos mecanismos se peleaban (x8 → x2,9 → x8, sin
+     parar). Una bajada por recorte **sin** altavoces sí es tu voz saturando:
+     esa se conserva como nueva referencia. Y una ganancia recordada por
+     debajo de x1,5 se descarta al arrancar: en esta máquina no se calibró con
+     una voz, sino con ruido.
 - **Pausa**: mientras existe `tmp\escucha-pausa.flag` ignora el audio. La
   crea el asistente al hablar (su propia voz volvía con pico 0,99) y al
   dictar con Win+H (competían por el micro). Se libera en `finally` y por
@@ -773,6 +785,8 @@ sube el volumen» … «y avísame en veinte minutos» … «gracias».
 |---|---|
 | «cierra steam / discord / la calculadora» | `CloseMainWindow` (y `Kill` si no cierra) del proceso de `commands.json` (`Resolve-Proceso`; los URI tienen tabla `$PROCESOS_URI`) |
 | «cierra esta ventana» | Alt+F4 |
+| «escúchame», «vuelve a escucharme», «despierta» | cancela la sordina antes de plazo y retira el aviso de vuelta. **Ojo con el texto del patrón**: cuando la frase llega a `Resolve-Fragment` ya pasó por `Remove-Filler`, que se come «puedes» y el «me» inicial, así que «ya puedes escucharme» llega como «ya escucharme» |
+| «cómo me oyes», «qué tal el micrófono» | diagnóstico hablado: ganancia actual, si suenan los altavoces, si está en sordina y las falsas alarmas de hoy. El worker publica su estado en `tmp\escucha-estado.txt` en cada pulso (`ganancia|p90|altavoces|bloques_voz`) |
 | «no me escuches», «duérmete», «no me escuches media hora», «descansa 2 horas» | **sordina**: crea `tmp\escucha-pausa.flag` durante ese plazo (15 min por defecto) y encola un aviso hablado para el final. El botón ≡ sigue funcionando, así que nunca deja sin asistente, y **siempre lleva plazo**: no es un modo que se quede puesto. Es la respuesta directa a las activaciones falsas mientras ves vídeos |
 | «cierra el juego» | cierra el proceso del juego activo |
 | «hay algo colgado», «revisa los juegos», «cierra lo colgado» | busca procesos bajo `steamapps\common` **sin ventana** y con **uso de CPU sostenido ≥ 30 % de un núcleo** desde que arrancaron, abiertos hace más de 20 min y que no sean el juego activo. Ese último criterio es el que separa un juego colgado (Outlast 2: 87 %) de una utilidad que vive sin ventana a propósito (Wallpaper Engine: 3 %), y además hay lista de exclusión. Enumera y **pide confirmación** (`tipo = 'peligrosa'`, igual que «cierra todos los programas»); solo entonces `Kill()`, porque un proceso colgado ignora `CloseMainWindow`. El bucle además revisa cada 10 min y avisa **una vez por PID**, sin cerrar nada por su cuenta |

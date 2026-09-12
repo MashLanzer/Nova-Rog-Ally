@@ -981,6 +981,22 @@ function Resolve-Fragment([string]$f) {
         if ($ms -le 0) { return $null }
         return @(@{ kind = 'sordina'; ms = $ms; desc = "me callo $comoLoDigo; si me necesitas antes, manten el boton" })
     }
+    # Diagnostico hablado: hasta ahora, para saber por que no te oia habia que
+    # abrir assistant.log y leer las lineas del pulso. Esto cuenta lo mismo en
+    # una frase, que es lo util cuando tienes las manos ocupadas.
+    if ($f -match '^(?:como me oyes|que tal me oyes|oyes bien|escuchas bien|como me escuchas|como esta el microfono|que tal el microfono|como va la escucha|estado del microfono)$') {
+        return @(@{ kind = 'estadoEscucha'; desc = 'estado de la escucha' })
+    }
+    # Volver de la sordina antes de tiempo. Mientras esta sorda solo se llega
+    # aqui por el boton (manten ≡), que es justo lo que la salva de quedarse
+    # muda: un modo con plazo del que no se puede salir sigue siendo una trampa.
+    # OJO con las formas: cuando la frase llega aqui ya paso por Remove-Filler,
+    # que se come 'puedes' y el 'me' inicial. O sea que 'ya puedes escucharme'
+    # llega como 'ya escucharme' y 'me escuchas bien' como 'escuchas bien'. Los
+    # patrones tienen que escribirse contra ESA forma, no contra lo que dices.
+    if ($f -match '^(?:ya\s+)?(?:escuchame|escucharme|vuelve a escucharme|vuelve a escuchar|despierta|despiertate|te escucho|estoy aqui|sigue escuchando)$') {
+        return @(@{ kind = 'despertarEscucha'; desc = 'te escucho otra vez' })
+    }
     # juegos colgados: los que no salen por ningun lado pero siguen sonando
     if ($f -match '^(?:hay algo colgado|que hay colgado|hay algun juego colgado|algun juego colgado|hay juegos colgados|revisa los juegos|mira si hay algo colgado|cierra los juegos colgados|cierra lo colgado)$') {
         return @(@{ kind = 'zombis'; desc = 'buscar juegos colgados' })
@@ -1444,7 +1460,8 @@ function Invoke-FastCommand([string]$text) {
                     # el aviso de vuelta va por la via de los temporizadores, que
                     # ya sabe hablar sola cuando vence
                     [void]$script:temporizadores.Add(@{ vence = ($sw.ElapsedMilliseconds + $a.ms + 1500)
-                                                        texto = 'Ya vuelvo a escucharte.'; total = $a.ms })
+                                                        texto = 'Ya vuelvo a escucharte.'; total = $a.ms
+                                                        tipo = 'sordina' })
                     Log "SORDINA: escucha apagada $([int]($a.ms / 60000)) min"
                 }
                 'cerrarTodo' {
@@ -1470,6 +1487,49 @@ function Invoke-FastCommand([string]$text) {
                         }
                         $a.desc = "cerrados $cerradas de $($abiertas.Count)"
                     }
+                }
+                'estadoEscucha' {
+                    if (-not $script:wakeProc -or $script:wakeProc.HasExited) {
+                        $a.desc = 'la escucha por voz no esta funcionando ahora mismo; el boton si'
+                    } else {
+                        $g = 0.0; $alt = 0.0
+                        try {
+                            $cul = [System.Globalization.CultureInfo]::InvariantCulture
+                            $st = ([System.IO.File]::ReadAllText($RutaEstado).Trim()) -split '\|'
+                            $g = [double]::Parse($st[0], $cul)
+                            $alt = [double]::Parse($st[2], $cul)
+                        } catch {}
+                        $partes = @()
+                        if ($script:pausaHasta -gt 0) {
+                            $partes += 'ahora mismo no estoy escuchando, me pediste silencio; di escuchame para volver'
+                        } elseif ($g -ge 6) {
+                            $partes += "entras muy bajito: estoy amplificando el microfono $([int]$g) veces"
+                        } elseif ($g -ge 2.5) {
+                            $partes += "te oigo algo bajo, amplifico $([int]$g) veces"
+                        } else {
+                            $partes += 'el microfono entra bien'
+                        }
+                        if ($alt -gt 0.02) { $partes += 'y ahora suenan los altavoces, asi que desconfio de lo que oigo' }
+                        try {
+                            $s = Get-Estadisticas
+                            $dia = Get-Date -Format 'yyyy-MM-dd'
+                            if ($s.dias.ContainsKey($dia)) {
+                                $act = 0; $nada = 0
+                                if ($s.dias[$dia].ContainsKey('activacion')) { $act = $s.dias[$dia]['activacion'] }
+                                foreach ($r in @('ruido', 'descarte', 'error')) { if ($s.dias[$dia].ContainsKey($r)) { $nada += $s.dias[$dia][$r] } }
+                                if ($act -gt 0) { $partes += "hoy me has despertado $act veces y $nada no eran para mi" }
+                            }
+                        } catch {}
+                        $a.desc = ($partes -join ', ')
+                    }
+                }
+                'despertarEscucha' {
+                    Reanudar-Escucha
+                    # y se retira el aviso de vuelta: ya no hace falta
+                    for ($i = $script:temporizadores.Count - 1; $i -ge 0; $i--) {
+                        if ($script:temporizadores[$i].tipo -eq 'sordina') { $script:temporizadores.RemoveAt($i) }
+                    }
+                    Log 'SORDINA: cancelada a mano'
                 }
                 'zombis' {
                     $z = @(Get-JuegosZombis)
@@ -1879,6 +1939,7 @@ $RutaConfirmacion = Join-Path $TmpDir "confirmacion.txt"
 $RutaVocabulario = Join-Path $TmpDir "vocabulario.txt"
 $RutaDictado = Join-Path $TmpDir "dictado.txt"
 $RutaParcial = Join-Path $TmpDir "dictado-parcial.txt"
+$RutaEstado = Join-Path $TmpDir "escucha-estado.txt"
 $MarcaReintento = Join-Path $TmpDir "reintentar.flag"
 $RutaReintento = Join-Path $TmpDir "reintento.txt"
 # nivel de voz 0..1 que el worker escribe mientras dictas; lo lee la interfaz
@@ -3251,7 +3312,12 @@ function Expand-Prompt([string]$texto) {
 
 # Prefijo para que el modelo CONTESTE en vez de actuar. Sin esto, el agente
 # intenta usar herramientas para todo y tarda 25-160 s en vez de ~13 s.
-$PRE_HABLADO = 'Responde SOLO con palabras, breve (una o dos frases), en espanol, sin usar herramientas y sin ejecutar nada. '
+# La ruta PREGUNTA no tenia filtro de ruido: cualquier frase de un video que
+# empezara por 'que' o 'como' entraba aqui y el modelo contestaba lo que fuera
+# (pasó el 11/09 a las 20:11 con 'como decia algo para dar vamos tumbado').
+# Misma solucion que en TRADUCIR: el modelo dice si esto iba con el o no, en la
+# misma llamada y sin latencia extra.
+$PRE_HABLADO = 'Responde SOLO con palabras, breve (una o dos frases), en espanol, sin usar herramientas y sin ejecutar nada. Si el texto no es una pregunta ni algo dicho a un asistente -es ruido, una frase suelta, el audio de un video o una conversacion ajena- responde exactamente: NO. '
 
 # Preguntas: se contestan hablando, no se ejecutan.
 $RE_PREGUNTA = '^(?:que|cual|cuanto|cuantos|cuando|donde|quien|como|por que|para que|sabes|dime|cuentame|explicame|explica|crees|opinas|hablame|es cierto|de verdad)\b'
@@ -3401,6 +3467,21 @@ function Report-Reply($out) {
         Show-Popup "No pude hacerlo. Dimelo de otra forma." 'error'
         Say "No pude hacerlo"
         return
+    }
+
+    # --- respuesta a una PREGUNTA: puede venir con el veredicto de arriba ---
+    if ($script:jobModo -eq 'pregunta') {
+        $limpia = (($out | Out-String) -replace '\s+', ' ').Trim().Trim('"').Trim("'").TrimEnd('.')
+        if ($limpia.ToUpperInvariant() -eq 'NO') {
+            $script:jobModo = ''
+            Log "NO era una pregunta: '$($script:jobTextoOriginal)' (descartada)"
+            Add-Estadistica 'ruido' $script:jobTextoOriginal
+            $script:seguimientoPendiente = $false   # un descarte no encadena: era ruido
+            Send-UIEvento 'gesto:confuso'
+            Show-Popup "No te entendi. Repitelo." 'error'
+            Say "No te entendi"
+            return
+        }
     }
 
     $now = Get-Date -Format "yyyy-MM-dd HH:mm:ss"

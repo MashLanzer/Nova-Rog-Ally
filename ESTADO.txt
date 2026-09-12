@@ -142,12 +142,24 @@ CALLARLA UN RATO (nuevo): "no me escuches", "duérmete", "no me escuches
   cuarto de hora) y te avisa al volver. Mientras tanto el botón ≡ sigue
   funcionando, así que nunca te quedas sin asistente. Útil justo cuando
   estás viendo vídeos: es lo que hacía que se activara sola.
+  Para volver antes: "escúchame" / "vuelve a escucharme" / "despierta"
+  (con el botón, que es lo que sigue vivo mientras está sorda).
+
+¿CÓMO ME OYES? (nuevo): pregúntaselo tal cual, o "qué tal el micrófono".
+  Te dice en una frase si entras bajo (y cuánto amplifica), si están
+  sonando los altavoces, y cuántas veces se despertó hoy para nada. Es lo
+  que antes había que sacar del log a mano.
 
 FALSAS ALARMAS (nuevo): el micrófono cazaba el audio de los altavoces y lo
   tomaba por órdenes. Ahora:
   - Se le pregunta a Windows si está sonando algo por los altavoces; si
     suena, se exige mucha más confianza para despertar (el log lo apunta:
     "altavoces=0.225").
+  - Y mientras suenan, NO se recalibra el micrófono. Si no, pasaba esto:
+    el altavoz entra fuerte -> el ajuste automático cree que hay que bajar
+    -> ganancia x0,7 -> tu voz (que entra a 0.02) deja de oírse justo
+    cuando quieres decir "nova, pausa". Se conserva la última calibración
+    hecha en silencio y se recupera sola.
   - A partir de tres palabras reconocidas también se exige más: cuando la
     llamas de verdad dices "nova" a secas, no "ey favor ey nova".
   - config.json -> escucha.confianzaMinima AHORA SÍ SE APLICA (antes solo

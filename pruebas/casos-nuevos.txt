@@ -49,3 +49,12 @@ cierra los juegos colgados
 # --- control: NO son lo anterior ---
 cierra el juego
 a que estoy jugando
+# --- volver de la sordina y diagnostico hablado ---
+escuchame
+vuelve a escucharme
+ya puedes escucharme
+despierta
+como me oyes
+que tal el microfono
+como va la escucha
+me escuchas bien

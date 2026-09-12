@@ -561,6 +561,9 @@ automatica = (GANANCIA_ARG == "auto")
 # la calibracion bajaba sola -justo los minutos en los que no se entendia nada.
 # Se recuerda la ultima y se empieza ahi.
 RUTA_GANANCIA = os.path.join(os.path.dirname(NIVEL), "ganancia.txt") if NIVEL else ""
+# Estado legible para el asistente, escrito en cada pulso. Sirve para que
+# puedas preguntarle "¿como me oyes?" en vez de tener que abrir el log.
+RUTA_ESTADO = os.path.join(os.path.dirname(NIVEL), "escucha-estado.txt") if NIVEL else ""
 
 
 def ganancia_guardada():
@@ -580,14 +583,26 @@ ganancia = GANANCIA_INICIAL if automatica else float(GANANCIA_ARG)
 if automatica:
     _g = ganancia_guardada()
     if _g is not None:
-        ganancia = _g
-        anota("ganancia recordada de la sesion anterior: x%.1f" % ganancia)
+        # Una ganancia asi de baja no se calibro con tu voz: en esta maquina la
+        # voz entra a 0.02-0.05 y hace falta amplificar entre x8 y x26. Un valor
+        # por debajo de x1.5 sale de haber calibrado con los altavoces sonando,
+        # y arrastrarlo entre sesiones es empezar el dia sordo.
+        if _g < 1.5:
+            anota("ganancia recordada x%.1f descartada (demasiado baja: se calibro con ruido); se empieza en x%.1f"
+                  % (_g, GANANCIA_INICIAL))
+        else:
+            ganancia = _g
+            anota("ganancia recordada de la sesion anterior: x%.1f" % ganancia)
+# Ultima ganancia calibrada EN SILENCIO. Es la que vale mientras suenen los
+# altavoces, porque la de entonces esta medida sobre el altavoz, no sobre ti.
+ganancia_limpia = ganancia
 
 anota("worker Vosk en marcha: nombre='%s' dispositivo='%s' ganancia=%s"
       % (NOMBRE, dispositivo, "auto" if automatica else ganancia))
 
 ultimo_pulso = time.time()
 recortes = 0
+ultimo_aviso_recorte = 0.0
 pausado = False
 arrastre = 0
 dictando = False
@@ -744,10 +759,27 @@ try:
                     if float(np.max(np.abs(amplificado))) >= 32767.0 and automatica:
                         recortes += 1
                         if recortes >= 3:
-                            ganancia = round(max(GANANCIA_MIN, ganancia * 0.6), 1)
-                            anota("recorte detectado: bajando ganancia a x%.1f" % ganancia)
-                            recortes = 0
-                            amplificado = muestras * ganancia
+                            # El recorte puede ser del ALTAVOZ, no de tu voz.
+                            # Bajar la ganancia entonces es lo contrario de lo
+                            # que hace falta: deja el microfono sordo justo
+                            # mientras suena algo. Y se peleaba con el pulso,
+                            # que la recuperaba: x8 -> x2.9 -> x8, sin parar.
+                            if nivel_salida() > UMBRAL_ALTAVOZ:
+                                recortes = 0
+                                if ahora - ultimo_aviso_recorte > 30:
+                                    ultimo_aviso_recorte = ahora
+                                    anota("recorte con los altavoces sonando (%.3f): la ganancia se queda en x%.1f"
+                                          % (nivel_salida(), ganancia))
+                            else:
+                                ganancia = round(max(GANANCIA_MIN, ganancia * 0.6), 1)
+                                # Sin altavoces de por medio, esto SI es tu voz
+                                # saturando: la bajada es buena y pasa a ser la
+                                # calibracion de referencia. Si no, el pulso la
+                                # desharia creyendo que fue culpa del altavoz.
+                                ganancia_limpia = ganancia
+                                anota("recorte detectado: bajando ganancia a x%.1f" % ganancia)
+                                recortes = 0
+                                amplificado = muestras * ganancia
                     muestras = np.clip(amplificado, -32768, 32767)
                 bloque = muestras.astype(np.int16).tobytes()
 
@@ -912,8 +944,23 @@ try:
             # pulso periodico: estado, nivel y ajuste de ganancia
             if ahora - ultimo_pulso >= INTERVALO_PULSO:
                 # Se exige voz SOSTENIDA, no un pico suelto: un transitorio de
-                # 250 ms no debe recalibrar nada.
-                if automatica and bloques_voz >= MIN_BLOQUES_VOZ and picos:
+                # 250 ms no debe recalibrar nada. Y NO se recalibra mientras suenan los altavoces. Lo que entra
+                # entonces es sobre todo el altavoz, no tu voz, y el calculo sale
+                # al reves: pico alto -> ganancia baja (se vio x0.7 con los
+                # altavoces a 0.55). Con la voz entrando a 0.02-0.05, amplificar
+                # x0.7 es quedarse sordo justo cuando mas falta hace decir
+                # "nova, pausa". Se conserva la ultima calibracion buena y se
+                # vuelve a ajustar cuando haya silencio.
+                altavoces_altos = nivel_salida() > UMBRAL_ALTAVOZ
+                if automatica and altavoces_altos and bloques_voz >= MIN_BLOQUES_VOZ:
+                    if ganancia < ganancia_limpia:
+                        anota("pulso: se recupera la ganancia de cuando habia silencio (x%.1f -> x%.1f)"
+                              % (ganancia, ganancia_limpia))
+                        ganancia = ganancia_limpia
+                    anota("pulso: ganancia congelada en x%.1f (suenan los altavoces: %.3f)"
+                          % (ganancia, nivel_salida()))
+                    escribir(RUTA_ESTADO, "%.1f|0|%.3f|%d" % (ganancia, nivel_salida(), bloques_voz))
+                elif automatica and bloques_voz >= MIN_BLOQUES_VOZ and picos:
                     ref = float(np.percentile(np.array(picos), 90))
                     ref = max(ref, 1e-6)
                     # El pico es CRUDO, antes de amplificar: la ganancia se
@@ -930,10 +977,13 @@ try:
                     ganancia = round(max(GANANCIA_MIN, min(GANANCIA_MAX, propuesta)), 1)
                     anota("pulso: p90=%.4f bloques_voz=%d ganancia=x%.1f decodificado=%d%% altavoces=%.3f"
                           % (ref, bloques_voz, ganancia, pct_dec(), nivel_salida()))
+                    ganancia_limpia = ganancia
                     escribir(RUTA_GANANCIA, "%.1f" % ganancia)
+                    escribir(RUTA_ESTADO, "%.1f|%.4f|%.3f|%d" % (ganancia, ref, nivel_salida(), bloques_voz))
                 else:
                     anota("pulso: sin voz sostenida (%d bloques) ganancia=x%.1f decodificado=%d%% altavoces=%.3f"
                           % (bloques_voz, ganancia, pct_dec(), nivel_salida()))
+                    escribir(RUTA_ESTADO, "%.1f|0|%.3f|%d" % (ganancia, nivel_salida(), bloques_voz))
                 picos = []
                 bloques_voz = 0
                 ultimo_pulso = ahora
