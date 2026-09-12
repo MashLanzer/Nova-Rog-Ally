@@ -509,13 +509,18 @@ function Test-MismoAudio([string]$a, [string]$b) {
     return $false
 }
 
-function Get-JuegosZombis {
+# El parametro existe para poder PROBARLA: el banco le pasa procesos de
+# mentira (uno colgado, Wallpaper Engine, uno con ventana...) y comprueba a
+# cuales senala. Sin eso solo se puede mirar lo que haya abierto en ese
+# momento, que casi nunca es lo interesante. En uso normal no se le pasa nada.
+function Get-JuegosZombis([object[]]$procesos) {
     $res = @()
     $ahora = Get-Date
-    foreach ($pr in (Get-Process -ErrorAction SilentlyContinue)) {
+    if (-not $procesos) { $procesos = @(Get-Process -ErrorAction SilentlyContinue) }
+    foreach ($pr in $procesos) {
         try {
             $ruta = $pr.Path
-            if (-not $ruta -or $ruta -notmatch '(?i)steamapps\common\([^\]+)') { continue }
+            if (-not $ruta -or $ruta -notmatch '(?i)steamapps\\common\\([^\\]+)') { continue }
             $carpeta = $Matches[1]
             # utilidades de escritorio que viven sin ventana a proposito
             if ($carpeta -match '(?i)wallpaper_engine|steamvr|proton|steam linux runtime') { continue }
@@ -1186,7 +1191,7 @@ $script:deshacer = $null
 function Save-EstadoParaDeshacer {
     $b = $null
     try { $b = (Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness -ErrorAction Stop).CurrentBrightness } catch {}
-    $script:deshacer = @{ brillo = $b; procesos = New-Object System.Collections.ArrayList }
+    $script:deshacer = @{ brillo = $b; procesos = New-Object System.Collections.ArrayList; juego = $null }
 }
 
 function Invoke-Deshacer {
@@ -1202,8 +1207,21 @@ function Invoke-Deshacer {
             $hecho += "cerrado $($pr.ProcessName)"
         } catch {}
     }
+    if ($script:deshacer.juego) {
+        $jg = $script:deshacer.juego
+        foreach ($pr in (Get-Process -ErrorAction SilentlyContinue)) {
+            try {
+                if ($pr.Path -notmatch '(?i)steamapps\\common\\') { continue }
+                if ($pr.StartTime -lt $jg.desde) { continue }
+                if (-not $pr.CloseMainWindow()) { Start-Sleep -Milliseconds 1200 }
+                if (-not $pr.HasExited) { $pr.Kill() }
+                $hecho += "cerrado $($jg.nombre)"
+                break
+            } catch {}
+        }
+    }
     $script:deshacer = $null
-    if ($hecho.Count -eq 0) { return "No pude deshacerlo: el volumen y las apps de Steam no se pueden revertir" }
+    if ($hecho.Count -eq 0) { return "No pude deshacerlo: el volumen no se puede revertir" }
     return ($hecho -join '; ')
 }
 
@@ -1422,11 +1440,30 @@ function Invoke-FastCommand([string]$text) {
                 # se sustituye la descripcion por el resultado real
                 'deshacer' { $a.desc = (Invoke-Deshacer) }
                 'app' {
-                    # con -PassThru para poder cerrarlo si pides deshacer; las
-                    # URI (steam://, shell:appsFolder) no devuelven proceso propio
-                    $pr = Start-Process $a.target -PassThru -ErrorAction Stop
-                    if ($pr -and $script:deshacer) { [void]$script:deshacer.procesos.Add($pr.Id) }
-                    if ($a.target -match 'msedge|chrome|firefox') { $navegador = $a.target }
+                    # ABRIR UN JUEGO MIENTRAS JUEGAS A OTRA COSA casi nunca es lo
+                    # que pediste: es la firma de una orden mal oida. El 11/09 un
+                    # ruido acabo abriendo SILENT BREATH en mitad de una partida.
+                    # Se pregunta antes, igual que con 'cierra todos los programas'.
+                    $esJuego = ($a.target -match 'steam://rungameid')
+                    $comoSeLlama = ($a.desc -replace '^abrir\s+', '' -replace '\s+en Steam$', '')
+                    if ($esJuego -and $script:juegoActivo -and -not $script:confirmado) {
+                        $script:pendiente = @{ texto = "abre $comoSeLlama en steam"; vence = 0; tipo = 'peligrosa' }
+                        $a.desc = "estas jugando a $($script:juegoActivo). ¿Abro $comoSeLlama?"
+                    } else {
+                        # con -PassThru para poder cerrarlo si pides deshacer; las
+                        # URI (steam://, shell:appsFolder) no devuelven proceso propio
+                        $pr = Start-Process $a.target -PassThru -ErrorAction Stop
+                        if ($pr -and $script:deshacer) { [void]$script:deshacer.procesos.Add($pr.Id) }
+                        # Un juego de Steam no deja proceso al que agarrarse, asi
+                        # que se apunta QUE y CUANDO: al deshacer se busca el que
+                        # haya aparecido despues. Antes, 'deshaz' no podia con
+                        # ellos, que es justo lo que hace falta tras un falso
+                        # positivo.
+                        if ($esJuego -and $script:deshacer) {
+                            $script:deshacer.juego = @{ nombre = $comoSeLlama; desde = (Get-Date) }
+                        }
+                        if ($a.target -match 'msedge|chrome|firefox') { $navegador = $a.target }
+                    }
                 }
                 'url' {
                     if ($navegador) { Start-Process $navegador $a.url -ErrorAction Stop }

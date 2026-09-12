@@ -375,6 +375,15 @@ DLL anterior en `tools\`.
 - **`$p.Kill()` no mata el árbol**: usar `taskkill /PID <id> /T /F`.
 - **`$args` es variable automática** dentro de funciones: nunca usarla como
   nombre de parámetro (rompió un script de medición).
+- **Un regex mal escrito no da la cara: simplemente no encuentra nada.** El
+  11/09 se coló `'(?i)steamapps\common\([^\]+)'` con barras simples. .NET ni
+  siquiera podía compilarlo («conjunto [] sin terminar»), pero la llamada estaba
+  dentro de un `try/catch` por proceso, así que la detección de juegos colgados
+  devolvía lista vacía **siempre y en silencio**. Peor: se había «probado» con
+  una copia escrita a mano en un script aparte, donde las barras sí estaban
+  bien. Dos costumbres que lo evitan: `tools\probar-regex.ps1` (compila todos
+  los patrones del archivo) y `tools\probar-funciones.ps1` (saca la función
+  **del archivo real** por AST y la ejecuta contra procesos de mentira).
 - **Índices de matriz bidimensional dentro de una llamada a método** no los
   traga el parser de PS 5.1: usar variables intermedias.
 - **Las voces "Natural" de Windows no son accesibles a las apps** (§7).
@@ -517,6 +526,12 @@ Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
 
 # Vaciar la caché de voz (se regenera sola)
 Get-ChildItem .\tmp\voz -Filter *.mp3 | Remove-Item -Force
+
+# Comprobar que TODOS los patrones compilan como expresion regular
+powershell -NoProfile -File tools\probar-regex.ps1 assistant.ps1
+
+# Probar funciones sueltas SACADAS DEL ARCHIVO REAL, sin arrancar nada
+powershell -NoProfile -File tools\probar-funciones.ps1
 
 # Recompilar la interfaz tras tocar nova_ui.cs (el asistente debe reiniciarse)
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\compilar-ui.ps1
