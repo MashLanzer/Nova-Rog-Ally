@@ -52,3 +52,15 @@ quita el silencio => sonido otra vez
 # --- y las que se responden al instante, que no deben irse al modelo ---
 que hora es => Son las
 copia la respuesta => copiar la respuesta
+
+# --- sobre UNA APP por su nombre, contra la ventana que tiene el foco ---
+# Las dos familias se pisan por el verbo, y ademas Repair-Verb mete mano: al
+# anadir "manda" a la lista de verbos, "mandala" (la de delante) se convirtio
+# en "mandale" y dejo de entenderse. Las dos tienen que seguir vivas.
+minimiza spotify => minimizar spotify
+maximiza el navegador => maximizar navegador
+manda discord al otro monitor => mandar discord al otro monitor
+mueve spotify a la otra pantalla => mandar spotify al otro monitor
+mandala al otro monitor => al otro monitor
+muevela al otro monitor => al otro monitor
+minimiza todo => mostrar el escritorio

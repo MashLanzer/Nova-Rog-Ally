@@ -124,7 +124,7 @@ function Send-WinH {
 # Formas de habla latinoamericana incluidas a proposito: subele/bajale/ponme/
 # metete/anda/prende, ademas del imperativo peninsular. Todo va sin tildes
 # porque el texto se normaliza antes de comparar.
-$VERBOS = '(?:abre|abreme|abrele|abrir|abri|abrime|ejecuta|ejecutame|inicia|iniciame|lanza|lanzame|arranca|arrancame|prende|prendeme|pon|ponme|poneme|ponele|pone|mete|metete|entra|entrate|anda|andate|ve|vete|llevame|muestrame|muestra|ensename|busca|buscame|buscar|busque|googlea|googleame|investiga|sube|subele|subir|aumenta|baja|bajale|bajar|reduce|silencia|silenciar|mutea|pausa|pausar|reproduce|reproducir|play|siguiente|anterior|bloquea|bloquear|cierra|cierrame|cierrate|apaga|escribe|escribeme|teclea|pulsa|presiona|aprieta|dale a|cambia|cambiate|pasate|copia|pega|selecciona|guarda|minimiza|maximiza|enfoca)'
+$VERBOS = '(?:abre|abreme|abrele|abrir|abri|abrime|ejecuta|ejecutame|inicia|iniciame|lanza|lanzame|arranca|arrancame|prende|prendeme|pon|ponme|poneme|ponele|pone|mete|metete|entra|entrate|anda|andate|ve|vete|llevame|muestrame|muestra|ensename|busca|buscame|buscar|busque|googlea|googleame|investiga|sube|subele|subir|aumenta|baja|bajale|bajar|reduce|silencia|silenciar|mutea|pausa|pausar|reproduce|reproducir|play|siguiente|anterior|bloquea|bloquear|cierra|cierrame|cierrate|apaga|escribe|escribeme|teclea|pulsa|presiona|aprieta|dale a|cambia|cambiate|pasate|copia|pega|selecciona|guarda|minimiza|maximiza|enfoca|manda|envia|mueve|restaura|restaurar)'
 
 # Muletillas y cortesias que el dictado captura pero que NO son parte de la
 # orden. "busca tambien en el navegador X" fallaba justo por esto.
@@ -1528,6 +1528,34 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(?:cuanto\s+)?(?:espacio|disco|sitio)\s*(?:me\s+)?(?:queda|libre|hay|tengo)?$' -or
         $f -match '^cuanto (?:espacio|sitio) (?:me )?(?:queda|hay|tengo)\b') {
         return @(@{ kind = 'disco'; desc = 'espacio libre' })
+    }
+    # --- ORDENES DE VENTANA SOBRE UNA APP POR SU NOMBRE ---
+    # Todo lo de ventanas actuaba solo sobre la que tiene el foco, que es justo
+    # la que NO quieres tocar mientras juegas: para minimizar Spotify habia que
+    # ponerlo delante primero, o sea salir del juego. Esto va directo a la
+    # ventana de la app que digas y NO le roba el foco a nadie.
+    # Va antes que "minimiza todo" no, DESPUES: esa es mas concreta y ya existe.
+    if ($f -match '^(?:minimiza|minimizar|esconde|oculta|guarda|baja)\s+(?:el\s+|la\s+|a\s+)?(.+)$') {
+        $obj = $Matches[1].Trim()
+        if ($obj -notmatch '^(?:todo|todas|el escritorio|escritorio|la pagina|el tamano|tamano)$') {
+            $proc = Resolve-Proceso $obj
+            if ($proc) { return @(@{ kind = 'ventanaApp'; proceso = $proc.proceso; accion = 'minimizar'; desc = "minimizar $($proc.nombre)" }) }
+        }
+    }
+    if ($f -match '^(?:maximiza|maximizar|agranda|abre del todo)\s+(?:el\s+|la\s+|a\s+)?(.+)$') {
+        $obj = $Matches[1].Trim()
+        if ($obj -notmatch '^(?:el tamano|tamano)$') {
+            $proc = Resolve-Proceso $obj
+            if ($proc) { return @(@{ kind = 'ventanaApp'; proceso = $proc.proceso; accion = 'maximizar'; desc = "maximizar $($proc.nombre)" }) }
+        }
+    }
+    if ($f -match '^(?:restaura|restaurar|recupera|saca)\s+(?:el\s+|la\s+|a\s+)?(.+)$') {
+        $proc = Resolve-Proceso ($Matches[1].Trim())
+        if ($proc) { return @(@{ kind = 'ventanaApp'; proceso = $proc.proceso; accion = 'restaurar'; desc = "restaurar $($proc.nombre)" }) }
+    }
+    if ($f -match '^(?:manda|mandale|envia|pasa|mueve|llevate|lleva)\s+(?:el\s+|la\s+|a\s+)?(.+?)\s+(?:a|al)\s+(?:el\s+|la\s+)?(?:otr[oa]|segund[oa])\s+(?:monitor|pantalla)$') {
+        $proc = Resolve-Proceso ($Matches[1].Trim())
+        if ($proc) { return @(@{ kind = 'ventanaApp'; proceso = $proc.proceso; accion = 'otroMonitor'; desc = "mandar $($proc.nombre) al otro monitor" }) }
     }
     # --- MOVERSE POR UN MENU SIN SOLTAR EL MANDO ---
     # Con un juego a pantalla completa, esto es lo unico que no se podia hacer
@@ -3065,6 +3093,62 @@ function Invoke-FastCommand([string]$text) {
                         foreach ($pr in $ps) { try { if (-not $pr.CloseMainWindow()) { Start-Sleep -Milliseconds 1500; if (-not $pr.HasExited) { $pr.Kill() } } } catch {} }
                         $a.desc = "cerrando $($script:juegoActivo)"
                     } else { $a.desc = 'no hay ningun juego abierto' }
+                }
+                'ventanaApp' {
+                    # NO se toca el foco en ningun caso: ShowWindow con
+                    # SW_MINIMIZE / SW_MAXIMIZE / SW_RESTORE no activa la
+                    # ventana, y para mover se usa SetWindowPos con NOACTIVATE.
+                    # Todo el sentido de esto es no salir del juego.
+                    $pv = Get-Process -Name $a.proceso -ErrorAction SilentlyContinue |
+                          Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+                    if (-not $pv) {
+                        $a.desc = "$($a.desc): no esta abierta"
+                    } else {
+                        $hw = $pv.MainWindowHandle
+                        switch ($a.accion) {
+                            'minimizar' { [void][AX]::ShowWindow($hw, 6) }    # SW_MINIMIZE
+                            'maximizar' { [void][AX]::ShowWindow($hw, 3) }    # SW_MAXIMIZE
+                            'restaurar' { [void][AX]::ShowWindow($hw, 9) }    # SW_RESTORE
+                            'otroMonitor' {
+                                $pantallas = @([System.Windows.Forms.Screen]::AllScreens)
+                                if ($pantallas.Count -lt 2) {
+                                    # decirlo, en vez de mover la ventana al vacio:
+                                    # es el mismo criterio que "mandala al otro
+                                    # monitor" sobre la ventana con foco
+                                    $a.desc = 'solo tienes una pantalla'
+                                } else {
+                                    $r = New-Object AX+RECT
+                                    if (-not [AX]::GetWindowRect($hw, [ref]$r)) {
+                                        $a.desc = "$($a.desc): no pude leer donde esta"
+                                    } else {
+                                        # una ventana maximizada no se puede mover:
+                                        # hay que restaurarla antes y volver a
+                                        # maximizarla en la pantalla nueva
+                                        $estabaMax = ($pv.MainWindowHandle -ne 0) -and ([AX]::GetWindowLong($hw, -16) -band 0x01000000)
+                                        if ($estabaMax) { [void][AX]::ShowWindow($hw, 9); Start-Sleep -Milliseconds 120; [void][AX]::GetWindowRect($hw, [ref]$r) }
+                                        $cx = ($r.Left + $r.Right) / 2; $cy = ($r.Top + $r.Bottom) / 2
+                                        $actual = $pantallas | Where-Object { $_.Bounds.Contains([int]$cx, [int]$cy) } | Select-Object -First 1
+                                        if (-not $actual) { $actual = $pantallas[0] }
+                                        $i = [Array]::IndexOf($pantallas, $actual)
+                                        $destino = $pantallas[($i + 1) % $pantallas.Count]
+                                        # se conserva el tamano y la posicion RELATIVA
+                                        # dentro de la pantalla: una ventana que
+                                        # estaba arriba a la izquierda sigue estando
+                                        # arriba a la izquierda en la otra
+                                        $nx = $destino.WorkingArea.X + ($r.Left - $actual.WorkingArea.X)
+                                        $ny = $destino.WorkingArea.Y + ($r.Top - $actual.WorkingArea.Y)
+                                        $anchoV = $r.Right - $r.Left; $altoV = $r.Bottom - $r.Top
+                                        # y que no se salga de la pantalla de destino
+                                        $nx = [Math]::Max($destino.WorkingArea.X, [Math]::Min($nx, $destino.WorkingArea.Right - $anchoV))
+                                        $ny = [Math]::Max($destino.WorkingArea.Y, [Math]::Min($ny, $destino.WorkingArea.Bottom - $altoV))
+                                        $SWP_NOACTIVATE = 0x0010; $SWP_NOZORDER = 0x0004
+                                        [void][AX]::SetWindowPos($hw, [IntPtr]::Zero, [int]$nx, [int]$ny, $anchoV, $altoV, ($SWP_NOACTIVATE -bor $SWP_NOZORDER))
+                                        if ($estabaMax) { Start-Sleep -Milliseconds 120; [void][AX]::ShowWindow($hw, 3) }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 'enfocar' {
                     $pr = Get-Process -Name $a.proceso -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1

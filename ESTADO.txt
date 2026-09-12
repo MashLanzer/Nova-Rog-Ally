@@ -32,9 +32,9 @@ EJECUTANDO AHORA: SÍ, desde el 12/09 a las 13:57, ya con los cambios de ese
     biblioteca de Steam: 14 juegos indexados
   Y decir en voz alta: "Listo. Di nova cuando me necesites."
 
-LO QUE QUEDA POR HACER: PENDIENTE.md (14 ideas con su porqué, y las trampas
+LO QUE QUEDA POR HACER: PENDIENTE.md (13 ideas con su porqué, y las trampas
   de esta base de código que conviene leer antes de tocar nada). El 12/09 se
-  hicieron la 4, la 7, la 9, la 11, la 14 y la 15.
+  hicieron la 2, la 4, la 7, la 9, la 11, la 14 y la 15.
 
 CÓMO SE USA
   1. Decir "nova"  (o mantener pulsado ≡ ~1,1 s) -> bip, se abre el dictado.
@@ -225,6 +225,15 @@ QUÉ ENTIENDE LA RUTA LOCAL
               preguntar y "deshaz" lo devuelve. "silencia" y "quita el
               silencio" son órdenes distintas: antes era una sola que
               conmutaba, así que decirla dos veces te devolvía el sonido.
+  - Ventanas POR SU NOMBRE (nuevo): "minimiza Spotify", "maximiza el
+                navegador", "restaura Discord", "manda Discord al otro monitor".
+                Hasta ahora todo lo de ventanas actuaba solo sobre la que tiene
+                el foco, que es justo la que NO quieres tocar mientras juegas:
+                para minimizar Spotify había que ponerlo delante primero, o sea
+                salir del juego. Esto va directo a la ventana de esa app y no le
+                roba el foco a nadie. Si solo hay una pantalla, lo dice en vez
+                de mandar la ventana al vacío. Y "mándala al otro monitor" (la
+                de delante, sin nombre) sigue funcionando igual que siempre.
   - Ventanas: "a mitad de pantalla", "a la derecha", "maximiza",
                 "mándala al otro monitor" (si solo hay una pantalla, lo dice
                 en vez de mandar la combinación al vacío), "ponla siempre

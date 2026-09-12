@@ -31,11 +31,6 @@ ni con batería):
       «Dicta un correo» entraría en modo continuo escribiendo en la ventana de
       delante, con «punto y aparte», «borra lo último» y «cambia X por Y».
 
-- [ ] **2. Órdenes de ventana sobre una app por su nombre.**
-      «Minimiza Spotify», «manda Discord al otro monitor», sin ponerla delante
-      primero. Todo lo de ventanas actúa solo sobre la que tiene el foco, que es
-      justo la que no quieres tocar mientras juegas.
-
 - [ ] **3. Listas de verdad, no notas.**
       «Apunta pan en la lista de la compra», «¿qué tengo en la lista?», «borra el
       primero». El diario guarda texto suelto; una lista se tacha y se vacía.
@@ -112,13 +107,17 @@ ni con batería):
   a». Flechas de verdad, y números dichos con palabras. De paso salió que el
   banco no veía las colisiones entre órdenes parecidas: ahora hay
   `pruebas\destinos.txt` y `tools\probar-destinos.ps1`.
+- **2. Ventanas de una app por su nombre.** «Minimiza Spotify», «manda Discord
+  al otro monitor», sin ponerla delante y sin robarle el foco a nadie. Lo de
+  mover entre monitores no se ha podido probar de verdad: en esta máquina solo
+  hay una pantalla, y lo que sí se comprobó es que lo dice en vez de moverla.
 
 ## Por dónde empezar
 
-Si hay que elegir: la **2** («minimiza Spotify» sin ponerlo delante), que es
-lo que queda para no tener que soltar el mando. Después la **17** (avisos sin
-voz), que es su pareja natural: con un juego delante, ni hablarte encima ni
-que no te enteres.
+Si hay que elegir: la **17** (avisos sin voz), que es la pareja natural de lo
+hecho estos días: con un juego delante, ni hablarte encima ni que no te
+enteres. Después la **1** (dictado largo de verdad), que es la única que
+todavía obliga a soltar el mando para escribir algo.
 
 ---
 
