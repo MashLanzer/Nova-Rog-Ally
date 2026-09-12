@@ -363,6 +363,18 @@ LA CÁPSULA, AL DÍA (nuevo)
   - Respuestas largas: tarjeta de cristal que YA NO ROBA EL FOCO. Antes te
     sacaba de un juego a pantalla completa.
 
+EL OÍDO FINO, MEDIDO (nuevo)
+  Cuando la capa local no entiende algo, se repasa el MISMO audio con el
+  modelo preciso antes de ir al modelo remoto. Cuesta segundos y hasta ahora
+  no había forma de saber si compensa. Ahora estadisticas.md tiene la sección
+  "El oído fino, ¿compensa?": cuántos repasos se piden, cuántos SIRVIERON,
+  cuántos oyeron lo mismo (tiempo tirado) y cuántos se inventó.
+  Y ya no se piden todos: si lo que se oyó no tiene NINGUNA palabra de cuatro
+  letras ("los", "eh", "sí va"), el repaso se descartaría igual —el filtro
+  exige compartir un trozo de palabra de cuatro letras— así que ni se pide.
+  Medido sobre el corpus de ruido real: 16 de las 97 frases se ahorran el
+  repaso entero, y ninguna de ellas podía haberlo aprovechado.
+
 SI "NOVA" NO ME OYE
   Mira en assistant.log las líneas "[escucha] pulso": dicen la ganancia y
   si detecta voz. El micrófono de esta máquina entra MUY bajo; el worker

@@ -15,7 +15,11 @@ $fallos = 0
 function Titulo($t) { Write-Host ""; Write-Host "== $t" -ForegroundColor Cyan }
 
 Titulo "1. Patrones (todos deben compilar)"
-powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-regex.ps1') 'assistant.ps1'
+# Tambien las herramientas: un CR suelto colado en una ruta dentro de una
+# prueba hizo que la comprobacion mas importante del oido fino midiera 0 casos
+# y dijera "OK" igual. Las pruebas tambien se rompen en silencio.
+$aRevisar = @('assistant.ps1') + @(Get-ChildItem -Path $PSScriptRoot -Filter 'probar-*.ps1' | ForEach-Object { $_.FullName })
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-regex.ps1') -Archivos $aRevisar
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
 Titulo "2. Funciones sueltas, sacadas del archivo real"

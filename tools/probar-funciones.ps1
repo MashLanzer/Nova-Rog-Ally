@@ -28,6 +28,7 @@ Invoke-Expression (Traer 'Test-MismoAudio')
 Invoke-Expression (Traer 'Get-JuegosZombis')
 Invoke-Expression (Traer 'Get-Atragantos')
 Invoke-Expression (Traer 'Get-Trozo')
+Invoke-Expression (Traer 'Test-MereceRepaso')
 
 $mal = 0
 Write-Host "--- Test-MismoAudio (del archivo real) ---"
@@ -136,6 +137,41 @@ foreach ($c in $casosT) {
     if (-not $c[1]) { $mal++ }
     "  {0}  {1}" -f $(if ($c[1]) { 'OK  ' } else { 'MAL ' }), $c[0]
 }
+
+# --- Test-MereceRepaso: no pedir un repaso que se va a tirar igual ---
+# La guarda solo es legitima si se cumple esto: siempre que dice que NO merece
+# la pena, Test-MismoAudio habria rechazado el repaso pase lo que pase. No se
+# da por supuesto: se comprueba contra el corpus de ruido REAL y contra los
+# nombres que el modelo preciso suele alucinar.
+Write-Host ""
+Write-Host "--- Test-MereceRepaso (del archivo real) ---"
+$inventos = @(
+    'SILENT BREATH', 'Little Nightmares III', 'Outlast 2', 'Hollow Knight',
+    'abre steam', 'pon modo noche', 'Wallpaper Engine', 'REANIMAL', 'sube el volumen'
+)
+$ruido = Join-Path (Split-Path -Parent $PSScriptRoot) (Join-Path 'pruebas' 'ruido-real.txt')
+$cortas = 0; $colados = 0
+if (Test-Path -LiteralPath $ruido) {
+    foreach ($l in (Get-Content -LiteralPath $ruido -Encoding UTF8)) {
+        $l = $l.Trim(); if (-not $l -or $l.StartsWith('#')) { continue }
+        if (Test-MereceRepaso $l) { continue }
+        $cortas++
+        foreach ($inv in $inventos) { if (Test-MismoAudio $l $inv) { $colados++ } }
+    }
+}
+$casosR = @(
+    @('el ruido de tres letras no merece repaso', (-not (Test-MereceRepaso 'los'))),
+    @('ni dos palabras cortas',                   (-not (Test-MereceRepaso 'si va'))),
+    @('una orden de verdad si',                   (Test-MereceRepaso 'abrestean')),
+    @('y el destrozo largo tambien',              (Test-MereceRepaso 'Abre, Lytlen y Mar estresenstea')),
+    @('hay frases cortas en el corpus real',      ($cortas -ge 5)),
+    @('y NINGUNA podia aceptar un repaso',        ($colados -eq 0))
+)
+foreach ($c in $casosR) {
+    if (-not $c[1]) { $mal++ }
+    "  {0}  {1}" -f $(if ($c[1]) { 'OK  ' } else { 'MAL ' }), $c[0]
+}
+"      ({0} frases cortas del corpus real x {1} invenciones = {2} combinaciones, {3} coladas)" -f $cortas, $inventos.Count, ($cortas * $inventos.Count), $colados
 
 if ($mal -gt 0) { Write-Host "$mal casos MAL"; exit 1 }
 Write-Host "todo correcto"

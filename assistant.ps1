@@ -650,6 +650,19 @@ function Test-CatalogoRecitado([string]$text) {
     return ($delCatalogo -ge 1)
 }
 
+# ¿Vale la pena pedir el repaso del oido fino?
+# Test-MismoAudio (justo debajo) solo acepta el repaso si comparte con lo que
+# se oyo primero un trozo de palabra de 4 letras o mas. Si lo primero no tiene
+# ninguna palabra de 4 letras, ninguna palabra larga del repaso puede caber
+# dentro: el repaso se descartara SIEMPRE. Esperarlo es regalar segundos, y
+# encima en el caso mas frecuente, que es el ruido corto.
+function Test-MereceRepaso([string]$text) {
+    $p = ConvertTo-Plain $text
+    if (-not $p) { return $false }
+    foreach ($w in @($p -split '\s+')) { if ($w.Length -ge 4) { return $true } }
+    return $false
+}
+
 function Test-MismoAudio([string]$a, [string]$b) {
     $pa = ConvertTo-Plain $a
     $pb = ConvertTo-Plain $b
@@ -923,7 +936,7 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '') {
         if (-not (Test-Path -LiteralPath $MemoriaDir)) { New-Item -ItemType Directory -Force -Path $MemoriaDir | Out-Null }
         [System.IO.File]::WriteAllText($EstadisticasJson, ($o | ConvertTo-Json -Depth 6), $enc)
 
-        $rutas = @('activacion', 'vozwin', 'vozwin-mudo', 'local', 'aprendida', 'memoria', 'pregunta', 'traducir', 'traducida', 'accion', 'charla', 'ruido', 'recitado', 'descarte', 'error')
+        $rutas = @('activacion', 'vozwin', 'vozwin-mudo', 'local', 'aprendida', 'memoria', 'pregunta', 'traducir', 'traducida', 'accion', 'charla', 'ruido', 'recitado', 'descarte', 'error', 'fino', 'fino-sirvio', 'fino-igual', 'fino-invento', 'fino-ahorrado')
         $sb = New-Object System.Text.StringBuilder
         [void]$sb.AppendLine("# Estadísticas del asistente")
         [void]$sb.AppendLine("")
@@ -968,7 +981,33 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '') {
         try {
             $at = @(Get-Atragantos | Where-Object { $_.veces -ge 2 } | Select-Object -First 12)
             if ($at.Count -gt 0) {
-                [void]$sb.AppendLine("## Lo que más se me atraganta")
+                # EL OIDO FINO, EN NUMEROS. Cuesta hasta unos segundos por orden y hasta
+        # ahora no habia forma de saber si compensa. Si "sirvio" se queda en cero
+        # semana tras semana, sobra; si es alto, es lo mejor que tiene.
+        try {
+            $fTot = 0; $fSir = 0; $fIgu = 0; $fInv = 0; $fAho = 0
+            foreach ($k in $s.dias.Keys) {
+            if ($s.dias[$k].ContainsKey('fino')) { $fTot += $s.dias[$k]['fino'] }
+            if ($s.dias[$k].ContainsKey('fino-sirvio')) { $fSir += $s.dias[$k]['fino-sirvio'] }
+            if ($s.dias[$k].ContainsKey('fino-igual')) { $fIgu += $s.dias[$k]['fino-igual'] }
+            if ($s.dias[$k].ContainsKey('fino-invento')) { $fInv += $s.dias[$k]['fino-invento'] }
+            if ($s.dias[$k].ContainsKey('fino-ahorrado')) { $fAho += $s.dias[$k]['fino-ahorrado'] }
+            }
+            if (($fTot + $fAho) -gt 0) {
+                [void]$sb.AppendLine("## El oído fino, ¿compensa?")
+                [void]$sb.AppendLine("")
+                [void]$sb.AppendLine('Cuando la capa local no entiende algo, se repasa el MISMO audio con el modelo preciso antes de ir al modelo remoto. Cuesta segundos. Esto dice si sirve.')
+                [void]$sb.AppendLine("")
+                [void]$sb.AppendLine("- repasos pedidos: **$fTot**")
+                $pct = if ($fTot -gt 0) { [int](100.0 * $fSir / $fTot) } else { 0 }
+                [void]$sb.AppendLine("- **sirvieron: $fSir** ($pct %) — oyó algo distinto Y bueno")
+                [void]$sb.AppendLine("- oyó lo mismo: $fIgu — tiempo tirado")
+                [void]$sb.AppendLine("- se lo inventó: $fInv — se descartó a tiempo")
+                [void]$sb.AppendLine("- ni se pidieron: $fAho — no tenían ninguna palabra de 4 letras, así que el repaso se habría descartado seguro")
+                [void]$sb.AppendLine("")
+            }
+        } catch {}
+        [void]$sb.AppendLine("## Lo que más se me atraganta")
                 [void]$sb.AppendLine("")
                 [void]$sb.AppendLine('Frases que acabaron sin entenderse, en el modelo o en error, MÁS DE UNA VEZ. Para arreglar una: di "aprende que <la frase> es <la orden buena>".')
                 [void]$sb.AppendLine("")
@@ -5236,7 +5275,8 @@ function Process-Texto([string]$text) {
             #      mientras el usuario estaba jugando a otra cosa. El filtro de
             #      ruido existia precisamente para eso y yo lo habia saltado.
             if ($WhisperPreciso -and $DictadoWorker -and -not $script:yaReintentado -and
-                $script:wakeProc -and -not $script:wakeProc.HasExited) {
+                $script:wakeProc -and -not $script:wakeProc.HasExited -and
+                (Test-MereceRepaso $text)) {
                 $script:yaReintentado = $true
                 try {
                     Remove-Item -LiteralPath $RutaReintento -Force -ErrorAction SilentlyContinue
@@ -5244,12 +5284,20 @@ function Process-Texto([string]$text) {
                     $script:reintentoTexto = $text
                     $script:reintentoVence = $sw.ElapsedMilliseconds + $ReintentoMaxMs
                     Log "OIDO FINO: no reconoci '$text', pido repaso"
+                    Add-Estadistica 'fino' $text
                     Set-UI 'pensando' 'Afinando el oido'
                     return
                 } catch {
                     $script:reintentoVence = 0
                     Log ('no se pudo pedir el repaso: ' + $_.Exception.Message)
                 }
+            }
+
+            if ($WhisperPreciso -and $DictadoWorker -and -not $script:yaReintentado -and
+                -not (Test-MereceRepaso $text)) {
+                # se cuenta para poder ver cuanto se ahorra de verdad
+                Add-Estadistica 'fino-ahorrado' $text
+                Log "OIDO FINO: no lo pido, '$text' no tiene ninguna palabra de 4 letras y el repaso se descartaria igual"
             }
 
             # 4) que el modelo la traduzca a una orden conocida (~13 s) y se
@@ -5614,9 +5662,11 @@ while ($true) {
             $limpio = $fino.Trim()
             if ($limpio -and (ConvertTo-Plain $limpio) -ne (ConvertTo-Plain $orig) -and (Test-MismoAudio $orig $limpio)) {
                 Log "OIDO FINO: '$orig' -> '$limpio'"
+                Add-Estadistica 'fino-sirvio' "$orig -> $limpio"
                 Process-Texto $limpio
             } elseif ($limpio -and -not (Test-MismoAudio $orig $limpio)) {
                 Log "OIDO FINO descartado: '$limpio' no se parece en nada a '$orig'; es invento suyo"
+                Add-Estadistica 'fino-invento' "$orig -> $limpio"
                 Add-Estadistica 'ruido' $orig
                 Add-RuidoRacha
                 $script:seguimientoPendiente = $false
@@ -5625,6 +5675,7 @@ while ($true) {
                 Say "No te entendi"
             } else {
                 # el oido fino oyo lo mismo (o nada): no hay nada que ganar
+                Add-Estadistica 'fino-igual' $orig
                 Process-Texto $orig
             }
         }
