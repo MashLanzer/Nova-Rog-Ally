@@ -129,6 +129,12 @@ INTERVALO_PULSO = 15.0    # ajuste rapido; con 60 s tardaba minutos en subir
 # Por encima de este pico en la SALIDA se considera que esta sonando algo
 # (medido en esta maquina: silencio 0.0002, fondo suave 0.007, video 0.30).
 UMBRAL_ALTAVOZ = 0.02
+# Por encima de esto no suena "algo de fondo": suena FUERTE (un juego, un
+# video a volumen normal). Ahi la palabra de activacion no es fiable -el
+# 11/09 a las 20:16 se activo con los altavoces a 0.39 y confianza 0.91,
+# por encima del umbral exigente- y encima el usuario esta jugando, que es
+# cuando mas molesta. Queda el boton, que no se equivoca nunca.
+UMBRAL_ALTAVOZ_FUERTE = 0.35
 # El modelo preciso solo corre a rachas y con prioridad baja: puede permitirse
 # mas hilos que el rapido, que va en el camino de cada orden.
 HILOS_PRECISO = 8
@@ -564,6 +570,10 @@ RUTA_GANANCIA = os.path.join(os.path.dirname(NIVEL), "ganancia.txt") if NIVEL el
 # Estado legible para el asistente, escrito en cada pulso. Sirve para que
 # puedas preguntarle "¿como me oyes?" en vez de tener que abrir el log.
 RUTA_ESTADO = os.path.join(os.path.dirname(NIVEL), "escucha-estado.txt") if NIVEL else ""
+# Mientras exista esta marca no se evalua la palabra de activacion: solo el
+# boton. La crea el asistente cuando hay un juego en primer plano. El dictado
+# y la confirmacion siguen funcionando con normalidad.
+MARCA_SOLO_BOTON = os.path.join(os.path.dirname(NIVEL), "solo-boton.flag") if NIVEL else ""
 
 
 def ganancia_guardada():
@@ -603,6 +613,7 @@ anota("worker Vosk en marcha: nombre='%s' dispositivo='%s' ganancia=%s"
 ultimo_pulso = time.time()
 recortes = 0
 ultimo_aviso_recorte = 0.0
+ultimo_aviso_solo_boton = 0.0
 pausado = False
 arrastre = 0
 dictando = False
@@ -914,10 +925,21 @@ try:
                             pico_voz = pico
                         if PATRON_NOMBRE.search(plano):
                             conf = 0.0
+                            solo_boton = bool(MARCA_SOLO_BOTON) and os.path.exists(MARCA_SOLO_BOTON)
+                            salida = nivel_salida()
                             for p in resultado.get("result", []):
                                 if sin_tildes(p.get("word", "")) == NOMBRE_PLANO:
                                     conf = max(conf, float(p.get("conf", 0.0)))
-                            if pico_rafaga < UMBRAL_VOZ:
+                            if solo_boton:
+                                if ahora - ultimo_aviso_solo_boton > 60:
+                                    ultimo_aviso_solo_boton = ahora
+                                    anota("'%s' ignorado: estas jugando, aqui solo vale el boton" % texto)
+                            elif salida > UMBRAL_ALTAVOZ_FUERTE:
+                                if ahora - ultimo_aviso_solo_boton > 60:
+                                    ultimo_aviso_solo_boton = ahora
+                                    anota("'%s' ignorado: los altavoces suenan fuerte (%.3f), la palabra no es de fiar"
+                                          % (texto, salida))
+                            elif pico_rafaga < UMBRAL_VOZ:
                                 # Vosk daba confianza 1.00 al nombre sobre
                                 # bloques de pico 0.000, o sea silencio puro
                                 # amplificado. Sin haber sonado nada no hay

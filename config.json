@@ -42,6 +42,7 @@
                     "activada":  true,
                     "nombre":  "nova",
                     "confianzaMinima":  0.55,
+                    "soloBotonEnJuego":  true,
                     "motor":  "vosk",
                     "ganancia":  "auto"
                 },

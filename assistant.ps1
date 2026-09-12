@@ -487,6 +487,28 @@ $ZombiUsoCPU = 0.30       # fraccion de un nucleo, sostenida desde que arranco
 $script:zombisAvisados = @{}
 $script:zombiCheck = 0
 
+# ¿El repaso del oido fino tiene algo que ver con lo que se oyo primero?
+# Al modelo preciso se le pasa la lista de tus apps y juegos como pista, y con
+# audio que no es voz eso le hace INVENTARSE uno de esos nombres: 'los' salio
+# como 'SILENT BREATH' y se abrio el juego. Si las dos transcripciones no
+# comparten ni un trozo de palabra, no es que oyera mejor: es que se lo invento.
+# 'abrestean' -> 'abre steam' si comparte ('abre' esta dentro), y ese es el caso
+# para el que existe el repaso.
+function Test-MismoAudio([string]$a, [string]$b) {
+    $pa = ConvertTo-Plain $a
+    $pb = ConvertTo-Plain $b
+    if (-not $pa -or -not $pb) { return $false }
+    foreach ($w in @($pa -split '\s+')) {
+        if ($w.Length -lt 4) { continue }
+        if ($pb -like "*$w*") { return $true }
+    }
+    foreach ($w in @($pb -split '\s+')) {
+        if ($w.Length -lt 4) { continue }
+        if ($pa -like "*$w*") { return $true }
+    }
+    return $false
+}
+
 function Get-JuegosZombis {
     $res = @()
     $ahora = Get-Date
@@ -1940,6 +1962,13 @@ $RutaVocabulario = Join-Path $TmpDir "vocabulario.txt"
 $RutaDictado = Join-Path $TmpDir "dictado.txt"
 $RutaParcial = Join-Path $TmpDir "dictado-parcial.txt"
 $RutaEstado = Join-Path $TmpDir "escucha-estado.txt"
+# Mientras hay un juego delante, la palabra de activacion se apaga y solo vale
+# el boton. Es cuando mas molesta equivocarse -el 11/09 abrio un juego solo en
+# mitad de una partida- y cuando el boton del mando esta mas a mano.
+$MarcaSoloBoton = Join-Path $TmpDir "solo-boton.flag"
+$SoloBotonEnJuego = [bool](Get-Cfg 'escucha' 'soloBotonEnJuego' $true)
+# una marca de una sesion anterior dejaria la palabra apagada sin motivo
+try { Remove-Item -LiteralPath $MarcaSoloBoton -Force -ErrorAction SilentlyContinue } catch {}
 $MarcaReintento = Join-Path $TmpDir "reintentar.flag"
 $RutaReintento = Join-Path $TmpDir "reintento.txt"
 # nivel de voz 0..1 que el worker escribe mientras dictas; lo lee la interfaz
@@ -3791,28 +3820,6 @@ function Process-Texto([string]$text) {
                     return
                 }
             }
-            # 3.4) SEGUNDA OPORTUNIDAD (oido fino). El modelo rapido deforma
-            #      los nombres propios: 'abre steam' llega como 'abrestean' y
-            #      no lo reconoce nadie. Antes de descartarlo por ruido o de
-            #      pagar 13 s de modelo remoto, se repasa el MISMO audio con el
-            #      modelo preciso, que es local. Va aqui, ANTES del filtro de
-            #      ruido, justo porque esos destrozos suelen ser de una palabra.
-            if ($WhisperPreciso -and $DictadoWorker -and -not $script:yaReintentado -and
-                $script:wakeProc -and -not $script:wakeProc.HasExited) {
-                $script:yaReintentado = $true
-                try {
-                    Remove-Item -LiteralPath $RutaReintento -Force -ErrorAction SilentlyContinue
-                    [System.IO.File]::WriteAllText($MarcaReintento, 'x')
-                    $script:reintentoTexto = $text
-                    $script:reintentoVence = $sw.ElapsedMilliseconds + $ReintentoMaxMs
-                    Log "OIDO FINO: no reconoci '$text', pido repaso"
-                    Set-UI 'pensando' 'Afinando el oido'
-                    return
-                } catch {
-                    $script:reintentoVence = 0
-                    Log ('no se pudo pedir el repaso: ' + $_.Exception.Message)
-                }
-            }
             # 3.5) FILTRO DE RUIDO. Lo que llega aqui no lo entendio la capa
             #      local, y el siguiente paso lo manda al agente con --auto,
             #      que puede hacer CUALQUIER COSA en el disco. Una frase de una
@@ -3830,6 +3837,33 @@ function Process-Texto([string]$text) {
                 Say "No te entendi"
                 return
             }
+            # 3.6) SEGUNDA OPORTUNIDAD (oido fino). El modelo rapido deforma
+            #      los nombres propios: 'abre steam' llega como 'abrestean'.
+            #      Se repasa el MISMO audio con el modelo preciso antes de
+            #      gastar 13 s de modelo remoto.
+            #      VA DESPUES DEL FILTRO DE RUIDO, y no es un detalle: al reves
+            #      (11/09, 20:15) un ruido transcrito como 'los' se mando a
+            #      repasar, el modelo preciso -sesgado con la lista de juegos-
+            #      alucino 'SILENT BREATH', y el asistente ABRIO el juego solo
+            #      mientras el usuario estaba jugando a otra cosa. El filtro de
+            #      ruido existia precisamente para eso y yo lo habia saltado.
+            if ($WhisperPreciso -and $DictadoWorker -and -not $script:yaReintentado -and
+                $script:wakeProc -and -not $script:wakeProc.HasExited) {
+                $script:yaReintentado = $true
+                try {
+                    Remove-Item -LiteralPath $RutaReintento -Force -ErrorAction SilentlyContinue
+                    [System.IO.File]::WriteAllText($MarcaReintento, 'x')
+                    $script:reintentoTexto = $text
+                    $script:reintentoVence = $sw.ElapsedMilliseconds + $ReintentoMaxMs
+                    Log "OIDO FINO: no reconoci '$text', pido repaso"
+                    Set-UI 'pensando' 'Afinando el oido'
+                    return
+                } catch {
+                    $script:reintentoVence = 0
+                    Log ('no se pudo pedir el repaso: ' + $_.Exception.Message)
+                }
+            }
+
             # 4) que el modelo la traduzca a una orden conocida (~13 s) y se
             #    aprenda; si no encaja, cae al agente completo
             if ($script:ultimoDescarte) { Add-Estadistica 'descarte' $script:ultimoDescarte; $script:ultimoDescarte = '' }
@@ -4129,9 +4163,16 @@ while ($true) {
             $orig = $script:reintentoTexto
             $script:reintentoTexto = ''
             $limpio = $fino.Trim()
-            if ($limpio -and (ConvertTo-Plain $limpio) -ne (ConvertTo-Plain $orig)) {
+            if ($limpio -and (ConvertTo-Plain $limpio) -ne (ConvertTo-Plain $orig) -and (Test-MismoAudio $orig $limpio)) {
                 Log "OIDO FINO: '$orig' -> '$limpio'"
                 Process-Texto $limpio
+            } elseif ($limpio -and -not (Test-MismoAudio $orig $limpio)) {
+                Log "OIDO FINO descartado: '$limpio' no se parece en nada a '$orig'; es invento suyo"
+                Add-Estadistica 'ruido' $orig
+                $script:seguimientoPendiente = $false
+                Send-UIEvento 'gesto:confuso'
+                Show-Popup "No te entendi. Repitelo." 'error'
+                Say "No te entendi"
             } else {
                 # el oido fino oyo lo mismo (o nada): no hay nada que ganar
                 Process-Texto $orig
@@ -4188,8 +4229,16 @@ while ($true) {
                     $script:juegoDesde = $sw.ElapsedMilliseconds
                     $script:juegoExe = $script:juegoExeCandidato
                     Enter-Juego $j
+                    if ($SoloBotonEnJuego) {
+                        try {
+                            [System.IO.File]::WriteAllText($MarcaSoloBoton, $j)
+                            Log 'escucha: solo boton mientras juegas (config: escucha.soloBotonEnJuego)'
+                        } catch {}
+                    }
                 } else {
                     $script:juegoExe = ''
+                    try { Remove-Item -LiteralPath $MarcaSoloBoton -Force -ErrorAction SilentlyContinue } catch {}
+                    if ($SoloBotonEnJuego) { Log 'escucha: vuelve la palabra de activacion (fuera del juego)' }
                 }
                 $script:juegoActivo = $j
                 Refresh-UI   # la capsula cambia de avatar

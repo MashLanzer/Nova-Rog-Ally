@@ -150,6 +150,13 @@ CALLARLA UN RATO (nuevo): "no me escuches", "duérmete", "no me escuches
   sonando los altavoces, y cuántas veces se despertó hoy para nada. Es lo
   que antes había que sacar del log a mano.
 
+MIENTRAS JUEGAS (nuevo): con un juego en primer plano, la palabra
+  "nova" se APAGA y solo vale el botón (mantener ≡). Es cuando más
+  molesta equivocarse y cuando el botón está más a mano. También se apaga
+  sola si los altavoces suenan fuerte (por encima de 0,35), juegues o no:
+  con ese ruido la palabra no es de fiar.
+  Para desactivarlo: config.json -> escucha.soloBotonEnJuego = false
+
 FALSAS ALARMAS (nuevo): el micrófono cazaba el audio de los altavoces y lo
   tomaba por órdenes. Ahora:
   - Se le pregunta a Windows si está sonando algo por los altavoces; si

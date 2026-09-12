@@ -570,7 +570,12 @@ Lo que costó afinar, y por qué está como está:
      aquí: silencio 0,0002; fondo suave 0,007; vídeo 0,22-0,30. El umbral
      está en 0,02. Si el medidor falla, el worker sigue igual que antes. El
      pulso del log lleva ahora `altavoces=…`.
-  3. **La ganancia no se recalibra mientras suenan.** Es el reverso del
+  3. **Con los altavoces FUERTES (> 0,35) no se activa por voz**, y tampoco
+     mientras hay un juego delante (`escucha.soloBotonEnJuego`, marca
+     `tmp\solo-boton.flag`). El umbral exigente de 0,85 no bastaba: el
+     11/09 a las 20:16 se activó con los altavoces a 0,39 y confianza 0,91.
+     Queda el botón, que no se equivoca nunca.
+  4. **La ganancia no se recalibra mientras suenan.** Es el reverso del
      problema, y se vio en vivo: con los altavoces a 0,55 el AGC medía ese
      audio y bajaba la ganancia a **x0,7**; con la voz entrando a 0,02-0,05,
      eso es quedarse sordo justo cuando quieres decir «nova, pausa». Se
@@ -616,8 +621,17 @@ Lo que costó afinar, y por qué está como está:
   sigue el bucle y lo recoge cuando llega, con un plazo de 15 s por si el
   worker no contesta. Una sola vez por orden (`$script:yaReintentado`), o
   sería un bucle infinito. El repaso va **antes** del filtro de ruido, porque
-  esos destrozos suelen ser de una sola palabra y el filtro los tiraría sin
-  darles la segunda oportunidad. El modelo preciso se carga **perezosamente**
+  esos destrozos suelen ser de una sola palabra. **CORREGIDO el 11/09**: el
+  repaso iba ANTES del filtro de ruido y eso costó caro — un ruido transcrito
+  como «los» se mandó a repasar, el modelo preciso (sesgado con la lista de
+  juegos vía `hotwords`) **alucinó «SILENT BREATH»**, la capa local lo
+  reconoció y **abrió el juego solo**, en mitad de una partida a otra cosa. Es
+  el mismo fallo que ya documentaba el código sobre `initial_prompt`, colado
+  otra vez por la puerta de atrás. Ahora el repaso va **después** del filtro de
+  ruido, y además `Test-MismoAudio` exige que el repaso comparta algún trozo de
+  palabra con lo que se oyó primero: «abrestean» → «abre steam» pasa (comparten
+  «abre»), «los» → «SILENT BREATH» no pasa. Si no se parece, no es que oyera
+  mejor: se lo inventó. El modelo preciso se carga **perezosamente**
   (~500 MB, 8 hilos) la primera vez que hace falta.
 - **Dictado por Vosk** (`input.dictado = "vosk"`): mismo camino sin Whisper;
   el modelo pequeño transcribe mal las órdenes. Se conserva como respaldo.
