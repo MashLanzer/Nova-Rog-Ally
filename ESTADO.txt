@@ -27,6 +27,9 @@ EJECUTANDO AHORA: NO. Está APAGADO a propósito.
     biblioteca de Steam: 14 juegos indexados
   Y decir en voz alta: "Listo. Di nova cuando me necesites."
 
+LO QUE QUEDA POR HACER: PENDIENTE.md (20 ideas con su porqué, y las trampas
+  de esta base de código que conviene leer antes de tocar nada).
+
 CÓMO SE USA
   1. Decir "nova"  (o mantener pulsado ≡ ~1,1 s) -> bip, se abre el dictado.
   2. Hablar. La cápsula se pone verde y va mostrando lo que oye.
