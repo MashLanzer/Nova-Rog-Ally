@@ -444,7 +444,21 @@ function Get-JuegosSteam {
                 $vistos[$id] = $true
                 # los redistribuibles no son juegos
                 if ($nm -match '(?i)redistributable|proton|steam linux runtime|steamworks') { continue }
-                $res += @{ id = $id; nombre = $nm; plano = (ConvertTo-Juego $nm) }
+                # todo esto ya estaba en el archivo y se tiraba a la basura
+                $est = 0; $bd = 0; $bt = 0; $tam = 0; $lp = 0; $dir = ''
+                if ($c -match '"StateFlags"\s*"(\d+)"') { $est = [int]$Matches[1] }
+                if ($c -match '"BytesDownloaded"\s*"(\d+)"') { $bd = [double]$Matches[1] }
+                if ($c -match '"BytesToDownload"\s*"(\d+)"') { $bt = [double]$Matches[1] }
+                if ($c -match '"SizeOnDisk"\s*"(\d+)"') { $tam = [double]$Matches[1] }
+                if ($c -match '"LastPlayed"\s*"(\d+)"') { $lp = [long]$Matches[1] }
+                if ($c -match '"installdir"\s*"([^"]+)"') { $dir = $Matches[1] }
+                # descargando de verdad: no basta con que falten bytes (hay
+                # entradas instaladas con contadores viejos, como los
+                # redistribuibles), tiene que estar EN OTRO estado que instalado
+                $bajando = ($est -ne 4) -and ($bt -gt 0) -and ($bd -lt $bt)
+                $res += @{ id = $id; nombre = $nm; plano = (ConvertTo-Juego $nm)
+                           estado = $est; bajando = $bajando; descargado = $bd; total = $bt
+                           tamano = $tam; ultimo = $lp; dir = $dir }
             }
         }
     } catch {}
@@ -463,6 +477,29 @@ function Update-Juegos {
     $ahora = @($script:Juegos).Count
     if ($ahora -ne $antes) { Log "biblioteca de Steam actualizada: $antes -> $ahora juegos" }
     return $true
+}
+
+# "94,2 gigas" se lee mejor que "94200000000 bytes".
+function Format-Gigas([double]$bytes) {
+    if ($bytes -le 0) { return "0 gigas" }
+    $g = $bytes / 1073741824.0
+    if ($g -lt 1) { return ([int]($bytes / 1048576.0)).ToString() + " megas" }
+    if ($g -lt 10) { return $g.ToString("0.0", [System.Globalization.CultureInfo]::GetCultureInfo("es-ES")) + " gigas" }
+    return ([int][Math]::Round($g)).ToString() + " gigas"
+}
+
+# "hace dos dias" en vez de una fecha: es como se pregunta y como se responde.
+function Format-Desde([long]$unix) {
+    if ($unix -le 0) { return $null }
+    $cuando = [DateTimeOffset]::FromUnixTimeSeconds($unix).ToLocalTime().DateTime
+    $dias = [int][Math]::Floor(((Get-Date).Date - $cuando.Date).TotalDays)
+    if ($dias -le 0) { return "hoy" }
+    if ($dias -eq 1) { return "ayer" }
+    if ($dias -lt 7) { return "hace $dias dias" }
+    if ($dias -lt 14) { return "hace una semana" }
+    if ($dias -lt 60) { return "hace " + [int][Math]::Round($dias / 7.0) + " semanas" }
+    $cul = New-Object System.Globalization.CultureInfo("es-MX")
+    return "el " + $cuando.ToString("d \d\e MMMM", $cul)
 }
 
 function Find-JuegoEn([string]$q, $lista) {
@@ -557,6 +594,11 @@ $ZombiMinutos = 20
 $ZombiUsoCPU = 0.30       # fraccion de un nucleo, sostenida desde que arranco
 $script:zombisAvisados = @{}
 $script:zombiCheck = 0
+# Descargas: que estaba bajando la ultima vez que se miro, para notar cuando
+# una termina. Sin esto habria que preguntar a Steam, que es justo lo que no
+# se puede hacer sin salir del juego.
+$script:bajandoAntes = @{}
+$script:descargaCheck = 0
 
 # ¿El repaso del oido fino tiene algo que ver con lo que se oyo primero?
 # Al modelo preciso se le pasa la lista de tus apps y juegos como pista, y con
@@ -1067,6 +1109,29 @@ function Resolve-Fragment([string]$f) {
         $desc = if ($que) { "aviso en $n $unidad" } else { "temporizador de $n $unidad" }
         return @(@{ kind = 'temporizador'; ms = $ms; texto = $que; n = $n; unidad = $unidad; desc = $desc })
     }
+    # --- descargas de Steam (datos que ya se leen al arrancar) ---
+    if ($f -match '^(?:como va|que tal va|en que va|cuanto queda de)\s+(?:la\s+)?(?:descarga|bajada|instalacion)\b') {
+        return @(@{ kind = 'descargas'; desc = 'estado de las descargas' })
+    }
+    if ($f -match '^(?:hay|queda|falta)\s+(?:alguna\s+)?descarga\b') {
+        return @(@{ kind = 'descargas'; desc = 'estado de las descargas' })
+    }
+    # --- espacio en disco: "¿cabe la siguiente?" ---
+    if ($f -match '^(?:cuanto\s+)?(?:espacio|disco|sitio)\s*(?:me\s+)?(?:queda|libre|hay|tengo)?$' -or
+        $f -match '^cuanto (?:espacio|sitio) (?:me )?(?:queda|hay|tengo)\b') {
+        return @(@{ kind = 'disco'; desc = 'espacio libre' })
+    }
+    # --- ultima vez que jugaste a algo ---
+    if ($f -match '^(?:cuando\s+)(?:jugue|juge|jugaba|lo jugue)\s*(?:a|al)?\s*(.*)$') {
+        return @(@{ kind = 'ultimaPartida'; que = $Matches[1].Trim(); desc = 'ultima partida' })
+    }
+    if ($f -match '^(?:a que (?:he |)jugado|que he jugado|a que jugue)\s*(?:esta semana|ultimamente|estos dias|hoy)?$') {
+        return @(@{ kind = 'jugadoReciente'; desc = 'lo jugado ultimamente' })
+    }
+    # --- cuanto ocupa un juego ---
+    if ($f -match '^(?:cuanto (?:ocupa|pesa|mide))\s+(.+)$') {
+        return @(@{ kind = 'ocupa'; que = $Matches[1].Trim(); desc = 'tamano en disco' })
+    }
     if ($f -match '^(?:cuanto llevo jugando|cuanto tiempo llevo jugando|hace cuanto juego)\b') {
         return @(@{ kind = 'tiempoJuego'; desc = 'tiempo de juego' })
     }
@@ -1518,7 +1583,10 @@ function Test-FastCommand([string]$text) {
     # frase tiene la forma de una regla; el banco las prueba aparte llamando
     # al de verdad. Antes era un $false seco y la capsula nunca asentia a una
     # regla, aunque fuera perfecta.
-    if ($pl -match '^(?:cuando\s|cada\s+\d+\s*(?:minuto|hora)|todos los dias|a las?\s)') {
+    # OJO: solo las formas que DE VERDAD son una regla. Con un '^cuando\s' a
+    # secas se colaban preguntas sobre el pasado -"cuando jugue a outlast"- que
+    # no son reglas y acababan en el modelo por nada.
+    if ($pl -match '^(?:cuando\s+(?:se\s+)?(?:abra|abras|inicie|inicies|arranque|empiece|entre|cierre|cierres|termine|acabe|salga|la bateria|la pila|quite|quites|enchufe|enchufes|ponga|pongas|conecte|desconecte)|cada\s+\d+\s*(?:minuto|hora)|todos los dias|a las?\s)') {
         return [bool]($pl -match ('(?:' + $VERBOS + '|modo|activa|desactiva|bloquea)\b'))
     }
     # el mismo corte que en Invoke-FastCommand: este es el camino que usan la
@@ -1696,6 +1764,77 @@ function Invoke-FastCommand([string]$text) {
                         $a.desc = "llevas $mins minutos con $($script:juegoActivo)"
                     } else {
                         $a.desc = "ahora mismo no detecto ningun juego abierto"
+                    }
+                }
+                'descargas' {
+                    $bajando = @($script:Juegos | Where-Object { $_.bajando })
+                    if ($bajando.Count -eq 0) {
+                        $a.desc = 'no hay ninguna descarga en marcha'
+                    } else {
+                        $partes = @()
+                        foreach ($j in $bajando) {
+                            $pct = [int](100.0 * $j.descargado / [Math]::Max(1, $j.total))
+                            $falta = Format-Gigas ($j.total - $j.descargado)
+                            $partes += "$($j.nombre), $pct por ciento, faltan $falta"
+                        }
+                        $a.desc = ($partes -join '; ')
+                    }
+                }
+                'disco' {
+                    # la unidad donde estan los juegos, no siempre C:
+                    $unidades = @('C')
+                    try {
+                        $sp = (Get-ItemProperty 'HKCU:\Software\Valve\Steam' -ErrorAction SilentlyContinue).SteamPath
+                        if ($sp) { $u = ($sp -replace '/', '\').Substring(0, 1).ToUpper(); if ($unidades -notcontains $u) { $unidades += $u } }
+                    } catch {}
+                    $partes = @()
+                    foreach ($u in $unidades) {
+                        try {
+                            $di = New-Object System.IO.DriveInfo($u)
+                            if (-not $di.IsReady) { continue }
+                            $libre = Format-Gigas $di.AvailableFreeSpace
+                            $partes += "en $($u): $libre"
+                        } catch {}
+                    }
+                    if ($partes.Count -eq 0) { $a.desc = 'no pude leer el disco' }
+                    else { $a.desc = 'te quedan ' + ($partes -join ', ') }
+                }
+                'ultimaPartida' {
+                    $j = $null
+                    if ($a.que) { $j = Find-Juego $a.que }
+                    if (-not $j) {
+                        $a.desc = "no tengo ese juego en la biblioteca"
+                    } else {
+                        # el indice se lee al arrancar; para una fecha conviene
+                        # refrescar, que es justo el dato que cambia al jugar
+                        $null = Update-Juegos
+                        $act = @($script:Juegos | Where-Object { $_.id -eq $j.id })
+                        $lp = if ($act.Count -gt 0) { [long]$act[0].ultimo } else { [long]$j.ultimo }
+                        $cuando = Format-Desde $lp
+                        $a.desc = if ($cuando) { "jugaste a $($j.nombre) $cuando" } else { "no has jugado a $($j.nombre) todavia" }
+                    }
+                }
+                'jugadoReciente' {
+                    $null = Update-Juegos
+                    $limite = [DateTimeOffset]::Now.AddDays(-8).ToUnixTimeSeconds()
+                    $recientes = @($script:Juegos | Where-Object { [long]$_.ultimo -gt $limite } | Sort-Object { -[long]$_.ultimo })
+                    if ($recientes.Count -eq 0) {
+                        $a.desc = 'no has jugado a nada esta semana'
+                    } else {
+                        $partes = @()
+                        foreach ($j in ($recientes | Select-Object -First 5)) {
+                            $partes += "$($j.nombre) ($(Format-Desde ([long]$j.ultimo)))"
+                        }
+                        $a.desc = 'esta semana: ' + ($partes -join ', ')
+                    }
+                }
+                'ocupa' {
+                    $j = if ($a.que) { Find-Juego $a.que } else { $null }
+                    if (-not $j) { $a.desc = "no tengo ese juego en la biblioteca" }
+                    else {
+                        $act = @($script:Juegos | Where-Object { $_.id -eq $j.id })
+                        $tam = if ($act.Count -gt 0) { [double]$act[0].tamano } else { 0 }
+                        $a.desc = if ($tam -gt 0) { "$($j.nombre) ocupa $(Format-Gigas $tam)" } else { "no se cuanto ocupa $($j.nombre)" }
                     }
                 }
                 'queJuego' {
@@ -4694,6 +4833,28 @@ while ($true) {
                 Send-UIEvento 'aviso'
             }
         }
+    }
+
+    # --- descargas de Steam: avisar cuando una termina ---
+    # Cada dos minutos se releen los manifiestos (es leer texto de disco, no
+    # hablar con Steam) y se compara con lo que estaba bajando antes.
+    if (($sw.ElapsedMilliseconds - $script:descargaCheck) -ge 120000) {
+        $script:descargaCheck = $sw.ElapsedMilliseconds
+        try {
+            $ahoraBajan = @{}
+            foreach ($j in @(Get-JuegosSteam)) {
+                if ($j.bajando) { $ahoraBajan[[string]$j.id] = $j.nombre }
+            }
+            foreach ($id in @($script:bajandoAntes.Keys)) {
+                if (-not $ahoraBajan.ContainsKey($id)) {
+                    $nom = [string]$script:bajandoAntes[$id]
+                    Log "DESCARGA terminada: $nom"
+                    Show-Popup "$nom ya se descargo."
+                    Say "$nom ya acabo de descargarse."
+                }
+            }
+            $script:bajandoAntes = $ahoraBajan
+        } catch { Log ("descargas: " + $_.Exception.Message) }
     }
 
     # --- juegos colgados: avisar, NUNCA cerrar por su cuenta ---

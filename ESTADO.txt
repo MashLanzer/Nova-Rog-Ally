@@ -61,6 +61,17 @@ FECHAS: "recuerda que el 3 de octubre es el cumple de Ana" -> ese día
 RECORDATORIOS: "recuérdame mañana a las 10 que llame al médico", "avísame
   el viernes a las 5 de la tarde que...", "recuérdame a las 3 revisar el
   horno". "qué recordatorios tengo". Sobreviven a reinicios.
+STEAM Y DISCO (nuevo): cosas que el asistente ya leía al arrancar y no
+  usaba. Todo en menos de un segundo, sin abrir Steam ni tocar la red:
+    "¿cómo va la descarga?"        -> "REANIMAL, 62 por ciento, faltan 5 gigas"
+    "¿hay alguna descarga?"
+    "¿cuánto espacio me queda?"    -> "te quedan en C: 90 gigas"
+    "¿cuándo jugué a outlast?"     -> "jugaste a Outlast ayer"
+    "¿a qué he jugado esta semana?"
+    "¿cuánto ocupa elden ring?"    -> "ELDEN RING ocupa 66 gigas"
+  Y cuando una descarga TERMINA te avisa, una sola vez, sin abrir nada:
+  pones 70 GB a bajar, te vas a jugar y te lo dice cuando acaba.
+
 APUNTAR LO QUE VES (nuevo): "apunta esto", "guarda este código", "anota
   lo que dice la pantalla". Lee la pantalla con OCR y lo guarda en tu diario
   tal cual, con el juego del que salió: "(de SILENT BREATH) CODIGO DE LA
