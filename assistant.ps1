@@ -1529,6 +1529,15 @@ function Resolve-Fragment([string]$f) {
         $f -match '^cuanto (?:espacio|sitio) (?:me )?(?:queda|hay|tengo)\b') {
         return @(@{ kind = 'disco'; desc = 'espacio libre' })
     }
+    # --- DICTADO LARGO ---
+    # El dictado de siempre es para ordenes cortas; para escribir un mensaje no
+    # sirve. Esto entra en modo continuo escribiendo en la ventana de delante.
+    if ($f -match '^(?:dicta|dictame|escribe|toma)\s+(?:un\s+|una\s+|el\s+|la\s+)?(?:correo|mensaje|texto|nota larga|dictado|carta|email|whatsapp)$' -or
+        $f -match '^(?:empieza|empezar|entra)\s+(?:a\s+|en\s+(?:modo\s+)?)?dicta(?:r|do)$' -or
+        $f -match '^(?:modo\s+)?dictado(?:\s+largo)?$' -or
+        $f -match '^(?:voy a|quiero)\s+dictar$') {
+        return @(@{ kind = 'dictadoLargo'; desc = 'dictado largo' })
+    }
     # --- ORDENES DE VENTANA SOBRE UNA APP POR SU NOMBRE ---
     # Todo lo de ventanas actuaba solo sobre la que tiene el foco, que es justo
     # la que NO quieres tocar mientras juegas: para minimizar Spotify habia que
@@ -2760,6 +2769,20 @@ function Invoke-FastCommand([string]$text) {
                     }
                 }
                 'parte' { $a.desc = (Get-ParteGeneral) }
+                'dictadoLargo' {
+                    # la que tenias TU delante al empezar a hablar, no la que
+                    # tiene el foco ahora (que ya es la del asistente)
+                    $script:dictadoVentana = $script:ventanaUsuario
+                    # QUE VENTANA es, en el log: si algun dia el texto aparece
+                    # donde no debe, este numero es lo unico que lo explica
+                    Log ("DICTADO LARGO: escribire en la ventana " + $script:dictadoVentana)
+                    $script:dictandoLargo = $true
+                    $script:dictadoLargoHasta = $sw.ElapsedMilliseconds + $DictadoLargoMs
+                    $script:dictadoUltimo = ''
+                    $script:dictadoLineas = 0
+                    Log "DICTADO LARGO: empieza (plazo $([int]($DictadoLargoMs / 60000)) min)"
+                    $a.desc = 'te escribo lo que digas en la ventana de delante. Para salir, di ya esta o manten el boton'
+                }
                 'escalaUI' {
                     $antes = [double]$script:uiEscala
                     if ([int]$a.paso -eq 0) {
@@ -4884,6 +4907,21 @@ if (-not (Test-Path $OCODECLI)) {
 }
 
 $scr = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+# DE QUE PROCESO ES UNA VENTANA. Hace falta para no dictarse a uno mismo:
+# comparar handles no basta, porque la capsula es WPF sin titulo y el
+# MainWindowHandle que da .NET no es el de la ventana que Windows pone en
+# primer plano. Con el PID no hay duda.
+Add-Type -Namespace Nova -Name Win -MemberDefinition @'
+[DllImport("user32.dll")]
+public static extern int GetWindowThreadProcessId(IntPtr hWnd, out int pid);
+'@ -ErrorAction SilentlyContinue
+function Get-PidDeVentana([IntPtr]$h) {
+    if ($h -eq [IntPtr]::Zero) { return 0 }
+    $p = 0
+    try { [void][Nova.Win]::GetWindowThreadProcessId($h, [ref]$p) } catch { return 0 }
+    return $p
+}
+
 $capture = New-Object System.Windows.Forms.Form
 $capture.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
 $capture.ShowInTaskbar = $false
@@ -5558,6 +5596,24 @@ $script:loTengoCheck = 0
 $script:perdida = $false
 $script:seguimientoPendiente = $false
 $script:enSeguimiento = $false
+# DICTADO LARGO. Un modo, que es justo lo que se evita en esta base de codigo,
+# asi que lleva TRES salidas: la frase ("ya esta", "para de dictar"), el boton
+# mantenido, y un plazo. Ademas la capsula lo dice todo el rato. Un modo que
+# escribe en la ventana de delante y del que no se sabe salir seria lo peor que
+# hay aqui dentro.
+$DictadoLargoMs = [int](Get-Cfg 'input' 'dictadoLargoMinutos' 10) * 60000
+$script:dictandoLargo = $false
+$script:dictadoLargoHasta = 0
+$script:dictadoUltimo = ''     # lo ultimo escrito, para "borra lo ultimo" y "cambia X por Y"
+# A QUE VENTANA SE DICTA. Se fija al entrar y no cambia: SendKeys escribe en la
+# que tenga el foco EN ESE INSTANTE, y entre que hablas y se transcribe pasan
+# segundos. Sin esto, cualquier ventana que se ponga delante mientras hablas
+# -un aviso, el navegador terminando de cargar, tu mismo haciendo clic- se lleva
+# el resto del correo. Medido: en una prueba con el Bloc de notas delante, el
+# texto acabo en otro sitio.
+$script:dictadoVentana = [IntPtr]::Zero
+$script:ventanaUsuario = [IntPtr]::Zero   # la que tenias delante al empezar a hablar
+$script:dictadoLineas = 0      # cuantos trozos van escritos, para contarlo al salir
 $script:seguimientoFactor = 1.0
 # --- oido fino: repaso de la ultima orden con el modelo preciso ---
 $script:yaReintentado = $false     # una sola vez por orden, o seria un bucle
@@ -5648,6 +5704,22 @@ function Add-RuidoRacha {
 
 function Start-Dictado([string]$origen) {
     Log "DICTADO ($origen)"
+    # QUE VENTANA TENIAS TU. Se apunta ANTES de mostrar nada del asistente: en
+    # cuanto aparece su ventana de captura, el foco es suyo, y quien pregunte
+    # despues obtiene esa. La necesita el dictado largo, que escribe en la tuya.
+    # NINGUNA ventana del asistente cuenta como tuya: ni la de captura ni la
+    # CAPSULA, que aunque no roba clics si aparece como ventana en primer plano.
+    # Si se cuela, el correo se lo lleva ella y el log dice 'escrito' tan
+    # tranquilo. Medido: el destino salia 1705814, que era nova_ui.
+    try {
+        $hwTuyo = [AX]::GetForegroundWindow()
+        $duenoVentana = Get-PidDeVentana $hwTuyo
+        $pidUi = 0
+        if ($script:uiProc -and -not $script:uiProc.HasExited) { $pidUi = $script:uiProc.Id }
+        if ($hwTuyo -ne [IntPtr]::Zero -and $duenoVentana -ne $PID -and ($pidUi -eq 0 -or $duenoVentana -ne $pidUi)) {
+            $script:ventanaUsuario = $hwTuyo
+        }
+    } catch {}
     # que no quede texto del oido de Windows de una orden anterior: si no, la
     # nueva empezaria con basura del pasado
     if ($VozWindowsOn) { Remove-Item -LiteralPath $RutaDictadoWin -Force -ErrorAction SilentlyContinue }
@@ -5661,8 +5733,12 @@ function Start-Dictado([string]$origen) {
     $script:seguimientoPendiente = $false
     # sin esto, una orden sin medida de tono se juzgaria con la de la anterior
     $script:ultimaF0 = 0
-    $seguimiento = ($origen -eq 'seguimiento')
-    $script:enSeguimiento = $seguimiento
+    # 'largo' es un seguimiento con la ventana MUY larga: en mitad de un correo
+    # se piensa lo que se va a decir, y cerrar la escucha a los 2,5 s obligaria
+    # a volver a decir "nova" cada dos frases.
+    $largo = ($origen -eq 'largo')
+    $seguimiento = ($origen -eq 'seguimiento') -or $largo
+    $script:enSeguimiento = ($origen -eq 'seguimiento')
     # con la capsula, el sonido lo pone ella (un tono corto, no la campana)
     if (-not $UiNuevaOn -and -not $seguimiento) { Play-Sonido 'te-oigo' ([System.Media.SystemSounds]::Exclamation) }
 
@@ -5673,13 +5749,16 @@ function Start-Dictado([string]$origen) {
         Remove-Item -LiteralPath $RutaParcial -Force -ErrorAction SilentlyContinue
         # en seguimiento, la marca lleva el plazo: si no hay voz en ese tiempo
         # el worker cierra solo y entrega vacio
-        $ventana = [int]($SeguimientoMs * $script:seguimientoFactor)
+        $ventana = if ($largo) { 20000 } else { [int]($SeguimientoMs * $script:seguimientoFactor) }
         [System.IO.File]::WriteAllText($MarcaDictar, $(if ($seguimiento) { "seguimiento:$ventana" } else { 'x' }))
         Start-Vibracion $(if ($seguimiento) { @(40) } else { @(90) })
         $lbl.Text = "● VOZ..."
         $lbl.ForeColor = [System.Drawing.Color]::LimeGreen
-        $capture.Show()
-        if ($seguimiento) { Set-UI 'atenta' }
+        # en dictado largo NO: se quedaria con el foco, y el foco tiene que
+        # estar en la ventana a la que se escribe
+        if (-not $largo) { $capture.Show() }
+        if ($largo) { Set-UI 'escuchando' 'dictando... di ya esta para parar' }
+        elseif ($seguimiento) { Set-UI 'atenta' }
         else { Set-UI 'escuchando'; Send-UIEvento 'despierta' }
         $script:armed = $true
         $script:dictaInicio = $sw.ElapsedMilliseconds
@@ -5733,7 +5812,141 @@ function Finish-Dictation([string]$motivo) {
 
 # Todo lo que ocurre DESPUES de tener el texto. Lo comparten el dictado por
 # Vosk y el antiguo de Windows, para que se comporten igual.
+# Escribe en la ventana que tengas delante. Es el mismo camino que la orden
+# "escribe ...", con el escape de SendKeys: un '+' o un '%' sin escapar serian
+# Shift y Alt, y en mitad de un correo eso es un desastre silencioso.
+function Write-EnVentana([string]$texto) {
+    if (-not $texto) { return }
+    # Si la ventana de destino ya no tiene el foco, se le devuelve. Y si ya no
+    # existe, no se escribe a ciegas en lo que haya: se cierra el modo.
+    if ($script:dictandoLargo -and $script:dictadoVentana -ne [IntPtr]::Zero) {
+        if ($script:dictadoVentana -eq $capture.Handle) {
+            Log "DICTADO LARGO: el destino era mi propia ventana; no escribo"
+            Stop-DictadoLargo 'destino invalido'
+            return
+        }
+        if (-not [AX]::IsWindowVisible($script:dictadoVentana)) {
+            Log "DICTADO LARGO: la ventana a la que dictaba ya no esta"
+            Stop-DictadoLargo 'se cerro la ventana'
+            return
+        }
+        if ([AX]::GetForegroundWindow() -ne $script:dictadoVentana) {
+            $ok = [AX]::ForceForeground($script:dictadoVentana)
+            Start-Sleep -Milliseconds 120
+            if ([AX]::GetForegroundWindow() -ne $script:dictadoVentana) {
+                # Windows puede denegar el cambio de primer plano. Escribir
+                # igual mandaria el correo a saber donde: mejor no escribir y
+                # decirlo, que es lo unico honesto.
+                Log ("DICTADO LARGO: no pude devolver el foco a la ventana (ForceForeground=" + $ok + "); no escribo")
+                return
+            }
+        }
+    }
+    [System.Windows.Forms.SendKeys]::SendWait(([regex]::Replace($texto, '[+^%~(){}\[\]]', { param($m) '{' + $m.Value + '}' })))
+}
+
+function Stop-DictadoLargo([string]$porque = '') {
+    if (-not $script:dictandoLargo) { return }
+    $script:dictandoLargo = $false
+    $script:dictadoLargoHasta = 0
+    $script:dictadoVentana = [IntPtr]::Zero
+    $n = $script:dictadoLineas
+    $script:dictadoLineas = 0
+    $script:dictadoUltimo = ''
+    Log "DICTADO LARGO: fin ($porque), $n trozos escritos"
+    $script:uiPerfil = ''
+    Set-UI 'reposo'
+    Send-Aviso $(if ($n -gt 0) { "Listo, he escrito $n trozos." } else { "Listo, no he escrito nada." }) 'tiempo'
+}
+
+# Lo que se oye mientras esta el modo puesto: o es una orden DEL MODO, o se
+# escribe tal cual. Devuelve $true si ya se ha ocupado de la frase.
+function Invoke-DictadoLargo([string]$text) {
+    if (-not $script:dictandoLargo) { return $false }
+    $plano = (ConvertTo-Plain $text).Trim()
+    if (-not $plano) { return $true }
+
+    # --- salir ---
+    if ($plano -match '^(?:ya esta|ya|listo|para|para de dictar|deja de dictar|fin|fin del dictado|termina|terminamos|basta|se acabo|ya termine|corta)$') {
+        Stop-DictadoLargo 'lo pediste'
+        return $true
+    }
+    # --- signos y saltos ---
+    if ($plano -match '^(?:punto y aparte|nueva linea|salto de linea|otra linea|aparte)$') {
+        Write-EnVentana "{ENTER}"
+        $script:dictadoUltimo = ''
+        $script:dictadoLineas++
+        Log "DICTADO LARGO: salto de linea"
+        return $true
+    }
+    if ($plano -match '^(?:punto y seguido|punto)$') { Write-EnVentana '. '; $script:dictadoUltimo = ''; return $true }
+    if ($plano -match '^(?:coma)$') { Write-EnVentana ', '; return $true }
+    if ($plano -match '^(?:dos puntos)$') { Write-EnVentana ': '; return $true }
+    if ($plano -match '^(?:punto y coma)$') { Write-EnVentana '; '; return $true }
+    if ($plano -match '^(?:signo de interrogacion|interrogacion)$') { Write-EnVentana '? '; $script:dictadoUltimo = ''; return $true }
+    if ($plano -match '^(?:signo de exclamacion|exclamacion)$') { Write-EnVentana '! '; $script:dictadoUltimo = ''; return $true }
+
+    # --- borrar lo ultimo ---
+    # Se borra con retrocesos lo que se escribio, no con Ctrl+Z: deshacer en una
+    # ventana ajena puede tirar de cosas que no ha escrito nadie de aqui.
+    if ($plano -match '^(?:borra lo ultimo|borra eso|quita lo ultimo|borralo|eso no|no eso no)$') {
+        if (-not $script:dictadoUltimo) {
+            Log "DICTADO LARGO: no hay nada reciente que borrar"
+        } else {
+            Write-EnVentana ("{BACKSPACE " + $script:dictadoUltimo.Length + "}")
+            Log "DICTADO LARGO: borrado '$script:dictadoUltimo'"
+            $script:dictadoUltimo = ''
+            if ($script:dictadoLineas -gt 0) { $script:dictadoLineas-- }
+        }
+        return $true
+    }
+
+    # --- cambiar una palabra de lo ultimo ---
+    if ($plano -match '^cambia\s+(.+?)\s+por\s+(.+)$') {
+        $de = $Matches[1].Trim(); $a = $Matches[2].Trim()
+        if (-not $script:dictadoUltimo) {
+            Log "DICTADO LARGO: no hay nada reciente que cambiar"
+        } elseif ((ConvertTo-Plain $script:dictadoUltimo) -notmatch [regex]::Escape((ConvertTo-Plain $de))) {
+            Log "DICTADO LARGO: '$de' no esta en lo ultimo que escribi"
+        } else {
+            # se reescribe el trozo entero: buscar y sustituir a ciegas dentro de
+            # una ventana ajena es mucho peor que rehacer lo que ya se sabe
+            $nuevo = [regex]::Replace($script:dictadoUltimo, [regex]::Escape($de), $a, 'IgnoreCase')
+            Write-EnVentana ("{BACKSPACE " + $script:dictadoUltimo.Length + "}")
+            Start-Sleep -Milliseconds 60
+            Write-EnVentana $nuevo
+            Log "DICTADO LARGO: '$de' -> '$a'"
+            $script:dictadoUltimo = $nuevo
+        }
+        return $true
+    }
+
+    # --- y si no, se escribe ---
+    # ESTA VOZ NO ES LA TUYA: lo mismo que con las ordenes, pero aqui ni se
+    # pregunta, se ignora. Preguntar "¿escribo esto?" en mitad de un correo
+    # seria peor que perder una frase.
+    if (Test-VozExtrana) {
+        Log "DICTADO LARGO: descartado por voz extrana ($([int]$script:ultimaF0) Hz)"
+        return $true
+    }
+    $trozo = $text.Trim()
+    if ($script:dictadoUltimo) { $trozo = ' ' + $trozo }
+    Write-EnVentana $trozo
+    $script:dictadoUltimo = $trozo
+    $script:dictadoLineas++
+    $script:dictadoLargoHasta = $sw.ElapsedMilliseconds + $DictadoLargoMs
+    Log "DICTADO LARGO: escrito '$($text.Trim())'"
+    Set-UI 'escuchando' ("dictando: " + $text.Trim())
+    return $true
+}
+
 function Process-Texto([string]$text) {
+    # EL MODO MANDA: con el dictado largo puesto, NADA de lo que se oiga abre,
+    # cierra ni toca el sistema. O es una orden del modo, o se escribe. Esto va
+    # lo primero a proposito: es lo que hace que el modo sea seguro.
+    if ($script:dictandoLargo) {
+        if (Invoke-DictadoLargo $text) { $script:seguimientoPendiente = $false; return }
+    }
     if ($text.Length -gt 0) {
         $plano = ConvertTo-Plain $text
         # en seguimiento, "gracias" / "nada mas" cierran la cadena con elegancia
@@ -6026,6 +6239,16 @@ while ($true) {
                 Add-Estadistica 'error' 'cancelado'
                 Send-UIEvento 'gesto:sobresalto'
                 Show-Popup "Orden cancelada." 'error'
+            } elseif ($script:dictandoLargo) {
+                # SALIDA POR EL BOTON. Un modo que escribe en la ventana de
+                # delante tiene que poder cerrarse sin hablar: si el microfono
+                # no te oye, decir "ya esta" no vale de nada.
+                Log "DICTADO LARGO: cerrado con el boton"
+                Start-Vibracion @(70, 60, 70) 16000
+                Remove-Item -LiteralPath $MarcaDictar -Force -ErrorAction SilentlyContinue
+                $script:armed = $false
+                $capture.Hide()
+                Stop-DictadoLargo 'el boton'
             } elseif (-not $script:armed) {
                 Start-Dictado "mantener ≡"
             } elseif ($DictadoWorker -and $script:wakeProc) {
@@ -6297,6 +6520,24 @@ while ($true) {
                 Process-Texto $orig
             }
         }
+    }
+
+    # --- el dictado largo se vuelve a abrir solo ---
+    # Va SUELTO en el bucle, no colgado de "acabo de hablar": en este modo el
+    # asistente no dice nada, asi que aquel bloque no se alcanza nunca y el modo
+    # escribia un trozo y se quedaba sordo. Se espera a que no haya pausa de voz
+    # en marcha para no competir por el microfono.
+    if ($script:dictandoLargo -and -not $script:armed -and -not $script:busy -and -not $script:pendiente -and
+        $script:pausaHasta -le 0 -and $DictadoWorker -and $script:wakeProc -and -not $script:wakeProc.HasExited) {
+        Start-Dictado 'largo'
+    }
+
+    # --- el dictado largo tiene plazo ---
+    # La tercera salida, la que no depende de ti: si pasan los minutos sin
+    # escribir nada, se cierra solo y lo dice. Un modo que escribe en la ventana
+    # de delante no puede quedarse puesto porque te fuiste a otra cosa.
+    if ($script:dictandoLargo -and $script:dictadoLargoHasta -gt 0 -and $sw.ElapsedMilliseconds -ge $script:dictadoLargoHasta) {
+        Stop-DictadoLargo 'se acabo el plazo'
     }
 
     # --- temporizadores vencidos ---

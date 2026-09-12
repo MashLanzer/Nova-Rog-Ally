@@ -6,7 +6,13 @@ Para retomar: leer esto y `ESTADO.txt` (lo que ya funciona), y pasar
 
 ---
 
-## Antes de nada, dos cosas tuyas
+## Antes de nada, tres cosas tuyas
+
+- [ ] **Probar el dictado largo con una ventana tuya delante.** Está hecho y
+      probado por dentro, pero lo único que no se ha podido comprobar desde
+      aquí es que el texto acabe en TU ventana y no en otra (inyectando
+      órdenes por archivo no se controla el foco). Abre el Bloc de notas, di
+      "dicta un correo", di una frase y mira. Detalle en `ESTADO.txt`.
 
 - [ ] **Grabar las 20 frases** — `python tools\grabar-ordenes.py` (una sola vez).
       Es lo único que falta para poder medir si el micrófono te entiende. Hasta
@@ -25,11 +31,6 @@ ni con batería):
 ---
 
 ## Funciones nuevas
-
-- [ ] **1. Dictado largo de verdad.**
-      Hoy el dictado es para órdenes cortas; para escribir un mensaje no sirve.
-      «Dicta un correo» entraría en modo continuo escribiendo en la ventana de
-      delante, con «punto y aparte», «borra lo último» y «cambia X por Y».
 
 - [ ] **3. Listas de verdad, no notas.**
       «Apunta pan en la lista de la compra», «¿qué tengo en la lista?», «borra el
@@ -109,13 +110,17 @@ ni con batería):
 - **17. Avisos sin voz.** Con un juego delante, en sordina o en modo silencio,
   los avisos se ven (tres pulsos de color en el borde, cada cosa con el suyo)
   en vez de hablarte encima. `tools\probar-avisos.ps1`.
+- **1. Dictado largo.** «Dicta un correo» y todo lo que digas se escribe en la
+  ventana de delante, con puntuación, «borra lo último» y «cambia X por Y».
+  Tres salidas (la frase, el botón y un plazo). **Falta que lo pruebes tú con
+  una ventana delante**: ver arriba.
 
 ## Por dónde empezar
 
-Si hay que elegir: la **1** (dictado largo de verdad), que es la única que
-todavía obliga a soltar el mando para escribir algo. Después la **13** (cola
-visible con varias órdenes), que es la que falta para saber cuál de dos
-órdenes encadenadas fue la que falló.
+Si hay que elegir: la **13** (cola visible con varias órdenes), que es la que
+falta para saber cuál de dos órdenes encadenadas fue la que falló. Después la
+**3** (listas de verdad) y la **10** («¿qué he hecho hoy?»), que son las dos
+que aprovechan lo que ya se guarda sin recogerlo nadie.
 
 ---
 

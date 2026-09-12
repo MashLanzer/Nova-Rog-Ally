@@ -5,6 +5,7 @@
                   "workDir":  "C:\\Users\\braya\\Documents"
               },
     "input":  {
+                  "dictadoLargoMinutos":  10,
                   "holdMs":  1100,
                   "autoSubmitMs":  2500,
                   "dictado":  "whisper",

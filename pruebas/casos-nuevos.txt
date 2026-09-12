@@ -201,3 +201,7 @@ maximiza el navegador
 restaura discord
 manda discord al otro monitor
 mueve spotify a la otra pantalla
+dicta un correo
+dicta un mensaje
+empieza a dictar
+voy a dictar

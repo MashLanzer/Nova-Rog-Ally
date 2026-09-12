@@ -32,9 +32,9 @@ EJECUTANDO AHORA: SÍ, desde el 12/09 a las 13:57, ya con los cambios de ese
     biblioteca de Steam: 14 juegos indexados
   Y decir en voz alta: "Listo. Di nova cuando me necesites."
 
-LO QUE QUEDA POR HACER: PENDIENTE.md (12 ideas con su porqué, y las trampas
+LO QUE QUEDA POR HACER: PENDIENTE.md (11 ideas con su porqué, y las trampas
   de esta base de código que conviene leer antes de tocar nada). El 12/09 se
-  hicieron la 2, la 4, la 7, la 9, la 11, la 14, la 15 y la 17.
+  hicieron la 1, la 2, la 4, la 7, la 9, la 11, la 14, la 15 y la 17.
 
 CÓMO SE USA
   1. Decir "nova"  (o mantener pulsado ≡ ~1,1 s) -> bip, se abre el dictado.
@@ -154,6 +154,39 @@ Si el modelo traduce una palabra tuya ("calcu" -> calculadora), te
   pregunta si la aprende para siempre: di "sí".
 Mientras la IA trabaja, la cápsula dice QUÉ hace ("ejecutando un
   comando", "consultando la web") y una línea abajo marca el avance.
+
+DICTADO LARGO (nuevo, PENDIENTE DE QUE LO PRUEBES TÚ)
+  El dictado de siempre es para órdenes cortas; para escribir un mensaje no
+  servía. Ahora: pon delante la ventana donde quieras escribir (el correo, el
+  chat, el Word) y di "dicta un correo" / "empieza a dictar". A partir de ahí
+  todo lo que digas se ESCRIBE ahí, y nada abre ni cierra nada: mientras el
+  modo está puesto, ninguna frase se interpreta como orden.
+    "punto y aparte"     -> salto de línea
+    "punto" / "coma" / "dos puntos" / "punto y coma"
+    "borra lo último"    -> borra el último trozo escrito (con retrocesos, no
+                            con Ctrl+Z: deshacer en una ventana ajena puede
+                            tirar de cosas que no ha escrito el asistente)
+    "cambia X por Y"     -> reescribe el último trozo con el cambio
+  Se sale de TRES formas, a propósito: diciendo "ya está" (o "para de dictar"),
+  manteniendo ≡, y solo, a los 10 minutos sin escribir nada
+  (config.json -> input.dictadoLargoMinutos). Un modo que escribe en la ventana
+  de delante y del que no se sabe salir sería lo peor que hay aquí dentro.
+  La ventana de destino SE FIJA al empezar y no cambia: entre que hablas y se
+  transcribe pasan segundos, y sin eso cualquier ventana que se ponga delante
+  se lleva el resto del correo. Si esa ventana se cierra, el modo se cierra
+  con ella. Y si la voz no es la tuya (ver "QUE SOLO TE OBEDEZCA A TI"), esa
+  frase no se escribe: en mitad de un correo, preguntar sería peor.
+
+  QUÉ FALTA POR COMPROBAR: que el texto acabe en TU ventana. Todo lo demás
+  está probado (entrar, escribir, salto de línea, corregir, borrar y las tres
+  salidas, con el log delante), pero la prueba se hacía inyectando órdenes por
+  archivo, y así no se puede controlar qué ventana tiene el foco: el destino
+  acababa siendo la propia cápsula. Eso está corregido -ninguna ventana del
+  asistente cuenta como tuya, comparando por PROCESO, que es lo único fiable
+  con una ventana WPF sin título- pero no se ha podido confirmar el caso bueno
+  desde aquí. Pruébalo tú: abre el Bloc de notas, di "dicta un correo", di una
+  frase y mira. Si no aparece, en assistant.log está la línea
+  "DICTADO LARGO: escribiré en la ventana <número>", que es lo que lo explica.
 
 DICTADO: Whisper, en dos pasos (nuevo). Mientras hablas ves la
   transcripción rápida (Vosk); al callar, el modelo RÁPIDO (base) transcribe

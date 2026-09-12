@@ -64,3 +64,8 @@ mueve spotify a la otra pantalla => mandar spotify al otro monitor
 mandala al otro monitor => al otro monitor
 muevela al otro monitor => al otro monitor
 minimiza todo => mostrar el escritorio
+
+# --- el dictado largo, contra la orden de escribir de siempre ---
+dicta un correo => dictado largo
+empieza a dictar => dictado largo
+escribe hola que tal => escribir
