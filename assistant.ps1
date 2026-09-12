@@ -1482,11 +1482,24 @@ function Find-Traduccion([string]$text) {
 # antes de que termines de hablar.
 function Test-FastCommand([string]$text) {
     if (-not $cmds -or -not $text) { return $false }
-    if ($text -match '(?i)^\s*aprende\s+que\s+') { return $true }
+    # el MISMO patron completo que usa el ejecutor: con solo "aprende que"
+    # decia si, y luego no habia nada que aprender (y de paso Repair-Verb
+    # convertia "aprende" en "prende" y la frase se perdia)
+    if ($text -match '(?i)^\s*aprende\s+que\s+(?:a\s+)?(.+?)\s+(?:le\s+(?:digo|llamo|dicen)|es|se\s+llama)\s+(.+)$') { return $true }
     $pl = ConvertTo-Plain $text
     if ($pl -match '^(?:recuerdame|avisame|recordatorio)\s+(?!que\b)(?:hoy|manana|pasado manana|el (?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)|el \d{1,2} de |a las? )') { return $true }   # recordatorio con fecha
-    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!en\s+\d+)') { return $true }
-    if ($pl -match '^(?:cuando\s|cada\s+\d+|todos los dias|a las?\s)') { return $false }   # reglas: las decide Invoke-ReglaVoz
+    # ojo: los mismos lookaheads que el ejecutor. Con el patron corto, este
+    # atajo devolvia $true y se saltaba Resolve-Fragment, de modo que el
+    # banco no podia ver que "guarda el archivo" acababa en el diario.
+    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!en\s+\d+\s*(?:segundo|minuto|hora))(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?:que\s+|de\s+que\s+)?(.+)$') { return $true }
+    # Reglas y recordatorios con hora: los decide Invoke-ReglaVoz, que SI crea
+    # cosas, asi que aqui no se puede llamar. Se responde $true solo si la
+    # frase tiene la forma de una regla; el banco las prueba aparte llamando
+    # al de verdad. Antes era un $false seco y la capsula nunca asentia a una
+    # regla, aunque fuera perfecta.
+    if ($pl -match '^(?:cuando\s|cada\s+\d+\s*(?:minuto|hora)|todos los dias|a las?\s)') {
+        return [bool]($pl -match ('(?:' + $VERBOS + '|modo|activa|desactiva|bloquea)\b'))
+    }
     # el mismo corte que en Invoke-FastCommand: este es el camino que usan la
     # capsula y el banco de pruebas, y tiene que decir lo mismo que el ejecutor
     if (Test-CatalogoRecitado $text) { return $false }

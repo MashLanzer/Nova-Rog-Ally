@@ -77,3 +77,16 @@ baja el volumen 2 veces
 pon el volumen al 60
 pon el brillo al 20%
 pon el volumen al 60 por ciento
+# --- reglas y recordatorios con hora hablada (estaban rotos por $Matches) ---
+a las diez y media de la noche pon modo noche
+todos los dias a las 9 pon el brillo al 60
+cada 45 minutos pon modo noche
+cuando la bateria baje del 20 bloquea
+cuando abra elden ring pon modo noche
+recuerdame el viernes a las 5 de la tarde que saque la basura
+recuerdame manana a las diez y media que llame al medico
+# --- el predicado no debe decir si donde el ejecutor dice no ---
+aprende que a spotify le digo musica
+# --- control: formas incompletas ---
+aprende que hola
+cuando llueva
