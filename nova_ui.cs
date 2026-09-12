@@ -121,6 +121,7 @@ public class NovaUI : Window
     Image fondoDesenfocado;
     DropShadowEffect resplandor;
     GradientStop bordeAbajo;
+    GradientStop tinteFondo;         // parada inferior del tinte del cristal
     TranslateTransform sacudida;
     ScaleTransform escalaEnvoltorio;
 
@@ -133,6 +134,10 @@ public class NovaUI : Window
     Ellipse[] chispas;
     System.Windows.Shapes.Path marcaHecho, anilloTempo;
     TextBlock glifoOido;            // micro tachado / mando, segun el estado del oido
+    TextBlock relojEspera;          // los segundos que lleva pensando, a partir de 10
+    TextBlock pistaSiNo;            // "sí · no" mientras espera una confirmacion
+    TranslateTransform corrProgreso;// para el barrido cuando ya no se sabe cuanto falta
+    bool barriendo = false;
     string oidoActual = "palabra";
     string tempoTipoActual = "";
     ScaleTransform escalaPunto;
@@ -187,6 +192,7 @@ public class NovaUI : Window
     int carga = 0;
     double animo = 0;
     double tempoFin = 0, tempoTotal = 0;
+    double confirmaFin = 0, confirmaTotal = 0;   // el plazo del si/no, en reloj de pared
     bool tempoActivo = false;
     int ultimoSegundo = -1;
     double nivelActual = 0, nivelObjetivo = 0;
@@ -357,7 +363,8 @@ public class NovaUI : Window
         var tintePincel = new LinearGradientBrush();
         tintePincel.StartPoint = new Point(0, 0); tintePincel.EndPoint = new Point(0, 1);
         tintePincel.GradientStops.Add(new GradientStop(Color.FromArgb(0x4A, 0x1A, 0x22, 0x32), 0));
-        tintePincel.GradientStops.Add(new GradientStop(Color.FromArgb(0x78, 0x08, 0x0C, 0x16), 1));
+        tinteFondo = new GradientStop(Color.FromArgb(0x78, 0x08, 0x0C, 0x16), 1);
+        tintePincel.GradientStops.Add(tinteFondo);
         tinte.Background = tintePincel;
         interior.Children.Add(tinte);
 
@@ -398,7 +405,40 @@ public class NovaUI : Window
         lineaProgreso.Opacity = 0;
         lineaProgreso.Fill = new SolidColorBrush(acento);
         lineaProgreso.IsHitTestVisible = false;
+        corrProgreso = new TranslateTransform();
+        lineaProgreso.RenderTransform = corrProgreso;
         interior.Children.Add(lineaProgreso);
+
+        // CUANTO LLEVA ESPERANDO. Con solo la barra, el 95 % y el 300 % se ven
+        // igual y no hay forma de decidir si esperar o cancelar con el boton.
+        // Aparece a los 10 s, en pequeño y apagado, para no molestar antes.
+        relojEspera = new TextBlock();
+        relojEspera.FontFamily = new FontFamily("Segoe UI");
+        relojEspera.FontSize = 9;
+        relojEspera.FontWeight = FontWeights.SemiBold;
+        relojEspera.Foreground = new SolidColorBrush(Color.FromRgb(0xC8, 0xD2, 0xE4));
+        relojEspera.Opacity = 0;
+        relojEspera.HorizontalAlignment = HorizontalAlignment.Right;
+        relojEspera.VerticalAlignment = VerticalAlignment.Bottom;
+        relojEspera.Margin = new Thickness(0, 0, ALTO * 0.34, 4);
+        relojEspera.IsHitTestVisible = false;
+        interior.Children.Add(relojEspera);
+
+        // "si · no": mientras espera una confirmacion, decir que se puede
+        // contestar es la mitad del problema; la otra mitad es saber cuanto
+        // queda, y eso lo dibuja la linea de abajo vaciandose.
+        pistaSiNo = new TextBlock();
+        pistaSiNo.Text = "sí · no";
+        pistaSiNo.FontFamily = new FontFamily("Segoe UI");
+        pistaSiNo.FontSize = 9;
+        pistaSiNo.FontWeight = FontWeights.SemiBold;
+        pistaSiNo.Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0xA8, 0xD4));
+        pistaSiNo.Opacity = 0;
+        pistaSiNo.HorizontalAlignment = HorizontalAlignment.Right;
+        pistaSiNo.VerticalAlignment = VerticalAlignment.Bottom;
+        pistaSiNo.Margin = new Thickness(0, 0, ALTO * 0.34, 4);
+        pistaSiNo.IsHitTestVisible = false;
+        interior.Children.Add(pistaSiNo);
 
         var especular = new Border();
         especular.VerticalAlignment = VerticalAlignment.Top;
@@ -1099,6 +1139,43 @@ public class NovaUI : Window
         ocultarNivel.Start();
     }
 
+    double luzFondo = 0.35;          // 0..1: luminancia media del fondo
+    double tinteActual = -1;
+
+    // Espesa el tinte oscuro del cristal cuando el fondo es claro, para que el
+    // texto blanco siga legible. Sobre fondo oscuro no cambia nada.
+    void AjustarTinte()
+    {
+        if (tinteFondo == null) { return; }
+        // 0.35 de luz -> 0x78 (lo de siempre); 0.85 -> 0xC8 (bastante mas opaco)
+        double t = Math.Max(0, Math.Min(1, (luzFondo - 0.35) / 0.5));
+        byte alfa = (byte)(0x78 + t * (0xC8 - 0x78));
+        if (Math.Abs(alfa - tinteActual) < 6) { return; }   // sin temblores
+        tinteActual = alfa;
+        var destino = Color.FromArgb(alfa, 0x0A, 0x0E, 0x14);
+        var an = new ColorAnimation(destino, TimeSpan.FromMilliseconds(250));
+        tinteFondo.BeginAnimation(GradientStop.ColorProperty, an);
+    }
+
+    DispatcherTimer relojRecaptura;
+
+    // El cristal muestra un trozo de pantalla CONGELADO. Si la capsula se mueve
+    // (se aparta de una ventana, cambia la resolucion) y no se vuelve a
+    // capturar, ensena el fondo del sitio donde ESTABA: un recorte que no pega
+    // con nada. Se espera a que termine la animacion y se recaptura una vez.
+    void RecapturarTrasMover(int ms)
+    {
+        if (estadoActual == "reposo") { return; }   // en reposo no se ve el cristal
+        if (relojRecaptura == null)
+        {
+            relojRecaptura = new DispatcherTimer();
+            relojRecaptura.Tick += delegate { relojRecaptura.Stop(); CapturarFondo(); };
+        }
+        relojRecaptura.Stop();
+        relojRecaptura.Interval = TimeSpan.FromMilliseconds(ms);
+        relojRecaptura.Start();
+    }
+
     void CapturarFondo()
     {
         try
@@ -1124,6 +1201,25 @@ public class NovaUI : Window
                 {
                     g.CopyFromScreen(x, y, 0, 0, new System.Drawing.Size(w, hgt));
                 }
+                // LUZ DEL FONDO. Se mide sobre el bitmap que ya tenemos,
+                // submuestreando 1 de cada 8 pixeles (~30 us). Sin esto, el
+                // cristal es igual de lechoso sobre negro que sobre nieve, y ahi
+                // el texto blanco desaparece.
+                try
+                {
+                    double suma = 0; int cuenta = 0;
+                    for (int py = 0; py < bmp.Height; py += 8)
+                    {
+                        for (int px = 0; px < bmp.Width; px += 8)
+                        {
+                            var cp = bmp.GetPixel(px, py);
+                            suma += (0.2126 * cp.R + 0.7152 * cp.G + 0.0722 * cp.B) / 255.0;
+                            cuenta++;
+                        }
+                    }
+                    if (cuenta > 0) { luzFondo = suma / cuenta; AjustarTinte(); }
+                }
+                catch { }
                 IntPtr hb = bmp.GetHbitmap();
                 try
                 {
@@ -2109,6 +2205,7 @@ public class NovaUI : Window
         var a = new DoubleAnimation(destino, TimeSpan.FromMilliseconds(520));
         a.EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut };
         BeginAnimation(LeftProperty, a);
+        RecapturarTrasMover(620);
     }
 
     // ---------------------------------------------------------------
@@ -2204,6 +2301,7 @@ public class NovaUI : Window
         leftBase = area.Left + SEPARACION - MARGEN;
         Left = leftBase + desplazado;
         Top = area.Bottom - ALTO - SEPARACION - MARGEN;
+        RecapturarTrasMover(150);
     }
 
     // El glifo del oido. Sorda: microfono tachado. Solo boton: glifo de mando.
@@ -2282,6 +2380,24 @@ public class NovaUI : Window
         }
         else if (tempoActivo) { tempoActivo = false; Desvanecer(anilloTempo, 0, 300); }
 
+        // --- esperando un si o un no: la linea de abajo se vacia ---
+        if (estadoActual == "confirmando" && confirmaFin > 0 && confirmaTotal > 0)
+        {
+            double ahoraC = (DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds;
+            double quedaC = Math.Max(0, Math.Min(1, (confirmaFin - ahoraC) / confirmaTotal));
+            double utilC = Math.Max(0, capsula.Width - ALTO * 0.8);
+            lineaProgreso.BeginAnimation(WidthProperty, null);
+            lineaProgreso.Width = utilC * quedaC;
+            if (lineaProgreso.Opacity < 0.5) { AnimarA(lineaProgreso, OpacityProperty, 0.9, 200); }
+            if (pistaSiNo.Opacity < 0.5) { AnimarA(pistaSiNo, OpacityProperty, 0.85, 250); }
+        }
+        else if (pistaSiNo != null && pistaSiNo.Opacity > 0.01)
+        {
+            AnimarA(pistaSiNo, OpacityProperty, 0, 200);
+            // la linea vuelve a ser de opencode: si no habia progreso, se apaga
+            if (progreso <= 0) { lineaProgreso.Width = 0; AnimarA(lineaProgreso, OpacityProperty, 0, 200); }
+        }
+
         // --- espera larga ---
         if (estadoActual == "pensando")
         {
@@ -2302,7 +2418,44 @@ public class NovaUI : Window
                 ultimoSudor = DateTime.UtcNow;
                 Flotar(sudor, 1, 9, 1300);
             }
+            if (relojEspera != null && s >= 10)
+            {
+                string txt = (s < 60) ? ((int)s).ToString() + " s"
+                            : ((int)(s / 60)).ToString() + ":" + ((int)s % 60).ToString("00");
+                if (relojEspera.Text != txt) { relojEspera.Text = txt; }
+                if (relojEspera.Opacity < 0.5) { AnimarA(relojEspera, OpacityProperty, 0.62, 400); }
+            }
         }
+        else if (relojEspera != null && relojEspera.Opacity > 0.01)
+        {
+            AnimarA(relojEspera, OpacityProperty, 0, 250);
+        }
+    }
+
+    // PASADA LA ESTIMACION ya no hay nada que medir: la barra llena que late
+    // sigue pareciendo "casi", y no lo es. Se convierte en un trazo corto que
+    // va y viene, que es lo que de verdad significa "no se cuanto falta".
+    void Barrer()
+    {
+        if (barriendo || lineaProgreso == null) { return; }
+        barriendo = true;
+        double util = Math.Max(30, capsula.Width - ALTO * 0.8);
+        double trazo = Math.Min(46, util * 0.35);
+        lineaProgreso.BeginAnimation(WidthProperty, null);
+        lineaProgreso.Width = trazo;
+        AnimarA(lineaProgreso, OpacityProperty, 0.8, 250);
+        var v = new DoubleAnimation(0, util - trazo, TimeSpan.FromMilliseconds(1100));
+        v.EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut };
+        v.AutoReverse = true; v.RepeatBehavior = RepeatBehavior.Forever;
+        corrProgreso.BeginAnimation(TranslateTransform.XProperty, v);
+    }
+
+    void PararBarrido()
+    {
+        if (!barriendo) { return; }
+        barriendo = false;
+        corrProgreso.BeginAnimation(TranslateTransform.XProperty, null);
+        corrProgreso.X = 0;
     }
 
     void DibujarArco(double fraccion)
@@ -2328,7 +2481,7 @@ public class NovaUI : Window
     void LeerEstado()
     {
         string est = "reposo", txt = "", evento = "", juego = "", audio = "", perfil = "", clima = "";
-        double niv = 0, tFin = 0, tTotal = 0, an = 0;
+        double niv = 0, tFin = 0, tTotal = 0, an = 0, cFin = 0, cTot = 0;
         bool cambioVoz = false;
         int n = 0, bat = 100, carg = 0, cpu = 0;
         try
@@ -2367,6 +2520,8 @@ public class NovaUI : Window
                 int.TryParse(Campo(j, "carga", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out cpu);
                 double.TryParse(Campo(j, "tempoFin", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out tFin);
                 double.TryParse(Campo(j, "tempoTotal", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out tTotal);
+                double.TryParse(Campo(j, "confirmaFin", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out cFin);
+                double.TryParse(Campo(j, "confirmaTotal", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out cTot);
                 double.TryParse(Campo(j, "animo", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out an);
                 double pr; int vz;
                 double.TryParse(Campo(j, "progreso", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out pr);
@@ -2384,14 +2539,9 @@ public class NovaUI : Window
                     progreso = pr;
                     double ancho = Math.Max(0, capsula.Width - ALTO * 0.8) * progreso;
                     AnimarA(lineaProgreso, WidthProperty, ancho, 500);
-                    if (progreso <= 0) { AnimarA(lineaProgreso, OpacityProperty, 0, 300); }
-                    else if (progreso >= 0.95)
-                    {
-                        var lat = new DoubleAnimation(0.35, 0.9, TimeSpan.FromMilliseconds(600));
-                        lat.AutoReverse = true; lat.RepeatBehavior = RepeatBehavior.Forever;
-                        lineaProgreso.BeginAnimation(OpacityProperty, lat);
-                    }
-                    else { AnimarA(lineaProgreso, OpacityProperty, 0.85, 300); }
+                    if (progreso <= 0) { PararBarrido(); AnimarA(lineaProgreso, OpacityProperty, 0, 300); }
+                    else if (progreso >= 0.95) { Barrer(); }
+                    else { PararBarrido(); AnimarA(lineaProgreso, OpacityProperty, 0.85, 300); }
                 }
             }
         }
@@ -2415,6 +2565,7 @@ public class NovaUI : Window
         }
         nivelObjetivo = niv;
         tempoFin = tFin; tempoTotal = tTotal;
+        confirmaFin = cFin; confirmaTotal = cTot;
 
         // el tinte por hablante tambien tiene que repintar: antes solo se veia
         // si ademas cambiaba el estado o el texto
@@ -2599,6 +2750,9 @@ public class NovaUI : Window
                 }
             case "atenta": return Color.FromRgb(0x33, 0xB8, 0x80);    // verde apagado: "sigo aqui"
             case "pensando": return Color.FromRgb(0xFF, 0xB3, 0x3D);
+            // rosa: no se parece a ningun otro estado a proposito, porque es el
+            // unico en el que la capsula esta esperando algo de TI
+            case "confirmando": return Color.FromRgb(0xFF, 0x6E, 0xB4);
             case "hablando": return Color.FromRgb(0x4D, 0xA6, 0xFF);
             case "error": return Color.FromRgb(0xFF, 0x5A, 0x5A);
             default:
@@ -2705,6 +2859,40 @@ public class NovaUI : Window
             etiqueta.Inlines.Add(viejo);
             etiqueta.Inlines.Add(nuevo);
         }
+        else if (hayTexto && estado == "escuchando" && cambioTexto
+                 && !string.IsNullOrEmpty(textoAnterior)
+                 && !texto.StartsWith(textoAnterior, StringComparison.Ordinal)
+                 && !textoAnterior.StartsWith(texto, StringComparison.Ordinal))
+        {
+            // SE VE LA CORRECCION. El repaso reescribe la frase entera
+            // ("abrestean" -> "abre steam") y hasta ahora era un salto seco: daba
+            // la impresion de que te habia entendido mal, cuando es justo lo
+            // contrario. Se tacha un momento lo que creyo oir, al lado de lo que
+            // dijiste, y a los 0,9 s se queda solo lo bueno.
+            var tachado = new Run(textoAnterior + "  ");
+            tachado.TextDecorations = TextDecorations.Strikethrough;
+            tachado.Foreground = new SolidColorBrush(Color.FromArgb(0x7A, 0xC8, 0xD2, 0xE4));
+            var bueno = new Run(texto);
+            var pincelC = new SolidColorBrush(c);
+            bueno.Foreground = pincelC;
+            var caC = new ColorAnimation(Color.FromRgb(0xF2, 0xF5, 0xF8), TimeSpan.FromMilliseconds(600));
+            caC.BeginTime = TimeSpan.FromMilliseconds(150);
+            pincelC.BeginAnimation(SolidColorBrush.ColorProperty, caC);
+            etiqueta.Inlines.Add(tachado);
+            etiqueta.Inlines.Add(bueno);
+            // la ventana tiene que dar cabida a las dos, o la tachada no se ve
+            anchoTexto = MedirTexto(textoAnterior + "  " + texto);
+            anchoVentana = Math.Min(anchoTexto, disponible);
+            string quedo = texto;
+            var limpia = new DispatcherTimer();
+            limpia.Interval = TimeSpan.FromMilliseconds(900);
+            limpia.Tick += delegate
+            {
+                limpia.Stop();
+                if (textoActual == quedo) { Aplicar(estadoActual, textoActual, false); }
+            };
+            limpia.Start();
+        }
         else { etiqueta.Text = texto; }
         etiquetaSombra.Text = texto;
         ventanaTexto.Visibility = hayTexto ? Visibility.Visible : Visibility.Collapsed;
@@ -2769,7 +2957,8 @@ public class NovaUI : Window
             destino = Math.Min(ANCHO_BARRA, Math.Max(conOnda ? 150 : 90, exacto));
         }
         Expandir(destino, expandida || conNivel);
-        if (progreso > 0) { AnimarA(lineaProgreso, WidthProperty, Math.Max(0, destino - ALTO * 0.8) * progreso, 440); }
+        // mientras barre, la anchura es el trazo corto: recalcularla aqui lo romperia
+        if (progreso > 0 && !barriendo) { AnimarA(lineaProgreso, WidthProperty, Math.Max(0, destino - ALTO * 0.8) * progreso, 440); }
 
         if (estado == "pensando")
         {

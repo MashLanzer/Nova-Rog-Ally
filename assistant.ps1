@@ -2751,6 +2751,12 @@ $script:uiCargando = 0
 $script:uiPerfil = ''       # ultimo perfil aplicado ("noche" cambia la paleta)
 $script:uiCarga = 0         # % de CPU: la capsula se agita por encima del 85
 $script:uiProgreso = 0      # 0..1 mientras opencode trabaja (linea del borde)
+# Cuando vence el si/no, en reloj de pared: la capsula dibuja la barra que se
+# vacia con su propio reloj, sin reescribir el estado en cada tic. Se declara
+# AQUI y no junto a $pendiente porque Set-UI se usa mucho antes: alli valdrian
+# $null y el JSON saldria roto.
+$script:confirmaFin = 0
+$script:confirmaTotal = 0
 $script:uiVoz = 0           # indice de la voz que dicto (por tono), 0 = la habitual
 $script:uiClima = ''        # emoji del tiempo: solo unos segundos cuando se pregunta
 $script:uiClimaHasta = 0
@@ -2798,6 +2804,7 @@ function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
             ',"animo":' + ([double]$script:uiAnimo).ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture) +
             ',"progreso":' + ([double]$script:uiProgreso).ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture) +
             ',"oido":"' + $oido + '","tempoTipo":"' + $tTipo + '"' +
+            ',"confirmaFin":' + ([long]$script:confirmaFin) + ',"confirmaTotal":' + ([long]$script:confirmaTotal) +
             ',"voz":' + $script:uiVoz + '}'
     if ($json -ne $script:uiUltimo) {
         # UTF-8 SIN BOM: la interfaz lo lee tal cual y el BOM colaria un caracter
@@ -4327,6 +4334,7 @@ function Start-Confirmacion {
 function Complete-Confirmacion([string]$respuesta) {
     $p = $script:pendiente
     $script:pendiente = $null
+    $script:confirmaFin = 0; $script:confirmaTotal = 0
     Remove-Item -LiteralPath $MarcaConfirmar -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $RutaConfirmacion -Force -ErrorAction SilentlyContinue
     if (-not $p) { return }
@@ -4889,6 +4897,17 @@ while ($true) {
 
     # --- CONFIRMACION PENDIENTE (si / no / plazo) ---
     if ($script:pendiente) {
+        # QUE SE VEA QUE ESPERA UN SI O UN NO. Mientras la pregunta suena manda
+        # 'hablando'; en cuanto termina, la capsula pasa a 'confirmando' y dibuja
+        # el plazo vaciandose. Sin esto se queda igual que en reposo y nadie sabe
+        # que le estan preguntando algo, que es justo como el silencio acababa
+        # cancelando ordenes buenas.
+        if ($script:uiEstado -ne 'confirmando' -and -not $script:busy -and $script:uiHasta -le $sw.ElapsedMilliseconds) {
+            $queda = [Math]::Max(0, $script:pendiente.vence - $sw.ElapsedMilliseconds)
+            $script:confirmaFin = [DateTimeOffset]::Now.ToUnixTimeMilliseconds() + $queda
+            $script:confirmaTotal = [Math]::Max(1, $queda)
+            Set-UI 'confirmando' $script:uiTexto
+        }
         $resp = ''
         if (Test-Path -LiteralPath $RutaConfirmacion) {
             try { $resp = ([System.IO.File]::ReadAllText($RutaConfirmacion)).Trim().ToLowerInvariant() } catch {}

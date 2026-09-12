@@ -24,6 +24,7 @@ $script:uiEvento = ''; $script:uiEventoN = 0; $script:juegoExe = ''; $script:uiA
 $script:uiBateria = 88; $script:uiCargando = 0; $script:uiPerfil = ''; $script:uiCarga = 12
 $script:uiClima = ''; $script:uiAnimo = 0.0; $script:uiProgreso = 0.0; $script:uiVoz = 0
 $script:uiUltimo = ''; $script:uiHasta = 0; $script:sordinaHasta = 0
+$script:confirmaFin = 0; $script:confirmaTotal = 0
 
 function Comprobar($etiqueta, $oidoEsperado, $tipoEsperado) {
     $script:uiUltimo = ''   # forzar reescritura
@@ -56,6 +57,21 @@ $script:sordinaHasta = 0
 $script:temporizadores.Clear()
 [void]$script:temporizadores.Add(@{ vence = ($script:reloj + 120000); texto = 'saca la pizza'; total = 120000 })
 if (-not (Comprobar 'temporizador normal' 'palabra' '')) { $fallos++ }
+
+# El plazo del si/no: si estos dos campos no salen como numeros, la capsula no
+# puede dibujar la barra vaciandose y el JSON entero se cae.
+$script:temporizadores.Clear()
+$script:confirmaFin = 1789211478223; $script:confirmaTotal = 6000
+$script:uiUltimo = ''
+Set-UI 'confirmando' 'abro Little Nightmares?'
+$txtC = Get-Content -Raw -LiteralPath $RutaUiEstado
+$okC = $false
+try {
+    $jc = $txtC | ConvertFrom-Json
+    $okC = ($jc.estado -eq 'confirmando') -and ($jc.confirmaFin -eq 1789211478223) -and ($jc.confirmaTotal -eq 6000)
+} catch { $okC = $false }
+Write-Host ("  {0}  {1,-26} estado='{2}' plazo={3}" -f $(if ($okC) { 'OK ' } else { 'MAL' }), 'esperando si/no', $jc.estado, $jc.confirmaTotal)
+if (-not $okC) { $fallos++ }
 
 Remove-Item $RutaUiEstado -Force -ErrorAction SilentlyContinue
 Write-Host ""
