@@ -1,0 +1,57 @@
+﻿# Avisos sin voz: CUANDO se habla y cuando basta con que se vea.
+# Test-AvisoSinVoz se saca del archivo real, como en las demas pruebas. Lo que
+# se mide es la decision, no el pulso de la capsula (eso se ve mirandola).
+$ruta = 'C:\Users\braya\Documents\voice-ctrl\assistant.ps1'
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($ruta, [ref]$null, [ref]$null)
+$fn = $ast.Find({ param($x) $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq 'Test-AvisoSinVoz' }, $true)
+if (-not $fn) { throw "falta Test-AvisoSinVoz" }
+Invoke-Expression $fn.Extent.Text
+
+# --- mundo de mentira ---
+$script:reloj = 100000
+$sw = [PSCustomObject]@{}
+$sw | Add-Member -MemberType ScriptProperty -Name ElapsedMilliseconds -Value { $script:reloj }
+$AvisosSinVoz = $true
+$AvisosSinVozEnJuego = $true
+$script:sordinaHasta = 0
+$script:juegoActivo = $null
+$script:uiPerfil = ''
+
+$fallos = 0
+function Ok([string]$etiqueta, [bool]$obtenido, [bool]$esperado) {
+    $ok = ($obtenido -eq $esperado)
+    $que = if ($obtenido) { 'solo se ve' } else { 'habla' }
+    Write-Host ("  {0}  {1,-42} {2}" -f $(if ($ok) { 'OK ' } else { 'MAL' }), $etiqueta, $que)
+    if (-not $ok) { $script:fallos++ }
+}
+
+Write-Host "--- cuando hablar y cuando solo verse ---"
+Ok 'sin nada de por medio, habla' (Test-AvisoSinVoz) $false
+
+$script:sordinaHasta = $script:reloj + 600000
+Ok 'en sordina, callado (te callaste tu)' (Test-AvisoSinVoz) $true
+$script:sordinaHasta = 0
+
+$script:juegoActivo = 'ELDEN RING'
+Ok 'con un juego delante, callado' (Test-AvisoSinVoz) $true
+
+$AvisosSinVozEnJuego = $false
+Ok 'salvo que pidas que hable en el juego' (Test-AvisoSinVoz) $false
+$AvisosSinVozEnJuego = $true
+$script:juegoActivo = $null
+
+$script:uiPerfil = 'silencio'
+Ok 'en modo silencio, callado' (Test-AvisoSinVoz) $true
+$script:uiPerfil = 'juego'
+Ok 'en modo juego (sin juego abierto), habla' (Test-AvisoSinVoz) $false
+$script:uiPerfil = ''
+
+# apagado del todo: vuelve a hablar siempre, que es como era antes
+$AvisosSinVoz = $false
+$script:sordinaHasta = $script:reloj + 600000
+$script:juegoActivo = 'ELDEN RING'
+Ok 'apagado en config, habla siempre' (Test-AvisoSinVoz) $false
+
+Write-Host ""
+if ($fallos) { Write-Host "$fallos casos MAL"; exit 1 }
+Write-Host "todo correcto"

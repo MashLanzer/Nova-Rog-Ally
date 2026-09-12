@@ -42,6 +42,10 @@ Titulo "2n. A donde va cada frase (colisiones entre ordenes parecidas)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-destinos.ps1') | Select-String 'MAL|todo correcto'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2o. Avisos sin voz (cuando hablar y cuando solo verse)"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-avisos.ps1') | Select-String 'OK |MAL|todo correcto'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2d. La tarjeta de respuestas largas (que no te saque del juego)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-tarjeta.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }

@@ -3864,6 +3864,39 @@ function Set-UIHaciendo([string]$kind) {
     Refresh-UI
 }
 
+# AVISOS SIN VOZ
+# Hasta ahora un aviso o te hablaba encima o no existia. Con un juego delante,
+# que te hable es justo lo que no quieres; en sordina, le acabas de pedir
+# silencio. Pero callar del todo es no enterarte. Asi que en esos casos el
+# aviso se ve -tres pulsos de color en el borde de la capsula, con el texto
+# puesto- y no suena.
+# El aviso SIEMPRE aparece; lo unico que cambia es si ademas habla.
+$AvisosSinVoz = [bool](Get-Cfg 'avisos' 'sinVoz' $true)
+$AvisosSinVozEnJuego = [bool](Get-Cfg 'avisos' 'sinVozEnJuego' $true)
+function Test-AvisoSinVoz {
+    if (-not $AvisosSinVoz) { return $false }
+    # te callaste tu: no te hablo yo
+    if ($script:sordinaHasta -gt $sw.ElapsedMilliseconds) { return $true }
+    # con un juego delante, hablarte encima te saca de la partida
+    if ($AvisosSinVozEnJuego -and $script:juegoActivo) { return $true }
+    # y el modo silencio es exactamente esto
+    if ($script:uiPerfil -eq 'silencio') { return $true }
+    return $false
+}
+
+# Un aviso, por la puerta que toque. $tipo da el color del pulso: bateria,
+# tiempo, descarga, recordatorio.
+function Send-Aviso([string]$texto, [string]$tipo = '') {
+    Show-Popup $texto
+    if (Test-AvisoSinVoz) {
+        Send-UIEvento ("pulso:" + $tipo)
+        Log "aviso SIN VOZ ($tipo): $texto"
+    } else {
+        Say $texto
+        Send-UIEvento 'aviso'
+    }
+}
+
 function Initialize-UI {
     if (-not $UiNuevaOn) { Log "interfaz nueva desactivada por configuracion"; return }
     $exe = Join-Path $LogDir "nova_ui.exe"
@@ -4346,9 +4379,7 @@ function Test-Recordatorios {
         try { $c = [DateTime]$r.cuando } catch { continue }
         if ($c -le $ahora) {
             Log "RECORDATORIO vence: $($r.texto)"
-            Show-Popup ("Recordatorio: " + $r.texto)
-            Say ("Te recuerdo: " + $r.texto)
-            Send-UIEvento 'aviso'
+            Send-Aviso ("Te recuerdo: " + $r.texto) 'recordatorio'
             Start-Vibracion @(120, 80, 120)
         } else { $quedan += $r }
     }
@@ -6275,10 +6306,10 @@ while ($true) {
             if ($sw.ElapsedMilliseconds -ge $t.vence) {
                 $script:temporizadores.RemoveAt($i)
                 Log "TEMPORIZADOR: $($t.texto)"
+                # el sonido propio si suena: son dos notas de medio segundo, no
+                # una frase encima, y es lo que hace que un temporizador sirva
                 Play-Sonido 'te-oigo' ([System.Media.SystemSounds]::Exclamation)
-                Show-Popup $t.texto
-                Say $t.texto
-                Send-UIEvento 'aviso'
+                Send-Aviso $t.texto 'tiempo'
             }
         }
     }
@@ -6319,8 +6350,7 @@ while ($true) {
                     if (-not $ahoraBajan.ContainsKey($id)) {
                         $nom = [string]$script:bajandoAntes[$id]
                         Log "DESCARGA terminada: $nom"
-                        Show-Popup "$nom ya se descargo."
-                        Say "$nom ya acabo de descargarse."
+                        Send-Aviso "$nom ya acabo de descargarse." 'descarga'
                     }
                 }
             }
@@ -6392,8 +6422,7 @@ while ($true) {
                 $cuanto = if ($JuegoAvisoMin -ge 60 -and ($JuegoAvisoMin % 60) -eq 0) { "$([int]$horas) horas" } else { "$JuegoAvisoMin minutos" }
                 if ($cuanto -eq '1 horas') { $cuanto = 'una hora' }
                 Log "JUEGO: aviso de tiempo ($cuanto con $j)"
-                Say "Oye, ya llevas $cuanto con $j."
-                Send-UIEvento 'aviso'
+                Send-Aviso "Oye, ya llevas $cuanto con $j." 'tiempo'
             }
         } catch {}
     }
@@ -6513,9 +6542,7 @@ while ($true) {
                 if (-not $cargando -and $pc -le $BateriaAviso -and -not $script:bateriaAvisada) {
                     $script:bateriaAvisada = $true
                     Log "AVISO: bateria al $pc %"
-                    Show-Popup "Bateria al $pc por ciento."
-                    Say "Oye, te queda $pc por ciento de bateria."
-                    Send-UIEvento 'aviso'
+                    Send-Aviso "Oye, te queda $pc por ciento de bateria." 'bateria'
                 }
                 # rearmar cuando se recupera, para que pueda volver a avisar
                 if ($cargando -or $pc -gt ($BateriaAviso + 10)) { $script:bateriaAvisada = $false }

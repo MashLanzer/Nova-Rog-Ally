@@ -67,11 +67,6 @@ ni con batería):
       «Déjala ahí» para que no se vaya a los 8 s, «quítala» para cerrarla. Con
       una lista de pasos, ocho segundos no llegan ni para el segundo.
 
-- [ ] **17. Avisos sin voz.**
-      En sordina o con un juego delante, que la batería o un temporizador sean un
-      pulso de color en el borde en vez de hablarte encima. Hoy o habla o no te
-      enteras.
-
 - [ ] **18. «¿Cómo estás configurada?»**
       Una tarjeta con lo esencial: voz, modelos, estado del oído, esquina, reglas
       activas, modos. Hoy eso es leerse `config.json` a mano.
@@ -111,13 +106,16 @@ ni con batería):
   al otro monitor», sin ponerla delante y sin robarle el foco a nadie. Lo de
   mover entre monitores no se ha podido probar de verdad: en esta máquina solo
   hay una pantalla, y lo que sí se comprobó es que lo dice en vez de moverla.
+- **17. Avisos sin voz.** Con un juego delante, en sordina o en modo silencio,
+  los avisos se ven (tres pulsos de color en el borde, cada cosa con el suyo)
+  en vez de hablarte encima. `tools\probar-avisos.ps1`.
 
 ## Por dónde empezar
 
-Si hay que elegir: la **17** (avisos sin voz), que es la pareja natural de lo
-hecho estos días: con un juego delante, ni hablarte encima ni que no te
-enteres. Después la **1** (dictado largo de verdad), que es la única que
-todavía obliga a soltar el mando para escribir algo.
+Si hay que elegir: la **1** (dictado largo de verdad), que es la única que
+todavía obliga a soltar el mando para escribir algo. Después la **13** (cola
+visible con varias órdenes), que es la que falta para saber cuál de dos
+órdenes encadenadas fue la que falló.
 
 ---
 

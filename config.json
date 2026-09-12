@@ -62,6 +62,8 @@
                     "soloYoMinimo":  12
                 },
     "avisos":  {
+                   "sinVoz":  true,
+                   "sinVozEnJuego":  true,
                    "bateriaPct":  15
                },
     "juego":  {

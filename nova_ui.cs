@@ -2119,6 +2119,7 @@ public class NovaUI : Window
                 Ondas(2, ColorDe("pensando"));
                 Sonar(sonAviso);
                 break;
+            case "pulso": PulsoAviso(arg); break;
             case "logro": Logro(); break;
             case "error": Sacudir(); break;
             case "gesto": Gesto(arg); break;
@@ -2140,6 +2141,44 @@ public class NovaUI : Window
                     break;
                 }
         }
+    }
+
+    // AVISO SIN VOZ. En sordina o con un juego delante, hablarte encima es lo
+    // que no quieres, y callar del todo es no enterarte. Tres pulsos del
+    // resplandor en el color de lo que pasa: se ve de reojo, sin leer nada y
+    // sin sonar. El texto sigue estando en la capsula para quien quiera leerlo.
+    // Se apaga solo: la siguiente pasada de Aplicar devuelve el color del
+    // estado, y por eso se invalida la cache antes (igual que el tic de hecho).
+    void PulsoAviso(string tipo)
+    {
+        if (resplandor == null) { return; }
+        Color c;
+        switch (tipo)
+        {
+            case "bateria": c = Color.FromRgb(0xFF, 0xA5, 0x3A); break;   // ambar
+            case "tiempo": c = Color.FromRgb(0x4B, 0xE0, 0xC0); break;    // turquesa
+            case "descarga": c = Color.FromRgb(0x5A, 0xA9, 0xE6); break;  // el azul del anillo
+            case "recordatorio": c = Color.FromRgb(0xB6, 0x8C, 0xFF); break;
+            default: c = ColorDe("pensando"); break;
+        }
+        colorAplicado = default(Color);
+        var col = new ColorAnimation(c, TimeSpan.FromMilliseconds(180));
+        col.FillBehavior = FillBehavior.Stop;
+        resplandor.BeginAnimation(DropShadowEffect.ColorProperty, col);
+
+        // tres respiraciones, no un parpadeo: un destello rapido en el borde de
+        // la vista se confunde con el propio juego
+        var op = new DoubleAnimationUsingKeyFrames();
+        double[] pasos = { 0.5, 1.0, 0.45, 1.0, 0.45, 1.0, 0.5 };
+        for (int i = 0; i < pasos.Length; i++)
+        {
+            op.KeyFrames.Add(new EasingDoubleKeyFrame(pasos[i],
+                KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(i * 260)),
+                new SineEase { EasingMode = EasingMode.EaseInOut }));
+        }
+        op.FillBehavior = FillBehavior.Stop;
+        resplandor.BeginAnimation(DropShadowEffect.OpacityProperty, op);
+        Ondas(2, c);
     }
 
     // ---------------------------------------------------------------
