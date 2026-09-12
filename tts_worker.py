@@ -67,6 +67,45 @@ VOZ = sys.argv[1] if len(sys.argv) > 1 else "es-MX-DaliaNeural"
 SALIDA = sys.argv[2] if len(sys.argv) > 2 else "."
 os.makedirs(SALIDA, exist_ok=True)
 
+# La cache no tenia tope: cada frase NUEVA deja un mp3 para siempre, y este
+# proceso vive desde el login. A ~23 KB por frase son megas al mes; el usuario
+# tenia que vaciarla a mano. Se borran las mas viejas al pasar del tope.
+CACHE_MAX_MB = 60
+
+
+def limpiar_cache():
+    try:
+        archivos = []
+        total = 0
+        for nombre in os.listdir(SALIDA):
+            if not nombre.endswith(".mp3"):
+                continue
+            ruta = os.path.join(SALIDA, nombre)
+            try:
+                est = os.stat(ruta)
+            except OSError:
+                continue
+            archivos.append((est.st_mtime, est.st_size, ruta))
+            total += est.st_size
+        tope = CACHE_MAX_MB * 1024 * 1024
+        if total <= tope:
+            return
+        archivos.sort()            # los mas viejos primero
+        for _, tam, ruta in archivos:
+            if total <= tope * 0.8:
+                break
+            for x in (ruta, ruta + ".env"):
+                try:
+                    os.remove(x)
+                except OSError:
+                    pass
+            total -= tam
+    except Exception:              # noqa: BLE001
+        pass
+
+
+limpiar_cache()
+
 
 async def principal():
     bucle = asyncio.get_event_loop()
@@ -89,10 +128,20 @@ async def principal():
         clave = hashlib.md5((VOZ + "|" + texto).encode("utf-8")).hexdigest()
         ruta = os.path.join(SALIDA, clave + ".mp3")
         if not os.path.exists(ruta):
+            # Se baja a un temporal y se renombra al final. Antes se escribia
+            # directamente en la ruta definitiva: si la red se cortaba a mitad
+            # quedaba un mp3 truncado, y como el archivo YA EXISTIA esa frase
+            # sonaba cortada para siempre, sin volver a intentarlo nunca.
+            parcial = ruta + ".part"
             try:
                 com = edge_tts.Communicate(texto, VOZ)
-                await com.save(ruta)
+                await com.save(parcial)
+                os.replace(parcial, ruta)
             except Exception as e:  # noqa: BLE001
+                try:
+                    os.remove(parcial)
+                except OSError:
+                    pass
                 print("ERR %s" % e, flush=True)
                 continue
         escribir_envolvente(ruta)

@@ -268,6 +268,18 @@ cuesta 13 s y encima puede negarse a contestar — se comprobó.
 
 ---
 
+Dos arreglos en `tts_worker.py` (11/09):
+
+- **El mp3 se baja a un temporal y se renombra al final.** Antes se escribía
+  directamente en la ruta definitiva de la caché: si la red se cortaba a mitad
+  quedaba un mp3 truncado y, como el archivo ya existía, esa frase sonaba
+  cortada **para siempre** sin volver a intentarlo nunca.
+- **La caché tiene tope** (`CACHE_MAX_MB = 60`). Cada frase nueva dejaba un mp3
+  para siempre en un proceso que vive desde el login; había que vaciarla a
+  mano. Al arrancar, si pasa del tope se borran las más viejas hasta el 80 %,
+  con su `.env`. Probado con 70 MB de mentira: baja a 48 y conserva las
+  recientes.
+
 ## 8. MEMORIA PERMANENTE (vault de Obsidian)
 
 Carpeta: **`voice-ctrl\memoria`**. Se abre en Obsidian con *Abrir carpeta como
