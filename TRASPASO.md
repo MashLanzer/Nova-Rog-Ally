@@ -87,6 +87,17 @@ Decisiones de diseño deliberadas:
 - **Llamada directa al CLI**, sin `powershell.exe` intermedio (§11).
 - **El popup no bloquea**: se cierra por plazo desde el bucle.
 - **La ruta local es todo-o-nada**: media orden ejecutada es peor que ninguna.
+  Y hay que vigilarlo: `abre steam y discord` **abría solo Steam** hasta el
+  11/09. «discord» no empieza por verbo, así que se pegaba al fragmento
+  anterior, y dentro de «steam y discord» se encontraba «steam» por parecido;
+  el resto se tiraba sin decir nada. Dos arreglos: un trozo que sea un nombre
+  conocido (`Test-NombreConocido`, exacto, sin parecidos) ya no se pega, y en
+  `Resolve-Target` un objeto de dos o tres nombres conocidos seguidos («steam
+  discord», que es como llega «abre steam, discord») se resuelve como varias
+  órdenes. **Se probó además separar por comas y hubo que revertirlo**: el
+  dictado las coloca donde le parece («Sierra, el navegador», «Abre, steam, y
+  busca los huevos»), así que la coma no dice nada sobre dónde acaba una orden
+  y partir por ella tiraba cinco órdenes reales del log.
 - **Al agente no se llega por descarte, sino por veredicto.** Antes, todo lo
   que nadie entendía terminaba en el agente con `--auto`: el micrófono captaba
   un vídeo de fondo y esa frase se ejecutaba con permiso sobre `Documents`

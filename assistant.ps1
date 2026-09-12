@@ -232,6 +232,28 @@ function Add-CortesSinConector([string]$s) {
     return ($out -join ' ')
 }
 
+# ¿Es esto, tal cual, algo que sabemos abrir? Sin parecidos ni
+# aproximaciones: aqui solo vale el nombre exacto, porque se usa para
+# decidir si un trozo suelto es una orden por si mismo.
+function Test-NombreConocido([string]$t) {
+    if (-not $cmds -or -not $t) { return $false }
+    if (Test-Prop $cmds.apps $t) { return $true }
+    if (Test-Prop $cmds.sitios $t) { return $true }
+    $p = ConvertTo-Juego $t
+    foreach ($j in @($script:Juegos)) { if ($j.plano -eq $p) { return $true } }
+    return $false
+}
+
+# Punto unico de entrada para partir una frase en ordenes.
+# SE PROBO separar tambien por comas y hubo que revertirlo: el dictado las
+# pone donde le parece ("Sierra, el navegador", "Abre, steam, y busca los
+# huevos"), asi que la coma no dice nada sobre donde acaba una orden y
+# partir por ella tiraba cinco ordenes reales del log. Lo que si funciona
+# esta abajo, en Resolve-Target: varios nombres conocidos seguidos.
+function Split-Ordenes([string]$texto) {
+    return (Split-Compound (Repair-Words (ConvertTo-Plain $texto)))
+}
+
 function Split-Compound([string]$s) {
     # "ademas"/"tambien" son SEPARADORES si les sigue un verbo de accion, y
     # simples muletillas si no. Confundir ambos casos era lo que metia
@@ -244,7 +266,24 @@ function Split-Compound([string]$s) {
     foreach ($p in $parts) {
         $t = Repair-Verb (Remove-Filler $p)
         if (-not $t) { continue }
-        if ($res.Count -gt 0 -and $t -notmatch ('^' + $LOCATIVO + '?(?:' + $VERBOS + '|' + $VENTANA + ')\b')) {
+        # ¿El fragmento anterior se quedo en un verbo suelto? Entonces esto es
+        # su objeto, venga como venga. El dictado puntua a su antojo: "Sierra,
+        # el navegador" o "Abre, steam, y busca los huevos" son UNA orden con
+        # comas de adorno, y partirlas ahi dejaba "cierra" y "abre" sin nada
+        # que hacer, con lo que se perdia la frase entera por la regla de
+        # todo-o-nada.
+        $colgando = $false
+        if ($res.Count -gt 0) {
+            $ult = [string]$res[$res.Count - 1]
+            if (@($ult -split '\s+').Count -eq 1 -and ($VERBOS_LISTA -contains $ult)) { $colgando = $true }
+        }
+        if ($res.Count -gt 0 -and ($colgando -or ($t -notmatch ('^' + $LOCATIVO + '?(?:' + $VERBOS + '|' + $VENTANA + ')\b') -and
+            -not (Test-NombreConocido $t)))) {
+            # ... SALVO que el trozo sea algo que sabemos abrir. "abre steam y
+            # discord" se pegaba entero y acababa abriendo SOLO Steam: dentro
+            # de "steam y discord" se encontraba "steam" y el resto se tiraba
+            # sin avisar. Eso rompe la regla de todo-o-nada, y de la peor
+            # manera: pediste dos cosas y pasaba una, en silencio.
             # no empieza por verbo: pertenece al fragmento anterior
             # ("busca gatos y perros en google")
             $res[$res.Count - 1] = $res[$res.Count - 1] + ' y ' + $t
@@ -664,6 +703,23 @@ function Resolve-Target([string]$t) {
     if ($t -match '^[\w\-]+\.(?:com|es|org|net|io|tv|gg|dev|app|mx|co|ar|cl)$') {
         return @(@{ kind = 'url'; url = "https://$t"; desc = "abrir $t" })
     }
+    # VARIOS NOMBRES SEGUIDOS son varias ordenes. "abre steam, discord y
+    # spotify" llega aqui como "steam discord" (la coma se borro al
+    # normalizar y "y spotify" ya se separo): antes se buscaba un parecido
+    # dentro y se abria SOLO Steam, tirando el resto sin avisar. Se exige que
+    # TODAS las palabras sean nombres conocidos, asi que "little nightmares"
+    # o "bad bunny" no se parten.
+    $trozos = @($t -split '\s+' | Where-Object { $_ })
+    if ($trozos.Count -ge 2 -and $trozos.Count -le 3) {
+        $todos = $true
+        foreach ($x in $trozos) { if (-not (Test-NombreConocido $x)) { $todos = $false; break } }
+        if ($todos) {
+            $acc = @()
+            foreach ($x in $trozos) { $acc += (Resolve-Target $x) }
+            if ($acc.Count -eq $trozos.Count) { return $acc }
+        }
+    }
+
     # La aproximacion SOLO para objetivos cortos. Aplicarla a una frase larga y
     # deforme hacia que "Freelesign en el navegador buscal Pinterest" encontrase
     # "navegador" dentro, abriera el navegador y se comiera el resto de la orden.
@@ -1425,7 +1481,7 @@ function Test-FastCommand([string]$text) {
     # capsula y el banco de pruebas, y tiene que decir lo mismo que el ejecutor
     if (Test-CatalogoRecitado $text) { return $false }
     $frags = $null
-    try { $frags = Split-Compound (Repair-Words (ConvertTo-Plain $text)) } catch { return $false }
+    try { $frags = Split-Ordenes $text } catch { return $false }
     if (-not $frags -or $frags.Count -eq 0) { return $false }
     $dudosaAntes = $script:dudosa
     try {
@@ -1484,7 +1540,7 @@ function Invoke-FastCommand([string]$text) {
         Log "LOCAL descarta: '$text' es el catalogo recitado, no una orden"
         return $null
     }
-    $frags = Split-Compound (Repair-Words (ConvertTo-Plain $text))
+    $frags = Split-Ordenes $text
     if (-not $frags -or $frags.Count -eq 0) { return $null }
 
     $script:dudosa = $null
@@ -3073,7 +3129,7 @@ if ($Probar) {
             if ($via) { $comoQue = "  ->  [$via]" }
             elseif ($true) { try {
                 $descs = @()
-                foreach ($fr in @(Split-Compound (Repair-Words (ConvertTo-Plain $t)))) {
+                foreach ($fr in @(Split-Ordenes $t)) {
                     $acc = Resolve-Fragment $fr
                     if ($acc) { $descs += @($acc | ForEach-Object { $_.desc }) }
                 }

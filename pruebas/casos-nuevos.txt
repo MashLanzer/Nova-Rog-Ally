@@ -61,3 +61,14 @@ me escuchas bien
 # --- lo que el dictado destrozo de verdad (log del 11/09) ---
 sirra los programan
 cierra los programas
+# --- varias cosas en una frase (todo o nada) ---
+abre steam y discord
+abre spotify y youtube
+abre steam, discord y spotify
+abre steam y sube el volumen
+# --- control: NO se deben partir ---
+busca gatos y perros en google
+pon bad bunny en spotify
+# --- teclas con "dale a" ---
+dale a enter
+dale al escape
