@@ -61,6 +61,15 @@ FECHAS: "recuerda que el 3 de octubre es el cumple de Ana" -> ese día
 RECORDATORIOS: "recuérdame mañana a las 10 que llame al médico", "avísame
   el viernes a las 5 de la tarde que...", "recuérdame a las 3 revisar el
   horno". "qué recordatorios tengo". Sobreviven a reinicios.
+APUNTAR LO QUE VES (nuevo): "apunta esto", "guarda este código", "anota
+  lo que dice la pantalla". Lee la pantalla con OCR y lo guarda en tu diario
+  tal cual, con el juego del que salió: "(de SILENT BREATH) CODIGO DE LA
+  CAJA: 3 2 8". Para los códigos de caja fuerte y las combinaciones de los
+  juegos: dictarlos era justo lo que el dictado destroza. Luego "¿qué código
+  anoté?" te lo devuelve en menos de un segundo.
+  OJO: antes "apunta esto" SÍ se reconocía... y anotaba literalmente la
+  palabra "esto". Ahora hace lo que parece.
+
 VER LA PANTALLA: "lee la pantalla" / "qué dice esta ventana" te lee el
   texto de la ventana activa (OCR de Windows). "pregúntale a la IA qué es
   esto" le manda la captura y el texto de la ventana.

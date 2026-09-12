@@ -978,7 +978,7 @@ function Resolve-Fragment([string]$f) {
     # "recuerda que X" -> se anota YA, sin pasar por el modelo
     # El lookahead negativo distingue "recuerdame que X" (nota) de
     # "recuerdame EN 20 MINUTOS que X" (temporizador), que se resuelve mas abajo.
-    if ($f -match '^(?:recuerda|recuerdame|acuerdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!en\s+\d+\s*(?:segundo|minuto|hora))(?:que\s+|de\s+que\s+)?(.+)$') {
+    if ($f -match '^(?:recuerda|recuerdame|acuerdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!en\s+\d+\s*(?:segundo|minuto|hora))(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?:que\s+|de\s+que\s+)?(.+)$') {
         return @(@{ kind = 'memoria'; texto = $Matches[1].Trim(); desc = "anotar en la memoria" })
     }
     # El lugar puede preceder al verbo ("en el navegador busca X"). Se separa
@@ -1083,6 +1083,10 @@ function Resolve-Fragment([string]$f) {
     # --- leer la pantalla (OCR de Windows) ---
     if ($f -match '^(?:lee|leeme|leer|que dice|que pone|que hay escrito|dime que dice)\s+(?:lo que (?:hay|dice|pone) (?:en\s+)?|en\s+)?(?:la\s+|esta\s+|el\s+)?(?:pantalla|ventana|esto|aqui|texto|mensaje)\b') {
         return @(@{ kind = 'ocr'; desc = 'leer la pantalla' })
+    }
+    # --- apuntar lo que hay en la pantalla, sin dictarlo ---
+    if ($f -match '^(?:apunta|anota|guarda|apuntame|anotame)\s+(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$') {
+        return @(@{ kind = 'ocrMemoria'; desc = 'apuntar lo que hay en la pantalla' })
     }
     # --- captura y grabacion (atajos de la barra de juego de Windows) ---
     switch -regex ($f) {
@@ -1508,7 +1512,7 @@ function Test-FastCommand([string]$text) {
     # ojo: los mismos lookaheads que el ejecutor. Con el patron corto, este
     # atajo devolvia $true y se saltaba Resolve-Fragment, de modo que el
     # banco no podia ver que "guarda el archivo" acababa en el diario.
-    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!en\s+\d+\s*(?:segundo|minuto|hora))(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?:que\s+|de\s+que\s+)?(.+)$') { return $true }
+    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!en\s+\d+\s*(?:segundo|minuto|hora))(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?:que\s+|de\s+que\s+)?(.+)$') { return $true }
     # Reglas y recordatorios con hora: los decide Invoke-ReglaVoz, que SI crea
     # cosas, asi que aqui no se puede llamar. Se responde $true solo si la
     # frase tiene la forma de una regla; el banco las prueba aparte llamando
@@ -1550,7 +1554,7 @@ function Invoke-FastCommand([string]$text) {
     # tildes, que es justo lo que no quieres leer meses despues en Obsidian.
     # mismo lookahead que en Resolve-Fragment: "en 20 minutos" es temporizador,
     # no una nota para el diario
-    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!en\s+\d+\s*(?:segundo|minuto|hora))(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?:que\s+|de\s+que\s+)?(.+)$') {
+    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!en\s+\d+\s*(?:segundo|minuto|hora))(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?:que\s+|de\s+que\s+)?(.+)$') {
         $frase = $Matches[1].Trim()
         if ($frase.Length -gt 0) {
             $null = Add-Memoria $frase
@@ -1889,6 +1893,30 @@ function Invoke-FastCommand([string]$text) {
                         try { [System.IO.File]::WriteAllText((Join-Path $TmpDir 'ocr.txt'), $texto, (New-Object System.Text.UTF8Encoding($false))) } catch {}
                         $script:ultimaLectura = $texto
                         $a.desc = if ($texto.Length -gt 320) { $texto.Substring(0, 320) + '... y sigue' } else { $texto }
+                    }
+                }
+                'ocrMemoria' {
+                    Set-UI 'pensando' 'leyendo la pantalla'
+                    $png = Join-Path $TmpDir 'pantalla.png'
+                    Save-Captura $png | Out-Null
+                    $texto = Invoke-OCR $png
+                    if (-not $texto) {
+                        $a.desc = 'No veo texto en la pantalla'
+                    } else {
+                        $script:ultimaLectura = $texto
+                        # una pantalla viene en muchas lineas y en una nota de diario
+                        # eso queda ilegible: se junta todo en una sola
+                        $limpio = (($texto -replace '[\r\n]+', ' / ') -replace '\s{2,}', ' ').Trim()
+                        if ($limpio.Length -gt 600) { $limpio = $limpio.Substring(0, 600) + ' [...]' }
+                        # de donde salio: sin esto, meses despues es un texto
+                        # huerfano en el diario y no hay forma de situarlo
+                        $donde = if ($script:juegoActivo) { $script:juegoActivo } else { 'la pantalla' }
+                        $null = Add-Memoria ("(de $donde) " + $limpio)
+                        Log "OCR A MEMORIA ($donde): $limpio"
+                        # se lee el principio: asi sabes QUE guardo, y si el OCR ha
+                        # leido mal te enteras al momento y no meses despues
+                        $ojo = if ($limpio.Length -gt 90) { $limpio.Substring(0, 90) + "..." } else { $limpio }
+                        $a.desc = "Apuntado: $ojo"
                     }
                 }
                 'buscarEquipo' {

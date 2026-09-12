@@ -95,3 +95,11 @@ silencia
 quita el silencio
 pon el volumen al maximo
 sube el volumen
+# --- apuntar lo que hay en la pantalla (OCR a la memoria) ---
+apunta esto
+guarda este codigo
+anota lo que dice la pantalla
+guarda la combinacion
+# --- control: esto sigue siendo una nota dictada, no OCR ---
+apunta que el wifi es patata frita
+recuerda que el codigo es 328
