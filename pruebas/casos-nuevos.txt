@@ -132,3 +132,10 @@ sube el volumen
 pon el volumen al 60
 sube el brillo
 abre spotify
+# --- temporizadores: consultar y cancelar; y "no era eso" ---
+cuanto queda del temporizador
+que temporizadores tengo
+cancela el temporizador
+quita los avisos
+no era eso
+no queria eso

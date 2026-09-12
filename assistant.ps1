@@ -1131,6 +1131,19 @@ function Resolve-Fragment([string]$f) {
         $desc = if ($que) { "aviso en $n $unidad" } else { "temporizador de $n $unidad" }
         return @(@{ kind = 'temporizador'; ms = $ms; texto = $que; n = $n; unidad = $unidad; desc = $desc })
     }
+    # --- "no era eso": deshacer Y no repetir el error ---
+    if ($f -match '^(?:no era eso|eso no era|no era esto|no te pedi eso|eso no|no queria eso|no era lo que dije)$') {
+        return @(@{ kind = 'noEraEso'; desc = 'deshacer y olvidar esa interpretacion' })
+    }
+    # --- temporizadores: consultar y cancelar ---
+    if ($f -match '^(?:cuanto (?:queda|falta)|que queda)\s*(?:del?\s+)?(?:temporizador|aviso|alarma|cuenta atras)?$' -or
+        $f -match '^(?:tengo|hay)\s+(?:algun\s+)?(?:temporizador|aviso|alarma)\b' -or
+        $f -match '^(?:que|cuantos)\s+(?:temporizadores|avisos|alarmas)\s+(?:tengo|hay)\b') {
+        return @(@{ kind = 'verTempo'; desc = 'temporizadores' })
+    }
+    if ($f -match '^(?:cancela|quita|borra|anula|para)\s+(?:el\s+|los\s+|la\s+|las\s+)?(?:temporizador|temporizadores|aviso|avisos|alarma|alarmas|cuenta atras)$') {
+        return @(@{ kind = 'quitarTempo'; desc = 'cancelar temporizadores' })
+    }
     # --- descargas de Steam (datos que ya se leen al arrancar) ---
     if ($f -match '^(?:como va|que tal va|en que va|cuanto queda de)\s+(?:la\s+)?(?:descarga|bajada|instalacion)\b') {
         return @(@{ kind = 'descargas'; desc = 'estado de las descargas' })
@@ -1591,6 +1604,23 @@ function Add-Traduccion([string]$original, [string]$traducida) {
 # corresponde a UNA app o sitio conocidos? Entonces vale la pena aprender esa
 # palabra como alias (sirve para cualquier frase futura).
 $PALABRAS_COMUNES = @('abre','abrir','pon','ponme','busca','en','el','la','los','las','un','una','de','del','al','a','y','con','por','para','que','me','lo','le','mi','tu','su','ya','ahora','porfa','por','favor','steam','juego')
+# Olvidar una traduccion aprendida. Hace falta para "no era eso": sin esto,
+# una interpretacion equivocada se queda para siempre y repite el error.
+function Remove-Traduccion([string]$original) {
+    $clave = ConvertTo-Plain $original
+    if (-not $clave) { return $false }
+    $t = Get-Traducciones
+    if (-not $t.ContainsKey($clave)) { return $false }
+    $t.Remove($clave)
+    try {
+        $o = New-Object PSObject
+        foreach ($k in $t.Keys) { $o | Add-Member -NotePropertyName $k -NotePropertyValue $t[$k] -Force }
+        [System.IO.File]::WriteAllText($TraduccionesPath, ($o | ConvertTo-Json -Depth 4), (New-Object System.Text.UTF8Encoding($false)))
+        Log "OLVIDADO: la traduccion de '$original'"
+        return $true
+    } catch { Log ("no pude olvidar la traduccion: " + $_.Exception.Message); return $false }
+}
+
 function Find-Generalizacion([string]$original, [string]$traducida) {
     if (-not $cmds) { return $null }
     $po = ConvertTo-Plain $original
@@ -1826,6 +1856,44 @@ function Invoke-FastCommand([string]$text) {
                     } else {
                         $a.desc = "ahora mismo no detecto ningun juego abierto"
                     }
+                }
+                'noEraEso' {
+                    # 1) deshacer lo que se hiciera
+                    $r = Invoke-Deshacer
+                    # 2) y si la orden salio de una traduccion APRENDIDA, borrarla:
+                    #    si no, volveria a equivocarse igual la proxima vez. Esto es
+                    #    lo que convierte un "no era eso" en algo que sirve.
+                    $olvidada = $null
+                    if ($script:ultimaAprendida) {
+                        $olvidada = $script:ultimaAprendida
+                        Remove-Traduccion $olvidada
+                        $script:ultimaAprendida = ''
+                    }
+                    $a.desc = if ($olvidada) { "$r. Y olvido que '$olvidada' significaba eso." } else { $r }
+                }
+                'verTempo' {
+                    # la sordina vive en esta misma lista y no es un aviso tuyo
+                    $tps = @($script:temporizadores | Where-Object { $_.tipo -ne 'sordina' })
+                    if ($tps.Count -eq 0) {
+                        $a.desc = 'no tienes ningun temporizador'
+                    } else {
+                        $partes = @()
+                        foreach ($tp in ($tps | Sort-Object { $_.vence })) {
+                            $queda = [int][Math]::Ceiling(($tp.vence - $sw.ElapsedMilliseconds) / 60000.0)
+                            $cuanto = if ($queda -le 1) { 'menos de un minuto' } else { "$queda minutos" }
+                            $partes += if ($tp.texto) { "$cuanto para $($tp.texto)" } else { "$cuanto" }
+                        }
+                        $a.desc = 'quedan ' + ($partes -join '; ')
+                    }
+                }
+                'quitarTempo' {
+                    $antes = 0
+                    for ($i = $script:temporizadores.Count - 1; $i -ge 0; $i--) {
+                        if ($script:temporizadores[$i].tipo -ne 'sordina') { $script:temporizadores.RemoveAt($i); $antes++ }
+                    }
+                    $a.desc = if ($antes -eq 0) { 'no tenias ninguno' }
+                              elseif ($antes -eq 1) { 'temporizador cancelado' }
+                              else { "$antes temporizadores cancelados" }
                 }
                 'descargas' {
                     $bajando = @($script:Juegos | Where-Object { $_.bajando })
@@ -4164,6 +4232,7 @@ function Report-Reply($out) {
             $script:sinDudosa = $false
             if ($r) {
                 Add-Traduccion $original $propuesta
+                $script:ultimaAprendida = $original
                 Add-Estadistica 'traducida' "$original -> $propuesta"
                 $script:ultimaRespuesta = $r
                 Send-UIEvento 'hecho'
@@ -4323,6 +4392,9 @@ $script:rachaRuido = New-Object System.Collections.ArrayList
 $script:sordinaHasta = 0
 $script:aprenderPendiente = $null
 $script:ultimaLectura = ''
+# De que frase aprendida salio la ultima orden, para poder olvidarla si dices
+# "no era eso".
+$script:ultimaAprendida = ''
 function Test-LoTengo([string]$vista) {
     if ($script:loTengo -or -not $UiNuevaOn -or -not $vista) { return }
     if (($sw.ElapsedMilliseconds - $script:loTengoCheck) -lt 400) { return }
@@ -4559,6 +4631,8 @@ function Process-Texto([string]$text) {
                 try { $r = Invoke-FastCommand $apr } catch { $r = $null }
                 if ($r) {
                     Log "APRENDIDA: '$text' -> '$apr' -> $r"
+                    $script:ultimaAprendida = $text
+                    if ($script:ultimaAprendida) { Log "(si dices 'no era eso', la olvido)" }
                     Add-Estadistica 'aprendida' $text
                     $script:ultimaRespuesta = $r
                     Send-UIEvento 'hecho'
@@ -4706,7 +4780,14 @@ while ($true) {
     if ($startNow -and -not $holdFired -and ($sw.ElapsedMilliseconds - $downSince) -ge $HOLD_MS) {
         $holdFired = $true
         try {
-            if ($script:busy) {
+            if ($script:pendiente -and -not $script:busy) {
+                # HAY UNA PREGUNTA ESPERANDO. Contestar "si" en voz alta con un
+                # juego sonando es lo que menos funciona, y el mando ya lo tienes
+                # en la mano: mantener el boton vale por un si.
+                Log "CONFIRMAR con el boton"
+                Start-Vibracion @(70) 14000      # un toque corto: "recibido"
+                Complete-Confirmacion 'si'
+            } elseif ($script:busy) {
                 # Un hold mientras opencode trabaja = cancelar. Antes esta
                 # pulsacion se perdia: el bucle estaba bloqueado esperando.
                 Log "CANCELAR (hold durante procesamiento)"

@@ -71,6 +71,22 @@ FECHAS: "recuerda que el 3 de octubre es el cumple de Ana" -> ese día
 RECORDATORIOS: "recuérdame mañana a las 10 que llame al médico", "avísame
   el viernes a las 5 de la tarde que...", "recuérdame a las 3 revisar el
   horno". "qué recordatorios tengo". Sobreviven a reinicios.
+TEMPORIZADORES (nuevo): "¿cuánto queda del temporizador?", "¿qué
+  temporizadores tengo?", "cancela el temporizador", "quita los avisos".
+  Se podían crear pero no consultar ni cancelar, al revés que las reglas y
+  los recordatorios. La sordina no sale en esa lista ni se cancela ahí:
+  para eso está "escúchame".
+
+"NO ERA ESO" (nuevo): si hace algo que no le pediste, esa frase deshace lo
+  hecho Y ADEMÁS, si la orden venía de una frase aprendida, la olvida, para
+  que no vuelva a equivocarse igual. También valen "eso no era", "no quería
+  eso".
+
+CONFIRMAR CON EL BOTÓN (nuevo): cuando pregunta "¿Little Nightmares III?",
+  mantener ≡ vale por un "sí" (y vibra al recibirlo). Decir "sí" con un
+  juego sonando es justo lo que peor funciona, y el mando ya lo tienes en
+  la mano. Callarse sigue siendo "no".
+
 VOLUMEN POR APLICACIÓN (nuevo): "baja el juego", "sube discord",
   "silencia el navegador", "pon spotify al 40". Es el mezclador de Windows,
   por app: bajar el volumen general también le baja la voz a tu amigo de
