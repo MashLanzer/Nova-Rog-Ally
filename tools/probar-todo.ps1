@@ -58,6 +58,10 @@ Titulo "2j. Guardar la esquina sin romper config.json"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-esquina.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2k. Los tres sonidos propios (y que sin ellos no se quede mudo)"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-sonidos.ps1') | Select-String 'todo correcto|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2b. Autosordina (se calla sola si el microfono caza ruido en racha)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-autosordina.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }

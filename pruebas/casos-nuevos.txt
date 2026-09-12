@@ -167,3 +167,6 @@ ponte arriba a la derecha
 vete a la esquina de abajo a la derecha
 ponte a la izquierda de arriba
 donde estas
+copia la respuesta
+copiame lo que dijiste
+copia lo ultimo

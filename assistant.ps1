@@ -1188,6 +1188,14 @@ function Resolve-Fragment([string]$f) {
         return @(@{ kind = 'dondeEstas'; desc = 'donde esta la capsula' })
     }
 
+    # --- copiar lo que acaba de decir ---
+    # Va antes de "copia esto" (que es un Ctrl+C sobre la ventana de delante):
+    # son dos cosas distintas y el patron corto se quedaria con esta.
+    if ($f -match '^(?:copia|copiame|guarda|guardame)\s+(?:la|el|lo|eso|esa)\s+(?:que\s+(?:me\s+)?(?:has\s+)?(?:dicho|dijiste)|respuesta|ultimo|ultima\s+respuesta|que\s+dice|de\s+la\s+tarjeta)$' -or
+        $f -match '^copia(?:me)?\s+lo\s+(?:que\s+)?(?:has\s+)?(?:dicho|dijiste)$') {
+        return @(@{ kind = 'copiarRespuesta'; desc = 'copiar la respuesta' })
+    }
+
     # --- portapapeles ---
     # Va ANTES de anotar: si no, "apunta lo copiado" guardaria una nota que
     # dice, literalmente, "lo copiado".
@@ -2362,6 +2370,17 @@ function Invoke-FastCommand([string]$text) {
                 'dondeEstas' {
                     $p = $script:esquina -split '-'
                     $a.desc = "estoy $($p[0]) a la $($p[1])"
+                }
+                'copiarRespuesta' {
+                    $t = [string]$script:ultimaRespuesta
+                    if (-not $t.Trim()) {
+                        $a.desc = 'todavia no te he dicho nada'
+                    } else {
+                        $puesto = $false
+                        try { Set-Clipboard -Value $t; $puesto = $true } catch {}
+                        $a.desc = if ($puesto) { "copiado, $($t.Length) caracteres" }
+                                  else { 'no pude tocar el portapapeles' }
+                    }
                 }
                 'copiar' {
                     [System.Windows.Forms.SendKeys]::SendWait('^c')
@@ -4472,6 +4491,32 @@ function Close-Popup {
     $script:popupUntil = 0
 }
 
+# Los tres sonidos del asistente. Se cargan una vez y se quedan en memoria:
+# abrir el WAV en cada pitido mete un retraso que se NOTA, porque justo estos
+# suenan cuando quieres saber al instante si te oyo.
+# Si falta la carpeta (o el archivo), se vuelve al pitido de Windows: no tener
+# tres ficheros de 20 KB no puede dejar al asistente mudo.
+$SonidosDir = Join-Path $LogDir 'sonidos'
+$script:sonidos = @{}
+function Play-Sonido([string]$nombre, [System.Media.SystemSound]$respaldo) {
+    try {
+        if (-not $script:sonidos.ContainsKey($nombre)) {
+            $ruta = Join-Path $SonidosDir ($nombre + '.wav')
+            if (Test-Path -LiteralPath $ruta) {
+                $sp = New-Object System.Media.SoundPlayer $ruta
+                $sp.Load()
+                $script:sonidos[$nombre] = $sp
+            } else {
+                $script:sonidos[$nombre] = $null
+            }
+        }
+        $sp = $script:sonidos[$nombre]
+        # Play(), no PlaySync(): el bucle no puede pararse a esperar un pitido
+        if ($sp) { $sp.Play(); return }
+    } catch {}
+    if ($respaldo) { $respaldo.Play() }
+}
+
 function Show-Popup([string]$text, [string]$estadoUI = 'hablando') {
     Close-Popup
     # Con la interfaz nueva el mensaje va a la capsula. El popup antiguo solo
@@ -4540,7 +4585,7 @@ function Show-Popup([string]$text, [string]$estadoUI = 'hablando') {
         } catch {}
 
         $f.Show()
-        [System.Media.SystemSounds]::Asterisk.Play()
+        Play-Sonido 'hecho' ([System.Media.SystemSounds]::Asterisk)
         # NO se espera aqui: antes este bucle bloqueaba 8 s el sondeo del boton.
         # El bucle principal lo cierra al vencer $popupUntil.
         $script:popupForm = $f
@@ -5112,7 +5157,7 @@ function Start-Dictado([string]$origen) {
     $seguimiento = ($origen -eq 'seguimiento')
     $script:enSeguimiento = $seguimiento
     # con la capsula, el sonido lo pone ella (un tono corto, no la campana)
-    if (-not $UiNuevaOn -and -not $seguimiento) { [System.Media.SystemSounds]::Exclamation.Play() }
+    if (-not $UiNuevaOn -and -not $seguimiento) { Play-Sonido 'te-oigo' ([System.Media.SystemSounds]::Exclamation) }
 
     # --- Dictado por el worker (Whisper/Vosk): ni foco, ni Win+H, ni pausa ---
     # El worker ya tiene el microfono; solo hay que decirle que transcriba.
@@ -5150,7 +5195,7 @@ function Start-Dictado([string]$origen) {
         # ABORTAR, no continuar: sin el foco, el dictado escribe en OTRA
         # ventana y esas pulsaciones disparan cosas sueltas.
         Log "ABORTADO: sin primer plano; no se abre el dictado"
-        [System.Media.SystemSounds]::Hand.Play()
+        Play-Sonido 'no-pude' ([System.Media.SystemSounds]::Hand)
         $capture.Hide()
         # IMPRESCINDIBLE: sin esto la pausa de 60 s se queda puesta y la palabra
         # de activacion queda muda un minuto cada vez que falla el foco, que en
@@ -5369,7 +5414,7 @@ function Process-Texto([string]$text) {
     } else {
         # antes esto era mudo: no distinguias "fallo" de "no dije nada"
         Log "vacio, ignorado"
-        if (-not $UiNuevaOn) { [System.Media.SystemSounds]::Hand.Play() }
+        if (-not $UiNuevaOn) { Play-Sonido 'no-pude' ([System.Media.SystemSounds]::Hand) }
         Add-Estadistica 'error' 'dictado vacio'
         Show-Popup "No te escuche. Intenta de nuevo." 'error'
     }
@@ -5464,7 +5509,7 @@ while ($true) {
                 # Un hold mientras opencode trabaja = cancelar. Antes esta
                 # pulsacion se perdia: el bucle estaba bloqueado esperando.
                 Log "CANCELAR (hold durante procesamiento)"
-                if (-not $UiNuevaOn) { [System.Media.SystemSounds]::Hand.Play() }
+                if (-not $UiNuevaOn) { Play-Sonido 'no-pude' ([System.Media.SystemSounds]::Hand) }
                 Stop-OpencodeJob
                 Add-Estadistica 'error' 'cancelado'
                 Send-UIEvento 'gesto:sobresalto'
@@ -5747,7 +5792,7 @@ while ($true) {
             if ($sw.ElapsedMilliseconds -ge $t.vence) {
                 $script:temporizadores.RemoveAt($i)
                 Log "TEMPORIZADOR: $($t.texto)"
-                [System.Media.SystemSounds]::Exclamation.Play()
+                Play-Sonido 'te-oigo' ([System.Media.SystemSounds]::Exclamation)
                 Show-Popup $t.texto
                 Say $t.texto
                 Send-UIEvento 'aviso'
