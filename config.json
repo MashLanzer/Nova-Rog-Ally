@@ -7,7 +7,7 @@
     "input":  {
                   "dictadoLargoMinutos":  10,
                   "dictadoLargoMotor":  "windows",
-                  "motorOrdenes":  "windows",
+                  "motorOrdenes":  "worker",
                   "holdMs":  1100,
                   "autoSubmitMs":  2500,
                   "dictado":  "whisper",

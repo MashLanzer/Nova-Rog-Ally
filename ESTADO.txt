@@ -268,11 +268,15 @@ CON QUÉ TE OYE, Y CUÁNDO (cambiado el 12/09 tras medirlo)
   arriba a la esquina que se quiera.
   Por qué "antes no salía": hasta el 12/09 a las 19:07 las órdenes iban por
   Whisper, que no enseña nada; Win+H solo se usaba en el dictado largo.
-  Con eso arreglado, el 12/09 el usuario eligió "motorOrdenes": "windows"
-  (Win+H para TODAS las órdenes, también jugando), sabiendo que el panel se
-  ve durante cada orden y que le quita el foco un momento a lo que tenga
-  delante: le entiende mucho mejor y lo prefiere. Para volver: "auto" (Win+H
-  fuera del juego, Whisper jugando) o "worker" (Whisper siempre).
+  MOTOR DE ÓRDENES: "worker" (Whisper), elegido por el usuario el 12/09 con
+  el log delante. Hubo un malentendido que conviene no repetir: pidió dejar
+  Win+H "para siempre" creyendo que era lo que le entendía perfecto, pero lo
+  que le entendió todo sin enseñar ninguna ventana (19:00-19:07) fue WHISPER
+  con el repaso del oído fino; con Win+H para órdenes (19:18 y 19:19) no llegó
+  ni una palabra. Antes de atribuirle algo a un motor, mirar el log:
+  "[escucha] whisper:" es Whisper; "ENVIAR (silencio)" / "Win+H" es Windows.
+  Win+H sigue siendo el del dictado LARGO (dictadoLargoMotor), que ahí sí
+  escribe bien.
 
   OJO, no confundir con el OTRO motor de Windows, el de la API
   (SpeechRecognizer local de OneCore), que estuvo activado días y NUNCA
