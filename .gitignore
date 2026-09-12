@@ -28,6 +28,9 @@ memoria/estadisticas.md
 memoria/fechas.json
 memoria/recordatorios.json
 memoria/rechazos.json
+
+# tu voz: las grabaciones para medir el reconocimiento se quedan en casa
+pruebas/audio/
 # ordenes aprendidas: son frases dictadas por el usuario
 traducciones.json
 memoria/semanas/

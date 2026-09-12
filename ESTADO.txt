@@ -363,6 +363,19 @@ LA CÁPSULA, AL DÍA (nuevo)
   - Respuestas largas: tarjeta de cristal que YA NO ROBA EL FOCO. Antes te
     sacaba de un juego a pantalla completa.
 
+PROBAR CON TU VOZ (nuevo, PENDIENTE DE QUE LO HAGAS TÚ)
+  Todo el banco mide TEXTO. Lo que de verdad falla es el micrófono, y eso no
+  lo ve ninguna prueba. Con veinte grabaciones tuyas, una sola vez:
+
+      python tools\grabar-ordenes.py      (te va pidiendo las frases)
+      python tools\probar-audio.py        (mide, y ya va en probar-todo)
+
+  Pasa TU audio por el mismo camino que usa el asistente -mismo modelo,
+  mismos umbrales, mismas hotwords, misma limpieza- y dice cuántas entiende
+  el modelo rápido y cuántas rescata el oído fino. Sin esto, cualquier cambio
+  en el reconocimiento es una opinión.
+  Las grabaciones se quedan en pruebasudio\ y NO se suben a GitHub.
+
 EL OÍDO FINO, MEDIDO (nuevo)
   Cuando la capa local no entiende algo, se repasa el MISMO audio con el
   modelo preciso antes de ir al modelo remoto. Cuesta segundos y hasta ahora

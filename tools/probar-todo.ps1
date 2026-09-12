@@ -67,6 +67,12 @@ foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     if (-not $linea) { $fallos++ }
 }
 
+Titulo "5. Tu voz de verdad (si ya grabaste las ordenes)"
+# Lo unico del banco que mide el MICROFONO y no texto. Si no hay grabaciones,
+# lo dice y sigue: no es un fallo, es que todavia no las has hecho.
+python (Join-Path $PSScriptRoot 'probar-audio.py')
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "4. Ruido real (aqui cuanto MENOS se reconozca, mejor)"
 $salida = powershell -NoProfile -File 'assistant.ps1' -Probar (Join-Path 'pruebas' 'ruido-real.txt') 2>&1
 $linea = @($salida | Select-String 'reconocidas en local')[-1]
