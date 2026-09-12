@@ -669,6 +669,20 @@ LA CÁPSULA, AL DÍA (nuevo)
     reales de ese rato y 12 órdenes largas reales del log y del banco: las 7
     fuera, las 12 dentro (tools\probar-funciones.ps1). Queda en el log como
     "CHARLA descartada".
+  - ¿UN TERCER OÍDO MÁS GRANDE? MEDIDO EL 12/09, NO COMPENSA TODAVÍA. Con las
+    20 grabaciones del usuario, en esta Ally (Ryzen Z2 A, 7,7 GB):
+        base    8/20   ~2 s por orden
+        small  15/20   ~7 s por orden (13,5 s la peor)
+        base -> small, como funciona hoy: 17/20
+        medium  ~18-19 s por orden; de las 3 que fallan los dos rescata 1
+                ("recuérdame en 20 minutos que saque la pizza"): 18/20.
+    Las otras dos ("sube el volumen" -> "Sober volumen", "baja el brillo" ->
+    "PAHEL BREATH") no las entiende nadie: es el audio. medium solo cargó en
+    primer plano y con el asistente apagado; en segundo plano el sistema lo
+    mató dos veces por falta de memoria. large-v3-turbo no se llegó a medir:
+    su codificador es el de large, más lento aún en este procesador.
+    El modelo medium quedó descargado (1,5 GB en %USERPROFILE%\.cache\
+    huggingface) por si se decide usarlo.
   - SE VE CUÁNTAS COSAS SON Y POR CUÁL VA (nuevo): "abre Steam y pon modo
     juego" son dos cosas. Ahora, cuando una orden lleva más de una, aparece una
     fila de puntos en la esquina de abajo: el que se está haciendo encendido y
