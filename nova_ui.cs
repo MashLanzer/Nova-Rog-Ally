@@ -293,11 +293,8 @@ public class NovaUI : Window
         Width = ANCHO_BARRA + MARGEN * 2;
         Height = ALTO + MARGEN * 2;
 
-        var area = SystemParameters.WorkArea;
-        leftBase = area.Left + SEPARACION - MARGEN;
-        Left = leftBase;
-        Top = area.Bottom - ALTO - SEPARACION - MARGEN;
-        areaColocada = area;   // para notar si la pantalla cambia de tamano
+        Colocar();
+        areaColocada = SystemParameters.WorkArea;   // para notar si la pantalla cambia
 
         nocheActual = EsNoche();
         Color acento = ColorDe("reposo");
@@ -2199,9 +2196,20 @@ public class NovaUI : Window
                 RECTA r; GetWindowRect(GetForegroundWindow(), out r);
                 var src = PresentationSource.FromVisual(this);
                 double esc = (src != null) ? src.CompositionTarget.TransformToDevice.M11 : 1.0;
-                destino = r.R / esc + SEPARACION - MARGEN;
-                double maximo = SystemParameters.PrimaryScreenWidth - ANCHO_BARRA - SEPARACION - MARGEN;
-                if (destino > maximo) { destino = maximo; }
+                if (ALaDerecha())
+                {
+                    // colocada a la derecha, apartarse hacia la derecha la sacaria
+                    // de la pantalla: se aparta al borde IZQUIERDO de la ventana
+                    destino = r.L / esc - ANCHO_BARRA - SEPARACION - MARGEN;
+                    double minimo = SystemParameters.WorkArea.Left + SEPARACION - MARGEN;
+                    if (destino < minimo) { destino = minimo; }
+                }
+                else
+                {
+                    destino = r.R / esc + SEPARACION - MARGEN;
+                    double maximo = SystemParameters.PrimaryScreenWidth - ANCHO_BARRA - SEPARACION - MARGEN;
+                    if (destino > maximo) { destino = maximo; }
+                }
             }
             catch { destino = leftBase; }
         }
@@ -2288,6 +2296,26 @@ public class NovaUI : Window
 
     // Con que area de trabajo se calculo la posicion actual.
     static Rect areaColocada;
+    // "abajo-izquierda" (lo de siempre), "abajo-derecha", "arriba-izquierda",
+    // "arriba-derecha". Lo manda el asistente y se guarda en config.json.
+    string esquina = "abajo-izquierda";
+
+    bool ALaDerecha() { return esquina.EndsWith("derecha"); }
+    bool Arriba() { return esquina.StartsWith("arriba"); }
+
+    // Coloca la capsula en su esquina. Vale para el arranque, para un cambio de
+    // esquina y para un cambio de resolucion: los tres hacen lo mismo.
+    void Colocar()
+    {
+        var area = SystemParameters.WorkArea;
+        leftBase = ALaDerecha()
+            ? area.Right - ANCHO_BARRA - SEPARACION - MARGEN
+            : area.Left + SEPARACION - MARGEN;
+        Left = leftBase;
+        Top = Arriba()
+            ? area.Top + SEPARACION - MARGEN
+            : area.Bottom - ALTO - SEPARACION - MARGEN;
+    }
 
     // Si cambia la resolucion del escritorio (un juego a pantalla completa
     // exclusiva, cambiar de monitor) hay que recolocarse: si no, la capsula se
@@ -2301,9 +2329,8 @@ public class NovaUI : Window
             Math.Abs(area.Left - areaColocada.Left) < 1) { return; }
         double desplazado = Left - leftBase;
         areaColocada = area;
-        leftBase = area.Left + SEPARACION - MARGEN;
-        Left = leftBase + desplazado;
-        Top = area.Bottom - ALTO - SEPARACION - MARGEN;
+        Colocar();
+        Left = leftBase + desplazado;   // se conserva lo que estuviera apartada
         RecapturarTrasMover(150);
     }
 
@@ -2531,6 +2558,17 @@ public class NovaUI : Window
                 int.TryParse(Campo(j, "voz", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out vz);
                 if (vz != voz) { voz = vz; cambioVoz = true; }
                 string oido = Campo(j, "oido", "palabra");
+                string esq = Campo(j, "esquina", "abajo-izquierda");
+                // vacia = la de siempre: un estado escrito por una version vieja
+                // no tiene por que mandar la capsula a ningun sitio raro
+                if (string.IsNullOrEmpty(esq)) { esq = "abajo-izquierda"; }
+                if (esq != esquina)
+                {
+                    esquina = esq;
+                    Colocar();
+                    areaColocada = SystemParameters.WorkArea;
+                    RecapturarTrasMover(150);   // el cristal ensena otro trozo de pantalla
+                }
                 tempoTipoActual = Campo(j, "tempoTipo", "");
                 if (oido != oidoActual)
                 {

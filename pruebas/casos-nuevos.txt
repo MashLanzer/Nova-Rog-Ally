@@ -163,3 +163,7 @@ deshaz todo lo de este minuto
 deshaz lo de los ultimos 5 minutos
 deshaz todo lo de la ultima media hora
 deshaz
+ponte arriba a la derecha
+vete a la esquina de abajo a la derecha
+ponte a la izquierda de arriba
+donde estas

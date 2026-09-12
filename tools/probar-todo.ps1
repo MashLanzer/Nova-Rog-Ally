@@ -54,6 +54,10 @@ Titulo "2i. Deshacer por ventana de tiempo (la foto mas vieja, no la ultima)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-deshacer.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2j. Guardar la esquina sin romper config.json"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-esquina.ps1') | Select-String 'todo correcto|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2b. Autosordina (se calla sola si el microfono caza ruido en racha)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-autosordina.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }

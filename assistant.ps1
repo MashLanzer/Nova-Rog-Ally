@@ -1170,6 +1170,24 @@ function Resolve-Fragment([string]$f) {
         return @(@{ kind = 'borrarModo'; nombre = $Matches[1].Trim(); desc = 'borrar un modo' })
     }
 
+    # --- a que esquina se va la capsula ---
+    # 'ponme' y companía estan en la lista a proposito: Repair-Verb arregla el
+    # verbo de cabeza por parecido ANTES de llegar aqui, y 'ponte' acaba siendo
+    # 'ponme' (el primero de la lista a distancia 1). Sin eso, 'ponte arriba a la
+    # derecha' no se reconocia y 'vete arriba a la derecha' si, que es de las
+    # cosas mas desconcertantes que puede hacer.
+    if ($f -match '^(?:ponte|ponme|poneme|pone|pon|ponete|vete|ve|colocate|coloca|muevete|mueve|pasate|pasa)\s+(?:a\s+la\s+|a\s+|al\s+|en\s+la\s+|en\s+)?(?:esquina\s+(?:de\s+)?)?(arriba|abajo)\s*(?:a\s+la\s+|a\s+|de\s+la\s+|\s+)?(izquierda|derecha)$' -or
+        $f -match '^(?:ponte|ponme|poneme|pone|pon|ponete|vete|ve|colocate|coloca|muevete|mueve|pasate|pasa)\s+(?:a\s+la\s+|a\s+|al\s+|en\s+la\s+|en\s+)?(?:esquina\s+(?:de\s+)?)?(?:la\s+)?(izquierda|derecha)\s+(?:de\s+)?(arriba|abajo)$') {
+        # los grupos, copiados YA: un -match mas abajo se lleva $Matches
+        $g1 = $Matches[1]; $g2 = $Matches[2]
+        $vert = if ($g1 -match '^(?:arriba|abajo)$') { $g1 } else { $g2 }
+        $hori = if ($g1 -match '^(?:izquierda|derecha)$') { $g1 } else { $g2 }
+        return @(@{ kind = 'esquina'; valor = "$vert-$hori"; desc = "ponerse $vert a la $hori" })
+    }
+    if ($f -match '^(?:donde estas|en que esquina estas|donde te has puesto)$') {
+        return @(@{ kind = 'dondeEstas'; desc = 'donde esta la capsula' })
+    }
+
     # --- portapapeles ---
     # Va ANTES de anotar: si no, "apunta lo copiado" guardaria una nota que
     # dice, literalmente, "lo copiado".
@@ -1795,6 +1813,23 @@ function Invoke-Deshacer {
 # "aprende que a X le llamo Y": amplia commands.json hablando, sin editar JSON.
 # Guardar un modo en commands.json. Se escribe como el resto (UTF-8 sin BOM) y
 # se RELEE al vuelo, o el modo recien creado no existiria hasta reiniciar.
+# Guarda un ajuste en config.json sin tocar lo demas. Hace falta para que la
+# esquina sobreviva al reinicio: si no, habria que decirselo cada vez.
+function Set-Cfg([string]$seccion, [string]$clave, $valor) {
+    try {
+        # $cfgPath, no $PSScriptRoot: es la MISMA ruta que se lee al arrancar, y
+        # ademas se puede apuntar a otro sitio para probarlo sin tocar el de verdad
+        $ruta = $cfgPath
+        $j = Get-Content -LiteralPath $ruta -Raw -Encoding UTF8 | ConvertFrom-Json
+        if (-not $j.$seccion) { $j | Add-Member -NotePropertyName $seccion -NotePropertyValue (New-Object PSObject) -Force }
+        $j.$seccion | Add-Member -NotePropertyName $clave -NotePropertyValue $valor -Force
+        # SIN BOM: lo leen tambien los workers de Python, en crudo
+        [System.IO.File]::WriteAllText($ruta, ($j | ConvertTo-Json -Depth 8), (New-Object System.Text.UTF8Encoding($false)))
+        Log "config: $seccion.$clave = $valor"
+        return $true
+    } catch { Log ("no pude guardar la configuracion: " + $_.Exception.Message); return $false }
+}
+
 function Add-Perfil([string]$nombre, [string[]]$ordenes) {
     $nombre = (ConvertTo-Plain $nombre).Trim()
     if (-not $nombre -or $ordenes.Count -eq 0) { return $false }
@@ -2308,6 +2343,25 @@ function Invoke-FastCommand([string]$text) {
                                   elseif ($a.encima) { 'siempre encima' }
                                   else { 'ya no esta siempre encima' }
                     }
+                }
+                'esquina' {
+                    if ($script:esquina -eq $a.valor) {
+                        $a.desc = 'ya estaba ahi'
+                    } else {
+                        $script:esquina = $a.valor
+                        if (Set-Cfg 'ui' 'esquina' $a.valor) {
+                            $a.desc = 'listo, y me acuerdo'
+                        } else {
+                            # se mueve igual: no poder guardarlo no es razon para
+                            # no obedecer, pero se dice, que si no parece que si
+                            $a.desc = 'me muevo, pero no he podido guardarlo para la proxima'
+                        }
+                        Refresh-UI
+                    }
+                }
+                'dondeEstas' {
+                    $p = $script:esquina -split '-'
+                    $a.desc = "estoy $($p[0]) a la $($p[1])"
                 }
                 'copiar' {
                     [System.Windows.Forms.SendKeys]::SendWait('^c')
@@ -3295,6 +3349,7 @@ function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
             ',"progreso":' + ([double]$script:uiProgreso).ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture) +
             ',"oido":"' + $oido + '","tempoTipo":"' + $tTipo + '"' +
             ',"confirmaFin":' + ([long]$script:confirmaFin) + ',"confirmaTotal":' + ([long]$script:confirmaTotal) +
+            ',"esquina":"' + $script:esquina + '"' +
             ',"voz":' + $script:uiVoz + '}'
     if ($json -ne $script:uiUltimo) {
         # UTF-8 SIN BOM: la interfaz lo lee tal cual y el BOM colaria un caracter
@@ -4988,6 +5043,10 @@ $script:aprenderPendiente = $null
 $script:ultimaLectura = ''
 # Por donde va la lectura en voz alta de esa pantalla, para "sigue leyendo".
 $script:lecturaPos = 0
+# En que esquina vive la capsula. Se lee de config.json al arrancar y se
+# guarda ahi mismo al cambiarla, para que sobreviva al reinicio.
+$script:esquina = [string](Get-Cfg 'ui' 'esquina' 'abajo-izquierda')
+if ($script:esquina -notmatch '^(?:abajo|arriba)-(?:izquierda|derecha)$') { $script:esquina = 'abajo-izquierda' }
 # La ultima frase que se ejecuto de verdad, para saber a que se refiere un
 # "no era eso".
 $script:ultimoEjecutado = ''

@@ -357,6 +357,11 @@ LA CÁPSULA, AL DÍA (nuevo)
     es como el silencio acababa cancelando órdenes buenas. Y el botón ≡
     mantenido vale por un "sí": decirlo en voz alta con un juego sonando es
     justo lo que peor funciona.
+  - Se le puede decir a qué esquina irse: "ponte arriba a la derecha",
+    "vete a la esquina de abajo a la derecha", "¿dónde estás?". Lo recuerda
+    (config.json -> ui.esquina). Colocada a la derecha, cuando se aparta de
+    una ventana que la tapa se desliza hacia la IZQUIERDA: al otro lado se
+    saldría de la pantalla.
   - Con un juego delante y en reposo, la cápsula se encoge a un punto de
     14 px (con un vídeo a pantalla completa, 22: un HUD de juego está lleno
     de cosas y ahí cualquier adorno estorba más).
