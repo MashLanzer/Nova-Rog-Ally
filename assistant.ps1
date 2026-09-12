@@ -877,13 +877,13 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '') {
         if (-not (Test-Path -LiteralPath $MemoriaDir)) { New-Item -ItemType Directory -Force -Path $MemoriaDir | Out-Null }
         [System.IO.File]::WriteAllText($EstadisticasJson, ($o | ConvertTo-Json -Depth 6), $enc)
 
-        $rutas = @('activacion', 'local', 'aprendida', 'memoria', 'pregunta', 'traducir', 'traducida', 'accion', 'charla', 'ruido', 'descarte', 'error')
+        $rutas = @('activacion', 'local', 'aprendida', 'memoria', 'pregunta', 'traducir', 'traducida', 'accion', 'charla', 'ruido', 'recitado', 'descarte', 'error')
         $sb = New-Object System.Text.StringBuilder
         [void]$sb.AppendLine("# Estadísticas del asistente")
         [void]$sb.AppendLine("")
         [void]$sb.AppendLine("Actualizado: " + (Get-Date -Format 'yyyy-MM-dd HH:mm') + ". La genera el asistente sola; no hace falta editarla.")
         [void]$sb.AppendLine("")
-        [void]$sb.AppendLine("**activacion**: veces que se desperto al oir su nombre. **ruido**: lo que se descarto por no ser una orden.")
+        [void]$sb.AppendLine("**activacion**: veces que se desperto al oir su nombre. **ruido**: lo que se descarto por no ser una orden. **recitado**: enumeraciones de nombres de tu biblioteca que Whisper se invento con el ruido (si esto sube, el microfono esta cazando audio; si baja a cero durante semanas, quiza ya no hace falta el filtro).")
         [void]$sb.AppendLine("")
         [void]$sb.AppendLine("Rutas: **local** (<1 s, sin modelo), **aprendida** (traducción guardada), **memoria** (búsqueda en notas), **pregunta** (modelo sin herramientas), **traducir** → **traducida** (el modelo la convirtió a una orden local y se aprendió), **accion** (agente completo), **charla**, **descarte** (trozo que la capa local no entendió).")
         [void]$sb.AppendLine("")
@@ -1561,6 +1561,9 @@ function Invoke-FastCommand([string]$text) {
     if ($regla) { return $regla }
     if (Test-CatalogoRecitado $text) {
         Log "LOCAL descarta: '$text' es el catalogo recitado, no una orden"
+        # se cuenta para poder vigilarlo: es la defensa principal contra abrir
+        # cosas solo, y conviene ver tanto si deja de saltar como si se pasa
+        Add-Estadistica 'recitado' $text
         return $null
     }
     $frags = Split-Ordenes $text
