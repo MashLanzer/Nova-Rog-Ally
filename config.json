@@ -49,7 +49,10 @@
                     "autoSordinaVentanaMin":  5,
                     "autoSordinaMinutos":  10,
                     "motor":  "vosk",
-                    "ganancia":  "auto"
+                    "ganancia":  "auto",
+                    "soloYo":  true,
+                    "soloYoMargenHz":  35,
+                    "soloYoMinimo":  12
                 },
     "avisos":  {
                    "bateriaPct":  15

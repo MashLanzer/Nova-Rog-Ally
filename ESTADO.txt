@@ -32,9 +32,9 @@ EJECUTANDO AHORA: SÍ, desde el 12/09 a las 13:57, ya con los cambios de ese
     biblioteca de Steam: 14 juegos indexados
   Y decir en voz alta: "Listo. Di nova cuando me necesites."
 
-LO QUE QUEDA POR HACER: PENDIENTE.md (17 ideas con su porqué, y las trampas
+LO QUE QUEDA POR HACER: PENDIENTE.md (16 ideas con su porqué, y las trampas
   de esta base de código que conviene leer antes de tocar nada). El 12/09 se
-  hicieron la 4, la 11 y la 14.
+  hicieron la 4, la 9, la 11 y la 14.
 
 CÓMO SE USA
   1. Decir "nova"  (o mantener pulsado ≡ ~1,1 s) -> bip, se abre el dictado.
@@ -352,6 +352,31 @@ MIENTRAS JUEGAS (nuevo): con un juego en primer plano, la palabra
   sola si los altavoces suenan fuerte (por encima de 0,35), juegues o no:
   con ese ruido la palabra no es de fiar.
   Para desactivarlo: config.json -> escucha.soloBotonEnJuego = false
+
+QUE SOLO TE OBEDEZCA A TI (nuevo, ACTIVADO): el tono de cada orden dictada
+  ya se medía y se guardaba (tmp\voces.json) y no se usaba para nada. Ahora,
+  si una orden que TOCA algo (abrir, cerrar, teclas, volumen, brillo, bloquear)
+  llega con una voz que no se parece a la tuya, no se ejecuta: se pregunta,
+  y con el botón ≡ vale por un sí. Es la defensa que faltaba contra el audio
+  de un vídeo CON VOZ HUMANA, que es el único ruido que los demás filtros no
+  distinguen: no es ruido ni voz sintética, es una voz de verdad diciendo
+  palabras de verdad.
+  Preguntar de más sería peor que no preguntar, así que solo salta cuando se
+  puede afirmar que no eres tú:
+    - hay medida de tono de ESA orden (si el worker no la deja, no se pregunta);
+    - hay una voz dueña clara: la que MÁS ha dictado, con 12 órdenes o más y
+      al menos vez y media las de la segunda. Si dos personas usan la consola
+      a partes iguales, no hay dueño y no se molesta a nadie;
+    - y la diferencia pasa de 35 Hz. Tu voz se mueve al susurrar, al gritar o
+      resfriado; una voz de vídeo a 230 Hz frente a tus 119 no.
+  Las preguntas que solo CONSULTAN (la hora, la batería, el parte) pasan
+  igual: si el audio de un vídeo pregunta la hora, que la pregunte.
+  Se puede cambiar hablando: "hazme caso solo a mí" / "haz caso a todos", y
+  "¿reconoces mi voz?" cuenta a cuántos hercios te tiene y si lo último que
+  dijiste encaja. Ajustes: config.json -> escucha.soloYo, soloYoMargenHz
+  (35) y soloYoMinimo (12).
+  Medido aquí: con 231 Hz pregunta antes de abrir nada; con 121 Hz (tu voz,
+  que está en 119) abre sin preguntar.
 
 FALSAS ALARMAS (nuevo): el micrófono cazaba el audio de los altavoces y lo
   tomaba por órdenes. Ahora:

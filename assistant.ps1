@@ -1128,6 +1128,46 @@ function Get-Atragantos {
 # ahora la usan ese patron y el parte general ("como va todo"), que es justo el
 # tipo de dato que no conviene tener contado de dos maneras distintas.
 # $corto: para el parte, donde va junto a otras cinco cosas.
+# TU VOZ, la de la casa: de las que se han visto (tmp\voces.json, que escribe el
+# worker), la que MAS veces ha dictado. No la primera: la primera puede ser
+# perfectamente un video que sonaba el dia que se estreno el archivo.
+# Devuelve 0 si todavia no hay una voz claramente dominante, y entonces no se
+# pregunta nada: con dos docenas de ordenes repartidas no se puede acusar a
+# nadie de no ser el dueno.
+function Get-VozDuena([string]$ruta = '') {
+    if (-not $ruta) { $ruta = Join-Path $TmpDir 'voces.json' }
+    try {
+        if (-not (Test-Path -LiteralPath $ruta)) { return 0.0 }
+        # OJO: @(algo | ConvertFrom-Json) sobre un array JSON da UN elemento que
+        # es el array entero, no los elementos. Hay que asignar primero y
+        # envolver despues; si no, $orden[0].n es un Object[] y el [int] revienta
+        # dentro del try, que se lo traga y deja sin dueño a cualquiera.
+        $datos = Get-Content -LiteralPath $ruta -Raw -Encoding UTF8 | ConvertFrom-Json
+        $voces = @($datos)
+        if ($voces.Count -eq 0) { return 0.0 }
+        $orden = @($voces | Sort-Object -Property n -Descending)
+        $top = $orden[0]
+        if ([int]$top.n -lt $SoloYoMinimo) { return 0.0 }
+        # y que destaque: si la segunda casi empata, no hay dueno, hay dos
+        # personas hablandole a la consola, y ahi lo justo es no molestar
+        if ($orden.Count -gt 1 -and [int]$top.n -lt (1.5 * [int]$orden[1].n)) { return 0.0 }
+        return [double]$top.f0
+    } catch { return 0.0 }
+}
+
+# ¿Esto lo has dicho tu? Solo dice $true cuando se PUEDE afirmar que no: hace
+# falta una medida de tono de esta orden, un dueno claro, y una diferencia
+# grande. En cualquier duda contesta $false y la orden sigue su camino: esta es
+# una defensa contra el ruido, no un portero.
+function Test-VozExtrana([double]$f0 = -1, [double]$duena = -1) {
+    if (-not $SoloYoOn) { return $false }
+    if ($f0 -lt 0) { $f0 = [double]$script:ultimaF0 }
+    if ($f0 -le 0) { return $false }
+    if ($duena -lt 0) { $duena = Get-VozDuena }
+    if ($duena -le 0) { return $false }
+    return ([Math]::Abs($f0 - $duena) -gt $SoloYoMargen)
+}
+
 function Get-FraseBateria([bool]$corto = $false) {
     $b = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $b -or -not $b.EstimatedChargeRemaining) { return '' }
@@ -1428,6 +1468,16 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(?:cuanto\s+)?(?:espacio|disco|sitio)\s*(?:me\s+)?(?:queda|libre|hay|tengo)?$' -or
         $f -match '^cuanto (?:espacio|sitio) (?:me )?(?:queda|hay|tengo)\b') {
         return @(@{ kind = 'disco'; desc = 'espacio libre' })
+    }
+    # --- que solo te obedezca a ti, dicho y quitado hablando ---
+    if ($f -match '^(?:hazme caso solo a mi|solo hazme caso a mi|obedeceme solo a mi|solo obedeceme a mi|hazme caso solo a mi voz|no hagas caso a otros|no obedezcas a nadie mas)$') {
+        return @(@{ kind = 'soloYo'; valor = $true; desc = 'obedecer solo a tu voz' })
+    }
+    if ($f -match '^(?:haz caso a todos|obedece a todos|hazle caso a cualquiera|da igual quien hable|escucha a todos)$') {
+        return @(@{ kind = 'soloYo'; valor = $false; desc = 'obedecer a cualquiera' })
+    }
+    if ($f -match '^(?:reconoces (?:la|mi) voz|me reconoces la voz|de quien te fias|sabes quien soy|conoces (?:mi|la) voz|distingues mi voz)$') {
+        return @(@{ kind = 'quienSoy'; desc = 'que voces conozco' })
     }
     # --- UN SOLO PARTE, en vez de seis preguntas ---
     # Bateria, disco, descargas, a que juegas, si algo esta colgado y si estas
@@ -2157,6 +2207,14 @@ function Test-FastCommand([string]$text) {
     } finally { $script:dudosa = $dudosaAntes }
 }
 
+# Las acciones que TOCAN el sistema, por oposicion a las que solo miran o
+# cuentan. Sirven para dos cosas distintas y las dos quieren la misma lista: dar
+# un respiro entre ellas, y decidir si una orden merece que se pregunte antes
+# (una voz que no es la tuya puede preguntar la hora; no puede cerrar el juego).
+$AccionesQueTocan = @('app', 'url', 'key', 'atajo', 'escribir', 'winkey', 'altf4', 'alttab', 'otroMonitor',
+                      'enfocar', 'enfocarJuego', 'buscarEquipo', 'winprt', 'winaltg',
+                      'volumenPct', 'brillo', 'lock', 'cerrarApp', 'cerrarJuego', 'cerrarTodo')
+
 function Invoke-FastCommand([string]$text) {
     if (-not $cmds) { return $null }
     # aprender vocabulario hablando (se lee del texto ORIGINAL, sin normalizar)
@@ -2261,6 +2319,20 @@ function Invoke-FastCommand([string]$text) {
         if (-not $qr) { $qr = $text }
         return "La ultima vez me dijiste que no era eso. ¿$qr?"
     }
+    # ESTA VOZ NO ES LA TUYA. Solo para las ordenes que TOCAN algo: si el audio
+    # de un video pregunta la hora, que la pregunte. Y solo se pregunta -nunca
+    # se descarta-, porque el que habla raro puedes ser tu con la voz tomada, y
+    # porque decir "si" o mantener el boton cuesta menos que quedarse sin
+    # asistente. Si la frase ya venia confirmada, no se vuelve a preguntar.
+    if (-not $script:confirmado -and (Test-VozExtrana) -and
+        @($acciones | Where-Object { $AccionesQueTocan -contains $_.kind }).Count -gt 0) {
+        $script:pendiente = @{ texto = $text; vence = 0; tipo = 'peligrosa' }
+        $qv = @($acciones | ForEach-Object { $_.desc }) -join ' y '
+        if (-not $qv) { $qv = $text }
+        Log ("VOZ EXTRANA: $([int]$script:ultimaF0) Hz frente a $([int](Get-VozDuena)) Hz; se pregunta antes de: " + $qv)
+        Add-Estadistica 'voz-extrana' $text
+        return "No me suena tu voz. ¿$qv?"
+    }
     if ($ConfirmacionOn -and $script:dudosa -and -not $script:confirmado -and -not $script:sinDudosa) {
         $script:pendiente = @{ texto = $text; vence = 0 }
         $q = [string]$script:dudosa
@@ -2291,9 +2363,7 @@ function Invoke-FastCommand([string]$text) {
     # abren cosas, y si se encadenan sin pausa se pisan entre si (dos SendKeys
     # seguidos, o lanzar la URL antes de que el navegador exista). Las demas
     # -decir, anotar, consultar- no tocan nada de fuera y no necesitan nada.
-    $RESPIRO = @('app', 'url', 'key', 'atajo', 'escribir', 'winkey', 'altf4', 'alttab', 'otroMonitor',
-                 'enfocar', 'enfocarJuego', 'buscarEquipo', 'winprt', 'winaltg',
-                 'volumenPct', 'brillo', 'lock', 'cerrarApp', 'cerrarJuego', 'cerrarTodo')
+    $RESPIRO = $AccionesQueTocan
     $acciones = @($acciones)
     for ($iAcc = 0; $iAcc -lt $acciones.Count; $iAcc++) {
         $a = $acciones[$iAcc]
@@ -2534,6 +2604,29 @@ function Invoke-FastCommand([string]$text) {
                     }
                 }
                 'parte' { $a.desc = (Get-ParteGeneral) }
+                'soloYo' {
+                    $script:SoloYoOn = [bool]$a.valor
+                    $guardado = Set-Cfg 'escucha' 'soloYo' ([bool]$a.valor)
+                    $que = if ($a.valor) { 'a partir de ahora, si la voz no se parece a la tuya, pregunto antes de hacer nada' }
+                           else { 'vale, hago caso a cualquiera' }
+                    $a.desc = if ($guardado) { $que } else { "$que, pero no he podido guardarlo para la proxima" }
+                }
+                'quienSoy' {
+                    $duena = Get-VozDuena
+                    if (-not $SoloYoOn) {
+                        $a.desc = 'ahora mismo hago caso a cualquiera; dime hazme caso solo a mi para cambiarlo'
+                    } elseif ($duena -le 0) {
+                        $a.desc = 'todavia no. Necesito oirte unas cuantas veces mas para saber cual es tu voz'
+                    } else {
+                        $t = "tu voz esta sobre los $([int]$duena) hercios"
+                        if ($script:ultimaF0 -gt 0) {
+                            $dif = [int][Math]::Abs($script:ultimaF0 - $duena)
+                            $t += if ($dif -gt $SoloYoMargen) { ", y esto ultimo lo he oido a $([int]$script:ultimaF0): no me suena a ti" }
+                                  else { ", y lo que acabas de decir encaja" }
+                        }
+                        $a.desc = $t
+                    }
+                }
                 'disco' {
                     # la unidad donde estan los juegos, no siempre C:
                     $unidades = @('C')
@@ -3245,6 +3338,18 @@ $RutaDictadoWin = Join-Path $TmpDir "dictado-winrt.txt"
 # mitad de una partida- y cuando el boton del mando esta mas a mano.
 $MarcaSoloBoton = Join-Path $TmpDir "solo-boton.flag"
 $SoloBotonEnJuego = [bool](Get-Cfg 'escucha' 'soloBotonEnJuego' $true)
+# QUE SOLO TE OBEDEZCA A TI. El tono de cada orden dictada ya se estimaba y se
+# guardaba (tmp\voces.json); nadie lo usaba para nada. Si la orden viene de una
+# voz que no se parece a la tuya, no se ejecuta: se pregunta. Es la defensa que
+# faltaba contra el audio de un video CON VOZ HUMANA, que es el unico ruido que
+# los filtros de hoy no distinguen (no es voz sintetica ni ruido: es una voz de
+# verdad diciendo palabras de verdad).
+# El margen es ancho a proposito: tu propia voz se mueve al susurrar, al gritar
+# o resfriado, y preguntar de mas es peor que no preguntar. Con 35 Hz, una voz
+# de video a 230 Hz salta y tu mismo hablando algo mas agudo no.
+$SoloYoOn = [bool](Get-Cfg 'escucha' 'soloYo' $true)
+$SoloYoMargen = [double](Get-Cfg 'escucha' 'soloYoMargenHz' 35)
+$SoloYoMinimo = [int](Get-Cfg 'escucha' 'soloYoMinimo' 12)
 $MarcaReintento = Join-Path $TmpDir "reintentar.flag"
 $RutaReintento = Join-Path $TmpDir "reintento.txt"
 # nivel de voz 0..1 que el worker escribe mientras dictas; lo lee la interfaz
@@ -3397,6 +3502,7 @@ $script:uiProgreso = 0      # 0..1 mientras opencode trabaja (linea del borde)
 $script:confirmaFin = 0
 $script:confirmaTotal = 0
 $script:uiVoz = 0           # indice de la voz que dicto (por tono), 0 = la habitual
+$script:ultimaF0 = 0        # tono de la ultima orden dictada, en Hz (0 = no se pudo medir)
 $script:uiClima = ''        # emoji del tiempo: solo unos segundos cuando se pregunta
 $script:uiClimaHasta = 0
 $script:uiAnimo = 0         # -1..1 segun aciertos y errores de las ultimas 24 h
@@ -5276,6 +5382,8 @@ function Start-Dictado([string]$origen) {
     $script:loTengo = $false
     $script:perdida = $false
     $script:seguimientoPendiente = $false
+    # sin esto, una orden sin medida de tono se juzgaria con la de la anterior
+    $script:ultimaF0 = 0
     $seguimiento = ($origen -eq 'seguimiento')
     $script:enSeguimiento = $seguimiento
     # con la capsula, el sonido lo pone ella (un tono corto, no la campana)
@@ -5801,12 +5909,14 @@ while ($true) {
             Remove-Item -LiteralPath $MarcaDictar -Force -ErrorAction SilentlyContinue
             $script:armed = $false
             $capture.Hide()
-            # la voz que dicto (por tono): la capsula tine la escucha por persona
+            # la voz que dicto (por tono): la capsula tine la escucha por persona,
+            # y el TONO en Hz decide si esto lo has dicho tu o sale de un video
             try {
                 $rv = Join-Path $TmpDir 'dictado-voz.txt'
                 if (Test-Path -LiteralPath $rv) {
-                    $v = ([System.IO.File]::ReadAllText($rv).Trim() -split '\s+')[0]
-                    $script:uiVoz = [int]$v
+                    $campos = @(([System.IO.File]::ReadAllText($rv).Trim() -split '\s+'))
+                    $script:uiVoz = [int]$campos[0]
+                    if ($campos.Count -gt 1) { $script:ultimaF0 = [double]$campos[1] }
                     Remove-Item -LiteralPath $rv -Force -ErrorAction SilentlyContinue
                 }
             } catch {}

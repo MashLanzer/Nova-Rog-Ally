@@ -56,12 +56,6 @@ ni con batería):
       Traducciones, modos, reglas, rechazos y notas a un zip con fecha, con una
       frase. Un JSON corrupto se lleva por delante meses de ajustes sin aviso.
 
-- [ ] **9. Que solo te obedezca a ti.** — *la que sigue la línea de hoy*
-      La voz por tono ya se estima y se guarda; usarla para pedir confirmación
-      cuando quien habla no eres tú. Es la defensa que falta contra el audio de
-      un vídeo CON VOZ HUMANA, que es el único ruido que los filtros de hoy no
-      distinguen.
-
 - [ ] **10. «¿Qué he hecho hoy?»**
       A qué jugaste y cuánto, qué apuntaste, qué descargas acabaron, cuántas
       veces se activó sola. Todos esos datos ya se guardan; nadie los junta.
@@ -116,12 +110,17 @@ ni con batería):
 - **4. «¿Cómo va todo?»** Un solo parte con las seis cosas que importan antes
   de una partida, y callando lo que no aporta. Se prueba de verdad (lo que
   dice, no solo que la frase se reconozca) con `tools\probar-parte.ps1`.
+- **9. Que solo te obedezca a ti.** Si una orden que toca algo llega con una
+  voz que no se parece a la tuya, pregunta en vez de hacerla. Con guardas
+  anchas para no molestar: hace falta medida de tono, una voz dueña clara y
+  más de 35 Hz de diferencia. `tools\probar-voz-dueno.ps1`.
 
 ## Por dónde empezar
 
-Si hay que elegir: la **9**, porque sigue la línea de lo que se arregló estos
-días (que no actúe sin que se lo pidas). Y la **15** es la que más se agradece
-en la Ally, que en 7 pulgadas 13,5 px es pequeño de verdad.
+Si hay que elegir: la **15**, que es la que más se agradece en la Ally (en 7
+pulgadas, 13,5 px es pequeño de verdad). Después, la **2** y la **7**, que son
+las dos que faltan para no tener que soltar el mando: ordenar sobre una app
+por su nombre, y repetir teclas para moverse por un menú.
 
 ---
 

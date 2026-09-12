@@ -34,6 +34,10 @@ Titulo "2l. El parte general (que diga lo que hay y calle lo que no aporta)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-parte.ps1') | Select-String 'OK |MAL|todo correcto'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2m. Que solo te obedezca a ti (a quien se pregunta y a quien no)"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-voz-dueno.ps1') | Select-String 'OK |MAL|todo correcto'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2d. La tarjeta de respuestas largas (que no te saque del juego)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-tarjeta.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
