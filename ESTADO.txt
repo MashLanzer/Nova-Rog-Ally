@@ -1,8 +1,24 @@
-ESTADO DEL ASISTENTE DE VOZ  (2026-09-10, noche)
+ESTADO DEL ASISTENTE DE VOZ  (2026-09-11, noche)
 ================================================
 
-EJECUTANDO AHORA: SÍ
-  Autoarranque por clave Run: intacto.
+EJECUTANDO AHORA: NO. Está APAGADO a propósito.
+  Se cerró el 11/09 a las 20:30 porque se activaba solo mientras jugabas y
+  abría cosas que nadie había pedido. Las causas están corregidas (ver más
+  abajo), pero NO se ha vuelto a encender: eso lo decides tú.
+
+  Para encenderlo:
+    Start-Process powershell -ArgumentList '-NoProfile','-WindowStyle','Hidden',
+      '-ExecutionPolicy','Bypass','-File',
+      'C:\Users\braya\Documents\voice-ctrl\assistant.ps1'
+
+  Para comprobar antes que todo está sano (no necesita micrófono, tarda un
+  minuto y no arranca nada):
+    powershell -NoProfile -File tools\probar-todo.ps1
+
+  OJO: el autoarranque por clave Run sigue puesto, así que al INICIAR SESIÓN
+  en Windows volverá a arrancar solo. Si no lo quieres todavía, se puede
+  quitar la clave (es reversible; pídelo).
+
   Al arrancar, assistant.log debe mostrar:
     commands.json cargado: 24 apps, 14 sitios, 9 buscadores
     voz: es-MX-DaliaNeural (neuronal en linea)
@@ -217,6 +233,32 @@ AVISOS (riesgos que aceptaste)
   2. Envío automático tras 2,5 s de silencio: no hay botón final.
   3. La voz en línea envía a Microsoft el texto de cada respuesta nueva.
   Detalle en TRASPASO.md §12.
+
+QUÉ CAMBIÓ EL 11/09 (por qué hacía cosas solo, y qué lo impide ahora)
+  El micrófono capta el sonido de tus altavoces. Con un vídeo o un juego
+  sonando, Whisper transcribía ese audio y el asistente lo tomaba por
+  órdenes tuyas. Se encontraron CINCO caminos distintos y se cerraron todos:
+
+  1. 'el' abría ELDEN RING. El emparejamiento aceptaba que el título
+     CONTUVIERA lo dicho, así que el artículo más común del idioma valía. Y
+     puntuaba tan alto que ni preguntaba. Ahora hacen falta 4 letras y cubrir
+     el 40 % del título.
+  2. El catálogo recitado. A Whisper se le pasan tus apps y juegos como
+     pistas; ante ruido devuelve esos nombres en fila ('SILENT BREATH, PEAK,
+     Hollow Knight, Outlast 2...') y se abrían los cinco. Una enumeración sin
+     verbo ya no es una orden.
+  3. Callarse valía por un sí. Si dudaba y no contestabas en 3,5 s, lo hacía.
+     Ahora para decir que sí hay que decirlo.
+  4. El repaso con el modelo preciso se saltaba el filtro de ruido, y ese
+     modelo, ante un ruido, se inventó 'SILENT BREATH' y abrió el juego en
+     mitad de una partida. Ahora va después del filtro, y si lo repasado no
+     se parece en nada a lo que se oyó primero, se descarta por invención.
+  5. La palabra 'nova' se activaba con el audio del juego. Ahora: jugando
+     solo vale el botón, y con los altavoces fuertes tampoco se activa.
+
+  Medido con las 103 frases que tu micrófono captó de verdad estos días
+  (pruebas\ruido-real.txt): antes ejecutaban 18; ahora ninguna hace nada sin
+  preguntarte primero.
 
 ARCHIVOS CLAVE
   assistant.ps1    : asistente (NO MOVER: la clave Run lo apunta)
