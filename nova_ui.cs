@@ -305,6 +305,44 @@ public class NovaUI : Window
         SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, IntPtr.Zero, alCambiarDelante, 0, 0, 0);
     }
 
+    // ...Y AUN ASI LA TAPABA. Lo de arriba no basta en la Ally: la barra de
+    // Windows 11 se pinta en una capa del sistema POR ENCIMA de todo lo
+    // "siempre encima", y no hay SetWindowPos que la gane (captura del 12/09,
+    // con el reclamo cada 300 ms ya puesto: la capsula seguia debajo).
+    // Ademas el area de trabajo miente: reserva solo la franja fina de la barra
+    // plegada (24 px), pero la ventana de la barra mide 72 y al desplegarse
+    // ocupa entera. Asi que el "abajo" de la capsula se mide contra el borde
+    // REAL de la ventana de la barra, no contra el area de trabajo. Se lee cada
+    // vez (RevisarPantalla va a 4 Hz): si la barra cambia, la capsula la sigue.
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindow(string clase, string titulo);
+    [DllImport("user32.dll")] static extern int GetSystemMetrics(int i);
+    static Rect AreaUtil()
+    {
+        Rect area = SystemParameters.WorkArea;
+        try
+        {
+            IntPtr barra = FindWindow("Shell_TrayWnd", null);
+            RECTA r;
+            if (barra == IntPtr.Zero || !GetWindowRect(barra, out r)) { return area; }
+            int anchoFisico = GetSystemMetrics(0), altoFisico = GetSystemMetrics(1);
+            if (altoFisico <= 0 || (r.R - r.L) < anchoFisico / 2) { return area; }   // barra vertical: ya la cubre el area
+            // la barra viene en pixeles de pantalla; la capsula, en unidades WPF
+            double k = SystemParameters.PrimaryScreenHeight / altoFisico;
+            if (r.T > altoFisico / 2 && r.T < altoFisico)
+            {
+                double borde = r.T * k;
+                if (borde < area.Bottom && borde > area.Top + 100) { area = new Rect(area.Left, area.Top, area.Width, borde - area.Top); }
+            }
+            else if (r.B < altoFisico / 2 && r.B > 0)
+            {
+                double borde = r.B * k;
+                if (borde > area.Top && borde < area.Bottom - 100) { area = new Rect(area.Left, borde, area.Width, area.Bottom - borde); }
+            }
+        }
+        catch { }
+        return area;
+    }
+
     [STAThread]
     public static void Main(string[] args)
     {
@@ -330,7 +368,7 @@ public class NovaUI : Window
         Height = (ALTO + MARGEN * 2) * escalaUI;
 
         Colocar();
-        areaColocada = SystemParameters.WorkArea;   // para notar si la pantalla cambia
+        areaColocada = AreaUtil();   // para notar si la pantalla cambia
 
         nocheActual = EsNoche();
         Color acento = ColorDe("reposo");
@@ -2342,7 +2380,7 @@ public class NovaUI : Window
         Height = (ALTO + MARGEN * 2) * e;
         Colocar();
         Left = leftBase + desplazada;
-        areaColocada = SystemParameters.WorkArea;
+        areaColocada = AreaUtil();
         RecapturarTrasMover(180);
     }
 
@@ -2376,7 +2414,7 @@ public class NovaUI : Window
                     // colocada a la derecha, apartarse hacia la derecha la sacaria
                     // de la pantalla: se aparta al borde IZQUIERDO de la ventana
                     destino = r.L / esc - AnchoReal - SEPARACION - MARGEN * escalaUI;
-                    double minimo = SystemParameters.WorkArea.Left + SEPARACION - MARGEN * escalaUI;
+                    double minimo = AreaUtil().Left + SEPARACION - MARGEN * escalaUI;
                     if (destino < minimo) { destino = minimo; }
                 }
                 else
@@ -2471,7 +2509,7 @@ public class NovaUI : Window
     // esquina y para un cambio de resolucion: los tres hacen lo mismo.
     void Colocar()
     {
-        var area = SystemParameters.WorkArea;
+        var area = AreaUtil();
         leftBase = ALaDerecha()
             ? area.Right - AnchoReal - SEPARACION - MARGEN * escalaUI
             : area.Left + SEPARACION - MARGEN * escalaUI;
@@ -2488,7 +2526,7 @@ public class NovaUI : Window
     // tuviera (por ejemplo si esta retirada del borde).
     void RevisarPantalla()
     {
-        var area = SystemParameters.WorkArea;
+        var area = AreaUtil();
         if (Math.Abs(area.Bottom - areaColocada.Bottom) < 1 &&
             Math.Abs(area.Left - areaColocada.Left) < 1) { return; }
         double desplazado = Left - leftBase;
@@ -2799,7 +2837,7 @@ public class NovaUI : Window
                 {
                     esquina = esq;
                     Colocar();
-                    areaColocada = SystemParameters.WorkArea;
+                    areaColocada = AreaUtil();
                     RecapturarTrasMover(150);   // el cristal ensena otro trozo de pantalla
                 }
                 tempoTipoActual = Campo(j, "tempoTipo", "");

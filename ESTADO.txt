@@ -258,8 +258,11 @@ CON QUÉ TE OYE, Y CUÁNDO (cambiado el 12/09 tras medirlo)
   TextInputHost: el panel se va en el acto, en cualquier estado, y Windows lo
   relanza solo en cuanto hace falta (el Win+H siguiente abrió a la primera).
   Mientras dictas, el panel sigue viéndose: eso no tiene arreglo.
-  Por eso "motorOrdenes" sigue en "worker": para una orden suelta, ver el
-  panel en cada "nova" sigue siendo peor que lo que resuelve.
+  Con eso arreglado, el 12/09 el usuario eligió "motorOrdenes": "windows"
+  (Win+H para TODAS las órdenes, también jugando), sabiendo que el panel se
+  ve durante cada orden y que le quita el foco un momento a lo que tenga
+  delante: le entiende mucho mejor y lo prefiere. Para volver: "auto" (Win+H
+  fuera del juego, Whisper jugando) o "worker" (Whisper siempre).
 
   OJO, no confundir con el OTRO motor de Windows, el de la API
   (SpeechRecognizer local de OneCore), que estuvo activado días y NUNCA
@@ -625,11 +628,14 @@ LA CÁPSULA, AL DÍA (nuevo)
     a qué juegas, qué modos tienes) no llevan glifo: ahí no hay nada que parar.
   - Ya NO hay barritas cuando habla (quitadas el 12/09: parecían una boca de
     palitos y se veían mal). Al hablar late el punto entero con la voz.
-  - YA NO SE ESCONDE DETRÁS DE LA BARRA DE TAREAS. En la Ally la barra se
-    despliega y, al tocarla, Windows la sube por encima de todo lo "siempre
-    encima", cápsula incluida. Ahora la cápsula reclama su sitio en el mismo
-    instante en que cambia la ventana de delante, y cada 300 ms por si acaso.
-    Medido: con la barra delante y con el foco, vuelve encima en < 150 ms.
+  - YA NO SE ESCONDE DETRÁS DE LA BARRA DE TAREAS (dos intentos). La barra de
+    Windows 11 se pinta en una capa del sistema por encima de todo lo
+    "siempre encima": reclamar el sitio (cada 300 ms y al cambiar de ventana)
+    NO la gana, se comprobó con captura. Y el área de trabajo solo reserva la
+    franja fina de la barra plegada, pero la ventana de la barra mide 72 px y
+    al desplegarse ocupa entera. Ahora el "abajo" de la cápsula se mide contra
+    el borde REAL de la ventana de la barra (4 veces por segundo): queda unos
+    40 px más arriba que antes, y la barra desplegada ya no la tapa.
   - "CIERRA TODOS LOS PROCESOS" YA NO LO CIERRA TODO. El 12/09 esa frase no
     encajaba con "cierra todos los programas", se fue al agente y el agente
     cerró Claude (con el usuario escribiendo en él), la cápsula, Steam y
