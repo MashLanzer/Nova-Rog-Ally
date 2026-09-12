@@ -44,6 +44,10 @@
                     "nombre":  "nova",
                     "confianzaMinima":  0.55,
                     "soloBotonEnJuego":  true,
+                    "autoSordina":  true,
+                    "autoSordinaRachas":  3,
+                    "autoSordinaVentanaMin":  5,
+                    "autoSordinaMinutos":  10,
                     "motor":  "vosk",
                     "ganancia":  "auto"
                 },

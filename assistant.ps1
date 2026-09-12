@@ -3753,6 +3753,7 @@ function Report-Reply($out) {
             Log "NO era una orden: '$original' (descartado, no llega al agente)"
         $script:seguimientoPendiente = $false   # un descarte no encadena: era ruido
             Add-Estadistica 'ruido' $original
+            Add-RuidoRacha
             Send-UIEvento 'gesto:confuso'
             Show-Popup "No te entendi. Repitelo." 'error'
             Say "No te entendi"
@@ -3819,6 +3820,7 @@ function Report-Reply($out) {
             $script:jobModo = ''
             Log "NO era una pregunta: '$($script:jobTextoOriginal)' (descartada)"
             Add-Estadistica 'ruido' $script:jobTextoOriginal
+            Add-RuidoRacha
             $script:seguimientoPendiente = $false   # un descarte no encadena: era ruido
             Send-UIEvento 'gesto:confuso'
             Show-Popup "No te entendi. Repitelo." 'error'
@@ -3923,6 +3925,16 @@ $script:yaReintentado = $false     # una sola vez por orden, o seria un bucle
 $script:reintentoVence = 0
 $script:reintentoTexto = ''
 $ReintentoMaxMs = 15000            # si no contesta a tiempo, se sigue sin el
+# --- AUTOSORDINA: se calla sola si el microfono entra en racha de ruido ---
+# Tres descartes en cinco minutos no son mala suerte: es que esta oyendo algo
+# que no eres tu. Antes de los filtros de hoy eso acababa abriendo cosas;
+# ahora ya no, pero sigue molestando que conteste "no te entendi" cada dos
+# minutos mientras juegas.
+$AutoSordinaOn = [bool](Get-Cfg 'escucha' 'autoSordina' $true)
+$AutoSordinaRachas = [int](Get-Cfg 'escucha' 'autoSordinaRachas' 3)
+$AutoSordinaVentanaMs = [int](Get-Cfg 'escucha' 'autoSordinaVentanaMin' 5) * 60000
+$AutoSordinaMs = [int](Get-Cfg 'escucha' 'autoSordinaMinutos' 10) * 60000
+$script:rachaRuido = New-Object System.Collections.ArrayList
 $script:aprenderPendiente = $null
 $script:ultimaLectura = ''
 function Test-LoTengo([string]$vista) {
@@ -3936,6 +3948,31 @@ function Test-LoTengo([string]$vista) {
 
 # Abre el dictado. La llaman el boton y la palabra de activacion, para que
 # ambos caminos se comporten EXACTAMENTE igual.
+# Un descarte mas en la cuenta. Si se juntan varios en poco tiempo, se calla
+# sola: no es un castigo, es que en esa situacion la escucha por voz esta
+# haciendo mas ruido que servicio. El boton sigue funcionando.
+function Add-RuidoRacha {
+    if (-not $AutoSordinaOn) { return }
+    if ($script:pausaHasta -gt 0) { return }          # ya esta callada
+    $ahora = $sw.ElapsedMilliseconds
+    [void]$script:rachaRuido.Add($ahora)
+    # fuera los de fuera de la ventana
+    for ($i = $script:rachaRuido.Count - 1; $i -ge 0; $i--) {
+        if (($ahora - $script:rachaRuido[$i]) -gt $AutoSordinaVentanaMs) { $script:rachaRuido.RemoveAt($i) }
+    }
+    if ($script:rachaRuido.Count -lt $AutoSordinaRachas) { return }
+    $script:rachaRuido.Clear()
+    $mins = [int]($AutoSordinaMs / 60000)
+    Log "AUTOSORDINA: $AutoSordinaRachas descartes seguidos; me callo $mins min"
+    Pausar-Escucha $AutoSordinaMs
+    [void]$script:temporizadores.Add(@{ vence = ($sw.ElapsedMilliseconds + $AutoSordinaMs + 1500)
+                                        texto = 'Ya vuelvo a escucharte.'; total = $AutoSordinaMs
+                                        tipo = 'sordina' })
+    $aviso = "Creo que estoy oyendo ruido y no a ti. Me callo $mins minutos; si me necesitas, usa el boton."
+    Show-Popup $aviso
+    Say $aviso
+}
+
 function Start-Dictado([string]$origen) {
     Log "DICTADO ($origen)"
     # que no quede texto del oido de Windows de una orden anterior: si no, la
@@ -4155,6 +4192,7 @@ function Process-Texto([string]$text) {
                 Log "RUIDO descartado (no llega al agente): '$text'"
                 $script:seguimientoPendiente = $false   # un descarte no encadena: era ruido
                 Add-Estadistica 'ruido' $text
+                Add-RuidoRacha
                 Send-UIEvento 'gesto:confuso'
                 Show-Popup "No te entendi. Repitelo." 'error'
                 Say "No te entendi"
@@ -4535,6 +4573,7 @@ while ($true) {
             } elseif ($limpio -and -not (Test-MismoAudio $orig $limpio)) {
                 Log "OIDO FINO descartado: '$limpio' no se parece en nada a '$orig'; es invento suyo"
                 Add-Estadistica 'ruido' $orig
+                Add-RuidoRacha
                 $script:seguimientoPendiente = $false
                 Send-UIEvento 'gesto:confuso'
                 Show-Popup "No te entendi. Repitelo." 'error'

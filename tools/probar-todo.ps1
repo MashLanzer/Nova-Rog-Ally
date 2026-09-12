@@ -22,6 +22,10 @@ Titulo "2. Funciones sueltas, sacadas del archivo real"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-funciones.ps1')
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2b. Autosordina (se calla sola si el microfono caza ruido en racha)"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-autosordina.ps1') | Select-String 'todo correcto|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "3. Ordenes que SI deben reconocerse"
 foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     $salida = powershell -NoProfile -File 'assistant.ps1' -Probar (Join-Path 'pruebas' $banco) 2>&1

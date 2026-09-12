@@ -159,6 +159,14 @@ JUEGOS COLGADOS (nuevo): "hay algo colgado", "revisa los juegos". Busca
   Wallpaper Engine y compañía no cuentan: gastan un 3 % de un núcleo, y un
   juego colgado gasta el 87 %.
 
+SE CALLA SOLA SI OYE RUIDO (nuevo): si en cinco minutos descarta tres
+  frases seguidas que no eran órdenes, entiende que el micrófono está
+  cazando algo que no eres tú (un vídeo, un juego sonando) y se calla diez
+  minutos, avisándote UNA vez. Vuelve sola. Es lo que pasó la noche del
+  11/09: se despertaba cada dos minutos con el audio de fondo.
+  Ajustes: config.json -> escucha.autoSordina (y autoSordinaRachas,
+  autoSordinaVentanaMin, autoSordinaMinutos). El botón ≡ nunca se apaga.
+
 CALLARLA UN RATO (nuevo): "no me escuches", "duérmete", "no me escuches
   media hora", "descansa 2 horas". Apaga el oído CON PLAZO (por defecto un
   cuarto de hora) y te avisa al volver. Mientras tanto el botón ≡ sigue
