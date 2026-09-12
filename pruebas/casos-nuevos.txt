@@ -147,3 +147,6 @@ pegalo
 que tengo copiado
 apunta lo copiado
 guarda esto en mis notas
+mandala al otro monitor
+ponla siempre encima
+quitale el siempre encima

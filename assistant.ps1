@@ -1423,6 +1423,18 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(?:busca|buscame|buscar)\s+en\s+(?:el\s+)?(?:equipo|pc|computador|computadora|ordenador|windows|mis archivos)\s+(.+)$') {
         return @(@{ kind = 'buscarEquipo'; texto = $Matches[1].Trim(); desc = "buscar '$($Matches[1].Trim())' en el equipo" })
     }
+    # --- la ventana de delante: otro monitor y "siempre encima" ---
+    if ($f -match '^(?:mandala|pasala|muevela|llevala|manda|pasa|mueve)\s+(?:la ventana\s+)?(?:al|a la|a)\s+(?:otro|otra|segunda|segundo)\s+(?:monitor|pantalla)$' -or
+        $f -match '^(?:al|a la)\s+(?:otro|otra)\s+(?:monitor|pantalla)$') {
+        return @(@{ kind = 'otroMonitor'; desc = 'al otro monitor' })
+    }
+    if ($f -match '^(?:ponla|ponlo|dejala|dejalo|pon|deja)\s+(?:la ventana\s+|esto\s+|esta\s+ventana\s+)?siempre\s+(?:encima|arriba|delante)$') {
+        return @(@{ kind = 'siempreEncima'; encima = $true; desc = 'siempre encima' })
+    }
+    if ($f -match '^(?:quitale|quita|saca|sacale)\s+(?:el|lo(?:s)?)?\s*(?:de)?\s*siempre\s+(?:encima|arriba|delante)$' -or
+        $f -match '^ya no (?:la |lo )?(?:dejes |pongas )?siempre\s+(?:encima|arriba|delante)$') {
+        return @(@{ kind = 'siempreEncima'; encima = $false; desc = 'quitar el siempre encima' })
+    }
     # --- colocacion de ventanas ---
     switch -regex ($f) {
         '^(?:a\s+)?(?:mitad de pantalla|media pantalla|la mitad|a la izquierda|izquierda)$' { return @(@{ kind = 'winkey'; vk = 0x25; desc = 'media pantalla izquierda' }) }
@@ -1897,7 +1909,7 @@ function Invoke-FastCommand([string]$text) {
     # abren cosas, y si se encadenan sin pausa se pisan entre si (dos SendKeys
     # seguidos, o lanzar la URL antes de que el navegador exista). Las demas
     # -decir, anotar, consultar- no tocan nada de fuera y no necesitan nada.
-    $RESPIRO = @('app', 'url', 'key', 'atajo', 'escribir', 'winkey', 'altf4', 'alttab',
+    $RESPIRO = @('app', 'url', 'key', 'atajo', 'escribir', 'winkey', 'altf4', 'alttab', 'otroMonitor',
                  'enfocar', 'enfocarJuego', 'buscarEquipo', 'winprt', 'winaltg',
                  'volumenPct', 'brillo', 'lock', 'cerrarApp', 'cerrarJuego', 'cerrarTodo')
     $acciones = @($acciones)
@@ -1973,6 +1985,31 @@ function Invoke-FastCommand([string]$text) {
                         $script:ultimaAprendida = ''
                     }
                     $a.desc = if ($olvidada) { "$r. Y olvido que '$olvidada' significaba eso." } else { $r }
+                }
+                'otroMonitor' {
+                    # si solo hay una pantalla, mandar Win+Shift+Derecha es tirar
+                    # la combinacion al vacio y quedarse callado como si valiera
+                    $pantallas = 1
+                    try { $pantallas = @([System.Windows.Forms.Screen]::AllScreens).Count } catch {}
+                    if ($pantallas -lt 2) {
+                        $a.desc = 'solo tienes una pantalla'
+                    } else {
+                        Send-WinShiftKey 0x27
+                        $a.desc = 'al otro monitor'
+                    }
+                }
+                'siempreEncima' {
+                    $ya = $false
+                    try { $ya = [AX]::EstaEncima() } catch {}
+                    if ($ya -eq $a.encima) {
+                        $a.desc = if ($a.encima) { 'ya estaba siempre encima' } else { 'no estaba siempre encima' }
+                    } else {
+                        $ok = $false
+                        try { $ok = [AX]::SiempreEncima([bool]$a.encima) } catch {}
+                        $a.desc = if (-not $ok) { 'no pude con esa ventana' }
+                                  elseif ($a.encima) { 'siempre encima' }
+                                  else { 'ya no esta siempre encima' }
+                    }
                 }
                 'copiar' {
                     [System.Windows.Forms.SendKeys]::SendWait('^c')
@@ -3745,6 +3782,23 @@ function Tick-Vibracion {
 }
 
 # Win + <tecla>: usado para colocar ventanas (Win+flechas)
+# Win+Shift+<tecla>: mover la ventana entre monitores. Es Send-WinKey con el
+# Shift por fuera; separadas para no meterle un parametro opcional a la que ya
+# usan quince sitios.
+function Send-WinShiftKey([int]$vk) {
+    [AX]::keybd_event([byte]$VK_LWIN, 0, 0, [UIntPtr]::Zero)
+    Start-Sleep -Milliseconds 60
+    [AX]::keybd_event([byte]0x10, 0, 0, [UIntPtr]::Zero)      # Shift
+    Start-Sleep -Milliseconds 40
+    [AX]::keybd_event([byte]$vk, 0, 0, [UIntPtr]::Zero)
+    Start-Sleep -Milliseconds 40
+    [AX]::keybd_event([byte]$vk, 0, $KEYUP, [UIntPtr]::Zero)
+    Start-Sleep -Milliseconds 40
+    [AX]::keybd_event([byte]0x10, 0, $KEYUP, [UIntPtr]::Zero)
+    Start-Sleep -Milliseconds 60
+    [AX]::keybd_event([byte]$VK_LWIN, 0, $KEYUP, [UIntPtr]::Zero)
+}
+
 function Send-WinKey([int]$vk) {
     [AX]::keybd_event([byte]$VK_LWIN, 0, 0, [UIntPtr]::Zero)
     Start-Sleep -Milliseconds 60

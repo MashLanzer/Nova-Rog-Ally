@@ -198,7 +198,10 @@ QUÉ ENTIENDE LA RUTA LOCAL
               preguntar y "deshaz" lo devuelve. "silencia" y "quita el
               silencio" son órdenes distintas: antes era una sola que
               conmutaba, así que decirla dos veces te devolvía el sonido.
-  - Ventanas: "a mitad de pantalla", "a la derecha", "maximiza"
+  - Ventanas: "a mitad de pantalla", "a la derecha", "maximiza",
+                "mándala al otro monitor" (si solo hay una pantalla, lo dice
+                en vez de mandar la combinación al vacío), "ponla siempre
+                encima" y "quítale el siempre encima".
   - Multimedia: pausa, reproduce, siguiente, anterior, silencia
   - Memoria : "recuerda que...", "anota...", "apunta..."
   - Temporizadores: "recuérdame en 20 minutos que...", "avísame en una hora"

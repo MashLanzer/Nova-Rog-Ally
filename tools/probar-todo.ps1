@@ -30,6 +30,10 @@ Titulo "2d. La tarjeta de respuestas largas (que no te saque del juego)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-tarjeta.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2e. Siempre encima (sobre una ventana de mentira, sin robar el foco)"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-ventana.ps1') | Select-String 'todo correcto|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2b. Autosordina (se calla sola si el microfono caza ruido en racha)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-autosordina.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }

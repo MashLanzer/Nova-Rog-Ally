@@ -117,6 +117,40 @@ public class AX
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool IsWindowVisible(IntPtr hWnd);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
+                                           int x, int y, int cx, int cy, uint flags);
+
+    // SIEMPRE ENCIMA en la ventana que tengas delante. Sin raton no habia
+    // forma de hacerlo, y es justo lo que quieres con una guia o un video
+    // abierto mientras juegas. NOACTIVATE: no se le roba el foco a nadie.
+    // Con hWnd explicito ademas de sin el: asi se puede probar sobre una
+    // ventana de mentira, sin robarle el foco a lo que estes haciendo.
+    public static bool SiempreEncima(bool si) { return SiempreEncima(GetForegroundWindow(), si); }
+
+    public static bool SiempreEncima(IntPtr h, bool si)
+    {
+        if (h == IntPtr.Zero) { return false; }
+        IntPtr donde = si ? new IntPtr(-1) : new IntPtr(-2);   // TOPMOST / NOTOPMOST
+        const uint SWP_NOSIZE = 0x0001, SWP_NOMOVE = 0x0002, SWP_NOACTIVATE = 0x0010;
+        return SetWindowPos(h, donde, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
+    }
+
+    // Si ya lo esta: para poder contestar "ya estaba" en vez de mentir.
+    public static bool EstaEncima() { return EstaEncima(GetForegroundWindow()); }
+
+    public static bool EstaEncima(IntPtr h)
+    {
+        if (h == IntPtr.Zero) { return false; }
+        const int GWL_EXSTYLE = -20;
+        const int WS_EX_TOPMOST = 0x00000008;
+        return (GetWindowLong(h, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
+    }
+
     [DllImport("gdi32.dll")]
     public static extern IntPtr CreateRoundRectRgn(int x1, int y1, int x2, int y2, int ancho, int alto);
 
