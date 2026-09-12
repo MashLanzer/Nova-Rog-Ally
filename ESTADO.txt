@@ -657,6 +657,18 @@ LA CÁPSULA, AL DÍA (nuevo)
     que está abierto" van a la orden local, que PREGUNTA antes; la terminal y
     Claude están en la lista de intocables; y al agente se le manda en cada
     tarea una regla fija con lo que nunca debe cerrar.
+  - YA NO SE METE EN TUS CONVERSACIONES. El 12/09 (19:02-19:07) hablabas con
+    otra persona, "nova" saltó varias veces (confianza de 0,65 a 0,96: subir
+    el umbral no lo arregla) y frases como "igual podemos vernos el lunes,
+    ¿no?" acabaron en el agente, con la cápsula "Entendiendo" 15-20 s.
+    Ahora, lo que la capa local no entiende y no es pregunta pasa por
+    Test-Charla: si es largo (7 palabras o más, sin contar "oye", "bueno",
+    "a ver"...) y NO empieza por algo que se pide ("abre", "busca", "sube",
+    "recuerda", "puedes", "hazme", "bájale"...), se descarta EN SILENCIO.
+    Lo mismo si la voz no se parece a la tuya. Medido con las 7 charlas
+    reales de ese rato y 12 órdenes largas reales del log y del banco: las 7
+    fuera, las 12 dentro (tools\probar-funciones.ps1). Queda en el log como
+    "CHARLA descartada".
   - SE VE CUÁNTAS COSAS SON Y POR CUÁL VA (nuevo): "abre Steam y pon modo
     juego" son dos cosas. Ahora, cuando una orden lleva más de una, aparece una
     fila de puntos en la esquina de abajo: el que se está haciendo encendido y

@@ -691,6 +691,37 @@ function Test-MereceRepaso([string]$text) {
     return $false
 }
 
+# ¿Es CHARLA y no una orden para mi?
+# El 12/09, de 19:02 a 19:07, el usuario hablaba con otra persona y todo acabo
+# en el agente: "bueno, voy a tratar de salir mas rapido", "porque eso supone
+# que nosotros a las ocho", "igual podemos vernos el lunes, ¿no?". "nova" salto
+# con confianzas de 0,65 a 0,96, asi que subir el umbral no lo separa de las
+# ordenes buenas. Lo que si lo separa, mirando TODAS las frases largas que han
+# llegado al agente en el log y en el banco: una orden empieza por lo que se
+# quiere ("abre", "busca", "sube", "recuerda", "puedes..."); la charla, por
+# cualquier otra cosa. Solo se aplica a lo que la capa local NO entendio y no
+# es pregunta, y solo a frases largas: lo corto ya lo lleva el filtro de ruido.
+$INICIO_ORDEN = @('puedes', 'podrias', 'puede', 'podria', 'quiero', 'quisiera', 'necesito', 'me', 'hazme', 'haz', 'dame', 'deja', 'dejame',
+    'activa', 'activame', 'desactiva', 'recuerda', 'recuerdame', 'avisame', 'avisa', 'apunta', 'anota', 'lee', 'leeme', 'dicta',
+    'traduce', 'traduceme', 'descarga', 'descargame', 'instala', 'desinstala', 'crea', 'creame', 'borra', 'elimina', 'quita', 'llama',
+    'juega', 'configura', 'ajusta', 'revisa', 'mira', 'comprueba', 'calcula', 'convierte', 'ayudame', 'ayuda', 'resume', 'resumeme',
+    'intenta', 'prueba', 'organiza', 'ordena', 'limpia', 'graba', 'captura', 'toma', 'saca', 'contesta', 'responde', 'manda', 'ponle',
+    'ponte', 'hazte', 'quitale', 'cambiale', 'dile', 'agrega', 'anade', 'agregame', 'enciende', 'desconecta', 'conecta', 'vuelve', 'repite')
+function Test-Charla([string]$text) {
+    $p = ConvertTo-Plain $text
+    if (-not $p) { return $false }
+    # lo de delante no cuenta: "oye nova, abre steam", "bueno, pon modo noche"
+    $p = ($p -replace '^(?:(?:hola|oye|ey|hey|nova|por favor|porfa|a ver|bueno|vale|ok|okey|entonces|y|pues|eh)\s+)+', '').Trim()
+    $w = @($p -split '\s+' | Where-Object { $_ })
+    if ($w.Count -lt 7) { return $false }
+    $primera = $w[0]
+    if ($VERBOS_OIDOS.ContainsKey($primera)) { return $false }          # "sierra todas las ventanas..."
+    if (($VERBOS_LISTA -contains $primera) -or ($INICIO_ORDEN -contains $primera)) { return $false }
+    # imperativo con el pronombre pegado: "buscame", "bajale", "abrelo"
+    if ($primera -match '^[a-z]{2,}[ae](?:me|le|te|lo|la|les|los|las|nos)$') { return $false }
+    return $true
+}
+
 function Test-MismoAudio([string]$a, [string]$b) {
     $pa = ConvertTo-Plain $a
     $pb = ConvertTo-Plain $b
@@ -6721,6 +6752,23 @@ function Process-Texto([string]$text) {
                 Send-UIEvento 'gesto:confuso'
                 Show-Popup "No te entendi. Repitelo." 'error'
                 Say "No te entendi"
+                return
+            }
+            # 3.6) CHARLA o VOZ AJENA: no era para mi. Se descarta EN SILENCIO:
+            #      si estas hablando con alguien, un "no te entendi" en mitad
+            #      de la conversacion es justo lo que sobra. Y no se manda al
+            #      agente, que tardaba 15-20 s en decidir que no era nada
+            #      mientras la capsula decia "Entendiendo".
+            $esCharla = Test-Charla $text
+            $esAjena = Test-VozExtrana
+            if ($esCharla -or $esAjena) {
+                $porque = if ($esAjena) { 'voz que no es la tuya' } else { 'charla' }
+                Log "CHARLA descartada ($porque, no llega al agente): '$text'"
+                $script:seguimientoPendiente = $false
+                # 'descarte' y no 'charla': 'charla' ya es el modo de hablar con
+                # la IA, y esto es un despertar para nada
+                Add-Estadistica 'descarte' $text
+                Set-UI 'reposo'
                 return
             }
             # 3.6) SEGUNDA OPORTUNIDAD (oido fino). El modelo rapido deforma

@@ -1,4 +1,4 @@
-# Prueba funciones sueltas SACADAS DEL ARCHIVO REAL (no de una copia), sin
+﻿# Prueba funciones sueltas SACADAS DEL ARCHIVO REAL (no de una copia), sin
 # arrancar el asistente ni tocar el microfono. El 11/09 probe una copia de
 # Get-JuegosZombis escrita a mano y pase por alto que la del archivo tenia el
 # regex roto: no compilaba y devolvia lista vacia en silencio.
@@ -172,6 +172,51 @@ foreach ($c in $casosR) {
     "  {0}  {1}" -f $(if ($c[1]) { 'OK  ' } else { 'MAL ' }), $c[0]
 }
 "      ({0} frases cortas del corpus real x {1} invenciones = {2} combinaciones, {3} coladas)" -f $cortas, $inventos.Count, ($cortas * $inventos.Count), $colados
+
+Write-Host ""
+Write-Host "--- Test-Charla: conversacion de fondo vs ordenes largas de verdad ---"
+# las listas tambien salen del archivo real: si alguien quita un verbo de
+# $VERBOS, esta prueba tiene que notarlo
+function TraerVariable([string]$nombre) {
+    $asig = $ast.Find({ param($n)
+        $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+        $n.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and
+        $n.Left.VariablePath.UserPath -eq $nombre }, $true)
+    if (-not $asig) { throw "no encuentro `$$nombre" }
+    return $asig.Extent.Text
+}
+foreach ($v in @('VERBOS', 'VERBOS_LISTA', 'VERBOS_OIDOS', 'INICIO_ORDEN')) { Invoke-Expression (TraerVariable $v) }
+Invoke-Expression (Traer 'Test-Charla')
+$casosC = @(
+  # charla real del 12/09, 19:00-19:07, tal como llego (despues del oido fino)
+  @('Bueno, voy a tratar de salir más rápido que solo, Te amo, te amo, te amo, te amo', $true),
+  @('Porque eso supone que nosotros a las ocho,', $true),
+  @('Vamos a centrarlo, Igual, igual.., Sí, yo sé que es esta temporada dos domingos, Igual podemos vernos el lunes, ¿no', $true),
+  @('Laiya, es que Laiya está haciendo prueba y se activa y entonces me escucha a mí lo que yo estoy hablando, Dios, escucha', $true),
+  @('INCREIBLE, todo lo que ha hecho, Wey, wey me esta escuchando, wey me esta escuchando y se esta escuchando super bien', $true),
+  @('En el código lo que yo dije hace formar una frase, ya no, y ahora lo que hace es utilizar el reconocimiento de voz de windows', $true),
+  @("A ver, steam, yes, concept, boy, love it, I'm working with another person, and I don't know when we're going to do it", $true),
+  # ordenes largas de verdad (log y banco): NINGUNA puede caer
+  @('Abre steam y busca también el navegador perros y gato Además sube el volumen y el brillo máximo', $false),
+  @('Puedes bajarle el volumen al 10% y subir el brillo al 90%', $false),
+  @('Búscame en steam los juegos que están en oferta', $false),
+  @('recuerdame manana a las 10 que llame al medico', $false),
+  @('Busca información sobre el juego que estoy jugando y dime que no me voy a hacer en esta parte', $false),
+  @("Abre en navegador y busca pa' interest, además ponte en porisador de 5 minutos", $false),
+  @('Sierra todas las ventanas que tengo abiertas en el escritorio', $false),
+  @('oye nova pon el volumen al treinta por ciento por favor', $false),
+  @('Hazme un resumen de lo que dice esta página web ahora', $false),
+  @('bueno abre steam y pon el modo juego ahora mismo', $false),
+  @('Bájale el volumen al juego y súbele a discord un poco', $false),
+  # lo corto no es cosa de este filtro
+  @('bueno vale', $false)
+)
+foreach ($c in $casosC) {
+    $r = Test-Charla $c[0]
+    $ok = ($r -eq $c[1])
+    if (-not $ok) { $mal++ }
+    "  {0}  {1} -> {2}" -f $(if ($ok) { 'OK  ' } else { 'MAL ' }), $c[0].Substring(0, [Math]::Min(60, $c[0].Length)), $(if ($r) { 'charla' } else { 'orden' })
+}
 
 if ($mal -gt 0) { Write-Host "$mal casos MAL"; exit 1 }
 Write-Host "todo correcto"
