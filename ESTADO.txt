@@ -304,6 +304,24 @@ LA CÁPSULA (esquina inferior izquierda) = la cara del asistente
   Apagarla: config.json -> ui.nueva = false (vuelve la barra vieja).
   Tras tocar nova_ui.cs: tools\compilar-ui.ps1 y reiniciar el asistente.
 
+EL CEREBRO DE FUERA (nuevo, 12/09): la API de Claude para ENTENDER, opencode
+  para HACER. Lo que se le pide al modelo casi siempre es traducir una frase a
+  una orden conocida o contestar algo corto, y para eso opencode es un camión
+  para llevar una carta: monta un agente con herramientas y tarda 13-160 s. Una
+  llamada directa a la API tarda ~1 s (medido).
+    traducir una frase nueva   -> Claude Haiku 4.5  (~1 s)
+    preguntas habladas         -> Claude Opus 5     (~2 s)
+    tareas de verdad           -> opencode, como siempre
+  La clave se lee de la variable de entorno ANTHROPIC_API_KEY (del usuario);
+  NUNCA viaja por la línea de comandos, donde la vería cualquiera que mire la
+  lista de procesos. Ajustes: config.json -> modelo (usarClaude, rapido, bueno).
+  Coste: cada traducción son ~400 tokens de entrada, o sea unos 0,0004 $. Con
+  5 $ de saldo salen del orden de doce mil órdenes.
+  SI LA API FALLA, la orden NO se pierde: se rehace con opencode. Y si el error
+  es de los que no se arreglan reintentando (sin saldo, clave mala), se deja de
+  intentar hasta el siguiente arranque, para no añadir un segundo de espera a
+  cada orden para nada. El motivo exacto queda en assistant.log.
+
 RUTAS (de más rápida a más lenta; se elige sola)
   LOCAL      : < 1 s, sin LLM. La de uso diario.
   APRENDIDA  : < 1 s. Frases que el modelo ya tradujo antes (traducciones.json).

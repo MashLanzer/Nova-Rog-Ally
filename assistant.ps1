@@ -5578,6 +5578,10 @@ function Show-Popup([string]$text, [string]$estadoUI = 'hablando') {
 $script:busy = $false
 $script:proc = $null
 $script:jobOut = $null
+$script:jobPorApi = $false      # la peticion en curso salio por la API de Claude
+$script:jobPrompt = ''          # el prompt tal cual, por si hay que rehacerlo
+$script:jobExtra = ''
+$script:apiFallo = $false       # la API dio un error que no se arregla reintentando
 $script:jobErr = $null
 $script:jobIn = $null
 $script:jobStart = 0
@@ -5903,13 +5907,18 @@ function Submit-Command([string]$text, [string]$modo = 'accion', [string]$adjunt
     # tarda ~1 s. 'accion' es una tarea de verdad y necesita un agente con
     # herramientas: esa sigue siendo de opencode.
     $porApi = ($ClaudeOn -and $modo -ne 'accion' -and (Test-Path -LiteralPath $ClaudeScript) -and (Test-ClaveClaude))
-    if ($porApi) {
+    if ($porApi -and -not $script:apiFallo) {
         # traducir devuelve una linea; hablar, una o dos frases
         $modelo = if ($modo -eq 'traducir') { $ClaudeModeloRapido } else { $ClaudeModeloBueno }
         $tope = if ($modo -eq 'traducir') { 60 } else { 400 }
+        # se guarda por si hay que rehacerla con opencode
+        $script:jobPrompt = $prompt
+        $script:jobExtra = $extra
+        $script:jobPorApi = $true
         if (Start-ClaudeJob $prompt $modelo $tope) { return }
         Log "la API no arranco; sigo con opencode"
     }
+    $script:jobPorApi = $false
     if (-not (Start-OpencodeJob $prompt $extra)) {
         Show-Popup "(no se pudo lanzar opencode; ver assistant.log)" 'error'
     }
@@ -5917,6 +5926,33 @@ function Submit-Command([string]$text, [string]$modo = 'accion', [string]$adjunt
 
 # Formatea, registra y muestra la respuesta ya recogida.
 function Report-Reply($out) {
+    # ¿FALLO LA API? Entonces la orden NO se pierde: se rehace con opencode,
+    # que es lo que habia antes. Esto paso de verdad el 12/09 -la cuenta sin
+    # saldo- y la orden se descartaba como si fuera ruido, que es el peor final
+    # posible: el usuario habla, no pasa nada y nadie dice por que.
+    if ($script:jobPorApi) {
+        $script:jobPorApi = $false
+        $crudo = ($out | Out-String)
+        if ($crudo -match '\(error de la API:|\(falta la clave|\(la API no devolvio|\(prompt vacio\)') {
+            $motivo = (($crudo -replace '\s+', ' ').Trim())
+            if ($motivo.Length -gt 200) { $motivo = $motivo.Substring(0, 200) + '...' }
+            Log "API FALLO, rehago con opencode: $motivo"
+            # sin saldo o con la clave mala, TODAS las siguientes van a fallar
+            # igual: se deja de intentar hasta el proximo arranque, para no
+            # anadir un segundo de espera a cada orden para nada
+            if ($crudo -match 'credit balance|authentication_error|invalid x-api-key|permission') {
+                $script:apiFallo = $true
+                Log "API desactivada hasta el proximo arranque (el error no se arregla reintentando)"
+            }
+            $script:busy = $false
+            if ($script:jobPrompt) {
+                if (Start-OpencodeJob $script:jobPrompt $script:jobExtra) { return }
+            }
+            Show-Popup "El modelo no contesto. Ver assistant.log." 'error'
+            Say "No pude preguntarle al modelo"
+            return
+        }
+    }
     # --- respuesta a una peticion de TRADUCCION ---
     # El modelo solo propone texto; aqui se VALIDA contra el vocabulario cerrado
     # y solo se ejecuta si la capa local lo reconoce. Nunca se ejecuta texto
