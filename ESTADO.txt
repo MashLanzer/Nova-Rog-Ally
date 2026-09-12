@@ -374,7 +374,7 @@ PROBAR CON TU VOZ (nuevo, PENDIENTE DE QUE LO HAGAS TÚ)
   mismos umbrales, mismas hotwords, misma limpieza- y dice cuántas entiende
   el modelo rápido y cuántas rescata el oído fino. Sin esto, cualquier cambio
   en el reconocimiento es una opinión.
-  Las grabaciones se quedan en pruebasudio\ y NO se suben a GitHub.
+  Las grabaciones se quedan en pruebas\audio\ y NO se suben a GitHub.
 
 EL OÍDO FINO, MEDIDO (nuevo)
   Cuando la capa local no entiende algo, se repasa el MISMO audio con el
