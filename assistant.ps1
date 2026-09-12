@@ -1303,6 +1303,75 @@ function Get-FraseBateria([bool]$corto = $false) {
 # Esta aparte -y no dentro del switch- para que tools\probar-parte.ps1 pueda
 # sacarla del archivo real y comprobar lo que DICE, no solo que la frase se
 # reconozca.
+# ¿QUE HE HECHO HOY?
+# Todo esto ya se guardaba y no lo juntaba nadie: a que jugaste y cuanto (la
+# biblioteca de Steam apunta la ultima partida), que anotaste (el diario tiene
+# un archivo por dia), que descargas acabaron, y cuantas ordenes diste -con
+# cuantas se despertO para nada, que es el numero que dice si el microfono esta
+# cazando ruido-.
+# Se cuenta en frases, no en tablas: esto se ESCUCHA.
+function Get-QueHeHecho {
+    $partes = @()
+    $hoy = Get-Date -Format 'yyyy-MM-dd'
+
+    # 1. a que jugaste hoy, segun los manifiestos de Steam
+    try {
+        $null = Update-Juegos
+        $hoyIni = [DateTimeOffset]::new((Get-Date).Date, [TimeSpan]::Zero).ToUnixTimeSeconds()
+        $jugados = @($script:Juegos | Where-Object { [long]$_.ultimo -ge $hoyIni } |
+                     Sort-Object -Property ultimo -Descending)
+        if ($jugados.Count -eq 1) { $partes += "jugaste a $($jugados[0].nombre)" }
+        elseif ($jugados.Count -gt 1) {
+            $nombres = @($jugados | Select-Object -First 3 | ForEach-Object { $_.nombre })
+            $partes += "jugaste a " + ($nombres -join ', ')
+        }
+    } catch {}
+
+    # 2. cuanto llevas con el de ahora (el tiempo total del dia no se guarda;
+    #    decir lo que SI se sabe es mejor que inventar un total)
+    if ($script:juegoActivo) {
+        $mins = [int](($sw.ElapsedMilliseconds - $script:juegoDesde) / 60000)
+        if ($mins -ge 1) { $partes += "llevas $mins minutos con $($script:juegoActivo) ahora mismo" }
+    }
+
+    # 3. que apuntaste: las notas del diario de hoy
+    try {
+        $diario = Join-Path $MemoriaDir ("diario\" + $hoy + ".md")
+        if (Test-Path -LiteralPath $diario) {
+            $lineas = @(Get-Content -LiteralPath $diario -Encoding UTF8 |
+                        Where-Object { $_.Trim() -and $_ -notmatch '^#' })
+            if ($lineas.Count -eq 1) { $partes += "apuntaste una cosa" }
+            elseif ($lineas.Count -gt 1) { $partes += "apuntaste $($lineas.Count) cosas" }
+        }
+    } catch {}
+
+    # 4. las ordenes del dia, y cuantas fueron ruido
+    try {
+        $st = Get-Estadisticas
+        if ($st.dias.ContainsKey($hoy)) {
+            $d = $st.dias[$hoy]
+            $hechas = 0
+            foreach ($r in @('local', 'aprendida', 'traducida', 'memoria')) {
+                if ($d.ContainsKey($r)) { $hechas += [int]$d[$r] }
+            }
+            $nada = 0
+            foreach ($r in @('ruido', 'descarte', 'error')) {
+                if ($d.ContainsKey($r)) { $nada += [int]$d[$r] }
+            }
+            if ($hechas -gt 0) {
+                $t = "me diste $hechas ordenes"
+                if ($nada -gt 0) { $t += " y $nada veces me desperte para nada" }
+                $partes += $t
+            } elseif ($nada -gt 0) {
+                $partes += "hoy me desperte $nada veces para nada y no me pediste nada"
+            }
+        }
+    } catch {}
+
+    if ($partes.Count -eq 0) { return 'hoy no ha pasado gran cosa todavia' }
+    return 'hoy ' + ($partes -join ', ')
+}
+
 function Get-ParteGeneral {
     $partes = @()
     # 1. a que juegas: es el contexto de todo lo demas
@@ -1795,6 +1864,10 @@ function Resolve-Fragment([string]$f) {
     }
     if ($f -match '^(?:reconoces (?:la|mi) voz|me reconoces la voz|de quien te fias|sabes quien soy|conoces (?:mi|la) voz|distingues mi voz)$') {
         return @(@{ kind = 'quienSoy'; desc = 'que voces conozco' })
+    }
+    # --- QUE HE HECHO HOY ---
+    if ($f -match '^(?:que he hecho|que hice|que hemos hecho|resumen del dia|como fue el dia|que tal el dia|que paso hoy|cuentame el dia)(?:\s+hoy)?$') {
+        return @(@{ kind = 'queHeHecho'; desc = 'resumen del dia' })
     }
     # --- UN SOLO PARTE, en vez de seis preguntas ---
     # Bateria, disco, descargas, a que juegas, si algo esta colgado y si estas
@@ -2942,6 +3015,7 @@ function Invoke-FastCommand([string]$text) {
                     }
                 }
                 'parte' { $a.desc = (Get-ParteGeneral) }
+                'queHeHecho' { $a.desc = (Get-QueHeHecho) }
                 'listaAdd' {
                     $listas = Get-Listas
                     $cual = Resolve-Lista ([string]$a.lista) $listas
@@ -5248,6 +5322,9 @@ public static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder s, 
 public static extern bool IsWindowVisible(IntPtr hWnd);
 [DllImport("user32.dll")]
 public static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
+public struct RECT { public int Left, Top, Right, Bottom; }
+[DllImport("user32.dll")]
+public static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
 '@ -ErrorAction SilentlyContinue
 
 # LA VENTANITA DE WIN+H, FUERA DE LA VISTA.
@@ -5263,13 +5340,15 @@ function Hide-VentanaDictado {
         $cb = [Nova.Win+EnumProc] {
             param($h, $l)
             if (-not [Nova.Win]::IsWindowVisible($h)) { return $true }
-            $sb = New-Object System.Text.StringBuilder 128
-            [void][Nova.Win]::GetClassName($h, $sb, 128)
-            if ($sb.ToString() -ne 'Windows.UI.Core.CoreWindow') { return $true }
             $pidV = 0
             [void][Nova.Win]::GetWindowThreadProcessId($h, [ref]$pidV)
             $pr = Get-Process -Id $pidV -ErrorAction SilentlyContinue
             if (-not $pr -or $pr.ProcessName -ne 'TextInputHost') { return $true }
+            # TODAS las ventanas visibles de ese proceso, sin filtrar por clase:
+            # el panel no siempre es la CoreWindow, y filtrar de mas dejaba el
+            # cartel en pantalla.
+            $r = New-Object Nova.Win+RECT
+            if ([Nova.Win]::GetWindowRect($h, [ref]$r) -and $r.Left -le -2000) { return $true }  # ya apartada
             $SWP_NOSIZE = 0x0001; $SWP_NOACTIVATE = 0x0010; $SWP_NOZORDER = 0x0004
             if ([Nova.Win]::SetWindowPos($h, [IntPtr]::Zero, -3000, -3000, 0, 0,
                                          ($SWP_NOSIZE -bor $SWP_NOACTIVATE -bor $SWP_NOZORDER))) {
@@ -6968,16 +7047,17 @@ while ($true) {
     }
 
     # --- apartar la ventanita del dictado de Windows ---
-    # Tarda un poco en existir, asi que se insiste durante un par de segundos.
-    if ($script:dictadoOcultarHasta -gt 0) {
-        if ($sw.ElapsedMilliseconds -ge $script:dictadoOcultarHasta) {
+    # No basta con apartarla al abrirla: Windows la COLOCA cuando el panel
+    # aparece, o sea despues, y tambien cada vez que se reactiva. Asi que se
+    # insiste cada 400 ms mientras el dictado este en marcha. La funcion se
+    # salta las que ya estan fuera, asi que insistir no cuesta nada.
+    if (($script:dictadoWinH -or $script:armed -or $script:dictadoOcultarHasta -gt 0) -and
+        ($sw.ElapsedMilliseconds - $script:dictadoOcultarUltimo) -ge 400) {
+        $script:dictadoOcultarUltimo = $sw.ElapsedMilliseconds
+        $n = Hide-VentanaDictado
+        if ($n -gt 0) { Log "el cartel del dictado de Windows, apartado ($n)" }
+        if ($script:dictadoOcultarHasta -gt 0 -and $sw.ElapsedMilliseconds -ge $script:dictadoOcultarHasta) {
             $script:dictadoOcultarHasta = 0
-        } elseif (($sw.ElapsedMilliseconds - $script:dictadoOcultarUltimo) -ge 250) {
-            $script:dictadoOcultarUltimo = $sw.ElapsedMilliseconds
-            if ((Hide-VentanaDictado) -gt 0) {
-                Log "DICTADO LARGO: la ventana del dictado, apartada de la vista"
-                $script:dictadoOcultarHasta = 0
-            }
         }
     }
 

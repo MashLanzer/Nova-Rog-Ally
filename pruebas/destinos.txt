@@ -88,3 +88,9 @@ recuerdame en un minuto que mire el horno => aviso en 1 minuto
 recuerdame en media hora que llame => aviso en 30 minutos
 dicta un correo => dictado largo
 ponme una cancion en spotify => Spotify
+
+# --- el resumen del dia, contra el parte y contra el diario ---
+que he hecho hoy => resumen del dia
+resumen del dia => resumen del dia
+como va todo => parte general
+que anote hoy => anotado

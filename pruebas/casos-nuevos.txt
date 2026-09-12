@@ -210,3 +210,6 @@ que tengo en la lista
 quita los huevos de la lista
 que listas tengo
 vacia la lista
+que he hecho hoy
+que hice hoy
+resumen del dia

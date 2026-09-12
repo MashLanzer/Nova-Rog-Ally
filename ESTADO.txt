@@ -38,7 +38,7 @@ EJECUTANDO AHORA: SÍ, desde el 12/09 a las 13:57, ya con los cambios de ese
     biblioteca de Steam: 14 juegos indexados
   Y decir en voz alta: "Listo. Di nova cuando me necesites."
 
-LO QUE QUEDA POR HACER: PENDIENTE.md (9 ideas con su porqué, y las trampas
+LO QUE QUEDA POR HACER: PENDIENTE.md (8 ideas con su porqué, y las trampas
   de esta base de código que conviene leer antes de tocar nada). El 12/09 se
   hicieron la 1, la 2, la 3, la 4, la 7, la 9, la 11, la 13, la 14, la 15 y
   la 17.
@@ -163,6 +163,14 @@ LISTAS (nuevo): "apunta pan en la lista de la compra", "añade leche a la
   iba a la lista: el banco no pasa por ese atajo. Ahora el atajo deja pasar
   todo lo que acabe en "en/a la lista [de X]".
 
+¿QUÉ HE HECHO HOY? (nuevo): dilo tal cual, o "resumen del día", "qué pasó
+  hoy". Junta lo que ya se guardaba por separado y no recogía nadie: a qué
+  jugaste (lo apuntan los manifiestos de Steam), cuánto llevas con el de ahora,
+  qué anotaste en el diario, cuántas órdenes diste y -el número que importa-
+  cuántas veces se despertó para nada. Si ese último sube, el micrófono está
+  cazando ruido.
+  Se cuenta en una frase, no en una tabla: esto se escucha, no se lee.
+
 APUNTAR LO QUE VES (nuevo): "apunta esto", "guarda este código", "anota
   lo que dice la pantalla". Lee la pantalla con OCR y lo guarda en tu diario
   tal cual, con el juego del que salió: "(de SILENT BREATH) CODIGO DE LA
@@ -234,12 +242,18 @@ CON QUÉ TE OYE, Y CUÁNDO (cambiado el 12/09 tras medirlo)
       es que para leer lo que dices hay que traer al frente la ventana del
       asistente, y con un juego a pantalla completa eso te saca de la partida.
     - WHISPER (base + small, en local) no molesta nunca, pero falla más.
-  Por eso: JUGANDO se usa Whisper; el resto del tiempo, Win+H. Lo decide él
-  solo (config.json -> input.motorOrdenes: auto / windows / worker).
+  AHORA MISMO está en "worker" (Whisper para todas las órdenes) a propósito:
+  el cartel del dictado de Windows salía en cada "nova" y eso era peor que el
+  problema que resolvía. Se vuelve a "windows" en cuanto se compruebe que el
+  cartel se aparta de verdad (config.json -> input.motorOrdenes: auto /
+  windows / worker). El dictado LARGO sí usa Win+H, que es donde se nota.
   Y la ventanita de Windows que salía tapando la pantalla se aparta sola: es
-  "Experiencia de entrada de Windows" (proceso TextInputHost) y admite que la
-  muevan. Se MUEVE, no se oculta: ocultarla del todo hace que Windows dé el
-  dictado por cerrado.
+  del proceso TextInputHost y admite que la muevan. Se MUEVE, no se oculta:
+  ocultarla del todo hace que Windows dé el dictado por cerrado.
+  OJO, esto costó dos intentos: apartarla UNA vez al abrir Win+H no sirve,
+  porque Windows la coloca DESPUÉS, cuando el panel aparece. Hay que insistir
+  mientras dure el dictado (cada 400 ms) y mover TODAS las ventanas visibles de
+  ese proceso, no solo la de clase CoreWindow.
 
   OJO, no confundir con el OTRO motor de Windows, el de la API
   (SpeechRecognizer local de OneCore), que estuvo activado días y NUNCA

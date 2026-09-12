@@ -38,10 +38,6 @@ ni con batería):
       Traducciones, modos, reglas, rechazos y notas a un zip con fecha, con una
       frase. Un JSON corrupto se lleva por delante meses de ajustes sin aviso.
 
-- [ ] **10. «¿Qué he hecho hoy?»**
-      A qué jugaste y cuánto, qué apuntaste, qué descargas acabaron, cuántas
-      veces se activó sola. Todos esos datos ya se guardan; nadie los junta.
-
 ---
 
 ## Interfaz y visuales
@@ -102,6 +98,9 @@ ni con batería):
   una ventana delante**: ver arriba.
 - **13. Cola visible.** Una fila de puntos cuando la orden lleva más de una
   cosa: el actual encendido, los hechos apagados, el que falla en rojo.
+- **10. «¿Qué he hecho hoy?»** Junta en una frase lo que ya se guardaba
+  suelto: a qué jugaste, qué apuntaste, cuántas órdenes diste y cuántas veces
+  se despertó para nada.
 - **3. Listas de verdad.** Se añade, se lee, se tacha y se vacía (preguntando
   antes). En `memoria\listas.json`. `tools\probar-listas.ps1`.
 - **Las 20 grabaciones, hechas y explotadas.** De 7 de 20 a 17 de 20 con el
