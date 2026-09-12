@@ -19,6 +19,12 @@ EJECUTANDO AHORA: SÍ, desde el 12/09 a las 13:57, ya con los cambios de ese
   Para comprobar antes que todo está sano (no necesita micrófono, tarda un
   minuto y no arranca nada):
     powershell -NoProfile -File tools\probar-todo.ps1
+  El 12/09 pasa ENTERO por primera vez ("todo en orden"). El caso que llevaba
+  días en rojo -"se pone siempre encima"- era un fallo de la PRUEBA, no del
+  asistente: sobre una ventana que nunca se ha mostrado, SetWindowPos con
+  HWND_TOPMOST devuelve true y no marca nada. Ahora la ventana de mentira se
+  muestra con SW_SHOWNA, que la hace visible sin activarla, así que sigue sin
+  robarle el foco a nadie.
 
   OJO: el autoarranque por clave Run sigue puesto, así que al INICIAR SESIÓN
   en Windows volverá a arrancar solo. Si no lo quieres todavía, se puede
@@ -32,9 +38,9 @@ EJECUTANDO AHORA: SÍ, desde el 12/09 a las 13:57, ya con los cambios de ese
     biblioteca de Steam: 14 juegos indexados
   Y decir en voz alta: "Listo. Di nova cuando me necesites."
 
-LO QUE QUEDA POR HACER: PENDIENTE.md (11 ideas con su porqué, y las trampas
+LO QUE QUEDA POR HACER: PENDIENTE.md (10 ideas con su porqué, y las trampas
   de esta base de código que conviene leer antes de tocar nada). El 12/09 se
-  hicieron la 1, la 2, la 4, la 7, la 9, la 11, la 14, la 15 y la 17.
+  hicieron la 1, la 2, la 4, la 7, la 9, la 11, la 13, la 14, la 15 y la 17.
 
 CÓMO SE USA
   1. Decir "nova"  (o mantener pulsado ≡ ~1,1 s) -> bip, se abre el dictado.
@@ -526,6 +532,12 @@ LA CÁPSULA, AL DÍA (nuevo)
     y no queda nada que cancelar. NO añade ninguna espera: se enciende antes de
     tocar nada y se apaga al terminar. Las órdenes que solo CONSULTAN (la hora,
     a qué juegas, qué modos tienes) no llevan glifo: ahí no hay nada que parar.
+  - SE VE CUÁNTAS COSAS SON Y POR CUÁL VA (nuevo): "abre Steam y pon modo
+    juego" son dos cosas. Ahora, cuando una orden lleva más de una, aparece una
+    fila de puntos en la esquina de abajo: el que se está haciendo encendido y
+    un poco más grande, los ya hechos apagados, y el que FALLA en rojo. Si
+    fallaba la segunda de tres, hasta ahora no había forma de saber cuál fue.
+    Con una sola acción no sale nada: un punto suelto no dice nada.
   - EL ANILLO, CUANDO NO HAY TEMPORIZADOR (nuevo): dibuja lo que lleva la
     descarga de Steam más avanzada, en su propio azul y más apagado, porque es
     un dato de fondo y no una alarma. Crece (el del temporizador se vacía), se

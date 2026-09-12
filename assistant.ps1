@@ -2532,8 +2532,9 @@ function Invoke-FastCommand([string]$text) {
     $acciones = @($acciones)
     for ($iAcc = 0; $iAcc -lt $acciones.Count; $iAcc++) {
         $a = $acciones[$iAcc]
-        # ANTES de tocar nada: que se vea lo que viene
+        # ANTES de tocar nada: que se vea lo que viene, y por cual va
         Set-UIHaciendo $a.kind
+        Set-UICola $acciones.Count ($iAcc + 1)
         try {
             switch ($a.kind) {
                 # se sustituye la descripcion por el resultado real
@@ -3242,6 +3243,9 @@ function Invoke-FastCommand([string]$text) {
             $hechas += $a.desc
         } catch {
             $hechas += ($a.desc + " [FALLO: " + $_.Exception.Message + "]")
+            # que se vea CUAL fallo, no solo que algo fallo
+            Set-UICola $acciones.Count ($iAcc + 1) $true
+            Start-Sleep -Milliseconds 400
         }
         # solo si esta accion toco el sistema Y queda alguna por hacer
         if ($iAcc -lt ($acciones.Count - 1) -and $RESPIRO -contains $a.kind) {
@@ -3249,6 +3253,7 @@ function Invoke-FastCommand([string]$text) {
         }
     }
     Set-UIHaciendo ''
+    Set-UICola 0 0
     return ($hechas -join '; ')
 }
 
@@ -3768,6 +3773,7 @@ $script:uiClima = ''        # emoji del tiempo: solo unos segundos cuando se pre
 $script:uiClimaHasta = 0
 $script:uiAnimo = 0         # -1..1 segun aciertos y errores de las ultimas 24 h
 $script:uiHaciendo = ''     # QUE se esta ejecutando ahora mismo (glifo en la capsula)
+$script:uiCola = ''         # "3/2" = tres cosas en esta orden, va por la segunda; "3/2!" = esa fallo
 $script:uiDescarga = 0      # 0..1 de la descarga de Steam mas avanzada (anillo)
 
 function ConvertTo-JsonTexto([string]$s) {
@@ -3813,6 +3819,7 @@ function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
             ',"progreso":' + ([double]$script:uiProgreso).ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture) +
             ',"oido":"' + $oido + '","tempoTipo":"' + $tTipo + '"' +
             ',"haciendo":"' + $script:uiHaciendo + '"' +
+            ',"cola":"' + $script:uiCola + '"' +
             ',"descarga":' + ([double]$script:uiDescarga).ToString('0.000', [System.Globalization.CultureInfo]::InvariantCulture) +
             ',"escala":' + ([double]$script:uiEscala).ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture) +
             ',"confirmaFin":' + ([long]$script:confirmaFin) + ',"confirmaTotal":' + ([long]$script:confirmaTotal) +
@@ -3876,6 +3883,18 @@ $GlifosAccion = @{
     'ocr' = 'pantalla'; 'seguirLeyendo' = 'pantalla'
     'deshacer' = 'deshacer'; 'deshacerDesde' = 'deshacer'; 'noEraEso' = 'deshacer'
 }
+# CUANTAS COSAS SON Y POR CUAL VA. "abre steam y pon modo juego" son dos; si
+# falla la segunda, hasta ahora no habia forma de saber cual fue. Solo se manda
+# cuando hay MAS DE UNA: para una sola, un punto suelto no dice nada.
+function Set-UICola([int]$total, [int]$indice, [bool]$fallo = $false) {
+    if (-not $UiNuevaOn) { return }
+    $v = ''
+    if ($total -gt 1) { $v = "$total/$indice" + $(if ($fallo) { '!' } else { '' }) }
+    if ($v -eq $script:uiCola) { return }
+    $script:uiCola = $v
+    Refresh-UI
+}
+
 function Set-UIHaciendo([string]$kind) {
     if (-not $UiNuevaOn) { return }
     $g = ''

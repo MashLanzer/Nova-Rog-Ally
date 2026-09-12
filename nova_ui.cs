@@ -135,6 +135,8 @@ public class NovaUI : Window
     System.Windows.Shapes.Path marcaHecho, anilloTempo;
     TextBlock glifoOido;            // micro tachado / mando, segun el estado del oido
     Grid capaAccion;                // disco con la forma de lo que va a hacer
+    StackPanel colaPuntos;          // un punto por cada cosa de la orden
+    string colaActual = "";         // "3/2" o "3/2!" (la 2 fallo)
     TextBlock glifoAccion;
     string haciendoActual = "";     // que accion esta en curso ("" = ninguna)
     double descarga = 0;            // 0..1 de la descarga de Steam mas avanzada
@@ -465,6 +467,18 @@ public class NovaUI : Window
         especularPincel.GradientStops.Add(new GradientStop(Color.FromArgb(0x9A, 0xFF, 0xFF, 0xFF), 0.65));
         especularPincel.GradientStops.Add(new GradientStop(Color.FromArgb(0x00, 0xFF, 0xFF, 0xFF), 1));
         especular.Background = especularPincel;
+        // LA COLA: un punto por cada cosa de la orden, en la esquina de abajo.
+        // "abre steam y pon modo juego" son dos; si falla la segunda, sin esto
+        // no hay forma de saber cual fue. Solo aparece cuando hay mas de una.
+        colaPuntos = new StackPanel();
+        colaPuntos.Orientation = Orientation.Horizontal;
+        colaPuntos.HorizontalAlignment = HorizontalAlignment.Right;
+        colaPuntos.VerticalAlignment = VerticalAlignment.Bottom;
+        colaPuntos.Margin = new Thickness(0, 0, 14, 5);
+        colaPuntos.IsHitTestVisible = false;
+        colaPuntos.Opacity = 0;
+        interior.Children.Add(colaPuntos);
+
         interior.Children.Add(especular);
 
         // ---------- contenido ----------
@@ -2490,6 +2504,46 @@ public class NovaUI : Window
         RecapturarTrasMover(150);
     }
 
+    // Los puntos de la cola. El que se esta haciendo, encendido y un poco mas
+    // grande; los ya hechos, apagados; el que fallo, rojo. Se vacia sola cuando
+    // el asistente manda una cola vacia, que es al terminar la orden.
+    void PintarCola(string v)
+    {
+        if (colaPuntos == null) { return; }
+        colaActual = v;
+        if (string.IsNullOrEmpty(v))
+        {
+            Desvanecer(colaPuntos, 0, 250);
+            return;
+        }
+        bool fallo = v.EndsWith("!");
+        string limpio = fallo ? v.Substring(0, v.Length - 1) : v;
+        string[] partes = limpio.Split('/');
+        int total = 0, actual = 0;
+        if (partes.Length != 2 ||
+            !int.TryParse(partes[0], NumberStyles.Any, CultureInfo.InvariantCulture, out total) ||
+            !int.TryParse(partes[1], NumberStyles.Any, CultureInfo.InvariantCulture, out actual)) { return; }
+        if (total < 2 || total > 12) { Desvanecer(colaPuntos, 0, 250); return; }
+
+        colaPuntos.Children.Clear();
+        for (int i = 1; i <= total; i++)
+        {
+            var e = new Ellipse();
+            bool esActual = (i == actual);
+            double d = esActual ? 5.0 : 3.5;
+            e.Width = d; e.Height = d;
+            e.Margin = new Thickness(2, 0, 2, esActual ? 0 : 0.75);
+            Color c;
+            if (esActual && fallo) { c = ColorDe("error"); }
+            else if (esActual) { c = ColorDe(estadoActual == "" ? "reposo" : estadoActual); }
+            else if (i < actual) { c = Color.FromArgb(0x80, 0x9A, 0xA8, 0xC0); }   // hecho
+            else { c = Color.FromArgb(0x40, 0x9A, 0xA8, 0xC0); }                   // pendiente
+            e.Fill = new SolidColorBrush(c);
+            colaPuntos.Children.Add(e);
+        }
+        if (colaPuntos.Opacity < 0.5) { Desvanecer(colaPuntos, 0.95, 180); }
+    }
+
     // El glifo del oido. Sorda: microfono tachado. Solo boton: glifo de mando.
     // Escuchando: nada, que el caso normal no necesita adorno.
     void PintarOido()
@@ -2734,6 +2788,8 @@ public class NovaUI : Window
                 if (vz != voz) { voz = vz; cambioVoz = true; }
                 string oido = Campo(j, "oido", "palabra");
                 string hac = Campo(j, "haciendo", "");
+                string col = Campo(j, "cola", "");
+                if (col != colaActual) { PintarCola(col); }
                 double esl;
                 if (double.TryParse(Campo(j, "escala", "1"), NumberStyles.Any, CultureInfo.InvariantCulture, out esl)
                     && Math.Abs(esl - escalaUI) > 0.01) { AplicarEscala(esl); }

@@ -79,28 +79,28 @@ if (-not $okC) { $fallos++ }
 # visible: se queda con el ultimo estado bueno y no hay manera de saber por que.
 $script:temporizadores.Clear()
 $script:confirmaFin = 0; $script:confirmaTotal = 0
-$script:uiHaciendo = 'sonido'; $script:uiDescarga = 0.65
+$script:uiHaciendo = 'sonido'; $script:uiDescarga = 0.65; $script:uiCola = '3/2!'
 $script:uiUltimo = ''
 Set-UI 'reposo' 'bajando el volumen'
 $txtD = Get-Content -Raw -LiteralPath $RutaUiEstado
 $okD = $false; $jd = $null
 try {
     $jd = $txtD | ConvertFrom-Json
-    $okD = ($jd.haciendo -eq 'sonido') -and ($txtD -match '"descarga":0\.650')
+    $okD = ($jd.haciendo -eq 'sonido') -and ($txtD -match '"descarga":0\.650') -and ($jd.cola -eq '3/2!')
 } catch { $okD = $false }
 Write-Host ("  {0}  {1,-26} haciendo='{2}' descarga={3}" -f $(if ($okD) { 'OK ' } else { 'MAL' }), 'accion en curso', $jd.haciendo, $jd.descarga)
 if (-not $okD) { $fallos++ }
 
 # y que al terminar se APAGUEN los dos: un glifo que se queda encendido dice
 # que esta haciendo algo cuando ya no hace nada
-$script:uiHaciendo = ''; $script:uiDescarga = 0
+$script:uiHaciendo = ''; $script:uiDescarga = 0; $script:uiCola = ''
 $script:uiUltimo = ''
 Set-UI 'reposo' 'listo'
 $txtE = Get-Content -Raw -LiteralPath $RutaUiEstado
 $okE = $false; $je = $null
 try {
     $je = $txtE | ConvertFrom-Json
-    $okE = ($je.haciendo -eq '') -and ([double]$je.descarga -eq 0)
+    $okE = ($je.haciendo -eq '') -and ([double]$je.descarga -eq 0) -and ($je.cola -eq '')
 } catch { $okE = $false }
 Write-Host ("  {0}  {1,-26} haciendo='{2}' descarga={3}" -f $(if ($okE) { 'OK ' } else { 'MAL' }), 'y se apagan al acabar', $je.haciendo, $je.descarga)
 if (-not $okE) { $fallos++ }

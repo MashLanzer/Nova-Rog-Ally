@@ -60,10 +60,6 @@ ni con batería):
       Hoy `pensando` es idéntico para 0,3 s locales y para 160 s del agente
       completo. Saberlo desde el primer instante cambia si esperas o cancelas.
 
-- [ ] **13. Cola visible con varias órdenes.**
-      «Abre Steam y pon modo juego» son dos cosas; que se vean los dos puntos y
-      cuál va tachándose. Si falla la segunda, hoy no hay forma de saber cuál fue.
-
 - [ ] **16. Fijar la tarjeta larga.**
       «Déjala ahí» para que no se vaya a los 8 s, «quítala» para cerrarla. Con
       una lista de pasos, ocho segundos no llegan ni para el segundo.
@@ -114,13 +110,19 @@ ni con batería):
   ventana de delante, con puntuación, «borra lo último» y «cambia X por Y».
   Tres salidas (la frase, el botón y un plazo). **Falta que lo pruebes tú con
   una ventana delante**: ver arriba.
+- **13. Cola visible.** Una fila de puntos cuando la orden lleva más de una
+  cosa: el actual encendido, los hechos apagados, el que falla en rojo.
+- **El fallo rojo del banco.** «Se pone siempre encima» llevaba días en rojo y
+  era de la prueba, no del asistente: sobre una ventana que nunca se ha
+  mostrado, `SetWindowPos(HWND_TOPMOST)` devuelve true sin marcar nada. El
+  banco pasa entero por primera vez.
 
 ## Por dónde empezar
 
-Si hay que elegir: la **13** (cola visible con varias órdenes), que es la que
-falta para saber cuál de dos órdenes encadenadas fue la que falló. Después la
-**3** (listas de verdad) y la **10** («¿qué he hecho hoy?»), que son las dos
-que aprovechan lo que ya se guarda sin recogerlo nadie.
+Si hay que elegir: la **3** (listas de verdad) y la **10** («¿qué he hecho
+hoy?»), que son las dos que aprovechan datos que ya se guardan y que no recoge
+nadie. Después la **8** (copia de seguridad de lo aprendido), que es barata y
+es lo único que protege meses de ajustes de un JSON corrupto.
 
 ---
 
