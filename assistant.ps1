@@ -584,8 +584,11 @@ $PROCESOS_URI = @{ 'steam' = 'steam'; 'spotify' = 'Spotify'; 'discord' = 'Discor
 # Programas de usuario abiertos: los que tienen ventana con titulo. Se dejan
 # fuera el propio asistente, su capsula, el escritorio y la barra de tareas,
 # que no son "programas" para quien habla y cerrarlos romperia la sesion.
+# Tambien la terminal y Claude: el 12/09 "cierra todos los procesos" cerro la
+# ventana donde el usuario estaba hablando con Claude, a mitad de mensaje.
 $PROCESOS_INTOCABLES = @('explorer', 'nova_ui', 'powershell', 'pwsh', 'ApplicationFrameHost',
-                         'TextInputHost', 'SystemSettings', 'ShellExperienceHost', 'SearchHost')
+                         'TextInputHost', 'SystemSettings', 'ShellExperienceHost', 'SearchHost',
+                         'WindowsTerminal', 'OpenConsole', 'conhost', 'claude', 'opencode', 'python', 'pythonw')
 
 function Get-AppsAbiertas {
     $res = @()
@@ -650,6 +653,11 @@ function Test-CatalogoRecitado([string]$text) {
     if ($text -notmatch ',') { return $false }
     $plano = ConvertTo-Plain $text
     if ($plano -match ('\b(?:' + $VERBOS + ')\b')) { return $false }   # con verbo es una orden de verdad
+    # ... tambien con un verbo MAL OIDO. "Sierra, steam" (cierra steam, 12/09,
+    # jugando) se tiraba como catalogo recitado porque "sierra" no es un verbo.
+    # Solo la lista cerrada de $VERBOS_OIDOS, no la correccion por parecido: a
+    # distancia 1 media biblioteca de Steam pasaria por verbo.
+    if ($VERBOS_OIDOS.ContainsKey((@($plano -split '\s+'))[0])) { return $false }
     $trozos = @($text -split ',' | ForEach-Object { (ConvertTo-Plain $_).Trim() } | Where-Object { $_ })
     if ($trozos.Count -lt 2) { return $false }
     $delCatalogo = 0
@@ -1941,7 +1949,11 @@ function Resolve-Fragment([string]$f) {
         if ($obj -match '^(?:el juego|juego|este juego|el videojuego)$') { return @(@{ kind = 'cerrarJuego'; desc = 'cerrar el juego' }) }
         if ($obj -match '^(?:todo|todas las ventanas|todas)$') { return @(@{ kind = 'winkey'; vk = 0x44; desc = 'mostrar el escritorio' }) }
         # cerrar de verdad, pero preguntando: ver el bloque 'cerrarTodo'
-        if ($obj -match '^(?:todos los programas|los programas|todas las apps|todas las aplicaciones|todo lo abierto|todos los programas abiertos)$') {
+        # "procesos" y el "que estan abiertos" del final entraron el 12/09:
+        # "cierra todos los procesos que estan abiertos" no encajaba, se fue al
+        # agente, y el agente cerro TODO sin preguntar -Claude y la capsula
+        # incluidas-. Esta orden no puede salir nunca de aqui.
+        if ($obj -match '^(?:tod[oa]s? (?:los |las )?(?:programas|procesos|apps|aplicaciones)|los (?:programas|procesos)|las (?:apps|aplicaciones)|todo lo abierto|todo lo que (?:esta|este|tengo|hay) abierto)(?:\s+(?:que\s+)?(?:estan|esten|tengo|hay)?\s*abiert[oa]s)?$') {
             return @(@{ kind = 'cerrarTodo'; desc = 'cerrar los programas abiertos' })
         }
         $proc = Resolve-Proceso $obj
@@ -5327,40 +5339,25 @@ public struct RECT { public int Left, Top, Right, Bottom; }
 public static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
 '@ -ErrorAction SilentlyContinue
 
-# LA VENTANITA DE WIN+H, FUERA DE LA VISTA.
-# El dictado de Windows abre una ventana suya ("Experiencia de entrada de
-# Windows", clase Windows.UI.Core.CoreWindow, proceso TextInputHost) que ocupa
-# la pantalla entera y tapa lo que estas escribiendo. No se puede quitar, pero
-# SI se puede mover: comprobado, admite SetWindowPos y sigue dictando.
-# Se mueve, no se oculta con ShowWindow: ocultarla del todo hace que Windows la
-# de por cerrada y corte el dictado.
-function Hide-VentanaDictado {
-    $movidas = 0
-    try {
-        $cb = [Nova.Win+EnumProc] {
-            param($h, $l)
-            if (-not [Nova.Win]::IsWindowVisible($h)) { return $true }
-            $pidV = 0
-            [void][Nova.Win]::GetWindowThreadProcessId($h, [ref]$pidV)
-            $pr = Get-Process -Id $pidV -ErrorAction SilentlyContinue
-            if (-not $pr -or $pr.ProcessName -ne 'TextInputHost') { return $true }
-            # TODAS las ventanas visibles de ese proceso, sin filtrar por clase:
-            # el panel no siempre es la CoreWindow, y filtrar de mas dejaba el
-            # cartel en pantalla.
-            $r = New-Object Nova.Win+RECT
-            if ([Nova.Win]::GetWindowRect($h, [ref]$r) -and $r.Left -le -2000) { return $true }  # ya apartada
-            $SWP_NOSIZE = 0x0001; $SWP_NOACTIVATE = 0x0010; $SWP_NOZORDER = 0x0004
-            if ([Nova.Win]::SetWindowPos($h, [IntPtr]::Zero, -3000, -3000, 0, 0,
-                                         ($SWP_NOSIZE -bor $SWP_NOACTIVATE -bor $SWP_NOZORDER))) {
-                $script:ventanasDictado += 1
-            }
-            return $true
-        }
-        $script:ventanasDictado = 0
-        [void][Nova.Win]::EnumWindows($cb, [IntPtr]::Zero)
-        $movidas = $script:ventanasDictado
-    } catch { Log ("no pude apartar la ventana del dictado: " + $_.Exception.Message) }
-    return $movidas
+# EL PANEL DE WIN+H, CERRADO DE VERDAD.
+# Antes se intentaba APARTAR su ventana (SetWindowPos a -3000) y cerrarlo con
+# otro Win+H. Las dos cosas fallaban, comprobado el 12/09 con capturas:
+#   - la ventana se mueve, pero el panel NO: Windows lo dibuja por su cuenta
+#     encima de todo, asi que moverla no cambiaba nada en pantalla;
+#   - Win+H no es un interruptor fiable. Si el panel se ha quedado en su
+#     error ("selecciona un cuadro de texto") o ya se habia cerrado solo, el
+#     segundo Win+H lo ABRE en vez de cerrarlo. Ese era el panel que se quedaba
+#     a la vista al terminar el dictado.
+# Lo que si funciona siempre: terminar TextInputHost. El panel desaparece en el
+# acto, en cualquier estado, y Windows relanza el proceso solo en cuanto hace
+# falta (el siguiente Win+H abrio el panel a la primera). No hay nada que
+# guardar en ese proceso: es el que pinta el teclado tactil y el dictado.
+function Close-PanelDictado {
+    $n = 0
+    foreach ($pr in @(Get-Process TextInputHost -ErrorAction SilentlyContinue)) {
+        try { $pr.Kill(); $n++ } catch {}
+    }
+    return $n
 }
 function Get-PidDeVentana([IntPtr]$h) {
     if ($h -eq [IntPtr]::Zero) { return 0 }
@@ -5894,6 +5891,11 @@ function Submit-Command([string]$text, [string]$modo = 'accion', [string]$adjunt
         # La respuesta se LEE EN VOZ ALTA: el agente contesta como si
         # escribiera, y tres lineas ya son demasiado para escuchar.
         $prompt = "Al terminar, resume lo que hiciste en UNA frase corta, sin listas ni markdown, porque se leera en voz alta. " + $prompt
+        # REGLA FIJA, delante de todo. El 12/09 "cierra todos los procesos"
+        # llego aqui y el agente cerro Claude (con el usuario escribiendo en
+        # el), la capsula, Steam y Discord, sin preguntar. El agente tiene
+        # manos de verdad: lo que nunca debe tocar se le dice cada vez.
+        $prompt = "REGLA FIJA: nunca cierres, mates ni reinicies estos procesos: nova_ui, powershell, pwsh, python, WindowsTerminal, OpenConsole, conhost, claude, opencode, node, explorer, ni ningun proceso del sistema; son el propio asistente y la sesion del usuario. Si la tarea es cerrar todos los programas o muchos a la vez, NO la hagas: contesta solo 'Para eso di: cierra todos los programas. Te pregunto antes de cerrar nada.' " + $prompt
     }
     # 'charla' encadena la sesion anterior: recuerda lo hablado antes
     $extra = if ($modo -eq 'charla') { '--continue' } else { '' }
@@ -6190,9 +6192,6 @@ $script:dictadoVentana = [IntPtr]::Zero
 $script:ventanaUsuario = [IntPtr]::Zero   # la que tenias delante al empezar a hablar
 $script:dictadoWinH = $false              # el dictado en curso lo lleva Win+H
 $script:dictadoWinHPendiente = $false     # hay que abrirlo en cuanto deje de hablar
-$script:dictadoOcultarHasta = 0           # hasta cuando insistir en apartar su ventana
-$script:dictadoOcultarUltimo = 0
-$script:ventanasDictado = 0
 $script:dictadoLineas = 0      # cuantos trozos van escritos, para contarlo al salir
 $script:seguimientoFactor = 1.0
 # --- oido fino: repaso de la ultima orden con el modelo preciso ---
@@ -6362,9 +6361,6 @@ function Start-Dictado([string]$origen) {
     Pausar-Escucha 60000
     if (Show-Capture) {
         Send-WinH
-        # la ventana del dictado de Windows, fuera de la vista (se insiste un
-        # par de segundos: tarda en existir)
-        $script:dictadoOcultarHasta = $sw.ElapsedMilliseconds + 2500
         Set-UI 'escuchando'
         Send-UIEvento 'despierta'
         $script:armed = $true
@@ -6399,6 +6395,8 @@ function Finish-Dictation([string]$motivo) {
         # en finally: si Send-Key o la captura fallan, la pausa NO puede
         # quedarse puesta o la escucha se queda muda hasta un minuto
         $capture.Hide()
+        # el Escape de arriba no siempre se lo lleva: ver Close-PanelDictado
+        [void](Close-PanelDictado)
         Reanudar-Escucha
         # y el foco vuelve a lo TUYO. Sin esto, cada orden por Win+H te deja
         # escribiendo en la ventana invisible del asistente.
@@ -6448,8 +6446,10 @@ function Stop-DictadoLargo([string]$porque = '') {
     if (-not $script:dictandoLargo) { return }
     $script:dictadoWinHPendiente = $false
     if ($script:dictadoWinH) {
-        # Win+H se cierra con el mismo atajo con el que se abre
-        Send-WinH
+        # NO con otro Win+H: si el panel ya se habia cerrado o estaba en su
+        # error, lo volvia a abrir y se quedaba a la vista. Ver Close-PanelDictado.
+        $n = Close-PanelDictado
+        Log "DICTADO LARGO: panel de Windows cerrado ($n)"
         Start-Sleep -Milliseconds 200
         $script:dictadoWinH = $false
         Reanudar-Escucha
@@ -7143,25 +7143,7 @@ while ($true) {
         Pausar-Escucha $DictadoLargoMs
         Send-WinH
         Log "DICTADO LARGO: Win+H abierto sobre la ventana $($script:dictadoVentana)"
-        # y su ventana, fuera de la vista. Tarda en aparecer, asi que se intenta
-        # varias veces en el primer segundo y medio.
-        $script:dictadoOcultarHasta = $sw.ElapsedMilliseconds + 2500
         Set-UI 'escuchando' 'dictando con Windows... manten el boton para terminar'
-    }
-
-    # --- apartar la ventanita del dictado de Windows ---
-    # No basta con apartarla al abrirla: Windows la COLOCA cuando el panel
-    # aparece, o sea despues, y tambien cada vez que se reactiva. Asi que se
-    # insiste cada 400 ms mientras el dictado este en marcha. La funcion se
-    # salta las que ya estan fuera, asi que insistir no cuesta nada.
-    if (($script:dictadoWinH -or $script:armed -or $script:dictadoOcultarHasta -gt 0) -and
-        ($sw.ElapsedMilliseconds - $script:dictadoOcultarUltimo) -ge 400) {
-        $script:dictadoOcultarUltimo = $sw.ElapsedMilliseconds
-        $n = Hide-VentanaDictado
-        if ($n -gt 0) { Log "el cartel del dictado de Windows, apartado ($n)" }
-        if ($script:dictadoOcultarHasta -gt 0 -and $sw.ElapsedMilliseconds -ge $script:dictadoOcultarHasta) {
-            $script:dictadoOcultarHasta = 0
-        }
     }
 
     # --- el dictado largo se vuelve a abrir solo ---

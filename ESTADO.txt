@@ -205,7 +205,9 @@ DICTADO LARGO (nuevo, PENDIENTE DE QUE LO PRUEBES TÚ)
   LO ESCRIBE WIN+H, no el asistente: es el motor que de verdad te entiende, y
   aquí su pega no existe (el foco TIENE que estar en tu ventana, que es donde
   se escribe). El asistente abre Win+H solo, después de callarse -si lo abriera
-  antes se transcribiría a sí mismo- y aparta su ventanita de la vista.
+  antes se transcribiría a sí mismo-. Su panel ("Escuchando...") se ve
+  mientras dictas: no hay forma de apartarlo. Al terminar se CIERRA de
+  verdad (ver abajo, "la ventanita de Windows").
   Se sale con el BOTÓN ≡ mantenido. Por voz ya no: dirías "ya está" y Win+H lo
   escribiría en tu correo.
   Se le puede decir DÓNDE: "dicta un correo en el bloc de notas", "dicta en
@@ -247,13 +249,17 @@ CON QUÉ TE OYE, Y CUÁNDO (cambiado el 12/09 tras medirlo)
   problema que resolvía. Se vuelve a "windows" en cuanto se compruebe que el
   cartel se aparta de verdad (config.json -> input.motorOrdenes: auto /
   windows / worker). El dictado LARGO sí usa Win+H, que es donde se nota.
-  Y la ventanita de Windows que salía tapando la pantalla se aparta sola: es
-  del proceso TextInputHost y admite que la muevan. Se MUEVE, no se oculta:
-  ocultarla del todo hace que Windows dé el dictado por cerrado.
-  OJO, esto costó dos intentos: apartarla UNA vez al abrir Win+H no sirve,
-  porque Windows la coloca DESPUÉS, cuando el panel aparece. Hay que insistir
-  mientras dure el dictado (cada 400 ms) y mover TODAS las ventanas visibles de
-  ese proceso, no solo la de clase CoreWindow.
+  LA VENTANITA DE WINDOWS (corregido el 12/09 por la noche, con capturas).
+  Lo de apartarla NUNCA funcionó: la ventana de TextInputHost se mueve, pero
+  el panel no, porque Windows lo dibuja por su cuenta. Y cerrarlo con otro
+  Win+H tampoco: si el panel se había quedado en su error ("selecciona un
+  cuadro de texto") o ya se había ido solo, ese Win+H lo volvía a ABRIR, y
+  ahí se quedaba a la vista. Ahora, al terminar, se termina el proceso
+  TextInputHost: el panel se va en el acto, en cualquier estado, y Windows lo
+  relanza solo en cuanto hace falta (el Win+H siguiente abrió a la primera).
+  Mientras dictas, el panel sigue viéndose: eso no tiene arreglo.
+  Por eso "motorOrdenes" sigue en "worker": para una orden suelta, ver el
+  panel en cada "nova" sigue siendo peor que lo que resuelve.
 
   OJO, no confundir con el OTRO motor de Windows, el de la API
   (SpeechRecognizer local de OneCore), que estuvo activado días y NUNCA
@@ -617,9 +623,20 @@ LA CÁPSULA, AL DÍA (nuevo)
     y no queda nada que cancelar. NO añade ninguna espera: se enciende antes de
     tocar nada y se apaga al terminar. Las órdenes que solo CONSULTAN (la hora,
     a qué juegas, qué modos tienes) no llevan glifo: ahí no hay nada que parar.
-  - Las barritas de cuando habla van DEBAJO de los ojos, no encima: estaban
-    centradas en el punto, o sea justo sobre las pupilas, y la cara desaparecía
-    cada vez que hablaba. Abajo funcionan como una boca, que es lo que son.
+  - Ya NO hay barritas cuando habla (quitadas el 12/09: parecían una boca de
+    palitos y se veían mal). Al hablar late el punto entero con la voz.
+  - YA NO SE ESCONDE DETRÁS DE LA BARRA DE TAREAS. En la Ally la barra se
+    despliega y, al tocarla, Windows la sube por encima de todo lo "siempre
+    encima", cápsula incluida. Ahora la cápsula reclama su sitio en el mismo
+    instante en que cambia la ventana de delante, y cada 300 ms por si acaso.
+    Medido: con la barra delante y con el foco, vuelve encima en < 150 ms.
+  - "CIERRA TODOS LOS PROCESOS" YA NO LO CIERRA TODO. El 12/09 esa frase no
+    encajaba con "cierra todos los programas", se fue al agente y el agente
+    cerró Claude (con el usuario escribiendo en él), la cápsula, Steam y
+    Discord sin preguntar. Ahora "procesos", "aplicaciones abiertas", "todo lo
+    que está abierto" van a la orden local, que PREGUNTA antes; la terminal y
+    Claude están en la lista de intocables; y al agente se le manda en cada
+    tarea una regla fija con lo que nunca debe cerrar.
   - SE VE CUÁNTAS COSAS SON Y POR CUÁL VA (nuevo): "abre Steam y pon modo
     juego" son dos cosas. Ahora, cuando una orden lleva más de una, aparece una
     fila de puntos en la esquina de abajo: el que se está haciendo encendido y

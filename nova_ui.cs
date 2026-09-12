@@ -176,8 +176,6 @@ public class NovaUI : Window
     RotateTransform rotGesto;
     TranslateTransform trasGesto;
     ScaleTransform escalaGesto;
-    StackPanel ecualizador;
-    Rectangle[] bandas;
 
     StackPanel onda;
     Rectangle[] barras;
@@ -286,6 +284,25 @@ public class NovaUI : Window
     void PonerEncima()
     {
         if (hwnd != IntPtr.Zero) { SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE); }
+    }
+
+    // LA BARRA DE TAREAS LA TAPABA. Ser "topmost" no basta: la barra tambien lo
+    // es, y cada vez que la tocas (o se despliega, en la Ally) Windows la sube
+    // al principio de esa misma capa, por encima de la capsula. Antes solo se
+    // reclamaba el sitio cada 1,5 s, y en ese rato -o si la barra se quedaba
+    // desplegada- la capsula quedaba debajo. Ahora se reclama en el mismo
+    // instante en que cambia la ventana de delante (que es lo que pasa al
+    // tocar la barra, abrir Inicio o cerrar un menu), y el reloj queda de red.
+    delegate void WinEventProc(IntPtr hook, uint ev, IntPtr h, int obj, int child, uint hilo, uint ms);
+    [DllImport("user32.dll")] static extern IntPtr SetWinEventHook(uint min, uint max, IntPtr mod, WinEventProc proc, uint pid, uint hilo, uint flags);
+    const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
+    // en un campo: si el delegado solo vive en la llamada, el recolector se lo
+    // lleva y el gancho acaba llamando a memoria liberada
+    WinEventProc alCambiarDelante;
+    void VigilarDelante()
+    {
+        alCambiarDelante = delegate { PonerEncima(); };
+        SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, IntPtr.Zero, alCambiarDelante, 0, 0, 0);
     }
 
     [STAThread]
@@ -628,8 +645,12 @@ public class NovaUI : Window
             EntradaEnEscena();
         };
 
+        // red de seguridad: la barra de la Ally se despliega sin cambiar la
+        // ventana de delante, y eso el gancho no lo ve. SetWindowPos sobre una
+        // ventana que ya esta la primera no hace nada, asi que es barato.
+        VigilarDelante();
         var relojZ = new DispatcherTimer();
-        relojZ.Interval = TimeSpan.FromMilliseconds(1500);
+        relojZ.Interval = TimeSpan.FromMilliseconds(300);
         relojZ.Tick += delegate { PonerEncima(); };
         relojZ.Start();
 
@@ -846,30 +867,10 @@ public class NovaUI : Window
         brilloPunto.Color = acento; brilloPunto.BlurRadius = 10; brilloPunto.ShadowDepth = 0; brilloPunto.Opacity = 0.9;
         punto.Effect = brilloPunto;
         cuerpo.Children.Add(punto);
-        // ECUALIZADOR: las cuatro bandas de cuando habla, DEBAJO de los ojos.
-        // Estaban centradas en el punto, o sea justo encima de las pupilas, y
-        // se tapaban unas a otras: la cara desaparecia cada vez que hablaba.
-        // Abajo funcionan como una boca -que es lo que son- y ya no estorban.
-        ecualizador = new StackPanel();
-        ecualizador.Orientation = Orientation.Horizontal;
-        ecualizador.HorizontalAlignment = HorizontalAlignment.Center;
-        ecualizador.VerticalAlignment = VerticalAlignment.Bottom;
-        ecualizador.Margin = new Thickness(0, 0, 0, DIAM_PUNTO * 0.16);
-        ecualizador.Opacity = 0;
-        ecualizador.IsHitTestVisible = false;
-        bandas = new Rectangle[4];
-        for (int i = 0; i < 4; i++)
-        {
-            var b = new Rectangle();
-            b.Width = 1.3; b.Height = 1.4;
-            b.RadiusX = 0.65; b.RadiusY = 0.65;
-            b.Margin = new Thickness(0.5, 0, 0.5, 0);
-            b.VerticalAlignment = VerticalAlignment.Bottom;
-            b.Fill = new SolidColorBrush(Color.FromArgb(0xC8, 0xFF, 0xFF, 0xFF));
-            bandas[i] = b;
-            ecualizador.Children.Add(b);
-        }
-        cuerpo.Children.Add(ecualizador);
+        // Aqui iba un ECUALIZADOR de cuatro bandas bajo los ojos, para cuando
+        // habla. Se quito el 12/09: en pantalla parecia una boca de palitos y
+        // se veia mal. Al hablar ya late el punto entero con la voz (boca, en
+        // Tic33), que es suficiente y no le cambia la cara.
         // OJOS: dos pupilas oscuras sobre el punto. Es lo que lo convierte en
         // una cara: miran a donde mira la capsula, parpadean solas y ponen
         // la expresion del gesto (abiertos, entrecerrados, felices, tristes,
@@ -2429,16 +2430,6 @@ public class NovaUI : Window
                 if (t < 0) { bocaObjetivo = 0; }
                 else if (idx < envolvente.Length) { bocaObjetivo = envolvente[idx] * 0.5; }
                 else { bocaObjetivo = 0; }
-                // ecualizador: bandas pseudo-espectrales sobre la envolvente
-                double e = bocaObjetivo * 2;
-                double tt = (ahora - envInicio).TotalMilliseconds / 1000.0;
-                for (int i = 0; i < bandas.Length; i++)
-                {
-                    double mod = 0.55 + 0.45 * Math.Sin(tt * (7 + i * 3.1) + i * 1.3);
-                    double h = 1.2 + e * mod * 4.2;
-                    bandas[i].Height = Math.Max(1.2, Math.Min(5.2, h));
-                }
-                if (ecualizador.Opacity < 0.05) { Desvanecer(ecualizador, 1, 200); }
             }
             else if (ahora >= proximaSilaba)
             {
@@ -2450,7 +2441,6 @@ public class NovaUI : Window
         }
         else
         {
-            if (ecualizador.Opacity > 0.05) { Desvanecer(ecualizador, 0, 200); }
             if (boca > 0.001)
             {
                 boca *= 0.8;
@@ -2976,7 +2966,6 @@ public class NovaUI : Window
         punto.Visibility = conAvatar ? Visibility.Collapsed : Visibility.Visible;
         reflejoPunto.Visibility = punto.Visibility;
         marcaHecho.Visibility = punto.Visibility;
-        ecualizador.Visibility = punto.Visibility;
         // los ojos son del punto: sobre un icono de juego quedarian raros
         ojoIzq.Visibility = punto.Visibility;
         ojoDer.Visibility = punto.Visibility;

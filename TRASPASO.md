@@ -896,7 +896,6 @@ Cómo funciona:
 | `clima` (emoji, del asistente) | **solo cuando se pregunta** («¿qué tiempo hace?»): el emoji del tiempo sustituye a la carita mientras dura la respuesta (+1,5 s) y vuelve la cara. El asistente consulta Open-Meteo cada hora; sin `clima.lat/lon` en config pide la ubicación UNA vez a ip-api.com (manda la IP). El usuario decidió que la carita mande: el tiempo no se queda de avatar |
 | texto largo desplazándose | **rastro**: una copia desenfocada (radio 5, opacidad 0,35) sigue al texto con 70 ms de retraso |
 | últimos 10 s de un temporizador | **cuenta atrás**: el anillo late (grosor 2→3,6) y el punto hace un tic (1,14) con un «tic» agudo por cada segundo |
-| `hablando` con envolvente | **ecualizador**: cuatro bandas blancas dentro del punto siguen la envolvente con modulación pseudo-espectral |
 | arranque | **firma**: tras las ondas, las chispas dibujan una «N» en tres trazos y se apagan |
 | `animo` (−1..1, del asistente: aciertos − 2·errores en 24 h) | ≤ −0,3: color base apagado (45 % hacia gris) y respiración de 2,3 s; ≥ 0,5: un 12 % más luminoso |
 | ventana normal (no maximizada, no completa) tapando la esquina | **se aparta**: se desliza a la derecha del borde de esa ventana (sin salirse de pantalla) y vuelve al despejarse. Histéresis de 1 s; una ventana que cubre ≥ 90 % de la pantalla no la mueve |
