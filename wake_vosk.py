@@ -665,406 +665,417 @@ try:
                            channels=1, callback=entrada):
         while True:
             try:
-                datos = cola.get(timeout=0.5)
-            except queue.Empty:
-                datos = None
-
-            ahora = time.time()
-            crudo = datos   # se conserva para medir el nivel aunque se tire
-
-            # PAUSA: el asistente esta hablando o dictando. Se tira el audio
-            # sin mirarlo y sin recalibrar; al reanudar se reinicia el
-            # reconocedor para no arrastrar restos de su propia voz.
-            if PAUSA and os.path.exists(PAUSA):
-                if not pausado:
-                    pausado = True
-                    anota("pausa: el asistente habla o dicta, se ignora el microfono")
-                datos = None
-                picos = []
-                bloques_voz = 0
-                ultimo_pulso = ahora
-            elif pausado:
-                pausado = False
-                vaciar_cola("fin de pausa")
-                datos = None
-                # mismo cuidado que al salir de confirmacion: si hay un dictado
-                # abierto (el asistente hablo en mitad de uno, por ejemplo un
-                # recordatorio), cambiar de reconocedor lo deja mudo
-                if not dictando:
-                    rec = nuevo_reconocedor()
-                anota("pausa: fin, escuchando de nuevo")
-
-            # --- el asistente pide repasar la ultima orden con el oido fino ---
-            # Sin 'continue': saltaria tambien el pulso del final del bucle.
-            # Y NO mientras se dicta o se confirma: el repaso bloquea el hilo
-            # varios segundos y al terminar vacia la cola, o sea que se llevaria
-            # por delante el audio de la orden que se este dictando ahora mismo.
-            if not dictando and not confirmando:
-                atender_reintento(ultimo_audio)
-
-            # --- entrar y salir del modo dictado ---
-            quiere_dictar = bool(DICTAR) and os.path.exists(DICTAR)
-            # 'not confirmando' es tan necesario como el 'not dictando' que
-            # lleva la entrada a confirmacion: con las dos marcas puestas, el
-            # 'continue' del bloque de confirmacion impedia que el dictado
-            # avanzara nunca, dictar.flag no se borraba y el asistente se
-            # quedaba esperando hasta agotar su plazo.
-            if quiere_dictar and not dictando and not confirmando:
-                dictando = True
-                # SEGUIMIENTO: la marca lleva "seguimiento:<ms>"; si no hay voz
-                # en ese plazo, se cierra en silencio con texto vacio
-                espera_voz = 0.0
                 try:
-                    with open(DICTAR, "r", encoding="utf-8") as f:
-                        contenido = f.read().strip()
-                    if contenido.startswith("seguimiento:"):
-                        espera_voz = float(contenido.split(":", 1)[1]) / 1000.0
-                except Exception:
+                    datos = cola.get(timeout=0.5)
+                except queue.Empty:
+                    datos = None
+
+                ahora = time.time()
+                crudo = datos   # se conserva para medir el nivel aunque se tire
+
+                # PAUSA: el asistente esta hablando o dictando. Se tira el audio
+                # sin mirarlo y sin recalibrar; al reanudar se reinicia el
+                # reconocedor para no arrastrar restos de su propia voz.
+                if PAUSA and os.path.exists(PAUSA):
+                    if not pausado:
+                        pausado = True
+                        anota("pausa: el asistente habla o dicta, se ignora el microfono")
+                    datos = None
+                    picos = []
+                    bloques_voz = 0
+                    ultimo_pulso = ahora
+                elif pausado:
+                    pausado = False
+                    vaciar_cola("fin de pausa")
+                    datos = None
+                    # mismo cuidado que al salir de confirmacion: si hay un dictado
+                    # abierto (el asistente hablo en mitad de uno, por ejemplo un
+                    # recordatorio), cambiar de reconocedor lo deja mudo
+                    if not dictando:
+                        rec = nuevo_reconocedor()
+                    anota("pausa: fin, escuchando de nuevo")
+
+                # --- el asistente pide repasar la ultima orden con el oido fino ---
+                # Sin 'continue': saltaria tambien el pulso del final del bucle.
+                # Y NO mientras se dicta o se confirma: el repaso bloquea el hilo
+                # varios segundos y al terminar vacia la cola, o sea que se llevaria
+                # por delante el audio de la orden que se este dictando ahora mismo.
+                if not dictando and not confirmando:
+                    atender_reintento(ultimo_audio)
+
+                # --- entrar y salir del modo dictado ---
+                quiere_dictar = bool(DICTAR) and os.path.exists(DICTAR)
+                # 'not confirmando' es tan necesario como el 'not dictando' que
+                # lleva la entrada a confirmacion: con las dos marcas puestas, el
+                # 'continue' del bloque de confirmacion impedia que el dictado
+                # avanzara nunca, dictar.flag no se borraba y el asistente se
+                # quedaba esperando hasta agotar su plazo.
+                if quiere_dictar and not dictando and not confirmando:
+                    dictando = True
+                    # SEGUIMIENTO: la marca lleva "seguimiento:<ms>"; si no hay voz
+                    # en ese plazo, se cierra en silencio con texto vacio
                     espera_voz = 0.0
-                hubo_voz = 0
-                # Se tira el audio ya encolado: contiene el final de "Nova" y
-                # se transcribia como si fuera la orden.
-                try:
-                    while True:
-                        cola.get_nowait()
-                except queue.Empty:
-                    pass
-                datos = None
-                rec = reconocedor_libre()
-                dictado = []
-                audio_dictado = []
-                dicta_inicio = ahora
-                ultima_voz = ahora
-                escribir(PARCIAL, "")
-                anota("dictado: escuchando la orden")
-            elif dictando and not quiere_dictar:
-                # el asistente lo corto a mano (boton): se entrega lo que haya
-                texto_final = " ".join([t for t in dictado if t]).strip()
-                parcial = json.loads(rec.FinalResult()).get("text", "")
-                if parcial:
-                    texto_final = (texto_final + " " + parcial).strip()
-                if whisper is not None:
-                    mejor = transcribir_whisper(audio_dictado)
-                    if mejor:
-                        texto_final = mejor
-                    # Whisper bloquea el hilo varios segundos y mientras tanto
-                    # la cola se llena. Sin vaciarla, al volver al bucle se
-                    # decodifica de golpe el audio de hace medio minuto con el
-                    # reconocedor de activacion: activaciones fantasma. El
-                    # camino normal ya lo hacia; este, el del boton, no.
-                    vaciar_cola("corte a mano")
-                texto_final = quitar_nombre(texto_final)
-                anota("dictado: cortado a mano -> '%s'" % texto_final)
-                escribir(TEXTO, texto_final)
-                dictando = False
-                ultimo_audio = audio_dictado
-                audio_dictado = []
-                rec = nuevo_reconocedor()
-
-            # --- entrar y salir del modo confirmacion (si/no) ---
-            quiere_confirmar = bool(CONFIRMAR) and os.path.exists(CONFIRMAR)
-            if quiere_confirmar and not confirmando and not pausado and not dictando:
-                confirmando = True
-                try:
-                    while True:
-                        cola.get_nowait()
-                except queue.Empty:
-                    pass
-                datos = None
-                rec = reconocedor_si_no()
-                conf_inicio = ahora
-                anota("confirmacion: esperando si/no")
-            elif confirmando and (not quiere_confirmar or (ahora - conf_inicio) >= CONFIRMACION_MAX):
-                if quiere_confirmar:
-                    anota("confirmacion: sin respuesta")
                     try:
-                        os.remove(CONFIRMAR)
+                        with open(DICTAR, "r", encoding="utf-8") as f:
+                            contenido = f.read().strip()
+                        if contenido.startswith("seguimiento:"):
+                            espera_voz = float(contenido.split(":", 1)[1]) / 1000.0
                     except Exception:
+                        espera_voz = 0.0
+                    hubo_voz = 0
+                    # Se tira el audio ya encolado: contiene el final de "Nova" y
+                    # se transcribia como si fuera la orden.
+                    try:
+                        while True:
+                            cola.get_nowait()
+                    except queue.Empty:
                         pass
-                confirmando = False
-                # OJO: si en esta misma vuelta ya se entro en dictado, el
-                # reconocedor libre acaba de instalarse y no hay que pisarlo con
-                # el de gramatica cerrada. Si se pisa, el dictado deja de dar
-                # parciales, nunca se cumple 'hay_algo' y no termina por
-                # silencio: aguanta hasta el tope de 30 s.
-                if not dictando:
+                    datos = None
+                    rec = reconocedor_libre()
+                    dictado = []
+                    audio_dictado = []
+                    dicta_inicio = ahora
+                    ultima_voz = ahora
+                    escribir(PARCIAL, "")
+                    anota("dictado: escuchando la orden")
+                elif dictando and not quiere_dictar:
+                    # el asistente lo corto a mano (boton): se entrega lo que haya
+                    texto_final = " ".join([t for t in dictado if t]).strip()
+                    parcial = json.loads(rec.FinalResult()).get("text", "")
+                    if parcial:
+                        texto_final = (texto_final + " " + parcial).strip()
+                    if whisper is not None:
+                        mejor = transcribir_whisper(audio_dictado)
+                        if mejor:
+                            texto_final = mejor
+                        # Whisper bloquea el hilo varios segundos y mientras tanto
+                        # la cola se llena. Sin vaciarla, al volver al bucle se
+                        # decodifica de golpe el audio de hace medio minuto con el
+                        # reconocedor de activacion: activaciones fantasma. El
+                        # camino normal ya lo hacia; este, el del boton, no.
+                        vaciar_cola("corte a mano")
+                    texto_final = quitar_nombre(texto_final)
+                    anota("dictado: cortado a mano -> '%s'" % texto_final)
+                    escribir(TEXTO, texto_final)
+                    dictando = False
+                    ultimo_audio = audio_dictado
+                    audio_dictado = []
                     rec = nuevo_reconocedor()
 
-            # nivel para la onda de la interfaz, solo mientras se dicta o se
-            # esta en pausa (que es cuando la capsula esta abierta). Se
-            # normaliza con la ganancia actual: la ganancia automatica lleva
-            # la voz normal a ~0.35, asi que hablar normal da ~0.8.
-            if NIVEL and crudo is not None and (pausado or dictando):
-                try:
-                    m = np.frombuffer(crudo, dtype=np.int16).astype(np.float32)
-                    pico_crudo = float(np.max(np.abs(m))) / 32768.0
-                    escribir(NIVEL, "%.3f" % min(1.0, pico_crudo * ganancia / 0.45))
-                except Exception:
-                    pass
-
-            if datos is not None:
-                muestras = np.frombuffer(datos, dtype=np.int16).astype(np.float32)
-                pico = float(np.max(np.abs(muestras))) / 32768.0
-                # Se guardan los picos de los bloques CON VOZ, no el maximo
-                # suelto: calibrar con el maximo dejaba que un solo golpe (o un
-                # resto de eco) mandara sobre toda la ventana. Se usa el p90.
-                # Meter tambien los bloques de silencio hundia ese p90 a 0.0000
-                # y la ganancia se iba a x9: entonces el ruido de fondo entraba
-                # amplificado y Vosk "oia" el nombre en el silencio.
-                if pico > UMBRAL_VOZ:
-                    picos.append(pico)
-                    bloques_voz += 1
-
-                if ganancia != 1.0:
-                    amplificado = muestras * ganancia
-                    # si estamos recortando, bajar YA: esperar al siguiente
-                    # pulso significaria 15 s de audio destrozado
-                    if float(np.max(np.abs(amplificado))) >= 32767.0 and automatica:
-                        recortes += 1
-                        if recortes >= 3:
-                            # El recorte puede ser del ALTAVOZ, no de tu voz.
-                            # Bajar la ganancia entonces es lo contrario de lo
-                            # que hace falta: deja el microfono sordo justo
-                            # mientras suena algo. Y se peleaba con el pulso,
-                            # que la recuperaba: x8 -> x2.9 -> x8, sin parar.
-                            if nivel_salida() > UMBRAL_ALTAVOZ:
-                                recortes = 0
-                                if ahora - ultimo_aviso_recorte > 30:
-                                    ultimo_aviso_recorte = ahora
-                                    anota("recorte con los altavoces sonando (%.3f): la ganancia se queda en x%.1f"
-                                          % (nivel_salida(), ganancia))
-                            else:
-                                ganancia = round(max(GANANCIA_MIN, ganancia * 0.6), 1)
-                                anota("recorte detectado: bajando ganancia a x%.1f" % ganancia)
-                                recortes = 0
-                                amplificado = muestras * ganancia
-                    muestras = np.clip(amplificado, -32768, 32767)
-                bloque = muestras.astype(np.int16).tobytes()
-
-                # PUERTA: si el bloque es silencio y no venimos de voz reciente,
-                # ni se toca el decodificador. Es donde esta el ahorro real.
-                bloques_totales += 1
-                if pico > UMBRAL_ACTIVIDAD:
-                    if arrastre <= 0:
-                        pico_rafaga = 0.0   # empieza una rafaga nueva
-                    arrastre = ARRASTRE
-                elif arrastre > 0:
-                    arrastre -= 1
-                if arrastre > 0 and pico > pico_rafaga:
-                    pico_rafaga = pico
-
-                # --- MODO CONFIRMACION: solo si/no, y rapido (parciales) ---
-                if confirmando:
-                    texto_c = ""
-                    if rec.AcceptWaveform(bloque):
-                        texto_c = json.loads(rec.Result()).get("text", "")
-                    else:
-                        texto_c = json.loads(rec.PartialResult()).get("partial", "")
-                    palabras = [sin_tildes(w) for w in texto_c.split()]
-                    respuesta = ""
-                    if any(w in PALABRAS_NO for w in palabras):
-                        respuesta = "no"
-                    elif any(w in PALABRAS_SI for w in palabras):
-                        respuesta = "si"
-                    if respuesta:
-                        anota("confirmacion: '%s' -> %s" % (texto_c, respuesta))
-                        escribir(CONFIRMACION, respuesta)
+                # --- entrar y salir del modo confirmacion (si/no) ---
+                quiere_confirmar = bool(CONFIRMAR) and os.path.exists(CONFIRMAR)
+                if quiere_confirmar and not confirmando and not pausado and not dictando:
+                    confirmando = True
+                    try:
+                        while True:
+                            cola.get_nowait()
+                    except queue.Empty:
+                        pass
+                    datos = None
+                    rec = reconocedor_si_no()
+                    conf_inicio = ahora
+                    anota("confirmacion: esperando si/no")
+                elif confirmando and (not quiere_confirmar or (ahora - conf_inicio) >= CONFIRMACION_MAX):
+                    if quiere_confirmar:
+                        anota("confirmacion: sin respuesta")
                         try:
                             os.remove(CONFIRMAR)
                         except Exception:
                             pass
-                        confirmando = False
+                    confirmando = False
+                    # OJO: si en esta misma vuelta ya se entro en dictado, el
+                    # reconocedor libre acaba de instalarse y no hay que pisarlo con
+                    # el de gramatica cerrada. Si se pisa, el dictado deja de dar
+                    # parciales, nunca se cumple 'hay_algo' y no termina por
+                    # silencio: aguanta hasta el tope de 30 s.
+                    if not dictando:
                         rec = nuevo_reconocedor()
-                    continue
 
-                # --- MODO DICTADO: transcribir todo, no buscar el nombre ---
-                if dictando:
+                # nivel para la onda de la interfaz, solo mientras se dicta o se
+                # esta en pausa (que es cuando la capsula esta abierta). Se
+                # normaliza con la ganancia actual: la ganancia automatica lleva
+                # la voz normal a ~0.35, asi que hablar normal da ~0.8.
+                if NIVEL and crudo is not None and (pausado or dictando):
+                    try:
+                        m = np.frombuffer(crudo, dtype=np.int16).astype(np.float32)
+                        pico_crudo = float(np.max(np.abs(m))) / 32768.0
+                        escribir(NIVEL, "%.3f" % min(1.0, pico_crudo * ganancia / 0.45))
+                    except Exception:
+                        pass
+
+                if datos is not None:
+                    muestras = np.frombuffer(datos, dtype=np.int16).astype(np.float32)
+                    pico = float(np.max(np.abs(muestras))) / 32768.0
+                    # Se guardan los picos de los bloques CON VOZ, no el maximo
+                    # suelto: calibrar con el maximo dejaba que un solo golpe (o un
+                    # resto de eco) mandara sobre toda la ventana. Se usa el p90.
+                    # Meter tambien los bloques de silencio hundia ese p90 a 0.0000
+                    # y la ganancia se iba a x9: entonces el ruido de fondo entraba
+                    # amplificado y Vosk "oia" el nombre en el silencio.
+                    if pico > UMBRAL_VOZ:
+                        picos.append(pico)
+                        bloques_voz += 1
+
+                    if ganancia != 1.0:
+                        amplificado = muestras * ganancia
+                        # si estamos recortando, bajar YA: esperar al siguiente
+                        # pulso significaria 15 s de audio destrozado
+                        if float(np.max(np.abs(amplificado))) >= 32767.0 and automatica:
+                            recortes += 1
+                            if recortes >= 3:
+                                # El recorte puede ser del ALTAVOZ, no de tu voz.
+                                # Bajar la ganancia entonces es lo contrario de lo
+                                # que hace falta: deja el microfono sordo justo
+                                # mientras suena algo. Y se peleaba con el pulso,
+                                # que la recuperaba: x8 -> x2.9 -> x8, sin parar.
+                                if nivel_salida() > UMBRAL_ALTAVOZ:
+                                    recortes = 0
+                                    if ahora - ultimo_aviso_recorte > 30:
+                                        ultimo_aviso_recorte = ahora
+                                        anota("recorte con los altavoces sonando (%.3f): la ganancia se queda en x%.1f"
+                                              % (nivel_salida(), ganancia))
+                                else:
+                                    ganancia = round(max(GANANCIA_MIN, ganancia * 0.6), 1)
+                                    anota("recorte detectado: bajando ganancia a x%.1f" % ganancia)
+                                    recortes = 0
+                                    amplificado = muestras * ganancia
+                        muestras = np.clip(amplificado, -32768, 32767)
+                    bloque = muestras.astype(np.int16).tobytes()
+
+                    # PUERTA: si el bloque es silencio y no venimos de voz reciente,
+                    # ni se toca el decodificador. Es donde esta el ahorro real.
+                    bloques_totales += 1
                     if pico > UMBRAL_ACTIVIDAD:
-                        ultima_voz = ahora
-                        hubo_voz += 1
-                    # seguimiento sin voz: fuera, sin molestar. Cuenta como voz
-                    # que el reconocedor haya sacado ALGO (parcial o final), no
-                    # el nivel: el ruido de fondo pasaba el umbral y la ventana
-                    # se quedaba abierta 30 s
-                    if espera_voz > 0 and (ahora - dicta_inicio) >= espera_voz:
-                        algo = len(dictado) > 0 or bool(json.loads(rec.PartialResult()).get("partial", ""))
-                        if algo:
-                            espera_voz = 0.0   # hay voz: dictado normal
-                    if espera_voz > 0 and (ahora - dicta_inicio) >= espera_voz:
-                        anota("seguimiento: sin voz en %.1f s" % espera_voz)
-                        escribir(TEXTO, "")
-                        try:
-                            os.remove(DICTAR)
-                        except Exception:
-                            pass
-                        dictando = False
-                        audio_dictado = []
-                        rec = nuevo_reconocedor()
+                        if arrastre <= 0:
+                            pico_rafaga = 0.0   # empieza una rafaga nueva
+                        arrastre = ARRASTRE
+                    elif arrastre > 0:
+                        arrastre -= 1
+                    if arrastre > 0 and pico > pico_rafaga:
+                        pico_rafaga = pico
+
+                    # --- MODO CONFIRMACION: solo si/no, y rapido (parciales) ---
+                    if confirmando:
+                        texto_c = ""
+                        if rec.AcceptWaveform(bloque):
+                            texto_c = json.loads(rec.Result()).get("text", "")
+                        else:
+                            texto_c = json.loads(rec.PartialResult()).get("partial", "")
+                        palabras = [sin_tildes(w) for w in texto_c.split()]
+                        respuesta = ""
+                        if any(w in PALABRAS_NO for w in palabras):
+                            respuesta = "no"
+                        elif any(w in PALABRAS_SI for w in palabras):
+                            respuesta = "si"
+                        if respuesta:
+                            anota("confirmacion: '%s' -> %s" % (texto_c, respuesta))
+                            escribir(CONFIRMACION, respuesta)
+                            try:
+                                os.remove(CONFIRMAR)
+                            except Exception:
+                                pass
+                            confirmando = False
+                            rec = nuevo_reconocedor()
                         continue
-                    # el audio se guarda siempre: lo usan Whisper y el tono de voz
-                    audio_dictado.append(muestras.astype(np.int16))
-                    if rec.AcceptWaveform(bloque):
-                        t = json.loads(rec.Result()).get("text", "")
-                        if t:
-                            dictado.append(t)
-                            escribir(PARCIAL, " ".join(dictado))
+
+                    # --- MODO DICTADO: transcribir todo, no buscar el nombre ---
+                    if dictando:
+                        if pico > UMBRAL_ACTIVIDAD:
+                            ultima_voz = ahora
+                            hubo_voz += 1
+                        # seguimiento sin voz: fuera, sin molestar. Cuenta como voz
+                        # que el reconocedor haya sacado ALGO (parcial o final), no
+                        # el nivel: el ruido de fondo pasaba el umbral y la ventana
+                        # se quedaba abierta 30 s
+                        if espera_voz > 0 and (ahora - dicta_inicio) >= espera_voz:
+                            algo = len(dictado) > 0 or bool(json.loads(rec.PartialResult()).get("partial", ""))
+                            if algo:
+                                espera_voz = 0.0   # hay voz: dictado normal
+                        if espera_voz > 0 and (ahora - dicta_inicio) >= espera_voz:
+                            anota("seguimiento: sin voz en %.1f s" % espera_voz)
+                            escribir(TEXTO, "")
+                            try:
+                                os.remove(DICTAR)
+                            except Exception:
+                                pass
+                            dictando = False
+                            audio_dictado = []
+                            rec = nuevo_reconocedor()
+                            continue
+                        # el audio se guarda siempre: lo usan Whisper y el tono de voz
+                        audio_dictado.append(muestras.astype(np.int16))
+                        if rec.AcceptWaveform(bloque):
+                            t = json.loads(rec.Result()).get("text", "")
+                            if t:
+                                dictado.append(t)
+                                escribir(PARCIAL, " ".join(dictado))
+                        else:
+                            p = json.loads(rec.PartialResult()).get("partial", "")
+                            if p:
+                                escribir(PARCIAL, (" ".join(dictado) + " " + p).strip())
+                        # fin por silencio (habiendo oido algo) o por tope duro
+                        hay_algo = len(dictado) > 0 or bool(json.loads(rec.PartialResult()).get("partial", ""))
+                        if ((ahora - ultima_voz) >= SILENCIO_FIN and hay_algo) or \
+                           ((ahora - dicta_inicio) >= DICTADO_MAX):
+                            resto = json.loads(rec.FinalResult()).get("text", "")
+                            if resto:
+                                dictado.append(resto)
+                            texto_vosk = " ".join([t for t in dictado if t])
+                            texto_final = texto_vosk
+                            anotar_voz(audio_dictado)
+                            # Cerrar por el tope de 30 s SIN haber oido nada quiere
+                            # decir que eso no era una orden, sino ruido continuo.
+                            # Antes se le daban igual 15 s de ruido a Whisper: unos
+                            # 29 s de CPU con el bucle bloqueado -sordo y sin mirar
+                            # la marca de activacion- para entregar un texto que
+                            # ademas llega cuando el asistente ya se ha rendido.
+                            callado = (not hay_algo) and (ahora - dicta_inicio) >= DICTADO_MAX
+                            if callado:
+                                anota("dictado: %.0f s sin oir nada; no hay nada que transcribir"
+                                      % DICTADO_MAX)
+                                texto_final = ""
+                            if whisper is not None and not callado:
+                                escribir(PARCIAL, texto_vosk)
+                                mejor = transcribir_whisper(audio_dictado)
+                                if mejor:
+                                    texto_final = mejor
+                                vaciar_cola("transcripcion")
+                            texto_final = quitar_nombre(texto_final)
+                            anota("dictado: '%s'" % texto_final)
+                            escribir(TEXTO, texto_final)
+                            try:
+                                os.remove(DICTAR)
+                            except Exception:
+                                pass
+                            dictando = False
+                            ultimo_audio = audio_dictado
+                            audio_dictado = []
+                            rec = nuevo_reconocedor()
+                        # en dictado no se evalua la palabra de activacion
+                        if ahora - ultimo_pulso >= INTERVALO_PULSO:
+                            ultimo_pulso = ahora
+                        continue
+
+                    # OJO: aqui NO vale un 'continue'. Saltaria tambien el pulso del
+                    # final del bucle, que es justo lo que registra el diagnostico y
+                    # recalibra la ganancia, y durante el silencio -o sea, casi
+                    # siempre- dejariamos de hacer ambas cosas.
+                    decodificar = (arrastre > 0)
+                    if not decodificar:
+                        prebuffer.append(bloque)
+
+                    # al arrancar la voz se recupera el pre-buffer, para no perder
+                    # el principio de la palabra
+                    if decodificar and prebuffer:
+                        for b in prebuffer:
+                            if rec.AcceptWaveform(b):
+                                pass   # descartado: es solo contexto previo
+                        prebuffer.clear()
+                    if decodificar:
+                        bloques_decodificados += 1
+                    # Solo se mira el resultado FINAL: los parciales cambian de
+                    # hipotesis constantemente y no traen confianza por palabra.
+                    if decodificar and rec.AcceptWaveform(bloque):
+                        resultado = json.loads(rec.Result())
+                        texto = resultado.get("text", "")
+                        if texto:
+                            plano = sin_tildes(texto)
+                            if pico > pico_voz:
+                                pico_voz = pico
+                            if PATRON_NOMBRE.search(plano):
+                                conf = 0.0
+                                solo_boton = bool(MARCA_SOLO_BOTON) and os.path.exists(MARCA_SOLO_BOTON)
+                                salida = nivel_salida()
+                                for p in resultado.get("result", []):
+                                    if sin_tildes(p.get("word", "")) == NOMBRE_PLANO:
+                                        conf = max(conf, float(p.get("conf", 0.0)))
+                                if solo_boton:
+                                    if ahora - ultimo_aviso_solo_boton > 60:
+                                        ultimo_aviso_solo_boton = ahora
+                                        anota("'%s' ignorado: estas jugando, aqui solo vale el boton" % texto)
+                                elif salida > UMBRAL_ALTAVOZ_FUERTE:
+                                    if ahora - ultimo_aviso_solo_boton > 60:
+                                        ultimo_aviso_solo_boton = ahora
+                                        anota("'%s' ignorado: los altavoces suenan fuerte (%.3f), la palabra no es de fiar"
+                                              % (texto, salida))
+                                elif pico_rafaga < UMBRAL_VOZ:
+                                    # Vosk daba confianza 1.00 al nombre sobre
+                                    # bloques de pico 0.000, o sea silencio puro
+                                    # amplificado. Sin haber sonado nada no hay
+                                    # nada que reconocer.
+                                    anota("descartado '%s': sin voz real (pico rafaga %.4f)"
+                                          % (texto, pico_rafaga))
+                                elif conf < umbral_confianza(plano):
+                                    anota("descartado '%s': confianza %.2f < %.2f%s"
+                                          % (texto, conf, umbral_confianza(plano),
+                                             "" if len(plano.split()) <= PALABRAS_SIN_SOSPECHA
+                                             else " (frase larga: se exige mas)"))
+                                elif ahora - ultima_marca > 2.0:
+                                    # antirebote: no disparar dos veces por lo mismo
+                                    ultima_marca = ahora
+                                    anota("ACTIVADO por '%s' (confianza %.2f, pico %.3f, ganancia x%.1f, altavoces %.3f)"
+                                          % (texto, conf, pico, ganancia, nivel_salida()))
+                                    try:
+                                        with open(MARCA, "w", encoding="utf-8") as f:
+                                            f.write(time.strftime("%Y-%m-%dT%H:%M:%S"))
+                                    except Exception:
+                                        pass
+                                    rec = nuevo_reconocedor()
+
+                # pulso periodico: estado, nivel y ajuste de ganancia
+                if ahora - ultimo_pulso >= INTERVALO_PULSO:
+                    # Se exige voz SOSTENIDA, no un pico suelto: un transitorio de
+                    # 250 ms no debe recalibrar nada. Y NO se recalibra mientras suenan los altavoces. Lo que entra
+                    # entonces es sobre todo el altavoz, no tu voz, y el calculo sale
+                    # al reves: pico alto -> ganancia baja (se vio x0.7 con los
+                    # altavoces a 0.55). Con la voz entrando a 0.02-0.05, amplificar
+                    # x0.7 es quedarse sordo justo cuando mas falta hace decir
+                    # "nova, pausa". Se conserva la ultima calibracion buena y se
+                    # vuelve a ajustar cuando haya silencio.
+                    altavoces_altos = nivel_salida() > UMBRAL_ALTAVOZ
+                    if automatica and altavoces_altos and bloques_voz >= MIN_BLOQUES_VOZ:
+                        anota("pulso: ganancia congelada en x%.1f (suenan los altavoces: %.3f)"
+                              % (ganancia, nivel_salida()))
+                        escribir(RUTA_ESTADO, "%.1f|0|%.3f|%d" % (ganancia, nivel_salida(), bloques_voz))
+                    elif automatica and bloques_voz >= MIN_BLOQUES_VOZ and picos:
+                        ref = float(np.percentile(np.array(picos), 90))
+                        ref = max(ref, 1e-6)
+                        # El pico es CRUDO, antes de amplificar: la ganancia se
+                        # calcula desde cero. Multiplicarla por la actual la
+                        # componia en cada ciclo hasta el tope, y ahi la voz salia
+                        # recortada y no se reconocia nada.
+                        nueva = max(GANANCIA_MIN, min(GANANCIA_MAX, PICO_OBJETIVO / ref))
+                        # asimetrico: subir rapido, bajar despacio, para que un
+                        # ruido puntual no deje sordo el minuto siguiente
+                        factor = 0.6 if nueva > ganancia else 0.2
+                        propuesta = ganancia + (nueva - ganancia) * factor
+                        # segunda red: tope de salto por ciclo
+                        propuesta = max(ganancia - PASO_MAX, min(ganancia + PASO_MAX, propuesta))
+                        ganancia = round(max(GANANCIA_MIN, min(GANANCIA_MAX, propuesta)), 1)
+                        anota("pulso: p90=%.4f bloques_voz=%d ganancia=x%.1f decodificado=%d%% altavoces=%.3f"
+                              % (ref, bloques_voz, ganancia, pct_dec(), nivel_salida()))
+                        escribir(RUTA_GANANCIA, "%.1f" % ganancia)
+                        escribir(RUTA_ESTADO, "%.1f|%.4f|%.3f|%d" % (ganancia, ref, nivel_salida(), bloques_voz))
                     else:
-                        p = json.loads(rec.PartialResult()).get("partial", "")
-                        if p:
-                            escribir(PARCIAL, (" ".join(dictado) + " " + p).strip())
-                    # fin por silencio (habiendo oido algo) o por tope duro
-                    hay_algo = len(dictado) > 0 or bool(json.loads(rec.PartialResult()).get("partial", ""))
-                    if ((ahora - ultima_voz) >= SILENCIO_FIN and hay_algo) or \
-                       ((ahora - dicta_inicio) >= DICTADO_MAX):
-                        resto = json.loads(rec.FinalResult()).get("text", "")
-                        if resto:
-                            dictado.append(resto)
-                        texto_vosk = " ".join([t for t in dictado if t])
-                        texto_final = texto_vosk
-                        anotar_voz(audio_dictado)
-                        # Cerrar por el tope de 30 s SIN haber oido nada quiere
-                        # decir que eso no era una orden, sino ruido continuo.
-                        # Antes se le daban igual 15 s de ruido a Whisper: unos
-                        # 29 s de CPU con el bucle bloqueado -sordo y sin mirar
-                        # la marca de activacion- para entregar un texto que
-                        # ademas llega cuando el asistente ya se ha rendido.
-                        callado = (not hay_algo) and (ahora - dicta_inicio) >= DICTADO_MAX
-                        if callado:
-                            anota("dictado: %.0f s sin oir nada; no hay nada que transcribir"
-                                  % DICTADO_MAX)
-                            texto_final = ""
-                        if whisper is not None and not callado:
-                            escribir(PARCIAL, texto_vosk)
-                            mejor = transcribir_whisper(audio_dictado)
-                            if mejor:
-                                texto_final = mejor
-                            vaciar_cola("transcripcion")
-                        texto_final = quitar_nombre(texto_final)
-                        anota("dictado: '%s'" % texto_final)
-                        escribir(TEXTO, texto_final)
-                        try:
-                            os.remove(DICTAR)
-                        except Exception:
-                            pass
-                        dictando = False
-                        ultimo_audio = audio_dictado
-                        audio_dictado = []
-                        rec = nuevo_reconocedor()
-                    # en dictado no se evalua la palabra de activacion
-                    if ahora - ultimo_pulso >= INTERVALO_PULSO:
-                        ultimo_pulso = ahora
-                    continue
-
-                # OJO: aqui NO vale un 'continue'. Saltaria tambien el pulso del
-                # final del bucle, que es justo lo que registra el diagnostico y
-                # recalibra la ganancia, y durante el silencio -o sea, casi
-                # siempre- dejariamos de hacer ambas cosas.
-                decodificar = (arrastre > 0)
-                if not decodificar:
-                    prebuffer.append(bloque)
-
-                # al arrancar la voz se recupera el pre-buffer, para no perder
-                # el principio de la palabra
-                if decodificar and prebuffer:
-                    for b in prebuffer:
-                        if rec.AcceptWaveform(b):
-                            pass   # descartado: es solo contexto previo
-                    prebuffer.clear()
-                if decodificar:
-                    bloques_decodificados += 1
-                # Solo se mira el resultado FINAL: los parciales cambian de
-                # hipotesis constantemente y no traen confianza por palabra.
-                if decodificar and rec.AcceptWaveform(bloque):
-                    resultado = json.loads(rec.Result())
-                    texto = resultado.get("text", "")
-                    if texto:
-                        plano = sin_tildes(texto)
-                        if pico > pico_voz:
-                            pico_voz = pico
-                        if PATRON_NOMBRE.search(plano):
-                            conf = 0.0
-                            solo_boton = bool(MARCA_SOLO_BOTON) and os.path.exists(MARCA_SOLO_BOTON)
-                            salida = nivel_salida()
-                            for p in resultado.get("result", []):
-                                if sin_tildes(p.get("word", "")) == NOMBRE_PLANO:
-                                    conf = max(conf, float(p.get("conf", 0.0)))
-                            if solo_boton:
-                                if ahora - ultimo_aviso_solo_boton > 60:
-                                    ultimo_aviso_solo_boton = ahora
-                                    anota("'%s' ignorado: estas jugando, aqui solo vale el boton" % texto)
-                            elif salida > UMBRAL_ALTAVOZ_FUERTE:
-                                if ahora - ultimo_aviso_solo_boton > 60:
-                                    ultimo_aviso_solo_boton = ahora
-                                    anota("'%s' ignorado: los altavoces suenan fuerte (%.3f), la palabra no es de fiar"
-                                          % (texto, salida))
-                            elif pico_rafaga < UMBRAL_VOZ:
-                                # Vosk daba confianza 1.00 al nombre sobre
-                                # bloques de pico 0.000, o sea silencio puro
-                                # amplificado. Sin haber sonado nada no hay
-                                # nada que reconocer.
-                                anota("descartado '%s': sin voz real (pico rafaga %.4f)"
-                                      % (texto, pico_rafaga))
-                            elif conf < umbral_confianza(plano):
-                                anota("descartado '%s': confianza %.2f < %.2f%s"
-                                      % (texto, conf, umbral_confianza(plano),
-                                         "" if len(plano.split()) <= PALABRAS_SIN_SOSPECHA
-                                         else " (frase larga: se exige mas)"))
-                            elif ahora - ultima_marca > 2.0:
-                                # antirebote: no disparar dos veces por lo mismo
-                                ultima_marca = ahora
-                                anota("ACTIVADO por '%s' (confianza %.2f, pico %.3f, ganancia x%.1f, altavoces %.3f)"
-                                      % (texto, conf, pico, ganancia, nivel_salida()))
-                                try:
-                                    with open(MARCA, "w", encoding="utf-8") as f:
-                                        f.write(time.strftime("%Y-%m-%dT%H:%M:%S"))
-                                except Exception:
-                                    pass
-                                rec = nuevo_reconocedor()
-
-            # pulso periodico: estado, nivel y ajuste de ganancia
-            if ahora - ultimo_pulso >= INTERVALO_PULSO:
-                # Se exige voz SOSTENIDA, no un pico suelto: un transitorio de
-                # 250 ms no debe recalibrar nada. Y NO se recalibra mientras suenan los altavoces. Lo que entra
-                # entonces es sobre todo el altavoz, no tu voz, y el calculo sale
-                # al reves: pico alto -> ganancia baja (se vio x0.7 con los
-                # altavoces a 0.55). Con la voz entrando a 0.02-0.05, amplificar
-                # x0.7 es quedarse sordo justo cuando mas falta hace decir
-                # "nova, pausa". Se conserva la ultima calibracion buena y se
-                # vuelve a ajustar cuando haya silencio.
-                altavoces_altos = nivel_salida() > UMBRAL_ALTAVOZ
-                if automatica and altavoces_altos and bloques_voz >= MIN_BLOQUES_VOZ:
-                    anota("pulso: ganancia congelada en x%.1f (suenan los altavoces: %.3f)"
-                          % (ganancia, nivel_salida()))
-                    escribir(RUTA_ESTADO, "%.1f|0|%.3f|%d" % (ganancia, nivel_salida(), bloques_voz))
-                elif automatica and bloques_voz >= MIN_BLOQUES_VOZ and picos:
-                    ref = float(np.percentile(np.array(picos), 90))
-                    ref = max(ref, 1e-6)
-                    # El pico es CRUDO, antes de amplificar: la ganancia se
-                    # calcula desde cero. Multiplicarla por la actual la
-                    # componia en cada ciclo hasta el tope, y ahi la voz salia
-                    # recortada y no se reconocia nada.
-                    nueva = max(GANANCIA_MIN, min(GANANCIA_MAX, PICO_OBJETIVO / ref))
-                    # asimetrico: subir rapido, bajar despacio, para que un
-                    # ruido puntual no deje sordo el minuto siguiente
-                    factor = 0.6 if nueva > ganancia else 0.2
-                    propuesta = ganancia + (nueva - ganancia) * factor
-                    # segunda red: tope de salto por ciclo
-                    propuesta = max(ganancia - PASO_MAX, min(ganancia + PASO_MAX, propuesta))
-                    ganancia = round(max(GANANCIA_MIN, min(GANANCIA_MAX, propuesta)), 1)
-                    anota("pulso: p90=%.4f bloques_voz=%d ganancia=x%.1f decodificado=%d%% altavoces=%.3f"
-                          % (ref, bloques_voz, ganancia, pct_dec(), nivel_salida()))
-                    escribir(RUTA_GANANCIA, "%.1f" % ganancia)
-                    escribir(RUTA_ESTADO, "%.1f|%.4f|%.3f|%d" % (ganancia, ref, nivel_salida(), bloques_voz))
-                else:
-                    anota("pulso: sin voz sostenida (%d bloques) ganancia=x%.1f decodificado=%d%% altavoces=%.3f"
-                          % (bloques_voz, ganancia, pct_dec(), nivel_salida()))
-                    escribir(RUTA_ESTADO, "%.1f|0|%.3f|%d" % (ganancia, nivel_salida(), bloques_voz))
-                picos = []
-                bloques_voz = 0
-                # tres recortes sueltos repartidos en horas (un portazo, una
-                # tos) no deben sumarse hasta provocar una bajada espuria
-                recortes = 0
-                ultimo_pulso = ahora
+                        anota("pulso: sin voz sostenida (%d bloques) ganancia=x%.1f decodificado=%d%% altavoces=%.3f"
+                              % (bloques_voz, ganancia, pct_dec(), nivel_salida()))
+                        escribir(RUTA_ESTADO, "%.1f|0|%.3f|%d" % (ganancia, nivel_salida(), bloques_voz))
+                    picos = []
+                    bloques_voz = 0
+                    # tres recortes sueltos repartidos en horas (un portazo, una
+                    # tos) no deben sumarse hasta provocar una bajada espuria
+                    recortes = 0
+                    ultimo_pulso = ahora
+            except Exception as e:
+                # Una vuelta que falle no se lleva el worker por delante: se
+                # anota y se sigue con la siguiente. Antes cualquier json.loads
+                # raro de Vosk mataba el proceso, y con el el dictado en curso.
+                anota("fallo en una vuelta del bucle: %s" % e)
+                try:
+                    rec = nuevo_reconocedor()
+                except Exception:
+                    pass
+                continue
 except Exception as e:
     anota("ERROR en el bucle: %s" % e)
     sys.exit(1)

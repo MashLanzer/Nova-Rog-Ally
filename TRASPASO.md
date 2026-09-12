@@ -684,6 +684,12 @@ Lo que costó afinar, y por qué está como está:
   «abre»), «los» → «SILENT BREATH» no pasa. Si no se parece, no es que oyera
   mejor: se lo inventó. El modelo preciso se carga **perezosamente**
   (~500 MB, 8 hilos) la primera vez que hace falta.
+- **Cada vuelta del bucle va en su propio `try`** (11/09). Antes todo el cuerpo
+  colgaba de un único `try` exterior, así que un `json.loads` sobre una salida
+  rara de Vosk o un `np.frombuffer` con un bloque impar **mataban el worker
+  completo**: hay supervisión y se relanza, pero cada muerte se lleva el
+  dictado en curso, deja las marcas puestas y vuelve a pagar los ~7 s de carga
+  de Whisper. Ahora se anota el fallo, se rehace el reconocedor y se sigue.
 - **Dictado por Vosk** (`input.dictado = "vosk"`): mismo camino sin Whisper;
   el modelo pequeño transcribe mal las órdenes. Se conserva como respaldo.
 - **Confirmación sí/no**: cuando la capa local acierta una orden solo por

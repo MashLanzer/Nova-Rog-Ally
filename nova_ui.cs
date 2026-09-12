@@ -1982,10 +1982,14 @@ public class NovaUI : Window
         mirada.Y = miradaY * 0.5;
         // los ojos miran mas que el reflejo
         trasOjoIzq.X = miradaX * 1.1; trasOjoDer.X = miradaX * 1.1;
-        if (expresion == "normal" || expresion == "atentos" || expresion == "abiertos" || expresion == "cautos" || expresion == "entrecerrados")
-        {
-            // (la Y de la expresion la lleva la animacion; aqui solo si no hay desplazamiento propio)
-        }
+        // LOS OJOS NO SIGUEN EN VERTICAL, y es a proposito. La Y de trasOjo* la
+        // anima la expresion (Entonar sube la mirada, "paciencia" la baja...) y
+        // escribirla aqui a mano no haria nada: una animacion con HoldEnd manda
+        // sobre el valor asignado. Para que los ojos siguieran tambien en Y
+        // habria que meter un segundo TranslateTransform en el TransformGroup,
+        // dedicado solo a la mirada, y eso toca todas las expresiones -que es lo
+        // que mas se nota de la carita- por una mejora puramente estetica. El
+        // reflejo (mirada.Y, arriba) si sigue en vertical.
         if (Cine()) { cercaAhora = false; }
         if (cercaAhora != cerca)
         {
@@ -2093,9 +2097,13 @@ public class NovaUI : Window
     // ---------------------------------------------------------------
     void Tic33()
     {
+        // La caducidad de la prisa va FUERA del bloque de la onda: si el estado
+        // dejaba de ser "escuchando" antes de los 3 s, la onda se colapsaba,
+        // aqui ya no se entraba y prisaHasta se quedaba con valor. El parpadeo
+        // seguia acelerado hasta la siguiente escucha.
+        if (prisaHasta != DateTime.MinValue && DateTime.UtcNow > prisaHasta) { prisaHasta = DateTime.MinValue; velocidadOnda = 0.45; }
         if (onda.Visibility == Visibility.Visible)
         {
-            if (prisaHasta != DateTime.MinValue && DateTime.UtcNow > prisaHasta) { prisaHasta = DateTime.MinValue; velocidadOnda = 0.45; }
             fase += velocidadOnda;
             nivelActual += (nivelObjetivo - nivelActual) * 0.22;
             double nivel = Math.Max(nivelActual, 0.18);
@@ -2276,6 +2284,7 @@ public class NovaUI : Window
     {
         string est = "reposo", txt = "", evento = "", juego = "", audio = "", perfil = "", clima = "";
         double niv = 0, tFin = 0, tTotal = 0, an = 0;
+        bool cambioVoz = false;
         int n = 0, bat = 100, carg = 0, cpu = 0;
         try
         {
@@ -2317,7 +2326,7 @@ public class NovaUI : Window
                 double pr; int vz;
                 double.TryParse(Campo(j, "progreso", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out pr);
                 int.TryParse(Campo(j, "voz", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out vz);
-                if (vz != voz) { voz = vz; }
+                if (vz != voz) { voz = vz; cambioVoz = true; }
                 if (Math.Abs(pr - progreso) > 0.005)
                 {
                     progreso = pr;
@@ -2355,7 +2364,9 @@ public class NovaUI : Window
         nivelObjetivo = niv;
         tempoFin = tFin; tempoTotal = tTotal;
 
-        bool repintar = false;
+        // el tinte por hablante tambien tiene que repintar: antes solo se veia
+        // si ademas cambiaba el estado o el texto
+        bool repintar = cambioVoz;
         bool bajaAntes = BateriaBaja(), agitadoAntes = Agitado(), desanimadoAntes = Desanimado();
         bateria = bat; cargando = (carg != 0); carga = cpu; animo = an;
         if (BateriaBaja() != bajaAntes || Agitado() != agitadoAntes || Desanimado() != desanimadoAntes) { Latido(); repintar = true; }
