@@ -32,10 +32,6 @@ ni con batería):
 
 ## Funciones nuevas
 
-- [ ] **3. Listas de verdad, no notas.**
-      «Apunta pan en la lista de la compra», «¿qué tengo en la lista?», «borra el
-      primero». El diario guarda texto suelto; una lista se tacha y se vacía.
-
 - [ ] **5. Reglas sobre cualquier app, no solo juegos de Steam.**
       «Cuando abra Spotify, baja el juego al 40». El motor de reglas ya existe
       entero; solo mira juegos, que es la mitad de los casos.
@@ -112,6 +108,8 @@ ni con batería):
   una ventana delante**: ver arriba.
 - **13. Cola visible.** Una fila de puntos cuando la orden lleva más de una
   cosa: el actual encendido, los hechos apagados, el que falla en rojo.
+- **3. Listas de verdad.** Se añade, se lee, se tacha y se vacía (preguntando
+  antes). En `memoria\listas.json`. `tools\probar-listas.ps1`.
 - **El fallo rojo del banco.** «Se pone siempre encima» llevaba días en rojo y
   era de la prueba, no del asistente: sobre una ventana que nunca se ha
   mostrado, `SetWindowPos(HWND_TOPMOST)` devuelve true sin marcar nada. El
@@ -119,10 +117,10 @@ ni con batería):
 
 ## Por dónde empezar
 
-Si hay que elegir: la **3** (listas de verdad) y la **10** («¿qué he hecho
-hoy?»), que son las dos que aprovechan datos que ya se guardan y que no recoge
-nadie. Después la **8** (copia de seguridad de lo aprendido), que es barata y
-es lo único que protege meses de ajustes de un JSON corrupto.
+Si hay que elegir: la **10** («¿qué he hecho hoy?»), que junta datos que ya se
+guardan y que no recoge nadie. Después la **8** (copia de seguridad de lo
+aprendido), que es barata y es lo único que protege meses de ajustes de un
+JSON corrupto — y ahora hay una cosa más que proteger, las listas.
 
 ---
 
@@ -146,3 +144,9 @@ Están todas contadas en los commits, pero por si acaso:
   a hacerse. Para reglas y cosas que escriben archivos, hace falta prueba
   aparte (hay ejemplos en `tools\probar-*.ps1`).
 - `config.json` va SIN BOM: lo leen también los workers de Python, en crudo.
+- Hay ATAJOS en `Process-Texto`, antes de todos los patrones: "apunta ...",
+  "recuerda ...", "crea el modo ...". El banco de `-Probar` NO pasa por ahí,
+  así que una orden puede decir en el banco que va a un sitio y en vivo acabar
+  en otro. Pasó el 12/09 con las listas: el banco decía "apuntar pan" y en vivo
+  se archivaba en el diario. Si algo se comporta distinto en vivo que en el
+  banco, mirar esos atajos primero.

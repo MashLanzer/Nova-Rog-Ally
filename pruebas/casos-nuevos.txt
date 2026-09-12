@@ -205,3 +205,8 @@ dicta un correo
 dicta un mensaje
 empieza a dictar
 voy a dictar
+apunta pan en la lista de la compra
+que tengo en la lista
+quita los huevos de la lista
+que listas tengo
+vacia la lista

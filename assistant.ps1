@@ -803,6 +803,54 @@ function Resolve-Target([string]$t) {
 $MemoriaDir = Join-Path $LogDir "memoria"
 $DiarioDir = Join-Path $MemoriaDir "diario"
 
+# LISTAS DE VERDAD, no notas sueltas.
+# El diario guarda texto y ya: "recuerda que compre pan" es una linea mas entre
+# cientos. Una lista es otra cosa -se le anade, se le quita y se vacia- y eso no
+# se puede hacer con lineas de diario. Va en su propio archivo, junto a la
+# memoria, porque son datos tuyos y no tienen que subir a GitHub.
+# Se guarda como objeto {nombre: [items]}, no como array: asi el archivo se lee
+# igual de bien a mano si algun dia hay que arreglarlo.
+$RutaListas = Join-Path $MemoriaDir "listas.json"
+function Get-Listas {
+    try {
+        if (-not (Test-Path -LiteralPath $RutaListas)) { return @{} }
+        $datos = Get-Content -LiteralPath $RutaListas -Raw -Encoding UTF8 | ConvertFrom-Json
+        $h = @{}
+        foreach ($prop in $datos.PSObject.Properties) { $h[$prop.Name] = @($prop.Value) }
+        return $h
+    } catch { Log ("listas: no pude leerlas (" + $_.Exception.Message + ")"); return @{} }
+}
+function Save-Listas($listas) {
+    try {
+        if (-not (Test-Path -LiteralPath $MemoriaDir)) { New-Item -ItemType Directory -Force -Path $MemoriaDir | Out-Null }
+        $o = New-Object PSObject
+        foreach ($k in $listas.Keys) { $o | Add-Member -NotePropertyName $k -NotePropertyValue @($listas[$k]) -Force }
+        [System.IO.File]::WriteAllText($RutaListas, ($o | ConvertTo-Json -Depth 5), (New-Object System.Text.UTF8Encoding($false)))
+        return $true
+    } catch { Log ("listas: no pude guardarlas (" + $_.Exception.Message + ")"); return $false }
+}
+# "la lista", a secas: si solo tienes una, es esa. Si tienes varias, la de la
+# compra si existe, y si no hay ninguna se crea la de la compra. Preguntar
+# "¿cual de tus tres listas?" cada vez seria justo lo que no quieres con el
+# mando en la mano.
+function Resolve-Lista([string]$nombre, $listas) {
+    $n = (ConvertTo-Plain $nombre).Trim()
+    $n = ($n -replace '^(?:la|el|los|las|mi|mis)\s+', '').Trim()
+    if ($n) {
+        foreach ($k in $listas.Keys) { if ((ConvertTo-Plain $k) -eq $n) { return $k } }
+        return $n
+    }
+    if ($listas.Keys.Count -eq 1) { return @($listas.Keys)[0] }
+    foreach ($k in $listas.Keys) { if ((ConvertTo-Plain $k) -eq 'compra') { return $k } }
+    return 'compra'
+}
+function Format-Lista([string]$nombre, $items) {
+    if (-not $items -or @($items).Count -eq 0) { return "la lista de $nombre esta vacia" }
+    $n = @($items).Count
+    $cuantos = if ($n -eq 1) { "1 cosa" } else { "$n cosas" }
+    return "en la lista de $nombre tienes ${cuantos}: " + (@($items) -join ', ')
+}
+
 function Add-Memoria([string]$texto) {
     if (-not (Test-Path -LiteralPath $DiarioDir)) { New-Item -ItemType Directory -Force -Path $DiarioDir | Out-Null }
     $nota = Join-Path $DiarioDir ((Get-Date -Format 'yyyy-MM-dd') + '.md')
@@ -1395,7 +1443,31 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(?:que (?:tengo )?copiado|que copie|que hay en el portapapeles|que tengo en el portapapeles|que hay copiado)$') {
         return @(@{ kind = 'queCopiado'; desc = 'que tengo copiado' })
     }
-    if ($f -match '^(?:recuerda|recuerdame|acuerdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!en\s+\d+\s*(?:segundo|minuto|hora))(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?:que\s+|de\s+que\s+)?(.+)$') {
+    # --- LISTAS ---
+    # Van ANTES que "apunta ..." (que escribe en el diario), porque "apunta pan
+    # en la lista de la compra" encaja tambien alli y acabaria como una linea
+    # suelta de diario, que es justo lo que no sirve.
+    if ($f -match '^(?:apunta|anota|anade|agrega|mete|pon|sumale|echa)\s+(.+?)\s+(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+(.+))?$') {
+        $cosa = $Matches[1].Trim(); $cual = $Matches[2]
+        if ($cosa) { return @(@{ kind = 'listaAdd'; cosa = $cosa; lista = $cual; desc = "apuntar $cosa" }) }
+    }
+    if ($f -match '^(?:que|cuanto)\s+(?:tengo|hay|queda|me queda|falta)\s+(?:en\s+)?(?:la\s+|mi\s+)?lista(?:\s+de\s+(.+))?$' -or
+        $f -match '^(?:lee|leeme|dime|dame|ensename|muestrame)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+(.+))?$' -or
+        $f -match '^(?:la\s+)?lista(?:\s+de\s+(.+))?$') {
+        return @(@{ kind = 'listaVer'; lista = $Matches[1]; desc = 'ver la lista' })
+    }
+    if ($f -match '^(?:que listas|cuantas listas|mis listas|que listas tengo|que listas hay)$') {
+        return @(@{ kind = 'listaCuales'; desc = 'que listas tengo' })
+    }
+    # vaciar va ANTES de quitar una cosa: "borra la lista" encaja en los dos
+    if ($f -match '^(?:borra|vacia|limpia|tira|quita)\s+(?:toda\s+)?(?:la\s+|mi\s+)?lista(?:\s+de\s+(.+))?$') {
+        return @(@{ kind = 'listaVaciar'; lista = $Matches[1]; desc = 'vaciar la lista' })
+    }
+    if ($f -match '^(?:borra|quita|tacha|elimina|saca)\s+(?:el\s+|la\s+|lo\s+)?(.+?)\s+(?:de\s+)?(?:la\s+|mi\s+)?lista(?:\s+de\s+(.+))?$') {
+        $cosa = $Matches[1].Trim(); $cual2 = $Matches[2]
+        if ($cosa) { return @(@{ kind = 'listaQuitar'; cosa = $cosa; lista = $cual2; desc = "quitar $cosa de la lista" }) }
+    }
+    if ($f -match '^(?:recuerda|recuerdame|acuerdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!en\s+\d+\s*(?:segundo|minuto|hora))(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?:que\s+|de\s+que\s+)?(.+)$') {
         return @(@{ kind = 'memoria'; texto = $Matches[1].Trim(); desc = "anotar en la memoria" })
     }
     # El lugar puede preceder al verbo ("en el navegador busca X"). Se separa
@@ -2343,7 +2415,7 @@ function Test-FastCommand([string]$text) {
     # ojo: los mismos lookaheads que el ejecutor. Con el patron corto, este
     # atajo devolvia $true y se saltaba Resolve-Fragment, de modo que el
     # banco no podia ver que "guarda el archivo" acababa en el diario.
-    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!en\s+\d+\s*(?:segundo|minuto|hora))(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?:que\s+|de\s+que\s+)?(.+)$') { return $true }
+    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!en\s+\d+\s*(?:segundo|minuto|hora))(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?:que\s+|de\s+que\s+)?(.+)$') { return $true }
     # Reglas y recordatorios con hora: los decide Invoke-ReglaVoz, que SI crea
     # cosas, asi que aqui no se puede llamar. Se responde $true solo si la
     # frase tiene la forma de una regla; el banco las prueba aparte llamando
@@ -2416,7 +2488,7 @@ function Invoke-FastCommand([string]$text) {
     # tildes, que es justo lo que no quieres leer meses despues en Obsidian.
     # mismo lookahead que en Resolve-Fragment: "en 20 minutos" es temporizador,
     # no una nota para el diario
-    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!en\s+\d+\s*(?:segundo|minuto|hora))(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?:que\s+|de\s+que\s+)?(.+)$') {
+    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!en\s+\d+\s*(?:segundo|minuto|hora))(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?:que\s+|de\s+que\s+)?(.+)$') {
         $frase = $Matches[1].Trim()
         if ($frase.Length -gt 0) {
             $null = Add-Memoria $frase
@@ -2770,6 +2842,99 @@ function Invoke-FastCommand([string]$text) {
                     }
                 }
                 'parte' { $a.desc = (Get-ParteGeneral) }
+                'listaAdd' {
+                    $listas = Get-Listas
+                    $cual = Resolve-Lista ([string]$a.lista) $listas
+                    $items = @()
+                    if ($listas.ContainsKey($cual)) { $items = @($listas[$cual]) }
+                    $yaEsta = $false
+                    foreach ($it in $items) { if ((ConvertTo-Plain $it) -eq (ConvertTo-Plain $a.cosa)) { $yaEsta = $true } }
+                    if ($yaEsta) {
+                        $a.desc = "$($a.cosa) ya estaba en la lista de $cual"
+                    } else {
+                        $items += [string]$a.cosa
+                        $listas[$cual] = $items
+                        if (Save-Listas $listas) {
+                            $a.desc = "apuntado, en la lista de $cual llevas $(@($items).Count)"
+                        } else {
+                            $a.desc = "no pude guardar la lista"
+                        }
+                    }
+                }
+                'listaVer' {
+                    $listas = Get-Listas
+                    $cual = Resolve-Lista ([string]$a.lista) $listas
+                    if (-not $listas.ContainsKey($cual)) { $a.desc = "no tienes lista de $cual" }
+                    else { $a.desc = Format-Lista $cual $listas[$cual] }
+                }
+                'listaCuales' {
+                    $listas = Get-Listas
+                    if ($listas.Keys.Count -eq 0) {
+                        $a.desc = 'no tienes ninguna lista todavia'
+                    } else {
+                        $partes = @()
+                        foreach ($k in $listas.Keys) { $partes += "$k (" + @($listas[$k]).Count + ")" }
+                        $a.desc = 'tienes ' + ($partes -join ', ')
+                    }
+                }
+                'listaQuitar' {
+                    $listas = Get-Listas
+                    $cual = Resolve-Lista ([string]$a.lista) $listas
+                    if (-not $listas.ContainsKey($cual)) {
+                        $a.desc = "no tienes lista de $cual"
+                    } else {
+                        $items = @($listas[$cual])
+                        # sin articulo: se dice "quita los huevos" y en la lista
+                        # pone "huevos". Comparar en crudo fallaba justo en lo
+                        # mas normal que se puede decir.
+                        $plano = (ConvertTo-Plain $a.cosa) -replace '^(?:el|la|los|las|un|una|unos|unas|mi|mis)\s+', ''
+                        # "el primero" y "el ultimo" son lo que de verdad se dice
+                        # cuando ya has leido la lista en voz alta
+                        $quitar = -1
+                        if ($plano -match '^(?:primero|primera|primer|uno|el uno)$') { $quitar = 0 }
+                        elseif ($plano -match '^(?:ultimo|ultima|el ultimo)$') { $quitar = $items.Count - 1 }
+                        else {
+                            for ($k = 0; $k -lt $items.Count; $k++) {
+                                $it = (ConvertTo-Plain $items[$k]) -replace '^(?:el|la|los|las|un|una|unos|unas|mi|mis)\s+', ''
+                                if ($it -eq $plano) { $quitar = $k; break }
+                            }
+                            # y si no es exacto, que contenga: "quita el pan de molde"
+                            if ($quitar -lt 0) {
+                                for ($k = 0; $k -lt $items.Count; $k++) {
+                                    if ((ConvertTo-Plain $items[$k]) -like "*$plano*") { $quitar = $k; break }
+                                }
+                            }
+                        }
+                        if ($quitar -lt 0 -or $quitar -ge $items.Count) {
+                            $a.desc = "no encuentro $($a.cosa) en la lista de $cual"
+                        } else {
+                            $quitado = $items[$quitar]
+                            $nuevos = @()
+                            for ($k = 0; $k -lt $items.Count; $k++) { if ($k -ne $quitar) { $nuevos += $items[$k] } }
+                            $listas[$cual] = $nuevos
+                            $null = Save-Listas $listas
+                            $a.desc = if (@($nuevos).Count -eq 0) { "tachado $quitado, y con eso se acaba la lista" }
+                                      else { "tachado $quitado, quedan " + @($nuevos).Count }
+                        }
+                    }
+                }
+                'listaVaciar' {
+                    $listas = Get-Listas
+                    $cual = Resolve-Lista ([string]$a.lista) $listas
+                    if (-not $listas.ContainsKey($cual) -or @($listas[$cual]).Count -eq 0) {
+                        $a.desc = "la lista de $cual ya estaba vacia"
+                    } elseif (-not $script:confirmado) {
+                        # vaciar una lista de la compra a medio hacer es tan
+                        # irreversible como cerrar un juego: se pregunta
+                        $cuantos = @($listas[$cual]).Count
+                        $script:pendiente = @{ texto = "borra la lista de $cual"; vence = 0; tipo = 'peligrosa' }
+                        $a.desc = "en la lista de $cual hay $cuantos cosas. ¿La vacio?"
+                    } else {
+                        $listas.Remove($cual)
+                        $null = Save-Listas $listas
+                        $a.desc = "lista de $cual vaciada"
+                    }
+                }
                 'dictadoLargo' {
                     # la que tenias TU delante al empezar a hablar, no la que
                     # tiene el foco ahora (que ya es la del asistente)

@@ -46,6 +46,10 @@ Titulo "2o. Avisos sin voz (cuando hablar y cuando solo verse)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-avisos.ps1') | Select-String 'OK |MAL|todo correcto'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2p. Listas (se llenan, se leen, se tachan y se vacian)"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-listas.ps1') | Select-String 'OK |MAL|todo correcto'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2d. La tarjeta de respuestas largas (que no te saque del juego)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-tarjeta.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }

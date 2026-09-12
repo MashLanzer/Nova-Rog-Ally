@@ -69,3 +69,12 @@ minimiza todo => mostrar el escritorio
 dicta un correo => dictado largo
 empieza a dictar => dictado largo
 escribe hola que tal => escribir
+
+# --- las listas contra el diario: "apunta X" tiene un atajo antes de todo ---
+apunta pan en la lista de la compra => apuntar pan
+anade leche a la lista => apuntar leche
+que tengo en la lista => ver la lista
+quita el pan de la lista => quitar pan de la lista
+borra la lista => vaciar la lista
+recuerda que el wifi es 1234 => anotar en la memoria
+apunta esto => apuntar lo que hay en la pantalla
