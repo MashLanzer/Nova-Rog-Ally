@@ -257,7 +257,17 @@ CON QUÉ TE OYE, Y CUÁNDO (cambiado el 12/09 tras medirlo)
   ahí se quedaba a la vista. Ahora, al terminar, se termina el proceso
   TextInputHost: el panel se va en el acto, en cualquier estado, y Windows lo
   relanza solo en cuanto hace falta (el Win+H siguiente abrió a la primera).
-  Mientras dictas, el panel sigue viéndose: eso no tiene arreglo.
+  Mientras dictas, el panel se ve: Windows no deja ocultarlo. Probado todo,
+  con capturas, el 12/09: moverle la ventana (el panel no la sigue), hacerla
+  transparente (no le afecta) y cerrarlo con Win+H (solo lo pausa, a la
+  vista). Lo único que funciona es ARRASTRARLO por su asa: Windows recuerda
+  dónde lo dejas, incluso después de terminar TextInputHost. Se dejó
+  arrastrado a la esquina de abajo a la derecha, lejos de la cápsula, donde
+  ocupa poco. Si algún día vuelve a salir en el centro (por ejemplo tras una
+  actualización de Windows), basta con arrastrarlo una vez por la rayita de
+  arriba a la esquina que se quiera.
+  Por qué "antes no salía": hasta el 12/09 a las 19:07 las órdenes iban por
+  Whisper, que no enseña nada; Win+H solo se usaba en el dictado largo.
   Con eso arreglado, el 12/09 el usuario eligió "motorOrdenes": "windows"
   (Win+H para TODAS las órdenes, también jugando), sabiendo que el panel se
   ve durante cada orden y que le quita el foco un momento a lo que tenga
