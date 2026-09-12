@@ -1,4 +1,4 @@
-# Pasa TODAS las comprobaciones que no necesitan microfono ni arrancar nada.
+﻿# Pasa TODAS las comprobaciones que no necesitan microfono ni arrancar nada.
 # Pensado para ejecutarlo despues de cada cambio:
 #
 #   powershell -NoProfile -File tools\probar-todo.ps1
@@ -28,6 +28,10 @@ if ($LASTEXITCODE -ne 0) { $fallos++ }
 
 Titulo "2c. El JSON de la capsula (campos del oido y del plazo)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-json-ui.ps1') | Select-String 'OK |MAL|todo correcto'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2l. El parte general (que diga lo que hay y calle lo que no aporta)"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-parte.ps1') | Select-String 'OK |MAL|todo correcto'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
 Titulo "2d. La tarjeta de respuestas largas (que no te saque del juego)"

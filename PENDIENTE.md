@@ -40,11 +40,6 @@ ni con batería):
       «Apunta pan en la lista de la compra», «¿qué tengo en la lista?», «borra el
       primero». El diario guarda texto suelto; una lista se tacha y se vacía.
 
-- [ ] **4. «¿Cómo va todo?»** — *casi gratis, los datos ya se recogen*
-      Un parte único: batería y cuánto queda, CPU, disco, qué se descarga, a qué
-      juegas, si hay algo colgado, si está en sordina. Hoy son seis preguntas
-      distintas y hay que acordarse de las seis.
-
 - [ ] **5. Reglas sobre cualquier app, no solo juegos de Steam.**
       «Cuando abra Spotify, baja el juego al 40». El motor de reglas ya existe
       entero; solo mira juegos, que es la mitad de los casos.
@@ -118,12 +113,15 @@ ni con batería):
 - **14. El anillo del avatar como progreso de la descarga.** Y de paso salió
   que el aviso de "ya se descargó" no había funcionado nunca: una variable
   declarada dos veces y compartida por dos usos con claves distintas.
+- **4. «¿Cómo va todo?»** Un solo parte con las seis cosas que importan antes
+  de una partida, y callando lo que no aporta. Se prueba de verdad (lo que
+  dice, no solo que la frase se reconozca) con `tools\probar-parte.ps1`.
 
 ## Por dónde empezar
 
 Si hay que elegir: la **9**, porque sigue la línea de lo que se arregló estos
-días (que no actúe sin que se lo pidas). La **4** es casi gratis porque los
-datos ya están recogidos. Y la **15** es la que más se agradece en la Ally.
+días (que no actúe sin que se lo pidas). Y la **15** es la que más se agradece
+en la Ally, que en 7 pulgadas 13,5 px es pequeño de verdad.
 
 ---
 

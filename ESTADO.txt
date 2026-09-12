@@ -1,14 +1,15 @@
 ESTADO DEL ASISTENTE DE VOZ  (2026-09-12)
 ================================================
 
-EJECUTANDO AHORA: SÍ, desde el 12/09 a las 13:23. No lo encendió nadie: lo
-  arrancó la clave Run al iniciar sesión en Windows. Se había cerrado el 11/09
-  a las 20:30 porque se activaba solo mientras jugabas y abría cosas que nadie
-  había pedido; esas causas están corregidas (ver más abajo).
-  OJO: lo que está corriendo es la versión ANTERIOR a los cambios del 12/09
-  (el glifo de qué va a hacer, el anillo de la descarga y el arreglo del aviso
-  de descarga terminada). Para que los tome hay que reiniciarlo: cerrar el
-  proceso de assistant.ps1 y volver a lanzarlo.
+EJECUTANDO AHORA: SÍ, desde el 12/09 a las 13:57, ya con los cambios de ese
+  día (el glifo de qué va a hacer, el anillo de la descarga, el parte general
+  y el arreglo del aviso de descarga terminada). Ese día había arrancado solo
+  al iniciar sesión, por la clave Run; se reinició a mano para que los tomara.
+  Se había cerrado el 11/09 a las 20:30 porque se activaba solo mientras
+  jugabas y abría cosas que nadie había pedido; esas causas están corregidas
+  (ver más abajo).
+  Cada vez que se toque assistant.ps1 o nova_ui.cs hay que reiniciarlo: el
+  script se lee entero al arrancar.
 
   Para encenderlo:
     Start-Process powershell -ArgumentList '-NoProfile','-WindowStyle','Hidden',
@@ -31,9 +32,9 @@ EJECUTANDO AHORA: SÍ, desde el 12/09 a las 13:23. No lo encendió nadie: lo
     biblioteca de Steam: 14 juegos indexados
   Y decir en voz alta: "Listo. Di nova cuando me necesites."
 
-LO QUE QUEDA POR HACER: PENDIENTE.md (18 ideas con su porqué, y las trampas
+LO QUE QUEDA POR HACER: PENDIENTE.md (17 ideas con su porqué, y las trampas
   de esta base de código que conviene leer antes de tocar nada). El 12/09 se
-  hicieron la 11 y la 14.
+  hicieron la 4, la 11 y la 14.
 
 CÓMO SE USA
   1. Decir "nova"  (o mantener pulsado ≡ ~1,1 s) -> bip, se abre el dictado.
@@ -125,6 +126,15 @@ STEAM Y DISCO (nuevo): cosas que el asistente ya leía al arrancar y no
   termine de descargarse X" por NOMBRE-, así que cada uno veía las claves del
   otro como descargas recién terminadas. Ahora son dos variables, y la primera
   lectura solo toma nota: al arrancar no se sabe qué estaba bajando antes.
+
+¿CÓMO VA TODO? (nuevo): dilo tal cual, o "cómo vamos", "dame el parte",
+  "cómo está la consola". Un solo parte con lo que importa antes de una
+  partida: a qué juegas y desde cuándo, batería y cuánto queda, la descarga
+  en marcha, lo que queda en el disco de los juegos, si hay algo colgado sin
+  ventana y si está en sordina. Eran seis preguntas distintas y había que
+  acordarse de las seis. Calla lo que no aporta: el procesador solo sale si
+  está por encima del 85 %, y los colgados solo si los hay. Todos esos datos
+  ya se recogían; lo único que faltaba era juntarlos.
 
 APUNTAR LO QUE VES (nuevo): "apunta esto", "guarda este código", "anota
   lo que dice la pantalla". Lee la pantalla con OCR y lo guarda en tu diario

@@ -1124,6 +1124,85 @@ function Get-Atragantos {
     return @($lista | Sort-Object -Property @{ Expression = { $_.veces }; Descending = $true }, @{ Expression = { $_.frase } })
 }
 
+# La bateria, dicha como se dice. Estaba dentro del patron de "cuanta bateria";
+# ahora la usan ese patron y el parte general ("como va todo"), que es justo el
+# tipo de dato que no conviene tener contado de dos maneras distintas.
+# $corto: para el parte, donde va junto a otras cinco cosas.
+function Get-FraseBateria([bool]$corto = $false) {
+    $b = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $b -or -not $b.EstimatedChargeRemaining) { return '' }
+    $pc = [int]$b.EstimatedChargeRemaining
+    $t = if ($corto) { "bateria al $pc por ciento" } else { "Bateria al $pc por ciento" }
+    if ($b.BatteryStatus -eq 2) {
+        $t += if ($pc -ge 99) { ", cargada y enchufada" } else { " y cargando" }
+    } else {
+        # EstimatedRunTime: Windows devuelve un centinela enorme (71582788)
+        # mientras esta enchufado, asi que solo vale si es un numero de minutos
+        # con sentido.
+        $min = 0
+        try { $rt = [int]$b.EstimatedRunTime; if ($rt -gt 0 -and $rt -lt 1000) { $min = $rt } } catch {}
+        if ($min -gt 0) {
+            $h = [int][Math]::Floor($min / 60); $m = $min % 60
+            $cuanto = if ($h -ge 1) { "$h h $m min" } else { "$m minutos" }
+            $t += ", te quedan unos $cuanto"
+        }
+    }
+    return $t
+}
+
+# UN SOLO PARTE, en vez de seis preguntas. Todos estos datos ya se recogian por
+# separado; lo unico que faltaba era juntarlos. Se dice SOLO lo que aporta: el
+# procesador solo si esta alto, los colgados solo si los hay. Un parte que
+# siempre dice seis cosas no se escucha entero.
+# Esta aparte -y no dentro del switch- para que tools\probar-parte.ps1 pueda
+# sacarla del archivo real y comprobar lo que DICE, no solo que la frase se
+# reconozca.
+function Get-ParteGeneral {
+    $partes = @()
+    # 1. a que juegas: es el contexto de todo lo demas
+    if ($script:juegoActivo) {
+        $mins = [int](($sw.ElapsedMilliseconds - $script:juegoDesde) / 60000)
+        $partes += "estas en $($script:juegoActivo) desde hace $mins minutos"
+    }
+    # 2. bateria, con lo que queda
+    $fb = Get-FraseBateria $true
+    if ($fb) { $partes += $fb }
+    # 3. descargas (los manifiestos ya leidos, sin tocar Steam ni la red)
+    $bajando = @($script:Juegos | Where-Object { $_.bajando })
+    if ($bajando.Count -eq 1) {
+        $jb = $bajando[0]
+        $pct = [int](100.0 * $jb.descargado / [Math]::Max(1, $jb.total))
+        $partes += "$($jb.nombre) va por el $pct por ciento"
+    } elseif ($bajando.Count -gt 1) {
+        $partes += "$($bajando.Count) descargas en marcha"
+    }
+    # 4. disco: la unidad de los juegos, que es la que se llena
+    try {
+        $uni = 'C'
+        $sp = (Get-ItemProperty 'HKCU:\Software\Valve\Steam' -ErrorAction SilentlyContinue).SteamPath
+        if ($sp) { $uni = ($sp -replace '/', '\').Substring(0, 1).ToUpper() }
+        $di = New-Object System.IO.DriveInfo($uni)
+        if ($di.IsReady) { $partes += ("quedan " + (Format-Gigas $di.AvailableFreeSpace) + " en $uni") }
+    } catch {}
+    # 5. procesador, SOLO si esta alto: decir "al 10 por ciento" no le sirve a
+    #    nadie, y lo que se busca preguntando esto es el tiron
+    if ($script:uiCarga -ge 85) { $partes += "el procesador esta al $($script:uiCarga) por ciento" }
+    # 6. algo colgado sin ventana (lo que paso con Outlast 2)
+    try {
+        $zz = @(Get-JuegosZombis)
+        if ($zz.Count -eq 1) { $partes += "$($zz[0].nombre) sigue colgado sin ventana" }
+        elseif ($zz.Count -gt 1) { $partes += "hay $($zz.Count) juegos colgados sin ventana" }
+    } catch {}
+    # 7. y si estoy sorda, decirlo: es la respuesta a "por que no me haces caso",
+    #    y aqui no cuesta nada
+    if ($script:sordinaHasta -gt $sw.ElapsedMilliseconds) {
+        $quedan = [int][Math]::Ceiling(($script:sordinaHasta - $sw.ElapsedMilliseconds) / 60000.0)
+        $partes += "sigo en silencio $quedan minutos mas"
+    }
+    if ($partes.Count -eq 0) { return 'todo tranquilo' }
+    return ($partes -join ', ')
+}
+
 function Resolve-Fragment([string]$f) {
     # --- perfiles: una frase, varias acciones ("modo juego") ---
     if ($f -match '^(?:modo|activa el modo|activa modo|pon el modo|pon modo|ponte en modo|cambia a modo|entra en modo)\s+(.+)$') {
@@ -1252,26 +1331,8 @@ function Resolve-Fragment([string]$f) {
             return @(@{ kind = 'decir'; desc = ("Hoy es " + (Get-Date).ToString('dddd d "de" MMMM', $cul)) })
         }
         '^(?:cuanta bateria|cuanta pila|nivel de bateria|como esta la bateria|como esta la pila|cual es el estado de la bateria|estado de la bateria|cuanto le queda a la bateria|cuanta carga|como va la bateria|que tal la bateria)\b' {
-            $b = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Select-Object -First 1
-            if (-not $b -or -not $b.EstimatedChargeRemaining) {
-                return @(@{ kind = 'decir'; desc = "No pude leer la bateria" })
-            }
-            $pc = [int]$b.EstimatedChargeRemaining
-            $t = "Bateria al $pc por ciento"
-            if ($b.BatteryStatus -eq 2) {
-                $t += if ($pc -ge 99) { ", cargada y enchufada" } else { " y cargando" }
-            } else {
-                # EstimatedRunTime: Windows devuelve un centinela enorme
-                # (71582788) mientras esta enchufado, asi que solo vale si es un
-                # numero de minutos con sentido.
-                $min = 0
-                try { $rt = [int]$b.EstimatedRunTime; if ($rt -gt 0 -and $rt -lt 1000) { $min = $rt } } catch {}
-                if ($min -gt 0) {
-                    $h = [int][Math]::Floor($min / 60); $m = $min % 60
-                    $cuanto = if ($h -ge 1) { "$h h $m min" } else { "$m minutos" }
-                    $t += ", te quedan unos $cuanto"
-                }
-            }
+            $t = Get-FraseBateria
+            if (-not $t) { return @(@{ kind = 'decir'; desc = "No pude leer la bateria" }) }
             return @(@{ kind = 'decir'; desc = $t })
         }
         '^(?:cuantos juegos|que juegos tengo|mis juegos)\b' {
@@ -1367,6 +1428,15 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(?:cuanto\s+)?(?:espacio|disco|sitio)\s*(?:me\s+)?(?:queda|libre|hay|tengo)?$' -or
         $f -match '^cuanto (?:espacio|sitio) (?:me )?(?:queda|hay|tengo)\b') {
         return @(@{ kind = 'disco'; desc = 'espacio libre' })
+    }
+    # --- UN SOLO PARTE, en vez de seis preguntas ---
+    # Bateria, disco, descargas, a que juegas, si algo esta colgado y si estas
+    # en sordina se podian preguntar una a una desde hace tiempo. Nadie se
+    # acuerda de las seis seguidas, y justo antes de empezar una partida es
+    # cuando importan todas. OJO al orden: esto va DESPUES de "como va la
+    # descarga" y "como va la bateria", que son mas concretas.
+    if ($f -match '^(?:como va todo|como vamos|que tal todo|que tal va todo|como esta todo|como anda todo|como va la consola|como esta la consola|como esta el equipo|estado general|dame el parte|el parte|resumen|resumen general|como estamos)$') {
+        return @(@{ kind = 'parte'; desc = 'parte general' })
     }
     # --- ultima vez que jugaste a algo ---
     if ($f -match '^(?:cuando\s+)(?:jugue|juge|jugaba|lo jugue)\s*(?:a|al)?\s*(.*)$') {
@@ -2463,6 +2533,7 @@ function Invoke-FastCommand([string]$text) {
                         $a.desc = ($partes -join '; ')
                     }
                 }
+                'parte' { $a.desc = (Get-ParteGeneral) }
                 'disco' {
                     # la unidad donde estan los juegos, no siempre C:
                     $unidades = @('C')
