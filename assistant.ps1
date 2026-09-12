@@ -3936,6 +3936,9 @@ function Test-LoTengo([string]$vista) {
 # ambos caminos se comporten EXACTAMENTE igual.
 function Start-Dictado([string]$origen) {
     Log "DICTADO ($origen)"
+    # que no quede texto del oido de Windows de una orden anterior: si no, la
+    # nueva empezaria con basura del pasado
+    if ($VozWindowsOn) { Remove-Item -LiteralPath $RutaDictadoWin -Force -ErrorAction SilentlyContinue }
     $script:yaReintentado = $false
     # Cuantas veces se despierta por voz. Sin este numero no hay forma de
     # saber si los filtros de falsas alarmas funcionan o si, al reves, se han

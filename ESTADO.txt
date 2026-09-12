@@ -167,13 +167,17 @@ CALLARLA UN RATO (nuevo): "no me escuches", "duérmete", "no me escuches
   Para volver antes: "escúchame" / "vuelve a escucharme" / "despierta"
   (con el botón, que es lo que sigue vivo mientras está sorda).
 
-DICTADO CON EL MOTOR DE WINDOWS (nuevo, APAGADO): el mismo motor que
+DICTADO CON EL MOTOR DE WINDOWS (nuevo, ACTIVADO): el mismo motor que
   usa Win+H -el que te entendía bien- pero SIN abrir Win+H y sin robarte
-  el foco. Está montado y sin activar, porque falta comprobar una cosa:
-  esa API escucha el micrófono ella misma y no acepta el audio ya
-  amplificado, y tu micro entra flojísimo. Para comprobarlo:
-      python tools\probar-voz-windows.py      (cinco frases, un minuto)
-  Si te oye, actívalo con: config.json -> input.vozWindows = true
+  el foco. Ya está puesto: al encender el asistente arranca solo y verás
+  en assistant.log la línea "dictado de Windows ACTIVO (worker PID=...)".
+  QUEDA POR COMPROBAR si oye tu micrófono, que entra flojísimo: esa API
+  escucha el micro ella misma y no acepta el audio amplificado. Cómo saber
+  si funciona, sin hacer nada especial: habla como siempre y mira el log.
+      [voz-win] oido: 'abre steam' (confianza alta, 1.2 s)   -> te oye
+      [voz-win] oido: '' (confianza rechazada, 5.0 s)        -> no te oye
+  Si sale vacío una y otra vez, dilo y se quita (es un ajuste):
+      config.json -> input.vozWindows = false
   No sustituye a Whisper, CONVIVE con él: los dos oyen la misma orden y se
   usa lo que diga Windows solo si dice algo. Si no oye, no se pierde nada.
   Requisitos ya cumplidos: paquete winsdk instalado y Configuración >

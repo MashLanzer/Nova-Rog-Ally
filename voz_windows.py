@@ -96,18 +96,11 @@ async def principal():
     rec = await preparar()
     if rec is None:
         return 1
-    ultima = 0.0
     while True:
         try:
             if not MARCA or not os.path.exists(MARCA):
                 await asyncio.sleep(0.08)
                 continue
-            # antirrebote: la marca vive mientras dura el dictado, y no hay que
-            # volver a escuchar en cuanto termina una ronda
-            if time.time() - ultima < 1.0:
-                await asyncio.sleep(0.15)
-                continue
-            ultima = time.time()
             t0 = time.time()
             r = await rec.recognize_async()
             texto = (r.text or "").strip()
@@ -117,7 +110,12 @@ async def principal():
             # lo de Whisper que darle una frase en la que el propio motor no cree.
             if texto and conf != "rechazada":
                 escribir(SALIDA, texto)
-            ultima = time.time()
+            # UNA ronda por dictado. La marca sigue puesta hasta que el worker de
+            # Vosk cierra la frase; si volvieramos a escuchar ahora, la segunda
+            # ronda dejaria un texto que el asistente se encontraria en la orden
+            # SIGUIENTE y contestaria a lo de hace un minuto.
+            while MARCA and os.path.exists(MARCA):
+                await asyncio.sleep(0.08)
         except Exception as e:                              # noqa: BLE001
             # una ronda que falle no se lleva el worker: se anota y se sigue
             anota("fallo al escuchar: %s" % e)
