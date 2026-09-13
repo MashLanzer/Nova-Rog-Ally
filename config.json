@@ -104,5 +104,9 @@
     },
     "seguridad": {
         "hashDll": "10FB809F3573D1D8C629EE003B3725CA747B66CB3A06CB909FFDE6F0A461E13A"
+    },
+    "recetas": {
+        "activadas": true,
+        "confirmarVeces": 2
     }
 }

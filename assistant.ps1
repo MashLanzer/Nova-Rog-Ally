@@ -1774,6 +1774,13 @@ function Resolve-Fragment([string]$f) {
         $desc = if ($que) { "aviso en $n $unidad" } else { "temporizador de $n $unidad" }
         return @(@{ kind = 'temporizador'; ms = $ms; texto = $que; n = $n; unidad = $unidad; desc = $desc })
     }
+    # --- recetas aprendidas: verlas y olvidarlas ---
+    if ($f -match '^(?:que (?:has aprendido|aprendiste|recetas tienes|sabes hacer sola)|que tareas (?:has aprendido|sabes hacer)|mis recetas|lista (?:las )?recetas|dime (?:las )?recetas)$') {
+        return @(@{ kind = 'verRecetas'; desc = 'recetas aprendidas' })
+    }
+    if ($f -match '^(?:olvida|borra|elimina)\s+(?:esa receta|la ultima receta|la receta|lo ultimo que aprendiste|lo que acabas de aprender)$') {
+        return @(@{ kind = 'olvidarReceta'; desc = 'olvidar la receta' })
+    }
     # --- "no era eso": deshacer Y no repetir el error ---
     if ($f -match '^(?:no era eso|eso no era|no era esto|no te pedi eso|eso no|no queria eso|no era lo que dije)$') {
         return @(@{ kind = 'noEraEso'; desc = 'deshacer y olvidar esa interpretacion' })
@@ -2627,6 +2634,277 @@ function Find-Generalizacion([string]$original, [string]$traducida) {
     return @{ alias = $alias[0]; objetivo = $objetivos[0] }
 }
 
+# =====================================================================
+# RECETAS: AUTOAPRENDIZAJE DE TAREAS (13/09)
+# Cuando el cerebro (Claude Code) hace una tarea nueva con herramientas, deja
+# ademas una RECETA: la frase como plantilla con huecos ("crea una carpeta
+# llamada {nombre} en {sitio}") y los pasos para repetirla. La proxima vez que
+# se pida algo que encaje, Nova la hace sola y sin IA: preguntando las primeras
+# veces (recetas.confirmarVeces) y directamente despues.
+# Lo que NUNCA entra en una receta, y por tanto sigue pasando siempre por el
+# cerebro, que piensa cada vez: borrar, matar procesos, servicios, registro,
+# apagar, descargar, instalar o ejecutar texto como codigo.
+# Lo dicho entra en el script como VARIABLE escapada, nunca pegado al codigo:
+# una frase dictada no puede colarle ordenes al PowerShell.
+# =====================================================================
+$RecetasOn = [bool](Get-Cfg 'recetas' 'activadas' $true)
+$RecetasConfirmar = [int](Get-Cfg 'recetas' 'confirmarVeces' 2)
+$RecetasPath = Join-Path $MemoriaDir 'recetas.json'
+$RecetasMax = 200
+$RE_RECETA_PROHIBIDO = '(?i)\b(?:Remove-Item|Remove-ItemProperty|Clear-Item|Clear-Content|Clear-RecycleBin|Stop-Process|taskkill|Stop-Service|Restart-Service|Set-Service|Restart-Computer|Stop-Computer|shutdown|logoff|Format-Volume|Clear-Disk|Initialize-Disk|diskpart|bcdedit|Set-ItemProperty|New-ItemProperty|Set-ExecutionPolicy|Invoke-Expression|Invoke-WebRequest|Invoke-RestMethod|Start-BitsTransfer|schtasks|Register-ScheduledTask|Uninstall-Package|Install-Package|Install-Module|msiexec|winget|choco|Add-MpPreference|Set-MpPreference|Disable-NetAdapter|RunAs)\b|\b(?:curl|wget)\b|\bnet\s+user\b|\breg(?:\.exe)?\s+(?:add|delete|import)\b'
+$script:recetas = $null
+$script:ultimaReceta = $null
+$script:ultimaRecetaEn = 0
+$script:ccConHerramientas = $false
+
+# Lo que se le pide al cerebro al final de cada tarea (modo accion).
+$CcInstruccionReceta = @'
+
+
+AL FINAL, en una linea aparte y despues de la frase de resumen, escribe una RECETA en UNA sola linea de JSON para que Nova pueda repetir esta tarea sola la proxima vez, sin ti:
+RECETA: {"frase": "...", "resumen": "...", "pasos": [...], "respuesta": "..."}
+- "frase": la orden del usuario como plantilla, en minusculas y sin tildes, con {hueco} en lo que cambiaria otra vez (maximo 3 huecos, nombres en minusculas sin tildes, por ejemplo {nombre}, {sitio}). Ejemplo: "crea una carpeta llamada {nombre} en documentos".
+- IMPORTANTE: las partes fijas de "frase" copialas EXACTAMENTE como las dijo el usuario, mismas palabras y en el mismo orden, y las rutas completas tal cual (sin acortarlas). Cambia por {hueco} solo lo que varia. Nova compara la plantilla palabra por palabra con lo que se diga la proxima vez: si resumes o acortas algo, no encajara nunca.
+- Pon hueco a los nombres, textos, rutas, numeros o apps que el usuario dio y que cambiarian la proxima vez (el nombre de la carpeta, lo que dice el archivo, la app a abrir). Una receta SIN huecos solo sirve para esa frase exacta y casi nunca se vuelve a usar.
+- Crear carpetas o archivos, abrir, mover o copiar cosas, cambiar ajustes sencillos SI se pueden repetir: no digas NO solo porque la ruta sea larga o parezca temporal.
+- "resumen": lo que hace, en infinitivo y corto, puede usar huecos: "crear la carpeta {nombre} en documentos".
+- "pasos": de 1 a 6. Cada uno es {"tipo": "powershell", "script": "..."} con PowerShell 5.1 que haga la tarea sin preguntar nada y usando cada hueco como variable ($nombre), o {"tipo": "orden", "texto": "abre spotify"} si es una orden sencilla que Nova ya entiende.
+- "respuesta": la frase corta que Nova dira al terminar, puede usar huecos.
+- Escribe exactamente RECETA: NO si la tarea no se puede repetir igual (una respuesta o informacion, algo que depende de lo que hay en pantalla o de lo que encontraste), si hubo que borrar, cerrar programas, descargar o instalar algo, o si no estas seguro de que el script funcione solo.
+'@
+
+function Get-Recetas {
+    if ($null -ne $script:recetas) { return ,$script:recetas }
+    $script:recetas = New-Object System.Collections.ArrayList
+    if (Test-Path -LiteralPath $RecetasPath) {
+        try {
+            $crudo = Get-Content -LiteralPath $RecetasPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($x in $crudo) {
+                if ($null -eq $x -or -not [string]$x.frase) { continue }
+                $pasos = New-Object System.Collections.ArrayList
+                foreach ($pp in @($x.pasos)) { if ($pp) { [void]$pasos.Add(@{ tipo = [string]$pp.tipo; texto = [string]$pp.texto }) } }
+                [void]$script:recetas.Add(@{ id = [int]$x.id; frase = [string]$x.frase; resumen = [string]$x.resumen; respuesta = [string]$x.respuesta
+                    pasos = $pasos; ejemplo = [string]$x.ejemplo; creada = [string]$x.creada
+                    usos = [int]$x.usos; confirmadas = [int]$x.confirmadas; fallos = [int]$x.fallos; rechazos = [int]$x.rechazos })
+            }
+        } catch { Log ("recetas: no pude leer el archivo: " + $_.Exception.Message) }
+    }
+    return ,$script:recetas
+}
+
+function Save-Recetas {
+    try {
+        $g = Get-Recetas
+        $lista = @()
+        foreach ($r in $g) {
+            $pasosJ = @()
+            foreach ($pp in $r.pasos) { $pasosJ += New-Object PSObject -Property ([ordered]@{ tipo = $pp.tipo; texto = $pp.texto }) }
+            $lista += New-Object PSObject -Property ([ordered]@{ id = $r.id; frase = $r.frase; resumen = $r.resumen; respuesta = $r.respuesta
+                pasos = $pasosJ; ejemplo = $r.ejemplo; creada = $r.creada; usos = $r.usos; confirmadas = $r.confirmadas; fallos = $r.fallos; rechazos = $r.rechazos })
+        }
+        $json = if ($lista.Count -eq 0) { '[]' } else { ConvertTo-Json -InputObject @($lista) -Depth 6 }
+        [System.IO.File]::WriteAllText($RecetasPath, $json, (New-Object System.Text.UTF8Encoding($false)))
+    } catch { Log ("recetas: no pude guardar: " + $_.Exception.Message) }
+}
+
+# Minusculas y sin tildes, SIN cambiar la longitud: asi un hueco encontrado en
+# esta version se recorta del texto ORIGINAL en las mismas posiciones, y una
+# ruta o un nombre llegan como se dijeron ("C:\Juegos\Capturas"), no destrozados
+# por ConvertTo-Plain.
+function ConvertTo-Suave([string]$s) {
+    if (-not $s) { return '' }
+    $sb = New-Object System.Text.StringBuilder $s.Length
+    foreach ($ch in $s.ToLowerInvariant().ToCharArray()) {
+        $d = ([string]$ch).Normalize([System.Text.NormalizationForm]::FormD)
+        [void]$sb.Append($d[0])
+    }
+    return $sb.ToString()
+}
+
+function Get-PatronReceta([string]$frase) {
+    $trozos = [regex]::Split((ConvertTo-Suave $frase).Trim(), '(\{[a-z_]{1,20}\})')
+    $partes = @()
+    foreach ($t in $trozos) {
+        if ($t -match '^\{([a-z_]{1,20})\}$') { $nombreH = $Matches[1]; $partes += "(?<$nombreH>.+?)"; continue }
+        $palabras = @((($t -replace '[,.;:!?"]', ' ').Trim() -split '\s+') | Where-Object { $_ })
+        if ($palabras.Count -eq 0) { continue }
+        $partes += (($palabras | ForEach-Object { [regex]::Escape($_) }) -join '[\s,.;:]+')
+    }
+    if ($partes.Count -eq 0) { return $null }
+    return ('^[\s,.;:]*' + ($partes -join '[\s,.;:]+') + '[\s,.;:!?]*$')
+}
+
+# La receta mas ESPECIFICA (mas texto fijo) que encaje, con los valores de sus
+# huecos recortados del texto original. $lista permite probar una sola receta.
+function Find-Receta([string]$text, $lista = $null) {
+    if (-not $RecetasOn -or -not $text) { return $null }
+    $g = if ($null -ne $lista) { $lista } else { Get-Recetas }
+    if (@($g).Count -eq 0) { return $null }
+    # la cortesia de delante no cuenta: "oye nova, puedes crear..."
+    $base = [regex]::Replace($text, '^\s*(?:(?:nova|oye|hola|por favor|porfa|puedes|podrias|me puedes|quiero que|necesito que)[\s,]+)+', '', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $suave = ConvertTo-Suave $base
+    $mejor = $null; $mejorLargo = -1
+    foreach ($r in $g) {
+        $pat = Get-PatronReceta ([string]$r.frase)
+        if (-not $pat) { continue }
+        $m = $null
+        try { $m = [regex]::Match($suave, $pat) } catch { continue }
+        if (-not $m.Success) { continue }
+        $largo = ((ConvertTo-Suave ([string]$r.frase)) -replace '\{[a-z_]+\}', '').Length
+        if ($largo -le $mejorLargo) { continue }
+        $vals = @{}
+        $bien = $true
+        foreach ($nombreH in @([regex]::Matches((ConvertTo-Suave ([string]$r.frase)), '\{([a-z_]{1,20})\}') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)) {
+            $grp = $m.Groups[$nombreH]
+            if (-not $grp.Success) { $bien = $false; break }
+            $v = $base.Substring($grp.Index, $grp.Length).Trim().TrimEnd('.', ',', ';', '!', '?').Trim()
+            if (-not $v -or $v.Length -gt 200) { $bien = $false; break }
+            $vals[$nombreH] = $v
+        }
+        if (-not $bien) { continue }
+        $mejor = @{ receta = $r; valores = $vals }
+        $mejorLargo = $largo
+    }
+    return $mejor
+}
+
+function Test-ScriptProhibido([string]$s) {
+    if ($s -match $RE_RECETA_PROHIBIDO) { return $true }
+    # los alias cortos solo cuentan en posicion de comando: "del" o "rd" dentro
+    # de un texto ("carpeta del juego") no son nada
+    if ($s -match '(?im)(?:^|[;|&{(])\s*(?:rm|rd|rmdir|del|erase|kill|ri|spps|iex|iwr|irm)\s') { return $true }
+    return $false
+}
+
+function Get-TextoReceta($r, [string]$campo, $valores) {
+    $t = [string]$r[$campo]
+    if (-not $t) { $t = [string]$r.frase }
+    foreach ($k in $valores.Keys) { $t = $t.Replace('{' + $k + '}', [string]$valores[$k]) }
+    return ($t -replace '\{[a-z_]+\}', 'algo')
+}
+
+# Valida lo que devolvio el cerebro y, si vale, lo guarda. Devuelve la receta o
+# $null, y siempre deja en el log por que no se aprendio.
+function Add-Receta([string]$original, [string]$bloque) {
+    $ini = $bloque.IndexOf('{'); $fin = $bloque.LastIndexOf('}')
+    if ($ini -lt 0 -or $fin -le $ini) { Log "RECETA descartada: no trae JSON"; return $null }
+    $o = $null
+    try { $o = $bloque.Substring($ini, $fin - $ini + 1) | ConvertFrom-Json } catch { Log "RECETA descartada: el JSON no es valido"; return $null }
+    $frase = ([string]$o.frase).Trim()
+    if ($frase.Length -lt 6 -or $frase.Length -gt 160) { Log "RECETA descartada: frase vacia o demasiado larga"; return $null }
+    $huecos = @([regex]::Matches($frase, '\{([^}]*)\}') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
+    if ($huecos.Count -gt 3) { Log "RECETA descartada: mas de 3 huecos"; return $null }
+    $reservados = @('args', 'input', 'host', 'error', 'home', 'pid', 'pwd', 'true', 'false', 'null', 'this', 'matches', 'profile',
+                    'psitem', 'lastexitcode', 'executioncontext', 'myinvocation', 'shellid', 'env', 'foreach', 'switch', 'sender', 'event')
+    foreach ($h in $huecos) {
+        if ($h -notmatch '^[a-z_]{1,20}$' -or $reservados -contains $h) { Log "RECETA descartada: hueco '$h' no valido"; return $null }
+    }
+    $literales = @(((ConvertTo-Suave $frase) -replace '\{[^}]*\}', ' ' -replace '[^a-z0-9 ]', ' ').Trim() -split '\s+' | Where-Object { $_.Length -ge 2 })
+    if ($literales.Count -lt 2) { Log "RECETA descartada: la frase es demasiado general"; return $null }
+    $pasos = New-Object System.Collections.ArrayList
+    foreach ($pp in @($o.pasos)) {
+        if ($null -eq $pp) { continue }
+        $tipo = ([string]$pp.tipo).ToLowerInvariant()
+        $cuerpo = if ($tipo -eq 'powershell') { [string]$pp.script } else { [string]$pp.texto }
+        if (@('powershell', 'orden') -notcontains $tipo -or -not $cuerpo.Trim()) { Log "RECETA descartada: paso '$tipo' no valido"; return $null }
+        if ($tipo -eq 'powershell' -and ($cuerpo.Length -gt 2000 -or (Test-ScriptProhibido $cuerpo))) { Log "RECETA descartada: el script hace algo que no puede ir en una receta"; return $null }
+        if ($tipo -eq 'orden' -and $cuerpo.Length -gt 120) { Log "RECETA descartada: orden demasiado larga"; return $null }
+        [void]$pasos.Add(@{ tipo = $tipo; texto = $cuerpo })
+    }
+    if ($pasos.Count -lt 1 -or $pasos.Count -gt 6) { Log "RECETA descartada: sin pasos o con demasiados"; return $null }
+    # la frase que dijo el usuario TIENE que encajar en su propia plantilla
+    $prov = @{ id = 0; frase = $frase; pasos = $pasos }
+    $enc = Find-Receta $original @($prov)
+    if (-not $enc) { Log "RECETA descartada: '$original' no encaja en '$frase'"; return $null }
+    # y las ordenes de Nova tienen que existir, con los valores de esta vez
+    foreach ($pp in $pasos) {
+        if ($pp.tipo -ne 'orden') { continue }
+        $t = $pp.texto
+        foreach ($k in $enc.valores.Keys) { $t = $t.Replace('{' + $k + '}', [string]$enc.valores[$k]) }
+        if (-not (Test-FastCommand $t)) { Log "RECETA descartada: Nova no entiende la orden '$t'"; return $null }
+    }
+    $g = Get-Recetas
+    # la misma plantilla aprendida otra vez sustituye a la anterior
+    $clave = ConvertTo-Suave $frase
+    foreach ($x in @($g)) { if ((ConvertTo-Suave ([string]$x.frase)) -eq $clave) { [void]$g.Remove($x) } }
+    $id = 1; foreach ($x in $g) { if ($x.id -ge $id) { $id = $x.id + 1 } }
+    $r = @{ id = $id; frase = $frase; resumen = ([string]$o.resumen).Trim(); respuesta = ([string]$o.respuesta).Trim(); pasos = $pasos
+            ejemplo = $original; creada = (Get-Date -Format 's'); usos = 0; confirmadas = 0; fallos = 0; rechazos = 0 }
+    [void]$g.Add($r)
+    while ($g.Count -gt $RecetasMax) { $g.RemoveAt(0) }
+    Save-Recetas
+    Log "RECETA $id aprendida: '$frase' ($($pasos.Count) pasos)"
+    Add-Estadistica 'receta-aprendida' $frase
+    return $r
+}
+
+# Ejecuta los pasos. Cada script va en un PowerShell oculto con tope de 20 s,
+# con los valores declarados ANTES como variables de texto escapadas.
+function Invoke-Receta($r, $valores) {
+    foreach ($paso in $r.pasos) {
+        $tipo = [string]$paso.tipo; $cuerpo = [string]$paso.texto
+        if ($tipo -eq 'orden') {
+            $orden = $cuerpo
+            foreach ($k in $valores.Keys) { $orden = $orden.Replace('{' + $k + '}', [string]$valores[$k]) }
+            $res = $null
+            try { $res = Invoke-FastCommand $orden } catch { $res = $null }
+            if (-not $res) { return @{ ok = $false; error = "la orden '$orden' no se pudo hacer" } }
+        } elseif ($tipo -eq 'powershell') {
+            # se vuelve a mirar al ejecutar: el archivo de recetas se puede editar a mano
+            if (Test-ScriptProhibido $cuerpo) { return @{ ok = $false; error = 'el script tiene algo prohibido' } }
+            $rutaS = Join-Path $TmpDir ("receta-" + [System.Guid]::NewGuid().ToString('N') + ".ps1")
+            $cab = "`$ErrorActionPreference = 'Stop'`r`n"
+            foreach ($k in $valores.Keys) {
+                if ($k -notmatch '^[a-z_]{1,20}$') { return @{ ok = $false; error = "hueco '$k' no valido" } }
+                $cab += ('$' + $k + " = '" + ([string]$valores[$k]).Replace("'", "''") + "'`r`n")
+            }
+            [System.IO.File]::WriteAllText($rutaS, $cab + $cuerpo, (New-Object System.Text.UTF8Encoding($true)))
+            try {
+                $pr = Start-Process -FilePath 'powershell.exe' -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File ' + (ConvertTo-CmdArg $rutaS)) `
+                    -WorkingDirectory $WORKDIR -WindowStyle Hidden -PassThru
+                $null = $pr.Handle
+                if (-not $pr.WaitForExit(20000)) { try { $pr.Kill() } catch {}; return @{ ok = $false; error = 'tardo mas de 20 s' } }
+                if ($pr.ExitCode -ne 0) { return @{ ok = $false; error = "el script termino con codigo $($pr.ExitCode)" } }
+            } finally { Remove-Item -LiteralPath $rutaS -Force -ErrorAction SilentlyContinue }
+        } else {
+            return @{ ok = $false; error = "paso desconocido '$tipo'" }
+        }
+    }
+    $txt = Get-TextoReceta $r 'respuesta' $valores
+    if (-not ([string]$r.respuesta)) { $txt = 'Hecho, como la otra vez.' }
+    return @{ ok = $true; texto = $txt }
+}
+
+function Start-Receta($enc, [string]$text) {
+    $r = $enc.receta
+    Log "RECETA $($r.id): '$text' -> la hago sin IA"
+    Set-UI 'pensando' 'Como la otra vez'
+    $res = Invoke-Receta $r $enc.valores
+    if ($res.ok) {
+        $r.usos = [int]$r.usos + 1
+        $r.confirmadas = [int]$r.confirmadas + 1
+        $r.fallos = 0
+        Save-Recetas
+        $script:ultimaReceta = $r.id
+        $script:ultimaRecetaEn = $sw.ElapsedMilliseconds
+        Add-Estadistica 'receta' $text
+        $script:ultimaRespuesta = $res.texto
+        Send-UIEvento 'hecho'
+        Show-Popup $res.texto
+        Say $res.texto
+        return
+    }
+    $r.fallos = [int]$r.fallos + 1
+    Log "RECETA $($r.id) fallo ($($res.error)); se lo pido al cerebro"
+    if ($r.fallos -ge 2) {
+        $g = Get-Recetas
+        [void]$g.Remove($r)
+        Log "RECETA $($r.id) olvidada: fallo dos veces seguidas"
+    }
+    Save-Recetas
+    Submit-Command $text 'accion'
+}
+
 function Find-Traduccion([string]$text) {
     $t = Get-Traducciones
     if ($t.Count -eq 0) { return $null }
@@ -2907,6 +3185,25 @@ function Invoke-FastCommand([string]$text) {
                         $a.desc = "ahora mismo no detecto ningun juego abierto"
                     }
                 }
+                'verRecetas' {
+                    $rsV = Get-Recetas
+                    $a.desc = if ($rsV.Count -eq 0) { 'todavia no he aprendido ninguna tarea; cuando la IA haga algo por ti, la aprendere' }
+                              else { "he aprendido $($rsV.Count): " + ((@($rsV) | Select-Object -Last 8 | ForEach-Object { ([string]$_.frase) -replace '\{[a-z_]+\}', 'algo' }) -join '; ') }
+                }
+                'olvidarReceta' {
+                    $rsO = Get-Recetas
+                    $objO = $null
+                    if ($script:ultimaReceta) { $objO = @($rsO | Where-Object { $_.id -eq $script:ultimaReceta }) | Select-Object -First 1 }
+                    if (-not $objO -and $rsO.Count -gt 0) { $objO = $rsO[$rsO.Count - 1] }
+                    if ($objO) {
+                        [void]$rsO.Remove($objO)
+                        Save-Recetas
+                        $script:ultimaReceta = $null
+                        $a.desc = 'olvidada: ' + (([string]$objO.frase) -replace '\{[a-z_]+\}', 'algo')
+                    } else {
+                        $a.desc = 'no tengo ninguna receta que olvidar'
+                    }
+                }
                 'noEraEso' {
                     # 1) deshacer lo que se hiciera
                     $r = Invoke-Deshacer
@@ -2923,7 +3220,16 @@ function Invoke-FastCommand([string]$text) {
                         Remove-Traduccion $olvidada
                         $script:ultimaAprendida = ''
                     }
-                    $a.desc = if ($olvidada) { "$r. Y olvido que '$olvidada' significaba eso." }
+                    # 2b) y si lo ultimo fue una RECETA (usada o recien aprendida), fuera
+                    $recetaOlvidada = $null
+                    if ($script:ultimaReceta -and ($sw.ElapsedMilliseconds - $script:ultimaRecetaEn) -lt 180000) {
+                        $gR = Get-Recetas
+                        $objR = @($gR | Where-Object { $_.id -eq $script:ultimaReceta })
+                        if ($objR.Count -gt 0) { [void]$gR.Remove($objR[0]); Save-Recetas; $recetaOlvidada = [string]$objR[0].frase }
+                        $script:ultimaReceta = $null
+                    }
+                    $a.desc = if ($recetaOlvidada) { "$r. Y olvido esa receta." }
+                              elseif ($olvidada) { "$r. Y olvido que '$olvidada' significaba eso." }
                               elseif ($apuntada) { "$r. Si lo vuelvo a oir, te pregunto antes." }
                               else { $r }
                 }
@@ -5911,6 +6217,8 @@ function Start-ClaudeCodeJob([string]$prompt, [string]$modo, [string]$adjunto = 
     if (-not $prompt.Trim()) { Clear-OpencodeJob; return $false }
     try {
         if ($adjunto -and (Test-Path -LiteralPath $adjunto)) { $prompt = $prompt + " (La captura esta en: $adjunto. Mirala con la herramienta Read.)" }
+        # en las tareas, que deje la receta para repetirla sin IA (ver RECETAS)
+        if ($modo -eq 'accion' -and $RecetasOn) { $prompt = $prompt + $CcInstruccionReceta }
         # el prompt entra por STDIN desde un archivo: tildes, comillas y saltos
         # de linea llegan intactos (en argv se destrozan)
         [System.IO.File]::WriteAllText($script:jobIn, $prompt, (New-Object System.Text.UTF8Encoding($false)))
@@ -6144,6 +6452,7 @@ function Watch-OpencodeProgress {
 
 # Recoge la salida del proceso YA terminado y devuelve el texto de respuesta.
 function Complete-OpencodeJob {
+    $script:ccConHerramientas = $false
     $code = -1
     $stdout = ""
     $stderr = ""
@@ -6169,6 +6478,8 @@ function Complete-OpencodeJob {
     # --- CLAUDE CODE: la respuesta es el evento "result" del final ---
     if ($script:jobMotor -eq 'claude-code') {
         $script:jobMotor = ''
+        # solo se aprende una receta de lo que se hizo DE VERDAD con herramientas
+        $script:ccConHerramientas = ($stdout -match '"type":"tool_use"')
         $res = $null
         foreach ($linea in ($stdout -split "`r?`n")) {
             # OJO: el evento NO empieza por {"type":"result"; sus campos vienen en
@@ -6505,6 +6816,25 @@ function Report-Reply($out) {
         }
     }
 
+    # --- ¿trae una RECETA? Se aprende y se quita de lo que se dice (ver RECETAS) ---
+    $textoOut = ($out | Out-String)
+    $mRec = [regex]::Match($textoOut, '(?m)^[ \t]*RECETA:[ \t]*')
+    if ($mRec.Success) {
+        $bloqueRec = $textoOut.Substring($mRec.Index + $mRec.Length).Trim()
+        $out = @($textoOut.Substring(0, $mRec.Index).Trim())
+        if ($bloqueRec -match '^(?i)no\b') {
+            Log "RECETA: el cerebro dice que esta tarea no se puede repetir igual"
+        } elseif ($RecetasOn -and $script:jobModo -eq 'accion' -and $script:ccConHerramientas) {
+            $nuevaRec = $null
+            try { $nuevaRec = Add-Receta $script:jobTextoOriginal $bloqueRec } catch { Log ("RECETA: " + $_.Exception.Message) }
+            if ($nuevaRec) {
+                $script:ultimaReceta = $nuevaRec.id
+                $script:ultimaRecetaEn = $sw.ElapsedMilliseconds
+                $out = @(([string]$out[0]).TrimEnd() + ' Aprendido para la proxima.')
+            }
+        }
+    }
+
     $now = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $full = ($out | Out-String)
     Rotate-Log $ReplyLog
@@ -6555,6 +6885,28 @@ function Complete-Confirmacion([string]$respuesta) {
     Remove-Item -LiteralPath $MarcaConfirmar -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $RutaConfirmacion -Force -ErrorAction SilentlyContinue
     if (-not $p) { return }
+    # pregunta de una RECETA ("esto ya lo aprendi: ... ¿lo hago?")
+    if ($p.tipo -eq 'receta') {
+        $gR = Get-Recetas
+        $objR = @($gR | Where-Object { $_.id -eq $p.id })
+        if ($objR.Count -eq 0) { Set-UI 'reposo'; return }
+        if ($respuesta -eq 'si') {
+            Start-Receta @{ receta = $objR[0]; valores = $p.valores } $p.original
+        } elseif ($respuesta -eq 'no') {
+            $objR[0].rechazos = [int]$objR[0].rechazos + 1
+            if ($objR[0].rechazos -ge 2) {
+                [void]$gR.Remove($objR[0])
+                Log "RECETA $($p.id) olvidada: dos veces que no"
+                Say "Vale. Y la olvido."
+            } else {
+                Say "Vale, lo dejo."
+            }
+            Save-Recetas
+        } else {
+            Set-UI 'reposo'
+        }
+        return
+    }
     # pregunta de aprendizaje: solo un "si" claro ensena; el silencio, no
     if ($p.tipo -eq 'aprender') {
         if ($respuesta -eq 'si') {
@@ -7153,6 +7505,23 @@ function Process-Texto([string]$text) {
                     Say $r
                     return
                 }
+            }
+            # 3b) ¿una RECETA aprendida encaja? Entonces se hace sin IA: las
+            #     primeras veces preguntando, y despues directamente (ver RECETAS)
+            $recEnc = $null
+            try { $recEnc = Find-Receta $text } catch { $recEnc = $null }
+            if ($recEnc) {
+                if ($script:confirmado -or [int]$recEnc.receta.confirmadas -ge $RecetasConfirmar) {
+                    Start-Receta $recEnc $text
+                } else {
+                    $script:pendiente = @{ texto = ''; vence = 0; tipo = 'receta'; id = $recEnc.receta.id; valores = $recEnc.valores; original = $text }
+                    $preguntaRec = "Esto ya lo aprendi: " + (Get-TextoReceta $recEnc.receta 'resumen' $recEnc.valores) + ". ¿Lo hago?"
+                    Log "RECETA $($recEnc.receta.id): pregunto antes de repetir '$text'"
+                    Say $preguntaRec
+                    Set-UI 'escuchando' $preguntaRec
+                    Start-Confirmacion
+                }
+                return
             }
             # 3.5) FILTRO DE RUIDO. Lo que llega aqui no lo entendio la capa
             #      local, y el siguiente paso lo manda al agente con --auto,

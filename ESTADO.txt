@@ -59,6 +59,32 @@ EL CEREBRO: CLAUDE CODE (desde el 13/09)
   había creado se mandó a crear otra vez a opencode, y se hizo dos veces.
   Para probar sin hablar: powershell -File tools\decir.ps1 "la frase".
 
+RECETAS: NOVA APRENDE DE LO QUE HACE EL CEREBRO (desde el 13/09)
+  Cuando Claude Code hace una TAREA nueva con herramientas, deja al final una
+  receta: la frase como plantilla con huecos ("crea una carpeta llamada
+  {nombre} en el escritorio") y los pasos (PowerShell u órdenes de Nova). La
+  próxima vez que digas algo que encaje, Nova la hace SOLA y sin IA: las 2
+  primeras veces pregunta "Esto ya lo aprendí: ... ¿lo hago?"
+  (config.json -> recetas.confirmarVeces) y después directamente.
+  Medido en vivo: la primera "crea una carpeta llamada Receta Tres en el
+  escritorio" la hizo el cerebro (~17 s) y dijo "Aprendido para la próxima";
+  la segunda, "Receta Cuatro", la hizo Nova al momento, sin IA.
+  Se guardan en memoria\recetas.json (fuera de git, dentro de la copia diaria).
+  Lo que NUNCA entra en una receta (y sigue pasando por el cerebro cada vez):
+  borrar, matar procesos, servicios, registro, apagar, descargar, instalar o
+  ejecutar texto como código. Y lo que dices entra en el script como VARIABLE
+  escapada, nunca pegado al código: probado con un nombre que intentaba colar
+  un comando, y no se ejecutó.
+  Antes de guardar se valida: tu frase tiene que encajar en su propia
+  plantilla (si el cerebro acorta una ruta, se descarta), máximo 3 huecos y 6
+  pasos, y las órdenes de Nova tienen que existir.
+  Si una receta falla, la orden se le pide al cerebro; tras 2 fallos o 2 "no"
+  seguidos, se olvida sola.
+  Por voz: "qué has aprendido", "olvida esa receta", y "no era eso" justo
+  después de usarla también la olvida.
+  Pruebas: los casos de recetas (incluida la inyección) se pasaron con las
+  funciones reales el 13/09; queda meterlos en tools\probar-funciones.ps1.
+
 LO QUE QUEDA POR HACER: PENDIENTE.md (8 ideas con su porqué, y las trampas
   de esta base de código que conviene leer antes de tocar nada). El 12/09 se
   hicieron la 1, la 2, la 3, la 4, la 7, la 9, la 11, la 13, la 14, la 15 y

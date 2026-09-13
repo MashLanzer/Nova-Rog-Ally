@@ -78,6 +78,22 @@ Lo grave ya está arreglado (commit a693e80). Queda, por orden:
 - [ ] `RevisarPantalla` solo mira el borde de abajo y el izquierdo (esquinas
       de arriba/derecha) y solo la pantalla principal.
 
+## Hechas (13/09/2026)
+
+- **Claude Code como cerebro.** Lo que la capa local no entiende va a
+  `claude -p` con la suscripción (Haiku para entender, Sonnet para preguntas y
+  tareas con el MCP de Windows). La API y opencode quedan de respaldo, y una
+  tarea que ya usó herramientas nunca se repite con el respaldo. Detalle en
+  `ESTADO.txt`.
+- **Autoaprendizaje: recetas.** Lo que el cerebro hace con herramientas se
+  guarda como plantilla con huecos y pasos; la próxima vez Nova lo hace sola y
+  sin IA (preguntando las 2 primeras veces). Nada destructivo entra nunca en
+  una receta. Detalle en `ESTADO.txt`.
+- [ ] Pendiente de esto: meter los casos de recetas en
+      `tools\probar-funciones.ps1` (hoy están en una prueba suelta), y ver con
+      el uso real si hace falta que los valores dictados se corrijan antes de
+      usarse (Whisper puede deformar un nombre de carpeta).
+
 ## Hechas (12/09/2026)
 
 - **5. Reglas sobre cualquier app.** «Cuando abra Spotify, baja el juego al

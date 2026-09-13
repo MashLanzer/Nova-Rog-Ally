@@ -52,3 +52,5 @@ mutex.txt
 # Python
 __pycache__/
 *.pyc
+# las tareas aprendidas (llevan rutas y nombres tuyos)
+memoria/recetas.json
