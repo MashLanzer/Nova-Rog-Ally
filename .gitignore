@@ -54,3 +54,5 @@ __pycache__/
 *.pyc
 # las tareas aprendidas (llevan rutas y nombres tuyos)
 memoria/recetas.json
+# lo que Nova sabe de ti (carpetas, juegos, preferencias)
+memoria/perfil.md

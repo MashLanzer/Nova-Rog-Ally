@@ -1774,6 +1774,10 @@ function Resolve-Fragment([string]$f) {
         $desc = if ($que) { "aviso en $n $unidad" } else { "temporizador de $n $unidad" }
         return @(@{ kind = 'temporizador'; ms = $ms; texto = $que; n = $n; unidad = $unidad; desc = $desc })
     }
+    # --- lo que Nova sabe de ti ---
+    if ($f -match '^(?:que sabes de mi|que sabes sobre mi|que has aprendido de mi|que sabes de braya|que conoces de mi|que sabes de mi vida)$') {
+        return @(@{ kind = 'verPerfil'; desc = 'lo que se de ti' })
+    }
     # --- recetas aprendidas: verlas y olvidarlas ---
     if ($f -match '^(?:que (?:has aprendido|aprendiste|recetas tienes|sabes hacer sola)|que tareas (?:has aprendido|sabes hacer)|mis recetas|lista (?:las )?recetas|dime (?:las )?recetas)$') {
         return @(@{ kind = 'verRecetas'; desc = 'recetas aprendidas' })
@@ -2854,6 +2858,15 @@ function Add-Receta([string]$original, [string]$bloque) {
     # la frase que dijo el usuario TIENE que encajar en su propia plantilla
     $prov = @{ id = 0; frase = $frase; pasos = $pasos }
     $enc = Find-Receta $original @($prov)
+    # ...o con su PRIMERA PARTE: "crea una carpeta X en el escritorio, ahi es
+    # donde guardo mis partidas" lleva una coletilla que no es la orden, y la
+    # plantilla del cerebro, bien hecha, no la incluye (13/09: se perdia la
+    # receta). Lo de detras de la coma es comentario.
+    if (-not $enc -and $original -match '^\s*([^,;]{6,}?)\s*[,;]') {
+        $primeraParte = $Matches[1]
+        $enc = Find-Receta $primeraParte @($prov)
+        if ($enc) { Log "RECETA: '$frase' encaja con la primera parte de la frase ('$primeraParte')" }
+    }
     if (-not $enc) { Log "RECETA descartada: '$original' no encaja en '$frase'"; return $null }
     # y las ordenes de Nova tienen que existir, con los valores de esta vez
     foreach ($pp in $pasos) {
@@ -2915,7 +2928,9 @@ function Invoke-Receta($r, $valores) {
                 if (-not $pr.WaitForExit(20000)) { try { $pr.Kill() } catch {}; return @{ ok = $false; error = 'tardo mas de 20 s' } }
                 if ($pr.ExitCode -ne 0) {
                     $errTxt = ''
-                    try { $errTxt = (([System.IO.File]::ReadAllText($rutaE)) -replace '\s+', ' ').Trim() } catch {}
+                    # PowerShell 5.1 escribe sus errores con la codificacion de la
+                    # consola (OEM), no en UTF-8: leido como UTF-8 salia "t?rmino"
+                    try { $errTxt = (([System.IO.File]::ReadAllText($rutaE, [System.Text.Encoding]::GetEncoding([System.Globalization.CultureInfo]::CurrentCulture.TextInfo.OEMCodePage))) -replace '\s+', ' ').Trim() } catch {}
                     if ($errTxt.Length -gt 400) { $errTxt = $errTxt.Substring(0, 400) }
                     return @{ ok = $false; error = "el script termino con codigo $($pr.ExitCode): $errTxt" }
                 }
@@ -2970,6 +2985,88 @@ function Start-Receta($enc, [string]$text) {
                                  pasos = ((@($r.pasos) | ForEach-Object { $_.tipo + ': ' + $_.texto }) -join ' || ') }
     Submit-Command $text 'accion'
     return $false
+}
+
+# =====================================================================
+# PERFIL: LO QUE NOVA SABE DE TI (13/09)
+# Las recetas aprenden a HACER; esto aprende COMO ERES: tus carpetas, tu juego
+# favorito, como llamas a las cosas. Lo llena el cerebro (una linea DATO: al
+# final de lo que contesta, cuando descubre algo estable) y tu ("aprende que
+# mi carpeta de capturas es D:\Capturas"). Va con CADA peticion al cerebro, asi
+# que contesta y hace las tareas sabiendolo.
+# Un archivo Markdown, una linea por dato: se lee y se corrige a mano.
+# =====================================================================
+$PerfilPath = Join-Path $MemoriaDir 'perfil.md'
+$PerfilMax = 60
+$RE_DATO_SENSIBLE = '(?i)contrase|password|\bclave\b|\bpin\b|tarjeta|cuenta bancaria|\bdni\b|pasaporte|seguro social|\bsalud\b|enfermedad|medicamento|diagnostic'
+
+$CcInstruccionDato = @'
+
+
+Si en esta peticion descubres un dato ESTABLE y util sobre braya que todavia no esta en su perfil (una carpeta o ruta suya, su juego favorito, como llama a algo, una preferencia clara), escribelo al final en una linea aparte: DATO: <frase corta en tercera persona, por ejemplo: Su carpeta de capturas es D:\Capturas>. Como mucho dos lineas DATO. Nunca contrasenas, claves, dinero ni salud. Si no descubres nada nuevo, no escribas ninguna.
+'@
+
+function Get-DatosPerfil {
+    if (-not (Test-Path -LiteralPath $PerfilPath)) { return @() }
+    return @(Get-Content -LiteralPath $PerfilPath -Encoding UTF8 | Where-Object { $_ -match '^\s*-\s+\S' } | ForEach-Object { ($_ -replace '^\s*-\s+', '').Trim() })
+}
+
+function Save-DatosPerfil([string[]]$datos) {
+    $lineas = @('# Lo que Nova sabe de braya', '',
+                'Lo va llenando sola: lo que descubre el cerebro y lo que le dices con "aprende que mi...".',
+                'Se puede editar a mano: una linea por dato, empezando por "- ".', '') + @($datos | ForEach-Object { "- $_" })
+    [System.IO.File]::WriteAllLines($PerfilPath, [string[]]$lineas, (New-Object System.Text.UTF8Encoding($false)))
+}
+
+function Add-DatoPerfil([string]$dato, [string]$fuente = '') {
+    $d = ($dato -replace '\s+', ' ').Trim().TrimEnd('.').Trim()
+    if ($d.Length -lt 8 -or $d.Length -gt 180) { return $null }
+    if ($d -match $RE_DATO_SENSIBLE) { Log "PERFIL: no guardo un dato sensible"; return $null }
+    $datos = @(Get-DatosPerfil)
+    $clave = (((ConvertTo-Suave $d) -replace '[^a-z0-9 ]', ' ') -replace '\s+', ' ').Trim()
+    foreach ($x in $datos) {
+        $cx = (((ConvertTo-Suave $x) -replace '[^a-z0-9 ]', ' ') -replace '\s+', ' ').Trim()
+        if ($cx -eq $clave -or $cx.Contains($clave)) { return $null }   # ya lo sabia
+    }
+    $datos += $d
+    while ($datos.Count -gt $PerfilMax) { $datos = @($datos | Select-Object -Skip 1) }
+    Save-DatosPerfil $datos
+    Log "PERFIL: aprendido ($fuente): $d"
+    Add-Estadistica 'perfil' $d
+    return $d
+}
+
+# Olvida el dato que mas palabras comparta con lo dicho ("olvida que mi juego
+# favorito..."). Hace falta que coincidan al menos la mitad de las palabras con
+# contenido, para no borrar otra cosa por una palabra suelta.
+function Remove-DatoPerfil([string]$sobre) {
+    $palabras = @(((ConvertTo-Suave $sobre) -replace '[^a-z0-9 ]', ' ') -split '\s+' | Where-Object { $_.Length -ge 4 } | Select-Object -Unique)
+    if ($palabras.Count -eq 0) { return $null }
+    $datos = @(Get-DatosPerfil)
+    $mejor = $null; $mejorN = 0
+    foreach ($x in $datos) {
+        $cx = ConvertTo-Suave $x
+        $n = @($palabras | Where-Object { $cx.Contains($_) }).Count
+        if ($n -gt $mejorN) { $mejor = $x; $mejorN = $n }
+    }
+    if (-not $mejor -or $mejorN -lt [Math]::Max(1, [Math]::Ceiling($palabras.Count / 2))) { return $null }
+    Save-DatosPerfil @($datos | Where-Object { $_ -ne $mejor })
+    Log "PERFIL: olvidado: $mejor"
+    return $mejor
+}
+
+# El prompt de sistema de cada peticion: quien es Nova + lo que sabe de ti.
+function Get-SistemaCerebro {
+    $base = ''
+    try { if (Test-Path -LiteralPath $CcSistema) { $base = [System.IO.File]::ReadAllText($CcSistema, [System.Text.Encoding]::UTF8) } } catch {}
+    $datos = @(Get-DatosPerfil)
+    if ($datos.Count -gt 0) {
+        $base += "`n`n## Lo que sabes de braya (su perfil: tenlo en cuenta)`n" + (($datos | ForEach-Object { "- $_" }) -join "`n") + "`n"
+    }
+    if (-not $base) { return $null }
+    $ruta = Join-Path $TmpDir 'cerebro-sistema-actual.md'
+    [System.IO.File]::WriteAllText($ruta, $base, (New-Object System.Text.UTF8Encoding($false)))
+    return $ruta
 }
 
 function Find-Traduccion([string]$text) {
@@ -3041,6 +3138,21 @@ $AccionesQueTocan = @('app', 'url', 'key', 'atajo', 'escribir', 'winkey', 'altf4
 
 function Invoke-FastCommand([string]$text) {
     if (-not $cmds) { return $null }
+    # APRENDER UN DATO SOBRE TI (ver PERFIL): "aprende que mi carpeta de capturas
+    # es D:\Capturas". Va ANTES que el alias de abajo, que tambien empieza por
+    # "aprende que" y contestaria "no supe a que te refieres".
+    if ($text -match '(?i)^\s*(?:aprende|apr[eé]ndete|aprendete|ten en cuenta|recuerda siempre|quiero que sepas)\s+que\s+((?:mi|mis|yo|me|a mi)\b.+)$') {
+        $datoDicho = $Matches[1].Trim().TrimEnd('.')
+        $guardado = Add-DatoPerfil ("Dicho por braya: " + $datoDicho) 'lo dijiste'
+        if ($guardado) { return "Aprendido sobre ti: $datoDicho." }
+        return "Eso ya lo sabia, o no es algo que guarde."
+    }
+    # OLVIDAR UN DATO: "olvida que mi juego favorito es..." (si no se parece a
+    # ninguno, la frase sigue su camino: puede ser otra cosa)
+    if ($text -match '(?i)^\s*(?:olvida|olv[ií]date de|borra)\s+(?:que|lo de)\s+(.+)$') {
+        $quitado = Remove-DatoPerfil $Matches[1]
+        if ($quitado) { return "Olvidado: " + ($quitado -replace '^Dicho por braya:\s*', '') + "." }
+    }
     # aprender vocabulario hablando (se lee del texto ORIGINAL, sin normalizar)
     if ($text -match '(?i)^\s*aprende\s+que\s+(?:a\s+)?(.+?)\s+(?:le\s+(?:digo|llamo|dicen)|es|se\s+llama)\s+(.+)$') {
         $a = $Matches[1].Trim(); $b = $Matches[2].Trim()
@@ -3251,6 +3363,11 @@ function Invoke-FastCommand([string]$text) {
                     } else {
                         $a.desc = "ahora mismo no detecto ningun juego abierto"
                     }
+                }
+                'verPerfil' {
+                    $dp = @(Get-DatosPerfil)
+                    $a.desc = if ($dp.Count -eq 0) { 'todavia no se nada de ti; se ira llenando solo, o dime: aprende que mi...' }
+                              else { "se $($dp.Count) cosas de ti: " + ((@($dp | Select-Object -Last 6) | ForEach-Object { $_ -replace '^Dicho por braya:\s*', '' }) -join '; ') }
                 }
                 'verRecetas' {
                     $rsV = Get-Recetas
@@ -5789,6 +5906,10 @@ if ($Probar) {
     $MemoriaDir = $pruebaDir
     # el banco escribia RECORDATORIO/REGLA de mentira en el assistant.log real
     $EventLog = Join-Path $pruebaDir 'probar.log'
+    # el perfil y las recetas se calculan al cargar, ANTES de este bloque: sin
+    # esto, "aprende que mi..." pasado por el banco escribiria en el perfil real
+    $PerfilPath = Join-Path $pruebaDir 'perfil.md'
+    $RecetasPath = Join-Path $pruebaDir 'recetas.json'
     $DiarioDir = Join-Path $pruebaDir 'diario'
     $ReglasPath = Join-Path $pruebaDir 'reglas.json'
     $RecordatoriosPath = Join-Path $pruebaDir 'recordatorios.json'
@@ -6288,6 +6409,9 @@ function Start-ClaudeCodeJob([string]$prompt, [string]$modo, [string]$adjunto = 
         if ($adjunto -and (Test-Path -LiteralPath $adjunto)) { $prompt = $prompt + " (La captura esta en: $adjunto. Mirala con la herramienta Read.)" }
         # en las tareas, que deje la receta para repetirla sin IA (ver RECETAS)
         if ($modo -eq 'accion' -and $RecetasOn) { $prompt = $prompt + $CcInstruccionReceta }
+        # y que apunte lo que descubra de ti; en traducir NO: ahi Haiku tiene
+        # que contestar una sola linea y un DATO: rompería la traduccion
+        if ($modo -ne 'traducir') { $prompt = $prompt + $CcInstruccionDato }
         # y si viene de una receta que fallo, con lo necesario para arreglarla
         if ($modo -eq 'accion' -and $script:reparandoReceta -and $script:reparandoReceta.texto -eq $script:jobTextoOriginal) {
             $rep = $script:reparandoReceta
@@ -6298,7 +6422,10 @@ function Start-ClaudeCodeJob([string]$prompt, [string]$modo, [string]$adjunto = 
         [System.IO.File]::WriteAllText($script:jobIn, $prompt, (New-Object System.Text.UTF8Encoding($false)))
         $a = New-Object System.Collections.ArrayList
         foreach ($x in @('-p', '--output-format', 'stream-json', '--verbose')) { [void]$a.Add($x) }
-        if (Test-Path -LiteralPath $CcSistema) { [void]$a.Add('--append-system-prompt-file'); [void]$a.Add((ConvertTo-CmdArg $CcSistema)) }
+        # quien es Nova + LO QUE SABE DE TI (ver PERFIL), en cada peticion
+        $sistemaActual = $null
+        try { $sistemaActual = Get-SistemaCerebro } catch { $sistemaActual = $null }
+        if ($sistemaActual) { [void]$a.Add('--append-system-prompt-file'); [void]$a.Add((ConvertTo-CmdArg $sistemaActual)) }
         $dir = $WORKDIR
         $modelo = $CcModeloPregunta
         switch ($modo) {
@@ -6918,6 +7045,14 @@ function Report-Reply($out) {
     }
 
     # --- ¿trae una RECETA? Se aprende y se quita de lo que se dice (ver RECETAS) ---
+    # --- DATOS sobre ti que haya descubierto el cerebro: se guardan y no se dicen (ver PERFIL) ---
+    $textoDatos = ($out | Out-String)
+    $mDatos = [regex]::Matches($textoDatos, '(?m)^[ \t]*DATO:[ \t]*(.+?)[ \t]*$')
+    if ($mDatos.Count -gt 0) {
+        foreach ($md in @($mDatos | Select-Object -First 2)) { try { [void](Add-DatoPerfil $md.Groups[1].Value 'el cerebro') } catch {} }
+        $out = @(([regex]::Replace($textoDatos, '(?m)^[ \t]*DATO:.*$\r?\n?', '')).Trim())
+    }
+
     $textoOut = ($out | Out-String)
     # ¿esta respuesta es la de una receta que fallo y se esta reparando?
     $rep = $null
