@@ -280,6 +280,9 @@ public class NovaUI : Window
     DateTime tonoHasta = DateTime.MinValue;
     List<string[]> gestosExtra = new List<string[]>();
     DateTime gestosExtraLeido = DateTime.MinValue;
+    // cuando se MIRO por ultima vez (no la fecha del archivo): comparar la hora con
+    // la fecha del archivo hacia que se releyera en cada tic de 250 ms (auditoria 13/09)
+    DateTime gestosExtraMirado = DateTime.MinValue;
     string rutaGestosCfg, rutaGestosLog;
 
     // click-through: la barra nunca debe robar clics al juego
@@ -2795,7 +2798,7 @@ public class NovaUI : Window
         MedirTono();
         if (calmaHasta && DateTime.UtcNow >= calmaFin) { calmaHasta = false; Latido(); }
         if (humor != "" && DateTime.UtcNow >= humorHasta) { Humor("", 0); }
-        if ((DateTime.UtcNow - gestosExtraLeido).TotalSeconds > 30) { CargarGestosExtra(); }
+        if ((DateTime.UtcNow - gestosExtraMirado).TotalSeconds > 30) { gestosExtraMirado = DateTime.UtcNow; CargarGestosExtra(); }
         // "te escucho": en frases largas, un asentimiento suave cada ~3,5 s
         if (estadoActual == "escuchando" && textoActual.Length > 0
             && (DateTime.UtcNow - escuchandoDesde).TotalSeconds >= 6

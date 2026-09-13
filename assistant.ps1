@@ -130,7 +130,9 @@ $VERBOS = '(?:abre|abreme|abrele|abrir|abri|abrime|ejecuta|ejecutame|inicia|inic
 # orden. "busca tambien en el navegador X" fallaba justo por esto.
 $FILLER_GLOBAL = '\b(?:tambien|ademas|porfa|porfavor|por favor|gracias|oye|okey|dale(?!\s+al?\b)|a ver|quiero que|necesito que|me puedes|puedes|podrias|hazme el favor de)\b'
 # "a mi"/"ya me"/"me" salen mucho al dictar ("ya me abre steam", "ábreme")
-$FILLER_INI = '^(?:(?:y|luego|despues|ahora|entonces|a mi|ami|ya me|me|pues|este)\s+)+'
+# "hey nova pon modo juego" se iba a la IA: el nombre y el saludo de delante no
+# son parte de la orden (auditoria del 13/09)
+$FILLER_INI = '^(?:(?:y|luego|despues|ahora|entonces|a mi|ami|ya me|me|pues|este|hey|ey|hola|nova)\s+)+'
 
 # El lugar puede ir ANTES del verbo: "en el navegador busca X". Sin esto, el
 # fragmento no empezaba por verbo, se pegaba al anterior y rompia la frase.
@@ -212,6 +214,9 @@ function Repair-Verb([string]$f) {
     if ($partes.Count -lt 2) { return $f }
     $primera = $partes[0]
     if ($primera.Length -lt 4 -or ($VERBOS_LISTA -contains $primera)) { return $f }
+    # "pasa la musica" es "siguiente", ya tiene su orden: corregirlo a "pausa"
+    # la paraba (auditoria del 13/09)
+    if ($primera -in 'pasa', 'pasala', 'salta') { return $f }
     $mejor = $null
     $mejorD = 999
     foreach ($v in $VERBOS_LISTA) {
@@ -284,6 +289,20 @@ function Split-Compound([string]$s) {
     foreach ($p in $parts) {
         $t = Repair-Verb (Remove-Filler $p)
         if (-not $t) { continue }
+        # DOS NOMBRES SEGUIDOS (auditoria del 13/09): el dictado quita las comas,
+        # asi que "cierra spotify, discord y steam" llega como "cierra spotify
+        # discord" + "steam", y Discord se perdia. Si lo de detras del verbo no es
+        # un nombre pero se parte en dos que si lo son, son dos ordenes.
+        if ($t -match ('^(' + $VERBOS + ')\s+(.+)$')) {
+            $vbD = $Matches[1]; $objD = $Matches[2]
+            $pwD = @($objD -split '\s+')
+            if ($pwD.Count -ge 2 -and -not (Test-NombreConocido $objD)) {
+                for ($c = 1; $c -lt $pwD.Count; $c++) {
+                    $izqD = ($pwD[0..($c - 1)] -join ' '); $derD = ($pwD[$c..($pwD.Count - 1)] -join ' ')
+                    if ((Test-NombreConocido $izqD) -and (Test-NombreConocido $derD)) { [void]$res.Add("$vbD $izqD"); $t = "$vbD $derD"; break }
+                }
+            }
+        }
         # ¿El fragmento anterior se quedo en un verbo suelto? Entonces esto es
         # su objeto, venga como venga. El dictado puntua a su antojo: "Sierra,
         # el navegador" o "Abre, steam, y busca los huevos" son UNA orden con
@@ -312,6 +331,13 @@ function Split-Compound([string]$s) {
             # ("busca gatos y perros en google")
             $res[$res.Count - 1] = $res[$res.Count - 1] + ' y ' + $t
         } else {
+            # UN NOMBRE SUELTO HEREDA EL VERBO (auditoria del 13/09): en "cierra
+            # steam y discord" el trozo "discord" iba solo, y un nombre solo es
+            # "abrelo": cerraba Steam y ABRIA Discord. Ahora es "cierra discord".
+            if ($res.Count -gt 0 -and $t -notmatch ('^' + $LOCATIVO + '?(?:' + $VERBOS + '|' + $VENTANA + ')\b')) {
+                $verboPrev = ([string]$res[$res.Count - 1] -split '\s+')[0]
+                if ($VERBOS_LISTA -contains $verboPrev) { $t = "$verboPrev $t" }
+            }
             [void]$res.Add($t)
         }
     }
@@ -586,7 +612,10 @@ function Find-Juego([string]$t) {
 # frente. Se saca del ejecutable de commands.json; los URI (steam://, spotify:)
 # tienen su proceso conocido a mano.
 $PROCESOS_URI = @{ 'steam' = 'steam'; 'spotify' = 'Spotify'; 'discord' = 'Discord'; 'xbox' = 'XboxPcApp'; 'camara' = 'WindowsCamera';
-                   'configuracion' = 'SystemSettings'; 'ajustes' = 'SystemSettings'; 'armoury crate' = 'ArmouryCrate'; 'armoury' = 'ArmouryCrate' }
+                   'configuracion' = 'SystemSettings'; 'ajustes' = 'SystemSettings'; 'armoury crate' = 'ArmouryCrate'; 'armoury' = 'ArmouryCrate'
+                   # apps del sistema de Windows 11 cuyo proceso no se llama como su
+                   # .exe: "cierra la calculadora" buscaba "calc" y no la encontraba
+                   'calculadora' = 'CalculatorApp'; 'calc' = 'CalculatorApp'; 'fotos' = 'Photos'; 'tienda' = 'WinStore.App'; 'microsoft store' = 'WinStore.App' }
 # Programas de usuario abiertos: los que tienen ventana con titulo. Se dejan
 # fuera el propio asistente, su capsula, el escritorio y la barra de tareas,
 # que no son "programas" para quien habla y cerrarlos romperia la sesion.
@@ -711,6 +740,7 @@ $INICIO_ORDEN = @('puedes', 'podrias', 'puede', 'podria', 'quiero', 'quisiera', 
     'activa', 'activame', 'desactiva', 'recuerda', 'recuerdame', 'avisame', 'avisa', 'apunta', 'anota', 'lee', 'leeme', 'dicta',
     'traduce', 'traduceme', 'descarga', 'descargame', 'instala', 'desinstala', 'crea', 'creame', 'borra', 'elimina', 'quita', 'llama',
     'juega', 'configura', 'ajusta', 'revisa', 'mira', 'comprueba', 'calcula', 'convierte', 'ayudame', 'ayuda', 'resume', 'resumeme',
+    'cuenta', 'cuentame', 'dime', 'busca', 'buscame', 'ensename', 'muestrame', 'explica', 'explicame', 'escribe', 'escribeme',
     'intenta', 'prueba', 'organiza', 'ordena', 'limpia', 'graba', 'captura', 'toma', 'saca', 'contesta', 'responde', 'manda', 'ponle',
     'ponte', 'hazte', 'quitale', 'cambiale', 'dile', 'agrega', 'anade', 'agregame', 'enciende', 'desconecta', 'conecta', 'vuelve', 'repite')
 # Palabras inglesas corrientes para la charla corta (ver Test-Charla). Fuera las
@@ -902,6 +932,17 @@ $DiarioDir = Join-Path $MemoriaDir "diario"
 # Se guarda como objeto {nombre: [items]}, no como array: asi el archivo se lee
 # igual de bien a mano si algun dia hay que arreglarlo.
 $RutaListas = Join-Path $MemoriaDir "listas.json"
+# JSON ROTO (auditoria del 13/09): si un archivo de memoria no se puede leer, se
+# APARTA como .corrupto-<fecha> antes de que el siguiente guardado escriba encima
+# una version vacia y se pierda todo lo que tenia (fuera de git: *.corrupto-*).
+function Save-Corrupto([string]$ruta, [string]$que) {
+    try {
+        if (-not (Test-Path -LiteralPath $ruta)) { return }
+        $destC = $ruta + '.corrupto-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
+        Move-Item -LiteralPath $ruta -Destination $destC -Force
+        Log "$($que): el archivo no se podia leer; lo aparto como $(Split-Path -Leaf $destC)"
+    } catch {}
+}
 function Get-Listas {
     try {
         if (-not (Test-Path -LiteralPath $RutaListas)) { return @{} }
@@ -909,7 +950,7 @@ function Get-Listas {
         $h = @{}
         foreach ($prop in $datos.PSObject.Properties) { $h[$prop.Name] = @($prop.Value) }
         return $h
-    } catch { Log ("listas: no pude leerlas (" + $_.Exception.Message + ")"); return @{} }
+    } catch { Log ("listas: no pude leerlas (" + $_.Exception.Message + ")"); Save-Corrupto $RutaListas 'listas'; return @{} }
 }
 function Save-Listas($listas) {
     try {
@@ -1596,7 +1637,9 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^que\s+(?:hace|tiene)\s+(?:el\s+)?modo\s+(.+)$') {
         return @(@{ kind = 'verModo'; nombre = $Matches[1].Trim(); desc = 'ver un modo' })
     }
-    if ($f -match '^(?:borra|borrame|quita|elimina|olvida)\s+(?:el\s+)?modo\s+(.+)$') {
+    # solo "borra / elimina": "quita el modo juego" u "olvida el modo noche" se dicen
+    # queriendo DESACTIVARLO, y lo borraban de commands.json sin preguntar (auditoria 13/09)
+    if ($f -match '^(?:borra|borrame|elimina)\s+(?:el\s+)?modo\s+(.+)$') {
         return @(@{ kind = 'borrarModo'; nombre = $Matches[1].Trim(); desc = 'borrar un modo' })
     }
 
@@ -1714,7 +1757,7 @@ function Resolve-Fragment([string]$f) {
     # --- preguntas que se responden AQUI mismo, sin modelo ---
     # Preguntarle la hora a un LLM cuesta 13 s y encima puede negarse.
     switch -regex ($f) {
-        '^(?:que hora es|que horas son|dime la hora|la hora)\b' {
+        '^(?:(?:dime\s+)?que hora es|(?:dime\s+)?que horas son|dime la hora|la hora)\b' {
             $cul = New-Object System.Globalization.CultureInfo('es-MX')
             return @(@{ kind = 'decir'; desc = ("Son las " + (Get-Date).ToString('H:mm', $cul)) })
         }
@@ -1779,7 +1822,7 @@ function Resolve-Fragment([string]$f) {
         if ($resto) { $f = "$f $resto" }
     }
     # --- temporizadores: lo mas util con las manos ocupadas ---
-    if ($f -match '^(?:recuerdame|avisame|despiertame|ponme un temporizador|temporizador|alarma)\s+(?:en|de|dentro de)\s+(\d+|(?:un\s+)?cuarto\s+de|un|una|medi[ao])\s*(segundo|segundos|minuto|minutos|hora|horas)\b\s*(?:que|para|de|a)?\s*(.*)$') {
+    if ($f -match '^(?:recuerdame|avisame|despiertame|ponme un temporizador|pon un temporizador|ponme una alarma|pon una alarma|temporizador|alarma)\s+(?:en|de|dentro de)\s+(\d+|(?:un\s+)?cuarto\s+de|un|una|medi[ao])\s*(segundo|segundos|minuto|minutos|hora|horas)\b\s*(?:que|para|de|a)?\s*(.*)$') {
         $cuanto = $Matches[1]
         $unidad = $Matches[2]
         $que0 = $Matches[3]
@@ -1805,7 +1848,7 @@ function Resolve-Fragment([string]$f) {
         return @(@{ kind = 'temporizador'; ms = $ms; texto = $que; n = $n; unidad = $unidad; desc = $desc })
     }
     # --- modo foco (ver el vencimiento de los temporizadores) ---
-    if ($f -match '^(?:modo foco|modo concentracion|concentrate|pomodoro|ponme en modo foco|activa el modo foco)(?:\s+(?:de|durante|por|en)?\s*(\d{1,3}|cinco|diez|quince|veinte|veinticinco|treinta|cuarenta|cuarenta y cinco|cincuenta|sesenta|media|una)\s*(minutos?|horas?|hora)?)?$') {
+    if ($f -match '^(?:modo foco|modo concentracion|concentrate|pomodoro|ponme en modo foco|ponte en modo foco|pon (?:el )?modo foco|activa el modo foco)(?:\s+(?:de|durante|por|en)?\s*(\d{1,3}|cinco|diez|quince|veinte|veinticinco|treinta|cuarenta|cuarenta y cinco|cincuenta|sesenta|media|una)\s*(minutos?|horas?|hora)?)?$') {
         $cantF = [string]$Matches[1]; $unidF = [string]$Matches[2]
         $palabrasF = @{ 'cinco' = 5; 'diez' = 10; 'quince' = 15; 'veinte' = 20; 'veinticinco' = 25; 'treinta' = 30; 'cuarenta' = 40; 'cuarenta y cinco' = 45; 'cincuenta' = 50; 'sesenta' = 60; 'media' = 30; 'una' = 60 }
         $minF = 25
@@ -1948,7 +1991,8 @@ function Resolve-Fragment([string]$f) {
     # ponerlo delante primero, o sea salir del juego. Esto va directo a la
     # ventana de la app que digas y NO le roba el foco a nadie.
     # Va antes que "minimiza todo" no, DESPUES: esa es mas concreta y ya existe.
-    if ($f -match '^(?:minimiza|minimizar|esconde|oculta|guarda|baja)\s+(?:el\s+|la\s+|a\s+)?(.+)$') {
+    # sin "baja": "baja spotify" es bajarle el volumen, no minimizarlo (auditoria 13/09)
+    if ($f -match '^(?:minimiza|minimizar|esconde|oculta|guarda)\s+(?:el\s+|la\s+|a\s+)?(.+)$') {
         $obj = $Matches[1].Trim()
         # "guarda el archivo" es Ctrl+S, no "minimiza el Explorador de archivos"
         # (Resolve-Proceso encontraba "archivos" por parecido)
@@ -2124,7 +2168,8 @@ function Resolve-Fragment([string]$f) {
     }
     # --- CONTROL DE APPS Y VENTANAS (lo que faltaba para "hacer cualquier cosa") ---
     # cerrar: "cierra steam", "cierra esta ventana", "cierra el juego"
-    if ($f -match '^(?:cierra|cierrame|cerrar|apaga|quita|quitame|mata|termina|finaliza|acaba con)\s+(?:el\s+|la\s+|a\s+)?(.+)$') {
+    # "quita el sonido a spotify" es silenciarlo, no cerrarlo (auditoria del 13/09)
+    if ($f -match '^(?:cierra|cierrame|cerrar|apaga|quita|quitame|mata|termina|finaliza|acaba con)\s+(?!(?:el\s+|la\s+)?(?:sonido|volumen|audio|silencio|voz)\b)(?:el\s+|la\s+|a\s+)?(.+)$') {
         $obj = $Matches[1].Trim()
         if ($obj -match '^(?:esta ventana|la ventana|esto|esta|la app|la aplicacion|ventana)$') { return @(@{ kind = 'altf4'; desc = 'cerrar la ventana' }) }
         if ($obj -match '^(?:el juego|juego|este juego|el videojuego)$') { return @(@{ kind = 'cerrarJuego'; desc = 'cerrar el juego' }) }
@@ -2165,7 +2210,7 @@ function Resolve-Fragment([string]$f) {
     # vez de pelearse con el ruido, se calla. NO es un modo que se quede puesto:
     # siempre lleva plazo, el boton (mantener ≡) sigue funcionando mientras
     # tanto, y al volver te avisa en voz alta.
-    if ($f -match '^(?:no me escuches|no escuches|deja de escuchar|dejate de escuchar|duermete|vete a dormir|a dormir|descansa|apaga el oido|no me oigas|ignorame)(?:\s+(?:durante|por|en|un|una)?\s*(?:(\d+)\s*(minuto|minutos|hora|horas)|(un rato|media hora|un momento|rato)))?$') {
+    if ($f -match '^(?:no me escuches|no escuches|deja de escuchar|dejate de escuchar|duermete|vete a dormir|a dormir|descansa|apaga el oido|no me oigas|ignorame)(?:\s+(?:durante|por|en|un|una)?\s*(?:(\d+)\s*(minuto|minutos|hora|horas)|(una hora|un rato|media hora|un momento|rato)))?$') {
         # OJO: hay que copiar los grupos ANTES de usar -match otra vez, porque
         # cada -match reescribe $Matches entero. Con el numero y la unidad
         # leidos de $Matches despues de comprobar la unidad, decia 'me callo 2'
@@ -2177,6 +2222,10 @@ function Resolve-Fragment([string]$f) {
             $n = [int]$num
             if ($unidad -match '^hora') { $ms = $n * 3600000 } else { $ms = $n * 60000 }
             $comoLoDigo = "$n $unidad"
+        } elseif ($expr -eq 'una hora') {
+            # "no me escuches una hora" se iba a la IA (auditoria del 13/09)
+            $ms = 3600000
+            $comoLoDigo = 'una hora'
         } elseif ($expr -eq 'media hora') {
             $ms = 30 * 60000
             $comoLoDigo = 'media hora'
@@ -2288,14 +2337,33 @@ function Resolve-Fragment([string]$f) {
         '^(?:maximiza|maximizar|pantalla completa|agranda)$' { return @(@{ kind = 'winkey'; vk = 0x26; desc = 'maximizar ventana' }) }
         '^(?:minimiza|minimizar|achica)$' { return @(@{ kind = 'winkey'; vk = 0x28; desc = 'minimizar ventana' }) }
     }
+    # --- el volumen DE UNA APP dicho con "volumen de" (auditoria del 13/09) ---
+    # "sube el volumen de spotify", "pon el volumen de discord al 30" caian en el
+    # volumen GENERAL. Se reescriben como "sube spotify (al 30)", que ya es el de
+    # la app. "pon spotify" a secas no: eso es abrirlo, asi que con "pon" hace
+    # falta el numero.
+    if ($f -match '^(sube|subele|baja|bajale|pon|ponle)\s+(?:el\s+)?(?:volumen|sonido)\s+(?:de|del|a|al)\s+(.+?)(\s+al?\s+\d{1,3}\s*(?:%|por\s*ciento)?)?$') {
+        $verboV = [string]$Matches[1]; $appV = ([string]$Matches[2]).Trim(); $restoV = [string]$Matches[3]
+        if ($appV -notmatch '^(?:todo|tope|maximo|minimo|la mitad|mitad|medio|sistema|equipo|pc|ordenador|juego|la musica)$' -and
+            ($verboV -notmatch '^pon' -or $restoV) -and (Resolve-Proceso $appV)) {
+            return (Resolve-Fragment ("$verboV $appV$restoV"))
+        }
+    }
     # --- niveles: volumen y brillo, con formas latinas (subele / bajale) ---
     # "pon"/"deja" entran aqui tambien ("pon el brillo al 20%"), pero si la
     # frase no habla de volumen ni brillo se DEJA PASAR al resto de la funcion:
     # devolver $null aqui rompería "ponme spotify".
     if ($f -match '^(sube|subir|subele|aumenta|baja|bajar|bajale|reduce|pon|ponle|poner|deja|dejar)\b') {
-        $sube = ($Matches[1] -match '^(?:sube|subir|subele|aumenta)$')
-        $max = ($f -match '\b(?:maximo|tope|todo|full)\b')
-        $min = ($f -match '\b(?:minimo|nada)\b')
+        # el verbo se copia ANTES: el -match de $sube pisa $Matches
+        $verboN = [string]$Matches[1]
+        $sube = ($verboN -match '^(?:sube|subir|subele|aumenta)$')
+        $esPon = ($verboN -match '^(?:pon|ponle|poner|deja|dejar)$')
+        # "del todo" es a tope si sube y a cero si baja: "baja el volumen del todo"
+        # lo ponia al MAXIMO (auditoria del 13/09)
+        $delTodo = ($f -match '\bdel\s+todo\b')
+        $max = ($f -match '\b(?:maximo|tope|full)\b') -or ($f -match '\btodo\b' -and ($sube -or -not $delTodo))
+        $min = ($f -match '\b(?:minimo|nada)\b') -or ($delTodo -and -not $sube -and -not $esPon)
+        $mitad = ($f -match '\b(?:la\s+mitad|mitad|medio)\b')
         # Porcentaje POR OBJETIVO: se busca el numero mas cercano a cada palabra.
         # Con un solo $pct global, "el volumen al 50% y el brillo al 80%" ponia
         # los dos al 50 %.
@@ -2321,11 +2389,15 @@ function Resolve-Fragment([string]$f) {
         if ($f -match '\b(?:volumen|sonido|audio)\b') {
             if ($null -ne $pctVol) {
                 $acc += @{ kind = 'volumenPct'; pct = $pctVol; desc = "volumen al $pctVol por ciento" }
+            } elseif ($mitad -and -not $max -and -not $min) {
+                $acc += @{ kind = 'volumenPct'; pct = 50; desc = 'volumen a la mitad' }
             } elseif ($max -or $min) {
                 # al maximo o al minimo: un numero, no 50 teclazos (~1,5 s)
                 $acc += @{ kind = 'volumenPct'; pct = $(if ($max) { 100 } else { 0 })
                            desc = ("volumen al " + $(if ($max) { 'maximo' } else { 'minimo' })) }
-            } else {
+            } elseif (-not $esPon) {
+                # ("pon el sonido" a secas no dice cuanto: no se toca, y la frase sigue
+                # su camino; antes bajaba el volumen, auditoria del 13/09)
                 # un paso de 10, con numero exacto y sin los tics del teclado
                 $acc += @{ kind = 'volumenRel'; sube = $sube; paso = $(if ($sube) { 10 } else { -10 })
                            desc = ("$(if ($sube) { 'subir' } else { 'bajar' }) volumen") }
@@ -2335,9 +2407,9 @@ function Resolve-Fragment([string]$f) {
             if ($null -ne $pctBri) {
                 $acc += @{ kind = 'brillo'; nivel = $pctBri; desc = "brillo al $pctBri por ciento" }
             } else {
-                $nivel = if ($max) { 100 } elseif ($min) { 0 } elseif ($sube) { -1 } else { -2 }
+                $nivel = if ($max) { 100 } elseif ($min) { 0 } elseif ($mitad) { 50 } elseif ($sube) { -1 } else { -2 }
                 $acc += @{ kind = 'brillo'; nivel = $nivel
-                           desc = ("$(if ($sube) { 'subir' } else { 'bajar' }) brillo" + $(if ($max) { ' al maximo' } elseif ($min) { ' al minimo' } else { '' })) }
+                           desc = $(if ($mitad -and -not $max -and -not $min) { 'brillo a la mitad' } else { "$(if ($sube) { 'subir' } else { 'bajar' }) brillo" + $(if ($max) { ' al maximo' } elseif ($min) { ' al minimo' } else { '' }) }) }
             }
         }
         if ($acc.Count -gt 0) { return $acc }
@@ -2351,11 +2423,14 @@ function Resolve-Fragment([string]$f) {
         '^(?:quita el silencio|desilencia|dessilencia|quita el mute|desmutea|vuelve el sonido|pon el sonido)$' { return @(@{ kind = 'silencio'; silencio = $false; desc = 'sonido otra vez' }) }
         '^(?:pausa|pausar|reproduce|reproducir|play)$' { return @(@{ kind = 'key'; vk = 0xB3; repeat = 1; desc = 'play/pausa' }) }
         # la tecla es un interruptor: se mira antes si ya suena (revision del 13/09)
-        '^(?:pausa|para)\s+(?:la\s+)?(?:musica|cancion)$' { return @(@{ kind = 'musicaPlay'; sonar = $false; desc = 'pausar la musica' }) }
+        '^(?:pausa|para|apaga|quita)\s+(?:la\s+)?(?:musica|cancion)$' { return @(@{ kind = 'musicaPlay'; sonar = $false; desc = 'pausar la musica' }) }
+        # "pausa spotify" abria Spotify: el verbo "pausa" caia en el de abrir (auditoria 13/09)
+        '^(?:pausa|pausar|para)\s+(?:a\s+|el\s+|la\s+)?(?:spotify|youtube|netflix|el video|la serie|la pelicula|el reproductor)$' { return @(@{ kind = 'musicaPlay'; sonar = $false; desc = 'pausar lo que suena' }) }
         '^(?:reanuda|quita la pausa a|pon|dale play a)\s+(?:la\s+)?(?:musica|cancion)$' { return @(@{ kind = 'musicaPlay'; sonar = $true; desc = 'poner la musica' }) }
         '^(?:siguiente|pasa|pasala|adelanta)\b' { return @(@{ kind = 'key'; vk = 0xB0; repeat = 1; desc = 'siguiente' }) }
         '^(?:anterior|regresa|atras)\b' { return @(@{ kind = 'key'; vk = 0xB1; repeat = 1; desc = 'anterior' }) }
-        '^(?:bloquea|bloquear)\b' { return @(@{ kind = 'lock'; desc = 'bloquear sesion' }) }
+        # a secas o con lo que se bloquea: "bloquea a ese tio en discord" bloqueaba la sesion
+        '^(?:bloquea|bloquear)(?:\s+(?:la\s+)?(?:pantalla|sesion|el\s+(?:pc|ordenador|equipo|computador|computadora)))?$' { return @(@{ kind = 'lock'; desc = 'bloquear sesion' }) }
     }
     # --- busquedas ---
     if ($f -match '^(?:busca|buscame|buscar|busque|googlea|googleame|investiga)\s+(.+)$') {
@@ -2519,7 +2594,13 @@ function Invoke-Deshacer {
     if (-not $script:deshacer) { return "No hay nada que deshacer" }
     $hecho = @()
     if ($null -ne $script:deshacer.brillo) {
-        try { Set-Brillo ([int]$script:deshacer.brillo); $hecho += "brillo restaurado" } catch {}
+        # solo si de verdad cambio: decia "brillo restaurado" y lo reescribia aunque
+        # la orden no lo hubiera tocado (auditoria del 13/09)
+        $briAhora = -1
+        try { $briAhora = [int]((Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness -ErrorAction Stop | Select-Object -First 1).CurrentBrightness) } catch {}
+        if ($briAhora -ne [int]$script:deshacer.brillo) {
+            try { Set-Brillo ([int]$script:deshacer.brillo); $hecho += "brillo restaurado" } catch {}
+        }
     }
     if ($null -ne $script:deshacer.volumen -and [int]$script:deshacer.volumen -ge 0) {
         $vAntes = [int]$script:deshacer.volumen
@@ -2643,7 +2724,7 @@ function Get-Traducciones {
         try {
             $j = Get-Content -LiteralPath $TraduccionesPath -Raw -Encoding UTF8 | ConvertFrom-Json
             foreach ($p in $j.PSObject.Properties) { $script:traducciones[$p.Name] = [string]$p.Value }
-        } catch {}
+        } catch { Save-Corrupto $TraduccionesPath 'traducciones' }
     }
     return $script:traducciones
 }
@@ -2823,7 +2904,7 @@ function Get-Recetas {
                     pasos = $pasos; variantes = $vars; ejemplo = [string]$x.ejemplo; creada = [string]$x.creada
                     usos = [int]$x.usos; confirmadas = [int]$x.confirmadas; fallos = [int]$x.fallos; rechazos = [int]$x.rechazos })
             }
-        } catch { Log ("recetas: no pude leer el archivo: " + $_.Exception.Message) }
+        } catch { Log ("recetas: no pude leer el archivo: " + $_.Exception.Message); Save-Corrupto $RecetasPath 'recetas' }
     }
     return ,$script:recetas
 }
@@ -2997,6 +3078,26 @@ function Add-Receta([string]$original, [string]$bloque) {
         $enc = Find-Receta $primeraParte @($prov)
         if ($enc) { Log "RECETA: '$frase' encaja con la primera parte de la frase ('$primeraParte')" }
     }
+    # ...o SIN LA CORTESIA (auditoria del 13/09): "puedes contar los archivos de mi
+    # carpeta de descargas" no encajaba en "cuenta los archivos de mi carpeta de
+    # {carpeta}" y la receta se perdia siempre. Se quita "puedes/podrias/quiero
+    # que..." y, si aun asi el primer verbo no coincide, la plantilla se guarda
+    # con TU verbo: es como lo vas a volver a decir.
+    if (-not $enc) {
+        $limpio = ($original -replace '(?i)^\s*(?:(?:oye|hey|ey|nova|por favor|porfa)[\s,]+)*(?:me\s+)?(?:puedes|podrias|podrías|podras|podrás|quiero que|me gustaria que|me gustaría que|necesito que)\s+(?:me\s+)?', '').Trim()
+        if ($limpio -and $limpio -ne $original.Trim()) {
+            $enc = Find-Receta $limpio @($prov)
+            if (-not $enc) {
+                $pl = @($limpio -split '\s+'); $pf = @($frase -split '\s+')
+                if ($pl.Count -gt 1 -and $pf.Count -gt 1 -and $pf[0] -notmatch '\{') {
+                    $frase2 = (@($pl[0]) + @($pf[1..($pf.Count - 1)])) -join ' '
+                    $prov2 = @{ id = 0; frase = $frase2; pasos = $pasos }
+                    $enc = Find-Receta $limpio @($prov2)
+                    if ($enc) { Log "RECETA: plantilla ajustada a como lo dijiste: '$frase2'"; $frase = $frase2; $prov = $prov2 }
+                }
+            }
+        }
+    }
     if (-not $enc) { Log "RECETA descartada: '$original' no encaja en '$frase'"; return $null }
     # y las ordenes de Nova tienen que existir, con los valores de esta vez
     foreach ($pp in $pasos) {
@@ -3044,9 +3145,14 @@ function Invoke-Receta($r, $valores) {
             if (Test-ScriptProhibido $cuerpo) { return @{ ok = $false; error = 'el script tiene algo prohibido' } }
             $rutaS = Join-Path $TmpDir ("receta-" + [System.Guid]::NewGuid().ToString('N') + ".ps1")
             $cab = "`$ErrorActionPreference = 'Stop'`r`n"
+            # LOS VALORES NUNCA VAN PEGADOS EN EL SCRIPT (auditoria del 13/09):
+            # duplicar la ' no bastaba, PowerShell tambien cierra una cadena con
+            # comillas tipograficas (’ ‘ ‚ ‛) y un valor dictado colaba codigo. Viajan
+            # en variables de entorno del proceso hijo y el script solo las lee.
             foreach ($k in $valores.Keys) {
                 if ($k -notmatch '^[a-z_]{1,20}$') { return @{ ok = $false; error = "hueco '$k' no valido" } }
-                $cab += ('$' + $k + " = '" + ([string]$valores[$k]).Replace("'", "''") + "'`r`n")
+                $cab += ('$' + $k + " = [Environment]::GetEnvironmentVariable('NOVA_HUECO_" + $k + "')`r`n")
+                [Environment]::SetEnvironmentVariable("NOVA_HUECO_$k", [string]$valores[$k], 'Process')
             }
             [System.IO.File]::WriteAllText($rutaS, $cab + $cuerpo, (New-Object System.Text.UTF8Encoding($true)))
             # el error del script se guarda: es lo que el cerebro necesita para
@@ -3065,9 +3171,12 @@ function Invoke-Receta($r, $valores) {
                     if ($errTxt.Length -gt 400) { $errTxt = $errTxt.Substring(0, 400) }
                     return @{ ok = $false; error = "el script termino con codigo $($pr.ExitCode): $errTxt" }
                 }
+            } catch {
+                return @{ ok = $false; error = "no pude ejecutar el script: $($_.Exception.Message)" }
             } finally {
                 Remove-Item -LiteralPath $rutaS -Force -ErrorAction SilentlyContinue
                 Remove-Item -LiteralPath $rutaE -Force -ErrorAction SilentlyContinue
+                foreach ($k in $valores.Keys) { [Environment]::SetEnvironmentVariable("NOVA_HUECO_$k", $null, 'Process') }
             }
         } else {
             return @{ ok = $false; error = "paso desconocido '$tipo'" }
@@ -3819,6 +3928,17 @@ function Get-Configuracion {
     return (@($p | ForEach-Object { $_.Substring(0, 1).ToUpper() + $_.Substring(1) }) -join '. ') + '.'
 }
 
+# PLAZO POR MODO (auditoria del 13/09): con un solo plazo de 240 s, si Haiku se
+# colgaba traduciendo (tarda ~5 s) Nova se quedaba 4 min "Entendiendo".
+function Get-PlazoJob {
+    switch ([string]$script:jobModo) {
+        'traducir' { return 25000 }
+        'pregunta' { return 90000 }
+        'charla' { return 90000 }
+        default { return $CliTimeoutMs }
+    }
+}
+
 function Find-Traduccion([string]$text) {
     $t = Get-Traducciones
     if ($t.Count -eq 0) { return $null }
@@ -4038,7 +4158,9 @@ function Invoke-FastCommand([string]$text) {
         $script:pendiente = @{ texto = $text; vence = 0; tipo = 'rechazada' }
         $qr = @($acciones | ForEach-Object { $_.desc }) -join ' y '
         if (-not $qr) { $qr = $text }
-        return "La ultima vez me dijiste que no era eso. ¿$qr?"
+        # $($var)? y no $var?: en PowerShell 5.1 la ? se come como parte del nombre
+        # de la variable y la pregunta salia vacia (auditoria del 13/09)
+        return "La ultima vez me dijiste que no era eso. ¿$($qr)?"
     }
     # ESTA VOZ NO ES LA TUYA. Solo para las ordenes que TOCAN algo: si el audio
     # de un video pregunta la hora, que la pregunte. Y solo se pregunta -nunca
@@ -4052,7 +4174,7 @@ function Invoke-FastCommand([string]$text) {
         if (-not $qv) { $qv = $text }
         Log ("VOZ EXTRANA: $([int]$script:ultimaF0) Hz frente a $([int](Get-VozDuena)) Hz; se pregunta antes de: " + $qv)
         Add-Estadistica 'voz-extrana' $text
-        return "No me suena tu voz. ¿$qv?"
+        return "No me suena tu voz. ¿$($qv)?"
     }
     if ($ConfirmacionOn -and $script:dudosa -and -not $script:confirmado -and -not $script:sinDudosa) {
         $script:pendiente = @{ texto = $text; vence = 0 }
@@ -4105,8 +4227,8 @@ function Invoke-FastCommand([string]$text) {
                     $comoSeLlama = ($a.desc -replace '^abrir\s+', '' -replace '\s+en Steam$', '')
                     if ($esJuego -and -not $script:confirmado -and ($script:juegoActivo -or $a.sinVerbo)) {
                         $script:pendiente = @{ texto = "abre $comoSeLlama en steam"; vence = 0; tipo = 'peligrosa' }
-                        $a.desc = if ($script:juegoActivo) { "estas jugando a $($script:juegoActivo). ¿Abro $comoSeLlama?" }
-                                  else { "¿Abro $comoSeLlama?" }
+                        $a.desc = if ($script:juegoActivo) { "estas jugando a $($script:juegoActivo). ¿Abro $($comoSeLlama)?" }
+                                  else { "¿Abro $($comoSeLlama)?" }
                     } else {
                         # con -PassThru para poder cerrarlo si pides deshacer; las
                         # URI (steam://, shell:appsFolder) no devuelven proceso propio
@@ -4298,14 +4420,18 @@ function Invoke-FastCommand([string]$text) {
                     # 1b) y apuntar la frase, que es lo que evita que vuelva a
                     #     pasar cuando NO hay ninguna traduccion de por medio
                     $apuntada = $false
-                    if ($script:ultimoEjecutado) { $apuntada = Add-Rechazo $script:ultimoEjecutado }
+                    # si vino de una TRADUCCION, lo rechazado es tu frase original, no la
+                    # orden normal a la que se tradujo: si no, "baja el volumen" pasaba a
+                    # preguntar siempre (auditoria del 13/09)
+                    $fraseRechazo = if ($script:ultimaAprendida) { [string]$script:ultimaAprendida } else { [string]$script:ultimoEjecutado }
+                    if ($fraseRechazo) { $apuntada = Add-Rechazo $fraseRechazo }
                     # 2) y si la orden salio de una traduccion APRENDIDA, borrarla:
                     #    si no, volveria a equivocarse igual la proxima vez. Esto es
                     #    lo que convierte un "no era eso" en algo que sirve.
                     $olvidada = $null
                     if ($script:ultimaAprendida) {
                         $olvidada = $script:ultimaAprendida
-                        Remove-Traduccion $olvidada
+                        [void](Remove-Traduccion $olvidada)   # sin [void] Nova decia "True"
                         $script:ultimaAprendida = ''
                     }
                     # 2b) y si lo ultimo fue una RECETA (usada o recien aprendida), fuera
@@ -4460,7 +4586,8 @@ function Invoke-FastCommand([string]$text) {
                         foreach ($tp in ($tps | Sort-Object { $_.vence })) {
                             $queda = [int][Math]::Ceiling(($tp.vence - $sw.ElapsedMilliseconds) / 60000.0)
                             $cuanto = if ($queda -le 1) { 'menos de un minuto' } else { "$queda minutos" }
-                            $partes += if ($tp.texto) { "$cuanto para $($tp.texto)" } else { "$cuanto" }
+                            # sin el texto por defecto: "quedan 2 minutos para se acabo el tiempo"
+                            $partes += if ($tp.texto -and $tp.texto -notin 'se acabo el tiempo', 'fin del foco', 'se acabo el descanso') { "$cuanto para $($tp.texto)" } else { "$cuanto" }
                         }
                         $a.desc = 'quedan ' + ($partes -join '; ')
                     }
@@ -5257,7 +5384,8 @@ function Say-Online([string]$texto) {
                 $n = ([System.IO.File]::ReadAllText($env).Trim() -split '\s+').Count
                 $dur = $n * 50 + 450
                 $fin = $sw.ElapsedMilliseconds + $dur
-                $script:pausaHasta = $fin
+                # Max: una pausa mas larga ya puesta (la sordina) no se acorta (auditoria 13/09)
+                $script:pausaHasta = [Math]::Max($script:pausaHasta, $fin)
                 $script:uiHasta = [Math]::Max($script:uiHasta, $fin)
             }
         } catch {}
@@ -5526,6 +5654,29 @@ $RutaNivel = Join-Path $TmpDir "ui-nivel.txt"
 # boton): el runner muere antes de borrar sus in-/out-/err-/raw- y se quedan
 # ahi para siempre. Se barren los de hace mas de un dia, nunca los recientes,
 # que pueden estar en uso ahora mismo.
+# UNA SOLA NOVA, Y ANTES DE TOCAR tmp\ (auditoria del 13/09): el candado estaba
+# mas abajo, asi que una segunda copia (la clave Run mas un arranque a mano)
+# borraba las marcas de la que ya funcionaba -le quitaba la pausa mientras
+# hablaba- y solo despues se daba cuenta de que sobraba.
+$mutex = $null
+if (-not $Probar) {
+    $mutex = New-Object System.Threading.Mutex($false, "Local\VoiceAssistant")
+    if (-not $mutex.WaitOne(0)) {
+        Write-Output "VoiceAssistant ya esta ejecutandose."
+        exit 0
+    }
+    # workers de una sesion anterior que se quedaron huerfanos (su asistente ya
+    # no existe): siguen con el microfono y al arrancar habria dos escuchando
+    try {
+        foreach ($wo in @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+                          Where-Object { $_.CommandLine -and ($_.CommandLine -match 'wake_vosk\.py' -or $_.CommandLine -match 'tts_worker\.py') })) {
+            if (-not (Get-Process -Id $wo.ProcessId -ErrorAction SilentlyContinue)) { continue }
+            if (-not (Get-Process -Id $wo.ParentProcessId -ErrorAction SilentlyContinue)) {
+                Stop-Process -Id $wo.ProcessId -Force -ErrorAction SilentlyContinue
+            }
+        }
+    } catch {}
+}
 try {
     $limite = (Get-Date).AddDays(-1)
     $restos = @(Get-ChildItem -LiteralPath $TmpDir -File -ErrorAction SilentlyContinue |
@@ -5556,7 +5707,11 @@ function Pausar-Escucha([int]$ms) {
     } catch {}
 }
 
-function Reanudar-Escucha {
+function Reanudar-Escucha([switch]$Forzar) {
+    # CON LA SORDINA PUESTA NO SE REANUDA (auditoria del 13/09): "no me escuches
+    # media hora" se levantaba en cuanto Nova terminaba de decir "vale". Solo la
+    # levanta quien lo pide a proposito (-Forzar: el dictado con el boton).
+    if (-not $Forzar -and $script:sordinaHasta -gt $sw.ElapsedMilliseconds) { $script:pausaHasta = 0; return }
     try { Remove-Item -LiteralPath $MarcaPausa -Force -ErrorAction SilentlyContinue } catch {}
     $script:pausaHasta = 0
 }
@@ -5575,6 +5730,9 @@ function Initialize-Escucha {
     try {
         Remove-Item -LiteralPath $MarcaWake -Force -ErrorAction SilentlyContinue
         if ($EscuchaMotor -eq 'vosk') {
+            # el worker vigila que este proceso siga vivo: si muere, sale y suelta
+            # el microfono en vez de quedarse escuchando huerfano (auditoria 13/09)
+            $env:NOVA_PID_PADRE = "$PID"
             $worker = Join-Path $LogDir "wake_vosk.py"
             if (-not (Test-Path -LiteralPath $worker)) { Log "WARN: falta wake_vosk.py"; return }
             # La confianza minima va TAMBIEN aqui: hasta ahora solo la recibia el
@@ -5625,6 +5783,7 @@ function Initialize-Escucha {
         # Es un portatil de JUEGOS: la escucha nunca debe competir por CPU con
         # el juego en primer plano.
         try { $script:wakeProc.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal } catch {}
+        $script:wakeDesde = $sw.ElapsedMilliseconds
         Log "escucha continua ACTIVA [$EscuchaMotor] (worker PID=$($script:wakeProc.Id)): di '$EscuchaNombre'"
     } catch {
         Log ("WARN: escucha continua no arranco: " + $_.Exception.Message)
@@ -5685,6 +5844,7 @@ $script:uiRemoto = $false   # "pensando" lo lleva la IA (violeta) y no Nova sola
 $script:sinTarjeta = $false # la proxima respuesta es para oirla: sin tarjeta grande (ver Show-Popup)
 $script:sinTarjetaEn = 0
 $script:respuestaSinTarjeta = $false   # la respuesta del cerebro que viene es para oirla
+$script:avisosAplazados = New-Object System.Collections.ArrayList   # avisos que llegaron mientras dictabas
 $script:notifCheck = 0      # ultima vez que se miraron las notificaciones
 $script:uiCola = ''         # "3/2" = tres cosas en esta orden, va por la segunda; "3/2!" = esa fallo
 $script:uiDescarga = 0      # 0..1 de la descarga de Steam mas avanzada (anillo)
@@ -5860,6 +6020,13 @@ function Test-AvisoSinVoz {
 # Un aviso, por la puerta que toque. $tipo da el color del pulso: bateria,
 # tiempo, descarga, recordatorio.
 function Send-Aviso([string]$texto, [string]$tipo = '') {
+    # MIENTRAS DICTAS, ESPERA (auditoria del 13/09): hablar encima de un dictado
+    # pone la pausa y el worker tira tu audio. Se guarda y suena al terminar.
+    if ($script:armed) {
+        [void]$script:avisosAplazados.Add(@{ texto = $texto; tipo = $tipo })
+        Log "aviso aplazado hasta que termines de dictar: $texto"
+        return
+    }
     Show-Popup $texto
     if (Test-AvisoSinVoz) {
         Send-UIEvento ("pulso:" + $tipo)
@@ -6063,7 +6230,7 @@ function Get-Reglas {
                 if ($null -eq $r -or -not [string]$r.tipo) { continue }
                 [void]$script:reglas.Add(@{ id = [int]$r.id; tipo = [string]$r.tipo; valor = [string]$r.valor; accion = [string]$r.accion; ultima = [string]$r.ultima })
             }
-        } catch {}
+        } catch { Save-Corrupto $ReglasPath 'reglas' }
     }
     # la coma evita que PowerShell "desenrolle" la lista vacia en $null
     return ,$script:reglas
@@ -6230,9 +6397,12 @@ function Invoke-ReglaVoz([string]$text) {
         $tipo = 'hora'; $valor = ('{0:00}:{1:00}' -f $h, $m); $accion = $g4.Trim()
     }
     elseif ($p -match '^cada\s+(\d+)\s*(minutos?|horas?)\s*,?\s*((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
-        $n = [int]$Matches[1]; if ($Matches[2] -match '^hora') { $n *= 60 }
+        # los grupos se copian ANTES del -match de la unidad, que pisa $Matches:
+        # con "horas" la accion salia $null y la regla no se creaba (auditoria 13/09)
+        $n = [int]$Matches[1]; $unidadC = [string]$Matches[2]; $accionC = [string]$Matches[3]
+        if ($unidadC -match '^hora') { $n *= 60 }
         if ($n -lt 1) { return "Cada cuanto tiempo? Necesito al menos un minuto." }
-        $tipo = 'cada'; $valor = [string]$n; $accion = $Matches[3].Trim()
+        $tipo = 'cada'; $valor = [string]$n; $accion = $accionC.Trim()
     }
     if (-not $tipo) { return $null }
     # "avisame" a secas no es una accion ejecutable, pero es lo que se dice.
@@ -6910,10 +7080,13 @@ if ($Probar) {
     exit 0
 }
 
-$mutex = New-Object System.Threading.Mutex($false, "Local\VoiceAssistant")
-if (-not $mutex.WaitOne(0)) {
-    Write-Output "VoiceAssistant ya esta ejecutandose."
-    exit 0
+# el candado ya se cogio arriba, antes de limpiar tmp\ (ver UNA SOLA NOVA)
+if (-not $mutex) {
+    $mutex = New-Object System.Threading.Mutex($false, "Local\VoiceAssistant")
+    if (-not $mutex.WaitOne(0)) {
+        Write-Output "VoiceAssistant ya esta ejecutandose."
+        exit 0
+    }
 }
 
 try {
@@ -6964,7 +7137,7 @@ if (-not (Test-Path -LiteralPath $TmpDir)) {
     try { New-Item -ItemType Directory -Path $TmpDir -Force | Out-Null } catch {}
 }
 
-Log "VoiceAssistant iniciado PID=$PID (trigger: mantener ≡ $([Math]::Round($HOLD_MS/1000,1)) s; destino: opencode CLI headless)."
+Log "VoiceAssistant iniciado PID=$PID (trigger: mantener ≡ $([Math]::Round($HOLD_MS/1000,1)) s; cerebro: $CerebroMotor)."
 if ($cfgError) { Log "WARN: config.json ilegible, se usan los valores por defecto: $cfgError" }
 elseif ($cfg) { Log "config.json cargado" }
 if ($cmdsError) { Log "WARN: commands.json ilegible, todo ira a opencode: $cmdsError" }
@@ -7305,6 +7478,8 @@ function Clear-OpencodeJob {
         if ($f) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }
     }
     $script:jobOut = $null; $script:jobErr = $null; $script:jobIn = $null
+    # sin esto, cancelar pasada la estimacion dejaba el barrido de progreso en reposo
+    $script:uiProgreso = 0
     try { if ($script:proc) { $script:proc.Dispose() } } catch {}
     $script:proc = $null
     $script:busy = $false
@@ -7684,6 +7859,12 @@ function Complete-OpencodeJob {
         }
         if ($res.subtype -eq 'success' -and -not $res.is_error) { return @([string]$res.result) }
         if ($res.subtype -eq 'success' -and $res.is_error) {
+            # ...salvo que ANTES del error ya usara herramientas (auditoria 13/09):
+            # repetirlo con el respaldo podria hacer dos veces lo mismo
+            if ($stdout -match '"type":"tool_use"') {
+                Log "CEREBRO: error de la cuenta despues de usar herramientas; no se repite"
+                return @("No se si lo termine: empece a hacerlo y la cuenta dio un error. Miralo antes de repetirlo.")
+            }
             # error de la cuenta o del servicio (limite de uso, sesion caducada):
             # tampoco hizo nada, se puede rehacer con el respaldo
             return @("(error del cerebro: " + [string]$res.result + ")")
@@ -7873,7 +8054,10 @@ function Report-Reply($out) {
                 Log "cerebro Claude Code desactivado hasta el proximo arranque"
             }
             $script:busy = $false
-            if ($script:jobPrompt) {
+            # el respaldo (opencode --auto) solo para TAREAS: una traduccion o una
+            # pregunta fallida no tienen por que ir a un agente con acceso al
+            # disco (auditoria del 13/09)
+            if ($script:jobPrompt -and $script:jobModo -eq 'accion') {
                 if (Start-OpencodeJob $script:jobPrompt $script:jobExtra) { return }
             }
             Show-Popup "El modelo no contesto. Ver assistant.log." 'error'
@@ -7917,7 +8101,9 @@ function Report-Reply($out) {
         $propuesta = (($out | Out-String) -replace '\s+', ' ').Trim()
         # el modelo a veces adorna: quedarse con la primera linea util
         $propuesta = ($propuesta -split '[\r\n]' | Where-Object { $_.Trim() } | Select-Object -First 1)
-        $propuesta = $propuesta.Trim().Trim('"').Trim("'")
+        # [string]: si Haiku no devolvio nada, $propuesta es $null y .Trim() tumbaba
+        # el asistente entero (auditoria del 13/09)
+        $propuesta = ([string]$propuesta).Trim().Trim('"').Trim("'")
         $original = $script:jobTextoOriginal
         $veredicto = if ($propuesta) { $propuesta.ToUpperInvariant().Trim('.', ' ') } else { '' }
         # El modelo tiene la ultima palabra sobre si esto era una orden. Casi
@@ -8452,9 +8638,18 @@ function Start-Dictado([string]$origen) {
     # (revision del 12/09). Se levanta para este dictado y el bucle la vuelve a
     # poner al terminar, con el tiempo que le quedara.
     if ($origen -like 'mantener*' -and $script:sordinaHasta -gt $sw.ElapsedMilliseconds -and (Test-Path -LiteralPath $MarcaPausa)) {
-        Reanudar-Escucha
+        Reanudar-Escucha -Forzar
         $script:sordinaRepausar = $true
         Log "SORDINA: la levanto para este dictado con el boton"
+    }
+    # NOVA ESTABA HABLANDO (un aviso, un temporizador, o pulsaste ≡ mientras
+    # contestaba): la pausa hace que el worker tire el audio, asi que el dictado
+    # se congelaba 50 s. Se corta la voz y se escucha (auditoria del 13/09).
+    elseif ((Test-Path -LiteralPath $MarcaPausa) -and -not ($script:sordinaHasta -gt $sw.ElapsedMilliseconds)) {
+        try { if ($script:reproductor) { $script:reproductor.Stop() } } catch {}
+        try { if ($script:vozPlayer) { $script:vozPlayer.Stop() } } catch {}
+        Reanudar-Escucha
+        Log "DICTADO: corto la voz y vuelvo a escuchar para oirte"
     }
     # Cuantas veces se despierta por voz. Sin este numero no hay forma de
     # saber si los filtros de falsas alarmas funcionan o si, al reves, se han
@@ -8491,7 +8686,9 @@ function Start-Dictado([string]$origen) {
     # segundo ("dictado sin respuesta del worker", 12/09 19:08), y el envio por
     # silencio de Win+H no se alcanzaba nunca. motorOrdenes = windows no
     # funcionaba en absoluto.
-    $script:ordenPorWorker = [bool]($usaWorker -and $script:wakeProc)
+    # y VIVO: tras 3 fallos el worker podia seguir referenciado ya muerto, y cada
+    # pulsacion de ≡ esperaba 50 s a un worker que no existia (auditoria 13/09)
+    $script:ordenPorWorker = [bool]($usaWorker -and $script:wakeProc -and -not $script:wakeProc.HasExited)
     $script:dictaInicio = $sw.ElapsedMilliseconds
 
     # --- Dictado por el worker (Whisper/Vosk): ni foco, ni Win+H, ni pausa ---
@@ -9095,7 +9292,12 @@ $XINPUT_B = 0x2000
 $script:botonesPrev = 0
 $script:mandoRespondioEn = -100000
 
+$script:erroresBucle = 0
 while ($true) {
+    # RED DEL BUCLE (auditoria del 13/09): con $ErrorActionPreference = Stop, una
+    # sola excepcion sin capturar en cualquier punto de la vuelta apagaba el
+    # asistente hasta el siguiente inicio de sesion. Ahora se anota y se sigue.
+    try {
     [System.Windows.Forms.Application]::DoEvents()
     $startNow = $false
     $botones = 0
@@ -9299,10 +9501,14 @@ while ($true) {
             } elseif ($script:wakeIntentos -eq 3) {
                 $script:wakeIntentos++   # avisar una sola vez
                 Log "ERROR: el worker de escucha no se sostiene; se sigue solo con el boton"
+                try { $script:wakeProc.Dispose() } catch {}
+                $script:wakeProc = $null   # el boton dicta con Windows, no espera a un worker muerto
                 Show-Popup "La palabra de activacion fallo. Sigue funcionando el boton." 'error'
                 Say "La escucha por voz fallo. Puedes seguir usando el boton."
             }
-        } elseif ($script:wakeProc) {
+        } elseif ($script:wakeProc -and ($sw.ElapsedMilliseconds - $script:wakeDesde) -gt 300000) {
+            # 5 min vivo, no 30 s: un worker que muere cada 40 s reiniciaba el
+            # contador sin parar y nunca se daba por perdido (auditoria del 13/09)
             $script:wakeIntentos = 0   # lleva vivo un rato: se rearman los reintentos
         }
     }
@@ -9530,12 +9736,12 @@ while ($true) {
         if ($script:proc.HasExited) {
             $script:uiProgreso = 0
             Report-Reply (Complete-OpencodeJob)
-        } elseif (($sw.ElapsedMilliseconds - $script:jobStart) -ge $CliTimeoutMs) {
-            Log "RUNNER timeout tras $([Math]::Round($CliTimeoutMs/1000)) s"
+        } elseif (($sw.ElapsedMilliseconds - $script:jobStart) -ge (Get-PlazoJob)) {
+            Log "RUNNER timeout tras $([Math]::Round((Get-PlazoJob)/1000)) s ($($script:jobModo))"
             $script:uiProgreso = 0
             Stop-OpencodeJob
             Add-Estadistica 'error' 'timeout de opencode'
-            Show-Popup "(timeout: opencode tardo mas de $([Math]::Round($CliTimeoutMs/1000)) s)" 'error'
+            Show-Popup "El modelo tardo demasiado y lo he dejado." 'error'
         }
     }
 
@@ -9623,11 +9829,19 @@ while ($true) {
         Stop-DictadoLargo 'se acabo el plazo'
     }
 
+    # --- avisos que esperaban a que terminaras de dictar (ver Send-Aviso) ---
+    if (-not $script:armed -and -not $script:pendiente -and $script:avisosAplazados.Count -gt 0) {
+        $avA = $script:avisosAplazados[0]
+        $script:avisosAplazados.RemoveAt(0)
+        Send-Aviso $avA.texto $avA.tipo
+    }
+
     # --- temporizadores vencidos ---
     if ($script:temporizadores.Count -gt 0) {
         for ($i = $script:temporizadores.Count - 1; $i -ge 0; $i--) {
             $t = $script:temporizadores[$i]
-            if ($sw.ElapsedMilliseconds -ge $t.vence) {
+            # mientras dictas no suena: hablar encima congelaba el dictado (auditoria 13/09)
+            if ($sw.ElapsedMilliseconds -ge $t.vence -and -not $script:armed) {
                 $script:temporizadores.RemoveAt($i)
                 Log "TEMPORIZADOR: $($t.texto)"
                 # el sonido propio si suena: son dos notas de medio segundo, no
@@ -9980,5 +10194,17 @@ while ($true) {
     }
 
     $startPrev = $startNow
+    } catch {
+        $script:erroresBucle++
+        $dondeErr = ''
+        try { $dondeErr = " (linea $($_.InvocationInfo.ScriptLineNumber))" } catch {}
+        if ($script:erroresBucle -le 50) { Log ("ERROR en una vuelta del bucle, sigo: " + $_.Exception.Message + $dondeErr) }
+        # lo que pudo quedar a medias no puede dejar a Nova esperando para siempre
+        $script:armed = $false
+        $script:pendiente = $null
+        $startPrev = $startNow
+        try { Set-UI 'reposo' } catch {}
+        Start-Sleep -Milliseconds 300
+    }
     Start-Sleep -Milliseconds 30
 }

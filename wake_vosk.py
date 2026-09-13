@@ -610,6 +610,31 @@ cola = queue.Queue()
 MIC_MUERTO = 5.0
 ultima_llegada = time.time()
 
+# EL ASISTENTE SIGUE VIVO? (auditoria del 13/09): si el asistente moria, este
+# worker seguia con el microfono, y al volver a arrancar quedaban dos
+# escuchando. El asistente pasa su PID en NOVA_PID_PADRE; se mira en cada pulso.
+try:
+    PID_PADRE = int(os.environ.get("NOVA_PID_PADRE", "0") or 0)
+except ValueError:
+    PID_PADRE = 0
+
+
+def padre_vivo():
+    if not PID_PADRE:
+        return True
+    try:
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        h = k32.OpenProcess(0x1000, False, PID_PADRE)   # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        codigo = ctypes.c_ulong()
+        ok = k32.GetExitCodeProcess(h, ctypes.byref(codigo))
+        k32.CloseHandle(h)
+        return (not ok) or codigo.value == 259   # 259 = STILL_ACTIVE
+    except Exception:
+        return True
+
 
 def entrada(datos, marcos, tiempo, estado):
     global ultima_llegada
@@ -674,6 +699,9 @@ if automatica:
         if _g < 1.5:
             anota("ganancia recordada x%.1f descartada (demasiado baja: se calibro con ruido); se empieza en x%.1f"
                   % (_g, GANANCIA_INICIAL))
+            # y se sobrescribe: si no, se descartaba lo mismo en CADA arranque y los
+            # primeros 15 s recortaban el audio (auditoria del 13/09)
+            escribir(RUTA_GANANCIA, "%.1f" % GANANCIA_INICIAL)
         else:
             ganancia = _g
             anota("ganancia recordada de la sesion anterior: x%.1f" % ganancia)
@@ -1088,6 +1116,9 @@ try:
 
                 # pulso periodico: estado, nivel y ajuste de ganancia
                 if ahora - ultimo_pulso >= INTERVALO_PULSO:
+                    if not padre_vivo():
+                        anota("el asistente ya no existe (PID %d); salgo y suelto el microfono" % PID_PADRE)
+                        sys.exit(0)
                     # Se exige voz SOSTENIDA, no un pico suelto: un transitorio de
                     # 250 ms no debe recalibrar nada. Y NO se recalibra mientras suenan los altavoces. Lo que entra
                     # entonces es sobre todo el altavoz, no tu voz, y el calculo sale

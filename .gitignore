@@ -60,3 +60,5 @@ memoria/perfil.md
 memoria/juegos.json
 # tus costumbres (que ordenes das y a que hora), para proponerte automatizarlas
 memoria/habitos.json
+# archivos de memoria que no se podian leer, apartados en vez de perderse
+*.corrupto-*

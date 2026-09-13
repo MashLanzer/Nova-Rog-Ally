@@ -155,6 +155,64 @@ Segunda tanda, elegidas todas el 13/09 (misma regla de diseño):
 
 ---
 
+## Auditoría exhaustiva (13/09, noche)
+
+Un agente probó Nova entera (arranque, activación, ~570 frases en el banco, 22
+órdenes en vivo, cerebro, recetas, reglas, cápsula, robustez). Arreglado y
+comprobado (banco completo en verde; G1-G6 probados en vivo donde se podía):
+
+- **G1** Una excepción ya no apaga el asistente: red en el bucle principal, y
+  `.Trim()` sobre una traducción vacía no revienta.
+- **G2** «No me escuches» ya no se levanta al terminar de hablar (probado: la
+  marca sigue a los 12 s; «escúchame» la quita).
+- **G3** Un aviso o temporizador mientras dictas espera a que termines (probado:
+  sonó justo al acabar el dictado, sin los 50 s congelado); empezar un dictado
+  corta la voz y vuelve a escuchar.
+- **G4** Las preguntas llevan su contenido: «¿Abro SILENT BREATH?» (era `$var?`).
+- **G5** Los valores de una receta viajan en variables de entorno: una comilla
+  tipográfica ya no cuela código.
+- **G6** Una segunda copia sale antes de tocar `tmp\` (probado: 0 marcas borradas).
+- **G7** Colisiones: «cierra steam y discord» / «cierra spotify, discord y steam»
+  cierran todo; «quita el sonido a spotify» silencia; «baja spotify» y «sube el
+  volumen de spotify» son el volumen de la app; «baja el volumen del todo» al
+  mínimo; «pon el volumen/brillo a la mitad» al 50 %; «pausa spotify» pausa;
+  «pasa la música» es siguiente; «quita/olvida el modo X» ya no lo borra;
+  «bloquea a ese tío en discord» ya no bloquea.
+- **G9** Un error de la cuenta tras usar herramientas no se repite con el respaldo.
+- **M1** Recetas con «puedes/podrías…» se aprenden (se ajusta el primer verbo).
+- **M2** Más verbos de orden: «cuenta…», «dime…» ya no se descartan como charla.
+- **M3** «No era eso» tras una traducción apunta tu frase, no la orden normal.
+- **M4** Ya no dice «True». **M5** «Cada 2 horas…» crea la regla. **M6** «Cierra la
+  calculadora» funciona (CalculatorApp). **M7** El worker sale si el asistente
+  muere, y al arrancar se paran los huérfanos. **M8** Tras 3 fallos del worker el
+  botón dicta sin esperarle; el contador se rearma a los 5 min vivo. **M9** Un
+  JSON ilegible (listas, traducciones, recetas, reglas) se aparta como
+  `.corrupto-<fecha>` en vez de sobrescribirse. **M10** Plazo por modo (traducir
+  25 s, preguntas 90 s) y el respaldo con opencode solo para tareas. **M13**
+  Cancelar pone el progreso a cero.
+- Leves: ganancia recordada que se descartaba en cada arranque; «quedan 2 minutos
+  para se acabo el tiempo»; «deshaz» tocaba el brillo sin motivo; log de arranque
+  que decía «opencode»; la cápsula releía gestos.txt cada 250 ms (CPU); «dime qué
+  hora es», «no me escuches una hora», «hey nova pon modo juego», «pon un
+  temporizador de 10 minutos», «apaga la música», «pon modo foco».
+
+Queda abierto:
+- [ ] **G8: permisos del cerebro.** `--disallowedTools` no cubre las herramientas
+      del MCP de Windows (`mcp__windows__Registry`, `Process`, `PowerShell`,
+      `FileSystem`) ni variantes como `rm -r -f`. ESTADO.txt dice «con lo
+      destructivo prohibido» y no se cumple del todo. **Pendiente de decidir con
+      braya** (se acordó no cambiar sus permisos sin preguntar).
+- [ ] **M11:** una receta con script bloquea el bucle hasta 20 s por paso (≡ no
+      responde mientras). Convertirla en trabajo asíncrono.
+- [ ] **M12:** activaciones falsas con gente hablando cerca (~2 cada 4 min en la
+      prueba); se descartan bien, pero cuestan CPU de Whisper.
+- [ ] Escrituras no atómicas en varios JSON de memoria (el .corrupto evita perder
+      todo, pero no evita el archivo a medias).
+- [ ] Frases mal dirigidas que quedan: «abre teams» (abre Steam), «graba un audio
+      para mi madre» (graba un clip), «regresa a steam» (canción anterior), «en
+      youtube busca gatos» (busca en Google), «minimiza zorglub» (dice «no te
+      entendí»), «apaga el ordenador» (va a la IA sin pregunta local).
+
 ## De la revisión del agente (13/09, tarde): arreglado
 
 Un agente revisó las nueve ideas de la primera tanda. Todo arreglado:
