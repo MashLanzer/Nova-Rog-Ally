@@ -255,6 +255,8 @@ public class NovaUI : Window
     // nivel de Nova (0-5, campo "madurez"): el halo base crece 2 px por nivel.
     // Casi no se ve a proposito; se nota con el tiempo, no de un dia para otro
     int madurez = 0;
+    // atenuada tras 5 min sin uso (ver el reloj del sueno y Despertar)
+    bool atenuada = false;
     // el tiempo que hace ("lluvia", "nieve", "tormenta" o ""), para ClimaVivo
     string tiempoActual = "";
     DateTime proximoClima = DateTime.MinValue;
@@ -778,6 +780,16 @@ public class NovaUI : Window
             bool debe = !foco && string.IsNullOrEmpty(juegoActual) && (estadoActual == "reposo" || estadoActual == "")
                         && (DateTime.UtcNow - ultimaActividad).TotalMinutes >= 30;
             if (debe && !dormido) { Dormir(); }
+            // SE ATENUA SIN USO (13/09): mucho antes de dormirse, a los 5 min en
+            // reposo sin que pase nada, baja un poco su presencia. Menos cápsula
+            // en pantalla cuando no la necesitas; vuelve entera en Despertar().
+            if (!dormido && !atenuada && (estadoActual == "reposo" || estadoActual == "")
+                && (DateTime.UtcNow - ultimaActividad).TotalMinutes >= 5)
+            {
+                atenuada = true;
+                Desvanecer(esfera, 0.8, 2500);
+                Desvanecer(capsula, 0.7, 2500);
+            }
             if (dormido && (DateTime.UtcNow - ultimaZeta).TotalSeconds >= 9) { ultimaZeta = DateTime.UtcNow; Zeta(); }
         };
         relojSueno.Start();
@@ -1746,6 +1758,11 @@ public class NovaUI : Window
     void Despertar()
     {
         ultimaActividad = DateTime.UtcNow;
+        if (atenuada)
+        {
+            atenuada = false;
+            if (!dormido) { Desvanecer(esfera, 1, 300); Desvanecer(capsula, 1, 300); }
+        }
         if (!dormido) { return; }
         dormido = false;
         Expresion("abiertos", 900);
@@ -2125,6 +2142,8 @@ public class NovaUI : Window
                 break;
             case "susurro":
                 tonoHasta = ahora.AddSeconds(3);
+                // y se inclina un poco hacia ti, como quien acerca la oreja (13/09)
+                rotGesto.BeginAnimation(RotateTransform.AngleProperty, Secuencia(new double[] { 0, 7, 7, 7, 0 }, 500));
                 escalaGesto.BeginAnimation(ScaleTransform.ScaleXProperty, Secuencia(new double[] { 1, 1.1, 1.1, 1.1, 1 }, 500));
                 escalaGesto.BeginAnimation(ScaleTransform.ScaleYProperty, Secuencia(new double[] { 1, 1.1, 1.1, 1.1, 1 }, 500));
                 resplandor.BeginAnimation(DropShadowEffect.OpacityProperty, Secuencia(new double[] { 0.5, 0.2, 0.2, 0.2, 0.5 }, 500));
@@ -2757,6 +2776,9 @@ public class NovaUI : Window
             d.KeyFrames.Add(new LinearDoubleKeyFrame(0.9, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(260))));
             d.KeyFrames.Add(new LinearDoubleKeyFrame(base0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(420))));
             d.FillBehavior = FillBehavior.Stop;
+            // al acabar, a la opacidad que toque AHORA (con el raton cerca es 0.95):
+            // la animacion sustituye a la retenida y volveria al 0.5 (revision 13/09)
+            d.Completed += delegate { if (estadoActual == "reposo" || estadoActual == "") { resplandor.BeginAnimation(DropShadowEffect.OpacityProperty, new DoubleAnimation(cerca ? 0.95 : 0.5, TimeSpan.FromMilliseconds(200))); } };
             resplandor.BeginAnimation(DropShadowEffect.OpacityProperty, d);
         }
     }
@@ -3001,6 +3023,14 @@ public class NovaUI : Window
                 descarga = Math.Max(0, Math.Min(1, dsc));
                 if (hac != haciendoActual) { PintarHaciendo(hac); }
                 musica = Campo(j, "musica", "0") == "1";
+                // la pista del si/no: en una pregunta peligrosa la A no vale, y
+                // jugando hace falta ≡ a la vez (revision del 13/09)
+                if (pistaSiNo != null)
+                {
+                    string pista = Campo(j, "peligrosa", "0") == "1" ? "Ⓑ no"
+                                 : (string.IsNullOrEmpty(juegoActual) ? "Ⓐ sí · Ⓑ no" : "≡+Ⓐ sí · ≡+Ⓑ no");
+                    if (pistaSiNo.Text != pista) { pistaSiNo.Text = pista; }
+                }
                 tiempoActual = Campo(j, "tiempo", "");
                 int mad;
                 if (int.TryParse(Campo(j, "madurez", "0"), out mad) && mad != madurez && mad >= 0 && mad <= 5)

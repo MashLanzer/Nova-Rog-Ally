@@ -77,6 +77,26 @@ pulsos de color del borde, gestos, insignia) o la voz.
       exclusivo, así que con un juego delante la cruceta también le llega al
       juego. **Falta probarlo con el mando en la mano.**
 
+Segunda tanda, elegidas todas el 13/09 (misma regla de diseño):
+
+- [ ] **J. Modo foco:** «modo foco 25 minutos»; el anillo cuenta, los mensajes esperan, descanso al final.
+- [x] **K. Historial del portapapeles** (13/09): los 10 últimos textos copiados,
+      mirados cada 4 s, solo en memoria (ni disco ni log). «¿Qué copié antes?»,
+      «pega lo penúltimo», «¿qué he copiado hoy?» (por voz, sin tarjeta).
+- [ ] **L. Traducir la pantalla:** «¿qué dice esto?», leído y traducido por voz, sin tarjeta.
+- [ ] **M. Micrófono de Discord:** «silencia mi micro», «ensordéceme».
+- [ ] **N. Ahorro con batería baja jugando:** al 20 %, pulso ámbar y «¿bajo el brillo?» con A/B.
+- [ ] **O. Recordatorio para cargar:** a tu hora habitual de dejarla, si la batería está baja, un pulso.
+- [x] **P. Respuestas más cortas jugando** (13/09): con un juego delante, el
+      prompt de sistema del cerebro le pide una sola frase corta.
+- [ ] **Q. Resumen al volver:** tras más de 2 h sin usarla, una línea con lo que pasó.
+- [x] **R. La cápsula se atenúa sin uso** (13/09): a los 5 min en reposo sin
+      actividad baja poco a poco (cápsula al 70 %, carita al 80 %); vuelve entera
+      al cambiar de estado o al acercar el ratón (`Despertar`).
+- [x] **S. Reacciones al tono de voz:** YA EXISTÍA (`MedirTono` en nova_ui.cs:
+      gritar encoge y abre los ojos; susurrar la acerca y baja el halo). Solo se
+      añadió que al susurrar se incline 7°.
+
 ---
 
 ## Interfaz y visuales
@@ -116,6 +136,31 @@ pulsos de color del borde, gestos, insignia) o la voz.
       ventana que tiene el foco; hace falta `AttachThreadInput`.
 
 ---
+
+## De la revisión del agente (13/09, tarde): arreglado
+
+Un agente revisó las nueve ideas de la primera tanda. Todo arreglado:
+
+1. **Grave:** una costumbre podía acabar en una regla peligrosa diaria. Lo
+   confirmado ya no cuenta como costumbre, «cierra» y «todo» salen del filtro, y
+   al aceptar una propuesta se valida la acción y se rechaza lo destructivo.
+2. A/B del mando jugando: hace falta ≡ a la vez, y nunca mientras suena la
+   pregunta. La pista dice «≡+Ⓐ sí · ≡+Ⓑ no» jugando y solo «Ⓑ no» si es peligrosa.
+3. «Déjala ahí»: la tarjeta no se cierra hasta 5 s después de que Nova termine de
+   leerla, ni mientras dictas.
+4. El panel rápido ya no pisa «escuchando» ni una pregunta al cerrarse.
+5. «Qué me dicen» ya no lee tus mensajes.
+6. Una propuesta aceptada no se vuelve a proponer.
+7. «Pon la música» / «para la música» miran si ya suena antes de pulsar.
+8. La marca de «sin tarjeta» caduca a los 3 s.
+9. Una lectura fallida de notificaciones no hace pasar lo viejo por nuevo; lo
+   visto se poda.
+10. La batería por juego sigue el tramo con Alt+Tab.
+11. La música solo pregunta el título mientras suena, con tope de 1,5 s.
+12. «Me quedé en…» solo con el juego delante o cerrado hace menos de 30 min, y
+    no con «casa», «trabajo», «dormido»…
+13. El destello de tormenta vuelve a la opacidad correcta del halo.
+14. El nivel ya celebrado va a `memoria\habitos.json`, no a config.json.
 
 ## De la revisión del agente (12/09), lo que queda
 
