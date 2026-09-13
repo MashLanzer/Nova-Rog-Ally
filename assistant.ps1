@@ -1552,7 +1552,9 @@ function Resolve-Fragment([string]$f) {
     # le cambia las palabras a nada que se vaya a guardar o a escribir.
     $f = ConvertTo-Digitos $f
     # --- perfiles: una frase, varias acciones ("modo juego") ---
-    if ($f -match '^(?:modo|activa el modo|activa modo|pon el modo|pon modo|ponte en modo|cambia a modo|entra en modo)\s+(.+)$') {
+    # "modo foco" NO es un perfil: tiene su propia orden mas abajo (ver MODO FOCO),
+    # y este bloque devuelve $null con un modo que no existe (revision del 13/09)
+    if ($f -match '^(?:modo|activa el modo|activa modo|pon el modo|pon modo|ponte en modo|cambia a modo|entra en modo)\s+(?!(?:foco|concentracion)\b)(.+)$') {
         $nombre = $Matches[1].Trim()
         if (Test-Prop $cmds.perfiles $nombre) {
             # TOPE DE ANIDAMIENTO. Desde que los modos se pueden crear por voz,
@@ -1801,6 +1803,19 @@ function Resolve-Fragment([string]$f) {
         if ($ms -le 0) { return $null }
         $desc = if ($que) { "aviso en $n $unidad" } else { "temporizador de $n $unidad" }
         return @(@{ kind = 'temporizador'; ms = $ms; texto = $que; n = $n; unidad = $unidad; desc = $desc })
+    }
+    # --- modo foco (ver el vencimiento de los temporizadores) ---
+    if ($f -match '^(?:modo foco|modo concentracion|concentrate|pomodoro|ponme en modo foco|activa el modo foco)(?:\s+(?:de|durante|por|en)?\s*(\d{1,3}|cinco|diez|quince|veinte|veinticinco|treinta|cuarenta|cuarenta y cinco|cincuenta|sesenta|media|una)\s*(minutos?|horas?|hora)?)?$') {
+        $cantF = [string]$Matches[1]; $unidF = [string]$Matches[2]
+        $palabrasF = @{ 'cinco' = 5; 'diez' = 10; 'quince' = 15; 'veinte' = 20; 'veinticinco' = 25; 'treinta' = 30; 'cuarenta' = 40; 'cuarenta y cinco' = 45; 'cincuenta' = 50; 'sesenta' = 60; 'media' = 30; 'una' = 60 }
+        $minF = 25
+        if ($cantF -match '^\d+$') { $minF = [int]$cantF } elseif ($palabrasF.ContainsKey($cantF)) { $minF = $palabrasF[$cantF] }
+        if ($unidF -match '^hora' -and $cantF -notmatch '^(?:media|una)$') { $minF *= 60 }
+        if ($minF -lt 1 -or $minF -gt 240) { $minF = 25 }
+        return @(@{ kind = 'foco'; minutos = $minF; desc = "modo foco $minF minutos" })
+    }
+    if ($f -match '^(?:termina|acaba|cancela|quita|para|sal del)\s+(?:el\s+)?(?:modo foco|foco|pomodoro)$') {
+        return @(@{ kind = 'focoFin'; desc = 'terminar el foco' })
     }
     # --- Discord (ver DISCORD POR VOZ) ---
     if ($f -match '^(?:silencia|silenciame|mutea|apaga|quita|desmutea|activa|enciende|cambia)\s+(?:mi|el)\s+(?:micro|microfono|mic)(?:\s+(?:de|en)\s+discord)?$' -or
@@ -4137,6 +4152,19 @@ function Invoke-FastCommand([string]$text) {
                 'balanceAprendizaje' { $a.desc = (Get-BalanceAprendizaje) }
                 'configuracion' { $a.desc = (Get-Configuracion) }
                 'nivelNova' { $a.desc = Get-FraseNivel }
+                'foco' {
+                    # MODO FOCO (13/09): un temporizador de tipo "foco" (el anillo de
+                    # la capsula lo cuenta). Al vencer pregunta por el descanso.
+                    for ($i = $script:temporizadores.Count - 1; $i -ge 0; $i--) { if ($script:temporizadores[$i].tipo -in 'foco', 'descanso') { $script:temporizadores.RemoveAt($i) } }
+                    $msF = [int]$a.minutos * 60000
+                    [void]$script:temporizadores.Add(@{ vence = $sw.ElapsedMilliseconds + $msF; texto = 'fin del foco'; total = $msF; tipo = 'foco' })
+                    $a.desc = "foco de " + $(if ($a.minutos -eq 1) { 'un minuto' } else { "$($a.minutos) minutos" }) + "; te aviso al terminar"
+                }
+                'focoFin' {
+                    $habia = 0
+                    for ($i = $script:temporizadores.Count - 1; $i -ge 0; $i--) { if ($script:temporizadores[$i].tipo -in 'foco', 'descanso') { $script:temporizadores.RemoveAt($i); $habia++ } }
+                    $a.desc = if ($habia -gt 0) { 'foco terminado' } else { 'no habia ningun foco en marcha' }
+                }
                 { $_ -in 'discordMicro', 'discordSordo' } {
                     if (-not (Get-Process Discord -ErrorAction SilentlyContinue)) {
                         $a.desc = 'Discord no esta abierto'
@@ -5656,6 +5684,7 @@ $script:uiHaciendo = ''     # QUE se esta ejecutando ahora mismo (glifo en la ca
 $script:uiRemoto = $false   # "pensando" lo lleva la IA (violeta) y no Nova sola (ambar)
 $script:sinTarjeta = $false # la proxima respuesta es para oirla: sin tarjeta grande (ver Show-Popup)
 $script:sinTarjetaEn = 0
+$script:respuestaSinTarjeta = $false   # la respuesta del cerebro que viene es para oirla
 $script:notifCheck = 0      # ultima vez que se miraron las notificaciones
 $script:uiCola = ''         # "3/2" = tres cosas en esta orden, va por la segunda; "3/2!" = esa fallo
 $script:uiDescarga = 0      # 0..1 de la descarga de Steam mas avanzada (anillo)
@@ -8070,6 +8099,12 @@ function Report-Reply($out) {
     $script:ultimaRespuesta = $reply
     # tarea larga terminada: un pulso largo en el mando, por si estabas jugando
     if (($sw.ElapsedMilliseconds - $script:jobStart) -ge 8000) { Start-Vibracion @(220) 24000 }
+    # la traduccion de la pantalla se oye, no se lee en una tarjeta (ver TRADUCIR LA PANTALLA)
+    if ($script:respuestaSinTarjeta) {
+        $script:respuestaSinTarjeta = $false
+        $script:sinTarjeta = $true
+        $script:sinTarjetaEn = $sw.ElapsedMilliseconds
+    }
     Show-Popup $reply
     Say $reply
 }
@@ -8105,6 +8140,28 @@ function Complete-Confirmacion([string]$respuesta) {
     Remove-Item -LiteralPath $MarcaConfirmar -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $RutaConfirmacion -Force -ErrorAction SilentlyContinue
     if (-not $p) { return }
+    # DESCANSO TRAS EL FOCO (ver MODO FOCO)
+    if ($p.tipo -eq 'descanso') {
+        if ($respuesta -eq 'si') {
+            [void]$script:temporizadores.Add(@{ vence = $sw.ElapsedMilliseconds + 300000; texto = 'se acabo el descanso'; total = 300000; tipo = 'descanso' })
+            Send-UIEvento 'hecho'
+            Set-UI 'hablando' 'Descanso: 5 minutos' 3000
+        } else {
+            Set-UI 'reposo'
+        }
+        return
+    }
+    # AHORRO CON LA BATERIA BAJA JUGANDO (ver el aviso de bateria)
+    if ($p.tipo -eq 'ahorro') {
+        if ($respuesta -eq 'si') {
+            try { Set-Brillo 30 } catch {}
+            Send-UIEvento 'hecho'
+            Set-UI 'hablando' 'Brillo al 30%' 2500
+        } else {
+            Set-UI 'reposo'
+        }
+        return
+    }
     # PROPUESTA DE AUTOMATIZAR UNA COSTUMBRE (ver HABITOS)
     if ($p.tipo -eq 'propuesta') {
         $pr = $p.propuesta
@@ -8690,6 +8747,26 @@ function Process-Texto([string]$text) {
             $script:seguimientoFactor = 0
             $text = ($text -replace '(?i)[\s,]+(?:listo|y ya|eso es todo|nada m[aá]s|y nada m[aá]s)\s*$', '').Trim()
             $plano = ConvertTo-Plain $text
+        }
+
+        # TRADUCIR LA PANTALLA (13/09): "¿que dice esto?" en un juego en ingles.
+        # Se lee la pantalla (OCR, local) y SOLO ese texto va al cerebro, que
+        # contesta en una o dos frases. La respuesta se oye, sin tarjeta.
+        if ($plano -match '^(?:que dice esto|que dice aqui|que pone aqui|que pone en la pantalla|que dice la pantalla|que significa esto|traduce(?:me)?\s+(?:esto|la pantalla|lo que (?:hay|pone|dice)(?: en (?:la )?pantalla)?))$') {
+            Set-UI 'pensando' 'leyendo la pantalla'
+            $visT = ''
+            try { $visT = Invoke-OCR (Save-Captura (Join-Path $TmpDir 'pantalla.png')) } catch { Log ("traducir pantalla: " + $_.Exception.Message) }
+            if (-not $visT) {
+                Log "TRADUCIR PANTALLA: el OCR no encontro texto"
+                Show-Popup 'No veo texto en la pantalla'
+                Say 'No veo texto en la pantalla'
+                return
+            }
+            if ($visT.Length -gt 1500) { $visT = $visT.Substring(0, 1500) }
+            Log "TRADUCIR PANTALLA: $($visT.Length) caracteres"
+            $script:respuestaSinTarjeta = $true
+            Submit-Command ("Traduce al espanol lo que dice este texto de mi pantalla, en una o dos frases naturales y sin explicar nada mas. Si ya esta en espanol, resumelo en una frase. Texto: " + $visT) 'pregunta'
+            return
         }
 
         # NO hay modo conversacion persistente. Se probó y fue un error: al
@@ -9556,7 +9633,15 @@ while ($true) {
                 # el sonido propio si suena: son dos notas de medio segundo, no
                 # una frase encima, y es lo que hace que un temporizador sirva
                 Play-Sonido 'te-oigo' ([System.Media.SystemSounds]::Exclamation)
-                Send-Aviso $t.texto 'tiempo'
+                if ($t.tipo -eq 'foco' -and -not $script:pendiente -and -not $script:busy) {
+                    # FIN DEL FOCO: se ofrece el descanso (si / no, o A / B)
+                    $script:pendiente = @{ texto = ''; vence = 0; tipo = 'descanso' }
+                    Say 'Fin del foco. ¿Descanso de cinco minutos?'
+                    Set-UI 'escuchando' '¿Descanso de 5 minutos?'
+                    Start-Confirmacion
+                } else {
+                    Send-Aviso $t.texto 'tiempo'
+                }
             }
         }
     }
@@ -9833,7 +9918,19 @@ while ($true) {
                 if (-not $cargando -and $pc -le $BateriaAviso -and -not $script:bateriaAvisada) {
                     $script:bateriaAvisada = $true
                     Log "AVISO: bateria al $pc %"
-                    Send-Aviso "Oye, te queda $pc por ciento de bateria." 'bateria'
+                    # AHORRO JUGANDO (13/09): con un juego delante no se habla. Pulso
+                    # ambar y la pregunta en la capsula; se contesta con ≡+A / ≡+B o
+                    # la voz. Solo si el brillo esta alto: si no, no hay que ahorrar.
+                    $brilloAhora = -1
+                    if ($script:juegoActivo) { try { $brilloAhora = [int]((Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness -ErrorAction Stop | Select-Object -First 1).CurrentBrightness) } catch {} }
+                    if ($script:juegoActivo -and $brilloAhora -gt 40 -and -not $script:pendiente -and -not $script:busy) {
+                        Send-UIEvento 'pulso:bateria'
+                        $script:pendiente = @{ texto = ''; vence = 0; tipo = 'ahorro' }
+                        Set-UI 'escuchando' "Bateria al $pc%. ¿Bajo el brillo?"
+                        Start-Confirmacion
+                    } else {
+                        Send-Aviso "Oye, te queda $pc por ciento de bateria." 'bateria'
+                    }
                 }
                 # rearmar cuando se recupera, para que pueda volver a avisar
                 if ($cargando -or $pc -gt ($BateriaAviso + 10)) { $script:bateriaAvisada = $false }

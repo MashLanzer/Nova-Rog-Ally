@@ -79,17 +79,35 @@ pulsos de color del borde, gestos, insignia) o la voz.
 
 Segunda tanda, elegidas todas el 13/09 (misma regla de diseño):
 
-- [ ] **J. Modo foco:** «modo foco 25 minutos»; el anillo cuenta, los mensajes esperan, descanso al final.
+- [x] **J. Modo foco** (13/09): «modo foco» (25 min), «modo foco de media hora»,
+      «pomodoro». Un temporizador de tipo foco que el anillo de la cápsula cuenta;
+      al terminar, «¿descanso de cinco minutos?» (sí/no o el mando) y otro
+      anillo de 5 min. «Termina el foco» lo quita.
 - [x] **K. Historial del portapapeles** (13/09): los 10 últimos textos copiados,
       mirados cada 4 s, solo en memoria (ni disco ni log). «¿Qué copié antes?»,
       «pega lo penúltimo», «¿qué he copiado hoy?» (por voz, sin tarjeta).
-- [ ] **L. Traducir la pantalla:** «¿qué dice esto?», leído y traducido por voz, sin tarjeta.
-- [ ] **M. Micrófono de Discord:** «silencia mi micro», «ensordéceme».
-- [ ] **N. Ahorro con batería baja jugando:** al 20 %, pulso ámbar y «¿bajo el brillo?» con A/B.
-- [ ] **O. Recordatorio para cargar:** a tu hora habitual de dejarla, si la batería está baja, un pulso.
+- [x] **L. Traducir la pantalla** (13/09): «¿qué dice esto?», «tradúceme esto».
+      Lee la pantalla en local (OCR) y solo ese texto va al cerebro, que contesta
+      en una o dos frases; se oye, sin tarjeta. Es un atajo de `Process-Texto`:
+      el banco `-Probar` no lo ve.
+- [x] **M. Micrófono de Discord** (13/09): «silencia mi micro», «ensordéceme».
+      Nova pulsa un atajo GLOBAL (config.json `discord.teclaMicro`, por defecto
+      Ctrl+Shift+M; `discord.teclaSordo`, Ctrl+Shift+D). **Hay que crear esos
+      atajos en Discord** (Ajustes > Atajos de teclado). Son interruptores: Nova
+      no sabe si queda silenciado o no, y no lo presume.
+- [x] **N. Ahorro con batería baja jugando** (13/09): cuando salta el aviso de
+      batería (config `avisos.bateriaPct`, 15 %) con un juego delante y el
+      brillo por encima de 40, en vez de hablar: pulso ámbar y «¿Bajo el
+      brillo?» en la cápsula; sí (o ≡+A) lo pone al 30 %.
+- [x] **O. Recordatorio para cargar** (13/09): apunta la última orden de cada día
+      (la madrugada cuenta como el día anterior). Con 4 días de las dos últimas
+      semanas sale tu hora habitual; en la media hora antes, sin cargador y por
+      debajo del 40 %, pulso ámbar y «Enchúfame antes de dormir». Una vez al día.
 - [x] **P. Respuestas más cortas jugando** (13/09): con un juego delante, el
       prompt de sistema del cerebro le pide una sola frase corta.
-- [ ] **Q. Resumen al volver:** tras más de 2 h sin usarla, una línea con lo que pasó.
+- [x] **Q. Resumen al volver** (13/09): si la orden llega tras más de 2 h sin
+      decirle nada, después de contestar la cápsula enseña «Mientras no estabas:
+      3 mensajes de Discord». Hoy solo cuenta mensajes; si no pasó nada, calla.
 - [x] **R. La cápsula se atenúa sin uso** (13/09): a los 5 min en reposo sin
       actividad baja poco a poco (cápsula al 70 %, carita al 80 %); vuelve entera
       al cambiar de estado o al acercar el ratón (`Despertar`).

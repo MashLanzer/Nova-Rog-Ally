@@ -170,6 +170,24 @@ halo) o en la voz. Detalle de cada una en PENDIENTE.md.
   Sin probar todavía con el mando en la mano: A/B y el panel rápido.
   Pruebas: tools\probar-juegos.ps1 y tools\probar-costumbres.ps1 (en probar-todo).
 
+SEGUNDA TANDA DEL 13/09 (misma regla de diseño). Detalle en PENDIENTE.md.
+  - "Modo foco" / "modo foco de media hora" / "pomodoro": anillo en la cápsula
+    y, al terminar, "¿descanso de cinco minutos?". "Termina el foco".
+  - Portapapeles: "¿qué copié antes?", "pega lo penúltimo" (solo en memoria).
+  - "¿Qué dice esto?": lee la pantalla y la traduce por voz (probado en vivo:
+    5 s). Solo el texto leído va al cerebro.
+  - Discord: "silencia mi micro", "ensordéceme". Hay que crear en Discord los
+    atajos globales Ctrl+Shift+M y Ctrl+Shift+D (o cambiarlos en config.json).
+  - Batería al 15 % jugando: pulso ámbar y "¿Bajo el brillo?" en la cápsula.
+  - A tu hora habitual de dejarla, con poca batería: "Enchúfame antes de dormir".
+  - Jugando, la IA contesta en una sola frase.
+  - Tras más de 2 h sin usarla: "Mientras no estabas: 3 mensajes de Discord".
+  - A los 5 min sin uso la cápsula se atenúa; vuelve al llamarla o acercar el ratón.
+  - Al susurrar, la carita además se inclina (las reacciones al tono ya existían).
+  Revisión de un agente sobre la primera tanda: 14 fallos arreglados (el más
+  grave, que una costumbre pudiera crear una regla peligrosa); lista en PENDIENTE.md.
+  Jugando, las preguntas de sí/no con el mando piden ≡+A / ≡+B.
+
 LO QUE QUEDA POR HACER: PENDIENTE.md (8 ideas con su porqué, y las trampas
   de esta base de código que conviene leer antes de tocar nada). El 12/09 se
   hicieron la 1, la 2, la 3, la 4, la 7, la 9, la 11, la 13, la 14, la 15 y

@@ -87,3 +87,7 @@ léemelos
 ¿qué canción es?
 pausa la música
 ¿qué nivel tienes?
+modo foco 25 minutos
+termina el foco
+silencia mi micro
+¿qué copié antes?
