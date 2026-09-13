@@ -34,13 +34,15 @@ ni con batería):
       Hoy `pensando` es idéntico para 0,3 s locales y para 160 s del agente
       completo. Saberlo desde el primer instante cambia si esperas o cancelas.
 
-- [ ] **16. Fijar la tarjeta larga.**
-      «Déjala ahí» para que no se vaya a los 8 s, «quítala» para cerrarla. Con
-      una lista de pasos, ocho segundos no llegan ni para el segundo.
+- [x] **16. Fijar la tarjeta larga** (13/09). «Déjala ahí» / «fija la tarjeta» /
+      «no la quites» la deja 10 minutos (no para siempre); «quítala» / «ya la
+      leí» la cierra. Mientras está fijada, los mensajes cortos van solo a la
+      cápsula; uno largo la sustituye. Probado en vivo: seguía a los 14 s.
 
-- [ ] **18. «¿Cómo estás configurada?»**
-      Una tarjeta con lo esencial: voz, modelos, estado del oído, esquina, reglas
-      activas, modos. Hoy eso es leerse `config.json` a mano.
+- [x] **18. «¿Cómo estás configurada?»** (13/09). También «cuál es tu
+      configuración», «qué ajustes tienes». En una tarjeta: nombre, oído
+      (Whisper y oído fino, sordina), voz, cerebro y sus modelos, esquina,
+      tamaño, color, y cuántos modos, reglas, tareas aprendidas y datos tuyos.
 
 - [x] **19. Color a elección** (13/09). «Ponte de color naranja», «vuélvete
       azul», «cambia tu color a rosa», «ponte morada»; «color normal» o «vuelve

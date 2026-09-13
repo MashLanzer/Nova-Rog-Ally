@@ -1802,6 +1802,17 @@ function Resolve-Fragment([string]$f) {
         $desc = if ($que) { "aviso en $n $unidad" } else { "temporizador de $n $unidad" }
         return @(@{ kind = 'temporizador'; ms = $ms; texto = $que; n = $n; unidad = $unidad; desc = $desc })
     }
+    # --- como esta configurada ---
+    if ($f -match '^(?:como (?:estas|te tengo) (?:configurada|puesta|ajustada)|(?:cual es|dime|ensename|muestrame|que es)?\s*(?:tu|la) configuracion|que configuracion tienes|como tienes todo puesto|que ajustes tienes)$') {
+        return @(@{ kind = 'configuracion'; desc = 'mi configuracion' })
+    }
+    # --- la tarjeta larga: fijarla y quitarla ---
+    if ($f -match '^(?:dejala(?: ahi)?|deja la tarjeta(?: ahi)?|fija la tarjeta|fijala|no la quites|no quites la tarjeta|deja(?:la)? (?:la tarjeta )?(?:abierta|puesta)|dejala abierta|dejala puesta|espera no la quites)$') {
+        return @(@{ kind = 'fijarTarjeta'; desc = 'dejar la tarjeta' })
+    }
+    if ($f -match '^(?:quitala|quita la tarjeta|cierra la tarjeta|cierrala|ya la lei|ya esta leida|ya puedes quitarla|quita eso de la pantalla)$') {
+        return @(@{ kind = 'quitarTarjeta'; desc = 'quitar la tarjeta' })
+    }
     # --- el balance de lo aprendido ---
     if ($f -match '^(?:cuanto has aprendido|cuanto me has ahorrado|cuanto tiempo me has ahorrado|que tal vas aprendiendo|como vas aprendiendo|como va tu aprendizaje|cuanto sabes ya|que tanto has aprendido)$') {
         return @(@{ kind = 'balanceAprendizaje'; desc = 'lo aprendido' })
@@ -3213,6 +3224,43 @@ $ColoresUI = [ordered]@{
     'rojo' = 'FF5A5A'; 'naranja' = 'FF8A3D'; 'amarillo' = 'FFD84A'; 'dorado' = 'FFC24A'; 'blanco' = 'E8EEF4'
 }
 
+# "¿COMO ESTAS CONFIGURADA?": lo esencial en una tarjeta, para no tener que
+# abrir config.json a mano. Solo lo que cambia algo para ti.
+function Get-Configuracion {
+    $p = @()
+    $motorO = [string](Get-Cfg 'input' 'motorOrdenes' 'auto')
+    $conFino = if ($WhisperPreciso) { " y repaso lo dudoso con $WhisperPreciso" } else { '' }
+    $oidoT = switch ($motorO) {
+        'worker' { "te oigo con Whisper $WhisperModelo$conFino" }
+        'auto' { "te oigo con el dictado de Windows fuera del juego y con Whisper $WhisperModelo jugando" }
+        default { 'te oigo con el dictado de Windows' }
+    }
+    if ($script:sordinaHasta -gt $sw.ElapsedMilliseconds) {
+        $oidoT += ', aunque ahora estoy en sordina ' + [int][Math]::Ceiling(($script:sordinaHasta - $sw.ElapsedMilliseconds) / 60000) + ' minutos'
+    }
+    $p += "Me llamo $EscuchaNombre y $oidoT"
+    $p += if (-not $VozOn) { 'tengo la voz apagada' }
+          elseif ($VozMotor -eq 'online') { "hablo con la voz en linea $VozOnlineNombre" }
+          else { "hablo con $VozMotor" }
+    if ($CerebroMotor -eq 'claude-code') {
+        $p += "lo que no se hacer lo piensa Claude: $CcModeloTraducir para entenderte, $CcModeloPregunta para preguntas y $CcModeloAccion para tareas"
+    } elseif ($CerebroMotor) {
+        $p += "mi cerebro es $CerebroMotor"
+    }
+    $esq = $script:esquina -split '-'
+    $colN = ''
+    foreach ($k in $ColoresUI.Keys) { if ($ColoresUI[$k] -eq $script:uiColor) { $colN = $k; break } }
+    $p += "vivo $($esq[0]) a la $($esq[1]), al $([int]($script:uiEscala * 100)) por ciento" + $(if ($colN) { " y de color $colN" } else { '' })
+    $nMod = 0
+    try { $nMod = @($cmds.perfiles.PSObject.Properties.Name).Count } catch {}
+    $nReg = (Get-Reglas).Count
+    $nRec = (Get-Recetas).Count
+    $nDat = @(Get-DatosPerfil).Count
+    $p += "tengo $nMod modos, $nReg reglas, $nRec tareas aprendidas y $nDat cosas sabidas de ti"
+    # cada frase empieza en mayuscula: en la tarjeta se lee, no solo se oye
+    return (@($p | ForEach-Object { $_.Substring(0, 1).ToUpper() + $_.Substring(1) }) -join '. ') + '.'
+}
+
 function Find-Traduccion([string]$text) {
     $t = Get-Traducciones
     if ($t.Count -eq 0) { return $null }
@@ -3525,6 +3573,20 @@ function Invoke-FastCommand([string]$text) {
                     }
                 }
                 'balanceAprendizaje' { $a.desc = (Get-BalanceAprendizaje) }
+                'configuracion' { $a.desc = (Get-Configuracion) }
+                'fijarTarjeta' {
+                    if ($script:popupForm) {
+                        $script:popupFijada = $true
+                        $script:popupUntil = $sw.ElapsedMilliseconds + $PopupFijadaMs
+                        $a.desc = 'la dejo ahi; di quitala cuando acabes'
+                    } else {
+                        $a.desc = 'no hay ninguna tarjeta abierta'
+                    }
+                }
+                'quitarTarjeta' {
+                    $a.desc = if ($script:popupForm) { 'quitada' } else { 'no habia ninguna tarjeta' }
+                    Close-Popup
+                }
                 'verPerfil' {
                     $dp = @(Get-DatosPerfil)
                     $a.desc = if ($dp.Count -eq 0) { 'todavia no se nada de ti; se ira llenando solo, o dime: aprende que mi...' }
@@ -6384,7 +6446,12 @@ function Close-Popup {
         $script:popupFont = $null
     }
     $script:popupUntil = 0
+    $script:popupFijada = $false
 }
+$script:popupFijada = $false
+# Fijada no es para siempre: odias los modos que se quedan puestos. Diez
+# minutos dan para seguir una lista de pasos entera.
+$PopupFijadaMs = 600000
 
 # Los tres sonidos del asistente. Se cargan una vez y se quedan en memoria:
 # abrir el WAV en cada pitido mete un retraso que se NOTA, porque justo estos
@@ -6413,6 +6480,13 @@ function Play-Sonido([string]$nombre, [System.Media.SystemSound]$respaldo) {
 }
 
 function Show-Popup([string]$text, [string]$estadoUI = 'hablando') {
+    # TARJETA FIJADA ("dejala ahi"): un mensaje corto va solo a la capsula y no
+    # se la lleva por delante; uno largo si la sustituye, porque necesita sitio.
+    # Sin esto, el propio "listo, la dejo" cerraba la tarjeta que fijaba.
+    if ($script:popupFijada -and $script:popupForm -and $UiNuevaOn -and $text.Length -le 80) {
+        Set-UI $estadoUI $text $PopupMs
+        return
+    }
     Close-Popup
     # Con la interfaz nueva el mensaje va a la capsula. El popup antiguo solo
     # se abre ademas para textos largos, que en 340 px no se podrian leer.
