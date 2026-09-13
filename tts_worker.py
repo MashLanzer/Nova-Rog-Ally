@@ -107,6 +107,19 @@ def limpiar_cache():
 limpiar_cache()
 
 
+# VELOCIDAD (13/09): "habla mas rapido". El asistente deja el porcentaje en
+# velocidad.txt, en esta misma carpeta; se lee en cada frase para que el cambio
+# valga desde la siguiente, sin reiniciar el worker.
+def velocidad():
+    try:
+        with open(os.path.join(SALIDA, "velocidad.txt"), encoding="ascii") as f:
+            v = int(f.read().strip())
+        v = max(-50, min(100, v))
+        return "%+d%%" % v
+    except Exception:  # noqa: BLE001
+        return "+0%"
+
+
 async def principal():
     bucle = asyncio.get_event_loop()
     while True:
@@ -125,7 +138,9 @@ async def principal():
         texto = linea.strip().lstrip("﻿")
         if not texto:
             continue
-        clave = hashlib.md5((VOZ + "|" + texto).encode("utf-8")).hexdigest()
+        ritmo = velocidad()
+        # la velocidad va en la clave: la misma frase a otro ritmo es otro audio
+        clave = hashlib.md5((VOZ + "|" + ("" if ritmo == "+0%" else ritmo + "|") + texto).encode("utf-8")).hexdigest()
         ruta = os.path.join(SALIDA, clave + ".mp3")
         if not os.path.exists(ruta):
             # Se baja a un temporal y se renombra al final. Antes se escribia
@@ -134,7 +149,7 @@ async def principal():
             # sonaba cortada para siempre, sin volver a intentarlo nunca.
             parcial = ruta + ".part"
             try:
-                com = edge_tts.Communicate(texto, VOZ)
+                com = edge_tts.Communicate(texto, VOZ, rate=ritmo)
                 await com.save(parcial)
                 os.replace(parcial, ruta)
             except Exception as e:  # noqa: BLE001

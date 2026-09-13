@@ -1449,6 +1449,30 @@ public class NovaUI : Window
     bool Agitado() { return carga >= 85; }
     bool Desanimado() { return animo <= -0.3; }
 
+    // VISTAZO (13/09): acercar el raton a la capsula en reposo enseña la hora y
+    // la bateria en una linea, 2,5 s, y se va sola. Nada mas: la misma capsula.
+    // No toca estadoActual ni textoActual, asi que el asistente sigue mandando:
+    // si llega otro estado mientras tanto, se pinta encima y el reloj no vuelve.
+    DispatcherTimer relojVistazo;
+    void Vistazo()
+    {
+        if (!string.IsNullOrEmpty(textoActual)) { return; }
+        string linea = DateTime.Now.ToString("H:mm") + " · " + bateria + "%" + (cargando ? " ⚡" : "");
+        Aplicar("reposo", linea, true);
+        if (relojVistazo == null)
+        {
+            relojVistazo = new DispatcherTimer();
+            relojVistazo.Interval = TimeSpan.FromMilliseconds(2500);
+            relojVistazo.Tick += delegate
+            {
+                relojVistazo.Stop();
+                if ((estadoActual == "reposo" || estadoActual == "") && string.IsNullOrEmpty(textoActual)) { Aplicar(estadoActual, textoActual, true); }
+            };
+        }
+        relojVistazo.Stop();
+        relojVistazo.Start();
+    }
+
     // LA MUSICA (13/09): mientras suena algo y la capsula esta en reposo, la
     // carita se mece de lado a lado, muy poco (3 grados) y despacio. Nada nuevo
     // en pantalla: es la misma carita, con ritmo. A 12 fps, como el latido, que
@@ -2438,6 +2462,7 @@ public class NovaUI : Window
                 resplandor.BeginAnimation(DropShadowEffect.OpacityProperty, op);
                 resplandor.BeginAnimation(DropShadowEffect.BlurRadiusProperty, rad);
                 if (cerca) { Despertar(); Saltar(1.15); }
+                if (cerca && (estadoActual == "reposo" || estadoActual == "") && !dormido && !Cine()) { Vistazo(); }
             }
         }
     }

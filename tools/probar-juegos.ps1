@@ -11,7 +11,8 @@ function TraerFn($n) {
     return $f.Extent.Text
 }
 foreach ($n in 'Get-JuegosMem', 'Save-JuegosMem', 'Get-JuegoDeReferencia', 'Set-NotaJuego', 'Get-HaceCuanto', 'Update-BateriaJuego',
-    'Get-DuracionBateriaJuego', 'Format-Minutos', 'Show-RecuerdoJuego') { Invoke-Expression (TraerFn $n) }
+    'Get-DuracionBateriaJuego', 'Format-Minutos', 'Show-RecuerdoJuego', 'Add-TiempoJuego', 'Get-DiasJuego', 'Save-TiempoJuego',
+    'Get-TiempoJugado') { Invoke-Expression (TraerFn $n) }
 
 $MemoriaDir = Join-Path $env:TEMP ('nova-juegos-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $MemoriaDir | Out-Null
@@ -86,6 +87,28 @@ $script:ahoraMs = 120 * 60000; $script:uiCargando = 1; Show-RecuerdoJuego 'ELDEN
 Comp 'pasada una hora si, y cargando no habla de bateria' ($script:ui.Count -eq 2 -and $script:ui[1] -eq 'hablando|Te quedaste en Leyndell') $script:ui[1]
 Show-RecuerdoJuego 'Celeste'
 Comp 'un juego sin nada que recordar no dice nada' ($script:ui.Count -eq 2)
+
+Write-Host "--- tiempo de juego por dia ---"
+$script:juegosMem = $null; Remove-Item (Join-Path $MemoriaDir 'juegos.json') -ErrorAction SilentlyContinue
+$script:tiempoJuegoPend = @{}
+Add-TiempoJuego 'Hades' 10
+Comp 'se acumula en memoria, sin escribir cada 10 s' ($script:tiempoJuegoPend['Hades'] -eq 10 -and -not (Test-Path (Join-Path $MemoriaDir 'juegos.json')))
+Add-TiempoJuego 'Hades' 500
+Comp 'un salto de mas de 2 min no cuenta (asistente parado, suspension)' ($script:tiempoJuegoPend['Hades'] -eq 10)
+# 10 s + 29 x 10 s = 300 s justos: ahi se guarda
+for ($i = 0; $i -lt 29; $i++) { Add-TiempoJuego 'Hades' 10 }
+Comp 'a los 5 min acumulados se guarda y se vacia' ($script:tiempoJuegoPend.Count -eq 0 -and (Test-Path (Join-Path $MemoriaDir 'juegos.json')))
+$hoyT = Get-Date
+$script:tiempoJuegoPend = @{ 'Celeste' = 1800 }; Save-TiempoJuego $hoyT.AddDays(-3)
+$script:tiempoJuegoPend = @{ 'Celeste' = 3600 }; Save-TiempoJuego $hoyT.AddDays(-10)
+$script:juegosMem = $null
+$semanaT = @(Get-TiempoJugado 7 $hoyT)
+$celT = @($semanaT | Where-Object { $_.juego -eq 'Celeste' })
+$hadT = @($semanaT | Where-Object { $_.juego -eq 'Hades' })
+Comp 'la semana suma lo de hace 3 dias y no lo de hace 10' ($celT.Count -eq 1 -and $celT[0].minutos -eq 30) ("Celeste=" + $celT[0].minutos)
+Comp 'y lo de hoy' ($hadT.Count -eq 1 -and $hadT[0].minutos -eq 5) ("Hades=" + $hadT[0].minutos)
+Comp 'de mas a menos' ($semanaT[0].juego -eq 'Celeste')
+Comp 'en un mes si entra lo de hace 10 dias' ((@(Get-TiempoJugado 30 $hoyT | Where-Object { $_.juego -eq 'Celeste' })[0].minutos) -eq 90)
 
 Remove-Item -LiteralPath $MemoriaDir -Recurse -Force -ErrorAction SilentlyContinue
 if ($mal -gt 0) { Write-Host "$mal casos MAL"; exit 1 }

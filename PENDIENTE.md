@@ -155,6 +155,34 @@ Segunda tanda, elegidas todas el 13/09 (misma regla de diseño):
 
 ---
 
+## Tercera tanda de ideas (13/09, noche): hechas
+
+- [x] **Modo de energía por voz:** «modo ahorro», «modo rendimiento», «modo
+      equilibrado», «ahorra batería», «¿qué modo de energía tengo?» (el
+      deslizador de Windows, no Armoury Crate).
+- [x] **Bluetooth y Wi-Fi:** «apaga el bluetooth», «enciende el wifi» (WinRT).
+      Apagar el Wi-Fi deja sin IA ni voz en línea, y lo dice.
+- [x] **Salida de sonido:** «pon el sonido en los cascos», «vuelve a los
+      altavoces», «¿por dónde suena?» (`nova_audio.cs`). Sin cascos conectados
+      solo hay una salida y lo dice. **Probar con unos cascos.**
+- [x] **Silencio en llamadas:** si otra app usa el micrófono (registro de
+      privacidad de Windows), Nova no habla: texto y un pulso. **Probar en una
+      llamada de Discord.**
+- [x] **Tiempo de juego:** «¿cuánto he jugado esta semana / hoy / este mes?»
+      (minutos por día en `memoria\juegos.json`).
+- [x] **Aviso de actualización:** al abrir un juego de Steam con actualización
+      pendiente, lo dice en la respuesta.
+- [x] **La última captura:** «copia la última captura» (al portapapeles),
+      «enséñame la última captura».
+- [x] **Velocidad de la voz:** «habla más rápido / más despacio / normal»
+      (voz en línea, de -30 % a +45 %, guardado en config).
+- [x] **Vistazo:** acercar el ratón a la cápsula en reposo enseña la hora y la
+      batería 2,5 s.
+- [x] **Esconderse un rato:** «escóndete 10 minutos»; vuelve sola.
+- [x] **Permisos del cerebro (G8):** bloqueado lo destructivo por decisión de
+      braya (registro, procesos, PowerShell y archivos del MCP de Windows;
+      borrar y matar procesos por terminal).
+
 ## Auditoría exhaustiva (13/09, noche)
 
 Un agente probó Nova entera (arranque, activación, ~570 frases en el banco, 22

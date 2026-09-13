@@ -91,3 +91,11 @@ modo foco 25 minutos
 termina el foco
 silencia mi micro
 ¿qué copié antes?
+modo ahorro
+¿qué modo de energía tengo?
+apaga el bluetooth
+pon el sonido en los cascos
+¿cuánto he jugado esta semana?
+copia la última captura
+habla más rápido
+escóndete 10 minutos

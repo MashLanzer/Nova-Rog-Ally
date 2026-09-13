@@ -1595,7 +1595,7 @@ function Resolve-Fragment([string]$f) {
     # --- perfiles: una frase, varias acciones ("modo juego") ---
     # "modo foco" NO es un perfil: tiene su propia orden mas abajo (ver MODO FOCO),
     # y este bloque devuelve $null con un modo que no existe (revision del 13/09)
-    if ($f -match '^(?:modo|activa el modo|activa modo|pon el modo|pon modo|ponte en modo|cambia a modo|entra en modo)\s+(?!(?:foco|concentracion)\b)(.+)$') {
+    if ($f -match '^(?:modo|activa el modo|activa modo|pon el modo|pon modo|ponte en modo|cambia a modo|entra en modo)\s+(?!(?:foco|concentracion|ahorro|bajo consumo|eficiencia|rendimiento|maximo rendimiento|alto rendimiento|equilibrado)\b)(.+)$') {
         $nombre = $Matches[1].Trim()
         if (Test-Prop $cmds.perfiles $nombre) {
             # TOPE DE ANIDAMIENTO. Desde que los modos se pueden crear por voz,
@@ -1846,6 +1846,59 @@ function Resolve-Fragment([string]$f) {
         if ($ms -le 0) { return $null }
         $desc = if ($que) { "aviso en $n $unidad" } else { "temporizador de $n $unidad" }
         return @(@{ kind = 'temporizador'; ms = $ms; texto = $que; n = $n; unidad = $unidad; desc = $desc })
+    }
+    # --- modo de energia (ver MODO DE ENERGIA POR VOZ) ---
+    if ($f -match '^(?:modo|pon(?:me)?\s+(?:el\s+)?modo|activa\s+(?:el\s+)?modo|cambia\s+a\s+modo)\s+(ahorro(?: de (?:energia|bateria))?|bajo consumo|eficiencia|rendimiento|maximo rendimiento|alto rendimiento|equilibrado)$' -or
+        $f -match '^(ahorra bateria|ahorra energia|ahorremos bateria)$') {
+        $pedido = [string]$Matches[1]
+        $modoE = if ($pedido -match 'rendimiento') { 'rendimiento' } elseif ($pedido -match 'equilibrado') { 'equilibrado' } else { 'ahorro' }
+        return @(@{ kind = 'energia'; modo = $modoE; desc = "modo $modoE" })
+    }
+    if ($f -match '^(?:que modo de energia (?:tengo|hay|esta puesto|uso)|en que modo de energia estoy|como esta la energia)$') {
+        return @(@{ kind = 'energia'; modo = 'consulta'; desc = 'modo de energia' })
+    }
+    # --- bluetooth y wifi (ver BLUETOOTH Y WI-FI POR VOZ) ---
+    if ($f -match '^(apaga|desactiva|quita|desconecta|enciende|activa|prende|pon|conecta)\s+(?:el\s+|la\s+)?(bluetooth|wifi|wi fi|wi-fi|internet inalambrico)$') {
+        $encR = ($Matches[1] -match '^(?:enciende|activa|prende|pon|conecta)$')
+        $tipoR = if ($Matches[2] -eq 'bluetooth') { 'bluetooth' } else { 'wifi' }
+        return @(@{ kind = 'radio'; tipo = $tipoR; encender = $encR; desc = "$(if ($encR) { 'encender' } else { 'apagar' }) el $tipoR" })
+    }
+    # --- tiempo de juego (ver TIEMPO DE JUEGO DE LA SEMANA) ---
+    if ($f -match '^(?:cuanto|cuanto tiempo|a que)\s+he\s+jugado(?:\s+(esta semana|hoy|este mes|estos dias))?$') {
+        $perJ = [string]$Matches[1]
+        $diasJ = if ($perJ -eq 'hoy') { 1 } elseif ($perJ -eq 'este mes') { 30 } else { 7 }
+        return @(@{ kind = 'tiempoSemana'; dias = $diasJ; periodo = $(if ($perJ) { $perJ } else { 'esta semana' }); desc = 'tiempo de juego' })
+    }
+    # --- salida de sonido (ver SALIDA DE SONIDO POR VOZ) ---
+    if ($f -match '^(?:pon|cambia|pasa|manda|saca)\s+(?:el\s+)?(?:sonido|audio)\s+(?:a|en|por)\s+(?:los\s+|las\s+|el\s+|la\s+|mis\s+)?(.+)$' -or
+        $f -match '^(?:cambia|pon)\s+la\s+salida\s+(?:de\s+(?:audio|sonido)\s+)?(?:a|en|por)\s+(?:los\s+|las\s+|el\s+|la\s+|mis\s+)?(.+)$' -or
+        $f -match '^(?:vuelve|regresa|cambia)\s+a\s+(?:los\s+|las\s+|mis\s+)?(altavoces|bocinas|parlantes|cascos|auriculares|audifonos)$') {
+        return @(@{ kind = 'salidaAudio'; quiere = [string]$Matches[1]; desc = 'cambiar la salida de sonido' })
+    }
+    if ($f -match '^(?:por donde suena(?: el sonido)?|que salida de (?:audio|sonido) tengo|donde suena el sonido|que altavoces uso)$') {
+        return @(@{ kind = 'salidaAudio'; quiere = ''; desc = 'salida de sonido' })
+    }
+    # --- la ultima captura (ver LA ULTIMA CAPTURA) ---
+    if ($f -match '^(?:copia(?:me)?|pasame|pon en el portapapeles)\s+la\s+ultima\s+captura(?:\s+de\s+pantalla)?$') {
+        return @(@{ kind = 'ultimaCaptura'; accion = 'copiar'; desc = 'copiar la ultima captura' })
+    }
+    if ($f -match '^(?:ensename|muestrame|abre(?:me)?|ver)\s+la\s+ultima\s+captura(?:\s+de\s+pantalla)?$') {
+        return @(@{ kind = 'ultimaCaptura'; accion = 'abrir'; desc = 'abrir la ultima captura' })
+    }
+    # --- esconderse un rato (ver ESCONDERSE UN RATO) ---
+    if ($f -match '^(?:escondete|ocultate|quitate|desaparece|retirate)\s+(?:durante\s+|por\s+|unos?\s+|un\s+)?(\d{1,3}|cinco|diez|quince|veinte|treinta|media|una)\s*(minutos?|horas?|hora)$') {
+        $cantE = [string]$Matches[1]; $unidE = [string]$Matches[2]
+        $palE = @{ 'cinco' = 5; 'diez' = 10; 'quince' = 15; 'veinte' = 20; 'treinta' = 30; 'media' = 30; 'una' = 60 }
+        $minE = if ($cantE -match '^\d+$') { [int]$cantE } elseif ($palE.ContainsKey($cantE)) { $palE[$cantE] } else { 10 }
+        if ($unidE -match '^hora' -and $cantE -notmatch '^(?:media|una)$') { $minE *= 60 }
+        $minE = [Math]::Max(1, [Math]::Min(240, $minE))
+        return @(@{ kind = 'esconderTiempo'; minutos = $minE; desc = "me escondo $minE minutos" })
+    }
+    # --- velocidad de la voz (ver VELOCIDAD DE LA VOZ) ---
+    if ($f -match '^(?:habla(?:me)?\s+)?(?:mas|un poco mas)\s+(rapido|deprisa|lento|despacio)$' -or $f -match '^habla(?:me)?\s+(normal|a velocidad normal)$' -or $f -match '^(?:velocidad|voz)\s+(normal)$') {
+        $pideV = [string]$Matches[1]
+        $pasoV = if ($pideV -match '^(?:rapido|deprisa)$') { 15 } elseif ($pideV -match '^(?:lento|despacio)$') { -15 } else { 0 }
+        return @(@{ kind = 'vozVelocidad'; paso = $pasoV; desc = 'velocidad de la voz' })
     }
     # --- modo foco (ver el vencimiento de los temporizadores) ---
     if ($f -match '^(?:modo foco|modo concentracion|concentrate|pomodoro|ponme en modo foco|ponte en modo foco|pon (?:el )?modo foco|activa el modo foco)(?:\s+(?:de|durante|por|en)?\s*(\d{1,3}|cinco|diez|quince|veinte|veinticinco|treinta|cuarenta|cuarenta y cinco|cincuenta|sesenta|media|una)\s*(minutos?|horas?|hora)?)?$') {
@@ -3487,6 +3540,7 @@ function Get-DuracionBateriaJuego([string]$juego, [int]$pct = -1) {
     return [int]($pct / $ritmoJ * 60)
 }
 function Format-Minutos([int]$min) {
+    if ($min -eq 1) { return 'un minuto' }
     if ($min -lt 60) { return "$min minutos" }
     $h = [int][Math]::Floor($min / 60); $r = $min % 60
     $th = if ($h -eq 1) { 'una hora' } else { "$h horas" }
@@ -3881,6 +3935,170 @@ function Get-FraseNivel {
     return "estoy en el nivel $nv y se $cosas; " + $(if ($faltan -eq 1) { 'con una mas' } else { "con $faltan mas" }) + " subo al $($nv + 1)"
 }
 
+# MODO DE ENERGIA POR VOZ (13/09): el deslizador "Modo de energia" de Windows
+# (maxima eficiencia / equilibrado / maximo rendimiento), con la misma API que
+# usa el propio Windows. No toca los modos de Armoury Crate.
+function Initialize-Energia {
+    if ('NovaEnergia.P' -as [type]) { return }
+    Add-Type -Namespace NovaEnergia -Name P -MemberDefinition @'
+[DllImport("powrprof.dll")] public static extern uint PowerSetActiveOverlayScheme(System.Guid g);
+[DllImport("powrprof.dll")] public static extern uint PowerGetEffectiveOverlayScheme(out System.Guid g);
+'@
+}
+$GUID_ENERGIA = @{ 'ahorro' = '961cc777-2547-4f9d-8174-7d86181b8a7a'; 'equilibrado' = '00000000-0000-0000-0000-000000000000'; 'rendimiento' = 'ded574b5-45a0-4f42-8737-46345c09c238' }
+function Get-ModoEnergia {
+    Initialize-Energia
+    $g = [Guid]::Empty
+    if ([NovaEnergia.P]::PowerGetEffectiveOverlayScheme([ref]$g) -ne 0) { return '' }
+    foreach ($k in $GUID_ENERGIA.Keys) { if ($GUID_ENERGIA[$k] -eq $g.ToString()) { return $k } }
+    return 'personalizado'
+}
+function Set-ModoEnergia([string]$modo) {
+    Initialize-Energia
+    return ([NovaEnergia.P]::PowerSetActiveOverlayScheme([Guid]$GUID_ENERGIA[$modo]) -eq 0)
+}
+
+# BLUETOOTH Y WI-FI POR VOZ (13/09): las radios de Windows por WinRT, sin abrir
+# ajustes. OJO: apagar el Wi-Fi deja sin internet al cerebro y a la voz en linea
+# (habla Piper, sin red), asi que se avisa al hacerlo.
+function Set-Radio([string]$tipo, [bool]$encender) {
+    $null = [Windows.Devices.Radios.Radio, Windows.System.Devices, ContentType = WindowsRuntime]
+    $radios = Await-WinRT ([Windows.Devices.Radios.Radio]::GetRadiosAsync()) ([System.Collections.Generic.IReadOnlyList[Windows.Devices.Radios.Radio]]) 4000
+    $kindR = if ($tipo -eq 'bluetooth') { 'Bluetooth' } else { 'WiFi' }
+    $radio = @($radios | Where-Object { [string]$_.Kind -eq $kindR }) | Select-Object -First 1
+    $nombreR = if ($tipo -eq 'bluetooth') { 'el bluetooth' } else { 'el wifi' }
+    if (-not $radio) { return "no encuentro $nombreR en este equipo" }
+    $objetivo = if ($encender) { [Windows.Devices.Radios.RadioState]::On } else { [Windows.Devices.Radios.RadioState]::Off }
+    $palabra = if ($encender) { 'encendido' } else { 'apagado' }
+    if ([string]$radio.State -eq [string]$objetivo) { return "$nombreR ya estaba $palabra" }
+    $resR = Await-WinRT ($radio.SetStateAsync($objetivo)) ([Windows.Devices.Radios.RadioAccessStatus]) 5000
+    if ([string]$resR -ne 'Allowed') { return "Windows no me deja cambiar $nombreR ($resR)" }
+    if ($tipo -eq 'wifi' -and -not $encender) { return 'wifi apagado; sin internet no puedo preguntarle a la IA' }
+    return "$nombreR $palabra"
+}
+
+# TIEMPO DE JUEGO DE LA SEMANA (13/09): los segundos con cada juego delante se
+# suman por dia en memoria\juegos.json ("dias": {"2026-09-13": 2700}), guardados
+# cada 5 min de juego y al salir, no en cada vuelta. 60 dias como mucho.
+$script:tiempoJuegoPend = @{}
+$script:tiempoJuegoVisto = 0
+function Add-TiempoJuego([string]$juego, [int]$seg) {
+    if (-not $juego -or $seg -le 0 -or $seg -gt 120) { return }
+    if (-not $script:tiempoJuegoPend.ContainsKey($juego)) { $script:tiempoJuegoPend[$juego] = 0 }
+    $script:tiempoJuegoPend[$juego] += $seg
+    $sumaP = 0; foreach ($v in $script:tiempoJuegoPend.Values) { $sumaP += $v }
+    if ($sumaP -ge 300) { Save-TiempoJuego }
+}
+function Get-DiasJuego($dias) {
+    $h = @{}
+    if ($dias -is [hashtable]) { foreach ($k in $dias.Keys) { $h[$k] = [int]$dias[$k] } }
+    elseif ($dias) { foreach ($p in $dias.PSObject.Properties) { $h[$p.Name] = [int]$p.Value } }
+    return $h
+}
+function Save-TiempoJuego([datetime]$hoy = (Get-Date)) {
+    if ($script:tiempoJuegoPend.Count -eq 0) { return }
+    $m = Get-JuegosMem
+    $diaT = $hoy.ToString('yyyy-MM-dd')
+    $limiteT = $hoy.AddDays(-60).ToString('yyyy-MM-dd')
+    foreach ($k in @($script:tiempoJuegoPend.Keys)) {
+        if (-not $m.ContainsKey($k)) { $m[$k] = @{} }
+        $h = Get-DiasJuego $m[$k]['dias']
+        $h[$diaT] = [int]$h[$diaT] + [int]$script:tiempoJuegoPend[$k]
+        foreach ($d in @($h.Keys)) { if ($d -lt $limiteT) { $h.Remove($d) } }
+        $m[$k]['dias'] = $h
+    }
+    $script:tiempoJuegoPend = @{}
+    Save-JuegosMem
+}
+# minutos por juego de los ultimos $dias dias (incluido hoy), de mas a menos
+function Get-TiempoJugado([int]$dias = 7, [datetime]$hoy = (Get-Date)) {
+    Save-TiempoJuego $hoy
+    $m = Get-JuegosMem
+    $desde = $hoy.AddDays(-($dias - 1)).ToString('yyyy-MM-dd')
+    $tot = @{}
+    foreach ($k in $m.Keys) {
+        $h = Get-DiasJuego $m[$k]['dias']
+        foreach ($d in $h.Keys) { if ($d -ge $desde) { $tot[$k] = [int]$tot[$k] + [int]$h[$d] } }
+    }
+    return @($tot.GetEnumerator() | Where-Object { $_.Value -ge 60 } | Sort-Object Value -Descending | ForEach-Object { @{ juego = $_.Key; minutos = [int][Math]::Round($_.Value / 60) } })
+}
+
+# VELOCIDAD DE LA VOZ (13/09): "habla mas rapido / mas despacio / normal", en
+# escalones de 15 % entre -30 % y +45 %. El worker de voz en linea la lee de
+# velocidad.txt en su carpeta de cache en cada frase (y la mete en la cache).
+$script:vozVelocidad = 0
+function Set-VozVelocidad([int]$pct) {
+    $script:vozVelocidad = [Math]::Max(-30, [Math]::Min(45, $pct))
+    try {
+        if ($VozCache) {
+            if (-not (Test-Path -LiteralPath $VozCache)) { New-Item -ItemType Directory -Force -Path $VozCache | Out-Null }
+            [System.IO.File]::WriteAllText((Join-Path $VozCache 'velocidad.txt'), [string]$script:vozVelocidad)
+        }
+    } catch {}
+}
+
+# SALIDA DE SONIDO POR VOZ (13/09): "pon el sonido en los cascos", "vuelve a los
+# altavoces". El cambio del dispositivo predeterminado lo hace nova_audio.cs con
+# la misma interfaz que usa el panel de sonido de Windows. Se busca por palabras
+# (cascos -> headphones/headset/buds..., altavoces -> speakers, tele -> HDMI) o
+# por el nombre que digas.
+function Initialize-SalidaAudio {
+    if ('NovaAudio.Salida' -as [type]) { return $true }
+    $csA = Join-Path $LogDir 'nova_audio.cs'
+    if (-not (Test-Path -LiteralPath $csA)) { Log "salida de audio: falta nova_audio.cs"; return $false }
+    try { Add-Type -TypeDefinition ([System.IO.File]::ReadAllText($csA)) -ErrorAction Stop; return $true }
+    catch { Log ("salida de audio: " + $_.Exception.Message); return $false }
+}
+function Get-SalidasAudio {
+    if (-not (Initialize-SalidaAudio)) { return @() }
+    return @([NovaAudio.Salida]::Lista() | ForEach-Object { $pA = $_ -split '\|', 3; @{ id = $pA[0]; nombre = $pA[1]; actual = ($pA[2] -eq '1') } })
+}
+function Set-SalidaAudio([string]$quiere) {
+    $listaA = @(Get-SalidasAudio)
+    if ($listaA.Count -eq 0) { return 'no encuentro salidas de sonido' }
+    $qA = ConvertTo-Plain $quiere
+    $patronA = if ($qA -match 'casco|auricular|headset|audifono') { '(?i)headphone|headset|auricular|casco|buds|airpods|wh-|wf-|hands-free|manos libres' }
+               elseif ($qA -match 'altavoc|bocina|parlante|speaker') { '(?i)speaker|altavoz|altavoces|realtek' }
+               elseif ($qA -match 'tele|tv|monitor|pantalla|hdmi') { '(?i)hdmi|tv|monitor|display' }
+               else { [regex]::Escape($qA) }
+    $candA = @($listaA | Where-Object { (ConvertTo-Plain $_.nombre) -match $patronA -or $_.nombre -match $patronA })
+    if ($candA.Count -eq 0) {
+        if ($listaA.Count -eq 1) { return "solo hay una salida de sonido: $($listaA[0].nombre)" }
+        return "no encuentro $quiere; tengo " + ((@($listaA | ForEach-Object { $_.nombre })) -join ', ')
+    }
+    $objA = $candA[0]
+    if ($objA.actual) { return "ya suena por $($objA.nombre)" }
+    [NovaAudio.Salida]::Poner($objA.id)
+    return "ahora suena por $($objA.nombre)"
+}
+
+# LA ULTIMA CAPTURA (13/09): la imagen mas reciente de las carpetas donde caen
+# las capturas (barra de juego de Windows, Recortes / Impr Pant, Videos). "Copia
+# la ultima captura" la deja en el portapapeles para pegarla en Discord.
+function Get-UltimaCaptura {
+    $carpetas = @(
+        (Join-Path ([Environment]::GetFolderPath('MyVideos')) 'Captures'),
+        (Join-Path ([Environment]::GetFolderPath('MyPictures')) 'Screenshots'),
+        (Join-Path ([Environment]::GetFolderPath('MyPictures')) 'Capturas de pantalla'),
+        [Environment]::GetFolderPath('MyVideos')
+    )
+    $mejor = $null
+    foreach ($c in $carpetas) {
+        if (-not $c -or -not (Test-Path -LiteralPath $c)) { continue }
+        $f = Get-ChildItem -LiteralPath $c -File -ErrorAction SilentlyContinue |
+             Where-Object { $_.Extension -match '^\.(?:png|jpe?g|webp|bmp)$' } |
+             Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($f -and (-not $mejor -or $f.LastWriteTime -gt $mejor.LastWriteTime)) { $mejor = $f }
+    }
+    return $mejor
+}
+
+# ESCONDERSE UN RATO (13/09): "escondete 10 minutos" para grabar o emitir. La
+# capsula se retira como con "escondete" y vuelve sola al vencer el plazo.
+$script:retiradaHasta = 0
+# '' = visible; 'nombre' = escondida hasta que la llames; 'tiempo' = hasta que venza
+$script:uiRetirada = $false
+
 # COLOR DE LA CAPSULA A ELECCION: "ponte de color naranja". Solo cambia el de
 # reposo; los de cada estado (escuchando, pensando, error...) se quedan, que
 # son los que dicen algo. Va aqui arriba y no junto a la esquina porque el
@@ -4233,6 +4451,14 @@ function Invoke-FastCommand([string]$text) {
                         # con -PassThru para poder cerrarlo si pides deshacer; las
                         # URI (steam://, shell:appsFolder) no devuelven proceso propio
                         $pr = Start-Process $a.target -PassThru -ErrorAction Stop
+                        # AVISO DE ACTUALIZACION (13/09): si Steam marca el juego con
+                        # una actualizacion pendiente (StateFlags bit 2), se dice ya,
+                        # antes de encontrarse la descarga al arrancar
+                        if ($esJuego -and $a.target -match 'rungameid/(\d+)') {
+                            $idAct = $Matches[1]
+                            $jAct = @($script:Juegos | Where-Object { [string]$_.id -eq $idAct }) | Select-Object -First 1
+                            if ($jAct -and ([int]$jAct.estado -band 2) -and -not $jAct.bajando) { $a.desc = "$($a.desc); ojo, tiene una actualizacion pendiente" }
+                        }
                         if ($pr -and $script:deshacer) { [void]$script:deshacer.procesos.Add($pr.Id) }
                         # Un juego de Steam no deja proceso al que agarrarse, asi
                         # que se apunta QUE y CUANDO: al deshacer se busca el que
@@ -4274,6 +4500,73 @@ function Invoke-FastCommand([string]$text) {
                 'balanceAprendizaje' { $a.desc = (Get-BalanceAprendizaje) }
                 'configuracion' { $a.desc = (Get-Configuracion) }
                 'nivelNova' { $a.desc = Get-FraseNivel }
+                'energia' {
+                    if ($a.modo -eq 'consulta') {
+                        $actualE = Get-ModoEnergia
+                        $a.desc = if ($actualE) { "estoy en modo $actualE" } else { 'no pude leer el modo de energia' }
+                    } else {
+                        $okE = $false
+                        try { $okE = Set-ModoEnergia $a.modo } catch { Log ("energia: " + $_.Exception.Message) }
+                        $a.desc = if ($okE) { "modo $($a.modo) puesto" } else { 'Windows no me dejo cambiar el modo de energia' }
+                    }
+                }
+                'radio' {
+                    try { $a.desc = Set-Radio $a.tipo $a.encender } catch { $a.desc = "no pude cambiar el $($a.tipo)"; Log ("radio: " + $_.Exception.Message) }
+                }
+                'tiempoSemana' {
+                    $listaJ = @(Get-TiempoJugado $a.dias)
+                    $a.desc = if ($listaJ.Count -eq 0) { "$($a.periodo) no has jugado nada, o no te he visto" }
+                              else {
+                                  $trozosJ = @($listaJ | Select-Object -First 4 | ForEach-Object { "$($_.juego), $(Format-Minutos $_.minutos)" })
+                                  $totalJ = 0; foreach ($x in $listaJ) { $totalJ += $x.minutos }
+                                  "$($a.periodo) has jugado $(Format-Minutos $totalJ): " + ($trozosJ -join '; ')
+                              }
+                    $script:sinTarjeta = $true
+                    $script:sinTarjetaEn = $sw.ElapsedMilliseconds
+                }
+                'salidaAudio' {
+                    try {
+                        if ($a.quiere) { $a.desc = Set-SalidaAudio $a.quiere }
+                        else {
+                            $actA = @(Get-SalidasAudio | Where-Object { $_.actual }) | Select-Object -First 1
+                            $a.desc = if ($actA) { "suena por $($actA.nombre)" } else { 'no se por donde suena' }
+                        }
+                    } catch { $a.desc = 'no pude cambiar la salida de sonido'; Log ("salida de audio: " + $_.Exception.Message) }
+                }
+                'ultimaCaptura' {
+                    $capU = Get-UltimaCaptura
+                    if (-not $capU) {
+                        $a.desc = 'no encuentro ninguna captura'
+                    } elseif ($a.accion -eq 'abrir') {
+                        try { Start-Process -FilePath $capU.FullName; $a.desc = 'ahi la tienes' } catch { $a.desc = 'no pude abrirla' }
+                    } else {
+                        try {
+                            # desde memoria: con FromFile el archivo se queda bloqueado
+                            $bytesU = [System.IO.File]::ReadAllBytes($capU.FullName)
+                            $imgU = [System.Drawing.Image]::FromStream((New-Object System.IO.MemoryStream(, $bytesU)))
+                            [System.Windows.Forms.Clipboard]::SetImage($imgU)
+                            $hace = [int]((Get-Date) - $capU.LastWriteTime).TotalMinutes
+                            $a.desc = 'copiada, lista para pegar' + $(if ($hace -ge 60) { " (es de hace $(Format-Minutos $hace))" } else { '' })
+                        } catch { $a.desc = 'no pude copiarla'; Log ("ultima captura: " + $_.Exception.Message) }
+                    }
+                }
+                'esconderTiempo' {
+                    $script:uiRetirada = 'tiempo'
+                    $script:retiradaHasta = $sw.ElapsedMilliseconds + [int]$a.minutos * 60000
+                    Set-UI 'retirada'
+                    # nunca vacia: una respuesta vacia se toma por "no lo entendi" y va a la IA
+                    $a.desc = "vale, vuelvo en $(Format-Minutos ([int]$a.minutos))"
+                }
+                'vozVelocidad' {
+                    $nuevaV = if ($a.paso -eq 0) { 0 } else { $script:vozVelocidad + [int]$a.paso }
+                    Set-VozVelocidad $nuevaV
+                    # solo si cambia: Set-Cfg reescribe config.json entero
+                    if ([int](Get-Cfg 'voz' 'velocidad' 0) -ne $script:vozVelocidad) { [void](Set-Cfg 'voz' 'velocidad' $script:vozVelocidad) }
+                    $a.desc = if ($script:vozVelocidad -eq 0) { 'vuelvo a mi velocidad normal' }
+                              elseif ($a.paso -gt 0 -and $script:vozVelocidad -ge 45) { 'ya hablo lo mas rapido que se' }
+                              elseif ($a.paso -lt 0 -and $script:vozVelocidad -le -30) { 'ya hablo lo mas despacio que se' }
+                              elseif ($a.paso -gt 0) { 'hablo mas rapido' } else { 'hablo mas despacio' }
+                }
                 'foco' {
                     # MODO FOCO (13/09): un temporizador de tipo "foco" (el anillo de
                     # la capsula lo cuenta). Al vencer pregunta por el descanso.
@@ -4974,7 +5267,7 @@ function Invoke-FastCommand([string]$text) {
                     $txt = [regex]::Replace($a.texto, '[+^%~(){}\[\]]', { param($m) '{' + $m.Value + '}' })
                     [System.Windows.Forms.SendKeys]::SendWait($txt)
                 }
-                'esconder' { Set-UI 'retirada' }
+                'esconder' { $script:uiRetirada = 'nombre'; Set-UI 'retirada' }
                 'sordina' {
                     Pausar-Escucha $a.ms
                     $script:sordinaHasta = $sw.ElapsedMilliseconds + $a.ms
@@ -5524,6 +5817,11 @@ function Say([string]$texto) {
     $t = ($texto -replace '\s+', ' ').Trim()
     if ($t.Length -eq 0) { return }
     if ($t.Length -gt 300) { $t = $t.Substring(0, 300) }
+    # en una llamada no se habla: la capsula lo ensena y late (ver SILENCIO EN LLAMADAS)
+    if (Test-EnLlamada) {
+        try { Set-UI 'hablando' $t 5000; Send-UIEvento 'pulso:llamada' } catch {}
+        return
+    }
     # Silenciar la escucha mientras hablamos. La reproduccion es asincrona, asi
     # que se estima la duracion por longitud del texto (~70 ms por caracter) y
     # el bucle principal reanuda al vencer el plazo.
@@ -5856,6 +6154,10 @@ function ConvertTo-JsonTexto([string]$s) {
 
 function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
     if (-not $UiNuevaOn) { return }
+    # ESCONDIDA: volver al reposo es volver a esconderse. Sin esto, la propia
+    # respuesta ("me quito...") la sacaba y al callar se quedaba a la vista
+    # (13/09). Hablar o escuchar si la ensenan un momento.
+    if ($estado -eq 'reposo' -and $script:uiRetirada) { $estado = 'retirada' }
     $t = (($texto -replace '[\r\n\t]+', ' ') -replace '\s+', ' ').Trim()
     if ($t.Length -gt 140) { $t = $t.Substring(0, 137) + "..." }
     $script:uiEstado = $estado
@@ -6006,7 +6308,32 @@ function Set-UIHaciendo([string]$kind) {
 # El aviso SIEMPRE aparece; lo unico que cambia es si ademas habla.
 $AvisosSinVoz = [bool](Get-Cfg 'avisos' 'sinVoz' $true)
 $AvisosSinVozEnJuego = [bool](Get-Cfg 'avisos' 'sinVozEnJuego' $true)
+# SILENCIO EN LLAMADAS (13/09): si OTRA app esta usando el microfono (Discord,
+# una llamada, una grabacion), Nova no habla: su voz se colaria en la llamada.
+# Lo dice el registro de privacidad de Windows (LastUsedTimeStop = 0 mientras se
+# usa). No cuentan el worker de escucha de Nova (python) ni el dictado de
+# Windows. Se mira como mucho cada 3 s.
+$script:llamadaVista = 0
+$script:llamadaActiva = $false
+function Test-EnLlamada {
+    if (($sw.ElapsedMilliseconds - $script:llamadaVista) -lt 3000 -and $script:llamadaVista -gt 0) { return $script:llamadaActiva }
+    $script:llamadaVista = $sw.ElapsedMilliseconds
+    $activa = $false
+    try {
+        $raizM = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone'
+        $claves = @(Get-ChildItem -LiteralPath $raizM -ErrorAction SilentlyContinue) + @(Get-ChildItem -LiteralPath (Join-Path $raizM 'NonPackaged') -ErrorAction SilentlyContinue)
+        foreach ($cl in $claves) {
+            if ($cl.PSChildName -match '(?i)python|TextInputHost|MicrosoftWindows\.Client|voice-ctrl|^NonPackaged$') { continue }
+            $pr = Get-ItemProperty -LiteralPath $cl.PSPath -ErrorAction SilentlyContinue
+            if ($pr -and $null -ne $pr.LastUsedTimeStart -and [long]$pr.LastUsedTimeStop -eq 0) { $activa = $true; break }
+        }
+    } catch {}
+    if ($activa -ne $script:llamadaActiva) { Log ("LLAMADA: " + $(if ($activa) { 'otra app usa el microfono; Nova se calla' } else { 'microfono libre; Nova vuelve a hablar' })) }
+    $script:llamadaActiva = $activa
+    return $activa
+}
 function Test-AvisoSinVoz {
+    if (Test-EnLlamada) { return $true }
     if (-not $AvisosSinVoz) { return $false }
     # te callaste tu: no te hablo yo
     if ($script:sordinaHasta -gt $sw.ElapsedMilliseconds) { return $true }
@@ -6853,6 +7180,7 @@ function Enter-Juego([string]$nombre) {
 }
 
 function Exit-Juego([string]$nombre) {
+    try { Save-TiempoJuego } catch {}
     # "me quede en..." dicho justo despues de salir sigue siendo de este juego
     $script:ultimoJuego = $nombre
     $script:ultimoJuegoEn = $sw.ElapsedMilliseconds
@@ -7543,7 +7871,21 @@ $CcSesionDir = Join-Path $LogDir 'cerebro'             # donde viven las charlas
 $CcProhibido = @('Bash(rm -rf:*)', 'Bash(rm -fr:*)', 'Bash(rm -r:*)', 'Bash(format:*)', 'Bash(diskpart:*)', 'Bash(reg delete:*)',
                  'Bash(shutdown:*)', 'Bash(git push --force:*)', 'Bash(git reset --hard:*)', 'Bash(git clean -f:*)',
                  'PowerShell(Stop-Computer:*)', 'PowerShell(Restart-Computer:*)', 'PowerShell(Format-Volume:*)', 'PowerShell(Clear-Disk:*)',
-                 'PowerShell(shutdown:*)', 'PowerShell(diskpart:*)', 'PowerShell(reg delete:*)')
+                 'PowerShell(shutdown:*)', 'PowerShell(diskpart:*)', 'PowerShell(reg delete:*)',
+                 # BLOQUEO DE LO DESTRUCTIVO (decidido por braya el 13/09, tras la
+                 # auditoria): las herramientas del MCP de Windows que tocan el
+                 # registro, los procesos, los archivos o ejecutan PowerShell a
+                 # pelo se saltaban toda la lista de arriba. Y borrar o matar
+                 # procesos por cualquier terminal. Sigue pudiendo abrir apps,
+                 # crear carpetas y archivos, escribir, pulsar y mover ventanas.
+                 'mcp__windows__Registry', 'mcp__windows__Process', 'mcp__windows__PowerShell', 'mcp__windows__FileSystem',
+                 'Bash(rm:*)', 'Bash(rmdir:*)', 'Bash(del:*)', 'Bash(rd:*)', 'Bash(erase:*)', 'Bash(taskkill:*)', 'Bash(reg:*)',
+                 'Bash(powershell:*)', 'Bash(pwsh:*)', 'Bash(cmd:*)',
+                 'PowerShell(Remove-Item:*)', 'PowerShell(rm:*)', 'PowerShell(del:*)', 'PowerShell(rmdir:*)', 'PowerShell(rd:*)', 'PowerShell(erase:*)',
+                 'PowerShell(ri:*)', 'PowerShell(Clear-Content:*)', 'PowerShell(Clear-RecycleBin:*)',
+                 'PowerShell(Stop-Process:*)', 'PowerShell(kill:*)', 'PowerShell(spps:*)', 'PowerShell(taskkill:*)',
+                 'PowerShell(Set-ItemProperty:*)', 'PowerShell(New-ItemProperty:*)', 'PowerShell(Remove-ItemProperty:*)', 'PowerShell(reg:*)',
+                 'PowerShell(Invoke-Expression:*)', 'PowerShell(iex:*)', 'PowerShell(cmd:*)', 'PowerShell(Start-Process cmd:*)')
 $script:jobMotor = ''
 $script:jobPorCC = $false
 $script:ccFallo = $false
@@ -8545,6 +8887,8 @@ if ($script:esquina -notmatch '^(?:abajo|arriba)-(?:izquierda|derecha)$') { $scr
 $EscalasUI = @(0.75, 1.0, 1.25, 1.5, 1.75, 2.0)
 $script:uiEscala = [double](Get-Cfg 'ui' 'escala' 1.0)
 if ($script:uiEscala -lt 0.75 -or $script:uiEscala -gt 2.0) { $script:uiEscala = 1.0 }
+# VELOCIDAD DE LA VOZ guardada (ver Set-VozVelocidad): se le pasa al worker al arrancar
+try { Set-VozVelocidad ([int](Get-Cfg 'voz' 'velocidad' 0)) } catch {}
 # COLOR DE REPOSO elegido por voz (hex sin #; vacio = el de siempre)
 $script:uiColor = [string](Get-Cfg 'ui' 'color' '')
 if ($script:uiColor -notmatch '^[0-9A-Fa-f]{6}$') { $script:uiColor = '' }
@@ -8655,6 +8999,9 @@ function Start-Dictado([string]$origen) {
     # saber si los filtros de falsas alarmas funcionan o si, al reves, se han
     # pasado de listos y ya no te oyen.
     if ($origen -like 'nombre*') { Add-Estadistica 'activacion' }
+    # "escondete" a secas dura hasta que la LLAMAS (nombre o boton): la escucha
+    # de seguimiento que se abre sola tras responder no cuenta como llamarla
+    if ($script:uiRetirada -eq 'nombre' -and ($origen -like 'nombre*' -or $origen -like 'mantener*')) { $script:uiRetirada = $false }
     $script:loTengo = $false
     $script:perdida = $false
     $script:seguimientoPendiente = $false
@@ -9829,6 +10176,14 @@ while ($true) {
         Stop-DictadoLargo 'se acabo el plazo'
     }
 
+    # --- escondida un rato: vuelve sola al vencer (ver ESCONDERSE UN RATO) ---
+    if ($script:retiradaHasta -gt 0 -and $sw.ElapsedMilliseconds -ge $script:retiradaHasta) {
+        $script:retiradaHasta = 0
+        $estabaEscondida = ($script:uiEstado -eq 'retirada')
+        $script:uiRetirada = $false
+        if ($estabaEscondida) { Set-UI 'reposo'; Send-UIEvento 'gesto:saludo' }
+    }
+
     # --- avisos que esperaban a que terminaras de dictar (ver Send-Aviso) ---
     if (-not $script:armed -and -not $script:pendiente -and $script:avisosAplazados.Count -gt 0) {
         $avA = $script:avisosAplazados[0]
@@ -9956,6 +10311,11 @@ while ($true) {
         try {
             $script:juegoExeCandidato = ''
             $j = Get-JuegoEnPrimerPlano
+            # los segundos con el juego delante desde la ultima mirada (ver TIEMPO DE JUEGO)
+            if ($script:juegoActivo -and $script:tiempoJuegoVisto -gt 0) {
+                try { Add-TiempoJuego $script:juegoActivo ([int](($sw.ElapsedMilliseconds - $script:tiempoJuegoVisto) / 1000)) } catch {}
+            }
+            $script:tiempoJuegoVisto = $sw.ElapsedMilliseconds
             if ($j -ne $script:juegoActivo) {
                 if ($script:juegoActivo) { Exit-Juego $script:juegoActivo }
                 if ($j) {
