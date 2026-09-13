@@ -212,7 +212,29 @@ que puso braya:
 - Una IA de conversación propia (sin Claude Code).
 - **Nova vuelve a escuchar sola después de responder o de hacer cada cosa**,
   esperando más palabras suyas, sin tener que decir «Nova» otra vez.
-- Se tratará como una sección completa, después de la cuarta tanda.
+- **Sin modo ni frase para empezar:** Nova distingue sola orden, charla o las
+  dos cosas en la misma frase.
+- Cerebro **híbrido** y que gaste **poca RAM**.
+
+**Hecho (13/09, noche):**
+- [x] `charla_worker.py`: Qwen2.5 3B en local con Ollama (1,9 GB cargado;
+      contexto de 1024, un solo modelo y una sola petición, caché de 8 bits;
+      sale de la RAM a los 2 min sin hablar y al abrir un juego). Si no puede,
+      la API de Claude (Haiku, con búsqueda web para noticias o precios); si la
+      API falla (sin saldo), vuelve al local; si todo falla, el cerebro de siempre.
+- [x] Contesta **frase a frase**: la primera suena en ~3 s (en frío, ~12 s
+      mientras carga el modelo).
+- [x] Reparto sin modo: lo que Nova sabe hacer se hace; lo que parece charla o
+      pregunta va a la conversación; si el modelo ve que era algo que HACER,
+      responde `[ORDEN]` y va al camino de las órdenes. Una frase mixta («qué
+      hora es y cuéntame algo») hace la orden y conversa el resto.
+- [x] Al acabar de contestar escucha sola ~7 s, y otra ventana si callas; las
+      respuestas cortas («sí, claro») siguen la conversación. La charla se
+      olvida tras 5 min sin hablar. La voz ajena se sigue descartando.
+- [ ] Ver con el uso real si el 3B se inventa datos demasiado (el de los pulpos
+      salió mal dos veces) y si hace falta pasar más preguntas a la API.
+- [ ] Si la RAM aprieta jugando: `qwen2.5:3b-instruct-q3_K_M` (~1,6 GB) o bajar
+      la memoria reservada a la gráfica en Armoury Crate (hoy 8 de 16 GB).
 
 ## Tercera tanda de ideas (13/09, noche): hechas
 

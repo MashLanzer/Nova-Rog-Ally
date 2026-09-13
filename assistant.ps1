@@ -1752,8 +1752,9 @@ function Resolve-Fragment([string]$f) {
         '^(?:gracias|muchas gracias|mil gracias|te lo agradezco|gracias nova)$' { return @(@{ kind = 'decir'; desc = (@('De nada.', 'A ti.', 'Para eso estoy.', 'Cuando quieras.') | Get-Random) }) }
         '^(?:hola|hola nova|buenas|buenos dias|buenas tardes|buenas noches|que tal|que mas|que hay)$' { return @(@{ kind = 'decir'; desc = (@('Hola. Dime.', 'Aqui estoy. ¿Que hacemos?', 'Hola, te escucho.') | Get-Random) }) }
         '^(?:adios|chao|chau|hasta luego|nos vemos|me voy|hasta manana)$' { return @(@{ kind = 'decir'; desc = (@('Hasta luego.', 'Nos vemos.', 'Aqui estare.') | Get-Random) }) }
-        '^(?:como estas|que tal estas|como vas|como te va|todo bien)$' { return @(@{ kind = 'decir'; desc = (@('Muy bien, lista para lo que digas.', 'De maravilla. ¿Y tu?', 'Bien, con ganas de trabajar.') | Get-Random) }) }
-        '^(?:te quiero|te adoro|eres genial|eres la mejor|eres lo maximo|buen trabajo|bien hecho|me encantas)$' { return @(@{ kind = 'decir'; desc = (@('Y yo a ti.', 'Gracias, me sonrojo.', 'Eso me anima.') | Get-Random) }) }
+        # en plena conversacion estas ya no tienen respuesta fija: las contesta la charla (ver CONVERSACION DE VERDAD)
+        '^(?:como estas|que tal estas|como vas|como te va|todo bien)$' { if (Test-CharlaCaliente) { return $null }; return @(@{ kind = 'decir'; desc = (@('Muy bien, lista para lo que digas.', 'De maravilla. ¿Y tu?', 'Bien, con ganas de trabajar.') | Get-Random) }) }
+        '^(?:te quiero|te adoro|eres genial|eres la mejor|eres lo maximo|buen trabajo|bien hecho|me encantas)$' { if (Test-CharlaCaliente) { return $null }; return @(@{ kind = 'decir'; desc = (@('Y yo a ti.', 'Gracias, me sonrojo.', 'Eso me anima.') | Get-Random) }) }
         '^(?:quien eres|como te llamas|que eres)$' { return @(@{ kind = 'decir'; desc = "Soy $EscuchaNombre, tu asistente de la consola. Vivo en la esquina de abajo." }) }
         # "puedes" llega YA QUITADO por Remove-Filler (es lo que hace que
         # "puedes bajarle el volumen" funcione), asi que "que puedes hacer" se
@@ -4547,14 +4548,33 @@ function Invoke-FastCommand([string]$text) {
         Add-Estadistica 'recitado' $text
         return $null
     }
+    # CHARLA AL FINAL UNIDA CON "Y" (ver LAS DOS COSAS A LA VEZ): "que hora es y
+    # cuentame algo curioso" no se partia y la cola se perdia (probado en vivo el
+    # 13/09). Si la cola no es a su vez una orden conocida ("y dime la bateria"),
+    # se aparta para la conversacion y se resuelve solo lo de delante.
+    $colaCharla = ''
+    if ($ConversacionOn -and $text -match '(?i)^(.+?)[\s,]+y\s+((?:cu[eé]ntame|dime|expl[ií]came|h[aá]blame|qu[eé] opinas|crees|sabes|recomi[eé]ndame|dame una idea)\b.+)$') {
+        $delanteC = $Matches[1].Trim(); $colaC = $Matches[2].Trim()
+        if (-not (Resolve-Fragment (ConvertTo-Plain $colaC))) { $colaCharla = $colaC; $text = $delanteC }
+    }
     $frags = Split-Ordenes $text
     if (-not $frags -or $frags.Count -eq 0) { return $null }
 
     $script:dudosa = $null
+    $script:charlaResto = ''
     $acciones = @()
+    $restoCharla = @()
     foreach ($f in $frags) {
         $a = Resolve-Fragment $f
         if (-not $a) {
+            # LAS DOS COSAS A LA VEZ (13/09): "abre spotify y cuentame algo de
+            # musica". El trozo que no es orden pero parece charla o pregunta no
+            # tumba lo demas: las ordenes se hacen y ese trozo va a la
+            # conversacion (ver CONVERSACION DE VERDAD)
+            if ($ConversacionOn -and ((Test-Charla $f) -or ((ConvertTo-Plain $f) -match $RE_PREGUNTA))) {
+                $restoCharla += $f
+                continue
+            }
             # dejar constancia del trozo exacto: es lo que dice que anadir a
             # commands.json en vez de tener que adivinarlo despues
             Log "LOCAL descarta: no reconozco '$f' -> la orden entera va a opencode"
@@ -4565,6 +4585,13 @@ function Invoke-FastCommand([string]$text) {
             return $null   # todo o nada
         }
         $acciones += $a
+    }
+    # solo charla, sin ninguna orden: no es cosa de este atajo (Process-Texto la lleva)
+    if ($acciones.Count -eq 0) { return $null }
+    if ($colaCharla) { $restoCharla += $colaCharla }
+    if ($restoCharla.Count -gt 0) {
+        $script:charlaResto = ($restoCharla -join ', ')
+        Log "LOCAL: hago las ordenes y '$($script:charlaResto)' va a la conversacion"
     }
 
     # --- CONFIRMACION DE COINCIDENCIAS DUDOSAS ---
@@ -5968,6 +5995,7 @@ function Say-Online([string]$texto) {
                 $n = ([System.IO.File]::ReadAllText($env).Trim() -split '\s+').Count
                 $dur = $n * 50 + 450
                 $fin = $sw.ElapsedMilliseconds + $dur
+                $script:vozFinReal = $fin    # la charla encadena frases con esto
                 # Max: una pausa mas larga ya puesta (la sordina) no se acorta (auditoria 13/09)
                 $script:pausaHasta = [Math]::Max($script:pausaHasta, $fin)
                 $script:uiHasta = [Math]::Max($script:uiHasta, $fin)
@@ -6105,6 +6133,7 @@ function Await-Voz($op, $tipo) {
 # Habla sin bloquear el bucle: la sintesis tarda ~60 ms y Play() es asincrono.
 function Say([string]$texto) {
     if (-not $texto) { return }
+    $script:vozFinReal = 0
     $t = ($texto -replace '\s+', ' ').Trim()
     if ($t.Length -eq 0) { return }
     if ($t.Length -gt 300) { $t = $t.Substring(0, 300) }
@@ -8660,6 +8689,153 @@ Orden del usuario: $text
 "@
 }
 
+# =====================================================================
+# CONVERSACION DE VERDAD (13/09): sin modo y sin frase para empezar (lo pidio
+# braya: el "modo conversacion" del 11/09 se tragaba las ordenes). Cada frase
+# se enruta sola: lo que Nova ya sabe hacer se hace; lo que es charla o
+# pregunta va al worker de charla (charla_worker.py): primero Qwen2.5 3B en
+# local con Ollama y, si no puede, la API de Claude. Contesta FRASE A FRASE (la
+# primera suena en cuanto esta) y al acabar Nova vuelve a escuchar sola. Si el
+# modelo ve que lo dicho era algo que HACER, lo devuelve y va por el camino de
+# siempre de las ordenes. Jugando, el modelo sale de la RAM.
+# =====================================================================
+$CharlaWorker = Join-Path $LogDir 'charla_worker.py'
+$ConversacionOn = [bool](Get-Cfg 'conversacion' 'activada' $true)
+$ConversacionModelo = [string](Get-Cfg 'conversacion' 'modeloLocal' 'qwen2.5:3b')
+$ConversacionApi = [string](Get-Cfg 'modelo' 'rapido' 'claude-haiku-4-5')
+$ConversacionEsperaMs = [int](Get-Cfg 'conversacion' 'esperaMs' 7000)
+$script:charlaProc = $null
+$script:charlaLectura = $null
+$script:charlaId = 0
+$script:charlaTexto = ''
+$script:charlaEsperando = $false
+$script:charlaFrases = New-Object System.Collections.Queue
+$script:charlaUltima = -600000      # ms del ultimo intercambio de charla
+$script:charlaSilencios = 0
+$script:charlaDescargada = $true
+$script:vozFinReal = 0              # cuando acaba DE VERDAD la frase que suena (ver Say-Online)
+
+function Initialize-Charla {
+    if ($script:charlaProc -and -not $script:charlaProc.HasExited) { return $true }
+    if (-not $ConversacionOn -or -not (Test-Path -LiteralPath $PyExe) -or -not (Test-Path -LiteralPath $CharlaWorker)) { return $false }
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = $PyExe
+        $psi.Arguments = "-u `"$CharlaWorker`" $ConversacionModelo $ConversacionApi"
+        $psi.UseShellExecute = $false
+        $psi.RedirectStandardInput = $true
+        $psi.RedirectStandardOutput = $true
+        $psi.CreateNoWindow = $true
+        $psi.WorkingDirectory = $LogDir
+        $script:charlaProc = [System.Diagnostics.Process]::Start($psi)
+        $script:charlaLectura = $null
+        Log "charla: worker PID=$($script:charlaProc.Id) (local $ConversacionModelo, api $ConversacionApi)"
+        return $true
+    } catch {
+        Log ("charla: el worker no arranco: " + $_.Exception.Message)
+        $script:charlaProc = $null
+        return $false
+    }
+}
+
+function Send-CharlaPedido($pedido, [bool]$arrancar = $true) {
+    if ($arrancar) { if (-not (Initialize-Charla)) { return $false } }
+    elseif (-not $script:charlaProc -or $script:charlaProc.HasExited) { return $false }
+    try {
+        # bytes UTF-8 directos, como con la voz: la tuberia no es UTF-8 por defecto
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes((ConvertTo-Json $pedido -Compress) + "`n")
+        $flujo = $script:charlaProc.StandardInput.BaseStream
+        $flujo.Write($bytes, 0, $bytes.Length)
+        $flujo.Flush()
+        return $true
+    } catch { Log ("charla: no pude escribir al worker: " + $_.Exception.Message); return $false }
+}
+
+function Send-Charla([string]$text) {
+    if (-not $ConversacionOn -or -not $text) { return $false }
+    $script:charlaId++
+    $pedido = @{ op = 'hablar'; id = $script:charlaId; texto = $text }
+    if ($script:juegoActivo) { $pedido.juego = [string]$script:juegoActivo }
+    if (-not (Send-CharlaPedido $pedido)) { return $false }
+    $script:charlaTexto = $text
+    $script:charlaFrases.Clear()
+    $script:charlaEsperando = $true
+    $script:charlaDesde = $sw.ElapsedMilliseconds
+    $script:charlaRelleno = $false
+    $script:charlaDescargada = $false
+    $script:charlaSilencios = 0
+    $script:seguimientoPendiente = $false     # se arma cuando termine de contestar
+    Log "CHARLA: $text"
+    Add-Estadistica 'charla' $text
+    # si ya esta hablando (la orden de una frase mixta), que no se le corte la cara
+    if ($sw.ElapsedMilliseconds -ge $script:pausaHasta) { Set-UI 'pensando' }
+    return $true
+}
+
+# ¿Se esta conversando AHORA (modelo cargado, ultima respuesta hace menos de 2
+# min)? Entonces lo social ("que tal estas") lo contesta la charla y no una
+# frase fija; en frio, la fija, que es instantanea.
+function Test-CharlaCaliente {
+    return [bool]($ConversacionOn -and $script:charlaProc -and -not $script:charlaProc.HasExited -and
+                  ($sw.ElapsedMilliseconds - $script:charlaUltima) -lt 110000)
+}
+
+function Stop-Charla {
+    if ($script:charlaEsperando -or $script:charlaFrases.Count -gt 0) {
+        [void](Send-CharlaPedido @{ op = 'parar' } $false)
+        Log "charla: cortada"
+    }
+    $script:charlaEsperando = $false
+    $script:charlaFrases.Clear()
+}
+
+# Lo que va diciendo el worker, sin bloquear el bucle
+function Receive-Charla {
+    if (-not $script:charlaProc) { return }
+    if ($script:charlaProc.HasExited) {
+        Log "charla: el worker se cerro"
+        $script:charlaProc = $null
+        $script:charlaLectura = $null
+        if ($script:charlaEsperando) { $script:charlaEsperando = $false; Submit-Command $script:charlaTexto 'pregunta' }
+        return
+    }
+    for ($n = 0; $n -lt 20; $n++) {
+        if (-not $script:charlaLectura) { $script:charlaLectura = $script:charlaProc.StandardOutput.ReadLineAsync() }
+        if (-not $script:charlaLectura.IsCompleted) { return }
+        $linea = $script:charlaLectura.Result
+        $script:charlaLectura = $null
+        if ($null -eq $linea) { return }
+        $ev = $null
+        try { $ev = $linea | ConvertFrom-Json } catch { $ev = $null }
+        if (-not $ev) { continue }
+        if ($ev.ev -eq 'info') { Log "charla: $($ev.texto)"; continue }
+        if ([int]$ev.id -ne $script:charlaId) { continue }   # de una respuesta ya cortada
+        if ($ev.ev -eq 'frase') {
+            $script:charlaFrases.Enqueue([string]$ev.texto)
+        } elseif ($ev.ev -eq 'fin') {
+            $script:charlaEsperando = $false
+            $script:charlaUltima = $sw.ElapsedMilliseconds
+            Log "charla: contesto ($($ev.origen))"
+            if ($ev.origen -ne 'parado') {
+                # al acabar de hablar, vuelve a escuchar sola y con mas margen
+                $script:seguimientoPendiente = $true
+                $script:seguimientoFactor = [Math]::Max(1.0, $ConversacionEsperaMs / [double][Math]::Max(1, $SeguimientoMs))
+                if ($script:pausaHasta -le 0) { $script:pausaHasta = $sw.ElapsedMilliseconds + 100 }
+            }
+        } elseif ($ev.ev -eq 'orden') {
+            $script:charlaEsperando = $false
+            Log "charla: no era charla sino una orden -> '$($ev.texto)'"
+            $script:seguimientoPendiente = $true
+            if ($TraducirOn) { Submit-Command ([string]$ev.texto) 'traducir' } else { Submit-Command ([string]$ev.texto) }
+        } elseif ($ev.ev -eq 'err') {
+            # ni el local ni la API: queda el cerebro de siempre, mejor que callarse
+            $script:charlaEsperando = $false
+            Log "charla: sin respuesta ($($ev.texto)); se lo paso al cerebro"
+            Submit-Command $script:charlaTexto 'pregunta'
+        }
+    }
+}
+
 function Submit-Command([string]$text, [string]$modo = 'accion', [string]$adjunto = '') {
     Log "SUBMIT ($modo): $text"
     $script:jobModo = $modo
@@ -9347,6 +9523,8 @@ function Add-RuidoRacha {
 
 function Start-Dictado([string]$origen) {
     Log "DICTADO ($origen)"
+    # llamarla de nuevo corta lo que estuviera contestando (ver CONVERSACION DE VERDAD)
+    if ($origen -ne 'seguimiento') { try { Stop-Charla } catch {} }
     # NOTA DE VOZ y TRADUCTOR (13/09): solo el dictado de seguimiento que viene
     # detras de "graba una nota" / "traduce lo que diga" lleva la marca para el
     # worker (guarda el audio / escucha en otro idioma). Cualquier otro la quita:
@@ -9953,6 +10131,12 @@ function Process-Texto([string]$text) {
                 Send-UIEvento 'hecho'
                 Show-Popup $fast
                 Say $fast
+                # la parte de charla de una frase mixta: se contesta detras (ver LAS DOS COSAS A LA VEZ)
+                if ($script:charlaResto) {
+                    $restoC = $script:charlaResto
+                    $script:charlaResto = ''
+                    [void](Send-Charla $restoC)
+                }
             }
         }
         # 1b) memoria: buscar en las notas ANTES de molestar al modelo
@@ -9971,9 +10155,10 @@ function Process-Texto([string]$text) {
                 Submit-Command $text 'pregunta'   # Expand-Prompt le dira donde mirar
             }
         }
-        # 2) pregunta: que CONTESTE, no que actue (~13 s en vez de 25-160 s)
+        # 2) pregunta: que CONTESTE, no que actue. Va a la CONVERSACION (local o
+        #    API, ver CONVERSACION DE VERDAD); sin ella, al cerebro de siempre
         elseif ($plano -match $RE_PREGUNTA) {
-            Submit-Command $text 'pregunta'
+            if (-not (Send-Charla $text)) { Submit-Command $text 'pregunta' }
         }
         else {
             # 3) ¿ya aprendimos a traducir esta orden? entonces es instantanea
@@ -10031,6 +10216,9 @@ function Process-Texto([string]$text) {
             #      microfono mal transcrito ("Oh", "Ok", "El", "Meme"). Antes
             #      esos restos se ejecutaban y por eso se abrian cosas que
             #      nadie habia pedido. Se pide repetir en vez de adivinar.
+            # EN PLENA CONVERSACION, una respuesta corta ("si, claro", "no mucho")
+            # es charla, no ruido: sigue la conversacion (ver CONVERSACION DE VERDAD)
+            if ($script:enSeguimiento -and ($sw.ElapsedMilliseconds - $script:charlaUltima) -lt 60000 -and -not (Test-VozExtrana) -and (Send-Charla $text)) { return }
             $palabras = @(($text -split '\s+') | Where-Object { $_ -ne '' })
             if ($palabras.Count -le 2 -and $text.Length -lt 18) {
                 Log "RUIDO descartado (no llega al agente): '$text'"
@@ -10056,6 +10244,9 @@ function Process-Texto([string]$text) {
                            $script:wakeProc -and -not $script:wakeProc.HasExited -and (Test-MereceRepaso $text))
             $esCharla = (-not $vaARepasar) -and (Test-Charla $text)
             $esAjena = (-not $vaARepasar) -and (Test-VozExtrana)
+            # charla TUYA: ya no se descarta, se conversa (ver CONVERSACION DE
+            # VERDAD). La voz que no es la tuya se sigue descartando en silencio.
+            if ($esCharla -and -not $esAjena -and (Send-Charla $text)) { return }
             if ($esCharla -or $esAjena) {
                 $porque = if ($esAjena) { 'voz que no es la tuya' } else { 'charla' }
                 Log "CHARLA descartada ($porque, no llega al agente): '$text'"
@@ -10491,8 +10682,29 @@ while ($true) {
         }
     }
 
+    # --- CONVERSACION: lo que contesta el worker, frase a frase (ver CONVERSACION DE VERDAD) ---
+    if ($script:charlaProc) { try { Receive-Charla } catch { Log ("charla: " + $_.Exception.Message) } }
+    # EN FRIO el modelo tarda en cargar (~12-16 s medido): pasados 5 s sin nada,
+    # una palabra corta para que no parezca colgada. Una vez por respuesta.
+    if ($script:charlaEsperando -and -not $script:charlaRelleno -and $script:charlaFrases.Count -eq 0 -and -not $script:armed -and
+        ($sw.ElapsedMilliseconds - $script:charlaDesde) -gt 5000 -and $sw.ElapsedMilliseconds -ge $script:pausaHasta) {
+        $script:charlaRelleno = $true
+        Log "charla: tarda (modelo en frio), digo algo mientras"
+        Say (Get-Random -InputObject @('Deja que lo piense.', 'A ver...', 'Un segundito.'))
+    }
+    if ($script:charlaFrases.Count -gt 0 -and -not $script:armed) {
+        # la siguiente frase entra cuando acaba la que suena (su duracion real)
+        $finFrase = if ($script:vozFinReal -gt 0) { $script:vozFinReal } else { $script:pausaHasta }
+        if ($sw.ElapsedMilliseconds -ge ($finFrase - 150)) {
+            $fraseC = [string]$script:charlaFrases.Dequeue()
+            Log "charla dice: $fraseC"
+            $script:ultimaRespuesta = $fraseC
+            Say $fraseC
+        }
+    }
+
     # reanuda la escucha cuando vence la pausa (fin estimado de la voz)
-    if ($script:pausaHasta -gt 0 -and $sw.ElapsedMilliseconds -ge $script:pausaHasta -and -not $script:armed) {
+    if ($script:pausaHasta -gt 0 -and $sw.ElapsedMilliseconds -ge $script:pausaHasta -and -not $script:armed -and $script:charlaFrases.Count -eq 0) {
         Reanudar-Escucha
         # SEGUIMIENTO: acabo de responder a una orden; vuelvo a escuchar un
         # rato sin palabra de activacion por si encadenas otra
@@ -10657,10 +10869,18 @@ while ($true) {
                 }
             } catch {}
             if ($script:enSeguimiento -and -not $dic.Trim()) {
-                # ventana de seguimiento sin voz: se cierra sin decir nada
-                Log "seguimiento: silencio, se cierra"
                 $script:enSeguimiento = $false
-                Set-UI 'reposo'
+                if (($sw.ElapsedMilliseconds - $script:charlaUltima) -lt 60000 -and $script:charlaSilencios -lt 1) {
+                    # en una CONVERSACION se espera una ventana mas antes de dejarlo
+                    $script:charlaSilencios++
+                    Log "seguimiento: silencio en una conversacion, espero otro poco"
+                    $script:seguimientoPendiente = $true
+                    $script:pausaHasta = $sw.ElapsedMilliseconds + 100
+                } else {
+                    # ventana de seguimiento sin voz: se cierra sin decir nada
+                    Log "seguimiento: silencio, se cierra"
+                    Set-UI 'reposo'
+                }
             } else {
                 Process-Texto ($dic.Trim())
             }
@@ -10997,6 +11217,13 @@ while ($true) {
         try { Test-Recordatorios } catch {}
         try { Update-BrilloAuto } catch {}   # ver BRILLO AUTOMATICO
         try { Test-FinInvitado } catch {}    # ver MODO INVITADO
+        # jugando, el modelo de charla sale de la RAM (si no se esta hablando con el)
+        try {
+            if ($script:juegoActivo -and $script:charlaProc -and -not $script:charlaDescargada -and -not $script:charlaEsperando -and
+                ($sw.ElapsedMilliseconds - $script:charlaUltima) -gt 30000) {
+                if (Send-CharlaPedido @{ op = 'descargar' } $false) { $script:charlaDescargada = $true }
+            }
+        } catch {}
         # la copia del dia, tambien en el PRIMER minuto tras arrancar: diaVisto
         # nace con la fecha de hoy, asi que el bloque de "cambio de dia" no se
         # alcanza al arrancar y la copia no se hacia nunca (revision del 12/09)

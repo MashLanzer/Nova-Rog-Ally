@@ -228,6 +228,19 @@ CUARTA TANDA (13/09, noche). Detalle en PENDIENTE.md.
   - Una receta a la que le falta el dato ("crea una carpeta") lo pregunta.
   No se pudo: el aviso de temperatura (Windows no la da sin administrador).
 
+CONVERSACIÓN DE VERDAD (13/09, noche). Detalle en PENDIENTE.md.
+  Se habla con Nova cuando quieras, sin modo ni frase para empezar: lo que sabe
+  hacer lo hace, lo que es charla o pregunta lo contesta, y en una frase mixta
+  hace las dos cosas. Tras contestar vuelve a escuchar sola.
+  - Cerebro híbrido: Qwen2.5 3B en la consola (Ollama, gratis, ~1,9 GB solo
+    mientras hablas; se descarga jugando) y la API de Claude para lo difícil o
+    lo de internet. Claude Code queda solo para las órdenes que no sabe hacer.
+  - Responde frase a frase: la primera suena en unos 3 s.
+  - Ollama arranca con Windows (icono de la bandeja). Ajustes de poca RAM en
+    variables de entorno de usuario (OLLAMA_NUM_PARALLEL=1,
+    OLLAMA_MAX_LOADED_MODELS=1, OLLAMA_FLASH_ATTENTION=1,
+    OLLAMA_KV_CACHE_TYPE=q8_0, OLLAMA_KEEP_ALIVE=2m).
+
 LO QUE QUEDA POR HACER: PENDIENTE.md (8 ideas con su porqué, y las trampas
   de esta base de código que conviene leer antes de tocar nada). El 12/09 se
   hicieron la 1, la 2, la 3, la 4, la 7, la 9, la 11, la 13, la 14, la 15 y
