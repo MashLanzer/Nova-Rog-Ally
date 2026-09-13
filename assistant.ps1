@@ -4950,6 +4950,11 @@ function Play-Audio([string]$ruta) {
             $script:reproductor = New-Object System.Windows.Media.MediaPlayer
         }
         $script:reproductor.Open([Uri]$ruta)
+        # DE NOCHE, MAS BAJITO (13/09): de 22:00 a 7:00 la voz suena al 55 %. Solo
+        # la voz en linea: Piper (el respaldo sin internet) va por SoundPlayer,
+        # que no tiene volumen.
+        $horaV = (Get-Date).Hour
+        $script:reproductor.Volume = if ($horaV -ge 22 -or $horaV -lt 7) { 0.55 } else { 1.0 }
         # Open es asincrono: sin esta pausa Play() no encuentra nada cargado
         Start-Sleep -Milliseconds 250
         $script:reproductor.Play()
@@ -5501,6 +5506,7 @@ function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
             ',"remoto":"' + $(if ($script:uiRemoto -or $script:busy) { '1' } else { '0' }) + '"' +
             ',"musica":"' + $script:uiMusica + '"' +
             ',"madurez":"' + $script:uiMadurez + '"' +
+            ',"tiempo":"' + $script:uiTiempo + '"' +
             ',"cola":"' + $script:uiCola + '"' +
             ',"descarga":' + ([double]$script:uiDescarga).ToString('0.000', [System.Globalization.CultureInfo]::InvariantCulture) +
             ',"escala":' + ([double]$script:uiEscala).ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture) +
@@ -5723,6 +5729,8 @@ $ClimaLon = Get-Cfg 'clima' 'lon' $null
 $script:clima = $null
 $script:climaCheck = -3600000
 
+# lluvia / nieve / tormenta / '' : lo dibuja la capsula, muy de vez en cuando
+$script:uiTiempo = ''
 function Update-Clima {
     if (-not $ClimaOn) { return }
     try {
@@ -5750,6 +5758,12 @@ function Update-Clima {
         elseif ($noche) { $emoji = '🌙'; $desc = 'esta despejado' }
         $temp = [int][Math]::Round([double]$cw.temperature)
         $script:clima = @{ emoji = $emoji; desc = $desc; temp = $temp }
+        # EL CLIMA VIVO: la capsula deja caer una gota (o un copo) de vez en cuando
+        $tiempoAntes = $script:uiTiempo
+        $script:uiTiempo = if (($codigo -ge 51 -and $codigo -le 67) -or ($codigo -ge 80 -and $codigo -le 82)) { 'lluvia' }
+                           elseif (($codigo -ge 71 -and $codigo -le 77) -or ($codigo -ge 85 -and $codigo -le 86)) { 'nieve' }
+                           elseif ($codigo -ge 95) { 'tormenta' } else { '' }
+        if ($script:uiTiempo -ne $tiempoAntes) { Refresh-UI }
         # el avatar NO cambia solo: la carita manda. El tiempo se ensena solo
         # cuando se pregunta (Resolve-Fragment) y unos segundos.
         Log "clima: $desc, $temp grados (codigo $codigo)"
@@ -8701,6 +8715,75 @@ $script:ultimoObjetivo = ''
 $script:dictaInicio = 0
 $script:jobModo = ''
 $script:jobTextoOriginal = ''
+# PANEL RAPIDO (13/09): doble toque en ≡ y la capsula enseña UNA linea,
+# "‹ Volumen ›". La cruceta izquierda/derecha cambia de cosa; arriba/abajo la
+# ajusta; A hace lo suyo (silenciar, pausar); B cierra, y solo se cierra a los
+# 6 s sin tocar nada. Nada de ventanas nuevas: la misma capsula de siempre.
+# El volumen va con las teclas multimedia (Windows no deja leerlo aqui, pero
+# su propio indicador ya lo enseña); el brillo si se lee y se dice.
+# OJO: XInput no es exclusivo. Con un juego delante, la cruceta le llega
+# tambien al juego mientras el panel esta abierto.
+$XINPUT_ARR = 0x0001
+$XINPUT_ABA = 0x0002
+$XINPUT_IZQ = 0x0004
+$XINPUT_DER = 0x0008
+$PanelItems = @('volumen', 'brillo', 'musica')
+$script:panel = $null
+$script:toqueEn = 0
+$script:panelBrillo = -1
+function Open-PanelRapido {
+    $script:panelBrillo = -1
+    try { $script:panelBrillo = [int]((Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness -ErrorAction Stop | Select-Object -First 1).CurrentBrightness) } catch {}
+    $script:panel = @{ i = 0; hasta = $sw.ElapsedMilliseconds + 6000; nota = '' }
+    Log "PANEL RAPIDO: abierto"
+    Start-Vibracion @(30, 40, 30) 14000
+    Show-PanelRapido
+}
+function Close-PanelRapido {
+    if (-not $script:panel) { return }
+    $script:panel = $null
+    Log "PANEL RAPIDO: cerrado"
+    Set-UI 'reposo'
+}
+function Show-PanelRapido {
+    if (-not $script:panel) { return }
+    $item = $PanelItems[$script:panel.i]
+    $etq = switch ($item) {
+        'volumen' { 'Volumen' }
+        'brillo' { if ($script:panelBrillo -ge 0) { "Brillo $($script:panelBrillo)%" } else { 'Brillo' } }
+        'musica' { if ($script:uiMusica -and $script:musicaTitulo) { $tt = $script:musicaTitulo; if ($tt.Length -gt 18) { $tt = $tt.Substring(0, 17) + '…' }; [string][char]0x266A + " $tt" } else { 'Musica' } }
+    }
+    if ($script:panel.nota) { $etq += " $($script:panel.nota)" }
+    Set-UI 'atenta' ([string][char]0x2039 + " $etq " + [char]0x203A) 6500
+}
+function Invoke-PanelRapido([int]$pul) {
+    $item = $PanelItems[$script:panel.i]
+    $arriba = ($pul -band $XINPUT_ARR) -ne 0
+    $abajo = ($pul -band $XINPUT_ABA) -ne 0
+    $boton = ($pul -band $XINPUT_A) -ne 0
+    switch ($item) {
+        'volumen' {
+            if ($boton) { Send-Key 0xAD; $script:panel.nota = 'silencio' }
+            else { $vk = if ($arriba) { 0xAF } else { 0xAE }; Send-Key $vk; Send-Key $vk; $script:panel.nota = $(if ($arriba) { [string][char]0x25B2 } else { [string][char]0x25BC }) }
+        }
+        'brillo' {
+            if ($arriba -or $abajo) {
+                if ($script:panelBrillo -lt 0) { $script:panelBrillo = 50 }
+                $script:panelBrillo = [Math]::Max(0, [Math]::Min(100, $script:panelBrillo + $(if ($arriba) { 10 } else { -10 })))
+                Set-Brillo $script:panelBrillo
+                $script:panel.nota = ''
+            }
+        }
+        'musica' {
+            if ($boton) { Send-Key 0xB3; $script:panel.nota = 'play/pausa' }
+            elseif ($arriba) { Send-Key 0xB0; $script:panel.nota = 'siguiente' }
+            elseif ($abajo) { Send-Key 0xB1; $script:panel.nota = 'anterior' }
+        }
+    }
+    Start-Vibracion @(20) 12000
+    Log "PANEL RAPIDO: $item $(if ($boton) { 'A' } elseif ($arriba) { 'arriba' } else { 'abajo' })"
+}
+
 $pollErrs = 0
 # botones del mando en la vuelta anterior: A y B contestan preguntas (ver abajo)
 $XINPUT_A = 0x1000
@@ -8750,8 +8833,10 @@ while ($true) {
     # programas") sigue pidiendo un si hablado; B si la cancela.
     $pulsadoA = (($botones -band $XINPUT_A) -ne 0) -and (($script:botonesPrev -band $XINPUT_A) -eq 0)
     $pulsadoB = (($botones -band $XINPUT_B) -ne 0) -and (($script:botonesPrev -band $XINPUT_B) -eq 0)
+    # todos los botones que se ACABAN de pulsar en esta vuelta (los usa el panel)
+    $pulsados = [int]$botones -band (-bnot [int]$script:botonesPrev)
     $script:botonesPrev = $botones
-    if (($pulsadoA -or $pulsadoB) -and $script:pendiente -and -not $script:busy) {
+    if (($pulsadoA -or $pulsadoB) -and $script:pendiente -and -not $script:busy -and -not $script:panel) {
         try {
             if ($pulsadoB) {
                 Log "CONFIRMAR con el mando: B (no)"
@@ -8769,6 +8854,35 @@ while ($true) {
         } catch { Log "mando A/B error: $($_.Exception.Message)" }
     }
 
+    # PANEL RAPIDO abierto: la cruceta y A/B son suyos (ver PANEL RAPIDO)
+    if ($script:panel) {
+        try {
+            if ($script:pendiente -or $script:busy -or $script:armed -or $sw.ElapsedMilliseconds -ge $script:panel.hasta) {
+                Close-PanelRapido
+            } elseif ($pulsados -ne 0) {
+                $script:panel.hasta = $sw.ElapsedMilliseconds + 6000
+                if ($pulsados -band $XINPUT_B) { Close-PanelRapido }
+                elseif ($pulsados -band $XINPUT_IZQ) { $script:panel.i = ($script:panel.i + $PanelItems.Count - 1) % $PanelItems.Count; $script:panel.nota = ''; Show-PanelRapido }
+                elseif ($pulsados -band $XINPUT_DER) { $script:panel.i = ($script:panel.i + 1) % $PanelItems.Count; $script:panel.nota = ''; Show-PanelRapido }
+                elseif ($pulsados -band ($XINPUT_ARR -bor $XINPUT_ABA -bor $XINPUT_A)) { Invoke-PanelRapido $pulsados; Show-PanelRapido }
+            }
+        } catch { Log ("panel rapido: " + $_.Exception.Message); $script:panel = $null }
+    }
+
+    # DOBLE TOQUE en ≡ (dos pulsaciones cortas en menos de 450 ms): abre o cierra
+    # el panel rapido. Un toque corto no hacia nada hasta ahora, y mantenerlo
+    # (dictar) sigue igual: soltar despues del hold no cuenta como toque.
+    if (-not $startNow -and $startPrev -and -not $holdFired) {
+        if ($script:toqueEn -gt 0 -and ($sw.ElapsedMilliseconds - $script:toqueEn) -le 450) {
+            $script:toqueEn = 0
+            try {
+                if ($script:panel) { Close-PanelRapido }
+                elseif (-not $script:armed -and -not $script:pendiente -and -not $script:busy) { Open-PanelRapido }
+            } catch { Log ("panel rapido: " + $_.Exception.Message) }
+        } else {
+            $script:toqueEn = $sw.ElapsedMilliseconds
+        }
+    }
     if ($startNow -and -not $startPrev) {
         $downSince = $sw.ElapsedMilliseconds
         $holdFired = $false

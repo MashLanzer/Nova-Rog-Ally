@@ -255,6 +255,10 @@ public class NovaUI : Window
     // nivel de Nova (0-5, campo "madurez"): el halo base crece 2 px por nivel.
     // Casi no se ve a proposito; se nota con el tiempo, no de un dia para otro
     int madurez = 0;
+    // el tiempo que hace ("lluvia", "nieve", "tormenta" o ""), para ClimaVivo
+    string tiempoActual = "";
+    DateTime proximoClima = DateTime.MinValue;
+    TextBlock copo;
     double RadioHalo(bool cercaRaton) { return (cercaRaton ? 34 : 24) + 2 * madurez; }
     bool apartada = false;
     int tapadaCuenta = 0;
@@ -1025,6 +1029,10 @@ public class NovaUI : Window
         sudor = Glifo("●", 6, Color.FromRgb(0x8C, 0xC8, 0xFF), "Segoe UI");
         sudor.Margin = new Thickness(14, 0, 0, 8);
         esfera.Children.Add(sudor);
+        // un copo para ClimaVivo: el mismo tamano que la gota, en blanco
+        copo = Glifo("•", 7, Color.FromRgb(0xF2, 0xF6, 0xFF), "Segoe UI");
+        copo.Margin = new Thickness(0, 0, 12, 14);
+        esfera.Children.Add(copo);
 
         // QUE VA A HACER, ANTES DE HACERLO. El asistente enciende esto justo
         // antes de ejecutar cada accion que toca el sistema. Va la ULTIMA de la
@@ -2729,9 +2737,34 @@ public class NovaUI : Window
         }
     }
 
+    // EL CLIMA VIVO (13/09): si llueve, de vez en cuando le resbala una gota por
+    // el cristal; si nieva, cae un copo; con tormenta, ademas, un destello breve
+    // del halo. Muy de vez en cuando (14-26 s) y solo en reposo: es un detalle
+    // para quien mira, no un aviso. Ni dormida ni a pantalla completa.
+    void ClimaVivo()
+    {
+        if (tiempoActual == "" || dormido || Cine() || !(estadoActual == "reposo" || estadoActual == "")) { return; }
+        if (DateTime.UtcNow < proximoClima) { return; }
+        proximoClima = DateTime.UtcNow.AddSeconds(14 + azar.NextDouble() * 12);
+        if (tiempoActual == "nieve") { Flotar(copo, 3, 10, 2600); return; }
+        Flotar(sudor, -1, 11, 1500);
+        if (tiempoActual == "tormenta" && azar.NextDouble() < 0.5)
+        {
+            var d = new DoubleAnimationUsingKeyFrames();
+            double base0 = resplandor.Opacity;
+            d.KeyFrames.Add(new LinearDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(60))));
+            d.KeyFrames.Add(new LinearDoubleKeyFrame(base0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(180))));
+            d.KeyFrames.Add(new LinearDoubleKeyFrame(0.9, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(260))));
+            d.KeyFrames.Add(new LinearDoubleKeyFrame(base0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(420))));
+            d.FillBehavior = FillBehavior.Stop;
+            resplandor.BeginAnimation(DropShadowEffect.OpacityProperty, d);
+        }
+    }
+
     void Tic250()
     {
         RevisarPantalla();
+        ClimaVivo();
         // Si el asistente se cae con una accion a medias, el glifo se quedaria
         // encendido para siempre. Ninguna accion local llega a 6 s.
         if (haciendoActual != "" && (DateTime.UtcNow - haciendoDesde).TotalSeconds > 6) { PintarHaciendo(""); }
@@ -2968,6 +3001,7 @@ public class NovaUI : Window
                 descarga = Math.Max(0, Math.Min(1, dsc));
                 if (hac != haciendoActual) { PintarHaciendo(hac); }
                 musica = Campo(j, "musica", "0") == "1";
+                tiempoActual = Campo(j, "tiempo", "");
                 int mad;
                 if (int.TryParse(Campo(j, "madurez", "0"), out mad) && mad != madurez && mad >= 0 && mad <= 5)
                 {

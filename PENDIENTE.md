@@ -63,8 +63,19 @@ pulsos de color del borde, gestos, insignia) o la voz.
       y 50). Casi invisible a propósito: el halo crece 2 px por nivel. Al subir,
       después de hablar, chispas doradas y «Nivel 3» un momento, sin voz ni
       sonido. «¿Qué nivel tienes?» dice cuánto falta para el siguiente.
-- [ ] **H. El clima vivo en el cristal:** gotas si llueve, tono del amanecer/atardecer, voz más baja de noche.
-- [ ] **I. Panel rápido con el mando:** compacto, sale de la cápsula, se navega con la cruceta.
+- [x] **H. El clima vivo en el cristal** (13/09): con el tiempo de cada hora
+      (open-meteo), si llueve le resbala una gota a la carita cada 14-26 s; si
+      nieva, un copo; con tormenta, además, un destello breve del halo. Solo en
+      reposo, ni dormida ni a pantalla completa. De 22:00 a 7:00 la voz en línea
+      suena al 55 % (Piper, el respaldo, no tiene volumen). El tono del
+      amanecer no se añadió: la cápsula ya cambia de tono de noche.
+- [x] **I. Panel rápido con el mando** (13/09): doble toque en ≡ y la cápsula
+      enseña una sola línea, «‹ Volumen ›». Cruceta izquierda/derecha: Volumen,
+      Brillo, Música. Arriba/abajo: sube/baja (brillo de 10 en 10, que se lee y
+      se dice); siguiente/anterior en la música. A: silenciar o play/pausa. B
+      cierra; a los 6 s sin tocar nada se cierra solo. OJO: XInput no es
+      exclusivo, así que con un juego delante la cruceta también le llega al
+      juego. **Falta probarlo con el mando en la mano.**
 
 ---
 
