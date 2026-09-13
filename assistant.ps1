@@ -1679,7 +1679,7 @@ function Resolve-Fragment([string]$f) {
         # "puedes" llega YA QUITADO por Remove-Filler (es lo que hace que
         # "puedes bajarle el volumen" funcione), asi que "que puedes hacer" se
         # ve aqui como "que hacer": hay que aceptar las dos formas
-        '^(?:que (?:(?:puedes|podes|sabes|sabe)\s+)?hacer(?: tu| nova)?|que sabes? how to do|en que me (?:(?:puedes|podes)\s+)?ayudar|como me (?:(?:puedes|podes)\s+)?ayudar|para que sirves|ayuda|que haces)$' { return @(@{ kind = 'decir'; desc = 'Abro apps y juegos, busco, controlo volumen y brillo, escribo y pulso teclas, cierro ventanas, pongo temporizadores y reglas, anoto en tu memoria y le pregunto a la inteligencia artificial lo que no sepa.' }) }
+        '^(?:que (?:(?:puedes|podes|sabes|sabe)\s+)?hacer(?: tu| nova)?|que sabes? how to do|(?:en que|como) (?:me )?(?:(?:puedes|podes)\s+)?ayudar(?:me)?(?: tu| nova)?|para que sirves|ayuda|que haces)$' { return @(@{ kind = 'decir'; desc = 'Abro apps y juegos, busco, controlo volumen y brillo, escribo y pulso teclas, cierro ventanas, pongo temporizadores y reglas, anoto en tu memoria y le pregunto a la inteligencia artificial lo que no sepa.' }) }
     }
     # --- preguntas que se responden AQUI mismo, sin modelo ---
     # Preguntarle la hora a un LLM cuesta 13 s y encima puede negarse.
@@ -1853,7 +1853,9 @@ function Resolve-Fragment([string]$f) {
     # Va antes que "minimiza todo" no, DESPUES: esa es mas concreta y ya existe.
     if ($f -match '^(?:minimiza|minimizar|esconde|oculta|guarda|baja)\s+(?:el\s+|la\s+|a\s+)?(.+)$') {
         $obj = $Matches[1].Trim()
-        if ($obj -notmatch '^(?:todo|todas|el escritorio|escritorio|la pagina|el tamano|tamano)$') {
+        # "guarda el archivo" es Ctrl+S, no "minimiza el Explorador de archivos"
+        # (Resolve-Proceso encontraba "archivos" por parecido)
+        if ($obj -notmatch '^(?:todo|todas|el escritorio|escritorio|la pagina|el tamano|tamano|(?:los |el )?(?:archivos?|documentos?|cambios|trabajo))$') {
             $proc = Resolve-Proceso $obj
             if ($proc) { return @(@{ kind = 'ventanaApp'; proceso = $proc.proceso; accion = 'minimizar'; desc = "minimizar $($proc.nombre)" }) }
         }
@@ -2131,7 +2133,7 @@ function Resolve-Fragment([string]$f) {
         '^(?:pega|pegar|pegalo)$' { return @(@{ kind = 'atajo'; teclas = '^v'; desc = 'pegar' }) }
         '^(?:corta|cortar)$' { return @(@{ kind = 'atajo'; teclas = '^x'; desc = 'cortar' }) }
         '^(?:selecciona todo|seleccionar todo|selecciona todo el texto)$' { return @(@{ kind = 'atajo'; teclas = '^a'; desc = 'seleccionar todo' }) }
-        '^(?:guarda|guardar|guarda el archivo|guardalo)$' { return @(@{ kind = 'atajo'; teclas = '^s'; desc = 'guardar' }) }
+        '^(?:guarda|guardar|guardalo|guarda (?:el |los )?(?:archivo|documento|cambios|trabajo))$' { return @(@{ kind = 'atajo'; teclas = '^s'; desc = 'guardar' }) }
         '^(?:deshaz eso|deshacer eso|control zeta|control z)$' { return @(@{ kind = 'atajo'; teclas = '^z'; desc = 'deshacer' }) }
         '^(?:rehaz|rehacer|control y)$' { return @(@{ kind = 'atajo'; teclas = '^y'; desc = 'rehacer' }) }
         '^(?:nueva pestana|abre una pestana|pestana nueva)$' { return @(@{ kind = 'atajo'; teclas = '^t'; desc = 'nueva pestana' }) }

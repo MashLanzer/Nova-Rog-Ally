@@ -75,8 +75,10 @@ Lo grave ya está arreglado (commit a693e80). Queda, por orden:
 - [x] **Escrituras atómicas** (13/09): el worker escribe a `.tmp` y cambia de
       golpe; si el lector lo tiene abierto, escribe directo como antes.
 - [ ] Charla corta en inglés que llega al agente (Test-Charla pide 7 palabras).
-- [ ] «En qué me puedes ayudar» sigue yendo a la IA («qué puedes hacer» ya no).
-- [ ] «Guarda el archivo» minimiza el Explorador de archivos en vez de Ctrl+S.
+- [x] «En qué me puedes ayudar» (13/09): el relleno quita «me puedes» y llegaba
+      como «en que ayudar», sin el «me» que pedía el patrón.
+- [x] «Guarda el archivo» (13/09): es Ctrl+S. «Guarda X» sigue minimizando
+      apps («guarda discord»), pero no archivo/documento/cambios/trabajo.
 - [ ] `Close-PanelDictado` mata TextInputHost también en cada orden por Win+H
       (que ahora no se usa), y ese proceso pinta el teclado táctil.
 - [ ] `RevisarPantalla` solo mira el borde de abajo y el izquierdo (esquinas

@@ -65,3 +65,7 @@ cuando cierre spotify sube el volumen
 cuánto has aprendido
 cuánto me has ahorrado
 qué tal vas aprendiendo
+en qué me puedes ayudar
+cómo me puedes ayudar
+guarda el archivo
+guarda los cambios
