@@ -2656,6 +2656,7 @@ $script:recetas = $null
 $script:ultimaReceta = $null
 $script:ultimaRecetaEn = 0
 $script:ccConHerramientas = $false
+$script:reparandoReceta = $null   # receta que fallo y cuya tarea lleva ahora el cerebro para arreglarla
 
 # Lo que se le pide al cerebro al final de cada tarea (modo accion).
 $CcInstruccionReceta = @'
@@ -2904,13 +2905,24 @@ function Invoke-Receta($r, $valores) {
                 $cab += ('$' + $k + " = '" + ([string]$valores[$k]).Replace("'", "''") + "'`r`n")
             }
             [System.IO.File]::WriteAllText($rutaS, $cab + $cuerpo, (New-Object System.Text.UTF8Encoding($true)))
+            # el error del script se guarda: es lo que el cerebro necesita para
+            # arreglar la receta (ver Start-Receta, autorreparacion)
+            $rutaE = [System.IO.Path]::ChangeExtension($rutaS, '.err.txt')
             try {
                 $pr = Start-Process -FilePath 'powershell.exe' -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File ' + (ConvertTo-CmdArg $rutaS)) `
-                    -WorkingDirectory $WORKDIR -WindowStyle Hidden -PassThru
+                    -WorkingDirectory $WORKDIR -WindowStyle Hidden -PassThru -RedirectStandardError $rutaE
                 $null = $pr.Handle
                 if (-not $pr.WaitForExit(20000)) { try { $pr.Kill() } catch {}; return @{ ok = $false; error = 'tardo mas de 20 s' } }
-                if ($pr.ExitCode -ne 0) { return @{ ok = $false; error = "el script termino con codigo $($pr.ExitCode)" } }
-            } finally { Remove-Item -LiteralPath $rutaS -Force -ErrorAction SilentlyContinue }
+                if ($pr.ExitCode -ne 0) {
+                    $errTxt = ''
+                    try { $errTxt = (([System.IO.File]::ReadAllText($rutaE)) -replace '\s+', ' ').Trim() } catch {}
+                    if ($errTxt.Length -gt 400) { $errTxt = $errTxt.Substring(0, 400) }
+                    return @{ ok = $false; error = "el script termino con codigo $($pr.ExitCode): $errTxt" }
+                }
+            } finally {
+                Remove-Item -LiteralPath $rutaS -Force -ErrorAction SilentlyContinue
+                Remove-Item -LiteralPath $rutaE -Force -ErrorAction SilentlyContinue
+            }
         } else {
             return @{ ok = $false; error = "paso desconocido '$tipo'" }
         }
@@ -2940,13 +2952,22 @@ function Start-Receta($enc, [string]$text) {
         return $true
     }
     $r.fallos = [int]$r.fallos + 1
-    Log "RECETA $($r.id) fallo ($($res.error)); se lo pido al cerebro"
-    if ($r.fallos -ge 2) {
+    if ($r.fallos -ge 3) {
         $g = Get-Recetas
         [void]$g.Remove($r)
-        Log "RECETA $($r.id) olvidada: fallo dos veces seguidas"
+        Log "RECETA $($r.id) olvidada: fallo tres veces seguidas, ni reparada funciona ($($res.error))"
+        Save-Recetas
+        Submit-Command $text 'accion'
+        return $false
     }
     Save-Recetas
+    # AUTORREPARACION. Antes una receta que fallaba dos veces se borraba y se
+    # perdia lo aprendido. Ahora la tarea va al cerebro CON la receta rota y su
+    # error: la hace y devuelve la receta corregida, que ocupa el sitio de la
+    # vieja con sus usos, confirmaciones y formas de decirlo (Report-Reply).
+    Log "RECETA $($r.id) fallo ($($res.error)); se la doy al cerebro para que la haga y la arregle"
+    $script:reparandoReceta = @{ id = $r.id; texto = $text; frase = [string]$r.frase; error = [string]$res.error
+                                 pasos = ((@($r.pasos) | ForEach-Object { $_.tipo + ': ' + $_.texto }) -join ' || ') }
     Submit-Command $text 'accion'
     return $false
 }
@@ -6196,6 +6217,8 @@ function Clear-OpencodeJob {
 # Mata el trabajo en curso sin reportar respuesta (cancelacion del usuario).
 function Stop-OpencodeJob {
     if (-not $script:busy) { return }
+    # cancelada: la reparacion de receta que llevara no puede colarse en otra tarea
+    $script:reparandoReceta = $null
     # /T mata tambien los hijos: Kill() solo se lleva el padre y deja
     # opencode.exe huerfano consumiendo CPU (ver TRASPASO.md seccion 9)
     try { & taskkill.exe /PID $script:proc.Id /T /F 2>$null | Out-Null } catch {}
@@ -6265,6 +6288,11 @@ function Start-ClaudeCodeJob([string]$prompt, [string]$modo, [string]$adjunto = 
         if ($adjunto -and (Test-Path -LiteralPath $adjunto)) { $prompt = $prompt + " (La captura esta en: $adjunto. Mirala con la herramienta Read.)" }
         # en las tareas, que deje la receta para repetirla sin IA (ver RECETAS)
         if ($modo -eq 'accion' -and $RecetasOn) { $prompt = $prompt + $CcInstruccionReceta }
+        # y si viene de una receta que fallo, con lo necesario para arreglarla
+        if ($modo -eq 'accion' -and $script:reparandoReceta -and $script:reparandoReceta.texto -eq $script:jobTextoOriginal) {
+            $rep = $script:reparandoReceta
+            $prompt = $prompt + "`n`nCONTEXTO IMPORTANTE: Nova ya tenia una receta aprendida para esto, con la plantilla `"$($rep.frase)`", y al repetirla FALLO. Sus pasos eran: $($rep.pasos). El error fue: $($rep.error). Haz la tarea y, en la RECETA del final, usa esa MISMA plantilla con los pasos corregidos para que no vuelva a fallar."
+        }
         # el prompt entra por STDIN desde un archivo: tildes, comillas y saltos
         # de linea llegan intactos (en argv se destrozan)
         [System.IO.File]::WriteAllText($script:jobIn, $prompt, (New-Object System.Text.UTF8Encoding($false)))
@@ -6891,6 +6919,10 @@ function Report-Reply($out) {
 
     # --- ¿trae una RECETA? Se aprende y se quita de lo que se dice (ver RECETAS) ---
     $textoOut = ($out | Out-String)
+    # ¿esta respuesta es la de una receta que fallo y se esta reparando?
+    $rep = $null
+    if ($script:reparandoReceta -and $script:reparandoReceta.texto -eq $script:jobTextoOriginal) { $rep = $script:reparandoReceta }
+    $script:reparandoReceta = $null
     $mRec = [regex]::Match($textoOut, '(?m)^[ \t]*RECETA:[ \t]*')
     if ($mRec.Success) {
         $bloqueRec = $textoOut.Substring($mRec.Index + $mRec.Length).Trim()
@@ -6898,15 +6930,42 @@ function Report-Reply($out) {
         if ($bloqueRec -match '^(?i)no\b') {
             Log "RECETA: el cerebro dice que esta tarea no se puede repetir igual"
         } elseif ($RecetasOn -and $script:jobModo -eq 'accion' -and $script:ccConHerramientas) {
+            # lo que habia que conservar de la receta rota, ANTES de aprender la
+            # nueva: si trae la misma plantilla, Add-Receta sustituye a la vieja
+            $datosRota = $null
+            if ($rep) {
+                # OJO: primero a una variable. Get-Recetas devuelve la lista
+                # envuelta (",lista"): por tuberia directa, Where-Object veria la
+                # lista entera como UN objeto, no receta a receta
+                $gAntes = Get-Recetas
+                $rotaAntes = $gAntes | Where-Object { $_.id -eq $rep.id } | Select-Object -First 1
+                if ($rotaAntes) { $datosRota = @{ usos = [int]$rotaAntes.usos; confirmadas = [int]$rotaAntes.confirmadas; frase = [string]$rotaAntes.frase; variantes = @($rotaAntes.variantes) } }
+            }
             $nuevaRec = $null
             try { $nuevaRec = Add-Receta $script:jobTextoOriginal $bloqueRec } catch { Log ("RECETA: " + $_.Exception.Message) }
-            if ($nuevaRec) {
+            if ($nuevaRec -and $datosRota) {
+                # la reparada ocupa el sitio de la rota: si el cerebro uso otra
+                # plantilla, la vieja se quita y sus formas de decirlo pasan a esta
+                $gRep = Get-Recetas
+                foreach ($x in @($gRep | Where-Object { $_.id -eq $rep.id -and -not [object]::ReferenceEquals($_, $nuevaRec) })) { [void]$gRep.Remove($x) }
+                foreach ($pl in (@($datosRota.frase) + @($datosRota.variantes))) { if ($pl) { Add-VarianteReceta $nuevaRec ([string]$pl) } }
+                $nuevaRec.usos = $datosRota.usos
+                $nuevaRec.confirmadas = $datosRota.confirmadas
+                $nuevaRec.fallos = 0
+                Save-Recetas
+                Log "RECETA $($nuevaRec.id) reparada por el cerebro (era la $($rep.id))"
+                Add-Estadistica 'receta-reparada' ([string]$nuevaRec.frase)
+                $script:ultimaReceta = $nuevaRec.id
+                $script:ultimaRecetaEn = $sw.ElapsedMilliseconds
+                $out = @(([string]$out[0]).TrimEnd() + ' Y ya arregle lo que habia aprendido.')
+            } elseif ($nuevaRec) {
                 $script:ultimaReceta = $nuevaRec.id
                 $script:ultimaRecetaEn = $sw.ElapsedMilliseconds
                 $out = @(([string]$out[0]).TrimEnd() + ' Aprendido para la proxima.')
             }
         }
     }
+    if ($rep -and -not ($mRec.Success)) { Log "RECETA $($rep.id): el cerebro hizo la tarea pero no devolvio receta; se queda como estaba, con su fallo apuntado" }
 
     $now = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $full = ($out | Out-String)
