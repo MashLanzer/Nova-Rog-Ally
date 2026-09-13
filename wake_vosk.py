@@ -92,11 +92,15 @@ REINTENTO = sys.argv[15] if len(sys.argv) > 15 else ""
 REINTENTO_TEXTO = sys.argv[16] if len(sys.argv) > 16 else ""
 MODELO_PRECISO = sys.argv[17] if len(sys.argv) > 17 else ""
 CONFIRMACION_MAX = 5.0
+# el oido fino no repasa audios mas largos que esto (ver atender_reintento)
+REPASO_MAX = 8.0
 
 # se da por terminada la frase tras este silencio
 SILENCIO_FIN = 1.4
 # tope duro, por si el silencio nunca llega (ruido de fondo constante)
 DICTADO_MAX = 30.0
+# sin reconocer ni una palabra en este rato, el dictado se cierra vacio
+DICTADO_SIN_VOZ = 8.0
 # Lo que se le da a Whisper como mucho. Llegar a DICTADO_MAX significa que
 # nunca hubo un silencio: eso no es una orden, es ruido constante. El 11/09
 # hubo 14 transcripciones de 30 s que costaron 181 s de CPU para nada. Una
@@ -287,9 +291,19 @@ def atender_reintento(ultimo_audio):
     texto = ""
     try:
         m = modelo_preciso()
-        if m is not None and ultimo_audio:
+        duracion = sum(len(b) for b in ultimo_audio) / float(TASA) if ultimo_audio else 0.0
+        if m is not None and duracion > REPASO_MAX:
+            # El 12/09 small tardo 24 y 35 s con audios largos, con el plazo del
+            # asistente en 15 s y este hilo sordo todo ese rato. Una orden que
+            # dura mas de esto es conversacion o ruido: no merece el repaso.
+            anota("oido fino: %.1f s de audio es demasiado para repasar (tope %.0f s)"
+                  % (duracion, REPASO_MAX))
+        elif m is not None and ultimo_audio:
             t0 = time.time()
-            texto = quitar_nombre(transcribir_whisper(ultimo_audio, m))
+            # si el asistente se rinde (quita la marca), se deja de transcribir
+            # en el siguiente segmento en vez de seguir sordo para nada
+            texto = quitar_nombre(transcribir_whisper(
+                ultimo_audio, m, seguir=lambda: os.path.exists(REINTENTO)))
             anota("oido fino: '%s' (%.1f s)" % (texto, time.time() - t0))
         elif not ultimo_audio:
             anota("oido fino: no queda audio de la orden anterior")
@@ -485,7 +499,7 @@ def anotar_voz(bloques):
         pass
 
 
-def transcribir_whisper(bloques, modelo=None):
+def transcribir_whisper(bloques, modelo=None, seguir=None):
     # bloques: lista de arrays int16 ya amplificados
     modelo = modelo or whisper
     if modelo is None or not bloques:
@@ -515,7 +529,15 @@ def transcribir_whisper(bloques, modelo=None):
         log_prob_threshold=-1.0,
         compression_ratio_threshold=2.4,
         hotwords=leer_vocabulario())
-    texto = " ".join(s.text.strip() for s in segmentos).strip()
+    # los segmentos salen de uno en uno (el trabajo se hace al pedirlos): entre
+    # uno y otro se puede mirar si todavia hace falta seguir
+    partes = []
+    for s in segmentos:
+        partes.append(s.text.strip())
+        if seguir is not None and not seguir():
+            anota("whisper: cortado a medias, ya no hace falta")
+            break
+    texto = " ".join(partes).strip()
     anota("whisper: %.1f s de audio en %.2f s -> '%s'" % (audio.size / TASA, time.time() - t0, texto))
     return limpiar_whisper(texto)
 
@@ -533,6 +555,18 @@ def quitar_nombre(texto):
 def escribir(ruta, contenido):
     if not ruta:
         return
+    # ATOMICO: se escribe aparte y se cambia de golpe, para que el asistente no
+    # lea nunca un archivo a medio escribir (un texto de orden cortado). Si el
+    # cambio falla porque justo lo tiene abierto el lector, se escribe directo
+    # como antes: mejor eso que perder la escritura.
+    tmp = ruta + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(contenido)
+        os.replace(tmp, ruta)
+        return
+    except Exception:
+        pass
     try:
         with open(ruta, "w", encoding="utf-8") as f:
             f.write(contenido)
@@ -568,7 +602,18 @@ if MOTOR_DICTADO.startswith("whisper"):
 cola = queue.Queue()
 
 
+# MICROFONO MUERTO: tras suspender el equipo o cambiar de dispositivo, el
+# stream puede seguir "abierto" sin entregar un solo bloque. El worker parecia
+# vivo y la palabra de activacion dejaba de funcionar en silencio. Se apunta
+# cuando llego el ultimo bloque (desde el hilo del audio) y el bucle sale si
+# pasa demasiado; el asistente lo relanza y el stream se abre de nuevo.
+MIC_MUERTO = 5.0
+ultima_llegada = time.time()
+
+
 def entrada(datos, marcos, tiempo, estado):
+    global ultima_llegada
+    ultima_llegada = time.time()
     cola.put(bytes(datos))
 
 
@@ -678,6 +723,10 @@ try:
 
                 ahora = time.time()
                 crudo = datos   # se conserva para medir el nivel aunque se tire
+                if datos is None and ahora - ultima_llegada > MIC_MUERTO:
+                    anota("ERROR: el microfono lleva %.0f s sin entregar audio; salgo para que me relancen"
+                          % (ahora - ultima_llegada))
+                    sys.exit(3)
 
                 # PAUSA: el asistente esta hablando o dictando. Se tira el audio
                 # sin mirarlo y sin recalibrar; al reanudar se reinicia el
@@ -921,7 +970,12 @@ try:
                                 escribir(PARCIAL, (" ".join(dictado) + " " + p).strip())
                         # fin por silencio (habiendo oido algo) o por tope duro
                         hay_algo = len(dictado) > 0 or bool(json.loads(rec.PartialResult()).get("partial", ""))
-                        if ((ahora - ultima_voz) >= SILENCIO_FIN and hay_algo) or \
+                        # SIN UNA PALABRA: el 12/09 tres activaciones falsas dejaron
+                        # la escucha abierta los 30 s enteros, porque sin nada
+                        # reconocido nunca se cumple el fin por silencio. Si en
+                        # DICTADO_SIN_VOZ no ha salido ni un parcial, no hay orden.
+                        mudo = (not hay_algo) and (ahora - dicta_inicio) >= DICTADO_SIN_VOZ
+                        if ((ahora - ultima_voz) >= SILENCIO_FIN and hay_algo) or mudo or \
                            ((ahora - dicta_inicio) >= DICTADO_MAX):
                             resto = json.loads(rec.FinalResult()).get("text", "")
                             if resto:
@@ -935,10 +989,10 @@ try:
                             # 29 s de CPU con el bucle bloqueado -sordo y sin mirar
                             # la marca de activacion- para entregar un texto que
                             # ademas llega cuando el asistente ya se ha rendido.
-                            callado = (not hay_algo) and (ahora - dicta_inicio) >= DICTADO_MAX
+                            callado = (not hay_algo) and (mudo or (ahora - dicta_inicio) >= DICTADO_MAX)
                             if callado:
                                 anota("dictado: %.0f s sin oir nada; no hay nada que transcribir"
-                                      % DICTADO_MAX)
+                                      % (ahora - dicta_inicio))
                                 texto_final = ""
                             if whisper is not None and not callado:
                                 escribir(PARCIAL, texto_vosk)
@@ -1019,8 +1073,12 @@ try:
                                 elif ahora - ultima_marca > 2.0:
                                     # antirebote: no disparar dos veces por lo mismo
                                     ultima_marca = ahora
-                                    anota("ACTIVADO por '%s' (confianza %.2f, pico %.3f, ganancia x%.1f, altavoces %.3f)"
-                                          % (texto, conf, pico, ganancia, nivel_salida()))
+                                    # 'pico' es el del ultimo bloque, que al cerrar la
+                                    # frase suele ser silencio (0.000); lo que decide
+                                    # es el de la rafaga, y sin el el log parecia
+                                    # activarse con silencio puro
+                                    anota("ACTIVADO por '%s' (confianza %.2f, pico %.3f, rafaga %.3f, ganancia x%.1f, altavoces %.3f)"
+                                          % (texto, conf, pico, pico_rafaga, ganancia, nivel_salida()))
                                     try:
                                         with open(MARCA, "w", encoding="utf-8") as f:
                                             f.write(time.strftime("%Y-%m-%dT%H:%M:%S"))

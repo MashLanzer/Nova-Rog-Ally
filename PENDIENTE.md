@@ -61,15 +61,19 @@ Lo grave ya está arreglado (commit a693e80). Queda, por orden:
       la frecuencia: sospecha de la ventana con transparencia (WPF la pinta
       por software en cada fotograma) y del desenfoque del fondo. Medir
       quitando piezas de una en una antes de tocar nada visible.
-- [ ] **Activaciones falsas ~4/h**, varias con `pico 0.000`, y tres dejaron la
-      escucha abierta 30 s. No abrir dictado con pico ~0; bajar esos 30 s.
-- [ ] **Oído fino fuera de plazo**: small tardó 24 y 35 s en audios largos
-      (plazo 15 s) y mientras tanto el worker no oye nada. No repasar audio de
-      más de ~8 s y abortar si desaparece la marca.
-- [ ] **Micrófono muerto sin detectar** (suspensión, cambio de dispositivo): el
-      worker sigue vivo sin recibir audio. Salir si pasan >5 s sin bloques.
-- [ ] **Escrituras no atómicas** entre Python y PowerShell (se puede leer un
-      archivo a medio escribir). `.tmp` + `os.replace`. No visto en el log.
+- [x] **Activaciones falsas que dejaban la escucha abierta 30 s** (13/09).
+      El dictado se cierra vacío si en 8 s no sale ni una palabra (probado en
+      vivo: 8 s). Lo del `pico 0.000` era engañoso: el log daba el pico del
+      ÚLTIMO bloque, que al acabar la frase es silencio; el filtro por pico de
+      ráfaga ya existía desde el 11/09. Ahora el log enseña los dos
+      (`rafaga`). Queda mirar con el uso si siguen saliendo ~4/h.
+- [x] **Oído fino fuera de plazo** (13/09): no repasa audios de más de 8 s, y
+      si el asistente se rinde y quita la marca, corta entre segmentos.
+- [x] **Micrófono muerto** (13/09): si pasan 5 s sin llegar un bloque, el
+      worker sale y el asistente lo relanza (abre el micrófono de nuevo). No
+      se ha podido provocar aquí; revisado a mano.
+- [x] **Escrituras atómicas** (13/09): el worker escribe a `.tmp` y cambia de
+      golpe; si el lector lo tiene abierto, escribe directo como antes.
 - [ ] Charla corta en inglés que llega al agente (Test-Charla pide 7 palabras).
 - [ ] «En qué me puedes ayudar» sigue yendo a la IA («qué puedes hacer» ya no).
 - [ ] «Guarda el archivo» minimiza el Explorador de archivos en vez de Ctrl+S.
