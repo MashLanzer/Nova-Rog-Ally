@@ -35,6 +35,10 @@ pruebas/audio/
 traducciones.json
 memoria/semanas/
 reglas.json
+# tus listas (la compra, pendientes...) y las copias de seguridad de todo lo
+# anterior: lo mismo, no salen de esta maquina
+memoria/listas.json
+copias/
 
 # Residuos de diagnostico
 probe-*.txt

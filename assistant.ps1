@@ -1648,7 +1648,7 @@ function Resolve-Fragment([string]$f) {
         $cosa = $Matches[1].Trim(); $cual2 = $Matches[2]
         if ($cosa) { return @(@{ kind = 'listaQuitar'; cosa = $cosa; lista = $cual2; desc = "quitar $cosa de la lista" }) }
     }
-    if ($f -match '^(?:recuerda|recuerdame|acuerdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!en\s+(?:\d+|un|una|medi[ao])\s*(?:segundo|minuto|hora))(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?:que\s+|de\s+que\s+)?(.+)$') {
+    if ($f -match '^(?:recuerda|recuerdame|acuerdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!(?:en|dentro de)\s+(?:\S+\s+){1,3}?(?:segundo|minuto|hora))(?!\S+(?:\s+\S+){0,3}\s+(?:minutos?|horas?)\s+antes\b)(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?:que\s+|de\s+que\s+)?(.+)$') {
         return @(@{ kind = 'memoria'; texto = $Matches[1].Trim(); desc = "anotar en la memoria" })
     }
     # El lugar puede preceder al verbo ("en el navegador busca X"). Se separa
@@ -1916,6 +1916,11 @@ function Resolve-Fragment([string]$f) {
     # descarga" y "como va la bateria", que son mas concretas.
     if ($f -match '^(?:como va todo|como vamos|que tal todo|que tal va todo|como esta todo|como anda todo|como va la consola|como esta la consola|como esta el equipo|estado general|dame el parte|el parte|resumen|resumen general|como estamos)$') {
         return @(@{ kind = 'parte'; desc = 'parte general' })
+    }
+    # --- copia de seguridad de lo aprendido ---
+    if ($f -match '^(?:haz|hazme|haga|crea|creame|saca|guarda)\s+(?:una\s+|la\s+)?copia(?:\s+de\s+seguridad)?(?:\s+de\s+(?:todo|lo aprendido|lo que sabes|lo que has aprendido|tus cosas|mis cosas|la memoria))?(?:\s+ahora)?$' -or
+        $f -match '^(?:haz|hazme|guarda|crea)\s+(?:un\s+)?respaldo(?:\s+de\s+.+)?$' -or $f -match '^(?:respalda|respaldame)(?:\s+.+)?$') {
+        return @(@{ kind = 'copiaSeguridad'; desc = 'copia de seguridad' })
     }
     # --- ultima vez que jugaste a algo ---
     if ($f -match '^(?:cuando\s+)(?:jugue|juge|jugaba|lo jugue)\s*(?:a|al)?\s*(.*)$') {
@@ -2631,7 +2636,7 @@ function Test-FastCommand([string]$text) {
     # ojo: los mismos lookaheads que el ejecutor. Con el patron corto, este
     # atajo devolvia $true y se saltaba Resolve-Fragment, de modo que el
     # banco no podia ver que "guarda el archivo" acababa en el diario.
-    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!en\s+(?:\d+|un|una|medi[ao])\s*(?:segundo|minuto|hora))(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?:que\s+|de\s+que\s+)?(.+)$') { return $true }
+    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!(?:en|dentro de)\s+(?:\S+\s+){1,3}?(?:segundo|minuto|hora))(?!\S+(?:\s+\S+){0,3}\s+(?:minutos?|horas?)\s+antes\b)(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?:que\s+|de\s+que\s+)?(.+)$') { return $true }
     # Reglas y recordatorios con hora: los decide Invoke-ReglaVoz, que SI crea
     # cosas, asi que aqui no se puede llamar. Se responde $true solo si la
     # frase tiene la forma de una regla; el banco las prueba aparte llamando
@@ -2704,7 +2709,7 @@ function Invoke-FastCommand([string]$text) {
     # tildes, que es justo lo que no quieres leer meses despues en Obsidian.
     # mismo lookahead que en Resolve-Fragment: "en 20 minutos" es temporizador,
     # no una nota para el diario
-    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!en\s+(?:\d+|un|una|medi[ao])\s*(?:segundo|minuto|hora))(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?:que\s+|de\s+que\s+)?(.+)$') {
+    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!(?:en|dentro de)\s+(?:\S+\s+){1,3}?(?:segundo|minuto|hora))(?!\S+(?:\s+\S+){0,3}\s+(?:minutos?|horas?)\s+antes\b)(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?:que\s+|de\s+que\s+)?(.+)$') {
         $frase = $Matches[1].Trim()
         if ($frase.Length -gt 0) {
             $null = Add-Memoria $frase
@@ -3058,6 +3063,10 @@ function Invoke-FastCommand([string]$text) {
                     }
                 }
                 'parte' { $a.desc = (Get-ParteGeneral) }
+                'copiaSeguridad' {
+                    $c = New-CopiaSeguridad 'lo pediste'
+                    $a.desc = if ($c) { "hecha la copia: $($c.archivos) archivos guardados" } else { 'no pude hacer la copia, esta en el log' }
+                }
                 'queHeHecho' { $a.desc = (Get-QueHeHecho) }
                 'listaAdd' {
                     $listas = Get-Listas
@@ -4494,6 +4503,44 @@ function Update-Clima {
 # se evaluan desde el bucle principal. La accion es una orden LOCAL (se
 # valida con Test-FastCommand al crearla): nada de texto libre al modelo.
 # =====================================================================
+# --- COPIA DE SEGURIDAD DE LO APRENDIDO (idea 8) ---
+# Traducciones, reglas, modos, alias, rechazos, listas, fechas, recordatorios,
+# el diario y la voz del dueno: meses de ajustes repartidos en una docena de
+# JSON que se reescriben enteros cada vez. Uno que se corte a medias (un
+# apagon, la bateria a cero en mitad de un Set-Content) se lleva todo lo suyo
+# sin avisar. Una copia al dia, sola, y otra cuando se pida; se guardan las 14
+# ultimas, que con ~40 KB cada una no ocupan nada.
+$CopiasDir = Join-Path $LogDir 'copias'
+$CopiasMax = 14
+function New-CopiaSeguridad([string]$motivo = 'a mano') {
+    try {
+        $origen = @($TraduccionesPath, (Join-Path $LogDir 'reglas.json'), $cmdsPath, $cfgPath, $MemoriaDir,
+                    (Join-Path $TmpDir 'mi-voz.json')) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+        if ($origen.Count -eq 0) { Log "COPIA: no hay nada que copiar"; return $null }
+        if (-not (Test-Path -LiteralPath $CopiasDir)) { New-Item -ItemType Directory -Path $CopiasDir -Force | Out-Null }
+        $zip = Join-Path $CopiasDir ('lo-aprendido_' + (Get-Date -Format 'yyyy-MM-dd_HHmm') + '.zip')
+        Compress-Archive -LiteralPath $origen -DestinationPath $zip -Force -ErrorAction Stop
+        # las viejas fuera: el nombre lleva la fecha, asi que ordenar por nombre es ordenar por fecha
+        Get-ChildItem -LiteralPath $CopiasDir -Filter 'lo-aprendido_*.zip' | Sort-Object Name -Descending |
+            Select-Object -Skip $CopiasMax | Remove-Item -Force -ErrorAction SilentlyContinue
+        $n = @($origen | ForEach-Object { if (Test-Path -LiteralPath $_ -PathType Container) { Get-ChildItem -LiteralPath $_ -Recurse -File } else { Get-Item -LiteralPath $_ } }).Count
+        $kb = [int][Math]::Ceiling((Get-Item -LiteralPath $zip).Length / 1KB)
+        Log "COPIA ($motivo): $n archivos, $kb KB -> $zip"
+        return @{ ruta = $zip; archivos = $n; kb = $kb }
+    } catch {
+        Log ("COPIA fallida ($motivo): " + $_.Exception.Message)
+        return $null
+    }
+}
+# ¿Hace falta la copia del dia? Solo si la ultima tiene mas de 20 horas: asi
+# reiniciar el asistente cinco veces no deja cinco copias iguales.
+function Test-CopiaPendiente {
+    if (-not (Test-Path -LiteralPath $CopiasDir)) { return $true }
+    $ultima = Get-ChildItem -LiteralPath $CopiasDir -Filter 'lo-aprendido_*.zip' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if (-not $ultima) { return $true }
+    return (((Get-Date) - $ultima.LastWriteTime).TotalHours -ge 20)
+}
+
 $ReglasPath = Join-Path $LogDir 'reglas.json'
 $script:reglas = $null
 $HORAS_PALABRA = @{ 'una' = 1; 'dos' = 2; 'tres' = 3; 'cuatro' = 4; 'cinco' = 5; 'seis' = 6; 'siete' = 7; 'ocho' = 8; 'nueve' = 9; 'diez' = 10; 'once' = 11; 'doce' = 12 }
@@ -4800,8 +4847,32 @@ function Invoke-RecordatorioVoz([string]$text) {
         try { $fecha = Get-Date -Year $hoy.Year -Month $mm -Day $dd -Hour 0 -Minute 0 -Second 0 } catch { return "Esa fecha no existe." }
         if ($fecha.Date -lt $hoy) { $fecha = $fecha.AddYears(1) }
     }
+    # AVISO ANTES DE UNA HORA (idea 6): "avisame diez minutos antes de las
+    # diez", "recuerdame media hora antes de las ocho que empieza la partida".
+    # Habia "a las diez" y habia "en veinte minutos", pero no lo que de verdad
+    # se pide antes de una partida. Va DESPUES del dia ("manana diez minutos
+    # antes de las diez") y ANTES de la hora, que se lee igual que siempre.
+    $antesMin = 0
+    if ($resto -match '^(.+?)\s+(minutos?|horas?)\s+antes(?:\s+(?:de\s+)?(.+))?$') {
+        $cantA = $Matches[1].Trim(); $unidadA = $Matches[2]; $trasA = $Matches[3]
+        if ($cantA -match '^(?:un\s+)?cuarto\s+de$') { $antesMin = 15 }
+        elseif ($cantA -match '^medi[ao]$') { if ($unidadA -like 'hora*') { $antesMin = 30 } }
+        elseif ($cantA -match '^(?:un|una)$') { $antesMin = if ($unidadA -like 'hora*') { 60 } else { 1 } }
+        else {
+            $cantA = (ConvertTo-Digitos $cantA).Trim()
+            if ($cantA -match '^\d{1,3}$') { $antesMin = if ($unidadA -like 'hora*') { [int]$cantA * 60 } else { [int]$cantA } }
+        }
+        if ($antesMin -gt 0) {
+            $resto = $trasA
+            # "antes de las diez": el patron de la hora espera "a las"
+            if ($resto -match '^las?\s') { $resto = 'a ' + $resto }
+        }
+    }
     # hora
-    if ($resto -match '^(?:a\s+las?\s+)(\d{1,2}|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)(?::(\d{2})|\s+y\s+media|\s+y\s+cuarto|\s+menos\s+cuarto)?\s*(de la manana|de la tarde|de la noche|am|pm)?\s*(.*)$') {
+    # "11:30" llega como "11 30": ConvertTo-Plain cambia los dos puntos por un
+    # espacio, y con solo ':' el patron se quedaba con las 11 y guardaba "30 de
+    # la noche que apague el horno" como texto del recordatorio (12/09).
+    if ($resto -match '^(?:a\s+las?\s+)(\d{1,2}|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)(?:(?::|\s+)(\d{2})\b|\s+y\s+media|\s+y\s+cuarto|\s+menos\s+cuarto)?\s*(de la manana|de la tarde|de la noche|am|pm)?\s*(.*)$') {
         # mismos cuidados que en las reglas: copiar ANTES de volver a usar
         # -match. Aqui el fallo era mudo: $resto quedaba vacio y contestaba
         # '¿Que te recuerdo?', asi que creias haber puesto el recordatorio y no
@@ -4815,9 +4886,15 @@ function Invoke-RecordatorioVoz([string]$text) {
         # sin franja y hora "pequena": si ya paso de manana, sera de tarde
         if (-not $franja -and $hora -le 7 -and $hora -ge 1 -and $null -eq $fecha) { $hora += 12 }
     }
-    if ($null -eq $fecha -and $hora -lt 0) { return $null }   # no es un recordatorio con fecha
+    # no es un recordatorio con fecha... salvo que haya antelacion sin hora, que
+    # se pregunta justo debajo
+    if ($null -eq $fecha -and $hora -lt 0 -and $antesMin -le 0) { return $null }
+    # "avisame veinte minutos antes" sin decir de que: mejor preguntar que
+    # dejar que la frase se vaya al agente
+    if ($antesMin -gt 0 -and $hora -lt 0) { return "¿Antes de que hora? Di, por ejemplo: avisame diez minutos antes de las nueve." }
     $texto = ($resto -replace '^(?:que|de que|de|para|a)\s+', '').Trim()
-    if (-not $texto) { return "¿Que te recuerdo?" }
+    # con antelacion no hace falta decir que: el aviso ya dice cuanto falta
+    if (-not $texto -and $antesMin -le 0) { return "¿Que te recuerdo?" }
     if ($hora -lt 0) { $hora = 9 }   # solo dia: a las 9 de la manana
     if ($null -eq $fecha) {
         $fecha = $hoy
@@ -4825,13 +4902,25 @@ function Invoke-RecordatorioVoz([string]$text) {
     }
     $cuando = $fecha.Date.AddHours($hora).AddMinutes($min)
     if ($cuando -le (Get-Date)) { return "Esa hora ya paso." }
+    $antesDicho = ''
+    if ($antesMin -gt 0) {
+        $evento = $cuando
+        $cuando = $evento.AddMinutes(-$antesMin)
+        $cul0 = New-Object System.Globalization.CultureInfo('es-MX')
+        $margen = if ($antesMin % 60 -eq 0) { $hh = $antesMin / 60; if ($hh -eq 1) { 'una hora' } else { "$hh horas" } } elseif ($antesMin -eq 30) { 'media hora' } elseif ($antesMin -eq 1) { 'un minuto' } else { "$antesMin minutos" }
+        # "falta una hora", "faltan diez minutos": se lee en voz alta
+        $falta = if ($margen -match '^(?:una hora|media hora|un minuto)$') { 'falta' } else { 'faltan' }
+        if ($cuando -le (Get-Date)) { return "Ya $falta menos de $margen para las " + $evento.ToString('H:mm', $cul0) + "." }
+        $texto = if ($texto) { "$texto. Es a las " + $evento.ToString('H:mm', $cul0) } else { "$falta $margen para las " + $evento.ToString('H:mm', $cul0) }
+        $antesDicho = ", $margen antes"
+    }
     $lista = @(Get-Recordatorios) + @(New-Object PSObject -Property @{ cuando = $cuando.ToString('s'); texto = $texto })
     Save-Recordatorios $lista
     $cul = New-Object System.Globalization.CultureInfo('es-MX')
     $dicho = if ($cuando.Date -eq $hoy) { "hoy a las " + $cuando.ToString('H:mm', $cul) } elseif ($cuando.Date -eq $hoy.AddDays(1)) { "manana a las " + $cuando.ToString('H:mm', $cul) } else { $cuando.ToString('dddd d "de" MMMM "a las" H:mm', $cul) }
     Log "RECORDATORIO ($cuando): $texto"
     Add-Estadistica 'local' "recordatorio: $text"
-    return "Listo, te lo recuerdo $dicho."
+    return "Listo, te lo recuerdo $dicho$antesDicho."
 }
 
 function Test-Recordatorios {
@@ -7380,6 +7469,8 @@ while ($true) {
         if ($diaAhora -ne $script:diaVisto) {
             $script:diaVisto = $diaAhora
             try { Test-FechasHoy } catch {}
+            # la copia del dia, en silencio (tambien al arrancar, si toca)
+            try { if (Test-CopiaPendiente) { [void](New-CopiaSeguridad 'la del dia') } } catch {}
             try { Write-NotaSemanal } catch {}
         }
         # micro-charla: un comentario si viene a cuento, una vez al dia

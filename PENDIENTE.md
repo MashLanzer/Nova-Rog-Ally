@@ -30,14 +30,6 @@ ni con batería):
       «Cuando abra Spotify, baja el juego al 40». El motor de reglas ya existe
       entero; solo mira juegos, que es la mitad de los casos.
 
-- [ ] **6. Avisos relativos a una hora.**
-      «Avísame diez minutos antes de las diez». Hay «a las diez» y hay «en veinte
-      minutos», pero no lo que de verdad pides antes de una partida.
-
-- [ ] **8. Copia de seguridad de lo aprendido.**
-      Traducciones, modos, reglas, rechazos y notas a un zip con fecha, con una
-      frase. Un JSON corrupto se lleva por delante meses de ajustes sin aviso.
-
 ---
 
 ## Interfaz y visuales
@@ -65,6 +57,20 @@ ni con batería):
 ---
 
 ## Hechas (12/09/2026)
+
+- **6. Avisos relativos a una hora.** «Avísame diez minutos antes de las
+  diez», «recuérdame media hora antes de las ocho que empieza la partida»,
+  «mañana un cuarto de hora antes de las nueve y media». Si no dices qué, el
+  aviso dice cuánto falta; si ya estás dentro del margen, lo dice; si no dices
+  de qué hora, pregunta. De paso salieron dos fallos viejos: «a las 11:30» se
+  leía como las 11 (la normalización cambia los dos puntos por un espacio), y
+  «recuérdame EN VEINTE minutos…» acababa anotado en el diario porque el
+  atajo solo apartaba los tiempos dichos con cifras.
+
+- **8. Copia de seguridad de lo aprendido.** «Haz una copia de seguridad» o
+  «haz un respaldo», y una sola al día sin pedirla. Zip con fecha en
+  `copias\` (fuera de git): memoria entera, traducciones, reglas, modos y
+  alias, config y la voz del dueño. Se guardan las 14 últimas.
 
 - **11. Que se vea qué va a hacer, antes de hacerlo.** Un glifo en el hueco de
   la carita justo antes de cada acción que toca el sistema, sin añadir espera.

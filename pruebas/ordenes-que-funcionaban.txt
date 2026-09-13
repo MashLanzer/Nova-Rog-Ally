@@ -48,3 +48,13 @@ Abre, steam, y busca los huevos en oferta
 
 # Se quito "Outlast 2, Atleti de Ragazan,": tampoco era una orden, era el
 # catalogo recitado por Whisper. Vive en ruido-real.txt.
+# --- copia de seguridad de lo aprendido (idea 8, 12/09) ---
+haz una copia de seguridad
+hazme una copia de seguridad de todo
+haz un respaldo
+respalda lo que has aprendido
+# --- avisos antes de una hora (idea 6, 12/09) ---
+avisame diez minutos antes de las diez
+recuerdame media hora antes de las ocho que empieza la partida
+avisame manana un cuarto de hora antes de las nueve y media
+recuerdame en veinte minutos que saque la pizza
