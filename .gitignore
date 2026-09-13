@@ -58,3 +58,5 @@ memoria/recetas.json
 memoria/perfil.md
 # lo que recuerda de cada juego: donde te quedaste y cuanto gasta de bateria
 memoria/juegos.json
+# tus costumbres (que ordenes das y a que hora), para proponerte automatizarlas
+memoria/habitos.json

@@ -2258,6 +2258,7 @@ public class NovaUI : Window
             case "tiempo": c = Color.FromRgb(0x4B, 0xE0, 0xC0); break;    // turquesa
             case "descarga": c = Color.FromRgb(0x5A, 0xA9, 0xE6); break;  // el azul del anillo
             case "recordatorio": c = Color.FromRgb(0xB6, 0x8C, 0xFF); break;
+            case "mensaje": c = Color.FromRgb(0x8F, 0xC4, 0xFF); break;   // azul claro: te han escrito
             default: c = ColorDe("pensando"); break;
         }
         colorAplicado = default(Color);

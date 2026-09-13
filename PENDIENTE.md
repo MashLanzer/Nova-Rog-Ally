@@ -27,8 +27,9 @@ ni con batería):
 ## Funciones nuevas
 
 Elegidas el 13/09 (todas menos la «tarjeta de fin de partida»). REGLA DE
-DISEÑO: máximo minimalismo, nada de tarjetas grandes nuevas; todo en la
-cápsula (texto corto, glifo, contador, gesto) o por voz.
+DISEÑO: máximo minimalismo MANTENIENDO EL DISEÑO ACTUAL de la cápsula. Nada de
+tarjetas ni elementos visibles nuevos: se reutiliza lo que ya hay (texto corto,
+pulsos de color del borde, gestos, insignia) o la voz.
 
 - [x] **A. Responder con el mando** (13/09): con una pregunta esperando, A = sí
       y B = no (cuenta la pulsación, no tenerlo apretado; una pregunta
@@ -42,8 +43,15 @@ cápsula (texto corto, glifo, contador, gesto) o por voz.
       mide por tramos de 20 min cuánto gasta y lo promedia. «¿Cuánto me dura la
       batería?» / «¿me da para terminar?» contesta con el ritmo de ESE juego, y
       al entrar la cápsula dice «batería para 2 horas». `tools\probar-juegos.ps1`.
-- [ ] **D. Te propone automatizaciones:** detecta secuencias repetidas y ofrece una regla.
-- [ ] **E. Notificaciones mientras juegas:** contador discreto; «¿qué me han escrito?».
+- [x] **D. Te propone automatizaciones** (13/09): apunta las órdenes que HACEN
+      algo (`memoria\habitos.json`). Si la misma se repite a la misma hora
+      (±30 min) o justo después de abrir una app (3 min), tres días distintos
+      de la última semana, pregunta al terminar una orden (nunca jugando) si
+      la hace sola. Sí = regla; no = no vuelve a proponerla. Una al día.
+- [x] **E. Notificaciones mientras juegas** (13/09): mira las de Windows cada
+      30 s. Jugando, una nueva solo hace latir el borde de la cápsula en azul
+      claro (sin voz, sin texto). «¿Qué me han escrito?» dice cuántas y de qué
+      app; «léemelos» las lee, sin tarjeta. `tools\probar-costumbres.ps1`.
 - [ ] **F. La música en la cápsula:** título corto y la carita que se mece; «¿qué canción es?».
 - [ ] **G. Nova evoluciona:** niveles según lo aprendido, detalles visuales sutiles.
 - [ ] **H. El clima vivo en el cristal:** gotas si llueve, tono del amanecer/atardecer, voz más baja de noche.

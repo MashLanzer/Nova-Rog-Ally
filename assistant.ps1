@@ -1802,6 +1802,13 @@ function Resolve-Fragment([string]$f) {
         $desc = if ($que) { "aviso en $n $unidad" } else { "temporizador de $n $unidad" }
         return @(@{ kind = 'temporizador'; ms = $ms; texto = $que; n = $n; unidad = $unidad; desc = $desc })
     }
+    # --- notificaciones (ver NOTIFICACIONES MIENTRAS JUEGAS) ---
+    if ($f -match '^(?:que me han escrito|quien me ha escrito|(?:me )?ha escrito alguien|(?:me )?escribio alguien|tengo (?:mensajes|notificaciones)(?: nuevos| nuevas)?|que (?:mensajes|notificaciones) tengo|hay mensajes(?: nuevos)?|alguna notificacion|algun mensaje)$') {
+        return @(@{ kind = 'notifResumen'; desc = 'tus mensajes' })
+    }
+    if ($f -match '^(?:leemelos|leemelas|lee(?:me)? (?:los mensajes|las notificaciones)|leeme lo que me han escrito|que me dicen)$') {
+        return @(@{ kind = 'notifLeer'; desc = 'leer tus mensajes' })
+    }
     # --- cuanto me dura la bateria con esto (ver BATERIA POR JUEGO) ---
     if ($f -match '^(?:cuanto me (?:dura|va a durar|aguanta) la (?:bateria|pila)|cuanto (?:aguanta|dura) la (?:bateria|pila)|cuanto (?:me )?(?:dura|aguanta) la (?:bateria|pila) (?:con esto|jugando|con este juego)|(?:me )?(?:da|alcanza) la (?:bateria|pila)(?: para (?:terminar|acabar|jugar|otra partida|un rato))?|cuanto puedo jugar(?: con la (?:bateria|pila))?)$') {
         return @(@{ kind = 'duracionBateria'; desc = 'cuanto dura la bateria' })
@@ -3342,6 +3349,163 @@ function Show-RecuerdoJuego([string]$nombre) {
     Set-UI 'hablando' $txtR 7000
 }
 
+# NOTIFICACIONES MIENTRAS JUEGAS: se miran las de Windows cada 30 s (las del
+# centro de actividades, con el permiso que ya da el sistema). Jugando, una
+# nueva solo hace latir el borde de la capsula: sin voz, sin texto, sin tarjeta.
+# "¿Que me han escrito?" dice de quien; "leemelos" lo lee.
+$script:notifVistas = @{}
+$script:notifPendientes = New-Object System.Collections.ArrayList
+$script:notifPrimera = $true
+$script:notifFallos = 0
+$NOTIF_IGNORAR = '(?i)^(?:Seguridad de Windows|Windows Security|Configuraci[oó]n|Settings|Windows|Explorador de archivos)$'
+function Get-Notificaciones {
+    if ($script:notifFallos -ge 3) { return @() }
+    try {
+        $null = [Windows.UI.Notifications.Management.UserNotificationListener, Windows.UI.Notifications, ContentType = WindowsRuntime]
+        $null = [Windows.UI.Notifications.UserNotification, Windows.UI.Notifications, ContentType = WindowsRuntime]
+        $lis = [Windows.UI.Notifications.Management.UserNotificationListener]::Current
+        $acceso = [string]$lis.GetAccessStatus()
+        if ($acceso -ne 'Allowed') {
+            $script:notifFallos = 3
+            Log "notificaciones: Windows no da permiso ($acceso); no se miran"
+            return @()
+        }
+        $lista = Await-WinRT ($lis.GetNotificationsAsync([Windows.UI.Notifications.NotificationKinds]::Toast)) ([System.Collections.Generic.IReadOnlyList[Windows.UI.Notifications.UserNotification]])
+        $res = @()
+        foreach ($n in $lista) {
+            $app = ''
+            try { $app = [string]$n.AppInfo.DisplayInfo.DisplayName } catch {}
+            if ($app -match $NOTIF_IGNORAR) { continue }
+            $textos = @()
+            try {
+                $bind = $n.Notification.Visual.GetBinding([Windows.UI.Notifications.KnownNotificationBindings]::ToastGeneric)
+                foreach ($te in $bind.GetTextElements()) { if ($te.Text) { $textos += [string]$te.Text } }
+            } catch {}
+            $res += @{ id = [string]$n.Id; app = $app; titulo = $(if ($textos.Count) { $textos[0] } else { '' }); texto = (@($textos | Select-Object -Skip 1) -join ' ') }
+        }
+        $script:notifFallos = 0
+        return $res
+    } catch {
+        $script:notifFallos++
+        Log ("notificaciones: " + $_.Exception.Message)
+        return @()
+    }
+}
+function Watch-Notificaciones([object[]]$todas) {
+    $nuevas = @($todas | Where-Object { -not $script:notifVistas.ContainsKey($_.id) })
+    foreach ($n in $todas) { $script:notifVistas[$n.id] = $true }
+    # al arrancar, lo que ya estaba en el centro de actividades no es nuevo
+    if ($script:notifPrimera) { $script:notifPrimera = $false; return 0 }
+    if ($nuevas.Count -eq 0) { return 0 }
+    foreach ($n in $nuevas) { [void]$script:notifPendientes.Add($n) }
+    while ($script:notifPendientes.Count -gt 30) { $script:notifPendientes.RemoveAt(0) }
+    Log ("NOTIFICACIONES: {0} nueva(s) de {1}" -f $nuevas.Count, ((@($nuevas | ForEach-Object { $_.app }) | Select-Object -Unique) -join ', '))
+    if ($script:juegoActivo) { Send-UIEvento 'pulso:mensaje' }
+    return $nuevas.Count
+}
+function Get-ResumenNotificaciones {
+    $pend = @($script:notifPendientes)
+    if ($pend.Count -eq 0) { return 'nada nuevo; nadie te ha escrito' }
+    $grupos = @($pend | Group-Object { $_.app } | Sort-Object Count -Descending | ForEach-Object { "$($_.Count) de $($_.Name)" })
+    $lista = if ($grupos.Count -gt 1) { ($grupos[0..($grupos.Count - 2)] -join ', ') + ' y ' + $grupos[-1] } else { $grupos[0] }
+    $total = if ($pend.Count -eq 1) { 'tienes una' } else { "tienes $($pend.Count)" }
+    return "$total`: $lista. Di leemelos si quieres oirlos"
+}
+function Get-LecturaNotificaciones {
+    $pend = @($script:notifPendientes | Select-Object -Last 5)
+    if ($pend.Count -eq 0) { return 'no tengo mensajes nuevos que leerte' }
+    $partes = foreach ($n in $pend) {
+        $quien = if ($n.titulo) { "$($n.app), $($n.titulo)" } else { $n.app }
+        if ($n.texto) { "$quien`: $($n.texto)" } else { $quien }
+    }
+    $script:notifPendientes.Clear()
+    return ($partes -join '. ')
+}
+
+# HABITOS: que ordenes das y a que hora, para PROPONERTE automatizarlas (nunca
+# se crea nada sin un si). Dos costumbres: la misma orden a la misma hora
+# (+-30 min) tres dias distintos de la ultima semana, o la misma orden justo
+# despues de abrir una app (3 min) tres dias distintos. Una propuesta al dia
+# como mucho, y un "no" es para siempre. memoria\habitos.json, fuera de git.
+$script:habitos = $null
+function Get-Habitos {
+    if ($null -ne $script:habitos) { return $script:habitos }
+    $script:habitos = @{ usos = (New-Object System.Collections.ArrayList); rechazadas = (New-Object System.Collections.ArrayList); ultimaPropuesta = '' }
+    $rutaH = Join-Path $MemoriaDir 'habitos.json'
+    if (Test-Path -LiteralPath $rutaH) {
+        try {
+            $crudoH = Get-Content -LiteralPath $rutaH -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($u in @($crudoH.usos)) { if ($u -and $u.t) { [void]$script:habitos.usos.Add(@{ t = [string]$u.t; f = [string]$u.f; h = [string]$u.h }) } }
+            foreach ($r in @($crudoH.rechazadas)) { if ($r) { [void]$script:habitos.rechazadas.Add([string]$r) } }
+            $script:habitos.ultimaPropuesta = [string]$crudoH.ultimaPropuesta
+        } catch { Log ("habitos: no pude leerlos: " + $_.Exception.Message) }
+    }
+    return $script:habitos
+}
+function Save-Habitos {
+    try {
+        $hb = Get-Habitos
+        $o = [ordered]@{ usos = @($hb.usos); rechazadas = @($hb.rechazadas); ultimaPropuesta = $hb.ultimaPropuesta }
+        $rutaH = Join-Path $MemoriaDir 'habitos.json'
+        [System.IO.File]::WriteAllText($rutaH + '.tmp', (ConvertTo-Json -InputObject $o -Depth 4), (New-Object System.Text.UTF8Encoding($false)))
+        Move-Item -LiteralPath ($rutaH + '.tmp') -Destination $rutaH -Force
+    } catch { Log ("habitos: no pude guardarlos: " + $_.Exception.Message) }
+}
+function Add-Habito([string]$texto, [datetime]$cuando = (Get-Date)) {
+    $p = ConvertTo-Plain $texto
+    # solo ordenes que HACEN algo; preguntar la hora no es una costumbre que automatizar
+    if (-not $p -or $p.Length -gt 60 -or $p -notmatch '^(?:abre|pon|ponme|modo|activa|desactiva|sube|baja|silencia|cierra|lanza|inicia|arranca)\b') { return }
+    $hb = Get-Habitos
+    [void]$hb.usos.Add(@{ t = $p; f = $cuando.ToString('yyyy-MM-dd'); h = $cuando.ToString('HH:mm') })
+    while ($hb.usos.Count -gt 400) { $hb.usos.RemoveAt(0) }
+    Save-Habitos
+}
+function Find-Propuesta([datetime]$hoy = (Get-Date)) {
+    $hb = Get-Habitos
+    if ($hb.ultimaPropuesta -eq $hoy.ToString('yyyy-MM-dd')) { return $null }
+    $desde = $hoy.AddDays(-7).ToString('yyyy-MM-dd')
+    $rec = @($hb.usos | Where-Object { $_.f -ge $desde })
+    $reglasP = Get-Reglas
+    # 1. la misma orden a la misma hora
+    foreach ($g in @($rec | Group-Object { $_.t })) {
+        $porDia = @{}
+        foreach ($u in $g.Group) { if (-not $porDia.ContainsKey($u.f)) { $porDia[$u.f] = $u.h } }
+        if ($porDia.Count -lt 3) { continue }
+        $mins = @($porDia.Values | ForEach-Object { [int]$_.Substring(0, 2) * 60 + [int]$_.Substring(3, 2) } | Sort-Object)
+        $med = $mins[[int][Math]::Floor($mins.Count / 2)]
+        if (@($mins | Where-Object { [Math]::Abs($_ - $med) -le 30 }).Count -lt 3) { continue }
+        $med5 = ([int]([Math]::Round($med / 5.0) * 5)) % 1440
+        $hora = '{0:00}:{1:00}' -f [int][Math]::Floor($med5 / 60), ($med5 % 60)
+        $clave = "hora|$($g.Name)"
+        if ($hb.rechazadas -contains $clave) { continue }
+        if (@($reglasP | Where-Object { $_.tipo -eq 'hora' -and (ConvertTo-Plain $_.accion) -eq $g.Name }).Count -gt 0) { continue }
+        return @{ clave = $clave; tipo = 'hora'; valor = $hora; accion = $g.Name
+            pregunta = "Estos dias, a eso de las $hora, sueles pedirme $($g.Name). ¿Quieres que lo haga yo sola cada dia a esa hora?" }
+    }
+    # 2. la misma orden justo despues de abrir una app
+    $pares = @{}
+    for ($i = 1; $i -lt $rec.Count; $i++) {
+        $b = $rec[$i]; $a = $rec[$i - 1]
+        if ($a.f -ne $b.f -or $a.t -eq $b.t -or $a.t -notmatch '^abre (.+)$') { continue }
+        $appP = $Matches[1]
+        $dm = ([int]$b.h.Substring(0, 2) * 60 + [int]$b.h.Substring(3, 2)) - ([int]$a.h.Substring(0, 2) * 60 + [int]$a.h.Substring(3, 2))
+        if ($dm -lt 0 -or $dm -gt 3) { continue }
+        $k = "$appP|$($b.t)"
+        if (-not $pares.ContainsKey($k)) { $pares[$k] = @{} }
+        $pares[$k][$a.f] = $true
+    }
+    foreach ($k in $pares.Keys) {
+        if ($pares[$k].Count -lt 3) { continue }
+        $appP, $accP = $k -split '\|', 2
+        $clave = "app|$k"
+        if ($hb.rechazadas -contains $clave) { continue }
+        if (@($reglasP | Where-Object { $_.tipo -eq 'appAbre' -and (ConvertTo-Plain $_.valor) -eq $appP -and (ConvertTo-Plain $_.accion) -eq $accP }).Count -gt 0) { continue }
+        return @{ clave = $clave; tipo = 'appAbre'; valor = $appP; accion = $accP
+            pregunta = "Cuando abres $appP, casi siempre me pides despues $accP. ¿Quieres que lo haga yo sola?" }
+    }
+    return $null
+}
+
 # COLOR DE LA CAPSULA A ELECCION: "ponte de color naranja". Solo cambia el de
 # reposo; los de cada estado (escuchando, pensando, error...) se quedan, que
 # son los que dicen algo. Va aqui arriba y no junto a la esquina porque el
@@ -3715,6 +3879,14 @@ function Invoke-FastCommand([string]$text) {
                 }
                 'balanceAprendizaje' { $a.desc = (Get-BalanceAprendizaje) }
                 'configuracion' { $a.desc = (Get-Configuracion) }
+                'notifResumen' {
+                    try { [void](Watch-Notificaciones @(Get-Notificaciones)) } catch {}
+                    $a.desc = Get-ResumenNotificaciones
+                }
+                'notifLeer' {
+                    $a.desc = Get-LecturaNotificaciones
+                    $script:sinTarjeta = $true   # para oirlo, no para una tarjeta
+                }
                 'duracionBateria' {
                     $jB = $script:juegoActivo
                     $minJ = if ($jB) { Get-DuracionBateriaJuego $jB } else { $null }
@@ -5168,6 +5340,8 @@ $script:uiClimaHasta = 0
 $script:uiAnimo = 0         # -1..1 segun aciertos y errores de las ultimas 24 h
 $script:uiHaciendo = ''     # QUE se esta ejecutando ahora mismo (glifo en la capsula)
 $script:uiRemoto = $false   # "pensando" lo lleva la IA (violeta) y no Nova sola (ambar)
+$script:sinTarjeta = $false # la proxima respuesta es para oirla: sin tarjeta grande (ver Show-Popup)
+$script:notifCheck = 0      # ultima vez que se miraron las notificaciones
 $script:uiCola = ''         # "3/2" = tres cosas en esta orden, va por la segunda; "3/2!" = esa fallo
 $script:uiDescarga = 0      # 0..1 de la descarga de Steam mas avanzada (anillo)
 
@@ -6661,6 +6835,14 @@ function Play-Sonido([string]$nombre, [System.Media.SystemSound]$respaldo) {
 }
 
 function Show-Popup([string]$text, [string]$estadoUI = 'hablando') {
+    # SIN TARJETA: respuestas que son para OIRLAS (leer los mensajes). Minimalismo:
+    # la capsula enseña el principio y la voz dice el resto; nada de tarjeta grande.
+    if ($script:sinTarjeta -and $UiNuevaOn) {
+        $script:sinTarjeta = $false
+        $corto = if ($text.Length -gt 60) { $text.Substring(0, 57) + '...' } else { $text }
+        Set-UI $estadoUI $corto $PopupMs
+        return
+    }
     # TARJETA FIJADA ("dejala ahi"): un mensaje corto va solo a la capsula y no
     # se la lleva por delante; uno largo si la sustituye, porque necesita sitio.
     # Sin esto, el propio "listo, la dejo" cerraba la tarjeta que fijaba.
@@ -7593,6 +7775,37 @@ function Complete-Confirmacion([string]$respuesta) {
     Remove-Item -LiteralPath $MarcaConfirmar -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $RutaConfirmacion -Force -ErrorAction SilentlyContinue
     if (-not $p) { return }
+    # PROPUESTA DE AUTOMATIZAR UNA COSTUMBRE (ver HABITOS)
+    if ($p.tipo -eq 'propuesta') {
+        $pr = $p.propuesta
+        if ($respuesta -eq 'si') {
+            $tipoP = $pr.tipo; $valorP = $pr.valor
+            if ($tipoP -eq 'appAbre') {
+                # lo que se abria puede ser una app o un juego: la regla es distinta
+                # y el nombre tiene que ser el que usa el vigilante de reglas
+                $suj = Resolve-SujetoRegla $pr.valor
+                if (-not $suj) { Say "Uy, ya no se que es $($pr.valor). Lo dejo."; Set-UI 'reposo'; return }
+                $tipoP = if ($suj.app) { 'appAbre' } else { 'juegoAbre' }
+                $valorP = $suj.nombre
+            }
+            $gP = Get-Reglas
+            $idP = 1; foreach ($x in $gP) { if ($x.id -ge $idP) { $idP = $x.id + 1 } }
+            $rP = @{ id = $idP; tipo = $tipoP; valor = $valorP; accion = $pr.accion; ultima = '' }
+            [void]$gP.Add($rP); Save-Reglas
+            Log ("REGLA $idP guardada (propuesta aceptada): " + (Describe-Regla $rP))
+            Set-AcabaDeAprender
+            Send-UIEvento 'hecho'
+            Say "Hecho. Me encargo yo."
+        } elseif ($respuesta -eq 'no') {
+            $hbN = Get-Habitos
+            [void]$hbN.rechazadas.Add($pr.clave)
+            Save-Habitos
+            Log "PROPUESTA rechazada: $($pr.clave)"
+            Say "Vale, no te lo vuelvo a proponer."
+        }
+        Set-UI 'reposo'
+        return
+    }
     # pregunta de una RECETA ("esto ya lo aprendi: ... ¿lo hago?")
     if ($p.tipo -eq 'receta') {
         $gR = Get-Recetas
@@ -8176,6 +8389,8 @@ function Process-Texto([string]$text) {
             } else {
                 Log "LOCAL: $text -> $fast"
                 Add-Estadistica 'local' $text
+                # tus costumbres, para proponerte automatizarlas (ver HABITOS)
+                try { Add-Habito $text } catch {}
                 # esta orden se entendio y se hizo: su tono eres tu. Es la unica
                 # fuente limpia que hay, y la que evita que el ruido acabe
                 # pasando por dueno de la casa.
@@ -8565,6 +8780,19 @@ while ($true) {
             Say $ap.pregunta
             Set-UI 'escuchando' $ap.pregunta
             Start-Confirmacion
+        } elseif (-not $script:juegoActivo -and -not $script:busy -and -not $script:pendiente -and
+                  ($propH = $(try { Find-Propuesta } catch { $null }))) {
+            # UNA COSTUMBRE QUE AUTOMATIZAR (ver HABITOS): justo despues de hacer
+            # una orden, que es cuando estas pendiente; nunca jugando. Se apunta
+            # el dia al preguntar, conteste lo que conteste: una al dia.
+            $hbP = Get-Habitos
+            $hbP.ultimaPropuesta = (Get-Date).ToString('yyyy-MM-dd')
+            Save-Habitos
+            $script:pendiente = @{ texto = ''; vence = 0; tipo = 'propuesta'; propuesta = $propH }
+            Log "PROPUESTA: $($propH.clave)"
+            Say $propH.pregunta
+            Set-UI 'escuchando' $propH.pregunta
+            Start-Confirmacion
         } elseif ($script:seguimientoPendiente -and $SeguimientoMs -gt 0 -and $script:seguimientoFactor -gt 0 -and $DictadoWorker -and $script:wakeProc -and
             -not $script:wakeProc.HasExited -and -not $script:busy -and -not $script:pendiente) {
             Start-Dictado 'seguimiento'
@@ -8918,6 +9146,12 @@ while ($true) {
                 break   # de uno en uno: dos avisos seguidos serian una encerrona
             }
         }
+    }
+
+    # --- notificaciones nuevas (cada 30 s; ver NOTIFICACIONES MIENTRAS JUEGAS) ---
+    if (($sw.ElapsedMilliseconds - $script:notifCheck) -ge 30000) {
+        $script:notifCheck = $sw.ElapsedMilliseconds
+        try { [void](Watch-Notificaciones @(Get-Notificaciones)) } catch { Log ("notificaciones: " + $_.Exception.Message) }
     }
 
     # --- reglas sobre apps: se abrio o se cerro una (cada 3 s; sin reglas de
