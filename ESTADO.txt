@@ -122,6 +122,20 @@ ENSEÑARLE TÚ (desde el 13/09)
   Mejor con coma entre la frase y lo que hay que hacer; sin coma, la frase
   acaba donde empieza la primera orden.
 
+QUE SE NOTE QUE APRENDE (desde el 13/09)
+  Cápsula: cuando aprende algo (receta nueva o reparada, otra forma de
+  decirla, algo que le enseñas, un dato tuyo) da un saltito con chispas
+  doradas y ojos felices (gesto "aprendido"), y el mando vibra con un
+  tri-pulso. Cuando hace sola una receta, sin IA, sale la marca de hecho con
+  dos latidos y una onda (gesto "sinia"). Por dentro: aprender deja una marca
+  que convierte el siguiente "hecho" en la celebración (caduca a los 10 s).
+  Por voz: "cuánto has aprendido", "cuánto me has ahorrado", "qué tal vas
+  aprendiendo", "cómo va tu aprendizaje", "cuánto sabes ya". Dice cuántas
+  tareas sabe y de cuántas formas se las pueden pedir, cuántas cosas sabe de
+  ti y, de los últimos 7 días, cuántas cosas hizo sola y los minutos de espera
+  ahorrados (~20 s por uso, lo que tarda el cerebro en una tarea). Probado en
+  vivo el 13/09: el gesto llega a la cápsula y el balance contesta en local.
+
 LO QUE QUEDA POR HACER: PENDIENTE.md (8 ideas con su porqué, y las trampas
   de esta base de código que conviene leer antes de tocar nada). El 12/09 se
   hicieron la 1, la 2, la 3, la 4, la 7, la 9, la 11, la 13, la 14, la 15 y

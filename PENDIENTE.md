@@ -89,6 +89,11 @@ Lo grave ya está arreglado (commit a693e80). Queda, por orden:
   guarda como plantilla con huecos y pasos; la próxima vez Nova lo hace sola y
   sin IA (preguntando las 2 primeras veces). Nada destructivo entra nunca en
   una receta. Detalle en `ESTADO.txt`.
+- **Que se note que aprende.** Cuando aprende algo (una tarea, otra forma de
+  pedirla, algo que le enseñas o un dato tuyo) la cápsula da un saltito con
+  chispas doradas; cuando hace sola una receta, sin IA, lo marca con dos
+  latidos. Y «¿cuánto has aprendido?» / «¿cuánto me has ahorrado?» cuenta lo
+  que sabe y el tiempo de espera que te ahorró esta semana (~20 s por uso).
 - [ ] Pendiente de esto: meter los casos de recetas en
       `tools\probar-funciones.ps1` (hoy están en una prueba suelta), y ver con
       el uso real si hace falta que los valores dictados se corrijan antes de

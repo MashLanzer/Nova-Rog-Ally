@@ -1992,7 +1992,7 @@ public class NovaUI : Window
         // la expresion de los ojos acompana al gesto
         switch (nombre)
         {
-            case "carino": case "gracias": case "risa": case "logro": case "alivio": case "apoyo": case "orgullo": Expresion("felices", 1700); break;
+            case "carino": case "gracias": case "risa": case "logro": case "alivio": case "apoyo": case "orgullo": case "aprendido": case "sinia": Expresion("felices", 1700); break;
             case "duda": case "confuso": case "paciencia": case "perdida": Expresion("entrecerrados", 1300); break;
             case "sorpresa": case "grito": case "sobresalto": case "atencion": Expresion("abiertos", 900); break;
             case "pena": case "despedida": Expresion("tristes", 1900); break;
@@ -2152,6 +2152,24 @@ public class NovaUI : Window
                 escalaGesto.BeginAnimation(ScaleTransform.ScaleXProperty, Secuencia(new double[] { 1, 1.15, 1 }, 300));
                 escalaGesto.BeginAnimation(ScaleTransform.ScaleYProperty, Secuencia(new double[] { 1, 1.15, 1 }, 300));
                 trasGesto.BeginAnimation(TranslateTransform.YProperty, Secuencia(new double[] { 0, -2, 0 }, 300));
+                break;
+            case "aprendido":
+                // APRENDIO ALGO (13/09): una receta, otra forma de pedirla, algo que
+                // le ensenaste o un dato tuyo. Saltito, chispas doradas y se hincha
+                // un momento, como quien se guarda algo en el bolsillo.
+                Saltar(1.25);
+                Chispas(Color.FromRgb(0xFF, 0xD2, 0x5A));
+                escalaGesto.BeginAnimation(ScaleTransform.ScaleXProperty, Secuencia(new double[] { 1, 1.18, 0.96, 1 }, 180));
+                escalaGesto.BeginAnimation(ScaleTransform.ScaleYProperty, Secuencia(new double[] { 1, 1.18, 0.96, 1 }, 180));
+                break;
+            case "sinia":
+                // LO HIZO SOLA, SIN IA (13/09): la marca de hecho y un guino de
+                // orgullo, dos latidos rapidos y una onda del color de reposo. Es lo
+                // que hace que se VEA que lo aprendido esta sirviendo.
+                MarcarHecho();
+                escalaGesto.BeginAnimation(ScaleTransform.ScaleXProperty, Secuencia(new double[] { 1, 1.12, 1, 1.12, 1 }, 110));
+                escalaGesto.BeginAnimation(ScaleTransform.ScaleYProperty, Secuencia(new double[] { 1, 1.12, 1, 1.12, 1 }, 110));
+                Ondas(1, ColorDe("reposo"));
                 break;
         }
     }

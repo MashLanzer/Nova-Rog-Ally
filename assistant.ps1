@@ -1774,6 +1774,10 @@ function Resolve-Fragment([string]$f) {
         $desc = if ($que) { "aviso en $n $unidad" } else { "temporizador de $n $unidad" }
         return @(@{ kind = 'temporizador'; ms = $ms; texto = $que; n = $n; unidad = $unidad; desc = $desc })
     }
+    # --- el balance de lo aprendido ---
+    if ($f -match '^(?:cuanto has aprendido|cuanto me has ahorrado|cuanto tiempo me has ahorrado|que tal vas aprendiendo|como vas aprendiendo|como va tu aprendizaje|cuanto sabes ya|que tanto has aprendido)$') {
+        return @(@{ kind = 'balanceAprendizaje'; desc = 'lo aprendido' })
+    }
     # --- lo que Nova sabe de ti ---
     if ($f -match '^(?:que sabes de mi|que sabes sobre mi|que has aprendido de mi|que sabes de braya|que conoces de mi|que sabes de mi vida)$') {
         return @(@{ kind = 'verPerfil'; desc = 'lo que se de ti' })
@@ -2661,6 +2665,9 @@ $script:ultimaReceta = $null
 $script:ultimaRecetaEn = 0
 $script:ccConHerramientas = $false
 $script:reparandoReceta = $null   # receta que fallo y cuya tarea lleva ahora el cerebro para arreglarla
+$script:acabaDeAprender = $false  # la capsula celebrara en el proximo "hecho" (ver Send-UIEvento)
+$script:acabaDeAprenderEn = 0
+function Set-AcabaDeAprender { $script:acabaDeAprender = $true; $script:acabaDeAprenderEn = $sw.ElapsedMilliseconds }
 
 # Lo que se le pide al cerebro al final de cada tarea (modo accion).
 $CcInstruccionReceta = @'
@@ -2809,6 +2816,7 @@ function Add-VarianteReceta($r, [string]$variante) {
     Save-Recetas
     Log "RECETA $($r.id): aprendida otra forma de decirlo: '$variante'"
     Add-Estadistica 'receta-variante' $variante
+    Set-AcabaDeAprender
 }
 
 function Test-ScriptProhibido([string]$s) {
@@ -2894,6 +2902,7 @@ function Add-Receta([string]$original, [string]$bloque) {
     Save-Recetas
     Log "RECETA $id aprendida: '$frase' ($($pasos.Count) pasos)"
     Add-Estadistica 'receta-aprendida' $frase
+    Set-AcabaDeAprender
     return $r
 }
 
@@ -2979,6 +2988,7 @@ function New-RecetaEnsenada([string]$disparador, [string]$cuerpo) {
     $script:ultimaRecetaEn = $sw.ElapsedMilliseconds
     Log "RECETA $id ensenada: '$clave' -> $($lineas -join ' | ')"
     Add-Estadistica 'receta-ensenada' $clave
+    Set-AcabaDeAprender
     $txt = "Aprendido: cuando digas '$disp', hare " + $(if ($lineas.Count -eq 1) { 'esto: ' } else { "$($lineas.Count) cosas: " }) + ($lineas -join '; ') + '.'
     if ($malas.Count -gt 0) { $txt += " Esto no lo entendi y lo he dejado fuera: " + ($malas -join '; ') + '.' }
     return @{ ok = $true; texto = $txt }
@@ -2998,7 +3008,8 @@ function Start-Receta($enc, [string]$text) {
         $script:ultimaRecetaEn = $sw.ElapsedMilliseconds
         Add-Estadistica 'receta' $text
         $script:ultimaRespuesta = $res.texto
-        Send-UIEvento 'hecho'
+        # no el "hecho" de siempre: el gesto de "lo hice sola, sin IA"
+        Send-UIEvento 'gesto:sinia'
         Show-Popup $res.texto
         Say $res.texto
         return $true
@@ -3070,6 +3081,7 @@ function Add-DatoPerfil([string]$dato, [string]$fuente = '') {
     Save-DatosPerfil $datos
     Log "PERFIL: aprendido ($fuente): $d"
     Add-Estadistica 'perfil' $d
+    Set-AcabaDeAprender
     return $d
 }
 
@@ -3104,6 +3116,45 @@ function Get-SistemaCerebro {
     $ruta = Join-Path $TmpDir 'cerebro-sistema-actual.md'
     [System.IO.File]::WriteAllText($ruta, $base, (New-Object System.Text.UTF8Encoding($false)))
     return $ruta
+}
+
+# "¿Cuanto has aprendido?": lo que sabe, y lo que ha rendido esta semana. Cada
+# cosa hecha sola con una receta cuenta como una peticion al cerebro ahorrada,
+# unos 20 s de espera (medido el 13/09: 17-27 s).
+function Get-BalanceAprendizaje {
+    $g = Get-Recetas
+    $nRec = $g.Count
+    $nVar = 0
+    foreach ($r in $g) { $nVar += @(@($r.variantes) | Where-Object { $_ }).Count }
+    $nDatos = @(Get-DatosPerfil).Count
+    $sinIA = 0; $aprendidas = 0
+    $st = Get-Estadisticas
+    for ($i = 0; $i -lt 7; $i++) {
+        $k = (Get-Date).AddDays(-$i).ToString('yyyy-MM-dd')
+        if (-not $st.dias.ContainsKey($k)) { continue }
+        if ($st.dias[$k].ContainsKey('receta')) { $sinIA += [int]$st.dias[$k]['receta'] }
+        foreach ($c in 'receta-aprendida', 'receta-ensenada', 'receta-variante', 'receta-reparada', 'perfil') {
+            if ($st.dias[$k].ContainsKey($c)) { $aprendidas += [int]$st.dias[$k][$c] }
+        }
+    }
+    if ($nRec -eq 0 -and $nDatos -eq 0) {
+        return 'todavia no he aprendido nada. Cuando la IA haga algo por ti lo ire aprendiendo, y tambien puedes ensenarme: aprende que cuando diga...'
+    }
+    $frases = @()
+    if ($nRec -gt 0) {
+        $t = 'se hacer ' + $(if ($nRec -eq 1) { 'una tarea' } else { "$nRec tareas" })
+        if ($nVar -gt 0) { $t += ' y entiendo ' + ($nRec + $nVar) + ' formas de pedirlas' }
+        $frases += $t
+    }
+    if ($nDatos -gt 0) { $frases += 'se ' + $(if ($nDatos -eq 1) { 'una cosa' } else { "$nDatos cosas" }) + ' de ti' }
+    $txt = ($frases -join ', y ')
+    if ($sinIA -gt 0) {
+        $min = [int][Math]::Ceiling($sinIA * 20 / 60.0)
+        $txt += '. Esta semana hice sola ' + $(if ($sinIA -eq 1) { 'una cosa' } else { "$sinIA cosas" }) + ' sin preguntarle a la IA: unos ' + $(if ($min -eq 1) { 'un minuto' } else { "$min minutos" }) + ' de espera que te ahorre'
+    } elseif ($aprendidas -gt 0) {
+        $txt += '. Esta semana aprendi ' + $(if ($aprendidas -eq 1) { 'una cosa nueva' } else { "$aprendidas cosas nuevas" })
+    }
+    return $txt
 }
 
 function Find-Traduccion([string]$text) {
@@ -3417,6 +3468,7 @@ function Invoke-FastCommand([string]$text) {
                         $a.desc = "ahora mismo no detecto ningun juego abierto"
                     }
                 }
+                'balanceAprendizaje' { $a.desc = (Get-BalanceAprendizaje) }
                 'verPerfil' {
                     $dp = @(Get-DatosPerfil)
                     $a.desc = if ($dp.Count -eq 0) { 'todavia no se nada de ti; se ira llenando solo, o dime: aprende que mi...' }
@@ -4878,11 +4930,20 @@ function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
 
 # Dispara una animacion sin cambiar el estado (el estado se reescribe igual).
 function Send-UIEvento([string]$evento) {
+    # ACABA DE APRENDER ALGO: el "hecho" de siempre se convierte en la
+    # celebracion. Hace falta porque la capsula lee UN evento por vuelta, y el
+    # "hecho" que llega justo despues de aprender pisaria el gesto. La marca
+    # caduca a los 10 s, para no celebrar a destiempo algo que no toca.
+    if ($script:acabaDeAprender -and ($sw.ElapsedMilliseconds - $script:acabaDeAprenderEn) -gt 10000) { $script:acabaDeAprender = $false }
+    if ($evento -eq 'hecho' -and $script:acabaDeAprender) { $evento = 'gesto:aprendido' }
+    if ($evento -eq 'gesto:aprendido') { $script:acabaDeAprender = $false }
     # eco en el mando: lo que la capsula celebra, el mando lo hace sentir
     switch ($evento) {
         'hecho' { Start-Vibracion @(50, 60, 50) 18000 }
         'logro' { Start-Vibracion @(80, 60, 80, 60, 160) 26000 }
         'aviso' { Start-Vibracion @(120, 80, 120) 22000 }
+        'gesto:aprendido' { Start-Vibracion @(40, 50, 40, 50, 110) 22000 }
+        'gesto:sinia' { Start-Vibracion @(50, 60, 50) 18000 }
     }
     if (-not $UiNuevaOn) { return }
     $script:uiEvento = $evento
@@ -7154,6 +7215,8 @@ function Report-Reply($out) {
         }
     }
     if ($rep -and -not ($mRec.Success)) { Log "RECETA $($rep.id): el cerebro hizo la tarea pero no devolvio receta; se queda como estaba, con su fallo apuntado" }
+    # si de esta respuesta salio algo aprendido (receta, reparacion o dato), se celebra
+    if ($script:acabaDeAprender) { Send-UIEvento 'gesto:aprendido' }
 
     $now = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $full = ($out | Out-String)
@@ -7214,7 +7277,11 @@ function Complete-Confirmacion([string]$respuesta) {
             $okR = Start-Receta @{ receta = $objR[0]; valores = $p.valores } $p.original
             # dijiste que si Y salio bien: esa forma de decirlo queda aprendida,
             # y la proxima vez encaja en local, sin preguntarle a nadie
-            if (@($okR)[-1] -eq $true -and $p.variante) { Add-VarianteReceta $objR[0] $p.variante }
+            if (@($okR)[-1] -eq $true -and $p.variante) {
+                Add-VarianteReceta $objR[0] $p.variante
+                # aprender la forma nueva es mas que haberla hecho: esa celebracion gana
+                if ($script:acabaDeAprender) { Send-UIEvento 'gesto:aprendido' }
+            }
         } elseif ($respuesta -eq 'no') {
             $objR[0].rechazos = [int]$objR[0].rechazos + 1
             if ($objR[0].rechazos -ge 2) {
