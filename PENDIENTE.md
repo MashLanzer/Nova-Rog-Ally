@@ -30,9 +30,11 @@ ni con batería):
 
 ## Interfaz y visuales
 
-- [ ] **12. Distinguir «lo hago yo» de «esto lo lleva el agente».**
-      Hoy `pensando` es idéntico para 0,3 s locales y para 160 s del agente
-      completo. Saberlo desde el primer instante cambia si esperas o cancelas.
+- [x] **12. Distinguir «lo hago yo» de «esto lo lleva el agente»** (13/09).
+      «Pensando» es ámbar cuando lo hace Nova sola (una receta, el oído fino,
+      leer la pantalla) y violeta desde el primer instante cuando lo lleva la
+      IA (`Submit-Command` pone la marca; el estado viaja como `remoto`, y
+      cualquier estado que no sea «pensando» la quita).
 
 - [x] **16. Fijar la tarjeta larga** (13/09). «Déjala ahí» / «fija la tarjeta» /
       «no la quites» la deja 10 minutos (no para siempre); «quítala» / «ya la
@@ -51,9 +53,16 @@ ni con batería):
       noche el elegido se templa un poco en vez de volverse melocotón. Al
       cambiar, una onda del color nuevo.
 
-- [ ] **20. Que se aparte también hacia arriba o abajo.**
-      Solo sabe deslizarse de lado. En una esquina y con una ventana que ocupa
-      toda la franja, apartarse en horizontal no la salva.
+- [x] **20. Que se aparte también hacia arriba o abajo** (13/09). Si deslizarse
+      de lado la deja igual de tapada (la ventana ocupa toda la franja), se
+      queda en su lado y sube hasta el borde de la ventana (o baja, si vive
+      arriba). Si la ventana no deja hueco, se queda donde está. «¿Me tapa?» se
+      pregunta en su sitio base (`topBase`), no en el apartado: si no, subía,
+      dejaba de estar tapada y bajaba en bucle. Probado con una ventana de
+      prueba de toda la anchura: sube y al cerrarla vuelve.
+      Ojo para probarlo: una ventana abierta desde un script de fondo no se
+      queda con el foco (Windows lo impide) y la cápsula solo se aparta de la
+      ventana que tiene el foco; hace falta `AttachThreadInput`.
 
 ---
 

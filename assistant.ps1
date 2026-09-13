@@ -4995,6 +4995,7 @@ $script:uiClima = ''        # emoji del tiempo: solo unos segundos cuando se pre
 $script:uiClimaHasta = 0
 $script:uiAnimo = 0         # -1..1 segun aciertos y errores de las ultimas 24 h
 $script:uiHaciendo = ''     # QUE se esta ejecutando ahora mismo (glifo en la capsula)
+$script:uiRemoto = $false   # "pensando" lo lleva la IA (violeta) y no Nova sola (ambar)
 $script:uiCola = ''         # "3/2" = tres cosas en esta orden, va por la segunda; "3/2!" = esa fallo
 $script:uiDescarga = 0      # 0..1 de la descarga de Steam mas avanzada (anillo)
 
@@ -5009,6 +5010,9 @@ function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
     if ($t.Length -gt 140) { $t = $t.Substring(0, 137) + "..." }
     $script:uiEstado = $estado
     $script:uiTexto = $t
+    # la marca de "lo lleva la IA" dura lo que dura el pensar: cualquier otro
+    # estado (respuesta, error, reposo) la quita
+    if ($estado -ne 'pensando') { $script:uiRemoto = $false }
     # temporizador mas proximo, en tiempo de reloj (ms Unix) para que la
     # capsula dibuje el anillo con su propio reloj sin que haya que reescribir
     $tFin = 0; $tTotal = 0; $tTipo = ''
@@ -5041,6 +5045,7 @@ function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
             ',"progreso":' + ([double]$script:uiProgreso).ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture) +
             ',"oido":"' + $oido + '","tempoTipo":"' + $tTipo + '"' +
             ',"haciendo":"' + $script:uiHaciendo + '"' +
+            ',"remoto":"' + $(if ($script:uiRemoto -or $script:busy) { '1' } else { '0' }) + '"' +
             ',"cola":"' + $script:uiCola + '"' +
             ',"descarga":' + ([double]$script:uiDescarga).ToString('0.000', [System.Globalization.CultureInfo]::InvariantCulture) +
             ',"escala":' + ([double]$script:uiEscala).ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture) +
@@ -7071,6 +7076,8 @@ function Submit-Command([string]$text, [string]$modo = 'accion', [string]$adjunt
     $lbl.ForeColor = [System.Drawing.Color]::Gold
     $capture.Show()
     # sin puntos suspensivos: la capsula ya pone tres puntos que laten
+    # y en violeta, no en ambar: esto lo lleva la IA (ver Set-UI, "remoto")
+    $script:uiRemoto = $true
     Set-UI 'pensando' $(if ($modo -eq 'accion') { 'Procesando' } elseif ($modo -eq 'traducir') { 'Entendiendo' } else { 'Pensando' })
     Add-Estadistica $modo $text
 

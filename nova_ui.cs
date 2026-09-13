@@ -242,6 +242,11 @@ public class NovaUI : Window
     int focoCuenta = 0;
     // apartarse de una ventana que la tapa
     double leftBase = 0;
+    // la altura de su sitio: al apartarse en vertical, "¿me tapa?" se pregunta
+    // aqui y no en la posicion apartada (si no, sube, deja de estar tapada y baja)
+    double topBase = 0;
+    // la IA lleva la orden (el asistente lo manda en "remoto")
+    bool remoto = false;
     bool apartada = false;
     int tapadaCuenta = 0;
     Dictionary<string, DateTime> ultimoGesto = new Dictionary<string, DateTime>();
@@ -2388,7 +2393,7 @@ public class NovaUI : Window
             double area = Math.Max(0, Math.Min(r.R, anchoPantalla) - Math.Max(r.L, 0)) * Math.Max(0, Math.Min(r.B, altoPantalla) - Math.Max(r.T, 0));
             if (area >= 0.9 * anchoPantalla * altoPantalla) { AjustarApartada(false); return; }
             // ¿tapa la ventana la capsula (en su sitio base)?
-            double capX = (leftBase + MARGEN) * esc, capY = (Top + MARGEN) * esc;
+            double capX = (leftBase + MARGEN) * esc, capY = (topBase + MARGEN) * esc;
             double capW = ALTO * esc, capH = ALTO * esc;
             bool tapa = r.L < capX + capW && r.R > capX && r.T < capY + capH && r.B > capY;
             AjustarApartada(tapa);
@@ -2446,6 +2451,7 @@ public class NovaUI : Window
         if (nuevo == apartada) { return; }
         apartada = nuevo;
         double destino = leftBase;
+        double destinoTop = topBase;
         if (apartada)
         {
             // se desliza a la derecha hasta el borde de la ventana que la tapa,
@@ -2469,12 +2475,35 @@ public class NovaUI : Window
                     double maximo = SystemParameters.PrimaryScreenWidth - AnchoReal - SEPARACION - MARGEN * escalaUI;
                     if (destino > maximo) { destino = maximo; }
                 }
+                // QUE SE APARTE TAMBIEN EN VERTICAL (idea 20): si la ventana ocupa
+                // toda la franja, deslizarse de lado la deja igual de tapada.
+                // Entonces se queda en su lado y sube (o baja, si vive arriba)
+                // hasta el borde de la ventana, sin salirse del area util.
+                double capIzq = destino + MARGEN * escalaUI, capDer = capIzq + ALTO * escalaUI;
+                if (r.L / esc < capDer && r.R / esc > capIzq)
+                {
+                    var util = AreaUtil();
+                    destino = leftBase;
+                    destinoTop = Arriba()
+                        ? r.B / esc + SEPARACION - MARGEN * escalaUI
+                        : r.T / esc - AltoReal - SEPARACION - MARGEN * escalaUI;
+                    double arriba = util.Top + SEPARACION - MARGEN * escalaUI;
+                    double abajo = util.Bottom - AltoReal - SEPARACION - MARGEN * escalaUI;
+                    // la ventana no deja hueco ni arriba ni abajo: no hay a donde ir
+                    if (destinoTop < arriba || destinoTop > abajo) { destinoTop = topBase; }
+                }
             }
-            catch { destino = leftBase; }
+            catch { destino = leftBase; destinoTop = topBase; }
         }
         var a = new DoubleAnimation(destino, TimeSpan.FromMilliseconds(520));
         a.EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut };
         BeginAnimation(LeftProperty, a);
+        if (Math.Abs(Top - destinoTop) > 0.5)
+        {
+            var v = new DoubleAnimation(destinoTop, TimeSpan.FromMilliseconds(520));
+            v.EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut };
+            BeginAnimation(TopProperty, v);
+        }
         RecapturarTrasMover(620);
     }
 
@@ -2562,9 +2591,11 @@ public class NovaUI : Window
             ? area.Right - AnchoReal - SEPARACION - MARGEN * escalaUI
             : area.Left + SEPARACION - MARGEN * escalaUI;
         Left = leftBase;
-        Top = Arriba()
+        topBase = Arriba()
             ? area.Top + SEPARACION - MARGEN * escalaUI
             : area.Bottom - AltoReal - SEPARACION - MARGEN * escalaUI;
+        BeginAnimation(TopProperty, null);   // una animacion vertical retenida taparia el valor
+        Top = topBase;
     }
 
     // Si cambia la resolucion del escritorio (un juego a pantalla completa
@@ -2872,6 +2903,12 @@ public class NovaUI : Window
                 if (vz != voz) { voz = vz; cambioVoz = true; }
                 string oido = Campo(j, "oido", "palabra");
                 string hac = Campo(j, "haciendo", "");
+                bool rem = Campo(j, "remoto", "0") == "1";
+                if (rem != remoto)
+                {
+                    remoto = rem;
+                    if (estadoActual == "pensando") { Aplicar(estadoActual, textoActual, false); }
+                }
                 string col = Campo(j, "cola", "");
                 if (col != colaActual) { PintarCola(col); }
                 double esl;
@@ -3126,7 +3163,9 @@ public class NovaUI : Window
                     default: return Color.FromRgb(0x3D, 0xF0, 0x9A);  // verde
                 }
             case "atenta": return Color.FromRgb(0x33, 0xB8, 0x80);    // verde apagado: "sigo aqui"
-            case "pensando": return Color.FromRgb(0xFF, 0xB3, 0x3D);
+            // pensando SOLA (ambar) o con la IA (violeta): no es lo mismo esperar
+            // medio segundo que un minuto, y hay que saberlo desde el primer instante
+            case "pensando": return remoto ? Color.FromRgb(0xA9, 0x8B, 0xFF) : Color.FromRgb(0xFF, 0xB3, 0x3D);
             // rosa: no se parece a ningun otro estado a proposito, porque es el
             // unico en el que la capsula esta esperando algo de TI
             case "confirmando": return Color.FromRgb(0xFF, 0x6E, 0xB4);
