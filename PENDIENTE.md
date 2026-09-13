@@ -125,10 +125,12 @@ Lo grave ya está arreglado (commit a693e80). Queda, por orden:
   chispas doradas; cuando hace sola una receta, sin IA, lo marca con dos
   latidos. Y «¿cuánto has aprendido?» / «¿cuánto me has ahorrado?» cuenta lo
   que sabe y el tiempo de espera que te ahorró esta semana (~20 s por uso).
-- [ ] Pendiente de esto: meter los casos de recetas en
-      `tools\probar-funciones.ps1` (hoy están en una prueba suelta), y ver con
-      el uso real si hace falta que los valores dictados se corrijan antes de
-      usarse (Whisper puede deformar un nombre de carpeta).
+- [x] Las pruebas del autoaprendizaje (13/09) ya pasan con `probar-todo`:
+      `tools\probar-recetas.ps1`, 51 casos (recetas y su seguridad, coletilla,
+      variantes, perfil, «cuánto has aprendido» y la celebración).
+- [ ] Ver con el uso real si hace falta que los valores dictados se corrijan
+      antes de usarse en una receta (Whisper puede deformar un nombre de
+      carpeta). Sin recetas reales todavía, no hay con qué medirlo.
 
 ## Hechas (12/09/2026)
 
