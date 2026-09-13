@@ -60,5 +60,9 @@ memoria/perfil.md
 memoria/juegos.json
 # tus costumbres (que ordenes das y a que hora), para proponerte automatizarlas
 memoria/habitos.json
+# tus contactos importantes (nombres de personas)
+memoria/contactos.json
+# tus notas de voz (tu voz y lo que dices)
+memoria/notas-voz/
 # archivos de memoria que no se podian leer, apartados en vez de perderse
 *.corrupto-*

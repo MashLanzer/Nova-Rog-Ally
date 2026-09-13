@@ -6,6 +6,7 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile($ruta, [ref]$nu
 $fn = $ast.Find({ param($x) $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq 'Test-AvisoSinVoz' }, $true)
 if (-not $fn) { throw "falta Test-AvisoSinVoz" }
 Invoke-Expression $fn.Extent.Text
+function Test-EnLlamada { return $false }   # sin llamada en curso (se prueba aparte)
 
 # --- mundo de mentira ---
 $script:reloj = 100000

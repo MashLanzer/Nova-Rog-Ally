@@ -19,6 +19,7 @@ $MemoriaDir = Join-Path $env:TEMP ('listas-prueba-' + [guid]::NewGuid().ToString
 $RutaListas = Join-Path $MemoriaDir 'listas.json'
 New-Item -ItemType Directory -Force -Path $MemoriaDir | Out-Null
 function Log([string]$t) { }
+function Save-Corrupto($ruta) { }
 
 $fallos = 0
 function Ok([string]$etiqueta, [bool]$ok, [string]$detalle = '') {

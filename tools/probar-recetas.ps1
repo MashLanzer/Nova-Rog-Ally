@@ -16,7 +16,7 @@ function TraerFn($n) {
 }
 $top = $ast.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.AssignmentStatementAst] -and $_.Left -is [System.Management.Automation.Language.VariableExpressionAst] }
 foreach ($a in $top) { if (@('RE_RECETA_PROHIBIDO', 'RecetasMax', 'NIVELES_NOVA') -contains $a.Left.VariablePath.UserPath) { Invoke-Expression $a.Extent.Text } }
-foreach ($n in 'ConvertTo-CmdArg', 'ConvertTo-Suave', 'Get-PatronReceta', 'Find-Receta', 'Test-ScriptProhibido', 'Get-TextoReceta',
+foreach ($n in 'ConvertTo-CmdArg', 'ConvertTo-Suave', 'Get-PatronReceta', 'Find-Receta', 'Find-RecetaIncompleta','Test-ScriptProhibido', 'Get-TextoReceta',
     'Add-Receta', 'Invoke-Receta', 'Get-Recetas', 'Save-Recetas', 'Get-VarianteReceta', 'Add-VarianteReceta', 'Build-PromptTraduccion',
     'Get-DatosPerfil', 'Save-DatosPerfil', 'Add-DatoPerfil', 'Get-SistemaCerebro', 'Get-BalanceAprendizaje', 'Get-Estadisticas',
     'Send-UIEvento', 'Set-AcabaDeAprender', 'Get-CuentaAprendida', 'Get-Madurez', 'Get-FraseNivel') { Invoke-Expression (TraerFn $n) }
@@ -158,6 +158,27 @@ Set-AcabaDeAprender; Send-UIEvento 'hecho'; Comp 'hecho tras aprender se celebra
 Send-UIEvento 'hecho'; Comp 'y solo una vez' ($script:uiEvento -eq 'hecho')
 Set-AcabaDeAprender; $script:acabaDeAprenderEn = -20000; Send-UIEvento 'hecho'
 Comp 'la marca caduca a los 10 s' ($script:uiEvento -eq 'hecho' -and -not $script:acabaDeAprender)
+
+Write-Host "--- recetas que preguntan lo que falta ---"
+$script:invitado = $false
+$falsas = @(
+    @{ id = 91; frase = 'crea una carpeta llamada {nombre}'; variantes = @('haz una carpeta que se llame {nombre}') },
+    @{ id = 92; frase = 'busca el tiempo en {ciudad}'; variantes = @() },
+    @{ id = 93; frase = 'copia {origen} a {destino}'; variantes = @() },
+    @{ id = 94; frase = 'descarga {cosa}'; variantes = @() }
+)
+$inc = Find-RecetaIncompleta 'Oye, crea una carpeta' $falsas
+Comp 'sin el valor del final: la encuentra y dice que hueco falta' ($inc -and $inc.receta.id -eq 91 -and $inc.hueco -eq 'nombre') "$($inc.receta.id) $($inc.hueco)"
+$inc = Find-RecetaIncompleta 'haz una carpeta' $falsas
+Comp 'tambien por otra forma de decirla (quita "que se llame")' ($inc -and $inc.receta.id -eq 91)
+$inc = Find-RecetaIncompleta 'busca el tiempo' $falsas
+Comp 'quita el enlace "en"' ($inc -and $inc.hueco -eq 'ciudad')
+Comp 'con dos huecos no pregunta' ($null -eq (Find-RecetaIncompleta 'copia' $falsas))
+Comp 'con una sola palabra fija no pregunta (demasiado poco)' ($null -eq (Find-RecetaIncompleta 'descarga' $falsas))
+Comp 'lo que no se parece, nada' ($null -eq (Find-RecetaIncompleta 'crea una lista' $falsas))
+$script:invitado = $true
+Comp 'en modo invitado no hay recetas' ($null -eq (Find-RecetaIncompleta 'crea una carpeta' $falsas) -and $null -eq (Find-Receta 'crea una carpeta llamada X' $falsas))
+$script:invitado = $false
 
 Write-Host "--- el nivel de Nova ---"
 # aqui hay 2 recetas con 1 variante (3) y 3 datos tuyos: 6 cosas

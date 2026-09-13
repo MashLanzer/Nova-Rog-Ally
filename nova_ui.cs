@@ -257,6 +257,15 @@ public class NovaUI : Window
     int madurez = 0;
     // atenuada tras 5 min sin uso (ver el reloj del sueno y Despertar)
     bool atenuada = false;
+    // cara de fondo (foco, clima) a la que vuelven los gestos, en vez de "normal"
+    bool enFoco = false;
+    string expresionBase = "normal";
+    // ultimo volumen visto en el estado (-2 = aun no se ha leido ninguno)
+    int volVisto = -2;
+    // tono del icono del juego abierto
+    Color colorJuego;
+    bool hayColorJuego = false;
+    bool nocheProfundaAntes = false;
     // el tiempo que hace ("lluvia", "nieve", "tormenta" o ""), para ClimaVivo
     string tiempoActual = "";
     DateTime proximoClima = DateTime.MinValue;
@@ -417,6 +426,7 @@ public class NovaUI : Window
         var sombra = new DropShadowEffect();
         sombra.Color = Colors.Black; sombra.BlurRadius = 16; sombra.ShadowDepth = 4; sombra.Direction = 270; sombra.Opacity = 0.55;
         envoltorio.Effect = sombra;
+        AjustarSombraSol();
         sacudida = new TranslateTransform();
         escalaEnvoltorio = new ScaleTransform(1, 1);
         var grupoEnv = new TransformGroup();
@@ -772,6 +782,9 @@ public class NovaUI : Window
         {
             bool n = EsNoche();
             if (n != nocheActual) { nocheActual = n; Latido(); Aplicar(estadoActual, textoActual, false); }
+            AjustarSombraSol();
+            bool np = NocheProfunda();
+            if (np != nocheProfundaAntes) { nocheProfundaAntes = np; Aplicar(estadoActual, textoActual, false); }
         };
         relojAnimo.Start();
 
@@ -1449,6 +1462,87 @@ public class NovaUI : Window
     bool Agitado() { return carga >= 85; }
     bool Desanimado() { return animo <= -0.3; }
 
+    // LA SOMBRA SIGUE AL SOL (13/09): por la manana la luz viene del este y la
+    // sombra cae hacia la derecha; por la tarde, hacia la izquierda. De 7:00 a
+    // 19:00 el angulo pasa de 300 a 240 grados; de noche, recta hacia abajo.
+    void AjustarSombraSol()
+    {
+        var sombraSol = envoltorio == null ? null : envoltorio.Effect as DropShadowEffect;
+        if (sombraSol == null) { return; }
+        double h = DateTime.Now.Hour + DateTime.Now.Minute / 60.0;
+        sombraSol.Direction = (h >= 7 && h <= 19) ? 300 - (h - 7) / 12.0 * 60 : 270;
+    }
+
+    // NOCHE PROFUNDA (13/09): de 0:00 a 6:00 y sin juego, el halo casi se apaga
+    bool NocheProfunda() { return DateTime.Now.Hour < 6 && string.IsNullOrEmpty(juegoActual); }
+
+    // CARA DE FONDO (13/09): en modo foco, ojos entrecerrados; con lluvia, nieve o
+    // tormenta, algo recogida (cautos); con sol de dia, atenta. Los gestos vuelven
+    // a esta cara al terminar, no a la normal. El foco tambien respira mas lento.
+    string CalcularExpresionBase()
+    {
+        if (enFoco) { return "entrecerrados"; }
+        if (tiempoActual == "lluvia" || tiempoActual == "nieve" || tiempoActual == "tormenta") { return "cautos"; }
+        if (tiempoActual == "sol" && !Noche()) { return "atentos"; }
+        return "normal";
+    }
+    void ActualizarExpresionBase()
+    {
+        bool f = (tempoTipoActual == "foco" && tempoFin > 0);
+        if (f != enFoco) { enFoco = f; Latido(); }
+        string b = CalcularExpresionBase();
+        if (b == expresionBase) { return; }
+        bool estabaEnBase = (expresion == expresionBase);
+        expresionBase = b;
+        if (estabaEnBase && !dormido) { Expresion(b, 0); }
+    }
+
+    // EL HALO MARCA EL VOLUMEN (13/09): al cambiarlo, el halo se ensancha un
+    // instante segun el nivel (0 % poco, 100 % mucho) y vuelve. Sin ventana aparte.
+    void PulsoVolumen(int v)
+    {
+        if (resplandor == null) { return; }
+        double baseR = RadioHalo(cerca);
+        var k = new DoubleAnimationUsingKeyFrames();
+        k.KeyFrames.Add(new EasingDoubleKeyFrame(baseR + 4 + v * 0.18, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(150)), new CubicEase { EasingMode = EasingMode.EaseOut }));
+        k.KeyFrames.Add(new EasingDoubleKeyFrame(baseR, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(750)), new SineEase { EasingMode = EasingMode.EaseInOut }));
+        resplandor.BeginAnimation(DropShadowEffect.BlurRadiusProperty, k);
+        var o = new DoubleAnimationUsingKeyFrames();
+        o.KeyFrames.Add(new LinearDoubleKeyFrame(0.45 + v * 0.005, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(150))));
+        o.KeyFrames.Add(new LinearDoubleKeyFrame(resplandor.Opacity, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(750))));
+        o.FillBehavior = FillBehavior.Stop;
+        resplandor.BeginAnimation(DropShadowEffect.OpacityProperty, o);
+    }
+
+    // EL TONO DEL JUEGO (13/09): el color medio de los pixeles con color del icono
+    // (sin grises ni negros), para tenir un poco el color de reposo.
+    static bool ColorDominante(BitmapSource bs, out Color resultado)
+    {
+        resultado = Colors.Transparent;
+        try
+        {
+            var fcb = new FormatConvertedBitmap(bs, PixelFormats.Bgra32, null, 0);
+            int w = fcb.PixelWidth, h = fcb.PixelHeight;
+            if (w == 0 || h == 0) { return false; }
+            var px = new byte[w * h * 4];
+            fcb.CopyPixels(px, w * 4, 0);
+            double r = 0, g = 0, b = 0, peso = 0;
+            for (int i = 0; i + 3 < px.Length; i += 4)
+            {
+                byte B = px[i], G = px[i + 1], R = px[i + 2], A = px[i + 3];
+                if (A < 128) { continue; }
+                int max = Math.Max(R, Math.Max(G, B)), min = Math.Min(R, Math.Min(G, B));
+                double sat = max == 0 ? 0 : (max - min) / (double)max;
+                if (sat < 0.25 || max < 60) { continue; }
+                r += R * sat; g += G * sat; b += B * sat; peso += sat;
+            }
+            if (peso < 1) { return false; }
+            resultado = Color.FromRgb((byte)(r / peso), (byte)(g / peso), (byte)(b / peso));
+            return true;
+        }
+        catch { return false; }
+    }
+
     // VISTAZO (13/09): acercar el raton a la capsula en reposo enseña la hora y
     // la bateria en una linea, 2,5 s, y se va sola. Nada mas: la misma capsula.
     // No toca estadoActual ni textoActual, asi que el asistente sigue mandando:
@@ -1512,6 +1606,7 @@ public class NovaUI : Window
         if (BateriaBaja()) { periodo = 900; }
         if (dormido) { periodo = 4200; }
         if (calmaHasta && DateTime.UtcNow < calmaFin) { periodo = 3200; }
+        if (enFoco && !dormido) { periodo = Math.Max(periodo, 3000); }   // concentrada: respira despacio
         double bajo = dormido ? 0.22 : 0.55, alto = dormido ? 0.45 : 1.0;
         var a = new DoubleAnimation(bajo, alto, TimeSpan.FromMilliseconds(periodo));
         a.AutoReverse = true;
@@ -2108,7 +2203,7 @@ public class NovaUI : Window
         // la expresion de los ojos acompana al gesto
         switch (nombre)
         {
-            case "carino": case "gracias": case "risa": case "logro": case "alivio": case "apoyo": case "orgullo": case "aprendido": case "sinia": case "nivel": Expresion("felices", 1700); break;
+            case "carino": case "gracias": case "risa": case "logro": case "alivio": case "apoyo": case "orgullo": case "aprendido": case "sinia": case "nivel": case "descargado": Expresion("felices", 1700); break;
             case "duda": case "confuso": case "paciencia": case "perdida": Expresion("entrecerrados", 1300); break;
             case "sorpresa": case "grito": case "sobresalto": case "atencion": Expresion("abiertos", 900); break;
             case "pena": case "despedida": Expresion("tristes", 1900); break;
@@ -2271,6 +2366,13 @@ public class NovaUI : Window
                 escalaGesto.BeginAnimation(ScaleTransform.ScaleYProperty, Secuencia(new double[] { 1, 1.15, 1 }, 300));
                 trasGesto.BeginAnimation(TranslateTransform.YProperty, Secuencia(new double[] { 0, -2, 0 }, 300));
                 break;
+            case "descargado":
+                // DESCARGA TERMINADA (13/09): salto, chispas azules y una onda del
+                // color del anillo de descarga, que es el que la acompañaba
+                Saltar(1.35);
+                Chispas(Color.FromRgb(0x5A, 0xA9, 0xE6));
+                Ondas(1, Color.FromRgb(0x5A, 0xA9, 0xE6));
+                break;
             case "nivel":
                 // SUBIO DE NIVEL (13/09): como un logro pero sin sonido, que llega
                 // justo despues de hablar. Chispas y una onda dorada, y un salto.
@@ -2357,7 +2459,7 @@ public class NovaUI : Window
         {
             case "bateria": c = Color.FromRgb(0xFF, 0xA5, 0x3A); break;   // ambar
             case "tiempo": c = Color.FromRgb(0x4B, 0xE0, 0xC0); break;    // turquesa
-            case "descarga": c = Color.FromRgb(0x5A, 0xA9, 0xE6); break;  // el azul del anillo
+            case "descarga": c = Color.FromRgb(0x5A, 0xA9, 0xE6); Saltar(1.3); break;  // el azul del anillo, y un salto: termino
             case "recordatorio": c = Color.FromRgb(0xB6, 0x8C, 0xFF); break;
             case "mensaje": c = Color.FromRgb(0x8F, 0xC4, 0xFF); break;   // azul claro: te han escrito
             default: c = ColorDe("pensando"); break;
@@ -2457,7 +2559,7 @@ public class NovaUI : Window
             cerca = cercaAhora;
             if (estadoActual == "reposo" || estadoActual == "" || estadoActual == "escuchando")
             {
-                var op = new DoubleAnimation(cerca ? 0.95 : 0.5, TimeSpan.FromMilliseconds(350));
+                var op = new DoubleAnimation(cerca ? 0.95 : (NocheProfunda() ? 0.18 : 0.5), TimeSpan.FromMilliseconds(350));
                 var rad = new DoubleAnimation(RadioHalo(cerca), TimeSpan.FromMilliseconds(350));
                 resplandor.BeginAnimation(DropShadowEffect.OpacityProperty, op);
                 resplandor.BeginAnimation(DropShadowEffect.BlurRadiusProperty, rad);
@@ -2790,7 +2892,7 @@ public class NovaUI : Window
     // para quien mira, no un aviso. Ni dormida ni a pantalla completa.
     void ClimaVivo()
     {
-        if (tiempoActual == "" || dormido || Cine() || !(estadoActual == "reposo" || estadoActual == "")) { return; }
+        if ((tiempoActual != "lluvia" && tiempoActual != "nieve" && tiempoActual != "tormenta") || dormido || Cine() || !(estadoActual == "reposo" || estadoActual == "")) { return; }
         if (DateTime.UtcNow < proximoClima) { return; }
         proximoClima = DateTime.UtcNow.AddSeconds(14 + azar.NextDouble() * 12);
         if (tiempoActual == "nieve") { Flotar(copo, 3, 10, 2600); return; }
@@ -3051,6 +3153,12 @@ public class NovaUI : Window
                 descarga = Math.Max(0, Math.Min(1, dsc));
                 if (hac != haciendoActual) { PintarHaciendo(hac); }
                 musica = Campo(j, "musica", "0") == "1";
+                int volN;
+                if (int.TryParse(Campo(j, "vol", "-1"), out volN) && volN != volVisto)
+                {
+                    if (volVisto != -2 && volN >= 0) { PulsoVolumen(volN); }
+                    volVisto = volN;
+                }
                 // la pista del si/no: en una pregunta peligrosa la A no vale, y
                 // jugando hace falta ≡ a la vez (revision del 13/09)
                 if (pistaSiNo != null)
@@ -3084,6 +3192,9 @@ public class NovaUI : Window
                     Colocar();
                     areaColocada = AreaUtil();
                     RecapturarTrasMover(150);   // el cristal ensena otro trozo de pantalla
+                    // ESTELA AL CAMBIAR DE ESQUINA (13/09): llega con dos ondas y un salto
+                    Ondas(2, ColorDe(estadoActual == "" ? "reposo" : estadoActual));
+                    Saltar(1.2);
                 }
                 tempoTipoActual = Campo(j, "tempoTipo", "");
                 if (oido != oidoActual)
@@ -3107,7 +3218,8 @@ public class NovaUI : Window
         // 'reposo'. Se salta el tic y se prueba en el siguiente (80 ms).
         catch { return; }
         ActualizarVaiven(est);
-        if (expresion != "normal" && DateTime.UtcNow >= expresionHasta && !dormido) { Expresion("normal", 0); }
+        ActualizarExpresionBase();
+        if (expresion != expresionBase && DateTime.UtcNow >= expresionHasta && !dormido) { Expresion(expresionBase, 0); }
 
         if (est == "escuchando" && rutaNivel != null)
         {
@@ -3148,6 +3260,8 @@ public class NovaUI : Window
             if (cambioJuego) { EscalaFoco(foco && (estadoActual == "reposo" || estadoActual == "")); }
             climaActual = clima;
             CargarAvatar(juego, clima);
+            // el color de reposo depende del juego (EL TONO DEL JUEGO): se rehace
+            if (cambioJuego) { colorAplicado = default(Color); Aplicar(estadoActual, textoActual, false); }
         }
         if (audio != audioActual)
         {
@@ -3241,6 +3355,7 @@ public class NovaUI : Window
         }
         bool conAvatar = (bs != null) || !string.IsNullOrEmpty(clima);
         avatar.Source = bs;
+        hayColorJuego = (bs != null) && ColorDominante(bs, out colorJuego);
         avatar.Visibility = (bs != null) ? Visibility.Visible : Visibility.Collapsed;
         avatarClima.Text = clima ?? "";
         avatarClima.Visibility = (bs == null && !string.IsNullOrEmpty(clima)) ? Visibility.Visible : Visibility.Collapsed;
@@ -3262,6 +3377,8 @@ public class NovaUI : Window
             a.FillBehavior = FillBehavior.Stop;
             s.BeginAnimation(ScaleTransform.ScaleXProperty, a);
             s.BeginAnimation(ScaleTransform.ScaleYProperty, a);
+            // EL ICONO DEL JUEGO ENTRA GIRANDO (13/09)
+            if (bs != null) { rotGesto.BeginAnimation(RotateTransform.AngleProperty, Secuencia(new double[] { -35, 10, 0 }, 170)); }
             Ondas(1, ColorDe(estadoActual == "" ? "reposo" : estadoActual));
         }
         else { Saltar(0.4); }
@@ -3329,6 +3446,7 @@ public class NovaUI : Window
                     // de noche: el de siempre se vuelve melocoton; uno elegido
                     // se respeta, solo un poco templado
                     if (Noche()) { c = elegido ? Mezcla(c, Color.FromRgb(0xFF, 0xB0, 0x7A), 0.3) : Color.FromRgb(0xFF, 0xB0, 0x7A); }
+                    if (hayColorJuego && !string.IsNullOrEmpty(juegoActual)) { c = Mezcla(c, colorJuego, 0.18); }
                     if (Desanimado()) { c = Mezcla(c, Color.FromRgb(0x8A, 0x96, 0x9C), 0.45); }   // apagado
                     else if (animo >= 0.5) { c = Mezcla(c, Colors.White, 0.12); }              // mas vivo
                     if (Agitado()) { c = Mezcla(c, Color.FromRgb(0xFF, 0x6A, 0x4A), 0.35); }   // caliente
@@ -3546,7 +3664,7 @@ public class NovaUI : Window
             resplandor.BeginAnimation(DropShadowEffect.OpacityProperty, null);
             // modo cine (pantalla completa sin juego): halo al minimo
             bool cine = foco && string.IsNullOrEmpty(juegoActual) && (estado == "reposo" || estado == "");
-            resplandor.Opacity = cine ? 0.15 : (estado == "atenta" ? 0.3 : (cerca ? 0.95 : 0.5));
+            resplandor.Opacity = cine ? 0.15 : (estado == "atenta" ? 0.3 : (cerca ? 0.95 : (NocheProfunda() ? 0.18 : 0.5)));
         }
     }
 

@@ -522,7 +522,7 @@ def transcribir_whisper(bloques, modelo=None, seguir=None):
     # Los tres umbrales descartan el segmento cuando no hay voz de verdad:
     # sin ellos Whisper siempre devuelve algo, aunque el audio sea ruido.
     segmentos, info = modelo.transcribe(
-        audio, language="es", beam_size=2, best_of=1,
+        audio, language=idioma_dictado(), beam_size=2, best_of=1,
         vad_filter=True, vad_parameters=dict(min_silence_duration_ms=500),
         condition_on_previous_text=False,
         no_speech_threshold=0.6,
@@ -546,6 +546,46 @@ def transcribir_whisper(bloques, modelo=None, seguir=None):
 # orden. "nova abre steam" debe ejecutarse como "abre steam".
 PATRON_INICIO = re.compile(
     r"^\s*(?:oye\s+|hola\s+|ey\s+)?" + re.escape(NOMBRE_PLANO) + r"\b[\s,.]*", re.IGNORECASE)
+
+
+# EL IDIOMA DEL DICTADO (13/09): "traduce lo que diga". El asistente deja el
+# codigo (en, fr...) en idioma-dictado.txt, junto a los demas archivos de estado,
+# y lo quita al terminar. Sin archivo, espanol.
+def idioma_dictado():
+    try:
+        ruta = os.path.join(os.path.dirname(NIVEL), "idioma-dictado.txt") if NIVEL else ""
+        if not ruta or not os.path.exists(ruta):
+            return "es"
+        with open(ruta, encoding="utf-8") as f:
+            v = f.read().strip().lower()
+        return v if re.match(r"^[a-z]{2}$", v) else "es"
+    except Exception:
+        return "es"
+
+
+# NOTAS DE VOZ (13/09): si el asistente dejo una ruta en guardar-audio.txt, el
+# audio del dictado que acaba de terminar se guarda ahi en WAV (16 kHz, mono).
+def guardar_audio_si_toca(bloques):
+    try:
+        ruta_pedido = os.path.join(os.path.dirname(NIVEL), "guardar-audio.txt") if NIVEL else ""
+        if not ruta_pedido or not os.path.exists(ruta_pedido):
+            return
+        with open(ruta_pedido, encoding="utf-8") as f:
+            destino = f.read().strip()
+        os.remove(ruta_pedido)
+        if not destino or not bloques:
+            return
+        import wave
+        os.makedirs(os.path.dirname(destino), exist_ok=True)
+        datos = np.concatenate(bloques).astype(np.int16).tobytes()
+        with wave.open(destino, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(TASA)
+            w.writeframes(datos)
+        anota("nota de voz guardada (%.1f s)" % (len(datos) / 2.0 / TASA))
+    except Exception as e:
+        anota("WARN: no pude guardar la nota de voz (%s)" % e)
 
 
 def quitar_nombre(texto):
@@ -842,6 +882,7 @@ try:
                     escribir(TEXTO, texto_final)
                     dictando = False
                     ultimo_audio = audio_dictado
+                    guardar_audio_si_toca(ultimo_audio)
                     audio_dictado = []
                     rec = nuevo_reconocedor()
 
@@ -1037,6 +1078,7 @@ try:
                                 pass
                             dictando = False
                             ultimo_audio = audio_dictado
+                            guardar_audio_si_toca(ultimo_audio)
                             audio_dictado = []
                             rec = nuevo_reconocedor()
                         # en dictado no se evalua la palabra de activacion

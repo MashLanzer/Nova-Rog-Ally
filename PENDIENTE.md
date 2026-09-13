@@ -155,6 +155,65 @@ Segunda tanda, elegidas todas el 13/09 (misma regla de diseño):
 
 ---
 
+## Cuarta tanda (elegidas todas el 13/09, noche)
+
+Regla de diseño de siempre: minimalista, sin cambiar la cápsula.
+
+Diseño (todo en nova_ui.cs, sin elementos nuevos a la vista):
+- [x] D1 La sombra sigue al sol (ángulo según la hora).
+- [x] D2 Estela breve al cambiar de esquina.
+- [x] D3 Asiente con ≡+A y niega con ≡+B.
+- [x] D4 Cara de concentración en modo foco (ojos entrecerrados, latido lento).
+- [x] D5 El halo marca el volumen al cambiarlo (campo `vol`).
+- [x] D6 Tono muy leve del icono del juego en el color de reposo (18 %).
+- [x] D7 Expresión según el tiempo (lluvia/nieve cautos, sol atentos).
+- [x] D8 Noche profunda: tras medianoche, halo casi apagado.
+- [x] D9 Descarga terminada: el anillo se completa con un salto.
+- [x] D10 El icono del juego entra girando.
+
+Funciones:
+- [x] F1 Recordatorio de un solo uso ligado a abrir una app o juego.
+- [x] F2 «Resúmeme esto» (pantalla resumida por voz).
+- [x] F3 Contactos importantes en las notificaciones («pon a Ana como importante»).
+- [x] F4 Brillo automático por hora («activa el brillo automático»).
+- [x] F5 Notas de voz: «graba una nota» (el worker guarda el WAV en
+      memoria\notas-voz, con su texto al lado), «reproduce mi última nota»,
+      «lee mi última nota de voz».
+- [x] F6 Traductor de conversación: «traduce lo que diga (en francés)». Whisper
+      escucha en ese idioma, la traducción se oye y vuelve a escuchar sola; se
+      acaba con silencio o «stop».
+- [x] F8 Modo invitado: «pon el modo invitado» / «quita el modo invitado» (o
+      solo tras 30 min sin órdenes). Sin costumbres, recetas, perfil, voz,
+      estadísticas, notas ni mensajes, y la charla no hereda la tuya.
+- [x] F9 Copia de seguridad también en OneDrive (14 últimas).
+- ~~F10 Aviso de temperatura~~ **No viable:** WMI (MSAcpi_ThermalZoneTemperature)
+  da acceso denegado sin administrador.
+
+Mejoras de lo que existe:
+- [x] M1 Recetas que preguntan el valor que falta («crea una carpeta» → «¿Qué
+      nombre?»). Solo con un hueco y al final de la frase aprendida.
+- [x] M2 Temporizadores con nombre, pausa y «¿cuánto le queda al de…?».
+- [x] M3 Reglas combinadas («cuando abra X y sea de noche…»; noche = 20:00–7:00).
+- [x] M4 Hábitos que proponen modos: tres órdenes seguidas (en menos de 5 min,
+      tres días) → «¿te hago un modo?» → «modo rutina».
+- [x] M5 Panel rápido con Energía y Salida de sonido.
+- [x] M6 «Dónde me quedé» automático leyendo la pantalla al salir.
+- [x] M7 Contestar mensajes por voz («contéstale que ya voy»; escribe sin enviar).
+- [x] M8 Parte de la mañana: primera orden del día (5–12 h), una línea sin voz
+      con el tiempo, la batería y lo de hoy.
+- [x] M9 Batería con consejo («¿me da para jugar hasta las 12?»).
+- [x] M10 Listas al portapapeles («copia la lista de la compra», «pásame mi lista»).
+
+### SECCIÓN APARTE: conversación de verdad (pedida el 13/09)
+
+La idea F7 («cuentas y conversiones sin IA») se convierte en algo más grande:
+que Nova pueda **conversar de verdad** sin pasar por Claude Code. Requisitos
+que puso braya:
+- Una IA de conversación propia (sin Claude Code).
+- **Nova vuelve a escuchar sola después de responder o de hacer cada cosa**,
+  esperando más palabras suyas, sin tener que decir «Nova» otra vez.
+- Se tratará como una sección completa, después de la cuarta tanda.
+
 ## Tercera tanda de ideas (13/09, noche): hechas
 
 - [x] **Modo de energía por voz:** «modo ahorro», «modo rendimiento», «modo

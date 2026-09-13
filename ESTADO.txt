@@ -203,6 +203,31 @@ TERCERA TANDA Y AUDITORÍA (13/09, noche). Detalle en PENDIENTE.md.
   Una auditoría exhaustiva encontró 9 fallos graves y 13 medios; arreglados 8 y
   11 (el resto, anotado en PENDIENTE.md), varios comprobados en vivo.
 
+CUARTA TANDA (13/09, noche). Detalle en PENDIENTE.md.
+  Cápsula, sin nada nuevo a la vista: la sombra sigue al sol, estela al cambiar
+  de esquina, asiente (≡+A) y niega (≡+B), ojos entrecerrados en modo foco,
+  el halo marca el volumen, un tinte leve del juego, cara según el tiempo,
+  halo casi apagado de madrugada, salto al terminar una descarga, icono que
+  entra girando.
+  - "Recuérdame comprar la expansión cuando abra Hades" (una sola vez).
+  - "Resúmeme esto" (lee la pantalla) y "apunta dónde me quedé".
+  - "Pon a Ana como importante": con la lista, solo avisan esos mensajes.
+  - "Activa el brillo automático" (según la hora).
+  - "Graba una nota" / "reproduce mi última nota" / "lee mi última nota de voz".
+  - "Traduce lo que diga en inglés": traduce en voz y vuelve a escuchar sola.
+  - "Pon el modo invitado": no aprende ni mira tus cosas; se quita solo.
+  - Copias de seguridad también en OneDrive.
+  - Temporizadores con nombre y pausa; "¿cuánto le queda al de la pizza?".
+  - "Cuando abra Hades y sea de noche, pon modo noche".
+  - Tres órdenes que siempre pides seguidas: te propone un "modo rutina".
+  - El panel rápido cambia el modo de energía y la salida de sonido.
+  - "Contéstale que ya voy" (escribe en la app del último mensaje, sin enviar).
+  - La primera orden del día enseña una línea: tiempo, batería y lo de hoy.
+  - "¿Me da la batería para jugar hasta las 12?" (y ofrece el modo ahorro).
+  - "Copia la lista de la compra" para pegarla donde quieras.
+  - Una receta a la que le falta el dato ("crea una carpeta") lo pregunta.
+  No se pudo: el aviso de temperatura (Windows no la da sin administrador).
+
 LO QUE QUEDA POR HACER: PENDIENTE.md (8 ideas con su porqué, y las trampas
   de esta base de código que conviene leer antes de tocar nada). El 12/09 se
   hicieron la 1, la 2, la 3, la 4, la 7, la 9, la 11, la 13, la 14, la 15 y
