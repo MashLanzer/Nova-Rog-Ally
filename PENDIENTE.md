@@ -231,8 +231,31 @@ que puso braya:
 - [x] Al acabar de contestar escucha sola ~7 s, y otra ventana si callas; las
       respuestas cortas («sí, claro») siguen la conversación. La charla se
       olvida tras 5 min sin hablar. La voz ajena se sigue descartando.
+- [x] **Cerebro propio** (`charla_memoria.py`, pedido «con especial atención»):
+      todo lo que responden Ollama y la API se aprende en `memoria\cerebro\`
+      (fuera del repositorio) para no tener que volver a preguntarlo.
+      - Lo de la API entra firme; lo del modelo local, **provisional**: solo
+        sirve de pista («sin confirmar») hasta que la API lo revisa en segundo
+        plano (y nunca mientras se habla). Si estaba mal, guarda lo correcto y
+        Nova se corrige («por cierto, antes me equivoqué…»).
+      - Responde de memoria (sin Ollama, ~0 s) solo si está firme, es la misma
+        pregunta con el mismo interrogativo, no es personal ni caduca (hoy,
+        precios, noticias) y no depende de lo hablado justo antes.
+      - Busca por palabras (siempre) y por significado (`embeddinggemma`, 338 MB,
+        cargado solo para cada consulta que no se encuentra por palabras).
+      - De cada charla saca también datos sobre braya (van al perfil de siempre,
+        con sus filtros), cómo le gusta que le hablen, sus temas, lo que cuenta
+        y un recuerdo. Nada de datos sensibles; nada de un invitado.
+      - «Eso no es verdad» rechaza lo último y pregunta a la API; «olvida lo de
+        X» borra lo aprendido sobre X.
+      - Probado de verdad: respuesta local → revisada por la API → firme → la
+        segunda vez, de memoria en 2 s; «me encanta Hades» → dos datos al perfil.
+- [ ] La clave `ANTHROPIC_API_KEY` venía con un salto de línea al final (la API
+      no funcionaba en el worker; ya se limpia al leerla) y ha salido en claro
+      en la sesión del 13/09: **revocarla y crear otra**.
 - [ ] Ver con el uso real si el 3B se inventa datos demasiado (el de los pulpos
       salió mal dos veces) y si hace falta pasar más preguntas a la API.
+- [ ] «¿Qué has aprendido?» todavía no cuenta lo del cerebro propio.
 - [ ] Si la RAM aprieta jugando: `qwen2.5:3b-instruct-q3_K_M` (~1,6 GB) o bajar
       la memoria reservada a la gráfica en Armoury Crate (hoy 8 de 16 GB).
 

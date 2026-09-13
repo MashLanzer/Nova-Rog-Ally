@@ -66,6 +66,10 @@ Titulo "2t. Conversacion (frases, marcas [ORDEN]/[API], local -> API -> local)"
 python (Join-Path $PSScriptRoot 'probar-charla.py') | Select-String 'MAL|todo correcto'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2u. Cerebro propio (aprende sin quedarse con datos malos, busca por palabras y significado)"
+python (Join-Path $PSScriptRoot 'probar-memoria.py') | Select-String 'MAL|todo correcto'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2d. La tarjeta de respuestas largas (que no te saque del juego)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-tarjeta.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }

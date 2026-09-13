@@ -37,6 +37,10 @@ t = cw.Troceador()
 comp("sin puntos, se corta antes de 200 letras", len(t.meter("palabra " * 40)[0]) <= 200)
 comp("limpia asteriscos, listas y emojis", cw.limpiar("- **Claro** 😀 que si") == "Claro que si", cw.limpiar("- **Claro** 😀 que si"))
 comp("lo que pide internet va a la API", cw.necesita_api("dime las noticias de hoy") and not cw.necesita_api("hoy estoy cansada"))
+err = "memoria: revision fallida (Illegal header value b'sk-ant-api03-AbC_dEf-123\\n')"
+comp("una clave NUNCA sale hacia el log", "sk-ant" not in cw.seguro(err) and "[clave oculta]" in cw.seguro(err), cw.seguro(err))
+os.environ["ANTHROPIC_API_KEY"] = "falsa\n"
+comp("la clave con salto de linea al final se limpia", cw._cabeceras()["x-api-key"] == "falsa")
 
 print("--- el principio puede ser una marca ---")
 i = cw.Inicio([cw.MARCA_ORDEN, cw.MARCA_API])
@@ -124,7 +128,7 @@ f = hablar(1, "hola nova", Resp(local("Me alegro mucho de oírte. ", "¿Qué tal
 comp("charla normal: la contesta el local", f.get("origen") == "local", f)
 comp("frase a frase", frases() == ["Me alegro mucho de oírte.", "¿Qué tal ha ido el día?"], frases())
 comp("se recuerda lo hablado", [m["role"] for m in cw.historial] == ["user", "assistant"])
-comp("el local lleva contexto corto (poca RAM)", llamadas[-1][1]["options"]["num_ctx"] == 1024 and llamadas[-1][1]["keep_alive"] == "2m")
+comp("el local lleva contexto corto (poca RAM)", llamadas[-1][1]["options"]["num_ctx"] == 1536 and llamadas[-1][1]["keep_alive"] == "2m")
 
 f = hablar(2, "abreme la carpeta de capturas", Resp(local("[ORD", "EN]")))
 comp("algo que hacer: el local lo devuelve como orden", f["ev"] == "orden" and f["texto"] == "abreme la carpeta de capturas" and frases() == [], f)
@@ -164,6 +168,86 @@ comp("tras 5 min sin hablar, la charla empieza de cero", len(cw.historial) == 2,
 cw.historial[:] = [{"role": "assistant", "content": "x"}] + [{"role": "user" if n % 2 == 0 else "assistant", "content": str(n)} for n in range(14)]
 cw.recortar()
 comp("la memoria se recorta y empieza por el usuario", len(cw.historial) <= cw.MAX_HISTORIAL and cw.historial[0]["role"] == "user", len(cw.historial))
+
+print("--- con su propio cerebro ---")
+import shutil  # noqa: E402
+import tempfile  # noqa: E402
+import charla_memoria as cm  # noqa: E402
+
+carpeta = tempfile.mkdtemp(prefix="nova-charla-cerebro-")
+try:
+    cw.cerebro = cm.Cerebro(carpeta)
+    cw.api_rota_hasta = 0
+    cw.historial.clear()
+    perfil = os.path.join(carpeta, "perfil.md")
+    with open(perfil, "w", encoding="utf-8") as fp:
+        fp.write("# Perfil\n- Su juego favorito es Hades\n")
+    cw.RUTA_PERFIL = perfil
+
+    f = hablar(20, "¿Qué es un agujero negro?", Resp(local("[API]")), Resp(api("Es una región del espacio de la que ni la luz escapa. ")))
+    comp("la API contesta y se aprende firme", f.get("origen") == "api" and cw.cerebro.balance()["respuestas"] == 1, cw.cerebro.balance())
+    antes = len(llamadas)
+
+    class EmbedContador:
+        nombre = "contador"
+        n = 0
+
+        def vectores(self, textos):
+            EmbedContador.n += 1
+            return [[1.0, 0.0] for _ in textos]
+    cw.cerebro.embedder = EmbedContador()
+    f = hablar(21, "oye nova, ¿qué es un agujero negro?")
+    comp("la segunda vez lo dice de memoria, sin llamar a nadie", f.get("origen") == "memoria" and len(llamadas) == antes and frases() == ["Es una región del espacio de la que ni la luz escapa."], (f, frases()))
+    comp("y si lo encuentra por palabras, ni carga el modelo de significado", EmbedContador.n == 0, EmbedContador.n)
+    cw.cerebro.embedder = None
+
+    f = hablar(22, "¿Cuánto duerme un oso polar?", Resp(local("El oso polar puede vivir sin dormir. ")))
+    comp("lo del local entra provisional", f.get("origen") == "local" and cw.cerebro.balance()["provisionales"] == 1, cw.cerebro.balance())
+    f = hablar(23, "¿cuánto duerme un oso polar?", Resp(local("Unas ocho horas. ")))
+    sistema = llamadas[-1][1]["messages"][0]["content"]
+    comp("lo provisional NO se repite: vuelve al modelo con la pista marcada", f.get("origen") == "local" and "SIN CONFIRMAR" in sistema, sistema[-300:])
+    comp("y el modelo lleva el perfil de braya", "Su juego favorito es Hades" in sistema)
+
+    del eventos[:]
+    guion[:] = [Resp(api("Tienes razón, duermen unas siete u ocho horas. "))]
+    cw.responder({"op": "hablar", "id": 24, "texto": "eso no es verdad", "duda": True})   # la marca la pone Send-Charla
+    f = fin()
+    comp("'eso no es verdad': a la API primero", f.get("origen") == "api" and llamadas[-1][0].startswith("https://api.anthropic.com"), f)
+
+    f = hablar(25, "¿Qué es un volcán?", Resp(api("Una montaña que expulsa lava. ")))
+    antes_b = cw.cerebro.balance()
+    del eventos[:]
+    guion[:] = [Resp(local("Un tsunami es una ola enorme. "))]
+    cw.responder({"op": "hablar", "id": 26, "texto": "¿Qué es un tsunami?", "invitado": True})
+    sistema = llamadas[-1][1]["messages"][0]["content"]
+    comp("de un invitado no se aprende", cw.cerebro.balance() == antes_b, (antes_b, cw.cerebro.balance()))
+    comp("y no lleva el perfil de braya", "Su juego favorito es Hades" not in sistema)
+    comp("de un invitado no queda nada pendiente", all(j["pregunta"] != "¿Qué es un tsunami?" for j in cw.cerebro.datos["pendientes"]))
+
+    print("--- la revision en segundo plano ---")
+    del eventos[:]
+    cw.llamar_api_simple = lambda s, t, max_tokens=500: json.dumps({
+        "tipo_turno": "charla", "respuesta_correcta": True, "datos_usuario": ["A braya le encanta Hades"],
+        "estilo": ["respuestas cortas"], "temas": ["espacio"], "hechos": [], "recuerdo": ""})
+    cw.ocupado.set()
+    comp("mientras contesta, no revisa", cw.revisar_una() is False)
+    cw.ocupado.clear()
+    pendientes_antes = len(cw.cerebro.datos["pendientes"])
+    comp("en reposo revisa un turno", cw.revisar_una() is True and len(cw.cerebro.datos["pendientes"]) == pendientes_antes - 1)
+    comp("y manda al asistente lo que es para el perfil", any(e["ev"] == "dato" and e["texto"] == "A braya le encanta Hades" for e in eventos), eventos)
+
+    def api_rota(s, t, max_tokens=500):
+        raise RuntimeError("api 400")
+    cw.llamar_api_simple = api_rota
+    job = cw.cerebro.siguiente_pendiente()
+    cw.revisar_una()
+    j2 = [j for j in cw.cerebro.datos["pendientes"] if j["id"] == job["id"]]
+    comp("si la API falla, el turno sigue pendiente para luego", j2 and j2[0]["intentos"] == 1)
+    os.environ.pop("ANTHROPIC_API_KEY", None)
+    comp("sin API no revisa (y nada se da por bueno)", cw.revisar_una() is False)
+finally:
+    cw.cerebro = None
+    shutil.rmtree(carpeta, ignore_errors=True)
 
 if mal:
     print("%d casos MAL" % mal)

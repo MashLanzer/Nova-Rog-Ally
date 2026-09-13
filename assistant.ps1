@@ -8704,6 +8704,11 @@ $ConversacionOn = [bool](Get-Cfg 'conversacion' 'activada' $true)
 $ConversacionModelo = [string](Get-Cfg 'conversacion' 'modeloLocal' 'qwen2.5:3b')
 $ConversacionApi = [string](Get-Cfg 'modelo' 'rapido' 'claude-haiku-4-5')
 $ConversacionEsperaMs = [int](Get-Cfg 'conversacion' 'esperaMs' 7000)
+# EL CEREBRO PROPIO (charla_memoria.py): lo aprendido hablando, en memoria\cerebro
+# (fuera del repositorio). El modelo de embeddings busca por significado; sin el,
+# se busca solo por palabras.
+$ConversacionEmbed = [string](Get-Cfg 'conversacion' 'modeloEmbeddings' 'embeddinggemma:300m-qat-q8_0')
+$CerebroDir = Join-Path $MemoriaDir 'cerebro'
 $script:charlaProc = $null
 $script:charlaLectura = $null
 $script:charlaId = 0
@@ -8721,7 +8726,8 @@ function Initialize-Charla {
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = $PyExe
-        $psi.Arguments = "-u `"$CharlaWorker`" $ConversacionModelo $ConversacionApi"
+        $embedArg = if ($ConversacionEmbed) { $ConversacionEmbed } else { '-' }
+        $psi.Arguments = "-u `"$CharlaWorker`" $ConversacionModelo $ConversacionApi $embedArg `"$CerebroDir`" `"$PerfilPath`""
         $psi.UseShellExecute = $false
         $psi.RedirectStandardInput = $true
         $psi.RedirectStandardOutput = $true
@@ -8751,10 +8757,12 @@ function Send-CharlaPedido($pedido, [bool]$arrancar = $true) {
     } catch { Log ("charla: no pude escribir al worker: " + $_.Exception.Message); return $false }
 }
 
-function Send-Charla([string]$text) {
+function Send-Charla([string]$text, [bool]$duda = $false) {
     if (-not $ConversacionOn -or -not $text) { return $false }
     $script:charlaId++
-    $pedido = @{ op = 'hablar'; id = $script:charlaId; texto = $text }
+    # invitado: ni se aprende de lo que diga ni se le pone delante lo tuyo.
+    # duda: "eso no es verdad", la ultima respuesta queda como incorrecta
+    $pedido = @{ op = 'hablar'; id = $script:charlaId; texto = $text; invitado = [bool]$script:invitado; duda = $duda }
     if ($script:juegoActivo) { $pedido.juego = [string]$script:juegoActivo }
     if (-not (Send-CharlaPedido $pedido)) { return $false }
     $script:charlaTexto = $text
@@ -8809,6 +8817,19 @@ function Receive-Charla {
         try { $ev = $linea | ConvertFrom-Json } catch { $ev = $null }
         if (-not $ev) { continue }
         if ($ev.ev -eq 'info') { Log "charla: $($ev.texto)"; continue }
+        # EL CEREBRO PROPIO: lo que la revision saco de la charla (llega cuando sea, sin id)
+        if ($ev.ev -eq 'dato') {
+            if (-not $script:invitado) { try { [void](Add-DatoPerfil ([string]$ev.texto) 'charla') } catch {} }
+            continue
+        }
+        if ($ev.ev -eq 'correccion') {
+            Log "charla: me equivoque, lo correcto es: $($ev.texto)"
+            # solo si seguis hablando; si no, ya lo sabra para la proxima
+            if (($sw.ElapsedMilliseconds - $script:charlaUltima) -lt 90000 -and -not $script:armed -and -not $script:charlaEsperando) {
+                $script:charlaFrases.Enqueue("Por cierto, antes me equivoque: " + [string]$ev.texto)
+            }
+            continue
+        }
         if ([int]$ev.id -ne $script:charlaId) { continue }   # de una respuesta ya cortada
         if ($ev.ev -eq 'frase') {
             $script:charlaFrases.Enqueue([string]$ev.texto)
@@ -9921,6 +9942,21 @@ function Process-Texto([string]$text) {
                     Set-UI 'escuchando' $preguntaRecH
                     Start-Confirmacion
                 }
+                return
+            }
+        }
+
+        # EL CEREBRO PROPIO: "eso no es verdad" en plena charla rechaza lo ultimo que
+        # dijo (y se contesta de nuevo por la API); "olvida lo de X" borra lo aprendido
+        if ((Test-CharlaCaliente) -and $plano -match '^(?:no\s+)?(?:eso\s+no\s+es\s+(?:verdad|asi|cierto|correcto)|no\s+es\s+(?:verdad|asi|cierto)|te\s+equivocas|estas\s+equivocada|eso\s+esta\s+mal|mentira)\b') {
+            if (Send-Charla $text $true) { return }
+        }
+        if ($ConversacionOn -and $plano -match '^(?:olvida|olvidate\s+de)\s+(?:todo\s+)?lo\s+(?:de|que sabes de|sobre)\s+(?:la\s+|el\s+|los\s+|las\s+)?(.+)$') {
+            $temaO = $Matches[1]
+            if (Send-CharlaPedido @{ op = 'olvidar_tema'; texto = $temaO }) {
+                $script:seguimientoPendiente = $false
+                Log "CEREBRO: olvidar lo de '$temaO'"
+                Say "Vale, olvido lo de $temaO."
                 return
             }
         }

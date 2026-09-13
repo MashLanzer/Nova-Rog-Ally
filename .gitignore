@@ -64,5 +64,7 @@ memoria/habitos.json
 memoria/contactos.json
 # tus notas de voz (tu voz y lo que dices)
 memoria/notas-voz/
+# el cerebro propio de Nova: todo lo que ha aprendido hablando contigo
+memoria/cerebro/
 # archivos de memoria que no se podian leer, apartados en vez de perderse
 *.corrupto-*

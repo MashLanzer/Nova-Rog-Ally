@@ -238,8 +238,14 @@ CONVERSACIÓN DE VERDAD (13/09, noche). Detalle en PENDIENTE.md.
   - Responde frase a frase: la primera suena en unos 3 s.
   - Ollama arranca con Windows (icono de la bandeja). Ajustes de poca RAM en
     variables de entorno de usuario (OLLAMA_NUM_PARALLEL=1,
-    OLLAMA_MAX_LOADED_MODELS=1, OLLAMA_FLASH_ATTENTION=1,
+    OLLAMA_MAX_LOADED_MODELS=2, OLLAMA_FLASH_ATTENTION=1,
     OLLAMA_KV_CACHE_TYPE=q8_0, OLLAMA_KEEP_ALIVE=2m).
+  - CEREBRO PROPIO: lo que contestan el modelo local y la API se aprende en
+    memoria\cerebro (fuera del repositorio). La próxima vez que preguntes lo
+    mismo, Nova lo sabe sola, sin preguntar a nadie. Solo repite lo que la API
+    ha confirmado; lo que dijo el modelo local se revisa en segundo plano y, si
+    estaba mal, se corrige. También aprende datos sobre ti, cómo te gusta que
+    te hable y tus temas. "Eso no es verdad" y "olvida lo de..." lo corrigen.
 
 LO QUE QUEDA POR HACER: PENDIENTE.md (8 ideas con su porqué, y las trampas
   de esta base de código que conviene leer antes de tocar nada). El 12/09 se
