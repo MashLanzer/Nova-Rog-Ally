@@ -287,3 +287,9 @@ Están todas contadas en los commits, pero por si acaso:
   en otro. Pasó el 12/09 con las listas: el banco decía "apuntar pan" y en vivo
   se archivaba en el diario. Si algo se comporta distinto en vivo que en el
   banco, mirar esos atajos primero.
+- Scripts de prueba escritos con un heredoc de bash: `\\` se queda en `\`. Un
+  filtro como `'voice-ctrl\\assistant\.ps1'` acaba siendo `\a` (un BELL) y no
+  encuentra nada, así que la parada decía «quedan vivos: 0» con el asistente
+  encendido (13/09, dos veces). Para parar el asistente de una prueba: guardar
+  el PID de `Start-Process -PassThru`, parar sus hijos por `ParentProcessId` y
+  comprobar después desde PowerShell, no desde el heredoc.
