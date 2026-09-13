@@ -2947,6 +2947,43 @@ function Invoke-Receta($r, $valores) {
     return @{ ok = $true; texto = $txt }
 }
 
+# ENSEÑADA POR TI: "aprende que cuando diga prepara la partida, abre discord,
+# pon modo juego y baja el volumen al 40". Una receta de ordenes que Nova ya
+# sabe hacer, sin IA. Como la pediste tu, nace de confianza: no pregunta.
+# Cada orden se comprueba ANTES de guardar, igual que al crear un modo.
+function New-RecetaEnsenada([string]$disparador, [string]$cuerpo) {
+    $disp = (($disparador -replace '["«»“”{}]', '') -replace '\s+', ' ').Trim().TrimEnd('.', ',', ':', ';').Trim()
+    $palabras = @(((ConvertTo-Suave $disp) -replace '[^a-z0-9 ]', ' ').Trim() -split '\s+' | Where-Object { $_ })
+    if ($palabras.Count -lt 2) { return @{ ok = $false; texto = "Necesito una frase de al menos dos palabras para acordarme." } }
+    # que no pise lo que ya significa algo: "cuando diga abre steam, ..." no
+    if (Test-FastCommand $disp) { return @{ ok = $false; texto = "'$disp' ya significa otra cosa para mi; elige otra frase." } }
+    $lineas = @(); $malas = @()
+    foreach ($fr in @(Split-Ordenes $cuerpo)) {
+        if (-not $fr) { continue }
+        if (Resolve-Fragment $fr) { $lineas += $fr } else { $malas += $fr }
+    }
+    if ($lineas.Count -eq 0) { return @{ ok = $false; texto = "No entendi ninguna de esas ordenes, asi que no he aprendido nada." } }
+    if ($lineas.Count -gt 6) { $lineas = @($lineas | Select-Object -First 6) }
+    $g = Get-Recetas
+    $clave = ((ConvertTo-Suave $disp) -replace '\s+', ' ').Trim()
+    foreach ($x in @($g)) { if ((ConvertTo-Suave ([string]$x.frase)) -eq $clave) { [void]$g.Remove($x) } }
+    $pasos = New-Object System.Collections.ArrayList
+    foreach ($l in $lineas) { [void]$pasos.Add(@{ tipo = 'orden'; texto = $l }) }
+    $id = 1; foreach ($x in $g) { if ($x.id -ge $id) { $id = $x.id + 1 } }
+    $r = @{ id = $id; frase = $clave; resumen = ($lineas -join ', '); respuesta = 'Hecho.'; pasos = $pasos
+            variantes = (New-Object System.Collections.ArrayList); ejemplo = $disp; creada = (Get-Date -Format 's')
+            usos = 0; confirmadas = [Math]::Max(0, $RecetasConfirmar); fallos = 0; rechazos = 0 }
+    [void]$g.Add($r)
+    Save-Recetas
+    $script:ultimaReceta = $id
+    $script:ultimaRecetaEn = $sw.ElapsedMilliseconds
+    Log "RECETA $id ensenada: '$clave' -> $($lineas -join ' | ')"
+    Add-Estadistica 'receta-ensenada' $clave
+    $txt = "Aprendido: cuando digas '$disp', hare " + $(if ($lineas.Count -eq 1) { 'esto: ' } else { "$($lineas.Count) cosas: " }) + ($lineas -join '; ') + '.'
+    if ($malas.Count -gt 0) { $txt += " Esto no lo entendi y lo he dejado fuera: " + ($malas -join '; ') + '.' }
+    return @{ ok = $true; texto = $txt }
+}
+
 function Start-Receta($enc, [string]$text) {
     $r = $enc.receta
     Log "RECETA $($r.id): '$text' -> la hago sin IA"
@@ -3138,6 +3175,22 @@ $AccionesQueTocan = @('app', 'url', 'key', 'atajo', 'escribir', 'winkey', 'altf4
 
 function Invoke-FastCommand([string]$text) {
     if (-not $cmds) { return $null }
+    # ENSEÑARLE UNA SECUENCIA (ver New-RecetaEnsenada): "aprende que cuando diga
+    # prepara la partida, abre discord y pon modo juego". Va antes que el dato
+    # sobre ti y que el alias, que tambien empiezan por "aprende que".
+    if ($text -match '(?i)^\s*(?:aprende|apr[eé]ndete|aprendete|recuerda)\s+que\s+(?:cuando|si)\s+(?:te\s+)?(?:diga|digo)\s+(.+)$') {
+        $restoE = $Matches[1].Trim()
+        $dispE = $null; $cuerpoE = $null
+        # lo mas fiable: una coma o dos puntos entre la frase y lo que hay que hacer
+        if ($restoE -match '^(.+?)\s*[,:]\s*(?:(?:tienes que|debes|hay que|quiero que|entonces)\s+)?(.+)$') {
+            $dispE = $Matches[1]; $cuerpoE = $Matches[2]
+        } elseif ($restoE -match ('(?i)^(.+?)\s+(?:(?:tienes que|debes|hay que|quiero que|entonces)\s+)?((?:' + $VERBOS + '|modo|activa|desactiva)\b.+)$')) {
+            # sin coma: la frase acaba donde empieza la primera orden
+            $dispE = $Matches[1]; $cuerpoE = $Matches[2]
+        }
+        if ($dispE -and $cuerpoE) { return (New-RecetaEnsenada $dispE $cuerpoE).texto }
+        return "Dime la frase y lo que tengo que hacer, por ejemplo: aprende que cuando diga prepara la partida, abre discord y pon modo juego."
+    }
     # APRENDER UN DATO SOBRE TI (ver PERFIL): "aprende que mi carpeta de capturas
     # es D:\Capturas". Va ANTES que el alias de abajo, que tambien empieza por
     # "aprende que" y contestaria "no supe a que te refieres".
