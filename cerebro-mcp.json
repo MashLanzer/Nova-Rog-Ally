@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "windows": {
+      "type": "stdio",
+      "command": "windows-mcp",
+      "args": ["serve", "--transport", "stdio"]
+    }
+  }
+}

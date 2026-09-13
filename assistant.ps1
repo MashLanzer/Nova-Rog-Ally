@@ -4097,6 +4097,8 @@ $SoloYoOn = [bool](Get-Cfg 'escucha' 'soloYo' $true)
 $SoloYoMargen = [double](Get-Cfg 'escucha' 'soloYoMargenHz' 35)
 $SoloYoMinimo = [int](Get-Cfg 'escucha' 'soloYoMinimo' 12)
 $MarcaReintento = Join-Path $TmpDir "reintentar.flag"
+# una orden ESCRITA en vez de dicha (tools\decir.ps1): para probar sin hablar
+$RutaOrdenEscrita = Join-Path $TmpDir "orden-escrita.txt"
 $RutaReintento = Join-Path $TmpDir "reintento.txt"
 # nivel de voz 0..1 que el worker escribe mientras dictas; lo lee la interfaz
 # directamente (nova_ui.exe busca ui-nivel.txt junto a ui-estado.json)
@@ -5868,6 +5870,114 @@ $ClaudeModeloRapido = [string](Get-Cfg 'modelo' 'rapido' 'claude-haiku-4-5')
 $ClaudeModeloBueno = [string](Get-Cfg 'modelo' 'bueno' 'claude-opus-5')
 $ClaudeScript = Join-Path $LogDir "tools\claude-api.ps1"
 
+# =====================================================================
+# EL CEREBRO: CLAUDE CODE (13/09)
+# El mismo Claude que programa este asistente, en modo sin ventana (claude -p),
+# con la suscripcion del usuario. Sustituye como primera opcion a la API (sin
+# saldo) y a opencode (modelo gratuito y flojo), que quedan de respaldo.
+# Medido antes de montarlo, lanzado igual que aqui: Haiku sin herramientas
+# contesta en 3,8 s; Sonnet con el MCP de Windows hace una tarea con una
+# herramienta en 13,8 s. apiKeySource=none en los dos: tira de la suscripcion.
+# Entra por la MISMA puerta que opencode ($script:proc y los archivos out/err/
+# in), asi que la cancelacion con el boton, la capsula y la recogida no cambian.
+# =====================================================================
+$CerebroMotor = [string](Get-Cfg 'modelo' 'cerebro' 'claude-code')
+$CcCli = [string](Get-Cfg 'paths' 'claudeCodeCli' (Join-Path $env:APPDATA 'npm\node_modules\@anthropic-ai\claude-code\bin\claude.exe'))
+$CcModeloTraducir = [string](Get-Cfg 'modelo' 'ccTraducir' 'haiku')
+$CcModeloPregunta = [string](Get-Cfg 'modelo' 'ccPregunta' 'sonnet')
+$CcModeloAccion = [string](Get-Cfg 'modelo' 'ccAccion' 'sonnet')
+$CcMcp = Join-Path $LogDir 'cerebro-mcp.json'          # solo el MCP de Windows: cargar todos hace lento cada arranque
+$CcSistema = Join-Path $LogDir 'cerebro-sistema.md'    # quien es Nova, como hablar y las reglas fijas
+$CcSesionDir = Join-Path $LogDir 'cerebro'             # donde viven las charlas (--continue)
+# Lo mismo que se le prohibe a opencode (opencode.jsonc), en la sintaxis de
+# Claude Code. Van ADEMAS de las reglas fijas del prompt de sistema.
+$CcProhibido = @('Bash(rm -rf:*)', 'Bash(rm -fr:*)', 'Bash(rm -r:*)', 'Bash(format:*)', 'Bash(diskpart:*)', 'Bash(reg delete:*)',
+                 'Bash(shutdown:*)', 'Bash(git push --force:*)', 'Bash(git reset --hard:*)', 'Bash(git clean -f:*)',
+                 'PowerShell(Stop-Computer:*)', 'PowerShell(Restart-Computer:*)', 'PowerShell(Format-Volume:*)', 'PowerShell(Clear-Disk:*)',
+                 'PowerShell(shutdown:*)', 'PowerShell(diskpart:*)', 'PowerShell(reg delete:*)')
+$script:jobMotor = ''
+$script:jobPorCC = $false
+$script:ccFallo = $false
+
+function Test-CerebroClaudeCode {
+    return ($CerebroMotor -eq 'claude-code' -and -not $script:ccFallo -and (Test-Path -LiteralPath $CcCli))
+}
+
+function Start-ClaudeCodeJob([string]$prompt, [string]$modo, [string]$adjunto = '') {
+    $id = [System.Guid]::NewGuid().ToString("N")
+    $script:jobOut = Join-Path $TmpDir "out-$id.txt"
+    $script:jobErr = Join-Path $TmpDir "err-$id.txt"
+    $script:jobIn = Join-Path $TmpDir "in-$id.txt"
+    if (-not $prompt.Trim()) { Clear-OpencodeJob; return $false }
+    try {
+        if ($adjunto -and (Test-Path -LiteralPath $adjunto)) { $prompt = $prompt + " (La captura esta en: $adjunto. Mirala con la herramienta Read.)" }
+        # el prompt entra por STDIN desde un archivo: tildes, comillas y saltos
+        # de linea llegan intactos (en argv se destrozan)
+        [System.IO.File]::WriteAllText($script:jobIn, $prompt, (New-Object System.Text.UTF8Encoding($false)))
+        $a = New-Object System.Collections.ArrayList
+        foreach ($x in @('-p', '--output-format', 'stream-json', '--verbose')) { [void]$a.Add($x) }
+        if (Test-Path -LiteralPath $CcSistema) { [void]$a.Add('--append-system-prompt-file'); [void]$a.Add((ConvertTo-CmdArg $CcSistema)) }
+        $dir = $WORKDIR
+        $modelo = $CcModeloPregunta
+        switch ($modo) {
+            'traducir' {
+                # clasificar una frase contra una lista cerrada: el modelo rapido y nada mas
+                $modelo = $CcModeloTraducir
+                foreach ($x in @('--tools', '""', '--strict-mcp-config', '--no-session-persistence', '--max-turns', '1')) { [void]$a.Add($x) }
+            }
+            'accion' {
+                # manos de verdad: el MCP de Windows y permisos sin preguntar (no hay
+                # nadie delante de un teclado para contestar), con lo destructivo fuera
+                $modelo = $CcModeloAccion
+                foreach ($x in @('--permission-mode', 'bypassPermissions', '--strict-mcp-config', '--mcp-config', (ConvertTo-CmdArg $CcMcp),
+                                 '--no-session-persistence', '--max-turns', '40')) { [void]$a.Add($x) }
+                [void]$a.Add('--disallowedTools')
+                foreach ($r in $CcProhibido) { [void]$a.Add((ConvertTo-CmdArg $r)) }
+            }
+            default {
+                # preguntas y charla: contestar, y buscar en internet si hace falta
+                foreach ($x in @('--tools', 'WebSearch,WebFetch,Read', '--allowedTools', 'WebSearch,WebFetch,Read', '--strict-mcp-config', '--max-turns', '6')) { [void]$a.Add($x) }
+                if ($modo -eq 'charla') {
+                    # la charla recuerda lo hablado: su propia carpeta, con sesiones
+                    if (-not (Test-Path -LiteralPath $CcSesionDir)) { New-Item -ItemType Directory -Path $CcSesionDir -Force | Out-Null }
+                    $dir = $CcSesionDir
+                    [void]$a.Add('--continue')
+                } else {
+                    [void]$a.Add('--no-session-persistence')
+                }
+            }
+        }
+        [void]$a.Add('--model'); [void]$a.Add($modelo)
+        $script:jobLeido = 0; $script:jobPasos = 0; $script:jobUltimaHerr = ''; $script:jobProgresoCheck = 0
+        Log "CEREBRO ($modo): claude-code $modelo, $($prompt.Length) caracteres"
+        # SIN la clave de la API (sin saldo: Claude Code la preferiria a la
+        # suscripcion y fallaria) y sin las variables de una sesion de Claude
+        # Code que haya lanzado este asistente. Se devuelven al terminar.
+        $quitadas = @{}
+        foreach ($v in @(Get-ChildItem Env: | Where-Object { $_.Name -match '^(?:ANTHROPIC_API_KEY|CLAUDECODE|CLAUDE_CODE_.+|CLAUDE_PID)$' })) {
+            $quitadas[$v.Name] = $v.Value
+            Remove-Item -LiteralPath ("Env:" + $v.Name) -ErrorAction SilentlyContinue
+        }
+        try {
+            $script:proc = Start-Process -FilePath $CcCli -ArgumentList ($a -join ' ') `
+                -WorkingDirectory $dir -WindowStyle Hidden -PassThru `
+                -RedirectStandardOutput $script:jobOut -RedirectStandardError $script:jobErr `
+                -RedirectStandardInput $script:jobIn
+        } finally {
+            foreach ($k in $quitadas.Keys) { Set-Item -LiteralPath ("Env:" + $k) -Value $quitadas[$k] }
+        }
+        $null = $script:proc.Handle
+    } catch {
+        Log ("no pude lanzar el cerebro (Claude Code): " + $_.Exception.Message)
+        Clear-OpencodeJob
+        return $false
+    }
+    $script:jobMotor = 'claude-code'
+    $script:jobStart = $sw.ElapsedMilliseconds
+    $script:busy = $true
+    return $true
+}
+
 function Test-ClaveClaude {
     foreach ($ambito in @('Process', 'User', 'Machine')) {
         $v = [Environment]::GetEnvironmentVariable('ANTHROPIC_API_KEY', $ambito)
@@ -5977,10 +6087,14 @@ $HERRAMIENTAS_ES = @{
     'bash' = 'ejecutando un comando'; 'read' = 'leyendo un archivo'; 'write' = 'escribiendo un archivo'; 'edit' = 'editando un archivo';
     'glob' = 'buscando archivos'; 'grep' = 'buscando en archivos'; 'list' = 'mirando carpetas'; 'webfetch' = 'consultando la web';
     'websearch' = 'buscando en internet'; 'todowrite' = 'planificando'; 'todoread' = 'planificando'; 'task' = 'delegando una tarea'
+    'powershell' = 'ejecutando un comando'; 'toolsearch' = 'buscando herramientas'; 'agent' = 'delegando una tarea'
 }
 # Con la API son ~1-3 s; con opencode, 15-60. La capsula usa esto para dibujar
 # la barra de espera, y si miente la barra no sirve de nada.
 $DURACION_ESPERADA = @{ 'pregunta' = 4000; 'traducir' = 2500; 'charla' = 5000; 'accion' = 60000 }
+# con Claude Code, medido el 13/09: arrancar cuesta ~2-3 s y una tarea corta con
+# herramientas unos 14
+$DURACION_CC = @{ 'pregunta' = 8000; 'traducir' = 4000; 'charla' = 9000; 'accion' = 25000 }
 
 function Watch-OpencodeProgress {
     if (-not $script:busy -or -not $script:jobOut) { return }
@@ -6000,6 +6114,11 @@ function Watch-OpencodeProgress {
                     $script:jobPasos++
                     $herr = $m.Groups[1].Value
                 }
+                # el mismo evento en el formato de Claude Code (stream-json)
+                foreach ($m in [regex]::Matches($trozo, '"type":"tool_use","id":"[^"]*","name":"([^"]+)"')) {
+                    $script:jobPasos++
+                    $herr = $m.Groups[1].Value
+                }
             }
         } finally { $fs.Dispose() }
     } catch {}
@@ -6007,7 +6126,7 @@ function Watch-OpencodeProgress {
         $clave = $herr.ToLowerInvariant()
         $frase = $null
         if ($HERRAMIENTAS_ES.ContainsKey($clave)) { $frase = $HERRAMIENTAS_ES[$clave] }
-        elseif ($clave -match '^(?:mcp_)?windows') { $frase = 'controlando el escritorio' }
+        elseif ($clave -match '^(?:mcp_+)?windows') { $frase = 'controlando el escritorio' }
         elseif ($clave -match 'mcp|__') { $frase = 'usando una herramienta' }
         else { $frase = "usando $herr" }
         if ($frase -ne $script:jobUltimaHerr) {
@@ -6017,7 +6136,8 @@ function Watch-OpencodeProgress {
         }
     }
     # progreso estimado: tiempo transcurrido sobre lo esperado por modo
-    $esp = if ($DURACION_ESPERADA.ContainsKey($script:jobModo)) { $DURACION_ESPERADA[$script:jobModo] } else { 60000 }
+    $tablaEsp = if ($script:jobMotor -eq 'claude-code') { $DURACION_CC } else { $DURACION_ESPERADA }
+    $esp = if ($tablaEsp.ContainsKey($script:jobModo)) { $tablaEsp[$script:jobModo] } else { 60000 }
     $p = [Math]::Min(0.97, ($sw.ElapsedMilliseconds - $script:jobStart) / [double]$esp)
     if ([Math]::Abs($p - $script:uiProgreso) -ge 0.02) { $script:uiProgreso = [Math]::Round($p, 2); Refresh-UI }
 }
@@ -6045,6 +6165,45 @@ function Complete-OpencodeJob {
     }
 
     Log ("RUNNER exit=$code stdout=" + $stdout.Length + "B stderr=" + $stderr.Length + "B")
+
+    # --- CLAUDE CODE: la respuesta es el evento "result" del final ---
+    if ($script:jobMotor -eq 'claude-code') {
+        $script:jobMotor = ''
+        $res = $null
+        foreach ($linea in ($stdout -split "`r?`n")) {
+            # OJO: el evento NO empieza por {"type":"result"; sus campos vienen en
+            # otro orden ({"duration_api_ms":...,"type":"result",...}). Con el
+            # patron anclado al principio no se encontraba nunca (13/09).
+            if ($linea -match '"type":"result"') {
+                try { $ev = $linea | ConvertFrom-Json; if ($ev.type -eq 'result') { $res = $ev } } catch {}
+            }
+        }
+        if (-not $res) {
+            # ¿LLEGO A HACER ALGO? Si uso alguna herramienta, NO se rehace con el
+            # respaldo: el 13/09 creo un archivo, no se leyo su respuesta y la
+            # orden se mando otra vez a opencode. Repetir una accion es peor
+            # que no confirmarla.
+            if ($stdout -match '"type":"tool_use"') {
+                Log "CEREBRO: sin respuesta final, pero llego a usar herramientas; no se repite"
+                return @("No se si lo termine: empece a hacerlo pero no me llego la confirmacion. Miralo antes de repetirlo.")
+            }
+            # ni siquiera llego a contestar (no arranco, sin sesion iniciada...):
+            # esto SI se puede rehacer con el respaldo, porque no hizo nada
+            $msg = if ($stderr.Trim()) { $stderr.Trim() } else { "sin resultado; exit=$code" }
+            return @("(error del cerebro: " + $msg.Substring(0, [Math]::Min(300, $msg.Length)) + ")")
+        }
+        if ($res.subtype -eq 'success' -and -not $res.is_error) { return @([string]$res.result) }
+        if ($res.subtype -eq 'success' -and $res.is_error) {
+            # error de la cuenta o del servicio (limite de uso, sesion caducada):
+            # tampoco hizo nada, se puede rehacer con el respaldo
+            return @("(error del cerebro: " + [string]$res.result + ")")
+        }
+        # Se quedo a medias EN MITAD de una tarea (demasiados pasos, fallo al
+        # ejecutar). NO se rehace con el respaldo: podria repetir lo que ya hizo.
+        Log ("CEREBRO a medias: " + [string]$res.subtype)
+        if ([string]$res.result) { return @([string]$res.result) }
+        return @("No pude terminarlo del todo. Mira si hizo algo antes de repetirlo.")
+    }
 
     # salida en JSON por lineas: la respuesta son los eventos "text"
     if ($stdout -match '"type":"text"') {
@@ -6085,7 +6244,7 @@ function Expand-Prompt([string]$texto) {
 # (pasó el 11/09 a las 20:11 con 'como decia algo para dar vamos tumbado').
 # Misma solucion que en TRADUCIR: el modelo dice si esto iba con el o no, en la
 # misma llamada y sin latencia extra.
-$PRE_HABLADO = 'Responde SOLO con palabras, breve (una o dos frases), en espanol, sin usar herramientas y sin ejecutar nada. Si el texto no es una pregunta ni algo dicho a un asistente -es ruido, una frase suelta, el audio de un video o una conversacion ajena- responde exactamente: NO. '
+$PRE_HABLADO = 'Responde SOLO con palabras, breve (una o dos frases), en espanol, sin ejecutar nada en el equipo (si la pregunta necesita datos de hoy, puedes buscar en internet). Si el texto no es una pregunta ni algo dicho a un asistente -es ruido, una frase suelta, el audio de un video o una conversacion ajena- responde exactamente: NO. '
 
 # Preguntas: se contestan hablando, no se ejecutan.
 $RE_PREGUNTA = '^(?:que|cual|cuanto|cuantos|cuando|donde|quien|como|por que|para que|sabes|dime|cuentame|explicame|explica|crees|opinas|hablame|es cierto|de verdad)\b'
@@ -6160,7 +6319,18 @@ function Submit-Command([string]$text, [string]$modo = 'accion', [string]$adjunt
         $prompt = "Te adjunto una captura de la ventana que tengo delante. " + $prompt
     }
 
-    # A DONDE VA. Traducir y contestar son una llamada y ya: van a la API, que
+    # A DONDE VA, PRIMERO: el cerebro, Claude Code, para todos los modos. Si no
+    # arranca, sigue como antes (API y luego opencode).
+    if (Test-CerebroClaudeCode) {
+        $script:jobPrompt = $prompt
+        $script:jobExtra = $extra
+        $script:jobPorApi = $false
+        $script:jobPorCC = $true
+        if (Start-ClaudeCodeJob $prompt $modo $adjunto) { return }
+        $script:jobPorCC = $false
+        Log "el cerebro (Claude Code) no arranco; sigo como antes"
+    }
+    # Traducir y contestar son una llamada y ya: van a la API, que
     # tarda ~1 s. 'accion' es una tarea de verdad y necesita un agente con
     # herramientas: esa sigue siendo de opencode.
     $porApi = ($ClaudeOn -and $modo -ne 'accion' -and (Test-Path -LiteralPath $ClaudeScript) -and (Test-ClaveClaude))
@@ -6183,6 +6353,32 @@ function Submit-Command([string]$text, [string]$modo = 'accion', [string]$adjunt
 
 # Formatea, registra y muestra la respuesta ya recogida.
 function Report-Reply($out) {
+    # ¿NO LLEGO A CONTESTAR EL CEREBRO? (no arranco, limite de uso, sesion
+    # caducada). Entonces no hizo nada y la orden se rehace con opencode. Lo que
+    # se quedo a medias en mitad de una tarea NO llega aqui como error: ver
+    # Complete-OpencodeJob.
+    if ($script:jobPorCC) {
+        $script:jobPorCC = $false
+        $crudoCC = ($out | Out-String)
+        if ($crudoCC -match '^\s*\(error del cerebro:') {
+            $motivoCC = (($crudoCC -replace '\s+', ' ').Trim())
+            if ($motivoCC.Length -gt 240) { $motivoCC = $motivoCC.Substring(0, 240) + '...' }
+            Log "CEREBRO FALLO, rehago con opencode: $motivoCC"
+            # lo que no se arregla reintentando se deja de intentar hasta el
+            # proximo arranque, para no sumar segundos a cada orden
+            if ($crudoCC -match '(?i)limit|login|logged|auth|credit|subscription|not found|no se reconoce') {
+                $script:ccFallo = $true
+                Log "cerebro Claude Code desactivado hasta el proximo arranque"
+            }
+            $script:busy = $false
+            if ($script:jobPrompt) {
+                if (Start-OpencodeJob $script:jobPrompt $script:jobExtra) { return }
+            }
+            Show-Popup "El modelo no contesto. Ver assistant.log." 'error'
+            Say "No pude preguntarle al modelo"
+            return
+        }
+    }
     # ¿FALLO LA API? Entonces la orden NO se pierde: se rehace con opencode,
     # que es lo que habia antes. Esto paso de verdad el 12/09 -la cuenta sin
     # saldo- y la orden se descartaba como si fuera ruido, que es el peor final
@@ -7293,6 +7489,23 @@ while ($true) {
             Log "despertar ignorado (acabamos de hablar)"
         } else {
             Start-Dictado "nombre '$EscuchaNombre'"
+        }
+    }
+
+    # --- una orden ESCRITA (tools\decir.ps1) ---
+    # Pasa por Process-Texto igual que una dicha, pero sin audio: ni oido fino
+    # (no hay nada que repasar) ni juicio de la voz (no hay tono que medir).
+    if (-not $script:armed -and -not $script:busy -and -not $script:pendiente -and $script:reintentoVence -le 0 -and
+        (Test-Path -LiteralPath $RutaOrdenEscrita)) {
+        $escrita = ''
+        try { $escrita = [System.IO.File]::ReadAllText($RutaOrdenEscrita, [System.Text.Encoding]::UTF8).Trim() } catch {}
+        Remove-Item -LiteralPath $RutaOrdenEscrita -Force -ErrorAction SilentlyContinue
+        if ($escrita) {
+            Log "ORDEN ESCRITA: $escrita"
+            $script:ordenPorWorker = $false
+            $script:yaReintentado = $true
+            $script:ultimaF0 = 0
+            try { Process-Texto $escrita } catch { Log ("orden escrita: " + $_.Exception.Message) }
         }
     }
 

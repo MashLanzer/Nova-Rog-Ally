@@ -39,6 +39,8 @@ reglas.json
 # anterior: lo mismo, no salen de esta maquina
 memoria/listas.json
 copias/
+# las conversaciones con el cerebro (modo charla): lo que se habla, en casa
+cerebro/
 
 # Residuos de diagnostico
 probe-*.txt
