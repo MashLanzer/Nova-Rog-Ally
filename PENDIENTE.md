@@ -42,9 +42,12 @@ ni con batería):
       Una tarjeta con lo esencial: voz, modelos, estado del oído, esquina, reglas
       activas, modos. Hoy eso es leerse `config.json` a mano.
 
-- [ ] **19. Color a elección.**
-      «Ponte de color naranja», guardado igual que la esquina. Los colores de
-      estado se mantienen; cambia el de reposo.
+- [x] **19. Color a elección** (13/09). «Ponte de color naranja», «vuélvete
+      azul», «cambia tu color a rosa», «ponte morada»; «color normal» o «vuelve
+      a tu color» para el de siempre. Quince colores (`$ColoresUI`), guardado en
+      `config.json` (`ui.color`) como la esquina. Solo cambia el de reposo; de
+      noche el elegido se templa un poco en vez de volverse melocotón. Al
+      cambiar, una onda del color nuevo.
 
 - [ ] **20. Que se aparte también hacia arriba o abajo.**
       Solo sabe deslizarse de lado. En una esquina y con una ventana que ocupa

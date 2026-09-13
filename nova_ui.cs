@@ -2547,6 +2547,8 @@ public class NovaUI : Window
     // "abajo-izquierda" (lo de siempre), "abajo-derecha", "arriba-izquierda",
     // "arriba-derecha". Lo manda el asistente y se guarda en config.json.
     string esquina = "abajo-izquierda";
+    // color de reposo elegido por voz ("ponte de color naranja"), hex sin #
+    string colorElegido = "";
 
     bool ALaDerecha() { return esquina.EndsWith("derecha"); }
     bool Arriba() { return esquina.StartsWith("arriba"); }
@@ -2879,6 +2881,14 @@ public class NovaUI : Window
                 double.TryParse(Campo(j, "descarga", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out dsc);
                 descarga = Math.Max(0, Math.Min(1, dsc));
                 if (hac != haciendoActual) { PintarHaciendo(hac); }
+                string colr = Campo(j, "color", "");
+                if (colr != colorElegido)
+                {
+                    colorElegido = colr;
+                    Aplicar(estadoActual, textoActual, false);
+                    // estreno del color: una onda de el, para que se vea el cambio
+                    if (estadoActual == "reposo" || estadoActual == "") { Ondas(1, ColorDe("reposo")); }
+                }
                 string esq = Campo(j, "esquina", "abajo-izquierda");
                 // vacia = la de siempre: un estado escrito por una version vieja
                 // no tiene por que mandar la capsula a ningun sitio raro
@@ -3125,7 +3135,12 @@ public class NovaUI : Window
             default:
                 {
                     Color c = Color.FromRgb(0x35, 0xE0, 0xC8);
-                    if (Noche()) { c = Color.FromRgb(0xFF, 0xB0, 0x7A); }
+                    int hex = 0;
+                    bool elegido = colorElegido.Length == 6 && int.TryParse(colorElegido, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out hex);
+                    if (elegido) { c = Color.FromRgb((byte)(hex >> 16), (byte)(hex >> 8), (byte)hex); }
+                    // de noche: el de siempre se vuelve melocoton; uno elegido
+                    // se respeta, solo un poco templado
+                    if (Noche()) { c = elegido ? Mezcla(c, Color.FromRgb(0xFF, 0xB0, 0x7A), 0.3) : Color.FromRgb(0xFF, 0xB0, 0x7A); }
                     if (Desanimado()) { c = Mezcla(c, Color.FromRgb(0x8A, 0x96, 0x9C), 0.45); }   // apagado
                     else if (animo >= 0.5) { c = Mezcla(c, Colors.White, 0.12); }              // mas vivo
                     if (Agitado()) { c = Mezcla(c, Color.FromRgb(0xFF, 0x6A, 0x4A), 0.35); }   // caliente

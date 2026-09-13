@@ -1951,6 +1951,22 @@ function Resolve-Fragment([string]$f) {
         $f -match '^(?:vuelve|recupera)\s+(?:a\s+)?(?:tu\s+)?tamano(?:\s+normal)?$') {
         return @(@{ kind = 'escalaUI'; paso = 0; desc = 'volver al tamano de siempre' })
     }
+    # --- el color de la capsula (ver $ColoresUI) ---
+    # Hace falta la palabra "color" o un verbo reflexivo ("ponte", "vuelvete"):
+    # "pon rojo" a secas podria ser cualquier cosa.
+    # "ponte" llega como "ponme" (Repair-Verb), y el color en femenino: "morada"
+    $nomsCol = @($ColoresUI.Keys) + @($ColoresUI.Keys | Where-Object { $_ -match 'o$' } | ForEach-Object { $_ -replace 'o$', 'a' })
+    $reCol = (@($nomsCol | Sort-Object { - $_.Length }) | ForEach-Object { [regex]::Escape($_) }) -join '|'
+    if ($f -match ('^(?:ponte|ponme|poneme|vuelvete|hazte|cambiate|pintate)\s+(?:de\s+|en\s+|a\s+)?(?:(?:color|colour)\s+)?(' + $reCol + ')$') -or
+        $f -match ('^(?:pon|cambia|cambiame|ponme)\s+(?:el\s+|tu\s+)?color\s+(?:a\s+|en\s+|de\s+)?(' + $reCol + ')$')) {
+        $nomCol = $Matches[1]
+        if (-not $ColoresUI.Contains($nomCol)) { $nomCol = $nomCol -replace 'a$', 'o' }
+        return @(@{ kind = 'colorUI'; nombre = $nomCol; valor = $ColoresUI[$nomCol]; desc = "ponerme de color $nomCol" })
+    }
+    if ($f -match '^(?:(?:ponte|ponme|poneme|vuelvete|hazte)\s+)?(?:de\s+|del\s+|a\s+)?(?:tu\s+)?color (?:normal|de siempre|original)$' -or
+        $f -match '^(?:vuelve|recupera)\s+(?:a\s+)?tu\s+color(?:\s+de siempre|\s+normal)?$') {
+        return @(@{ kind = 'colorUI'; nombre = ''; valor = ''; desc = 'volver a mi color de siempre' })
+    }
     # --- que solo te obedezca a ti, dicho y quitado hablando ---
     if ($f -match '^(?:hazme caso solo a mi|solo hazme caso a mi|obedeceme solo a mi|solo obedeceme a mi|hazme caso solo a mi voz|no hagas caso a otros|no obedezcas a nadie mas)$') {
         return @(@{ kind = 'soloYo'; valor = $true; desc = 'obedecer solo a tu voz' })
@@ -3187,6 +3203,16 @@ function Get-BalanceAprendizaje {
     return $txt
 }
 
+# COLOR DE LA CAPSULA A ELECCION: "ponte de color naranja". Solo cambia el de
+# reposo; los de cada estado (escuchando, pensando, error...) se quedan, que
+# son los que dicen algo. Va aqui arriba y no junto a la esquina porque el
+# banco (-Probar) sale antes de llegar alli.
+$ColoresUI = [ordered]@{
+    'turquesa' = '35E0C8'; 'verde agua' = '35E0C8'; 'verde' = '3DF09A'; 'azul' = '4D8BFF'; 'celeste' = '5CC8FF'
+    'cian' = '3DD9F0'; 'morado' = 'A77BFF'; 'violeta' = 'B48CFF'; 'lila' = 'C9A2FF'; 'rosa' = 'FF7EC4'
+    'rojo' = 'FF5A5A'; 'naranja' = 'FF8A3D'; 'amarillo' = 'FFD84A'; 'dorado' = 'FFC24A'; 'blanco' = 'E8EEF4'
+}
+
 function Find-Traduccion([string]$text) {
     $t = Get-Traducciones
     if ($t.Count -eq 0) { return $null }
@@ -3613,6 +3639,17 @@ function Invoke-FastCommand([string]$text) {
                             # no obedecer, pero se dice, que si no parece que si
                             $a.desc = 'me muevo, pero no he podido guardarlo para la proxima'
                         }
+                        Refresh-UI
+                    }
+                }
+                'colorUI' {
+                    if ($script:uiColor -eq $a.valor) {
+                        $a.desc = if ($a.valor) { "ya soy $($a.nombre)" } else { 'ya tengo mi color de siempre' }
+                    } else {
+                        $script:uiColor = $a.valor
+                        $guardadoC = Set-Cfg 'ui' 'color' $a.valor
+                        $a.desc = if ($a.valor) { "listo, ahora soy $($a.nombre)" } else { 'vuelvo a mi color de siempre' }
+                        if (-not $guardadoC) { $a.desc += ', pero no he podido guardarlo para la proxima' }
                         Refresh-UI
                     }
                 }
@@ -4945,6 +4982,7 @@ function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
             ',"cola":"' + $script:uiCola + '"' +
             ',"descarga":' + ([double]$script:uiDescarga).ToString('0.000', [System.Globalization.CultureInfo]::InvariantCulture) +
             ',"escala":' + ([double]$script:uiEscala).ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture) +
+            ',"color":"' + $script:uiColor + '"' +
             ',"confirmaFin":' + ([long]$script:confirmaFin) + ',"confirmaTotal":' + ([long]$script:confirmaTotal) +
             ',"esquina":"' + $script:esquina + '"' +
             ',"voz":' + $script:uiVoz + '}'
@@ -7451,6 +7489,9 @@ if ($script:esquina -notmatch '^(?:abajo|arriba)-(?:izquierda|derecha)$') { $scr
 $EscalasUI = @(0.75, 1.0, 1.25, 1.5, 1.75, 2.0)
 $script:uiEscala = [double](Get-Cfg 'ui' 'escala' 1.0)
 if ($script:uiEscala -lt 0.75 -or $script:uiEscala -gt 2.0) { $script:uiEscala = 1.0 }
+# COLOR DE REPOSO elegido por voz (hex sin #; vacio = el de siempre)
+$script:uiColor = [string](Get-Cfg 'ui' 'color' '')
+if ($script:uiColor -notmatch '^[0-9A-Fa-f]{6}$') { $script:uiColor = '' }
 # La ultima frase que se ejecuto de verdad, para saber a que se refiere un
 # "no era eso".
 $script:ultimoEjecutado = ''
