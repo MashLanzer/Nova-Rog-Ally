@@ -295,7 +295,13 @@ function Split-Compound([string]$s) {
             $ult = [string]$res[$res.Count - 1]
             if (@($ult -split '\s+').Count -eq 1 -and ($VERBOS_LISTA -contains $ult)) { $colgando = $true }
         }
-        if ($res.Count -gt 0 -and ($colgando -or ($t -notmatch ('^' + $LOCATIVO + '?(?:' + $VERBOS + '|' + $VENTANA + ')\b') -and
+        # "cierra todos los programas menos steam Y discord": lo que sigue a una
+        # EXCEPCION es parte de ella, aunque sea un nombre conocido. Se partia en
+        # "cerrar todo menos steam" + "abrir discord" (12/09): justo lo contrario
+        # de lo pedido.
+        $enExcepcion = ($res.Count -gt 0 -and ([string]$res[$res.Count - 1]) -match '\b(?:menos|excepto|salvo|quitando)\b' -and
+                        $t -notmatch ('^(?:' + $VERBOS + ')\b'))
+        if ($res.Count -gt 0 -and ($colgando -or $enExcepcion -or ($t -notmatch ('^' + $LOCATIVO + '?(?:' + $VERBOS + '|' + $VENTANA + ')\b') -and
             -not (Test-NombreConocido $t)))) {
             # ... SALVO que el trozo sea algo que sabemos abrir. "abre steam y
             # discord" se pegaba entero y acababa abriendo SOLO Steam: dentro
@@ -1648,7 +1654,7 @@ function Resolve-Fragment([string]$f) {
         $cosa = $Matches[1].Trim(); $cual2 = $Matches[2]
         if ($cosa) { return @(@{ kind = 'listaQuitar'; cosa = $cosa; lista = $cual2; desc = "quitar $cosa de la lista" }) }
     }
-    if ($f -match '^(?:recuerda|recuerdame|acuerdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!(?:en|dentro de)\s+(?:\S+\s+){1,3}?(?:segundo|minuto|hora))(?!\S+(?:\s+\S+){0,3}\s+(?:minutos?|horas?)\s+antes\b)(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?:que\s+|de\s+que\s+)?(.+)$') {
+    if ($f -match '^(?:recuerda|recuerdame|acuerdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!(?:en|dentro de)\s+(?:\d+|un|una|uno|medi[ao]|(?:un\s+)?cuarto\s+de|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis\S+|veinte|veinti\S+|treinta|cuarenta|cincuenta|sesenta|noventa)(?:\s+y\s+\S+)?\s+(?:segundos?|minutos?|horas?)\b)(?!(?:\d+|un|una|medi[ao]|(?:un\s+)?cuarto\s+de|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis\S+|veinte|veinti\S+|treinta|cuarenta|cincuenta|sesenta|noventa)(?:\s+y\s+\S+)?\s+(?:minutos?|horas?)(?:\s+y\s+media)?\s+antes\b)(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?:que\s+|de\s+que\s+)?(.+)$') {
         return @(@{ kind = 'memoria'; texto = $Matches[1].Trim(); desc = "anotar en la memoria" })
     }
     # El lugar puede preceder al verbo ("en el navegador busca X"). Se separa
@@ -1670,7 +1676,10 @@ function Resolve-Fragment([string]$f) {
         '^(?:como estas|que tal estas|como vas|como te va|todo bien)$' { return @(@{ kind = 'decir'; desc = (@('Muy bien, lista para lo que digas.', 'De maravilla. ¿Y tu?', 'Bien, con ganas de trabajar.') | Get-Random) }) }
         '^(?:te quiero|te adoro|eres genial|eres la mejor|eres lo maximo|buen trabajo|bien hecho|me encantas)$' { return @(@{ kind = 'decir'; desc = (@('Y yo a ti.', 'Gracias, me sonrojo.', 'Eso me anima.') | Get-Random) }) }
         '^(?:quien eres|como te llamas|que eres)$' { return @(@{ kind = 'decir'; desc = "Soy $EscuchaNombre, tu asistente de la consola. Vivo en la esquina de abajo." }) }
-        '^(?:que puedes hacer|que sabes hacer|ayuda|que haces)$' { return @(@{ kind = 'decir'; desc = 'Abro apps y juegos, busco, controlo volumen y brillo, escribo y pulso teclas, cierro ventanas, pongo temporizadores y reglas, anoto en tu memoria y le pregunto a la inteligencia artificial lo que no sepa.' }) }
+        # "puedes" llega YA QUITADO por Remove-Filler (es lo que hace que
+        # "puedes bajarle el volumen" funcione), asi que "que puedes hacer" se
+        # ve aqui como "que hacer": hay que aceptar las dos formas
+        '^(?:que (?:(?:puedes|podes|sabes|sabe)\s+)?hacer(?: tu| nova)?|que sabes? how to do|en que me (?:(?:puedes|podes)\s+)?ayudar|como me (?:(?:puedes|podes)\s+)?ayudar|para que sirves|ayuda|que haces)$' { return @(@{ kind = 'decir'; desc = 'Abro apps y juegos, busco, controlo volumen y brillo, escribo y pulso teclas, cierro ventanas, pongo temporizadores y reglas, anoto en tu memoria y le pregunto a la inteligencia artificial lo que no sepa.' }) }
     }
     # --- preguntas que se responden AQUI mismo, sin modelo ---
     # Preguntarle la hora a un LLM cuesta 13 s y encima puede negarse.
@@ -1740,14 +1749,17 @@ function Resolve-Fragment([string]$f) {
         if ($resto) { $f = "$f $resto" }
     }
     # --- temporizadores: lo mas util con las manos ocupadas ---
-    if ($f -match '^(?:recuerdame|avisame|despiertame|ponme un temporizador|temporizador|alarma)\s+(?:en|de|dentro de)\s+(\d+|un|una|medi[ao])\s*(segundo|segundos|minuto|minutos|hora|horas)\b\s*(?:que|para|de|a)?\s*(.*)$') {
+    if ($f -match '^(?:recuerdame|avisame|despiertame|ponme un temporizador|temporizador|alarma)\s+(?:en|de|dentro de)\s+(\d+|(?:un\s+)?cuarto\s+de|un|una|medi[ao])\s*(segundo|segundos|minuto|minutos|hora|horas)\b\s*(?:que|para|de|a)?\s*(.*)$') {
         $cuanto = $Matches[1]
         $unidad = $Matches[2]
         $que0 = $Matches[3]
         # "media hora" son 30 minutos, no media unidad de nada: se convierte
         # aqui y se dice en minutos, que es como se entiende al oirlo
         $mitad = ($cuanto -match '^medi[ao]$')
-        $n = if ($mitad) { 30 } elseif ($cuanto -match '^\d+$') { [int]$cuanto } else { 1 }
+        # "un cuarto de hora": 15 minutos, dichos en minutos (nunca lo entendio)
+        $cuarto = ($cuanto -match 'cuarto')
+        if ($cuarto) { $unidad = 'minutos' }
+        $n = if ($mitad) { 30 } elseif ($cuarto) { 15 } elseif ($cuanto -match '^\d+$') { [int]$cuanto } else { 1 }
         if ($mitad) {
             $unidad = if ($unidad -like 'hora*') { 'minutos' } else { 'segundos' }
             if ($unidad -eq 'segundos') { $n = 30 }
@@ -1918,8 +1930,11 @@ function Resolve-Fragment([string]$f) {
         return @(@{ kind = 'parte'; desc = 'parte general' })
     }
     # --- copia de seguridad de lo aprendido ---
-    if ($f -match '^(?:haz|hazme|haga|crea|creame|saca|guarda)\s+(?:una\s+|la\s+)?copia(?:\s+de\s+seguridad)?(?:\s+de\s+(?:todo|lo aprendido|lo que sabes|lo que has aprendido|tus cosas|mis cosas|la memoria))?(?:\s+ahora)?$' -or
-        $f -match '^(?:haz|hazme|guarda|crea)\s+(?:un\s+)?respaldo(?:\s+de\s+.+)?$' -or $f -match '^(?:respalda|respaldame)(?:\s+.+)?$') {
+    # Acotada (revision del 12/09): "saca una copia" o "respalda el archivo en
+    # el pendrive" son cosas TUYAS, no la copia de lo aprendido por Nova.
+    $deNova = '(?:todo|lo aprendido|lo que sabes|lo que has aprendido|tus cosas|mis cosas|la memoria|tu memoria)'
+    if ($f -match ('^(?:haz|hazme|haga|crea|creame|saca|guarda)\s+(?:una\s+|la\s+)?copia\s+(?:de\s+seguridad(?:\s+de\s+' + $deNova + ')?|de\s+' + $deNova + ')(?:\s+ahora)?$') -or
+        $f -match ('^(?:haz|hazme|guarda|crea)\s+(?:un\s+)?respaldo(?:\s+de\s+' + $deNova + ')?$') -or $f -match ('^(?:respalda|respaldame)(?:\s+' + $deNova + ')?$')) {
         return @(@{ kind = 'copiaSeguridad'; desc = 'copia de seguridad' })
     }
     # --- ultima vez que jugaste a algo ---
@@ -1979,7 +1994,7 @@ function Resolve-Fragment([string]$f) {
     }
     # --- CONTROL DE APPS Y VENTANAS (lo que faltaba para "hacer cualquier cosa") ---
     # cerrar: "cierra steam", "cierra esta ventana", "cierra el juego"
-    if ($f -match '^(?:cierra|cierrame|cerrar|apaga|quita|quitame|mata)\s+(?:el\s+|la\s+|a\s+)?(.+)$') {
+    if ($f -match '^(?:cierra|cierrame|cerrar|apaga|quita|quitame|mata|termina|finaliza|acaba con)\s+(?:el\s+|la\s+|a\s+)?(.+)$') {
         $obj = $Matches[1].Trim()
         if ($obj -match '^(?:esta ventana|la ventana|esto|esta|la app|la aplicacion|ventana)$') { return @(@{ kind = 'altf4'; desc = 'cerrar la ventana' }) }
         if ($obj -match '^(?:el juego|juego|este juego|el videojuego)$') { return @(@{ kind = 'cerrarJuego'; desc = 'cerrar el juego' }) }
@@ -1989,15 +2004,21 @@ function Resolve-Fragment([string]$f) {
         # "cierra todos los procesos que estan abiertos" no encajaba, se fue al
         # agente, y el agente cerro TODO sin preguntar -Claude y la capsula
         # incluidas-. Esta orden no puede salir nunca de aqui.
-        if ($obj -match '^(?:tod[oa]s? (?:los |las )?(?:programas|procesos|apps|aplicaciones)|los (?:programas|procesos)|las (?:apps|aplicaciones)|todo lo abierto|todo lo que (?:esta|este|tengo|hay) abierto)(?:\s+(?:que\s+)?(?:estan|esten|tengo|hay)?\s*abiert[oa]s)?$') {
-            return @(@{ kind = 'cerrarTodo'; desc = 'cerrar los programas abiertos' })
+        # "...menos steam y discord": las excepciones viajan con la orden. Antes
+        # esta forma no encajaba y se iba al agente con --auto (revision 12/09).
+        if ($obj -match '^(?:tod[oa]s? (?:los |las )?(?:programas|procesos|apps|aplicaciones)|los (?:programas|procesos)|las (?:apps|aplicaciones)|todo lo abierto|todo lo que (?:esta|este|tengo|hay) abierto|todo(?=\s+(?:menos|excepto|salvo|quitando|pero no)\s))(?:\s+(?:que\s+)?(?:estan|esten|tengo|hay)?\s*abiert[oa]s)?(?:\s+(?:menos|excepto|salvo|quitando|pero no)\s+(.+))?$') {
+            $exceptoCT = if ($Matches[1]) { $Matches[1].Trim() } else { '' }
+            return @(@{ kind = 'cerrarTodo'; excepto = $exceptoCT; desc = $(if ($exceptoCT) { "cerrar los programas abiertos menos $exceptoCT" } else { 'cerrar los programas abiertos' }) })
         }
         $proc = Resolve-Proceso $obj
         if ($proc) { return @(@{ kind = 'cerrarApp'; proceso = $proc.proceso; desc = "cerrar $($proc.nombre)" }) }
         # no se reconoce que cerrar: que siga su camino (puede ser otra cosa)
     }
     # cambiar de app: "cambia a discord", "ve a steam", "enfoca el navegador", "muestra spotify"
-    if ($f -match '^(?:cambia a|cambiate a|pasate a|pasa a|enfoca|muestra|muestrame|ve a|vete a|llevame a|ponme en|trae|traeme)\s+(?:el\s+|la\s+|a\s+)?(.+)$') {
+    # "al" tambien: "cambia al bloc de notas" no encajaba, se fue al modelo y
+    # quedo aprendido como "abre bloc de notas", que abre OTRO en vez de ir al
+    # que ya tenias (revision del 12/09)
+    if ($f -match '^(?:cambia al|cambiate al|pasate al|pasa al|ve al|vete al|llevame al|cambia a|cambiate a|pasate a|pasa a|enfoca|muestra|muestrame|ve a|vete a|llevame a|ponme en|trae|traeme)\s+(?:el\s+|la\s+|a\s+)?(.+)$') {
         $obj = $Matches[1].Trim()
         if ($obj -match '^(?:el escritorio|escritorio)$') { return @(@{ kind = 'winkey'; vk = 0x44; desc = 'mostrar el escritorio' }) }
         if ($obj -match '^(?:el juego|juego)$' -and $script:juegoActivo) { return @(@{ kind = 'enfocarJuego'; desc = "volver a $($script:juegoActivo)" }) }
@@ -2636,7 +2657,7 @@ function Test-FastCommand([string]$text) {
     # ojo: los mismos lookaheads que el ejecutor. Con el patron corto, este
     # atajo devolvia $true y se saltaba Resolve-Fragment, de modo que el
     # banco no podia ver que "guarda el archivo" acababa en el diario.
-    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!(?:en|dentro de)\s+(?:\S+\s+){1,3}?(?:segundo|minuto|hora))(?!\S+(?:\s+\S+){0,3}\s+(?:minutos?|horas?)\s+antes\b)(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?:que\s+|de\s+que\s+)?(.+)$') { return $true }
+    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!(?:en|dentro de)\s+(?:\d+|un|una|uno|medi[ao]|(?:un\s+)?cuarto\s+de|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis\S+|veinte|veinti\S+|treinta|cuarenta|cincuenta|sesenta|noventa)(?:\s+y\s+\S+)?\s+(?:segundos?|minutos?|horas?)\b)(?!(?:\d+|un|una|medi[ao]|(?:un\s+)?cuarto\s+de|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis\S+|veinte|veinti\S+|treinta|cuarenta|cincuenta|sesenta|noventa)(?:\s+y\s+\S+)?\s+(?:minutos?|horas?)(?:\s+y\s+media)?\s+antes\b)(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?:que\s+|de\s+que\s+)?(.+)$') { return $true }
     # Reglas y recordatorios con hora: los decide Invoke-ReglaVoz, que SI crea
     # cosas, asi que aqui no se puede llamar. Se responde $true solo si la
     # frase tiene la forma de una regla; el banco las prueba aparte llamando
@@ -2709,7 +2730,7 @@ function Invoke-FastCommand([string]$text) {
     # tildes, que es justo lo que no quieres leer meses despues en Obsidian.
     # mismo lookahead que en Resolve-Fragment: "en 20 minutos" es temporizador,
     # no una nota para el diario
-    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!(?:en|dentro de)\s+(?:\S+\s+){1,3}?(?:segundo|minuto|hora))(?!\S+(?:\s+\S+){0,3}\s+(?:minutos?|horas?)\s+antes\b)(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?:que\s+|de\s+que\s+)?(.+)$') {
+    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!(?:en|dentro de)\s+(?:\d+|un|una|uno|medi[ao]|(?:un\s+)?cuarto\s+de|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis\S+|veinte|veinti\S+|treinta|cuarenta|cincuenta|sesenta|noventa)(?:\s+y\s+\S+)?\s+(?:segundos?|minutos?|horas?)\b)(?!(?:\d+|un|una|medi[ao]|(?:un\s+)?cuarto\s+de|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis\S+|veinte|veinti\S+|treinta|cuarenta|cincuenta|sesenta|noventa)(?:\s+y\s+\S+)?\s+(?:minutos?|horas?)(?:\s+y\s+media)?\s+antes\b)(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?:que\s+|de\s+que\s+)?(.+)$') {
         $frase = $Matches[1].Trim()
         if ($frase.Length -gt 0) {
             $null = Add-Memoria $frase
@@ -3434,17 +3455,43 @@ function Invoke-FastCommand([string]$text) {
                 }
                 'cerrarTodo' {
                     $abiertas = @(Get-AppsAbiertas)
+                    # EXCEPCIONES: "menos steam y discord". Cada una se resuelve a su
+                    # proceso; si alguna no se sabe que es, NO se sigue: cerrar
+                    # justo lo que querias conservar es el peor fallo de todos.
+                    $excepto = if ((Test-Prop $a 'excepto') -or $a.ContainsKey('excepto')) { [string]$a.excepto } else { '' }
+                    $noTocar = @()
+                    $desconocida = ''
+                    if ($excepto) {
+                        foreach ($x in @($excepto -split '\s*(?:,|\by\b|\be\b)\s*' | Where-Object { $_ })) {
+                            $px = Resolve-Proceso $x
+                            if ($px -and $px.proceso -eq '*juego*' -and $script:juegoExe) { $noTocar += [System.IO.Path]::GetFileNameWithoutExtension($script:juegoExe) }
+                            elseif ($px) { $noTocar += $px.proceso }
+                            else { $desconocida = $x; break }
+                        }
+                    }
+                    if ($desconocida) {
+                        $a.desc = "no se que es '$desconocida', asi que no cierro nada"
+                    } else {
+                    if ($noTocar.Count -gt 0) { $abiertas = @($abiertas | Where-Object { $noTocar -notcontains $_.ProcessName }) }
+                    # al confirmar se cierra LO QUE SE ANUNCIO, no lo que haya abierto
+                    # en ese momento: lo que abras mientras contestas no entra
+                    if ($script:confirmado -and $script:cerrarTodoPids) {
+                        $abiertas = @($abiertas | Where-Object { $script:cerrarTodoPids -contains $_.Id })
+                    }
                     if ($abiertas.Count -eq 0) {
-                        $a.desc = 'no hay ningun programa abierto'
+                        $a.desc = 'no hay ningun programa abierto que cerrar'
                     } elseif (-not $script:confirmado) {
                         # Cerrar programas no se deshace, asi que NUNCA se hace a la
                         # primera: se dice en voz alta que se va a cerrar y se espera
                         # un si. El tipo 'peligrosa' hace ademas que callarse cancele,
                         # al reves que en el resto de confirmaciones.
                         $nombres = @($abiertas | ForEach-Object { if ($_.MainWindowTitle.Length -gt 40) { $_.ProcessName } else { $_.MainWindowTitle } } | Select-Object -Unique)
-                        $script:pendiente = @{ texto = 'cierra todos los programas'; vence = 0; tipo = 'peligrosa' }
+                        $script:cerrarTodoPids = @($abiertas | ForEach-Object { $_.Id })
+                        $textoCT = if ($excepto) { "cierra todos los programas menos $excepto" } else { 'cierra todos los programas' }
+                        $script:pendiente = @{ texto = $textoCT; vence = 0; tipo = 'peligrosa' }
                         $a.desc = 'voy a cerrar ' + $nombres.Count + ': ' + ($nombres -join ', ') + '. ¿Cierro?'
                     } else {
+                        $script:cerrarTodoPids = $null
                         $cerradas = 0
                         foreach ($pr in $abiertas) {
                             # CloseMainWindow es la X de la ventana: si el programa
@@ -3454,6 +3501,7 @@ function Invoke-FastCommand([string]$text) {
                             try { if ($pr.CloseMainWindow()) { $cerradas++ } } catch {}
                         }
                         $a.desc = "cerrados $cerradas de $($abiertas.Count)"
+                    }
                     }
                 }
                 'estadoEscucha' {
@@ -4070,13 +4118,17 @@ try {
     $limite = (Get-Date).AddDays(-1)
     $restos = @(Get-ChildItem -LiteralPath $TmpDir -File -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -match '^(?:in|out|err|raw)-[0-9a-f]{16,}' -and $_.LastWriteTime -lt $limite })
-    if ($restos.Count -gt 0) {
+    # tampoco en el banco: podrian ser los de una orden VIVA del asistente
+    if ($restos.Count -gt 0 -and -not $Probar) {
         $restos | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
         Log "limpieza: $($restos.Count) restos de ordenes canceladas"
     }
 } catch {}
 
-foreach ($m in @($MarcaPausa, $MarcaSoloBoton, $MarcaDictar, $MarcaConfirmar, $MarcaReintento, $MarcaWake)) {
+# NO en el banco (-Probar): tmp\ es el MISMO que usa el asistente encendido, y
+# borrarle las marcas le quitaba la pausa mientras hablaba (se oia a si mismo,
+# 12/09 22:20) o le cancelaba un dictado o una confirmacion en curso.
+foreach ($m in $(if ($Probar) { @() } else { @($MarcaPausa, $MarcaSoloBoton, $MarcaDictar, $MarcaConfirmar, $MarcaReintento, $MarcaWake) })) {
     if (Test-Path -LiteralPath $m) {
         Log "marca huerfana de la sesion anterior: $(Split-Path -Leaf $m)"
         try { Remove-Item -LiteralPath $m -Force -ErrorAction SilentlyContinue } catch {}
@@ -4116,12 +4168,24 @@ function Initialize-Escucha {
             # La confianza minima va TAMBIEN aqui: hasta ahora solo la recibia el
             # wake_worker.exe viejo, asi que el ajuste del config no hacia nada.
             $conf = $EscuchaConf.ToString([System.Globalization.CultureInfo]::InvariantCulture)
+            # EL STDERR DEL WORKER, A UN ARCHIVO. El 12/09 murio tres veces sin
+            # dejar ni una linea (se lanzaba sin redirigir nada). Y lo que dejo
+            # la vez anterior se pasa al log ANTES de relanzar, porque la
+            # redireccion vacia el archivo justo cuando mas falta hace.
+            $rutaErrWorker = Join-Path $TmpDir 'wake-err.log'
+            try {
+                if ((Test-Path -LiteralPath $rutaErrWorker) -and (Get-Item -LiteralPath $rutaErrWorker).Length -gt 0) {
+                    $errViejo = ([System.IO.File]::ReadAllText($rutaErrWorker)).Trim()
+                    if ($errViejo) { Log ("worker de escucha, su salida de error la vez anterior: " + $errViejo.Substring([Math]::Max(0, $errViejo.Length - 2000))) }
+                }
+            } catch {}
             $script:wakeProc = Start-Process -FilePath $PyExe `
                 -ArgumentList @('-u', $worker, $EscuchaNombre, $MarcaWake, $EventLog, $EscuchaGanancia,
                                 $MarcaPausa, $MarcaDictar, $RutaDictado, $RutaParcial, $RutaNivel,
                                 $MarcaConfirmar, $RutaConfirmacion, "$MotorDictado`:$WhisperModelo", $RutaVocabulario,
                                 $conf, $MarcaReintento, $RutaReintento, $WhisperPreciso) `
-                -WorkingDirectory $LogDir -WindowStyle Hidden -PassThru
+                -WorkingDirectory $LogDir -WindowStyle Hidden -PassThru `
+                -RedirectStandardError $rutaErrWorker
         } else {
             $worker = Join-Path $LogDir "wake_worker.exe"
             if (-not (Test-Path -LiteralPath $worker)) { Log "WARN: falta wake_worker.exe"; return }
@@ -4907,8 +4971,8 @@ function Invoke-RecordatorioVoz([string]$text) {
     # se pide antes de una partida. Va DESPUES del dia ("manana diez minutos
     # antes de las diez") y ANTES de la hora, que se lee igual que siempre.
     $antesMin = 0
-    if ($resto -match '^(.+?)\s+(minutos?|horas?)\s+antes(?:\s+(?:de\s+)?(.+))?$') {
-        $cantA = $Matches[1].Trim(); $unidadA = $Matches[2]; $trasA = $Matches[3]
+    if ($resto -match '^(.+?)\s+(minutos?|horas?)(\s+y\s+media)?\s+antes(?:\s+(?:de\s+)?(.+))?$') {
+        $cantA = $Matches[1].Trim(); $unidadA = $Matches[2]; $yMediaA = [bool]$Matches[3]; $trasA = $Matches[4]
         if ($cantA -match '^(?:un\s+)?cuarto\s+de$') { $antesMin = 15 }
         elseif ($cantA -match '^medi[ao]$') { if ($unidadA -like 'hora*') { $antesMin = 30 } }
         elseif ($cantA -match '^(?:un|una)$') { $antesMin = if ($unidadA -like 'hora*') { 60 } else { 1 } }
@@ -4916,6 +4980,8 @@ function Invoke-RecordatorioVoz([string]$text) {
             $cantA = (ConvertTo-Digitos $cantA).Trim()
             if ($cantA -match '^\d{1,3}$') { $antesMin = if ($unidadA -like 'hora*') { [int]$cantA * 60 } else { [int]$cantA } }
         }
+        # "una hora y media antes", "dos horas y media antes"
+        if ($antesMin -gt 0 -and $yMediaA -and $unidadA -like 'hora*') { $antesMin += 30 }
         if ($antesMin -gt 0) {
             $resto = $trasA
             # "antes de las diez": el patron de la hora espera "a las"
@@ -4961,9 +5027,9 @@ function Invoke-RecordatorioVoz([string]$text) {
         $evento = $cuando
         $cuando = $evento.AddMinutes(-$antesMin)
         $cul0 = New-Object System.Globalization.CultureInfo('es-MX')
-        $margen = if ($antesMin % 60 -eq 0) { $hh = $antesMin / 60; if ($hh -eq 1) { 'una hora' } else { "$hh horas" } } elseif ($antesMin -eq 30) { 'media hora' } elseif ($antesMin -eq 1) { 'un minuto' } else { "$antesMin minutos" }
+        $margen = if ($antesMin % 60 -eq 0) { $hh = $antesMin / 60; if ($hh -eq 1) { 'una hora' } else { "$hh horas" } } elseif ($antesMin -eq 30) { 'media hora' } elseif ($antesMin -eq 90) { 'una hora y media' } elseif ($antesMin % 60 -eq 30) { "$([int][Math]::Floor($antesMin / 60)) horas y media" } elseif ($antesMin -eq 1) { 'un minuto' } else { "$antesMin minutos" }
         # "falta una hora", "faltan diez minutos": se lee en voz alta
-        $falta = if ($margen -match '^(?:una hora|media hora|un minuto)$') { 'falta' } else { 'faltan' }
+        $falta = if ($margen -match '^(?:una hora|media hora|una hora y media|un minuto)$') { 'falta' } else { 'faltan' }
         if ($cuando -le (Get-Date)) { return "Ya $falta menos de $margen para las " + $evento.ToString('H:mm', $cul0) + "." }
         $texto = if ($texto) { "$texto. Es a las " + $evento.ToString('H:mm', $cul0) } else { "$falta $margen para las " + $evento.ToString('H:mm', $cul0) }
         $antesDicho = ", $margen antes"
@@ -5346,6 +5412,8 @@ if ($Probar) {
     New-Item -ItemType Directory -Path $pruebaDir -Force | Out-Null
     New-Item -ItemType Directory -Path (Join-Path $pruebaDir 'diario') -Force | Out-Null
     $MemoriaDir = $pruebaDir
+    # el banco escribia RECORDATORIO/REGLA de mentira en el assistant.log real
+    $EventLog = Join-Path $pruebaDir 'probar.log'
     $DiarioDir = Join-Path $pruebaDir 'diario'
     $ReglasPath = Join-Path $pruebaDir 'reglas.json'
     $RecordatoriosPath = Join-Path $pruebaDir 'recordatorios.json'
@@ -6491,6 +6559,17 @@ function Start-Dictado([string]$origen) {
     # nueva empezaria con basura del pasado
     if ($VozWindowsOn) { Remove-Item -LiteralPath $RutaDictadoWin -Force -ErrorAction SilentlyContinue }
     $script:yaReintentado = $false
+    # BOTON CON LA SORDINA PUESTA ("no me escuches media hora" o la autosordina).
+    # La sordina es para el NOMBRE, no para ti: el propio aviso dice "usa el
+    # boton". Pero se hace con la marca de pausa, que para el worker es "tira
+    # todo el audio", asi que el dictado no recibia nada y la orden se perdia
+    # (revision del 12/09). Se levanta para este dictado y el bucle la vuelve a
+    # poner al terminar, con el tiempo que le quedara.
+    if ($origen -like 'mantener*' -and $script:sordinaHasta -gt $sw.ElapsedMilliseconds -and (Test-Path -LiteralPath $MarcaPausa)) {
+        Reanudar-Escucha
+        $script:sordinaRepausar = $true
+        Log "SORDINA: la levanto para este dictado con el boton"
+    }
     # Cuantas veces se despierta por voz. Sin este numero no hay forma de
     # saber si los filtros de falsas alarmas funcionan o si, al reves, se han
     # pasado de listos y ya no te oyen.
@@ -6902,8 +6981,15 @@ function Process-Texto([string]$text) {
             #      de la conversacion es justo lo que sobra. Y no se manda al
             #      agente, que tardaba 15-20 s en decidir que no era nada
             #      mientras la capsula decia "Entendiendo".
-            $esCharla = Test-Charla $text
-            $esAjena = Test-VozExtrana
+            # PERO NO ANTES DEL OIDO FINO (revision del 12/09): una orden larga
+            # con el verbo destrozado ("Abresteen y pongo Molyworld ahora
+            # mismo") parece charla, y es justo lo que el repaso rescata. Si
+            # esta frase va a repasarse, se espera: tras el repaso vuelve aqui
+            # con $script:yaReintentado puesto y entonces si se juzga.
+            $vaARepasar = ($WhisperPreciso -and $script:ordenPorWorker -and -not $script:yaReintentado -and
+                           $script:wakeProc -and -not $script:wakeProc.HasExited -and (Test-MereceRepaso $text))
+            $esCharla = (-not $vaARepasar) -and (Test-Charla $text)
+            $esAjena = (-not $vaARepasar) -and (Test-VozExtrana)
             if ($esCharla -or $esAjena) {
                 $porque = if ($esAjena) { 'voz que no es la tuya' } else { 'charla' }
                 Log "CHARLA descartada ($porque, no llega al agente): '$text'"
@@ -7048,9 +7134,18 @@ while ($true) {
                 # HAY UNA PREGUNTA ESPERANDO. Contestar "si" en voz alta con un
                 # juego sonando es lo que menos funciona, y el mando ya lo tienes
                 # en la mano: mantener el boton vale por un si.
-                Log "CONFIRMAR con el boton"
-                Start-Vibracion @(70) 14000      # un toque corto: "recibido"
-                Complete-Confirmacion 'si'
+                # ...SALVO que sea peligrosa ("cierra todos los programas"):
+                # ahi el mismo gesto que cancela cuando estoy ocupada no puede
+                # valer por un si. Un boton mantenido "para cortar" cerraba todo.
+                if ($script:pendiente.tipo -eq 'peligrosa') {
+                    Log "CANCELAR con el boton (la pregunta era peligrosa: solo vale un si hablado)"
+                    Start-Vibracion @(70, 60, 70) 16000
+                    Complete-Confirmacion 'no'
+                } else {
+                    Log "CONFIRMAR con el boton"
+                    Start-Vibracion @(70) 14000      # un toque corto: "recibido"
+                    Complete-Confirmacion 'si'
+                }
             } elseif ($script:busy) {
                 # Un hold mientras opencode trabaja = cancelar. Antes esta
                 # pulsacion se perdia: el bucle estaba bloqueado esperando.
@@ -7188,7 +7283,10 @@ while ($true) {
     # eventos ni hilos compartidos: eso es lo que mataba el proceso.
     if ($script:wakeProc -and (Test-Path -LiteralPath $MarcaWake)) {
         Remove-Item -LiteralPath $MarcaWake -Force -ErrorAction SilentlyContinue
-        if ($script:armed -or $script:busy -or $script:pendiente) {
+        # reintentoVence: el oido fino esta repasando la orden anterior. Un
+        # "nova" ahora abria otro dictado y el repaso ejecutaba despues la
+        # orden VIEJA encima de la nueva.
+        if ($script:armed -or $script:busy -or $script:pendiente -or $script:reintentoVence -gt 0) {
             # ya estabamos escuchando o procesando: se ignora sin ruido
         } elseif (($sw.ElapsedMilliseconds - $script:finVoz) -lt 1500) {
             # acabamos de hablar: evita despertarse con su propia voz
@@ -7259,7 +7357,9 @@ while ($true) {
         elseif (-not $script:perdida -and -not $script:loTengo -and ($sw.ElapsedMilliseconds - $script:dictaInicio) -ge 25000) {
             $script:perdida = $true
             Send-UIEvento 'gesto:perdida'
-        } elseif (($sw.ElapsedMilliseconds - $script:dictaInicio) -ge 35000) {
+        # 50 s: el worker corta el dictado a los 30 y Whisper ha llegado a tardar
+        # 13,6 s mas; con 35 se cancelaba y el texto llegaba despues sin dueno
+        } elseif (($sw.ElapsedMilliseconds - $script:dictaInicio) -ge 50000) {
             # red de seguridad: si el worker no responde, no dejar el estado colgado
             Log "dictado sin respuesta del worker; se cancela"
             Remove-Item -LiteralPath $MarcaDictar -Force -ErrorAction SilentlyContinue
@@ -7375,6 +7475,16 @@ while ($true) {
     if ($script:dictandoLargo -and -not $script:dictadoWinH -and -not $script:armed -and -not $script:busy -and -not $script:pendiente -and
         $script:pausaHasta -le 0 -and $DictadoWorker -and $script:wakeProc -and -not $script:wakeProc.HasExited) {
         Start-Dictado 'largo'
+    }
+
+    # --- la sordina vuelve tras un dictado con el boton (ver Start-Dictado) ---
+    if ($script:sordinaRepausar -and -not $script:armed -and -not $script:busy -and -not $script:pendiente -and $script:reintentoVence -le 0) {
+        $script:sordinaRepausar = $false
+        $restanSordina = $script:sordinaHasta - $sw.ElapsedMilliseconds
+        if ($restanSordina -gt 1000) {
+            Pausar-Escucha $restanSordina
+            Log "SORDINA: vuelve ($([int][Math]::Ceiling($restanSordina / 60000)) min)"
+        }
     }
 
     # --- el dictado largo tiene plazo ---
@@ -7526,6 +7636,13 @@ while ($true) {
         $script:minutoVisto = $minutoAhora
         try { Invoke-Reglas 'hora' $minutoAhora; Invoke-Reglas 'cada' } catch {}
         try { Test-Recordatorios } catch {}
+        # la copia del dia, tambien en el PRIMER minuto tras arrancar: diaVisto
+        # nace con la fecha de hoy, asi que el bloque de "cambio de dia" no se
+        # alcanza al arrancar y la copia no se hacia nunca (revision del 12/09)
+        if (-not $script:copiaMirada) {
+            $script:copiaMirada = $true
+            try { if (Test-CopiaPendiente) { [void](New-CopiaSeguridad 'la del dia') } } catch {}
+        }
         $diaAhora = Get-Date -Format 'yyyy-MM-dd'
         if ($diaAhora -ne $script:diaVisto) {
             $script:diaVisto = $diaAhora

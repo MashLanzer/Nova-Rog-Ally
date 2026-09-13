@@ -16,6 +16,12 @@
 #      [dictar] [texto] [parcial] [nivel]
 
 import sys
+# Si el worker muere dentro de numpy/Whisper/sounddevice, Python no deja ni
+# una linea: el 12/09 murio tres veces sin rastro (20:13, 21:15, 22:21).
+# faulthandler vuelca la pila al stderr, que el asistente guarda en
+# tmp/wake-err.log.
+import faulthandler
+faulthandler.enable()
 import os
 import re
 import json
