@@ -282,6 +282,23 @@ CON QUÉ TE OYE, Y CUÁNDO (cambiado el 12/09 tras medirlo)
   (SpeechRecognizer local de OneCore), que estuvo activado días y NUNCA
   entregó una palabra: seis rondas seguidas con el micrófono para él solo,
   seis rechazos con texto vacío. Está desactivado (input.vozWindows = false).
+  POR QUÉ, averiguado el 12/09 por la noche (NO VOLVER A INTENTARLO):
+    - No es la privacidad (reconocimiento en línea aceptado), ni el permiso
+      del micrófono, ni el idioma (el dictado en línea compila en es-ES; es-MX
+      y es-419 no existen como reconocedor aquí), ni el dispositivo (hay un
+      solo micrófono y es el predeterminado para todo).
+    - Esa API escucha en el modo de captura "voz" (MediaCategory Speech), y en
+      esta Ally ese modo deja pasar un ZUMBIDO de 82 Hz (y 165 Hz) que capta
+      el micrófono -probablemente el ventilador-: en silencio, rms 0,09 y
+      picos de 1,0 con el micrófono al 100 %. El modo comunicaciones (el de
+      Win+H) lo filtra, y el modo normal (el de Whisper) lo deja casi mudo.
+    - Resultado: avisa "TooLoud" hasta en silencio y rechaza todo. Probado con
+      el micrófono al 100, 80, 60, 40, 25, 15, 10 y 5 %, y con la voz del
+      usuario al 5 % y al 15 %: cero palabras, siempre "rechazada".
+    - La API no deja elegir el modo de captura, así que no tiene arreglo por
+      este lado.
+  OJO al probar niveles de micrófono: guardar y restaurar SIEMPRE el 100 %.
+  Una prueba cancelada a medias lo dejó al 15 % y Nova oía muy mal.
   No es el mismo que Win+H aunque lo parezca.
 
 DICTADO: Whisper, en dos pasos (nuevo). Mientras hablas ves la
