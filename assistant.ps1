@@ -2683,8 +2683,10 @@ function Get-Recetas {
                 if ($null -eq $x -or -not [string]$x.frase) { continue }
                 $pasos = New-Object System.Collections.ArrayList
                 foreach ($pp in @($x.pasos)) { if ($pp) { [void]$pasos.Add(@{ tipo = [string]$pp.tipo; texto = [string]$pp.texto }) } }
+                $vars = New-Object System.Collections.ArrayList
+                foreach ($vv in @($x.variantes)) { if ([string]$vv) { [void]$vars.Add([string]$vv) } }
                 [void]$script:recetas.Add(@{ id = [int]$x.id; frase = [string]$x.frase; resumen = [string]$x.resumen; respuesta = [string]$x.respuesta
-                    pasos = $pasos; ejemplo = [string]$x.ejemplo; creada = [string]$x.creada
+                    pasos = $pasos; variantes = $vars; ejemplo = [string]$x.ejemplo; creada = [string]$x.creada
                     usos = [int]$x.usos; confirmadas = [int]$x.confirmadas; fallos = [int]$x.fallos; rechazos = [int]$x.rechazos })
             }
         } catch { Log ("recetas: no pude leer el archivo: " + $_.Exception.Message) }
@@ -2700,7 +2702,7 @@ function Save-Recetas {
             $pasosJ = @()
             foreach ($pp in $r.pasos) { $pasosJ += New-Object PSObject -Property ([ordered]@{ tipo = $pp.tipo; texto = $pp.texto }) }
             $lista += New-Object PSObject -Property ([ordered]@{ id = $r.id; frase = $r.frase; resumen = $r.resumen; respuesta = $r.respuesta
-                pasos = $pasosJ; ejemplo = $r.ejemplo; creada = $r.creada; usos = $r.usos; confirmadas = $r.confirmadas; fallos = $r.fallos; rechazos = $r.rechazos })
+                pasos = $pasosJ; variantes = @(@($r.variantes) | Where-Object { $_ }); ejemplo = $r.ejemplo; creada = $r.creada; usos = $r.usos; confirmadas = $r.confirmadas; fallos = $r.fallos; rechazos = $r.rechazos })
         }
         $json = if ($lista.Count -eq 0) { '[]' } else { ConvertTo-Json -InputObject @($lista) -Depth 6 }
         [System.IO.File]::WriteAllText($RecetasPath, $json, (New-Object System.Text.UTF8Encoding($false)))
@@ -2745,16 +2747,19 @@ function Find-Receta([string]$text, $lista = $null) {
     $suave = ConvertTo-Suave $base
     $mejor = $null; $mejorLargo = -1
     foreach ($r in $g) {
-        $pat = Get-PatronReceta ([string]$r.frase)
+      # la frase con la que se aprendio y las OTRAS formas de decirlo que ha ido
+      # aprendiendo (ver Get-VarianteReceta)
+      foreach ($plantilla in (@([string]$r.frase) + @(@($r.variantes) | Where-Object { $_ }))) {
+        $pat = Get-PatronReceta $plantilla
         if (-not $pat) { continue }
         $m = $null
         try { $m = [regex]::Match($suave, $pat) } catch { continue }
         if (-not $m.Success) { continue }
-        $largo = ((ConvertTo-Suave ([string]$r.frase)) -replace '\{[a-z_]+\}', '').Length
+        $largo = ((ConvertTo-Suave $plantilla) -replace '\{[a-z_]+\}', '').Length
         if ($largo -le $mejorLargo) { continue }
         $vals = @{}
         $bien = $true
-        foreach ($nombreH in @([regex]::Matches((ConvertTo-Suave ([string]$r.frase)), '\{([a-z_]{1,20})\}') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)) {
+        foreach ($nombreH in @([regex]::Matches((ConvertTo-Suave $plantilla), '\{([a-z_]{1,20})\}') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)) {
             $grp = $m.Groups[$nombreH]
             if (-not $grp.Success) { $bien = $false; break }
             $v = $base.Substring($grp.Index, $grp.Length).Trim().TrimEnd('.', ',', ';', '!', '?').Trim()
@@ -2762,10 +2767,43 @@ function Find-Receta([string]$text, $lista = $null) {
             $vals[$nombreH] = $v
         }
         if (-not $bien) { continue }
-        $mejor = @{ receta = $r; valores = $vals }
+        $mejor = @{ receta = $r; valores = $vals; plantilla = $plantilla }
         $mejorLargo = $largo
+      }
     }
     return $mejor
+}
+
+# OTRA FORMA DE DECIR UNA RECETA. De "hazme una carpeta Fotos en el escritorio"
+# con nombre=Fotos sale "hazme una carpeta {nombre} en el escritorio". Solo si
+# TODOS los valores estan tal cual en la frase: si Haiku corrigio o completo
+# algo, no se inventa una plantilla que luego no encajaria.
+function Get-VarianteReceta([string]$original, $valores) {
+    $base = [regex]::Replace($original, '^\s*(?:(?:nova|oye|hola|por favor|porfa|puedes|podrias|me puedes|quiero que|necesito que)[\s,]+)+', '', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $plantilla = ConvertTo-Suave ($base.Trim().TrimEnd('.', ',', ';', '!', '?').Trim())
+    # los valores mas largos primero: que "fotos" no se coma parte de "fotos viejas"
+    foreach ($k in @($valores.Keys | Sort-Object { -([string]$valores[$_]).Length })) {
+        $v = ConvertTo-Suave ([string]$valores[$k])
+        if (-not $v) { return $null }
+        $i = $plantilla.IndexOf($v)
+        if ($i -lt 0) { return $null }
+        $plantilla = $plantilla.Substring(0, $i) + '{' + $k + '}' + $plantilla.Substring($i + $v.Length)
+    }
+    $plantilla = ($plantilla -replace '\s+', ' ').Trim()
+    $literales = @((($plantilla -replace '\{[^}]*\}', ' ') -replace '[^a-z0-9 ]', ' ').Trim() -split '\s+' | Where-Object { $_.Length -ge 2 })
+    if ($literales.Count -lt 2) { return $null }
+    return $plantilla
+}
+
+function Add-VarianteReceta($r, [string]$variante) {
+    if (-not $variante) { return }
+    if (-not $r.variantes) { $r.variantes = New-Object System.Collections.ArrayList }
+    foreach ($pl in (@([string]$r.frase) + @($r.variantes))) { if ((ConvertTo-Suave ([string]$pl)) -eq (ConvertTo-Suave $variante)) { return } }
+    [void]$r.variantes.Add($variante)
+    while ($r.variantes.Count -gt 20) { $r.variantes.RemoveAt(0) }
+    Save-Recetas
+    Log "RECETA $($r.id): aprendida otra forma de decirlo: '$variante'"
+    Add-Estadistica 'receta-variante' $variante
 }
 
 function Test-ScriptProhibido([string]$s) {
@@ -2826,9 +2864,16 @@ function Add-Receta([string]$original, [string]$bloque) {
     $g = Get-Recetas
     # la misma plantilla aprendida otra vez sustituye a la anterior
     $clave = ConvertTo-Suave $frase
-    foreach ($x in @($g)) { if ((ConvertTo-Suave ([string]$x.frase)) -eq $clave) { [void]$g.Remove($x) } }
+    # ...conservando las otras formas de decirla que ya se hubieran aprendido
+    $varsViejas = New-Object System.Collections.ArrayList
+    foreach ($x in @($g)) {
+        if ((ConvertTo-Suave ([string]$x.frase)) -eq $clave) {
+            foreach ($vv in @($x.variantes)) { if ($vv) { [void]$varsViejas.Add([string]$vv) } }
+            [void]$g.Remove($x)
+        }
+    }
     $id = 1; foreach ($x in $g) { if ($x.id -ge $id) { $id = $x.id + 1 } }
-    $r = @{ id = $id; frase = $frase; resumen = ([string]$o.resumen).Trim(); respuesta = ([string]$o.respuesta).Trim(); pasos = $pasos
+    $r = @{ id = $id; frase = $frase; resumen = ([string]$o.resumen).Trim(); respuesta = ([string]$o.respuesta).Trim(); pasos = $pasos; variantes = $varsViejas
             ejemplo = $original; creada = (Get-Date -Format 's'); usos = 0; confirmadas = 0; fallos = 0; rechazos = 0 }
     [void]$g.Add($r)
     while ($g.Count -gt $RecetasMax) { $g.RemoveAt(0) }
@@ -2892,7 +2937,7 @@ function Start-Receta($enc, [string]$text) {
         Send-UIEvento 'hecho'
         Show-Popup $res.texto
         Say $res.texto
-        return
+        return $true
     }
     $r.fallos = [int]$r.fallos + 1
     Log "RECETA $($r.id) fallo ($($res.error)); se lo pido al cerebro"
@@ -2903,6 +2948,7 @@ function Start-Receta($enc, [string]$text) {
     }
     Save-Recetas
     Submit-Command $text 'accion'
+    return $false
 }
 
 function Find-Traduccion([string]$text) {
@@ -6566,6 +6612,15 @@ function Build-PromptTraduccion([string]$text) {
     $apps = (@($cmds.apps.PSObject.Properties.Name) | Select-Object -First 24) -join ', '
     $sitios = (@($cmds.sitios.PSObject.Properties.Name) | Select-Object -First 14) -join ', '
     $juegos = (@($script:Juegos | ForEach-Object { $_.nombre }) | Select-Object -First 20) -join ', '
+    # las TAREAS APRENDIDAS (recetas), para que las reconozca dichas de otra forma
+    $tareas = ''
+    if ($RecetasOn) {
+        $gT = Get-Recetas
+        if ($gT.Count -gt 0) {
+            $listaT = @(@($gT) | Sort-Object { - [int]$_.usos } | Select-Object -First 25 | ForEach-Object { '- ' + [string]$_.frase })
+            $tareas = "`nTareas que Nova ya sabe hacer. Si la orden es una de estas, aunque se diga con otras palabras, responde con esa plantilla rellenando cada {hueco} con lo que dijo el usuario, copiado tal cual:`n" + ($listaT -join "`n") + "`n"
+        }
+    }
     return @"
 Traduce la orden del usuario a UNA sola linea con una de estas formas exactas:
 abre <app>
@@ -6582,6 +6637,7 @@ modo juego | modo noche | modo trabajo | modo cine | modo silencio
 Apps disponibles: $apps
 Sitios disponibles: $sitios
 Juegos instalados: $juegos
+$tareas
 
 Responde SOLO con la linea traducida, sin comillas, sin explicacion y sin
 ninguna palabra extra.
@@ -6754,6 +6810,23 @@ function Report-Reply($out) {
         }
         if ($propuesta.Length -lt 120) {
             Log "traduccion propuesta: '$original' -> '$propuesta'"
+            # ¿es una TAREA APRENDIDA dicha con otras palabras? Haiku conoce las
+            # recetas (Build-PromptTraduccion) y contesta con la plantilla
+            # rellena. Entonces se pregunta, se hace en local y, si sale bien,
+            # esa forma de decirlo se aprende para que la proxima no pase por aqui.
+            $recP = $null
+            if ($RecetasOn) { try { $recP = Find-Receta $propuesta } catch { $recP = $null } }
+            if ($recP) {
+                $variante = $null
+                try { $variante = Get-VarianteReceta $original $recP.valores } catch { $variante = $null }
+                $script:pendiente = @{ texto = ''; vence = 0; tipo = 'receta'; id = $recP.receta.id; valores = $recP.valores; original = $original; variante = $variante }
+                $preguntaV = "¿Hago esto: " + (Get-TextoReceta $recP.receta 'resumen' $recP.valores) + "?"
+                Log "RECETA $($recP.receta.id) dicha con otras palabras: '$original' -> '$propuesta' (forma nueva: '$variante')"
+                Say $preguntaV
+                Set-UI 'escuchando' $preguntaV
+                Start-Confirmacion
+                return
+            }
             $r = $null
             # Una traduccion del modelo no se pregunta por parecido: o encaja o
             # no. Pero OJO con como se hace: antes se usaba $script:confirmado,
@@ -6891,7 +6964,10 @@ function Complete-Confirmacion([string]$respuesta) {
         $objR = @($gR | Where-Object { $_.id -eq $p.id })
         if ($objR.Count -eq 0) { Set-UI 'reposo'; return }
         if ($respuesta -eq 'si') {
-            Start-Receta @{ receta = $objR[0]; valores = $p.valores } $p.original
+            $okR = Start-Receta @{ receta = $objR[0]; valores = $p.valores } $p.original
+            # dijiste que si Y salio bien: esa forma de decirlo queda aprendida,
+            # y la proxima vez encaja en local, sin preguntarle a nadie
+            if (@($okR)[-1] -eq $true -and $p.variante) { Add-VarianteReceta $objR[0] $p.variante }
         } elseif ($respuesta -eq 'no') {
             $objR[0].rechazos = [int]$objR[0].rechazos + 1
             if ($objR[0].rechazos -ge 2) {
@@ -7512,7 +7588,7 @@ function Process-Texto([string]$text) {
             try { $recEnc = Find-Receta $text } catch { $recEnc = $null }
             if ($recEnc) {
                 if ($script:confirmado -or [int]$recEnc.receta.confirmadas -ge $RecetasConfirmar) {
-                    Start-Receta $recEnc $text
+                    [void](Start-Receta $recEnc $text)
                 } else {
                     $script:pendiente = @{ texto = ''; vence = 0; tipo = 'receta'; id = $recEnc.receta.id; valores = $recEnc.valores; original = $text }
                     $preguntaRec = "Esto ya lo aprendi: " + (Get-TextoReceta $recEnc.receta 'resumen' $recEnc.valores) + ". ¿Lo hago?"
@@ -7858,6 +7934,18 @@ while ($true) {
             Log "despertar ignorado (acabamos de hablar)"
         } else {
             Start-Dictado "nombre '$EscuchaNombre'"
+        }
+    }
+
+    # --- una RESPUESTA escrita ("si"/"no") a una pregunta pendiente ---
+    # Para probar sin voz lo que pasa despues de un "¿lo hago?".
+    if ($script:pendiente -and -not $script:busy -and (Test-Path -LiteralPath $RutaOrdenEscrita)) {
+        $escritaC = ''
+        try { $escritaC = [System.IO.File]::ReadAllText($RutaOrdenEscrita, [System.Text.Encoding]::UTF8).Trim() } catch {}
+        if ($escritaC -match '^(?i)(?:s[ií]|no)$') {
+            Remove-Item -LiteralPath $RutaOrdenEscrita -Force -ErrorAction SilentlyContinue
+            Log "RESPUESTA ESCRITA: $escritaC"
+            Complete-Confirmacion $(if ($escritaC -match '^(?i)no$') { 'no' } else { 'si' })
         }
     }
 
