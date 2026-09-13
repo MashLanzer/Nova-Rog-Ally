@@ -58,3 +58,7 @@ avisame diez minutos antes de las diez
 recuerdame media hora antes de las ocho que empieza la partida
 avisame manana un cuarto de hora antes de las nueve y media
 recuerdame en veinte minutos que saque la pizza
+# --- reglas sobre cualquier app (idea 5, 12/09) ---
+cuando abra spotify baja el juego al 40
+cuando abro discord pon el volumen al 30
+cuando cierre spotify sube el volumen

@@ -4578,10 +4578,50 @@ function Save-Reglas {
     } catch { Log ("reglas: no pude guardar: " + $_.Exception.Message) }
 }
 
+# --- REGLAS SOBRE CUALQUIER APP (idea 5) ---
+# Antes "cuando abra X" solo entendia juegos de Steam: "cuando abra Spotify,
+# baja el juego al 40" contestaba "no conozco el juego". Ahora X puede ser
+# cualquier app de commands.json. Si el nombre es EXACTAMENTE una app, gana la
+# app (Spotify no debe acabar emparejado por parecido con un juego); si no, se
+# prueba como juego y, por ultimo, como app por parecido.
+function Resolve-SujetoRegla([string]$obj) {
+    if ($cmds -and (Test-Prop $cmds.apps $obj)) { return @{ app = $true; nombre = $obj } }
+    $j = Find-Juego $obj
+    if ($j) { return @{ app = $false; nombre = $j.nombre } }
+    $pr = Resolve-Proceso $obj
+    if ($pr -and $pr.proceso -ne '*juego*') { return @{ app = $true; nombre = $pr.nombre } }
+    return $null
+}
+
+# Vigila las apps que salen en alguna regla y dispara al CAMBIAR: de cerrada a
+# abierta (appAbre) y al reves (appCierra). La primera mirada solo toma nota:
+# si al arrancar el asistente Spotify ya estaba abierto, eso no es "abrirlo".
+# Lo mismo con una regla recien creada: su app se apunta y dispara a la
+# siguiente vez que cambie.
+$script:appsCheck = 0
+$script:appsVivas = @{}
+function Watch-AppsReglas {
+    $g = Get-Reglas
+    $nombres = @($g | Where-Object { $_.tipo -eq 'appAbre' -or $_.tipo -eq 'appCierra' } | ForEach-Object { $_.valor } | Select-Object -Unique)
+    if ($nombres.Count -eq 0) { $script:appsVivas = @{}; return }
+    foreach ($n in $nombres) {
+        $pr = Resolve-Proceso $n
+        if (-not $pr -or $pr.proceso -eq '*juego*') { continue }
+        $viva = [bool](Get-Process -Name $pr.proceso -ErrorAction SilentlyContinue)
+        $antes = $script:appsVivas[$n]
+        $script:appsVivas[$n] = $viva
+        if ($null -eq $antes) { continue }
+        if ($viva -and -not $antes) { Log "APP abierta: $n"; Invoke-Reglas 'appAbre' $n }
+        elseif ($antes -and -not $viva) { Log "APP cerrada: $n"; Invoke-Reglas 'appCierra' $n }
+    }
+}
+
 function Describe-Regla($r) {
     $cuando = switch ($r.tipo) {
         'juegoAbre' { if ($r.valor) { "cuando abras $($r.valor)" } else { 'cuando abras un juego' } }
         'juegoCierra' { if ($r.valor) { "cuando cierres $($r.valor)" } else { 'cuando cierres el juego' } }
+        'appAbre' { "cuando abras $($r.valor)" }
+        'appCierra' { "cuando cierres $($r.valor)" }
         'bateria' { "cuando la bateria baje del $($r.valor) por ciento" }
         'cargadorQuita' { 'cuando quites el cargador' }
         'cargadorPone' { 'cuando enchufes el cargador' }
@@ -4614,9 +4654,14 @@ function Invoke-ReglaVoz([string]$text) {
         return ("Tienes " + $g.Count + ": " + (($g | ForEach-Object { "regla $($_.id), " + (Describe-Regla $_) }) -join '. '))
     }
     $tipo = $null; $valor = ''; $accion = ''
-    if ($p -match '^cuando\s+(?:se\s+)?(?:abra|inicie|arranque|empiece|entre a|entre en)\s+(?:el\s+|un\s+|cualquier\s+)?(.+?)\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
+    if ($p -match '^cuando\s+(?:se\s+)?(?:abra|abras|abro|inicie|arranque|empiece|entre a|entre en)\s+(?:el\s+|un\s+|cualquier\s+)?(.+?)\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
         $tipo = 'juegoAbre'; $obj = $Matches[1].Trim(); $accion = $Matches[2].Trim()
-        if ($obj -notmatch '^(?:juego|videojuego|algo|cualquier cosa)$') { $j = Find-Juego $obj; if ($j) { $valor = $j.nombre } else { return "No conozco el juego '$obj'" } }
+        if ($obj -notmatch '^(?:juego|videojuego|algo|cualquier cosa)$') {
+            $sujeto = Resolve-SujetoRegla $obj
+            if (-not $sujeto) { return "No conozco '$obj': no es un juego instalado ni una app de las que se abrir." }
+            if ($sujeto.app) { $tipo = 'appAbre' }
+            $valor = $sujeto.nombre
+        }
     }
     # DESCARGAS: "cuando termine de descargarse elden ring, abrelo"
     # Ojo con el orden: esta va ANTES que la de "cuando termine X" (cerrar un
@@ -4638,9 +4683,14 @@ function Invoke-ReglaVoz([string]$text) {
             $accion = "abre $valor"
         }
     }
-    elseif ($p -match '^cuando\s+(?:se\s+)?(?:cierre|termine|acabe|salga de|salga del)\s+(?:el\s+|un\s+|cualquier\s+)?(.+?)\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
+    elseif ($p -match '^cuando\s+(?:se\s+)?(?:cierre|cierres|cierro|termine|acabe|salga de|salga del)\s+(?:el\s+|un\s+|cualquier\s+)?(.+?)\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
         $tipo = 'juegoCierra'; $obj = $Matches[1].Trim(); $accion = $Matches[2].Trim()
-        if ($obj -notmatch '^(?:juego|videojuego|algo|cualquier cosa)$') { $j = Find-Juego $obj; if ($j) { $valor = $j.nombre } else { return "No conozco el juego '$obj'" } }
+        if ($obj -notmatch '^(?:juego|videojuego|algo|cualquier cosa)$') {
+            $sujeto = Resolve-SujetoRegla $obj
+            if (-not $sujeto) { return "No conozco '$obj': no es un juego instalado ni una app de las que se abrir." }
+            if ($sujeto.app) { $tipo = 'appCierra' }
+            $valor = $sujeto.nombre
+        }
     }
     elseif ($p -match '^cuando\s+la\s+(?:bateria|pila)\s+(?:baje|este|llegue|caiga)\s+(?:del|al|a|por debajo del|por debajo de|de|menos del)\s+(\d{1,3})\s*(?:por ciento|%)?\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
         $tipo = 'bateria'; $valor = [string][int]$Matches[1]; $accion = $Matches[2].Trim()
@@ -4689,6 +4739,8 @@ function Invoke-ReglaVoz([string]$text) {
             'cargadorPone' { 'ya esta cargando' }
             'juegoAbre' { 'ya abriste el juego' }
             'juegoCierra' { 'ya cerraste el juego' }
+            'appAbre' { "se abrio $valor" }
+            'appCierra' { "se cerro $valor" }
             default { 'aviso' }
         }
         $accion = "di $queDecir"
@@ -4713,6 +4765,8 @@ function Invoke-Reglas([string]$tipo, [string]$dato = '') {
         switch ($tipo) {
             'juegoAbre' { $dispara = (-not $r.valor -or $r.valor -eq $dato) }
             'juegoCierra' { $dispara = (-not $r.valor -or $r.valor -eq $dato) }
+            'appAbre' { $dispara = ($r.valor -eq $dato) }
+            'appCierra' { $dispara = ($r.valor -eq $dato) }
             'bateria' {
                 $pct = [int]$dato
                 if ($pct -le [int]$r.valor) { if ($r.ultima -ne 'baja') { $dispara = $true; $r.ultima = 'baja' } }
@@ -7409,6 +7463,13 @@ while ($true) {
                 break   # de uno en uno: dos avisos seguidos serian una encerrona
             }
         }
+    }
+
+    # --- reglas sobre apps: se abrio o se cerro una (cada 3 s; sin reglas de
+    #     apps no mira nada) ---
+    if (($sw.ElapsedMilliseconds - $script:appsCheck) -ge 3000) {
+        $script:appsCheck = $sw.ElapsedMilliseconds
+        try { Watch-AppsReglas } catch { Log ("reglas de apps: " + $_.Exception.Message) }
     }
 
     # --- que juego esta en primer plano (cada 10 s, es una consulta cara) ---

@@ -41,6 +41,10 @@ function Find-Juego($t) {
 $script:confirmado = $false
 Invoke-Expression (Traer 'ConvertTo-Plain')
 Invoke-Expression (Traer 'Describe-Regla')
+# desde la idea 5 (reglas sobre apps) Invoke-ReglaVoz decide app o juego con
+# Resolve-SujetoRegla; sin commands.json cargado, Resolve-Proceso sale sin mas
+Invoke-Expression (Traer 'Resolve-Proceso')
+Invoke-Expression (Traer 'Resolve-SujetoRegla')
 Invoke-Expression (Traer 'Invoke-ReglaVoz')
 Invoke-Expression (Traer 'Invoke-Reglas')
 

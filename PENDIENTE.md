@@ -26,10 +26,6 @@ ni con batería):
 
 ## Funciones nuevas
 
-- [ ] **5. Reglas sobre cualquier app, no solo juegos de Steam.**
-      «Cuando abra Spotify, baja el juego al 40». El motor de reglas ya existe
-      entero; solo mira juegos, que es la mitad de los casos.
-
 ---
 
 ## Interfaz y visuales
@@ -57,6 +53,13 @@ ni con batería):
 ---
 
 ## Hechas (12/09/2026)
+
+- **5. Reglas sobre cualquier app.** «Cuando abra Spotify, baja el juego al
+  40», «cuando cierre Discord, sube el volumen». Cualquier app de
+  `commands.json`, además de los juegos. Si el nombre es exactamente una app
+  gana la app; si no, se prueba como juego y luego como app por parecido. Un
+  vigilante mira cada 3 s solo las apps que salen en alguna regla y dispara al
+  CAMBIAR (al arrancar Nova no cuenta como "abrir" lo que ya estaba abierto).
 
 - **6. Avisos relativos a una hora.** «Avísame diez minutos antes de las
   diez», «recuérdame media hora antes de las ocho que empieza la partida»,
