@@ -1802,6 +1802,14 @@ function Resolve-Fragment([string]$f) {
         $desc = if ($que) { "aviso en $n $unidad" } else { "temporizador de $n $unidad" }
         return @(@{ kind = 'temporizador'; ms = $ms; texto = $que; n = $n; unidad = $unidad; desc = $desc })
     }
+    # --- cuanto me dura la bateria con esto (ver BATERIA POR JUEGO) ---
+    if ($f -match '^(?:cuanto me (?:dura|va a durar|aguanta) la (?:bateria|pila)|cuanto (?:aguanta|dura) la (?:bateria|pila)|cuanto (?:me )?(?:dura|aguanta) la (?:bateria|pila) (?:con esto|jugando|con este juego)|(?:me )?(?:da|alcanza) la (?:bateria|pila)(?: para (?:terminar|acabar|jugar|otra partida|un rato))?|cuanto puedo jugar(?: con la (?:bateria|pila))?)$') {
+        return @(@{ kind = 'duracionBateria'; desc = 'cuanto dura la bateria' })
+    }
+    # --- donde me quede (ver JUEGOS) ---
+    if ($f -match '^(?:donde me quede|en que me quede|por donde iba|donde lo deje|donde me habia quedado|en que parte me quede|por donde me quede)(?:\s+(?:en|con)\s+(.+))?$') {
+        return @(@{ kind = 'dondeMeQuede'; juego = [string]$Matches[1]; desc = 'donde te quedaste' })
+    }
     # --- como esta configurada ---
     if ($f -match '^(?:como (?:estas|te tengo) (?:configurada|puesta|ajustada)|(?:cual es|dime|ensename|muestrame|que es)?\s*(?:tu|la) configuracion|que configuracion tienes|como tienes todo puesto|que ajustes tienes)$') {
         return @(@{ kind = 'configuracion'; desc = 'mi configuracion' })
@@ -3214,6 +3222,126 @@ function Get-BalanceAprendizaje {
     return $txt
 }
 
+# JUEGOS: lo que Nova recuerda de cada uno. Donde te quedaste ("me quede en el
+# jefe del castillo") y cuanto gasta de bateria, aprendido jugando.
+# memoria\juegos.json, fuera de git.
+$script:juegosMem = $null
+$script:ultimoJuego = $null
+$script:ultimoJuegoEn = 0
+function Get-JuegosMem {
+    if ($null -ne $script:juegosMem) { return $script:juegosMem }
+    $script:juegosMem = @{}
+    $rutaJ = Join-Path $MemoriaDir 'juegos.json'
+    if (Test-Path -LiteralPath $rutaJ) {
+        try {
+            $crudoJ = Get-Content -LiteralPath $rutaJ -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($p in $crudoJ.PSObject.Properties) {
+                $h = @{}
+                foreach ($q in $p.Value.PSObject.Properties) { $h[$q.Name] = $q.Value }
+                $script:juegosMem[$p.Name] = $h
+            }
+        } catch { Log ("juegos: no pude leer la memoria: " + $_.Exception.Message) }
+    }
+    return $script:juegosMem
+}
+function Save-JuegosMem {
+    try {
+        $rutaJ = Join-Path $MemoriaDir 'juegos.json'
+        $tmpJ = $rutaJ + '.tmp'
+        [System.IO.File]::WriteAllText($tmpJ, ((Get-JuegosMem) | ConvertTo-Json -Depth 4), (New-Object System.Text.UTF8Encoding($false)))
+        Move-Item -LiteralPath $tmpJ -Destination $rutaJ -Force
+    } catch { Log ("juegos: no pude guardar la memoria: " + $_.Exception.Message) }
+}
+# El juego del que se habla: el de delante, o el ultimo que cerraste (2 h)
+function Get-JuegoDeReferencia {
+    if ($script:juegoActivo) { return $script:juegoActivo }
+    if ($script:ultimoJuego -and ($sw.ElapsedMilliseconds - $script:ultimoJuegoEn) -lt 7200000) { return $script:ultimoJuego }
+    return $null
+}
+function Set-NotaJuego([string]$juego, [string]$nota) {
+    $m = Get-JuegosMem
+    if (-not $m.ContainsKey($juego)) { $m[$juego] = @{} }
+    $m[$juego]['nota'] = $nota
+    $m[$juego]['notaFecha'] = (Get-Date).ToString('yyyy-MM-dd HH:mm')
+    Save-JuegosMem
+}
+function Get-HaceCuanto([string]$fecha) {
+    $d = [datetime]::MinValue
+    if (-not [datetime]::TryParse($fecha, [ref]$d)) { return '' }
+    $horas = ((Get-Date) - $d).TotalHours
+    if ($horas -lt 3) { return 'hace un rato' }
+    $dias = ((Get-Date).Date - $d.Date).Days
+    if ($dias -eq 0) { return 'hoy' }
+    if ($dias -eq 1) { return 'ayer' }
+    return "hace $dias dias"
+}
+
+# BATERIA POR JUEGO: con un juego delante y sin cargador se abre un "tramo" con
+# el % de ese momento. Se cierra al enchufar, al cambiar de juego o cada 20
+# min, y si duro al menos 10 min y bajo algo, el ritmo (% por hora) se mezcla
+# con lo ya aprendido de ese juego. Ninguna estimacion sale de un solo vistazo.
+$script:tramoBat = $null
+function Update-BateriaJuego([int]$pct, [int]$cargando) {
+    $j = $script:juegoActivo
+    $t = $script:tramoBat
+    if ($t -and ($cargando -eq 1 -or $j -ne $t.juego -or ($sw.ElapsedMilliseconds - $t.desde) -ge 1200000)) {
+        $minT = ($sw.ElapsedMilliseconds - $t.desde) / 60000.0
+        $baja = $t.pct - $pct
+        if ($minT -ge 10 -and $baja -ge 2) {
+            $ritmo = $baja / ($minT / 60.0)
+            $m = Get-JuegosMem
+            if (-not $m.ContainsKey($t.juego)) { $m[$t.juego] = @{} }
+            $antes = [double]$m[$t.juego]['ritmoBateria']
+            $nMu = [int]$m[$t.juego]['muestrasBateria']
+            $nuevo = if ($nMu -gt 0 -and $antes -gt 0) { $antes * 0.6 + $ritmo * 0.4 } else { $ritmo }
+            $m[$t.juego]['ritmoBateria'] = [Math]::Round($nuevo, 1)
+            $m[$t.juego]['muestrasBateria'] = $nMu + 1
+            Save-JuegosMem
+            Log ("BATERIA: {0} gasta {1:N1} %/h en este tramo ({2:N0} min); media {3:N1} %/h" -f $t.juego, $ritmo, $minT, $nuevo)
+        }
+        $script:tramoBat = $null
+        $t = $null
+    }
+    if (-not $t -and $j -and $cargando -eq 0) { $script:tramoBat = @{ juego = $j; pct = $pct; desde = $sw.ElapsedMilliseconds } }
+}
+# Minutos que quedan con ese juego al % actual, o $null si aun no se sabe
+function Get-DuracionBateriaJuego([string]$juego, [int]$pct = -1) {
+    $m = Get-JuegosMem
+    if (-not $juego -or -not $m.ContainsKey($juego)) { return $null }
+    $ritmoJ = [double]$m[$juego]['ritmoBateria']
+    if ($ritmoJ -le 0) { return $null }
+    if ($pct -lt 0) { $pct = [int]$script:uiBateria }
+    return [int]($pct / $ritmoJ * 60)
+}
+function Format-Minutos([int]$min) {
+    if ($min -lt 60) { return "$min minutos" }
+    $h = [int][Math]::Floor($min / 60); $r = $min % 60
+    $th = if ($h -eq 1) { 'una hora' } else { "$h horas" }
+    if ($r -lt 5) { return $th }
+    return "$th y $r minutos"
+}
+# AL ENTRAR EN UN JUEGO: donde te quedaste y cuanto te dura, en la capsula,
+# sin voz y sin tarjeta (el juego acaba de arrancar). Una vez por hora como
+# mucho: salir y volver con Alt+Tab tambien cuenta como "entrar".
+$script:juegoRecordado = @{}
+function Show-RecuerdoJuego([string]$nombre) {
+    if ($script:juegoRecordado.ContainsKey($nombre) -and ($sw.ElapsedMilliseconds - $script:juegoRecordado[$nombre]) -lt 3600000) { return }
+    $m = Get-JuegosMem
+    $partes = @()
+    if ($m.ContainsKey($nombre) -and $m[$nombre]['nota']) { $partes += 'te quedaste en ' + $m[$nombre]['nota'] }
+    if ($script:uiCargando -eq 0) {
+        $minB = Get-DuracionBateriaJuego $nombre
+        if ($minB) { $partes += 'bateria para ' + (Format-Minutos $minB) }
+    }
+    if ($partes.Count -eq 0) { return }
+    $script:juegoRecordado[$nombre] = $sw.ElapsedMilliseconds
+    $txtR = $partes -join ' · '
+    if ($txtR.Length -gt 70) { $txtR = $txtR.Substring(0, 67) + '...' }
+    $txtR = $txtR.Substring(0, 1).ToUpper() + $txtR.Substring(1)
+    Log "JUEGOS: al entrar en $nombre -> $txtR"
+    Set-UI 'hablando' $txtR 7000
+}
+
 # COLOR DE LA CAPSULA A ELECCION: "ponte de color naranja". Solo cambia el de
 # reposo; los de cada estado (escuchando, pensando, error...) se quedan, que
 # son los que dicen algo. Va aqui arriba y no junto a la esquina porque el
@@ -3345,6 +3473,19 @@ function Invoke-FastCommand([string]$text) {
         }
         if ($dispE -and $cuerpoE) { return (New-RecetaEnsenada $dispE $cuerpoE).texto }
         return "Dime la frase y lo que tengo que hacer, por ejemplo: aprende que cuando diga prepara la partida, abre discord y pon modo juego."
+    }
+    # DONDE TE QUEDASTE (ver JUEGOS): "me quede en el jefe del castillo", "lo
+    # dejo en el capitulo 3". Se lee del texto ORIGINAL, con sus mayusculas.
+    # Sin un juego delante ni uno cerrado hace poco no hay de que juego
+    # hablar: la frase sigue su camino.
+    if ($text -match '(?i)^\s*(?:me\s+(?:he\s+)?qued[eé]|me\s+quedo|lo\s+dej[oeé])\s+(?:en|por)\s+(.{3,120}?)[\s.]*$') {
+        $notaJ = $Matches[1].Trim()
+        $jr = Get-JuegoDeReferencia
+        if ($jr) {
+            Set-NotaJuego $jr $notaJ
+            Log "JUEGOS: nota para $jr -> $notaJ"
+            return "Apuntado. En $jr te quedaste en $notaJ."
+        }
     }
     # APRENDER UN DATO SOBRE TI (ver PERFIL): "aprende que mi carpeta de capturas
     # es D:\Capturas". Va ANTES que el alias de abajo, que tambien empieza por
@@ -3574,6 +3715,37 @@ function Invoke-FastCommand([string]$text) {
                 }
                 'balanceAprendizaje' { $a.desc = (Get-BalanceAprendizaje) }
                 'configuracion' { $a.desc = (Get-Configuracion) }
+                'duracionBateria' {
+                    $jB = $script:juegoActivo
+                    $minJ = if ($jB) { Get-DuracionBateriaJuego $jB } else { $null }
+                    $a.desc = if ($script:uiCargando -eq 1) { "el cargador esta puesto, asi que sin prisa ($($script:uiBateria) por ciento)" }
+                              elseif ($minJ) { "con $jB, unas $(Format-Minutos $minJ) mas; vas por el $($script:uiBateria) por ciento" }
+                              elseif ($jB -and $script:bateriaMin -gt 0) { "Windows calcula $(Format-Minutos $script:bateriaMin); lo que gasta $jB lo aprendo en cuanto juegues un rato sin cargador" }
+                              elseif ($script:bateriaMin -gt 0) { "a este ritmo, unas $(Format-Minutos $script:bateriaMin); vas por el $($script:uiBateria) por ciento" }
+                              else { Get-FraseBateria }
+                }
+                'dondeMeQuede' {
+                    $mJ = Get-JuegosMem
+                    $jr = $null
+                    if ($a.juego) {
+                        foreach ($k in $mJ.Keys) {
+                            $pk = ConvertTo-Plain $k
+                            if ($pk.Contains($a.juego) -or $a.juego.Contains($pk)) { $jr = $k; break }
+                        }
+                    }
+                    if (-not $jr) { $jr = Get-JuegoDeReferencia }
+                    if (-not $jr) {
+                        # sin juego delante: la nota mas reciente, sea del juego que sea
+                        $masReciente = ''
+                        foreach ($k in $mJ.Keys) {
+                            if ($mJ[$k]['nota'] -and [string]$mJ[$k]['notaFecha'] -gt $masReciente) { $masReciente = [string]$mJ[$k]['notaFecha']; $jr = $k }
+                        }
+                    }
+                    $a.desc = if ($jr -and $mJ.ContainsKey($jr) -and $mJ[$jr]['nota']) {
+                        "En $jr te quedaste en $($mJ[$jr]['nota']), $(Get-HaceCuanto ([string]$mJ[$jr]['notaFecha']))"
+                    } elseif ($jr) { "no tengo apuntado donde te quedaste en $jr; dime: me quede en..." }
+                    else { 'no tengo nada apuntado; mientras juegas, dime: me quede en...' }
+                }
                 'fijarTarjeta' {
                     if ($script:popupForm) {
                         $script:popupFijada = $true
@@ -5959,6 +6131,7 @@ function Enter-Juego([string]$nombre) {
     $script:juegoHoras = 0
     $script:juegoBrilloAntes = $null
     $script:logroArchivo = ''
+    try { Show-RecuerdoJuego $nombre } catch { Log ("juegos: " + $_.Exception.Message) }
     Invoke-Reglas 'juegoAbre' $nombre
     if (-not $JuegoPerfilEntrar) { return }
     if (-not (Test-Prop $cmds.perfiles $JuegoPerfilEntrar)) { return }
@@ -5980,6 +6153,9 @@ function Enter-Juego([string]$nombre) {
 }
 
 function Exit-Juego([string]$nombre) {
+    # "me quede en..." dicho justo despues de salir sigue siendo de este juego
+    $script:ultimoJuego = $nombre
+    $script:ultimoJuegoEn = $sw.ElapsedMilliseconds
     Invoke-Reglas 'juegoCierra' $nombre
     if (-not $JuegoRestaurar -or $null -eq $script:juegoBrilloAntes) { return }
     try {
@@ -8196,10 +8372,15 @@ $script:dictaInicio = 0
 $script:jobModo = ''
 $script:jobTextoOriginal = ''
 $pollErrs = 0
+# botones del mando en la vuelta anterior: A y B contestan preguntas (ver abajo)
+$XINPUT_A = 0x1000
+$XINPUT_B = 0x2000
+$script:botonesPrev = 0
 
 while ($true) {
     [System.Windows.Forms.Application]::DoEvents()
     $startNow = $false
+    $botones = 0
     $pollOk = $true
     # tras un fallo de XInput se espera 5 s SIN bloquear el bucle: el resto
     # (escucha, popups, trabajos) tiene que seguir atendiendose
@@ -8208,6 +8389,7 @@ while ($true) {
         try {
             $state = New-Object AX+XINPUT_STATE
             $r = [AX]::XInputGetState([uint32]$u, [ref]$state)
+            if ($r -eq 0) { $botones = $botones -bor [int]$state.Gamepad.wButtons }
             if ($r -eq 0 -and (($state.Gamepad.wButtons -band $TRIGGER) -eq $TRIGGER)) {
                 $startNow = $true
                 break
@@ -8229,6 +8411,33 @@ while ($true) {
         }
     }
     if ($pollOk) { $pollErrs = 0 }
+
+    # RESPONDER CON EL MANDO (13/09): con una pregunta de si/no esperando, A es
+    # si y B es no. Solo mientras hay pregunta: el resto del tiempo A y B son
+    # del juego y aqui no se tocan. Cuenta la PULSACION (el flanco), no tenerlo
+    # apretado: si ya lo tenias pulsado jugando cuando llego la pregunta, no
+    # vale como respuesta. Una pregunta peligrosa ("cierra todos los
+    # programas") sigue pidiendo un si hablado; B si la cancela.
+    $pulsadoA = (($botones -band $XINPUT_A) -ne 0) -and (($script:botonesPrev -band $XINPUT_A) -eq 0)
+    $pulsadoB = (($botones -band $XINPUT_B) -ne 0) -and (($script:botonesPrev -band $XINPUT_B) -eq 0)
+    $script:botonesPrev = $botones
+    if (($pulsadoA -or $pulsadoB) -and $script:pendiente -and -not $script:busy) {
+        try {
+            if ($pulsadoB) {
+                Log "CONFIRMAR con el mando: B (no)"
+                Start-Vibracion @(40, 50, 40) 14000
+                Complete-Confirmacion 'no'
+            } elseif ($script:pendiente.tipo -eq 'peligrosa') {
+                Log "mando: A no vale para una pregunta peligrosa; hace falta un si hablado"
+                Start-Vibracion @(120) 20000
+                Set-UI 'confirmando' 'Dimelo en voz alta'
+            } else {
+                Log "CONFIRMAR con el mando: A (si)"
+                Start-Vibracion @(70) 14000
+                Complete-Confirmacion 'si'
+            }
+        } catch { Log "mando A/B error: $($_.Exception.Message)" }
+    }
 
     if ($startNow -and -not $startPrev) {
         $downSince = $sw.ElapsedMilliseconds
@@ -8849,6 +9058,8 @@ while ($true) {
                     Log "cargador: $(if ($cg -eq 1) { 'enchufado' } else { 'desenchufado' })"
                 }
                 $script:cargandoAntes = $cg
+                # cuanto gasta el juego de delante (ver BATERIA POR JUEGO)
+                try { Update-BateriaJuego $pc $cg } catch { Log ("bateria por juego: " + $_.Exception.Message) }
                 # cuanto tiempo queda, que es lo que decide si empiezas otra
                 # partida. Viene en el mismo objeto que ya se acaba de leer.
                 $script:bateriaMin = 0

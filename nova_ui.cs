@@ -515,7 +515,8 @@ public class NovaUI : Window
         // contestar es la mitad del problema; la otra mitad es saber cuanto
         // queda, y eso lo dibuja la linea de abajo vaciandose.
         pistaSiNo = new TextBlock();
-        pistaSiNo.Text = "sí · no";
+        // A y B del mando valen igual que decirlo (13/09)
+        pistaSiNo.Text = "Ⓐ sí · Ⓑ no";
         pistaSiNo.FontFamily = new FontFamily("Segoe UI");
         pistaSiNo.FontSize = 9;
         pistaSiNo.FontWeight = FontWeights.SemiBold;

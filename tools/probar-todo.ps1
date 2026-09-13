@@ -54,6 +54,10 @@ Titulo "2q. Autoaprendizaje (recetas, variantes, perfil, cuanto has aprendido)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-recetas.ps1') | Select-String 'MAL|todo correcto'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2r. Cada juego (donde te quedaste, cuanto gasta de bateria)"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-juegos.ps1') | Select-String 'MAL|todo correcto'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2d. La tarjeta de respuestas largas (que no te saque del juego)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-tarjeta.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }

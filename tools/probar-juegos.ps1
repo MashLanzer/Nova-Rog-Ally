@@ -1,0 +1,92 @@
+﻿# Pruebas de lo que Nova recuerda de cada juego: donde te quedaste ("me quede
+# en...") y cuanto gasta de bateria, aprendido por tramos.
+# Trabaja en una carpeta temporal propia y la borra al acabar.
+#
+#   powershell -NoProfile -File tools\probar-juegos.ps1
+$ruta = Join-Path (Split-Path -Parent $PSScriptRoot) 'assistant.ps1'
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($ruta, [ref]$null, [ref]$null)
+function TraerFn($n) {
+    $f = $ast.Find({ param($x) $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq $n }, $true)
+    if (-not $f) { throw "falta la funcion $n en assistant.ps1" }
+    return $f.Extent.Text
+}
+foreach ($n in 'Get-JuegosMem', 'Save-JuegosMem', 'Get-JuegoDeReferencia', 'Set-NotaJuego', 'Get-HaceCuanto', 'Update-BateriaJuego',
+    'Get-DuracionBateriaJuego', 'Format-Minutos', 'Show-RecuerdoJuego') { Invoke-Expression (TraerFn $n) }
+
+$MemoriaDir = Join-Path $env:TEMP ('nova-juegos-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $MemoriaDir | Out-Null
+# un reloj de mentira: los tramos de bateria duran minutos y aqui no se espera
+$script:ahoraMs = 0
+$sw = New-Object PSObject
+$sw | Add-Member -MemberType ScriptProperty -Name ElapsedMilliseconds -Value { $script:ahoraMs }
+$script:juegosMem = $null; $script:ultimoJuego = $null; $script:ultimoJuegoEn = 0
+$script:tramoBat = $null; $script:juegoRecordado = @{}
+$script:juegoActivo = $null; $script:uiCargando = 0; $script:uiBateria = 80
+$script:ui = @()
+function Log($m) {}
+function Set-UI($e, $t, $ms) { $script:ui += "$e|$t" }
+$mal = 0
+function Comp($etq, $ok, $det = '') {
+    if (-not $ok) { $script:mal++ }
+    "  {0}  {1}{2}" -f $(if ($ok) { 'OK  ' } else { 'MAL ' }), $etq, $(if ("$det" -ne '') { "  -> $det" } else { '' })
+}
+
+Write-Host "--- donde te quedaste ---"
+Comp 'sin juego delante ni reciente, no hay juego de referencia' ($null -eq (Get-JuegoDeReferencia))
+$script:juegoActivo = 'Hollow Knight'
+Comp 'con uno delante, es ese' ((Get-JuegoDeReferencia) -eq 'Hollow Knight')
+Set-NotaJuego 'Hollow Knight' 'el jefe del Castillo'
+$script:juegosMem = $null
+$mJ = Get-JuegosMem
+Comp 'la nota se guarda y se relee del archivo' ($mJ['Hollow Knight']['nota'] -ceq 'el jefe del Castillo') $mJ['Hollow Knight']['nota']
+$script:juegoActivo = $null; $script:ultimoJuego = 'Hollow Knight'; $script:ultimoJuegoEn = 0; $script:ahoraMs = 3600000
+Comp 'recien cerrado (1 h), sigue siendo el de referencia' ((Get-JuegoDeReferencia) -eq 'Hollow Knight')
+$script:ahoraMs = 3 * 3600000
+Comp 'pasadas 2 h, ya no' ($null -eq (Get-JuegoDeReferencia))
+Comp 'hace un rato' ((Get-HaceCuanto ((Get-Date).AddMinutes(-30).ToString('yyyy-MM-dd HH:mm'))) -eq 'hace un rato')
+Comp 'ayer' ((Get-HaceCuanto ((Get-Date).AddDays(-1).ToString('yyyy-MM-dd 12:00'))) -eq 'ayer')
+$re = '(?i)^\s*(?:me\s+(?:he\s+)?qued[eé]|me\s+quedo|lo\s+dej[oeé])\s+(?:en|por)\s+(.{3,120}?)[\s.]*$'
+$reAst = $ast.Find({ param($x) $x -is [System.Management.Automation.Language.StringConstantExpressionAst] -and $x.Value -like '(?i)^\s*(?:me\s+(?:he\s+)?qued*' }, $true)
+Comp 'el patron de la prueba es el del asistente' ($reAst -and $reAst.Value -eq $re)
+Comp '"Me quede en el capitulo 3." encaja y guarda lo de detras' (('Me quedé en el capítulo 3.' -match $re) -and $Matches[1] -eq 'el capítulo 3') $Matches[1]
+Comp '"lo dejo por la mina" encaja' ('lo dejo por la mina' -match $re)
+Comp '"me quede dormido" no encaja' (-not ('me quede dormido' -match $re))
+
+Write-Host "--- bateria por juego ---"
+$script:juegosMem = $null; Remove-Item (Join-Path $MemoriaDir 'juegos.json') -ErrorAction SilentlyContinue
+$script:ahoraMs = 0; $script:juegoActivo = 'ELDEN RING'
+Update-BateriaJuego 90 0
+Comp 'con juego y sin cargador se abre un tramo' ($script:tramoBat -and $script:tramoBat.pct -eq 90)
+$script:ahoraMs = 5 * 60000; Update-BateriaJuego 88 0
+Comp 'a los 5 min sigue abierto' ($script:tramoBat.pct -eq 90)
+$script:ahoraMs = 20 * 60000; Update-BateriaJuego 80 0
+Comp 'a los 20 min se cierra y aprende 30 %/h' ([double](Get-JuegosMem)['ELDEN RING']['ritmoBateria'] -eq 30) (Get-JuegosMem)['ELDEN RING']['ritmoBateria']
+Comp 'y abre el siguiente tramo desde el % de ahora' ($script:tramoBat.pct -eq 80)
+$script:ahoraMs = 40 * 60000; Update-BateriaJuego 60 0
+Comp 'el segundo tramo (60 %/h) se mezcla: 0.6*30 + 0.4*60 = 42' ([double](Get-JuegosMem)['ELDEN RING']['ritmoBateria'] -eq 42) (Get-JuegosMem)['ELDEN RING']['ritmoBateria']
+$script:ahoraMs = 43 * 60000; Update-BateriaJuego 59 1
+Comp 'enchufar cierra el tramo sin aprender (3 min es poco)' ($null -eq $script:tramoBat -and [int](Get-JuegosMem)['ELDEN RING']['muestrasBateria'] -eq 2)
+Comp 'cargando no abre tramo' ($null -eq $script:tramoBat)
+$script:juegoActivo = $null; Update-BateriaJuego 59 0
+Comp 'sin juego no abre tramo' ($null -eq $script:tramoBat)
+Comp 'duracion: 84 % a 42 %/h son 120 min' ((Get-DuracionBateriaJuego 'ELDEN RING' 84) -eq 120)
+Comp 'un juego sin datos no inventa' ($null -eq (Get-DuracionBateriaJuego 'Celeste' 50))
+Comp 'minutos dichos: 45' ((Format-Minutos 45) -eq '45 minutos')
+Comp 'minutos dichos: 100' ((Format-Minutos 100) -eq 'una hora y 40 minutos') (Format-Minutos 100)
+Comp 'minutos dichos: 122' ((Format-Minutos 122) -eq '2 horas') (Format-Minutos 122)
+
+Write-Host "--- al entrar en un juego ---"
+$script:ui = @(); $script:uiBateria = 84; $script:uiCargando = 0; $script:ahoraMs = 50 * 60000
+Set-NotaJuego 'ELDEN RING' 'Leyndell'
+Show-RecuerdoJuego 'ELDEN RING'
+Comp 'avisa en la capsula: nota y bateria' ($script:ui.Count -eq 1 -and $script:ui[0] -eq 'hablando|Te quedaste en Leyndell · bateria para 2 horas') ($script:ui -join ' / ')
+$script:ahoraMs = 70 * 60000; Show-RecuerdoJuego 'ELDEN RING'
+Comp 'volver con Alt+Tab a los 20 min no repite' ($script:ui.Count -eq 1)
+$script:ahoraMs = 120 * 60000; $script:uiCargando = 1; Show-RecuerdoJuego 'ELDEN RING'
+Comp 'pasada una hora si, y cargando no habla de bateria' ($script:ui.Count -eq 2 -and $script:ui[1] -eq 'hablando|Te quedaste en Leyndell') $script:ui[1]
+Show-RecuerdoJuego 'Celeste'
+Comp 'un juego sin nada que recordar no dice nada' ($script:ui.Count -eq 2)
+
+Remove-Item -LiteralPath $MemoriaDir -Recurse -Force -ErrorAction SilentlyContinue
+if ($mal -gt 0) { Write-Host "$mal casos MAL"; exit 1 }
+Write-Host "todo correcto"

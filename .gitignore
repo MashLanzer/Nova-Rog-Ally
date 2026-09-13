@@ -56,3 +56,5 @@ __pycache__/
 memoria/recetas.json
 # lo que Nova sabe de ti (carpetas, juegos, preferencias)
 memoria/perfil.md
+# lo que recuerda de cada juego: donde te quedaste y cuanto gasta de bateria
+memoria/juegos.json

@@ -26,6 +26,29 @@ ni con batería):
 
 ## Funciones nuevas
 
+Elegidas el 13/09 (todas menos la «tarjeta de fin de partida»). REGLA DE
+DISEÑO: máximo minimalismo, nada de tarjetas grandes nuevas; todo en la
+cápsula (texto corto, glifo, contador, gesto) o por voz.
+
+- [x] **A. Responder con el mando** (13/09): con una pregunta esperando, A = sí
+      y B = no (cuenta la pulsación, no tenerlo apretado; una pregunta
+      peligrosa sigue pidiendo un sí hablado). La pista de la cápsula dice
+      «Ⓐ sí · Ⓑ no». **Falta probarlo con el mando en la mano.**
+- [x] **B. «¿Dónde me quedé?»** (13/09): «me quedé en el jefe del castillo» o
+      «lo dejo en…» mientras juegas (o hasta 2 h después) lo apunta en
+      `memoria\juegos.json`. «¿Dónde me quedé?» lo dice, y al volver a entrar
+      en el juego sale en la cápsula, sin voz ni tarjeta.
+- [x] **C. Batería por juego** (13/09): sin cargador y con un juego delante,
+      mide por tramos de 20 min cuánto gasta y lo promedia. «¿Cuánto me dura la
+      batería?» / «¿me da para terminar?» contesta con el ritmo de ESE juego, y
+      al entrar la cápsula dice «batería para 2 horas». `tools\probar-juegos.ps1`.
+- [ ] **D. Te propone automatizaciones:** detecta secuencias repetidas y ofrece una regla.
+- [ ] **E. Notificaciones mientras juegas:** contador discreto; «¿qué me han escrito?».
+- [ ] **F. La música en la cápsula:** título corto y la carita que se mece; «¿qué canción es?».
+- [ ] **G. Nova evoluciona:** niveles según lo aprendido, detalles visuales sutiles.
+- [ ] **H. El clima vivo en el cristal:** gotas si llueve, tono del amanecer/atardecer, voz más baja de noche.
+- [ ] **I. Panel rápido con el mando:** compacto, sale de la cápsula, se navega con la cruceta.
+
 ---
 
 ## Interfaz y visuales

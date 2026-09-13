@@ -77,3 +77,7 @@ déjala ahí
 quítala
 cómo estás configurada
 qué ajustes tienes
+¿dónde me quedé?
+por dónde iba
+¿cuánto me dura la batería?
+¿me da la batería para terminar?
