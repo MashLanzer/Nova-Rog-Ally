@@ -343,6 +343,17 @@ public class NovaUI : Window
         return area;
     }
 
+    // DIAGNOSTICO DE CPU: NOVA_DIAG="mirar,latido,..." apaga piezas para medir
+    // cuanto cuesta cada una. Sin la variable no cambia nada.
+    static readonly string diag = "," + (Environment.GetEnvironmentVariable("NOVA_DIAG") ?? "") + ",";
+    static bool Sin(string pieza) { return diag.Contains("," + pieza + ","); }
+    static int FpsLatido()
+    {
+        int f;
+        if (int.TryParse(Environment.GetEnvironmentVariable("NOVA_LATIDO_FPS"), out f) && f >= 4 && f <= 60) { return f; }
+        return 12;
+    }
+
     [STAThread]
     public static void Main(string[] args)
     {
@@ -359,8 +370,8 @@ public class NovaUI : Window
     public NovaUI()
     {
         WindowStyle = WindowStyle.None;
-        AllowsTransparency = true;
-        Background = Brushes.Transparent;
+        AllowsTransparency = !Sin("transp");
+        Background = Sin("transp") ? Brushes.Black : Brushes.Transparent;
         ShowInTaskbar = false;
         Topmost = true;
         ResizeMode = ResizeMode.NoResize;
@@ -690,7 +701,9 @@ public class NovaUI : Window
         var relojZ = new DispatcherTimer();
         relojZ.Interval = TimeSpan.FromMilliseconds(300);
         relojZ.Tick += delegate { PonerEncima(); };
-        relojZ.Start();
+        if (!Sin("z")) { relojZ.Start(); }
+        if (Sin("blur") || Sin("efectos")) { fondoDesenfocado.Effect = null; }
+        if (Sin("sombras") || Sin("efectos")) { envoltorio.Effect = null; capsula.Effect = null; }
 
         var reloj = new DispatcherTimer();
         reloj.Interval = TimeSpan.FromMilliseconds(80);
@@ -700,7 +713,7 @@ public class NovaUI : Window
         var reloj2 = new DispatcherTimer();
         reloj2.Interval = TimeSpan.FromMilliseconds(33);
         reloj2.Tick += delegate { Tic33(); };
-        reloj2.Start();
+        if (!Sin("tic33")) { reloj2.Start(); }
 
         var reloj4 = new DispatcherTimer();
         reloj4.Interval = TimeSpan.FromMilliseconds(250);
@@ -710,7 +723,7 @@ public class NovaUI : Window
         var relojMirada = new DispatcherTimer();
         relojMirada.Interval = TimeSpan.FromMilliseconds(66);
         relojMirada.Tick += delegate { Mirar(); };
-        relojMirada.Start();
+        if (!Sin("mirar")) { relojMirada.Start(); }
 
         parpadeo = new DispatcherTimer();
         parpadeo.Interval = TimeSpan.FromSeconds(5);
@@ -1409,8 +1422,13 @@ public class NovaUI : Window
         double bajo = dormido ? 0.22 : 0.55, alto = dormido ? 0.45 : 1.0;
         var a = new DoubleAnimation(bajo, alto, TimeSpan.FromMilliseconds(periodo));
         a.AutoReverse = true;
-        a.RepeatBehavior = RepeatBehavior.Forever;
+        a.RepeatBehavior = Sin("latido") ? new RepeatBehavior(1) : RepeatBehavior.Forever;
         a.EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut };
+        // RESPIRAR COSTABA 28 % DE UN NUCLEO (medido el 13/09): esta animacion no
+        // para nunca, y en una ventana transparente cada fotograma repinta la
+        // capsula entera por software, sombras incluidas. Una respiracion de
+        // 1,7 s no necesita 60 fotogramas por segundo.
+        Timeline.SetDesiredFrameRate(a, FpsLatido());
         punto.BeginAnimation(OpacityProperty, a);
         insignia.BeginAnimation(OpacityProperty, a);
     }
@@ -2301,12 +2319,22 @@ public class NovaUI : Window
             cercaAhora = dd < 60 && (DateTime.UtcNow - ratonMovido).TotalSeconds < 20;
         }
         catch { }
-        miradaX += (ox - miradaX) * 0.18;
-        miradaY += (oy - miradaY) * 0.18;
-        mirada.X = miradaX * 0.5;
-        mirada.Y = miradaY * 0.5;
+        // QUIETA NO SE REPINTA (13/09): acercarse un 18 % por tic no llega nunca
+        // del todo, y cada decima de pixel movida repintaba la capsula 15 veces
+        // por segundo con el raton quieto (~8 % de un nucleo). Cerca del destino
+        // se planta en el, y si no cambia nada no se toca nada.
+        double nx = miradaX + (ox - miradaX) * 0.18, ny = miradaY + (oy - miradaY) * 0.18;
+        if (Math.Abs(nx - ox) < 0.02) { nx = ox; }
+        if (Math.Abs(ny - oy) < 0.02) { ny = oy; }
+        bool mueve = nx != miradaX || ny != miradaY;
+        miradaX = nx; miradaY = ny;
+        if (mueve)
+        {
+            mirada.X = miradaX * 0.5;
+            mirada.Y = miradaY * 0.5;
+        }
         // los ojos miran mas que el reflejo
-        trasOjoIzq.X = miradaX * 1.1; trasOjoDer.X = miradaX * 1.1;
+        if (mueve) { trasOjoIzq.X = miradaX * 1.1; trasOjoDer.X = miradaX * 1.1; }
         // LOS OJOS NO SIGUEN EN VERTICAL, y es a proposito. La Y de trasOjo* la
         // anima la expresion (Entonar sube la mirada, "paciencia" la baja...) y
         // escribirla aqui a mano no haria nada: una animacion con HoldEnd manda

@@ -56,11 +56,17 @@ ni con batería):
 
 Lo grave ya está arreglado (commit a693e80). Queda, por orden:
 
-- [ ] **La cápsula gasta ~37 % de un núcleo en reposo.** Medido dos veces.
-      Limitar las animaciones a 60 fps NO cambió nada (37,6 %), así que no es
-      la frecuencia: sospecha de la ventana con transparencia (WPF la pinta
-      por software en cada fotograma) y del desenfoque del fondo. Medir
-      quitando piezas de una en una antes de tocar nada visible.
+- [x] **La cápsula gastaba ~40 % de un núcleo en reposo; ahora ~15 %** (13/09).
+      Medido quitando piezas de una en una (`NOVA_DIAG=mirar,latido,tic33,z,
+      blur,sombras,efectos,transp`, que se queda en `nova_ui.cs` para volver a
+      medir): el desenfoque, las sombras y la transparencia apenas cuentan. Lo
+      caro era el **latido** (la respiración del punto, una animación sin fin
+      que repintaba la ventana entera a 60 fps: 28 %) y la **mirada** (nunca
+      llegaba del todo a su sitio y repintaba 15 veces por segundo: 8 %). El
+      latido va ahora a 12 fps (`NOVA_LATIDO_FPS` para probar otro: 8 fps da
+      12 %, 20 fps da 19 %) y la mirada se planta al llegar. Sin los dos,
+      3,9 %. Queda: el halo de «pensando» también es sin fin a 60 fps, pero
+      solo mientras piensa.
 - [x] **Activaciones falsas que dejaban la escucha abierta 30 s** (13/09).
       El dictado se cierra vacío si en 8 s no sale ni una palabra (probado en
       vivo: 8 s). Lo del `pico 0.000` era engañoso: el log daba el pico del
@@ -79,8 +85,10 @@ Lo grave ya está arreglado (commit a693e80). Queda, por orden:
       como «en que ayudar», sin el «me» que pedía el patrón.
 - [x] «Guarda el archivo» (13/09): es Ctrl+S. «Guarda X» sigue minimizando
       apps («guarda discord»), pero no archivo/documento/cambios/trabajo.
-- [ ] `Close-PanelDictado` mata TextInputHost también en cada orden por Win+H
-      (que ahora no se usa), y ese proceso pinta el teclado táctil.
+- [x] `Close-PanelDictado` y TextInputHost (13/09, sin cambios): solo corre por
+      el camino de Win+H (`Finish-Dictation` y el dictado largo con Win+H), que
+      con Whisper no se usa. Cuando se usa, es lo único que cierra el panel
+      seguro; Windows relanza el proceso al volver a hacer falta.
 - [ ] `RevisarPantalla` solo mira el borde de abajo y el izquierdo (esquinas
       de arriba/derecha) y solo la pantalla principal.
 
