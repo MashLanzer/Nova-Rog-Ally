@@ -52,6 +52,32 @@ ni con batería):
 
 ---
 
+## De la revisión del agente (12/09), lo que queda
+
+Lo grave ya está arreglado (commit a693e80). Queda, por orden:
+
+- [ ] **La cápsula gasta ~37 % de un núcleo en reposo.** Medido dos veces.
+      Limitar las animaciones a 60 fps NO cambió nada (37,6 %), así que no es
+      la frecuencia: sospecha de la ventana con transparencia (WPF la pinta
+      por software en cada fotograma) y del desenfoque del fondo. Medir
+      quitando piezas de una en una antes de tocar nada visible.
+- [ ] **Activaciones falsas ~4/h**, varias con `pico 0.000`, y tres dejaron la
+      escucha abierta 30 s. No abrir dictado con pico ~0; bajar esos 30 s.
+- [ ] **Oído fino fuera de plazo**: small tardó 24 y 35 s en audios largos
+      (plazo 15 s) y mientras tanto el worker no oye nada. No repasar audio de
+      más de ~8 s y abortar si desaparece la marca.
+- [ ] **Micrófono muerto sin detectar** (suspensión, cambio de dispositivo): el
+      worker sigue vivo sin recibir audio. Salir si pasan >5 s sin bloques.
+- [ ] **Escrituras no atómicas** entre Python y PowerShell (se puede leer un
+      archivo a medio escribir). `.tmp` + `os.replace`. No visto en el log.
+- [ ] Charla corta en inglés que llega al agente (Test-Charla pide 7 palabras).
+- [ ] «En qué me puedes ayudar» sigue yendo a la IA («qué puedes hacer» ya no).
+- [ ] «Guarda el archivo» minimiza el Explorador de archivos en vez de Ctrl+S.
+- [ ] `Close-PanelDictado` mata TextInputHost también en cada orden por Win+H
+      (que ahora no se usa), y ese proceso pinta el teclado táctil.
+- [ ] `RevisarPantalla` solo mira el borde de abajo y el izquierdo (esquinas
+      de arriba/derecha) y solo la pantalla principal.
+
 ## Hechas (12/09/2026)
 
 - **5. Reglas sobre cualquier app.** «Cuando abra Spotify, baja el juego al
