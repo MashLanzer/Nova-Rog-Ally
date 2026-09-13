@@ -713,18 +713,46 @@ $INICIO_ORDEN = @('puedes', 'podrias', 'puede', 'podria', 'quiero', 'quisiera', 
     'juega', 'configura', 'ajusta', 'revisa', 'mira', 'comprueba', 'calcula', 'convierte', 'ayudame', 'ayuda', 'resume', 'resumeme',
     'intenta', 'prueba', 'organiza', 'ordena', 'limpia', 'graba', 'captura', 'toma', 'saca', 'contesta', 'responde', 'manda', 'ponle',
     'ponte', 'hazte', 'quitale', 'cambiale', 'dile', 'agrega', 'anade', 'agregame', 'enciende', 'desconecta', 'conecta', 'vuelve', 'repite')
+# Palabras inglesas corrientes para la charla corta (ver Test-Charla). Fuera las
+# que tambien son espanol: "no", "me", "he", "come", "a", "ok".
+$INGLES_COMUN = @('the', 'you', 'i', 'is', 'it', 'that', 'what', 'oh', 'my', 'god', 'this', 'and', 'to', 'of', 'yes', 'yeah',
+    'so', 'we', 'are', 'do', 'know', 'like', 'just', 'go', 'lets', "let's", 'on', 'man', 'bro', 'wow', 'look', 'right', 'im',
+    "i'm", 'dont', "don't", 'its', "it's", 'thats', "that's", 'was', 'with', 'for', 'have', 'not', 'she', 'they', 'your', 'him',
+    'her', 'there', 'here', 'how', 'why', 'who', 'where', 'when', 'can', 'cant', "can't", 'will', 'would', 'please', 'thank',
+    'thanks', 'sorry', 'hello', 'dude', 'guys', 'well', 'now', 'really', 'very', 'good', 'nice', 'cool', 'love', 'want', 'get',
+    'got', 'gonna', 'wanna', 'be', 'am', 'in', 'at', 'all', 'one', 'too', 'did', 'see', 'say', 'said', 'out', 'up', 'about',
+    'then', 'if', 'but', 'or', 'doing', 'going', 'think', 'our', 'us', 'fuck', 'shit', 'damn')
+$ESPANOL_COMUN = @('de', 'la', 'el', 'que', 'y', 'en', 'un', 'una', 'por', 'con', 'para', 'mi', 'me', 'lo', 'se', 'los', 'las',
+    'al', 'del', 'es', 'si', 'no', 'esta', 'este', 'eso', 'ya', 'yo', 'tu', 'te', 'le', 'su', 'pon', 'abre', 'sube', 'baja',
+    'volumen', 'brillo', 'modo', 'juego', 'ventana', 'cierra', 'busca', 'nova', 'como', 'donde', 'cuando', 'porque', 'pero')
 function Test-Charla([string]$text) {
     $p = ConvertTo-Plain $text
     if (-not $p) { return $false }
     # lo de delante no cuenta: "oye nova, abre steam", "bueno, pon modo noche"
     $p = ($p -replace '^(?:(?:hola|oye|ey|hey|nova|por favor|porfa|a ver|bueno|vale|ok|okey|entonces|y|pues|eh)\s+)+', '').Trim()
     $w = @($p -split '\s+' | Where-Object { $_ })
-    if ($w.Count -lt 7) { return $false }
+    if ($w.Count -lt 3) { return $false }
     $primera = $w[0]
     if ($VERBOS_OIDOS.ContainsKey($primera)) { return $false }          # "sierra todas las ventanas..."
     if (($VERBOS_LISTA -contains $primera) -or ($INICIO_ORDEN -contains $primera)) { return $false }
     # imperativo con el pronombre pegado: "buscame", "bajale", "abrelo"
     if ($primera -match '^[a-z]{2,}[ae](?:me|le|te|lo|la|les|los|las|nos)$') { return $false }
+    # CHARLA CORTA EN INGLES (revision del 12/09): "oh my god what is that",
+    # "I don't know man". Las ordenes son en espanol, asi que una frase corta
+    # hecha de palabras inglesas corrientes y sin una sola espanola es
+    # conversacion (o un video). Pero un juego se llama como se llama: si la
+    # frase lleva el nombre de uno ("the last of us"), no se toca.
+    if ($w.Count -lt 7) {
+        $en = @($w | Where-Object { $INGLES_COMUN -contains $_ }).Count
+        $es = @($w | Where-Object { $ESPANOL_COMUN -contains $_ }).Count
+        if ($es -gt 0 -or $en -lt 2 -or ($en / $w.Count) -lt 0.5) { return $false }
+        foreach ($j in @($script:Juegos)) {
+            if (-not $j -or -not $j.nombre) { continue }
+            $nj = ConvertTo-Plain ([string]$j.nombre)
+            # en los dos sentidos: "the last of us" no contiene "the last of us part i"
+            if ($nj.Length -ge 4 -and ($p.Contains($nj) -or $nj.Contains($p))) { return $false }
+        }
+    }
     return $true
 }
 

@@ -2573,8 +2573,12 @@ public class NovaUI : Window
     void RevisarPantalla()
     {
         var area = AreaUtil();
+        // los cuatro bordes: con la barra de tareas arriba o a la derecha (o en
+        // las esquinas de arriba), mirar solo abajo e izquierda no veia el cambio
         if (Math.Abs(area.Bottom - areaColocada.Bottom) < 1 &&
-            Math.Abs(area.Left - areaColocada.Left) < 1) { return; }
+            Math.Abs(area.Left - areaColocada.Left) < 1 &&
+            Math.Abs(area.Top - areaColocada.Top) < 1 &&
+            Math.Abs(area.Right - areaColocada.Right) < 1) { return; }
         double desplazado = Left - leftBase;
         areaColocada = area;
         Colocar();
@@ -3329,6 +3333,9 @@ public class NovaUI : Window
             p.AutoReverse = true;
             p.RepeatBehavior = RepeatBehavior.Forever;
             p.EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut };
+            // una tarea del cerebro puede pensar minutos: el mismo coste que el
+            // latido (ver Latido), pero el halo es mas rapido y pide mas fotogramas
+            Timeline.SetDesiredFrameRate(p, 30);
             resplandor.BeginAnimation(DropShadowEffect.OpacityProperty, p);
         }
         else

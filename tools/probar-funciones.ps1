@@ -185,7 +185,8 @@ function TraerVariable([string]$nombre) {
     if (-not $asig) { throw "no encuentro `$$nombre" }
     return $asig.Extent.Text
 }
-foreach ($v in @('VERBOS', 'VERBOS_LISTA', 'VERBOS_OIDOS', 'INICIO_ORDEN')) { Invoke-Expression (TraerVariable $v) }
+foreach ($v in @('VERBOS', 'VERBOS_LISTA', 'VERBOS_OIDOS', 'INICIO_ORDEN', 'INGLES_COMUN', 'ESPANOL_COMUN')) { Invoke-Expression (TraerVariable $v) }
+$script:Juegos = @(@{ nombre = 'The Last of Us Part I' }, @{ nombre = 'Hollow Knight' })
 Invoke-Expression (Traer 'Test-Charla')
 $casosC = @(
   # charla real del 12/09, 19:00-19:07, tal como llego (despues del oido fino)
@@ -208,6 +209,19 @@ $casosC = @(
   @('Hazme un resumen de lo que dice esta página web ahora', $false),
   @('bueno abre steam y pon el modo juego ahora mismo', $false),
   @('Bájale el volumen al juego y súbele a discord un poco', $false),
+  # charla CORTA en ingles (revision del 12/09): tampoco es para mi
+  @('Oh my god, what is that?', $true),
+  @("I don't know, man", $true),
+  @("Yeah, that's right bro", $true),
+  @('What are you doing?', $true),
+  @("let's go guys, come on", $true),
+  # ...pero con nombres ingleses de por medio, sigue siendo orden
+  @('the last of us', $false),
+  @('abre the last of us', $false),
+  @('pon music for you', $false),
+  @('hollow knight silksong', $false),
+  @('que is that', $false),
+  @('Steam big picture mode', $false),
   # lo corto no es cosa de este filtro
   @('bueno vale', $false)
 )

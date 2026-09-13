@@ -65,8 +65,8 @@ Lo grave ya está arreglado (commit a693e80). Queda, por orden:
       llegaba del todo a su sitio y repintaba 15 veces por segundo: 8 %). El
       latido va ahora a 12 fps (`NOVA_LATIDO_FPS` para probar otro: 8 fps da
       12 %, 20 fps da 19 %) y la mirada se planta al llegar. Sin los dos,
-      3,9 %. Queda: el halo de «pensando» también es sin fin a 60 fps, pero
-      solo mientras piensa.
+      3,9 %. El halo de «pensando», también sin fin, va a 30 fps (una tarea del
+      cerebro puede pensar minutos).
 - [x] **Activaciones falsas que dejaban la escucha abierta 30 s** (13/09).
       El dictado se cierra vacío si en 8 s no sale ni una palabra (probado en
       vivo: 8 s). Lo del `pico 0.000` era engañoso: el log daba el pico del
@@ -80,7 +80,10 @@ Lo grave ya está arreglado (commit a693e80). Queda, por orden:
       se ha podido provocar aquí; revisado a mano.
 - [x] **Escrituras atómicas** (13/09): el worker escribe a `.tmp` y cambia de
       golpe; si el lector lo tiene abierto, escribe directo como antes.
-- [ ] Charla corta en inglés que llega al agente (Test-Charla pide 7 palabras).
+- [x] Charla corta en inglés (13/09): de 3 a 6 palabras, si al menos la mitad
+      son inglesas corrientes, ninguna española y no lleva el nombre de un
+      juego («the last of us» sigue siendo orden). Casos en
+      `tools\probar-funciones.ps1`.
 - [x] «En qué me puedes ayudar» (13/09): el relleno quita «me puedes» y llegaba
       como «en que ayudar», sin el «me» que pedía el patrón.
 - [x] «Guarda el archivo» (13/09): es Ctrl+S. «Guarda X» sigue minimizando
@@ -89,8 +92,8 @@ Lo grave ya está arreglado (commit a693e80). Queda, por orden:
       el camino de Win+H (`Finish-Dictation` y el dictado largo con Win+H), que
       con Whisper no se usa. Cuando se usa, es lo único que cierra el panel
       seguro; Windows relanza el proceso al volver a hacer falta.
-- [ ] `RevisarPantalla` solo mira el borde de abajo y el izquierdo (esquinas
-      de arriba/derecha) y solo la pantalla principal.
+- [x] `RevisarPantalla` (13/09) mira ya los cuatro bordes del área útil. Sigue
+      siendo solo la pantalla principal, que es donde vive la cápsula.
 
 ## Hechas (13/09/2026)
 
