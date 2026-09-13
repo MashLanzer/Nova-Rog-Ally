@@ -84,3 +84,6 @@ por dónde iba
 ¿qué me han escrito?
 ¿tengo mensajes?
 léemelos
+¿qué canción es?
+pausa la música
+¿qué nivel tienes?

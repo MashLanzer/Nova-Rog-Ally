@@ -52,8 +52,17 @@ pulsos de color del borde, gestos, insignia) o la voz.
       30 s. Jugando, una nueva solo hace latir el borde de la cápsula en azul
       claro (sin voz, sin texto). «¿Qué me han escrito?» dice cuántas y de qué
       app; «léemelos» las lee, sin tarjeta. `tools\probar-costumbres.ps1`.
-- [ ] **F. La música en la cápsula:** título corto y la carita que se mece; «¿qué canción es?».
-- [ ] **G. Nova evoluciona:** niveles según lo aprendido, detalles visuales sutiles.
+- [x] **F. La música en la cápsula** (13/09): mira cada 5 s lo que suena en
+      Windows (Spotify, navegador…). Mientras suena y está en reposo, la carita
+      se mece 3° de lado a lado, a 12 fps (nada jugando a pantalla completa ni
+      dormida). Al empezar una canción, «♪ título · artista» 3,5 s, solo si no
+      juegas ni está haciendo nada. «¿Qué canción es?» lo dice; «pausa la
+      música» / «reanuda la canción» usan la tecla de reproducir.
+- [x] **G. Nova evoluciona** (13/09): nivel del 0 al 5 según lo aprendido
+      (tareas, formas de pedirlas, datos tuyos y reglas; umbrales 1, 5, 12, 25
+      y 50). Casi invisible a propósito: el halo crece 2 px por nivel. Al subir,
+      después de hablar, chispas doradas y «Nivel 3» un momento, sin voz ni
+      sonido. «¿Qué nivel tienes?» dice cuánto falta para el siguiente.
 - [ ] **H. El clima vivo en el cristal:** gotas si llueve, tono del amanecer/atardecer, voz más baja de noche.
 - [ ] **I. Panel rápido con el mando:** compacto, sale de la cápsula, se navega con la cruceta.
 

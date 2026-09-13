@@ -15,11 +15,11 @@ function TraerFn($n) {
     return $f.Extent.Text
 }
 $top = $ast.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.AssignmentStatementAst] -and $_.Left -is [System.Management.Automation.Language.VariableExpressionAst] }
-foreach ($a in $top) { if (@('RE_RECETA_PROHIBIDO', 'RecetasMax') -contains $a.Left.VariablePath.UserPath) { Invoke-Expression $a.Extent.Text } }
+foreach ($a in $top) { if (@('RE_RECETA_PROHIBIDO', 'RecetasMax', 'NIVELES_NOVA') -contains $a.Left.VariablePath.UserPath) { Invoke-Expression $a.Extent.Text } }
 foreach ($n in 'ConvertTo-CmdArg', 'ConvertTo-Suave', 'Get-PatronReceta', 'Find-Receta', 'Test-ScriptProhibido', 'Get-TextoReceta',
     'Add-Receta', 'Invoke-Receta', 'Get-Recetas', 'Save-Recetas', 'Get-VarianteReceta', 'Add-VarianteReceta', 'Build-PromptTraduccion',
     'Get-DatosPerfil', 'Save-DatosPerfil', 'Add-DatoPerfil', 'Get-SistemaCerebro', 'Get-BalanceAprendizaje', 'Get-Estadisticas',
-    'Send-UIEvento', 'Set-AcabaDeAprender') { Invoke-Expression (TraerFn $n) }
+    'Send-UIEvento', 'Set-AcabaDeAprender', 'Get-CuentaAprendida', 'Get-Madurez', 'Get-FraseNivel') { Invoke-Expression (TraerFn $n) }
 
 $dir = Join-Path $env:TEMP ('nova-recetas-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $dir | Out-Null
@@ -158,6 +158,17 @@ Set-AcabaDeAprender; Send-UIEvento 'hecho'; Comp 'hecho tras aprender se celebra
 Send-UIEvento 'hecho'; Comp 'y solo una vez' ($script:uiEvento -eq 'hecho')
 Set-AcabaDeAprender; $script:acabaDeAprenderEn = -20000; Send-UIEvento 'hecho'
 Comp 'la marca caduca a los 10 s' ($script:uiEvento -eq 'hecho' -and -not $script:acabaDeAprender)
+
+Write-Host "--- el nivel de Nova ---"
+# aqui hay 2 recetas con 1 variante (3) y 3 datos tuyos: 6 cosas
+$script:recetas = $null
+function Get-Reglas { return ,(New-Object System.Collections.ArrayList) }
+Comp 'cuenta tareas, formas de pedirlas y datos' ((Get-CuentaAprendida) -eq 6) (Get-CuentaAprendida)
+Comp 'nada aprendido: nivel 0' ((Get-Madurez 0) -eq 0)
+Comp 'una cosa: nivel 1' ((Get-Madurez 1) -eq 1)
+Comp 'seis cosas: nivel 2' ((Get-Madurez 6) -eq 2)
+Comp 'cincuenta o mas: el maximo, 5' ((Get-Madurez 50) -eq 5 -and (Get-Madurez 300) -eq 5)
+Comp 'la frase cuenta cuanto falta' ((Get-FraseNivel) -eq 'estoy en el nivel 2 y se 6 cosas; con 6 mas subo al 3') (Get-FraseNivel)
 
 Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
 if ($mal -gt 0) { Write-Host "$mal casos MAL"; exit 1 }

@@ -1802,6 +1802,14 @@ function Resolve-Fragment([string]$f) {
         $desc = if ($que) { "aviso en $n $unidad" } else { "temporizador de $n $unidad" }
         return @(@{ kind = 'temporizador'; ms = $ms; texto = $que; n = $n; unidad = $unidad; desc = $desc })
     }
+    # --- en que nivel esta Nova (ver NOVA EVOLUCIONA) ---
+    if ($f -match '^(?:que nivel tienes|en que nivel estas|cual es tu nivel|que nivel eres|cuanto has crecido|has subido de nivel)$') {
+        return @(@{ kind = 'nivelNova'; desc = 'mi nivel' })
+    }
+    # --- que cancion suena (ver LA MUSICA EN LA CAPSULA) ---
+    if ($f -match '^(?:que cancion es(?: esta)?|que cancion suena|que (?:esta sonando|suena)|como se llama (?:esta|la) cancion|de quien es (?:esta|la) cancion|que musica es esta)$') {
+        return @(@{ kind = 'musicaQue'; desc = 'que suena' })
+    }
     # --- notificaciones (ver NOTIFICACIONES MIENTRAS JUEGAS) ---
     if ($f -match '^(?:que me han escrito|quien me ha escrito|(?:me )?ha escrito alguien|(?:me )?escribio alguien|tengo (?:mensajes|notificaciones)(?: nuevos| nuevas)?|que (?:mensajes|notificaciones) tengo|hay mensajes(?: nuevos)?|alguna notificacion|algun mensaje)$') {
         return @(@{ kind = 'notifResumen'; desc = 'tus mensajes' })
@@ -2307,6 +2315,7 @@ function Resolve-Fragment([string]$f) {
         '^(?:silencia|silenciar|mutea|silencio)$' { return @(@{ kind = 'silencio'; silencio = $true; desc = 'silenciar' }) }
         '^(?:quita el silencio|desilencia|dessilencia|quita el mute|desmutea|vuelve el sonido|pon el sonido)$' { return @(@{ kind = 'silencio'; silencio = $false; desc = 'sonido otra vez' }) }
         '^(?:pausa|pausar|reproduce|reproducir|play)$' { return @(@{ kind = 'key'; vk = 0xB3; repeat = 1; desc = 'play/pausa' }) }
+        '^(?:pausa|para|reanuda|quita la pausa a|pon|dale play a)\s+(?:la\s+)?(?:musica|cancion)$' { return @(@{ kind = 'key'; vk = 0xB3; repeat = 1; desc = 'pausa o reanuda la musica' }) }
         '^(?:siguiente|pasa|pasala|adelanta)\b' { return @(@{ kind = 'key'; vk = 0xB0; repeat = 1; desc = 'siguiente' }) }
         '^(?:anterior|regresa|atras)\b' { return @(@{ kind = 'key'; vk = 0xB1; repeat = 1; desc = 'anterior' }) }
         '^(?:bloquea|bloquear)\b' { return @(@{ kind = 'lock'; desc = 'bloquear sesion' }) }
@@ -2739,7 +2748,11 @@ $script:ccConHerramientas = $false
 $script:reparandoReceta = $null   # receta que fallo y cuya tarea lleva ahora el cerebro para arreglarla
 $script:acabaDeAprender = $false  # la capsula celebrara en el proximo "hecho" (ver Send-UIEvento)
 $script:acabaDeAprenderEn = 0
-function Set-AcabaDeAprender { $script:acabaDeAprender = $true; $script:acabaDeAprenderEn = $sw.ElapsedMilliseconds }
+function Set-AcabaDeAprender {
+    $script:acabaDeAprender = $true
+    $script:acabaDeAprenderEn = $sw.ElapsedMilliseconds
+    try { Update-Madurez } catch {}   # ¿sube de nivel? (ver NOVA EVOLUCIONA)
+}
 
 # Lo que se le pide al cerebro al final de cada tarea (modo accion).
 $CcInstruccionReceta = @'
@@ -3422,6 +3435,52 @@ function Get-LecturaNotificaciones {
     return ($partes -join '. ')
 }
 
+# LA MUSICA EN LA CAPSULA: lo que suena en Windows (Spotify, el navegador...),
+# mirado cada 5 s. Mientras suena, la carita se mece (lo dibuja la capsula con
+# el campo "musica"); al empezar una cancion, el titulo un momento, y solo si
+# no estas jugando ni haciendo nada. "¿Que cancion es?" lo dice.
+$script:mediaMgr = $null
+$script:mediaFallos = 0
+$script:uiMusica = 0
+$script:musicaTitulo = ''
+$script:musicaCheck = 0
+function Get-MusicaActual {
+    if ($script:mediaFallos -ge 3) { return $null }
+    try {
+        if (-not $script:mediaMgr) {
+            $null = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType = WindowsRuntime]
+            $script:mediaMgr = Await-WinRT ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
+        }
+        $ses = $script:mediaMgr.GetCurrentSession()
+        if (-not $ses) { $script:mediaFallos = 0; return $null }
+        $estadoM = [string]$ses.GetPlaybackInfo().PlaybackStatus
+        $props = Await-WinRT ($ses.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])
+        $script:mediaFallos = 0
+        return @{ sonando = ($estadoM -eq 'Playing'); titulo = [string]$props.Title; artista = [string]$props.Artist; app = [string]$ses.SourceAppUserModelId }
+    } catch {
+        $script:mediaFallos++
+        Log ("musica: " + $_.Exception.Message)
+        return $null
+    }
+}
+function Watch-Musica($mu) {
+    $sonando = [bool]($mu -and $mu.sonando)
+    $flag = if ($sonando) { 1 } else { 0 }
+    $repintar = $false
+    if ($flag -ne $script:uiMusica) { $script:uiMusica = $flag; $repintar = $true }
+    if ($sonando -and $mu.titulo -and $mu.titulo -ne $script:musicaTitulo) {
+        $script:musicaTitulo = $mu.titulo
+        Log "MUSICA: $($mu.titulo) - $($mu.artista)"
+        if (-not $script:juegoActivo -and $script:uiEstado -eq 'reposo' -and -not $script:busy -and -not $script:pendiente) {
+            $tM = [string][char]0x266A + ' ' + $mu.titulo + $(if ($mu.artista) { ' · ' + $mu.artista } else { '' })
+            if ($tM.Length -gt 48) { $tM = $tM.Substring(0, 45) + '...' }
+            Set-UI 'hablando' $tM 3500
+            $repintar = $false
+        }
+    }
+    if ($repintar) { Refresh-UI }
+}
+
 # HABITOS: que ordenes das y a que hora, para PROPONERTE automatizarlas (nunca
 # se crea nada sin un si). Dos costumbres: la misma orden a la misma hora
 # (+-30 min) tres dias distintos de la ultima semana, o la misma orden justo
@@ -3504,6 +3563,47 @@ function Find-Propuesta([datetime]$hoy = (Get-Date)) {
             pregunta = "Cuando abres $appP, casi siempre me pides despues $accP. ¿Quieres que lo haga yo sola?" }
     }
     return $null
+}
+
+# NOVA EVOLUCIONA: un nivel del 0 al 5 segun lo que ha aprendido (tareas, formas
+# de pedirlas, datos tuyos y reglas). Se ve poco a proposito: el halo de la
+# capsula un pelin mas amplio en cada nivel, y al subir, un destello despues de
+# hablar. "¿Que nivel tienes?" lo cuenta. El nivel ya celebrado se guarda en
+# config.json (ui.nivelVisto) para no celebrarlo dos veces.
+$NIVELES_NOVA = @(0, 1, 5, 12, 25, 50)
+$script:uiMadurez = 0
+$script:nivelPendiente = 0
+function Get-CuentaAprendida {
+    $n = 0
+    try { $rsC = Get-Recetas; $n += $rsC.Count; foreach ($r in $rsC) { $n += @(@($r.variantes) | Where-Object { $_ }).Count } } catch {}
+    try { $n += @(Get-DatosPerfil).Count } catch {}
+    try { $n += (Get-Reglas).Count } catch {}
+    return $n
+}
+function Get-Madurez([int]$cuenta) {
+    $nv = 0
+    for ($i = 0; $i -lt $NIVELES_NOVA.Count; $i++) { if ($cuenta -ge $NIVELES_NOVA[$i]) { $nv = $i } }
+    return $nv
+}
+function Update-Madurez {
+    $cuentaM = Get-CuentaAprendida
+    $nv = Get-Madurez $cuentaM
+    if ($nv -ne $script:uiMadurez) { $script:uiMadurez = $nv; Refresh-UI }
+    if ($nv -gt [int](Get-Cfg 'ui' 'nivelVisto' 0)) {
+        [void](Set-Cfg 'ui' 'nivelVisto' $nv)
+        # no ahora: la respuesta que viene detras taparia el destello. Despues
+        # de hablar (ver el bloque de la pausa)
+        $script:nivelPendiente = $nv
+        Log "NIVEL: sube al $nv ($cuentaM cosas aprendidas)"
+    }
+}
+function Get-FraseNivel {
+    $cuentaM = Get-CuentaAprendida
+    $nv = Get-Madurez $cuentaM
+    $cosas = if ($cuentaM -eq 1) { 'una cosa' } else { "$cuentaM cosas" }
+    if ($nv -ge $NIVELES_NOVA.Count - 1) { return "estoy en el nivel $nv, el maximo: se $cosas" }
+    $faltan = $NIVELES_NOVA[$nv + 1] - $cuentaM
+    return "estoy en el nivel $nv y se $cosas; " + $(if ($faltan -eq 1) { 'con una mas' } else { "con $faltan mas" }) + " subo al $($nv + 1)"
 }
 
 # COLOR DE LA CAPSULA A ELECCION: "ponte de color naranja". Solo cambia el de
@@ -3879,6 +3979,13 @@ function Invoke-FastCommand([string]$text) {
                 }
                 'balanceAprendizaje' { $a.desc = (Get-BalanceAprendizaje) }
                 'configuracion' { $a.desc = (Get-Configuracion) }
+                'nivelNova' { $a.desc = Get-FraseNivel }
+                'musicaQue' {
+                    $mu = Get-MusicaActual
+                    $a.desc = if (-not $mu -or -not $mu.titulo) { 'ahora mismo no suena nada' }
+                              elseif (-not $mu.sonando) { "esta en pausa: $($mu.titulo)" + $(if ($mu.artista) { ", de $($mu.artista)" } else { '' }) }
+                              else { "suena $($mu.titulo)" + $(if ($mu.artista) { ", de $($mu.artista)" } else { '' }) }
+                }
                 'notifResumen' {
                     try { [void](Watch-Notificaciones @(Get-Notificaciones)) } catch {}
                     $a.desc = Get-ResumenNotificaciones
@@ -5392,6 +5499,8 @@ function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
             ',"oido":"' + $oido + '","tempoTipo":"' + $tTipo + '"' +
             ',"haciendo":"' + $script:uiHaciendo + '"' +
             ',"remoto":"' + $(if ($script:uiRemoto -or $script:busy) { '1' } else { '0' }) + '"' +
+            ',"musica":"' + $script:uiMusica + '"' +
+            ',"madurez":"' + $script:uiMadurez + '"' +
             ',"cola":"' + $script:uiCola + '"' +
             ',"descarga":' + ([double]$script:uiDescarga).ToString('0.000', [System.Globalization.CultureInfo]::InvariantCulture) +
             ',"escala":' + ([double]$script:uiEscala).ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture) +
@@ -7962,6 +8071,12 @@ if ($script:uiEscala -lt 0.75 -or $script:uiEscala -gt 2.0) { $script:uiEscala =
 # COLOR DE REPOSO elegido por voz (hex sin #; vacio = el de siempre)
 $script:uiColor = [string](Get-Cfg 'ui' 'color' '')
 if ($script:uiColor -notmatch '^[0-9A-Fa-f]{6}$') { $script:uiColor = '' }
+# NIVEL de Nova al arrancar (ver NOVA EVOLUCIONA). Lo aprendido con el asistente
+# apagado (una receta editada a mano) no se celebra: se da por visto.
+try {
+    $script:uiMadurez = Get-Madurez (Get-CuentaAprendida)
+    if ($script:uiMadurez -gt [int](Get-Cfg 'ui' 'nivelVisto' 0)) { [void](Set-Cfg 'ui' 'nivelVisto' $script:uiMadurez) }
+} catch {}
 # La ultima frase que se ejecuto de verdad, para saber a que se refiere un
 # "no era eso".
 $script:ultimoEjecutado = ''
@@ -8780,8 +8895,14 @@ while ($true) {
             Say $ap.pregunta
             Set-UI 'escuchando' $ap.pregunta
             Start-Confirmacion
+        } elseif ($script:nivelPendiente -gt 0 -and -not $script:busy -and -not $script:pendiente) {
+            # SUBIO DE NIVEL (ver NOVA EVOLUCIONA): un destello y la palabra, sin voz
+            $nvP = $script:nivelPendiente
+            $script:nivelPendiente = 0
+            Send-UIEvento 'gesto:nivel'
+            Set-UI 'hablando' "Nivel $nvP" 2500
         } elseif (-not $script:juegoActivo -and -not $script:busy -and -not $script:pendiente -and
-                  ($propH = $(try { Find-Propuesta } catch { $null }))) {
+                  ($propH =$(try { Find-Propuesta } catch { $null }))) {
             # UNA COSTUMBRE QUE AUTOMATIZAR (ver HABITOS): justo despues de hacer
             # una orden, que es cuando estas pendiente; nunca jugando. Se apunta
             # el dia al preguntar, conteste lo que conteste: una al dia.
@@ -9146,6 +9267,12 @@ while ($true) {
                 break   # de uno en uno: dos avisos seguidos serian una encerrona
             }
         }
+    }
+
+    # --- que musica suena (cada 5 s; ver LA MUSICA EN LA CAPSULA) ---
+    if (($sw.ElapsedMilliseconds - $script:musicaCheck) -ge 5000) {
+        $script:musicaCheck = $sw.ElapsedMilliseconds
+        try { Watch-Musica (Get-MusicaActual) } catch { Log ("musica: " + $_.Exception.Message) }
     }
 
     # --- notificaciones nuevas (cada 30 s; ver NOTIFICACIONES MIENTRAS JUEGAS) ---

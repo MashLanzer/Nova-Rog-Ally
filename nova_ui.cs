@@ -247,6 +247,15 @@ public class NovaUI : Window
     double topBase = 0;
     // la IA lleva la orden (el asistente lo manda en "remoto")
     bool remoto = false;
+    // suena musica (campo "musica"): la carita se mece. Rotacion PROPIA, para no
+    // pelearse con la de los gestos (rotGesto)
+    bool musica = false;
+    bool meciendose = false;
+    RotateTransform vaiven;
+    // nivel de Nova (0-5, campo "madurez"): el halo base crece 2 px por nivel.
+    // Casi no se ve a proposito; se nota con el tiempo, no de un dia para otro
+    int madurez = 0;
+    double RadioHalo(bool cercaRaton) { return (cercaRaton ? 34 : 24) + 2 * madurez; }
     bool apartada = false;
     int tapadaCuenta = 0;
     Dictionary<string, DateTime> ultimoGesto = new Dictionary<string, DateTime>();
@@ -831,6 +840,8 @@ public class NovaUI : Window
         grupo.Children.Add(escalaGesto);
         grupo.Children.Add(rotGesto);
         grupo.Children.Add(trasGesto);
+        vaiven = new RotateTransform(0);
+        grupo.Children.Add(vaiven);
         esfera.RenderTransform = grupo;
 
         anillos = new Ellipse[2];
@@ -1414,6 +1425,35 @@ public class NovaUI : Window
     bool BateriaBaja() { return bateria <= 20 && !cargando; }
     bool Agitado() { return carga >= 85; }
     bool Desanimado() { return animo <= -0.3; }
+
+    // LA MUSICA (13/09): mientras suena algo y la capsula esta en reposo, la
+    // carita se mece de lado a lado, muy poco (3 grados) y despacio. Nada nuevo
+    // en pantalla: es la misma carita, con ritmo. A 12 fps, como el latido, que
+    // una animacion sin fin a 60 fps costaba un cuarto de nucleo. Ni jugando a
+    // pantalla completa (Cine) ni dormida: ahi no se nota y solo gastaria.
+    void ActualizarVaiven(string est)
+    {
+        bool debe = musica && !dormido && !Cine() && (est == "reposo" || est == "");
+        if (debe == meciendose) { return; }
+        meciendose = debe;
+        if (debe)
+        {
+            var v = new DoubleAnimation(-3, 3, TimeSpan.FromMilliseconds(900));
+            v.AutoReverse = true;
+            v.RepeatBehavior = RepeatBehavior.Forever;
+            v.EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut };
+            Timeline.SetDesiredFrameRate(v, FpsLatido());
+            vaiven.BeginAnimation(RotateTransform.AngleProperty, v);
+        }
+        else
+        {
+            // vuelve al centro con suavidad, no de golpe
+            var fin = new DoubleAnimation(0, TimeSpan.FromMilliseconds(300));
+            fin.FillBehavior = FillBehavior.Stop;
+            fin.Completed += delegate { if (!meciendose) { vaiven.BeginAnimation(RotateTransform.AngleProperty, null); vaiven.Angle = 0; } };
+            vaiven.BeginAnimation(RotateTransform.AngleProperty, fin);
+        }
+    }
 
     void Latido()
     {
@@ -2016,7 +2056,7 @@ public class NovaUI : Window
         // la expresion de los ojos acompana al gesto
         switch (nombre)
         {
-            case "carino": case "gracias": case "risa": case "logro": case "alivio": case "apoyo": case "orgullo": case "aprendido": case "sinia": Expresion("felices", 1700); break;
+            case "carino": case "gracias": case "risa": case "logro": case "alivio": case "apoyo": case "orgullo": case "aprendido": case "sinia": case "nivel": Expresion("felices", 1700); break;
             case "duda": case "confuso": case "paciencia": case "perdida": Expresion("entrecerrados", 1300); break;
             case "sorpresa": case "grito": case "sobresalto": case "atencion": Expresion("abiertos", 900); break;
             case "pena": case "despedida": Expresion("tristes", 1900); break;
@@ -2176,6 +2216,13 @@ public class NovaUI : Window
                 escalaGesto.BeginAnimation(ScaleTransform.ScaleXProperty, Secuencia(new double[] { 1, 1.15, 1 }, 300));
                 escalaGesto.BeginAnimation(ScaleTransform.ScaleYProperty, Secuencia(new double[] { 1, 1.15, 1 }, 300));
                 trasGesto.BeginAnimation(TranslateTransform.YProperty, Secuencia(new double[] { 0, -2, 0 }, 300));
+                break;
+            case "nivel":
+                // SUBIO DE NIVEL (13/09): como un logro pero sin sonido, que llega
+                // justo despues de hablar. Chispas y una onda dorada, y un salto.
+                Saltar(1.4);
+                Chispas(Color.FromRgb(0xFF, 0xD3, 0x6A));
+                Ondas(1, Color.FromRgb(0xFF, 0xD3, 0x6A));
                 break;
             case "aprendido":
                 // APRENDIO ALGO (13/09): una receta, otra forma de pedirla, algo que
@@ -2357,7 +2404,7 @@ public class NovaUI : Window
             if (estadoActual == "reposo" || estadoActual == "" || estadoActual == "escuchando")
             {
                 var op = new DoubleAnimation(cerca ? 0.95 : 0.5, TimeSpan.FromMilliseconds(350));
-                var rad = new DoubleAnimation(cerca ? 34 : 24, TimeSpan.FromMilliseconds(350));
+                var rad = new DoubleAnimation(RadioHalo(cerca), TimeSpan.FromMilliseconds(350));
                 resplandor.BeginAnimation(DropShadowEffect.OpacityProperty, op);
                 resplandor.BeginAnimation(DropShadowEffect.BlurRadiusProperty, rad);
                 if (cerca) { Despertar(); Saltar(1.15); }
@@ -2920,6 +2967,13 @@ public class NovaUI : Window
                 double.TryParse(Campo(j, "descarga", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out dsc);
                 descarga = Math.Max(0, Math.Min(1, dsc));
                 if (hac != haciendoActual) { PintarHaciendo(hac); }
+                musica = Campo(j, "musica", "0") == "1";
+                int mad;
+                if (int.TryParse(Campo(j, "madurez", "0"), out mad) && mad != madurez && mad >= 0 && mad <= 5)
+                {
+                    madurez = mad;
+                    resplandor.BeginAnimation(DropShadowEffect.BlurRadiusProperty, new DoubleAnimation(RadioHalo(cerca), TimeSpan.FromMilliseconds(600)));
+                }
                 string colr = Campo(j, "color", "");
                 if (colr != colorElegido)
                 {
@@ -2960,6 +3014,7 @@ public class NovaUI : Window
         // valores por defecto y aplicarlos seria fingir que el asistente pidio
         // 'reposo'. Se salta el tic y se prueba en el siguiente (80 ms).
         catch { return; }
+        ActualizarVaiven(est);
         if (expresion != "normal" && DateTime.UtcNow >= expresionHasta && !dormido) { Expresion("normal", 0); }
 
         if (est == "escuchando" && rutaNivel != null)
