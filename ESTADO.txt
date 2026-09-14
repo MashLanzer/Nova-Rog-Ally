@@ -136,6 +136,45 @@ QUE SE NOTE QUE APRENDE (desde el 13/09)
   ahorrados (~20 s por uso, lo que tarda el cerebro en una tarea). Probado en
   vivo el 13/09: el gesto llega a la cápsula y el balance contesta en local.
 
+LO NUEVO DEL 14/09: PULIR LO QUE YA HABÍA (sin funciones nuevas)
+  Todo medido antes de tocarlo; lo que no mejoraba no se dejó. Detalle y cifras
+  en PENDIENTE.md ("Pulido de lo que ya había").
+  Oído
+  - Whisper base con 8 hilos: 1,7 s por orden en vez de 2,0, mismos aciertos. El
+    oído fino (small) baja de ~6 s a ~4,8 s. Beam 1 y las hotwords de órdenes se
+    probaron y no mejoraban.
+  - Si Whisper duda mucho (seguridad < -0,9, config input.repasoDudoso) se repasa
+    con small ANTES de hacer la orden, aunque se entienda.
+  - Con la orden ya entendida, la frase se cierra tras 0,8 s de silencio en vez
+    de 1,4 s (tmp\lotengo.txt). Si sigues hablando, vuelven los 1,4 s.
+  - Una orden repetida por Whisper se hace una vez (sube/baja/siguiente no).
+  - Correcciones de lo que el micro oye mal: brille, bril, seguidame, si arra,
+    medio de ahora, bolumen, super/suer/sue/suelo volumen; "pon el juego 80".
+  - Jugando, el oído fino se suelta de la RAM tras 5 min sin usarse.
+  - 40 frases para grabar (dos de charla): python tools\grabar-ordenes.py nuevas
+  Entender
+  - NOMBRAR ALGO NO ES PEDIRLO: "qué opinas de Hollow Knight", "te gusta Steam"
+    abrían el juego o la app. Ahora van a la conversación.
+  - "haz / saca una captura"; "en otra ventana / pestaña" ya no rompe la orden.
+  Charla
+  - Lo fijo del prompt va delante y la precarga lo lee: tras precargar, la
+    primera frase en 2,6 s en vez de 13,1 s (tools\probar-precarga.py). También
+    precarga si lo que vas diciendo ya suena a charla.
+  - Las preguntas de datos concretos (quién hizo, de qué va, qué opinas de...)
+    van a la API: el modelo local se los inventaba. Lo que conteste se aprende.
+  - Ocho rellenos distintos; la barra de espera se ajusta a si está caliente.
+  Voz y cápsula
+  - Tildes antes de hablar ("entendí", "batería"): Piper, con --debug, acentúa
+    bien con ellas y mal sin ellas. Piper recibe ahora UTF-8 (antes "batera est").
+  - La pausa de la escucha acaba con la duración real del audio (~0,7 s antes).
+  - La voz corta a 300 letras por el final de una frase; lo que vas diciendo en
+    la cápsula se corta por palabras.
+  - Si la voz se cae, ya no congela el bucle 2 s al relanzarla.
+  - La cápsula apunta sus errores en tmp\ui-error.log y el log dice por qué murió.
+  Medido y sin cambios: el arranque (~1 s), la limpieza del cerebro (ya caduca),
+  el chino en la charla (0 de 20), el umbral de "nova" (la confianza no separa
+  lo bueno de lo inútil), el oído fino (12 de 17 repasos sirven).
+
 LA CÁPSULA, LO NUEVO DEL 13/09
   - Gasta ~12 % de un núcleo en reposo (antes ~40 %): la respiración del
     punto va a 12 fps y la mirada se planta al llegar. NOVA_DIAG apaga piezas

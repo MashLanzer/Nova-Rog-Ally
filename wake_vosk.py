@@ -97,6 +97,11 @@ REPASO_MAX = 8.0
 
 # se da por terminada la frase tras este silencio
 SILENCIO_FIN = 1.4
+# ... salvo que el asistente ya tenga la orden entera (tmp\lotengo.txt, el mismo
+# texto que va en el parcial): entonces basta con esto (14/09). En las 20
+# grabaciones, la pausa mas larga DENTRO de una orden es de 0,45 s; los 1,4 s
+# eran para no cortar frases largas que aun no se entienden, y se mantienen.
+SILENCIO_FIN_LOTENGO = 0.8
 # tope duro, por si el silencio nunca llega (ruido de fondo constante)
 DICTADO_MAX = 30.0
 # sin reconocer ni una palabra en este rato, el dictado se cierra vacio
@@ -803,6 +808,7 @@ RUTA_ESTADO = os.path.join(os.path.dirname(NIVEL), "escucha-estado.txt") if NIVE
 # boton. La crea el asistente cuando hay un juego en primer plano. El dictado
 # y la confirmacion siguen funcionando con normalidad.
 MARCA_SOLO_BOTON = os.path.join(os.path.dirname(NIVEL), "solo-boton.flag") if NIVEL else ""
+LOTENGO = os.path.join(os.path.dirname(NIVEL), "lotengo.txt") if NIVEL else ""
 
 
 def ganancia_guardada():
@@ -1146,7 +1152,17 @@ try:
                         # reconocido nunca se cumple el fin por silencio. Si en
                         # DICTADO_SIN_VOZ no ha salido ni un parcial, no hay orden.
                         mudo = (not hay_algo) and (ahora - dicta_inicio) >= DICTADO_SIN_VOZ
-                        if ((ahora - ultima_voz) >= SILENCIO_FIN and hay_algo) or mudo or \
+                        fin_silencio = SILENCIO_FIN
+                        if LOTENGO and hay_algo and (ahora - ultima_voz) >= SILENCIO_FIN_LOTENGO and os.path.exists(LOTENGO):
+                            try:
+                                with open(LOTENGO, "r", encoding="utf-8") as f:
+                                    tengo = " ".join(f.read().split())
+                                ahora_txt = " ".join((" ".join(dictado) + " " + json.loads(rec.PartialResult()).get("partial", "")).split())
+                                if tengo and tengo == ahora_txt:
+                                    fin_silencio = SILENCIO_FIN_LOTENGO
+                            except Exception:
+                                pass
+                        if ((ahora - ultima_voz) >= fin_silencio and hay_algo) or mudo or \
                            ((ahora - dicta_inicio) >= DICTADO_MAX):
                             resto = json.loads(rec.FinalResult()).get("text", "")
                             if resto:

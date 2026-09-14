@@ -142,6 +142,21 @@ def necesita_api(texto):
     return bool(RE_NECESITA_API.search(texto))
 
 
+# DATOS CONCRETOS, A LA API (14/09). Medido con 10 preguntas sobre juegos: el modelo
+# local (3B) se inventa quien hizo que, de que va o de que genero es ("Hades es un
+# juego de terror", "Peak es de estrategia", "Little Nightmares es para ninos"), y
+# pedirselo en el prompt no lo arreglo. Estas preguntas van a la API (sin busqueda:
+# no son de actualidad) y lo que conteste se aprende firme para la proxima vez.
+RE_PIDE_DATOS = re.compile(
+    r"\b(de qu[eé] (va|trata)|qui[eé]n (hizo|cre[oó]|invent[oó]|escribi[oó]|dirigi[oó]|desarroll[oó]|compuso|canta)|"
+    r"cu[aá]ndo (sali[oó]|naci[oó]|se estren[oó]|se fund[oó]|muri[oó])|h[aá]blame (de|sobre)|qu[eé] sabes (de|sobre)|"
+    r"cu[eé]ntame (algo )?(de|sobre)|qu[eé] opinas (de|sobre)|qu[eé] te parece)\b", re.IGNORECASE)
+
+
+def pide_datos(texto):
+    return bool(RE_PIDE_DATOS.search(texto))
+
+
 class Troceador:
     """Parte el texto que llega a trozos en frases, para decirlas en cuanto estan."""
 
@@ -500,7 +515,7 @@ def responder(p):
         if dp:
             extra += "\n\nLo que sabes de braya: " + "; ".join(dp[-15:]) + "."
 
-    usar_api = (necesita_api(texto) or duda or buscar) and api_disponible()
+    usar_api = (necesita_api(texto) or pide_datos(texto) or duda or buscar) and api_disponible()
     intentos = ["api", "local"] if usar_api else ["local", "api", "local-sin-marca"]
     motivos = []
     marca_api_vista = False

@@ -6486,8 +6486,9 @@ function Say-Online([string]$texto, [string]$emo = '') {
             } catch {}
             $script:ttsProc = $null
         }
+        # sin Start-Sleep (14/09): congelaba el bucle 2 s. El worker lee la frase de
+        # la tuberia en cuanto arranca, y la espera de abajo ya tiene su plazo de 8 s
         if (-not (Initialize-Online)) { return $false }
-        Start-Sleep -Milliseconds 2000
     }
     try {
         # Bytes UTF-8 directos al flujo. .NET Framework no deja fijar la
@@ -6575,13 +6576,17 @@ function Initialize-Piper {
 
 function Say-Piper([string]$texto) {
     if (-not $script:piperProc -or $script:piperProc.HasExited) {
+        # sin Start-Sleep (14/09): la carga del modelo la cubre la espera del .wav (8 s)
         if (-not (Initialize-Piper)) { return $false }
-        Start-Sleep -Milliseconds 2500   # carga del modelo
     }
     try {
         $antes = @(Get-ChildItem -LiteralPath $PiperSalida -Filter *.wav -ErrorAction SilentlyContinue).Count
-        $script:piperProc.StandardInput.WriteLine($texto)
-        $script:piperProc.StandardInput.Flush()
+        # BYTES UTF-8 (14/09), como con la voz en linea: WriteLine usa la codificacion
+        # de la consola y Piper recibia "bater?a est?". Medido con --debug: con UTF-8
+        # sale "bateria" con el acento en la i y "esta" en la a; asi, "batera est".
+        $bytesP = [System.Text.Encoding]::UTF8.GetBytes($texto + "`n")
+        $script:piperProc.StandardInput.BaseStream.Write($bytesP, 0, $bytesP.Length)
+        $script:piperProc.StandardInput.BaseStream.Flush()
         $w = $null
         $t0 = [DateTime]::UtcNow
         while (([DateTime]::UtcNow - $t0).TotalSeconds -lt 8) {
@@ -6807,6 +6812,8 @@ $RutaConfirmacion = Join-Path $TmpDir "confirmacion.txt"
 $RutaVocabulario = Join-Path $TmpDir "vocabulario.txt"
 $RutaDictado = Join-Path $TmpDir "dictado.txt"
 $RutaParcial = Join-Path $TmpDir "dictado-parcial.txt"
+# la orden ya se entiende entera: la escucha cierra la frase antes (ver SILENCIO_FIN_LOTENGO)
+$RutaLoTengo = Join-Path $TmpDir "lotengo.txt"
 $RutaEstado = Join-Path $TmpDir "escucha-estado.txt"
 # --- DICTADO CON EL MOTOR DE WINDOWS (el de Win+H, sin su ventana) ---
 # Convive con Whisper en vez de sustituirlo: los dos oyen la misma orden y
@@ -10447,6 +10454,8 @@ function Start-Dictado([string]$origen) {
     # de seguimiento que se abre sola tras responder no cuenta como llamarla
     if ($script:uiRetirada -eq 'nombre' -and ($origen -like 'nombre*' -or $origen -like 'mantener*')) { $script:uiRetirada = $false }
     $script:loTengo = $false
+    $script:loTengoEscrito = $false
+    Remove-Item -LiteralPath $RutaLoTengo -Force -ErrorAction SilentlyContinue
     $script:perdida = $false
     $script:seguimientoPendiente = $false
     # sin esto, una orden sin medida de tono se juzgaria con la de la anterior
@@ -11757,7 +11766,10 @@ while ($true) {
     # va llenando (en frio son 12-16 s); al llegar la primera frase, se vacia
     $esperaC = ($script:charlaEsperando -and $script:charlaFrases.Count -eq 0 -and ($sw.ElapsedMilliseconds - $script:charlaDesde) -gt 2000)
     if ($esperaC) {
-        $frE = [Math]::Min(0.9, ($sw.ElapsedMilliseconds - $script:charlaDesde) / 16000.0)
+        # la escala, la de lo que va a tardar DE VERDAD (14/09): con el modelo caliente
+        # o recien precargado contesta en 2-3 s, y la linea de 16 s apenas se movia
+        $escalaE = if ((Test-CharlaCaliente) -or ($sw.ElapsedMilliseconds - $script:precargaEn) -lt 110000) { 5000.0 } else { 16000.0 }
+        $frE = [Math]::Min(0.9, ($sw.ElapsedMilliseconds - $script:charlaDesde) / $escalaE)
         if (-not $script:progresoCharla -or ($frE - $script:uiProgreso) -ge 0.04) { $script:progresoCharla = $true; $script:uiProgreso = $frE; Refresh-UI }
     } elseif ($script:progresoCharla) {
         $script:progresoCharla = $false
@@ -11922,6 +11934,13 @@ while ($true) {
                 $nuevo = if ($vista) { "● $vista" } else { "● VOZ..." }
                 if ($lbl.Text -ne $nuevo) {
                     $lbl.Text = $nuevo; Set-UI 'escuchando' $vista; Test-LoTengo $vista
+                    # CERRAR ANTES LO QUE YA SE ENTIENDE (14/09): se le dice a la escucha
+                    # QUE texto se entendio; si sigues hablando, ya no coincide y espera
+                    # los 1,4 s de siempre. Solo con la frase entera delante, no con "...".
+                    if ($script:loTengo -and -not $script:loTengoEscrito -and -not $vista.StartsWith('...')) {
+                        $script:loTengoEscrito = $true
+                        try { [System.IO.File]::WriteAllText($RutaLoTengo, (($par -replace '\s+', ' ').Trim()), (New-Object System.Text.UTF8Encoding($false))) } catch {}
+                    }
                     # PRECARGA POR LO QUE VAS DICIENDO (14/09): en frio el modelo tarda
                     # 7,8 s en cargar y la primera frase llego a 19 s. Si lo que llevas
                     # dicho ya suena a charla, empieza a cargar mientras terminas. No
@@ -11940,6 +11959,7 @@ while ($true) {
             $dic = ''
             try { $dic = [System.IO.File]::ReadAllText($RutaDictado, [System.Text.Encoding]::UTF8) } catch {}
             Remove-Item -LiteralPath $RutaDictado -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $RutaLoTengo -Force -ErrorAction SilentlyContinue
             # ¿dijo algo el motor de Windows? Entonces se prefiere lo suyo. Si no
             # llego nada -o no oye este microfono- se sigue con lo de Whisper,
             # que es justo lo que hace que activarlo no pueda empeorar nada.

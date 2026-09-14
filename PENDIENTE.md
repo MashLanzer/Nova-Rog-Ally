@@ -635,6 +635,29 @@ funciones nuevas.
      añadió). Revisarlo tras unos días.
   10. **Te toca con la voz:** la guarda del repaso dudoso, la precarga al hablar
       y soltar el oído fino jugando no se pueden probar con órdenes escritas.
+- **Tercera tanda de pulido (14/09):**
+  1. *Datos inventados:* con 10 preguntas sobre juegos, el modelo local se
+     equivoca en casi todas («Hades es de terror», «Peak es de estrategia») y
+     pedírselo en el prompt no lo arregla. Las preguntas de datos concretos
+     (quién hizo, de qué va, háblame de, qué opinas de…) van a la API, sin
+     búsqueda; lo que contesta se aprende firme.
+  2. *Chino y etiquetas:* 0 de 20 respuestas con chino; `limpiar` ya quita las
+     etiquetas entre corchetes. Sin cambios.
+  3. *La barra de espera* de la charla se ajusta: 5 s si el modelo está caliente
+     o recién precargado, 16 s si no.
+  4. *Cerrar antes la frase:* esperaba 1,4 s de silencio. Si la orden ya se
+     entiende entera (`tmp\lotengo.txt`, con el texto exacto), bastan 0,8 s. En
+     las 20 grabaciones la pausa más larga dentro de una orden es de 0,45 s.
+     **Sin probar con voz.**
+  5. *La voz que se cae* ya no congela el bucle 2 s (Piper, 2,5 s) al relanzarla.
+  6. *El oído fino compensa:* 17 repasos, 12 sirvieron, 4 igual, 1 inventado.
+  7. *Falsos «nova»:* 246 activaciones; la confianza no separa las útiles de
+     las que acaban en nada (1,0: 19 órdenes y 47 descartes). Sin cambios.
+  8. `tools\probar-precarga.py`: la medición de la precarga, para lanzarla a mano.
+  9. `ESTADO.txt` al día con todo lo del 14/09.
+  10. *Piper:* recibía el texto en la codificación de la consola y destrozaba
+      las tildes («batera est»). Ahora va en UTF-8. Con `--debug` se ve que con
+      tildes acentúa bien y sin ellas no («baTEria», «ESta»).
 - **El fallo rojo del banco.** «Se pone siempre encima» llevaba días en rojo y
   era de la prueba, no del asistente: sobre una ventana que nunca se ha
   mostrado, `SetWindowPos(HWND_TOPMOST)` devuelve true sin marcar nada. El
