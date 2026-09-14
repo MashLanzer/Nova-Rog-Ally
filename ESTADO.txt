@@ -169,6 +169,14 @@ LO NUEVO DEL 14/09: PULIR LO QUE YA HABÍA (sin funciones nuevas)
     la cápsula se corta por palabras.
   - Si la voz se cae, ya no congela el bucle 2 s al relanzarla.
   - La cápsula apunta sus errores en tmp\ui-error.log y el log dice por qué murió.
+  Herramientas nuevas
+  - tools\probar-vivo.ps1: arranca Nova, la prueba con frases escritas, mide la
+    RAM por pieza (730 MB en reposo) y la para devolviendo memoria y config.
+  - tools\grabar-100.py y tools\analizar-100.py: 100 grabaciones tuyas (≡ graba y
+    pasa, B repite) y el informe con lo que conviene ajustar. Ver PENDIENTE.md.
+  - tools\probar-escucha.py y tools\probar-precarga.py.
+  - Nova ya no se interrumpe con su propia voz: el corte vale solo con tu tono.
+  - assistant.log se rota pasados 5 MB (assistant.log.1).
   Medido y sin cambios: el arranque (~1 s), la limpieza del cerebro (ya caduca),
   el chino en la charla (0 de 20), el umbral de "nova" (la confianza no separa
   lo bueno de lo inútil), el oído fino (12 de 17 repasos sirven).

@@ -701,6 +701,50 @@ funciones nuevas.
     - «Háblame un poco de Hollow Knight» iba al modelo local («un poco» rompía
       el patrón). En vivo, «quién hizo Hollow Knight» ya fue a la API: «Team
       Cherry», en 1,7 s.
+- **Quinta tanda de pulido (14/09):**
+  1. *RAM de Nova, medida en vivo* (`tools\probar-vivo.ps1`): 730 MB en reposo y
+     869 MB en charla. Escucha (Vosk + Whisper base) ~290 MB, PowerShell ~200,
+     cápsula ~140, cada worker de voz ~50. Lo que ahoga la Ally no es Nova: es el
+     modelo local de charla (~1,9 GB) cuando se carga. Sin más recortes.
+  2. *La voz preparada se cierra* tras 3 min sin charla.
+  3. *El banco completo* se salta la sección de audio (avisando) con menos de
+     1,5 GB libres: antes el sistema llegó a matarlo a medias.
+  4. *Primera frase antes:* si la primera frase de la charla pasa de ~90 letras
+     sin punto, sale por su última coma.
+  5. *Precargar la charla al decir «nova»:* medido, NO. Mientras Ollama precarga,
+     Whisper tarda 2,23 s por orden en vez de 1,63 (+36 %) y la precarga dura
+     15 s: frenaría todas las órdenes. Se queda solo cuando lo que dices ya suena
+     a charla.
+  6. *La corrección del cerebro* («por cierto, antes me equivoqué») ya tenía su
+     prueba en probar-memoria; en vivo depende de que el local se equivoque.
+  7. *El corte al gritar* se calibra con las 100 grabaciones (abajo).
+  8. *Voz preparada, en vivo:* 3 frases seguidas y las 3 llegaron ya hechas. El
+     log dice ahora «voz: frase ya preparada / sintetizada al momento».
+  9. *`assistant.log` se rota:* pasados 5 MB, al arrancar se guarda como
+     `assistant.log.1`.
+  10. `tools\probar-vivo.ps1`: arranca Nova de verdad, prueba orden local,
+      opinión, charla larga y dato concreto, fotografía la RAM y la para,
+      devolviendo memoria y config. Si se corta: `-Restaurar`.
+
+## Las 100 grabaciones (te toca)
+
+Para ajustar con datos tuyos y no a ojo el margen del corte por tono, el umbral
+del repaso dudoso, el cierre rápido de la frase, las correcciones y el volumen.
+
+1. **Apaga Nova** (usa el mismo micrófono y el mismo botón).
+2. `python tools\grabar-100.py`. Pantalla completa: arriba la frase, debajo el
+   **tono** (normal, voz baja, fuerte, gritando, deprisa, despacio, desde lejos,
+   con pausas, cansado, animado).
+   - **≡** empieza a grabar; **≡** otra vez para, guarda y pasa a la siguiente.
+     Tómate el tiempo que quieras entre una y otra.
+   - **B** vuelve a la anterior para repetirla. Teclado: Enter = ≡, R = repetir,
+     Esc = salir. Se puede dejar a medias: al volver sigue por donde iba.
+   - Son 66 órdenes, 12 frases de charla, 10 palabras para cortarla («cállate»,
+     «espera»… normal y gritando), 6 con pausas y 6 con «nova» delante.
+3. Al terminar, con Nova apagada: `python tools\analizar-100.py` (~10 min). Deja
+   `pruebas\audio\cien\informe.md` con los aciertos por tono y una recomendación
+   para cada ajuste. Las 100 frases ya se pasaron por la capa local: todas las
+   órdenes tienen su acción y ninguna de charla dispara nada.
     - «Quién hizo Hollow Knight» preguntaba «¿Abro Hollow Knight?», y «dime quién
       hizo Outlast» lo repetía en voz alta. Ahora las dos van a la conversación.
 - **El fallo rojo del banco.** «Se pone siempre encima» llevaba días en rojo y

@@ -58,6 +58,10 @@ MAX_HISTORIAL = 12         # mensajes (6 idas y vueltas)
 OLVIDO_S = 300             # tras 5 min sin hablar, la charla empieza de cero (lo aprendido no)
 MIN_FRASE = 25             # letras: las frases muy cortas se juntan con la siguiente
 MAX_FRASE = 200
+# LA PRIMERA FRASE, ANTES (14/09): en vivo el modelo local contesto con UNA frase de
+# 140 letras y la voz no empezo hasta tenerla entera. Si la primera pasa de esto sin
+# punto, se corta en su ultima coma: la voz arranca con medio segundo de ventaja.
+PRIMERA_MAX = 90
 MARCA_API = "[API]"
 MARCA_ORDEN = "[ORDEN]"
 
@@ -162,6 +166,7 @@ class Troceador:
 
     def __init__(self):
         self.buf = ""
+        self.salio = False
 
     def meter(self, trozo):
         self.buf += trozo
@@ -172,6 +177,10 @@ class Troceador:
                 if len(self.buf[:m.end()].strip()) >= MIN_FRASE:
                     corte = m.end()
                     break
+            if corte is None and not self.salio and len(self.buf) > PRIMERA_MAX:
+                i = self.buf.rfind(", ")
+                if i >= 40:
+                    corte = i + 2
             if corte is None and len(self.buf) > MAX_FRASE:
                 i = max(self.buf.rfind(", ", 0, MAX_FRASE), self.buf.rfind(" ", 0, MAX_FRASE))
                 corte = i + 1 if i > 40 else MAX_FRASE
@@ -181,6 +190,7 @@ class Troceador:
             self.buf = self.buf[corte:]
             if f:
                 salen.append(f)
+                self.salio = True
         return salen
 
     def cerrar(self):

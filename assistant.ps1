@@ -34,6 +34,16 @@ if (Test-Path -LiteralPath $cmdsPath) {
 }
 
 $EventLog = Join-Path $LogDir "assistant.log"
+# EL LOG NO CRECE SIN FIN (14/09): nunca se rotaba e iba por 1,3 MB en cuatro dias.
+# Al arrancar, pasados 5 MB se guarda como assistant.log.1 (el anterior se pierde) y
+# se empieza otro. Con -Probar no se toca: el banco no debe mover el log real.
+if (-not $Probar) {
+    try {
+        if ((Test-Path -LiteralPath $EventLog) -and (Get-Item -LiteralPath $EventLog).Length -gt 5MB) {
+            Move-Item -LiteralPath $EventLog -Destination "$EventLog.1" -Force
+        }
+    } catch {}
+}
 $ReplyLog = Join-Path $LogDir "replies.log"
 
 $VK_H = 0x48
@@ -6501,11 +6511,17 @@ function Say-Online([string]$texto, [string]$emo = '') {
         $envioT = if ($emo) { "{emo:$emo} $texto" } else { $texto }
         $bytes = [System.Text.Encoding]::UTF8.GetBytes($envioT + "`n")
         $flujo = $script:ttsProc.StandardInput.BaseStream
+        $t0Voz = $sw.ElapsedMilliseconds
         $flujo.Write($bytes, 0, $bytes.Length)
         $flujo.Flush()
         # con tope: si la red se cae, no se puede colgar el bucle para siempre
         $tarea = $script:ttsProc.StandardOutput.ReadLineAsync()
         if (-not $tarea.Wait(8000)) { Log "voz online: sin respuesta en 8 s"; return $false }
+        # lo que ESPERO el bucle a la voz (ver VOZ PREPARADA): una frase ya hecha tarda
+        # ms; una nueva, ~1 s. Solo se apunta en charla, o el log se llenaria de esto
+        if ($script:charlaEsperando -or $script:charlaFrases.Count -gt 0 -or $script:prepVozProc) {
+            Log ("voz: frase " + $(if (($sw.ElapsedMilliseconds - $t0Voz) -lt 250) { 'ya preparada' } else { 'sintetizada al momento' }) + " ($($sw.ElapsedMilliseconds - $t0Voz) ms)")
+        }
         $ruta = $tarea.Result
         if (-not $ruta -or $ruta.StartsWith('ERR')) { Log "voz online: $ruta"; return $false }
         # la capsula mueve la boca con la envolvente de ESTE audio (<mp3>.env);
@@ -6745,6 +6761,7 @@ function Send-PrepVoz([string]$texto, [string]$emo = '') {
             try { $script:prepVozProc.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal } catch {}
             Log "voz preparada: worker PID=$($script:prepVozProc.Id)"
         }
+        $script:prepVozUltima = $sw.ElapsedMilliseconds
         $envioP = if ($emo) { "{emo:$emo} $texto" } else { $texto }
         $bytesP = [System.Text.Encoding]::UTF8.GetBytes($envioP + "`n")
         $script:prepVozProc.StandardInput.BaseStream.Write($bytesP, 0, $bytesP.Length)
@@ -9574,6 +9591,14 @@ function Stop-Charla {
 
 # Lo que va diciendo el worker, sin bloquear el bucle
 function Receive-Charla {
+    # la voz preparada se cierra sola a los 3 min sin charla (~40 MB que no hacen
+    # falta fuera de una conversacion); se vuelve a abrir con la siguiente
+    if ($script:prepVozProc -and ($sw.ElapsedMilliseconds - $script:prepVozUltima) -gt 180000) {
+        try { $script:prepVozProc.StandardInput.Close() } catch {}
+        try { $script:prepVozProc.Dispose() } catch {}
+        $script:prepVozProc = $null
+        Log "voz preparada: 3 min sin charla, se cierra"
+    }
     if (-not $script:charlaProc) { return }
     if ($script:charlaProc.HasExited) {
         Log "charla: el worker se cerro"
@@ -11800,7 +11825,8 @@ while ($true) {
     }
 
     # --- CONVERSACION: lo que contesta el worker, frase a frase (ver CONVERSACION DE VERDAD) ---
-    if ($script:charlaProc) { try { Receive-Charla } catch { Log ("charla: " + $_.Exception.Message) } }
+    # tambien solo con la voz preparada viva: Receive-Charla es quien la cierra
+    if ($script:charlaProc -or $script:prepVozProc) { try { Receive-Charla } catch { Log ("charla: " + $_.Exception.Message) } }
     # EN FRIO el modelo tarda en cargar (~12-16 s medido): pasados 5 s sin nada,
     # una palabra corta para que no parezca colgada. Una vez por respuesta.
     if ($script:charlaEsperando -and -not $script:charlaRelleno -and $script:charlaFrases.Count -eq 0 -and -not $script:armed -and

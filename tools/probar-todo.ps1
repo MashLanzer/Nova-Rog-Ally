@@ -126,8 +126,15 @@ foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
 Titulo "5. Tu voz de verdad (si ya grabaste las ordenes)"
 # Lo unico del banco que mide el MICROFONO y no texto. Si no hay grabaciones,
 # lo dice y sigue: no es un fallo, es que todavia no las has hecho.
-python (Join-Path $PSScriptRoot 'probar-audio.py')
-if ($LASTEXITCODE -ne 0) { $fallos++ }
+# Whisper base y small juntos piden ~1,2 GB. Sin ellos libres, el sistema llego a
+# matar el banco a medias (14/09): mejor saltarla avisando, que no es un fallo.
+$libreMB = [int]((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024)
+if ($libreMB -lt 1500) {
+    Write-Host "   SALTADA: solo $libreMB MB libres (hacen falta 1500). Cierra algo y repitela sola: python tools/probar-audio.py" -ForegroundColor Yellow
+} else {
+    python (Join-Path $PSScriptRoot 'probar-audio.py')
+    if ($LASTEXITCODE -ne 0) { $fallos++ }
+}
 
 Titulo "4. Ruido real (aqui cuanto MENOS se reconozca, mejor)"
 $salida = powershell -NoProfile -File 'assistant.ps1' -Probar (Join-Path 'pruebas' 'ruido-real.txt') 2>&1
