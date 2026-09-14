@@ -659,10 +659,14 @@ AUDIO_CORTE_MAX = 30 * TASA     # lo que se guarda para medir la palabra, como m
 
 
 def es_voz_de_braya(f0, duena):
-    """Una palabra de corte vale si su tono es el de braya. Sin tono medible o sin
-    tono aprendido todavia, vale (como antes): mejor cortar de mas que no poder."""
-    if f0 <= 0 or duena <= 0:
+    """Una palabra de corte vale si su tono es el de braya. Sin tono aprendido
+    todavia, vale (como antes). Con tono aprendido pero SIN tono medible en la
+    palabra, NO vale: en vivo el 14/09 se colo un "espera" con tono 0 mientras Nova
+    hablaba sola. Mientras habla, cortar de mas es peor; el boton corta siempre."""
+    if duena <= 0:
         return True
+    if f0 <= 0:
+        return False
     return abs(f0 - duena) <= MARGEN_CORTE_HZ
 
 
@@ -711,8 +715,9 @@ def vigilar_corte(datos):
                 f0 = 0.0
                 try:
                     todo = np.concatenate(_corte["audio"])
-                    s0 = max(0, int((float(w.get("start", 0)) - 0.15) * TASA) - _corte["base"])
-                    s1 = max(s0, int((float(w.get("end", 0)) + 0.15) * TASA) - _corte["base"])
+                    # +-0,4 s: con +-0,15 una palabra de Nova quedo sin tono medible (14/09)
+                    s0 = max(0, int((float(w.get("start", 0)) - 0.4) * TASA) - _corte["base"])
+                    s1 = max(s0, int((float(w.get("end", 0)) + 0.4) * TASA) - _corte["base"])
                     f0 = estimar_f0([todo[s0:s1]])
                 except Exception:
                     f0 = 0.0

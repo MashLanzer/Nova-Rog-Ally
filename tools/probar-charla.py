@@ -38,7 +38,7 @@ comp("sin puntos, se corta antes de 200 letras", len(t.meter("palabra " * 40)[0]
 comp("limpia asteriscos, listas y emojis", cw.limpiar("- **Claro** 😀 que si") == "Claro que si", cw.limpiar("- **Claro** 😀 que si"))
 comp("lo que pide internet va a la API", cw.necesita_api("dime las noticias de hoy") and not cw.necesita_api("hoy estoy cansada"))
 # datos concretos sobre algo (quien lo hizo, de que va): el 3B se los inventa (14/09)
-comp("los datos concretos van a la API", all(cw.pide_datos(t) for t in ("¿Qué opinas de Hades?", "quién hizo hollow knight", "de qué va little nightmares", "háblame de silent hill", "cuéntame algo de goose goose duck")))
+comp("los datos concretos van a la API", all(cw.pide_datos(t) for t in ("¿Qué opinas de Hades?", "quién hizo hollow knight", "de qué va little nightmares", "háblame de silent hill", "cuéntame algo de goose goose duck", "háblame un poco de hollow knight en tres o cuatro frases")))
 comp("la charla normal NO va a la API por eso", not any(cw.pide_datos(t) for t in ("estoy muy cansado hoy", "cuéntame un chiste", "me gusta hollow knight", "abre steam")))
 err = "memoria: revision fallida (Illegal header value b'sk-ant-api03-AbC_dEf-123\\n')"
 comp("una clave NUNCA sale hacia el log", "sk-ant" not in cw.seguro(err) and "[clave oculta]" in cw.seguro(err), cw.seguro(err))

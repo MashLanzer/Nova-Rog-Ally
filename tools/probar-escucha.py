@@ -47,7 +47,7 @@ comp("y no corta una pausa normal dentro de la orden", ns["SILENCIO_FIN_LOTENGO"
 voz = ns["es_voz_de_braya"]
 comp("braya interrumpe (todas sus grabaciones)", all(voz(f, 119.6) for f in (111, 117, 120, 126)))
 comp("la voz de Nova NO se interrumpe a si misma", not any(voz(f, 119.6) for f in (165, 190, 205, 267, 327)))
-comp("sin tono medible, el corte vale (como antes)", voz(0, 119.6))
+comp("sin tono medible (y el tuyo ya aprendido), el corte NO vale", not voz(0, 119.6))
 comp("sin tono aprendido todavia, el corte vale", voz(205, 0))
 
 print("")

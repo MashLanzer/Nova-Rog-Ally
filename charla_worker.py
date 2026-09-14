@@ -149,8 +149,8 @@ def necesita_api(texto):
 # no son de actualidad) y lo que conteste se aprende firme para la proxima vez.
 RE_PIDE_DATOS = re.compile(
     r"\b(de qu[eé] (va|trata)|qui[eé]n (hizo|cre[oó]|invent[oó]|escribi[oó]|dirigi[oó]|desarroll[oó]|compuso|canta)|"
-    r"cu[aá]ndo (sali[oó]|naci[oó]|se estren[oó]|se fund[oó]|muri[oó])|h[aá]blame (de|sobre)|qu[eé] sabes (de|sobre)|"
-    r"cu[eé]ntame (algo )?(de|sobre)|qu[eé] opinas (de|sobre)|qu[eé] te parece)\b", re.IGNORECASE)
+    r"cu[aá]ndo (sali[oó]|naci[oó]|se estren[oó]|se fund[oó]|muri[oó])|h[aá]blame (un poco |algo )?(de|sobre)|qu[eé] sabes (de|sobre)|"
+    r"cu[eé]ntame (algo |un poco )?(de|sobre)|qu[eé] opinas (de|sobre)|qu[eé] te parece)\b", re.IGNORECASE)
 
 
 def pide_datos(texto):

@@ -70,7 +70,7 @@ RE_PREGUNTA_GENERAL = re.compile(
     r"^(que (es|son|significa|quiere decir)|quien(es)? (es|son|fue|fueron|era|invento|descubrio|escribio|pinto|creo|dirigio|hizo|hicieron|desarrollo|compuso|canta)|"
     # 14/09: lo que ahora va a la API por ser un dato concreto (ver RE_PIDE_DATOS en
     # charla_worker.py) tiene que poder aprenderse, o se preguntaba a la API cada vez
-    r"de que (va|trata)|hablame (de|sobre) |que sabes (de|sobre) |"
+    r"de que (va|trata)|hablame (un poco |algo )?(de|sobre) |que sabes (de|sobre) |"
     r"cuant[oa]s? |como (se|funciona|funcionan|nacen|hacen)|por que |donde (esta|estan|queda|vive|viven)|"
     r"cuando (fue|nacio|murio|se|empezo|termino)|explicame|dame un dato|dato curioso|cual (es|fue|era) |en que (ano|pais|siglo))")
 # lo que no es un DATO de braya sino como esta ahora (probado en vivo el 14/09: "estoy

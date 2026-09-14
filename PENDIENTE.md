@@ -695,6 +695,12 @@ funciones nuevas.
       grabaciones) y Nova de 165 a 327. La palabra solo vale si el tono del
       trozo donde se oyó está a 40 Hz del tuyo. **Pruébalo:** di «cállate»
       mientras habla. Un grito muy agudo podría no valer; queda el botón.
+      Probado en vivo: descartó «basta» (211 Hz, su voz), pero se coló un
+      «espera» con tono 0 (no medible). Ahora el trozo es de ±0,4 s y, con tu
+      tono ya aprendido, una palabra sin tono medible no corta.
+    - «Háblame un poco de Hollow Knight» iba al modelo local («un poco» rompía
+      el patrón). En vivo, «quién hizo Hollow Knight» ya fue a la API: «Team
+      Cherry», en 1,7 s.
     - «Quién hizo Hollow Knight» preguntaba «¿Abro Hollow Knight?», y «dime quién
       hizo Outlast» lo repetía en voz alta. Ahora las dos van a la conversación.
 - **El fallo rojo del banco.** «Se pone siempre encima» llevaba días en rojo y
