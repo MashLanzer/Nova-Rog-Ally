@@ -387,10 +387,14 @@ Queda abierto:
       `$CcProhibido` quita al cerebro el registro, los procesos, PowerShell y el
       sistema de archivos del MCP de Windows, y los comandos de borrar, matar
       procesos o tocar el registro.
-- [ ] **M11:** una receta con script bloquea el bucle hasta 20 s por paso (≡ no
-      responde mientras). Convertirla en trabajo asíncrono.
-- [ ] **M12:** activaciones falsas con gente hablando cerca (~2 cada 4 min en la
-      prueba); se descartan bien, pero cuestan CPU de Whisper.
+- [x] **M11 (14/09):** una receta con script ya no bloquea el bucle. El script
+      corre aparte (`Start-PasoScript`), el bucle lo recoge (`Watch-Receta`) y
+      al acabar pasa lo de siempre (`Complete-RecetaResultado`). Mientras
+      corre, ≡ y la cápsula responden; otra receta no se empieza a la vez.
+- [x] **M12 (14/09):** si «nova» salta con la voz de otra persona (tono a más de
+      70 Hz del tuyo aprendido) y lo oído son 4 palabras o menos, el worker
+      entrega lo de Vosk sin gastar Whisper. Con el botón o en un seguimiento,
+      nunca. **Ver con el uso real** que no se salte órdenes tuyas.
 - [x] Escrituras no atómicas en los JSON de memoria (14/09): `Write-Atomico`
       escribe un `.tmp` y lo cambia por el bueno de una vez (listas,
       estadísticas, config, commands, traducciones, rechazos, recetas,

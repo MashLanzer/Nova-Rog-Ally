@@ -487,16 +487,29 @@ def indice_voz(f0):
 
 
 def anotar_voz(bloques):
+    """Apunta el tono del dictado para el asistente y lo devuelve (0 si no se sabe)."""
     if not NIVEL:
-        return
+        return 0.0
     try:
         f0 = estimar_f0(bloques)
         idx = indice_voz(f0)
         escribir(os.path.join(os.path.dirname(NIVEL), "dictado-voz.txt"), "%d %.0f" % (idx, f0))
         if f0 > 0:
             anota("voz: tono %.0f Hz -> voz %d" % (f0, idx))
+        return float(f0)
     except Exception:
-        pass
+        return 0.0
+
+
+def voz_duena():
+    """El tono de la voz de braya que el asistente ha aprendido de sus ordenes
+    (mi-voz.json, junto a los demas archivos de estado), o 0 si aun no lo sabe."""
+    try:
+        with open(os.path.join(os.path.dirname(NIVEL), "mi-voz.json"), encoding="utf-8") as f:
+            d = json.load(f)
+        return float(d.get("f0", 0)) if int(d.get("n", 0)) >= 12 else 0.0
+    except Exception:
+        return 0.0
 
 
 def transcribir_whisper(bloques, modelo=None, seguir=None):
@@ -815,6 +828,7 @@ arrastre = 0
 dictando = False
 dictado = []
 audio_dictado = []      # bloques amplificados de la orden, para Whisper
+origen_nombre = False   # el dictado lo abrio el nombre (no el boton ni un seguimiento)
 ultimo_audio = []       # el de la ULTIMA orden, por si hay que repasarlo (oido fino)
 confirmando = False
 conf_inicio = 0.0
@@ -889,9 +903,11 @@ try:
                     # SEGUIMIENTO: la marca lleva "seguimiento:<ms>"; si no hay voz
                     # en ese plazo, se cierra en silencio con texto vacio
                     espera_voz = 0.0
+                    origen_nombre = False
                     try:
                         with open(DICTAR, "r", encoding="utf-8") as f:
                             contenido = f.read().strip()
+                        origen_nombre = (contenido == "nombre")
                         if contenido.startswith("seguimiento:"):
                             espera_voz = float(contenido.split(":", 1)[1]) / 1000.0
                     except Exception:
@@ -1109,7 +1125,7 @@ try:
                                 dictado.append(resto)
                             texto_vosk = " ".join([t for t in dictado if t])
                             texto_final = texto_vosk
-                            anotar_voz(audio_dictado)
+                            f0_dictado = anotar_voz(audio_dictado)
                             # Cerrar por el tope de 30 s SIN haber oido nada quiere
                             # decir que eso no era una orden, sino ruido continuo.
                             # Antes se le daban igual 15 s de ruido a Whisper: unos
@@ -1121,7 +1137,20 @@ try:
                                 anota("dictado: %.0f s sin oir nada; no hay nada que transcribir"
                                       % (ahora - dicta_inicio))
                                 texto_final = ""
-                            if whisper is not None and not callado:
+                            # VOZ DE OTRA PERSONA TRAS EL NOMBRE (14/09): con gente hablando
+                            # cerca, "nova" salta ~2 veces cada 4 min y cada una se llevaba
+                            # segundos de Whisper. Si el tono queda MUY lejos del tuyo
+                            # (el doble del margen del asistente) y lo oido es cortisimo,
+                            # se entrega lo de Vosk sin Whisper: el asistente lo descarta
+                            # igual por voz ajena. Con el boton o en un seguimiento, nunca.
+                            ajena = False
+                            if origen_nombre and f0_dictado > 0 and not callado:
+                                duena = voz_duena()
+                                if duena > 0 and abs(f0_dictado - duena) > 70 and len(texto_vosk.split()) <= 4:
+                                    ajena = True
+                                    anota("dictado: voz de otra persona (%.0f Hz frente a %.0f Hz) tras el nombre; sin Whisper"
+                                          % (f0_dictado, duena))
+                            if whisper is not None and not callado and not ajena:
                                 escribir(PARCIAL, texto_vosk)
                                 mejor = transcribir_whisper(audio_dictado)
                                 if mejor:

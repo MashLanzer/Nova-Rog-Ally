@@ -19,7 +19,8 @@ foreach ($a in $top) { if (@('RE_RECETA_PROHIBIDO', 'RecetasMax', 'NIVELES_NOVA'
 foreach ($n in 'ConvertTo-CmdArg', 'ConvertTo-Suave', 'Get-PatronReceta', 'Find-Receta', 'Find-RecetaIncompleta','Test-ScriptProhibido', 'Get-TextoReceta',
     'Add-Receta', 'Invoke-Receta', 'Get-Recetas', 'Save-Recetas', 'Get-VarianteReceta', 'Add-VarianteReceta', 'Build-PromptTraduccion',
     'Get-DatosPerfil', 'Save-DatosPerfil', 'Add-DatoPerfil', 'Get-SistemaCerebro', 'Get-BalanceAprendizaje', 'Get-Estadisticas',
-    'Send-UIEvento', 'Set-AcabaDeAprender', 'Get-CuentaAprendida', 'Get-Madurez', 'Get-FraseNivel', 'Write-Atomico') { Invoke-Expression (TraerFn $n) }
+    'Send-UIEvento', 'Set-AcabaDeAprender', 'Get-CuentaAprendida', 'Get-Madurez', 'Get-FraseNivel', 'Write-Atomico',
+    'Start-PasoScript', 'Complete-PasoScript', 'Start-Receta', 'Step-Receta', 'Watch-Receta', 'Close-Receta', 'Complete-RecetaResultado') { Invoke-Expression (TraerFn $n) }
 
 $dir = Join-Path $env:TEMP ('nova-recetas-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $dir | Out-Null
@@ -158,6 +159,34 @@ Set-AcabaDeAprender; Send-UIEvento 'hecho'; Comp 'hecho tras aprender se celebra
 Send-UIEvento 'hecho'; Comp 'y solo una vez' ($script:uiEvento -eq 'hecho')
 Set-AcabaDeAprender; $script:acabaDeAprenderEn = -20000; Send-UIEvento 'hecho'
 Comp 'la marca caduca a los 10 s' ($script:uiEvento -eq 'hecho' -and -not $script:acabaDeAprender)
+
+Write-Host "--- receta con script sin bloquear a Nova (M11) ---"
+$script:dichos = @(); $script:enviados = @()
+function Say($t, $e = '') { $script:dichos += $t }
+function Show-Popup {}
+function Set-UI {}
+function Submit-Command($t, $m) { $script:enviados += "$m|$t" }
+$script:recetaEnCurso = $null; $script:reparandoReceta = $null
+$marcaR = Join-Path $dir 'receta-async.txt'
+$rAsync = @{ id = 71; frase = 'marca async {nombre}'; resumen = 'x'; respuesta = 'Hecho con {nombre}.'; usos = 0; confirmadas = 5; fallos = 0
+    variantes = (New-Object System.Collections.ArrayList)
+    pasos = @(@{ tipo = 'powershell'; texto = "Start-Sleep -Milliseconds 900; Set-Content -LiteralPath '$marcaR' -Value `$nombre" }) }
+$t0 = [System.Diagnostics.Stopwatch]::StartNew()
+$vuelta = Start-Receta @{ receta = $rAsync; valores = @{ nombre = 'Ana' } } 'marca async Ana' 'otra forma de decirlo'
+Comp 'con un script, no espera: vuelve al momento' ($vuelta -eq 'enCurso' -and $t0.ElapsedMilliseconds -lt 800 -and $null -ne $script:recetaEnCurso) "$($t0.ElapsedMilliseconds) ms"
+$otra = Start-Receta @{ receta = $rAsync; valores = @{ nombre = 'Leo' } } 'marca async Leo'
+Comp 'mientras corre, otra receta no se empieza' ($otra -eq $false -and $script:dichos[-1] -match 'todavia') ($script:dichos -join ' | ')
+while ($script:recetaEnCurso -and $t0.ElapsedMilliseconds -lt 15000) { Watch-Receta; Start-Sleep -Milliseconds 100 }
+$escrito = if (Test-Path $marcaR) { (Get-Content $marcaR -Raw).Trim() } else { '' }
+Comp 'al acabar el script: contesta y aprende la otra forma de decirlo' ($escrito -eq 'Ana' -and $script:dichos[-1] -eq 'Hecho con Ana.' -and @($rAsync.variantes) -contains 'otra forma de decirlo') ("$escrito | " + ($script:dichos -join ' | '))
+$rFallo = @{ id = 72; frase = 'falla async'; resumen = 'x'; respuesta = ''; usos = 0; confirmadas = 5; fallos = 0
+    variantes = (New-Object System.Collections.ArrayList); pasos = @(@{ tipo = 'powershell'; texto = 'exit 3' }) }
+$script:enviados = @()
+[void](Start-Receta @{ receta = $rFallo; valores = @{} } 'falla async')
+$t1 = [System.Diagnostics.Stopwatch]::StartNew()
+while ($script:recetaEnCurso -and $t1.ElapsedMilliseconds -lt 15000) { Watch-Receta; Start-Sleep -Milliseconds 100 }
+Comp 'si el script falla: se apunta y va al cerebro a repararla' ($rFallo.fallos -eq 1 -and $script:enviados -contains 'accion|falla async' -and $script:reparandoReceta.error -match 'codigo 3') ($script:enviados -join ',')
+$script:reparandoReceta = $null
 
 Write-Host "--- recetas que preguntan lo que falta ---"
 $script:invitado = $false

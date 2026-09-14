@@ -3314,6 +3314,58 @@ function Add-Receta([string]$original, [string]$bloque) {
 
 # Ejecuta los pasos. Cada script va en un PowerShell oculto con tope de 20 s,
 # con los valores declarados ANTES como variables de texto escapadas.
+# UN PASO DE SCRIPT, EN DOS MITADES (14/09): arrancarlo y recogerlo. Invoke-Receta
+# espera entre las dos; Start-Receta no (ver RECETA SIN BLOQUEAR).
+function Start-PasoScript([string]$cuerpo, $valores) {
+    # se vuelve a mirar al ejecutar: el archivo de recetas se puede editar a mano
+    if (Test-ScriptProhibido $cuerpo) { return @{ ok = $false; error = 'el script tiene algo prohibido' } }
+    $rutaS = Join-Path $TmpDir ("receta-" + [System.Guid]::NewGuid().ToString('N') + ".ps1")
+    $cab = "`$ErrorActionPreference = 'Stop'`r`n"
+    # LOS VALORES NUNCA VAN PEGADOS EN EL SCRIPT (auditoria del 13/09):
+    # duplicar la ' no bastaba, PowerShell tambien cierra una cadena con
+    # comillas tipograficas y un valor dictado colaba codigo. Viajan en variables
+    # de entorno del proceso hijo y el script solo las lee.
+    foreach ($k in $valores.Keys) {
+        if ($k -notmatch '^[a-z_]{1,20}$') { return @{ ok = $false; error = "hueco '$k' no valido" } }
+        $cab += ('$' + $k + " = [Environment]::GetEnvironmentVariable('NOVA_HUECO_" + $k + "')`r`n")
+    }
+    [System.IO.File]::WriteAllText($rutaS, $cab + $cuerpo, (New-Object System.Text.UTF8Encoding($true)))
+    # el error del script se guarda: es lo que el cerebro necesita para arreglar
+    # la receta (ver Complete-RecetaResultado, autorreparacion)
+    $rutaE = [System.IO.Path]::ChangeExtension($rutaS, '.err.txt')
+    try {
+        foreach ($k in $valores.Keys) { [Environment]::SetEnvironmentVariable("NOVA_HUECO_$k", [string]$valores[$k], 'Process') }
+        $pr = Start-Process -FilePath 'powershell.exe' -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File ' + (ConvertTo-CmdArg $rutaS)) `
+            -WorkingDirectory $WORKDIR -WindowStyle Hidden -PassThru -RedirectStandardError $rutaE
+        $null = $pr.Handle
+        return @{ ok = $true; proc = $pr; rutaS = $rutaS; rutaE = $rutaE }
+    } catch {
+        Remove-Item -LiteralPath $rutaS -Force -ErrorAction SilentlyContinue
+        return @{ ok = $false; error = "no pude ejecutar el script: $($_.Exception.Message)" }
+    } finally {
+        # el hijo ya se llevo su copia del entorno al arrancar
+        foreach ($k in $valores.Keys) { [Environment]::SetEnvironmentVariable("NOVA_HUECO_$k", $null, 'Process') }
+    }
+}
+# '' si fue bien; si no, el error. Borra los archivos del paso.
+function Complete-PasoScript($ini, [bool]$tiempoAgotado = $false) {
+    try {
+        if ($tiempoAgotado) { try { $ini.proc.Kill() } catch {}; return 'tardo mas de 20 s' }
+        if ($ini.proc.ExitCode -ne 0) {
+            $errTxt = ''
+            # PowerShell 5.1 escribe sus errores con la codificacion de la
+            # consola (OEM), no en UTF-8: leido como UTF-8 salia "t?rmino"
+            try { $errTxt = (([System.IO.File]::ReadAllText($ini.rutaE, [System.Text.Encoding]::GetEncoding([System.Globalization.CultureInfo]::CurrentCulture.TextInfo.OEMCodePage))) -replace '\s+', ' ').Trim() } catch {}
+            if ($errTxt.Length -gt 400) { $errTxt = $errTxt.Substring(0, 400) }
+            return "el script termino con codigo $($ini.proc.ExitCode): $errTxt"
+        }
+        return ''
+    } finally {
+        Remove-Item -LiteralPath $ini.rutaS -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $ini.rutaE -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Invoke-Receta($r, $valores) {
     foreach ($paso in $r.pasos) {
         $tipo = [string]$paso.tipo; $cuerpo = [string]$paso.texto
@@ -3324,43 +3376,13 @@ function Invoke-Receta($r, $valores) {
             try { $res = Invoke-FastCommand $orden } catch { $res = $null }
             if (-not $res) { return @{ ok = $false; error = "la orden '$orden' no se pudo hacer" } }
         } elseif ($tipo -eq 'powershell') {
-            # se vuelve a mirar al ejecutar: el archivo de recetas se puede editar a mano
-            if (Test-ScriptProhibido $cuerpo) { return @{ ok = $false; error = 'el script tiene algo prohibido' } }
-            $rutaS = Join-Path $TmpDir ("receta-" + [System.Guid]::NewGuid().ToString('N') + ".ps1")
-            $cab = "`$ErrorActionPreference = 'Stop'`r`n"
-            # LOS VALORES NUNCA VAN PEGADOS EN EL SCRIPT (auditoria del 13/09):
-            # duplicar la ' no bastaba, PowerShell tambien cierra una cadena con
-            # comillas tipograficas (’ ‘ ‚ ‛) y un valor dictado colaba codigo. Viajan
-            # en variables de entorno del proceso hijo y el script solo las lee.
-            foreach ($k in $valores.Keys) {
-                if ($k -notmatch '^[a-z_]{1,20}$') { return @{ ok = $false; error = "hueco '$k' no valido" } }
-                $cab += ('$' + $k + " = [Environment]::GetEnvironmentVariable('NOVA_HUECO_" + $k + "')`r`n")
-                [Environment]::SetEnvironmentVariable("NOVA_HUECO_$k", [string]$valores[$k], 'Process')
-            }
-            [System.IO.File]::WriteAllText($rutaS, $cab + $cuerpo, (New-Object System.Text.UTF8Encoding($true)))
-            # el error del script se guarda: es lo que el cerebro necesita para
-            # arreglar la receta (ver Start-Receta, autorreparacion)
-            $rutaE = [System.IO.Path]::ChangeExtension($rutaS, '.err.txt')
-            try {
-                $pr = Start-Process -FilePath 'powershell.exe' -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File ' + (ConvertTo-CmdArg $rutaS)) `
-                    -WorkingDirectory $WORKDIR -WindowStyle Hidden -PassThru -RedirectStandardError $rutaE
-                $null = $pr.Handle
-                if (-not $pr.WaitForExit(20000)) { try { $pr.Kill() } catch {}; return @{ ok = $false; error = 'tardo mas de 20 s' } }
-                if ($pr.ExitCode -ne 0) {
-                    $errTxt = ''
-                    # PowerShell 5.1 escribe sus errores con la codificacion de la
-                    # consola (OEM), no en UTF-8: leido como UTF-8 salia "t?rmino"
-                    try { $errTxt = (([System.IO.File]::ReadAllText($rutaE, [System.Text.Encoding]::GetEncoding([System.Globalization.CultureInfo]::CurrentCulture.TextInfo.OEMCodePage))) -replace '\s+', ' ').Trim() } catch {}
-                    if ($errTxt.Length -gt 400) { $errTxt = $errTxt.Substring(0, 400) }
-                    return @{ ok = $false; error = "el script termino con codigo $($pr.ExitCode): $errTxt" }
-                }
-            } catch {
-                return @{ ok = $false; error = "no pude ejecutar el script: $($_.Exception.Message)" }
-            } finally {
-                Remove-Item -LiteralPath $rutaS -Force -ErrorAction SilentlyContinue
-                Remove-Item -LiteralPath $rutaE -Force -ErrorAction SilentlyContinue
-                foreach ($k in $valores.Keys) { [Environment]::SetEnvironmentVariable("NOVA_HUECO_$k", $null, 'Process') }
-            }
+            # aqui se ESPERA al script; la receta con el bucle libre va por
+            # Start-Receta (ver RECETA SIN BLOQUEAR)
+            $ini = Start-PasoScript $cuerpo $valores
+            if (-not $ini.ok) { return @{ ok = $false; error = $ini.error } }
+            $termino = $ini.proc.WaitForExit(20000)
+            $errP = Complete-PasoScript $ini (-not $termino)
+            if ($errP) { return @{ ok = $false; error = $errP } }
         } else {
             return @{ ok = $false; error = "paso desconocido '$tipo'" }
         }
@@ -3408,11 +3430,83 @@ function New-RecetaEnsenada([string]$disparador, [string]$cuerpo) {
     return @{ ok = $true; texto = $txt }
 }
 
-function Start-Receta($enc, [string]$text) {
+# RECETA SIN BLOQUEAR (M11, 14/09): un paso de script esperaba hasta 20 s con el
+# bucle parado: el boton no respondia y la capsula se quedaba congelada. Ahora,
+# si la receta lleva scripts, Step-Receta arranca los pasos, Watch-Receta mira en
+# cada vuelta del bucle si el script acabo, y al terminar Complete-RecetaResultado
+# hace lo de siempre (contar, aprender, reparar, contestar). $variante: la forma
+# de decirlo que se aprende si sale bien (el "si" a "¿lo hago?").
+$script:recetaEnCurso = $null
+function Start-Receta($enc, [string]$text, [string]$variante = '') {
     $r = $enc.receta
+    if ($script:recetaEnCurso) {
+        Log "RECETA $($r.id): hay otra en curso; esta no se empieza"
+        Say 'Espera, todavia estoy con la tarea de antes.'
+        return $false
+    }
     Log "RECETA $($r.id): '$text' -> la hago sin IA"
     Set-UI 'pensando' 'Como la otra vez'
-    $res = Invoke-Receta $r $enc.valores
+    if (@(@($r.pasos) | Where-Object { [string]$_.tipo -eq 'powershell' }).Count -gt 0) {
+        $script:recetaEnCurso = @{ enc = $enc; texto = $text; variante = $variante; paso = 0; ini = $null; desde = 0 }
+        Step-Receta
+        return 'enCurso'
+    }
+    return (Complete-RecetaResultado $enc $text (Invoke-Receta $r $enc.valores) $variante)
+}
+
+function Step-Receta {
+    $e = $script:recetaEnCurso
+    if (-not $e) { return }
+    $r = $e.enc.receta
+    $valores = $e.enc.valores
+    $pasos = @($r.pasos)
+    while ($e.paso -lt $pasos.Count) {
+        $paso = $pasos[$e.paso]
+        $tipo = [string]$paso.tipo; $cuerpo = [string]$paso.texto
+        if ($tipo -eq 'orden') {
+            $orden = $cuerpo
+            foreach ($k in $valores.Keys) { $orden = $orden.Replace('{' + $k + '}', [string]$valores[$k]) }
+            $resO = $null
+            try { $resO = Invoke-FastCommand $orden } catch { $resO = $null }
+            if (-not $resO) { Close-Receta @{ ok = $false; error = "la orden '$orden' no se pudo hacer" }; return }
+            $e.paso++
+        } elseif ($tipo -eq 'powershell') {
+            $ini = Start-PasoScript $cuerpo $valores
+            if (-not $ini.ok) { Close-Receta @{ ok = $false; error = $ini.error }; return }
+            $e.ini = $ini
+            $e.desde = $sw.ElapsedMilliseconds
+            return    # lo recoge Watch-Receta
+        } else {
+            Close-Receta @{ ok = $false; error = "paso desconocido '$tipo'" }
+            return
+        }
+    }
+    $txt = Get-TextoReceta $r 'respuesta' $valores
+    if (-not ([string]$r.respuesta)) { $txt = 'Hecho, como la otra vez.' }
+    Close-Receta @{ ok = $true; texto = $txt }
+}
+
+function Watch-Receta {
+    $e = $script:recetaEnCurso
+    if (-not $e -or -not $e.ini) { return }
+    $ini = $e.ini
+    if ($ini.proc.HasExited) { $errP = Complete-PasoScript $ini $false }
+    elseif (($sw.ElapsedMilliseconds - $e.desde) -ge 20000) { $errP = Complete-PasoScript $ini $true }
+    else { return }
+    $e.ini = $null
+    if ($errP) { Close-Receta @{ ok = $false; error = $errP }; return }
+    $e.paso++
+    Step-Receta
+}
+
+function Close-Receta($res) {
+    $e = $script:recetaEnCurso
+    $script:recetaEnCurso = $null
+    if ($e) { [void](Complete-RecetaResultado $e.enc $e.texto $res $e.variante) }
+}
+
+function Complete-RecetaResultado($enc, [string]$text, $res, [string]$variante = '') {
+    $r = $enc.receta
     if ($res.ok) {
         $r.usos = [int]$r.usos + 1
         $r.confirmadas = [int]$r.confirmadas + 1
@@ -3426,6 +3520,13 @@ function Start-Receta($enc, [string]$text) {
         Send-UIEvento 'gesto:sinia'
         Show-Popup $res.texto
         Say $res.texto
+        # dijiste que si Y salio bien: esa forma de decirlo queda aprendida, y la
+        # proxima vez encaja en local, sin preguntarle a nadie
+        if ($variante) {
+            Add-VarianteReceta $r $variante
+            # aprender la forma nueva es mas que haberla hecho: esa celebracion gana
+            if ($script:acabaDeAprender) { Send-UIEvento 'gesto:aprendido' }
+        }
         return $true
     }
     $r.fallos = [int]$r.fallos + 1
@@ -9920,14 +10021,9 @@ function Complete-Confirmacion([string]$respuesta) {
         $objR = @($gR | Where-Object { $_.id -eq $p.id })
         if ($objR.Count -eq 0) { Set-UI 'reposo'; return }
         if ($respuesta -eq 'si') {
-            $okR = Start-Receta @{ receta = $objR[0]; valores = $p.valores } $p.original
-            # dijiste que si Y salio bien: esa forma de decirlo queda aprendida,
-            # y la proxima vez encaja en local, sin preguntarle a nadie
-            if (@($okR)[-1] -eq $true -and $p.variante) {
-                Add-VarianteReceta $objR[0] $p.variante
-                # aprender la forma nueva es mas que haberla hecho: esa celebracion gana
-                if ($script:acabaDeAprender) { Send-UIEvento 'gesto:aprendido' }
-            }
+            # si sale bien, esa forma de decirlo queda aprendida (lo hace
+            # Complete-RecetaResultado, tambien si la receta acaba en segundo plano)
+            [void](Start-Receta @{ receta = $objR[0]; valores = $p.valores } $p.original ([string]$p.variante))
         } elseif ($respuesta -eq 'no') {
             $objR[0].rechazos = [int]$objR[0].rechazos + 1
             if ($objR[0].rechazos -ge 2) {
@@ -10264,7 +10360,8 @@ function Start-Dictado([string]$origen) {
                    else { [int]((Get-VentanaSeguimiento $false) * $script:seguimientoFactor) }
         $script:ventanaCharla = $false
         Remove-Item -LiteralPath (Join-Path $TmpDir 'seguimiento-voz.txt') -Force -ErrorAction SilentlyContinue
-        [System.IO.File]::WriteAllText($MarcaDictar, $(if ($seguimiento) { "seguimiento:$ventana" } else { 'x' }))
+        # "nombre": el worker se ahorra Whisper con una voz muy lejos de la tuya (ver wake_vosk)
+        [System.IO.File]::WriteAllText($MarcaDictar, $(if ($seguimiento) { "seguimiento:$ventana" } elseif ($origen -like 'nombre*' -and $SoloYoOn) { 'nombre' } else { 'x' }))
         Start-Vibracion $(if ($seguimiento) { @(40) } else { @(90) })
         $lbl.Text = "● VOZ..."
         $lbl.ForeColor = [System.Drawing.Color]::LimeGreen
@@ -11732,6 +11829,11 @@ while ($true) {
             try { Finish-Dictation "sin voz" }
             catch { Log "cierre sin voz: $($_.Exception.Message)"; $script:armed = $false }
         }
+    }
+
+    # --- una receta con script corriendo aparte (ver RECETA SIN BLOQUEAR) ---
+    if ($script:recetaEnCurso) {
+        try { Watch-Receta } catch { Log ("receta: " + $_.Exception.Message); $script:recetaEnCurso = $null }
     }
 
     # --- atencion al trabajo en curso, sin bloquear el sondeo del boton ---
