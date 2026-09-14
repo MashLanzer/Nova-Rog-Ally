@@ -214,6 +214,12 @@ class Grabadora:
                                 text="≡  empezar / terminar y pasar     ·     B  repetir la anterior     ·     Esc  salir (lo grabado se queda)")
         self.l_ayuda.pack(side="bottom", pady=30)
         self.pintar()
+        # delante y con el foco: lanzada desde otro programa se abria detras y el
+        # teclado (Enter, Esc) no le llegaba; el mando si
+        raiz.lift()
+        raiz.attributes("-topmost", True)
+        raiz.focus_force()
+        raiz.after(800, lambda: raiz.attributes("-topmost", False))
         self.raiz.after(30, self.vigilar)
 
     def primera_que_falta(self):
