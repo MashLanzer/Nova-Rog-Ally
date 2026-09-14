@@ -470,6 +470,8 @@ def responder(p):
                         emitir(f)
                     historial.append({"role": "assistant", "content": sabida["respuesta"]})
                     recortar()
+                    if not invitado:
+                        apuntar_charla(texto, sabida["respuesta"])   # ver DIARIO DE CONVERSACIONES
                     salida("info", idp, texto="memoria: lo sé (recuerdo %d, %d usos)" % (sabida["id"], sabida.get("usos", 0)))
                     salida("fin", idp, origen="memoria")
                     return
@@ -531,6 +533,8 @@ def responder(p):
             recortar()
             quien = "api" if origen == "api" else "local"
             salida("fin", idp, origen=quien)
+            if not invitado:
+                apuntar_charla(texto, respuesta)   # ver DIARIO DE CONVERSACIONES
             # 4) APRENDER (nunca de un invitado)
             if cerebro is not None and not invitado:
                 try:
@@ -561,6 +565,12 @@ def revisar_una():
                     hecho["juntados"], hecho["reencolados"], hecho["podados"]))
         except Exception as e:  # noqa: BLE001
             salida("info", texto="memoria: repaso fallido (%s)" % e)
+        # y lo hablado los dias pasados, resumido para el diario (M10)
+        try:
+            if resumir_dias_pasados():
+                return True
+        except Exception as e:  # noqa: BLE001
+            salida("info", texto="diario: %s" % e)
     # los vectores que faltan, solo con Qwen ya fuera de la RAM (5 min sin charla):
     # cargar el modelo de embeddings a su lado hace paginar a Windows
     if time.time() - ultima_charla > 300:
@@ -624,6 +634,80 @@ class EmbedOllama:
         r = httpx.post(OLLAMA + "/api/embed", json={"model": self.nombre, "input": textos, "keep_alive": self.keep_alive}, timeout=30)
         r.raise_for_status()
         return r.json()["embeddings"]
+
+
+def ruta_charla(dia):
+    return os.path.join(CARPETA_CEREBRO, "charla-%s.jsonl" % dia)
+
+
+def apuntar_charla(texto, respuesta):
+    """DIARIO DE CONVERSACIONES (M10, 14/09): cada intercambio del dia, en bruto,
+    hasta que se resume (ver resumir_dias_pasados). Nunca de un invitado."""
+    try:
+        os.makedirs(CARPETA_CEREBRO, exist_ok=True)
+        with open(ruta_charla(time.strftime("%Y-%m-%d")), "a", encoding="utf-8") as f:
+            f.write(json.dumps({"h": time.strftime("%H:%M"), "braya": cm.limpio(texto, 300),
+                                "nova": cm.limpio(respuesta, 300)}, ensure_ascii=False) + "\n")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def resumir_dias_pasados(hoy=None):
+    """Con Nova en reposo, lo hablado cada dia YA PASADO se resume con el modelo
+    LOCAL (son tus conversaciones: nunca la API) en unas vinetas, que el
+    asistente anade al diario de ese dia; el registro en bruto se borra.
+    Uno por vez. Si el modelo no esta, se queda para otro rato."""
+    hoy = hoy or time.strftime("%Y-%m-%d")
+    try:
+        nombres = sorted(n for n in os.listdir(CARPETA_CEREBRO) if n.startswith("charla-") and n.endswith(".jsonl"))
+    except OSError:
+        return False
+    for n in nombres:
+        dia = n[len("charla-"):-len(".jsonl")]
+        if dia >= hoy:
+            continue
+        ruta = os.path.join(CARPETA_CEREBRO, n)
+        turnos = []
+        try:
+            with open(ruta, encoding="utf-8") as f:
+                for linea in f:
+                    try:
+                        t = json.loads(linea)
+                    except ValueError:
+                        continue
+                    turnos.append("braya: %s\nNova: %s" % (t.get("braya", ""), t.get("nova", "")))
+        except OSError:
+            continue
+        if not turnos:
+            try:
+                os.remove(ruta)
+            except OSError:
+                pass
+            continue
+        try:
+            r = httpx.post(OLLAMA + "/api/chat", timeout=120, json={
+                "model": MODELO_LOCAL, "stream": False, "keep_alive": "2m",
+                "options": {"num_predict": 220, "temperature": 0.3, "num_ctx": 1536},
+                "messages": [{"role": "system", "content": (
+                    "Resumes conversaciones para un diario personal. Responde SOLO con 2 a 5 viñetas cortas "
+                    "en español, cada una empezando por '- ', sobre de qué hablaron braya y Nova. No inventes nada.")},
+                    {"role": "user", "content": "\n".join(turnos)[-2500:]}]})
+            r.raise_for_status()
+            resumen = CJK.sub("", ((r.json().get("message") or {}).get("content") or "")).strip()
+        except Exception as e:  # noqa: BLE001
+            salida("info", texto="diario: no pude resumir lo del %s (%s)" % (dia, e))
+            return False
+        vinetas = ["- " + re.sub(r"^\s*[-•*]\s*", "", l).strip() for l in resumen.splitlines() if l.strip()]
+        vinetas = [v for v in vinetas if len(v) > 3][:6]
+        if not vinetas:
+            return False
+        salida("diario", 0, fecha=dia, texto="\n".join(vinetas))
+        try:
+            os.remove(ruta)
+        except OSError:
+            pass
+        return True
+    return False
 
 
 def reescribir_orden(texto):

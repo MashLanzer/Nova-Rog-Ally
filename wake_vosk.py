@@ -545,12 +545,18 @@ def transcribir_whisper(bloques, modelo=None, seguir=None):
     # los segmentos salen de uno en uno (el trabajo se hace al pedirlos): entre
     # uno y otro se puede mirar si todavia hace falta seguir
     partes = []
+    peor = 0.0      # el trozo con menos seguridad (avg_logprob: 0 es seguro, -1 muy dudoso)
     for s in segmentos:
         partes.append(s.text.strip())
+        peor = min(peor, float(getattr(s, "avg_logprob", 0.0) or 0.0))
         if seguir is not None and not seguir():
             anota("whisper: cortado a medias, ya no hace falta")
             break
     texto = " ".join(partes).strip()
+    if NIVEL and texto:
+        # LA SEGURIDAD DEL DICTADO (14/09): el asistente la mira para confirmar el
+        # dato de una receta antes de usar un nombre que quiza oyo mal
+        escribir(os.path.join(os.path.dirname(NIVEL), "dictado-confianza.txt"), "%.2f" % peor)
     anota("whisper: %.1f s de audio en %.2f s -> '%s'" % (audio.size / TASA, time.time() - t0, texto))
     return limpiar_whisper(texto)
 

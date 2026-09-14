@@ -323,6 +323,51 @@ finally:
     cw.cerebro = None
     shutil.rmtree(carpeta2, ignore_errors=True)
 
+print("--- diario de conversaciones ---")
+carpeta3 = tempfile.mkdtemp(prefix="nova-charla-diario-")
+dir_antes = cw.CARPETA_CEREBRO
+try:
+    cw.CARPETA_CEREBRO = carpeta3
+    cw.cerebro = None
+    cw.historial.clear()
+    guion[:] = [Resp(local("Me alegro de que te guste Hades. "))]
+    cw.responder({"op": "hablar", "id": 60, "texto": "me encanta Hades"})
+    hoy = time.strftime("%Y-%m-%d")
+    ruta_hoy = os.path.join(carpeta3, "charla-%s.jsonl" % hoy)
+    comp("cada charla del dia se apunta", os.path.exists(ruta_hoy) and "Hades" in open(ruta_hoy, encoding="utf-8").read())
+    guion[:] = [Resp(local("Vale. "))]
+    cw.responder({"op": "hablar", "id": 61, "texto": "secreto de invitado", "invitado": True})
+    comp("lo de un invitado no", "invitado" not in open(ruta_hoy, encoding="utf-8").read())
+    comp("el dia de hoy no se resume todavia", cw.resumir_dias_pasados(hoy) is False and os.path.exists(ruta_hoy))
+    ayer = "2026-01-01"
+    os.replace(ruta_hoy, os.path.join(carpeta3, "charla-%s.jsonl" % ayer))
+    posts_d = []
+
+    class RespDiario:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"message": {"content": "- braya contó que le encanta Hades\n* hablaron de juegos"}}
+    cw.httpx.post = lambda url, **kw: (posts_d.append(kw.get("json")), RespDiario())[1]
+    del eventos[:]
+    comp("al dia siguiente se resume con el modelo local", cw.resumir_dias_pasados(hoy) is True and posts_d and posts_d[-1]["model"] == cw.MODELO_LOCAL)
+    ev_d = [e for e in eventos if e["ev"] == "diario"]
+    comp("y va al diario de ese dia, en viñetas", ev_d and ev_d[0]["fecha"] == ayer and ev_d[0]["texto"] == "- braya contó que le encanta Hades\n- hablaron de juegos", ev_d)
+    comp("el registro en bruto se borra", not os.path.exists(os.path.join(carpeta3, "charla-%s.jsonl" % ayer)))
+    with open(os.path.join(carpeta3, "charla-2026-01-02.jsonl"), "w", encoding="utf-8") as fd:
+        fd.write(json.dumps({"h": "10:00", "braya": "hola", "nova": "hola"}) + "\n")
+
+    def post_roto(url, **kw):
+        raise RuntimeError("sin ollama")
+    cw.httpx.post = post_roto
+    comp("sin modelo local, se queda para otro rato", cw.resumir_dias_pasados(hoy) is False and os.path.exists(os.path.join(carpeta3, "charla-2026-01-02.jsonl")))
+finally:
+    cw.CARPETA_CEREBRO = dir_antes
+    shutil.rmtree(carpeta3, ignore_errors=True)
+
 if mal:
     print("%d casos MAL" % mal)
     sys.exit(1)

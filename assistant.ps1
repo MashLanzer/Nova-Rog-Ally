@@ -1019,6 +1019,36 @@ function Add-Memoria([string]$texto) {
     return $nota
 }
 
+# DIARIO DE CONVERSACIONES (M10, 14/09): el worker de charla resume con el modelo
+# local lo hablado cada dia y aqui se anade al diario de ESE dia, bajo su titulo.
+# Asi "¿de que hablamos ayer?" lo encuentra la busqueda en tus notas.
+function Add-DiarioResumen([string]$fecha, [string]$texto) {
+    if ($fecha -notmatch '^\d{4}-\d{2}-\d{2}$' -or -not $texto.Trim()) { return }
+    if (-not (Test-Path -LiteralPath $DiarioDir)) { New-Item -ItemType Directory -Force -Path $DiarioDir | Out-Null }
+    $notaD = Join-Path $DiarioDir ($fecha + '.md')
+    $encD = New-Object System.Text.UTF8Encoding($false)
+    if (-not (Test-Path -LiteralPath $notaD)) {
+        $culD = New-Object System.Globalization.CultureInfo('es-MX')
+        $diaD = [datetime]::ParseExact($fecha, 'yyyy-MM-dd', [System.Globalization.CultureInfo]::InvariantCulture)
+        [System.IO.File]::WriteAllText($notaD, "# " + $diaD.ToString('dddd d "de" MMMM "de" yyyy', $culD) + "`r`n", $encD)
+    }
+    $lineasD = @($texto -split "`r?`n" | Where-Object { $_.Trim() })
+    [System.IO.File]::AppendAllText($notaD, "`r`n`r`n## Lo que hablamos`r`n" + ($lineasD -join "`r`n") + "`r`n", $encD)
+    Log "DIARIO: lo hablado el $fecha, resumido en $($lineasD.Count) lineas"
+}
+
+# RECETAS QUE CONFIRMAN EL DATO DUDOSO (M7, 14/09): Whisper apunta su seguridad al
+# transcribir (el peor avg_logprob de sus trozos). Si una receta con datos llega
+# de un dictado dudoso, se pregunta antes de hacer nada con un nombre mal oido.
+$script:dictadoConfianza = 0.0
+$script:dictadoConfianzaEn = -999999
+# El umbral se calibro con las 20 grabaciones de pruebas\audio (14/09): con este
+# microfono Whisper base casi nunca esta muy seguro; con -0,6 preguntaba en 13 de
+# 20 dictados, con -0,8 en 9, todos mal oidos, y en ninguno bien oido.
+function Test-DictadoDudoso {
+    return [bool](($sw.ElapsedMilliseconds - $script:dictadoConfianzaEn) -lt 60000 -and $script:dictadoConfianza -lt -0.8)
+}
+
 # --- BUSQUEDA LOCAL EN LA MEMORIA (sin modelo) ---
 # "que sabes de X" iba siempre al agente (25-60 s). Casi siempre basta con
 # buscar las palabras clave en las notas y leer las lineas que las contienen:
@@ -9432,6 +9462,8 @@ function Receive-Charla {
         if ($ev.ev -eq 'info') { Log "charla: $($ev.texto)"; continue }
         # el cerebro confirmo algo nuevo: un destello en la capsula (D1)
         if ($ev.ev -eq 'aprendido') { Log "charla: aprendido '$($ev.texto)'"; Send-UIEvento 'destello'; continue }
+        # lo hablado un dia, resumido: al diario de ese dia (M10)
+        if ($ev.ev -eq 'diario') { try { Add-DiarioResumen ([string]$ev.fecha) ([string]$ev.texto) } catch { Log ("diario: " + $_.Exception.Message) }; continue }
         # EL CEREBRO PROPIO: lo que la revision saco de la charla (llega cuando sea, sin id)
         if ($ev.ev -eq 'dato') {
             if (-not $script:invitado) { try { [void](Add-DatoPerfil ([string]$ev.texto) 'charla') } catch {} }
@@ -10015,6 +10047,19 @@ function Complete-Confirmacion([string]$respuesta) {
         Set-UI 'reposo'
         return
     }
+    # EL DATO DUDOSO DE UNA RECETA (M7): si, se hace; no, se pide otra vez SIN
+    # castigar a la receta (lo que fallo fue el oido, no ella)
+    if ($p.tipo -eq 'recetaDato') {
+        $gD = Get-Recetas
+        $objD = @($gD | Where-Object { $_.id -eq $p.id })
+        if ($respuesta -eq 'si' -and $objD.Count -gt 0) {
+            [void](Start-Receta @{ receta = $objD[0]; valores = $p.valores } $p.original)
+        } elseif ($respuesta -eq 'no') {
+            $script:seguimientoPendiente = $true
+            Say 'Vale, dimelo otra vez.'
+        } else { Set-UI 'reposo' }
+        return
+    }
     # pregunta de una RECETA ("esto ya lo aprendi: ... ¿lo hago?")
     if ($p.tipo -eq 'receta') {
         $gR = Get-Recetas
@@ -10360,6 +10405,7 @@ function Start-Dictado([string]$origen) {
                    else { [int]((Get-VentanaSeguimiento $false) * $script:seguimientoFactor) }
         $script:ventanaCharla = $false
         Remove-Item -LiteralPath (Join-Path $TmpDir 'seguimiento-voz.txt') -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath (Join-Path $TmpDir 'dictado-confianza.txt') -Force -ErrorAction SilentlyContinue
         # "nombre": el worker se ahorra Whisper con una voz muy lejos de la tuya (ver wake_vosk)
         [System.IO.File]::WriteAllText($MarcaDictar, $(if ($seguimiento) { "seguimiento:$ventana" } elseif ($origen -like 'nombre*' -and $SoloYoOn) { 'nombre' } else { 'x' }))
         Start-Vibracion $(if ($seguimiento) { @(40) } else { @(90) })
@@ -10635,7 +10681,14 @@ function Process-Texto([string]$text) {
             $valorH = $text.Trim().TrimEnd('.', ',', ';', '!', '?').Trim()
             if (($sw.ElapsedMilliseconds - $hp.en) -le 60000 -and $valorH -and $valorH.Length -le 200) {
                 $encH = @{ receta = $hp.receta; valores = @{ ([string]$hp.hueco) = $valorH } }
-                if ($script:confirmado -or [int]$hp.receta.confirmadas -ge $RecetasConfirmar) {
+                if (-not $script:confirmado -and (Test-DictadoDudoso)) {
+                    # el valor que faltaba llego en un dictado dudoso: se confirma (M7)
+                    $script:pendiente = @{ texto = ''; vence = 0; tipo = 'recetaDato'; id = $hp.receta.id; valores = $encH.valores; original = "$($hp.original) $valorH" }
+                    $preguntaDatoH = "Entendi: " + (Get-TextoReceta $hp.receta 'resumen' $encH.valores) + ". ¿Es asi?"
+                    Say $preguntaDatoH
+                    Set-UI 'escuchando' $preguntaDatoH
+                    Start-Confirmacion
+                } elseif ($script:confirmado -or [int]$hp.receta.confirmadas -ge $RecetasConfirmar) {
                     [void](Start-Receta $encH $hp.original)
                 } else {
                     $script:pendiente = @{ texto = ''; vence = 0; tipo = 'receta'; id = $hp.receta.id; valores = $encH.valores; original = "$($hp.original) $valorH" }
@@ -11035,7 +11088,15 @@ function Process-Texto([string]$text) {
             $recEnc = $null
             try { $recEnc = Find-Receta $text } catch { $recEnc = $null }
             if ($recEnc) {
-                if ($script:confirmado -or [int]$recEnc.receta.confirmadas -ge $RecetasConfirmar) {
+                if (-not $script:confirmado -and @($recEnc.valores.Keys).Count -gt 0 -and (Test-DictadoDudoso)) {
+                    # el dictado salio dudoso y la receta usa lo oido: se confirma el dato (M7)
+                    $script:pendiente = @{ texto = ''; vence = 0; tipo = 'recetaDato'; id = $recEnc.receta.id; valores = $recEnc.valores; original = $text }
+                    $preguntaDato = "Entendi: " + (Get-TextoReceta $recEnc.receta 'resumen' $recEnc.valores) + ". ¿Es asi?"
+                    Log "RECETA $($recEnc.receta.id): dictado dudoso ($($script:dictadoConfianza)); confirmo el dato antes"
+                    Say $preguntaDato
+                    Set-UI 'escuchando' $preguntaDato
+                    Start-Confirmacion
+                } elseif ($script:confirmado -or [int]$recEnc.receta.confirmadas -ge $RecetasConfirmar) {
                     [void](Start-Receta $recEnc $text)
                 } else {
                     $script:pendiente = @{ texto = ''; vence = 0; tipo = 'receta'; id = $recEnc.receta.id; valores = $recEnc.valores; original = $text }
@@ -11767,6 +11828,13 @@ while ($true) {
                     $script:uiVoz = [int]$campos[0]
                     if ($campos.Count -gt 1) { $script:ultimaF0 = [double]$campos[1] }
                     Remove-Item -LiteralPath $rv -Force -ErrorAction SilentlyContinue
+                }
+                # y lo seguro que estaba Whisper (ver RECETAS QUE CONFIRMAN EL DATO DUDOSO)
+                $rc = Join-Path $TmpDir 'dictado-confianza.txt'
+                if (Test-Path -LiteralPath $rc) {
+                    $script:dictadoConfianza = [double]::Parse(([System.IO.File]::ReadAllText($rc)).Trim(), [System.Globalization.CultureInfo]::InvariantCulture)
+                    $script:dictadoConfianzaEn = $sw.ElapsedMilliseconds
+                    Remove-Item -LiteralPath $rc -Force -ErrorAction SilentlyContinue
                 }
             } catch {}
             if ($script:enSeguimiento -and -not $dic.Trim()) {

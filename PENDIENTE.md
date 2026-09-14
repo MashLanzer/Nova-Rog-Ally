@@ -494,9 +494,18 @@ Lo grave ya está arreglado (commit a693e80). Queda, por orden:
 - [x] Las pruebas del autoaprendizaje (13/09) ya pasan con `probar-todo`:
       `tools\probar-recetas.ps1`, 51 casos (recetas y su seguridad, coletilla,
       variantes, perfil, «cuánto has aprendido» y la celebración).
-- [ ] Ver con el uso real si hace falta que los valores dictados se corrijan
-      antes de usarse en una receta (Whisper puede deformar un nombre de
-      carpeta). Sin recetas reales todavía, no hay con qué medirlo.
+- [x] Los valores dictados de una receta (14/09, M7): Whisper apunta su
+      seguridad (`dictado-confianza.txt`); si una receta con datos llega de un
+      dictado dudoso (avg_logprob < -0,8, calibrado con las 20 grabaciones de
+      `pruebas\audio`: pregunta en 9 de 20, todas mal oídas), Nova dice «Entendí: … ¿Es así?» antes
+      de hacerla. Un «no» pide repetirlo sin castigar a la receta.
+- [x] Diario de conversaciones (14/09, M10): cada charla del día se apunta en
+      `memoria\cerebro\charla-<día>.jsonl`; al día siguiente, con Nova en reposo,
+      el modelo LOCAL lo resume en 2-5 viñetas que van al diario de ese día
+      (`## Lo que hablamos`) y el registro en bruto se borra. Nada de un invitado.
+
+A partir del 14/09 braya prefiere **pulir lo que ya hay** antes que añadir
+funciones nuevas.
 
 ## Hechas (12/09/2026)
 

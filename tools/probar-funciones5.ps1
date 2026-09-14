@@ -14,7 +14,7 @@ $top = $ast.EndBlock.Statements | Where-Object { $_ -is [System.Management.Autom
 foreach ($a in $top) { if (@('DIAS_SEMANA', 'MESES', 'HORAS_PALABRA') -contains $a.Left.VariablePath.UserPath) { Invoke-Expression $a.Extent.Text } }
 foreach ($n in 'ConvertTo-Plain', 'Invoke-RecordatorioVoz', 'Get-Recordatorios', 'Save-Recordatorios', 'Get-MinutosDichos', 'Format-MinutosDichos',
     'Invoke-DespertadorVoz', 'Invoke-RutinaDormir', 'Test-LimiteJuego', 'Get-HistorialMusica', 'Add-HistorialMusica', 'Find-CancionDe',
-    'Get-CancionAnterior', 'Invoke-ClipJuego', 'Get-DescargaJuego', 'Format-Gigas', 'Watch-Dispositivos', 'Write-Atomico') { Invoke-Expression (TraerFn $n) }
+    'Get-CancionAnterior', 'Invoke-ClipJuego', 'Get-DescargaJuego', 'Format-Gigas', 'Watch-Dispositivos', 'Write-Atomico', 'Test-DictadoDudoso', 'Add-DiarioResumen') { Invoke-Expression (TraerFn $n) }
 
 $MemoriaDir = Join-Path $env:TEMP ('nova-f5-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $MemoriaDir | Out-Null
@@ -140,6 +140,23 @@ Comp 'y no se repite mientras sigan puestos' ($script:reglasDisparadas.Count -eq
 $script:pantallasAntes = 0
 Watch-Dispositivos
 Comp 'una pantalla mas: el dock' ($script:reglasDisparadas -contains 'dockPone=pone') ($script:reglasDisparadas -join ',')
+
+Write-Host "--- dato dudoso de una receta y diario de conversaciones ---"
+$script:dictadoConfianza = -0.9; $script:dictadoConfianzaEn = $sw.ElapsedMilliseconds
+Comp 'un dictado con poca seguridad es dudoso' (Test-DictadoDudoso)
+$script:dictadoConfianza = -0.3
+Comp 'uno claro, no' (-not (Test-DictadoDudoso))
+$script:dictadoConfianza = -0.9; $script:dictadoConfianzaEn = $sw.ElapsedMilliseconds - 120000
+Comp 'lo de hace mas de un minuto no cuenta' (-not (Test-DictadoDudoso))
+$DiarioDir = Join-Path $MemoriaDir 'diario'
+Add-DiarioResumen '2026-09-13' "- braya hablo de Hades`n- y de musica"
+$notaD = Join-Path $DiarioDir '2026-09-13.md'
+$txtD = if (Test-Path $notaD) { [System.IO.File]::ReadAllText($notaD) } else { '' }
+Comp 'el resumen va al diario de ese dia, con titulo' ($txtD -match '^# ' -and $txtD -match '## Lo que hablamos' -and $txtD -match '- braya hablo de Hades' -and $txtD -match '- y de musica') $txtD
+Add-DiarioResumen '2026-09-13' "- otra charla"
+Comp 'un segundo resumen del mismo dia se anade, no pisa' (([System.IO.File]::ReadAllText($notaD)) -match 'Hades' -and ([System.IO.File]::ReadAllText($notaD)) -match 'otra charla')
+Add-DiarioResumen 'no es fecha' '- x'
+Comp 'una fecha rara no crea nada' (@(Get-ChildItem $DiarioDir).Count -eq 1)
 
 Remove-Item -LiteralPath $MemoriaDir -Recurse -Force -ErrorAction SilentlyContinue
 if ($mal -gt 0) { Write-Host "$mal casos MAL"; exit 1 }
