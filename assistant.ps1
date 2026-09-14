@@ -2334,7 +2334,9 @@ function Resolve-Fragment([string]$f) {
     # --- decir algo en voz alta ---
     # Existe sobre todo para las REGLAS: antes una regla no podia hablar y la
     # documentacion recurria al truco de "recuerdame en 0 minutos que...".
-    if ($f -match '^(?:di|dime|avisa|avisame)\s+(?:que\s+)?(.+)$') {
+    # "dime quien hizo outlast" es una PREGUNTA, no "di en voz alta 'quien hizo
+    # outlast'" (probado el 14/09). "avisame si..." sigue siendo de reglas.
+    if ($f -match '^(?:(?:di|dime)\s+(?!(?:quien|quienes|cual|cuales|cuando|donde|como|cuanto|cuanta|cuantos|cuantas|por que|de que|a que)\b)|(?:avisa|avisame)\s+)(?:que\s+)?(.+)$') {
         return @(@{ kind = 'decir'; desc = $Matches[1].Trim() })
     }
     # --- leer la pantalla (OCR de Windows) ---
@@ -2709,7 +2711,8 @@ function Resolve-Fragment([string]$f) {
     # palabras de charla, no es una orden: que la lleve la conversacion.
     if ($sv) {
         $descSv = ConvertTo-Plain ((@($sv | ForEach-Object { [string]$_.desc }) -join ' '))
-        foreach ($mSv in [regex]::Matches($f, '^(?:que|cual|como|por que|te|me|has|he|sabes|crees|conoces|tu)\b|\b(?:es|son|era|fue|esta|estaba|opinas|piensas|parece|gusta|gustan|encanta|jugado|jugaste|jugue|odio|dificil|facil|mejor|peor|bonito|feo|aburrido)\b')) {
+        # probado en vivo el 14/09: "quien hizo hollow knight" preguntaba "¿Abro Hollow Knight?"
+        foreach ($mSv in [regex]::Matches($f, '^(?:que|cual|como|por que|te|me|has|he|sabes|crees|conoces|tu|quien|quienes|cuando|donde|cuanto|cuanta|cuantos|de que|dime|hablame|cuentame|explicame)\b|\b(?:es|son|era|fue|esta|estaba|opinas|piensas|parece|gusta|gustan|encanta|jugado|jugaste|jugue|odio|dificil|facil|mejor|peor|bonito|feo|aburrido|hizo|hicieron|creo|desarrollo|salio|trata|cuesta|dura|sabes)\b')) {
             if ($descSv -notmatch ('\b' + [regex]::Escape($mSv.Value) + '\b')) { return $null }
         }
     }

@@ -118,3 +118,10 @@ haz una captura => captura de pantalla
 abrir el steam y en una segunda ventana buscar pinterest => abrir pinterest
 busca gatos en otra pestana => buscar 'gatos'
 abre steam y en otra ventana abre discord => abrir discord
+
+# preguntas de datos que nombran un juego: ni abrirlo ni repetirlas en voz alta (14/09)
+quien hizo hollow knight => <se va al modelo>
+de que va hollow knight => <se va al modelo>
+cuando salio elden ring => <se va al modelo>
+dime quien hizo outlast => <se va al modelo>
+di hola a todos => hola a todos

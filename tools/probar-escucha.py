@@ -14,7 +14,7 @@ import sys
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 fuente = open(os.path.join(RAIZ, "wake_vosk.py"), encoding="utf-8").read()
 arbol = ast.parse(fuente)
-QUIERO = {"SILENCIO_FIN", "SILENCIO_FIN_LOTENGO", "silencio_para_cerrar"}
+QUIERO = {"SILENCIO_FIN", "SILENCIO_FIN_LOTENGO", "silencio_para_cerrar", "MARGEN_CORTE_HZ", "es_voz_de_braya"}
 trozos = []
 for n in arbol.body:
     nombre = n.targets[0].id if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name) else getattr(n, "name", None)
@@ -42,6 +42,13 @@ comp("sin nada dicho, lo de siempre", cerrar("abre steam", "") == ns["SILENCIO_F
 comp("lo corto es mas corto que lo de siempre", ns["SILENCIO_FIN_LOTENGO"] < ns["SILENCIO_FIN"])
 # en las 20 grabaciones la pausa mas larga DENTRO de una orden fue de 0,45 s (14/09)
 comp("y no corta una pausa normal dentro de la orden", ns["SILENCIO_FIN_LOTENGO"] > 0.45)
+
+# INTERRUMPIR: tonos medidos el 14/09 (braya 111-126 Hz, tono aprendido 119,6; Nova 165-327)
+voz = ns["es_voz_de_braya"]
+comp("braya interrumpe (todas sus grabaciones)", all(voz(f, 119.6) for f in (111, 117, 120, 126)))
+comp("la voz de Nova NO se interrumpe a si misma", not any(voz(f, 119.6) for f in (165, 190, 205, 267, 327)))
+comp("sin tono medible, el corte vale (como antes)", voz(0, 119.6))
+comp("sin tono aprendido todavia, el corte vale", voz(205, 0))
 
 print("")
 print("todo correcto" if fallos == 0 else "%d casos MAL" % fallos)

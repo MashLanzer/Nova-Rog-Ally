@@ -686,6 +686,17 @@ funciones nuevas.
   10. *Correcciones con riesgo* («estima», «programan», «navegado», «team»):
       probadas en frases normales, ninguna acaba en una orden. La clave «estín»
       (con tilde) no podía coincidir nunca: ahora es «estin».
+  - *Dos fallos que salieron en la prueba en vivo de esta tanda:*
+    - **Nova se interrumpía a sí misma.** Las 3 interrupciones del log fueron
+      falsas («cállate» con confianza 1,00 y 0,98, «silencio» 0,95), en charlas
+      sin nadie hablando: con gramática cerrada, su voz por el altavoz sonaba a
+      una palabra de corte, y cortaba la charla tras la primera frase. La
+      confianza no lo separa; el tono sí: braya va de 111 a 126 Hz (sus 20
+      grabaciones) y Nova de 165 a 327. La palabra solo vale si el tono del
+      trozo donde se oyó está a 40 Hz del tuyo. **Pruébalo:** di «cállate»
+      mientras habla. Un grito muy agudo podría no valer; queda el botón.
+    - «Quién hizo Hollow Knight» preguntaba «¿Abro Hollow Knight?», y «dime quién
+      hizo Outlast» lo repetía en voz alta. Ahora las dos van a la conversación.
 - **El fallo rojo del banco.** «Se pone siempre encima» llevaba días en rojo y
   era de la prueba, no del asistente: sobre una ventana que nunca se ha
   mostrado, `SetWindowPos(HWND_TOPMOST)` devuelve true sin marcar nada. El

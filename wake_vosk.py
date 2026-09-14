@@ -646,7 +646,24 @@ def guardar_audio_si_toca(bloques):
 # con gramatica cerrada escucha solo "espera", "para", "calla"... La palabra que
 # esta en su propia frase se descarta (seria su eco), y hace falta confianza alta.
 PALABRAS_CORTE = ["espera", "para", "calla", "callate", "basta", "silencio"]
-_corte = {"rec": None, "marca": None, "texto": set(), "leido": 0.0}
+_corte = {"rec": None, "marca": None, "texto": set(), "leido": 0.0, "audio": [], "base": 0}
+# LA PROPIA VOZ DE NOVA LA INTERRUMPIA (14/09): las 3 interrupciones del log fueron
+# falsas ("callate" 1,00 y 0,98, "silencio" 0,95) en charlas sin nadie hablando: con
+# gramatica cerrada, su voz por el altavoz acaba sonando a una de estas palabras, y
+# la confianza no lo separa. El TONO si: medido con estimar_f0, las 20 grabaciones
+# de braya van de 111 a 126 Hz y la voz de Nova, en trozos de 0,6 s, de 165 a 327.
+# Con 40 Hz de margen sobre el tono aprendido no se pierde ninguna de braya ni se
+# cuela ningun trozo de Nova. Un grito muy agudo podria no valer: queda el boton.
+MARGEN_CORTE_HZ = 40.0
+AUDIO_CORTE_MAX = 30 * TASA     # lo que se guarda para medir la palabra, como mucho
+
+
+def es_voz_de_braya(f0, duena):
+    """Una palabra de corte vale si su tono es el de braya. Sin tono medible o sin
+    tono aprendido todavia, vale (como antes): mejor cortar de mas que no poder."""
+    if f0 <= 0 or duena <= 0:
+        return True
+    return abs(f0 - duena) <= MARGEN_CORTE_HZ
 
 
 def _reconocedor_corte():
@@ -670,21 +687,45 @@ def vigilar_corte(datos):
             _corte.update(rec=None, marca=None)
             return
         if marca != _corte["marca"]:
-            _corte.update(marca=marca, texto=set(marca[4:].split()), rec=_reconocedor_corte())
+            _corte.update(marca=marca, texto=set(marca[4:].split()), rec=_reconocedor_corte(), audio=[], base=0)
     if _corte["rec"] is None:
         return
     try:
         m = np.clip(np.frombuffer(datos, dtype=np.int16).astype(np.float32) * ganancia, -32768, 32767)
-        if not _corte["rec"].AcceptWaveform(m.astype(np.int16).tobytes()):
+        m16 = m.astype(np.int16)
+        _corte["audio"].append(m16)
+        total = sum(len(b) for b in _corte["audio"])
+        while total > AUDIO_CORTE_MAX and len(_corte["audio"]) > 1:
+            fuera = _corte["audio"].pop(0)
+            total -= len(fuera)
+            _corte["base"] += len(fuera)
+        if not _corte["rec"].AcceptWaveform(m16.tobytes()):
             return
         res = json.loads(_corte["rec"].Result())
         for w in res.get("result") or []:
             palabra = w.get("word", "")
             conf = float(w.get("conf", 0))
             if palabra in PALABRAS_CORTE and palabra not in _corte["texto"] and conf >= 0.9:
+                # el tono del trozo EXACTO de la palabra (con un margen), no del audio
+                # entero: si braya lo dice encima de Nova, ese trozo es sobre todo suyo
+                f0 = 0.0
+                try:
+                    todo = np.concatenate(_corte["audio"])
+                    s0 = max(0, int((float(w.get("start", 0)) - 0.15) * TASA) - _corte["base"])
+                    s1 = max(s0, int((float(w.get("end", 0)) + 0.15) * TASA) - _corte["base"])
+                    f0 = estimar_f0([todo[s0:s1]])
+                except Exception:
+                    f0 = 0.0
+                duena = voz_duena()
+                if not es_voz_de_braya(f0, duena):
+                    anota("corte descartado: '%s' (confianza %.2f) con tono %.0f Hz, y el tuyo es %.0f: es mi propia voz"
+                          % (palabra, conf, f0, duena))
+                    continue
                 escribir(os.path.join(os.path.dirname(NIVEL), "corte.flag"), palabra)
-                anota("interrumpida: '%s' (confianza %.2f) mientras hablaba" % (palabra, conf))
+                anota("interrumpida: '%s' (confianza %.2f, tono %.0f Hz) mientras hablaba" % (palabra, conf, f0))
                 _corte["rec"] = _reconocedor_corte()
+                _corte["audio"] = []
+                _corte["base"] = 0
                 return
     except Exception as e:  # noqa: BLE001
         anota("WARN: vigilar el corte fallo (%s)" % e)
