@@ -6669,16 +6669,20 @@ function Add-TildesVoz([string]$s) {
             'sabado' = "s$a" + 'bado'; 'miercoles' = "mi$e" + 'rcoles'; 'dificiles' = "dif$i" + 'ciles'; 'rapida' = "r$a" + 'pida'
         }
     }
-    foreach ($k in $script:TildesVoz.Keys) {
-        # conserva la mayuscula inicial ("Ultimo" -> "Último")
-        $s = [regex]::Replace($s, '\b' + $k + '\b', {
-            param($m)
-            $r = $script:TildesVoz[$m.Value.ToLowerInvariant()]
-            if ([char]::IsUpper($m.Value[0])) { $r = $r.Substring(0, 1).ToUpperInvariant() + $r.Substring(1) }
-            $r
-        }, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    if (-not $script:TildesVozRe) {
+        # UNA sola expresion para todas: se llama en cada frase y en cada tarjeta
+        $script:TildesVozRe = New-Object System.Text.RegularExpressions.Regex(
+            ('\b(?:' + (@($script:TildesVoz.Keys) -join '|') + ')\b'),
+            ([System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [System.Text.RegularExpressions.RegexOptions]::Compiled))
     }
-    return $s
+    # conserva la mayuscula inicial ("Ultimo" -> "Último")
+    return $script:TildesVozRe.Replace($s, {
+        param($m)
+        $r = $script:TildesVoz[$m.Value.ToLowerInvariant()]
+        if ($m.Value -ceq $m.Value.ToUpperInvariant()) { $r = $r.ToUpperInvariant() }
+        elseif ([char]::IsUpper($m.Value[0])) { $r = $r.Substring(0, 1).ToUpperInvariant() + $r.Substring(1) }
+        $r
+    })
 }
 
 # Habla sin bloquear el bucle: la sintesis tarda ~60 ms y Play() es asincrono.
@@ -8658,6 +8662,8 @@ function Play-Sonido([string]$nombre, [System.Media.SystemSound]$respaldo) {
 }
 
 function Show-Popup([string]$text, [string]$estadoUI = 'hablando') {
+    # lo que se VE con las mismas tildes que lo que se OYE (ver TILDES PARA LA VOZ)
+    $text = Add-TildesVoz $text
     # SIN TARJETA: respuestas que son para OIRLAS (leer los mensajes). Minimalismo:
     # la capsula enseña el principio y la voz dice el resto; nada de tarjeta grande.
     # caduca a los 3 s: si la puso algo que no paso por aqui (una regla), no puede

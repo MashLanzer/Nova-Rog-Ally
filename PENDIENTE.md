@@ -602,8 +602,10 @@ funciones nuevas.
   9. *Cerebro:* ya caducaba lo provisional a los 30 días; en uso real aún no hay
      nada aprendido que revisar. Sin cambios.
   10. *La voz con tildes:* el código escribe «entendi», «bateria», «cancion» y
-      la voz puede acentuar mal; `Add-TildesVoz` las pone antes de hablar (solo
-      palabras sin otra lectura).
+      la voz puede acentuar mal; `Add-TildesVoz` las pone antes de hablar y en lo
+      que enseña la cápsula (solo palabras sin otra lectura). **Sin oírlo aún:**
+      a la voz le llega el texto corregido (lo dice el código), pero falta
+      escuchar si ahora acentúa bien.
   - *Fallo encontrado de paso:* «qué opinas de Hollow Knight», «Hollow Knight es
     difícil» o «te gusta Steam» ABRÍAN el juego o la app (la regla del nombre
     suelto buscaba el título dentro de la frase). Ahora van a la conversación.
