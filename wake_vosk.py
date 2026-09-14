@@ -588,6 +588,56 @@ def guardar_audio_si_toca(bloques):
         anota("WARN: no pude guardar la nota de voz (%s)" % e)
 
 
+# INTERRUMPIR A NOVA (13/09): mientras habla, el microfono ya no se tira del
+# todo. Si la marca de pausa dice "voz:<lo que esta diciendo>", un reconocedor
+# con gramatica cerrada escucha solo "espera", "para", "calla"... La palabra que
+# esta en su propia frase se descarta (seria su eco), y hace falta confianza alta.
+PALABRAS_CORTE = ["espera", "para", "calla", "callate", "basta", "silencio"]
+_corte = {"rec": None, "marca": None, "texto": set(), "leido": 0.0}
+
+
+def _reconocedor_corte():
+    r = KaldiRecognizer(modelo, TASA, json.dumps(PALABRAS_CORTE + ["[unk]"]))
+    r.SetWords(True)
+    return r
+
+
+def vigilar_corte(datos):
+    if not PAUSA or not NIVEL or datos is None:
+        return
+    ahora = time.time()
+    if ahora - _corte["leido"] > 0.3:
+        _corte["leido"] = ahora
+        try:
+            with open(PAUSA, encoding="utf-8", errors="replace") as f:
+                marca = f.read()
+        except Exception:
+            marca = ""
+        if not marca.startswith("voz:"):
+            _corte.update(rec=None, marca=None)
+            return
+        if marca != _corte["marca"]:
+            _corte.update(marca=marca, texto=set(marca[4:].split()), rec=_reconocedor_corte())
+    if _corte["rec"] is None:
+        return
+    try:
+        m = np.clip(np.frombuffer(datos, dtype=np.int16).astype(np.float32) * ganancia, -32768, 32767)
+        if not _corte["rec"].AcceptWaveform(m.astype(np.int16).tobytes()):
+            return
+        res = json.loads(_corte["rec"].Result())
+        for w in res.get("result") or []:
+            palabra = w.get("word", "")
+            conf = float(w.get("conf", 0))
+            if palabra in PALABRAS_CORTE and palabra not in _corte["texto"] and conf >= 0.9:
+                escribir(os.path.join(os.path.dirname(NIVEL), "corte.flag"), palabra)
+                anota("interrumpida: '%s' (confianza %.2f) mientras hablaba" % (palabra, conf))
+                _corte["rec"] = _reconocedor_corte()
+                return
+    except Exception as e:  # noqa: BLE001
+        anota("WARN: vigilar el corte fallo (%s)" % e)
+        _corte["rec"] = None
+
+
 def quitar_nombre(texto):
     return PATRON_INICIO.sub("", texto or "").strip()
 
@@ -803,6 +853,7 @@ try:
                     if not pausado:
                         pausado = True
                         anota("pausa: el asistente habla o dicta, se ignora el microfono")
+                    vigilar_corte(datos)   # salvo "espera", "para"... (ver INTERRUMPIR A NOVA)
                     datos = None
                     picos = []
                     bloques_voz = 0
@@ -846,6 +897,7 @@ try:
                     except Exception:
                         espera_voz = 0.0
                     hubo_voz = 0
+                    voz_seguimiento_en = None
                     # Se tira el audio ya encolado: contiene el final de "Nova" y
                     # se transcribia como si fuera la orden.
                     try:
@@ -1007,6 +1059,12 @@ try:
                         if pico > UMBRAL_ACTIVIDAD:
                             ultima_voz = ahora
                             hubo_voz += 1
+                        # EL RITMO DE BRAYA (13/09): cuanto tarda en empezar a hablar en
+                        # una ventana de seguimiento. El asistente ajusta la ventana con esto
+                        if espera_voz > 0 and voz_seguimiento_en is None and NIVEL and (
+                                len(dictado) > 0 or json.loads(rec.PartialResult()).get("partial", "")):
+                            voz_seguimiento_en = ahora - dicta_inicio
+                            escribir(os.path.join(os.path.dirname(NIVEL), "seguimiento-voz.txt"), "%.2f" % voz_seguimiento_en)
                         # seguimiento sin voz: fuera, sin molestar. Cuenta como voz
                         # que el reconocedor haya sacado ALGO (parcial o final), no
                         # el nivel: el ruido de fondo pasaba el umbral y la ventana

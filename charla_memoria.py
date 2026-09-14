@@ -70,6 +70,12 @@ RE_PREGUNTA_GENERAL = re.compile(
     r"^(que (es|son|significa|quiere decir)|quien(es)? (es|son|fue|fueron|era|invento|descubrio|escribio|pinto|creo|dirigio)|"
     r"cuant[oa]s? |como (se|funciona|funcionan|nacen|hacen)|por que |donde (esta|estan|queda|vive|viven)|"
     r"cuando (fue|nacio|murio|se|empezo|termino)|explicame|dame un dato|dato curioso|cual (es|fue|era) |en que (ano|pais|siglo))")
+# lo que no es un DATO de braya sino como esta ahora (probado en vivo el 14/09: "estoy
+# muy cansado hoy" acabo en el perfil como "esta cansado hoy")
+RE_PASAJERO = re.compile(
+    r"\b(hoy|ahora|ahorita|ayer|manana|esta semana|este rato|en este momento|todavia|de momento|"
+    r"cansad[oa]|agotad[oa]|aburrid[oa]|triste|contento|contenta|enfadad[oa]|nervios[oa]|con sueno|"
+    r"de buen humor|de mal humor|estresad[oa]|agobiad[oa])\b")
 RE_SENSIBLE = re.compile(r"contrase|password|\bclave\b|\bpin\b|tarjeta|\bbanco\b|bancari|dinero|sueldo|salud|enfermedad|medicament|diagnostic|\bdni\b|pasaporte")
 
 
@@ -321,6 +327,7 @@ class Cerebro:
         lineas = []
         for h in hits[:3]:
             r = h["r"]
+            r["usada"] = self.reloj()        # lo que sirve de contexto no se poda por viejo
             if r["tipo"] == "respuesta":
                 marca = "" if r.get("estado") == "firme" else " (SIN CONFIRMAR: no lo afirmes)"
                 lineas.append("- %s -> %s%s" % (r["pregunta"], r["respuesta"], marca))
@@ -469,11 +476,16 @@ class Cerebro:
             buena = limpio(rev.get("respuesta_buena"), 600)
             general = rev.get("tipo_turno") == "pregunta_general" and not rev.get("caduca") and pg and buena and not caduca(pg)
             if general:
-                if prov is not None and prov.get("estado") != "firme":
-                    prov.update(respuesta=buena, estado="firme", origen="revisada", revisada=self.reloj())
-                    self._variante(prov, pg)
+                if prov is not None and prov.get("estado") != "rechazada":
+                    # la pregunta queda como la escribe el revisor (bien escrita, se
+                    # entiende sola: es la que se lee en la trivia); la tuya, variante
+                    original = prov["pregunta"]
+                    if prov.get("estado") != "firme":
+                        prov.update(respuesta=buena, estado="firme", origen="revisada", revisada=self.reloj())
+                    prov["pregunta"] = pg
+                    self._variante(prov, original)
                     self._cambio(prov)
-                elif prov is None:
+                elif prov is None or prov.get("estado") == "rechazada":
                     r = self.guardar_respuesta(pg, buena, "firme", "revisada")
                     if r is not None and es_pregunta_general(job.get("pregunta", "")):
                         self._variante(r, job["pregunta"])
@@ -490,7 +502,8 @@ class Cerebro:
                     self._cambio()
             for d in rev.get("datos_usuario") or []:
                 d = limpio(d, 180)
-                if 8 <= len(d) and not sensible(d):
+                # al perfil solo lo estable: nada sensible ni pasajero ("esta cansado hoy")
+                if 8 <= len(d) and not sensible(d) and not RE_PASAJERO.search(plano(d)):
                     eventos.append({"ev": "dato", "texto": d})
             for e in rev.get("estilo") or []:
                 self._estilo(limpio(e, 120))
@@ -601,6 +614,93 @@ class Cerebro:
             self.guardar()
         return len(faltan)
 
+    def repaso(self, forzar=False):
+        """REPASO DEL DIA (M3; una vez al dia, con Nova en reposo): poda lo viejo
+        que no sirve, junta preguntas repetidas y vuelve a mandar a revision lo
+        provisional que se quedo sin revisar. Devuelve lo que hizo, o None si hoy
+        ya se repaso."""
+        ahora = self.reloj()
+        hoy = time.strftime("%Y-%m-%d", time.localtime(ahora))
+        with self.lock:
+            if self.datos.get("ultimo_repaso") == hoy and not forzar:
+                return None
+            self.datos["ultimo_repaso"] = hoy
+            dia = 86400
+
+            def viejo(r, dias, campo="usada"):
+                return ahora - r.get(campo, ahora) > dias * dia
+            # 1) poda
+            podar = [r for r in self.datos["recuerdos"] if
+                     (r.get("estado") == "rechazada" and viejo(r, 60, "creada")) or
+                     (r.get("estado") == "provisional" and viejo(r, 30, "creada")) or
+                     (r["tipo"] == "episodio" and viejo(r, 180)) or
+                     (r["tipo"] == "contado" and viejo(r, 365))]
+            ids_podar = {r["id"] for r in podar}
+            # 2) repetidos: mismas palabras y mismo interrogativo o, con vectores,
+            #    casi el mismo significado. Se queda el mejor (firme, mas usado)
+            resp = [r for r in self.datos["recuerdos"]
+                    if r["tipo"] == "respuesta" and r.get("estado") != "rechazada" and r["id"] not in ids_podar]
+            resp.sort(key=lambda r: (r.get("estado") == "firme", r.get("usos", 0)), reverse=True)
+            vistos = {}
+            fuera = set()
+            for r in resp:
+                clave = (r.get("interrogativo", ""), frozenset(fichas(r["pregunta"])))
+                if clave in vistos:
+                    self._juntar(vistos[clave], r)
+                    fuera.add(r["id"])
+                else:
+                    vistos[clave] = r
+            if np is not None and self.vec:
+                quedan = [r for r in resp if r["id"] not in fuera and r["id"] in self.vec][:1500]
+                if len(quedan) > 1:
+                    m = np.stack([self.vec[r["id"]] for r in quedan])
+                    s = m @ m.T
+                    for i, a in enumerate(quedan):
+                        if a["id"] in fuera:
+                            continue
+                        for j in np.nonzero(s[i, i + 1:] >= 0.95)[0]:
+                            b = quedan[i + 1 + int(j)]
+                            if b["id"] in fuera or b.get("interrogativo", "") != a.get("interrogativo", ""):
+                                continue
+                            self._juntar(a, b)
+                            fuera.add(b["id"])
+            quitar = ids_podar | fuera
+            if quitar:
+                self.datos["recuerdos"] = [r for r in self.datos["recuerdos"] if r["id"] not in quitar]
+                for i in quitar:
+                    self.vec.pop(i, None)
+                self.vec_sucio = True
+            # 3) lo provisional que se quedo sin revisar vuelve a la cola
+            en_cola = {j.get("recuerdo") for j in self.datos["pendientes"]}
+            reencolados = 0
+            for r in self.datos["recuerdos"]:
+                if (r["tipo"] == "respuesta" and r.get("estado") == "provisional" and r["id"] not in en_cola
+                        and len(self.datos["pendientes"]) < MAX_PENDIENTES):
+                    self.datos["pendientes"].append({"id": int(ahora * 1000) + r["id"], "pregunta": r["pregunta"],
+                                                     "respuesta": r["respuesta"], "origen": "local", "previo": "",
+                                                     "intentos": 0, "recuerdo": r["id"]})
+                    reencolados += 1
+            self._cambio()
+            self.guardar()
+            return {"juntados": len(fuera), "reencolados": reencolados, "podados": len(ids_podar)}
+
+    def _juntar(self, queda, sobra):
+        for v in [sobra.get("pregunta", "")] + list(sobra.get("variantes") or []):
+            self._variante(queda, v)
+        queda["usos"] = int(queda.get("usos", 0)) + int(sobra.get("usos", 0))
+
+    def pregunta_trivia(self, excluir=()):
+        """TRIVIA (F7): una pregunta para jugar, SOLO de lo confirmado y general.
+        Hace falta saber al menos tres cosas seguras."""
+        import random
+        with self.lock:
+            buenas = [r for r in self.datos["recuerdos"] if r["tipo"] == "respuesta" and r.get("estado") == "firme"
+                      and es_pregunta_general(r["pregunta"])]
+            if len(buenas) < 3:
+                return None
+            candidatas = [r for r in buenas if r["id"] not in set(excluir)] or buenas
+            return dict(random.choice(candidatas))
+
     def balance(self):
         with self.lock:
             b = {"respuestas": 0, "provisionales": 0, "contado": 0, "episodios": 0, "estilo": len(self.datos.get("estilo") or []),
@@ -617,6 +717,16 @@ class Cerebro:
             return b
 
 
+def juzgar_trivia(pregunta, respuesta_buena, dicho):
+    """¿Acierta? Las palabras de la respuesta que NO estan en la pregunta
+    ("Leonardo", "Vinci") tienen que aparecer en lo dicho: al menos una, o un
+    tercio si la respuesta es larga. Sin modelo: instantaneo."""
+    clave = {t for t in fichas(respuesta_buena) - fichas(pregunta) if not t.startswith("?")}
+    if not clave:
+        return False
+    return len(clave & fichas(dicho)) >= max(1, math.ceil(len(clave) * 0.3))
+
+
 # ------------------------------------------------------------------ revisor
 REVISOR_SISTEMA = """Eres el revisor de la memoria de Nova, la asistente de voz de braya. Recibes un turno de conversación (lo que dijo braya y lo que contestó Nova). Devuelve SOLO un objeto JSON válido, sin texto alrededor, con estas claves:
 - "tipo_turno": "pregunta_general" (pregunta de conocimiento general que sirve igual otro día), "charla", "personal", "actualidad" u "otro".
@@ -624,7 +734,7 @@ REVISOR_SISTEMA = """Eres el revisor de la memoria de Nova, la asistente de voz 
 - "pregunta_general": si tipo_turno es "pregunta_general", la pregunta reformulada para entenderse sola; si no, "".
 - "respuesta_buena": si tipo_turno es "pregunta_general", la respuesta correcta en una a tres frases naturales para decir en voz alta en español; si no, "".
 - "caduca": true si la respuesta depende de la fecha o de la actualidad.
-- "datos_usuario": lista de datos estables sobre braya que dijo él (en tercera persona, cortos). Nunca contraseñas, dinero, salud ni documentos.
+- "datos_usuario": lista de datos ESTABLES sobre braya que dijo él (en tercera persona, cortos): gustos, nombres, costumbres. Nunca estados pasajeros (cansado, aburrido, de buen humor) ni lo que hace hoy; nunca contraseñas, dinero, salud ni documentos.
 - "estilo": lista de preferencias que expresó sobre cómo quiere que Nova le hable (vacía si no dijo nada de eso).
 - "temas": lista de 1 a 3 temas de la conversación, de una o dos palabras.
 - "hechos": lista de cosas NO personales que contó braya (en tercera persona, empezando por "braya dice que"). Vacía si no contó nada.

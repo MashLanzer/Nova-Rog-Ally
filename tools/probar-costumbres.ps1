@@ -15,7 +15,8 @@ function TraerFn($n) {
     return $f.Extent.Text
 }
 foreach ($n in 'ConvertTo-Plain', 'Watch-Notificaciones', 'Get-ResumenNotificaciones', 'Get-LecturaNotificaciones', 'Get-Contactos', 'Save-Contactos',
-    'Get-Habitos', 'Save-Habitos', 'Add-Habito', 'Find-Propuesta', 'Test-ParteManana') { Invoke-Expression (TraerFn $n) }
+    'Get-Habitos', 'Save-Habitos', 'Add-Habito', 'Find-Propuesta', 'Test-ParteManana',
+    'Add-RitmoSeguimiento', 'Get-VentanaSeguimiento', 'Add-CharlaHora', 'Test-PrecargaCharla') { Invoke-Expression (TraerFn $n) }
 $script:invitado = $false
 
 $MemoriaDir = Join-Path $env:TEMP ('nova-costumbres-' + [guid]::NewGuid().ToString('N'))
@@ -132,6 +133,39 @@ $script:invitado = $true
 Test-ParteManana (Get-Date '2026-09-21 08:00')
 Comp 'nada en modo invitado' ($script:resumenPendiente -eq '')
 $script:invitado = $false
+
+Write-Host "--- tu ritmo al hablar y la precarga de la charla ---"
+$script:habitos = $null; Remove-Item (Join-Path $MemoriaDir 'habitos.json') -ErrorAction SilentlyContinue
+$SeguimientoMs = 2500; $ConversacionEsperaMs = 7000; $ConversacionOn = $true; $TmpDir = $MemoriaDir
+function Dicho($s) { [System.IO.File]::WriteAllText((Join-Path $TmpDir 'seguimiento-voz.txt'), $s); Add-RitmoSeguimiento }
+Comp 'sin datos, las ventanas de siempre' ((Get-VentanaSeguimiento $false) -eq 2500 -and (Get-VentanaSeguimiento $true) -eq 7000)
+foreach ($s in '1.0', '1.2', '0.8', '1.1', '3.0', '1.0') { Dicho $s }
+Comp 'apunta lo que tardas en empezar a hablar' ((Get-Habitos).ritmo.Count -eq 6)
+$vc = Get-VentanaSeguimiento $true
+Comp 'si contestas rapido, la charla espera menos (sin bajar de 4 s)' ($vc -ge 4000 -and $vc -lt 7000) $vc
+Comp 'las ordenes nunca por debajo de lo configurado' ((Get-VentanaSeguimiento $false) -eq 2500)
+foreach ($i in 1..6) { Dicho '5.5' }
+$vc2 = Get-VentanaSeguimiento $true
+Comp 'si tardas, espera mas (con tope de 12 s)' ($vc2 -gt 7000 -and $vc2 -le 12000) $vc2
+Dicho '45'
+Comp 'un disparate (mas de 30 s) no cuenta' ((Get-Habitos).ritmo.Count -eq 12)
+$script:habitos = $null
+Comp 'sobrevive a releer el archivo' ((Get-Habitos).ritmo.Count -eq 12)
+
+$sw = [System.Diagnostics.Stopwatch]::StartNew()
+$script:charlaUltima = -99999999; $script:juegoActivo = $null
+Comp 'sin costumbre de charlar a esta hora, no precarga' (-not (Test-PrecargaCharla (Get-Date '2026-09-20 22:10')))
+foreach ($d in '2026-09-17', '2026-09-18', '2026-09-19') { Add-CharlaHora (Get-Date "$d 22:30") }
+Comp 'tres dias charlando a esa hora: precarga' (Test-PrecargaCharla (Get-Date '2026-09-20 22:10'))
+Comp 'a otra hora no' (-not (Test-PrecargaCharla (Get-Date '2026-09-20 09:10')))
+Comp 'lo de hace mas de dos semanas no cuenta' (-not (Test-PrecargaCharla (Get-Date '2026-10-15 22:10')))
+$script:juegoActivo = 'Hades'
+Comp 'jugando no, que la RAM es del juego' (-not (Test-PrecargaCharla (Get-Date '2026-09-20 22:10')))
+$script:charlaUltima = $sw.ElapsedMilliseconds
+Comp 'salvo que acabeis de hablar' (Test-PrecargaCharla (Get-Date '2026-09-20 22:10'))
+$script:juegoActivo = $null
+$script:invitado = $true; Add-CharlaHora (Get-Date '2026-09-20 03:00'); $script:invitado = $false
+Comp 'lo de un invitado no cuenta' (@((Get-Habitos).charlaHoras.Keys | Where-Object { $_ -like '*|03' }).Count -eq 0)
 
 Remove-Item -LiteralPath $MemoriaDir -Recurse -Force -ErrorAction SilentlyContinue
 if ($mal -gt 0) { Write-Host "$mal casos MAL"; exit 1 }

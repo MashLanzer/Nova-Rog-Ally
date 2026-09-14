@@ -206,6 +206,14 @@ public class NovaUI : Window
     int eventoN = -1;
     int bateria = 100;
     bool cargando = false;
+    bool primeraLecturaCarga = true;           // al arrancar no es "acabas de enchufarla"
+    string origenHabla = "";                   // quien contesta en la charla: memoria, local, api
+    bool dormidaNoche = false;                 // se durmio de madrugada: al despertar, bostezo
+    IntPtr ventanaMirada = IntPtr.Zero;        // la ventana de delante la ultima vez que se miro
+    DateTime mirarVentanaHasta = DateTime.MinValue;
+    DateTime mirarPuntoHasta = DateTime.MinValue;
+    Point puntoMirar;
+    DateTime proximaTemporada = DateTime.UtcNow.AddSeconds(90);
     int carga = 0;
     double animo = 0;
     double tempoFin = 0, tempoTotal = 0;
@@ -793,9 +801,12 @@ public class NovaUI : Window
         relojSueno.Interval = TimeSpan.FromSeconds(10);
         relojSueno.Tick += delegate
         {
+            // DORMIDA DE MADRUGADA (13/09): de 1:00 a 6:00 se duerme a los 10 min
+            int horaS = DateTime.Now.Hour;
+            double minSueno = (horaS >= 1 && horaS < 6) ? 10 : 30;
             bool debe = !foco && string.IsNullOrEmpty(juegoActual) && (estadoActual == "reposo" || estadoActual == "")
-                        && (DateTime.UtcNow - ultimaActividad).TotalMinutes >= 30;
-            if (debe && !dormido) { Dormir(); }
+                        && (DateTime.UtcNow - ultimaActividad).TotalMinutes >= minSueno;
+            if (debe && !dormido) { dormidaNoche = (horaS >= 1 && horaS < 7); Dormir(); }
             // SE ATENUA SIN USO (13/09): mucho antes de dormirse, a los 5 min en
             // reposo sin que pase nada, baja un poco su presencia. Menos cápsula
             // en pantalla cuando no la necesitas; vuelve entera en Despertar().
@@ -1827,6 +1838,43 @@ public class NovaUI : Window
         }
     }
 
+    // DESTELLO DE "APRENDIDO" (13/09): el cerebro confirmo algo nuevo. Medio
+    // segundo de luz blanca en el halo, sin sonido: pasa en segundo plano.
+    void Destello()
+    {
+        if (resplandor == null || dormido) { return; }
+        var col = new ColorAnimationUsingKeyFrames();
+        col.KeyFrames.Add(new LinearColorKeyFrame(Colors.White, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(120))));
+        col.KeyFrames.Add(new LinearColorKeyFrame(resplandor.Color, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(700))));
+        col.FillBehavior = FillBehavior.Stop;
+        resplandor.BeginAnimation(DropShadowEffect.ColorProperty, col);
+        double b = RadioHalo(cerca);
+        var rad = new DoubleAnimationUsingKeyFrames();
+        rad.KeyFrames.Add(new EasingDoubleKeyFrame(b + 10, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(150)), new CubicEase { EasingMode = EasingMode.EaseOut }));
+        rad.KeyFrames.Add(new EasingDoubleKeyFrame(b, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(700)), new SineEase { EasingMode = EasingMode.EaseInOut }));
+        resplandor.BeginAnimation(DropShadowEffect.BlurRadiusProperty, rad);
+    }
+
+    // PULSO AL ENCHUFAR (13/09): una luz verde que sube por el halo, una vez
+    void PulsoCargador()
+    {
+        if (resplandor == null) { return; }
+        Color verde = Color.FromRgb(0x3D, 0xF0, 0x9A);
+        var col = new ColorAnimationUsingKeyFrames();
+        col.KeyFrames.Add(new LinearColorKeyFrame(verde, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(200))));
+        col.KeyFrames.Add(new LinearColorKeyFrame(verde, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(900))));
+        col.KeyFrames.Add(new LinearColorKeyFrame(resplandor.Color, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(1500))));
+        col.FillBehavior = FillBehavior.Stop;
+        resplandor.BeginAnimation(DropShadowEffect.ColorProperty, col);
+        double b = RadioHalo(cerca);
+        var rad = new DoubleAnimationUsingKeyFrames();
+        rad.KeyFrames.Add(new EasingDoubleKeyFrame(b * 0.4, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+        rad.KeyFrames.Add(new EasingDoubleKeyFrame(b + 14, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(900)), new CubicEase { EasingMode = EasingMode.EaseOut }));
+        rad.KeyFrames.Add(new EasingDoubleKeyFrame(b, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(1500)), new SineEase { EasingMode = EasingMode.EaseInOut }));
+        resplandor.BeginAnimation(DropShadowEffect.BlurRadiusProperty, rad);
+        Saltar(1.2);
+    }
+
     void EntradaEnEscena()
     {
         escalaEnvoltorio.ScaleX = 0.2; escalaEnvoltorio.ScaleY = 0.2;
@@ -1902,6 +1950,19 @@ public class NovaUI : Window
         k.KeyFrames.Add(new EasingDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(480)), new BackEase { EasingMode = EasingMode.EaseOut }));
         k.FillBehavior = FillBehavior.Stop;
         escalaGesto.BeginAnimation(ScaleTransform.ScaleYProperty, k);
+        // si se habia dormido de madrugada, bosteza: ojos a medio abrir y cabeza ladeada
+        if (dormidaNoche)
+        {
+            dormidaNoche = false;
+            Expresion("entrecerrados", 1600);
+            rotGesto.BeginAnimation(RotateTransform.AngleProperty, Secuencia(new double[] { 0, -7, -7, -7, 0 }, 320));
+            var b = new DoubleAnimationUsingKeyFrames();
+            b.KeyFrames.Add(new EasingDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(500))));
+            b.KeyFrames.Add(new EasingDoubleKeyFrame(1.22, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(1000)), new SineEase { EasingMode = EasingMode.EaseOut }));
+            b.KeyFrames.Add(new EasingDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(1600)), new SineEase { EasingMode = EasingMode.EaseInOut }));
+            b.FillBehavior = FillBehavior.Stop;
+            escalaPunto.BeginAnimation(ScaleTransform.ScaleYProperty, b);
+        }
     }
 
     void Zeta()
@@ -1943,6 +2004,8 @@ public class NovaUI : Window
     // Incluye ingles y regionalismos (parce, wey, tio, che, chevere, bacano):
     // el mismo gesto para la misma intencion, digas como lo digas.
     static readonly string[][] GESTOS_USUARIO = {
+        // CARA SEGUN LA CHARLA (13/09): cansado o triste -> cara suave y apoyo
+        new[] { "apoyo",    @"\b(estoy|me siento|ando|vengo)\s+(muy\s+|un poco\s+|bastante\s+)?(cansad[oa]|agotad[oa]|triste|mal|fatal|harto|harta|agobiad[oa]|estresad[oa]|desanimad[oa])\b|\b(mal dia|dia horrible|dia de mierda|que dia)\b" },
         new[] { "carino",   @"\b(te quiero|te adoro|te amo|me encantas|eres (genial|la mejor|el mejor|increible|lo maximo|lo mejor|una crack|un crack)|buen trabajo|bien hecho|que linda|que lindo|love you|you rock|you're the best)\b" },
         new[] { "gracias",  @"\b(gracias|muchas gracias|mil gracias|perfecto|genial|excelente|estupendo|de lujo|brutal|chevere|bacano|thanks|thank you|ty|nice|great|awesome)\b" },
         new[] { "risa",     @"\b(ja+ja+|je+je+|jsjs|lol|lmao|xd|jiji)\b|jajaj|jeje" },
@@ -1970,6 +2033,8 @@ public class NovaUI : Window
     static readonly string[][] GESTOS_PROPIOS = {
         new[] { "pena",     @"^\s*(no pude|no encontre|no se pudo|no supe|fallo|error|no te escuche|no tengo|no hay nada|no detecto|todavia no)\b" },
         new[] { "orgullo",  @"^\s*(listo|hecho|anotado|abriendo|encontre esto|anotaste|ahora se que)\b" },
+        // CARA SEGUN LA CHARLA (13/09): si lo que dice es un chiste, se rie
+        new[] { "risa",     @"\bchiste\b|\bja(ja)+\b|\?\s*(porque|por que|pues porque)\b" },
         new[] { "duda",     @"^\s*\?|\?\s*$" },
         new[] { "carino",   @"\b(de nada|con gusto|un placer|para eso estoy)\b" },
     };
@@ -2422,6 +2487,7 @@ public class NovaUI : Window
                 Sonar(sonAviso);
                 break;
             case "pulso": PulsoAviso(arg); break;
+            case "destello": Destello(); break;
             case "logro": Logro(); break;
             case "error": Sacudir(); break;
             case "gesto": Gesto(arg); break;
@@ -2454,6 +2520,18 @@ public class NovaUI : Window
     void PulsoAviso(string tipo)
     {
         if (resplandor == null) { return; }
+        // un mensaje: mira un instante hacia la esquina donde salen las notificaciones
+        if (tipo == "mensaje")
+        {
+            try
+            {
+                var srcM = PresentationSource.FromVisual(this);
+                double escM = (srcM != null) ? srcM.CompositionTarget.TransformToDevice.M11 : 1.0;
+                puntoMirar = new Point(SystemParameters.WorkArea.Right * escM - 40, SystemParameters.WorkArea.Bottom * escM - 40);
+                mirarPuntoHasta = DateTime.UtcNow.AddMilliseconds(1200);
+            }
+            catch { }
+        }
         Color c;
         switch (tipo)
         {
@@ -2508,6 +2586,20 @@ public class NovaUI : Window
                 {
                     objetivo = new Point((r.L + r.R) / 2.0, (r.T + r.B) / 2.0);
                 }
+            }
+            // MIRADA A LO NUEVO (13/09): una ventana que pasa delante o una
+            // notificacion: los ojos van un instante hacia alli, aunque muevas el raton
+            IntPtr fgM = GetForegroundWindow();
+            if (fgM != IntPtr.Zero && fgM != hwnd && fgM != ventanaMirada)
+            {
+                if (ventanaMirada != IntPtr.Zero) { mirarVentanaHasta = DateTime.UtcNow.AddMilliseconds(1200); }
+                ventanaMirada = fgM;
+            }
+            if (DateTime.UtcNow < mirarPuntoHasta) { objetivo = puntoMirar; }
+            else if (DateTime.UtcNow < mirarVentanaHasta)
+            {
+                RECTA rv;
+                if (GetWindowRect(fgM, out rv) && rv.R > rv.L && rv.B > rv.T) { objetivo = new Point((rv.L + rv.R) / 2.0, (rv.T + rv.B) / 2.0); }
             }
             Point centro = esfera.PointToScreen(new Point(AVATAR / 2, AVATAR / 2));
             if (!double.IsNaN(objetivo.X))
@@ -2892,7 +2984,8 @@ public class NovaUI : Window
     // para quien mira, no un aviso. Ni dormida ni a pantalla completa.
     void ClimaVivo()
     {
-        if ((tiempoActual != "lluvia" && tiempoActual != "nieve" && tiempoActual != "tormenta") || dormido || Cine() || !(estadoActual == "reposo" || estadoActual == "")) { return; }
+        if (dormido || Cine() || !(estadoActual == "reposo" || estadoActual == "")) { return; }
+        if (tiempoActual != "lluvia" && tiempoActual != "nieve" && tiempoActual != "tormenta") { Temporada(); return; }
         if (DateTime.UtcNow < proximoClima) { return; }
         proximoClima = DateTime.UtcNow.AddSeconds(14 + azar.NextDouble() * 12);
         if (tiempoActual == "nieve") { Flotar(copo, 3, 10, 2600); return; }
@@ -2911,6 +3004,28 @@ public class NovaUI : Window
             d.Completed += delegate { if (estadoActual == "reposo" || estadoActual == "") { resplandor.BeginAnimation(DropShadowEffect.OpacityProperty, new DoubleAnimation(cerca ? 0.95 : 0.5, TimeSpan.FromMilliseconds(200))); } };
             resplandor.BeginAnimation(DropShadowEffect.OpacityProperty, d);
         }
+    }
+
+    // DETALLE DE TEMPORADA (13/09): muy de vez en cuando (cada 2-4 min en reposo y
+    // sin tiempo que dibujar), un copo en diciembre y enero y una hoja en octubre
+    // y noviembre. La hoja es el mismo copo con otro glifo y color un momento.
+    void Temporada()
+    {
+        int mes = DateTime.Now.Month;
+        bool invierno = (mes == 12 || mes == 1), otono = (mes == 10 || mes == 11);
+        if ((!invierno && !otono) || copo == null) { return; }
+        if (DateTime.UtcNow < proximaTemporada) { return; }
+        proximaTemporada = DateTime.UtcNow.AddSeconds(120 + azar.NextDouble() * 120);
+        if (invierno) { Flotar(copo, 3, 10, 2600); return; }
+        string glifo = copo.Text;
+        Brush antes = copo.Foreground;
+        copo.Text = "❧";
+        copo.Foreground = new SolidColorBrush(Color.FromRgb(0xE8, 0x8A, 0x3C));
+        Flotar(copo, -2, 11, 2800);
+        var t = new DispatcherTimer();
+        t.Interval = TimeSpan.FromMilliseconds(3000);
+        t.Tick += delegate { t.Stop(); copo.Text = glifo; copo.Foreground = antes; };
+        t.Start();
     }
 
     void Tic250()
@@ -3153,6 +3268,12 @@ public class NovaUI : Window
                 descarga = Math.Max(0, Math.Min(1, dsc));
                 if (hac != haciendoActual) { PintarHaciendo(hac); }
                 musica = Campo(j, "musica", "0") == "1";
+                string org = Campo(j, "origen", "");
+                if (org != origenHabla)
+                {
+                    origenHabla = org;
+                    if (estadoActual == "hablando") { Aplicar(estadoActual, textoActual, false); }
+                }
                 int volN;
                 if (int.TryParse(Campo(j, "vol", "-1"), out volN) && volN != volVisto)
                 {
@@ -3241,7 +3362,10 @@ public class NovaUI : Window
         // si ademas cambiaba el estado o el texto
         bool repintar = cambioVoz;
         bool bajaAntes = BateriaBaja(), agitadoAntes = Agitado(), desanimadoAntes = Desanimado();
+        bool cargabaAntes = cargando;
         bateria = bat; cargando = (carg != 0); carga = cpu; animo = an;
+        if (cargando && !cargabaAntes && !primeraLecturaCarga) { PulsoCargador(); }
+        primeraLecturaCarga = false;
         if (BateriaBaja() != bajaAntes || Agitado() != agitadoAntes || Desanimado() != desanimadoAntes) { Latido(); repintar = true; }
         if (perfil != perfilActual)
         {
@@ -3435,7 +3559,16 @@ public class NovaUI : Window
             // rosa: no se parece a ningun otro estado a proposito, porque es el
             // unico en el que la capsula esta esperando algo de TI
             case "confirmando": return Color.FromRgb(0xFF, 0x6E, 0xB4);
-            case "hablando": return Color.FromRgb(0x4D, 0xA6, 0xFF);
+            case "hablando":
+                {
+                    // QUIEN CONTESTA (13/09): un pelo de oro si lo dice de memoria (lo
+                    // sabe ella sola) y de violeta si viene de la API; el azul de siempre
+                    // con el modelo local o una orden
+                    Color h = Color.FromRgb(0x4D, 0xA6, 0xFF);
+                    if (origenHabla == "memoria") { h = Mezcla(h, Color.FromRgb(0xFF, 0xD3, 0x6A), 0.35); }
+                    else if (origenHabla == "api") { h = Mezcla(h, Color.FromRgb(0xA9, 0x8B, 0xFF), 0.35); }
+                    return h;
+                }
             case "error": return Color.FromRgb(0xFF, 0x5A, 0x5A);
             default:
                 {

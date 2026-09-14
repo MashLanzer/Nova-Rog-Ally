@@ -199,6 +199,12 @@ try:
     f = hablar(21, "oye nova, ¿qué es un agujero negro?")
     comp("la segunda vez lo dice de memoria, sin llamar a nadie", f.get("origen") == "memoria" and len(llamadas) == antes and frases() == ["Es una región del espacio de la que ni la luz escapa."], (f, frases()))
     comp("y si lo encuentra por palabras, ni carga el modelo de significado", EmbedContador.n == 0, EmbedContador.n)
+    guion[:] = [Resp(local("Es un felino grande. "))]
+    hablar(211, "¿Qué es un tigre?")
+    comp("sin nada parecido por palabras tampoco lo carga (RAM)", EmbedContador.n == 0, EmbedContador.n)
+    cw.cerebro.datos["recuerdos"] = [r for r in cw.cerebro.datos["recuerdos"] if "tigre" not in r["pregunta"].lower()]
+    cw.cerebro._cambio()
+    cw.cerebro.datos["pendientes"] = [j for j in cw.cerebro.datos["pendientes"] if "tigre" not in j["pregunta"].lower()]
     cw.cerebro.embedder = None
 
     f = hablar(22, "¿Cuánto duerme un oso polar?", Resp(local("El oso polar puede vivir sin dormir. ")))
@@ -248,6 +254,74 @@ try:
 finally:
     cw.cerebro = None
     shutil.rmtree(carpeta, ignore_errors=True)
+
+print("--- trivia, resumen de mensajes, ayuda de juego y ordenes en la charla ---")
+carpeta2 = tempfile.mkdtemp(prefix="nova-charla-trivia-")
+try:
+    cw.cerebro = cm.Cerebro(carpeta2)
+    for q, r in [("¿Quién pintó la Mona Lisa?", "La pintó Leonardo da Vinci."), ("¿Qué es un volcán?", "Una montaña que expulsa lava."),
+                 ("¿Cuántas patas tiene una araña?", "Una araña tiene ocho patas.")]:
+        cw.atender({"op": "aprender", "pregunta": q, "respuesta": r, "origen": "api"})
+    comp("aprende lo que contesta otro cerebro (Claude Code)", cw.cerebro.balance()["respuestas"] == 3, cw.cerebro.balance())
+    del eventos[:]
+    antes = len(llamadas)
+    cw.atender({"op": "trivia", "id": 40})
+    preg = frases()
+    comp("trivia: pregunta de lo que sabe, sin llamar a ningun modelo", fin().get("origen") == "trivia" and preg and preg[0].startswith("Ahí va:") and len(llamadas) == antes, preg)
+    clave = sorted(t for t in cm.fichas(cw.trivia["r"]["respuesta"]) - cm.fichas(cw.trivia["r"]["pregunta"]) if not t.startswith("?"))[0]
+    del eventos[:]
+    cw.atender({"op": "hablar", "id": 41, "texto": clave})
+    comp("y juzga la respuesta al momento", fin().get("origen") == "trivia-respuesta" and frases() and frases()[0].startswith("¡Correcto!"), (clave, frases()))
+    cw.atender({"op": "trivia", "id": 42})
+    del eventos[:]
+    cw.atender({"op": "hablar", "id": 43, "texto": "ni idea, me rindo"})
+    comp("rendirse da la respuesta", frases() and frases()[0].startswith("La respuesta es:"), frases())
+
+    os.environ["ANTHROPIC_API_KEY"] = "falsa"
+    cw.api_rota_hasta = 0
+    pend0 = cw.cerebro.balance()["pendientes"]
+    del eventos[:]
+    guion[:] = [Resp(local("Ana y Leo quieren jugar a las diez. ", "Tu madre pregunta por la cena."))]
+    cw.atender({"op": "resumir", "id": 44, "texto": "Discord, Ana: jugamos a las 10?. Discord, Leo: yo me apunto. WhatsApp, Mama: vienes a cenar?"})
+    comp("mensajes resumidos con el modelo LOCAL", fin().get("origen") == "resumen" and llamadas[-1][0].startswith(cw.OLLAMA), fin())
+    comp("y nada de eso se aprende ni queda en la charla", cw.cerebro.balance()["pendientes"] == pend0 and not any("Ana" in m["content"] for m in cw.historial))
+    del eventos[:]
+    guion[:] = [cw.httpx.ConnectError("sin ollama")]
+    cw.atender({"op": "resumir", "id": 45, "texto": "WhatsApp, Mama: vienes?"})
+    comp("sin modelo local, el resumen NO va a la API (son tus mensajes)", fin()["ev"] == "err" and llamadas[-1][0].startswith(cw.OLLAMA), fin())
+
+    cw.historial[:] = [{"role": "user", "content": "¿a qué hora cierra la tienda?"}, {"role": "assistant", "content": "Cierra a las ocho."}]
+    cw.ultima_charla = time.time()
+    posts = []
+
+    class RespPost:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"message": {"content": "recuérdame ir a la tienda a las siete y media"}}
+    cw.httpx.post = lambda url, **kw: (posts.append(kw.get("json")), RespPost())[1]
+    del eventos[:]
+    guion[:] = [Resp(local("[ORDEN]"))]
+    cw.atender({"op": "hablar", "id": 46, "texto": "pues recuérdamelo luego"})
+    f = fin()
+    comp("una orden con 'lo' o 'luego' se reescribe con lo hablado", f["ev"] == "orden" and f["texto"] == "recuérdame ir a la tienda a las siete y media" and f.get("original") == "pues recuérdamelo luego", f)
+    comp("viendo la conversacion", posts and any(m.get("content") == "Cierra a las ocho." for m in posts[-1]["messages"]))
+    del eventos[:]
+    guion[:] = [Resp(local("[ORDEN]"))]
+    cw.atender({"op": "hablar", "id": 47, "texto": "abre la carpeta de descargas"})
+    comp("una orden completa no se toca", fin()["texto"] == "abre la carpeta de descargas" and len(posts) == 1, fin())
+
+    del eventos[:]
+    guion[:] = [Resp(api("Esquiva sus embestidas y ataca por detrás. "))]
+    cw.atender({"op": "hablar", "id": 48, "texto": "En el juego Hades: como mato a este jefe", "buscar": True, "ayuda": True, "juego": "Hades"})
+    comp("ayuda con el juego: a la API con busqueda web", fin().get("origen") == "api" and (llamadas[-1][1].get("tools") or [{}])[0].get("name") == "web_search", fin())
+    comp("y explicada, no en una frase de juego", "ayuda con su partida" in llamadas[-1][1]["system"] and "una sola frase corta" not in llamadas[-1][1]["system"])
+finally:
+    cw.cerebro = None
+    shutil.rmtree(carpeta2, ignore_errors=True)
 
 if mal:
     print("%d casos MAL" % mal)

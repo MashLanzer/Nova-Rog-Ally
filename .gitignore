@@ -66,5 +66,8 @@ memoria/contactos.json
 memoria/notas-voz/
 # el cerebro propio de Nova: todo lo que ha aprendido hablando contigo
 memoria/cerebro/
+# lo que has escuchado y cuando
+memoria/musica.json
+memoria/musica.json.tmp
 # archivos de memoria que no se podian leer, apartados en vez de perderse
 *.corrupto-*

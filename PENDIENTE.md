@@ -155,6 +155,59 @@ Segunda tanda, elegidas todas el 13/09 (misma regla de diseño):
 
 ---
 
+## Quinta tanda (elegidas todas el 13/09, noche)
+
+Misma regla de diseño: minimalista, sin tarjetas ni elementos fijos nuevos.
+
+Diseño (nova_ui.cs; nada nuevo a la vista):
+- [x] D1 Destello blanco en el halo cuando la API confirma algo del cerebro (sin sonido).
+- [x] D2 Voz de la charla con un pelo de oro si es de memoria y de violeta si es de la API.
+- [x] D3 La línea de la cápsula se llena mientras la charla tarda (en frío, 12-16 s).
+- [x] D4 Escucha activa: **ya existía** (asiente cada 3,5 s en frases largas).
+- [x] D5 Cara según la charla: apoyo si dices que estás cansado o triste; risa si cuenta un chiste.
+- [x] D6 De 1:00 a 6:00 se duerme a los 10 min sin uso; al despertar, bostezo.
+- [x] D7 Al enchufar el cargador, una luz verde sube por el halo.
+- [x] D8 Con otra pantalla conectada (dock), un 25 % más grande.
+- [x] D9 Un copo en diciembre y enero, una hoja en octubre y noviembre (cada 2-4 min en reposo).
+- [x] D10 Mira un instante a una ventana nueva o hacia donde salen las notificaciones.
+
+Funciones:
+- [x] F1 «Haz un clip» / «guarda la jugada»: Win+Alt+G. Si la Game Bar no graba en
+      segundo plano, lo dice. («Guarda lo último» ya era copiar la respuesta.)
+- [x] F2 «¿Cómo paso este jefe?» con un juego delante: pantalla + búsqueda web en
+      la API, explicado en 2-3 frases; se aprende.
+- [x] F3 «Me voy a dormir»: brillo y volumen bajos y pregunta por el despertador
+      (con un juego delante, antes apunta dónde te quedaste). «Apágate en 30
+      minutos» (siempre con un sí) y «cancela el apagado».
+- [x] F4 «Despiértame a las 7»: música, la hora, el tiempo y lo de hoy; «cinco
+      minutos más»; «quita el despertador».
+- [x] F5 «¿Cuánto le queda a X?», «¿qué se está descargando?», «pausa las
+      descargas» (abre las descargas de Steam: desde fuera no se pueden pausar).
+- [x] F6 «Avísame cuando lleve 2 horas»: aviso al llegar y otro 15 min después.
+- [x] F7 «Hazme una pregunta»: trivia de lo confirmado; «me rindo».
+- [x] F8 «Cuando conecte el dock / me ponga los cascos…» (reglas y recordatorios).
+- [~] F9 «¿Quién está conectado en Steam?» **necesita una clave gratuita de la API
+      de Steam** en config (`steam.apiKey`). Discord: no se puede sin un bot.
+- [x] F10 Historial en `memoria\musica.json`; «¿cómo se llamaba esa canción?»,
+      «pon la que sonaba anoche» (la busca en Spotify).
+
+Mejoras de lo que existe:
+- [x] M1 «¿Qué has aprendido?» cuenta también lo aprendido hablando.
+- [x] M2 Precarga de Qwen al llamarla si hablasteis hace poco o sueles charlar a esa hora.
+- [x] M3 Repaso del día (con 20 min sin charla): poda, junta repetidos, re-revisa lo provisional.
+- [x] M4 Lo que contesta Claude Code a una pregunta también pasa al cerebro.
+- [x] M5 «Espera», «para», «calla» mientras habla: se calla y te escucha (descarta la
+      palabra si está en su propia frase, por el eco). **Probar con altavoces.**
+- [x] M6 Voz un pelo más alegre o más calmada según la frase de la charla.
+- [x] M7 Tres frases en 10 min con una voz que no es la tuya: pregunta si pone el modo invitado.
+- [x] M8 La ventana de escucha se ajusta a lo que tardas en empezar a hablar.
+- [x] M9 Con 4 o más mensajes, el modelo LOCAL los resume (nunca la API).
+- [x] M10 En plena charla, «recuérdamelo luego» se reescribe con lo hablado y se hace.
+
+Medido al hacerlo: la búsqueda por significado con Qwen cargado hacía paginar a
+Windows (428 MB libres) y la respuesta pasaba de 3 s a 13 s. Ahora solo se usa
+para confirmar una pregunta parecida que ya se encontró por palabras.
+
 ## Cuarta tanda (elegidas todas el 13/09, noche)
 
 Regla de diseño de siempre: minimalista, sin cambiar la cápsula.

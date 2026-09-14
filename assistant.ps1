@@ -2038,6 +2038,40 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(?:cancela|quita|borra|anula|para)\s+(?:el\s+|los\s+|la\s+|las\s+)?(?:temporizador|temporizadores|aviso|avisos|alarma|alarmas|cuenta atras)$') {
         return @(@{ kind = 'quitarTempo'; desc = 'cancelar temporizadores' })
     }
+    # CLIP DEL JUEGO (F1): la Game Bar guarda lo ultimo que ha pasado
+    # ("guarda lo ultimo" ya era copiar la respuesta: no se pisa)
+    if ($f -match '^(?:guarda|graba|guardame|grabame|salva)\s+(?:el\s+clip|un\s+clip|lo\s+que\s+(?:acaba\s+de\s+pasar|ha\s+pasado)|los\s+ultimos\s+\d+\s+segundos|la\s+jugada)$' -or
+        $f -match '^(?:clip|clipealo|clipea\s+eso|haz(?:me)?\s+un\s+clip)$') {
+        return @(@{ kind = 'clipJuego'; desc = 'guardar el clip' })
+    }
+    # AMIGOS CONECTADOS (F9)
+    if ($f -match '^(?:quien|quienes)\s+(?:de\s+mis\s+amigos\s+)?(?:esta|estan)\s+(?:conectados?|en\s+linea|jugando)(?:\s+en\s+(steam|discord))?$' -or
+        $f -match '^(?:hay\s+)?(?:algun\s+amigo|alguien)\s+(?:conectado|en\s+linea)(?:\s+en\s+(steam|discord))?$' -or
+        $f -match '^que\s+amigos\s+(?:estan|hay)\s+(?:conectados|en\s+linea)(?:\s+en\s+(steam|discord))?$') {
+        if ($Matches[1] -eq 'discord') { return @(@{ kind = 'amigosDiscord'; desc = 'amigos en Discord' }) }
+        return @(@{ kind = 'amigosSteam'; desc = 'amigos conectados' })
+    }
+    # HISTORIAL DE MUSICA (F10)
+    if ($f -match '^(?:como se llamaba|cual era|que cancion era)\s+(?:esa|la)\s+cancion(?:\s+de\s+antes)?$') {
+        return @(@{ kind = 'musicaAnterior'; desc = 'la cancion de antes' })
+    }
+    if ($f -match '^(?:pon(?:me)?|vuelve\s+a\s+poner|busca(?:me)?)\s+la\s+(?:cancion\s+)?que\s+(?:sonaba|estaba\s+sonando|escuchaba|estaba\s+escuchando)\s+(antes|hace un rato|esta manana|anoche|ayer por la noche|ayer por la manana|ayer por la tarde|ayer)$') {
+        return @(@{ kind = 'musicaDe'; cuando = $Matches[1]; desc = 'la cancion de ' + $Matches[1] })
+    }
+    # DESCARGAS DE STEAM (F5): cuanto le queda a un juego, que se esta bajando, y
+    # abrir la pagina de descargas (pausar desde fuera no se puede)
+    if ($f -match '^(?:cuanto\s+(?:le\s+)?(?:queda|falta)\s+(?:a|al)\s+|como\s+va\s+(?:la\s+descarga\s+de\s+)?)(.+?)(?:\s+(?:para|de|en)\s+(?:descargar(?:se)?|bajar(?:se)?|instalar(?:se)?))?$' -and
+        @($script:Juegos | Where-Object { $_.bajando }).Count -gt 0) {
+        $txtD = $null
+        try { $txtD = Get-DescargaJuego $Matches[1] } catch { $txtD = $null }
+        if ($txtD) { return @(@{ kind = 'descargaJuego'; texto = $txtD; desc = $txtD }) }
+    }
+    if ($f -match '^(pausa|para|deten|reanuda|abre|ensename|muestrame)\s+(?:las\s+)?descargas(?:\s+de\s+steam)?$') {
+        return @(@{ kind = 'descargasAbrir'; pausar = ($Matches[1] -match '^(?:pausa|para|deten|reanuda)$'); desc = 'las descargas de Steam' })
+    }
+    if ($f -match '^que\s+(?:se\s+)?(?:esta|estan)\s+(?:descargando|bajando|actualizando)(?:\s+en\s+steam)?$') {
+        return @(@{ kind = 'descargas'; desc = 'estado de las descargas' })
+    }
     # --- descargas de Steam (datos que ya se leen al arrancar) ---
     if ($f -match '^(?:como va|que tal va|en que va|cuanto queda de)\s+(?:la\s+)?(?:descarga|bajada|instalacion)\b') {
         return @(@{ kind = 'descargas'; desc = 'estado de las descargas' })
@@ -3479,6 +3513,8 @@ function Get-SistemaCerebro {
 # cosa hecha sola con una receta cuenta como una peticion al cerebro ahorrada,
 # unos 20 s de espera (medido el 13/09: 17-27 s).
 function Get-BalanceAprendizaje {
+    $cerebroT = ''
+    try { $cerebroT = Get-BalanceCerebro } catch {}   # lo aprendido hablando (M1)
     $g = Get-Recetas
     $nRec = $g.Count
     $nVar = 0
@@ -3495,6 +3531,7 @@ function Get-BalanceAprendizaje {
         }
     }
     if ($nRec -eq 0 -and $nDatos -eq 0) {
+        if ($cerebroT) { return $cerebroT }
         return 'todavia no he aprendido nada. Cuando la IA haga algo por ti lo ire aprendiendo, y tambien puedes ensenarme: aprende que cuando diga...'
     }
     $frases = @()
@@ -3511,6 +3548,7 @@ function Get-BalanceAprendizaje {
     } elseif ($aprendidas -gt 0) {
         $txt += '. Esta semana aprendi ' + $(if ($aprendidas -eq 1) { 'una cosa nueva' } else { "$aprendidas cosas nuevas" })
     }
+    if ($cerebroT) { $txt += '. Y ' + $cerebroT }
     return $txt
 }
 
@@ -3739,8 +3777,8 @@ function Get-ResumenNotificaciones {
     $total = if ($pend.Count -eq 1) { 'tienes una' } else { "tienes $($pend.Count)" }
     return "$total`: $lista. Di leemelos si quieres oirlos"
 }
-function Get-LecturaNotificaciones {
-    $pend = @($script:notifPendientes | Select-Object -Last 5)
+function Get-LecturaNotificaciones([int]$max = 5) {
+    $pend = @($script:notifPendientes | Select-Object -Last $max)
     if ($pend.Count -eq 0) { return 'no tengo mensajes nuevos que leerte' }
     $partes = foreach ($n in $pend) {
         $quien = if ($n.titulo) { "$($n.app), $($n.titulo)" } else { $n.app }
@@ -3793,6 +3831,7 @@ function Watch-Musica($mu) {
     if ($sonando -and $mu.titulo -and $mu.titulo -ne $script:musicaTitulo) {
         $script:musicaTitulo = $mu.titulo
         Log "MUSICA: $($mu.titulo) - $($mu.artista)"
+        try { Add-HistorialMusica $mu.titulo $mu.artista } catch {}   # ver HISTORIAL DE MUSICA
         if (-not $script:juegoActivo -and $script:uiEstado -eq 'reposo' -and -not $script:busy -and -not $script:pendiente) {
             $tM = [string][char]0x266A + ' ' + $mu.titulo + $(if ($mu.artista) { ' · ' + $mu.artista } else { '' })
             if ($tM.Length -gt 48) { $tM = $tM.Substring(0, 45) + '...' }
@@ -3811,7 +3850,7 @@ function Watch-Musica($mu) {
 $script:habitos = $null
 function Get-Habitos {
     if ($null -ne $script:habitos) { return $script:habitos }
-    $script:habitos = @{ usos = (New-Object System.Collections.ArrayList); rechazadas = (New-Object System.Collections.ArrayList); ultimaPropuesta = ''; fin = @{}; cargaAvisada = ''; nivelVisto = 0; brilloAuto = $false; parteVisto = '' }
+    $script:habitos = @{ usos = (New-Object System.Collections.ArrayList); rechazadas = (New-Object System.Collections.ArrayList); ultimaPropuesta = ''; fin = @{}; cargaAvisada = ''; nivelVisto = 0; brilloAuto = $false; parteVisto = ''; ritmo = (New-Object System.Collections.ArrayList); charlaHoras = @{} }
     $rutaH = Join-Path $MemoriaDir 'habitos.json'
     if (Test-Path -LiteralPath $rutaH) {
         try {
@@ -3824,6 +3863,8 @@ function Get-Habitos {
             $script:habitos.nivelVisto = [int]$crudoH.nivelVisto
             $script:habitos.brilloAuto = [bool]$crudoH.brilloAuto
             $script:habitos.parteVisto = [string]$crudoH.parteVisto
+            foreach ($x in @($crudoH.ritmo)) { if ($null -ne $x) { [void]$script:habitos.ritmo.Add([double]$x) } }
+            if ($crudoH.charlaHoras) { foreach ($pf in $crudoH.charlaHoras.PSObject.Properties) { $script:habitos.charlaHoras[$pf.Name] = [int]$pf.Value } }
         } catch { Log ("habitos: no pude leerlos: " + $_.Exception.Message) }
     }
     return $script:habitos
@@ -3831,7 +3872,7 @@ function Get-Habitos {
 function Save-Habitos {
     try {
         $hb = Get-Habitos
-        $o = [ordered]@{ usos = @($hb.usos); rechazadas = @($hb.rechazadas); ultimaPropuesta = $hb.ultimaPropuesta; fin = $hb.fin; cargaAvisada = $hb.cargaAvisada; nivelVisto = $hb.nivelVisto; brilloAuto = [bool]$hb.brilloAuto; parteVisto = [string]$hb.parteVisto }
+        $o = [ordered]@{ usos = @($hb.usos); rechazadas = @($hb.rechazadas); ultimaPropuesta = $hb.ultimaPropuesta; fin = $hb.fin; cargaAvisada = $hb.cargaAvisada; nivelVisto = $hb.nivelVisto; brilloAuto = [bool]$hb.brilloAuto; parteVisto = [string]$hb.parteVisto; ritmo = @($hb.ritmo); charlaHoras = $hb.charlaHoras }
         $rutaH = Join-Path $MemoriaDir 'habitos.json'
         [System.IO.File]::WriteAllText($rutaH + '.tmp', (ConvertTo-Json -InputObject $o -Depth 4), (New-Object System.Text.UTF8Encoding($false)))
         Move-Item -LiteralPath ($rutaH + '.tmp') -Destination $rutaH -Force
@@ -3887,6 +3928,264 @@ function Test-FinInvitado {
     $script:invitado = $false
     Log "MODO INVITADO: fuera (30 min sin ordenes)"
 }
+# =====================================================================
+# QUINTA TANDA, FUNCIONES (13/09)
+# =====================================================================
+$script:despertadorHora = 0          # hasta cuando lo proximo que digas es la hora del despertador
+$script:despertadorSonoEn = -9999999
+$script:rutinaDormirTrasNota = $false
+$script:limiteJuego = $null
+$script:vozAjenaVeces = @()
+$script:vozAjenaF0Vista = 0.0
+$script:invitadoPropuesta = $false
+$script:invitadoPropuestoEn = -9999999
+
+# "dos horas", "media hora", "una hora y media", "45 minutos" -> minutos
+function Get-MinutosDichos([string]$cant, [string]$unidad) {
+    $n = switch -regex ($cant) {
+        '^\d+$' { [double]$cant; break }
+        '^(?:una|un)$' { 1; break }
+        '^media$' { 0.5; break }
+        '^dos$' { 2; break }
+        '^tres$' { 3; break }
+        '^cuatro$' { 4; break }
+        '^cinco$' { 5; break }
+        default { 0 }
+    }
+    if ($unidad -match 'hora y media') { return [int](($n + 0.5) * 60) }
+    if ($unidad -match '^hora') { return [int]($n * 60) }
+    return [int]$n
+}
+function Format-MinutosDichos([int]$min) {
+    if ($min -eq 30) { return 'media hora' }
+    if ($min -eq 90) { return 'una hora y media' }
+    if ($min -ge 60 -and $min % 60 -eq 0) { $h = $min / 60; if ($h -eq 1) { return 'una hora' } else { return "$h horas" } }
+    return "$min minutos"
+}
+
+# CLIP DEL JUEGO (F1): Win+Alt+G guarda los ultimos segundos... solo si la
+# grabacion en segundo plano de la Game Bar esta activada. Si no, no hace nada, y
+# hay que decirlo en vez de fingir que se guardo.
+function Invoke-ClipJuego {
+    $gdvr = $null
+    try { $gdvr = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\GameDVR' -ErrorAction Stop } catch {}
+    if (-not $gdvr -or [int]$gdvr.HistoricalCaptureEnabled -ne 1) {
+        return 'para guardar clips activa en la Game Bar la grabacion de lo que ha pasado: Win mas G, Captura'
+    }
+    try { Send-Combinacion 'win+alt+g' } catch { return 'no pude pedirle el clip a la Game Bar' }
+    Log "CLIP: pedido a la Game Bar"
+    return 'clip guardado'
+}
+
+# DESCARGAS DE STEAM (F5): cuanto le queda a un juego concreto
+function Get-DescargaJuego([string]$nombre) {
+    $j = Find-Juego $nombre
+    if (-not $j) { return $null }
+    $jj = @($script:Juegos | Where-Object { $_.nombre -eq $j.nombre }) | Select-Object -First 1
+    if (-not $jj) { return $null }
+    if (-not $jj.bajando) { return "$($jj.nombre) no se esta descargando" }
+    # 1.0 y no 1: con un 1 entero PowerShell elige Max(int, int) y un juego de mas
+    # de 2 GB revienta la cuenta
+    $pct = [int](100.0 * [double]$jj.descargado / [Math]::Max(1.0, [double]$jj.total))
+    return "$($jj.nombre) va por el $pct por ciento; faltan $(Format-Gigas ([double]$jj.total - [double]$jj.descargado))"
+}
+
+# LIMITE DE JUEGO PROPIO (F6): "avisame cuando lleve 2 horas". Un aviso al
+# llegar y otro mas firme 15 min despues. Vale para la partida de ahora (o la
+# siguiente, si no hay juego) y se quita al cerrar ese juego.
+function Test-LimiteJuego {
+    $l = $script:limiteJuego
+    if (-not $l) { return }
+    if (-not $script:juegoActivo) {
+        if ($l.visto) { $script:limiteJuego = $null; Log "LIMITE DE JUEGO: fuera (juego cerrado)" }
+        return
+    }
+    $l.visto = $true
+    $min = ($sw.ElapsedMilliseconds - $script:juegoDesde) / 60000
+    if ($l.avisos -eq 0 -and $min -ge $l.min) {
+        $l.avisos = 1
+        Log "LIMITE DE JUEGO: $($l.min) min con $($script:juegoActivo)"
+        Send-Aviso ("Ya llevas " + (Format-MinutosDichos $l.min) + " con $($script:juegoActivo), como me pediste.") 'tiempo'
+    } elseif ($l.avisos -eq 1 -and $min -ge ($l.min + 15)) {
+        $l.avisos = 2
+        Send-UIEvento 'pulso:tiempo'
+        Send-Aviso 'Van quince minutos mas. ¿Lo dejamos por hoy?' 'tiempo'
+    }
+}
+
+# DESPERTADOR (F4): "despiertame a las 7", "pon el despertador para manana a las
+# 7 y media". Es un recordatorio con el texto 'despertador'; al sonar, musica, la
+# hora, el tiempo y lo de hoy. "Cinco minutos mas" lo pospone.
+function Invoke-DespertadorVoz([string]$text) {
+    $p = ConvertTo-Plain $text
+    if ($p -match '^(?:quita|cancela|borra|apaga)\s+(?:el\s+)?despertador$') {
+        $antesD = @(Get-Recordatorios)
+        $quedanD = @($antesD | Where-Object { $_.texto -ne 'despertador' })
+        if ($quedanD.Count -eq $antesD.Count) { return 'No tenias despertador.' }
+        Save-Recordatorios $quedanD
+        return 'Despertador quitado.'
+    }
+    if ($p -match '^(?:cinco|5|diez|10)\s+minutos\s+mas$' -and ($sw.ElapsedMilliseconds - $script:despertadorSonoEn) -lt 900000) {
+        $masD = if ($p -match 'diez|10') { 10 } else { 5 }
+        Save-Recordatorios (@(Get-Recordatorios) + @(New-Object PSObject -Property @{ cuando = (Get-Date).AddMinutes($masD).ToString('s'); texto = 'despertador' }))
+        return "Vale, $masD minutos mas."
+    }
+    if ($p -notmatch '^(?:despiertame|ponme\s+el\s+despertador|pon\s+el\s+despertador|ponme\s+una\s+alarma|pon\s+una\s+alarma)\s+(?:para\s+)?(.+)$') { return $null }
+    $cuandoD = $Matches[1]
+    if ($cuandoD -match '^(?:en|dentro\s+de)\s') { return $null }   # "despiertame en 20 minutos": eso es un temporizador
+    $rD = Invoke-RecordatorioVoz "recuerdame $cuandoD despertador"
+    if (-not $rD) { return $null }
+    if ($rD -match '^Listo, te lo recuerdo (.+)$') { return "Listo, te despierto $($Matches[1])" }
+    return $rD
+}
+function Invoke-Despertador {
+    $script:despertadorSonoEn = $sw.ElapsedMilliseconds
+    Log "DESPERTADOR: suena"
+    Send-UIEvento 'despierta'
+    $muD = $null
+    try { $muD = Get-MusicaActual } catch {}
+    if (-not ($muD -and $muD.sonando)) {
+        try { [AX]::keybd_event([byte]0xB3, 0, 0, [UIntPtr]::Zero); [AX]::keybd_event([byte]0xB3, 0, 2, [UIntPtr]::Zero) } catch {}
+    }
+    $culD = New-Object System.Globalization.CultureInfo('es-MX')
+    $partesD = @('Buenos dias. Son las ' + (Get-Date).ToString('H:mm', $culD))
+    if ($script:clima) { $partesD += "$($script:clima.desc), $($script:clima.temp) grados" }
+    $hoyD = @(Get-Recordatorios | Where-Object { $c = $null; try { $c = [DateTime]$_.cuando } catch {}; $c -and $c.Date -eq (Get-Date).Date -and $_.texto -ne 'despertador' })
+    if ($hoyD.Count -eq 1) { $partesD += "hoy tienes: $($hoyD[0].texto)" } elseif ($hoyD.Count -gt 1) { $partesD += "hoy tienes $($hoyD.Count) recordatorios" }
+    Say (($partesD -join '. ') + '. Si quieres, di cinco minutos mas.')
+    $script:seguimientoPendiente = $true
+}
+
+# RUTINA DE DORMIR (F3): "me voy a dormir". Brillo y volumen bajos y, si no hay
+# despertador, lo pregunta. Con un juego delante, "me voy a dormir" apunta antes
+# donde te quedaste y la rutina sigue al contestar (ver Report-Reply).
+function Invoke-RutinaDormir {
+    $hechasR = @()
+    try { if (Invoke-FastCommand 'pon el brillo al 20') { $hechasR += 'brillo bajo' } } catch {}
+    try { if (Invoke-FastCommand 'pon el volumen al 20') { $hechasR += 'volumen bajo' } } catch {}
+    $txtR = 'A descansar' + $(if ($hechasR.Count) { ': ' + ($hechasR -join ' y ') } else { '' }) + '.'
+    if (@(Get-Recordatorios | Where-Object { $_.texto -eq 'despertador' }).Count -gt 0) { return "$txtR Tu despertador ya esta puesto. Buenas noches." }
+    $script:pendiente = @{ texto = ''; vence = 0; tipo = 'despertador' }
+    return "$txtR ¿Te pongo el despertador?"
+}
+
+# AMIGOS CONECTADOS (F9): Steam, con su API web (hace falta una clave gratuita de
+# steamcommunity.com/dev/apikey en config: steam, apiKey). Discord no deja verlo
+# sin un bot: no se puede.
+function Get-AmigosSteam {
+    $claveS = [string](Get-Cfg 'steam' 'apiKey' '')
+    if (-not $claveS) { return 'para ver quien esta conectado en Steam necesito una clave de su API: pidela en steamcommunity.com barra dev barra apikey y ponla en la configuracion, en steam, apiKey' }
+    $cuentaS = [int64]0
+    try { $cuentaS = [int64](Get-ItemProperty 'HKCU:\Software\Valve\Steam\ActiveProcess' -ErrorAction Stop).ActiveUser } catch {}
+    if ($cuentaS -le 0) { return 'Steam no tiene la sesion iniciada' }
+    $yoS = [string]([int64]76561197960265728 + $cuentaS)
+    try {
+        $fl = Invoke-RestMethod "https://api.steampowered.com/ISteamUser/GetFriendList/v1/?key=$claveS&steamid=$yoS&relationship=friend" -TimeoutSec 6
+        $idsS = @($fl.friendslist.friends | ForEach-Object { $_.steamid } | Select-Object -First 100)
+        if ($idsS.Count -eq 0) { return 'no veo a ningun amigo en tu lista de Steam' }
+        $psS = Invoke-RestMethod ("https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key=$claveS&steamids=" + ($idsS -join ',')) -TimeoutSec 6
+        $onS = @($psS.response.players | Where-Object { [int]$_.personastate -gt 0 })
+        if ($onS.Count -eq 0) { return 'ahora mismo no hay nadie conectado en Steam' }
+        $jugandoS = @($onS | Where-Object { $_.gameextrainfo } | ForEach-Object { "$($_.personaname) jugando a $($_.gameextrainfo)" })
+        $soloS = @($onS | Where-Object { -not $_.gameextrainfo } | ForEach-Object { $_.personaname })
+        $partesS = @()
+        if ($jugandoS.Count) { $partesS += ($jugandoS -join ', ') }
+        if ($soloS.Count) { $partesS += ('conectados: ' + ($soloS -join ', ')) }
+        return "en Steam hay $($onS.Count): " + ($partesS -join '; ')
+    } catch {
+        Log ("steam amigos: " + ($_.Exception.Message -replace 'key=[^&\s]+', 'key=***'))
+        return 'no pude preguntarle a Steam'
+    }
+}
+
+# HISTORIAL DE MUSICA (F10): lo que ha sonado, con fecha (memoria\musica.json,
+# fuera del repositorio; las 300 ultimas). "¿Como se llamaba esa cancion?" y
+# "pon la que sonaba ayer por la noche" (la busca en Spotify).
+$script:musicaHist = $null
+function Get-HistorialMusica {
+    if ($null -ne $script:musicaHist) { return ,$script:musicaHist }
+    $script:musicaHist = New-Object System.Collections.ArrayList
+    $rutaM = Join-Path $MemoriaDir 'musica.json'
+    if (Test-Path -LiteralPath $rutaM) {
+        try {
+            foreach ($x in (Get-Content -LiteralPath $rutaM -Raw -Encoding UTF8 | ConvertFrom-Json)) {
+                if ($x -and $x.t) { [void]$script:musicaHist.Add(@{ t = [string]$x.t; a = [string]$x.a; f = [string]$x.f }) }
+            }
+        } catch { try { Save-Corrupto $rutaM } catch {} }
+    }
+    return ,$script:musicaHist
+}
+function Add-HistorialMusica([string]$titulo, [string]$artista, [datetime]$cuando = (Get-Date)) {
+    if (-not $titulo -or $script:invitado) { return }
+    $h = Get-HistorialMusica
+    if ($h.Count -gt 0 -and $h[$h.Count - 1].t -eq $titulo) { return }
+    [void]$h.Add(@{ t = $titulo; a = $artista; f = $cuando.ToString('s') })
+    while ($h.Count -gt 300) { $h.RemoveAt(0) }
+    try {
+        $rutaM = Join-Path $MemoriaDir 'musica.json'
+        [System.IO.File]::WriteAllText("$rutaM.tmp", (ConvertTo-Json @($h) -Depth 3), (New-Object System.Text.UTF8Encoding($false)))
+        Move-Item -LiteralPath "$rutaM.tmp" -Destination $rutaM -Force
+    } catch {}
+}
+function Find-CancionDe([string]$cuando, [datetime]$ahora = (Get-Date)) {
+    # OJO: sin @(...). Get-HistorialMusica devuelve la lista envuelta (",lista");
+    # con @() quedaba UNA lista dentro de otra y cada "cancion" era la lista entera
+    $h = Get-HistorialMusica
+    if ($h.Count -eq 0) { return $null }
+    $hoy = $ahora.Date
+    $desde = $null; $hasta = $null
+    switch ($cuando) {
+        { $_ -in 'antes', 'hace un rato' } { $desde = $ahora.AddHours(-3); $hasta = $ahora }
+        'esta manana' { $desde = $hoy.AddHours(5); $hasta = $hoy.AddHours(13) }
+        { $_ -in 'anoche', 'ayer por la noche' } { $desde = $hoy.AddDays(-1).AddHours(19); $hasta = $hoy.AddHours(5) }
+        'ayer por la manana' { $desde = $hoy.AddDays(-1).AddHours(5); $hasta = $hoy.AddDays(-1).AddHours(13) }
+        'ayer por la tarde' { $desde = $hoy.AddDays(-1).AddHours(13); $hasta = $hoy.AddDays(-1).AddHours(20) }
+        'ayer' { $desde = $hoy.AddDays(-1); $hasta = $hoy }
+    }
+    if (-not $desde) { return $null }
+    $en = @($h | Where-Object { $d = [datetime]$_.f; $d -ge $desde -and $d -lt $hasta })
+    if ($en.Count -eq 0) { return $null }
+    # la que mas sono en ese rato; a igualdad, la ultima que sono
+    $mejorC = @($en | Group-Object { $_.t } | Sort-Object @{ e = { $_.Count }; d = $true }, @{ e = { [datetime](@($_.Group)[-1].f) }; d = $true })[0]
+    return @($mejorC.Group)[-1]
+}
+function Get-CancionAnterior {
+    $h = Get-HistorialMusica   # sin @(): ver Find-CancionDe
+    if ($h.Count -eq 0) { return $null }
+    $ultima = $h[$h.Count - 1]
+    # si la ultima es la que suena ahora, "esa cancion" es la de antes
+    if ($h.Count -ge 2 -and $script:uiMusica -eq 1 -and $ultima.t -eq $script:musicaTitulo) { return $h[$h.Count - 2] }
+    return $ultima
+}
+
+# DOCK Y CASCOS (F8): cada 15 s, cuantas pantallas hay y si suena por unos cascos.
+# Solo el FLANCO (al conectar), como el cargador.
+$script:pantallasAntes = $null
+$script:cascosAntes = $null
+$script:dispCheck = 0
+$script:uiDock = 0
+function Watch-Dispositivos {
+    $nP = 1
+    try { $nP = @([System.Windows.Forms.Screen]::AllScreens).Count } catch {}
+    if ($null -ne $script:pantallasAntes -and $nP -gt $script:pantallasAntes) {
+        Log "DOCK: pantalla conectada ($nP)"
+        Invoke-Reglas 'dockPone' 'pone'
+    }
+    $dockAhora = if ($nP -gt 1) { 1 } else { 0 }
+    if ($dockAhora -ne $script:uiDock) { $script:uiDock = $dockAhora; Refresh-UI }
+    $script:pantallasAntes = $nP
+    $casP = $false
+    try {
+        $actP = @(Get-SalidasAudio | Where-Object { $_.actual }) | Select-Object -First 1
+        if ($actP -and $actP.nombre -match '(?i)headphone|headset|auricular|casco|buds|airpods|wh-|wf-|hands-free|manos libres') { $casP = $true }
+    } catch {}
+    if ($null -ne $script:cascosAntes -and $casP -and -not $script:cascosAntes) {
+        Log "CASCOS: puestos"
+        Invoke-Reglas 'cascosPone' 'pone'
+    }
+    $script:cascosAntes = $casP
+}
+
 # RESUMEN AL VOLVER (13/09): si la orden llega tras mas de 2 h sin decirle
 # nada, despues de contestarla la capsula enseña una linea con lo que ha pasado
 # mientras tanto (hoy: los mensajes que te esperan). Si no paso nada, calla.
@@ -4053,6 +4352,7 @@ function Send-Combinacion([string]$combo) {
         if ($pt -match '^(?:ctrl|control)$') { $vk = 0x11 }
         elseif ($pt -eq 'shift') { $vk = 0x10 }
         elseif ($pt -eq 'alt') { $vk = 0x12 }
+        elseif ($pt -match '^(?:win|windows)$') { $vk = 0x5B }
         elseif ($pt -match '^f([1-9]|1[0-2])$') { $vk = 0x6F + [int]$Matches[1] }
         elseif ($pt -match '^[a-z0-9]$') { $vk = [int][char]$pt.ToUpperInvariant() }
         if ($null -eq $vk) { throw "la tecla '$pt' no la entiendo" }
@@ -4892,7 +5192,16 @@ function Invoke-FastCommand([string]$text) {
                 }
                 'notifLeer' {
                     if ($script:invitado) { $a.desc = 'en modo invitado no leo los mensajes'; break }
-                    $a.desc = Get-LecturaNotificaciones
+                    # MUCHOS MENSAJES (M9): el modelo LOCAL (nunca la API: son tus
+                    # mensajes) los resume agrupados por persona o conversacion
+                    $nPendL = @($script:notifPendientes).Count
+                    if ($nPendL -ge 4 -and $ConversacionOn) {
+                        $todosL = Get-LecturaNotificaciones 15
+                        if (Send-Charla $todosL $false 'resumir') { $a.desc = "tienes $nPendL; te los resumo"; break }
+                        $a.desc = $todosL
+                    } else {
+                        $a.desc = Get-LecturaNotificaciones
+                    }
                     $script:sinTarjeta = $true   # para oirlo, no para una tarjeta
                     $script:sinTarjetaEn = $sw.ElapsedMilliseconds
                 }
@@ -4968,6 +5277,10 @@ function Invoke-FastCommand([string]$text) {
                     $rsV = Get-Recetas
                     $a.desc = if ($rsV.Count -eq 0) { 'todavia no he aprendido ninguna tarea; cuando la IA haga algo por ti, la aprendere' }
                               else { "he aprendido $($rsV.Count): " + ((@($rsV) | Select-Object -Last 8 | ForEach-Object { ([string]$_.frase) -replace '\{[a-z_]+\}', 'algo' }) -join '; ') }
+                    # y lo aprendido HABLANDO (el cerebro propio, M1)
+                    $cerebroV = ''
+                    try { $cerebroV = Get-BalanceCerebro } catch {}
+                    if ($cerebroV) { $a.desc = if ($rsV.Count -eq 0) { $cerebroV } else { "$($a.desc). Y $cerebroV" } }
                 }
                 'olvidarReceta' {
                     $rsO = Get-Recetas
@@ -5236,6 +5549,28 @@ function Invoke-FastCommand([string]$text) {
                         } else {
                             $a.desc = "no pude guardar la lista"
                         }
+                    }
+                }
+                'clipJuego' { $a.desc = Invoke-ClipJuego }
+                'descargaJuego' { $a.desc = [string]$a.texto }
+                'descargasAbrir' {
+                    try {
+                        Start-Process 'steam://open/downloads'
+                        $a.desc = if ($a.pausar) { 'te abro las descargas de Steam; desde ahi se pausan' } else { 'abriendo las descargas de Steam' }
+                    } catch { $a.desc = 'no pude abrir Steam' }
+                }
+                'amigosSteam' { $a.desc = Get-AmigosSteam }
+                'amigosDiscord' { $a.desc = 'en Discord no puedo verlo: no deja mirarlo sin un bot' }
+                'musicaAnterior' {
+                    $cA = Get-CancionAnterior
+                    $a.desc = if ($cA) { "era $($cA.t)" + $(if ($cA.a) { " de $($cA.a)" } else { '' }) } else { 'no tengo apuntada ninguna cancion todavia' }
+                }
+                'musicaDe' {
+                    $cD = Find-CancionDe ([string]$a.cuando)
+                    if (-not $cD) { $a.desc = "no tengo apuntado nada de $($a.cuando)" }
+                    else {
+                        try { Start-Process ('spotify:search:' + [Uri]::EscapeDataString(("$($cD.t) $($cD.a)").Trim())) } catch {}
+                        $a.desc = "te busco en Spotify $($cD.t)" + $(if ($cD.a) { " de $($cD.a)" } else { '' })
                     }
                 }
                 'listaCopiar' {
@@ -5956,7 +6291,7 @@ function Initialize-Online {
     }
 }
 
-function Say-Online([string]$texto) {
+function Say-Online([string]$texto, [string]$emo = '') {
     if (-not $script:ttsProc -or $script:ttsProc.HasExited) {
         # si murio, que el log diga POR QUE: su stderr se guardaba y nadie lo leia
         if ($script:ttsProc) {
@@ -5974,7 +6309,9 @@ function Say-Online([string]$texto) {
         # Bytes UTF-8 directos al flujo. .NET Framework no deja fijar la
         # codificacion de StandardInput y en la consola oculta usaba IBM850:
         # cada tilde o "¿" mataba al worker (surrogate en el md5). Verificado.
-        $bytes = [System.Text.Encoding]::UTF8.GetBytes($texto + "`n")
+        # VOZ CON EMOCION (M6): "{emo:alegre} ..." o "{emo:suave} ...", lo entiende el worker
+        $envioT = if ($emo) { "{emo:$emo} $texto" } else { $texto }
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($envioT + "`n")
         $flujo = $script:ttsProc.StandardInput.BaseStream
         $flujo.Write($bytes, 0, $bytes.Length)
         $flujo.Flush()
@@ -6131,7 +6468,7 @@ function Await-Voz($op, $tipo) {
 }
 
 # Habla sin bloquear el bucle: la sintesis tarda ~60 ms y Play() es asincrono.
-function Say([string]$texto) {
+function Say([string]$texto, [string]$emo = '') {
     if (-not $texto) { return }
     $script:vozFinReal = 0
     $t = ($texto -replace '\s+', ' ').Trim()
@@ -6148,14 +6485,14 @@ function Say([string]$texto) {
     try {
         $script:finVoz = $sw.ElapsedMilliseconds
         $estimado = [Math]::Min(20000, ($t.Length * 70) + 1200)
-        Pausar-Escucha $estimado
+        Pausar-Escucha $estimado $t
         # la capsula muestra lo que se dice y vuelve al reposo al callar. El
         # audio se anade despues, cuando se sabe cual es (Say-Online).
         $script:uiAudio = ''
         Set-UI 'hablando' $t ([Math]::Max($estimado, 2500))
     } catch {}
     # cadena de respaldo: si la red falla, sigue habiendo voz
-    if ($script:ttsProc) { if (Say-Online $t) { return } }
+    if ($script:ttsProc) { if (Say-Online $t $emo) { return } }
     if ($script:piperProc) { if (Say-Piper $t) { return } }
     if (-not $script:vozSyn) { return }
     try {
@@ -6250,6 +6587,7 @@ $SoloBotonEnJuego = [bool](Get-Cfg 'escucha' 'soloBotonEnJuego' $true)
 # o resfriado, y preguntar de mas es peor que no preguntar. Con 35 Hz, una voz
 # de video a 230 Hz salta y tu mismo hablando algo mas agudo no.
 $SoloYoOn = [bool](Get-Cfg 'escucha' 'soloYo' $true)
+$InterrumpirOn = [bool](Get-Cfg 'escucha' 'interrumpir' $true)   # ver INTERRUMPIR A NOVA
 $SoloYoMargen = [double](Get-Cfg 'escucha' 'soloYoMargenHz' 35)
 $SoloYoMinimo = [int](Get-Cfg 'escucha' 'soloYoMinimo' 12)
 $MarcaReintento = Join-Path $TmpDir "reintentar.flag"
@@ -6317,9 +6655,13 @@ foreach ($m in $(if ($Probar) { @() } else { @($MarcaPausa, $MarcaSoloBoton, $Ma
 }
 $script:pausaHasta = 0
 
-function Pausar-Escucha([int]$ms) {
+function Pausar-Escucha([int]$ms, [string]$voz = '') {
     try {
-        [System.IO.File]::WriteAllText($MarcaPausa, 'x')
+        # INTERRUMPIR A NOVA (M5): si la pausa es porque habla, la marca lleva lo que
+        # dice. El worker escucha solo "espera", "para", "calla"... y descarta la
+        # palabra si esta en la propia frase (sin eso se cortaria con su eco)
+        $marcaTxt = if ($voz -and $InterrumpirOn) { 'voz:' + (ConvertTo-Plain $voz) } else { 'x' }
+        [System.IO.File]::WriteAllText($MarcaPausa, $marcaTxt)
         $fin = $sw.ElapsedMilliseconds + $ms
         if ($fin -gt $script:pausaHasta) { $script:pausaHasta = $fin }
     } catch {}
@@ -6532,7 +6874,8 @@ function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
             ',"vol":"' + $script:uiVolumen + '"' +
             ',"cola":"' + $script:uiCola + '"' +
             ',"descarga":' + ([double]$script:uiDescarga).ToString('0.000', [System.Globalization.CultureInfo]::InvariantCulture) +
-            ',"escala":' + ([double]$script:uiEscala).ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture) +
+            ',"escala":' + ([double]$script:uiEscala * $(if ($script:uiDock -eq 1) { 1.25 } else { 1.0 })).ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture) +
+            ',"origen":"' + $script:uiOrigen + '"' +
             ',"color":"' + $script:uiColor + '"' +
             ',"confirmaFin":' + ([long]$script:confirmaFin) + ',"confirmaTotal":' + ([long]$script:confirmaTotal) +
             ',"esquina":"' + $script:esquina + '"' +
@@ -6972,6 +7315,8 @@ function Describe-Regla($r) {
         'bateria' { "cuando la bateria baje del $($r.valor) por ciento" }
         'cargadorQuita' { 'cuando quites el cargador' }
         'cargadorPone' { 'cuando enchufes el cargador' }
+        'dockPone' { 'cuando conectes el dock o una pantalla' }
+        'cascosPone' { 'cuando te pongas los cascos' }
         'disco' { "cuando queden menos de $($r.valor) gigas" }
         'descarga' { if ($r.valor) { "cuando termine de descargarse $($r.valor)" } else { 'cuando termine una descarga' } }
         'hora' { "todos los dias a las $($r.valor)" }
@@ -7011,6 +7356,19 @@ function Invoke-ReglaVoz([string]$text) {
     # RECORDATORIO DE UN SOLO USO LIGADO A UNA APP (13/09): "recuerdame comprar la
     # expansion cuando abra hades" o "cuando abra hades recuerdame...". Es una regla
     # que lo dice la primera vez que abres eso, y se borra sola.
+    # y el recordatorio de un solo uso al conectar el dock o ponerse los cascos (F8)
+    $recDisp = $null; $recTxtD = $null
+    $RE_DISP = '((?:conecte|conectes|enchufe|ponga)\s+(?:el\s+|la\s+)?(?:dock|base|tele|television|monitor|pantalla)|(?:me\s+)?(?:conecte|ponga)\s+(?:los\s+|mis\s+)?(?:cascos|auriculares|audifonos))'
+    if ($p -match ('^(?:recuerdame|avisame)\s+(?:que\s+|de\s+)?(.+?)\s+cuando\s+' + $RE_DISP + '$')) { $recTxtD = $Matches[1]; $recDisp = $Matches[2] }
+    elseif ($p -match ('^cuando\s+' + $RE_DISP + '\s*,?\s*(?:recuerdame|avisame)\s+(?:que\s+|de\s+)?(.+)$')) { $recDisp = $Matches[1]; $recTxtD = $Matches[2] }
+    if ($recDisp -and $recTxtD) {
+        $esCascos = ($recDisp -match 'cascos|auriculares|audifonos')
+        $idD = 1; foreach ($x in $g) { if ($x.id -ge $idD) { $idD = $x.id + 1 } }
+        $rDisp = @{ id = $idD; tipo = $(if ($esCascos) { 'cascosPone' } else { 'dockPone' }); valor = ''; accion = "di " + $recTxtD.Trim(); ultima = 'unavez' }
+        [void]$g.Add($rDisp); Save-Reglas
+        Log ("REGLA $idD guardada: " + (Describe-Regla $rDisp))
+        return "Vale, te lo recuerdo cuando " + $(if ($esCascos) { 'te pongas los cascos.' } else { 'conectes el dock.' })
+    }
     $recApp = $null; $recTexto = $null
     if ($p -match '^(?:recuerdame|avisame)\s+(?:que\s+|de\s+)?(.+?)\s+cuando\s+(?:abra|abras|abro|inicie|arranque|entre en|entre a|juegue a|juegue al|juegue)\s+(?:el\s+|la\s+|al\s+|a\s+)?(.+)$') {
         $recTexto = $Matches[1]; $recApp = $Matches[2]
@@ -7075,6 +7433,13 @@ function Invoke-ReglaVoz([string]$text) {
     elseif ($p -match '^cuando\s+(?:lo\s+|la\s+)?(?:enchufe|enchufes|conecte|conectes|ponga|pongas)\s+(?:el\s+)?(?:cargador|cable|corriente|enchufe|a cargar)\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
         $tipo = 'cargadorPone'; $valor = ''; $accion = $Matches[1].Trim()
     }
+    # DOCK Y CASCOS (F8): "cuando conecte el dock pon modo tele", "cuando me ponga los cascos sube el volumen"
+    elseif ($p -match '^cuando\s+(?:conecte|conectes|enchufe|enchufes|ponga|pongas)\s+(?:el\s+|la\s+)?(?:dock|base|tele|television|monitor|pantalla)\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
+        $tipo = 'dockPone'; $valor = ''; $accion = $Matches[1].Trim()
+    }
+    elseif ($p -match '^cuando\s+(?:me\s+)?(?:conecte|conectes|ponga|pongas)\s+(?:los\s+|mis\s+)?(?:cascos|auriculares|audifonos)\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
+        $tipo = 'cascosPone'; $valor = ''; $accion = $Matches[1].Trim()
+    }
     # DISCO: "cuando queden menos de 20 gigas avisame"
     elseif ($p -match '^cuando\s+(?:queden|quede|haya|tenga)\s+menos\s+de\s+(\d{1,4})\s*(?:gigas?|gb|g)\b\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
         $tipo = 'disco'; $valor = [string][int]$Matches[1]; $accion = $Matches[2].Trim()
@@ -7113,6 +7478,8 @@ function Invoke-ReglaVoz([string]$text) {
             'bateria' { "te queda poca bateria, menos del $valor por ciento" }
             'cargadorQuita' { 'has quitado el cargador' }
             'cargadorPone' { 'ya esta cargando' }
+            'dockPone' { 'has conectado una pantalla' }
+            'cascosPone' { 'te has puesto los cascos' }
             'juegoAbre' { 'ya abriste el juego' }
             'juegoCierra' { 'ya cerraste el juego' }
             'appAbre' { "se abrio $valor" }
@@ -7150,6 +7517,8 @@ function Invoke-Reglas([string]$tipo, [string]$dato = '') {
             }
             'cargadorQuita' { $dispara = ($dato -eq 'quita') }
             'cargadorPone' { $dispara = ($dato -eq 'pone') }
+            'dockPone' { $dispara = ($dato -eq 'pone') }
+            'cascosPone' { $dispara = ($dato -eq 'pone') }
             'disco' {
                 # igual que la bateria: solo al cruzar el umbral, y se rearma
                 # cuando vuelve a haber holgura (5 gigas de margen)
@@ -7175,7 +7544,7 @@ function Invoke-Reglas([string]$tipo, [string]$dato = '') {
         $script:confirmado = $true
         $res = $null
         try { $res = Invoke-FastCommand $r.accion } catch { $res = $null } finally { $script:confirmado = $false }
-        $unaVez = ($r.ultima -eq 'unavez' -and $tipo -in @('appAbre', 'juegoAbre'))
+        $unaVez = ($r.ultima -eq 'unavez' -and $tipo -in @('appAbre', 'juegoAbre', 'dockPone', 'cascosPone'))
         if ($res) { Send-UIEvento 'hecho'; Say ($(if ($unaVez) { 'Recuerda' } else { "Regla $($r.id)" }) + ": $res") } else { Log "REGLA $($r.id): la accion no se pudo ejecutar" }
         # un recordatorio de un solo uso se borra al cumplirse (ver Invoke-ReglaVoz)
         if ($unaVez) { [void]$g.Remove($r); Save-Reglas; Log "REGLA $($r.id): era de un solo uso, borrada" }
@@ -7373,6 +7742,8 @@ function Test-Recordatorios {
         $c = $null
         try { $c = [DateTime]$r.cuando } catch { continue }
         if ($c -le $ahora) {
+            # el despertador no es un aviso: suena (ver DESPERTADOR)
+            if ($r.texto -eq 'despertador') { try { Invoke-Despertador } catch { Log ("despertador: " + $_.Exception.Message) }; continue }
             Log "RECORDATORIO vence: $($r.texto)"
             Send-Aviso ("Te recuerdo: " + $r.texto) 'recordatorio'
             Start-Vibracion @(120, 80, 120)
@@ -8719,6 +9090,82 @@ $script:charlaUltima = -600000      # ms del ultimo intercambio de charla
 $script:charlaSilencios = 0
 $script:charlaDescargada = $true
 $script:vozFinReal = 0              # cuando acaba DE VERDAD la frase que suena (ver Say-Online)
+$script:charlaOp = 'hablar'         # que se le pidio al worker (hablar, trivia, resumir)
+$script:triviaHasta = 0             # hasta cuando la proxima frase es la respuesta a la trivia
+$script:ventanaCharla = $false      # el proximo seguimiento es de una conversacion
+$script:precargaEn = -600000        # ultima precarga del modelo de charla
+$script:uiOrigen = ''               # quien dice la frase que suena (memoria, local, api): la capsula la tine
+$script:progresoCharla = $false     # la linea de la capsula marca la espera de la charla
+
+# EL RITMO DE BRAYA (M8): cuanto tardas en empezar a hablar cuando Nova te deja
+# la ventana abierta. Lo mide el worker de escucha; con los ultimos 30, la
+# ventana se ajusta: ni tan corta que te corte ni tan larga que escuche de mas.
+function Add-RitmoSeguimiento {
+    $rutaR = Join-Path $TmpDir 'seguimiento-voz.txt'
+    if (-not (Test-Path -LiteralPath $rutaR)) { return }
+    $s = -1.0
+    try { $s = [double]::Parse(([System.IO.File]::ReadAllText($rutaR)).Trim(), [System.Globalization.CultureInfo]::InvariantCulture) } catch { $s = -1.0 }
+    Remove-Item -LiteralPath $rutaR -Force -ErrorAction SilentlyContinue
+    if ($s -lt 0 -or $s -gt 30 -or $script:invitado) { return }
+    $hbR = Get-Habitos
+    [void]$hbR.ritmo.Add([Math]::Round($s, 2))
+    while ($hbR.ritmo.Count -gt 30) { $hbR.ritmo.RemoveAt(0) }
+    Save-Habitos
+}
+function Get-VentanaSeguimiento([bool]$charla = $false) {
+    $hbV = Get-Habitos
+    if ($hbV.ritmo.Count -lt 5) { if ($charla) { return $ConversacionEsperaMs } else { return $SeguimientoMs } }
+    $orden = @($hbV.ritmo | Sort-Object)
+    $p80 = [double]$orden[[int][Math]::Floor(($orden.Count - 1) * 0.8)]
+    if ($charla) { return [int][Math]::Min(12000, [Math]::Max(4000, $p80 * 1600 + 1500)) }
+    return [int][Math]::Min(6000, [Math]::Max($SeguimientoMs, $p80 * 1300 + 800))
+}
+
+# MENOS ESPERA EN FRIO (M2): el modelo de charla tarda ~15 s en cargar. Si es
+# probable que vayas a conversar (hablasteis hace poco, o sueles hacerlo a esta
+# hora tres dias de las dos ultimas semanas), al llamarla se precarga mientras
+# dictas. Jugando no, que la RAM es del juego, salvo que acabeis de hablar.
+function Add-CharlaHora([datetime]$cuando = (Get-Date)) {
+    if ($script:invitado) { return }
+    $hbC = Get-Habitos
+    $clave = $cuando.ToString('yyyy-MM-dd|HH')
+    if ($hbC.charlaHoras.ContainsKey($clave)) { return }
+    $hbC.charlaHoras[$clave] = 1
+    $limite = $cuando.AddDays(-14).ToString('yyyy-MM-dd')
+    foreach ($k in @($hbC.charlaHoras.Keys)) { if ($k.Substring(0, 10) -lt $limite) { $hbC.charlaHoras.Remove($k) } }
+    Save-Habitos
+}
+function Test-PrecargaCharla([datetime]$ahora = (Get-Date)) {
+    if (-not $ConversacionOn) { return $false }
+    $reciente = ($sw.ElapsedMilliseconds - $script:charlaUltima) -lt 1200000
+    if ($reciente) { return $true }
+    if ($script:juegoActivo) { return $false }
+    $hora = $ahora.ToString('HH')
+    $limite = $ahora.AddDays(-14).ToString('yyyy-MM-dd')
+    $dias = @((Get-Habitos).charlaHoras.Keys | Where-Object { $_.EndsWith("|$hora") -and $_.Substring(0, 10) -ge $limite }).Count
+    return ($dias -ge 3)
+}
+
+# lo que ha aprendido HABLANDO, para "¿que has aprendido?" (M1)
+function Get-BalanceCerebro {
+    $rutaC = Join-Path $CerebroDir 'cerebro.json'
+    if (-not (Test-Path -LiteralPath $rutaC)) { return '' }
+    $c = $null
+    try { $c = Get-Content -LiteralPath $rutaC -Raw -Encoding UTF8 | ConvertFrom-Json } catch { return '' }
+    $firmes = 0; $prov = 0; $otros = 0
+    foreach ($r in @($c.recuerdos)) {
+        if (-not $r -or $r.estado -eq 'rechazada') { continue }
+        if ($r.tipo -eq 'respuesta') { if ($r.estado -eq 'firme') { $firmes++ } else { $prov++ } } else { $otros++ }
+    }
+    $temas = @()
+    if ($c.temas) { $temas = @($c.temas.PSObject.Properties | Sort-Object { [int]$_.Value } -Descending | Select-Object -First 2 | ForEach-Object { $_.Name }) }
+    if (($firmes + $prov + $otros) -eq 0) { return '' }
+    $t = 'hablando contigo he aprendido ' + $(if ($firmes -eq 1) { 'una respuesta segura' } else { "$firmes respuestas seguras" })
+    if ($prov -gt 0) { $t += " y tengo $prov por confirmar" }
+    if ($otros -gt 0) { $t += ', ademas de ' + $(if ($otros -eq 1) { 'un recuerdo' } else { "$otros recuerdos" }) + ' de lo que hablamos' }
+    if ($temas.Count -gt 0) { $t += '. Sueles hablarme de ' + ($temas -join ' y ') }
+    return $t
+}
 
 function Initialize-Charla {
     if ($script:charlaProc -and -not $script:charlaProc.HasExited) { return $true }
@@ -8757,15 +9204,17 @@ function Send-CharlaPedido($pedido, [bool]$arrancar = $true) {
     } catch { Log ("charla: no pude escribir al worker: " + $_.Exception.Message); return $false }
 }
 
-function Send-Charla([string]$text, [bool]$duda = $false) {
+function Send-Charla([string]$text, [bool]$duda = $false, [string]$op = 'hablar', $extra = $null) {
     if (-not $ConversacionOn -or -not $text) { return $false }
     $script:charlaId++
     # invitado: ni se aprende de lo que diga ni se le pone delante lo tuyo.
     # duda: "eso no es verdad", la ultima respuesta queda como incorrecta
-    $pedido = @{ op = 'hablar'; id = $script:charlaId; texto = $text; invitado = [bool]$script:invitado; duda = $duda }
+    $pedido = @{ op = $op; id = $script:charlaId; texto = $text; invitado = [bool]$script:invitado; duda = $duda }
+    if ($extra) { foreach ($k in @($extra.Keys)) { $pedido[$k] = $extra[$k] } }
     if ($script:juegoActivo) { $pedido.juego = [string]$script:juegoActivo }
     if (-not (Send-CharlaPedido $pedido)) { return $false }
     $script:charlaTexto = $text
+    $script:charlaOp = $op
     $script:charlaFrases.Clear()
     $script:charlaEsperando = $true
     $script:charlaDesde = $sw.ElapsedMilliseconds
@@ -8773,11 +9222,45 @@ function Send-Charla([string]$text, [bool]$duda = $false) {
     $script:charlaDescargada = $false
     $script:charlaSilencios = 0
     $script:seguimientoPendiente = $false     # se arma cuando termine de contestar
-    Log "CHARLA: $text"
-    Add-Estadistica 'charla' $text
+    if ($op -eq 'resumir') {
+        Log "CHARLA (resumir mensajes): $($text.Length) caracteres"   # tus mensajes no van al log
+    } else {
+        Log "CHARLA ($op): $text"
+        Add-Estadistica 'charla' $text
+        try { Add-CharlaHora } catch {}
+    }
     # si ya esta hablando (la orden de una frase mixta), que no se le corte la cara
     if ($sw.ElapsedMilliseconds -ge $script:pausaHasta) { Set-UI 'pensando' }
     return $true
+}
+
+# ¿PARECE CHARLA? (14/09): "estoy muy cansado hoy" iba a Claude Code como si
+# fuera una orden (probado en vivo): Test-Charla solo da por charla las frases
+# largas o en ingles, porque se hizo para DESCARTAR ruido. Esta es para
+# CONVERSAR: lo que no empieza como una orden y suena a hablar de uno mismo o a
+# comentario va a la charla. Si era algo que hacer, el modelo contesta [ORDEN] y
+# vuelve al camino de las ordenes.
+function Test-PareceCharla([string]$text) {
+    $p = ConvertTo-Plain $text
+    $p = ($p -replace '^(?:(?:hola|oye|ey|hey|nova|bueno|pues|y|vale|ok|mira|sabes|oyes)\s+)+', '').Trim()
+    $w = @($p -split '\s+' | Where-Object { $_ })
+    if ($w.Count -lt 2) { return $false }
+    # "me encanta", "me siento", "te cuento": "me" abre ordenes ("me pones...") pero
+    # con un verbo de sentir delante es hablar de uno mismo
+    if ($p -match '^(?:me|te|nos)\s+(?:encanta|encantan|gusta|gustan|siento|paso|pasa|apetece|aburro|duele|preocupa|molesta|flipa|cae|parece|cuesta|agobia|alegra|cuento)\b') { return $true }
+    $primera = $w[0]
+    if ($VERBOS_OIDOS.ContainsKey($primera) -or ($VERBOS_LISTA -contains $primera) -or ($INICIO_ORDEN -contains $primera)) { return $false }
+    if ($primera -match '^[a-z]{2,}[ae](?:me|le|te|lo|la|les|los|las|nos)$') { return $false }   # "ponme", "bajalo"
+    return ($p -match '\b(estoy|estaba|estuve|me|mi|mis|yo|tengo|tenia|creo|pienso|siento|gusta|gustan|encanta|encantan|odio|hoy|ayer|vengo|acabo|fijate|imaginate|te cuento|que tal|como estas|que opinas|tu que|y tu)\b')
+}
+
+# VOZ CON EMOCION (M6): una frase de la charla que consuela se dice un pelo mas
+# calmada; una que se alegra, un pelo mas viva. Lo demas, la voz de siempre.
+function Get-EmocionFrase([string]$t) {
+    $p = ConvertTo-Plain $t
+    if ($p -match '\b(lo siento|vaya|que pena|animo|tranquil[oa]|no te preocupes|te entiendo|lamento|descansa|respira)\b') { return 'suave' }
+    if ($t -match '!' -or $p -match '\b(genial|me alegro|que bien|felicidades|enhorabuena|jaja|increible|estupendo|fantastico|que guay)\b') { return 'alegre' }
+    return ''
 }
 
 # ¿Se esta conversando AHORA (modelo cargado, ultima respuesta hace menos de 2
@@ -8817,6 +9300,8 @@ function Receive-Charla {
         try { $ev = $linea | ConvertFrom-Json } catch { $ev = $null }
         if (-not $ev) { continue }
         if ($ev.ev -eq 'info') { Log "charla: $($ev.texto)"; continue }
+        # el cerebro confirmo algo nuevo: un destello en la capsula (D1)
+        if ($ev.ev -eq 'aprendido') { Log "charla: aprendido '$($ev.texto)'"; Send-UIEvento 'destello'; continue }
         # EL CEREBRO PROPIO: lo que la revision saco de la charla (llega cuando sea, sin id)
         if ($ev.ev -eq 'dato') {
             if (-not $script:invitado) { try { [void](Add-DatoPerfil ([string]$ev.texto) 'charla') } catch {} }
@@ -8826,13 +9311,13 @@ function Receive-Charla {
             Log "charla: me equivoque, lo correcto es: $($ev.texto)"
             # solo si seguis hablando; si no, ya lo sabra para la proxima
             if (($sw.ElapsedMilliseconds - $script:charlaUltima) -lt 90000 -and -not $script:armed -and -not $script:charlaEsperando) {
-                $script:charlaFrases.Enqueue("Por cierto, antes me equivoque: " + [string]$ev.texto)
+                $script:charlaFrases.Enqueue(@{ t = ("Por cierto, antes me equivoque: " + [string]$ev.texto); o = 'api' })
             }
             continue
         }
         if ([int]$ev.id -ne $script:charlaId) { continue }   # de una respuesta ya cortada
         if ($ev.ev -eq 'frase') {
-            $script:charlaFrases.Enqueue([string]$ev.texto)
+            $script:charlaFrases.Enqueue(@{ t = [string]$ev.texto; o = [string]$ev.origen })
         } elseif ($ev.ev -eq 'fin') {
             $script:charlaEsperando = $false
             $script:charlaUltima = $sw.ElapsedMilliseconds
@@ -8840,19 +9325,45 @@ function Receive-Charla {
             if ($ev.origen -ne 'parado') {
                 # al acabar de hablar, vuelve a escuchar sola y con mas margen
                 $script:seguimientoPendiente = $true
-                $script:seguimientoFactor = [Math]::Max(1.0, $ConversacionEsperaMs / [double][Math]::Max(1, $SeguimientoMs))
+                $script:seguimientoFactor = 1.0
+                $script:ventanaCharla = $true        # la ventana de charla, a tu ritmo (ver Get-VentanaSeguimiento)
+                # tras la pregunta de trivia, lo proximo que digas es tu respuesta
+                $script:triviaHasta = if ($ev.origen -eq 'trivia') { $sw.ElapsedMilliseconds + 90000 } else { 0 }
                 if ($script:pausaHasta -le 0) { $script:pausaHasta = $sw.ElapsedMilliseconds + 100 }
             }
         } elseif ($ev.ev -eq 'orden') {
             $script:charlaEsperando = $false
-            Log "charla: no era charla sino una orden -> '$($ev.texto)'"
+            $ordenC = [string]$ev.texto
+            Log ("charla: no era charla sino una orden -> '$ordenC'" + $(if ($ev.original -and [string]$ev.original -ne $ordenC) { " (dicho: '$($ev.original)')" } else { '' }))
             $script:seguimientoPendiente = $true
-            if ($TraducirOn) { Submit-Command ([string]$ev.texto) 'traducir' } else { Submit-Command ([string]$ev.texto) }
+            # ORDENES DENTRO DE LA CHARLA (M10): ya reescrita con lo hablado. Primero
+            # lo que Nova sabe hacer sola; si no, el camino de siempre
+            $fastC = $null
+            try { $fastC = Invoke-FastCommand $ordenC } catch { $fastC = $null }
+            if ($fastC -and $script:pendiente) {
+                Show-Popup $fastC
+                Say $fastC
+                Set-UI 'escuchando' $fastC
+                Start-Confirmacion
+            } elseif ($fastC) {
+                Log "LOCAL (desde la charla): $ordenC -> $fastC"
+                Send-UIEvento 'hecho'
+                Say $fastC
+            } elseif ($TraducirOn) { Submit-Command $ordenC 'traducir' } else { Submit-Command $ordenC }
         } elseif ($ev.ev -eq 'err') {
-            # ni el local ni la API: queda el cerebro de siempre, mejor que callarse
             $script:charlaEsperando = $false
-            Log "charla: sin respuesta ($($ev.texto)); se lo paso al cerebro"
-            Submit-Command $script:charlaTexto 'pregunta'
+            if ($script:charlaOp -eq 'resumir') {
+                # tus mensajes NUNCA van a otro cerebro: sin resumen, se leen tal cual
+                Log "charla: no pude resumir los mensajes; los leo"
+                Say $script:charlaTexto
+            } elseif ($script:charlaOp -eq 'trivia') {
+                Log "charla: la trivia fallo ($($ev.texto))"
+                Say 'Ahora no puedo jugar.'
+            } else {
+                # ni el local ni la API: queda el cerebro de siempre, mejor que callarse
+                Log "charla: sin respuesta ($($ev.texto)); se lo paso al cerebro"
+                Submit-Command $script:charlaTexto 'pregunta'
+            }
         }
     }
 }
@@ -9177,6 +9688,7 @@ function Report-Reply($out) {
     $script:ultimaRespuesta = $reply
     # tarea larga terminada: un pulso largo en el mando, por si estabas jugando
     if (($sw.ElapsedMilliseconds - $script:jobStart) -ge 8000) { Start-Vibracion @(220) 24000 }
+    $eraSinTarjeta = [bool]$script:respuestaSinTarjeta
     # la traduccion de la pantalla se oye, no se lee en una tarjeta (ver TRADUCIR LA PANTALLA)
     if ($script:respuestaSinTarjeta) {
         $script:respuestaSinTarjeta = $false
@@ -9196,8 +9708,23 @@ function Report-Reply($out) {
             $reply = "No pude saber donde te quedaste. Dime: me quede en..."
         }
     }
+    # "me voy a dormir" con un juego delante: apuntado donde te quedaste, la rutina (F3)
+    if ($script:rutinaDormirTrasNota) {
+        $script:rutinaDormirTrasNota = $false
+        try { $reply = "$reply " + (Invoke-RutinaDormir) } catch {}
+    }
+    # EL CEREBRO APRENDE TAMBIEN DE CLAUDE CODE (M4): lo que contesto a una
+    # pregunta pasa al cerebro propio como respuesta de la API (firme si es
+    # conocimiento general; el revisor saca ademas datos y temas). No lo que era
+    # leer o traducir la pantalla, ni lo de un invitado.
+    if ($ConversacionOn -and $script:jobModo -in @('pregunta', 'charla') -and -not $eraSinTarjeta -and -not $script:invitado -and
+        $reply -notmatch '^\(' -and $script:jobTextoOriginal) {
+        try { [void](Send-CharlaPedido @{ op = 'aprender'; pregunta = [string]$script:jobTextoOriginal; respuesta = $reply; origen = 'api' }) } catch {}
+    }
     Show-Popup $reply
     Say $reply
+    # la rutina de dormir pregunto por el despertador: se espera el si o el no
+    if ($script:pendiente -and $script:pendiente.tipo -eq 'despertador') { Set-UI 'escuchando' $reply; Start-Confirmacion }
 }
 
 # --- confirmacion por voz ---
@@ -9240,6 +9767,37 @@ function Complete-Confirmacion([string]$respuesta) {
         } else {
             Set-UI 'reposo'
         }
+        return
+    }
+    # MODO INVITADO PROPUESTO (M7)
+    if ($p.tipo -eq 'invitadoAuto') {
+        if ($respuesta -eq 'si') {
+            $script:invitado = $true
+            $script:invitadoUltimo = $sw.ElapsedMilliseconds
+            Log "MODO INVITADO: dentro (propuesto por voz ajena)"
+            Send-UIEvento 'hecho'
+            Say 'Modo invitado puesto. Se quita solo en media hora sin ordenes.'
+        } else { Set-UI 'reposo' }
+        return
+    }
+    # ¿TE PONGO EL DESPERTADOR? (rutina de dormir)
+    if ($p.tipo -eq 'despertador') {
+        if ($respuesta -eq 'si') {
+            $script:despertadorHora = $sw.ElapsedMilliseconds + 60000
+            $script:seguimientoPendiente = $true
+            Say '¿A que hora?'
+        } else { Say 'Buenas noches.' }
+        return
+    }
+    # APAGADO PROGRAMADO (F3)
+    if ($p.tipo -eq 'apagado') {
+        if ($respuesta -eq 'si') {
+            try {
+                Start-Process -FilePath 'shutdown.exe' -ArgumentList @('/s', '/t', [string]([int]$p.min * 60)) -WindowStyle Hidden
+                Log "APAGADO: en $($p.min) min"
+                Say ("Me apago en " + (Format-MinutosDichos ([int]$p.min)) + '. Di cancela el apagado si cambias de idea.')
+            } catch { Say 'No pude programar el apagado.' }
+        } else { Set-UI 'reposo' }
         return
     }
     # MODO AHORRO PARA LLEGAR A UNA HORA (ver 'bateriaHasta')
@@ -9546,6 +10104,15 @@ function Start-Dictado([string]$origen) {
     Log "DICTADO ($origen)"
     # llamarla de nuevo corta lo que estuviera contestando (ver CONVERSACION DE VERDAD)
     if ($origen -ne 'seguimiento') { try { Stop-Charla } catch {} }
+    # si es probable que vayas a charlar, el modelo empieza a cargar ya (ver MENOS ESPERA EN FRIO)
+    if ($origen -ne 'seguimiento' -and ($sw.ElapsedMilliseconds - $script:precargaEn) -gt 90000) {
+        try {
+            if (Test-PrecargaCharla) {
+                $script:precargaEn = $sw.ElapsedMilliseconds
+                if (Send-CharlaPedido @{ op = 'calentar' }) { Log "charla: precargo el modelo (es probable charlar)" }
+            }
+        } catch {}
+    }
     # NOTA DE VOZ y TRADUCTOR (13/09): solo el dictado de seguimiento que viene
     # detras de "graba una nota" / "traduce lo que diga" lleva la marca para el
     # worker (guarda el audio / escucha en otro idioma). Cualquier otro la quita:
@@ -9659,7 +10226,11 @@ function Start-Dictado([string]$origen) {
         Remove-Item -LiteralPath $RutaParcial -Force -ErrorAction SilentlyContinue
         # en seguimiento, la marca lleva el plazo: si no hay voz en ese tiempo
         # el worker cierra solo y entrega vacio
-        $ventana = if ($largo) { 20000 } else { [int]($SeguimientoMs * $script:seguimientoFactor) }
+        $ventana = if ($largo) { 20000 }
+                   elseif ($script:ventanaCharla) { Get-VentanaSeguimiento $true }
+                   else { [int]((Get-VentanaSeguimiento $false) * $script:seguimientoFactor) }
+        $script:ventanaCharla = $false
+        Remove-Item -LiteralPath (Join-Path $TmpDir 'seguimiento-voz.txt') -Force -ErrorAction SilentlyContinue
         [System.IO.File]::WriteAllText($MarcaDictar, $(if ($seguimiento) { "seguimiento:$ventana" } else { 'x' }))
         Start-Vibracion $(if ($seguimiento) { @(40) } else { @(90) })
         $lbl.Text = "● VOZ..."
@@ -9884,6 +10455,7 @@ function Process-Texto([string]$text) {
         }
         $plano = ConvertTo-Plain $text
         if ($script:invitado) { $script:invitadoUltimo = $sw.ElapsedMilliseconds }
+        $script:uiOrigen = ''   # lo que se conteste ahora no hereda el tinte de la charla anterior
 
         # LO QUE LLEGA TRAS UNA PREGUNTA SUYA, antes que nada (ni "gracias" ni atajos):
         # NOTA DE VOZ: el worker ya guardo el audio en WAV; aqui llega lo que dijiste
@@ -9946,6 +10518,33 @@ function Process-Texto([string]$text) {
             }
         }
 
+        # TRIVIA (F7): lo que digas tras la pregunta de Nova es tu respuesta, sea lo
+        # que sea ("Leonardo" a secas, que el filtro de ruido tiraria)
+        if ($script:triviaHasta -gt $sw.ElapsedMilliseconds) {
+            $script:triviaHasta = 0
+            if (Send-Charla $text) { return }
+        }
+        if ($plano -match '^(?:hazme una pregunta|preguntame algo|ponme a prueba|juguemos a (?:la )?trivia|jugamos a (?:la )?trivia|trivia)$') {
+            $script:seguimientoPendiente = $false
+            if (Send-Charla 'trivia' $false 'trivia') { return }
+            Say 'Para jugar necesito el modelo de charla.'
+            return
+        }
+        # AYUDA CON EL JUEGO QUE TIENES DELANTE (F2): el juego y lo que pone la
+        # pantalla van a la API con busqueda web; lo que conteste se aprende
+        $juegoAyuda = $null
+        if ($ConversacionOn -and $plano -match '^(?:como\s+(?:paso|supero|mato|derroto|venzo|resuelvo|consigo|hago|abro|llego)\b|ayudame\s+con\s+(?:esto|este|esta)\b|que\s+hago\s+(?:aqui|ahora)$|no\s+se\s+como\s+(?:pasar|seguir|hacer|matar|derrotar)\b)') {
+            $juegoAyuda = Get-JuegoDeReferencia
+        }
+        if ($juegoAyuda) {
+            $pantallaA = ''
+            try { $pantallaA = [string](Invoke-OCR (Save-Captura (Join-Path $TmpDir 'pantalla.png'))) } catch {}
+            if ($pantallaA.Length -gt 500) { $pantallaA = $pantallaA.Substring(0, 500) }
+            $pideA = "En el juego $($juegoAyuda): $text" + $(if ($pantallaA) { " (en la pantalla pone: $pantallaA)" } else { '' })
+            Log "AYUDA DE JUEGO ($juegoAyuda): $text"
+            if (Send-Charla $pideA $false 'hablar' @{ buscar = $true; ayuda = $true }) { return }
+        }
+
         # EL CEREBRO PROPIO: "eso no es verdad" en plena charla rechaza lo ultimo que
         # dijo (y se contesta de nuevo por la API); "olvida lo de X" borra lo aprendido
         if ((Test-CharlaCaliente) -and $plano -match '^(?:no\s+)?(?:eso\s+no\s+es\s+(?:verdad|asi|cierto|correcto)|no\s+es\s+(?:verdad|asi|cierto)|te\s+equivocas|estas\s+equivocada|eso\s+esta\s+mal|mentira)\b') {
@@ -9959,6 +10558,78 @@ function Process-Texto([string]$text) {
                 Say "Vale, olvido lo de $temaO."
                 return
             }
+        }
+
+        # MODO INVITADO AUTOMATICO (M7): tres frases en 10 min con una voz que no es
+        # la tuya -> despues de contestar, Nova pregunta si pone el modo invitado.
+        # Cada dictado cuenta una vez (el tono de una orden escrita es el de antes).
+        if (-not $script:invitado -and $SoloYoOn -and $script:ultimaF0 -gt 0 -and $script:ultimaF0 -ne $script:vozAjenaF0Vista) {
+            $script:vozAjenaF0Vista = $script:ultimaF0
+            if (Test-VozExtrana) {
+                $script:vozAjenaVeces = @(@($script:vozAjenaVeces) | Where-Object { ($sw.ElapsedMilliseconds - $_) -lt 600000 }) + @($sw.ElapsedMilliseconds)
+                if ($script:vozAjenaVeces.Count -ge 3 -and ($sw.ElapsedMilliseconds - $script:invitadoPropuestoEn) -gt 1800000) { $script:invitadoPropuesta = $true }
+            } else {
+                $script:vozAjenaVeces = @()
+            }
+        }
+        # LA HORA DEL DESPERTADOR, tras "¿te pongo el despertador?" -> "si" -> "¿a que hora?"
+        if ($script:despertadorHora -gt $sw.ElapsedMilliseconds) {
+            $script:despertadorHora = 0
+            $script:seguimientoPendiente = $false
+            if ($plano -match '^(?:no|nada|dejalo|da igual|ninguno|ninguna)$') { Say 'Vale, sin despertador. Buenas noches.'; return }
+            $horaD = $plano
+            if ($horaD -notmatch '^(?:a\s+las?|para\s+las?|manana|hoy|el\s)') { $horaD = "a las $horaD" }
+            $rHora = $null
+            try { $rHora = Invoke-DespertadorVoz "despiertame $horaD" } catch {}
+            if ($rHora) { Log "DESPERTADOR: $horaD -> $rHora"; Say $rHora; return }
+        }
+        # DESPERTADOR (F4)
+        $rDesp = $null
+        try { $rDesp = Invoke-DespertadorVoz $text } catch { $rDesp = $null }
+        if ($rDesp) { $script:seguimientoPendiente = $false; Log "DESPERTADOR: $text -> $rDesp"; Send-UIEvento 'hecho'; Say $rDesp; return }
+        # RUTINA DE DORMIR (F3). Con un juego delante, "me voy a dormir" la lleva
+        # "apunta donde me quede" y la rutina sigue al contestar
+        if ($plano -match '^(?:me voy a dormir|me voy a la cama|me voy a acostar|a dormir|hora de dormir|buenas noches nova)$' -and
+            -not ($plano -eq 'me voy a dormir' -and (Get-JuegoDeReferencia))) {
+            $rRut = Invoke-RutinaDormir
+            Log "RUTINA DE DORMIR: $rRut"
+            Say $rRut
+            if ($script:pendiente) { Set-UI 'escuchando' $rRut; Start-Confirmacion }
+            return
+        }
+        # APAGADO PROGRAMADO (F3): siempre con un si delante
+        if ($plano -match '^(?:apagate|apaga\s+(?:la\s+consola|el\s+pc|el\s+ordenador|la\s+computadora))\s+(?:en|dentro\s+de)\s+(\d{1,3}|una|un|media|dos|tres)\s*(hora y media|horas?|minutos?)$') {
+            $minA = Get-MinutosDichos $Matches[1] $Matches[2]
+            if ($minA -ge 1 -and $minA -le 600) {
+                $script:pendiente = @{ texto = ''; vence = 0; tipo = 'apagado'; min = $minA }
+                $pregA = "¿Apago la consola en $(Format-MinutosDichos $minA)?"
+                Say $pregA
+                Set-UI 'escuchando' $pregA
+                Start-Confirmacion
+                return
+            }
+        }
+        if ($plano -match '^(?:cancela|anula|quita|para)\s+(?:el\s+)?apagado$') {
+            try { Start-Process -FilePath 'shutdown.exe' -ArgumentList '/a' -WindowStyle Hidden -Wait } catch {}
+            $script:seguimientoPendiente = $false
+            Log "APAGADO: cancelado"
+            Say 'Apagado cancelado.'
+            return
+        }
+        # LIMITE DE JUEGO PROPIO (F6)
+        if ($plano -match '^(?:avisame|dime|recuerdame)\s+cuando\s+lleve\s+(\d{1,3}|una|un|media|dos|tres|cuatro|cinco)\s*(hora y media|horas?|minutos?)(?:\s+(?:jugando|de juego|con el juego|con este juego))?$') {
+            $minL = Get-MinutosDichos $Matches[1] $Matches[2]
+            $script:limiteJuego = @{ min = $minL; avisos = 0; visto = $false }
+            $script:seguimientoPendiente = $false
+            Log "LIMITE DE JUEGO: $minL min"
+            Say ('Vale, te aviso cuando lleves ' + (Format-MinutosDichos $minL) + $(if ($script:juegoActivo) { " con $($script:juegoActivo)." } else { ' en la proxima partida.' }))
+            return
+        }
+        if ($plano -match '^(?:quita|cancela|olvida)\s+(?:el\s+)?(?:limite|aviso)\s+de\s+(?:juego|tiempo)$') {
+            $script:limiteJuego = $null
+            $script:seguimientoPendiente = $false
+            Say 'Limite quitado.'
+            return
         }
 
         # ORDENES DE ESTOS MODOS
@@ -10061,6 +10732,8 @@ function Process-Texto([string]$text) {
         $pideResumen = ($plano -match '^(?:resumeme|resume|resumelo|resumemelo)\s+(?:esto|la pantalla|lo que hay en (?:la )?pantalla|esta pagina|este texto)$' -or $plano -match '^de que va esto$')
         $pideDonde = ($plano -match '^(?:apunta|guarda|anota)\s+(?:donde|por donde|en que parte)\s+(?:me quede|voy|estoy|iba)$' -or $plano -match '^(?:lo dejo por hoy|lo dejo aqui|me voy a dormir)$')
         if ($pideDonde -and -not (Get-JuegoDeReferencia)) { $pideDonde = $false }
+        # "me voy a dormir" con un juego: primero donde te quedaste, luego la rutina (F3)
+        $script:rutinaDormirTrasNota = ($pideDonde -and $plano -eq 'me voy a dormir')
         if ($pideResumen -or $pideDonde) {
             Set-UI 'pensando' 'leyendo la pantalla'
             $visR = ''
@@ -10329,6 +11002,11 @@ function Process-Texto([string]$text) {
                 Log "OIDO FINO: no lo pido, '$text' no tiene ninguna palabra de 4 letras y el repaso se descartaria igual"
             }
 
+            # EN PLENA CONVERSACION (M10) lo que no entiende la capa local va a la
+            # charla: con lo hablado delante sabe si "ponlo mas bajo" es una orden
+            # (y la reescribe entera) o parte de la conversacion
+            # (y fuera de ella, lo que parece conversacion: ver Test-PareceCharla)
+            if (((Test-CharlaCaliente) -or (Test-PareceCharla $text)) -and (Send-Charla $text)) { return }
             # 4) que el modelo la traduzca a una orden conocida (~13 s) y se
             #    aprenda; si no encaja, cae al agente completo
             if ($script:ultimoDescarte) { Add-Estadistica 'descarte' $script:ultimoDescarte; $script:ultimoDescarte = '' }
@@ -10718,6 +11396,27 @@ while ($true) {
         }
     }
 
+    # --- INTERRUMPIR A NOVA (M5): "espera", "para", "calla"... dicho mientras habla ---
+    $rutaCorte = Join-Path $TmpDir 'corte.flag'
+    if (Test-Path -LiteralPath $rutaCorte) {
+        $palabraCorte = ''
+        try { $palabraCorte = ([System.IO.File]::ReadAllText($rutaCorte)).Trim() } catch {}
+        Remove-Item -LiteralPath $rutaCorte -Force -ErrorAction SilentlyContinue
+        if ($sw.ElapsedMilliseconds -lt $script:pausaHasta -and -not $script:armed) {
+            Log "INTERRUMPIDA: '$palabraCorte' mientras hablaba"
+            try { if ($script:reproductor) { $script:reproductor.Stop() } } catch {}
+            try { if ($script:vozPlayer) { $script:vozPlayer.Stop() } } catch {}
+            try { Stop-Charla } catch {}
+            $script:vozFinReal = 0
+            Send-UIEvento 'gesto:paciencia'
+            # y te escucha, sin decir "nova"
+            $script:seguimientoPendiente = $true
+            $script:seguimientoFactor = 1.0
+            $script:ventanaCharla = (($sw.ElapsedMilliseconds - $script:charlaUltima) -lt 60000)
+            $script:pausaHasta = $sw.ElapsedMilliseconds + 150
+        }
+    }
+
     # --- CONVERSACION: lo que contesta el worker, frase a frase (ver CONVERSACION DE VERDAD) ---
     if ($script:charlaProc) { try { Receive-Charla } catch { Log ("charla: " + $_.Exception.Message) } }
     # EN FRIO el modelo tarda en cargar (~12-16 s medido): pasados 5 s sin nada,
@@ -10725,17 +11424,30 @@ while ($true) {
     if ($script:charlaEsperando -and -not $script:charlaRelleno -and $script:charlaFrases.Count -eq 0 -and -not $script:armed -and
         ($sw.ElapsedMilliseconds - $script:charlaDesde) -gt 5000 -and $sw.ElapsedMilliseconds -ge $script:pausaHasta) {
         $script:charlaRelleno = $true
-        Log "charla: tarda (modelo en frio), digo algo mientras"
+        Log "charla: tarda mas de 5 s, digo algo mientras"
         Say (Get-Random -InputObject @('Deja que lo piense.', 'A ver...', 'Un segundito.'))
+    }
+    # LA ESPERA SE VE (D3): si la charla tarda mas de 2 s, la linea de la capsula se
+    # va llenando (en frio son 12-16 s); al llegar la primera frase, se vacia
+    $esperaC = ($script:charlaEsperando -and $script:charlaFrases.Count -eq 0 -and ($sw.ElapsedMilliseconds - $script:charlaDesde) -gt 2000)
+    if ($esperaC) {
+        $frE = [Math]::Min(0.9, ($sw.ElapsedMilliseconds - $script:charlaDesde) / 16000.0)
+        if (-not $script:progresoCharla -or ($frE - $script:uiProgreso) -ge 0.04) { $script:progresoCharla = $true; $script:uiProgreso = $frE; Refresh-UI }
+    } elseif ($script:progresoCharla) {
+        $script:progresoCharla = $false
+        $script:uiProgreso = 0
+        Refresh-UI
     }
     if ($script:charlaFrases.Count -gt 0 -and -not $script:armed) {
         # la siguiente frase entra cuando acaba la que suena (su duracion real)
         $finFrase = if ($script:vozFinReal -gt 0) { $script:vozFinReal } else { $script:pausaHasta }
         if ($sw.ElapsedMilliseconds -ge ($finFrase - 150)) {
-            $fraseC = [string]$script:charlaFrases.Dequeue()
+            $frC = $script:charlaFrases.Dequeue()
+            $fraseC = [string]$frC.t
+            $script:uiOrigen = [string]$frC.o
             Log "charla dice: $fraseC"
             $script:ultimaRespuesta = $fraseC
-            Say $fraseC
+            Say $fraseC (Get-EmocionFrase $fraseC)
         }
     }
 
@@ -10761,6 +11473,17 @@ while ($true) {
             $script:resumenPendiente = ''
             Send-UIEvento 'gesto:saludo'
             Set-UI 'hablando' $txtRes 4500
+        } elseif ($script:invitadoPropuesta -and -not $script:busy -and -not $script:pendiente -and -not $script:invitado) {
+            # VOZ AJENA VARIAS VECES (M7): se pregunta, nunca se pone solo
+            $script:invitadoPropuesta = $false
+            $script:invitadoPropuestoEn = $sw.ElapsedMilliseconds
+            $script:vozAjenaVeces = @()
+            $script:pendiente = @{ texto = ''; vence = 0; tipo = 'invitadoAuto' }
+            $pregI = 'No reconozco esta voz. ¿Pongo el modo invitado?'
+            Log "MODO INVITADO: lo propongo (voz ajena varias veces)"
+            Say $pregI
+            Set-UI 'escuchando' $pregI
+            Start-Confirmacion
         } elseif ($script:nivelPendiente -gt 0 -and -not $script:busy -and -not $script:pendiente) {
             # SUBIO DE NIVEL (ver NOVA EVOLUCIONA): un destello y la palabra, sin voz
             $nvP = $script:nivelPendiente
@@ -10911,6 +11634,7 @@ while ($true) {
                     $script:charlaSilencios++
                     Log "seguimiento: silencio en una conversacion, espero otro poco"
                     $script:seguimientoPendiente = $true
+                    $script:ventanaCharla = $true
                     $script:pausaHasta = $sw.ElapsedMilliseconds + 100
                 } else {
                     # ventana de seguimiento sin voz: se cierra sin decir nada
@@ -10918,6 +11642,7 @@ while ($true) {
                     Set-UI 'reposo'
                 }
             } else {
+                if ($script:enSeguimiento) { try { Add-RitmoSeguimiento } catch {} }   # ver EL RITMO DE BRAYA
                 Process-Texto ($dic.Trim())
             }
         }
@@ -11179,6 +11904,12 @@ while ($true) {
         try { Watch-Musica (Get-MusicaActual) } catch { Log ("musica: " + $_.Exception.Message) }
     }
 
+    # --- dock y cascos conectados (cada 15 s; ver DOCK Y CASCOS) ---
+    if (($sw.ElapsedMilliseconds - $script:dispCheck) -ge 15000) {
+        $script:dispCheck = $sw.ElapsedMilliseconds
+        try { Watch-Dispositivos } catch { Log ("dispositivos: " + $_.Exception.Message) }
+    }
+
     # --- notificaciones nuevas (cada 30 s; ver NOTIFICACIONES MIENTRAS JUEGAS) ---
     if (($sw.ElapsedMilliseconds - $script:notifCheck) -ge 30000) {
         $script:notifCheck = $sw.ElapsedMilliseconds
@@ -11253,6 +11984,7 @@ while ($true) {
         try { Test-Recordatorios } catch {}
         try { Update-BrilloAuto } catch {}   # ver BRILLO AUTOMATICO
         try { Test-FinInvitado } catch {}    # ver MODO INVITADO
+        try { Test-LimiteJuego } catch {}    # ver LIMITE DE JUEGO PROPIO
         # jugando, el modelo de charla sale de la RAM (si no se esta hablando con el)
         try {
             if ($script:juegoActivo -and $script:charlaProc -and -not $script:charlaDescargada -and -not $script:charlaEsperando -and

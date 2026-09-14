@@ -91,14 +91,14 @@ try:
     comp("solo sirve de pista, marcada sin confirmar", "SIN CONFIRMAR" in ctx, ctx)
     rev = {"tipo_turno": "pregunta_general", "respuesta_correcta": False, "pregunta_general": "¿Cuánto duerme un oso polar?",
            "respuesta_buena": "Un oso polar duerme unas siete u ocho horas al día, como nosotros.", "caduca": False,
-           "datos_usuario": ["A braya le encanta Hades", "La clave del banco de braya es 1234"],
+           "datos_usuario": ["A braya le encanta Hades", "La clave del banco de braya es 1234", "braya está cansado hoy"],
            "estilo": ["respuestas cortas", "Respuestas cortas"], "temas": ["animales", "videojuegos"],
            "hechos": ["braya dice que los osos polares le dan miedo"], "recuerdo": "braya preguntó por los osos polares"}
     ev = c.aplicar_revision(j2, rev)
     comp("la revision la corrige y la deja firme", c.respuesta_directa("¿cuánto duerme un oso polar?")["respuesta"].startswith("Un oso polar duerme"))
     comp("y avisa para que Nova se corrija", {"ev": "correccion", "texto": rev["respuesta_buena"]} in ev, ev)
     datos = [e["texto"] for e in ev if e["ev"] == "dato"]
-    comp("los datos sobre braya van al perfil, sin los sensibles", datos == ["A braya le encanta Hades"], datos)
+    comp("los datos sobre braya van al perfil, sin los sensibles ni los pasajeros", datos == ["A braya le encanta Hades"], datos)
     comp("el estilo sin repetir", c.datos["estilo"] == ["respuestas cortas"], c.datos["estilo"])
     comp("temas contados", c.datos["temas"].get("animales") == 1)
     comp("lo contado y el recuerdo quedan", c.balance()["contado"] == 1 and c.balance()["episodios"] == 1, c.balance())
@@ -163,6 +163,41 @@ try:
     comp("los recuerdos sin vector se completan en segundo plano", c.completar_vectores() == 1 and len(c.vec) == 2)
     emb.roto = True
     comp("sin modelo de significado, sigue por palabras", c.vector("hola") is None and c.respuesta_directa("¿Quién pintó la Mona Lisa?") is not None)
+
+    print("--- trivia ---")
+    shutil.rmtree(carpeta)
+    os.makedirs(carpeta)
+    c = cm.Cerebro(carpeta, reloj=reloj)
+    c.aprender_turno("¿Quién pintó la Mona Lisa?", "La pintó Leonardo da Vinci.", "api")
+    c.aprender_turno("¿Qué es un volcán?", "Una montaña que expulsa lava.", "api")
+    comp("con menos de tres cosas seguras no hay trivia", c.pregunta_trivia() is None)
+    c.aprender_turno("¿Cuántas patas tiene una araña?", "Una araña tiene ocho patas.", "api")
+    c.aprender_turno("¿Qué es un tsunami?", "Una ola gigante.", "local")
+    t = c.pregunta_trivia()
+    comp("con tres, pregunta; y nunca de lo provisional", t is not None and t["estado"] == "firme" and "tsunami" not in t["pregunta"], t)
+    vistas = {c.pregunta_trivia(excluir=[1, 2])["id"] for _ in range(10)}
+    comp("no repite las que ya pregunto (mientras queden)", vistas == {3}, vistas)
+    comp("acierta con la palabra clave", cm.juzgar_trivia("¿Quién pintó la Mona Lisa?", "La pintó Leonardo da Vinci.", "Leonardo"))
+    comp("repetir la pregunta no es acertar", not cm.juzgar_trivia("¿Quién pintó la Mona Lisa?", "La pintó Leonardo da Vinci.", "la pintó Picasso"))
+    larga = "Un oso polar duerme unas siete u ocho horas al día."
+    comp("con respuestas largas hace falta algo mas que una palabra", cm.juzgar_trivia("¿Cuánto duerme un oso polar?", larga, "unas ocho horas") and not cm.juzgar_trivia("¿Cuánto duerme un oso polar?", larga, "siete"))
+
+    print("--- repaso del dia ---")
+    dup = c._nuevo("respuesta", "¿quien pinto la mona lisa?", "Leonardo.", "provisional", "local")
+    viejo_ep = c._nuevo("episodio", "braya hablo de trenes antiguos", "braya hablo de trenes antiguos", "firme", "charla")
+    viejo_ep["usada"] = reloj.t - 200 * 86400
+    rech = c._nuevo("respuesta", "¿Qué es un ornitorrinco?", "Un pez.", "rechazada", "local")
+    rech["creada"] = reloj.t - 90 * 86400
+    prov = c._nuevo("respuesta", "¿Qué es un géiser?", "Agua caliente que sale del suelo.", "provisional", "local")
+    c.datos["pendientes"] = []
+    hecho = c.repaso()
+    comp("junta la pregunta repetida y se queda la firme", hecho and hecho["juntados"] == 1 and c._por_id(dup["id"]) is None
+         and c.respuesta_directa("¿quién pintó la mona lisa?")["respuesta"] == "La pintó Leonardo da Vinci.", hecho)
+    comp("lo provisional sin revisar vuelve a la cola", any(j.get("recuerdo") == prov["id"] for j in c.datos["pendientes"]))
+    comp("poda lo viejo sin usar y lo rechazado hace tiempo", hecho["podados"] == 2 and c._por_id(viejo_ep["id"]) is None and c._por_id(rech["id"]) is None, hecho)
+    comp("una vez al dia", c.repaso() is None)
+    reloj.t += 86400
+    comp("al dia siguiente, otra vez", c.repaso() is not None)
 
     print("--- limites ---")
     viejo = cm.MAX_RECUERDOS

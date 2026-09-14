@@ -120,6 +120,12 @@ def velocidad():
         return "+0%"
 
 
+# VOZ CON EMOCION (13/09): el asistente puede anteponer "{emo:alegre}" o
+# "{emo:suave}" a la frase. Un pelo mas viva o mas calmada (ritmo y tono), sin
+# cambiar de voz. Se suma a la velocidad elegida.
+AJUSTE_EMOCION = {"alegre": (6, "+6Hz"), "suave": (-8, "-5Hz")}
+
+
 async def principal():
     bucle = asyncio.get_event_loop()
     while True:
@@ -138,9 +144,21 @@ async def principal():
         texto = linea.strip().lstrip("﻿")
         if not texto:
             continue
+        emo = ""
+        if texto.startswith("{emo:"):
+            fin_emo = texto.find("}")
+            if fin_emo > 0:
+                emo = texto[5:fin_emo].strip()
+                texto = texto[fin_emo + 1:].strip()
+        if not texto:
+            continue
         ritmo = velocidad()
-        # la velocidad va en la clave: la misma frase a otro ritmo es otro audio
-        clave = hashlib.md5((VOZ + "|" + ("" if ritmo == "+0%" else ritmo + "|") + texto).encode("utf-8")).hexdigest()
+        tono = "+0Hz"
+        if emo in AJUSTE_EMOCION:
+            dv, tono = AJUSTE_EMOCION[emo]
+            ritmo = "%+d%%" % max(-50, min(100, int(ritmo.rstrip("%")) + dv))
+        # la velocidad y el tono van en la clave: la misma frase a otro ritmo es otro audio
+        clave = hashlib.md5((VOZ + "|" + ("" if ritmo == "+0%" else ritmo + "|") + ("" if tono == "+0Hz" else tono + "|") + texto).encode("utf-8")).hexdigest()
         ruta = os.path.join(SALIDA, clave + ".mp3")
         if not os.path.exists(ruta):
             # Se baja a un temporal y se renombra al final. Antes se escribia
@@ -149,7 +167,7 @@ async def principal():
             # sonaba cortada para siempre, sin volver a intentarlo nunca.
             parcial = ruta + ".part"
             try:
-                com = edge_tts.Communicate(texto, VOZ, rate=ritmo)
+                com = edge_tts.Communicate(texto, VOZ, rate=ritmo, pitch=tono)
                 await com.save(parcial)
                 os.replace(parcial, ruta)
             except Exception as e:  # noqa: BLE001

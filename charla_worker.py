@@ -114,6 +114,11 @@ ultima_charla = 0.0
 bloqueo_salida = threading.Lock()
 cerebro = None                  # se crea en principal(); las pruebas ponen el suyo
 _perfil = {"mtime": None, "lineas": []}
+trivia = {"r": None, "hasta": 0.0, "hechas": []}     # la pregunta de trivia que espera respuesta
+# lo que hace que una orden no se entienda suelta: pronombres pegados ("recuerdamelo",
+# "bajalo") o palabras que remiten a lo hablado
+RE_DEIXIS = re.compile(r"\b(\w{2,}(?:me|te|se)?(?:lo|la|los|las|le|les)|eso|esto|esa|ese|ahi|alli|luego|despues)\b")
+RE_RENDIDO = re.compile(r"\b(no se|ni idea|me rindo|dimelo|dime la respuesta|cual es la respuesta)\b")
 
 
 def salida(ev, idp=0, **campos):
@@ -402,17 +407,38 @@ def responder(p):
         return
     invitado = bool(p.get("invitado"))
     duda = bool(p.get("duda"))
+    buscar = bool(p.get("buscar"))     # ayuda con un juego: internet si o si
+    ayuda = bool(p.get("ayuda"))
     ahora = time.time()
     if ahora - ultima_charla > OLVIDO_S:
         historial.clear()
     ultima_charla = ahora
     dichas = []
+    tiempos = {"memoria": 0.0, "origen": "memoria"}
 
     def emitir(f):
         if not dichas:
-            salida("info", idp, texto="primera frase en %.1f s" % (time.time() - ahora))
+            salida("info", idp, texto="primera frase en %.1f s (buscar en la memoria: %.1f s)" % (time.time() - ahora, tiempos["memoria"]))
         dichas.append(f)
-        salida("frase", idp, texto=f)
+        # quien la dice (memoria, local o api): la capsula tine un pelo la voz
+        salida("frase", idp, texto=f, origen=tiempos["origen"])
+
+    # 0) LA RESPUESTA A UNA PREGUNTA DE TRIVIA (F7): se juzga al momento, sin modelo
+    if trivia["r"] is not None and time.time() < trivia["hasta"] and not duda:
+        r = trivia["r"]
+        trivia["r"] = None
+        if RE_RENDIDO.search(cm.plano(texto)):
+            dicho = "La respuesta es: " + r["respuesta"]
+        elif cm.juzgar_trivia(r["pregunta"], r["respuesta"], texto):
+            dicho = "¡Correcto! " + r["respuesta"]
+        else:
+            dicho = "Casi. " + r["respuesta"]
+        troc = Troceador()
+        for f in troc.meter(dicho + " ") + troc.cerrar():
+            emitir(f)
+        salida("fin", idp, origen="trivia-respuesta")
+        return
+    trivia["r"] = None
 
     # 1) EL CEREBRO: ¿ya lo sabe de verdad?
     qvec = None
@@ -427,10 +453,16 @@ def responder(p):
                 # embeddings (0 ms y 0 MB). Solo si no, por significado; y con el
                 # cerebro vacio, tampoco (no hay nada que buscar)
                 sabida = cerebro.respuesta_directa(texto, None)
+                # POR SIGNIFICADO SOLO PARA CONFIRMAR (medido el 13/09): cargar el
+                # modelo de embeddings con Qwen en la RAM dejaba 428 MB libres,
+                # Windows paginaba y la respuesta pasaba de 3 s a 13 s. Solo se usa
+                # si por palabras ya hay una pregunta parecida que confirmar.
                 if sabida is None and cerebro.datos["recuerdos"]:
-                    qvec = cerebro.vector(texto)
-                    if qvec is not None:
-                        sabida = cerebro.respuesta_directa(texto, qvec)
+                    mejor = cerebro.buscar(texto, tipos={"respuesta"}, k=1)
+                    if mejor and mejor[0]["lex"] >= 0.25:
+                        qvec = cerebro.vector(texto)
+                        if qvec is not None:
+                            sabida = cerebro.respuesta_directa(texto, qvec)
                 if sabida:
                     historial.append({"role": "user", "content": texto})
                     troc = Troceador()
@@ -444,9 +476,12 @@ def responder(p):
         except Exception as e:  # noqa: BLE001
             salida("info", idp, texto="memoria: no pude consultarla (%s)" % e)
 
+    tiempos["memoria"] = time.time() - ahora
     historial.append({"role": "user", "content": texto})
     extra = ""
-    if p.get("juego"):
+    if ayuda:
+        extra += " braya te pide ayuda con su partida de %s: explícale en dos o tres frases claras qué tiene que hacer." % (p.get("juego") or "su juego")
+    elif p.get("juego"):
         extra += " Ahora braya está jugando a %s: contesta en una sola frase corta." % p["juego"]
     if cerebro is not None:
         try:
@@ -458,16 +493,17 @@ def responder(p):
         if dp:
             extra += "\n\nLo que sabes de braya: " + "; ".join(dp[-15:]) + "."
 
-    usar_api = (necesita_api(texto) or duda) and api_disponible()
+    usar_api = (necesita_api(texto) or duda or buscar) and api_disponible()
     intentos = ["api", "local"] if usar_api else ["local", "api", "local-sin-marca"]
     motivos = []
     marca_api_vista = False
     for origen in intentos:
+        tiempos["origen"] = "api" if origen == "api" else "local"
         if origen == "api":
             if not api_disponible():
                 motivos.append("api no disponible")
                 continue
-            res, dato = generar_api(list(historial), [MARCA_ORDEN], emitir, extra, buscar=necesita_api(texto) or marca_api_vista)
+            res, dato = generar_api(list(historial), [MARCA_ORDEN], emitir, extra, buscar=necesita_api(texto) or buscar or marca_api_vista)
         elif origen == "local":
             marcas = [MARCA_ORDEN] + ([MARCA_API] if api_disponible() else [])
             res, dato = generar_local(list(historial), marcas, emitir, extra)
@@ -476,9 +512,11 @@ def responder(p):
                 continue      # solo si el local se aparto para la API y la API fallo
             res, dato = generar_local(list(historial), [MARCA_ORDEN], emitir, extra)
         if res == "marca" and dato == MARCA_ORDEN:
-            # no era charla: el asistente lo manda a quien sabe hacerlo
+            # no era charla: el asistente lo manda a quien sabe hacerlo, y si solo se
+            # entiende con lo hablado ("recuerdamelo luego"), reescrita entera (M10)
+            reescrita = reescribir_orden(texto)
             historial.pop()
-            salida("orden", idp, texto=texto)
+            salida("orden", idp, texto=reescrita, original=texto)
             return
         if res == "parado":
             historial.pop()
@@ -514,10 +552,22 @@ def revisar_una():
     pendiente revisado por la API. Nunca mientras se esta contestando."""
     if cerebro is None or ocupado.is_set():
         return False
-    try:
-        cerebro.completar_vectores()
-    except Exception:  # noqa: BLE001
-        pass
+    # el repaso del dia, con 20 min sin charla (ver Cerebro.repaso)
+    if time.time() - ultima_charla > 1200:
+        try:
+            hecho = cerebro.repaso()
+            if hecho:
+                salida("info", texto="memoria: repaso del dia (%d repetidos juntados, %d a revisar otra vez, %d podados)" % (
+                    hecho["juntados"], hecho["reencolados"], hecho["podados"]))
+        except Exception as e:  # noqa: BLE001
+            salida("info", texto="memoria: repaso fallido (%s)" % e)
+    # los vectores que faltan, solo con Qwen ya fuera de la RAM (5 min sin charla):
+    # cargar el modelo de embeddings a su lado hace paginar a Windows
+    if time.time() - ultima_charla > 300:
+        try:
+            cerebro.completar_vectores()
+        except Exception:  # noqa: BLE001
+            pass
     if not api_disponible() or ocupado.is_set():
         return False
     job = cerebro.siguiente_pendiente()
@@ -529,9 +579,12 @@ def revisar_una():
         cerebro.fallo_revision(job)
         salida("info", texto="memoria: revision fallida (%s)" % e)
         return False
+    firmes_antes = cerebro.balance()["respuestas"]
     for ev in cerebro.aplicar_revision(job, rev):
         salida(ev["ev"], 0, texto=ev["texto"])
     b = cerebro.balance()
+    if b["respuestas"] > firmes_antes:
+        salida("aprendido", 0, texto=job["pregunta"][:80])   # la capsula lo celebra con un destello
     salida("info", texto="memoria: revisado '%s' (%d firmes, %d provisionales, %d pendientes)" % (
         job["pregunta"][:60], b["respuestas"], b["provisionales"], b["pendientes"]))
     return True
@@ -573,6 +626,103 @@ class EmbedOllama:
         return r.json()["embeddings"]
 
 
+def reescribir_orden(texto):
+    """ORDENES DENTRO DE LA CHARLA (M10): "pues recuerdamelo luego" no se entiende
+    suelto. Con lo hablado delante, el modelo local la reescribe como una orden
+    completa. Si no hace falta o falla, la de siempre."""
+    previos = historial[:-1]
+    if not previos or not RE_DEIXIS.search(cm.plano(texto)):
+        return texto
+    try:
+        cuerpo = {"model": MODELO_LOCAL, "stream": False, "keep_alive": "2m",
+                  "options": {"num_predict": 40, "temperature": 0.1, "num_ctx": 1536},
+                  "messages": [{"role": "system", "content": (
+                      "Reescribe la última petición de braya como UNA orden completa y autónoma en español, "
+                      "sustituyendo 'lo', 'eso', 'luego'... por lo que corresponda según la conversación. "
+                      "Responde SOLO con la orden, sin comillas ni explicaciones.")}]
+                  + previos[-6:] + [{"role": "user", "content": texto}]}
+        r = httpx.post(OLLAMA + "/api/chat", json=cuerpo, timeout=20)
+        r.raise_for_status()
+        orden = limpiar((r.json().get("message") or {}).get("content") or "").strip(" \"'«»")
+        if 3 <= len(orden) <= 200 and not CJK.search(orden):
+            return orden
+    except Exception:  # noqa: BLE001
+        pass
+    return texto
+
+
+def jugar_trivia(p):
+    """TRIVIA (F7): una pregunta de lo que Nova ya sabe seguro."""
+    idp = p.get("id", 0)
+    r = cerebro.pregunta_trivia(trivia["hechas"]) if cerebro is not None else None
+    if r is None:
+        salida("frase", idp, texto="Todavía sé muy pocas cosas seguras para jugar. Pregúntame cosas y las aprendo.")
+        salida("fin", idp, origen="trivia-nada")
+        return
+    trivia.update(r=r, hasta=time.time() + 90)
+    trivia["hechas"] = (trivia["hechas"] + [r["id"]])[-20:]
+    salida("frase", idp, texto="Ahí va: " + r["pregunta"])
+    salida("fin", idp, origen="trivia")
+
+
+def resumir_mensajes(p):
+    """MENSAJES RESUMIDOS (M9): SOLO con el modelo local. Son los mensajes de
+    braya: nunca salen a la API, no se aprenden y no quedan en la charla."""
+    idp = p.get("id", 0)
+    dichas = []
+
+    def emitir(f):
+        dichas.append(f)
+        salida("frase", idp, texto=f)
+    mensajes = [{"role": "user", "content": (
+        "Resume en una o dos frases, para decirlo en voz alta, estos mensajes que ha recibido braya, "
+        "agrupando por persona o conversación. No inventes nada:\n" + (p.get("texto") or ""))}]
+    res, dato = generar_local(mensajes, [], emitir, " Ahora solo resumes mensajes: sin preguntas al final.")
+    if res == "ok" or dichas:
+        salida("fin", idp, origen="resumen")
+    else:
+        salida("err", idp, texto="no pude resumir: %s" % dato)
+
+
+def calentar():
+    """MENOS ESPERA EN FRIO (M2): el asistente cree que vas a charlar y lo carga ya."""
+    try:
+        httpx.post(OLLAMA + "/api/generate", json={"model": MODELO_LOCAL, "keep_alive": "2m"}, timeout=90)
+        salida("info", texto="modelo local precargado")
+    except Exception as e:  # noqa: BLE001
+        salida("info", texto="no pude precargar el modelo local: %s" % e)
+
+
+def atender(p):
+    op = p.get("op")
+    if op == "olvidar":
+        historial.clear()
+    elif op == "olvidar_tema":
+        n = cerebro.olvidar(p.get("texto") or "") if cerebro is not None else 0
+        salida("info", texto="memoria: olvidados %d recuerdos sobre '%s'" % (n, (p.get("texto") or "")[:60]))
+    elif op == "descargar":
+        descargar()
+    elif op == "calentar":
+        threading.Thread(target=calentar, daemon=True).start()
+    elif op == "aprender":
+        # lo que contesto OTRO cerebro (Claude Code, M4): se aprende como de la API
+        if cerebro is not None and not p.get("invitado"):
+            try:
+                if cerebro.aprender_turno(p.get("pregunta") or "", limpiar(p.get("respuesta") or ""), p.get("origen") or "api"):
+                    salida("info", texto="memoria: aprendido de Claude Code '%s'" % (p.get("pregunta") or "")[:60])
+            except Exception as e:  # noqa: BLE001
+                salida("info", texto="memoria: no pude aprender (%s)" % e)
+    elif op in ("hablar", "trivia", "resumir"):
+        parar.clear()
+        ocupado.set()
+        try:
+            {"hablar": responder, "trivia": jugar_trivia, "resumir": resumir_mensajes}[op](p)
+        except Exception as e:  # noqa: BLE001
+            salida("err", p.get("id", 0), texto="fallo interno: %s" % e)
+        finally:
+            ocupado.clear()
+
+
 def lector():
     # bytes UTF-8 crudos: la entrada estandar de Windows no es UTF-8 por defecto
     for crudo in sys.stdin.buffer:
@@ -581,7 +731,7 @@ def lector():
         except ValueError:
             continue
         op = p.get("op")
-        if op in ("parar", "hablar"):
+        if op in ("parar", "hablar", "trivia", "resumir"):
             parar.set()       # lo nuevo corta lo que se estuviera diciendo
         if op != "parar":
             pedidos.put(p)
@@ -606,23 +756,7 @@ def principal():
         p = pedidos.get()
         if p is None:
             return
-        op = p.get("op")
-        if op == "olvidar":
-            historial.clear()
-        elif op == "olvidar_tema":
-            n = cerebro.olvidar(p.get("texto") or "") if cerebro is not None else 0
-            salida("info", texto="memoria: olvidados %d recuerdos sobre '%s'" % (n, (p.get("texto") or "")[:60]))
-        elif op == "descargar":
-            descargar()
-        elif op == "hablar":
-            parar.clear()
-            ocupado.set()
-            try:
-                responder(p)
-            except Exception as e:  # noqa: BLE001
-                salida("err", p.get("id", 0), texto="fallo interno: %s" % e)
-            finally:
-                ocupado.clear()
+        atender(p)
 
 
 if __name__ == "__main__":
