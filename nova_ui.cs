@@ -394,6 +394,26 @@ public class NovaUI : Window
         return 12;
     }
 
+    // tmp\ui-error.log, junto al estado. Con tope: una animacion que falle en cada
+    // fotograma no puede llenar el disco (12 fps son 43.000 lineas por hora).
+    static int erroresAnotados = 0;
+    static void AnotarError(string tipo, Exception ex)
+    {
+        try
+        {
+            if (erroresAnotados >= 50 && tipo != "FATAL") { return; }
+            erroresAnotados++;
+            string dir = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(rutaEstado));
+            string ruta = System.IO.Path.Combine(dir, "ui-error.log");
+            if (System.IO.File.Exists(ruta) && new System.IO.FileInfo(ruta).Length > 200000) { System.IO.File.Delete(ruta); }
+            string linea = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + tipo + ": " +
+                (ex == null ? "(sin detalle)" : (ex.GetType().Name + ": " + ex.Message + " | " +
+                 (ex.StackTrace ?? "").Replace("\r", "").Replace("\n", " <- ").Trim())) + Environment.NewLine;
+            System.IO.File.AppendAllText(ruta, linea);
+        }
+        catch { }
+    }
+
     [STAThread]
     public static void Main(string[] args)
     {
@@ -402,8 +422,10 @@ public class NovaUI : Window
         try { rutaNivel = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(rutaEstado)), "ui-nivel.txt"); }
         catch { rutaNivel = null; }
         var app = new Application();
-        // un fallo en cualquier animacion no debe tumbar la interfaz
-        app.DispatcherUnhandledException += delegate(object s, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e) { e.Handled = true; };
+        // un fallo en cualquier animacion no debe tumbar la interfaz... pero SE
+        // APUNTA (14/09): el log decia "la interfaz murio" 15 veces y nunca por que
+        app.DispatcherUnhandledException += delegate(object s, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e) { AnotarError("animacion", e.Exception); e.Handled = true; };
+        AppDomain.CurrentDomain.UnhandledException += delegate(object s, UnhandledExceptionEventArgs e) { AnotarError("FATAL", e.ExceptionObject as Exception); };
         app.Run(new NovaUI());
     }
 

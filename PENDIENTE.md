@@ -578,6 +578,36 @@ funciones nuevas.
   pasadas). Cuatro correcciones más en `commands.json` («brille», «bril», «seguidame»,
   «seguedame»), que es lo que small sigue oyendo. La prueba de audio contaba
   «qué hora es» como fallo si cambiaba el minuto; ya no.
+- **Pulido de lo que ya había, diez cosas (14/09):**
+  1. *Repaso de lo dudoso aunque se entienda:* si Whisper traía una seguridad
+     por debajo de −0,9 (`input.repasoDudoso`) y la frase es una orden, se repasa
+     con small antes de hacerla; si el repaso no trae otra orden, se hace la
+     primera. Las órdenes bien oídas de las grabaciones van de −0,73 para arriba.
+  2. *Whisper repite:* «cierra el discord, cierra el discord» se hace una vez.
+     Las de dar pasos («sube el volumen, sube el volumen») se siguen repitiendo.
+  3. *Cuarenta grabaciones:* 20 frases más en `tools\grabar-ordenes.py`, dos de
+     charla (acierto = no hacer nada). **Te toca grabarlas:**
+     `python tools\grabar-ordenes.py nuevas` (solo graba las que faltan).
+  4. *Lo que base casi acierta:* «si arra» → cierra, «medio de ahora» → media
+     hora, «bolumen» y cinco formas de «sube volumen»; «pon el juego 80» sin «al».
+  5. *Arranque:* medido, 0,45 s en leer el script y ~1 s hasta estar activo. No
+     hay nada que ganar ahí; no se tocó.
+  6. *RAM jugando:* con un juego delante y 5 min sin usarse, el oído fino
+     (~500 MB) se suelta; si hace falta se recarga en ~3 s.
+  7. *Charla en frío:* la primera frase tardó 19 s (7,8 s son cargar el modelo).
+     Ahora, si lo que vas diciendo ya suena a charla, empieza a cargar mientras
+     terminas de hablar (no jugando).
+  8. *Por qué muere la cápsula:* apunta sus errores en `tmp\ui-error.log` y el
+     log dice el código de salida y el último error.
+  9. *Cerebro:* ya caducaba lo provisional a los 30 días; en uso real aún no hay
+     nada aprendido que revisar. Sin cambios.
+  10. *La voz con tildes:* el código escribe «entendi», «bateria», «cancion» y
+      la voz puede acentuar mal; `Add-TildesVoz` las pone antes de hablar (solo
+      palabras sin otra lectura).
+  - *Fallo encontrado de paso:* «qué opinas de Hollow Knight», «Hollow Knight es
+    difícil» o «te gusta Steam» ABRÍAN el juego o la app (la regla del nombre
+    suelto buscaba el título dentro de la frase). Ahora van a la conversación.
+    «Haz una captura» no se entendía.
 - **El fallo rojo del banco.** «Se pone siempre encima» llevaba días en rojo y
   era de la prueba, no del asistente: sobre una ventana que nunca se ha
   mostrado, `SetWindowPos(HWND_TOPMOST)` devuelve true sin marcar nada. El

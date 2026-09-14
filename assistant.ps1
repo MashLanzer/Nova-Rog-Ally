@@ -347,6 +347,12 @@ function Split-Compound([string]$s) {
                 $verboPrev = ([string]$res[$res.Count - 1] -split '\s+')[0]
                 if ($VERBOS_LISTA -contains $verboPrev) { $t = "$verboPrev $t" }
             }
+            # WHISPER REPITE (14/09): con audio flojo devuelve la frase dos veces,
+            # "cierra el discord, cierra el discord", y se hacia dos veces. Una
+            # orden identica justo detras de si misma es eco, salvo las que se
+            # repiten a proposito para dar pasos ("sube el volumen, sube el volumen").
+            if ($res.Count -gt 0 -and ([string]$res[$res.Count - 1]) -eq $t -and
+                $t -notmatch '^(?:sube|subir|subele|baja|bajar|bajale|aumenta|reduce|siguiente|anterior|pasa|salta|adelanta|atrasa|retrocede)\b') { continue }
             [void]$res.Add($t)
         }
     }
@@ -2342,7 +2348,7 @@ function Resolve-Fragment([string]$f) {
     }
     # --- captura y grabacion (atajos de la barra de juego de Windows) ---
     switch -regex ($f) {
-        '^(?:toma (?:una )?captura|captura (?:de )?pantalla|screenshot|pantallazo)$' {
+        '^(?:(?:toma|tomame|haz|hazme|saca|sacame) (?:una )?captura(?: de pantalla)?|captura (?:de )?pantalla|screenshot|pantallazo)$' {
             return @(@{ kind = 'winprt'; desc = 'captura de pantalla' })
         }
         # "graba un audio para mi madre" es una nota de voz, no un clip (14/09)
@@ -2649,13 +2655,14 @@ function Resolve-Fragment([string]$f) {
     # --- abrir algo, con las variantes latinas de "abrir/ir a" ---
     # el lookahead suelta "pon spotify al 40": eso es volumen de esa app, no
     # abrirla. Sin el, "pon" (verbo de abrir) se quedaba con la frase entera.
-    if ($f -match '^(?:abre|abreme|abrele|abrir|abri|abrime|ejecuta|ejecutame|inicia|iniciame|lanza|lanzame|arranca|arrancame|prende|prendeme|ponme|poneme|ponele|pone|pon|metete|mete|entrate|entra|andate|anda|vete|ve|llevame|muestrame|ensename)\s+(?!.*\bal\s+\d{1,3}\s*(?:%|por ciento)?$)(?:a\s+|al\s+|en\s+|de\s+)?(.+)$') {
+    if ($f -match '^(?:abre|abreme|abrele|abrir|abri|abrime|ejecuta|ejecutame|inicia|iniciame|lanza|lanzame|arranca|arrancame|prende|prendeme|ponme|poneme|ponele|pone|pon|metete|mete|entrate|entra|andate|anda|vete|ve|llevame|muestrame|ensename)\s+(?!.*\bal\s+\d{1,3}\s*(?:%|por ciento)?$)(?!(?:el\s+)?(?:juego|videojuego)\s+\d{1,3}\s*(?:%|por ciento)?$)(?:a\s+|al\s+|en\s+|de\s+)?(.+)$') {
         return (Resolve-Target $Matches[1])
     }
     # --- volumen de UNA aplicacion (mezclador de Windows) ---
     # Va aqui abajo a proposito: si estuviera antes, "sube el volumen" caeria
     # aqui y acabaria buscando una app llamada "volumen".
-    if ($f -match '^(?:sube|subele|baja|bajale|silencia|mutea|quita el sonido a|pon)\s+(?:el\s+|la\s+|a\s+|al\s+)?(.+?)\s*(?:al\s+(\d{1,3})\s*(?:%|por ciento)?)?$') {
+    # el "al" puede faltar: "pon el juego al ochenta" se oye "Con el juego, 80" (14/09)
+    if ($f -match '^(?:sube|subele|baja|bajale|silencia|mutea|quita el sonido a|pon)\s+(?:el\s+|la\s+|a\s+|al\s+)?(.+?)\s*(?:(?:al\s+)?(\d{1,3})\s*(?:%|por ciento)?)?$') {
         $quien = $Matches[1].Trim(); $pct = $Matches[2]
         # "sube el volumen" y compania NO son esto
         if ($quien -notmatch '^(?:volumen|sonido|audio|brillo|pantalla)$') {
@@ -2689,6 +2696,16 @@ function Resolve-Fragment([string]$f) {
     # ('SILENT BREATH' salio 4 veces en el log sin que nadie lo dijera). Al
     # ejecutar, un JUEGO sin verbo se pregunta antes.
     $sv = Resolve-Target $f
+    # NOMBRAR ALGO NO ES PEDIRLO (14/09): Resolve-Target encuentra el titulo DENTRO
+    # de la frase, asi que "que opinas de hollow knight", "hollow knight es dificil"
+    # o "te gusta steam" acababan en abrirlo. Si fuera del propio nombre hay
+    # palabras de charla, no es una orden: que la lleve la conversacion.
+    if ($sv) {
+        $descSv = ConvertTo-Plain ((@($sv | ForEach-Object { [string]$_.desc }) -join ' '))
+        foreach ($mSv in [regex]::Matches($f, '^(?:que|cual|como|por que|te|me|has|he|sabes|crees|conoces|tu)\b|\b(?:es|son|era|fue|esta|estaba|opinas|piensas|parece|gusta|gustan|encanta|jugado|jugaste|jugue|odio|dificil|facil|mejor|peor|bonito|feo|aburrido)\b')) {
+            if ($descSv -notmatch ('\b' + [regex]::Escape($mSv.Value) + '\b')) { return $null }
+        }
+    }
     if ($sv) { foreach ($x in $sv) { $x.sinVerbo = $true } }
     return $sv
 }
@@ -6627,11 +6644,48 @@ function Await-Voz($op, $tipo) {
     return $t.Result
 }
 
+# TILDES PARA LA VOZ (14/09). El codigo escribe sin tildes ("No te entendi",
+# "bateria", "cancion") y la voz neuronal lee lo que ve: sin tilde, el acento
+# puede caer donde no es. Solo palabras SIN otra lectura posible sin tilde ("esta",
+# "mas", "si", "que" se quedan como estan: ahi la tilde cambia el significado).
+# Las tildes se ponen con codigos de caracter: este archivo no lleva BOM y PS 5.1
+# leeria mal una tilde escrita tal cual.
+$script:TildesVoz = $null
+function Add-TildesVoz([string]$s) {
+    if (-not $s) { return $s }
+    if (-not $script:TildesVoz) {
+        $a = [char]0xE1; $e = [char]0xE9; $i = [char]0xED; $o = [char]0xF3; $u = [char]0xFA; $n = [char]0xF1
+        $script:TildesVoz = [ordered]@{
+            'entendi' = "entend$i"; 'aqui' = "aqu$i"; 'ahi' = "ah$i"; 'alli' = "all$i"; 'asi' = "as$i"
+            'todavia' = "todav$i" + 'a'; 'despues' = "despu$e" + 's'; 'tambien' = "tambi$e" + 'n'; 'ademas' = "adem$a" + 's'
+            'musica' = "m$u" + 'sica'; 'bateria' = "bater$i" + 'a'; 'cancion' = "canci$o" + 'n'; 'ultimo' = "$u" + 'ltimo'
+            'ultima' = "$u" + 'ltima'; 'ultimos' = "$u" + 'ltimos'; 'rapido' = "r$a" + 'pido'; 'numero' = "n$u" + 'mero'
+            'pagina' = "p$a" + 'gina'; 'dia' = "d$i" + 'a'; 'dias' = "d$i" + 'as'; 'podria' = "podr$i" + 'a'; 'habia' = "hab$i" + 'a'
+            'tenia' = "ten$i" + 'a'; 'queria' = "quer$i" + 'a'; 'minimo' = "m$i" + 'nimo'; 'maximo' = "m$a" + 'ximo'
+            'manana' = "ma$n" + 'ana'; 'segun' = "seg$u" + 'n'; 'algun' = "alg$u" + 'n'; 'ningun' = "ning$u" + 'n'
+            'volvera' = "volver$a"; 'sera' = "ser$a"; 'estare' = "estar$e"; 'avisare' = "avisar$e"; 'recordare' = "recordar$e"
+            'boton' = "bot$o" + 'n'; 'microfono' = "micr$o" + 'fono'; 'conexion' = "conexi$o" + 'n'; 'configuracion' = "configuraci$o" + 'n'
+            'telefono' = "tel$e" + 'fono'; 'dificil' = "dif$i" + 'cil'; 'facil' = "f$a" + 'cil'
+            'sabado' = "s$a" + 'bado'; 'miercoles' = "mi$e" + 'rcoles'; 'dificiles' = "dif$i" + 'ciles'; 'rapida' = "r$a" + 'pida'
+        }
+    }
+    foreach ($k in $script:TildesVoz.Keys) {
+        # conserva la mayuscula inicial ("Ultimo" -> "Último")
+        $s = [regex]::Replace($s, '\b' + $k + '\b', {
+            param($m)
+            $r = $script:TildesVoz[$m.Value.ToLowerInvariant()]
+            if ([char]::IsUpper($m.Value[0])) { $r = $r.Substring(0, 1).ToUpperInvariant() + $r.Substring(1) }
+            $r
+        }, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    }
+    return $s
+}
+
 # Habla sin bloquear el bucle: la sintesis tarda ~60 ms y Play() es asincrono.
 function Say([string]$texto, [string]$emo = '') {
     if (-not $texto) { return }
     $script:vozFinReal = 0
-    $t = ($texto -replace '\s+', ' ').Trim()
+    $t = Add-TildesVoz (($texto -replace '\s+', ' ').Trim())
     if ($t.Length -eq 0) { return }
     if ($t.Length -gt 300) { $t = $t.Substring(0, 300) }
     # en una llamada no se habla: la capsula lo ensena y late (ver SILENCIO EN LLAMADAS)
@@ -10177,6 +10231,10 @@ $script:dictadoLineas = 0      # cuantos trozos van escritos, para contarlo al s
 $script:seguimientoFactor = 1.0
 # --- oido fino: repaso de la ultima orden con el modelo preciso ---
 $script:yaReintentado = $false     # una sola vez por orden, o seria un bucle
+$script:reintentoReconocida = $false   # el repaso es de una orden que YA se entendia
+# por debajo de esta seguridad de Whisper se repasa incluso lo que se entiende
+# (ver REPASO DE LO DUDOSO): las ordenes bien oidas de las grabaciones, >= -0,73
+$RepasoDudosoUmbral = [double](Get-Cfg 'input' 'repasoDudoso' -0.9)
 $script:reintentoVence = 0
 $script:reintentoTexto = ''
 $ReintentoMaxMs = 15000            # si no contesta a tiempo, se sigue sin el
@@ -11006,6 +11064,35 @@ function Process-Texto([string]$text) {
             return
         }
 
+        # 0) REPASO DE LO DUDOSO AUNQUE SE ENTIENDA (14/09). El oido fino solo se
+        #    pedia cuando la capa local no entendia nada; si el modelo rapido oia
+        #    MAL pero con forma de orden, se hacia otra cosa sin mas. Medido con las
+        #    20 grabaciones: toda orden que base entiende bien trae una seguridad de
+        #    -0,73 o mejor, y lo que oye destrozado baja de -0,8. Por debajo de
+        #    $RepasoDudosoUmbral se repasa ANTES de hacer nada; si el repaso no
+        #    aporta, se hace lo que se oyo primero (ver OIDO FINO: recoger).
+        if ($WhisperPreciso -and $script:ordenPorWorker -and -not $script:yaReintentado -and
+            $script:wakeProc -and -not $script:wakeProc.HasExited -and
+            ($sw.ElapsedMilliseconds - $script:dictadoConfianzaEn) -lt 15000 -and
+            $script:dictadoConfianza -lt $RepasoDudosoUmbral -and (Test-FastCommand $text)) {
+            $script:yaReintentado = $true
+            try {
+                Remove-Item -LiteralPath $RutaReintento -Force -ErrorAction SilentlyContinue
+                [System.IO.File]::WriteAllText($MarcaReintento, 'x')
+                $script:reintentoTexto = $text
+                $script:reintentoReconocida = $true
+                $script:reintentoVence = $sw.ElapsedMilliseconds + $ReintentoMaxMs
+                Log "OIDO FINO: '$text' se entiende pero Whisper dudaba ($($script:dictadoConfianza)); lo repaso antes de hacerlo"
+                Add-Estadistica 'fino' $text
+                Set-UI 'pensando' 'Afinando el oido'
+                return
+            } catch {
+                $script:reintentoVence = 0
+                $script:reintentoReconocida = $false
+                Log ('no se pudo pedir el repaso: ' + $_.Exception.Message)
+            }
+        }
+
         # 1) local instantaneo
         $fast = $null
         $script:ultimoDescarte = ''
@@ -11791,7 +11878,19 @@ while ($true) {
                 $vista = ($par -replace '\s+', ' ').Trim()
                 if ($vista.Length -gt 44) { $vista = "..." + $vista.Substring($vista.Length - 41) }
                 $nuevo = if ($vista) { "● $vista" } else { "● VOZ..." }
-                if ($lbl.Text -ne $nuevo) { $lbl.Text = $nuevo; Set-UI 'escuchando' $vista; Test-LoTengo $vista }
+                if ($lbl.Text -ne $nuevo) {
+                    $lbl.Text = $nuevo; Set-UI 'escuchando' $vista; Test-LoTengo $vista
+                    # PRECARGA POR LO QUE VAS DICIENDO (14/09): en frio el modelo tarda
+                    # 7,8 s en cargar y la primera frase llego a 19 s. Si lo que llevas
+                    # dicho ya suena a charla, empieza a cargar mientras terminas. No
+                    # jugando (la RAM es del juego) ni si ya es una orden conocida.
+                    if ($ConversacionOn -and -not $script:juegoActivo -and ($sw.ElapsedMilliseconds - $script:precargaEn) -gt 90000 -and
+                        @($vista -split '\s+').Count -ge 3 -and -not $vista.StartsWith('...') -and
+                        (Test-PareceCharla $vista) -and -not (Test-FastCommand $vista)) {
+                        $script:precargaEn = $sw.ElapsedMilliseconds
+                        try { if (Send-CharlaPedido @{ op = 'calentar' }) { Log "charla: precargo el modelo, '$vista' suena a charla" } } catch {}
+                    }
+                }
             } catch {}
         }
         # el worker ya termino: entrega el texto
@@ -11936,8 +12035,17 @@ while ($true) {
             $script:reintentoVence = 0
             $orig = $script:reintentoTexto
             $script:reintentoTexto = ''
+            $reconocida = $script:reintentoReconocida
+            $script:reintentoReconocida = $false
             $limpio = $fino.Trim()
-            if ($limpio -and (ConvertTo-Plain $limpio) -ne (ConvertTo-Plain $orig) -and (Test-MismoAudio $orig $limpio)) {
+            if ($reconocida -and ((-not $limpio) -or (ConvertTo-Plain $limpio) -eq (ConvertTo-Plain $orig) -or
+                -not (Test-MismoAudio $orig $limpio) -or -not (Test-FastCommand $limpio))) {
+                # se repaso una orden que YA se entendia (ver REPASO DE LO DUDOSO): si
+                # el repaso no trae otra orden entendible, vale lo que se oyo primero
+                Log "OIDO FINO: el repaso ('$limpio') no mejora '$orig'; la hago tal cual"
+                Add-Estadistica 'fino-igual' $orig
+                Process-Texto $orig
+            } elseif ($limpio -and (ConvertTo-Plain $limpio) -ne (ConvertTo-Plain $orig) -and (Test-MismoAudio $orig $limpio)) {
                 Log "OIDO FINO: '$orig' -> '$limpio'"
                 Add-Estadistica 'fino-sirvio' "$orig -> $limpio"
                 Process-Texto $limpio
@@ -12381,7 +12489,18 @@ while ($true) {
         if ($script:uiProc -and $script:uiProc.HasExited) {
             if ($script:uiIntentos -lt 3) {
                 $script:uiIntentos++
-                Log "WARN: la interfaz murio; relanzando (intento $($script:uiIntentos)/3)"
+                # POR QUE murio (14/09): el codigo de salida y lo ultimo que apunto
+                # la propia capsula en tmp\ui-error.log
+                $porQueUi = ''
+                try { $porQueUi = " codigo $($script:uiProc.ExitCode)" } catch {}
+                try {
+                    $rutaErrUi = Join-Path $TmpDir 'ui-error.log'
+                    if ((Test-Path -LiteralPath $rutaErrUi) -and ((Get-Item -LiteralPath $rutaErrUi).LastWriteTime -gt (Get-Date).AddMinutes(-2))) {
+                        $ultErrUi = @(Get-Content -LiteralPath $rutaErrUi -Tail 1)[0]
+                        if ($ultErrUi) { $porQueUi += "; su ultimo error: " + $ultErrUi.Substring(0, [Math]::Min(400, $ultErrUi.Length)) }
+                    }
+                } catch {}
+                Log "WARN: la interfaz murio ($porQueUi); relanzando (intento $($script:uiIntentos)/3)"
                 try { $script:uiProc.Dispose() } catch {}
                 $script:uiProc = $null
                 Initialize-UI

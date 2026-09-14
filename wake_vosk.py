@@ -264,6 +264,11 @@ def nivel_salida():
 # se queda listo.
 _preciso = None
 _preciso_roto = False
+_preciso_uso = 0.0
+# JUGANDO, LA RAM ES DEL JUEGO (14/09): con un juego delante (la marca solo-boton)
+# y este rato sin repasar nada, se suelta. Volver a cargarlo cuesta ~3 s, y solo
+# si llega a hacer falta; tenerlo cargado toda la partida eran ~500 MB para nada.
+PRECISO_SOLTAR_JUGANDO = 300.0
 
 
 def modelo_preciso():
@@ -291,6 +296,8 @@ def atender_reintento(ultimo_audio):
     texto = ""
     try:
         m = modelo_preciso()
+        global _preciso_uso
+        _preciso_uso = time.time()
         duracion = sum(len(b) for b in ultimo_audio) / float(TASA) if ultimo_audio else 0.0
         if m is not None and duracion > REPASO_MAX:
             # El 12/09 small tardo 24 y 35 s con audios largos, con el plazo del
@@ -316,6 +323,18 @@ def atender_reintento(ultimo_audio):
         pass
     vaciar_cola("oido fino")
     return True
+
+
+def soltar_preciso_si_toca():
+    global _preciso
+    if _preciso is None or time.time() - _preciso_uso < PRECISO_SOLTAR_JUGANDO:
+        return
+    if not (MARCA_SOLO_BOTON and os.path.exists(MARCA_SOLO_BOTON)):
+        return
+    _preciso = None
+    import gc
+    gc.collect()
+    anota("oido fino soltado: hay un juego delante y lleva %.0f min sin usarse" % ((time.time() - _preciso_uso) / 60))
 
 
 def umbral_confianza(plano):
@@ -898,6 +917,7 @@ try:
                 # por delante el audio de la orden que se este dictando ahora mismo.
                 if not dictando and not confirmando:
                     atender_reintento(ultimo_audio)
+                    soltar_preciso_si_toca()
 
                 # --- entrar y salir del modo dictado ---
                 quiere_dictar = bool(DICTAR) and os.path.exists(DICTAR)

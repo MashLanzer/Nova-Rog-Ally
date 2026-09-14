@@ -44,7 +44,7 @@ DESTINO = os.path.join(RAIZ, "pruebas", "audio")
 TASA = 16000
 SEGUNDOS = 5.0
 
-# Las veinte. No son al azar: hay nombres propios (lo que peor lleva el modelo
+# Las cuarenta. No son al azar: hay nombres propios (lo que peor lleva el modelo
 # rapido), ordenes cortas, ordenes con numero y dos frases largas encadenadas.
 FRASES = [
     "abre steam",
@@ -67,6 +67,29 @@ FRASES = [
     "pon el juego al ochenta",
     "abre steam y pon modo juego",
     "no me escuches media hora",
+    # --- las veinte del 14/09: con veinte, una pasada y la siguiente se movian
+    # +-1 y no se podia demostrar ninguna mejora pequena. Mas ordenes corrientes y
+    # DOS DE CHARLA, que no deben acabar en ninguna orden (acierto = no hacer nada)
+    "baja el volumen",
+    "sube el brillo",
+    "anterior cancion",
+    "cierra steam",
+    "abre youtube",
+    "busca recetas de pasta en youtube",
+    "pon el brillo al cincuenta",
+    "cuanto espacio me queda",
+    "minimiza todo",
+    "haz una captura",
+    "pon modo foco",
+    "que cancion es",
+    "donde me quede",
+    "apunta leche en la lista de la compra",
+    "cancela el temporizador",
+    "avisame en cinco minutos",
+    "abre discord y pon musica",
+    "que me han escrito",
+    "estoy muy cansado hoy",
+    "que opinas de hollow knight",
 ]
 
 
@@ -100,7 +123,8 @@ def main():
                   f, ensure_ascii=False, indent=1)
 
     solo = None
-    if len(sys.argv) > 1:
+    nuevas = len(sys.argv) > 1 and sys.argv[1] == "nuevas"
+    if len(sys.argv) > 1 and not nuevas:
         try:
             solo = int(sys.argv[1]) - 1
         except ValueError:
@@ -112,6 +136,12 @@ def main():
 
     if solo is not None:
         graba(solo, FRASES[solo])
+    elif nuevas:
+        # solo las que aun no tienen grabacion: las de antes no se repiten
+        faltan = [i for i in range(len(FRASES)) if not os.path.exists(os.path.join(DESTINO, "%02d.wav" % (i + 1)))]
+        print("Faltan %d de %d." % (len(faltan), len(FRASES)))
+        for i in faltan:
+            graba(i, FRASES[i])
     else:
         for i, frase in enumerate(FRASES):
             graba(i, frase)
@@ -120,6 +150,7 @@ def main():
     print("Listo. Ahora, para medir:")
     print("    python tools\\probar-audio.py")
     print("Para repetir solo una:   python tools\\grabar-ordenes.py 7")
+    print("Para grabar solo las que faltan:   python tools\\grabar-ordenes.py nuevas")
 
 
 if __name__ == "__main__":

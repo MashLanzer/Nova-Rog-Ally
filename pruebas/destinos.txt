@@ -97,3 +97,19 @@ que he hecho hoy => resumen del dia
 resumen del dia => resumen del dia
 como va todo => parte general
 que anote hoy => anotado
+
+# --- pulido del 14/09 ---
+# nombrar un juego o una app en una frase de charla NO es pedir que se abra
+que opinas de hollow knight => <se va al modelo>
+hollow knight es dificil => <se va al modelo>
+te gusta steam => <se va al modelo>
+has jugado peak => <se va al modelo>
+hollow knight => Hollow Knight
+steam => abrir steam
+# lo que el modelo rapido casi acierta (correcciones de commands.json)
+si arra el discord, si arra el discord => cerrar discord
+no me escuches en medio de ahora => media hora
+suer bolumen => subir volumen
+super volumen => subir volumen
+con el juego, 80 => el juego al 80
+haz una captura => captura de pantalla

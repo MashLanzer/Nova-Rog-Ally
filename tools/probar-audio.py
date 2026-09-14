@@ -197,7 +197,9 @@ def main():
         if aQuiero:
             ok = (aOido != "" and aOido == aQuiero)
         else:
-            ok = plano(oido) == plano(quiero)
+            # frase de CHARLA (no es ninguna orden): acierta si lo oido tampoco
+            # dispara nada. Exigir el texto clavado mediria otra cosa (14/09)
+            ok = bool(plano(oido)) and not aOido
         igual = plano(oido) == plano(quiero)
         marca = "OK " if ok else "MAL"
         if ok and not igual:
@@ -230,7 +232,7 @@ def main():
             if aQuiero:
                 ok = (aOido != "" and aOido == aQuiero)
             else:
-                ok = plano(oido) == plano(quiero)
+                ok = bool(plano(oido)) and not aOido
             marca = "OK " if ok else "MAL"
             if ok and plano(oido) != plano(quiero):
                 marca = "OK~"
