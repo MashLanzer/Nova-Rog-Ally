@@ -575,7 +575,7 @@ funciones nuevas.
   base con 8 hilos en vez de 4 acierta igual y tarda 1,7 s por orden en vez de
   2,0, y el oído fino baja de ~6 s a ~4,8 s. Beam 1 pierde aciertos y meter
   palabras de órdenes en las hotwords no mejora nada fuera del ruido (±1 entre
-  pasadas). Tres correcciones más en `commands.json` («brille», «bril», «seguidame»,
+  pasadas). Cuatro correcciones más en `commands.json` («brille», «bril», «seguidame»,
   «seguedame»), que es lo que small sigue oyendo. La prueba de audio contaba
   «qué hora es» como fallo si cambiaba el minuto; ya no.
 - **El fallo rojo del banco.** «Se pone siempre encima» llevaba días en rojo y
