@@ -114,7 +114,7 @@ def frases():
 
 
 def fin():
-    return [e for e in eventos if e["ev"] in ("fin", "err", "orden")][-1]
+    return [e for e in eventos if e["ev"] in ("fin", "err", "orden", "delegar")][-1]
 
 
 def hablar(idp, texto, *respuestas):
@@ -158,6 +158,19 @@ comp("y con busqueda web", (llamadas[-1][1].get("tools") or [{}])[0].get("name")
 f = hablar(9, "cuentame un chiste", Resp(local("¿Por qué los pájaros no usan Facebook? ", "因为他们找不到巢。", " Otra cosa más.")))
 comp("si se pasa al chino, se corta ahi y no se lee", f.get("origen") == "local" and frases() == ["¿Por qué los pájaros no usan Facebook?"], (f, frases()))
 comp("y lo guardado en la charla va sin chino", "因" not in cw.historial[-1]["content"], cw.historial[-1]["content"])
+
+# SIN API, un dato concreto no lo contesta el local: se lo inventaria (14/09)
+os.environ["ANTHROPIC_API_KEY"] = ""
+antes = len(cw.historial)
+f = hablar(10, "¿Quién hizo Hollow Knight?")
+comp("sin API, un dato concreto se devuelve al asistente", f["ev"] == "delegar" and f["texto"] == "¿Quién hizo Hollow Knight?", f)
+comp("y no queda en la charla", len(cw.historial) == antes, len(cw.historial))
+del eventos[:]
+guion[:] = [Resp(local("Creo que lo hizo un estudio pequeño. "))]
+cw.responder({"op": "hablar", "id": 11, "texto": "¿Quién hizo Hollow Knight?", "sin_delegar": True})
+comp("si el asistente no tiene a quien pasarlo, lo contesta el local", fin().get("origen") == "local", fin())
+comp("la charla normal sin API sigue en el local", hablar(12, "hoy estoy contento", Resp(local("Me alegro mucho, cuéntame. "))).get("origen") == "local")
+os.environ["ANTHROPIC_API_KEY"] = "falsa"
 
 cw.parar.set()
 f = hablar(7, "habla", Resp(local("Esto no ", "debería oírse.")))

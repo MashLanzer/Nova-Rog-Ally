@@ -516,6 +516,14 @@ def responder(p):
             extra += "\n\nLo que sabes de braya: " + "; ".join(dp[-15:]) + "."
 
     usar_api = (necesita_api(texto) or pide_datos(texto) or duda or buscar) and api_disponible()
+    # SIN API, UN DATO CONCRETO NO LO CONTESTA EL LOCAL (14/09): medido, se lo inventa
+    # aunque el prompt le pida que no ("Goose Goose Duck es una pelicula de Disney").
+    # Se devuelve al asistente, que lo pasa a su cerebro de preguntas. Si ese tampoco
+    # esta, el asistente lo reenvia con "sin_delegar" y lo contesta el local igual.
+    if pide_datos(texto) and not api_disponible() and not p.get("sin_delegar"):
+        historial.pop()
+        salida("delegar", idp, texto=texto)
+        return
     intentos = ["api", "local"] if usar_api else ["local", "api", "local-sin-marca"]
     motivos = []
     marca_api_vista = False

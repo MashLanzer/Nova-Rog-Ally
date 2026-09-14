@@ -34,7 +34,7 @@ foreach ($archivo in $Archivos) {
         }
         $vistos++
         # CARACTERES DE CONTROL. Un patron puede compilar perfectamente y aun
-        # asi estar roto: si un '' escrito en otro lenguaje se colo como
+        # asi estar roto: si un '\b' escrito en otro lenguaje se colo como
         # BACKSPACE (0x08), el regex busca un backspace literal y no coincide
         # nunca. Paso el 11/09 en siete lineas a la vez -entre ellas el filtro
         # que se comia "dale a enter" y el limite de palabra de los titulos de
@@ -45,7 +45,7 @@ foreach ($archivo in $Archivos) {
             $fallos++
             $codigos = ($control | ForEach-Object { '0x{0:X2}' -f [int]$_ }) -join ' '
             Write-Host ("  CONTROL {0}:{1}  caracteres invisibles ({2}) en el patron" -f $archivo, $sig.StartLine, $codigos) -ForegroundColor Red
-            Write-Host ("          probablemente un escape mal traducido; suele ser un ")
+            Write-Host ("          probablemente un escape mal traducido; suele ser un \b")
             continue
         }
         try {

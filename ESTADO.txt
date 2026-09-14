@@ -1,13 +1,11 @@
-ESTADO DEL ASISTENTE DE VOZ  (2026-09-12)
+ESTADO DEL ASISTENTE DE VOZ  (2026-09-14)
 ================================================
 
-EJECUTANDO AHORA: SÍ, desde el 12/09 a las 13:57, ya con los cambios de ese
-  día (el glifo de qué va a hacer, el anillo de la descarga, el parte general
-  y el arreglo del aviso de descarga terminada). Ese día había arrancado solo
-  al iniciar sesión, por la clave Run; se reinició a mano para que los tomara.
-  Se había cerrado el 11/09 a las 20:30 porque se activaba solo mientras
-  jugabas y abría cosas que nadie había pedido; esas causas están corregidas
-  (ver más abajo).
+EJECUTANDO AHORA: NO. El 14/09 solo se encendió para pruebas en vivo y se
+  paró después de cada una. Arranca solo al INICIAR SESIÓN (clave Run), así
+  que la próxima vez que entres en Windows ya tendrá todo lo del 14/09.
+  (Historia: el 11/09 a las 20:30 se cerró porque se activaba solo mientras
+  jugabas y abría cosas que nadie había pedido; esas causas están corregidas.)
   Cada vez que se toque assistant.ps1 o nova_ui.cs hay que reiniciarlo: el
   script se lee entero al arrancar.
 

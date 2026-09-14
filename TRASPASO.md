@@ -429,7 +429,7 @@ DLL anterior en `tools\`.
 - **`$p.Kill()` no mata el árbol**: usar `taskkill /PID <id> /T /F`.
 - **`$args` es variable automática** dentro de funciones: nunca usarla como
   nombre de parámetro (rompió un script de medición).
-- **Un `` puede colarse como BACKSPACE (0x08) y el patrón compila igual.** El
+- **Un `\b` puede colarse como BACKSPACE (0x08) y el patrón compila igual.** El
   11/09 pasó en **siete líneas a la vez** (el filtro de muletillas, el límite de
   palabra de los títulos, el lookahead de «guarda»…). Un patrón así no falla:
   busca un carácter invisible que no aparece nunca, así que la comprobación

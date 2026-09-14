@@ -70,6 +70,10 @@ Titulo "2u. Cerebro propio (aprende sin quedarse con datos malos, busca por pala
 python (Join-Path $PSScriptRoot 'probar-memoria.py') | Select-String 'MAL|todo correcto'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2w. Escucha sin microfono (cuando se da por terminada la frase)"
+python (Join-Path $PSScriptRoot 'probar-escucha.py') | Select-String 'MAL|todo correcto'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2v. Quinta tanda (despertador, dormir, limite de juego, musica, clip, descargas, dock y cascos)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-funciones5.ps1') | Select-String 'MAL|todo correcto'
 if ($LASTEXITCODE -ne 0) { $fallos++ }

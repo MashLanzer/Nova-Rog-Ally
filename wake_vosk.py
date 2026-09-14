@@ -102,6 +102,16 @@ SILENCIO_FIN = 1.4
 # grabaciones, la pausa mas larga DENTRO de una orden es de 0,45 s; los 1,4 s
 # eran para no cortar frases largas que aun no se entienden, y se mantienen.
 SILENCIO_FIN_LOTENGO = 0.8
+
+
+def silencio_para_cerrar(tengo, dicho):
+    """Cuanto silencio cierra la frase. Lo corto SOLO si lo que el asistente ya
+    entendio (tengo) es exactamente lo dicho hasta ahora: si has seguido hablando
+    despues ("abre steam... y pon modo juego"), ya no coincide y se espera lo
+    de siempre. Aparte para poder probarlo sin microfono (tools/probar-escucha.py)."""
+    if tengo and dicho and " ".join(tengo.split()) == " ".join(dicho.split()):
+        return SILENCIO_FIN_LOTENGO
+    return SILENCIO_FIN
 # tope duro, por si el silencio nunca llega (ruido de fondo constante)
 DICTADO_MAX = 30.0
 # sin reconocer ni una palabra en este rato, el dictado se cierra vacio
@@ -1157,9 +1167,7 @@ try:
                             try:
                                 with open(LOTENGO, "r", encoding="utf-8") as f:
                                     tengo = " ".join(f.read().split())
-                                ahora_txt = " ".join((" ".join(dictado) + " " + json.loads(rec.PartialResult()).get("partial", "")).split())
-                                if tengo and tengo == ahora_txt:
-                                    fin_silencio = SILENCIO_FIN_LOTENGO
+                                fin_silencio = silencio_para_cerrar(tengo, " ".join(dictado) + " " + json.loads(rec.PartialResult()).get("partial", ""))
                             except Exception:
                                 pass
                         if ((ahora - ultima_voz) >= fin_silencio and hay_algo) or mudo or \

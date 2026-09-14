@@ -658,6 +658,34 @@ funciones nuevas.
   10. *Piper:* recibía el texto en la codificación de la consola y destrozaba
       las tildes («batera est»). Ahora va en UTF-8. Con `--debug` se ve que con
       tildes acentúa bien y sin ellas no («baTEria», «ESta»).
+- **Cuarta tanda de pulido (14/09):**
+  1. *Caracteres invisibles:* en `tools\probar-regex.ps1` y `TRASPASO.md` había
+     un retroceso (0x08) donde iba `\b`, en comentarios y en un aviso: no rompía
+     ninguna comprobación, pero el texto decía otra cosa. Arreglado.
+  2. *Lo que la API contesta se aprende:* «quién hizo», «de qué va», «háblame de»
+     y «qué sabes de» cuentan ya como preguntas generales (antes solo se
+     aprendían «qué es», «quién fue»…). Una opinión («qué opinas de») NO: no se
+     guarda como dato para repetir.
+  3. *Sin API, los datos concretos no los inventa el local:* se midió con un
+     aviso concreto en el prompt y siguió inventando («Goose Goose Duck es una
+     película de Disney de 1999»). Ahora el worker los devuelve (`delegar`) y
+     van al cerebro de preguntas (Claude Code).
+  4. *Voz preparada:* una frase nueva tarda ~1 s en sintetizarse y una hecha
+     2 ms. Un segundo worker de voz prepara las frases de la charla en cuanto
+     llegan, así no hay ~1 s de hueco entre frase y frase.
+  5. *«Lo tengo» cada 200 ms:* medido, la capa local tarda ~109 ms por frase;
+     comprobar tan a menudo bloquearía el bucle mientras hablas. Se queda en
+     400 ms.
+  6. *Caché de voz:* ya reutilizaba cada frase (clave: voz, ritmo, tono y
+     texto). Sin cambios.
+  7. *Cuándo se cierra la frase* es ya una función (`silencio_para_cerrar`) con
+     su prueba sin micrófono: `tools\probar-escucha.py`, dentro de probar-todo.
+  8. **Te toca:** grabar las 20 frases nuevas; con 40 se recalibra el umbral
+     del repaso dudoso y las correcciones.
+  9. *ESTADO.txt:* la cabecera decía «EJECUTANDO AHORA: SÍ» del 12/09.
+  10. *Correcciones con riesgo* («estima», «programan», «navegado», «team»):
+      probadas en frases normales, ninguna acaba en una orden. La clave «estín»
+      (con tilde) no podía coincidir nunca: ahora es «estin».
 - **El fallo rojo del banco.** «Se pone siempre encima» llevaba días en rojo y
   era de la prueba, no del asistente: sobre una ventana que nunca se ha
   mostrado, `SetWindowPos(HWND_TOPMOST)` devuelve true sin marcar nada. El

@@ -68,6 +68,9 @@ try:
     comp("lo de hoy caduca", cm.caduca("¿quién ganó el partido de hoy?") and not cm.caduca("¿quién pintó la Mona Lisa?"))
     comp("pregunta general", cm.es_pregunta_general("¿Qué es un agujero negro?"))
     comp("lo personal no es general", not cm.es_pregunta_general("¿qué es mi juego favorito?"))
+    # 14/09: los datos concretos que ahora contesta la API tienen que poder aprenderse
+    comp("quien hizo / de que va / hablame de son generales", all(cm.es_pregunta_general(t) for t in ("¿Quién hizo Hollow Knight?", "de qué va little nightmares", "háblame de silent hill", "qué sabes de minecraft")))
+    comp("una opinion NO es un dato general", not cm.es_pregunta_general("¿qué opinas de Hades?") and not cm.es_pregunta_general("¿qué te parece Outlast?"))
     comp("un seguimiento no es general", not cm.es_pregunta_general("¿y eso por qué pasa?") and cm.es_seguimiento("¿y eso por qué?"))
 
     print("--- aprender y usar lo firme ---")

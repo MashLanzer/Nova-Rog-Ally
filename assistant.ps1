@@ -6705,12 +6705,11 @@ function Add-TildesVoz([string]$s) {
     })
 }
 
-# Habla sin bloquear el bucle: la sintesis tarda ~60 ms y Play() es asincrono.
-function Say([string]$texto, [string]$emo = '') {
-    if (-not $texto) { return }
-    $script:vozFinReal = 0
+# El texto TAL CUAL llega a la voz: espacios, tildes y el corte a 300 letras. Aparte
+# porque la voz preparada (Send-PrepVoz) tiene que pedir exactamente el mismo, o no
+# acierta en la cache.
+function Get-TextoVoz([string]$texto) {
     $t = Add-TildesVoz (($texto -replace '\s+', ' ').Trim())
-    if ($t.Length -eq 0) { return }
     if ($t.Length -gt 300) {
         # POR EL FINAL DE UNA FRASE (14/09): cortar a las 300 letras a secas dejaba
         # la voz a mitad de palabra. Se busca el ultimo punto; si no, el ultimo espacio.
@@ -6718,6 +6717,44 @@ function Say([string]$texto, [string]$emo = '') {
         if ($corteV -lt 120) { $corteV = $t.Substring(0, 300).LastIndexOf(' ') }
         $t = if ($corteV -gt 0) { $t.Substring(0, $corteV + 1).Trim() } else { $t.Substring(0, 300) }
     }
+    return $t
+}
+
+# VOZ PREPARADA (14/09). Una frase nueva tarda ~1 s en sintetizarse (medido: 0,99 s
+# de media) y una ya hecha 2 ms. La charla llega frase a frase, pero cada una se
+# sintetizaba al tocarle, con ~1 s de hueco entre frase y frase. Un segundo worker
+# de voz, igual que el de siempre y con la misma cache, las va preparando en cuanto
+# llegan; al decirlas ya estan hechas. Escribe con .part y renombra, asi que los
+# dos pueden pedir la misma sin pisarse. Su salida no se lee: no hace falta.
+$script:prepVozProc = $null
+function Send-PrepVoz([string]$texto, [string]$emo = '') {
+    if (-not $texto -or -not $script:ttsProc -or $script:ttsProc.HasExited) { return }
+    try {
+        if (-not $script:prepVozProc -or $script:prepVozProc.HasExited) {
+            $psiP = New-Object System.Diagnostics.ProcessStartInfo
+            $psiP.FileName = $PyExe
+            $psiP.Arguments = "-u `"$TtsWorker`" $VozOnlineNombre `"$VozCache`""
+            $psiP.UseShellExecute = $false
+            $psiP.RedirectStandardInput = $true
+            $psiP.CreateNoWindow = $true
+            $psiP.WorkingDirectory = $LogDir
+            $script:prepVozProc = [System.Diagnostics.Process]::Start($psiP)
+            try { $script:prepVozProc.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal } catch {}
+            Log "voz preparada: worker PID=$($script:prepVozProc.Id)"
+        }
+        $envioP = if ($emo) { "{emo:$emo} $texto" } else { $texto }
+        $bytesP = [System.Text.Encoding]::UTF8.GetBytes($envioP + "`n")
+        $script:prepVozProc.StandardInput.BaseStream.Write($bytesP, 0, $bytesP.Length)
+        $script:prepVozProc.StandardInput.BaseStream.Flush()
+    } catch { Log ("voz preparada: " + $_.Exception.Message) }
+}
+
+# Habla sin bloquear el bucle: la sintesis tarda ~60 ms y Play() es asincrono.
+function Say([string]$texto, [string]$emo = '') {
+    if (-not $texto) { return }
+    $script:vozFinReal = 0
+    $t = Get-TextoVoz $texto
+    if ($t.Length -eq 0) { return }
     # en una llamada no se habla: la capsula lo ensena y late (ver SILENCIO EN LLAMADAS)
     if (Test-EnLlamada) {
         try { Set-UI 'hablando' $t 5000; Send-UIEvento 'pulso:llamada' } catch {}
@@ -9572,6 +9609,10 @@ function Receive-Charla {
         if ([int]$ev.id -ne $script:charlaId) { continue }   # de una respuesta ya cortada
         if ($ev.ev -eq 'frase') {
             $script:charlaFrases.Enqueue(@{ t = [string]$ev.texto; o = [string]$ev.origen })
+            # la primera suena ya; las que vienen detras se preparan (ver VOZ PREPARADA)
+            if ($script:charlaFrases.Count -gt 1 -or $script:vozFinReal -gt $sw.ElapsedMilliseconds) {
+                Send-PrepVoz (Get-TextoVoz ([string]$ev.texto)) (Get-EmocionFrase ([string]$ev.texto))
+            }
         } elseif ($ev.ev -eq 'fin') {
             $script:charlaEsperando = $false
             $script:charlaUltima = $sw.ElapsedMilliseconds
@@ -9604,6 +9645,14 @@ function Receive-Charla {
                 Send-UIEvento 'hecho'
                 Say $fastC
             } elseif ($TraducirOn) { Submit-Command $ordenC 'traducir' } else { Submit-Command $ordenC }
+        } elseif ($ev.ev -eq 'delegar') {
+            # SIN API, UN DATO CONCRETO (14/09): el modelo local se lo inventaria
+            # ("quien hizo Hollow Knight"), asi que la charla lo devuelve y va al
+            # cerebro de preguntas, que busca de verdad
+            $script:charlaEsperando = $false
+            $datoC = [string]$ev.texto
+            Log "charla: sin API, '$datoC' es un dato concreto; va al cerebro de preguntas"
+            Submit-Command $datoC 'pregunta'
         } elseif ($ev.ev -eq 'err') {
             $script:charlaEsperando = $false
             if ($script:charlaOp -eq 'resumir') {
