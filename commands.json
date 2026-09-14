@@ -42,7 +42,11 @@
         "steamido": "steam",
         "estima": "steam",
         "sirra": "cierra",
-        "programan": "programas"
+        "programan": "programas",
+        "brille": "brillo",
+        "bril": "brillo",
+        "seguidame": "recuerdame",
+        "seguedame": "recuerdame"
     },
     "apps": {
         "steam": "steam://open/main",

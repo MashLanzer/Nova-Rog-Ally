@@ -571,6 +571,13 @@ funciones nuevas.
   mismo audio. Destapó cuatro fallos que llevaban meses ahí y que el banco de
   texto no podía ver, todos por los números dichos con palabras. Detalle en
   `ESTADO.txt`, sección "PROBAR CON TU VOZ".
+- **El dictado, medido otra vez (14/09).** Con las mismas 20 grabaciones:
+  base con 8 hilos en vez de 4 acierta igual y tarda 1,7 s por orden en vez de
+  2,0, y el oído fino baja de ~6 s a ~4,8 s. Beam 1 pierde aciertos y meter
+  palabras de órdenes en las hotwords no mejora nada fuera del ruido (±1 entre
+  pasadas). Tres correcciones más en `commands.json` («brille», «bril», «seguidame»,
+  «seguedame»), que es lo que small sigue oyendo. La prueba de audio contaba
+  «qué hora es» como fallo si cambiaba el minuto; ya no.
 - **El fallo rojo del banco.** «Se pone siempre encima» llevaba días en rojo y
   era de la prueba, no del asistente: sobre una ventana que nunca se ha
   mostrado, `SetWindowPos(HWND_TOPMOST)` devuelve true sin marcar nada. El

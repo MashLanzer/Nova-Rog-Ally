@@ -83,7 +83,9 @@ def acciones_de(frases):
     for linea in salida.splitlines():
         m = re.match(r"^\s*OK\s+(.*?)\s{2,}->\s+(.*)$", linea)
         if m:
-            res[m.group(1).strip()] = m.group(2).strip()
+            # "que hora es" resuelve a "Son las 8:49": si el minuto cambiaba entre
+            # frase buena y frase oida, contaba como FALLO del oido (14/09)
+            res[m.group(1).strip()] = re.sub(r"\d{1,2}:\d{2}", "H:M", m.group(2).strip())
             continue
         m = re.match(r"^\s*->IA\s+(.*)$", linea)
         if m:
@@ -169,7 +171,7 @@ def main():
     print("modelo rapido: %s     oido fino: %s     hotwords: %s"
           % (rapido, preciso, "si" if hw else "no"))
     t0 = time.time()
-    mr = WhisperModel(rapido, device="cpu", compute_type="int8", cpu_threads=4)
+    mr = WhisperModel(rapido, device="cpu", compute_type="int8", cpu_threads=8)
     print("cargado en %.1f s" % (time.time() - t0))
 
     # primero se transcribe todo, y despues se le pregunta a la capa local por
@@ -214,7 +216,7 @@ def main():
     if dudosos:
         print("")
         print("las que fallaron, con el oido fino (%s):" % preciso)
-        mp = WhisperModel(preciso, device="cpu", compute_type="int8", cpu_threads=4)
+        mp = WhisperModel(preciso, device="cpu", compute_type="int8", cpu_threads=8)
         rescatadas = 0
         finas = []
         for nombre, quiero, antes in dudosos:

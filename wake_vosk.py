@@ -697,9 +697,11 @@ if MOTOR_DICTADO.startswith("whisper"):
     try:
         t0 = time.time()
         from faster_whisper import WhisperModel
-        # int8 en CPU: ~500 MB con "small". cpu_threads bajo a proposito: es un
-        # portatil de juegos y este proceso corre con prioridad baja.
-        whisper = WhisperModel(nombre_modelo or "small", device="cpu", compute_type="int8", cpu_threads=4)
+        # int8 en CPU: ~500 MB con "small". 8 hilos, como el oido fino: medido el
+        # 14/09 con las 20 grabaciones, base pasa de 2,0 a 1,7 s por orden con los
+        # mismos aciertos. No le quita CPU al juego: este proceso corre con
+        # prioridad baja y solo trabaja a rachas, al dictar.
+        whisper = WhisperModel(nombre_modelo or "small", device="cpu", compute_type="int8", cpu_threads=HILOS_PRECISO)
         # calentamiento: la primera transcripcion tarda 3 s; mejor ahora que
         # en la primera orden
         list(whisper.transcribe(np.zeros(TASA, dtype=np.float32), language="es", beam_size=1)[0])

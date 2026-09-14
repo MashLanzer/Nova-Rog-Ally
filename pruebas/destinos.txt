@@ -86,6 +86,9 @@ abre little nightmares tres en steam => Little Nightmares III
 recuerdame en veinte minutos que saque la pizza => aviso en 20 minutos
 recuerdame en un minuto que mire el horno => aviso en 1 minuto
 recuerdame en media hora que llame => aviso en 30 minutos
+# lo que small oye de verdad en las grabaciones del 14/09 (correcciones de commands.json)
+seguidame en 20 minutos que saque la piscina => aviso en 20 minutos
+baja el brille => bajar brillo
 dicta un correo => dictado largo
 ponme una cancion en spotify => Spotify
 
