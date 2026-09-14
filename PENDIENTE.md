@@ -610,6 +610,31 @@ funciones nuevas.
     difícil» o «te gusta Steam» ABRÍAN el juego o la app (la regla del nombre
     suelto buscaba el título dentro de la frase). Ahora van a la conversación.
     «Haz una captura» no se entendía.
+- **Segunda tanda de pulido (14/09):**
+  1. *Charla en frío:* el prompt de sistema (322 tokens) tardaba 6,9 s en leerse
+     en frío. Recortarlo se midió y EMPEORA las marcas ([ORDEN]/[API] 15 de 20
+     frente a 20 de 20), así que se queda. Lo que se hizo: lo fijo va delante y
+     lo que cambia (perfil, contexto, juego) al final, y la precarga lee esa parte
+     fija. Tras precargar, la primera frase llega en 2,2 s en vez de 13,9 s.
+  2. *La pausa de la escucha* mientras Nova habla usaba la cuenta de letras
+     (70 ms + 1,2 s) y la duración real solo podía alargarla; ahora también la
+     acorta (~0,7 s menos sorda por frase). La sordina no se toca.
+  3. *Los fallos del banco:* 3 de 5 son controles a propósito. «abrir el steam
+     y en una segunda ventana buscar pinterest» se arregló («en otra ventana /
+     pestaña» se ignora). «Freelesign en el navegador buscal Pinterest» es audio
+     destrozado: se deja.
+  4. *El ruido que pasa (3 de 97):* dos títulos sueltos, que al ejecutarse
+     preguntan antes («¿SILENT BREATH?»), y «adiós», que se despide. Sin cambios.
+  5. *Lo que se abrió sin verbo en el log:* «sí», «es», «el» y los catálogos
+     recitados ya no disparan nada con los filtros de hoy. Sin cambios.
+  6. *La voz ya no se corta a mitad de palabra* a las 300 letras: corta en el
+     último punto (o espacio).
+  7. *Rellenos de la charla:* ocho en vez de tres y nunca el mismo seguido.
+  8. *Lo que vas diciendo en la cápsula* se corta por palabras, no por letras.
+  9. *`tmp\ui-error.log`:* aún no existe (la cápsula no ha fallado desde que se
+     añadió). Revisarlo tras unos días.
+  10. **Te toca con la voz:** la guarda del repaso dudoso, la precarga al hablar
+      y soltar el oído fino jugando no se pueden probar con órdenes escritas.
 - **El fallo rojo del banco.** «Se pone siempre encima» llevaba días en rojo y
   era de la prueba, no del asistente: sobre una ventana que nunca se ha
   mostrado, `SetWindowPos(HWND_TOPMOST)` devuelve true sin marcar nada. El

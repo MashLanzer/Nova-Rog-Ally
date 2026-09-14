@@ -283,6 +283,13 @@ function Split-Ordenes([string]$texto) {
         $sitioS = $Matches[1]; $verboS = $Matches[2]; $queS = $Matches[3]
         $planoS = if ($verboS -match '^(?:pon|ponme|reproduce)$') { "$verboS $queS en $sitioS" } else { "busca $queS en $sitioS" }
     }
+    # "abrir el steam y en una segunda ventana buscar pinterest" (14/09): que sea en
+    # otra ventana o pestana no cambia nada (se abre aparte igual), y en medio partia
+    # mal la frase. Se quita.
+    if ($planoS -match '\ben\s+(?:una|otra)\s+(?:segunda\s+|nueva\s+)?(?:ventana|pestana)\b') {
+        $planoS = [regex]::Replace($planoS, '\s*(?:\by\s+)?\ben\s+(?:una|otra)\s+(?:segunda\s+|nueva\s+)?(?:ventana|pestana)\b\s*', ' y ')
+        $planoS = (($planoS -replace '^\s*y\s+', '') -replace '\s+y\s*$', '' -replace '\s+', ' ').Trim()
+    }
     return (Split-Compound (Repair-Words $planoS))
 }
 
@@ -6511,7 +6518,15 @@ function Say-Online([string]$texto, [string]$emo = '') {
                 $fin = $sw.ElapsedMilliseconds + $dur
                 $script:vozFinReal = $fin    # la charla encadena frases con esto
                 # Max: una pausa mas larga ya puesta (la sordina) no se acorta (auditoria 13/09)
-                $script:pausaHasta = [Math]::Max($script:pausaHasta, $fin)
+                # LA PAUSA REAL (14/09): pero la que puso Say con la cuenta de letras
+                # (70 ms por letra + 1,2 s) si, o la escucha seguia sorda ~0,7 s de mas
+                # en cada frase. Solo si nadie la ha tocado desde entonces.
+                if ($script:pausaEstimadaVoz -gt 0 -and $script:pausaHasta -eq $script:pausaEstimadaVoz -and $script:sordinaHasta -le $sw.ElapsedMilliseconds) {
+                    $script:pausaHasta = $fin
+                } else {
+                    $script:pausaHasta = [Math]::Max($script:pausaHasta, $fin)
+                }
+                $script:pausaEstimadaVoz = -1
                 $script:uiHasta = [Math]::Max($script:uiHasta, $fin)
             }
         } catch {}
@@ -6691,7 +6706,13 @@ function Say([string]$texto, [string]$emo = '') {
     $script:vozFinReal = 0
     $t = Add-TildesVoz (($texto -replace '\s+', ' ').Trim())
     if ($t.Length -eq 0) { return }
-    if ($t.Length -gt 300) { $t = $t.Substring(0, 300) }
+    if ($t.Length -gt 300) {
+        # POR EL FINAL DE UNA FRASE (14/09): cortar a las 300 letras a secas dejaba
+        # la voz a mitad de palabra. Se busca el ultimo punto; si no, el ultimo espacio.
+        $corteV = $t.Substring(0, 300).LastIndexOfAny([char[]]'.!?;')
+        if ($corteV -lt 120) { $corteV = $t.Substring(0, 300).LastIndexOf(' ') }
+        $t = if ($corteV -gt 0) { $t.Substring(0, $corteV + 1).Trim() } else { $t.Substring(0, 300) }
+    }
     # en una llamada no se habla: la capsula lo ensena y late (ver SILENCIO EN LLAMADAS)
     if (Test-EnLlamada) {
         try { Set-UI 'hablando' $t 5000; Send-UIEvento 'pulso:llamada' } catch {}
@@ -6703,7 +6724,11 @@ function Say([string]$texto, [string]$emo = '') {
     try {
         $script:finVoz = $sw.ElapsedMilliseconds
         $estimado = [Math]::Min(20000, ($t.Length * 70) + 1200)
+        $previaV = $script:pausaHasta
         Pausar-Escucha $estimado $t
+        # si fue ESTA estimacion la que alargo la pausa, Say-Online la puede acortar
+        # a la duracion real del audio (ver LA PAUSA REAL)
+        $script:pausaEstimadaVoz = if ($script:pausaHasta -gt $previaV) { $script:pausaHasta } else { -1 }
         # la capsula muestra lo que se dice y vuelve al reposo al callar. El
         # audio se anade despues, cuando se sabe cual es (Say-Online).
         $script:uiAudio = ''
@@ -11721,7 +11746,12 @@ while ($true) {
         ($sw.ElapsedMilliseconds - $script:charlaDesde) -gt 5000 -and $sw.ElapsedMilliseconds -ge $script:pausaHasta) {
         $script:charlaRelleno = $true
         Log "charla: tarda mas de 5 s, digo algo mientras"
-        Say (Get-Random -InputObject @('Deja que lo piense.', 'A ver...', 'Un segundito.'))
+        # variadas y NUNCA la misma dos veces seguidas (14/09): con tres, se repetian
+        $rellenosC = @('Deja que lo piense.', 'A ver...', 'Un segundito.', 'Mmm, buena pregunta.', 'Dame un momento.',
+                       'Espera, que lo pienso.', 'Vale, a ver.', 'Uy, eso tiene miga.')
+        $rellenoC = Get-Random -InputObject @($rellenosC | Where-Object { $_ -ne $script:ultimoRelleno })
+        $script:ultimoRelleno = $rellenoC
+        Say $rellenoC
     }
     # LA ESPERA SE VE (D3): si la charla tarda mas de 2 s, la linea de la capsula se
     # va llenando (en frio son 12-16 s); al llegar la primera frase, se vacia
@@ -11882,7 +11912,13 @@ while ($true) {
             try {
                 $par = [System.IO.File]::ReadAllText($RutaParcial, [System.Text.Encoding]::UTF8)
                 $vista = ($par -replace '\s+', ' ').Trim()
-                if ($vista.Length -gt 44) { $vista = "..." + $vista.Substring($vista.Length - 41) }
+                if ($vista.Length -gt 44) {
+                    # por PALABRAS (14/09): cortar a 41 letras dejaba "...lume al setenta"
+                    $colaV = $vista.Substring($vista.Length - 41)
+                    $espV = $colaV.IndexOf(' ')
+                    if ($espV -ge 0 -and $espV -lt 20) { $colaV = $colaV.Substring($espV + 1) }
+                    $vista = "..." + $colaV
+                }
                 $nuevo = if ($vista) { "● $vista" } else { "● VOZ..." }
                 if ($lbl.Text -ne $nuevo) {
                     $lbl.Text = $nuevo; Set-UI 'escuchando' $vista; Test-LoTengo $vista

@@ -240,12 +240,17 @@ def api_disponible():
 
 
 def sistema_con(extra, marcas):
-    s = SISTEMA + extra
+    # LO FIJO DELANTE Y LO QUE CAMBIA AL FINAL (14/09): Ollama reutiliza lo ya leido
+    # si el principio del prompt coincide. Con el perfil y el contexto en medio, cada
+    # peticion rompia la coincidencia y en frio se releian ~320 tokens (6,9 s). La
+    # precarga (calentar) lee esta parte fija por adelantado: tras ella, la primera
+    # frase llega en 2,2 s en vez de 13,9 s. Medido: el orden no cambia las marcas.
+    s = SISTEMA
     if MARCA_ORDEN in marcas:
         s += SISTEMA_ORDEN
     if MARCA_API in marcas:
         s += SISTEMA_API
-    return s
+    return s + extra
 
 
 def datos_perfil():
@@ -771,7 +776,14 @@ def resumir_mensajes(p):
 def calentar():
     """MENOS ESPERA EN FRIO (M2): el asistente cree que vas a charlar y lo carga ya."""
     try:
-        httpx.post(OLLAMA + "/api/generate", json={"model": MODELO_LOCAL, "keep_alive": "2m"}, timeout=90)
+        # no basta con cargar el modelo: se le hace LEER la parte fija del prompt, que
+        # en frio era lo que mas tardaba. Mismo num_ctx que generar_local, o Ollama
+        # recargaria el modelo al cambiarlo.
+        httpx.post(OLLAMA + "/api/chat", json={
+            "model": MODELO_LOCAL, "stream": False, "keep_alive": "2m",
+            "options": {"num_predict": 1, "num_ctx": 1536},
+            "messages": [{"role": "system", "content": sistema_con("", [MARCA_ORDEN, MARCA_API])},
+                         {"role": "user", "content": "hola"}]}, timeout=120)
         salida("info", texto="modelo local precargado")
     except Exception as e:  # noqa: BLE001
         salida("info", texto="no pude precargar el modelo local: %s" % e)

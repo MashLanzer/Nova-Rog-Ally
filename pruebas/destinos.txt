@@ -113,3 +113,8 @@ suer bolumen => subir volumen
 super volumen => subir volumen
 con el juego, 80 => el juego al 80
 haz una captura => captura de pantalla
+
+# que sea en otra ventana o pestana no cambia la orden (14/09)
+abrir el steam y en una segunda ventana buscar pinterest => abrir pinterest
+busca gatos en otra pestana => buscar 'gatos'
+abre steam y en otra ventana abre discord => abrir discord
