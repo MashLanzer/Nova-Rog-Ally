@@ -16,7 +16,7 @@ function TraerFn($n) {
 }
 foreach ($n in 'ConvertTo-Plain', 'Watch-Notificaciones', 'Get-ResumenNotificaciones', 'Get-LecturaNotificaciones', 'Get-Contactos', 'Save-Contactos',
     'Get-Habitos', 'Save-Habitos', 'Add-Habito', 'Find-Propuesta', 'Test-ParteManana',
-    'Add-RitmoSeguimiento', 'Get-VentanaSeguimiento', 'Add-CharlaHora', 'Test-PrecargaCharla') { Invoke-Expression (TraerFn $n) }
+    'Add-RitmoSeguimiento', 'Get-VentanaSeguimiento', 'Add-CharlaHora', 'Test-PrecargaCharla', 'Write-Atomico') { Invoke-Expression (TraerFn $n) }
 $script:invitado = $false
 
 $MemoriaDir = Join-Path $env:TEMP ('nova-costumbres-' + [guid]::NewGuid().ToString('N'))

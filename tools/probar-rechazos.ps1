@@ -20,6 +20,7 @@ $script:rechazos = $null
 Invoke-Expression (Traer 'ConvertTo-Plain')
 Invoke-Expression (Traer 'Get-Rechazos')
 Invoke-Expression (Traer 'Save-Rechazos')
+Invoke-Expression (Traer 'Write-Atomico')
 Invoke-Expression (Traer 'Add-Rechazo')
 Invoke-Expression (Traer 'Remove-Rechazo')
 Invoke-Expression (Traer 'Test-Rechazada')

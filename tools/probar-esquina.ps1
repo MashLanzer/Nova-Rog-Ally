@@ -18,6 +18,7 @@ Copy-Item (Join-Path $raiz 'config.json') (Join-Path $tmp 'config.json')
 # Set-Cfg escribe en $cfgPath: se le apunta a la copia
 $cfgPath = Join-Path $tmp 'config.json'
 Invoke-Expression (Traer 'Set-Cfg')
+Invoke-Expression (Traer 'Write-Atomico')
 
 $fallos = 0
 function Comp($etiqueta, $ok, $detalle) {

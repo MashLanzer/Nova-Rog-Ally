@@ -11,6 +11,7 @@ function TraerFn([string]$n) {
 Invoke-Expression (TraerFn 'ConvertTo-Plain')
 Invoke-Expression (TraerFn 'Get-Listas')
 Invoke-Expression (TraerFn 'Save-Listas')
+Invoke-Expression (TraerFn 'Write-Atomico')
 Invoke-Expression (TraerFn 'Resolve-Lista')
 Invoke-Expression (TraerFn 'Format-Lista')
 

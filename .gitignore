@@ -68,6 +68,7 @@ memoria/notas-voz/
 memoria/cerebro/
 # lo que has escuchado y cuando
 memoria/musica.json
-memoria/musica.json.tmp
+# lo que queda a medias si se va la luz justo al guardar (ver Write-Atomico)
+*.json.tmp
 # archivos de memoria que no se podian leer, apartados en vez de perderse
 *.corrupto-*

@@ -19,6 +19,7 @@ function Test-Prop($obj, $n) {
 }
 Invoke-Expression (Traer 'ConvertTo-Plain')
 Invoke-Expression (Traer 'Add-Perfil')
+Invoke-Expression (Traer 'Write-Atomico')
 Invoke-Expression (Traer 'Remove-Perfil')
 
 # un commands.json de mentira, copia del real para que tenga la misma forma

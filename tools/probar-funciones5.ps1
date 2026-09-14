@@ -14,7 +14,7 @@ $top = $ast.EndBlock.Statements | Where-Object { $_ -is [System.Management.Autom
 foreach ($a in $top) { if (@('DIAS_SEMANA', 'MESES', 'HORAS_PALABRA') -contains $a.Left.VariablePath.UserPath) { Invoke-Expression $a.Extent.Text } }
 foreach ($n in 'ConvertTo-Plain', 'Invoke-RecordatorioVoz', 'Get-Recordatorios', 'Save-Recordatorios', 'Get-MinutosDichos', 'Format-MinutosDichos',
     'Invoke-DespertadorVoz', 'Invoke-RutinaDormir', 'Test-LimiteJuego', 'Get-HistorialMusica', 'Add-HistorialMusica', 'Find-CancionDe',
-    'Get-CancionAnterior', 'Invoke-ClipJuego', 'Get-DescargaJuego', 'Format-Gigas', 'Watch-Dispositivos') { Invoke-Expression (TraerFn $n) }
+    'Get-CancionAnterior', 'Invoke-ClipJuego', 'Get-DescargaJuego', 'Format-Gigas', 'Watch-Dispositivos', 'Write-Atomico') { Invoke-Expression (TraerFn $n) }
 
 $MemoriaDir = Join-Path $env:TEMP ('nova-f5-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $MemoriaDir | Out-Null

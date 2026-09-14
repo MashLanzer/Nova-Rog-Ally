@@ -187,7 +187,8 @@ Funciones:
 - [x] F7 «Hazme una pregunta»: trivia de lo confirmado; «me rindo».
 - [x] F8 «Cuando conecte el dock / me ponga los cascos…» (reglas y recordatorios).
 - [~] F9 «¿Quién está conectado en Steam?» **necesita una clave gratuita de la API
-      de Steam** en config (`steam.apiKey`). Discord: no se puede sin un bot.
+      de Steam** en config (`steam.apiKey`). Discord: solo con un bot en tus
+      servidores; **descartado por braya el 14/09** (no se hace).
 - [x] F10 Historial en `memoria\musica.json`; «¿cómo se llamaba esa canción?»,
       «pon la que sonaba anoche» (la busca en Spotify).
 
@@ -308,7 +309,7 @@ que puso braya:
       en la sesión del 13/09: **revocarla y crear otra**.
 - [ ] Ver con el uso real si el 3B se inventa datos demasiado (el de los pulpos
       salió mal dos veces) y si hace falta pasar más preguntas a la API.
-- [ ] «¿Qué has aprendido?» todavía no cuenta lo del cerebro propio.
+- [x] «¿Qué has aprendido?» cuenta lo del cerebro propio (M1 de la quinta tanda).
 - [ ] Si la RAM aprieta jugando: `qwen2.5:3b-instruct-q3_K_M` (~1,6 GB) o bajar
       la memoria reservada a la gráfica en Armoury Crate (hoy 8 de 16 GB).
 
@@ -382,21 +383,25 @@ comprobado (banco completo en verde; G1-G6 probados en vivo donde se podía):
   temporizador de 10 minutos», «apaga la música», «pon modo foco».
 
 Queda abierto:
-- [ ] **G8: permisos del cerebro.** `--disallowedTools` no cubre las herramientas
-      del MCP de Windows (`mcp__windows__Registry`, `Process`, `PowerShell`,
-      `FileSystem`) ni variantes como `rm -r -f`. ESTADO.txt dice «con lo
-      destructivo prohibido» y no se cumple del todo. **Pendiente de decidir con
-      braya** (se acordó no cambiar sus permisos sin preguntar).
+- [x] **G8: permisos del cerebro.** braya eligió bloquear lo destructivo (13/09):
+      `$CcProhibido` quita al cerebro el registro, los procesos, PowerShell y el
+      sistema de archivos del MCP de Windows, y los comandos de borrar, matar
+      procesos o tocar el registro.
 - [ ] **M11:** una receta con script bloquea el bucle hasta 20 s por paso (≡ no
       responde mientras). Convertirla en trabajo asíncrono.
 - [ ] **M12:** activaciones falsas con gente hablando cerca (~2 cada 4 min en la
       prueba); se descartan bien, pero cuestan CPU de Whisper.
-- [ ] Escrituras no atómicas en varios JSON de memoria (el .corrupto evita perder
-      todo, pero no evita el archivo a medias).
-- [ ] Frases mal dirigidas que quedan: «abre teams» (abre Steam), «graba un audio
-      para mi madre» (graba un clip), «regresa a steam» (canción anterior), «en
-      youtube busca gatos» (busca en Google), «minimiza zorglub» (dice «no te
-      entendí»), «apaga el ordenador» (va a la IA sin pregunta local).
+- [x] Escrituras no atómicas en los JSON de memoria (14/09): `Write-Atomico`
+      escribe un `.tmp` y lo cambia por el bueno de una vez (listas,
+      estadísticas, config, commands, traducciones, rechazos, recetas,
+      contactos, reglas, fechas y recordatorios).
+- [x] Frases mal dirigidas (14/09): «graba un audio para mi madre» → nota de
+      voz; «regresa a steam» → cambiar a Steam; «en youtube busca gatos» y «en
+      youtube pon lofi» → YouTube (era la trampa de `$Matches`); «canción
+      anterior» → anterior; «minimiza zorglub» → «no veo ninguna ventana»;
+      «apaga / reinicia el ordenador» → local, con un sí y 30 s para cancelar.
+      «Abre teams» → Steam **es a propósito**: el alias de `commands.json`
+      corrige a Whisper, que oye «teams» cuando dices «steam».
 
 ## De la revisión del agente (13/09, tarde): arreglado
 

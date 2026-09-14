@@ -275,7 +275,15 @@ function Test-NombreConocido([string]$t) {
 # partir por ella tiraba cinco ordenes reales del log. Lo que si funciona
 # esta abajo, en Resolve-Target: varios nombres conocidos seguidos.
 function Split-Ordenes([string]$texto) {
-    return (Split-Compound (Repair-Words (ConvertTo-Plain $texto)))
+    $planoS = ConvertTo-Plain $texto
+    # "en youtube busca gatos" es "busca gatos en youtube" (14/09): si no, se partia
+    # en "abrir youtube" + "buscar gatos en Google"
+    if ($planoS -match '^en\s+(youtube|google|pinterest|bing|amazon|wikipedia|twitch|reddit|github)\s*,?\s+(busca|buscame|buscar|googlea|pon|ponme|reproduce)\s+(.+)$') {
+        # los grupos, a variables YA: el -match de abajo pisaria $Matches
+        $sitioS = $Matches[1]; $verboS = $Matches[2]; $queS = $Matches[3]
+        $planoS = if ($verboS -match '^(?:pon|ponme|reproduce)$') { "$verboS $queS en $sitioS" } else { "busca $queS en $sitioS" }
+    }
+    return (Split-Compound (Repair-Words $planoS))
 }
 
 function Split-Compound([string]$s) {
@@ -351,6 +359,19 @@ function Test-Prop($obj, [string]$name) {
 }
 
 # Distancia de Levenshtein: cuantas ediciones separan dos palabras.
+# ESCRITURA ATOMICA (14/09): los JSON de memoria se escribian directamente, y un
+# apagon o la bateria a cero a mitad dejaba el archivo a medias (el .corrupto
+# evitaba perderlo todo, no el destrozo). Ahora se escribe un .tmp y se cambia
+# por el bueno de una vez: o esta el viejo entero o el nuevo entero.
+function Write-Atomico([string]$ruta, [string]$texto, [bool]$bom = $false) {
+    $tmp = "$ruta.tmp"
+    [System.IO.File]::WriteAllText($tmp, $texto, (New-Object System.Text.UTF8Encoding($bom)))
+    if (Test-Path -LiteralPath $ruta) {
+        try { [System.IO.File]::Replace($tmp, $ruta, $null); return } catch {}
+    }
+    Move-Item -LiteralPath $tmp -Destination $ruta -Force
+}
+
 function Get-Distancia([string]$a, [string]$b) {
     $n = $a.Length; $m = $b.Length
     if ($n -eq 0) { return $m }
@@ -958,7 +979,7 @@ function Save-Listas($listas) {
         if (-not (Test-Path -LiteralPath $MemoriaDir)) { New-Item -ItemType Directory -Force -Path $MemoriaDir | Out-Null }
         $o = New-Object PSObject
         foreach ($k in $listas.Keys) { $o | Add-Member -NotePropertyName $k -NotePropertyValue @($listas[$k]) -Force }
-        [System.IO.File]::WriteAllText($RutaListas, ($o | ConvertTo-Json -Depth 5), (New-Object System.Text.UTF8Encoding($false)))
+        Write-Atomico $RutaListas ($o | ConvertTo-Json -Depth 5)
         return $true
     } catch { Log ("listas: no pude guardarlas (" + $_.Exception.Message + ")"); return $false }
 }
@@ -1118,7 +1139,7 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '') {
         $o | Add-Member -NotePropertyName recientes -NotePropertyValue @($s.recientes)
         $enc = New-Object System.Text.UTF8Encoding($false)
         if (-not (Test-Path -LiteralPath $MemoriaDir)) { New-Item -ItemType Directory -Force -Path $MemoriaDir | Out-Null }
-        [System.IO.File]::WriteAllText($EstadisticasJson, ($o | ConvertTo-Json -Depth 6), $enc)
+        Write-Atomico $EstadisticasJson ($o | ConvertTo-Json -Depth 6)
 
         $rutas = @('activacion', 'vozwin', 'vozwin-mudo', 'local', 'aprendida', 'memoria', 'pregunta', 'traducir', 'traducida', 'accion', 'charla', 'ruido', 'recitado', 'descarte', 'error', 'fino', 'fino-sirvio', 'fino-igual', 'fino-invento', 'fino-ahorrado')
         $sb = New-Object System.Text.StringBuilder
@@ -1746,6 +1767,9 @@ function Resolve-Fragment([string]$f) {
         # al quitar el lugar aparece un verbo nuevo al frente, que puede venir
         # deformado ("en el navegador buscal X"): hay que repararlo tambien aqui
         $f = Repair-Verb ($f.Substring($loc.Length).Trim())
+        # "en youtube pon lofi": el sitio vuelve al final, que es como lo entiende
+        # "pon X en youtube" (14/09: sin esto, "pon lofi" suelto iba a la IA)
+        if ($sitioForzado -eq 'youtube' -and $f -match '^(?:pon|ponme|reproduce|reproduceme|quiero ver|ver|toca)\s') { $f = "$f en youtube" }
     }
     # --- frases sociales: se contestan aqui, no valen 40 s de modelo ---
     switch -regex ($f) {
@@ -2125,6 +2149,9 @@ function Resolve-Fragment([string]$f) {
         if ($obj -notmatch '^(?:todo|todas|el escritorio|escritorio|la pagina|el tamano|tamano|(?:los |el )?(?:archivos?|documentos?|cambios|trabajo))$') {
             $proc = Resolve-Proceso $obj
             if ($proc) { return @(@{ kind = 'ventanaApp'; proceso = $proc.proceso; accion = 'minimizar'; desc = "minimizar $($proc.nombre)" }) }
+            # "minimiza zorglub": se dice que no esta, en vez de mandarlo a la IA (14/09).
+            # Solo con "minimiza": "guarda el clip" o "esconde..." siguen su camino
+            if ($f -match '^(?:minimiza|minimizar)\s') { return @(@{ kind = 'decir'; desc = "no veo ninguna ventana de $obj" }) }
         }
     }
     if ($f -match '^(?:maximiza|maximizar|agranda|abre del todo)\s+(?:el\s+|la\s+|a\s+)?(.+)$') {
@@ -2288,7 +2315,8 @@ function Resolve-Fragment([string]$f) {
         '^(?:toma (?:una )?captura|captura (?:de )?pantalla|screenshot|pantallazo)$' {
             return @(@{ kind = 'winprt'; desc = 'captura de pantalla' })
         }
-        '^(?:graba|grabar|clip|guarda el clip|graba los ultimos)\b' {
+        # "graba un audio para mi madre" es una nota de voz, no un clip (14/09)
+        '^(?:graba|grabar)\b(?!\s+(?:un|una|me)\s+(?:audio|nota|mensaje))|^(?:clip|guarda el clip|graba los ultimos)\b' {
             return @(@{ kind = 'winaltg'; desc = 'grabar los ultimos segundos' })
         }
     }
@@ -2319,7 +2347,7 @@ function Resolve-Fragment([string]$f) {
     # "al" tambien: "cambia al bloc de notas" no encajaba, se fue al modelo y
     # quedo aprendido como "abre bloc de notas", que abre OTRO en vez de ir al
     # que ya tenias (revision del 12/09)
-    if ($f -match '^(?:cambia al|cambiate al|pasate al|pasa al|ve al|vete al|llevame al|cambia a|cambiate a|pasate a|pasa a|enfoca|muestra|muestrame|ve a|vete a|llevame a|ponme en|trae|traeme)\s+(?:el\s+|la\s+|a\s+)?(.+)$') {
+    if ($f -match '^(?:regresa al|regresa a|cambia al|cambiate al|pasate al|pasa al|ve al|vete al|llevame al|cambia a|cambiate a|pasate a|pasa a|enfoca|muestra|muestrame|ve a|vete a|llevame a|ponme en|trae|traeme)\s+(?:el\s+|la\s+|a\s+)?(.+)$') {
         $obj = $Matches[1].Trim()
         if ($obj -match '^(?:el escritorio|escritorio)$') { return @(@{ kind = 'winkey'; vk = 0x44; desc = 'mostrar el escritorio' }) }
         if ($obj -match '^(?:el juego|juego)$' -and $script:juegoActivo) { return @(@{ kind = 'enfocarJuego'; desc = "volver a $($script:juegoActivo)" }) }
@@ -2554,7 +2582,8 @@ function Resolve-Fragment([string]$f) {
         '^(?:pausa|pausar|para)\s+(?:a\s+|el\s+|la\s+)?(?:spotify|youtube|netflix|el video|la serie|la pelicula|el reproductor)$' { return @(@{ kind = 'musicaPlay'; sonar = $false; desc = 'pausar lo que suena' }) }
         '^(?:reanuda|quita la pausa a|pon|dale play a)\s+(?:la\s+)?(?:musica|cancion)$' { return @(@{ kind = 'musicaPlay'; sonar = $true; desc = 'poner la musica' }) }
         '^(?:siguiente|pasa|pasala|adelanta)\b' { return @(@{ kind = 'key'; vk = 0xB0; repeat = 1; desc = 'siguiente' }) }
-        '^(?:anterior|regresa|atras)\b' { return @(@{ kind = 'key'; vk = 0xB1; repeat = 1; desc = 'anterior' }) }
+        # "regresa a steam" es volver a esa ventana, no la cancion anterior (14/09)
+        '^(?:anterior|atras)\b|^regresa(?!\s+(?:a|al)\b)|^(?:la\s+|pon\s+la\s+)?cancion\s+anterior$|^pon\s+la\s+anterior$' { return @(@{ kind = 'key'; vk = 0xB1; repeat = 1; desc = 'anterior' }) }
         # a secas o con lo que se bloquea: "bloquea a ese tio en discord" bloqueaba la sesion
         '^(?:bloquea|bloquear)(?:\s+(?:la\s+)?(?:pantalla|sesion|el\s+(?:pc|ordenador|equipo|computador|computadora)))?$' { return @(@{ kind = 'lock'; desc = 'bloquear sesion' }) }
     }
@@ -2773,7 +2802,7 @@ function Set-Cfg([string]$seccion, [string]$clave, $valor) {
         if (-not $j.$seccion) { $j | Add-Member -NotePropertyName $seccion -NotePropertyValue (New-Object PSObject) -Force }
         $j.$seccion | Add-Member -NotePropertyName $clave -NotePropertyValue $valor -Force
         # SIN BOM: lo leen tambien los workers de Python, en crudo
-        [System.IO.File]::WriteAllText($ruta, ($j | ConvertTo-Json -Depth 8), (New-Object System.Text.UTF8Encoding($false)))
+        Write-Atomico $ruta ($j | ConvertTo-Json -Depth 8)
         Log "config: $seccion.$clave = $valor"
         return $true
     } catch { Log ("no pude guardar la configuracion: " + $_.Exception.Message); return $false }
@@ -2786,7 +2815,7 @@ function Add-Perfil([string]$nombre, [string[]]$ordenes) {
         $j = Get-Content -LiteralPath $cmdsPath -Raw -Encoding UTF8 | ConvertFrom-Json
         if (-not $j.perfiles) { $j | Add-Member -NotePropertyName perfiles -NotePropertyValue (New-Object PSObject) -Force }
         $j.perfiles | Add-Member -NotePropertyName $nombre -NotePropertyValue ([string[]]$ordenes) -Force
-        [System.IO.File]::WriteAllText($cmdsPath, ($j | ConvertTo-Json -Depth 8), (New-Object System.Text.UTF8Encoding($false)))
+        Write-Atomico $cmdsPath ($j | ConvertTo-Json -Depth 8)
         $script:cmds = Get-Content -LiteralPath $cmdsPath -Raw -Encoding UTF8 | ConvertFrom-Json
         Log ("MODO CREADO: $nombre -> " + ($ordenes -join '; '))
         return $true
@@ -2800,7 +2829,7 @@ function Remove-Perfil([string]$nombre) {
         $j = Get-Content -LiteralPath $cmdsPath -Raw -Encoding UTF8 | ConvertFrom-Json
         if (-not (Test-Prop $j.perfiles $nombre)) { return $false }
         $j.perfiles.PSObject.Properties.Remove($nombre)
-        [System.IO.File]::WriteAllText($cmdsPath, ($j | ConvertTo-Json -Depth 8), (New-Object System.Text.UTF8Encoding($false)))
+        Write-Atomico $cmdsPath ($j | ConvertTo-Json -Depth 8)
         $script:cmds = Get-Content -LiteralPath $cmdsPath -Raw -Encoding UTF8 | ConvertFrom-Json
         Log "MODO BORRADO: $nombre"
         return $true
@@ -2821,7 +2850,7 @@ function Add-Alias-Comando([string]$alias, [string]$objetivo) {
             $j.sitios | Add-Member -NotePropertyName $alias -NotePropertyValue ([string]$d.url) -Force
         }
         $txt = $j | ConvertTo-Json -Depth 8
-        [System.IO.File]::WriteAllText($cmdsPath, $txt, (New-Object System.Text.UTF8Encoding($false)))
+        Write-Atomico $cmdsPath $txt
         $script:cmds = Get-Content -LiteralPath $cmdsPath -Raw -Encoding UTF8 | ConvertFrom-Json
         Log "APRENDIDO: '$alias' -> $($d.desc)"
         return "Listo, ahora se que $alias es $($d.desc -replace '^abrir ', '')"
@@ -2863,7 +2892,7 @@ function Add-Traduccion([string]$original, [string]$traducida) {
     try {
         $o = New-Object PSObject
         foreach ($k in $t.Keys) { $o | Add-Member -NotePropertyName $k -NotePropertyValue $t[$k] -Force }
-        [System.IO.File]::WriteAllText($TraduccionesPath, ($o | ConvertTo-Json -Depth 4), (New-Object System.Text.UTF8Encoding($false)))
+        Write-Atomico $TraduccionesPath ($o | ConvertTo-Json -Depth 4)
         Log "APRENDIDO: '$original' = '$traducida'"
     } catch { Log ("no pude guardar la traduccion: " + $_.Exception.Message) }
 }
@@ -2900,7 +2929,7 @@ function Save-Rechazos {
         $o = New-Object PSObject
         foreach ($k in $h.Keys) { $o | Add-Member -NotePropertyName $k -NotePropertyValue $h[$k] -Force }
         if (-not (Test-Path -LiteralPath $MemoriaDir)) { New-Item -ItemType Directory -Force -Path $MemoriaDir | Out-Null }
-        [System.IO.File]::WriteAllText($RechazosPath, ($o | ConvertTo-Json -Depth 3), (New-Object System.Text.UTF8Encoding($false)))
+        Write-Atomico $RechazosPath ($o | ConvertTo-Json -Depth 3)
     } catch { Log ("no pude guardar los rechazos: " + $_.Exception.Message) }
 }
 
@@ -2942,7 +2971,7 @@ function Remove-Traduccion([string]$original) {
     try {
         $o = New-Object PSObject
         foreach ($k in $t.Keys) { $o | Add-Member -NotePropertyName $k -NotePropertyValue $t[$k] -Force }
-        [System.IO.File]::WriteAllText($TraduccionesPath, ($o | ConvertTo-Json -Depth 4), (New-Object System.Text.UTF8Encoding($false)))
+        Write-Atomico $TraduccionesPath ($o | ConvertTo-Json -Depth 4)
         Log "OLVIDADO: la traduccion de '$original'"
         return $true
     } catch { Log ("no pude olvidar la traduccion: " + $_.Exception.Message); return $false }
@@ -3046,7 +3075,7 @@ function Save-Recetas {
                 pasos = $pasosJ; variantes = @(@($r.variantes) | Where-Object { $_ }); ejemplo = $r.ejemplo; creada = $r.creada; usos = $r.usos; confirmadas = $r.confirmadas; fallos = $r.fallos; rechazos = $r.rechazos })
         }
         $json = if ($lista.Count -eq 0) { '[]' } else { ConvertTo-Json -InputObject @($lista) -Depth 6 }
-        [System.IO.File]::WriteAllText($RecetasPath, $json, (New-Object System.Text.UTF8Encoding($false)))
+        Write-Atomico $RecetasPath $json
     } catch { Log ("recetas: no pude guardar: " + $_.Exception.Message) }
 }
 
@@ -3734,7 +3763,7 @@ function Get-Contactos {
     return ,$script:contactos
 }
 function Save-Contactos {
-    try { [System.IO.File]::WriteAllText((Join-Path $MemoriaDir 'contactos.json'), (ConvertTo-Json -InputObject @($script:contactos)), (New-Object System.Text.UTF8Encoding($false))) } catch {}
+    try { Write-Atomico (Join-Path $MemoriaDir 'contactos.json') (ConvertTo-Json -InputObject @($script:contactos)) } catch {}
 }
 function Watch-Notificaciones([object[]]$todas) {
     # una lectura fallida no cuenta: ni gasta la primera vuelta ni vacia lo visto
@@ -7264,7 +7293,7 @@ function Save-Reglas {
             $lista += $o
         }
         $json = if ($lista.Count -eq 0) { '[]' } else { ConvertTo-Json -InputObject @($lista) -Depth 4 }
-        [System.IO.File]::WriteAllText($ReglasPath, $json, (New-Object System.Text.UTF8Encoding($false)))
+        Write-Atomico $ReglasPath $json
     } catch { Log ("reglas: no pude guardar: " + $_.Exception.Message) }
 }
 
@@ -7580,7 +7609,7 @@ function Add-Fecha([string]$frase) {
     $lista = @(Get-Fechas | Where-Object { -not ($_.md -eq $md -and $_.texto -eq $frase) })
     $lista += New-Object PSObject -Property @{ md = $md; texto = $frase }
     try {
-        [System.IO.File]::WriteAllText($FechasPath, (ConvertTo-Json -InputObject @($lista) -Depth 3), (New-Object System.Text.UTF8Encoding($false)))
+        Write-Atomico $FechasPath (ConvertTo-Json -InputObject @($lista) -Depth 3)
         Log "FECHA guardada ($md): $frase"
     } catch {}
     return $md
@@ -7624,7 +7653,7 @@ function Get-Recordatorios {
 
 function Save-Recordatorios($lista) {
     $json = if (@($lista).Count -eq 0) { '[]' } else { ConvertTo-Json -InputObject @($lista) -Depth 3 }
-    [System.IO.File]::WriteAllText($RecordatoriosPath, $json, (New-Object System.Text.UTF8Encoding($false)))
+    Write-Atomico $RecordatoriosPath $json
 }
 
 function Invoke-RecordatorioVoz([string]$text) {
@@ -9790,13 +9819,17 @@ function Complete-Confirmacion([string]$respuesta) {
         return
     }
     # APAGADO PROGRAMADO (F3)
-    if ($p.tipo -eq 'apagado') {
+    if ($p.tipo -in @('apagado', 'reinicio')) {
         if ($respuesta -eq 'si') {
+            $esReinicio = ($p.tipo -eq 'reinicio')
+            # "ya" son 30 s: da tiempo a decir "cancela el apagado"
+            $segA = [Math]::Max(30, [int]$p.min * 60)
             try {
-                Start-Process -FilePath 'shutdown.exe' -ArgumentList @('/s', '/t', [string]([int]$p.min * 60)) -WindowStyle Hidden
-                Log "APAGADO: en $($p.min) min"
-                Say ("Me apago en " + (Format-MinutosDichos ([int]$p.min)) + '. Di cancela el apagado si cambias de idea.')
-            } catch { Say 'No pude programar el apagado.' }
+                Start-Process -FilePath 'shutdown.exe' -ArgumentList @($(if ($esReinicio) { '/r' } else { '/s' }), '/t', [string]$segA) -WindowStyle Hidden
+                Log "$(if ($esReinicio) { 'REINICIO' } else { 'APAGADO' }): en $segA s"
+                $cuandoA = if ([int]$p.min -gt 0) { Format-MinutosDichos ([int]$p.min) } else { '30 segundos' }
+                Say ($(if ($esReinicio) { 'Me reinicio en ' } else { 'Me apago en ' }) + $cuandoA + '. Di cancela el apagado si cambias de idea.')
+            } catch { Say 'No pude programarlo.' }
         } else { Set-UI 'reposo' }
         return
     }
@@ -10609,7 +10642,19 @@ function Process-Texto([string]$text) {
                 return
             }
         }
-        if ($plano -match '^(?:cancela|anula|quita|para)\s+(?:el\s+)?apagado$') {
+        # APAGAR O REINICIAR YA (14/09): antes iba a la IA sin preguntar nada aqui.
+        # Siempre con un si, y con 30 s para arrepentirse ("cancela el apagado")
+        $apagarYa = ($plano -match '^(?:apaga|apagar)\s+(?:la\s+consola|el\s+pc|el\s+ordenador|la\s+computadora|el\s+equipo)(?:\s+ya|\s+ahora)?$')
+        $reiniciarYa = ($plano -match '^(?:reinicia|reiniciar)\s+(?:la\s+consola|el\s+pc|el\s+ordenador|la\s+computadora|el\s+equipo)(?:\s+ya|\s+ahora)?$')
+        if ($apagarYa -or $reiniciarYa) {
+            $script:pendiente = @{ texto = ''; vence = 0; tipo = $(if ($reiniciarYa) { 'reinicio' } else { 'apagado' }); min = 0 }
+            $pregY = if ($reiniciarYa) { '¿Reinicio la consola?' } else { '¿Apago la consola?' }
+            Say $pregY
+            Set-UI 'escuchando' $pregY
+            Start-Confirmacion
+            return
+        }
+        if ($plano -match '^(?:cancela|anula|quita|para)\s+(?:el\s+)?(?:apagado|reinicio)$') {
             try { Start-Process -FilePath 'shutdown.exe' -ArgumentList '/a' -WindowStyle Hidden -Wait } catch {}
             $script:seguimientoPendiente = $false
             Log "APAGADO: cancelado"
@@ -10651,7 +10696,7 @@ function Process-Texto([string]$text) {
             Say 'Modo invitado quitado.'
             return
         }
-        if ($plano -match '^(?:graba(?:me)?|grabar|guarda(?:me)?)\s+(?:una\s+nota(?:\s+de\s+voz)?|un\s+audio|un\s+mensaje\s+de\s+voz|una\s+nota\s+de\s+audio)$') {
+        if ($plano -match '^(?:graba(?:me)?|grabar|guarda(?:me)?)\s+(?:una\s+nota(?:\s+de\s+voz)?|un\s+audio|un\s+mensaje\s+de\s+voz|una\s+nota\s+de\s+audio)(?:\s+para\s+.+)?$') {
             if (-not $DictadoWorker -or -not $script:wakeProc) { Say 'Para grabar notas necesito la escucha por voz.'; return }
             $script:notaPorGrabar = Join-Path (Join-Path $MemoriaDir 'notas-voz') ((Get-Date).ToString('yyyy-MM-dd_HHmmss') + '.wav')
             $script:seguimientoPendiente = $true
