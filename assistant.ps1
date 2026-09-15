@@ -1904,7 +1904,11 @@ function Resolve-Fragment([string]$f) {
     # --- preguntas que se responden AQUI mismo, sin modelo ---
     # Preguntarle la hora a un LLM cuesta 13 s y encima puede negarse.
     switch -regex ($f) {
-        '^(?:(?:dime\s+)?que hora es|(?:dime\s+)?que horas son|dime la hora|la hora)\b' {
+        # LA FRASE ENTERA (validacion, 15/09): con "\b" valia cualquier cosa detras, y la
+        # frase de ejemplo de Whisper colaba "¿Que hora es Steam", "Que hora es la cancion"
+        # o la tele ("¿Que hora es? Yo soy un...") como la hora: 5 de las 6 ordenes
+        # equivocadas. Tambien "que hora es en tokio" daba la hora de aqui.
+        '^(?:(?:dime\s+)?que hora es|(?:dime\s+)?que horas son|dime la hora|la hora)(?:\s+(?:ya|ahora|ahorita|por favor|porfa))?$' {
             $cul = New-Object System.Globalization.CultureInfo('es-MX')
             return @(@{ kind = 'decir'; desc = ("Son las " + (Get-Date).ToString('H:mm', $cul)) })
         }
@@ -2298,7 +2302,9 @@ function Resolve-Fragment([string]$f) {
         'atras' = 0x1B; 'acepta' = 0x0D; 'aceptar' = 0x0D; 'entra' = 0x0D
         'entrar' = 0x0D; 'confirma' = 0x0D; 'adelante' = 0x0D
     }
-    if ($f -match '^(?:(?:pulsa|presiona|dale a|dale al|ve|vete|muevete|mueve|desplazate)\s+)?(?:la\s+|el\s+|tecla\s+|flecha\s+|hacia\s+|a la\s+|al\s+)?(abajo|arriba|izquierda|derecha|atras|acepta|aceptar|entra|entrar|confirma|adelante)(?:\s+(\d{1,2}|\w+)\s*(?:veces|vez))?$') {
+    # "adelante" A SECAS ya no pulsa (validacion, 15/09): "abre steam" dicho desde lejos se
+    # oyo "Adelante" y pulso la tecla. Con verbo ("pulsa adelante") sigue valiendo.
+    if ($f -match '^(?!adelante$)(?:(?:pulsa|presiona|dale a|dale al|ve|vete|muevete|mueve|desplazate)\s+)?(?:la\s+|el\s+|tecla\s+|flecha\s+|hacia\s+|a la\s+|al\s+)?(abajo|arriba|izquierda|derecha|atras|acepta|aceptar|entra|entrar|confirma|adelante)(?:\s+(\d{1,2}|\w+)\s*(?:veces|vez))?$') {
         # $Matches se pisa con el siguiente -match: se copia ya
         $dir = $Matches[1]; $cuantas = $Matches[2]
         $veces = Get-Veces $cuantas
