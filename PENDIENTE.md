@@ -726,7 +726,71 @@ funciones nuevas.
       opinión, charla larga y dato concreto, fotografía la RAM y la para,
       devolviendo memoria y config. Si se corta: `-Restaurar`.
 
-## Las 100 grabaciones (te toca)
+## Las 100 grabaciones: lo que enseñaron (14/09)
+
+Grabadas el 14/09 de 19:12 a 19:22 (317 s de voz). Primer análisis
+(`pruebas\audio\cien\informe-antes.md`): **Nova entendía 38 de 66 órdenes** (58 %),
+cuando con las 20 de antes parecían 17 de 20. Veinte frases no enseñaban esto.
+
+- **Whisper se iba al inglés y a recitar nombres** («Everything», «King is a
+  Hollow Knight», «Outlast 3, Goose Duck»): la culpa era de las hotwords (la lista
+  de apps y juegos). Medido con las 90 grabaciones de orden, charla y nombre:
+  | configuración | como el asistente | base solo (órdenes) |
+  |---|---|---|
+  | hotwords (lo de antes) | 63 de 90 | 28 de 78 |
+  | sin hotwords, audio normalizado | 62 | 30 |
+  | frase neutra en español | 64-73 | 28 |
+  | **frase de ejemplo con órdenes** | **74 de 90** | **43 de 78** |
+
+  El riesgo de la frase inicial (que continúe la frase con ruido y se invente una
+  orden, lo que pasó el 11/09 con la lista de nombres) **se midió**: 108 trozos de
+  ruido (71 del cuarto, 30 de la voz de Nova, 7 sintéticos) y ninguna orden con la
+  frase de ejemplo; con las hotwords, la voz de Nova diciendo «¿Abro Hollow
+  Knight?» sí acababa en abrirlo. Aplicado: `PROMPT_ORDENES` en wake_vosk.py, y
+  probar-audio y analizar-100 la leen de ahí.
+- **Pausas:** dentro de una orden llegaste a 0,81 s (con 20 parecía 0,45) y con
+  pausas a propósito a 1,44 s. El cierre rápido pasa de 0,8 a **1,1 s** y el
+  normal de 1,4 a **1,5 s**.
+- **Corte por tono:** gritando «basta» llegaste a 37 Hz de tu tono normal; el
+  margen pasa de 40 a **42 Hz**. Vosk reconoce las 10 palabras de corte con
+  confianza 1,00.
+- **Repaso dudoso:** hay órdenes mal oídas con tanta seguridad como las buenas;
+  el umbral no las separa. Sin cambios.
+- **Capa local:** «pon el brillo de/del 30» bajaba el brillo; «pon el brillo» a
+  secas también. «King is a Hollow Knight» preguntaba si abrirlo (ahora el nombre
+  suelto rechaza frases con palabras inglesas). Correcciones: abresteam,
+  abresting, trinta, subelbrio, suelbrio, subvolumen, sting.
+- **Lo que sigue flojo:** voz baja (5 de 10) y desde lejos (3 de 6), con picos de
+  0,29-0,33 frente a 0,81 en tono normal.
+- **Con todo aplicado** (segundo análisis, 20:18): órdenes 52 de 66 (antes 38),
+  con «nova» delante 6 de 6 (antes 3), charla 12 de 12, voz baja 8 de 10, fuerte
+  10 de 10, desde lejos 4 de 6. En total **74 de 90 (82 %)**, antes 55 (61 %).
+  Base tarda 0,78 s por frase (antes 0,97).
+- **El efecto secundario de la frase de ejemplo:** con voz poco clara, base a veces
+  devuelve su propio ejemplo («pausa» en voz baja -> «Baja el volumen»; «cuánta
+  batería queda» desde lejos -> «¿Qué hora es?»). La escucha marca ese eco y, con
+  seguridad por debajo de −0,5 (`input.repasoEco`), el oído fino tiene que
+  confirmarlo; si no, «no te entendí» y nada. Medido: de 3 órdenes equivocadas
+  queda 1, sin perder aciertos, y solo 5 de 90 órdenes buenas esperan el repaso.
+- **La frase de ejemplo, sin números** (tercer experimento, 110 grabaciones: las
+  90 + las 20 antiguas). Con «al treinta» dentro, «pon el juego al ochenta» se oyó
+  «al treinta»: se haría con otro número sin avisar.
+  | frase | como el asistente | otra orden | número cambiado | ruido |
+  |---|---|---|---|---|
+  | con «al treinta» | 92 de 110 | 2 | 1 | 0 |
+  | **sin números** | **92 de 110** | 2 | **0** | 0 |
+  | con un juego | 91 de 110 | 3 | 0 | 1 |
+
+  Queda la sin números: «Nova, abre Steam. Sube el volumen. Pon el modo noche.
+  ¿Qué hora es? Baja el brillo.» La del juego se inventaba «Abre Little
+  Nightmares III». Precio de no dar nombres: los títulos largos («little
+  nightmares tres») se entienden peor; queda como tarea.
+- **¿1000 grabaciones más?** Todavía no: con estas 100 ya se ve qué falla y se
+  mide cada arreglo. Lo que falla ahora son frases concretas (modo noche/foco,
+  «minimiza todo», «qué se está descargando», «cancela el temporizador») y la voz
+  baja o lejana: mejor una tanda corta y dirigida a eso que 1000 al azar.
+
+## Las 100 grabaciones: cómo se hicieron
 
 Para ajustar con datos tuyos y no a ojo el margen del corte por tono, el umbral
 del repaso dudoso, el cierre rápido de la frase, las correcciones y el volumen.

@@ -1671,7 +1671,8 @@ function Resolve-Fragment([string]$f) {
     # --- perfiles: una frase, varias acciones ("modo juego") ---
     # "modo foco" NO es un perfil: tiene su propia orden mas abajo (ver MODO FOCO),
     # y este bloque devuelve $null con un modo que no existe (revision del 13/09)
-    if ($f -match '^(?:modo|activa el modo|activa modo|pon el modo|pon modo|ponte en modo|cambia a modo|entra en modo)\s+(?!(?:foco|concentracion|ahorro|bajo consumo|eficiencia|rendimiento|maximo rendimiento|alto rendimiento|equilibrado)\b)(.+)$') {
+    # "pon UN modo juego": asi lo oye Whisper con la frase de ejemplo (14/09)
+    if ($f -match '^(?:modo|activa el modo|activa modo|activa un modo|pon el modo|pon modo|pon un modo|ponte en modo|cambia a modo|entra en modo)\s+(?!(?:foco|concentracion|ahorro|bajo consumo|eficiencia|rendimiento|maximo rendimiento|alto rendimiento|equilibrado)\b)(.+)$') {
         $nombre = $Matches[1].Trim()
         if (Test-Prop $cmds.perfiles $nombre) {
             # TOPE DE ANIDAMIENTO. Desde que los modos se pueden crear por voz,
@@ -2582,7 +2583,8 @@ function Resolve-Fragment([string]$f) {
         # lleva % / "por ciento" detras. Antes valia cualquier numero cerca
         # de la palabra, y "baja el volumen 2 veces" acababa poniendolo al
         # 2 %: lo contrario de lo que pediste, y sin vuelta atras facil.
-        if ($f -match '(?:volumen|sonido|audio)[^0-9]{0,20}?\b(?:al|a)\s+(\d{1,3})\b' -or
+        # "de"/"del" tambien: "pon el brillo al treinta" se oyo "Con el brillo del 30" (14/09)
+        if ($f -match '(?:volumen|sonido|audio)[^0-9]{0,20}?\b(?:al|a|de|del)\s+(\d{1,3})\b' -or
             $f -match '(?:volumen|sonido|audio)[^0-9]{0,20}(\d{1,3})\s*(?:%|por\s*ciento)') {
             $n = [int]$Matches[1]; if ($n -ge 0 -and $n -le 100) { $pctVol = $n }
         }
@@ -2590,7 +2592,7 @@ function Resolve-Fragment([string]$f) {
         # lleva % / "por ciento" detras. Antes valia cualquier numero cerca
         # de la palabra, y "baja el volumen 2 veces" acababa poniendolo al
         # 2 %: lo contrario de lo que pediste, y sin vuelta atras facil.
-        if ($f -match 'brillo[^0-9]{0,20}?\b(?:al|a)\s+(\d{1,3})\b' -or
+        if ($f -match 'brillo[^0-9]{0,20}?\b(?:al|a|de|del)\s+(\d{1,3})\b' -or
             $f -match 'brillo[^0-9]{0,20}(\d{1,3})\s*(?:%|por\s*ciento)') {
             $n = [int]$Matches[1]; if ($n -ge 0 -and $n -le 100) { $pctBri = $n }
         }
@@ -2615,10 +2617,13 @@ function Resolve-Fragment([string]$f) {
         if ($f -match '\bbrillo\b') {
             if ($null -ne $pctBri) {
                 $acc += @{ kind = 'brillo'; nivel = $pctBri; desc = "brillo al $pctBri por ciento" }
-            } else {
+            } elseif ($max -or $min -or $mitad -or -not $esPon) {
+                # "pon el brillo ..." sin cuanto NO baja el brillo: la misma regla que el
+                # volumen. Con las 100 grabaciones, "pon el brillo de trinta" lo bajaba (14/09)
                 $nivel = if ($max) { 100 } elseif ($min) { 0 } elseif ($mitad) { 50 } elseif ($sube) { -1 } else { -2 }
                 $acc += @{ kind = 'brillo'; nivel = $nivel
-                           desc = $(if ($mitad -and -not $max -and -not $min) { 'brillo a la mitad' } else { "$(if ($sube) { 'subir' } else { 'bajar' }) brillo" + $(if ($max) { ' al maximo' } elseif ($min) { ' al minimo' } else { '' }) }) }
+                           # "pon el brillo al maximo" decia "bajar brillo al maximo" (14/09)
+                           desc = $(if ($max) { 'brillo al maximo' } elseif ($min) { 'brillo al minimo' } elseif ($mitad) { 'brillo a la mitad' } else { "$(if ($sube) { 'subir' } else { 'bajar' }) brillo" }) }
             }
         }
         if ($acc.Count -gt 0) { return $acc }
@@ -2724,6 +2729,11 @@ function Resolve-Fragment([string]$f) {
         # probado en vivo el 14/09: "quien hizo hollow knight" preguntaba "¿Abro Hollow Knight?"
         foreach ($mSv in [regex]::Matches($f, '^(?:que|cual|como|por que|te|me|has|he|sabes|crees|conoces|tu|quien|quienes|cuando|donde|cuanto|cuanta|cuantos|de que|dime|hablame|cuentame|explicame)\b|\b(?:es|son|era|fue|esta|estaba|opinas|piensas|parece|gusta|gustan|encanta|jugado|jugaste|jugue|odio|dificil|facil|mejor|peor|bonito|feo|aburrido|hizo|hicieron|creo|desarrollo|salio|trata|cuesta|dura|sabes)\b')) {
             if ($descSv -notmatch ('\b' + [regex]::Escape($mSv.Value) + '\b')) { return $null }
+        }
+        # ... ni en INGLES: con las 100 grabaciones, "quien hizo hollow knight" se oyo
+        # "King is a Hollow Knight" y preguntaba si abrirlo (14/09)
+        foreach ($wSv in @($f -split '\s+')) {
+            if ($INGLES_COMUN -contains $wSv -and $descSv -notmatch ('\b' + [regex]::Escape($wSv) + '\b')) { return $null }
         }
     }
     if ($sv) { foreach ($x in $sv) { $x.sinVerbo = $true } }
@@ -10350,6 +10360,13 @@ $script:reintentoReconocida = $false   # el repaso es de una orden que YA se ent
 # por debajo de esta seguridad de Whisper se repasa incluso lo que se entiende
 # (ver REPASO DE LO DUDOSO): las ordenes bien oidas de las grabaciones, >= -0,73
 $RepasoDudosoUmbral = [double](Get-Cfg 'input' 'repasoDudoso' -0.9)
+# ECO DE LA FRASE DE EJEMPLO (14/09): si lo oido es solo frases del ejemplo que se le da
+# a Whisper y la seguridad baja de esto, el oido fino tiene que confirmarlo. Con las 100
+# grabaciones: de 3 ordenes equivocadas quedan 1, sin perder aciertos, y solo 5 de 90
+# ordenes buenas esperan el repaso (con -0,7 quedaban 2; confirmando todas, 17 esperas).
+$RepasoEcoUmbral = [double](Get-Cfg 'input' 'repasoEco' -0.5)
+$script:dictadoEco = $false
+$script:reintentoEco = $false
 $script:reintentoVence = 0
 $script:reintentoTexto = ''
 $ReintentoMaxMs = 15000            # si no contesta a tiempo, se sigue sin el
@@ -10581,6 +10598,7 @@ function Start-Dictado([string]$origen) {
         $script:ventanaCharla = $false
         Remove-Item -LiteralPath (Join-Path $TmpDir 'seguimiento-voz.txt') -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath (Join-Path $TmpDir 'dictado-confianza.txt') -Force -ErrorAction SilentlyContinue
+        $script:dictadoEco = $false
         # "nombre": el worker se ahorra Whisper con una voz muy lejos de la tuya (ver wake_vosk)
         [System.IO.File]::WriteAllText($MarcaDictar, $(if ($seguimiento) { "seguimiento:$ventana" } elseif ($origen -like 'nombre*' -and $SoloYoOn) { 'nombre' } else { 'x' }))
         Start-Vibracion $(if ($seguimiento) { @(40) } else { @(90) })
@@ -11191,13 +11209,17 @@ function Process-Texto([string]$text) {
         if ($WhisperPreciso -and $script:ordenPorWorker -and -not $script:yaReintentado -and
             $script:wakeProc -and -not $script:wakeProc.HasExited -and
             ($sw.ElapsedMilliseconds - $script:dictadoConfianzaEn) -lt 15000 -and
-            $script:dictadoConfianza -lt $RepasoDudosoUmbral -and (Test-FastCommand $text)) {
+            ($script:dictadoConfianza -lt $RepasoDudosoUmbral -or ($script:dictadoEco -and $script:dictadoConfianza -lt $RepasoEcoUmbral)) -and
+            (Test-FastCommand $text)) {
             $script:yaReintentado = $true
             try {
                 Remove-Item -LiteralPath $RutaReintento -Force -ErrorAction SilentlyContinue
                 [System.IO.File]::WriteAllText($MarcaReintento, 'x')
                 $script:reintentoTexto = $text
                 $script:reintentoReconocida = $true
+                # el eco del ejemplo NO se hace si el repaso no lo confirma (ver ECO DE LA FRASE DE EJEMPLO)
+                $script:reintentoEco = ($script:dictadoEco -and $script:dictadoConfianza -lt $RepasoEcoUmbral)
+                if ($script:reintentoEco) { Log "OIDO FINO: '$text' es la frase de ejemplo de Whisper con poca seguridad ($($script:dictadoConfianza)); lo confirmo antes" }
                 $script:reintentoVence = $sw.ElapsedMilliseconds + $ReintentoMaxMs
                 Log "OIDO FINO: '$text' se entiende pero Whisper dudaba ($($script:dictadoConfianza)); lo repaso antes de hacerlo"
                 Add-Estadistica 'fino' $text
@@ -12071,7 +12093,10 @@ while ($true) {
                 # y lo seguro que estaba Whisper (ver RECETAS QUE CONFIRMAN EL DATO DUDOSO)
                 $rc = Join-Path $TmpDir 'dictado-confianza.txt'
                 if (Test-Path -LiteralPath $rc) {
-                    $script:dictadoConfianza = [double]::Parse(([System.IO.File]::ReadAllText($rc)).Trim(), [System.Globalization.CultureInfo]::InvariantCulture)
+                    # "-0.52" o "-0.52 eco" (lo oido es la frase de ejemplo de Whisper)
+                    $partesC = @(([System.IO.File]::ReadAllText($rc)).Trim() -split '\s+')
+                    $script:dictadoConfianza = [double]::Parse($partesC[0], [System.Globalization.CultureInfo]::InvariantCulture)
+                    $script:dictadoEco = ($partesC.Count -gt 1 -and $partesC[1] -eq 'eco')
                     $script:dictadoConfianzaEn = $sw.ElapsedMilliseconds
                     Remove-Item -LiteralPath $rc -Force -ErrorAction SilentlyContinue
                 }
@@ -12177,8 +12202,24 @@ while ($true) {
             $script:reintentoTexto = ''
             $reconocida = $script:reintentoReconocida
             $script:reintentoReconocida = $false
+            $ecoR = $script:reintentoEco
+            $script:reintentoEco = $false
             $limpio = $fino.Trim()
-            if ($reconocida -and ((-not $limpio) -or (ConvertTo-Plain $limpio) -eq (ConvertTo-Plain $orig) -or
+            if ($reconocida -and $ecoR) {
+                # lo primero era un eco de la frase de ejemplo: solo vale lo que confirme el repaso
+                if ($limpio -and (Test-MismoAudio $orig $limpio) -and (Test-FastCommand $limpio)) {
+                    Log "OIDO FINO: el eco '$orig' lo confirma el repaso como '$limpio'"
+                    Add-Estadistica 'fino-sirvio' "$orig -> $limpio"
+                    Process-Texto $limpio
+                } else {
+                    Log "OIDO FINO: '$orig' era la frase de ejemplo y el repaso ('$limpio') no lo confirma; no hago nada"
+                    Add-Estadistica 'fino-eco' $orig
+                    $script:seguimientoPendiente = $false
+                    Send-UIEvento 'gesto:confuso'
+                    Show-Popup "No te entendi. Repitelo." 'error'
+                    Say "No te entendi"
+                }
+            } elseif ($reconocida -and ((-not $limpio) -or (ConvertTo-Plain $limpio) -eq (ConvertTo-Plain $orig) -or
                 -not (Test-MismoAudio $orig $limpio) -or -not (Test-FastCommand $limpio))) {
                 # se repaso una orden que YA se entendia (ver REPASO DE LO DUDOSO): si
                 # el repaso no trae otra orden entendible, vale lo que se oyo primero

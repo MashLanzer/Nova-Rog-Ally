@@ -96,12 +96,45 @@ CONFIRMACION_MAX = 5.0
 REPASO_MAX = 8.0
 
 # se da por terminada la frase tras este silencio
-SILENCIO_FIN = 1.4
+SILENCIO_FIN = 1.5
+# LA FRASE DE EJEMPLO PARA WHISPER (14/09). Antes se le daba la lista de apps y juegos
+# como hotwords. Con las 100 grabaciones de braya, eso lo arrastraba al ingles y a
+# recitar nombres ("Everything", "King is a Hollow Knight", "Outlast 3, Goose Duck").
+# Con esta frase en espanol, como el asistente (base + repaso con small), acierta 74
+# de 90 en vez de 63, y base solo 43 ordenes de 78 en vez de 28. Y el miedo de antes
+# -que continuara la frase con ruido y se inventara una orden- se midio: 108 trozos de
+# ruido (71 del cuarto, 30 de la voz de Nova, 7 sinteticos) y NINGUNA orden; con las
+# hotwords, la voz de Nova diciendo "Abro Hollow Knight" si acababa en abrirlo.
+# SIN NUMEROS NI NOMBRES DE JUEGOS (14/09, 110 grabaciones): con "al treinta" en la
+# frase, "pon el juego al ochenta" se oia "al treinta" (el numero arrastra, y se haria
+# en silencio con otro numero). Sin numeros acierta lo mismo (92 de 110) y ningun
+# numero cambia. Con "Abre Little Nightmares III" se inventaba ese juego en frases
+# que no lo decian, y la voz de Nova volvia a acabar en abrir otro.
+PROMPT_ORDENES = "Nova, abre Steam. Sube el volumen. Pon el modo noche. ¿Qué hora es? Baja el brillo."
+
+
+def es_eco_del_ejemplo(texto):
+    """¿Lo oido es SOLO frases de PROMPT_ORDENES? Con voz poco clara Whisper a veces
+    devuelve su propio ejemplo: en las 100 grabaciones, "cuanta bateria queda" desde
+    lejos salio "Que hora es" y "baja el volumen", "Baja el brillo". El asistente,
+    con eco y seguridad baja, pide que el oido fino lo confirme antes de hacerlo."""
+    def llano(t):
+        t = unicodedata.normalize("NFD", (t or "").lower())
+        t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+        t = " ".join(re.sub(r"[^a-z0-9 ]+", " ", t).split())
+        return re.sub(r"^(?:oye |hey |ey )?nova ?", "", t).strip()
+    frases = {llano(f) for f in re.split(r"[.?¿!]+", PROMPT_ORDENES)} - {""}
+    partes = [llano(x) for x in re.split(r"[.?¿!,]+", texto or "")]
+    partes = [x for x in partes if x]
+    return bool(partes) and all(x in frases for x in partes)
 # ... salvo que el asistente ya tenga la orden entera (tmp\lotengo.txt, el mismo
 # texto que va en el parcial): entonces basta con esto (14/09). En las 20
 # grabaciones, la pausa mas larga DENTRO de una orden es de 0,45 s; los 1,4 s
 # eran para no cortar frases largas que aun no se entienden, y se mantienen.
-SILENCIO_FIN_LOTENGO = 0.8
+# 14/09, con las 100 grabaciones: la pausa mas larga DENTRO de una orden normal fue
+# de 0,81 s (con 20 parecia 0,45), y con pausas a proposito se llego a 1,44 s. De ahi
+# 1,1 s para lo ya entendido y 1,5 s (antes 1,4) para lo que aun no.
+SILENCIO_FIN_LOTENGO = 1.1
 
 
 def silencio_para_cerrar(tengo, dicho):
@@ -560,12 +593,12 @@ def transcribir_whisper(bloques, modelo=None, seguir=None):
               % (audio.size / TASA, TRANSCRIBIR_MAX))
         audio = audio[:tope]
     t0 = time.time()
-    # OJO con initial_prompt: Whisper lo trata como TEXTO ANTERIOR y lo
-    # CONTINUA cuando el audio es flojo. Con la lista de apps y juegos ahi
-    # dentro, el silencio se transcribia como "SILENT BREATH, PEAK, Hollow
-    # Knight..." y esa frase inventada se ejecutaba como si fuera una orden.
-    # hotwords sesga el decodificador hacia esas palabras SIN meterlas en el
-    # contexto, que es lo que queriamos desde el principio.
+    # FRASE DE EJEMPLO, NO LISTA DE NOMBRES (ver PROMPT_ORDENES). Historia: el 11/09
+    # se quito un initial_prompt que llevaba la lista de apps y juegos, porque con
+    # audio flojo Whisper la continuaba ("SILENT BREATH, PEAK...") y eso se ejecutaba;
+    # se cambio por hotwords. Con las 100 grabaciones (14/09) se vio que las hotwords
+    # tambien lo arrastraban a esos nombres, y que una frase corta de ordenes en
+    # espanol, sin nombres, acierta mucho mas y no convierte el ruido en ordenes.
     # Los tres umbrales descartan el segmento cuando no hay voz de verdad:
     # sin ellos Whisper siempre devuelve algo, aunque el audio sea ruido.
     segmentos, info = modelo.transcribe(
@@ -575,7 +608,7 @@ def transcribir_whisper(bloques, modelo=None, seguir=None):
         no_speech_threshold=0.6,
         log_prob_threshold=-1.0,
         compression_ratio_threshold=2.4,
-        hotwords=leer_vocabulario())
+        initial_prompt=PROMPT_ORDENES)
     # los segmentos salen de uno en uno (el trabajo se hace al pedirlos): entre
     # uno y otro se puede mirar si todavia hace falta seguir
     partes = []
@@ -590,7 +623,9 @@ def transcribir_whisper(bloques, modelo=None, seguir=None):
     if NIVEL and texto:
         # LA SEGURIDAD DEL DICTADO (14/09): el asistente la mira para confirmar el
         # dato de una receta antes de usar un nombre que quiza oyo mal
-        escribir(os.path.join(os.path.dirname(NIVEL), "dictado-confianza.txt"), "%.2f" % peor)
+        # y si lo oido es un ECO de la frase de ejemplo (ver es_eco_del_ejemplo)
+        escribir(os.path.join(os.path.dirname(NIVEL), "dictado-confianza.txt"),
+                 "%.2f%s" % (peor, " eco" if es_eco_del_ejemplo(texto) else ""))
     anota("whisper: %.1f s de audio en %.2f s -> '%s'" % (audio.size / TASA, time.time() - t0, texto))
     return limpiar_whisper(texto)
 
@@ -654,7 +689,8 @@ _corte = {"rec": None, "marca": None, "texto": set(), "leido": 0.0, "audio": [],
 # de braya van de 111 a 126 Hz y la voz de Nova, en trozos de 0,6 s, de 165 a 327.
 # Con 40 Hz de margen sobre el tono aprendido no se pierde ninguna de braya ni se
 # cuela ningun trozo de Nova. Un grito muy agudo podria no valer: queda el boton.
-MARGEN_CORTE_HZ = 40.0
+# 14/09, 100 grabaciones: gritando "basta" llegaste a 37 Hz de tu tono normal.
+MARGEN_CORTE_HZ = 42.0
 AUDIO_CORTE_MAX = 30 * TASA     # lo que se guarda para medir la palabra, como mucho
 
 

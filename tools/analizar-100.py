@@ -44,10 +44,11 @@ spec.loader.exec_module(pa)
 
 # de wake_vosk.py se sacan SOLO piezas puras (importarlo abriria el microfono)
 fuente = open(os.path.join(RAIZ, "wake_vosk.py"), encoding="utf-8").read()
-ns = {"np": np, "TASA": TASA}
+import unicodedata
+ns = {"np": np, "TASA": TASA, "re": re, "unicodedata": unicodedata}
 for n in ast.parse(fuente).body:
     nombre = n.targets[0].id if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name) else getattr(n, "name", None)
-    if nombre in ("estimar_f0", "MARGEN_CORTE_HZ", "SILENCIO_FIN", "SILENCIO_FIN_LOTENGO", "PALABRAS_CORTE"):
+    if nombre in ("estimar_f0", "MARGEN_CORTE_HZ", "SILENCIO_FIN", "SILENCIO_FIN_LOTENGO", "PALABRAS_CORTE", "PROMPT_ORDENES", "es_eco_del_ejemplo"):
         exec(ast.get_source_segment(fuente, n), ns)
 estimar_f0 = ns["estimar_f0"]
 
@@ -64,6 +65,7 @@ def cfg(*camino, defecto=None):
 
 
 UMBRAL_DUDOSO = float(cfg("input", "repasoDudoso", defecto=-0.9))
+UMBRAL_ECO = float(cfg("input", "repasoEco", defecto=-0.5))
 
 
 def lee(ruta):
@@ -96,7 +98,7 @@ def pausas(a):
 def transcribir(modelo, audio, hw):
     segs, _ = modelo.transcribe(audio, language="es", beam_size=2, best_of=1, vad_filter=True,
                                 vad_parameters=dict(min_silence_duration_ms=500), condition_on_previous_text=False,
-                                no_speech_threshold=0.6, log_prob_threshold=-1.0, compression_ratio_threshold=2.4, hotwords=hw)
+                                no_speech_threshold=0.6, log_prob_threshold=-1.0, compression_ratio_threshold=2.4, initial_prompt=ns.get("PROMPT_ORDENES"))
     partes, peor = [], 0.0
     for s in segs:
         partes.append(s.text.strip())
@@ -175,7 +177,10 @@ def main():
         d["accion_base"], d["accion_small"] = ab, asm
         # la estrategia del asistente: base; con orden entendida pero seguridad baja,
         # repaso (y se queda el repaso si trae orden); sin orden, repaso si merece
-        if ab and d["seguridad"] >= UMBRAL_DUDOSO:
+        d["eco"] = bool(ns["es_eco_del_ejemplo"](d["base"])) if "es_eco_del_ejemplo" in ns else False
+        if ab and d["eco"] and d["seguridad"] < UMBRAL_ECO:
+            final = asm      # eco del ejemplo con poca seguridad: solo si el repaso lo confirma
+        elif ab and d["seguridad"] >= UMBRAL_DUDOSO:
             final = ab
         elif ab:
             final = asm or ab

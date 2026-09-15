@@ -169,6 +169,16 @@ LO NUEVO DEL 14/09: PULIR LO QUE YA HABÍA (sin funciones nuevas)
     la cápsula se corta por palabras.
   - Si la voz se cae, ya no congela el bucle 2 s al relanzarla.
   - La cápsula apunta sus errores en tmp\ui-error.log y el log dice por qué murió.
+  Con las 100 grabaciones (tools\grabar-100.py)
+  - Whisper ya no recibe la lista de apps y juegos (lo arrastraba al inglés) sino
+    una frase de ejemplo en español (PROMPT_ORDENES en wake_vosk.py): de 55 a 74
+    de 90 entendidas. Si lo oído es ese mismo ejemplo con poca seguridad, el oído
+    fino lo confirma antes de hacerlo. 108 trozos de ruido: ninguna orden.
+    La frase no lleva números ni juegos: con "al treinta", "al ochenta" se oía
+    "treinta"; con un juego, se lo inventaba. Sin números: 92 de 110.
+  - La frase se cierra tras 1,1 s de silencio si ya se entiende y 1,5 s si no; el
+    corte por tono tiene 42 Hz de margen (gritando llegaste a 37).
+  - "pon el brillo de 30", "King is a Hollow Knight" y 7 correcciones nuevas.
   Herramientas nuevas
   - tools\probar-vivo.ps1: arranca Nova, la prueba con frases escritas, mide la
     RAM por pieza (730 MB en reposo) y la para devolviendo memoria y config.

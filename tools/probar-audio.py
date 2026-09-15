@@ -2,7 +2,7 @@
 """Mide si el reconocedor TE ENTIENDE A TI, con audio de verdad.
 
 Todo el resto del banco mide texto. Esto pasa tus grabaciones por el MISMO
-camino que usa el asistente -mismo modelo, mismos umbrales, mismas hotwords,
+camino que usa el asistente -mismo modelo, mismos umbrales, misma frase de ejemplo,
 misma limpieza- y dice cuantas salen bien con el modelo rapido y cuantas
 necesitan el oido fino. Es la unica forma de saber si un cambio en el
 reconocimiento mejora o empeora, en vez de suponerlo.
@@ -137,8 +137,23 @@ def vocabulario():
         return None
 
 
-def transcribe(modelo, audio, hotwords):
-    # los MISMOS parametros que wake_vosk.py, por la misma razon de arriba
+def _prompt_de_la_escucha():
+    # la frase de ejemplo SE LEE de wake_vosk.py (no se copia): si cambia alli, la
+    # prueba mide lo nuevo sin que nadie tenga que acordarse de tocar esto
+    import ast
+    fuente = open(os.path.join(RAIZ, "wake_vosk.py"), encoding="utf-8").read()
+    for n in ast.parse(fuente).body:
+        if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name) and n.targets[0].id == "PROMPT_ORDENES":
+            return ast.literal_eval(n.value)
+    return None
+
+
+PROMPT_ORDENES = _prompt_de_la_escucha()
+
+
+def transcribe(modelo, audio, hotwords=None):
+    # los MISMOS parametros que wake_vosk.py, por la misma razon de arriba. Desde el
+    # 14/09 la escucha ya no usa hotwords sino PROMPT_ORDENES: el argumento se ignora
     segmentos, _ = modelo.transcribe(
         audio, language="es", beam_size=2, best_of=1,
         vad_filter=True, vad_parameters=dict(min_silence_duration_ms=500),
@@ -146,7 +161,7 @@ def transcribe(modelo, audio, hotwords):
         no_speech_threshold=0.6,
         log_prob_threshold=-1.0,
         compression_ratio_threshold=2.4,
-        hotwords=hotwords)
+        initial_prompt=PROMPT_ORDENES)
     return limpiar_whisper(" ".join(s.text.strip() for s in segmentos).strip())
 
 
@@ -168,8 +183,8 @@ def main():
     preciso = cfg("input", "whisperModeloPreciso") or "small"
     hw = vocabulario()
 
-    print("modelo rapido: %s     oido fino: %s     hotwords: %s"
-          % (rapido, preciso, "si" if hw else "no"))
+    print("modelo rapido: %s     oido fino: %s     frase de ejemplo: %s"
+          % (rapido, preciso, "si" if PROMPT_ORDENES else "no"))
     t0 = time.time()
     mr = WhisperModel(rapido, device="cpu", compute_type="int8", cpu_threads=8)
     print("cargado en %.1f s" % (time.time() - t0))

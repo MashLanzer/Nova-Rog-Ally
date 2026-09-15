@@ -125,3 +125,15 @@ de que va hollow knight => <se va al modelo>
 cuando salio elden ring => <se va al modelo>
 dime quien hizo outlast => <se va al modelo>
 di hola a todos => hola a todos
+
+# lo que salio de las 100 grabaciones (14/09)
+con el brillo de trinta => brillo al 30
+pon el brillo del 30 => brillo al 30
+pon el volumen del 60 => volumen al 60
+pon el brillo => <se va al modelo>
+pon el brillo al maximo => brillo al maximo
+king is a hollow knight => <se va al modelo>
+abresteam => abrir steam
+subelbrio => subir brillo
+abre steam y pon un modo juego => modo juego
+pon el moldo noche => modo noche
