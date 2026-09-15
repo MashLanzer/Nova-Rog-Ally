@@ -10511,6 +10511,32 @@ $ReintentoMaxMs = 15000            # si no contesta a tiempo, se sigue sin el
 # grabaciones rescato 19 de 36 que fallaban sin romper ninguna y 0 ordenes con ruido,
 # pero tarda ~12 s (y ~35 s si hay que cargarlo): de ahi su propio plazo. Nunca jugando,
 # nunca con lo que parece charla y una sola vez por orden.
+# PARAKEET PRIMERO (15/09). La escucha pasa el audio primero por NVIDIA Parakeet TDT 0.6B v3
+# (0,6 s por frase, y NUNCA una orden equivocada con las grabaciones de braya: no lleva
+# frase de ejemplo que se cuele). Si lo que oye se entiende como orden, se hace ya; si
+# no, se pide aqui que Whisper repase el mismo audio y eso sigue el camino de siempre
+# (repaso con small, guarda del eco, turbo, charla). Medido con 214 grabaciones: 195
+# entendidas y 0 ordenes equivocadas, frente a 188 y 1 con Whisper solo, y mas rapido.
+$script:reintentoBase = $false
+$script:dictadoPorParakeet = $false
+function Request-WhisperTras([string]$texto) {
+    if (-not $script:wakeProc -or $script:wakeProc.HasExited) { return $false }
+    try {
+        Remove-Item -LiteralPath $RutaReintento -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath (Join-Path $TmpDir 'dictado-confianza.txt') -Force -ErrorAction SilentlyContinue
+        [System.IO.File]::WriteAllText($MarcaReintento, 'base')
+        $script:reintentoTexto = $texto
+        $script:reintentoBase = $true
+        $script:reintentoVence = $sw.ElapsedMilliseconds + $ReintentoMaxMs
+        Log "PARAKEET: '$texto' no es una orden que entienda; lo repasa Whisper"
+        Add-Estadistica 'parakeet-a-whisper' $texto
+        Set-UI 'pensando'
+        return $true
+    } catch {
+        $script:reintentoBase = $false
+        return $false
+    }
+}
 $ReintentoUltimoMs = 60000
 $script:reintentoUltimo = $false
 $script:reintentoAlFallar = 'procesar'
@@ -10766,7 +10792,9 @@ function Start-Dictado([string]$origen) {
         $script:ventanaCharla = $false
         Remove-Item -LiteralPath (Join-Path $TmpDir 'seguimiento-voz.txt') -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath (Join-Path $TmpDir 'dictado-confianza.txt') -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath (Join-Path $TmpDir 'dictado-motor.txt') -Force -ErrorAction SilentlyContinue
         $script:dictadoEco = $false
+        $script:dictadoPorParakeet = $false
         # "nombre": el worker se ahorra Whisper con una voz muy lejos de la tuya (ver wake_vosk)
         [System.IO.File]::WriteAllText($MarcaDictar, $(if ($seguimiento) { "seguimiento:$ventana" } elseif ($origen -like 'nombre*' -and $SoloYoOn) { 'nombre' } else { 'x' }))
         Start-Vibracion $(if ($seguimiento) { @(40) } else { @(90) })
@@ -12283,6 +12311,13 @@ while ($true) {
                     $script:dictadoConfianzaEn = $sw.ElapsedMilliseconds
                     Remove-Item -LiteralPath $rc -Force -ErrorAction SilentlyContinue
                 }
+                # ¿lo oyo Parakeet? (ver PARAKEET PRIMERO)
+                $script:dictadoPorParakeet = $false
+                $rm = Join-Path $TmpDir 'dictado-motor.txt'
+                if (Test-Path -LiteralPath $rm) {
+                    $script:dictadoPorParakeet = ([System.IO.File]::ReadAllText($rm)) -match 'parakeet'
+                    Remove-Item -LiteralPath $rm -Force -ErrorAction SilentlyContinue
+                }
             } catch {}
             if ($script:enSeguimiento -and -not $dic.Trim()) {
                 $script:enSeguimiento = $false
@@ -12300,7 +12335,15 @@ while ($true) {
                 }
             } else {
                 if ($script:enSeguimiento) { try { Add-RitmoSeguimiento } catch {} }   # ver EL RITMO DE BRAYA
-                Process-Texto ($dic.Trim())
+                # PARAKEET PRIMERO: si lo que oyo no es una orden que se entienda, Whisper
+                # repasa el mismo audio y eso sigue el camino de siempre
+                if ($script:dictadoPorParakeet -and $dic.Trim() -and -not $script:dictandoLargo -and
+                    -not (Test-FastCommand ($dic.Trim())) -and (Request-WhisperTras ($dic.Trim()))) {
+                    # lo recoge OIDO FINO: recoger el repaso
+                } else {
+                    if ($script:dictadoPorParakeet) { Add-Estadistica 'parakeet' ($dic.Trim()) }
+                    Process-Texto ($dic.Trim())
+                }
             }
         }
         # "me perdi": 25 s dictando sin que nada encaje todavia
@@ -12378,6 +12421,31 @@ while ($true) {
             Log "OIDO FINO: sin respuesta a tiempo; sigo con lo que tenia"
             Remove-Item -LiteralPath $MarcaReintento -Force -ErrorAction SilentlyContinue
             $fino = ''
+        }
+        # lo que pidio PARAKEET PRIMERO: Whisper sobre el mismo audio, que entra como si
+        # fuera el dictado (con su seguridad y su marca de eco, y con el repaso disponible)
+        if ($null -ne $fino -and $script:reintentoBase) {
+            $script:reintentoVence = 0
+            $script:reintentoBase = $false
+            $origP = $script:reintentoTexto
+            $script:reintentoTexto = ''
+            $script:dictadoConfianzaEn = -999999
+            $script:dictadoEco = $false
+            try {
+                $rcP = Join-Path $TmpDir 'dictado-confianza.txt'
+                if (Test-Path -LiteralPath $rcP) {
+                    $partesP = @(([System.IO.File]::ReadAllText($rcP)).Trim() -split '\s+')
+                    $script:dictadoConfianza = [double]::Parse($partesP[0], [System.Globalization.CultureInfo]::InvariantCulture)
+                    $script:dictadoEco = ($partesP.Count -gt 1 -and $partesP[1] -eq 'eco')
+                    $script:dictadoConfianzaEn = $sw.ElapsedMilliseconds
+                    Remove-Item -LiteralPath $rcP -Force -ErrorAction SilentlyContinue
+                }
+            } catch {}
+            $limpioW = $fino.Trim()
+            $script:yaReintentado = $false
+            Log "PARAKEET -> WHISPER: '$origP' -> '$limpioW'"
+            Process-Texto $(if ($limpioW) { $limpioW } else { $origP })
+            $fino = $null
         }
         if ($null -ne $fino) {
             $script:reintentoVence = 0

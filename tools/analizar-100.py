@@ -167,10 +167,28 @@ def main():
     del small
     print("small: %.0f s" % (time.time() - t0))
 
+    # PARAKEET PRIMERO (15/09), como la escucha: si esta instalado, oye antes que Whisper
+    import glob as _glob
+    dir_pk = [x for x in _glob.glob(os.path.join(RAIZ, "modelos", "*parakeet*")) if os.path.isdir(x)]
+    if dir_pk and "--sin-parakeet" not in sys.argv:
+        import sherpa_onnx
+        b = lambda patron: sorted(_glob.glob(os.path.join(dir_pk[0], patron)))[0]
+        pk = sherpa_onnx.OfflineRecognizer.from_transducer(encoder=b("encoder*.onnx"), decoder=b("decoder*.onnx"), joiner=b("joiner*.onnx"),
+                                                           tokens=b("tokens.txt"), num_threads=8, decoding_method="greedy_search", model_type="nemo_transducer")
+        t0 = time.time()
+        for n in clips:
+            t1 = time.time()
+            st = pk.create_stream()
+            st.accept_waveform(TASA, audios[n].astype(np.float32))
+            pk.decode_stream(st)
+            datos[n].update(parakeet=pa.limpiar_whisper(st.result.text.strip()), t_parakeet=time.time() - t1)
+        del pk
+        print("parakeet: %.0f s" % (time.time() - t0))
+
     # la capa local de verdad, una sola vez para todas las frases
     frases = []
     for d in datos.values():
-        frases += [d["texto"], sin_nombre(d["base"]), sin_nombre(d["small"])]
+        frases += [d["texto"], sin_nombre(d["base"]), sin_nombre(d["small"]), sin_nombre(d.get("parakeet", ""))]
     acc = pa.acciones_de(frases)
     accion = lambda t: norm_accion(acc.get((t or "").strip(), ""))
 
@@ -195,6 +213,11 @@ def main():
             final = asm
         else:
             final = ""
+        # si Parakeet saco una orden, es la que se hace (no llega a Whisper)
+        ap = accion(sin_nombre(d.get("parakeet", "")))
+        d["accion_parakeet"] = ap
+        if ap:
+            final = ap
         d["accion_final"] = final
         if d["tipo"] in ("charla", "ruido"):
             # charla y ruido de fondo: acierta si NO se hace nada
@@ -209,7 +232,7 @@ def main():
     if CON_TURBO:
         # el ultimo recurso solo cuando base y small no sacan orden (o no confirman un eco),
         # nunca con lo que es charla: se aproxima con el tipo de la grabacion
-        faltan = [d for d in datos.values() if d["tipo"] not in ("corte", "charla") and not d["accion_final"]]
+        faltan = [d for d in datos.values() if d["tipo"] not in ("corte", "charla") and not d["accion_final"] and not d.get("accion_parakeet")]
         if faltan:
             t0 = time.time()
             turbo = WhisperModel("large-v3-turbo", device="cpu", compute_type="int8", cpu_threads=8)
@@ -281,6 +304,12 @@ def main():
                                                mediana([d["pico"] for d in todos])))
     p("")
     p("Tiempo medio por frase: base %.2f s, small %.2f s." % (np.mean([d["t_base"] for d in datos.values()]), np.mean([d["t_small"] for d in datos.values()])))
+    con_pk = [d for d in datos.values() if "parakeet" in d]
+    if con_pk:
+        p("")
+        p("**Parakeet primero:** saca orden en %d de %d frases (%.2f s de media); de ellas, equivocadas: %d." % (
+            sum(1 for d in con_pk if d.get("accion_parakeet")), len(con_pk), np.mean([d["t_parakeet"] for d in con_pk]),
+            sum(1 for d in con_pk if d.get("accion_parakeet") and d["accion_parakeet"] != d.get("quiero", ""))))
     if CON_TURBO:
         tt = [d["t_turbo"] for d in datos.values() if "t_turbo" in d]
         pt = [d for d in datos.values() if d.get("por_turbo")]

@@ -341,6 +341,81 @@ def modelo_preciso():
     return _preciso
 
 
+# --- PARAKEET PRIMERO (15/09): NVIDIA Parakeet TDT 0.6B v3 oye antes que Whisper ---
+# Con las 214 grabaciones de braya: 0,6 s por frase y NINGUNA orden equivocada (no lleva
+# frase de ejemplo que se cuele). Si lo que oye no se entiende como orden, el asistente
+# pide "base" y Whisper repasa el mismo audio (ver atender_reintento). Si no esta
+# instalado (modelos/*parakeet*) o hay un juego delante, todo sigue con Whisper como antes.
+_parakeet = None
+_parakeet_roto = False
+
+
+def jugando():
+    return bool(MARCA_SOLO_BOTON) and os.path.exists(MARCA_SOLO_BOTON)
+
+
+def modelo_parakeet():
+    global _parakeet, _parakeet_roto
+    if _parakeet is not None or _parakeet_roto:
+        return _parakeet
+    try:
+        import glob
+        carpetas = [c for c in glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "modelos", "*parakeet*")) if os.path.isdir(c)]
+        if not carpetas:
+            _parakeet_roto = True
+            return None
+        import sherpa_onnx
+
+        def fichero(patron):
+            return sorted(glob.glob(os.path.join(carpetas[0], patron)))[0]
+        t0 = time.time()
+        _parakeet = sherpa_onnx.OfflineRecognizer.from_transducer(
+            encoder=fichero("encoder*.onnx"), decoder=fichero("decoder*.onnx"), joiner=fichero("joiner*.onnx"),
+            tokens=fichero("tokens.txt"), num_threads=HILOS_PRECISO, decoding_method="greedy_search", model_type="nemo_transducer")
+        anota("parakeet cargado en %.1f s" % (time.time() - t0))
+    except Exception as e:
+        _parakeet_roto = True
+        anota("WARN: no se pudo cargar Parakeet (%s); se sigue con Whisper" % e)
+    return _parakeet
+
+
+def oir_parakeet(bloques):
+    """Lo que oye Parakeet, o "" (sin modelo, jugando o casi sin audio)."""
+    if not bloques or jugando():
+        return ""
+    m = modelo_parakeet()
+    if m is None:
+        return ""
+    try:
+        audio = np.concatenate(bloques).astype(np.float32) / 32768.0
+        if audio.size < TASA // 4:
+            return ""
+        t0 = time.time()
+        st = m.create_stream()
+        st.accept_waveform(TASA, audio)
+        m.decode_stream(st)
+        texto = limpiar_whisper(st.result.text.strip())
+        anota("parakeet: %.1f s de audio en %.2f s -> '%s'" % (audio.size / TASA, time.time() - t0, texto))
+        return texto
+    except Exception as e:
+        anota("WARN: fallo Parakeet (%s)" % e)
+        return ""
+
+
+def marcar_parakeet():
+    if NIVEL:
+        escribir(os.path.join(os.path.dirname(NIVEL), "dictado-motor.txt"), "parakeet")
+
+
+def soltar_parakeet_si_toca():
+    global _parakeet
+    if _parakeet is not None and jugando():
+        _parakeet = None
+        import gc
+        gc.collect()
+        anota("parakeet soltado: hay un juego delante")
+
+
 _ultimo = None
 _ultimo_roto = False
 _ultimo_uso = 0.0
@@ -395,15 +470,19 @@ def atender_reintento(ultimo_audio):
         except Exception:
             pass
         ultimo = pedido == "ultimo" and bool(MODELO_ULTIMO)
+        base = pedido == "base" and whisper is not None
         global _preciso_uso, _ultimo_uso
         if ultimo:
             m = modelo_ultimo()
             _ultimo_uso = time.time()
+        elif base:
+            # PARAKEET PRIMERO: Parakeet oyo algo que no es una orden; Whisper de siempre
+            m = whisper
         else:
             m = modelo_preciso()
             _preciso_uso = time.time()
         duracion = sum(len(b) for b in ultimo_audio) / float(TASA) if ultimo_audio else 0.0
-        if m is not None and duracion > REPASO_MAX:
+        if m is not None and duracion > REPASO_MAX and not base:
             # El 12/09 small tardo 24 y 35 s con audios largos, con el plazo del
             # asistente en 15 s y este hilo sordo todo ese rato. Una orden que
             # dura mas de esto es conversacion o ruido: no merece el repaso.
@@ -415,7 +494,7 @@ def atender_reintento(ultimo_audio):
             # en el siguiente segmento en vez de seguir sordo para nada
             texto = quitar_nombre(transcribir_whisper(
                 ultimo_audio, m, seguir=lambda: os.path.exists(REINTENTO)))
-            anota("%s: '%s' (%.1f s)" % ("ultimo recurso" if ultimo else "oido fino", texto, time.time() - t0))
+            anota("%s: '%s' (%.1f s)" % ("ultimo recurso" if ultimo else ("whisper tras parakeet" if base else "oido fino"), texto, time.time() - t0))
         elif not ultimo_audio:
             anota("oido fino: no queda audio de la orden anterior")
     except Exception as e:
@@ -1073,6 +1152,7 @@ try:
                     atender_reintento(ultimo_audio)
                     soltar_preciso_si_toca()
                     soltar_ultimo_si_toca()
+                    soltar_parakeet_si_toca()
 
                 # --- entrar y salir del modo dictado ---
                 quiere_dictar = bool(DICTAR) and os.path.exists(DICTAR)
@@ -1118,7 +1198,12 @@ try:
                     parcial = json.loads(rec.FinalResult()).get("text", "")
                     if parcial:
                         texto_final = (texto_final + " " + parcial).strip()
-                    if whisper is not None:
+                    rapido = oir_parakeet(audio_dictado)
+                    if rapido:
+                        texto_final = rapido
+                        marcar_parakeet()
+                        vaciar_cola("corte a mano")
+                    elif whisper is not None:
                         mejor = transcribir_whisper(audio_dictado)
                         if mejor:
                             texto_final = mejor
@@ -1341,7 +1426,12 @@ try:
                                     ajena = True
                                     anota("dictado: voz de otra persona (%.0f Hz frente a %.0f Hz) tras el nombre; sin Whisper"
                                           % (f0_dictado, duena))
-                            if whisper is not None and not callado and not ajena:
+                            rapido = oir_parakeet(audio_dictado) if (not callado and not ajena) else ""
+                            if rapido:
+                                texto_final = rapido
+                                marcar_parakeet()
+                                vaciar_cola("transcripcion")
+                            elif whisper is not None and not callado and not ajena:
                                 escribir(PARCIAL, texto_vosk)
                                 mejor = transcribir_whisper(audio_dictado)
                                 if mejor:
