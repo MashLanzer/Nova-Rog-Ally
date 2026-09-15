@@ -162,3 +162,20 @@ pon el juego el 30 => el juego al 30
 pon el volumen al ochente => volumen al 80
 abesame en 15 minutos => temporizador de 15 minutos
 aguete ruando => juego actual
+
+# correcciones del agente (14/09)
+miniminiza todo => mostrar el escritorio
+aguete aguete => juego actual
+bofsa => play/pausa
+aufza => play/pausa
+pauza => play/pausa
+con malo noche => modo noche
+ahora esteñe y pon el modo juego => modo juego
+ahora gus gus dup => Goose Goose Duck
+se respodify y abre steam => cerrar spotify
+busca gato hendito => buscar 'gatos' en youtube
+con mala noche no se duerme => <se va al modelo>
+si al resto le parece bien => <se va al modelo>
+todo el volumen es alto => <se va al modelo>
+no canceles el viaje => <se va al modelo>
+hice una pausa en el trabajo => <se va al modelo>

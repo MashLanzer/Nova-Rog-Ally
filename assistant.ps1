@@ -544,7 +544,7 @@ function Get-ClaveSonido([string]$t, [bool]$ingles = $false) {
 }
 
 $script:ClavesJuegos = $null
-function Find-JuegoPorSonido([string]$resto, [string]$frase) {
+function Find-JuegoPorSonido([string]$resto, [string]$frase, [double]$umbral = 0.5) {
     if (-not $script:Juegos -or @($script:Juegos).Count -eq 0) { return $null }
     if (-not $script:ClavesJuegos -or $script:ClavesJuegos.Count -ne @($script:Juegos).Count) {
         $script:ClavesJuegos = @{}
@@ -570,7 +570,7 @@ function Find-JuegoPorSonido([string]$resto, [string]$frase) {
         elseif ($p -gt $segundaP) { $segundaP = $p }
     }
     # sin un claro ganador (Outlast / Outlast 2) no se adivina
-    if ($mejor -and $mejorP -ge 0.5 -and ($mejorP - $segundaP) -ge 0.08) { return $mejor }
+    if ($mejor -and $mejorP -ge $umbral -and ($mejorP - $segundaP) -ge 0.08) { return $mejor }
     return $null
 }
 
@@ -2823,6 +2823,19 @@ function Resolve-Fragment([string]$f) {
                 foreach ($pdSv in $palDesc) { if ($pdSv.Length -ge 4 -and (Get-Distancia $wSv $pdSv) -le 2) { $cercaSv = $true; break } }
             }
             if (-not $cercaSv) { return $null }
+        }
+    }
+    # SIN VERBO Y SIN NOMBRE CONOCIDO, ¿un juego por como suena? (tanda dirigida, 14/09):
+    # "Ahora gus gus dup" llega como "gus gus dup" porque "ahora" se quita como muletilla.
+    # Sin verbo el riesgo es mayor, asi que el umbral es 0,85: medido con 786 frases
+    # normales y de ruido, ninguna llega (con 0,75, "epic" acababa en PEAK). Solo si
+    # Resolve-Target no encontro nada (los filtros de arriba ya habrian devuelto), con dos
+    # palabras o mas, y preguntando antes.
+    if (-not $sv -and @($f -split '\s+').Count -ge 2) {
+        $jSv = Find-JuegoPorSonido $f $f 0.85
+        if ($jSv) {
+            $sv = Resolve-Target ([string]$jSv.nombre)
+            if ($sv) { $script:dudosa = [string]$jSv.nombre }
         }
     }
     if ($sv) { foreach ($x in $sv) { $x.sinVerbo = $true } }

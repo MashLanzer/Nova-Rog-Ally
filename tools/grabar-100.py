@@ -168,7 +168,45 @@ DIRIGIDA = [
     F("(no digas nada)", "musica", "ruido", ""), F("(no digas nada)", "musica", "ruido", ""), F("(no digas nada)", "musica", "ruido", ""),
 ]
 assert len(DIRIGIDA) == 64, len(DIRIGIDA)
-TANDAS = {"cien": FRASES, "dirigida": DIRIGIDA}
+# LA TANDA DE VALIDACION (15/09): la cifra HONESTA. Todo lo ajustado hasta hoy (frase de
+# ejemplo, correcciones, juegos por sonido) se hizo mirando "cien" y "dirigida"; medir con
+# ellas es aprenderse el examen. Estas 60 no se usan para ajustar nada: solo para medir.
+# Frases con palabras distintas a las de antes y la mezcla del uso normal.
+VALIDACION = [
+    # --- 24 ordenes normales ---
+    F("abre steam", "normal", "orden"), F("abre youtube", "normal", "orden"), F("cierra el navegador", "normal", "orden"),
+    F("sube el volumen", "normal", "orden"), F("baja el volumen", "normal", "orden"), F("pon el volumen al treinta", "normal", "orden"),
+    F("silencia", "normal", "orden"), F("quita el silencio", "normal", "orden"), F("sube el brillo", "normal", "orden"),
+    F("baja el brillo al cuarenta", "normal", "orden"), F("siguiente canción", "normal", "orden"), F("canción anterior", "normal", "orden"),
+    F("pausa la música", "normal", "orden"), F("qué hora es", "normal", "orden"), F("qué día es hoy", "normal", "orden"),
+    F("cuánta batería tengo", "normal", "orden"), F("haz una captura de pantalla", "normal", "orden"), F("abre la calculadora", "normal", "orden"),
+    F("minimiza todo", "normal", "orden"), F("recuérdame en quince minutos que saque la ropa", "normal", "orden"),
+    F("pon un temporizador de cinco minutos", "normal", "orden"), F("cancela el temporizador", "normal", "orden"),
+    F("pon modo juego", "normal", "orden"), F("qué se está descargando", "normal", "orden"),
+    # --- 6 juegos ---
+    F("abre hollow knight", "normal", "orden"), F("abre elden ring", "normal", "orden"), F("abre outlast", "normal", "orden"),
+    F("abre little nightmares dos", "normal", "orden"), F("abre peak", "normal", "orden"), F("abre goose goose duck", "normal", "orden"),
+    # --- 8 en voz baja ---
+    F("cierra discord", "bajo", "orden"), F("qué hora es", "bajo", "orden"), F("sube el volumen", "bajo", "orden"), F("pausa", "bajo", "orden"),
+    F("abre spotify", "bajo", "orden"), F("siguiente canción", "bajo", "orden"), F("baja el brillo", "bajo", "orden"),
+    F("cuánta batería queda", "bajo", "orden"),
+    # --- 8 desde lejos ---
+    F("abre steam", "lejos", "orden"), F("qué hora es", "lejos", "orden"), F("baja el volumen", "lejos", "orden"), F("pausa", "lejos", "orden"),
+    F("pon modo noche", "lejos", "orden"), F("sube el brillo", "lejos", "orden"), F("cierra spotify", "lejos", "orden"),
+    F("abre youtube", "lejos", "orden"),
+    # --- 6 deprisa ---
+    F("abre discord y pon música", "rapido", "orden"), F("pon el brillo al sesenta", "rapido", "orden"),
+    F("qué se está descargando", "rapido", "orden"), F("cierra steam", "rapido", "orden"),
+    F("recuérdame en cinco minutos que mire el horno", "rapido", "orden"), F("sube el volumen", "rapido", "orden"),
+    # --- 4 de charla ---
+    F("estoy aburrido", "normal", "charla"), F("qué opinas de outlast", "normal", "charla"),
+    F("mañana juego con mis amigos", "normal", "charla"), F("qué buena canción", "animado", "charla"),
+    # --- 4 de ruido: NO hables ---
+    F("(no digas nada)", "tele", "ruido", ""), F("(no digas nada)", "tele", "ruido", ""),
+    F("(no digas nada)", "musica", "ruido", ""), F("(no digas nada)", "musica", "ruido", ""),
+]
+assert len(VALIDACION) == 60, len(VALIDACION)
+TANDAS = {"cien": FRASES, "dirigida": DIRIGIDA, "validacion": VALIDACION}
 
 
 class XinputGamepad(ctypes.Structure):
