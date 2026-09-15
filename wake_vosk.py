@@ -379,8 +379,33 @@ def modelo_parakeet():
     return _parakeet
 
 
+# COBERTURA DE PARAKEET (15/09). En vivo, tras una respuesta larga, oyo solo "el Xbox" de
+# 8 s de audio con 4 s de voz ("y ahora podrias decirme quien invento el Xbox") y se abrio
+# Xbox. Lo que saca tiene que cubrir la voz que hubo: letras por segundo de voz. Medido con
+# las 214 grabaciones de orden, charla y ruido: la orden buena con menos cobertura tuvo 6,2
+# ("Abre in the ring") y el caso del Xbox 1,5; con 3, 5 o 7 no se pierde ningun acierto.
+# Por debajo, Parakeet no manda y el audio lo oye Whisper como siempre.
+PARAKEET_COBERTURA_MIN = 4.0
+
+
+def segundos_de_voz(audio):
+    """Lo mismo que mide analizar-100: de la primera a la ultima trama de 30 ms con voz."""
+    tr = 480
+    n = audio.size // tr
+    if n == 0:
+        return 0.0
+    e = np.sqrt(np.mean(audio[:n * tr].reshape(n, tr) ** 2, axis=1))
+    idx = np.where(e > max(0.008, float(np.percentile(e, 90)) * 0.15))[0]
+    return 0.0 if idx.size == 0 else (idx[-1] - idx[0]) * 0.03
+
+
+def cobertura_parakeet(texto, audio):
+    letras = len(re.sub(r"[^\w]|_|\d", "", texto or ""))
+    return letras / max(segundos_de_voz(audio), 0.3)
+
+
 def oir_parakeet(bloques):
-    """Lo que oye Parakeet, o "" (sin modelo, jugando o casi sin audio)."""
+    """Lo que oye Parakeet, o "" (sin modelo, jugando, casi sin audio o sin cubrir la voz)."""
     if not bloques or jugando():
         return ""
     m = modelo_parakeet()
@@ -396,6 +421,12 @@ def oir_parakeet(bloques):
         m.decode_stream(st)
         texto = limpiar_whisper(st.result.text.strip())
         anota("parakeet: %.1f s de audio en %.2f s -> '%s'" % (audio.size / TASA, time.time() - t0, texto))
+        if texto:
+            c = cobertura_parakeet(texto, audio)
+            if c < PARAKEET_COBERTURA_MIN:
+                anota("parakeet: '%s' no cubre la voz (%.1f letras por segundo de voz, minimo %.0f); lo oye Whisper"
+                      % (texto, c, PARAKEET_COBERTURA_MIN))
+                return ""
         return texto
     except Exception as e:
         anota("WARN: fallo Parakeet (%s)" % e)
@@ -495,6 +526,10 @@ def atender_reintento(ultimo_audio):
             texto = quitar_nombre(transcribir_whisper(
                 ultimo_audio, m, seguir=lambda: os.path.exists(REINTENTO)))
             anota("%s: '%s' (%.1f s)" % ("ultimo recurso" if ultimo else ("whisper tras parakeet" if base else "oido fino"), texto, time.time() - t0))
+            if _uso["id"] and grabar_uso_activo():
+                apuntar_uso(dict(id=_uso["id"], hora=time.strftime("%Y-%m-%d %H:%M:%S"),
+                                 motor="turbo" if ultimo else ("base" if base else "small"), texto=texto,
+                                 seguridad=_ultima_seguridad, segundos=round(time.time() - t0, 2)))
         elif not ultimo_audio:
             anota("oido fino: no queda audio de la orden anterior")
     except Exception as e:
@@ -716,6 +751,8 @@ def voz_duena():
 
 def transcribir_whisper(bloques, modelo=None, seguir=None):
     # bloques: lista de arrays int16 ya amplificados
+    global _ultima_seguridad
+    _ultima_seguridad = None
     modelo = modelo or whisper
     if modelo is None or not bloques:
         return ""
@@ -755,6 +792,7 @@ def transcribir_whisper(bloques, modelo=None, seguir=None):
             anota("whisper: cortado a medias, ya no hace falta")
             break
     texto = " ".join(partes).strip()
+    _ultima_seguridad = round(peor, 2) if texto else None
     if NIVEL and texto:
         # LA SEGURIDAD DEL DICTADO (14/09): el asistente la mira para confirmar el
         # dato de una receta antes de usar un nombre que quiza oyo mal
@@ -784,6 +822,60 @@ def idioma_dictado():
         return v if re.match(r"^[a-z]{2}$", v) else "es"
     except Exception:
         return "es"
+
+
+# GRABAR EL USO (15/09): con config.json -> escucha.grabarUso, cada orden dictada se
+# guarda en pruebas/audio/uso (un WAV) y lo que oyo cada modelo en registro.jsonl.
+# Las tandas de grabar-100 median tu voz LEYENDO; en uso real se habla mas rapido y
+# cortado ("abre spotify": 0,7 s en vivo frente a 1,2 s grabado), y la prueba en vivo
+# del 15/09 fue mucho peor de lo que decian. Esto mide con la voz de verdad. No sale
+# de la maquina: pruebas/audio/ esta en .gitignore.
+USO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pruebas", "audio", "uso")
+_uso = {"id": "", "activo": None}
+_ultima_seguridad = None
+
+
+def grabar_uso_activo():
+    if _uso["activo"] is None:
+        try:
+            with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json"), encoding="utf-8-sig") as f:
+                _uso["activo"] = bool((json.load(f).get("escucha") or {}).get("grabarUso", False))
+        except Exception:
+            _uso["activo"] = False
+        if _uso["activo"]:
+            anota("grabar el uso: cada orden se guarda en %s" % USO_DIR)
+    return _uso["activo"]
+
+
+def apuntar_uso(campos):
+    try:
+        os.makedirs(USO_DIR, exist_ok=True)
+        with open(os.path.join(USO_DIR, "registro.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps(campos, ensure_ascii=False) + "\n")
+    except Exception as e:
+        anota("WARN: no pude apuntar el uso (%s)" % e)
+
+
+def guardar_uso(bloques, **campos):
+    if not bloques or not grabar_uso_activo():
+        return
+    try:
+        import wave
+        os.makedirs(USO_DIR, exist_ok=True)
+        ident = time.strftime("%Y%m%d-%H%M%S")
+        if os.path.exists(os.path.join(USO_DIR, ident + ".wav")):
+            ident += "-%03d" % int(time.time() * 1000 % 1000)
+        datos = np.concatenate(bloques).astype(np.int16)
+        with wave.open(os.path.join(USO_DIR, ident + ".wav"), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(TASA)
+            w.writeframes(datos.tobytes())
+        _uso["id"] = ident
+        apuntar_uso(dict(id=ident, hora=time.strftime("%Y-%m-%d %H:%M:%S"), dur=round(datos.size / float(TASA), 2),
+                         pico=round(float(np.max(np.abs(datos.astype(np.int32)))) / 32768.0, 3), **campos))
+    except Exception as e:
+        anota("WARN: no pude guardar el uso (%s)" % e)
 
 
 # NOTAS DE VOZ (13/09): si el asistente dejo una ruta en guardar-audio.txt, el
@@ -1199,6 +1291,8 @@ try:
                     if parcial:
                         texto_final = (texto_final + " " + parcial).strip()
                     rapido = oir_parakeet(audio_dictado)
+                    mejor = ""
+                    _ultima_seguridad = None
                     if rapido:
                         texto_final = rapido
                         marcar_parakeet()
@@ -1216,6 +1310,8 @@ try:
                     texto_final = quitar_nombre(texto_final)
                     anota("dictado: cortado a mano -> '%s'" % texto_final)
                     escribir(TEXTO, texto_final)
+                    guardar_uso(audio_dictado, origen="boton", parakeet=rapido, whisper=mejor,
+                                seguridad=_ultima_seguridad, entregado=texto_final)
                     dictando = False
                     ultimo_audio = audio_dictado
                     guardar_audio_si_toca(ultimo_audio)
@@ -1427,6 +1523,8 @@ try:
                                     anota("dictado: voz de otra persona (%.0f Hz frente a %.0f Hz) tras el nombre; sin Whisper"
                                           % (f0_dictado, duena))
                             rapido = oir_parakeet(audio_dictado) if (not callado and not ajena) else ""
+                            mejor = ""
+                            _ultima_seguridad = None
                             if rapido:
                                 texto_final = rapido
                                 marcar_parakeet()
@@ -1440,6 +1538,10 @@ try:
                             texto_final = quitar_nombre(texto_final)
                             anota("dictado: '%s'" % texto_final)
                             escribir(TEXTO, texto_final)
+                            if not callado:
+                                guardar_uso(audio_dictado, origen="nombre" if origen_nombre else "boton o seguimiento",
+                                            vosk=texto_vosk, parakeet=rapido, whisper=mejor, seguridad=_ultima_seguridad,
+                                            entregado=texto_final, voz_ajena=ajena)
                             try:
                                 os.remove(DICTAR)
                             except Exception:

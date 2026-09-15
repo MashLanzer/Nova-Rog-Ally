@@ -62,7 +62,7 @@ Titulo "2s. Costumbres (notificaciones jugando, proponer automatizar habitos)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-costumbres.ps1') | Select-String 'MAL|todo correcto'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
-Titulo "2t. Conversacion (frases, marcas [ORDEN]/[API], local -> API -> local)"
+Titulo "2t. Conversacion (frases, marcas [ORDEN]/[API], API primero y el local de respaldo)"
 python (Join-Path $PSScriptRoot 'probar-charla.py') | Select-String 'MAL|todo correcto'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
@@ -96,6 +96,10 @@ if ($LASTEXITCODE -ne 0) { $fallos++ }
 
 Titulo "2h. Frases que ya te molestaron una vez (y que se curan solas)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-rechazos.ps1') | Select-String 'todo correcto|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2x. La frase de ejemplo recitada no es una orden (y lo mal oido no se aprende)"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-recitado.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
 Titulo "2i. Deshacer por ventana de tiempo (la foto mas vieja, no la ultima)"

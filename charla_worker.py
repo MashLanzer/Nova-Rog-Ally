@@ -534,7 +534,15 @@ def responder(p):
         historial.pop()
         salida("delegar", idp, texto=texto)
         return
-    intentos = ["api", "local"] if usar_api else ["local", "api", "local-sin-marca"]
+    # API PRIMERO (15/09, elegido por braya: "capa local y API para las conversaciones").
+    # Con el local delante, la primera frase tardaba 10-22 s en su uso real (y la API solo
+    # entraba cuando el local se apartaba con [API], pagando las dos esperas). El local
+    # (qwen2.5:1.5b, config.json -> conversacion.modeloLocal) queda para cuando no hay
+    # internet o la API falla. Lo que contesta la API se sigue aprendiendo en la memoria.
+    if api_disponible():
+        intentos = ["api", "local"]
+    else:
+        intentos = ["local", "api", "local-sin-marca"] if not usar_api else ["api", "local"]
     motivos = []
     marca_api_vista = False
     for origen in intentos:

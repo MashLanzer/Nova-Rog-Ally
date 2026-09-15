@@ -890,6 +890,95 @@ cuando con las 20 de antes parecían 17 de 20. Veinte frases no enseñaban esto.
     «What's the thing». Al no ser una orden, pasa a Whisper y no hace daño.
   - **Sin probar con voz** (con órdenes escritas no se pasa por la escucha).
   - whisper.cpp con la gráfica AMD (Vulkan): sin medir todavía.
+- **PRIMERA PRUEBA EN VIVO (15/09, 10:12-10:26): mucho peor que las tandas.**
+  Cuatro órdenes dichas («abre spotify», «sube el volumen», «qué hora es», «pon
+  modo noche») y **4 órdenes equivocadas**: abrió Steam dos veces por «abre
+  spotify» (Whisper devolvió su frase de ejemplo; la segunda vez, «Abra Steam»,
+  ni se marcó como eco), abrió Xbox (Parakeet sacó «el Xbox» de una frase larga)
+  y puso el volumen al 35 y bajó el brillo (con casi silencio tras una respuesta,
+  Whisper recitó la frase de ejemplo entera). Además se aprendió «ensectiva el
+  modo noche» = «modo noche», lo contrario de lo dicho (borrado; copia en tmp).
+  Nova se paró a las 10:26.
+  - **Por qué:** con los WAV capturados en vivo (`guardar-audio.txt`) se
+    descartó la ganancia (recortar las grabaciones a x6,8 no cambia nada), el
+    silencio alrededor (recortarlo no arregla a Parakeet; meter las grabaciones
+    entre silencio real no las rompe) y el micrófono (el mismo, MME). Lo que
+    cambia es cómo hablas: **dando órdenes hablas más rápido y cortado que
+    leyendo** («abre spotify» 0,7 s en vivo, 1,2 s grabado). Las tandas medían
+    tu voz leyendo. Parakeet en vivo contesta en inglés o ruso a las órdenes
+    cortas; las frases largas las entiende perfectas.
+  - **Lento:** al pulsar ≡ se precargaba qwen2.5:3b (2 GB): 0,3 GB libres y
+    Whisper de 4,5 a 12,9 s por orden (la primera, 29 s). Y la escucha llegó a
+    tirar 34 s de audio mientras repasaba (sin arreglar: el bucle es de un hilo).
+  - **Medido y descartado:** que un eco del ejemplo solo valga si lo confirma un
+    oído SIN frase de ejemplo (Parakeet o small sin ella) pierde 14 aciertos en
+    las 214 grabaciones y no quita ninguna equivocada en vivo. Small sin frase
+    de ejemplo oye fatal («Subtítulos en español de la comunidad de Amara.org»).
+    **El eco de «abre Steam» sigue sin resolver**: no se distingue de un «abre
+    steam» de verdad ni por seguridad ni por el repaso.
+  - **Arreglado (banco entero en orden, mismas cifras que antes):**
+    - Parakeet no manda si lo que saca no cubre la voz (4 letras por segundo de
+      voz; la orden buena más baja tuvo 6,2, el Xbox 1,5; 0 aciertos perdidos).
+    - Dos o más frases distintas de la frase de ejemplo son un recitado: no se
+      hace nada (en las 214 grabaciones pasó 2 veces y ninguna era una orden).
+      Prueba nueva: `tools\probar-recitado.ps1`.
+    - No se precarga la charla sin 3 GB libres (`conversacion.precargaRamMinMB`).
+    - Lo que necesitó repaso no se aprende (ni traducción ni alias), y si el
+      modelo lo traduce a una orden, **se pregunta con un sí hablado**.
+    - Tras turbo sin orden, se sigue con el texto de turbo si se parece (la
+      charla contestaba a «la distancia del solo de la tierra»).
+    - Spotify no está instalado en este PC: por eso «abrir spotify» fallaba.
+  - **Sesión de uso real (propuesta de braya):** `escucha.grabarUso = true`
+    guarda cada orden en `pruebas\audio\uso\` (WAV + `registro.jsonl` con lo
+    que oyó cada modelo). Lo siguiente es analizarlo cruzándolo con
+    assistant.log por la hora, y probar otras frases de ejemplo con esas
+    grabaciones para el eco de «abre Steam».
+- **LA SESIÓN DE USO REAL (15/09, 11:16-11:48, 40 órdenes).** braya: «es muy lento,
+  a veces no hace lo que le digo, y cuando lo hace se demora muchísimo».
+  Cruzando `pruebas\audio\uso\registro.jsonl` con assistant.log:
+  - **Lo lento no era el oído:** claude-code tardaba 8-11 s en entender una frase
+    (Haiku) y 35-90 s en una tarea (Sonnet): «pon un temporizador de cinco
+    minutos» 81 s, «reproduce el segundo video de YouTube» 148 s. Antes pasaba por
+    base, small y turbo (15-28 s más). La charla, 10-22 s hasta la primera frase:
+    hablaba primero qwen y la API solo si qwen se apartaba con [API].
+  - Parakeet oye bien las frases largas, pero no mejor que base (24 % de palabras
+    mal frente a 20 %, con small de referencia en las 40): **no se salta Whisper**.
+  - La escucha se cayó una vez (access violation con small y turbo cargados) y
+    turbo se pidió en bucle sin audio. Sin arreglar.
+  - Spotify no está instalado: «abrir spotify» falla con el error de Windows.
+- **Reparto nuevo (elegido por braya el 15/09):** capa local + API de Anthropic
+  para charla y órdenes, memoria local de lo que contesta la API, Claude Code solo
+  para tareas pesadas, y de respaldo qwen2.5:1.5b (sin internet), opencode y
+  Whisper. Montado:
+  - `Submit-Command`: traducir y preguntar, API → Claude Code → opencode; las
+    tareas (TAREA), Claude Code → opencode. Si la API falla, lo rehace Claude Code.
+  - `charla_worker.py`: la API primero; qwen solo si la API no está o falla, y ya
+    no se precarga con API. embeddinggemma sigue para buscar en la memoria.
+  - Medido: entender una frase 0,8-1,7 s; una pregunta 3,4-5,3 s (Opus 5) o 2,3 s
+    (Haiku); «qué ves en mi pantalla» 5,8 s con la captura a la API
+    (`claude-api.ps1 -Imagen`, reducida a 1280 px en JPEG), antes 87 s.
+  - **El prompt de traducir** solo conocía una parte de lo que Nova sabe hacer y
+    marcaba «cierra la calculadora y cierra steam» como NO y el temporizador como
+    TAREA. Ahora lleva todas las formas, cada una comprobada con la capa local, y
+    varias órdenes por línea (se juntan con « y »). Con las 40 frases de uso: solo
+    «reproduce el segundo video» sale TAREA.
+  - **Tras cada «No te entendí» vuelve a escuchar sola** (como mucho dos seguidas).
+  - Pruebas: `probar-charla.py` adaptada al orden nuevo; `probar-recetas.ps1` pasa.
+  - **Sigue mal:** si Whisper oye mal, la API también se equivoca («podría cerrar el
+    navegador» oído «podría ser el navegador» → «abre navegador»).
+  - **Medido y descartado: la API como reparadora del oído.** En las 202 grabaciones,
+    55 frases sin orden local. Con turbo guardado (14 de validación): turbo 6 bien y
+    0 equivocadas; la API con el texto de base 1 y 4; la API con lo que oyeron
+    Parakeet, base y small, 3 y 5. En las 55, la API con los tres rescata 6 y **se
+    inventa 13 órdenes** («qué hora es» con la tele, «abre steam» por «cierra steam»,
+    «abre edge» por «sube el brillo»). **Turbo se queda.** Lo que protege de la
+    traducción de algo mal oído es la pregunta con sí hablado (TRADUCCION DE ALGO
+    MAL OIDO), no la API.
+  - **Turbo no cabe con todo lo demás:** cargarlo tumbó dos veces la medición por
+    falta de memoria, y el 15/09 la escucha se cayó con él cargado. Arreglado el
+    bucle que lo pedía una y otra vez (UN REPASO QUE SE QUEDA SIN DUENO: un dictado
+    nuevo abandona el repaso pendiente; turbo una vez por frase y nunca con el
+    repaso vacío). Sin probar con voz.
 - **¿1000 grabaciones más?** Todavía no: con estas 100 ya se ve qué falla y se
   mide cada arreglo. Lo que falla ahora son frases concretas (modo noche/foco,
   «minimiza todo», «qué se está descargando», «cancela el temporizador») y la voz

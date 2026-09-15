@@ -1,6 +1,6 @@
 # Pruebas del worker de conversacion (charla_worker.py) SIN red: el troceo en
-# frases, la limpieza para la voz, las marcas [ORDEN] y [API], el camino hibrido
-# (local -> API -> local) y el olvido, con respuestas de mentira.
+# frases, la limpieza para la voz, las marcas [ORDEN] y [API], el camino (API
+# primero y el local de respaldo, 15/09) y el olvido, con respuestas de mentira.
 #
 #   python tools\probar-charla.py
 import os
@@ -128,27 +128,31 @@ def hablar(idp, texto, *respuestas):
     return fin()
 
 
-print("--- camino hibrido ---")
+print("--- camino: la API primero, el local de respaldo (15/09) ---")
 os.environ["ANTHROPIC_API_KEY"] = "falsa"
+cw.api_rota_hasta = 0
 cw.historial.clear()
-f = hablar(1, "hola nova", Resp(local("Me alegro mucho de oírte. ", "¿Qué tal ha ido el día?")))
-comp("charla normal: la contesta el local", f.get("origen") == "local", f)
+del llamadas[:]
+f = hablar(1, "hola nova", Resp(api("Me alegro mucho de oírte. ", "¿Qué tal ha ido el día?")))
+comp("con API, la charla normal la contesta la API", f.get("origen") == "api", f)
 comp("frase a frase", frases() == ["Me alegro mucho de oírte.", "¿Qué tal ha ido el día?"], frases())
 comp("se recuerda lo hablado", [m["role"] for m in cw.historial] == ["user", "assistant"])
-comp("el local lleva contexto corto (poca RAM)", llamadas[-1][1]["options"]["num_ctx"] == 1536 and llamadas[-1][1]["keep_alive"] == "2m")
+comp("y el local ni se toca (ni RAM ni espera)", [u for u, _ in llamadas] == ["https://api.anthropic.com/v1/messages"], [u for u, _ in llamadas])
 
-f = hablar(2, "abreme la carpeta de capturas", Resp(local("[ORD", "EN]")))
-comp("algo que hacer: el local lo devuelve como orden", f["ev"] == "orden" and f["texto"] == "abreme la carpeta de capturas" and frases() == [], f)
+f = hablar(2, "abreme la carpeta de capturas", Resp(api("[ORD", "EN]")))
+comp("algo que hacer: la API lo devuelve como orden", f["ev"] == "orden" and f["texto"] == "abreme la carpeta de capturas" and frases() == [], f)
 comp("y la orden no queda en la charla", len(cw.historial) == 2)
 
-f = hablar(3, "explicame la teoria de cuerdas", Resp(local("[AP", "I]")), Resp(api("Imagina que todo está hecho de cuerdas diminutas. ")))
-comp("el local dice [API]: pasa a la API sin decir la marca", f.get("origen") == "api" and frases() == ["Imagina que todo está hecho de cuerdas diminutas."], (f, frases()))
-
-f = hablar(4, "otra dificil", Resp(local("[API]")), Resp([], 400, b'{"error":{"message":"Your credit balance is too low"}}'),
+f = hablar(4, "otra dificil", Resp([], 400, b'{"error":{"message":"Your credit balance is too low"}}'),
            Resp(local("No lo sé con seguridad, ", "pero te cuento lo que recuerdo.")))
-comp("la API sin saldo: vuelve al local", f.get("origen") == "local" and frases() == ["No lo sé con seguridad, pero te cuento lo que recuerdo."], (f, frases()))
+comp("la API sin saldo: contesta el local", f.get("origen") == "local" and frases() == ["No lo sé con seguridad, pero te cuento lo que recuerdo."], (f, frases()))
 comp("y no reintenta la API en un rato", not cw.api_disponible())
-comp("el ultimo local ya no puede pedir la API", cw.MARCA_API not in llamadas[-1][1]["messages"][0]["content"])
+comp("el local de respaldo no puede pedir la API", cw.MARCA_API not in llamadas[-1][1]["messages"][0]["content"])
+comp("el local lleva contexto corto (poca RAM)", llamadas[-1][1]["options"]["num_ctx"] == 1536 and llamadas[-1][1]["keep_alive"] == "2m")
+
+f = hablar(9, "cuentame un chiste", Resp(local("¿Por qué los pájaros no usan Facebook? ", "因为他们找不到巢。", " Otra cosa más.")))
+comp("si se pasa al chino, se corta ahi y no se lee", f.get("origen") == "local" and frases() == ["¿Por qué los pájaros no usan Facebook?"], (f, frases()))
+comp("y lo guardado en la charla va sin chino", "因" not in cw.historial[-1]["content"], cw.historial[-1]["content"])
 
 f = hablar(5, "cuentame un chiste", cw.httpx.ConnectError("sin ollama"))
 comp("sin Ollama ni API: error con el motivo", f["ev"] == "err" and "ollama" in f["texto"], f)
@@ -158,10 +162,6 @@ cw.api_rota_hasta = 0
 f = hablar(6, "busca en internet a que hora abre el museo", Resp(api("Hoy abre el museo a las diez. ")))
 comp("lo que pide internet va directo a la API", f.get("origen") == "api" and llamadas[-1][0].startswith("https://api.anthropic.com"), f)
 comp("y con busqueda web", (llamadas[-1][1].get("tools") or [{}])[0].get("name") == "web_search")
-
-f = hablar(9, "cuentame un chiste", Resp(local("¿Por qué los pájaros no usan Facebook? ", "因为他们找不到巢。", " Otra cosa más.")))
-comp("si se pasa al chino, se corta ahi y no se lee", f.get("origen") == "local" and frases() == ["¿Por qué los pájaros no usan Facebook?"], (f, frases()))
-comp("y lo guardado en la charla va sin chino", "因" not in cw.historial[-1]["content"], cw.historial[-1]["content"])
 
 # SIN API, un dato concreto no lo contesta el local: se lo inventaria (14/09)
 os.environ["ANTHROPIC_API_KEY"] = ""
@@ -182,7 +182,7 @@ comp("parar corta la respuesta y no la recuerda", f.get("origen") == "parado" an
 cw.parar.clear()
 
 cw.ultima_charla = time.time() - 400
-hablar(8, "hola otra vez", Resp(local("Hola de nuevo, ¿qué me cuentas?")))
+hablar(8, "hola otra vez", Resp(api("Hola de nuevo, ¿qué me cuentas?")))
 comp("tras 5 min sin hablar, la charla empieza de cero", len(cw.historial) == 2, len(cw.historial))
 
 cw.historial[:] = [{"role": "assistant", "content": "x"}] + [{"role": "user" if n % 2 == 0 else "assistant", "content": str(n)} for n in range(14)]
@@ -204,7 +204,7 @@ try:
         fp.write("# Perfil\n- Su juego favorito es Hades\n")
     cw.RUTA_PERFIL = perfil
 
-    f = hablar(20, "¿Qué es un agujero negro?", Resp(local("[API]")), Resp(api("Es una región del espacio de la que ni la luz escapa. ")))
+    f = hablar(20, "¿Qué es un agujero negro?", Resp(api("Es una región del espacio de la que ni la luz escapa. ")))
     comp("la API contesta y se aprende firme", f.get("origen") == "api" and cw.cerebro.balance()["respuestas"] == 1, cw.cerebro.balance())
     antes = len(llamadas)
 
@@ -219,7 +219,7 @@ try:
     f = hablar(21, "oye nova, ¿qué es un agujero negro?")
     comp("la segunda vez lo dice de memoria, sin llamar a nadie", f.get("origen") == "memoria" and len(llamadas) == antes and frases() == ["Es una región del espacio de la que ni la luz escapa."], (f, frases()))
     comp("y si lo encuentra por palabras, ni carga el modelo de significado", EmbedContador.n == 0, EmbedContador.n)
-    guion[:] = [Resp(local("Es un felino grande. "))]
+    guion[:] = [Resp(api("Es un felino grande. "))]
     hablar(211, "¿Qué es un tigre?")
     comp("sin nada parecido por palabras tampoco lo carga (RAM)", EmbedContador.n == 0, EmbedContador.n)
     cw.cerebro.datos["recuerdos"] = [r for r in cw.cerebro.datos["recuerdos"] if "tigre" not in r["pregunta"].lower()]
@@ -227,6 +227,7 @@ try:
     cw.cerebro.datos["pendientes"] = [j for j in cw.cerebro.datos["pendientes"] if "tigre" not in j["pregunta"].lower()]
     cw.cerebro.embedder = None
 
+    cw.api_rota_hasta = time.time() + 999   # lo que sigue es del local: con la API caida
     f = hablar(22, "¿Cuánto duerme un oso polar?", Resp(local("El oso polar puede vivir sin dormir. ")))
     comp("lo del local entra provisional", f.get("origen") == "local" and cw.cerebro.balance()["provisionales"] == 1, cw.cerebro.balance())
     f = hablar(23, "¿cuánto duerme un oso polar?", Resp(local("Unas ocho horas. ")))
@@ -234,6 +235,7 @@ try:
     comp("lo provisional NO se repite: vuelve al modelo con la pista marcada", f.get("origen") == "local" and "SIN CONFIRMAR" in sistema, sistema[-300:])
     comp("y el modelo lleva el perfil de braya", "Su juego favorito es Hades" in sistema)
 
+    cw.api_rota_hasta = 0
     del eventos[:]
     guion[:] = [Resp(api("Tienes razón, duermen unas siete u ocho horas. "))]
     cw.responder({"op": "hablar", "id": 24, "texto": "eso no es verdad", "duda": True})   # la marca la pone Send-Charla
@@ -243,8 +245,10 @@ try:
     f = hablar(25, "¿Qué es un volcán?", Resp(api("Una montaña que expulsa lava. ")))
     antes_b = cw.cerebro.balance()
     del eventos[:]
+    cw.api_rota_hasta = time.time() + 999   # con el local, para ver su prompt
     guion[:] = [Resp(local("Un tsunami es una ola enorme. "))]
     cw.responder({"op": "hablar", "id": 26, "texto": "¿Qué es un tsunami?", "invitado": True})
+    cw.api_rota_hasta = 0
     sistema = llamadas[-1][1]["messages"][0]["content"]
     comp("de un invitado no se aprende", cw.cerebro.balance() == antes_b, (antes_b, cw.cerebro.balance()))
     comp("y no lleva el perfil de braya", "Su juego favorito es Hades" not in sistema)
@@ -324,13 +328,13 @@ try:
             return {"message": {"content": "recuérdame ir a la tienda a las siete y media"}}
     cw.httpx.post = lambda url, **kw: (posts.append(kw.get("json")), RespPost())[1]
     del eventos[:]
-    guion[:] = [Resp(local("[ORDEN]"))]
+    guion[:] = [Resp(api("[ORDEN]"))]
     cw.atender({"op": "hablar", "id": 46, "texto": "pues recuérdamelo luego"})
     f = fin()
     comp("una orden con 'lo' o 'luego' se reescribe con lo hablado", f["ev"] == "orden" and f["texto"] == "recuérdame ir a la tienda a las siete y media" and f.get("original") == "pues recuérdamelo luego", f)
     comp("viendo la conversacion", posts and any(m.get("content") == "Cierra a las ocho." for m in posts[-1]["messages"]))
     del eventos[:]
-    guion[:] = [Resp(local("[ORDEN]"))]
+    guion[:] = [Resp(api("[ORDEN]"))]
     cw.atender({"op": "hablar", "id": 47, "texto": "abre la carpeta de descargas"})
     comp("una orden completa no se toca", fin()["texto"] == "abre la carpeta de descargas" and len(posts) == 1, fin())
 
@@ -350,12 +354,12 @@ try:
     cw.CARPETA_CEREBRO = carpeta3
     cw.cerebro = None
     cw.historial.clear()
-    guion[:] = [Resp(local("Me alegro de que te guste Hades. "))]
+    guion[:] = [Resp(api("Me alegro de que te guste Hades. "))]
     cw.responder({"op": "hablar", "id": 60, "texto": "me encanta Hades"})
     hoy = time.strftime("%Y-%m-%d")
     ruta_hoy = os.path.join(carpeta3, "charla-%s.jsonl" % hoy)
     comp("cada charla del dia se apunta", os.path.exists(ruta_hoy) and "Hades" in open(ruta_hoy, encoding="utf-8").read())
-    guion[:] = [Resp(local("Vale. "))]
+    guion[:] = [Resp(api("Vale. "))]
     cw.responder({"op": "hablar", "id": 61, "texto": "secreto de invitado", "invitado": True})
     comp("lo de un invitado no", "invitado" not in open(ruta_hoy, encoding="utf-8").read())
     comp("el dia de hoy no se resume todavia", cw.resumir_dias_pasados(hoy) is False and os.path.exists(ruta_hoy))

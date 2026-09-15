@@ -52,6 +52,7 @@
     },
     "escucha": {
         "activada": true,
+        "grabarUso": true,
         "nombre": "nova",
         "confianzaMinima": 0.55,
         "soloBotonEnJuego": true,
@@ -92,6 +93,9 @@
         "activada": true,
         "lat": null,
         "lon": null
+    },
+    "conversacion": {
+        "modeloLocal": "qwen2.5:1.5b"
     },
     "charla": {
         "activada": true

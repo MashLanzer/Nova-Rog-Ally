@@ -14,7 +14,9 @@ param(
     [Parameter(Mandatory = $true)][string]$PromptFile,
     [string]$Modelo = 'claude-haiku-4-5',
     [int]$MaxTokens = 300,
-    [string]$Sistema = ''
+    [string]$Sistema = '',
+    # LO QUE VES EN PANTALLA (15/09): una captura que va con el texto
+    [string]$Imagen = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -37,10 +39,41 @@ if (-not (Test-Path -LiteralPath $PromptFile)) { Salir "(no encuentro el prompt)
 $prompt = [System.IO.File]::ReadAllText($PromptFile, [System.Text.Encoding]::UTF8)
 if (-not $prompt.Trim()) { Salir "(prompt vacio)" }
 
+$contenido = $prompt
+if ($Imagen -and (Test-Path -LiteralPath $Imagen)) {
+    # reducida a 1280 px de ancho y en JPEG: la pantalla entera en PNG pesa varios MB
+    # y la API no necesita mas para leer una ventana
+    try {
+        Add-Type -AssemblyName System.Drawing
+        $org = [System.Drawing.Image]::FromFile($Imagen)
+        try {
+            $esc = [Math]::Min(1.0, 1280.0 / $org.Width)
+            $w = [int]($org.Width * $esc); $h = [int]($org.Height * $esc)
+            $bmp = New-Object System.Drawing.Bitmap($w, $h)
+            $g = [System.Drawing.Graphics]::FromImage($bmp)
+            $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+            $g.DrawImage($org, 0, 0, $w, $h)
+            $g.Dispose()
+            $ms = New-Object System.IO.MemoryStream
+            $codec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' }
+            $pars = New-Object System.Drawing.Imaging.EncoderParameters(1)
+            $pars.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, [long]80)
+            $bmp.Save($ms, $codec, $pars)
+            $bmp.Dispose()
+            $b64 = [Convert]::ToBase64String($ms.ToArray())
+        } finally { $org.Dispose() }
+        $contenido = @(
+            @{ type = 'image'; source = @{ type = 'base64'; media_type = 'image/jpeg'; data = $b64 } },
+            @{ type = 'text'; text = $prompt }
+        )
+    } catch {
+        [Console]::Error.WriteLine("no pude adjuntar la imagen: " + $_.Exception.Message)
+    }
+}
 $cuerpo = @{
     model      = $Modelo
     max_tokens = $MaxTokens
-    messages   = @(@{ role = 'user'; content = $prompt })
+    messages   = @(@{ role = 'user'; content = $contenido })
 }
 if ($Sistema) { $cuerpo['system'] = $Sistema }
 

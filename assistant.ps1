@@ -421,6 +421,44 @@ function Get-Distancia([string]$a, [string]$b) {
     return $d[$n, $m]
 }
 
+# RECITADO DE LA FRASE DE EJEMPLO (15/09). Con casi silencio en una ventana de seguimiento
+# Whisper devolvio su frase de ejemplo entera ("Sube el volumen. Pon el modo noche. ¿Que hora
+# es? Baja el brillo.") y se puso el volumen al 35 y se bajo el brillo sin que nadie lo
+# pidiera. Nadie da asi varias ordenes del ejemplo: dos o mas frases DISTINTAS de la frase
+# de ejemplo son un recitado, no una orden. En las 214 grabaciones solo paso dos veces y
+# ninguna era una orden de verdad (ruido y "busca gatos en youtube" mal oido). La frase se
+# lee de wake_vosk.py (PROMPT_ORDENES) para no tener dos copias que se desincronicen.
+$script:frasesEjemplo = $null
+function Get-FrasesEjemplo {
+    if ($null -ne $script:frasesEjemplo) { return $script:frasesEjemplo }
+    $script:frasesEjemplo = @()
+    try {
+        $rutaW = if ($RutaWakeVosk) { $RutaWakeVosk } else { Join-Path $PSScriptRoot 'wake_vosk.py' }
+        $src = [System.IO.File]::ReadAllText($rutaW, [System.Text.Encoding]::UTF8)
+        if ($src -match '(?m)^PROMPT_ORDENES\s*=\s*"([^"]+)"') {
+            $script:frasesEjemplo = @(($Matches[1] -split '[.?¿!]+') |
+                ForEach-Object { (ConvertTo-Plain $_) -replace '^(?:oye |hey |ey )?nova ?', '' } |
+                Where-Object { $_ } | Select-Object -Unique)
+        }
+    } catch {}
+    return $script:frasesEjemplo
+}
+function Test-RecitaEjemplo([string]$texto) {
+    $frases = @(Get-FrasesEjemplo)
+    if ($frases.Count -eq 0 -or -not $texto) { return $false }
+    $vistas = @{}
+    foreach ($parte in ($texto -split '[.?¿!,;]+')) {
+        $pl = (ConvertTo-Plain $parte) -replace '^(?:oye |hey |ey )?nova ?', ''
+        if (-not $pl) { continue }
+        foreach ($f in $frases) {
+            $largo = [Math]::Max($pl.Length, $f.Length)
+            # "abra steam" tambien es "abre steam": parecido de 0,8 o mas
+            if ((1.0 - (Get-Distancia $pl $f) / $largo) -ge 0.8) { $vistas[$f] = 1; break }
+        }
+    }
+    return ($vistas.Count -ge 2)
+}
+
 # Distancia FONETICA. Lo que confunde el dictado casi nunca son letras al azar:
 # son sonidos parecidos, y sobre todo vocales. "stein" por "steam" son dos
 # ediciones -la vocal y la nasal final- y con el tope del 34% una palabra de
@@ -5257,6 +5295,18 @@ function Invoke-FastCommand([string]$text) {
         Add-Estadistica 'voz-extrana' $text
         return "No me suena tu voz. ¿$($qv)?"
     }
+    # TRADUCCION DE ALGO MAL OIDO (15/09): "Ensectiva el modo noche" (dijo "desactiva") se
+    # tradujo a "modo noche" y se hizo lo contrario de lo pedido. Si lo que se tradujo ya
+    # necesito un repaso (ver NO APRENDER DE LO MAL OIDO), no se hace a la primera: se
+    # pregunta, y como una peligrosa, solo vale un si hablado (ni el plazo ni el boton).
+    if (-not $script:confirmado -and $script:preguntarTraduccion -and @($acciones).Count -gt 0) {
+        $script:pendiente = @{ texto = $text; vence = 0; tipo = 'peligrosa' }
+        $qd = @($acciones | ForEach-Object { $_.desc }) -join ' y '
+        if (-not $qd) { $qd = $text }
+        Log "OIDO DUDOSO: la traduccion sale de algo mal oido; se pregunta antes de: $qd"
+        Add-Estadistica 'traduccion-preguntada' $text
+        return "No estoy segura de haberte oido bien. ¿$($qd)?"
+    }
     if ($ConfirmacionOn -and $script:dudosa -and -not $script:confirmado -and -not $script:sinDudosa) {
         $script:pendiente = @{ texto = $text; vence = 0 }
         $q = [string]$script:dudosa
@@ -9095,6 +9145,7 @@ $CcProhibido = @('Bash(rm -rf:*)', 'Bash(rm -fr:*)', 'Bash(rm -r:*)', 'Bash(form
                  'PowerShell(Invoke-Expression:*)', 'PowerShell(iex:*)', 'PowerShell(cmd:*)', 'PowerShell(Start-Process cmd:*)')
 $script:jobMotor = ''
 $script:jobPorCC = $false
+$script:jobAdjunto = ''
 $script:ccFallo = $false
 
 function Test-CerebroClaudeCode {
@@ -9201,7 +9252,7 @@ function Test-ClaveClaude {
 # Misma forma que Start-OpencodeJob a proposito: escribe en los mismos archivos
 # y deja $script:proc, asi que la cancelacion con el boton, el progreso y la
 # recogida funcionan sin cambiar nada de eso.
-function Start-ClaudeJob([string]$texto, [string]$modelo, [int]$maxTokens) {
+function Start-ClaudeJob([string]$texto, [string]$modelo, [int]$maxTokens, [string]$imagen = '') {
     $id = [System.Guid]::NewGuid().ToString("N")
     $script:jobOut = Join-Path $TmpDir "out-$id.txt"
     $script:jobErr = Join-Path $TmpDir "err-$id.txt"
@@ -9213,6 +9264,8 @@ function Start-ClaudeJob([string]$texto, [string]$modelo, [int]$maxTokens) {
         [System.IO.File]::WriteAllText($script:jobIn, $texto, (New-Object System.Text.UTF8Encoding($false)))
         $args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $ClaudeScript,
                   '-PromptFile', $script:jobIn, '-Modelo', $modelo, '-MaxTokens', [string]$maxTokens)
+        # LO QUE VES EN PANTALLA (15/09): la captura va con la pregunta
+        if ($imagen -and (Test-Path -LiteralPath $imagen)) { $args += @('-Imagen', $imagen) }
         $script:jobLeido = 0; $script:jobPasos = 0; $script:jobUltimaHerr = ''; $script:jobProgresoCheck = 0
         Log "CLAUDE: $modelo, $($texto.Length) caracteres de prompt"
         $script:proc = Start-Process -FilePath 'powershell.exe' -ArgumentList $args `
@@ -9485,28 +9538,44 @@ function Build-PromptTraduccion([string]$text) {
             $tareas = "`nTareas que Nova ya sabe hacer. Si la orden es una de estas, aunque se diga con otras palabras, responde con esa plantilla rellenando cada {hueco} con lo que dijo el usuario, copiado tal cual:`n" + ($listaT -join "`n") + "`n"
         }
     }
+    # TODO LO QUE NOVA SABE HACER (15/09). Con la lista vieja, en su uso real la API
+    # marcaba "cierra la calculadora y cierra steam" como NO y "puedes poner un
+    # temporizador de cinco minutos" como TAREA: no sabia que Nova hace eso sola, y
+    # ahora una TAREA va a Claude Code (35-90 s). Cada forma de aqui se comprobo con
+    # la capa local de verdad (tools\probar-audio.py, acciones_de) antes de ponerla.
     return @"
-Traduce la orden del usuario a UNA sola linea con una de estas formas exactas:
-abre <app>
-abre <sitio>
-abre <juego> en steam
-busca <texto> en <sitio>
-sube el volumen | baja el volumen | pon el volumen al <n>%
-sube el brillo | baja el brillo | pon el brillo al <n>%
-pausa | reproduce | siguiente | anterior | silencia
-maximiza | minimiza | a mitad de pantalla | a la derecha
-bloquea
-modo juego | modo noche | modo trabajo | modo cine | modo silencio
+Traduce lo que dijo el usuario a ordenes que Nova sabe hacer, usando SOLO estas formas:
+abre <app> | abre <sitio> | abre <juego> en steam
+cierra <app> | cierra todos los programas | minimiza todo
+minimiza <app> | maximiza <app> | a mitad de pantalla
+busca <texto> en <sitio> | pon <cancion o artista> en spotify
+sube el volumen | baja el volumen | pon el volumen al <n> | silencia | quita el silencio | pon <app> al <n>
+sube el brillo | baja el brillo | pon el brillo al <n>
+pausa | reproduce | siguiente cancion | anterior cancion | que esta sonando
+pon un temporizador de <n> minutos | cuanto queda del temporizador | cancela el temporizador
+recuerdame en <n> minutos que <algo> | recuerdame manana a las <hora> que <algo> | que recordatorios tengo
+recuerda que <dato> | que sabes de mi
+que hora es | que dia es hoy | cuanta bateria queda | cuanto espacio me queda | que se esta descargando
+a que estoy jugando | donde me quede | cuanto he jugado esta semana | que he hecho hoy
+haz una captura | lee la pantalla | bloquea | deshaz
+no me escuches <n> minutos
+modo juego | modo noche | modo trabajo | modo cine | modo silencio | modo ahorro | modo foco <n> minutos
+apunta <cosa> en la lista de la compra | que tengo en la lista
+cuando <pase algo> <orden>
 
 Apps disponibles: $apps
 Sitios disponibles: $sitios
 Juegos instalados: $juegos
 $tareas
 
-Responde SOLO con la linea traducida, sin comillas, sin explicacion y sin
-ninguna palabra extra.
-Si es una peticion de verdad dirigida a un asistente, pero no encaja en
-ninguna de las formas de arriba, responde exactamente: TAREA
+Responde SOLO con la orden traducida, sin comillas, sin explicacion y sin
+ninguna palabra extra. Si pide varias cosas, pon una orden por linea.
+El texto sale de un reconocedor de voz y puede traer palabras mal oidas:
+interpreta lo que quiso decir.
+Si es una peticion de verdad dirigida a un asistente pero no se puede hacer
+con esas formas (hace falta manejar programas, webs o archivos paso a paso:
+reproducir un video concreto, revisar algo dentro de una app, buscar en
+archivos...), responde exactamente: TAREA
 Si NO es una orden dirigida a nadie (conversacion ajena, el audio de un
 video o de una cancion que sonaba de fondo, una frase suelta, inconexa o
 sin sentido), responde exactamente: NO
@@ -9590,8 +9659,28 @@ function Add-CharlaHora([datetime]$cuando = (Get-Date)) {
     foreach ($k in @($hbC.charlaHoras.Keys)) { if ($k.Substring(0, 10) -lt $limite) { $hbC.charlaHoras.Remove($k) } }
     Save-Habitos
 }
+# RAM PARA PRECARGAR LA CHARLA (15/09). En la prueba en vivo la precarga de qwen2.5:3b (2 GB)
+# saltaba al pulsar el boton, justo cuando la escucha tenia Parakeet, base y small cargados:
+# quedaron 0,3 GB libres de 7,7 y Whisper tardo de 4,5 a 12,9 s por orden en vez de ~1 s (la
+# primera orden, 29 s en total). Una charla en frio tarda mas en contestar; una orden lenta es
+# peor. Sin este margen libre no se precarga (config.json -> conversacion.precargaRamMinMB).
+$PrecargaRamMinMB = [int](Get-Cfg 'conversacion' 'precargaRamMinMB' 3000)
+function Test-RamParaCharla {
+    try {
+        if (-not ('Microsoft.VisualBasic.Devices.ComputerInfo' -as [type])) { Add-Type -AssemblyName Microsoft.VisualBasic -ErrorAction Stop }
+        $libreMB = [double](New-Object Microsoft.VisualBasic.Devices.ComputerInfo).AvailablePhysicalMemory / 1MB
+        if ($libreMB -lt $PrecargaRamMinMB) {
+            Log ("charla: no precargo el modelo, solo quedan {0:N0} MB libres (minimo {1})" -f $libreMB, $PrecargaRamMinMB)
+            return $false
+        }
+        return $true
+    } catch { return $true }
+}
 function Test-PrecargaCharla([datetime]$ahora = (Get-Date)) {
     if (-not $ConversacionOn) { return $false }
+    # con la API contesta ella primero (ver API PRIMERO en charla_worker.py): cargar el
+    # modelo local solo gastaria 1-2 GB de RAM que la escucha necesita
+    if ($ClaudeOn -and -not $script:apiFallo -and (Test-ClaveClaude)) { return $false }
     $reciente = ($sw.ElapsedMilliseconds - $script:charlaUltima) -lt 1200000
     if ($reciente) { return $true }
     if ($script:juegoActivo) { return $false }
@@ -9882,8 +9971,27 @@ function Submit-Command([string]$text, [string]$modo = 'accion', [string]$adjunt
         $prompt = "Te adjunto una captura de la ventana que tengo delante. " + $prompt
     }
 
-    # A DONDE VA, PRIMERO: el cerebro, Claude Code, para todos los modos. Si no
-    # arranca, sigue como antes (API y luego opencode).
+    # A DONDE VA (15/09, elegido por braya: "capa local y API para conversaciones y
+    # comandos basicos, Claude Code para las tareas pesadas, opencode de respaldo").
+    # Medido con su uso real del 15/09: entender una frase por Claude Code tardaba
+    # 8-11 s y por la API 1,3-1,7 s; una pregunta, 3-5 s por la API. Las tareas
+    # ('accion') necesitan un agente con manos: esas van a Claude Code (35-90 s).
+    # Si algo no arranca o falla, se baja un escalon: API -> Claude Code -> opencode.
+    $script:jobAdjunto = $adjunto
+    $porApi = ($ClaudeOn -and $modo -ne 'accion' -and (Test-Path -LiteralPath $ClaudeScript) -and (Test-ClaveClaude))
+    if ($porApi -and -not $script:apiFallo) {
+        # traducir devuelve una linea; hablar, una o dos frases
+        $modelo = if ($modo -eq 'traducir') { $ClaudeModeloRapido } else { $ClaudeModeloBueno }
+        $tope = if ($modo -eq 'traducir') { 60 } else { 400 }
+        # se guarda por si hay que rehacerla con Claude Code u opencode
+        $script:jobPrompt = $prompt
+        $script:jobExtra = $extra
+        $script:jobPorApi = $true
+        $script:jobPorCC = $false
+        if (Start-ClaudeJob $prompt $modelo $tope $adjunto) { return }
+        $script:jobPorApi = $false
+        Log "la API no arranco; sigo con Claude Code"
+    }
     if (Test-CerebroClaudeCode) {
         $script:jobPrompt = $prompt
         $script:jobExtra = $extra
@@ -9891,22 +9999,7 @@ function Submit-Command([string]$text, [string]$modo = 'accion', [string]$adjunt
         $script:jobPorCC = $true
         if (Start-ClaudeCodeJob $prompt $modo $adjunto) { return }
         $script:jobPorCC = $false
-        Log "el cerebro (Claude Code) no arranco; sigo como antes"
-    }
-    # Traducir y contestar son una llamada y ya: van a la API, que
-    # tarda ~1 s. 'accion' es una tarea de verdad y necesita un agente con
-    # herramientas: esa sigue siendo de opencode.
-    $porApi = ($ClaudeOn -and $modo -ne 'accion' -and (Test-Path -LiteralPath $ClaudeScript) -and (Test-ClaveClaude))
-    if ($porApi -and -not $script:apiFallo) {
-        # traducir devuelve una linea; hablar, una o dos frases
-        $modelo = if ($modo -eq 'traducir') { $ClaudeModeloRapido } else { $ClaudeModeloBueno }
-        $tope = if ($modo -eq 'traducir') { 60 } else { 400 }
-        # se guarda por si hay que rehacerla con opencode
-        $script:jobPrompt = $prompt
-        $script:jobExtra = $extra
-        $script:jobPorApi = $true
-        if (Start-ClaudeJob $prompt $modelo $tope) { return }
-        Log "la API no arranco; sigo con opencode"
+        Log "el cerebro (Claude Code) no arranco; sigo con opencode"
     }
     $script:jobPorApi = $false
     if (-not (Start-OpencodeJob $prompt $extra)) {
@@ -9964,6 +10057,12 @@ function Report-Reply($out) {
                 Log "API desactivada hasta el proximo arranque (el error no se arregla reintentando)"
             }
             $script:busy = $false
+            # primero Claude Code, que entiende igual de bien; opencode, si tampoco
+            if ($script:jobPrompt -and (Test-CerebroClaudeCode)) {
+                $script:jobPorCC = $true
+                if (Start-ClaudeCodeJob $script:jobPrompt $script:jobModo $script:jobAdjunto) { Log "API FALLO: lo rehace Claude Code"; return }
+                $script:jobPorCC = $false
+            }
             if ($script:jobPrompt) {
                 if (Start-OpencodeJob $script:jobPrompt $script:jobExtra) { return }
             }
@@ -9978,9 +10077,11 @@ function Report-Reply($out) {
     # libre devuelto por el modelo.
     if ($script:jobModo -eq 'traducir') {
         $script:jobModo = ''
-        $propuesta = (($out | Out-String) -replace '\s+', ' ').Trim()
-        # el modelo a veces adorna: quedarse con la primera linea util
-        $propuesta = ($propuesta -split '[\r\n]' | Where-Object { $_.Trim() } | Select-Object -First 1)
+        # VARIAS ORDENES (15/09): una por linea, y se juntan con " y ", que la capa local
+        # ya encadena ("abre steam y sube el brillo"). Antes las lineas se pegaban con un
+        # espacio y la segunda orden podia perderse o mezclarse con la primera.
+        $propuesta = ((@(($out | Out-String) -split '[\r\n]+') | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ }) -join ' y ')
+        $propuesta = ($propuesta -replace '\s+', ' ').Trim()
         # [string]: si Haiku no devolvio nada, $propuesta es $null y .Trim() tumbaba
         # el asistente entero (auditoria del 13/09)
         $propuesta = ([string]$propuesta).Trim().Trim('"').Trim("'")
@@ -10000,6 +10101,7 @@ function Report-Reply($out) {
             Send-UIEvento 'gesto:confuso'
             Show-Popup "No te entendi. Repitelo." 'error'
             Say "No te entendi"
+            Open-EscuchaTrasNoEntendi
             return
         }
         # Peticion de verdad, pero fuera del vocabulario local: para eso esta
@@ -10009,7 +10111,7 @@ function Report-Reply($out) {
             Submit-Command $original 'accion'
             return
         }
-        if ($propuesta.Length -lt 120) {
+        if ($propuesta.Length -lt 200) {
             Log "traduccion propuesta: '$original' -> '$propuesta'"
             # ¿es una TAREA APRENDIDA dicha con otras palabras? Haiku conoce las
             # recetas (Build-PromptTraduccion) y contesta con la plantilla
@@ -10037,10 +10139,26 @@ function Report-Reply($out) {
             # SILENT BREATH en steam') se ejecutaba a la primera. $sinDudosa
             # silencia solo la pregunta por parecido, que es lo que se queria.
             $script:sinDudosa = $true
+            $script:preguntarTraduccion = (Test-OidoDudoso $original)
             try { $r = Invoke-FastCommand $propuesta } catch { $r = $null }
             $script:sinDudosa = $false
+            $script:preguntarTraduccion = $false
+            if ($r -and $script:pendiente) {
+                # la capa local pregunta antes de hacerlo (mal oido, voz extrana, ya rechazada):
+                # antes aqui se decia la pregunta pero nadie esperaba la respuesta
+                Log "CONFIRMAR (traduccion): '$original' -> '$propuesta' -> $r"
+                Show-Popup $r
+                Say $r
+                Set-UI 'escuchando' $r
+                Start-Confirmacion
+                return
+            }
             if ($r) {
-                Add-Traduccion $original $propuesta
+                if (Test-OidoDudoso $original) {
+                    Log "no aprendo '$original' = '$propuesta': venia de un oido que dudaba (ver NO APRENDER DE LO MAL OIDO)"
+                } else {
+                    Add-Traduccion $original $propuesta
+                }
                 $script:ultimaAprendida = $original
                 Add-Estadistica 'traducida' "$original -> $propuesta"
                 $script:ultimaRespuesta = $r
@@ -10051,7 +10169,7 @@ function Report-Reply($out) {
                 # "calculadora"), se propone aprenderla como alias para que
                 # valga en cualquier frase, no solo en esta
                 try {
-                    $gen = Find-Generalizacion $original $propuesta
+                    $gen = if (Test-OidoDudoso $original) { $null } else { Find-Generalizacion $original $propuesta }
                     if ($gen) {
                         $script:aprenderPendiente = @{ alias = $gen.alias; objetivo = $gen.objetivo
                             pregunta = ("¿Quieres que " + $gen.alias + " sea siempre " + $gen.objetivo + "?") }
@@ -10086,6 +10204,7 @@ function Report-Reply($out) {
             Send-UIEvento 'gesto:confuso'
             Show-Popup "No te entendi. Repitelo." 'error'
             Say "No te entendi"
+            Open-EscuchaTrasNoEntendi
             return
         }
     }
@@ -10519,6 +10638,37 @@ $ReintentoMaxMs = 15000            # si no contesta a tiempo, se sigue sin el
 # entendidas y 0 ordenes equivocadas, frente a 188 y 1 con Whisper solo, y mas rapido.
 $script:reintentoBase = $false
 $script:dictadoPorParakeet = $false
+# NO APRENDER DE LO MAL OIDO (15/09). "Ensectiva el modo noche" (dijo "desactiva") paso por
+# el oido fino y por turbo sin sacar una orden; el modelo lo tradujo a "modo noche" -justo lo
+# contrario-, se hizo y se guardo para siempre en traducciones.json. Lo que ya necesito un
+# repaso queda marcado: no se aprende ni como traduccion ni como alias.
+$script:oidosDudosos = @{}
+# OTRA OPORTUNIDAD TRAS "NO TE ENTENDI" (15/09, pedido por braya): despues de cada "no te
+# entendi" vuelve a escuchar sola, sin decir "nova" ni pulsar el boton, para repetirlo al
+# momento. Una ventana en silencio se cierra sola sin decir nada (como cualquier
+# seguimiento), asi que el silencio no hace bucle; y como mucho se encadenan dos seguidas,
+# para que un ruido que no para no la tenga abriendose una y otra vez.
+$script:noEntendiSeguidos = 0
+function Open-EscuchaTrasNoEntendi {
+    $script:noEntendiSeguidos++
+    if ($script:noEntendiSeguidos -gt 2) {
+        Log "no te entendi: van $($script:noEntendiSeguidos) seguidos; esta vez no vuelvo a escuchar"
+        return
+    }
+    $script:seguimientoPendiente = $true
+    $script:seguimientoFactor = 1.0
+}
+$script:preguntarTraduccion = $false
+function Add-OidoDudoso([string]$t) {
+    $k = ConvertTo-Plain $t
+    if (-not $k) { return }
+    if ($script:oidosDudosos.Count -gt 300) { $script:oidosDudosos.Clear() }
+    $script:oidosDudosos[$k] = $sw.ElapsedMilliseconds
+}
+function Test-OidoDudoso([string]$t) {
+    $k = ConvertTo-Plain $t
+    return [bool]($k -and $script:oidosDudosos.ContainsKey($k))
+}
 function Request-WhisperTras([string]$texto) {
     if (-not $script:wakeProc -or $script:wakeProc.HasExited) { return $false }
     try {
@@ -10539,16 +10689,28 @@ function Request-WhisperTras([string]$texto) {
 }
 $ReintentoUltimoMs = 60000
 $script:reintentoUltimo = $false
+$script:ultimoRecursoPara = ''
+$script:ultimoRecursoEn = 0
 $script:reintentoAlFallar = 'procesar'
 function Request-UltimoRecurso([string]$orig, [bool]$reconocida, [bool]$eco, [string]$alFallar = 'procesar') {
     if (-not $WhisperUltimo -or $script:reintentoUltimo -or $script:juegoActivo) { return $false }
+    # UNA SOLA VEZ POR FRASE (15/09): el 15/09 se pidio turbo cuatro veces seguidas para
+    # la misma frase (ver UN REPASO QUE SE QUEDA SIN DUENO)
+    $claveU = ConvertTo-Plain $orig
+    if ($claveU -and $script:ultimoRecursoPara -eq $claveU -and ($sw.ElapsedMilliseconds - $script:ultimoRecursoEn) -lt 120000) {
+        Log "ULTIMO RECURSO: ya se pidio para '$orig'; no lo repito"
+        return $false
+    }
     if (-not $script:wakeProc -or $script:wakeProc.HasExited) { return $false }
     if (-not $reconocida -and (Test-PareceCharla $orig)) { return $false }
     if (-not (Test-MereceRepaso $orig)) { return $false }
     try {
         Remove-Item -LiteralPath $RutaReintento -Force -ErrorAction SilentlyContinue
         [System.IO.File]::WriteAllText($MarcaReintento, 'ultimo')
+        $script:ultimoRecursoPara = $claveU
+        $script:ultimoRecursoEn = $sw.ElapsedMilliseconds
         $script:reintentoTexto = $orig
+        Add-OidoDudoso $orig
         $script:reintentoReconocida = $reconocida
         $script:reintentoEco = $eco
         $script:reintentoUltimo = $true
@@ -10659,6 +10821,7 @@ function Add-RuidoRacha {
 
 function Start-Dictado([string]$origen) {
     Log "DICTADO ($origen)"
+    if ($origen -ne 'seguimiento') { $script:noEntendiSeguidos = 0 }
     # llamarla de nuevo corta lo que estuviera contestando (ver CONVERSACION DE VERDAD)
     if ($origen -ne 'seguimiento') { try { Stop-Charla } catch {} }
     # si es probable que vayas a charlar, el modelo empieza a cargar ya (ver MENOS ESPERA EN FRIO)
@@ -10666,7 +10829,7 @@ function Start-Dictado([string]$origen) {
         try {
             if (Test-PrecargaCharla) {
                 $script:precargaEn = $sw.ElapsedMilliseconds
-                if (Send-CharlaPedido @{ op = 'calentar' }) { Log "charla: precargo el modelo (es probable charlar)" }
+                if ((Test-RamParaCharla) -and (Send-CharlaPedido @{ op = 'calentar' })) { Log "charla: precargo el modelo (es probable charlar)" }
             }
         } catch {}
     }
@@ -10714,6 +10877,21 @@ function Start-Dictado([string]$origen) {
     if ($VozWindowsOn) { Remove-Item -LiteralPath $RutaDictadoWin -Force -ErrorAction SilentlyContinue }
     $script:yaReintentado = $false
     $script:reintentoUltimo = $false
+    # UN REPASO QUE SE QUEDA SIN DUENO (15/09). Turbo repasaba "quiero que veas que hay
+    # en mi pantalla" cuando empezo otro dictado: aqui se borraba la marca de turbo pero
+    # no el plazo, y su respuesta llego como si fuera del oido fino, que volvio a pedir
+    # turbo; la escucha se cayo (access violation) y, sin audio, dio dos vueltas mas.
+    # Si empieza otro dictado, lo pendiente ya no es de nadie: se abandona entero y la
+    # escucha deja de transcribir en cuanto ve que la marca ya no esta.
+    if ($script:reintentoVence -gt 0) {
+        Log "repaso pendiente de '$($script:reintentoTexto)' abandonado: empieza otro dictado"
+        $script:reintentoVence = 0
+        $script:reintentoBase = $false
+        $script:reintentoReconocida = $false
+        $script:reintentoEco = $false
+        $script:reintentoTexto = ''
+        Remove-Item -LiteralPath $MarcaReintento -Force -ErrorAction SilentlyContinue
+    }
     # BOTON CON LA SORDINA PUESTA ("no me escuches media hora" o la autosordina).
     # La sordina es para el NOMBRE, no para ti: el propio aviso dice "usa el
     # boton". Pero se hace con la marca de pausa, que para el worker es "tira
@@ -11021,6 +11199,20 @@ function Process-Texto([string]$text) {
         $plano = ConvertTo-Plain $text
         if ($script:invitado) { $script:invitadoUltimo = $sw.ElapsedMilliseconds }
         $script:uiOrigen = ''   # lo que se conteste ahora no hereda el tinte de la charla anterior
+
+        # RECITADO DE LA FRASE DE EJEMPLO: solo con lo oido por Whisper hace un momento
+        # (una orden escrita con dos de esas frases es tuya y vale)
+        if ($script:ordenPorWorker -and ($sw.ElapsedMilliseconds - $script:dictadoConfianzaEn) -lt 15000 -and
+            (Test-RecitaEjemplo $text)) {
+            Log "RECITADO: '$text' son varias frases del ejemplo de Whisper, no una orden; no hago nada"
+            Add-Estadistica 'recitado' $text
+            $script:seguimientoPendiente = $false
+            Send-UIEvento 'gesto:confuso'
+            Show-Popup "No te entendi. Repitelo." 'error'
+            Say "No te entendi"
+            Open-EscuchaTrasNoEntendi
+            return
+        }
 
         # "SILENCIO" JUSTO CUANDO NOVA HABLA O ACABA DE HABLAR (14/09): era silenciar el PC.
         # Dicho para cortarla -en la charla o en los 6 s siguientes a su ultima frase-
@@ -11376,6 +11568,22 @@ function Process-Texto([string]$text) {
             return
         }
 
+        # LO QUE VES EN MI PANTALLA (15/09, elegido por braya: "si, con captura"). Antes lo
+        # hacia el agente: "quiero que veas que hay en mi pantalla" tardo 87 s (Claude
+        # Code con captura por MCP). Ahora la captura de la ventana va con la pregunta
+        # a la API, que la mira y contesta en una o dos frases.
+        if ($plano -match '\b(?:que (?:ves?|hay|sale|aparece|tengo) en (?:mi |la |esta )?pantalla|que es lo que ves|lo que (?:ves|hay) en (?:mi |la |esta )?pantalla|describe(?:me)? (?:mi |la |esta )?pantalla|mira (?:mi |la |esta )?pantalla)\b') {
+            Set-UI 'pensando' 'mirando la pantalla'
+            $capV = ''
+            try { $capV = Save-Captura (Join-Path $TmpDir 'pantalla.png') } catch { Log ("ver pantalla: " + $_.Exception.Message) }
+            if ($capV) {
+                Log "VER PANTALLA: captura adjunta para '$text'"
+                $script:respuestaSinTarjeta = $true
+                Submit-Command ("Mira esta captura de la ventana que tengo delante y contesta a lo que te pido en una o dos frases cortas y naturales, porque se leera en voz alta. Lo que te pido: " + $text) 'pregunta' $capV
+                return
+            }
+        }
+
         # NO hay modo conversacion persistente. Se probó y fue un error: al
         # quedarse activo se tragaba las ordenes ("Abre steam" acababa en el
         # modelo, que ademas se negaba a ejecutar). Cada frase se enruta sola.
@@ -11427,6 +11635,7 @@ function Process-Texto([string]$text) {
                 Remove-Item -LiteralPath $RutaReintento -Force -ErrorAction SilentlyContinue
                 [System.IO.File]::WriteAllText($MarcaReintento, 'x')
                 $script:reintentoTexto = $text
+                Add-OidoDudoso $text
                 $script:reintentoReconocida = $true
                 # el eco del ejemplo NO se hace si el repaso no lo confirma (ver ECO DE LA FRASE DE EJEMPLO)
                 $script:reintentoEco = ($script:dictadoEco -and $script:dictadoConfianza -lt $RepasoEcoUmbral)
@@ -11459,6 +11668,7 @@ function Process-Texto([string]$text) {
                 Start-Confirmacion
             } else {
                 Log "LOCAL: $text -> $fast"
+                $script:noEntendiSeguidos = 0
                 Add-Estadistica 'local' $text
                 # tus costumbres, para proponerte automatizarlas (ver HABITOS)
                 # lo que tuvo que confirmarse (peligroso, dudoso, voz ajena) no es
@@ -11577,6 +11787,7 @@ function Process-Texto([string]$text) {
                 Send-UIEvento 'gesto:confuso'
                 Show-Popup "No te entendi. Repitelo." 'error'
                 Say "No te entendi"
+                Open-EscuchaTrasNoEntendi
                 return
             }
             # 3.6) CHARLA o VOZ AJENA: no era para mi. Se descarta EN SILENCIO:
@@ -11624,6 +11835,7 @@ function Process-Texto([string]$text) {
                     Remove-Item -LiteralPath $RutaReintento -Force -ErrorAction SilentlyContinue
                     [System.IO.File]::WriteAllText($MarcaReintento, 'x')
                     $script:reintentoTexto = $text
+                    Add-OidoDudoso $text
                     $script:reintentoVence = $sw.ElapsedMilliseconds + $ReintentoMaxMs
                     Log "OIDO FINO: no reconoci '$text', pido repaso"
                     Add-Estadistica 'fino' $text
@@ -12153,7 +12365,7 @@ while ($true) {
             Set-UI 'escuchando' $propH.pregunta
             Start-Confirmacion
         } elseif ($script:seguimientoPendiente -and $SeguimientoMs -gt 0 -and $script:seguimientoFactor -gt 0 -and $DictadoWorker -and $script:wakeProc -and
-            -not $script:wakeProc.HasExited -and -not $script:busy -and -not $script:pendiente) {
+            -not $script:wakeProc.HasExited -and -not $script:busy -and -not $script:pendiente -and $script:reintentoVence -le 0) {
             Start-Dictado 'seguimiento'
         }
         $script:seguimientoPendiente = $false
@@ -12260,7 +12472,7 @@ while ($true) {
                         @($vista -split '\s+').Count -ge 3 -and -not $vista.StartsWith('...') -and
                         (Test-PareceCharla $vista) -and -not (Test-FastCommand $vista)) {
                         $script:precargaEn = $sw.ElapsedMilliseconds
-                        try { if (Send-CharlaPedido @{ op = 'calentar' }) { Log "charla: precargo el modelo, '$vista' suena a charla" } } catch {}
+                        try { if ((Test-RamParaCharla) -and (Send-CharlaPedido @{ op = 'calentar' })) { Log "charla: precargo el modelo, '$vista' suena a charla" } } catch {}
                     }
                 }
             } catch {}
@@ -12484,10 +12696,17 @@ while ($true) {
                     Send-UIEvento 'gesto:confuso'
                     Show-Popup "No te entendi. Repitelo." 'error'
                     Say "No te entendi"
+                    Open-EscuchaTrasNoEntendi
                 } else {
-                    Log "ULTIMO RECURSO: turbo tampoco saca una orden de '$orig' ('$limpio'); sigue su camino"
+                    # lo que oyo turbo, si se parece, es el mejor oido que hay: con lo primero, la
+                    # charla contesto a "la distancia del solo de la tierra" cuando turbo habia oido
+                    # "cual es la distancia del sol a la tierra" (15/09)
+                    $sigue = if ($limpio -and (Test-MismoAudio $orig $limpio)) { $limpio } else { $orig }
+                    Log "ULTIMO RECURSO: turbo tampoco saca una orden de '$orig' ('$limpio'); sigue su camino con '$sigue'"
                     Add-Estadistica 'turbo-nada' $orig
-                    Process-Texto $orig
+                    Add-OidoDudoso $sigue
+                    $script:yaReintentado = $true   # ya se repaso: que no vuelva a pedir el oido fino
+                    Process-Texto $sigue
                 }
             } elseif ($reconocida -and $ecoR) {
                 # lo primero era un eco de la frase de ejemplo: solo vale lo que confirme el repaso
@@ -12505,6 +12724,7 @@ while ($true) {
                     Send-UIEvento 'gesto:confuso'
                     Show-Popup "No te entendi. Repitelo." 'error'
                     Say "No te entendi"
+                    Open-EscuchaTrasNoEntendi
                 }
             } elseif ($reconocida -and ((-not $limpio) -or (ConvertTo-Plain $limpio) -eq (ConvertTo-Plain $orig) -or
                 -not (Test-MismoAudio $orig $limpio) -or -not (Test-FastCommand $limpio))) {
@@ -12529,10 +12749,13 @@ while ($true) {
                     Send-UIEvento 'gesto:confuso'
                     Show-Popup "No te entendi. Repitelo." 'error'
                     Say "No te entendi"
+                    Open-EscuchaTrasNoEntendi
                 }
             } else {
-                # el oido fino oyo lo mismo (o nada): se intenta con turbo; si no, sigue su camino
-                if (-not (Request-UltimoRecurso $orig $false $false 'procesar')) {
+                # el oido fino oyo lo mismo: se intenta con turbo; si no, sigue su camino. Si no oyo
+                # NADA (o ya no quedaba audio: "no queda audio de la orden anterior"), turbo
+                # tampoco va a oir mas y solo sumaria 15-28 s
+                if (-not $limpio -or -not (Request-UltimoRecurso $orig $false $false 'procesar')) {
                     Add-Estadistica 'fino-igual' $orig
                     Process-Texto $orig
                 }
