@@ -785,6 +785,36 @@ cuando con las 20 de antes parecían 17 de 20. Veinte frases no enseñaban esto.
   ¿Qué hora es? Baja el brillo.» La del juego se inventaba «Abre Little
   Nightmares III». Precio de no dar nombres: los títulos largos («little
   nightmares tres») se entienden peor; queda como tarea.
+- **META DESDE EL 14/09: que Nova te entienda siempre.** No se avanza en nada más
+  hasta llegar. Medido así: 100 % en tus tandas de grabaciones y **cero órdenes
+  equivocadas** (si duda, que pida repetir). El informe de analizar-100 lo da.
+- **Tanda dirigida (64 frases, `python tools\grabar-100.py dirigida`):** 12
+  títulos de juegos, las 10 que seguían fallando, 10 en voz baja, 10 desde lejos,
+  8 deprisa, 4 con números, 4 de charla y 6 con tele o música sin hablar. Las 64
+  pasadas por la capa local: todas válidas.
+- **Mientras se graba (sin cargar la CPU):**
+  - Lo mal oído en las 100 que se rescata sin riesgo: miniminista, descagando /
+    escagando, «cancel el temporizado», rubando, «espacio me quedo», quanto,
+    mollofoco, «se cuéntame» / seguéltame, «littlenimer3», «iron imer». 21 de 24.
+    Se quitó «aquí estoy jugando»: es una frase normal y encajaba en otras.
+  - «pon el volumen / el brillo 70», sin «al», ya se pone (solo con «pon»).
+  - **«Silencio», «cállate», «basta», «para»** mientras Nova habla o en los 6 s
+    siguientes la callan; antes silenciaban el PC.
+  - Los títulos de juegos: «LittleNimer3» o «iron Imer» no se parecen a
+    «Little Nightmares» ni por sonido; se espera a los 12 títulos grabados para
+    ver si hace falta algo general.
+  - **Los workers con pythonw.exe** (si existe): con python.exe cada uno abría
+    su conhost.exe (3-5 procesos, ~40 MB). Falta comprobarlo en vivo.
+  - `tools\probar-vivo.ps1 -Piper`: la misma prueba con la voz sin conexión
+    (config.json se devuelve al acabar). `-Jugando`: pide que abras un juego y
+    comprueba solo botón, respuesta de una frase y que no precarga la charla. Un
+    juego no se puede fingir: Nova mira la ventana de delante.
+  - **La cápsula (~140 MB):** medida con cada pieza apagada (NOVA_DIAG), no baja
+    de 133-143 MB: es la base de .NET/WPF, no las animaciones. Los efectos solo
+    cuestan CPU (3,5 s -> 2,1 s en 8 s sin ellos). Sin cambios: no se toca el
+    diseño.
+  - Pendiente de la tanda: subir el volumen de la voz floja antes de Whisper
+    (el experimento está escrito y usa también la tanda dirigida).
 - **¿1000 grabaciones más?** Todavía no: con estas 100 ya se ve qué falla y se
   mide cada arreglo. Lo que falla ahora son frases concretas (modo noche/foco,
   «minimiza todo», «qué se está descargando», «cancela el temporizador») y la voz

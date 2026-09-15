@@ -13,7 +13,9 @@
 # devuelve tal cual: lo que Nova aprenda o apunte durante la prueba no se queda.
 # Si el sistema la matara por falta de memoria, el final no llega a ejecutarse:
 # por eso existe -Restaurar. Nova tiene que estar APAGADA antes de empezar.
-param([switch]$Restaurar)
+#   powershell -NoProfile -File tools\probar-vivo.ps1 -Piper      (con la voz sin conexion)
+#   powershell -NoProfile -File tools\probar-vivo.ps1 -Jugando    (tu abres un juego cuando lo pida)
+param([switch]$Restaurar, [switch]$Piper, [switch]$Jugando)
 
 $R = Split-Path -Parent $PSScriptRoot
 $B = Join-Path $env:TEMP 'nova-probar-vivo'
@@ -38,6 +40,14 @@ New-Item -ItemType Directory $B | Out-Null
 Copy-Item (Join-Path $R 'memoria') (Join-Path $B 'memoria') -Recurse
 Copy-Item (Join-Path $R 'config.json') (Join-Path $B 'config.json')
 Write-Host "copia de seguridad en $B  (si esto se corta: tools\probar-vivo.ps1 -Restaurar)"
+if ($Piper) {
+    # la voz sin conexion, solo durante la prueba: config.json se devuelve al final
+    $cfgP = Get-Content (Join-Path $R 'config.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (-not $cfgP.voz) { $cfgP | Add-Member -NotePropertyName voz -NotePropertyValue ([pscustomobject]@{}) }
+    if ($cfgP.voz.PSObject.Properties.Name -contains 'motor') { $cfgP.voz.motor = 'piper' } else { $cfgP.voz | Add-Member -NotePropertyName motor -NotePropertyValue 'piper' }
+    [System.IO.File]::WriteAllText((Join-Path $R 'config.json'), ($cfgP | ConvertTo-Json -Depth 20), (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host "voz: Piper (sin conexion) para esta prueba"
+}
 
 $log = Join-Path $R 'assistant.log'
 $fallos = 0
@@ -89,11 +99,38 @@ try {
     Start-Sleep -Seconds 5
     Foto 'en reposo' $p.Id
 
+    if ($Jugando) {
+        # JUGANDO: no se puede fingir un juego (Nova mira la ventana de delante y abrir
+        # uno de los tuyos por su cuenta no toca), asi que lo abres tu
+        Write-Host ""
+        Write-Host "--- jugando"
+        Write-Host "  >>> Abre un juego de Steam y ponlo delante. Espero hasta 3 minutos..." -ForegroundColor Yellow
+        $iJ = (Get-Content $log).Count
+        Comp "detecta el juego delante" (Esperar $iJ 'juego en primer plano' 180)
+        $n = Lineas $iJ
+        Comp "jugando, la escucha pasa a solo boton" ([bool]($n -match 'solo boton mientras juegas')) (($n -match 'escucha') -join ' | ')
+        Start-Sleep -Seconds 3
+        $i = Decir "que opinas de este juego"
+        [void](Esperar $i 'charla: contesto' 90)
+        Start-Sleep -Seconds 8
+        $n = Lineas $i
+        $dichas = @($n | Where-Object { $_ -match 'charla dice' }).Count
+        Comp "jugando contesta corto (una frase)" ($dichas -le 1) "dijo $dichas frases"
+        Comp "jugando no precarga la charla" (-not ((Lineas $iJ) -match 'precargo el modelo')) ''
+        Foto 'jugando' $p.Id
+        Write-Host "  (puedes cerrar el juego)"
+    }
+
     Write-Host ""
     Write-Host "--- orden local"
     $i = Decir "que hora es"
     Comp "'que hora es' la hace la capa local" (Esperar $i 'LOCAL: que hora es' 20)
     Start-Sleep -Seconds 6
+    if ($Piper) {
+        $n = Lineas $inicio
+        Comp "habla con Piper (sin conexion)" ([bool]($n -match 'voz: Piper')) (($n -match 'voz:') -join ' | ')
+        Comp "y Piper no da errores" (-not ($n -match 'Piper no arranco|voz error')) (($n -match 'Piper|voz error') -join ' | ')
+    }
 
     Write-Host ""
     Write-Host "--- nombrar un juego no es pedirlo"

@@ -2585,7 +2585,10 @@ function Resolve-Fragment([string]$f) {
         # 2 %: lo contrario de lo que pediste, y sin vuelta atras facil.
         # "de"/"del" tambien: "pon el brillo al treinta" se oyo "Con el brillo del 30" (14/09)
         if ($f -match '(?:volumen|sonido|audio)[^0-9]{0,20}?\b(?:al|a|de|del)\s+(\d{1,3})\b' -or
-            $f -match '(?:volumen|sonido|audio)[^0-9]{0,20}(\d{1,3})\s*(?:%|por\s*ciento)') {
+            $f -match '(?:volumen|sonido|audio)[^0-9]{0,20}(\d{1,3})\s*(?:%|por\s*ciento)' -or
+            # "pon el volumen setenta", sin "al": asi lo oye Whisper deprisa (14/09). Solo
+            # con "pon": "baja el volumen 2 veces" no es un porcentaje
+            $f -match '^(?:pon|ponme|ponle)\s+(?:el\s+)?(?:volumen|sonido|audio)\s+(\d{1,3})$') {
             $n = [int]$Matches[1]; if ($n -ge 0 -and $n -le 100) { $pctVol = $n }
         }
         # El numero solo es un PORCENTAJE si lo anuncia un "al"/"a" o si
@@ -2593,7 +2596,8 @@ function Resolve-Fragment([string]$f) {
         # de la palabra, y "baja el volumen 2 veces" acababa poniendolo al
         # 2 %: lo contrario de lo que pediste, y sin vuelta atras facil.
         if ($f -match 'brillo[^0-9]{0,20}?\b(?:al|a|de|del)\s+(\d{1,3})\b' -or
-            $f -match 'brillo[^0-9]{0,20}(\d{1,3})\s*(?:%|por\s*ciento)') {
+            $f -match 'brillo[^0-9]{0,20}(\d{1,3})\s*(?:%|por\s*ciento)' -or
+            $f -match '^(?:pon|ponme|ponle)\s+(?:el\s+)?brillo\s+(\d{1,3})$') {
             $n = [int]$Matches[1]; if ($n -ge 0 -and $n -le 100) { $pctBri = $n }
         }
         $acc = @()
@@ -6441,6 +6445,14 @@ $script:vozPlayer = $null
 $VozMotor = [string](Get-Cfg 'voz' 'motor' 'online')
 $VozOnlineNombre = [string](Get-Cfg 'voz' 'vozOnline' 'es-MX-DaliaNeural')
 $PyExe = [string](Get-Cfg 'paths' 'python' "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe")
+# LOS WORKERS, CON pythonw (14/09): con python.exe cada uno abria su conhost.exe (una
+# consola oculta, 3-5 procesos y ~40 MB medidos en vivo). pythonw no abre consola y
+# las tuberias funcionan igual. Si no esta, se sigue con python.exe.
+$PyWorker = $PyExe
+try {
+    $pyw = Join-Path (Split-Path -Parent $PyExe) 'pythonw.exe'
+    if (Test-Path -LiteralPath $pyw) { $PyWorker = $pyw }
+} catch {}
 $TtsWorker = Join-Path $LogDir "tts_worker.py"
 $VozCache = Join-Path $TmpDir "voz"
 $script:ttsProc = $null
@@ -6480,7 +6492,7 @@ function Initialize-Online {
     try {
         if (-not (Test-Path -LiteralPath $VozCache)) { New-Item -ItemType Directory -Force -Path $VozCache | Out-Null }
         $psi = New-Object System.Diagnostics.ProcessStartInfo
-        $psi.FileName = $PyExe
+        $psi.FileName = $PyWorker
         $psi.Arguments = "-u `"$TtsWorker`" $VozOnlineNombre `"$VozCache`""
         $psi.UseShellExecute = $false
         $psi.RedirectStandardInput = $true
@@ -6761,7 +6773,7 @@ function Send-PrepVoz([string]$texto, [string]$emo = '') {
     try {
         if (-not $script:prepVozProc -or $script:prepVozProc.HasExited) {
             $psiP = New-Object System.Diagnostics.ProcessStartInfo
-            $psiP.FileName = $PyExe
+            $psiP.FileName = $PyWorker
             $psiP.Arguments = "-u `"$TtsWorker`" $VozOnlineNombre `"$VozCache`""
             $psiP.UseShellExecute = $false
             $psiP.RedirectStandardInput = $true
@@ -7026,7 +7038,7 @@ function Initialize-Escucha {
                     if ($errViejo) { Log ("worker de escucha, su salida de error la vez anterior: " + $errViejo.Substring([Math]::Max(0, $errViejo.Length - 2000))) }
                 }
             } catch {}
-            $script:wakeProc = Start-Process -FilePath $PyExe `
+            $script:wakeProc = Start-Process -FilePath $PyWorker `
                 -ArgumentList @('-u', $worker, $EscuchaNombre, $MarcaWake, $EventLog, $EscuchaGanancia,
                                 $MarcaPausa, $MarcaDictar, $RutaDictado, $RutaParcial, $RutaNivel,
                                 $MarcaConfirmar, $RutaConfirmacion, "$MotorDictado`:$WhisperModelo", $RutaVocabulario,
@@ -7048,7 +7060,7 @@ function Initialize-Escucha {
             $wv = Join-Path $LogDir "voz_windows.py"
             if (Test-Path -LiteralPath $wv) {
                 try {
-                    $script:vozWinProc = Start-Process -FilePath $PyExe `
+                    $script:vozWinProc = Start-Process -FilePath $PyWorker `
                         -ArgumentList @('-u', $wv, $MarcaDictar, $RutaDictadoWin, $EventLog, 'es-ES') `
                         -WorkingDirectory $LogDir -WindowStyle Hidden -PassThru
                     $null = $script:vozWinProc.Handle
@@ -9491,7 +9503,7 @@ function Initialize-Charla {
     if (-not $ConversacionOn -or -not (Test-Path -LiteralPath $PyExe) -or -not (Test-Path -LiteralPath $CharlaWorker)) { return $false }
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
-        $psi.FileName = $PyExe
+        $psi.FileName = $PyWorker
         $embedArg = if ($ConversacionEmbed) { $ConversacionEmbed } else { '-' }
         $psi.Arguments = "-u `"$CharlaWorker`" $ConversacionModelo $ConversacionApi $embedArg `"$CerebroDir`" `"$PerfilPath`""
         $psi.UseShellExecute = $false
@@ -10826,6 +10838,21 @@ function Process-Texto([string]$text) {
         if ($script:invitado) { $script:invitadoUltimo = $sw.ElapsedMilliseconds }
         $script:uiOrigen = ''   # lo que se conteste ahora no hereda el tinte de la charla anterior
 
+        # "SILENCIO" JUSTO CUANDO NOVA HABLA O ACABA DE HABLAR (14/09): era silenciar el PC.
+        # Dicho para cortarla -en la charla o en los 6 s siguientes a su ultima frase-
+        # la calla y ya: te quedabas sin sonido por querer que se callara ella. Ni con
+        # una nota de voz ni con el traductor esperando: ahi "para" es su respuesta.
+        if (-not $script:grabandoNota -and -not $script:traduciendoVoz -and
+            $plano -match '^(?:silencio|callate|calla|basta|para)$' -and
+            ($script:charlaEsperando -or $script:charlaFrases.Count -gt 0 -or
+             ($sw.ElapsedMilliseconds - [Math]::Max([double]$script:vozFinReal, [double]$script:finVoz)) -lt 6000)) {
+            try { Stop-Charla } catch {}
+            $script:seguimientoPendiente = $false
+            Log "CORTE: '$text' mientras hablaba o nada mas acabar; la callo en vez de silenciar el PC"
+            Set-UI 'reposo'
+            return
+        }
+
         # LO QUE LLEGA TRAS UNA PREGUNTA SUYA, antes que nada (ni "gracias" ni atajos):
         # NOTA DE VOZ: el worker ya guardo el audio en WAV; aqui llega lo que dijiste
         if ($script:grabandoNota) {
@@ -11782,7 +11809,7 @@ while ($true) {
                 $script:vozWinProc = $null
                 try {
                     $wv = Join-Path $LogDir "voz_windows.py"
-                    $script:vozWinProc = Start-Process -FilePath $PyExe `
+                    $script:vozWinProc = Start-Process -FilePath $PyWorker `
                         -ArgumentList @('-u', $wv, $MarcaDictar, $RutaDictadoWin, $EventLog, 'es-ES') `
                         -WorkingDirectory $LogDir -WindowStyle Hidden -PassThru
                     $null = $script:vozWinProc.Handle

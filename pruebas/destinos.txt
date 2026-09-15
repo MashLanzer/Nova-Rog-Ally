@@ -137,3 +137,16 @@ abresteam => abrir steam
 subelbrio => subir brillo
 abre steam y pon un modo juego => modo juego
 pon el moldo noche => modo noche
+
+# lo que Whisper oyo mal en las 100 y se rescata sin riesgo (14/09)
+miniminista todo => mostrar el escritorio
+este esta descagando => estado de las descargas
+cancel el temporizado => cancelar temporizadores
+a que estoy rubando => juego actual
+cuanto espacio me quedo => espacio libre
+abre littlenimer3 en steam => Little Nightmares III
+con mollofoco => modo foco
+pon el volumen se denta => volumen al 70
+pon el brillo 40 => brillo al 40
+baja el volumen 2 veces => bajar volumen
+aqui estoy jugando con mi hermano => <se va al modelo>
