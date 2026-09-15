@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 r"""Cien grabaciones de TU voz, para calibrar a Nova con datos y no a ojo.
 
-    python tools\grabar-100.py
+    python tools\grabar-100.py            (las 100 de siempre)
+    python tools\grabar-100.py dirigida   (64: juegos, voz baja, lejos, deprisa, ruido)
 
 Nova tiene que estar APAGADA: usa el mismo microfono y el mismo boton.
 
@@ -51,6 +52,8 @@ TONOS = {
     "pausas": "Con una pausa de un segundo donde estan los puntos (…)",
     "cansado": "Con voz cansada, de pocas ganas",
     "animado": "Animado, con ganas",
+    "tele": "NO hables: pon la tele o un vídeo con gente hablando y deja que suene unos 8 segundos",
+    "musica": "NO hables: pon música con letra y deja que suene unos 8 segundos",
 }
 
 # (lo que se enseña, tono, tipo, lo que tiene que entender)
@@ -58,7 +61,9 @@ TONOS = {
 #   lo que tiene que entender: para "nova", la orden SIN el nombre; para
 #   "compuesta", la frase sin las pausas; en el resto, lo mismo que se enseña.
 def F(decir, tono, tipo, texto=None):
-    return {"decir": decir, "tono": tono, "tipo": tipo, "texto": texto or decir.replace("…", "").replace("  ", " ").strip()}
+    if texto is None:
+        texto = decir.replace("…", "").replace("  ", " ").strip()
+    return {"decir": decir, "tono": tono, "tipo": tipo, "texto": texto}
 
 
 FRASES = [
@@ -118,6 +123,52 @@ FRASES = [
     F("nova, pon modo noche", "normal", "nova", "pon modo noche"),
 ]
 assert len(FRASES) == 100, len(FRASES)
+
+# LA TANDA DIRIGIDA (14/09): a lo que fallo en las 100. Titulos de juegos (sin la lista
+# de nombres se entienden peor), las frases que seguian fallando, voz baja, desde
+# lejos, deprisa, numeros (que no cambie uno por otro), charla y RUIDO con voz de
+# fondo sin hablar (acierto = que no se haga nada).
+DIRIGIDA = [
+    # --- 12 titulos de juegos ---
+    F("abre little nightmares tres", "normal", "orden"), F("abre hollow knight", "normal", "orden"),
+    F("abre elden ring", "normal", "orden"), F("abre outlast dos", "normal", "orden"),
+    F("abre goose goose duck", "normal", "orden"), F("abre content warning", "normal", "orden"),
+    F("abre silent breath", "normal", "orden"), F("abre throne and liberty", "normal", "orden"),
+    F("abre peak", "normal", "orden"), F("abre reanimal", "normal", "orden"),
+    F("abre hollow knight", "lejos", "orden"), F("abre elden ring", "bajo", "orden"),
+    # --- 10 de las que seguian fallando ---
+    F("minimiza todo", "normal", "orden"), F("minimiza todo", "rapido", "orden"),
+    F("qué se está descargando", "normal", "orden"), F("qué se está descargando", "bajo", "orden"),
+    F("cancela el temporizador", "normal", "orden"), F("cancela el temporizador", "bajo", "orden"),
+    F("a qué estoy jugando", "normal", "orden"), F("a qué estoy jugando", "lejos", "orden"),
+    F("pon modo foco", "normal", "orden"), F("pon modo noche", "normal", "orden"),
+    # --- 10 en voz baja ---
+    F("sube el volumen", "bajo", "orden"), F("baja el volumen", "bajo", "orden"), F("pausa", "bajo", "orden"),
+    F("siguiente canción", "bajo", "orden"), F("abre steam", "bajo", "orden"), F("cierra discord", "bajo", "orden"),
+    F("qué hora es", "bajo", "orden"), F("pon el volumen al cuarenta", "bajo", "orden"),
+    F("cuánta batería queda", "bajo", "orden"), F("recuérdame en cinco minutos que mire la comida", "bajo", "orden"),
+    # --- 10 desde lejos ---
+    F("sube el volumen", "lejos", "orden"), F("baja el brillo", "lejos", "orden"), F("pausa", "lejos", "orden"),
+    F("abre spotify", "lejos", "orden"), F("qué hora es", "lejos", "orden"), F("siguiente canción", "lejos", "orden"),
+    F("pon modo noche", "lejos", "orden"), F("cierra steam", "lejos", "orden"),
+    F("silencia el navegador", "lejos", "orden"), F("pon el brillo al cincuenta", "lejos", "orden"),
+    # --- 8 deprisa ---
+    F("abre steam y pon modo juego", "rapido", "orden"), F("pon el volumen al setenta", "rapido", "orden"),
+    F("sube el brillo", "rapido", "orden"), F("qué se está descargando", "rapido", "orden"),
+    F("cierra discord y abre spotify", "rapido", "orden"), F("recuérdame en diez minutos que llame a casa", "rapido", "orden"),
+    F("siguiente canción", "rapido", "orden"), F("baja el volumen", "rapido", "orden"),
+    # --- 4 con numeros ---
+    F("pon el volumen al ochenta", "normal", "orden"), F("pon el juego al treinta", "normal", "orden"),
+    F("pon el brillo al veinte", "normal", "orden"), F("avísame en quince minutos", "normal", "orden"),
+    # --- 4 de charla ---
+    F("hoy me duele la cabeza", "normal", "charla"), F("qué opinas de elden ring", "normal", "charla"),
+    F("mañana tengo que madrugar", "cansado", "charla"), F("el jefe final me ha costado muchísimo", "animado", "charla"),
+    # --- 6 de ruido con voz de fondo: NO hables ---
+    F("(no digas nada)", "tele", "ruido", ""), F("(no digas nada)", "tele", "ruido", ""), F("(no digas nada)", "tele", "ruido", ""),
+    F("(no digas nada)", "musica", "ruido", ""), F("(no digas nada)", "musica", "ruido", ""), F("(no digas nada)", "musica", "ruido", ""),
+]
+assert len(DIRIGIDA) == 64, len(DIRIGIDA)
+TANDAS = {"cien": FRASES, "dirigida": DIRIGIDA}
 
 
 class XinputGamepad(ctypes.Structure):
@@ -191,7 +242,7 @@ class Grabadora:
         self.flujo = sd.InputStream(samplerate=TASA, channels=1, dtype="float32", callback=self.al_oir)
         self.flujo.start()
 
-        raiz.title("Nova: 100 grabaciones")
+        raiz.title("Nova: grabaciones (%d frases)" % len(FRASES))
         raiz.configure(bg="#0b0f17")
         raiz.attributes("-fullscreen", True)
         raiz.bind("<Return>", lambda e: self.boton_principal())
@@ -300,7 +351,7 @@ class Grabadora:
         if self.i >= len(FRASES):
             self.l_progreso.config(text="%d de %d grabadas" % (hechas, len(FRASES)))
             self.l_frase.config(text="¡Terminado!")
-            self.l_tono.config(text="Ahora, con Nova apagada:  python tools\\analizar-100.py")
+            self.l_tono.config(text="Ahora, con Nova apagada:  python tools\\analizar-100.py " + os.path.relpath(DESTINO, RAIZ))
             self.l_estado.config(text=self.aviso, fg="#06d6a0")
         else:
             f = FRASES[self.i]
@@ -317,6 +368,14 @@ class Grabadora:
 
 
 def main():
+    # la tanda: "cien" (por defecto) o "dirigida"
+    global FRASES, DESTINO
+    tanda = sys.argv[1] if len(sys.argv) > 1 else "cien"
+    if tanda not in TANDAS:
+        print("Tandas: %s" % ", ".join(TANDAS))
+        return 1
+    FRASES = TANDAS[tanda]
+    DESTINO = os.path.join(RAIZ, "pruebas", "audio", tanda)
     os.makedirs(DESTINO, exist_ok=True)
     with open(os.path.join(DESTINO, "esperado.json"), "w", encoding="utf-8") as f:
         json.dump({"%03d.wav" % (i + 1): fr for i, fr in enumerate(FRASES)}, f, ensure_ascii=False, indent=1)

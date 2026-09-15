@@ -189,7 +189,8 @@ def main():
         else:
             final = ""
         d["accion_final"] = final
-        if d["tipo"] == "charla":
+        if d["tipo"] in ("charla", "ruido"):
+            # charla y ruido de fondo: acierta si NO se hace nada
             d["ok_base"] = not ab
             d["ok"] = not final
         elif d["tipo"] == "corte":
@@ -230,10 +231,17 @@ def main():
     p("")
     p("| tipo | grabaciones | solo base | como el asistente |")
     p("|---|---|---|---|")
-    for tipo in ("orden", "compuesta", "nova", "charla"):
+    for tipo in ("orden", "compuesta", "nova", "charla", "ruido"):
         ds = [d for d in datos.values() if d["tipo"] == tipo]
         if ds:
             p("| %s | %d | %d | %d |" % (tipo, len(ds), sum(bool(d["ok_base"]) for d in ds), sum(bool(d["ok"]) for d in ds)))
+    evaluables = [d for d in datos.values() if d["ok"] is not None]
+    equivocadas = [d for d in evaluables if d["accion_final"] and d["accion_final"] != d.get("quiero", "")]
+    p("")
+    p("**Total: %d de %d (%.0f %%). Órdenes equivocadas (hace otra cosa): %d.** Meta: 100 %% y 0." % (
+        sum(bool(d["ok"]) for d in evaluables), len(evaluables), 100.0 * sum(bool(d["ok"]) for d in evaluables) / max(1, len(evaluables)), len(equivocadas)))
+    for d in equivocadas:
+        p("- EQUIVOCADA %s «%s» (%s) -> [%s]" % (d["clip"], d["decir"], d["tono"], d["accion_final"]))
     p("")
     p("| tono | ordenes | como el asistente | tono de voz (mediana) | pico (mediana) |")
     p("|---|---|---|---|---|")
@@ -291,7 +299,7 @@ def main():
     p("## 3. Seguridad de Whisper: el repaso dudoso")
     p("")
     bien = [d["seguridad"] for d in datos.values() if d["tipo"] in ("orden", "compuesta", "nova") and d["accion_base"] and d["accion_base"] == d["quiero"]]
-    mal = [d for d in datos.values() if d["tipo"] in ("orden", "compuesta", "nova", "charla") and d["accion_base"] and d["accion_base"] != d["quiero"]]
+    mal = [d for d in datos.values() if d["tipo"] in ("orden", "compuesta", "nova", "charla", "ruido") and d["accion_base"] and d["accion_base"] != d["quiero"]]
     if bien:
         p("Base acierta la orden: seguridad de %.2f a %.2f (mediana %.2f), %d frases." % (min(bien), max(bien), float(np.median(bien)), len(bien)))
     if mal:
