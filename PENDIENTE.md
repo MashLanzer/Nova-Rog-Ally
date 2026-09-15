@@ -861,9 +861,35 @@ cuando con las 20 de antes parecían 17 de 20. Veinte frases no enseñaban esto.
     orden y con 60 s de plazo. Lo que traiga pasa la guarda del eco: una frase de
     ejemplo solo vale si coincide con lo que oyó base (dos modelos que oyen lo
     mismo sí se confirman). **Sin probar con voz.**
-  - **Alternativas a Whisper por medir** con las 224 grabaciones: NVIDIA Parakeet
-    TDT 0.6B v3 (rápido en CPU, entiende español) y whisper.cpp con la gráfica AMD
-    de la Ally (Vulkan), que podría dejar turbo en pocos segundos.
+  - **NVIDIA Parakeet TDT 0.6B v3** (sherpa-onnx, int8, CPU), medido con las 214
+    grabaciones de orden, charla y ruido de las tres tandas y 101 trozos de ruido,
+    con la capa local de hoy:
+    | estrategia | cien | dirigida | validación | total | equivocadas | s/orden |
+    |---|---|---|---|---|---|---|
+    | Whisper como hoy | 86/90 | 48/64 | 54/60 | 188/214 | 1 | 3,9 |
+    | Parakeet solo | 65/90 | 35/64 | 29/60 | 129/214 | 0 | 0,6 |
+    | Parakeet y, si no, small | 85/90 | 44/64 | 38/60 | 167/214 | 0 | 2,2 |
+    | **Parakeet y, si no, Whisper como hoy** | **88/90** | **52/64** | **55/60** | **195/214** | **0** | **3,2** |
+
+    Parakeet solo entiende menos (voz baja 14 de 31, lejos 4 de 26), pero es muy
+    rápido y **nunca hace una orden equivocada**: no lleva frase de ejemplo que se
+    cuele. Ruido: 0 órdenes. La combinación acierta más, 0 equivocadas y tarda
+    menos. Se monta como oído principal. (Dirigida no tiene turbo simulado.)
+  - **Montado (15/09): Parakeet primero.** La escucha pasa el audio por Parakeet
+    y lo entrega marcado (`tmp\dictado-motor.txt`). Si el asistente lo entiende
+    como orden, la hace; si no, pide «base» y Whisper repasa el mismo audio, que
+    sigue el camino de siempre (repaso con small, eco, turbo, charla). Con un
+    juego delante, sin el modelo o sin voz, todo va por Whisper como antes, y
+    jugando Parakeet se suelta de la RAM (~0,7-1 GB con él cargado).
+  - **Validación con el circuito entero:** 54 de 60 (90 %), 1 «equivocada» sin
+    peligro (con música, small oyó «¿Qué tal?» y Nova dijo «Hola. Dime.»).
+    Parakeet sacó 21 órdenes en 0,5 s, ninguna equivocada; turbo aportó 6.
+    Ojo: la validación ya se usó para corregir, así que **hace falta otra tanda
+    nueva** para una medida limpia.
+  - Parakeet detecta el idioma él solo: en la prueba oyó «abre steam» como
+    «What's the thing». Al no ser una orden, pasa a Whisper y no hace daño.
+  - **Sin probar con voz** (con órdenes escritas no se pasa por la escucha).
+  - whisper.cpp con la gráfica AMD (Vulkan): sin medir todavía.
 - **¿1000 grabaciones más?** Todavía no: con estas 100 ya se ve qué falla y se
   mide cada arreglo. Lo que falla ahora son frases concretas (modo noche/foco,
   «minimiza todo», «qué se está descargando», «cancela el temporizador») y la voz
