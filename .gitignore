@@ -72,3 +72,6 @@ memoria/musica.json
 *.json.tmp
 # archivos de memoria que no se podian leer, apartados en vez de perderse
 *.corrupto-*
+
+# modelos de voz descargados (Parakeet...): pesan cientos de MB
+modelos/
