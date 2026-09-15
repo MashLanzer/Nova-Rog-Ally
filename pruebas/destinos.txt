@@ -179,3 +179,15 @@ si al resto le parece bien => <se va al modelo>
 todo el volumen es alto => <se va al modelo>
 no canceles el viaje => <se va al modelo>
 hice una pausa en el trabajo => <se va al modelo>
+
+# validacion (15/09): arreglos generales, no de una sola grabacion
+recuerdeme en 15 minutos que saque la ropa => aviso en 15 minutos
+pon el modo huevo => modo juego
+abrepec => PEAK
+serra steam => cerrar steam
+abrevia el texto => <se va al modelo>
+pon el modo fiesta => <se va al modelo>
+que hora es steam => <se va al modelo>
+que hora es en tokio => <se va al modelo>
+adelante => <se va al modelo>
+pulsa adelante => pulsar adelante

@@ -1736,6 +1736,13 @@ function Resolve-Fragment([string]$f) {
     # "pon UN modo juego": asi lo oye Whisper con la frase de ejemplo (14/09)
     if ($f -match '^(?:modo|activa el modo|activa modo|activa un modo|pon el modo|pon modo|pon un modo|ponte en modo|cambia a modo|entra en modo)\s+(?!(?:foco|concentracion|ahorro|bajo consumo|eficiencia|rendimiento|maximo rendimiento|alto rendimiento|equilibrado)\b)(.+)$') {
         $nombre = $Matches[1].Trim()
+        # UN MODO QUE SE PARECE (validacion, 15/09): "pon modo juego" se oyo "Pon el modo
+        # huevo" (Whisper confunde la j con la h). Si no existe y UNO SOLO se le parece
+        # mucho (hasta 2 letras), ese, pero preguntando antes.
+        if (-not (Test-Prop $cmds.perfiles $nombre) -and $nombre.Length -ge 4 -and $cmds.perfiles) {
+            $candModo = @($cmds.perfiles.PSObject.Properties.Name | Where-Object { $_.Length -ge 4 -and (Get-Distancia $nombre $_) -le 2 })
+            if ($candModo.Count -eq 1) { $script:dudosa = "modo " + $candModo[0]; $nombre = [string]$candModo[0] }
+        }
         if (Test-Prop $cmds.perfiles $nombre) {
             # TOPE DE ANIDAMIENTO. Desde que los modos se pueden crear por voz,
             # nada impide un "modo a" que llame al "modo b" que llame al "modo a":
@@ -1973,7 +1980,8 @@ function Resolve-Fragment([string]$f) {
         if ($resto) { $f = "$f $resto" }
     }
     # --- temporizadores: lo mas util con las manos ocupadas ---
-    if ($f -match '^(?:recuerdame|avisame|despiertame|ponme un temporizador|pon un temporizador|ponme una alarma|pon una alarma|temporizador|alarma)\s+(?:en|de|dentro de)\s+(\d+|(?:un\s+)?cuarto\s+de|un|una|medi[ao])\s*(segundo|segundos|minuto|minutos|hora|horas)\b\s*(?:que|para|de|a)?\s*(.*)$') {
+    # "recuerdeme" / "recuerden" (validacion, 15/09): la forma de usted, asi lo oye Whisper
+    if ($f -match '^(?:recuerdame|recuerdeme|recuerdenme|recuerden|avisame|despiertame|ponme un temporizador|pon un temporizador|ponme una alarma|pon una alarma|temporizador|alarma)\s+(?:en|de|dentro de)\s+(\d+|(?:un\s+)?cuarto\s+de|un|una|medi[ao])\s*(segundo|segundos|minuto|minutos|hora|horas)\b\s*(?:que|para|de|a)?\s*(.*)$') {
         $cuanto = $Matches[1]
         $unidad = $Matches[2]
         $que0 = $Matches[3]
@@ -2748,6 +2756,15 @@ function Resolve-Fragment([string]$f) {
         $url = ([string]$cmds.busquedas.$sitio) -replace '\{q\}', [System.Uri]::EscapeDataString($q)
         return @(@{ kind = 'url'; url = $url; desc = "buscar '$q' en $sitio" })
     }
+    # --- VERBO PEGADO (validacion, 15/09): "abre peak" se oyo "Abrepec". Solo si lo de
+    # detras del verbo es algo conocido o suena a un juego: "abreviar" se queda como esta.
+    if ($f -match '^(abre|cierra)([a-z]{3,})(\s.*)?$') {
+        $verboPeg = $Matches[1]
+        $restoPeg = ($Matches[2] + $Matches[3]).Trim()
+        if ((Resolve-Target $restoPeg) -or (Find-JuegoPorSonido $restoPeg $restoPeg 0.5)) {
+            return (Resolve-Fragment "$verboPeg $restoPeg")
+        }
+    }
     # --- abrir algo, con las variantes latinas de "abrir/ir a" ---
     # el lookahead suelta "pon spotify al 40": eso es volumen de esa app, no
     # abrirla. Sin el, "pon" (verbo de abrir) se quedaba con la frase entera.
@@ -2822,7 +2839,7 @@ function Resolve-Fragment([string]$f) {
         # del nombre, parecerse mucho a una (un titulo mal oido) o ser de relleno.
         $palDesc = @((ConvertTo-Juego $descSv) -split '\s+' | Where-Object { $_ })
         foreach ($wSv in @((ConvertTo-Juego $f) -split '\s+' | Where-Object { $_ })) {
-            if ($wSv -in @('el', 'la', 'los', 'las', 'un', 'una', 'en', 'de', 'del', 'y', 'a', 'al', 'por', 'favor', 'porfa', 'nova', 'ahora', 'ya', 'pues', 'bueno', 'vale', 'ok', 'oye', 'steam', 'juego')) { continue }
+            if ($wSv -in @('el', 'la', 'los', 'las', 'un', 'una', 'en', 'de', 'del', 'y', 'a', 'al', 'por', 'favor', 'porfa', 'nova', 'ahora', 'ya', 'pues', 'bueno', 'vale', 'ok', 'oye', 'steam', 'juego', 'hola', 'buenas')) { continue }
             if ($palDesc -contains $wSv) { continue }
             $cercaSv = $false
             if ($wSv.Length -ge 4) {
