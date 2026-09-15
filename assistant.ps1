@@ -230,6 +230,9 @@ function Repair-Verb([string]$f) {
     # la paraba (auditoria del 13/09)
     # "pasame la lista" tampoco: se "corregia" a otro verbo y no llegaba a su orden
     if ($primera -in 'pasa', 'pasala', 'pasame', 'salta') { return $f }
+    # "describe mi fondo de pantalla" se corregia a "escribe ..." y TECLEABA el texto en la
+    # ventana que hubiera delante (15/09)
+    if ($primera -match '^(?:describe|describeme|describir|describelo|describela)$') { return $f }
     $mejor = $null
     $mejorD = 999
     foreach ($v in $VERBOS_LISTA) {
@@ -2084,8 +2087,10 @@ function Resolve-Fragment([string]$f) {
     }
     # --- bluetooth y wifi (ver BLUETOOTH Y WI-FI POR VOZ) ---
     if ($f -match '^(apaga|desactiva|quita|desconecta|enciende|activa|prende|pon|conecta)\s+(?:el\s+|la\s+)?(bluetooth|wifi|wi fi|wi-fi|internet inalambrico)$') {
-        $encR = ($Matches[1] -match '^(?:enciende|activa|prende|pon|conecta)$')
-        $tipoR = if ($Matches[2] -eq 'bluetooth') { 'bluetooth' } else { 'wifi' }
+        # OJO (15/09): el -match de $encR machaca $Matches, y "activa el bluetooth" encendia el wifi
+        $verboR = $Matches[1]; $radioR = $Matches[2]
+        $encR = ($verboR -match '^(?:enciende|activa|prende|pon|conecta)$')
+        $tipoR = if ($radioR -eq 'bluetooth') { 'bluetooth' } else { 'wifi' }
         return @(@{ kind = 'radio'; tipo = $tipoR; encender = $encR; desc = "$(if ($encR) { 'encender' } else { 'apagar' }) el $tipoR" })
     }
     # --- tiempo de juego (ver TIEMPO DE JUEGO DE LA SEMANA) ---
@@ -2478,7 +2483,8 @@ function Resolve-Fragment([string]$f) {
         return @(@{ kind = 'queJuego'; desc = 'juego actual' })
     }
     # el tiempo, con lo que ya se consulto para el avatar de la capsula
-    if ($f -match '^(?:que tiempo hace|que clima hace|que clima hay|como esta el clima|como esta el tiempo|va a llover|que temperatura hace|cuantos grados hay|cuantos grados hace)\b') {
+    # "cual es el clima para hoy" iba a la charla, que decia que no tenia el clima (15/09)
+    if ($f -match '^(?:que tiempo hace|que clima hace|que clima hay|como esta el clima|como esta el tiempo|va a llover|que temperatura hace|cuantos grados hay|cuantos grados hace|cual es el clima|cual es el tiempo|que tal el clima|que tal el tiempo|el clima de hoy|el clima para hoy|el tiempo para hoy|que clima va a hacer|que tiempo va a hacer)\b') {
         $t = if ($script:clima) { "Ahora mismo $($script:clima.desc), $($script:clima.temp) grados" } else { "No tengo el tiempo a mano; no pude consultarlo" }
         # el emoji del tiempo sustituye a la carita unos segundos, solo ahora
         if ($script:clima) { $script:uiClima = $script:clima.emoji; $script:uiClimaHasta = $sw.ElapsedMilliseconds + 9000 }
@@ -2607,6 +2613,13 @@ function Resolve-Fragment([string]$f) {
     }
     if ($f -match '^(?:minimiza todo|minimizar todo|muestra el escritorio|escritorio|esconde todo|oculta todo)$') { return @(@{ kind = 'winkey'; vk = 0x44; desc = 'mostrar el escritorio' }) }
     if ($f -match '^(?:cambia de ventana|siguiente ventana|otra ventana|alterna)$') { return @(@{ kind = 'alttab'; desc = 'cambiar de ventana' }) }
+    # abrir una carpeta por su nombre (ver ABRIR UNA CARPETA POR SU NOMBRE)
+    if ($f -match '^(?:abre|abreme|abrir|ensename|muestrame)\s+(?:la\s+|mi\s+)?carpeta\s+(?:de\s+mis\s+|de\s+|del\s+)?(.+)$') {
+        $nomC = $Matches[1].Trim()
+        $rutaC = Find-CarpetaPorNombre $nomC
+        if ($rutaC) { return @(@{ kind = 'url'; url = $rutaC; carpeta = $true; desc = "abrir la carpeta $nomC" }) }
+        return @(@{ kind = 'decir'; desc = "No encuentro ninguna carpeta que se llame $nomC" })
+    }
     # escribir en la app activa: "escribe hola que tal"
     if ($f -match '^(?:escribe|escribeme|teclea|dicta|pon el texto)\s+(.+)$') {
         return @(@{ kind = 'escribir'; texto = $Matches[1].Trim(); desc = "escribir '$($Matches[1].Trim())'" })
@@ -5114,6 +5127,34 @@ $AccionesQueTocan = @('app', 'url', 'key', 'atajo', 'escribir', 'winkey', 'altf4
 # ponerla. La pagina de resultados de YouTube ya trae los videoId: se abre el primero,
 # sin clave ni agente. Probado: "pitbull give me everything" -> "Pitbull - Give Me
 # Everything ft. Ne-Yo, Afrojack, Nayer". Si falla o tarda, la busqueda como antes.
+# ABRIR UNA CARPETA POR SU NOMBRE (15/09): "abre la carpeta Games" (la del escritorio) no se
+# entendia; la API lo tradujo a "abre explorador" y ademas se aprendio. Primero los nombres
+# de siempre (descargas, documentos...); si no, una carpeta con ese nombre en el escritorio,
+# documentos, descargas, la carpeta personal, imagenes, videos o musica.
+function Find-CarpetaPorNombre([string]$nombre) {
+    $pl = ConvertTo-Plain $nombre
+    if (-not $pl) { return '' }
+    $especiales = @{
+        'descargas' = (Join-Path $env:USERPROFILE 'Downloads'); 'documentos' = [Environment]::GetFolderPath('MyDocuments')
+        'escritorio' = [Environment]::GetFolderPath('Desktop'); 'imagenes' = [Environment]::GetFolderPath('MyPictures')
+        'fotos' = [Environment]::GetFolderPath('MyPictures'); 'musica' = [Environment]::GetFolderPath('MyMusic')
+        'videos' = [Environment]::GetFolderPath('MyVideos')
+    }
+    if ($especiales.ContainsKey($pl) -and $especiales[$pl] -and (Test-Path -LiteralPath $especiales[$pl])) { return $especiales[$pl] }
+    $raices = @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('MyDocuments'), (Join-Path $env:USERPROFILE 'Downloads'),
+                $env:USERPROFILE, [Environment]::GetFolderPath('MyPictures'), [Environment]::GetFolderPath('MyVideos'), [Environment]::GetFolderPath('MyMusic'))
+    $parecida = ''
+    foreach ($r in $raices) {
+        if (-not $r -or -not (Test-Path -LiteralPath $r)) { continue }
+        foreach ($d in @(Get-ChildItem -LiteralPath $r -Directory -ErrorAction SilentlyContinue)) {
+            $pd = ConvertTo-Plain $d.Name
+            if ($pd -eq $pl) { return $d.FullName }
+            if (-not $parecida -and $pd -and [Math]::Min($pd.Length, $pl.Length) -ge 4 -and ($pd.StartsWith($pl) -or $pl.StartsWith($pd))) { $parecida = $d.FullName }
+        }
+    }
+    return $parecida
+}
+
 function Get-PrimerVideoYouTube([string]$q) {
     if (-not $q) { return '' }
     try {
@@ -5131,6 +5172,29 @@ function Get-PrimerVideoYouTube([string]$q) {
 
 function Invoke-FastCommand([string]$text) {
     if (-not $cmds) { return $null }
+    # EL JUEGO QUE TIENES DELANTE (15/09): jugando a It Takes Two, "busca informacion sobre el
+    # juego que esta en pantalla" buscaba esa frase tal cual en Google.
+    $reJuegoDelante = '(?i)\b(?:el juego (?:al )?que estoy jugando|el juego que (?:est[aá]|tengo) en (?:la )?pantalla|este juego)\b'
+    if ($script:juegoActivo -and $text -match $reJuegoDelante) {
+        $text = $text -replace $reJuegoDelante, [string]$script:juegoActivo
+    }
+    # EL JUEGO QUE SALE EN PANTALLA, SIN ESTAR JUGANDO (15/09): con la ficha de It Takes Two
+    # abierta en Steam, "abre el juego que tengo en pantalla" acabo preguntando por Hollow
+    # Knight. Se lee la pantalla (OCR) y se busca un juego de la biblioteca que salga ahi.
+    if (-not $script:juegoActivo -and $text -match '(?i)\b(?:abre|abras|abrir|inicia|inicies|arranca|lanza|juega|pon)\b' -and
+        $text -match '(?i)\b(?:(?:el )?juego que (?:tengo|est[aá]|sale|aparece|hay) en (?:la |mi )?pantalla|ese juego|el juego de la pantalla)\b') {
+        $ocrJ = ''
+        try { $ocrJ = Invoke-OCR (Save-Captura (Join-Path $TmpDir 'pantalla.png')) } catch { Log ("juego en pantalla: " + $_.Exception.Message) }
+        $plOcr = ' ' + (ConvertTo-Plain $ocrJ) + ' '
+        $jEnc = @(@($script:Juegos) | Where-Object { $_.nombre -and $plOcr.Contains(' ' + (ConvertTo-Plain ([string]$_.nombre)) + ' ') } |
+                  Sort-Object { - ([string]$_.nombre).Length } | Select-Object -First 1)
+        if ($jEnc.Count -gt 0) {
+            Log "JUEGO EN PANTALLA: '$($jEnc[0].nombre)'"
+            $text = "abre $($jEnc[0].nombre) en steam"
+        } else {
+            Log "JUEGO EN PANTALLA: no veo el nombre de ningun juego de la biblioteca"
+        }
+    }
     # ENSEÑARLE UNA SECUENCIA (ver New-RecetaEnsenada): "aprende que cuando diga
     # prepara la partida, abre discord y pon modo juego". Va antes que el dato
     # sobre ti y que el alias, que tambien empiezan por "aprende que".
@@ -5439,7 +5503,8 @@ function Invoke-FastCommand([string]$text) {
                         $primerV = Get-PrimerVideoYouTube ([string]$a.youtube)
                         if ($primerV) { $urlA = $primerV }
                     }
-                    if ($navegador) { Start-Process $navegador $urlA -ErrorAction Stop }
+                    if ($a.carpeta) { Start-Process -FilePath 'explorer.exe' -ArgumentList ('"' + $urlA + '"') -ErrorAction Stop }
+                    elseif ($navegador) { Start-Process $navegador $urlA -ErrorAction Stop }
                     else { Start-Process $urlA -ErrorAction Stop }
                 }
                 'key' { for ($i = 0; $i -lt $a.repeat; $i++) { Send-Key $a.vk } }
@@ -6495,13 +6560,21 @@ function Invoke-FastCommand([string]$text) {
                         # juegos. Matar de golpe una app que tiene algo sin
                         # guardar es el peor final posible para una orden mal
                         # oida, y aqui se hacia sin esperar nada.
-                        foreach ($pr in $ps) {
-                            try {
-                                if (-not $pr.CloseMainWindow()) {
-                                    Start-Sleep -Milliseconds 1500
-                                    if (-not $pr.HasExited) { $pr.Kill() }
-                                }
-                            } catch {}
+                        # UNA SOLA ESPERA PARA TODOS (15/09): "cierra el navegador" tardo 20 s. El
+                        # navegador tiene muchos procesos sin ventana, CloseMainWindow da $false en
+                        # cada uno y se esperaban 1,5 s por CADA uno. Ahora se pide cerrar a los que
+                        # tienen ventana, se espera una vez (hasta 1,5 s) y se mata lo que siga. Si
+                        # ninguno tiene ventana (en la bandeja), se mata como antes, sin esperar.
+                        $conVentana = @($ps | Where-Object { try { $_.MainWindowHandle -ne [IntPtr]::Zero } catch { $false } })
+                        if ($conVentana.Count -eq 0) {
+                            foreach ($pr in $ps) { try { if (-not $pr.HasExited) { $pr.Kill() } } catch {} }
+                        } else {
+                            foreach ($pr in $conVentana) { try { [void]$pr.CloseMainWindow() } catch {} }
+                            $hastaC = [DateTime]::Now.AddMilliseconds(1500)
+                            while ([DateTime]::Now -lt $hastaC -and @($conVentana | Where-Object { try { -not $_.HasExited } catch { $false } }).Count -gt 0) {
+                                Start-Sleep -Milliseconds 100
+                            }
+                            foreach ($pr in $conVentana) { try { if (-not $pr.HasExited) { $pr.Kill() } } catch {} }
                         }
                     }
                 }
@@ -6763,7 +6836,9 @@ function Say-Online([string]$texto, [string]$emo = '') {
         $flujo.Flush()
         # con tope: si la red se cae, no se puede colgar el bucle para siempre
         $tarea = $script:ttsProc.StandardOutput.ReadLineAsync()
-        if (-not $tarea.Wait(8000)) { Log "voz online: sin respuesta en 8 s"; return $false }
+        # una respuesta larga tarda mas en sintetizarse: plazo segun lo largo (ver RESPUESTAS LARGAS ENTERAS)
+        $plazoVoz = [int][Math]::Min(30000, 8000 + $texto.Length * 15)
+        if (-not $tarea.Wait($plazoVoz)) { Log "voz online: sin respuesta en $([int]($plazoVoz / 1000)) s"; return $false }
         # lo que ESPERO el bucle a la voz (ver VOZ PREPARADA): una frase ya hecha tarda
         # ms; una nueva, ~1 s. Solo se apunta en charla, o el log se llenaria de esto
         if ($script:charlaEsperando -or $script:charlaFrases.Count -gt 0 -or $script:prepVozProc) {
@@ -6976,12 +7051,15 @@ function Add-TildesVoz([string]$s) {
 # acierta en la cache.
 function Get-TextoVoz([string]$texto) {
     $t = Add-TildesVoz (($texto -replace '\s+', ' ').Trim())
-    if ($t.Length -gt 300) {
-        # POR EL FINAL DE UNA FRASE (14/09): cortar a las 300 letras a secas dejaba
-        # la voz a mitad de palabra. Se busca el ultimo punto; si no, el ultimo espacio.
-        $corteV = $t.Substring(0, 300).LastIndexOfAny([char[]]'.!?;')
-        if ($corteV -lt 120) { $corteV = $t.Substring(0, 300).LastIndexOf(' ') }
-        $t = if ($corteV -gt 0) { $t.Substring(0, $corteV + 1).Trim() } else { $t.Substring(0, 300) }
+    # RESPUESTAS LARGAS ENTERAS (15/09): con el tope en 300 letras la voz se callaba a
+    # mitad de una respuesta del agente ("se corta y deja de hablar") mientras la tarjeta
+    # ensenaba el resto. Ahora el tope es 1.200 letras, y la voz tiene mas plazo.
+    if ($t.Length -gt 1200) {
+        # POR EL FINAL DE UNA FRASE (14/09): cortar a secas dejaba la voz a mitad de
+        # palabra. Se busca el ultimo punto; si no, el ultimo espacio.
+        $corteV = $t.Substring(0, 1200).LastIndexOfAny([char[]]'.!?;')
+        if ($corteV -lt 400) { $corteV = $t.Substring(0, 1200).LastIndexOf(' ') }
+        $t = if ($corteV -gt 0) { $t.Substring(0, $corteV + 1).Trim() } else { $t.Substring(0, 1200) }
     }
     return $t
 }
@@ -7032,7 +7110,7 @@ function Say([string]$texto, [string]$emo = '') {
     # el bucle principal reanuda al vencer el plazo.
     try {
         $script:finVoz = $sw.ElapsedMilliseconds
-        $estimado = [Math]::Min(20000, ($t.Length * 70) + 1200)
+        $estimado = [Math]::Min(90000, ($t.Length * 70) + 1200)
         $previaV = $script:pausaHasta
         Pausar-Escucha $estimado $t
         # si fue ESTA estimacion la que alargo la pausa, Say-Online la puede acortar
@@ -9027,8 +9105,11 @@ function Show-Popup([string]$text, [string]$estadoUI = 'hablando') {
     # Con la interfaz nueva el mensaje va a la capsula. El popup antiguo solo
     # se abre ademas para textos largos, que en 340 px no se podrian leer.
     if ($UiNuevaOn) {
+        # SIN TARJETA NUNCA (15/09, pedido por braya): "quita eso, solo manten el texto que
+        # trae Nova". Una respuesta larga abria ademas la tarjeta de cristal; ahora todo va
+        # solo a la capsula, y la voz lo dice entero (ver RESPUESTAS LARGAS ENTERAS).
         Set-UI $estadoUI $text $PopupMs
-        if ($text.Length -le 80) { return }
+        return
     }
     try {
         # TARJETA DE CRISTAL, Y SOBRE TODO: SIN ROBAR EL FOCO.
@@ -9115,7 +9196,7 @@ $script:jobStart = 0
 
 # Libera el trabajo actual y devuelve la UI a reposo.
 function Clear-OpencodeJob {
-    foreach ($f in @($script:jobOut, $script:jobErr, $script:jobIn)) {
+    foreach ($f in @($script:jobOut, $script:jobErr, $script:jobIn, $(if ($script:jobOut) { $script:jobOut + '.consola' }))) {
         if ($f) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }
     }
     $script:jobOut = $null; $script:jobErr = $null; $script:jobIn = $null
@@ -9319,14 +9400,17 @@ function Start-ClaudeJob([string]$texto, [string]$modelo, [int]$maxTokens, [stri
         # linea, comillas y acentos, y en argv todo eso se destroza
         [System.IO.File]::WriteAllText($script:jobIn, $texto, (New-Object System.Text.UTF8Encoding($false)))
         $args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $ClaudeScript,
-                  '-PromptFile', $script:jobIn, '-Modelo', $modelo, '-MaxTokens', [string]$maxTokens)
+                  '-PromptFile', $script:jobIn, '-Modelo', $modelo, '-MaxTokens', [string]$maxTokens,
+                  '-SalidaArchivo', $script:jobOut)
         # LO QUE VES EN PANTALLA (15/09): la captura va con la pregunta
         if ($imagen -and (Test-Path -LiteralPath $imagen)) { $args += @('-Imagen', $imagen) }
         $script:jobLeido = 0; $script:jobPasos = 0; $script:jobUltimaHerr = ''; $script:jobProgresoCheck = 0
         Log "CLAUDE: $modelo, $($texto.Length) caracteres de prompt"
+        # la respuesta la escribe el propio script en $script:jobOut, en UTF-8, y la consola
+        # redirigida va aparte, de respaldo (ver LAS TILDES en claude-api.ps1)
         $script:proc = Start-Process -FilePath 'powershell.exe' -ArgumentList $args `
             -WorkingDirectory $LogDir -WindowStyle Hidden -PassThru `
-            -RedirectStandardOutput $script:jobOut -RedirectStandardError $script:jobErr
+            -RedirectStandardOutput ($script:jobOut + '.consola') -RedirectStandardError $script:jobErr
         $null = $script:proc.Handle
     } catch {
         Log ("no pude llamar a la API: " + $_.Exception.Message)
@@ -9476,6 +9560,9 @@ function Complete-OpencodeJob {
         try { $code = $script:proc.ExitCode } catch {}
         if (Test-Path -LiteralPath $script:jobOut) {
             $stdout = [System.IO.File]::ReadAllText($script:jobOut, [System.Text.Encoding]::UTF8)
+        } elseif (Test-Path -LiteralPath ($script:jobOut + '.consola')) {
+            # la API por script no llego a escribir su archivo: lo de la consola, aunque sea sin tildes
+            $stdout = [System.IO.File]::ReadAllText(($script:jobOut + '.consola'), [System.Text.Encoding]::UTF8)
         }
         if (Test-Path -LiteralPath $script:jobErr) {
             $stderr = [System.IO.File]::ReadAllText($script:jobErr, [System.Text.Encoding]::UTF8)
@@ -9601,7 +9688,7 @@ function Build-PromptTraduccion([string]$text) {
     # la capa local de verdad (tools\probar-audio.py, acciones_de) antes de ponerla.
     return @"
 Traduce lo que dijo el usuario a ordenes que Nova sabe hacer, usando SOLO estas formas:
-abre <app> | abre <sitio> | abre <juego> en steam
+abre <app> | abre <sitio> | abre <juego> en steam | abre la carpeta <nombre>
 cierra <app> | cierra todos los programas | minimiza todo
 minimiza <app> | maximiza <app> | a mitad de pantalla
 busca <texto> en <sitio> | pon <cancion o artista> en spotify
@@ -10219,8 +10306,17 @@ function Report-Reply($out) {
                 return
             }
             if ($r) {
+                # SOLO SE APRENDE LO QUE SE PUEDE REPETIR (15/09). Se aprendieron "abre la carpeta
+                # Games" = "abre explorador", "cierra Google" = "cierra edge" y frases de 15 palabras
+                # que no se van a volver a decir igual. No se aprende una frase de mas de 6 palabras,
+                # ni una traduccion que pierde un nombre propio de lo dicho, ni una con letras rotas.
+                $palO = @((ConvertTo-Plain $original) -split '\s+' | Where-Object { $_ })
+                $plProp = ' ' + (ConvertTo-Plain $propuesta) + ' '
+                $nombreFuera = @([regex]::Matches($original, '(?<=\S\s)\p{Lu}\p{L}{3,}') | Where-Object { -not $plProp.Contains(' ' + (ConvertTo-Plain $_.Value) + ' ') }).Count -gt 0
                 if (Test-OidoDudoso $original) {
                     Log "no aprendo '$original' = '$propuesta': venia de un oido que dudaba (ver NO APRENDER DE LO MAL OIDO)"
+                } elseif ($palO.Count -gt 6 -or $nombreFuera -or $propuesta.Contains([string][char]0xFFFD)) {
+                    Log "no aprendo '$original' = '$propuesta': frase larga o con un nombre que la traduccion no conserva (ver SOLO SE APRENDE LO QUE SE PUEDE REPETIR)"
                 } else {
                     Add-Traduccion $original $propuesta
                 }
@@ -10715,6 +10811,7 @@ $script:oidosDudosos = @{}
 # para que un ruido que no para no la tenga abriendose una y otra vez.
 $script:noEntendiSeguidos = 0
 $script:origenDictado = ''
+$script:siguioParakeet = $false
 function Open-EscuchaTrasNoEntendi {
     $script:noEntendiSeguidos++
     if ($script:noEntendiSeguidos -gt 2) {
@@ -10865,6 +10962,11 @@ function Test-LoTengo([string]$vista) {
 function Add-RuidoRacha {
     if (-not $AutoSordinaOn) { return }
     if ($script:pausaHasta -gt 0) { return }          # ya esta callada
+    # NO ES RUIDO SI ERES TU (15/09): jugando, tres "no te entendi" seguidos en ventanas de
+    # seguimiento (braya contestandole) y se callo 10 minutos diciendo que oia ruido. La
+    # autosordina es para la tele que despierta el nombre, no para el boton ni para lo que
+    # se le contesta justo despues de hablar ella.
+    if ($script:origenDictado -eq 'seguimiento' -or $script:origenDictado -like 'mantener*') { return }
     $ahora = $sw.ElapsedMilliseconds
     [void]$script:rachaRuido.Add($ahora)
     # fuera los de fuera de la ventana
@@ -10889,6 +10991,7 @@ function Start-Dictado([string]$origen) {
     Log "DICTADO ($origen)"
     if ($origen -ne 'seguimiento') { $script:noEntendiSeguidos = 0 }
     $script:origenDictado = $origen
+    $script:siguioParakeet = $false
     # llamarla de nuevo corta lo que estuviera contestando (ver CONVERSACION DE VERDAD)
     if ($origen -ne 'seguimiento') { try { Stop-Charla } catch {} }
     # si es probable que vayas a charlar, el modelo empieza a cargar ya (ver MENOS ESPERA EN FRIO)
@@ -11565,7 +11668,8 @@ function Process-Texto([string]$text) {
         }
         # "GRACIAS" FUERA DEL SEGUIMIENTO (15/09): tras una tarea larga, braya dijo "gracias"
         # con el boton y Nova contesto "No te entendi" (se tomaba por ruido).
-        if ($plano -match '^(?:gracias|muchas gracias|ok gracias|okay gracias|vale gracias|gracias nova)$') {
+        # tambien "entiendo, gracias", "perfecto, gracias"... (15/09: acababa en "No te entendi")
+        if ($plano -match '^(?:(?:ok|okay|vale|perfecto|genial|listo|muy bien|entiendo|entendido|de acuerdo|bueno)\s+)?(?:muchas\s+)?gracias(?:\s+nova)?$') {
             Log "cortesia: '$text'"
             $script:seguimientoPendiente = $false
             Say "De nada."
@@ -11647,7 +11751,10 @@ function Process-Texto([string]$text) {
         # hacia el agente: "quiero que veas que hay en mi pantalla" tardo 87 s (Claude
         # Code con captura por MCP). Ahora la captura de la ventana va con la pregunta
         # a la API, que la mira y contesta en una o dos frases.
-        if ($plano -match '\b(?:que (?:ves?|hay|sale|aparece|tengo) en (?:mi |la |esta )?pantalla|que es lo que ves|lo que (?:ves|hay) en (?:mi |la |esta )?pantalla|describe(?:me)? (?:mi |la |esta )?pantalla|mira (?:mi |la |esta )?pantalla)\b') {
+        # ...pero no si es una orden: "abre el juego que tengo en pantalla" acababa aqui y la API
+        # contestaba NO, sin hacer nada (15/09). Eso lo resuelve EL JUEGO QUE SALE EN PANTALLA.
+        if ($plano -notmatch '\b(?:abre|abras|abrir|abrelo|inicia|inicies|iniciar|arranca|lanza|juega|cierra|cierres|pon|ponme)\b' -and
+            $plano -match '\b(?:que (?:ves?|hay|sale|aparece|tengo) en (?:mi |la |esta )?pantalla|que es lo que ves|lo que (?:ves|hay) en (?:mi |la |esta )?pantalla|describe(?:me)? (?:mi |la |esta |el )?(?:fondo de )?pantalla|(?:mi|el) fondo de pantalla|mira (?:mi |la |esta )?pantalla)\b') {
             Set-UI 'pensando' 'mirando la pantalla'
             $capV = ''
             try { $capV = Save-Captura (Join-Path $TmpDir 'pantalla.png') } catch { Log ("ver pantalla: " + $_.Exception.Message) }
@@ -12738,11 +12845,13 @@ while ($true) {
             $limpioW = $fino.Trim()
             $script:yaReintentado = $false
             $sigueCon = if ($limpioW) { $limpioW } else { $origP }
+            $script:siguioParakeet = $false
             # ver PARAKEET PARA LO QUE NO ES UNA ORDEN. El repaso con small se mantiene (oye
             # el AUDIO, no este texto): en las 202 grabaciones rescata 2 ordenes que Parakeet
             # oyo mal ("si agradezco y abre spotify" por "cierra discord y abre spotify").
             if ($limpioW -and -not (Test-FastCommand $limpioW) -and (Test-EspanolLargo $origP)) {
                 $sigueCon = $origP
+                $script:siguioParakeet = $true
                 Log "PARAKEET -> WHISPER: '$origP' -> '$limpioW'; Whisper no saca una orden: sigo con lo de Parakeet"
             } else {
                 Log "PARAKEET -> WHISPER: '$origP' -> '$limpioW'"
@@ -12842,10 +12951,33 @@ while ($true) {
                 Process-Texto $orig
             } elseif ($limpio -and (ConvertTo-Plain $limpio) -ne (ConvertTo-Plain $orig) -and (Test-MismoAudio $orig $limpio)) {
                 if ((Test-FastCommand $limpio) -or -not (Request-UltimoRecurso $orig $false $false 'procesar')) {
-                    Log "OIDO FINO: '$orig' -> '$limpio'"
-                    Add-Estadistica 'fino-sirvio' "$orig -> $limpio"
-                    Process-Texto $limpio
+                    if ($script:siguioParakeet -and -not (Test-FastCommand $limpio)) {
+                        # SMALL NO PISA A PARAKEET (15/09): "mueve It Takes Two a la carpeta Games"
+                        # lo oyo bien Parakeet; small oyo "state 2", se siguio con eso y el agente
+                        # busco "state 2" 48 s. Si small tampoco saca una orden, vale Parakeet.
+                        Log "OIDO FINO: '$limpio' tampoco es una orden; sigo con lo de Parakeet: '$orig'"
+                        Process-Texto $orig
+                    } else {
+                        Log "OIDO FINO: '$orig' -> '$limpio'"
+                        Add-Estadistica 'fino-sirvio' "$orig -> $limpio"
+                        Process-Texto $limpio
+                    }
                 }
+            } elseif ($limpio -and -not (Test-MismoAudio $orig $limpio) -and $script:siguioParakeet -and -not (Test-FastCommand $limpio)) {
+                # lo de Parakeet era una frase en espanol y el repaso no trae una orden: se sigue
+                # con Parakeet en vez de "no te entendi" (ver SMALL NO PISA A PARAKEET)
+                Log "OIDO FINO: '$limpio' no se parece a lo de Parakeet ni es una orden; sigo con Parakeet: '$orig'"
+                Process-Texto $orig
+            } elseif ($limpio -and -not (Test-MismoAudio $orig $limpio) -and -not $ecoFino -and (Test-FastCommand $limpio)) {
+                # EL REPASO ACIERTA AUNQUE NO SE PAREZCA (15/09). Cuando base oye basura, lo de small
+                # no comparte ninguna palabra con ello y se tiraba como "invento suyo". Medido con las
+                # 202 grabaciones: base sin orden y small con orden que no se parecen, 16 eran la orden
+                # correcta ("cierra steam", "abre spotify", "abre elden ring") y 2 equivocadas, y las
+                # dos inofensivas. Jugando, braya lo sufrio y la autosordina se callo 10 minutos. Vale
+                # si el repaso trae una orden clara y no es la frase de ejemplo de Whisper (el eco).
+                Log "OIDO FINO: '$orig' -> '$limpio' (no se parece, pero el repaso trae una orden clara)"
+                Add-Estadistica 'fino-sirvio' "$orig -> $limpio"
+                Process-Texto $limpio
             } elseif ($limpio -and -not (Test-MismoAudio $orig $limpio)) {
                 if (-not (Request-UltimoRecurso $orig $false $false 'noentendi')) {
                     Log "OIDO FINO descartado: '$limpio' no se parece en nada a '$orig'; es invento suyo"

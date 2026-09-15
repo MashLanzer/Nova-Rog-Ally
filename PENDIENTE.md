@@ -1031,6 +1031,51 @@ cuando con las 20 de antes parecían 17 de 20. Veinte frases no enseñaban esto.
   - **«Gracias» fuera del seguimiento** contesta «De nada» (era «No te entendí»).
   - **La charla marca [ORDEN]** también para lo que Nova puede mirar («¿en cuánto está
     la descarga de Steam?» contestaba «no veo la descarga desde aquí»).
+- **CUARTA SESIÓN DE USO (15/09, 14:57-15:14, 16 órdenes, jugando a It Takes Two).**
+  Sin cuelgues ni caídas (turbo apagado). YouTube puso el vídeo. Pero:
+  - **El repaso bueno se tiraba como «invento»:** jugando, Parakeet se suelta y base
+    oyó basura; small oyó bien y, al no compartir palabras, se descartaba. Medido en
+    las 202 grabaciones: ese descarte tiraba 16 órdenes correctas y frenaba 2
+    equivocadas (inofensivas). **Arreglado:** si el repaso trae una orden clara y no es
+    el eco de la frase de ejemplo, vale aunque no se parezca.
+  - **La autosordina se calló 10 min** con tres «no te entendí» que eran él
+    contestándole. **Arreglado:** no cuenta lo que llega por botón o seguimiento.
+  - **Small pisaba a Parakeet:** «mueve It Takes Two a la carpeta Games» → «state 2» y
+    48 s de agente. **Arreglado:** si se siguió con Parakeet y small tampoco saca orden,
+    vale Parakeet.
+  - **«Cierra el navegador» tardaba 20 s:** 1,5 s de espera por cada proceso sin
+    ventana. **Arreglado:** una sola espera para todos.
+  - **«El juego que estoy jugando / que está en pantalla / este juego»** se cambia por el
+    juego que tiene delante (buscaba la frase tal cual).
+  - Queda: jugando no hay Parakeet (es a propósito, la RAM es del juego) y base oye
+    peor con el juego sonando.
+- **QUINTA SESIÓN DE USO (15/09, 15:29-15:45, 45 órdenes).** Ya casi todo se oye
+  bien. braya pidió además quitar la tarjeta y revisar la memoria:
+  - **«Se corta y deja de hablar, y sale un toast con todo»:** la voz se recortaba
+    a 300 letras (`Get-TextoVoz`) y el resto solo salía en la tarjeta. Ahora la voz
+    dice hasta 1.200 letras con más plazo y **no hay tarjeta nunca**, solo la cápsula.
+  - **La memoria:** no se borró nada (las copias no tenían recetas antes de hoy).
+    Las tareas del agente se aprenden como receta solo si se pueden repetir igual; lo
+    que da información (el correo, qué hay en el escritorio) o depende de la pantalla
+    vuelve al agente cada vez, por diseño. Lo que sí estaba mal: se aprendieron
+    traducciones malas («abre la carpeta Games» = «abre explorador», «busca Clem??n»,
+    frases de 15 palabras). Borradas, y ya no se aprende una frase de más de 6
+    palabras ni una traducción que pierde un nombre propio.
+  - **La receta de la nota** escribía siempre en `Hola.txt`; ahora el archivo se
+    llama como lo que se dice.
+  - **Tildes rotas en todo lo de la API** (preguntas y traducciones): se leía como
+    Latin-1 y se escribía en la codificación de la consola. `claude-api.ps1`
+    decodifica los bytes en UTF-8 y escribe en UTF-8 (también en `-SalidaArchivo`).
+    Comprobado byte a byte por el camino del asistente: «Clem C3 AD n». Ojo al
+    probarlo: un .ps1 sin BOM con tildes dentro se lee como ANSI y las rompe él
+    mismo, y la consola de PowerShell las pinta mal aunque el archivo esté bien.
+  - «Activa el Bluetooth» encendía el wifi (`$Matches` machacado). Arreglado.
+  - «Describe mi fondo de pantalla» se corregía a «escribe» y **tecleaba** el texto.
+    Arreglado; y «qué ves en pantalla» ya no atrapa órdenes como «abre el juego que
+    tengo en pantalla», que ahora lee la pantalla y abre ese juego de la biblioteca.
+  - **Abrir una carpeta por su nombre** («abre la carpeta Games»), clima con más
+    formas («cuál es el clima para hoy») y «entiendo, gracias» → «De nada».
+  - Sin hacer: recetas para tareas de información (leer el correo cada vez sin agente).
 - **¿1000 grabaciones más?** Todavía no: con estas 100 ya se ve qué falla y se
   mide cada arreglo. Lo que falla ahora son frases concretas (modo noche/foco,
   «minimiza todo», «qué se está descargando», «cancela el temporizador») y la voz
