@@ -91,6 +91,12 @@ except ValueError:
 REINTENTO = sys.argv[15] if len(sys.argv) > 15 else ""
 REINTENTO_TEXTO = sys.argv[16] if len(sys.argv) > 16 else ""
 MODELO_PRECISO = sys.argv[17] if len(sys.argv) > 17 else ""
+# ULTIMO RECURSO (15/09): cuando ni base ni small entienden la orden, el asistente pide
+# este (large-v3-turbo). Con las grabaciones de braya rescato 19 de 36 que fallaban, sin
+# romper ninguna ni convertir el ruido en ordenes; tarda ~12 s por frase en la Ally.
+MODELO_ULTIMO = sys.argv[18] if len(sys.argv) > 18 else ""
+# se suelta tras este rato sin usarse (~1 GB de RAM); con un juego delante, en seguida
+ULTIMO_SOLTAR = 120.0
 CONFIRMACION_MAX = 5.0
 # el oido fino no repasa audios mas largos que esto (ver atender_reintento)
 REPASO_MAX = 8.0
@@ -335,17 +341,67 @@ def modelo_preciso():
     return _preciso
 
 
+_ultimo = None
+_ultimo_roto = False
+_ultimo_uso = 0.0
+
+
+def modelo_ultimo():
+    """Turbo, cargado solo si llega a hacer falta. Antes se suelta small: los dos a la
+    vez son ~1,5 GB y la Ally no va sobrada (small se recarga en ~3 s si vuelve a hacer
+    falta)."""
+    global _ultimo, _ultimo_roto, _preciso
+    if _ultimo is not None or _ultimo_roto or not MODELO_ULTIMO:
+        return _ultimo
+    try:
+        _preciso = None
+        import gc
+        gc.collect()
+        t0 = time.time()
+        from faster_whisper import WhisperModel
+        _ultimo = WhisperModel(MODELO_ULTIMO, device="cpu", compute_type="int8", cpu_threads=HILOS_PRECISO)
+        anota("ultimo recurso '%s' cargado en %.1f s" % (MODELO_ULTIMO, time.time() - t0))
+    except Exception as e:
+        _ultimo_roto = True
+        anota("WARN: no se pudo cargar el ultimo recurso (%s)" % e)
+    return _ultimo
+
+
+def soltar_ultimo_si_toca():
+    global _ultimo
+    if _ultimo is None:
+        return
+    jugando = bool(MARCA_SOLO_BOTON) and os.path.exists(MARCA_SOLO_BOTON)
+    if not jugando and time.time() - _ultimo_uso < ULTIMO_SOLTAR:
+        return
+    _ultimo = None
+    import gc
+    gc.collect()
+    anota("ultimo recurso soltado (%s)" % ("hay un juego delante" if jugando else "sin usarse"))
+
+
 def atender_reintento(ultimo_audio):
     """El asistente no reconocio la orden: se repasa el mismo audio con el
-    modelo preciso. Siempre se contesta algo, aunque sea vacio, porque el
-    asistente esta esperando al otro lado con un plazo."""
+    modelo preciso (o, si pide "ultimo", con el ultimo recurso). Siempre se
+    contesta algo, aunque sea vacio, porque el asistente espera con un plazo."""
     if not REINTENTO or not os.path.exists(REINTENTO):
         return False
     texto = ""
     try:
-        m = modelo_preciso()
-        global _preciso_uso
-        _preciso_uso = time.time()
+        pedido = ""
+        try:
+            with open(REINTENTO, encoding="utf-8", errors="replace") as f:
+                pedido = f.read().strip()
+        except Exception:
+            pass
+        ultimo = pedido == "ultimo" and bool(MODELO_ULTIMO)
+        global _preciso_uso, _ultimo_uso
+        if ultimo:
+            m = modelo_ultimo()
+            _ultimo_uso = time.time()
+        else:
+            m = modelo_preciso()
+            _preciso_uso = time.time()
         duracion = sum(len(b) for b in ultimo_audio) / float(TASA) if ultimo_audio else 0.0
         if m is not None and duracion > REPASO_MAX:
             # El 12/09 small tardo 24 y 35 s con audios largos, con el plazo del
@@ -359,7 +415,7 @@ def atender_reintento(ultimo_audio):
             # en el siguiente segmento en vez de seguir sordo para nada
             texto = quitar_nombre(transcribir_whisper(
                 ultimo_audio, m, seguir=lambda: os.path.exists(REINTENTO)))
-            anota("oido fino: '%s' (%.1f s)" % (texto, time.time() - t0))
+            anota("%s: '%s' (%.1f s)" % ("ultimo recurso" if ultimo else "oido fino", texto, time.time() - t0))
         elif not ultimo_audio:
             anota("oido fino: no queda audio de la orden anterior")
     except Exception as e:
@@ -1016,6 +1072,7 @@ try:
                 if not dictando and not confirmando:
                     atender_reintento(ultimo_audio)
                     soltar_preciso_si_toca()
+                    soltar_ultimo_si_toca()
 
                 # --- entrar y salir del modo dictado ---
                 quiere_dictar = bool(DICTAR) and os.path.exists(DICTAR)

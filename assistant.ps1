@@ -6981,6 +6981,9 @@ $WhisperModelo = [string](Get-Cfg 'input' 'whisperModelo' 'small')
 # repasa el MISMO audio con este (mas lento, bastante mas preciso con los
 # nombres propios). Vacio = desactivado, se dicta solo con el rapido.
 $WhisperPreciso = [string](Get-Cfg 'input' 'whisperModeloPreciso' '')
+# ULTIMO RECURSO (15/09): si ni el rapido ni el preciso entienden la orden, se repasa con
+# este (~12 s). Vacio = desactivado. Ver Request-UltimoRecurso.
+$WhisperUltimo = [string](Get-Cfg 'input' 'whisperModeloUltimo' 'large-v3-turbo')
 $MarcaDictar = Join-Path $TmpDir "dictar.flag"
 # confirmacion por voz de coincidencias dudosas: el worker escucha si/no
 $MarcaConfirmar = Join-Path $TmpDir "confirmar.flag"
@@ -7140,7 +7143,7 @@ function Initialize-Escucha {
                 -ArgumentList @('-u', $worker, $EscuchaNombre, $MarcaWake, $EventLog, $EscuchaGanancia,
                                 $MarcaPausa, $MarcaDictar, $RutaDictado, $RutaParcial, $RutaNivel,
                                 $MarcaConfirmar, $RutaConfirmacion, "$MotorDictado`:$WhisperModelo", $RutaVocabulario,
-                                $conf, $MarcaReintento, $RutaReintento, $WhisperPreciso) `
+                                $conf, $MarcaReintento, $RutaReintento, $WhisperPreciso, $WhisperUltimo) `
                 -WorkingDirectory $LogDir -WindowStyle Hidden -PassThru `
                 -RedirectStandardError $rutaErrWorker
         } else {
@@ -10480,6 +10483,37 @@ $script:reintentoEco = $false
 $script:reintentoVence = 0
 $script:reintentoTexto = ''
 $ReintentoMaxMs = 15000            # si no contesta a tiempo, se sigue sin el
+# ULTIMO RECURSO: WHISPER TURBO (15/09, elegido por braya: "si, pero no jugando"). Cuando
+# ni base ni small sacan una orden, se repasa el mismo audio con large-v3-turbo. Con sus
+# grabaciones rescato 19 de 36 que fallaban sin romper ninguna y 0 ordenes con ruido,
+# pero tarda ~12 s (y ~35 s si hay que cargarlo): de ahi su propio plazo. Nunca jugando,
+# nunca con lo que parece charla y una sola vez por orden.
+$ReintentoUltimoMs = 60000
+$script:reintentoUltimo = $false
+$script:reintentoAlFallar = 'procesar'
+function Request-UltimoRecurso([string]$orig, [bool]$reconocida, [bool]$eco, [string]$alFallar = 'procesar') {
+    if (-not $WhisperUltimo -or $script:reintentoUltimo -or $script:juegoActivo) { return $false }
+    if (-not $script:wakeProc -or $script:wakeProc.HasExited) { return $false }
+    if (-not $reconocida -and (Test-PareceCharla $orig)) { return $false }
+    if (-not (Test-MereceRepaso $orig)) { return $false }
+    try {
+        Remove-Item -LiteralPath $RutaReintento -Force -ErrorAction SilentlyContinue
+        [System.IO.File]::WriteAllText($MarcaReintento, 'ultimo')
+        $script:reintentoTexto = $orig
+        $script:reintentoReconocida = $reconocida
+        $script:reintentoEco = $eco
+        $script:reintentoUltimo = $true
+        $script:reintentoAlFallar = $alFallar
+        $script:reintentoVence = $sw.ElapsedMilliseconds + $ReintentoUltimoMs
+        Log "ULTIMO RECURSO: ni base ni small sacan una orden de '$orig'; lo repasa turbo"
+        Add-Estadistica 'turbo' $orig
+        Set-UI 'pensando' 'Pensandolo mejor'
+        return $true
+    } catch {
+        $script:reintentoUltimo = $false
+        return $false
+    }
+}
 # --- AUTOSORDINA: se calla sola si el microfono entra en racha de ruido ---
 # Tres descartes en cinco minutos no son mala suerte: es que esta oyendo algo
 # que no eres tu. Antes de los filtros de hoy eso acababa abriendo cosas;
@@ -10630,6 +10664,7 @@ function Start-Dictado([string]$origen) {
     # nueva empezaria con basura del pasado
     if ($VozWindowsOn) { Remove-Item -LiteralPath $RutaDictadoWin -Force -ErrorAction SilentlyContinue }
     $script:yaReintentado = $false
+    $script:reintentoUltimo = $false
     # BOTON CON LA SORDINA PUESTA ("no me escuches media hora" o la autosordina).
     # La sordina es para el NOMBRE, no para ti: el propio aviso dice "usa el
     # boton". Pero se hace con la marca de pausa, que para el worker es "tira
@@ -12329,24 +12364,50 @@ while ($true) {
             $script:reintentoReconocida = $false
             $ecoR = $script:reintentoEco
             $script:reintentoEco = $false
+            $esUltimo = $script:reintentoUltimo
+            $script:reintentoUltimo = $false
+            $alFallar = $script:reintentoAlFallar
+            $script:reintentoAlFallar = 'procesar'
             $limpio = $fino.Trim()
-            if ($reconocida -and $ecoR) {
+            # si lo que oyo quien repaso es la frase de ejemplo (la escucha lo apunta con "eco")
+            $ecoFino = $false
+            try {
+                $rcF = Join-Path $TmpDir 'dictado-confianza.txt'
+                if (Test-Path -LiteralPath $rcF) {
+                    $ecoFino = ([System.IO.File]::ReadAllText($rcF)) -match '\beco\b'
+                    Remove-Item -LiteralPath $rcF -Force -ErrorAction SilentlyContinue
+                }
+            } catch {}
+            # dos modelos que oyen EXACTAMENTE lo mismo se confirman, aunque sea la frase de ejemplo
+            $mismoQueAntes = [bool]($limpio -and (ConvertTo-Plain $limpio) -eq (ConvertTo-Plain $orig))
+            if ($esUltimo) {
+                # ULTIMO RECURSO (turbo): vale si trae una orden entendible, con la misma guarda del eco
+                if ($limpio -and (Test-FastCommand $limpio) -and (-not $ecoFino -or $mismoQueAntes)) {
+                    Log "ULTIMO RECURSO: '$orig' -> '$limpio'"
+                    Add-Estadistica 'turbo-sirvio' "$orig -> $limpio"
+                    Process-Texto $limpio
+                } elseif ($reconocida -or $alFallar -eq 'noentendi') {
+                    Log "ULTIMO RECURSO: turbo tampoco lo saca ('$orig' -> '$limpio'); no hago nada"
+                    Add-Estadistica 'turbo-nada' $orig
+                    $script:seguimientoPendiente = $false
+                    Send-UIEvento 'gesto:confuso'
+                    Show-Popup "No te entendi. Repitelo." 'error'
+                    Say "No te entendi"
+                } else {
+                    Log "ULTIMO RECURSO: turbo tampoco saca una orden de '$orig' ('$limpio'); sigue su camino"
+                    Add-Estadistica 'turbo-nada' $orig
+                    Process-Texto $orig
+                }
+            } elseif ($reconocida -and $ecoR) {
                 # lo primero era un eco de la frase de ejemplo: solo vale lo que confirme el repaso
                 # ... y un eco no confirma a otro eco (tanda dirigida, 14/09): "pon modo noche"
-                # desde lejos, base lo oyo bien, small oyo "Que hora es" y se hizo la hora
-                $ecoFino = $false
-                try {
-                    $rcF = Join-Path $TmpDir 'dictado-confianza.txt'
-                    if (Test-Path -LiteralPath $rcF) {
-                        $ecoFino = ([System.IO.File]::ReadAllText($rcF)) -match '\beco\b'
-                        Remove-Item -LiteralPath $rcF -Force -ErrorAction SilentlyContinue
-                    }
-                } catch {}
-                if ($limpio -and -not $ecoFino -and (Test-MismoAudio $orig $limpio) -and (Test-FastCommand $limpio)) {
+                # desde lejos, base lo oyo bien, small oyo "Que hora es" y se hizo la hora. Si el
+                # repaso no lo confirma, se intenta con turbo antes de rendirse
+                if ($limpio -and (-not $ecoFino -or $mismoQueAntes) -and (Test-MismoAudio $orig $limpio) -and (Test-FastCommand $limpio)) {
                     Log "OIDO FINO: el eco '$orig' lo confirma el repaso como '$limpio'"
                     Add-Estadistica 'fino-sirvio' "$orig -> $limpio"
                     Process-Texto $limpio
-                } else {
+                } elseif (-not (Request-UltimoRecurso $orig $true $true 'noentendi')) {
                     Log "OIDO FINO: '$orig' era la frase de ejemplo y el repaso ('$limpio') no lo confirma; no hago nada"
                     Add-Estadistica 'fino-eco' $orig
                     $script:seguimientoPendiente = $false
@@ -12362,22 +12423,28 @@ while ($true) {
                 Add-Estadistica 'fino-igual' $orig
                 Process-Texto $orig
             } elseif ($limpio -and (ConvertTo-Plain $limpio) -ne (ConvertTo-Plain $orig) -and (Test-MismoAudio $orig $limpio)) {
-                Log "OIDO FINO: '$orig' -> '$limpio'"
-                Add-Estadistica 'fino-sirvio' "$orig -> $limpio"
-                Process-Texto $limpio
+                if ((Test-FastCommand $limpio) -or -not (Request-UltimoRecurso $orig $false $false 'procesar')) {
+                    Log "OIDO FINO: '$orig' -> '$limpio'"
+                    Add-Estadistica 'fino-sirvio' "$orig -> $limpio"
+                    Process-Texto $limpio
+                }
             } elseif ($limpio -and -not (Test-MismoAudio $orig $limpio)) {
-                Log "OIDO FINO descartado: '$limpio' no se parece en nada a '$orig'; es invento suyo"
-                Add-Estadistica 'fino-invento' "$orig -> $limpio"
-                Add-Estadistica 'ruido' $orig
-                Add-RuidoRacha
-                $script:seguimientoPendiente = $false
-                Send-UIEvento 'gesto:confuso'
-                Show-Popup "No te entendi. Repitelo." 'error'
-                Say "No te entendi"
+                if (-not (Request-UltimoRecurso $orig $false $false 'noentendi')) {
+                    Log "OIDO FINO descartado: '$limpio' no se parece en nada a '$orig'; es invento suyo"
+                    Add-Estadistica 'fino-invento' "$orig -> $limpio"
+                    Add-Estadistica 'ruido' $orig
+                    Add-RuidoRacha
+                    $script:seguimientoPendiente = $false
+                    Send-UIEvento 'gesto:confuso'
+                    Show-Popup "No te entendi. Repitelo." 'error'
+                    Say "No te entendi"
+                }
             } else {
-                # el oido fino oyo lo mismo (o nada): no hay nada que ganar
-                Add-Estadistica 'fino-igual' $orig
-                Process-Texto $orig
+                # el oido fino oyo lo mismo (o nada): se intenta con turbo; si no, sigue su camino
+                if (-not (Request-UltimoRecurso $orig $false $false 'procesar')) {
+                    Add-Estadistica 'fino-igual' $orig
+                    Process-Texto $orig
+                }
             }
         }
     }

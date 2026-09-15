@@ -831,6 +831,39 @@ cuando con las 20 de antes parecían 17 de 20. Veinte frases no enseñaban esto.
   - «aure» / «aura» -> abre; «al ochente», «Abésame», «Aguete ruando»,
     «meni meni sato», «temporizables»; y «pon el juego **el** 30».
   - En marcha: si subir el volumen de la voz floja rescata «desde lejos».
+- **Ronda del 15/09 (con un agente para las correcciones):**
+  - Tanda dirigida reanalizada con todo: **44 de 64 (69 %), 0 órdenes
+    equivocadas** (antes 35 y 2). Desde lejos sigue en 3 de 12.
+  - Subir el volumen de la voz floja antes de Whisper: 64 -> 65 de 83 (dentro
+    del ±1). No se aplica.
+  - Juego por sonido también sin verbo, con umbral 0,85 («Ahora gus gus dup»,
+    donde «ahora» se borra como muletilla): 0 falsos en 786 frases.
+  - Correcciones del agente: se quedan las deformaciones que se repiten (bofsa,
+    aufza, pauza, miniminiza, gus gus dup, se respodify, gato hendito). **Se
+    quitaron 14 que eran la transcripción exacta de una sola grabación**: subían
+    la nota de estas grabaciones pero en directo Whisper no oirá nunca lo mismo.
+  - **Cuidado con la cifra:** todo se ajustó mirando `cien` y `dirigida`, así que
+    medir con ellas es aprenderse el examen. La cifra honesta sale de la tanda
+    `validacion` (60 frases que no se usan para ajustar nada).
+  - **Whisper large-v3-turbo como último recurso** (cuando base y small no dan
+    ninguna orden), con 36 grabaciones que fallaban, 15 de control y 45 trozos de
+    ruido: rescata **19 de 36** (normal 10 de 12, voz baja 3 de 4, lejos solo 2
+    de 11), no rompe ninguna de control y 0 órdenes con ruido. La única orden
+    equivocada fue un eco de la frase de ejemplo («¿Qué hora es?»), que la guarda
+    del eco ya frena. Precio: **~12 s por frase** en la Ally, 34 s la primera
+    carga y ~1 GB de RAM mientras está cargado. **Decisión de braya: sí, pero no
+    jugando.** Montado así: la escucha acepta un tercer modelo
+    (`input.whisperModeloUltimo`, por defecto large-v3-turbo; vacío lo apaga), que
+    se carga solo al pedirlo, suelta small antes de cargar y se suelta a los 2 min
+    sin uso o en cuanto hay un juego delante. El asistente lo pide
+    (`Request-UltimoRecurso`) cuando base y small no sacan una orden o no
+    confirman un eco; nunca jugando, ni con lo que parece charla, una vez por
+    orden y con 60 s de plazo. Lo que traiga pasa la guarda del eco: una frase de
+    ejemplo solo vale si coincide con lo que oyó base (dos modelos que oyen lo
+    mismo sí se confirman). **Sin probar con voz.**
+  - **Alternativas a Whisper por medir** con las 224 grabaciones: NVIDIA Parakeet
+    TDT 0.6B v3 (rápido en CPU, entiende español) y whisper.cpp con la gráfica AMD
+    de la Ally (Vulkan), que podría dejar turbo en pocos segundos.
 - **¿1000 grabaciones más?** Todavía no: con estas 100 ya se ve qué falla y se
   mide cada arreglo. Lo que falla ahora son frases concretas (modo noche/foco,
   «minimiza todo», «qué se está descargando», «cancela el temporizador») y la voz

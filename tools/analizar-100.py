@@ -33,8 +33,12 @@ import numpy as np
 
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# otra carpeta como argumento: para probar este analisis sin tener las 100 hechas
-CARPETA = sys.argv[1] if len(sys.argv) > 1 else os.path.join(RAIZ, "pruebas", "audio", "cien")
+# otra carpeta como argumento: para probar este analisis sin tener las 100 hechas.
+# --turbo: simula tambien el ULTIMO RECURSO (large-v3-turbo cuando base y small no
+# sacan ninguna orden), como hace el asistente fuera de los juegos (15/09)
+ARGS = [a for a in sys.argv[1:] if not a.startswith("--")]
+CON_TURBO = "--turbo" in sys.argv[1:]
+CARPETA = ARGS[0] if ARGS else os.path.join(RAIZ, "pruebas", "audio", "cien")
 TASA = 16000
 VOZ_NOVA_MIN_HZ = 165.0     # medido el 14/09 sobre la voz en linea (es-MX-DaliaNeural)
 
@@ -181,7 +185,8 @@ def main():
         if ab and d["eco"] and d["seguridad"] < UMBRAL_ECO:
             # eco del ejemplo con poca seguridad: solo si el repaso lo confirma, y un eco no
             # confirma a otro eco (tanda dirigida: "pon modo noche" -> small "Que hora es")
-            final = "" if ns["es_eco_del_ejemplo"](d["small"]) else asm
+            # ... salvo que los dos modelos oigan exactamente lo mismo (15/09)
+            final = asm if (not ns["es_eco_del_ejemplo"](d["small"]) or pa.plano(d["small"]) == pa.plano(d["base"])) else ""
         elif ab and d["seguridad"] >= UMBRAL_DUDOSO:
             final = ab
         elif ab:
@@ -200,6 +205,28 @@ def main():
         else:
             d["ok_base"] = bool(quiero) and ab == quiero
             d["ok"] = bool(quiero) and final == quiero
+
+    if CON_TURBO:
+        # el ultimo recurso solo cuando base y small no sacan orden (o no confirman un eco),
+        # nunca con lo que es charla: se aproxima con el tipo de la grabacion
+        faltan = [d for d in datos.values() if d["tipo"] not in ("corte", "charla") and not d["accion_final"]]
+        if faltan:
+            t0 = time.time()
+            turbo = WhisperModel("large-v3-turbo", device="cpu", compute_type="int8", cpu_threads=8)
+            for d in faltan:
+                t1 = time.time()
+                txt, _ = transcribir(turbo, audios[d["clip"]], hw)
+                d.update(turbo=txt, t_turbo=time.time() - t1)
+            del turbo
+            print("turbo: %d frases en %.0f s" % (len(faltan), time.time() - t0))
+            acc2 = pa.acciones_de([sin_nombre(d["turbo"]) for d in faltan])
+            for d in faltan:
+                at = norm_accion(acc2.get(sin_nombre(d["turbo"]).strip(), ""))
+                eco_t = ns["es_eco_del_ejemplo"](d["turbo"]) if "es_eco_del_ejemplo" in ns else False
+                if at and (not eco_t or pa.plano(d["turbo"]) == pa.plano(d["base"])):
+                    d["accion_final"] = at
+                    d["por_turbo"] = True
+                    d["ok"] = (not at) if d["tipo"] == "ruido" else (bool(d["quiero"]) and at == d["quiero"])
 
     corte = {}
     try:
@@ -254,6 +281,12 @@ def main():
                                                mediana([d["pico"] for d in todos])))
     p("")
     p("Tiempo medio por frase: base %.2f s, small %.2f s." % (np.mean([d["t_base"] for d in datos.values()]), np.mean([d["t_small"] for d in datos.values()])))
+    if CON_TURBO:
+        tt = [d["t_turbo"] for d in datos.values() if "t_turbo" in d]
+        pt = [d for d in datos.values() if d.get("por_turbo")]
+        p("")
+        p("**Con el último recurso (turbo):** usado en %d frases (%.1f s de media); aporta %d aciertos y %d órdenes equivocadas." % (
+            len(tt), np.mean(tt) if tt else 0, sum(bool(d["ok"]) for d in pt), sum(1 for d in pt if not d["ok"])))
     p("")
     malas = [d for d in datos.values() if d["ok"] is False]
     if malas:
