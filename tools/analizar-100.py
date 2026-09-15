@@ -179,7 +179,9 @@ def main():
         # repaso (y se queda el repaso si trae orden); sin orden, repaso si merece
         d["eco"] = bool(ns["es_eco_del_ejemplo"](d["base"])) if "es_eco_del_ejemplo" in ns else False
         if ab and d["eco"] and d["seguridad"] < UMBRAL_ECO:
-            final = asm      # eco del ejemplo con poca seguridad: solo si el repaso lo confirma
+            # eco del ejemplo con poca seguridad: solo si el repaso lo confirma, y un eco no
+            # confirma a otro eco (tanda dirigida: "pon modo noche" -> small "Que hora es")
+            final = "" if ns["es_eco_del_ejemplo"](d["small"]) else asm
         elif ab and d["seguridad"] >= UMBRAL_DUDOSO:
             final = ab
         elif ab:

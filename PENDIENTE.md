@@ -815,6 +815,22 @@ cuando con las 20 de antes parecían 17 de 20. Veinte frases no enseñaban esto.
     diseño.
   - Pendiente de la tanda: subir el volumen de la voz floja antes de Whisper
     (el experimento está escrito y usa también la tanda dirigida).
+- **Tanda dirigida, grabada el 14/09 (23:17-23:24):** 35 de 64 (55 %), con 2
+  órdenes equivocadas. Voz baja 11 de 13, charla 4 de 4, tele y música 6 de 6
+  (no se hizo nada), deprisa 4 de 9, normal 7 de 20 (casi todo títulos de
+  juegos) y **desde lejos 3 de 12** (pico 0,38). Lo que se arregló por ella:
+  - **Las 2 equivocadas eran de la lógica, no del oído:** «pon modo noche»
+    desde lejos se oyó bien pero, al ser la frase de ejemplo, el repaso oyó
+    «¿Qué hora es?» (otra frase de ejemplo) y se hizo la hora: **un eco ya no
+    confirma a otro eco**. «Cierra steam» se oyó «¡Siempre Steam!» y abría Steam:
+    **sin verbo, cada palabra tiene que ser del nombre** (o parecérsele mucho).
+  - **Juegos por cómo suenan** (`Find-JuegoPorSonido`): el título pasado a cómo
+    lo dice alguien que habla español y comparado por sonido. Con todo lo que
+    oyó Whisper: 13 frases acaban en su juego, 0 en otro juego y 0 frases
+    normales en un juego. Solo detrás de «abre…» y siempre preguntando antes.
+  - «aure» / «aura» -> abre; «al ochente», «Abésame», «Aguete ruando»,
+    «meni meni sato», «temporizables»; y «pon el juego **el** 30».
+  - En marcha: si subir el volumen de la voz floja rescata «desde lejos».
 - **¿1000 grabaciones más?** Todavía no: con estas 100 ya se ve qué falla y se
   mide cada arreglo. Lo que falla ahora son frases concretas (modo noche/foco,
   «minimiza todo», «qué se está descargando», «cancela el temporizador») y la voz

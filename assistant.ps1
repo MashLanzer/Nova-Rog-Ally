@@ -203,6 +203,8 @@ $VERBOS_OIDOS = @{
     'con'   = 'pon'      # pon modo noche -> con el modo noche
     'pongo' = 'pon'      # abre steam y pon modo juego -> ... y pongo modo juego
     'lea'   = 'lee'      # lee la pantalla -> lea la pantalla
+    'aure'  = 'abre'     # abre elden ring -> aure el ring (tanda dirigida, 14/09)
+    'aura'  = 'abre'     # abre peak -> aura pic
     'sierra' = 'cierra'  # cierra discord -> sierra discord (ya lo pillaba por
                          # distancia, pero asi no depende de ella)
 }
@@ -510,6 +512,66 @@ function ConvertTo-Juego([string]$s) {
     $t = [regex]::Replace($t, '\bv\b', '5')
     $t = [regex]::Replace($t, '\bi\b', '1')
     return (($t -replace '\s+', ' ').Trim())
+}
+
+# JUEGOS POR COMO SUENAN (14/09, tanda dirigida). Sin la lista de nombres, Whisper en
+# espanol escribe los titulos en ingles como le suenan: "Jolon Nights", "gus gus dup",
+# "Aura pic", "contenguarme". Por letras no se parecen al titulo; por SONIDO si. Esto
+# pasa cada titulo a como lo diria alguien que habla espanol (la h inglesa suena j, "oo"
+# suena u, "igh" suena ai...) y lo oido a su clave de sonido, y los compara. Medido con
+# lo que oyo Whisper en las dos tandas: 12 de 34 titulos mal oidos encontrados y NINGUNA
+# de 391 frases que no son de juegos (ni el ruido real) se confunde con uno. Se usa solo
+# detras de un verbo de abrir y SIEMPRE pregunta antes ("¿Hollow Knight?").
+function Get-ClaveSonido([string]$t, [bool]$ingles = $false) {
+    $t = ConvertTo-Juego $t
+    $t = [regex]::Replace($t, '\btres\b', '3')
+    $t = [regex]::Replace($t, '\bdos\b', '2')
+    $t = [regex]::Replace($t, '\buno\b', '1')
+    if ($ingles) {
+        foreach ($par in @(@('ght', 't'), @('igh', 'ai'), @('kn', 'n'), @('ph', 'f'), @('th', 't'), @('ck', 'k'), @('ee', 'i'), @('ea', 'i'),
+                           @('oo', 'u'), @('ow', 'o'), @('out', 'aut'), @('ou', 'au'), @('wa', 'gua'), @('w', 'u'), @('y', 'i'), @('qu', 'k'))) {
+            $t = $t.Replace($par[0], $par[1])
+        }
+        $t = [regex]::Replace($t, '\bh', 'j')
+        $t = [regex]::Replace($t, 'e\b', '')
+    }
+    $t = [regex]::Replace($t, 'c(?=[ei])', 's')
+    $t = $t.Replace('c', 'k').Replace('z', 's').Replace('v', 'b')
+    $t = [regex]::Replace($t, 'g(?=[ei])', 'j')
+    $t = $t.Replace('ll', 'i').Replace('h', '').Replace('x', 'ks')
+    $t = [regex]::Replace($t, '(.)\1+', '$1')
+    return ($t -replace '\s', '')
+}
+
+$script:ClavesJuegos = $null
+function Find-JuegoPorSonido([string]$resto, [string]$frase) {
+    if (-not $script:Juegos -or @($script:Juegos).Count -eq 0) { return $null }
+    if (-not $script:ClavesJuegos -or $script:ClavesJuegos.Count -ne @($script:Juegos).Count) {
+        $script:ClavesJuegos = @{}
+        foreach ($jS in @($script:Juegos)) { $script:ClavesJuegos[$jS.nombre] = Get-ClaveSonido $jS.nombre $true }
+    }
+    # con y sin la palabra de delante: "Aure el ring" se prueba como "el ring" y como "ring"
+    $variantes = New-Object System.Collections.ArrayList
+    [void]$variantes.Add((Get-ClaveSonido $resto))
+    $sinPrimera = (($frase -split '\s+', 2) + @(''))[1]
+    if ($sinPrimera) { [void]$variantes.Add((Get-ClaveSonido $sinPrimera)) }
+    $variantes = @($variantes | Where-Object { $_.Length -ge 3 } | Select-Object -Unique)
+    if ($variantes.Count -eq 0) { return $null }
+    $mejor = $null; $mejorP = 0.0; $segundaP = 0.0
+    foreach ($jS in @($script:Juegos)) {
+        $k = [string]$script:ClavesJuegos[$jS.nombre]
+        if (-not $k) { continue }
+        $p = 0.0
+        foreach ($q in $variantes) {
+            $pq = 1.0 - ((Get-Distancia $q $k) / [double][Math]::Max($q.Length, $k.Length))
+            if ($pq -gt $p) { $p = $pq }
+        }
+        if ($p -gt $mejorP) { $segundaP = $mejorP; $mejorP = $p; $mejor = $jS }
+        elseif ($p -gt $segundaP) { $segundaP = $p }
+    }
+    # sin un claro ganador (Outlast / Outlast 2) no se adivina
+    if ($mejor -and $mejorP -ge 0.5 -and ($mejorP - $segundaP) -ge 0.08) { return $mejor }
+    return $null
 }
 
 # Lee la biblioteca de Steam del disco (appmanifest_*.acf). Es la unica forma
@@ -2584,7 +2646,7 @@ function Resolve-Fragment([string]$f) {
         # de la palabra, y "baja el volumen 2 veces" acababa poniendolo al
         # 2 %: lo contrario de lo que pediste, y sin vuelta atras facil.
         # "de"/"del" tambien: "pon el brillo al treinta" se oyo "Con el brillo del 30" (14/09)
-        if ($f -match '(?:volumen|sonido|audio)[^0-9]{0,20}?\b(?:al|a|de|del)\s+(\d{1,3})\b' -or
+        if ($f -match '(?:volumen|sonido|audio)[^0-9]{0,20}?\b(?:al|a|de|del|el)\s+(\d{1,3})\b' -or
             $f -match '(?:volumen|sonido|audio)[^0-9]{0,20}(\d{1,3})\s*(?:%|por\s*ciento)' -or
             # "pon el volumen setenta", sin "al": asi lo oye Whisper deprisa (14/09). Solo
             # con "pon": "baja el volumen 2 veces" no es un porcentaje
@@ -2595,7 +2657,7 @@ function Resolve-Fragment([string]$f) {
         # lleva % / "por ciento" detras. Antes valia cualquier numero cerca
         # de la palabra, y "baja el volumen 2 veces" acababa poniendolo al
         # 2 %: lo contrario de lo que pediste, y sin vuelta atras facil.
-        if ($f -match 'brillo[^0-9]{0,20}?\b(?:al|a|de|del)\s+(\d{1,3})\b' -or
+        if ($f -match 'brillo[^0-9]{0,20}?\b(?:al|a|de|del|el)\s+(\d{1,3})\b' -or
             $f -match 'brillo[^0-9]{0,20}(\d{1,3})\s*(?:%|por\s*ciento)' -or
             $f -match '^(?:pon|ponme|ponle)\s+(?:el\s+)?brillo\s+(\d{1,3})$') {
             $n = [int]$Matches[1]; if ($n -ge 0 -and $n -le 100) { $pctBri = $n }
@@ -2683,14 +2745,24 @@ function Resolve-Fragment([string]$f) {
     # --- abrir algo, con las variantes latinas de "abrir/ir a" ---
     # el lookahead suelta "pon spotify al 40": eso es volumen de esa app, no
     # abrirla. Sin el, "pon" (verbo de abrir) se quedaba con la frase entera.
-    if ($f -match '^(?:abre|abreme|abrele|abrir|abri|abrime|ejecuta|ejecutame|inicia|iniciame|lanza|lanzame|arranca|arrancame|prende|prendeme|ponme|poneme|ponele|pone|pon|metete|mete|entrate|entra|andate|anda|vete|ve|llevame|muestrame|ensename)\s+(?!.*\bal\s+\d{1,3}\s*(?:%|por ciento)?$)(?!(?:el\s+)?(?:juego|videojuego)\s+\d{1,3}\s*(?:%|por ciento)?$)(?:a\s+|al\s+|en\s+|de\s+)?(.+)$') {
-        return (Resolve-Target $Matches[1])
+    if ($f -match '^(?:abre|abreme|abrele|abrir|abri|abrime|ejecuta|ejecutame|inicia|iniciame|lanza|lanzame|arranca|arrancame|prende|prendeme|ponme|poneme|ponele|pone|pon|metete|mete|entrate|entra|andate|anda|vete|ve|llevame|muestrame|ensename)\s+(?!.*\bal\s+\d{1,3}\s*(?:%|por ciento)?$)(?!(?:el\s+)?(?:juego|videojuego)\s+(?:(?:al|el)\s+)?\d{1,3}\s*(?:%|por ciento)?$)(?:a\s+|al\s+|en\s+|de\s+)?(.+)$') {
+        $objAbrir = $Matches[1]
+        $rtAbrir = Resolve-Target $objAbrir
+        if ($rtAbrir) { return $rtAbrir }
+        # no es nada conocido por como se escribe: ¿un juego por como suena? (ver
+        # JUEGOS POR COMO SUENAN). Se abre el de verdad, pero PREGUNTANDO antes
+        $jSonido = Find-JuegoPorSonido $objAbrir $f
+        if ($jSonido) {
+            $rtAbrir = Resolve-Target ([string]$jSonido.nombre)
+            if ($rtAbrir) { $script:dudosa = [string]$jSonido.nombre; return $rtAbrir }
+        }
+        return $null
     }
     # --- volumen de UNA aplicacion (mezclador de Windows) ---
     # Va aqui abajo a proposito: si estuviera antes, "sube el volumen" caeria
     # aqui y acabaria buscando una app llamada "volumen".
     # el "al" puede faltar: "pon el juego al ochenta" se oye "Con el juego, 80" (14/09)
-    if ($f -match '^(?:sube|subele|baja|bajale|silencia|mutea|quita el sonido a|pon)\s+(?:el\s+|la\s+|a\s+|al\s+)?(.+?)\s*(?:(?:al\s+)?(\d{1,3})\s*(?:%|por ciento)?)?$') {
+    if ($f -match '^(?:sube|subele|baja|bajale|silencia|mutea|quita el sonido a|pon)\s+(?:el\s+|la\s+|a\s+|al\s+)?(.+?)\s*(?:(?:(?:al|el)\s+)?(\d{1,3})\s*(?:%|por ciento)?)?$') {
         $quien = $Matches[1].Trim(); $pct = $Matches[2]
         # "sube el volumen" y compania NO son esto
         if ($quien -notmatch '^(?:volumen|sonido|audio|brillo|pantalla)$') {
@@ -2738,6 +2810,19 @@ function Resolve-Fragment([string]$f) {
         # "King is a Hollow Knight" y preguntaba si abrirlo (14/09)
         foreach ($wSv in @($f -split '\s+')) {
             if ($INGLES_COMUN -contains $wSv -and $descSv -notmatch ('\b' + [regex]::Escape($wSv) + '\b')) { return $null }
+        }
+        # SOLO EL NOMBRE (tanda dirigida, 14/09): "cierra steam" desde lejos se oyo
+        # "¡Siempre Steam!" y abria Steam. Sin verbo, cada palabra tiene que ser parte
+        # del nombre, parecerse mucho a una (un titulo mal oido) o ser de relleno.
+        $palDesc = @((ConvertTo-Juego $descSv) -split '\s+' | Where-Object { $_ })
+        foreach ($wSv in @((ConvertTo-Juego $f) -split '\s+' | Where-Object { $_ })) {
+            if ($wSv -in @('el', 'la', 'los', 'las', 'un', 'una', 'en', 'de', 'del', 'y', 'a', 'al', 'por', 'favor', 'porfa', 'nova', 'ahora', 'ya', 'pues', 'bueno', 'vale', 'ok', 'oye', 'steam', 'juego')) { continue }
+            if ($palDesc -contains $wSv) { continue }
+            $cercaSv = $false
+            if ($wSv.Length -ge 4) {
+                foreach ($pdSv in $palDesc) { if ($pdSv.Length -ge 4 -and (Get-Distancia $wSv $pdSv) -le 2) { $cercaSv = $true; break } }
+            }
+            if (-not $cercaSv) { return $null }
         }
     }
     if ($sv) { foreach ($x in $sv) { $x.sinVerbo = $true } }
@@ -12234,7 +12319,17 @@ while ($true) {
             $limpio = $fino.Trim()
             if ($reconocida -and $ecoR) {
                 # lo primero era un eco de la frase de ejemplo: solo vale lo que confirme el repaso
-                if ($limpio -and (Test-MismoAudio $orig $limpio) -and (Test-FastCommand $limpio)) {
+                # ... y un eco no confirma a otro eco (tanda dirigida, 14/09): "pon modo noche"
+                # desde lejos, base lo oyo bien, small oyo "Que hora es" y se hizo la hora
+                $ecoFino = $false
+                try {
+                    $rcF = Join-Path $TmpDir 'dictado-confianza.txt'
+                    if (Test-Path -LiteralPath $rcF) {
+                        $ecoFino = ([System.IO.File]::ReadAllText($rcF)) -match '\beco\b'
+                        Remove-Item -LiteralPath $rcF -Force -ErrorAction SilentlyContinue
+                    }
+                } catch {}
+                if ($limpio -and -not $ecoFino -and (Test-MismoAudio $orig $limpio) -and (Test-FastCommand $limpio)) {
                     Log "OIDO FINO: el eco '$orig' lo confirma el repaso como '$limpio'"
                     Add-Estadistica 'fino-sirvio' "$orig -> $limpio"
                     Process-Texto $limpio
