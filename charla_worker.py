@@ -77,7 +77,11 @@ SISTEMA_ORDEN = (
     " Si braya te pide que HAGAS algo en su consola o en Windows (abrir o cerrar programas "
     "o juegos, instalar, buscar o mover archivos, cambiar ajustes, escribir en una ventana), "
     "no lo expliques ni digas que no puedes: responde SOLO, exactamente: [ORDEN]\n"
+    "También si te lo pide quejándose, repitiéndolo o en mitad de la conversación: no te "
+    "disculpes ni prometas hacerlo, porque hablando no puedes hacerlo; responde [ORDEN] y "
+    "Nova lo hace. [ORDEN] va solo, sin ninguna frase delante.\n"
     "Ejemplos: 'abre la carpeta de descargas' -> [ORDEN]. 'instálame Discord' -> [ORDEN]. "
+    "'¿por qué no abriste Steam? ábrelo ya' -> [ORDEN]. 'pon música de Pitbull en YouTube' -> [ORDEN]. "
     "'¿qué opinas de Hades?' -> contestas tú con normalidad."
 )
 SISTEMA_API = (
@@ -402,6 +406,13 @@ def generar_api(mensajes, marcas, emitir, extra="", buscar=False):
                     estado, t = ini.meter(trozo)
                     if estado == "marca":
                         return "marca", t
+                    # LA MARCA AL FINAL (15/09): con la conversacion delante, la API contesto
+                    # "Tienes toda la razon. Voy a hacerlo ahora. [ORDEN]". Solo se miraba el
+                    # principio, asi que Nova se disculpaba, la marca se borraba al limpiar y
+                    # Steam no se abria (braya lo pidio tres veces seguidas). En cuanto aparece,
+                    # se deja de hablar y es una orden: lo ya dicho ("voy a hacerlo") encaja.
+                    if estado == "sigue" and MARCA_ORDEN in marcas and "[ORDEN" in texto.upper():
+                        return "marca", MARCA_ORDEN
                     if estado == "sigue":
                         for f in troc.meter(t):
                             emitir(f)
@@ -763,13 +774,27 @@ def reescribir_orden(texto):
     previos = historial[:-1]
     if not previos or not RE_DEIXIS.search(cm.plano(texto)):
         return texto
+    # CON LA API PRIMERO (15/09): con qwen2.5:1.5b, "abre steam de una vez, no solo pidas
+    # disculpas" (RE_DEIXIS caza "solo") se reescribio "Abre Steam y inicia sesion, luego
+    # inicia una nueva partida o registrate": pasos que nadie pidio. La API lo hace bien y
+    # en menos de un segundo; el local queda para cuando no hay API.
+    sistema_r = ("Reescribe la última petición de braya como UNA orden completa y autónoma en español, "
+                 "sustituyendo 'lo', 'eso', 'luego'... por lo que corresponda según la conversación. "
+                 "Si ya es una orden completa, devuélvela igual. No añadas pasos ni nada que no haya pedido. "
+                 "Responde SOLO con la orden, sin comillas ni explicaciones.")
+    if api_disponible():
+        try:
+            conversacion = "\n".join(("braya: " if m["role"] == "user" else "Nova: ") + str(m["content"]) for m in previos[-6:])
+            orden = limpiar(llamar_api_simple(sistema_r, "Conversación:\n%s\n\nÚltima petición de braya: %s" % (conversacion, texto),
+                                              max_tokens=80)).strip(" \"'«»")
+            if 3 <= len(orden) <= 200 and not CJK.search(orden):
+                return orden
+        except Exception:  # noqa: BLE001
+            pass
     try:
         cuerpo = {"model": MODELO_LOCAL, "stream": False, "keep_alive": "2m",
                   "options": {"num_predict": 40, "temperature": 0.1, "num_ctx": 1536},
-                  "messages": [{"role": "system", "content": (
-                      "Reescribe la última petición de braya como UNA orden completa y autónoma en español, "
-                      "sustituyendo 'lo', 'eso', 'luego'... por lo que corresponda según la conversación. "
-                      "Responde SOLO con la orden, sin comillas ni explicaciones.")}]
+                  "messages": [{"role": "system", "content": sistema_r}]
                   + previos[-6:] + [{"role": "user", "content": texto}]}
         r = httpx.post(OLLAMA + "/api/chat", json=cuerpo, timeout=20)
         r.raise_for_status()

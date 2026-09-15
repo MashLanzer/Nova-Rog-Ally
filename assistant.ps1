@@ -447,16 +447,37 @@ function Test-RecitaEjemplo([string]$texto) {
     $frases = @(Get-FrasesEjemplo)
     if ($frases.Count -eq 0 -or -not $texto) { return $false }
     $vistas = @{}
+    $partesEco = 0
     foreach ($parte in ($texto -split '[.?¿!,;]+')) {
         $pl = (ConvertTo-Plain $parte) -replace '^(?:oye |hey |ey )?nova ?', ''
         if (-not $pl) { continue }
         foreach ($f in $frases) {
             $largo = [Math]::Max($pl.Length, $f.Length)
             # "abra steam" tambien es "abre steam": parecido de 0,8 o mas
-            if ((1.0 - (Get-Distancia $pl $f) / $largo) -ge 0.8) { $vistas[$f] = 1; break }
+            if ((1.0 - (Get-Distancia $pl $f) / $largo) -ge 0.8) { $vistas[$f] = 1; $partesEco++; break }
         }
     }
-    return ($vistas.Count -ge 2)
+    # tambien la MISMA repetida (15/09): "cierra steam" se oyo "¿Que hora es? ¿Que hora es"
+    # y acabo en la charla contestando que no sabe la hora
+    return ($partesEco -ge 2)
+}
+
+# PARAKEET PARA LO QUE NO ES UNA ORDEN (15/09). En la segunda sesion de uso real,
+# Parakeet oyo bien frases largas que Whisper base destrozo, y se seguia con lo de base:
+# "ahora por favor abre youtube y reproduce musica de Pitbull" -> "abre y duro y
+# reproducente en musica de Pipboon"; "que pongan musica en YouTube" -> "que ponga
+# muzigen" (y se aprendio); "borra eso" -> "baja eso". En 27 frases de uso donde no
+# coincidian, Parakeet acerto claramente en ~16 y base solo en 3 ordenes cortas que
+# base SI entiende como orden. Por eso: si Whisper saca una orden, vale Whisper; si
+# no, se sigue con Parakeet cuando lo suyo es una frase en espanol (4+ palabras).
+function Test-EspanolLargo([string]$t) {
+    if (-not $t) { return $false }
+    $pal = @(((ConvertTo-Plain $t) -split '\s+') | Where-Object { $_ })
+    if ($pal.Count -lt 4) { return $false }
+    foreach ($ch in $t.ToCharArray()) { if ([char]::IsLetter($ch) -and [int]$ch -ge 0x250) { return $false } }
+    $ingles = @('the','and','you','is','it','to','of','what','how','so','we','go','can','i','a','yeah','well','that','this','like','say','now','okay','they','have','if','not','but','since','will','are','in','their','do','only','good','things','too','uh','my','your','with','for','be')
+    $n = @($pal | Where-Object { $ingles -contains $_ }).Count
+    return ($n / $pal.Count) -lt 0.34
 }
 
 # Distancia FONETICA. Lo que confunde el dictado casi nunca son letras al azar:
@@ -1557,7 +1578,14 @@ function Get-VozDuena([string]$ruta = '') {
 # una defensa contra el ruido, no un portero.
 function Test-VozExtrana([double]$f0 = -1, [double]$duena = -1) {
     if (-not $SoloYoOn) { return $false }
-    if ($f0 -lt 0) { $f0 = [double]$script:ultimaF0 }
+    if ($f0 -lt 0) {
+        # TU VOZ AL ENFADARTE (15/09): con el boton o respondiendole justo despues de
+        # hablar ella, quien habla eres tu. En su uso real subio a 155, 153 y 179 Hz
+        # (su tono es 116) justo al quejarse, y Nova le pregunto "no me suena tu voz" y
+        # descarto dos veces lo que dijo. Solo se desconfia de la voz tras el nombre.
+        if ($script:origenDictado -eq 'seguimiento' -or $script:origenDictado -like 'mantener*') { return $false }
+        $f0 = [double]$script:ultimaF0
+    }
     if ($f0 -le 0) { return $false }
     if ($duena -lt 0) { $duena = Get-VozDuena }
     if ($duena -le 0) { return $false }
@@ -9570,6 +9598,8 @@ $tareas
 
 Responde SOLO con la orden traducida, sin comillas, sin explicacion y sin
 ninguna palabra extra. Si pide varias cosas, pon una orden por linea.
+Nunca dejes huecos como <n> sin rellenar: si falta un dato (por ejemplo
+cuantos minutos), no pongas esa orden.
 El texto sale de un reconocedor de voz y puede traer palabras mal oidas:
 interpreta lo que quiso decir.
 Si es una peticion de verdad dirigida a un asistente pero no se puede hacer
@@ -10082,6 +10112,13 @@ function Report-Reply($out) {
         # espacio y la segunda orden podia perderse o mezclarse con la primera.
         $propuesta = ((@(($out | Out-String) -split '[\r\n]+') | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ }) -join ' y ')
         $propuesta = ($propuesta -replace '\s+', ' ').Trim()
+        # SIN HUECOS (15/09): "cierra steam y pon un temporizador de <n> minutos" no se pudo
+        # hacer entera y no se hizo nada. Lo que lleva un hueco se quita y el resto se hace.
+        if ($propuesta -match '<[^>]*>') {
+            $sinHueco = @(($propuesta -split ' y ') | Where-Object { $_ -notmatch '<[^>]*>' })
+            Log "traduccion con huecos sin rellenar ('$propuesta'): me quedo con '$($sinHueco -join ' y ')'"
+            $propuesta = ($sinHueco -join ' y ').Trim()
+        }
         # [string]: si Haiku no devolvio nada, $propuesta es $null y .Trim() tumbaba
         # el asistente entero (auditoria del 13/09)
         $propuesta = ([string]$propuesta).Trim().Trim('"').Trim("'")
@@ -10649,6 +10686,7 @@ $script:oidosDudosos = @{}
 # seguimiento), asi que el silencio no hace bucle; y como mucho se encadenan dos seguidas,
 # para que un ruido que no para no la tenga abriendose una y otra vez.
 $script:noEntendiSeguidos = 0
+$script:origenDictado = ''
 function Open-EscuchaTrasNoEntendi {
     $script:noEntendiSeguidos++
     if ($script:noEntendiSeguidos -gt 2) {
@@ -10822,6 +10860,7 @@ function Add-RuidoRacha {
 function Start-Dictado([string]$origen) {
     Log "DICTADO ($origen)"
     if ($origen -ne 'seguimiento') { $script:noEntendiSeguidos = 0 }
+    $script:origenDictado = $origen
     # llamarla de nuevo corta lo que estuviera contestando (ver CONVERSACION DE VERDAD)
     if ($origen -ne 'seguimiento') { try { Stop-Charla } catch {} }
     # si es probable que vayas a charlar, el modelo empieza a cargar ya (ver MENOS ESPERA EN FRIO)
@@ -12481,6 +12520,13 @@ while ($true) {
         if (Test-Path -LiteralPath $RutaDictado) {
             $dic = ''
             try { $dic = [System.IO.File]::ReadAllText($RutaDictado, [System.Text.Encoding]::UTF8) } catch {}
+            # UNA SEGUNDA MIRADA (15/09): "abre youtube y reproduce Pitbull" llego en el mismo
+            # segundo en que se leyo el archivo vacio, y la ventana se cerro como silencio
+            if (-not $dic.Trim()) {
+                Start-Sleep -Milliseconds 150
+                try { $dic = [System.IO.File]::ReadAllText($RutaDictado, [System.Text.Encoding]::UTF8) } catch {}
+                if ($dic.Trim()) { Log "DICTADO: el texto llego justo al leerlo; en la segunda mirada si esta" }
+            }
             Remove-Item -LiteralPath $RutaDictado -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $RutaLoTengo -Force -ErrorAction SilentlyContinue
             # ¿dijo algo el motor de Windows? Entonces se prefiere lo suyo. Si no
@@ -12655,8 +12701,17 @@ while ($true) {
             } catch {}
             $limpioW = $fino.Trim()
             $script:yaReintentado = $false
-            Log "PARAKEET -> WHISPER: '$origP' -> '$limpioW'"
-            Process-Texto $(if ($limpioW) { $limpioW } else { $origP })
+            $sigueCon = if ($limpioW) { $limpioW } else { $origP }
+            # ver PARAKEET PARA LO QUE NO ES UNA ORDEN. El repaso con small se mantiene (oye
+            # el AUDIO, no este texto): en las 202 grabaciones rescata 2 ordenes que Parakeet
+            # oyo mal ("si agradezco y abre spotify" por "cierra discord y abre spotify").
+            if ($limpioW -and -not (Test-FastCommand $limpioW) -and (Test-EspanolLargo $origP)) {
+                $sigueCon = $origP
+                Log "PARAKEET -> WHISPER: '$origP' -> '$limpioW'; Whisper no saca una orden: sigo con lo de Parakeet"
+            } else {
+                Log "PARAKEET -> WHISPER: '$origP' -> '$limpioW'"
+            }
+            Process-Texto $sigueCon
             $fino = $null
         }
         if ($null -ne $fino) {

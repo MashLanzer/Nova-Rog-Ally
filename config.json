@@ -63,7 +63,7 @@
         "motor": "vosk",
         "ganancia": "auto",
         "soloYo": true,
-        "soloYoMargenHz": 35,
+        "soloYoMargenHz": 42,
         "soloYoMinimo": 12
     },
     "modelo": {

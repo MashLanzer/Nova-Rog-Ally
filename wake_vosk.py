@@ -268,7 +268,11 @@ def _crear_medidor():
                                      IMMDeviceEnumerator, CLSCTX_ALL)
     dev = enum.GetDefaultAudioEndpoint(0, 0)      # 0 = eRender: los altavoces
     ptr = dev.Activate(IAudioMeterInformation._iid_, CLSCTX_ALL, None)
-    return ctypes.cast(ptr, POINTER(IAudioMeterInformation))
+    # QueryInterface y NO ctypes.cast (15/09): cast no reserva el objeto, asi que al
+    # soltarse 'ptr' el medidor quedaba apuntando a memoria ya liberada, y al tirarlo o
+    # rehacerlo (cada REFRESCO_MEDIDOR) se liberaba dos veces: la escucha murio con
+    # "access violation" en comtypes (unknwn.py, Release) dos veces el 15/09.
+    return ptr.QueryInterface(IAudioMeterInformation)
 
 
 def nivel_salida():

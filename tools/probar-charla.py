@@ -143,6 +143,11 @@ f = hablar(2, "abreme la carpeta de capturas", Resp(api("[ORD", "EN]")))
 comp("algo que hacer: la API lo devuelve como orden", f["ev"] == "orden" and f["texto"] == "abreme la carpeta de capturas" and frases() == [], f)
 comp("y la orden no queda en la charla", len(cw.historial) == 2)
 
+f = hablar(3, "abre steam de una vez, no me pidas disculpas", Resp(api("Tienes toda la razón. ", "Voy a hacerlo ahora.\n\n[ORD", "EN]")))
+comp("la marca [ORDEN] al final tambien es una orden (15/09)", f["ev"] == "orden" and f["texto"] == "abre steam de una vez, no me pidas disculpas", (f, frases()))
+comp("y la marca no se dice en voz alta", not any("ORDEN" in x for x in frases()), frases())
+comp("ni la orden queda en la charla", len(cw.historial) == 2, len(cw.historial))
+
 f = hablar(4, "otra dificil", Resp([], 400, b'{"error":{"message":"Your credit balance is too low"}}'),
            Resp(local("No lo sé con seguridad, ", "pero te cuento lo que recuerdo.")))
 comp("la API sin saldo: contesta el local", f.get("origen") == "local" and frases() == ["No lo sé con seguridad, pero te cuento lo que recuerdo."], (f, frases()))
@@ -325,14 +330,16 @@ try:
             pass
 
         def json(self):
-            return {"message": {"content": "recuérdame ir a la tienda a las siete y media"}}
+            # formato de Ollama y de la API a la vez: la reescritura prueba primero la API (15/09)
+            return {"message": {"content": "recuérdame ir a la tienda a las siete y media"},
+                    "content": [{"type": "text", "text": "recuérdame ir a la tienda a las siete y media"}]}
     cw.httpx.post = lambda url, **kw: (posts.append(kw.get("json")), RespPost())[1]
     del eventos[:]
     guion[:] = [Resp(api("[ORDEN]"))]
     cw.atender({"op": "hablar", "id": 46, "texto": "pues recuérdamelo luego"})
     f = fin()
     comp("una orden con 'lo' o 'luego' se reescribe con lo hablado", f["ev"] == "orden" and f["texto"] == "recuérdame ir a la tienda a las siete y media" and f.get("original") == "pues recuérdamelo luego", f)
-    comp("viendo la conversacion", posts and any(m.get("content") == "Cierra a las ocho." for m in posts[-1]["messages"]))
+    comp("viendo la conversacion", posts and "Cierra a las ocho." in json.dumps(posts[-1], ensure_ascii=False))
     del eventos[:]
     guion[:] = [Resp(api("[ORDEN]"))]
     cw.atender({"op": "hablar", "id": 47, "texto": "abre la carpeta de descargas"})

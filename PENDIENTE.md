@@ -979,6 +979,42 @@ cuando con las 20 de antes parecían 17 de 20. Veinte frases no enseñaban esto.
     bucle que lo pedía una y otra vez (UN REPASO QUE SE QUEDA SIN DUENO: un dictado
     nuevo abandona el repaso pendiente; turbo una vez por frase y nunca con el
     repaso vacío). Sin probar con voz.
+- **SEGUNDA SESIÓN DE USO (15/09, 13:08-13:21, 26 órdenes).** braya: «ya me aburrí
+  de que no me entienda». Lo rápido ya funcionaba (la charla empieza en 1,3-1,7 s,
+  traducir 2-3 s), pero:
+  - **Parakeet oía bien y se seguía con lo que oía peor.** «Ahora por favor abre
+    youtube y reproduce música de Pitbull» → base «abre y duro y reproducente en
+    música de Pipboon»; «que pongan música en YouTube» → «muzigen» (y se aprendió:
+    borrado); «borra eso» → «baja eso». En 27 frases de uso donde no coincidían,
+    Parakeet acertó claramente en ~16 y base solo en 3 órdenes cortas que base sí
+    entiende. **Arreglado:** si Whisper saca orden, vale Whisper; si no, se sigue
+    con Parakeet cuando es una frase en español de 4+ palabras (`Test-EspanolLargo`).
+    El repaso con small se mantiene: oye el audio y en las 202 grabaciones rescata
+    2 órdenes que Parakeet oyó mal.
+  - **«No me suena tu voz» con su propia voz:** al quejarse subió a 155, 153 y
+    179 Hz (su tono, 116). **Arreglado:** con el botón o en la escucha de seguimiento
+    no se desconfía de la voz; tras el nombre, margen de 42 Hz (su grito medido).
+  - **La charla se disculpaba en vez de abrir Steam** tres veces seguidas.
+    **Arreglado:** `[ORDEN]` también con quejas; con la API real, 3 de 4 quejas sueltas
+    y la cuarta con la conversación delante.
+  - **La escucha se cayó otra vez** (13:12, comtypes Release): el medidor de
+    altavoces se creaba con `ctypes.cast`, sin reservar el objeto, y se liberaba dos
+    veces. **Arreglado** con `QueryInterface` (20 creados y soltados sin caerse). Era
+    también la caída de la mañana, no turbo.
+  - «¿Qué hora es? ¿Qué hora es» (la misma frase de ejemplo dos veces) ahora también
+    es un recitado.
+  - «pon un temporizador de <n> minutos»: la traducción con huecos se hacía nada;
+    ahora se quita lo que lleva hueco y se hace el resto.
+  - «Abre YouTube y reproduce Pitbull» se perdió: se leyó el archivo del dictado
+    vacío en el mismo segundo. Ahora se mira una segunda vez (causa sin confirmar).
+  - **La marca al final:** con la conversación delante, la API contestaba «Tienes
+    toda la razón. Voy a hacerlo ahora. [ORDEN]»; solo se miraba el principio y la
+    marca se borraba. Ahora `[ORDEN]` cuenta en cualquier parte. Con la API real:
+    3 de 3 quejas acaban en orden.
+  - **La reescritura de órdenes** («recuérdamelo luego») la hacía qwen, que con 1.5B
+    se inventó «Abre Steam y inicia sesión, luego inicia una nueva partida». Ahora la
+    hace la API («Pero la idea es que lo abras…» → «Abre Steam.») y el local solo sin
+    API. Ojo: `RE_DEIXIS` también caza «solo» u «hola»; con la API solo cuesta ~0,7 s.
 - **¿1000 grabaciones más?** Todavía no: con estas 100 ya se ve qué falla y se
   mide cada arreglo. Lo que falla ahora son frases concretas (modo noche/foco,
   «minimiza todo», «qué se está descargando», «cancela el temporizador») y la voz

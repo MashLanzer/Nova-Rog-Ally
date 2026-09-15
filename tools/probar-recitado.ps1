@@ -36,7 +36,7 @@ Comp 'el recitado del 15/09 no es una orden' (Test-RecitaEjemplo 'Sube el volume
 Comp 'dos frases distintas del ejemplo tampoco' (Test-RecitaEjemplo '¿Qué hora es? Baja el brillo') ''
 Comp 'ni con el nombre y una letra cambiada' (Test-RecitaEjemplo 'Nova, abra Steam. Sube el volumen.') ''
 Comp 'una sola orden del ejemplo SI vale' (-not (Test-RecitaEjemplo 'Sube el volumen')) ''
-Comp 'la misma repetida cuenta como una' (-not (Test-RecitaEjemplo '¿Qué hora es? ¿Qué hora es')) ''
+Comp 'la misma repetida tambien es un recitado' (Test-RecitaEjemplo '¿Qué hora es? ¿Qué hora es') ''
 Comp 'dos ordenes que no son del ejemplo valen' (-not (Test-RecitaEjemplo 'abre steam y pon música')) ''
 Comp 'una del ejemplo con otra distinta vale' (-not (Test-RecitaEjemplo 'Sube el volumen, abre discord')) ''
 Comp 'nada dicho no es recitado' (-not (Test-RecitaEjemplo '')) ''
