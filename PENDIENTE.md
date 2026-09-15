@@ -1015,6 +1015,22 @@ cuando con las 20 de antes parecían 17 de 20. Veinte frases no enseñaban esto.
     se inventó «Abre Steam y inicia sesión, luego inicia una nueva partida». Ahora la
     hace la API («Pero la idea es que lo abras…» → «Abre Steam.») y el local solo sin
     API. Ojo: `RE_DEIXIS` también caza «solo» u «hola»; con la API solo cuesta ~0,7 s.
+- **TERCERA SESIÓN DE USO (15/09, 14:05-14:41, 24 órdenes).** Ya casi todo se oye
+  bien (Parakeet, base y small coinciden); lo que falla es qué hace y cuánto tarda:
+  - **Turbo apagado en uso real** (`input.whisperModeloUltimo = ""`). Hoy se pidió 25
+    veces y rescató UNA orden (y dudosa); se cargó 14 veces (hasta 55,6 s). Con él la
+    escucha llegó a 1.961 MB con 1 GB libre: Whisper tardó 41,7 s en 1,2 s de audio,
+    Parakeet 72 s en 0,5 s, «dictado sin respuesta del worker» y 80 s de audio tirado.
+    Con las grabaciones leídas turbo rescataba 6 de 14, pero manda el uso real.
+  - **Sin repaso si Parakeet y Whisper oyen lo mismo** (parecido ≥ 0,9, 3+ palabras):
+    en uso real el repaso sacó orden en 0 de 24; en las grabaciones, 1 («abre
+    otras», de 2 palabras, que se sigue repasando). Quita 30-47 s a «revisa mi
+    correo» o «puedes reproducir esta canción».
+  - **YouTube pone el vídeo**, no solo lo busca: el primer videoId de la página de
+    resultados, sin clave (antes, queja y 83 s de agente). Si falla, la búsqueda.
+  - **«Gracias» fuera del seguimiento** contesta «De nada» (era «No te entendí»).
+  - **La charla marca [ORDEN]** también para lo que Nova puede mirar («¿en cuánto está
+    la descarga de Steam?» contestaba «no veo la descarga desde aquí»).
 - **¿1000 grabaciones más?** Todavía no: con estas 100 ya se ve qué falla y se
   mide cada arreglo. Lo que falla ahora son frases concretas (modo noche/foco,
   «minimiza todo», «qué se está descargando», «cancela el temporizador») y la voz

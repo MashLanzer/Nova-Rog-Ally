@@ -2664,7 +2664,8 @@ function Resolve-Fragment([string]$f) {
     }
     if ($f -match '^(?:pon|ponme|reproduce|reproduceme|quiero ver|ver|toca)\s+(.+?)\s+en\s+youtube$') {
         $q = $Matches[1].Trim()
-        return @(@{ kind = 'url'; url = ('https://www.youtube.com/results?search_query=' + [Uri]::EscapeDataString($q)); desc = "buscar '$q' en YouTube" })
+        # 'youtube': al hacerla se pone el primer video (ver PONER EL VIDEO, NO SOLO BUSCARLO)
+        return @(@{ kind = 'url'; url = ('https://www.youtube.com/results?search_query=' + [Uri]::EscapeDataString($q)); youtube = $q; desc = "poner '$q' en YouTube" })
     }
     # buscar en el equipo (Windows Search): "busca en el equipo fotos de julio"
     if ($f -match '^(?:busca|buscame|buscar)\s+en\s+(?:el\s+)?(?:equipo|pc|computador|computadora|ordenador|windows|mis archivos)\s+(.+)$') {
@@ -5108,6 +5109,26 @@ $AccionesQueTocan = @('app', 'url', 'key', 'atajo', 'escribir', 'winkey', 'altf4
                       'enfocar', 'enfocarJuego', 'buscarEquipo', 'winprt', 'winaltg',
                       'volumenPct', 'brillo', 'lock', 'cerrarApp', 'cerrarJuego', 'cerrarTodo')
 
+# PONER EL VIDEO, NO SOLO BUSCARLO (15/09). "Reproduce la cancion de Pitbull Give Me
+# Everything en YouTube" abria la busqueda; braya se quejo y el agente tardo 83 s en
+# ponerla. La pagina de resultados de YouTube ya trae los videoId: se abre el primero,
+# sin clave ni agente. Probado: "pitbull give me everything" -> "Pitbull - Give Me
+# Everything ft. Ne-Yo, Afrojack, Nayer". Si falla o tarda, la busqueda como antes.
+function Get-PrimerVideoYouTube([string]$q) {
+    if (-not $q) { return '' }
+    try {
+        $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 6 -Headers @{ 'Accept-Language' = 'es-ES,es;q=0.9' } `
+            -Uri ('https://www.youtube.com/results?search_query=' + [Uri]::EscapeDataString($q))
+        $m = [regex]::Match([string]$r.Content, '"videoId":"([A-Za-z0-9_-]{11})"')
+        if ($m.Success) {
+            Log "YOUTUBE: '$q' -> $($m.Groups[1].Value)"
+            return 'https://www.youtube.com/watch?v=' + $m.Groups[1].Value
+        }
+        Log "YOUTUBE: '$q' sin videos en la pagina; abro la busqueda"
+    } catch { Log ("YOUTUBE: no pude sacar el video (" + $_.Exception.Message + "); abro la busqueda") }
+    return ''
+}
+
 function Invoke-FastCommand([string]$text) {
     if (-not $cmds) { return $null }
     # ENSEÑARLE UNA SECUENCIA (ver New-RecetaEnsenada): "aprende que cuando diga
@@ -5413,8 +5434,13 @@ function Invoke-FastCommand([string]$text) {
                     }
                 }
                 'url' {
-                    if ($navegador) { Start-Process $navegador $a.url -ErrorAction Stop }
-                    else { Start-Process $a.url -ErrorAction Stop }
+                    $urlA = $a.url
+                    if ($a.youtube) {
+                        $primerV = Get-PrimerVideoYouTube ([string]$a.youtube)
+                        if ($primerV) { $urlA = $primerV }
+                    }
+                    if ($navegador) { Start-Process $navegador $urlA -ErrorAction Stop }
+                    else { Start-Process $urlA -ErrorAction Stop }
                 }
                 'key' { for ($i = 0; $i -lt $a.repeat; $i++) { Send-Key $a.vk } }
                 'brillo' { Set-Brillo $a.nivel }
@@ -7085,6 +7111,8 @@ $WhisperPreciso = [string](Get-Cfg 'input' 'whisperModeloPreciso' '')
 # ULTIMO RECURSO (15/09): si ni el rapido ni el preciso entienden la orden, se repasa con
 # este (~12 s). Vacio = desactivado. Ver Request-UltimoRecurso.
 $WhisperUltimo = [string](Get-Cfg 'input' 'whisperModeloUltimo' 'large-v3-turbo')
+# OJO (15/09): vacio se le pasa a la escucha como '-'. Con un argumento vacio Start-Process
+# falla y la escucha NO arranca (paso al apagar turbo en uso real).
 $MarcaDictar = Join-Path $TmpDir "dictar.flag"
 # confirmacion por voz de coincidencias dudosas: el worker escucha si/no
 $MarcaConfirmar = Join-Path $TmpDir "confirmar.flag"
@@ -7244,7 +7272,7 @@ function Initialize-Escucha {
                 -ArgumentList @('-u', $worker, $EscuchaNombre, $MarcaWake, $EventLog, $EscuchaGanancia,
                                 $MarcaPausa, $MarcaDictar, $RutaDictado, $RutaParcial, $RutaNivel,
                                 $MarcaConfirmar, $RutaConfirmacion, "$MotorDictado`:$WhisperModelo", $RutaVocabulario,
-                                $conf, $MarcaReintento, $RutaReintento, $WhisperPreciso, $WhisperUltimo) `
+                                $conf, $MarcaReintento, $RutaReintento, $(if ($WhisperPreciso) { $WhisperPreciso } else { '-' }), $(if ($WhisperUltimo) { $WhisperUltimo } else { '-' })) `
                 -WorkingDirectory $LogDir -WindowStyle Hidden -PassThru `
                 -RedirectStandardError $rutaErrWorker
         } else {
@@ -11535,6 +11563,14 @@ function Process-Texto([string]$text) {
             if ($plano -match 'gracias') { Say "De nada." } else { Set-UI 'reposo' }
             return
         }
+        # "GRACIAS" FUERA DEL SEGUIMIENTO (15/09): tras una tarea larga, braya dijo "gracias"
+        # con el boton y Nova contesto "No te entendi" (se tomaba por ruido).
+        if ($plano -match '^(?:gracias|muchas gracias|ok gracias|okay gracias|vale gracias|gracias nova)$') {
+            Log "cortesia: '$text'"
+            $script:seguimientoPendiente = $false
+            Say "De nada."
+            return
+        }
         # cualquier orden real deja preparado el seguimiento (se arma al
         # terminar de hablar); lo que no lleva respuesta hablada lo apaga
         $script:seguimientoPendiente = $true
@@ -12710,6 +12746,22 @@ while ($true) {
                 Log "PARAKEET -> WHISPER: '$origP' -> '$limpioW'; Whisper no saca una orden: sigo con lo de Parakeet"
             } else {
                 Log "PARAKEET -> WHISPER: '$origP' -> '$limpioW'"
+            }
+            # SI LOS DOS OYEN LO MISMO, NO SE REPASA (15/09). "Revisa mi correo", "puedes
+            # reproducir esta cancion", "instala en Steam It Takes Two": Parakeet y Whisper
+            # oyeron lo mismo y aun asi pasaban por small y turbo, 30-47 s para oir otra vez lo
+            # mismo. Medido: con un parecido de 0,9 o mas, en su uso real el repaso saco una
+            # orden en 0 de 24 frases; en las 202 grabaciones en 1 ("abre otras" por "abre
+            # outlast", de 2 palabras: por eso hacen falta 3 o mas).
+            if ($limpioW -and $origP -and -not (Test-FastCommand $limpioW)) {
+                $plP = ConvertTo-Plain $origP
+                $plW = ConvertTo-Plain $limpioW
+                $largoPW = [Math]::Max($plP.Length, $plW.Length)
+                if ($largoPW -gt 0 -and @($plP -split '\s+' | Where-Object { $_ }).Count -ge 3 -and
+                    (1.0 - (Get-Distancia $plP $plW) / $largoPW) -ge 0.9) {
+                    $script:yaReintentado = $true
+                    Log "PARAKEET y WHISPER oyen lo mismo: sin repaso"
+                }
             }
             Process-Texto $sigueCon
             $fino = $null

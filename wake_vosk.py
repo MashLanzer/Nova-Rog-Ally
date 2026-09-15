@@ -90,11 +90,12 @@ except ValueError:
 # cuando hace falta.
 REINTENTO = sys.argv[15] if len(sys.argv) > 15 else ""
 REINTENTO_TEXTO = sys.argv[16] if len(sys.argv) > 16 else ""
-MODELO_PRECISO = sys.argv[17] if len(sys.argv) > 17 else ""
+MODELO_PRECISO = sys.argv[17] if len(sys.argv) > 17 and sys.argv[17] not in ("", "-") else ""
 # ULTIMO RECURSO (15/09): cuando ni base ni small entienden la orden, el asistente pide
 # este (large-v3-turbo). Con las grabaciones de braya rescato 19 de 36 que fallaban, sin
 # romper ninguna ni convertir el ruido en ordenes; tarda ~12 s por frase en la Ally.
-MODELO_ULTIMO = sys.argv[18] if len(sys.argv) > 18 else ""
+# "-" = apagado (15/09: turbo se apago en uso real; el asistente no puede pasar un argumento vacio)
+MODELO_ULTIMO = sys.argv[18] if len(sys.argv) > 18 and sys.argv[18] not in ("", "-") else ""
 # se suelta tras este rato sin usarse (~1 GB de RAM); con un juego delante, en seguida
 ULTIMO_SOLTAR = 120.0
 CONFIRMACION_MAX = 5.0
