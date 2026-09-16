@@ -41,6 +41,15 @@ TOPE_CUERPO = 1500          # lo que se lee en voz alta, no un correo entero
 TOPE_ASUNTO = 120
 
 
+def aviso(texto):
+    """Con pythonw no hay consola: sys.stderr es None y escribir revienta (16/09)."""
+    try:
+        if sys.stderr is not None:
+            aviso(texto)
+    except Exception:
+        pass
+
+
 def credenciales():
     usuario = os.environ.get("NOVA_CORREO_USUARIO", "")
     clave = os.environ.get("NOVA_CORREO_CLAVE", "")
@@ -183,7 +192,7 @@ def enviar(usuario, clave, destino, asunto, cuerpo, responde_a=None):
 
 def main():
     if len(sys.argv) < 3:
-        print("faltan argumentos")
+        aviso("faltan argumentos")
         return 1
     orden = sys.argv[1]
     salida = sys.argv[-1] if sys.argv[-1].lower().endswith(".json") else ""
@@ -197,7 +206,7 @@ def main():
     if not usuario or not clave:
         if salida:
             escribir(salida, {"ok": False, "error": "sin credenciales"})
-        print("faltan NOVA_CORREO_USUARIO / NOVA_CORREO_CLAVE")
+        aviso("faltan NOVA_CORREO_USUARIO / NOVA_CORREO_CLAVE")
         return 2
     try:
         if orden in ("no-leidos", "ultimos", "leer"):
@@ -217,7 +226,7 @@ def main():
                 except Exception:
                     pass
             escribir(salida, {"ok": True, "cuantos": len(lista), "correos": lista})
-            sys.stderr.write("correo: %d mensajes\n" % len(lista))
+            aviso("correo: %d mensajes\n" % len(lista))
             return 0
 
         if orden in ("enviar", "responder"):
@@ -249,7 +258,7 @@ def main():
                     asunto = "Re: " + asunto
                 enviar(usuario, clave, orig["responder_a"], asunto, cuerpo, orig.get("message_id"))
                 escribir(salida, {"ok": True, "enviado_a": orig["responder_a"]})
-            sys.stderr.write("correo: enviado\n")
+            aviso("correo: enviado\n")
             return 0
     except imaplib.IMAP4.error:
         escribir(salida, {"ok": False, "error": "la cuenta no acepta la contrasena"})
@@ -257,7 +266,7 @@ def main():
     except Exception as e:  # noqa: BLE001
         # el mensaje puede traer la direccion; se recorta y no se registra en el log
         escribir(salida, {"ok": False, "error": type(e).__name__})
-        sys.stderr.write("correo: fallo %s\n" % type(e).__name__)
+        aviso("correo: fallo %s\n" % type(e).__name__)
         return 6
     escribir(salida, {"ok": False, "error": "no se que hacer"})
     return 7
