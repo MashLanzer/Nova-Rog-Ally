@@ -1211,7 +1211,16 @@ Bloque 2 (oído), empezado el 16/09:
       es?»). La escucha SÍ marcaba el eco, pero el asistente solo miraba esa marca
       en una de las ramas; ahora también en la que acepta un repaso parecido, y
       además se comprueba el texto con `Test-EsFraseEjemplo` (una sola frase).
-- [ ] Gemini flash-lite como segunda opinión con tope de 2-2,5 s.
+- [x] Gemini flash-lite como segunda opinión con tope. HECHO el 16/09, pero
+      APAGADO: se enciende con `config.json` -> `escucha.nubeOir = "gemini"` (tope en
+      `escucha.nubeTopeMs`, 2,5 s) y reiniciando Nova. Cuando Parakeet no saca una
+      orden se piden dos cosas a la vez: el repaso de Whisper y una segunda opinión a
+      Gemini con el audio de `tmp\ultima-orden.wav`. Solo se usa si contesta a tiempo,
+      si ni Parakeet ni Whisper sacaron nada, y si trae una orden que Nova sabe hacer
+      (nunca la frase de ejemplo ni un juego que no nombraste). La clave vive en la
+      variable de entorno GEMINI_API_KEY, no en el repositorio.
+- [ ] Probarlo EN VIVO y medir cuántas veces llega dentro del tope (con las
+      grabaciones: mediana 1,4 s, pero 5 de cada 20 pasan de 3 s).
 
 Bloques 3 y 4 (elegidos por braya el 15/09), aprender de todo (fase 1 de
 `scratchpad\analisis\aprender.md`) y tareas sin Claude Code.
