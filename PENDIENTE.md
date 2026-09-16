@@ -1219,8 +1219,9 @@ Bloque 2 (oído), empezado el 16/09:
       si ni Parakeet ni Whisper sacaron nada, y si trae una orden que Nova sabe hacer
       (nunca la frase de ejemplo ni un juego que no nombraste). La clave vive en la
       variable de entorno GEMINI_API_KEY, no en el repositorio.
-- [ ] Probarlo EN VIVO y medir cuántas veces llega dentro del tope (con las
-      grabaciones: mediana 1,4 s, pero 5 de cada 20 pasan de 3 s).
+- [x] ENCENDIDO el 16/09 a petición de braya (`escucha.nubeOir = "gemini"`), tras
+      ver que entiende más órdenes y baja la espera media de 5,7 s a 4,2 s.
+- [ ] Medir en uso real cuántas veces llega dentro del tope de 2,5 s.
 
 Bloque 3 (aprender de todo), fase 1 empezada el 16/09:
 
@@ -1229,11 +1230,12 @@ Bloque 3 (aprender de todo), fase 1 empezada el 16/09:
       script, por eso una receta no podía dar información), `Test-ScriptSoloLectura`
       con lista blanca (no lista negra) y `Format-VozInfo` para pasar del JSON a la
       frase, con singular/plural y frase propia cuando no hay nada.
-- [ ] La instrucción del agente (`$CcInstruccionReceta`) todavía dice «RECETA: NO»
-      para la información: falta el texto nuevo (sección 6.3 de `aprender.md`).
-- [ ] Sembrar las recetas de escritorio, descargas y documentos.
-- [ ] Despachar una receta `info` sin preguntar (es solo lectura) y confirmación
-      diferida a los 60 s.
+- [x] Recetas de información completas (16/09): se aprenden (con paso de lectura
+      validado y plantilla de voz obligatoria), se ejecutan sin bloquear y dicen el
+      dato. Falta aún dar permiso al agente en `$CcInstruccionReceta` (sección 6.3).
+- [x] Sembradas al arrancar: descargas, documentos y clips (de 1 receta a 4).
+- [x] Una receta `info` se ejecuta sin preguntar (solo lee, no cambia nada).
+- [ ] Confirmación diferida a los 60 s (queda para la fase 2).
 
 Bloque 4 (elegido por braya el 15/09), aprender de todo (fase 1 de
 `scratchpad\analisis\aprender.md`) y tareas sin Claude Code.

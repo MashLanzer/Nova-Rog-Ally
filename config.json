@@ -66,7 +66,7 @@
         "soloYo": true,
         "soloYoMargenHz": 42,
         "soloYoMinimo": 12,
-        "nubeOir": "",
+        "nubeOir": "gemini",
         "nubeTopeMs": 2500
     },
     "modelo": {

@@ -3667,9 +3667,13 @@ function Add-Receta([string]$original, [string]$bloque) {
     foreach ($pp in @($o.pasos)) {
         if ($null -eq $pp) { continue }
         $tipo = ([string]$pp.tipo).ToLowerInvariant()
-        $cuerpo = if ($tipo -eq 'powershell') { [string]$pp.script } else { [string]$pp.texto }
-        if (@('powershell', 'orden') -notcontains $tipo -or -not $cuerpo.Trim()) { Log "RECETA descartada: paso '$tipo' no valido"; return $null }
+        $cuerpo = if ($tipo -eq 'powershell' -or $tipo -eq 'lectura') { [string]$pp.script } else { [string]$pp.texto }
+        if (-not $cuerpo.Trim() -and $tipo -eq 'lectura') { $cuerpo = [string]$pp.texto }
+        if (@('powershell', 'orden', 'lectura') -notcontains $tipo -or -not $cuerpo.Trim()) { Log "RECETA descartada: paso '$tipo' no valido"; return $null }
         if ($tipo -eq 'powershell' -and ($cuerpo.Length -gt 2000 -or (Test-ScriptProhibido $cuerpo))) { Log "RECETA descartada: el script hace algo que no puede ir en una receta"; return $null }
+        # un paso de LECTURA se ejecutara sin preguntar, asi que se le exige mas: lista
+        # blanca, no lista negra (ver SOLO LECTURA DE VERDAD)
+        if ($tipo -eq 'lectura' -and ($cuerpo.Length -gt 2000 -or -not (Test-ScriptSoloLectura $cuerpo))) { Log "RECETA descartada: el paso de lectura no es solo de lectura"; return $null }
         if ($tipo -eq 'orden' -and $cuerpo.Length -gt 120) { Log "RECETA descartada: orden demasiado larga"; return $null }
         [void]$pasos.Add(@{ tipo = $tipo; texto = $cuerpo })
     }
@@ -3726,8 +3730,20 @@ function Add-Receta([string]$original, [string]$bloque) {
         }
     }
     $id = 1; foreach ($x in $g) { if ($x.id -ge $id) { $id = $x.id + 1 } }
+    # RECETA DE INFORMACION (16/09): la que solo mira y dice. Necesita su plantilla de
+    # voz; sin ella no sabria que decir con los datos, asi que no se aprende.
+    $tipoN = if (([string]$o.tipo).ToLowerInvariant() -eq 'info') { 'info' } else { 'accion' }
+    $vozN = $null
+    if ($tipoN -eq 'info') {
+        if (@($pasos | Where-Object { $_.tipo -eq 'lectura' }).Count -eq 0) { Log "RECETA descartada: es de informacion y no trae ningun paso de lectura"; return $null }
+        if (@($pasos | Where-Object { $_.tipo -eq 'powershell' }).Count -gt 0) { Log "RECETA descartada: una receta de informacion no puede llevar pasos que cambien algo"; return $null }
+        $plantillaN = ([string]$o.voz.plantilla).Trim()
+        if (-not $plantillaN) { Log "RECETA descartada: es de informacion y no dice como contarlo (falta voz.plantilla)"; return $null }
+        $vozN = @{ modo = 'plantilla'; plantilla = $plantillaN; vacio = ([string]$o.voz.vacio).Trim(); instruccion = ([string]$o.voz.instruccion).Trim() }
+    }
     $r = @{ id = $id; frase = $frase; resumen = ([string]$o.resumen).Trim(); respuesta = ([string]$o.respuesta).Trim(); pasos = $pasos; variantes = $varsViejas
-            ejemplo = $original; creada = (Get-Date -Format 's'); usos = 0; confirmadas = 0; fallos = 0; rechazos = 0 }
+            ejemplo = $original; creada = (Get-Date -Format 's'); usos = 0; confirmadas = 0; fallos = 0; rechazos = 0
+            tipo = $tipoN; voz = $vozN }
     [void]$g.Add($r)
     while ($g.Count -gt $RecetasMax) { $g.RemoveAt(0) }
     Save-Recetas
@@ -3849,6 +3865,7 @@ function Format-VozInfo($voz, [string]$salida) {
 $script:vozHayAlgo = $false
 
 function Invoke-Receta($r, $valores) {
+    $salidaInv = ''
     foreach ($paso in $r.pasos) {
         $tipo = [string]$paso.tipo; $cuerpo = [string]$paso.texto
         if ($tipo -eq 'orden') {
@@ -3857,20 +3874,25 @@ function Invoke-Receta($r, $valores) {
             $res = $null
             try { $res = Invoke-FastCommand $orden } catch { $res = $null }
             if (-not $res) { return @{ ok = $false; error = "la orden '$orden' no se pudo hacer" } }
-        } elseif ($tipo -eq 'powershell') {
+        } elseif ($tipo -eq 'powershell' -or $tipo -eq 'lectura') {
             # aqui se ESPERA al script; la receta con el bucle libre va por
             # Start-Receta (ver RECETA SIN BLOQUEAR)
+            if ($tipo -eq 'lectura' -and -not (Test-ScriptSoloLectura $cuerpo)) { return @{ ok = $false; error = 'el paso de lectura ya no es solo de lectura' } }
             $ini = Start-PasoScript $cuerpo $valores
             if (-not $ini.ok) { return @{ ok = $false; error = $ini.error } }
             $termino = $ini.proc.WaitForExit(20000)
             $errP = Complete-PasoScript $ini (-not $termino)
+            if ($script:ultimaSalidaPaso) { $salidaInv = $script:ultimaSalidaPaso }
             if ($errP) { return @{ ok = $false; error = $errP } }
         } else {
             return @{ ok = $false; error = "paso desconocido '$tipo'" }
         }
     }
     $txt = Get-TextoReceta $r 'respuesta' $valores
-    if (-not ([string]$r.respuesta)) { $txt = 'Hecho, como la otra vez.' }
+    if ([string]$r.tipo -eq 'info') {
+        $txtI = Format-VozInfo $r.voz $salidaInv
+        if ($txtI) { $txt = $txtI } elseif (-not ([string]$r.respuesta)) { $txt = 'No pude averiguarlo.' }
+    } elseif (-not ([string]$r.respuesta)) { $txt = 'Hecho, como la otra vez.' }
     return @{ ok = $true; texto = $txt }
 }
 
@@ -3928,8 +3950,8 @@ function Start-Receta($enc, [string]$text, [string]$variante = '') {
     }
     Log "RECETA $($r.id): '$text' -> la hago sin IA"
     Set-UI 'pensando' 'Como la otra vez'
-    if (@(@($r.pasos) | Where-Object { [string]$_.tipo -eq 'powershell' }).Count -gt 0) {
-        $script:recetaEnCurso = @{ enc = $enc; texto = $text; variante = $variante; paso = 0; ini = $null; desde = 0 }
+    if (@(@($r.pasos) | Where-Object { @('powershell', 'lectura') -contains [string]$_.tipo }).Count -gt 0) {
+        $script:recetaEnCurso = @{ enc = $enc; texto = $text; variante = $variante; paso = 0; ini = $null; desde = 0; salida = '' }
         Step-Receta
         return 'enCurso'
     }
@@ -3952,7 +3974,12 @@ function Step-Receta {
             try { $resO = Invoke-FastCommand $orden } catch { $resO = $null }
             if (-not $resO) { Close-Receta @{ ok = $false; error = "la orden '$orden' no se pudo hacer" }; return }
             $e.paso++
-        } elseif ($tipo -eq 'powershell') {
+        } elseif ($tipo -eq 'powershell' -or $tipo -eq 'lectura') {
+            # se vuelve a comprobar al ejecutar, no solo al aprender: el archivo de
+            # recetas se puede editar a mano (ver SOLO LECTURA DE VERDAD)
+            if ($tipo -eq 'lectura' -and -not (Test-ScriptSoloLectura $cuerpo)) {
+                Close-Receta @{ ok = $false; error = 'el paso de lectura ya no es solo de lectura' }; return
+            }
             $ini = Start-PasoScript $cuerpo $valores
             if (-not $ini.ok) { Close-Receta @{ ok = $false; error = $ini.error }; return }
             $e.ini = $ini
@@ -3964,7 +3991,11 @@ function Step-Receta {
         }
     }
     $txt = Get-TextoReceta $r 'respuesta' $valores
-    if (-not ([string]$r.respuesta)) { $txt = 'Hecho, como la otra vez.' }
+    if ([string]$r.tipo -eq 'info') {
+        # los datos que leyo el ultimo paso, dichos con su plantilla
+        $txtI = Format-VozInfo $r.voz ([string]$e.salida)
+        if ($txtI) { $txt = $txtI } elseif (-not ([string]$r.respuesta)) { $txt = 'No pude averiguarlo.' }
+    } elseif (-not ([string]$r.respuesta)) { $txt = 'Hecho, como la otra vez.' }
     Close-Receta @{ ok = $true; texto = $txt }
 }
 
@@ -3976,6 +4007,8 @@ function Watch-Receta {
     elseif (($sw.ElapsedMilliseconds - $e.desde) -ge 20000) { $errP = Complete-PasoScript $ini $true }
     else { return }
     $e.ini = $null
+    # la salida viaja con la receta: Complete-PasoScript la borra en el paso siguiente
+    if ($script:ultimaSalidaPaso) { $e.salida = $script:ultimaSalidaPaso }
     if ($errP) { Close-Receta @{ ok = $false; error = $errP }; return }
     $e.paso++
     Step-Receta
@@ -9090,6 +9123,46 @@ try {
     $voc = @($voc | Where-Object { $_ } | Select-Object -Unique)
     [System.IO.File]::WriteAllText($RutaVocabulario, (($voc -join ', ') + '.'), (New-Object System.Text.UTF8Encoding($false)))
 } catch {}
+# TRES RECETAS DE INFORMACION YA PUESTAS (16/09). Para no empezar de cero: son las
+# preguntas que el 15/09 se fueron al agente costando 44 s cada una. Se ponen solo si no
+# existen ya (por su frase), y nacen confirmadas: leer una carpeta no pide permiso.
+function Add-RecetasInfoBase {
+    if (-not $RecetasOn) { return }
+    $base = @(
+        @{ frase = 'que hay en mis descargas'
+           resumen = 'mirar la carpeta de descargas'
+           script = '$d = Join-Path $env:USERPROFILE ''Downloads''; $i = @(Get-ChildItem -LiteralPath $d -File | Sort-Object LastWriteTime -Descending); [pscustomobject]@{ cuantos = $i.Count; nombres = @($i | Select-Object -First 5 | ForEach-Object { $_.Name }) } | ConvertTo-Json -Compress'
+           plantilla = 'En descargas tienes {cuantos|archivo|archivos}. Los ultimos: {nombres}.'
+           vacio = 'No tienes nada en la carpeta de descargas.' },
+        @{ frase = 'que hay en mis documentos'
+           resumen = 'mirar la carpeta de documentos'
+           script = '$d = Join-Path $env:USERPROFILE ''Documents''; $i = @(Get-ChildItem -LiteralPath $d | Sort-Object LastWriteTime -Descending); [pscustomobject]@{ cuantos = $i.Count; nombres = @($i | Select-Object -First 5 | ForEach-Object { $_.Name }) } | ConvertTo-Json -Compress'
+           plantilla = 'En documentos tienes {cuantos|cosa|cosas}. Lo ultimo: {nombres}.'
+           vacio = 'No tienes nada en documentos.' },
+        @{ frase = 'cuantos clips tengo'
+           resumen = 'contar los clips de juego'
+           script = '$d = Join-Path $env:USERPROFILE ''Videos\Captures''; $i = @(Get-ChildItem -LiteralPath $d -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending); [pscustomobject]@{ cuantos = $i.Count; ultimo = $(if ($i.Count -gt 0) { $i[0].Name } else { '''' }) } | ConvertTo-Json -Compress'
+           plantilla = 'Tienes {cuantos|clip|clips} guardados. El ultimo es {ultimo}.'
+           vacio = 'No tienes ningun clip guardado.' }
+    )
+    $g = Get-Recetas
+    $puestas = 0
+    foreach ($b in $base) {
+        $clave = ConvertTo-Suave $b.frase
+        if (@($g | Where-Object { (ConvertTo-Suave ([string]$_.frase)) -eq $clave }).Count -gt 0) { continue }
+        if (-not (Test-ScriptSoloLectura $b.script)) { Log "receta base '$($b.frase)': su script no pasa la revision de solo lectura"; continue }
+        $pasos = New-Object System.Collections.ArrayList
+        [void]$pasos.Add(@{ tipo = 'lectura'; texto = $b.script })
+        $id = 1; foreach ($x in $g) { if ($x.id -ge $id) { $id = $x.id + 1 } }
+        [void]$g.Add(@{ id = $id; frase = $b.frase; resumen = $b.resumen; respuesta = ''; pasos = $pasos
+                        variantes = (New-Object System.Collections.ArrayList); ejemplo = $b.frase; creada = (Get-Date -Format 's')
+                        usos = 0; confirmadas = [Math]::Max(2, $RecetasConfirmar); fallos = 0; rechazos = 0
+                        tipo = 'info'; voz = @{ modo = 'plantilla'; plantilla = $b.plantilla; vacio = $b.vacio; instruccion = '' } })
+        $puestas++
+    }
+    if ($puestas -gt 0) { Save-Recetas; Log "recetas de informacion puestas de serie: $puestas" }
+}
+try { Add-RecetasInfoBase } catch { Log ("recetas base: " + $_.Exception.Message) }
 if (@($script:Juegos).Count -gt 0) {
     Log ("biblioteca de Steam: " + @($script:Juegos).Count + " juegos indexados")
 } else {
@@ -11152,6 +11225,9 @@ function Test-OidoDudoso([string]$t) {
 $NubeOir = [string](Get-Cfg 'escucha' 'nubeOir' '')
 $NubeTopeMs = [int](Get-Cfg 'escucha' 'nubeTopeMs' 2500)
 $NubeScript = Join-Path $LogDir 'tools\gemini-oir.py'
+# el aviso va AQUI y no en el bloque de arranque: alli esta variable todavia no existe
+# (el script se lee de arriba abajo) y el log decia que la nube estaba apagada
+if ($NubeOir -eq 'gemini') { Log "segunda opinion en la nube: Gemini, con tope de $([Math]::Round($NubeTopeMs / 1000.0, 1)) s" }
 $script:nubeProc = $null
 $script:nubeOut = ''
 $script:nubeWav = ''
@@ -12402,6 +12478,12 @@ function Process-Texto([string]$text) {
             $recEnc = $null
             try { $recEnc = Find-Receta $text } catch { $recEnc = $null }
             if ($recEnc) {
+                # UNA RECETA DE INFORMACION NO SE PREGUNTA (16/09): solo mira y dice, no
+                # cambia nada, asi que preguntar "¿lo hago?" molesta sin proteger de nada.
+                if ([string]$recEnc.receta.tipo -eq 'info') {
+                    [void](Start-Receta $recEnc $text)
+                    return
+                }
                 if (-not $script:confirmado -and @($recEnc.valores.Keys).Count -gt 0 -and (Test-DictadoDudoso)) {
                     # el dictado salio dudoso y la receta usa lo oido: se confirma el dato (M7)
                     $script:pendiente = @{ texto = ''; vence = 0; tipo = 'recetaDato'; id = $recEnc.receta.id; valores = $recEnc.valores; original = $text }

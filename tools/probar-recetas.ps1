@@ -57,6 +57,34 @@ CompInfo 'si el script devuelve basura, la frase de vacio' ($f4 -eq 'No tienes n
 CompInfo 'sin plantilla, no dice nada' ((Format-VozInfo @{ modo = 'plantilla' } '{"a":1}') -eq '') ''
 if ($falloInfo -gt 0) { Write-Host "  $falloInfo MAL en recetas de informacion" -ForegroundColor Red }
 
+Write-Host "`n== Una receta de informacion, de punta a punta"
+$dirI = Join-Path $env:TEMP ('nova-info-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $dirI | Out-Null
+# Start-PasoScript escribe su script en $TmpDir: TIENE que ser otra carpeta, o la
+# receta se cuenta a si misma (la primera version listaba receta-xxx.ps1 y sus .txt)
+$TmpDir = Join-Path $env:TEMP ('nova-info-tmp-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $TmpDir | Out-Null
+$WORKDIR = $TmpDir
+New-Item -ItemType File -Path (Join-Path $dirI 'uno.txt') | Out-Null
+New-Item -ItemType File -Path (Join-Path $dirI 'dos.txt') | Out-Null
+$rInfo = @{
+    id = 99; frase = 'que hay en la carpeta de prueba'; resumen = 'mirar la carpeta'; respuesta = ''
+    pasos = @(@{ tipo = 'lectura'; texto = ('$i = @(Get-ChildItem -LiteralPath ''' + $dirI + ''' -File | Sort-Object Name); [pscustomobject]@{ cuantos = $i.Count; nombres = @($i | ForEach-Object { $_.Name }) } | ConvertTo-Json -Compress') })
+    variantes = @(); tipo = 'info'
+    voz = @{ modo = 'plantilla'; plantilla = 'Ahi tienes {cuantos|archivo|archivos}: {nombres}.'; vacio = 'Esa carpeta esta vacia.' }
+}
+$resI = Invoke-Receta $rInfo @{}
+CompInfo 'se ejecuta y dice los datos' ($resI.ok -and $resI.texto -eq 'Ahi tienes 2 archivos: dos.txt, uno.txt.') "'$($resI.texto)'"
+# y una que intenta tocar algo NO se ejecuta, aunque este escrita en el archivo
+$rMala = @{ id = 98; frase = 'borra la carpeta de prueba'; resumen = 'x'; respuesta = ''
+    pasos = @(@{ tipo = 'lectura'; texto = ('Remove-Item -Recurse -Force ''' + $dirI + '''') })
+    variantes = @(); tipo = 'info'; voz = @{ modo = 'plantilla'; plantilla = 'ya'; vacio = 'nada' }
+}
+$resM = Invoke-Receta $rMala @{}
+CompInfo 'un paso de lectura que toca algo NO se ejecuta' ((-not $resM.ok) -and (Test-Path $dirI)) "$($resM.error)"
+Remove-Item -LiteralPath $dirI -Recurse -Force -ErrorAction SilentlyContinue
+if ($falloInfo -gt 0) { Write-Host "  $falloInfo MAL en recetas de informacion" -ForegroundColor Red }
+
 $dir = Join-Path $env:TEMP ('nova-recetas-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $dir | Out-Null
 $RecetasOn = $true
