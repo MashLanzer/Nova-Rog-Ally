@@ -214,3 +214,9 @@ dime de los juegos cual tiene mas horas => se va al modelo
 abre el navegador con pinterest => pinterest
 abre pinterest en el navegador => pinterest
 abre el navegador => abrir navegador
+
+# --- el correo por voz (16/09); "dicta un correo en X" es OTRA cosa (dictado largo) ---
+revisa mi correo => tu correo
+leeme el ultimo correo => leer el ultimo correo
+manda un correo a lucia@ejemplo.com diciendo que llego tarde => mandar un correo
+dicta un correo en el bloc de notas => dictado largo

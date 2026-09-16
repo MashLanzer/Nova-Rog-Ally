@@ -78,7 +78,12 @@ def descifrar(cabecera):
         if isinstance(trozo, bytes):
             partes.append(trozo.decode(codec or "utf-8", "replace"))
         else:
-            partes.append(trozo)
+            # SIN CODIFICAR: email lo da como str pero con los bytes crudos metidos uno
+            # a uno (latin-1). Asi salia "estÃ¡" por "está". Se rehace y se prueba utf-8.
+            try:
+                partes.append(trozo.encode("latin-1").decode("utf-8"))
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                partes.append(trozo)
     return "".join(partes)
 
 

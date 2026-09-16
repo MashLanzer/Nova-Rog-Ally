@@ -2247,6 +2247,27 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(activa|pon|enciende|desactiva|quita|apaga)\s+(?:el\s+)?brillo\s+automatico$') {
         return @(@{ kind = 'brilloAuto'; activar = ($Matches[1] -match '^(?:activa|pon|enciende)$'); desc = 'brillo automatico' })
     }
+    # --- EL CORREO (16/09; ver Invoke-Correo) ---
+    # "revisa mi correo" / "tengo correos nuevos" / "que correos tengo"
+    if ($f -match '^(?:revisa|mira|lee|checa|chequea|ver|dime)?\s*(?:mi|el|los)?\s*(?:correo|correos|email|emails|gmail|mail|bandeja)(?:\s+(?:nuevos?|no leidos?|de hoy|pendientes?))?$' -or
+        $f -match '^(?:tengo|hay|me llego|llego|me ha llegado)\s+(?:algun\s+|algunos\s+|correos?\s+|emails?\s+)*(?:correo|correos|email|emails|mail)(?:\s+(?:nuevos?|no leidos?|importantes?))?$' -or
+        $f -match '^(?:que|cuantos)\s+correos?\s+(?:tengo|hay|me\s+(?:han\s+)?(?:llegado|escrito))(?:\s+(?:nuevos?|hoy))?$') {
+        return @(@{ kind = 'correo'; accion = 'no-leidos'; desc = 'tu correo' })
+    }
+    # "leeme el ultimo correo": ese SI trae el cuerpo, porque lo has pedido
+    if ($f -match '^(?:lee(?:me)?|abre(?:me)?|dime|que dice)\s+(?:el\s+)?(?:ultimo|primer|primero)?\s*(?:correo|email|mail)(?:\s+(?:entero|completo|de que va))?$' -or
+        $f -match '^(?:de que va|que dice)\s+(?:el\s+)?(?:ultimo\s+)?(?:correo|email|mail)$') {
+        return @(@{ kind = 'correo'; accion = 'leer'; desc = 'leer el ultimo correo' })
+    }
+    # "contestale que voy en camino" / "responde al correo que llego tarde"
+    if ($f -match '^(?:contesta(?:le)?|responde(?:le)?|respondele)\s+(?:al?\s+)?(?:correo|email|mail)?\s*(?:que|diciendo|con)\s+(.{3,400})$') {
+        return @(@{ kind = 'correo'; accion = 'responder'; texto = $Matches[1].Trim(); desc = 'responder al correo' })
+    }
+    # "manda un correo a lucia diciendo que llego tarde"
+    if ($f -match '^(?:manda(?:le)?|envia(?:le)?|escribe(?:le)?)\s+(?:un\s+|el\s+)?(?:correo|email|mail)\s+a\s+(\S+@\S+|[a-z0-9 ._-]{2,40}?)\s+(?:que|diciendo(?:\s+que)?|con(?:\s+el\s+texto)?)\s+(.{3,400})$') {
+        return @(@{ kind = 'correo'; accion = 'enviar'; destino = $Matches[1].Trim(); texto = $Matches[2].Trim(); desc = 'mandar un correo' })
+    }
+
     # --- notificaciones (ver NOTIFICACIONES MIENTRAS JUEGAS) ---
     if ($f -match '^(?:que me han escrito|quien me ha escrito|(?:me )?ha escrito alguien|(?:me )?escribio alguien|tengo (?:mensajes|notificaciones)(?: nuevos| nuevas)?|que (?:mensajes|notificaciones) tengo|hay mensajes(?: nuevos)?|alguna notificacion|algun mensaje)$') {
         return @(@{ kind = 'notifResumen'; desc = 'tus mensajes' })
@@ -3267,6 +3288,124 @@ function Add-Perfil([string]$nombre, [string[]]$ordenes) {
         Log ("MODO CREADO: $nombre -> " + ($ordenes -join '; '))
         return $true
     } catch { Log ("no pude crear el modo: " + $_.Exception.Message); return $false }
+}
+
+# EL CORREO (16/09). El 15/09 "revisa mi correo" se pidio tres veces y las tres
+# acabaron en el agente (37-93 s) sin dar nada util.
+#
+# LEER no cambia nada: no pregunta, y ademas no marca los correos como leidos (que Nova
+# te los cuente no puede hacer que desaparezcan de tu movil).
+# ENVIAR sale de la maquina y no se deshace, y Nova oye mal a veces: NUNCA se envia sin
+# un si hablado, y antes se lee en voz alta a quien va y que dice.
+$CorreoScript = Join-Path $LogDir 'tools\correo.py'
+$script:correoUltimo = $null      # el ultimo correo leido, para poder responderle
+
+function Test-CorreoListo {
+    if (-not (Test-Path -LiteralPath $CorreoScript)) { return $false }
+    foreach ($v in 'NOVA_CORREO_USUARIO', 'NOVA_CORREO_CLAVE') {
+        $x = [Environment]::GetEnvironmentVariable($v, 'Process')
+        if (-not $x) { $x = [Environment]::GetEnvironmentVariable($v, 'User') }
+        if (-not $x) { return $false }
+    }
+    return $true
+}
+
+# Llama al script y devuelve lo que conteste, ya en objeto. $args1: lista de argumentos.
+function Invoke-CorreoScript([string[]]$args1, [int]$plazoMs = 25000) {
+    $sal = Join-Path $TmpDir ("correo-" + [System.Guid]::NewGuid().ToString('N').Substring(0, 8) + ".json")
+    try {
+        $pr = Start-Process -FilePath $PyWorker -WindowStyle Hidden -PassThru -WorkingDirectory $LogDir `
+            -ArgumentList (@($CorreoScript) + $args1 + @($sal))
+        $null = $pr.Handle
+        if (-not $pr.WaitForExit($plazoMs)) {
+            try { $pr.Kill() } catch {}
+            return @{ ok = $false; error = 'tardo demasiado' }
+        }
+        if (-not (Test-Path -LiteralPath $sal)) { return @{ ok = $false; error = 'sin respuesta' } }
+        $txt = [System.IO.File]::ReadAllText($sal, [System.Text.Encoding]::UTF8)
+        return ($txt | ConvertFrom-Json)
+    } catch {
+        return @{ ok = $false; error = $_.Exception.Message }
+    } finally {
+        Remove-Item -LiteralPath $sal -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# De la lista de correos a una frase que se pueda ESCUCHAR: quien escribe y de que va.
+function Format-Correos($correos) {
+    $n = @($correos).Count
+    if ($n -eq 0) { return 'No tienes correos nuevos.' }
+    $trozos = @()
+    foreach ($c in @($correos | Select-Object -First 4)) {
+        $de = [string]$c.de
+        $asunto = [string]$c.asunto
+        if ($asunto.Length -gt 80) { $asunto = $asunto.Substring(0, 80).Trim() + '...' }
+        $trozos += $(if ($asunto) { "$de, $asunto" } else { $de })
+    }
+    $cab = if ($n -eq 1) { 'Tienes un correo nuevo: ' } else { "Tienes $n correos nuevos. " }
+    $txt = $cab + ($trozos -join '. ')
+    if ($n -gt 4) { $txt += ". Y $($n - 4) mas." }
+    return $txt
+}
+
+function Invoke-Correo($a) {
+    if (-not (Test-CorreoListo)) {
+        return 'Todavia no tengo tu correo configurado. Hace falta una contrasena de aplicacion de Google.'
+    }
+    $accion = [string]$a.accion
+    if ($accion -eq 'no-leidos') {
+        $r = Invoke-CorreoScript @('no-leidos', '8')
+        if (-not $r.ok) { return "No pude mirar tu correo: $($r.error)" }
+        $script:correoUltimo = @($r.correos) | Select-Object -First 1
+        # en el log, SOLO cuantos habia: ni remitentes ni asuntos
+        Log "CORREO: $($r.cuantos) sin leer"
+        return (Format-Correos $r.correos)
+    }
+    if ($accion -eq 'leer') {
+        $r = Invoke-CorreoScript @('leer', '1')
+        if (-not $r.ok) { return "No pude leer tu correo: $($r.error)" }
+        $c = @($r.correos) | Select-Object -First 1
+        if (-not $c) { return 'No tienes ningun correo.' }
+        $script:correoUltimo = $c
+        Log 'CORREO: leido el ultimo'
+        $cuerpo = [string]$c.cuerpo
+        if ($cuerpo.Length -gt 700) { $cuerpo = $cuerpo.Substring(0, 700).Trim() + '...' }
+        if (-not $cuerpo) { $cuerpo = '(no trae texto)' }
+        return "De $($c.de), $($c.asunto). Dice: $cuerpo"
+    }
+    if ($accion -eq 'responder') {
+        if (-not $script:correoUltimo) { return 'Primero dime: revisa mi correo. Asi se a cual respondo.' }
+        # NUNCA se envia a la primera: se lee a quien va y que dice, y se espera un si
+        if (-not $script:confirmado) {
+            $script:pendiente = @{ texto = ''; vence = 0; tipo = 'peligrosa'; correo = @{ accion = 'responder'; n = [int]$script:correoUltimo.n; texto = [string]$a.texto } }
+            return "Le respondo a $($script:correoUltimo.de) esto: $($a.texto). ¿Lo envio?"
+        }
+        $r = Invoke-CorreoScript @('responder', [string]$script:correoUltimo.n, [string]$a.texto, '--confirmado') 40000
+        if (-not $r.ok) { return "No pude enviarlo: $($r.error)" }
+        Log 'CORREO: respuesta enviada'
+        return 'Enviado.'
+    }
+    if ($accion -eq 'enviar') {
+        $destino = [string]$a.destino
+        # sin arroba no es una direccion: se busca en los ultimos correos por el nombre
+        if ($destino -notmatch '@') {
+            $r0 = Invoke-CorreoScript @('ultimos', '20')
+            $cand = @()
+            if ($r0.ok) { $cand = @($r0.correos | Where-Object { (ConvertTo-Plain ([string]$_.de)).Contains((ConvertTo-Plain $destino)) }) }
+            if ($cand.Count -eq 0) { return "No se cual es el correo de $destino. Dime la direccion entera." }
+            $destino = [string]$cand[0].de
+            return "No tengo la direccion de $destino guardada. Dimela entera y te lo mando."
+        }
+        if (-not $script:confirmado) {
+            $script:pendiente = @{ texto = ''; vence = 0; tipo = 'peligrosa'; correo = @{ accion = 'enviar'; destino = $destino; texto = [string]$a.texto } }
+            return "Le mando a $destino esto: $($a.texto). ¿Lo envio?"
+        }
+        $r = Invoke-CorreoScript @('enviar', $destino, 'Mensaje de braya', [string]$a.texto, '--confirmado') 40000
+        if (-not $r.ok) { return "No pude enviarlo: $($r.error)" }
+        Log 'CORREO: enviado'
+        return 'Enviado.'
+    }
+    return 'No se que quieres que haga con el correo.'
 }
 
 # CAMBIAR UN MODO HABLANDO (16/09). El 15/09 braya dijo "recuerda que al poner modo
@@ -5959,6 +6098,7 @@ function Invoke-FastCommand([string]$text) {
                 'brillo' { Set-Brillo $a.nivel }
                 'memoria' { $null = Add-Memoria $a.texto }
                 'modoEditar' { $a.desc = Invoke-ModoEditar $a.datos }
+                'correo' { $a.desc = Invoke-Correo $a }
                 'decir' {
                     # la respuesta ES la descripcion; se dice y ya. Si es un
                     # perfil, la capsula lo sabe ("noche" = paleta calida)
