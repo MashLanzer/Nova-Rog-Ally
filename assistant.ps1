@@ -4234,7 +4234,15 @@ $RE_DATO_SENSIBLE = '(?i)contrase|password|\bclave\b|\bpin\b|tarjeta|cuenta banc
 $CcInstruccionDato = @'
 
 
-Si en esta peticion descubres un dato ESTABLE y util sobre braya que todavia no esta en su perfil (una carpeta o ruta suya, su juego favorito, como llama a algo, una preferencia clara), escribelo al final en una linea aparte: DATO: <frase corta en tercera persona, por ejemplo: Su carpeta de capturas es D:\Capturas>. Como mucho dos lineas DATO. Nunca contrasenas, claves, dinero ni salud. Si no descubres nada nuevo, no escribas ninguna.
+Si braya AFIRMA en esta peticion un dato ESTABLE y util sobre si mismo que todavia no esta en su perfil (una carpeta o ruta suya, su juego favorito, como llama a algo, algo que dice que le gusta o que no), escribelo al final en una linea aparte: DATO: <frase corta en tercera persona, por ejemplo: Su carpeta de capturas es D:\Capturas>. Como mucho UNA linea DATO.
+
+Solo lo que el dice de si mismo, con sus palabras. NO escribas DATO si:
+- lo has DEDUCIDO tu (que dijera "mi amor" no es un dato sobre su pareja);
+- habla de Nova, de lo que hace bien o mal, o se esta quejando ("no me entiendes", "te equivocas");
+- es lo que quiere AHORA (una orden, una peticion, algo de un rato), no como es el;
+- ya hay algo parecido en su perfil, aunque lo dijera con otras palabras: no repitas ni matices lo que ya esta;
+- no estas seguro. En la duda, no escribas nada: una frase inventada se queda ahi para siempre y va con cada peticion.
+Nunca contrasenas, claves, dinero ni salud.
 '@
 
 function Get-DatosPerfil {
@@ -4254,11 +4262,46 @@ function Add-DatoPerfil([string]$dato, [string]$fuente = '') {
     $d = ($dato -replace '\s+', ' ').Trim().TrimEnd('.').Trim()
     if ($d.Length -lt 8 -or $d.Length -gt 180) { return $null }
     if ($d -match $RE_DATO_SENSIBLE) { Log "PERFIL: no guardo un dato sensible"; return $null }
+    # NI SOBRE NOVA NI DE UNA QUEJA (16/09). El 15/09 acabaron en el perfil, para
+    # siempre y viajando con cada peticion: "Braya considera que Nova se equivoca
+    # frecuentemente" y "Braya siente que Nova no entiende bien lo que dice".
+    $plD = ConvertTo-Suave $d
+    if ($plD -match '\b(?:nova|asistente|la ia|el modelo)\b') { Log "PERFIL: no guardo lo que habla de mi: $d"; return $null }
+    if ($plD -match '\b(?:se equivoca|no entiende|falla|no funciona|molesta|tarda|lento|frecuentemente)\b' -and
+        $plD -match '\b(?:considera|siente|cree|piensa|opina|prefiere que)\b') { Log "PERFIL: eso era una queja, no un dato: $d"; return $null }
+    # NI DEDUCCIONES: "Braya tiene una pareja (la llama 'mi amor')" salio de oirle decir
+    # "mi amor" una vez. Lo que empieza por "parece", "podria" o va entre parentesis
+    # explicando de donde se saco, no es algo que el haya afirmado.
+    if ($plD -match '^(?:parece|puede que|posiblemente|probablemente|quiza)\b' -or $plD -match '\(.*(?:la llama|lo llama|porque dijo|segun).*\)') {
+        Log "PERFIL: eso es una deduccion, no algo que dijera: $d"; return $null
+    }
     $datos = @(Get-DatosPerfil)
     $clave = (((ConvertTo-Suave $d) -replace '[^a-z0-9 ]', ' ') -replace '\s+', ' ').Trim()
+    # DEL MISMO TEMA, SOLO UNA (16/09). El filtro viejo solo miraba si la frase nueva
+    # estaba CONTENIDA en una vieja, y por eso cabian a la vez "le gusta la musica
+    # electronica", "no le gusta la musica electronica" y cinco matices mas. Ahora, si
+    # comparte la mayoria de sus palabras con algo que ya se sabe, es el mismo tema: se
+    # queda lo que ya habia (y para cambiarlo esta "olvida que...").
+    $palD = @($clave -split '\s+' | Where-Object { $_.Length -ge 4 } | Select-Object -Unique)
     foreach ($x in $datos) {
         $cx = (((ConvertTo-Suave $x) -replace '[^a-z0-9 ]', ' ') -replace '\s+', ' ').Trim()
         if ($cx -eq $clave -or $cx.Contains($clave)) { return $null }   # ya lo sabia
+        # EN LOS DOS SENTIDOS (16/09): mirar solo que porcentaje de la frase NUEVA esta
+        # en la vieja castiga a las frases largas, que son justo las que mas ruido
+        # meten ("braya no le gusta cierto estilo de musica electronica que escuchaba
+        # recientemente" colaba al lado de "no le gusta la musica electronica").
+        $palX = @($cx -split '\s+' | Where-Object { $_.Length -ge 4 } | Select-Object -Unique)
+        if ($palD.Count -ge 2 -and $palX.Count -ge 2) {
+            $comunes = @($palD | Where-Object { $palX -contains $_ }).Count
+            $propD = $comunes / [double]$palD.Count
+            $propX = $comunes / [double]$palX.Count
+            # el mismo tema si coincide la mayoria de una de las dos, o si comparten
+            # tres palabras con contenido (dos frases sobre "musica electronica" lo son)
+            if ($propD -ge 0.6 -or $propX -ge 0.6 -or $comunes -ge 3) {
+                Log "PERFIL: ya se algo de eso ('$x'); no apunto '$d'"
+                return $null
+            }
+        }
     }
     $datos += $d
     while ($datos.Count -gt $PerfilMax) { $datos = @($datos | Select-Object -Skip 1) }

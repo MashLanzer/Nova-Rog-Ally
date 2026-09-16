@@ -98,6 +98,10 @@ Titulo "2h. Frases que ya te molestaron una vez (y que se curan solas)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-rechazos.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n6. El perfil solo guarda lo que braya dice de si mismo"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-perfil.ps1') | Select-String 'MAL|todo correcto'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n5. Cambiar un modo hablando ('en modo juego no abras discord')"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-modo-voz.ps1') | Select-String 'MAL|todo correcto'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
