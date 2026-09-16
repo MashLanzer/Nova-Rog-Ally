@@ -2956,6 +2956,30 @@ function Resolve-Fragment([string]$f) {
         $url = ([string]$cmds.busquedas.$sitio) -replace '\{q\}', [System.Uri]::EscapeDataString($q)
         return @(@{ kind = 'url'; url = $url; desc = "buscar '$q' en $sitio" })
     }
+    # INSTALAR UN JUEGO (15/09, 14:26: "instala en Steam It Takes Two", 60 s de agente
+    # y sin conseguirlo). La biblioteca de Nova son los appmanifest del disco: solo los
+    # juegos INSTALADOS, asi que de uno que no lo esta no hay appid con el que montar un
+    # steam://install. Se abre su ficha en la tienda y le das a instalar tu; y si ya lo
+    # tienes, se dice en vez de mandarte a la tienda.
+    if ($f -match '^(?:instala|instalame|instalar|descarga|descargame|descargar|bajame|baja)\s+(?:el\s+juego\s+|el\s+|la\s+|en\s+steam\s+)?(.+?)(?:\s+en\s+(?:el\s+)?steam)?$') {
+        $jInst = $Matches[1].Trim()
+        # "instala en Steam It Takes Two": el nombre va detras del locativo
+        $jInst = ($jInst -replace '^(?:en\s+(?:el\s+)?steam\s+)', '').Trim()
+        if ($jInst.Length -ge 3 -and $jInst -notmatch '^(?:esto|eso|lo|algo|nada)$') {
+            # AQUI EL PARECIDO NO VALE (16/09): Find-Juego empareja por aproximacion y
+            # con "instala hollow knight SILKSONG" contestaba "Hollow Knight ya lo
+            # tienes" (es otro juego), y con "outlast trials" contestaba "Outlast".
+            # Para instalar se exige que el nombre sea el mismo, no que uno contenga
+            # al otro: si sobran palabras, es otro juego y hay que ir a la tienda.
+            $yaInst = Find-Juego $jInst
+            if ($yaInst -and (ConvertTo-Suave ([string]$yaInst.nombre)) -eq (ConvertTo-Suave $jInst)) {
+                return @(@{ kind = 'decir'; desc = "$($yaInst.nombre) ya lo tienes instalado. Dime: abre $($yaInst.nombre)" })
+            }
+            return @(@{ kind = 'url'
+                        url = ('https://store.steampowered.com/search/?term=' + [Uri]::EscapeDataString($jInst))
+                        desc = "abrir $jInst en la tienda de Steam para instalarlo" })
+        }
+    }
     # --- VERBO PEGADO (validacion, 15/09): "abre peak" se oyo "Abrepec". Solo si lo de
     # detras del verbo es algo conocido o suena a un juego: "abreviar" se queda como esta.
     if ($f -match '^(abre|cierra)([a-z]{3,})(\s.*)?$') {
@@ -10753,6 +10777,15 @@ function Report-Reply($out) {
         # regalarle el disco a una frase que nadie pronuncio, y encima costaba
         # entre 25 y 160 s de espera por cada ruido.
         if (-not $propuesta -or $veredicto -eq 'NO') {
+            # NO ES UNA ORDEN, PERO ES TUYO (16/09). Callarse esta bien para el ruido de
+            # un video, pero el 15/09 se comio cinco peticiones de verdad ("mira por que
+            # no me dices cuanto espacio libre me queda") y braya se quedo hablando solo.
+            # Si es espanol claro, largo y con TU voz, no es ruido: es charla.
+            if ($ConversacionOn -and -not $script:invitado -and (Test-EspanolLargo $original) -and -not (Test-VozExtrana)) {
+                Log "NO era una orden, pero es espanol tuyo: '$original' -> a la charla"
+                Add-Estadistica 'no-orden-a-charla' $original
+                if (Send-Charla $original) { return }
+            }
             Log "NO era una orden: '$original' (descartado, no llega al agente)"
         $script:seguimientoPendiente = $false   # un descarte no encadena: era ruido
             Add-Estadistica 'ruido' $original

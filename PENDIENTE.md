@@ -1202,7 +1202,15 @@ Queda del bloque 1 (por orden de impacto medido):
       ejecutar lo que propone la API; si la da la vuelta («cierra Google» → «Abre
       Google») o mete un juego que no nombraste, no se hace nada y se pide repetir.
       También «ábrelo» apunta ya al juego que nombró la respuesta del agente.
-- [ ] Reproducir el vídeo o la canción número N, e instalar un juego.
+- [x] Reproducir el vídeo o la canción número N (16/09) e instalar un juego (16/09):
+      «instala X» abre su ficha en la tienda de Steam, porque la biblioteca de Nova
+      son los appmanifest del disco (solo los instalados) y de uno que no lo está no
+      hay identificador para un `steam://install`. Si ya lo tienes, te lo dice. Ojo:
+      el parecido no vale aquí (Silksong no es Hollow Knight, Outlast Trials no es
+      Outlast); se exige el mismo nombre.
+- [x] «No era una orden» ya no te deja sin respuesta (16/09): si es español claro,
+      largo y con tu voz, va a la charla en vez de callarse. Para el ruido de un
+      vídeo, todo sigue igual (banco de ruido: 3 de 97).
 
 Bloque 2 (oído), empezado el 16/09:
 
