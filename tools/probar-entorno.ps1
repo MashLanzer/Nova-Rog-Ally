@@ -92,6 +92,16 @@ Reset
 $null = Send-AvisoEntorno 'menor' 'Descarga terminada.' 'bajo'
 Comp 'nivel bajo: sin voz' ($script:dicho.Count -eq 0) ''
 
+Write-Host "  -- los niveles de la fase 1 son los que tienen que ser --"
+# la bateria al limite tiene que sonar JUGANDO (es lo unico que de verdad urge);
+# una descarga terminada, no: eso puede esperar a que salgas del juego
+Reset
+$script:juegoActivo = 'It Takes Two'
+Comp 'bateria baja avisa jugando (es critico)' (Send-AvisoEntorno 'bateria-baja' 'Te queda el 15 por ciento.' 'alto' 20) ''
+Comp 'una descarga terminada NO interrumpe la partida' (-not (Send-AvisoEntorno 'descarga-x' 'Ya termino de descargarse.' 'medio' 180)) ''
+Reset
+Comp 'y fuera del juego la descarga si se dice' (Send-AvisoEntorno 'descarga-x' 'Ya termino de descargarse.' 'medio' 180) ''
+
 Write-Host "  -- con un invitado delante, nada --"
 Reset
 $script:invitado = $true

@@ -5224,6 +5224,20 @@ function Watch-Dispositivos {
     if ($null -ne $script:pantallasAntes -and $nP -gt $script:pantallasAntes) {
         Log "DOCK: pantalla conectada ($nP)"
         Invoke-Reglas 'dockPone' 'pone'
+        # idea 2: en el dock se juega en grande y con sonido; no hace falta la bateria
+        [void](Send-AvisoEntorno 'dock-pone' 'Veo la pantalla grande. Si quieres, di: pon el modo trabajo.' 'bajo' 30)
+    }
+    # idea 3: al sacarla del dock, lo que importa es cuanto queda
+    if ($null -ne $script:pantallasAntes -and $nP -lt $script:pantallasAntes) {
+        Log "DOCK: pantalla desconectada ($nP)"
+        $txtD = 'Ya estas sin la pantalla grande.'
+        try {
+            $bD = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($bD -and $bD.EstimatedChargeRemaining -and $bD.BatteryStatus -ne 2) {
+                $txtD = "Sin la pantalla grande. Te queda el $([int]$bD.EstimatedChargeRemaining) por ciento de bateria."
+            }
+        } catch {}
+        [void](Send-AvisoEntorno 'dock-quita' $txtD 'medio' 30)
     }
     $dockAhora = if ($nP -gt 1) { 1 } else { 0 }
     if ($dockAhora -ne $script:uiDock) { $script:uiDock = $dockAhora; Refresh-UI }
@@ -5236,6 +5250,28 @@ function Watch-Dispositivos {
     if ($null -ne $script:cascosAntes -and $casP -and -not $script:cascosAntes) {
         Log "CASCOS: puestos"
         Invoke-Reglas 'cascosPone' 'pone'
+        # idea 4: con cascos, el volumen de los altavoces es un susto
+        # $script:uiVolumen es lo ultimo que Nova puso o leyo; -1 = no lo sabe todavia
+        $volC = [int]$script:uiVolumen
+        if ($volC -gt 50) {
+            [void](Send-AvisoEntorno 'cascos-pone' "Cascos puestos y el volumen esta al $volC. Di: pon el volumen al 30." 'medio' 10)
+        } else {
+            [void](Send-AvisoEntorno 'cascos-pone' 'Cascos puestos.' 'bajo' 10)
+        }
+    }
+    # idea 5: al quitarlos, lo que sonaba sale por los altavoces de golpe
+    if ($null -ne $script:cascosAntes -and -not $casP -and $script:cascosAntes) {
+        Log "CASCOS: quitados"
+        # ¿suena algo? El worker deja el nivel de los altavoces en escucha-estado.txt
+        # ("ganancia|ref|altavoces|bloques"); el mismo dato que usa "¿como me oyes?"
+        $altC = 0.0
+        try {
+            $stC = ([System.IO.File]::ReadAllText($RutaEstado).Trim()) -split '\|'
+            $altC = [double]::Parse($stC[2], [System.Globalization.CultureInfo]::InvariantCulture)
+        } catch { $altC = 0.0 }
+        if ($altC -gt 0.02) {
+            [void](Send-AvisoEntorno 'cascos-quita' 'Te quitaste los cascos y sigue sonando. Di: pausa.' 'medio' 5)
+        }
     }
     $script:cascosAntes = $casP
 }
@@ -9238,6 +9274,10 @@ function Exit-Juego([string]$nombre) {
     $script:ultimoJuego = $nombre
     $script:ultimoJuegoEn = $sw.ElapsedMilliseconds
     Invoke-Reglas 'juegoCierra' $nombre
+    # idea 9: es el momento en que te acuerdas; media hora despues, ya no
+    if ($nombre) {
+        [void](Send-AvisoEntorno "juego-cierra" "Cerraste $nombre. Si quieres, dime donde te quedaste." 'medio' 120)
+    }
     if (-not $JuegoRestaurar -or $null -eq $script:juegoBrilloAntes) { return }
     try {
         Set-Brillo ([int]$script:juegoBrilloAntes)
@@ -14450,6 +14490,23 @@ while ($true) {
                     Invoke-Reglas 'cargadorQuita' $(if ($cg -eq 0) { 'quita' } else { '' })
                     Invoke-Reglas 'cargadorPone' $(if ($cg -eq 1) { 'pone' } else { '' })
                     Log "cargador: $(if ($cg -eq 1) { 'enchufado' } else { 'desenchufado' })"
+                    # idea 13: al enchufar, lo util es cuanto le falta
+                    if ($cg -eq 1) {
+                        [void](Send-AvisoEntorno 'cargador-pone' "Cargando, vas por el $pc por ciento." 'bajo' 20)
+                    } else {
+                        # idea 7: al desenchufar, cuanto te queda EN TIEMPO, no en porcentaje
+                        $txtB = "Sin cargador, al $pc por ciento."
+                        if ($script:bateriaMin -gt 0) { $txtB = "Sin cargador: te quedan unos $([int]$script:bateriaMin) minutos." }
+                        [void](Send-AvisoEntorno 'cargador-quita' $txtB 'medio' 20)
+                    }
+                }
+                # idea 15: la dejaste cargando toda la noche y ya esta llena
+                if ($cargando -and $pc -ge 100) {
+                    [void](Send-AvisoEntorno 'bateria-llena' 'Ya esta cargada del todo, puedes desenchufarla.' 'bajo' 240)
+                }
+                # idea 14: por debajo del 15 %, y esto SI es critico (suena jugando)
+                if (-not $cargando -and $pc -le 15) {
+                    [void](Send-AvisoEntorno 'bateria-baja' "Te queda el $pc por ciento de bateria." 'alto' 20)
                 }
                 $script:cargandoAntes = $cg
                 # cuanto gasta el juego de delante (ver BATERIA POR JUEGO)
@@ -14475,7 +14532,9 @@ while ($true) {
                 # lectura solo toma nota: al arrancar no se sabe que estaba
                 # bajando antes, y anunciar entonces seria inventarse un final.
                 try {
-                    if (@(Get-Reglas | Where-Object { $_.tipo -eq 'descarga' }).Count -gt 0) {
+                    # antes esto solo se miraba si habia una regla 'descarga' creada a mano;
+                    # con los avisos puestos hay que mirarlo igual (idea 24)
+                    if ($EntornoOn -or @(Get-Reglas | Where-Object { $_.tipo -eq 'descarga' }).Count -gt 0) {
                         $null = Update-Juegos
                         $ahoraBajan = @{}
                         foreach ($jj in @($script:Juegos)) { if ($jj.bajando) { $ahoraBajan[$jj.nombre] = $true } }
@@ -14486,6 +14545,8 @@ while ($true) {
                                 if (-not $ahoraBajan.ContainsKey($nm)) {
                                     Log "DESCARGA terminada (regla): $nm"
                                     Invoke-Reglas 'descarga' $nm
+                                    # idea 24: ya se puede jugar
+                                    [void](Send-AvisoEntorno "descarga-$nm" "Ya termino de descargarse $nm." 'medio' 180)
                                 }
                             }
                             $script:bajandoReglas = $ahoraBajan
@@ -14498,6 +14559,10 @@ while ($true) {
                     if ($di.IsReady) {
                         $gbLibres = [Math]::Round($di.AvailableFreeSpace / 1073741824.0, 1)
                         Invoke-Reglas 'disco' ([string]$gbLibres)
+                        # idea 25: con menos de 15 gigas, un juego ya no cabe
+                        if ($gbLibres -lt 15) {
+                            [void](Send-AvisoEntorno 'disco-poco' "Te quedan $gbLibres gigas en el disco. Preguntame que ocupa mas." 'medio' 720)
+                        }
                     }
                 } catch {}
                 if (-not $cargando -and $pc -le $BateriaAviso -and -not $script:bateriaAvisada) {
