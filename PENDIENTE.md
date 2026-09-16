@@ -1232,7 +1232,17 @@ Bloque 3 (aprender de todo), fase 1 empezada el 16/09:
       frase, con singular/plural y frase propia cuando no hay nada.
 - [x] Recetas de información completas (16/09): se aprenden (con paso de lectura
       validado y plantilla de voz obligatoria), se ejecutan sin bloquear y dicen el
-      dato. Falta aún dar permiso al agente en `$CcInstruccionReceta` (sección 6.3).
+      dato. El agente YA tiene permiso para aprenderlas (`$CcInstruccionReceta` nueva),
+      y cuando dice que no, dice el motivo (pantalla, contenido, externo, destructivo,
+      inseguro, charla), que queda en el log y en las estadísticas.
+- [x] «Reproduce el segundo vídeo de YouTube» y «la tercera canción», en local: se
+      coge el vídeo número N de la misma página de resultados y se recuerda la última
+      búsqueda. Sin búsqueda previa, avisa en vez de abrir algo al azar.
+- [ ] NO se hará: avisar de «la parte que no entendí» de una frase compuesta. Al
+      revisarlo, la regla ya es «todo o nada» (si un trozo no se reconoce, la frase
+      entera va al modelo). Los dos casos del 15/09 eran otra cosa: «abre el navegador
+      con Pinterest» (orden mal resuelta, arreglada) y «pon el brillo al 70 y ahora es
+      Tin» (frase cortada por el dictado). Un aviso genérico daría falsas alarmas.
 - [x] Sembradas al arrancar: descargas, documentos y clips (de 1 receta a 4).
 - [x] Una receta `info` se ejecuta sin preguntar (solo lee, no cambia nada).
 - [ ] Confirmación diferida a los 60 s (queda para la fase 2).

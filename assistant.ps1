@@ -2775,6 +2775,26 @@ function Resolve-Fragment([string]$f) {
         $q = $Matches[1].Trim()
         return @(@{ kind = 'url'; url = ('spotify:search:' + [Uri]::EscapeDataString($q)); desc = "buscar '$q' en Spotify" })
     }
+    # "reproduce el segundo video de youtube" / "pon la tercera cancion": el numero N
+    # de la ULTIMA busqueda (ver EL VIDEO NUMERO N)
+    if ($f -match '^(?:pon|ponme|reproduce|reproduceme|quiero ver|ver|toca|dale a)\s+(?:el|la)\s+(\w+)\s*(?:video|vídeo|cancion|resultado|tema)?\s*(?:de\s+(?:youtube|la\s+lista|la\s+busqueda))?$' -and
+        ($ORDINALES_YT.ContainsKey([string]$Matches[1]) -or [string]$Matches[1] -match '^\d{1,2}$')) {
+        $ordTxt = [string]$Matches[1]
+        $nYT = if ($ORDINALES_YT.ContainsKey($ordTxt)) { [int]$ORDINALES_YT[$ordTxt] } else { [int]$ordTxt }
+        if (-not $script:ytUltimaBusqueda) { return @(@{ kind = 'decir'; desc = 'Dime primero que quieres que ponga' }) }
+        return @(@{ kind = 'url'; url = ('https://www.youtube.com/results?search_query=' + [Uri]::EscapeDataString($script:ytUltimaBusqueda))
+                    youtube = $script:ytUltimaBusqueda; videoN = $nYT; desc = "poner el numero $nYT de '$($script:ytUltimaBusqueda)'" })
+    }
+    if ($f -match '^(?:pon|ponme|reproduce|reproduceme|quiero ver|ver|toca)\s+(?:el|la)\s+(\w+)\s+(?:video|vídeo|cancion|resultado|tema)\s+de\s+(.+)$' -and
+        ($ORDINALES_YT.ContainsKey([string]$Matches[1]) -or [string]$Matches[1] -match '^\d{1,2}$')) {
+        $ordTxt2 = [string]$Matches[1]; $quienYT = $Matches[2].Trim()
+        $nYT2 = if ($ORDINALES_YT.ContainsKey($ordTxt2)) { [int]$ORDINALES_YT[$ordTxt2] } else { [int]$ordTxt2 }
+        # "de el" = de lo ultimo que se puso (15/09: "reproduce la segunda cancion de el")
+        if ($quienYT -match '^(?:el|ella|eso|ese|esa|esta|este|youtube)$') { $quienYT = [string]$script:ytUltimaBusqueda }
+        if (-not $quienYT) { return @(@{ kind = 'decir'; desc = 'Dime primero que quieres que ponga' }) }
+        return @(@{ kind = 'url'; url = ('https://www.youtube.com/results?search_query=' + [Uri]::EscapeDataString($quienYT))
+                    youtube = $quienYT; videoN = $nYT2; desc = "poner el numero $nYT2 de '$quienYT'" })
+    }
     if ($f -match '^(?:pon|ponme|reproduce|reproduceme|quiero ver|ver|toca)\s+(.+?)\s+en\s+youtube$') {
         $q = $Matches[1].Trim()
         # 'youtube': al hacerla se pone el primer video (ver PONER EL VIDEO, NO SOLO BUSCARLO)
@@ -3426,16 +3446,35 @@ function Set-AcabaDeAprender {
 $CcInstruccionReceta = @'
 
 
-AL FINAL, en una linea aparte y despues de la frase de resumen, escribe una RECETA en UNA sola linea de JSON para que Nova pueda repetir esta tarea sola la proxima vez, sin ti:
-RECETA: {"frase": "...", "resumen": "...", "pasos": [...], "respuesta": "..."}
-- "frase": la orden del usuario como plantilla, en minusculas y sin tildes, con {hueco} en lo que cambiaria otra vez (maximo 3 huecos, nombres en minusculas sin tildes, por ejemplo {nombre}, {sitio}). Ejemplo: "crea una carpeta llamada {nombre} en documentos".
-- IMPORTANTE: las partes fijas de "frase" copialas EXACTAMENTE como las dijo el usuario, mismas palabras y en el mismo orden, y las rutas completas tal cual (sin acortarlas). Cambia por {hueco} solo lo que varia. Nova compara la plantilla palabra por palabra con lo que se diga la proxima vez: si resumes o acortas algo, no encajara nunca.
-- Pon hueco a los nombres, textos, rutas, numeros o apps que el usuario dio y que cambiarian la proxima vez (el nombre de la carpeta, lo que dice el archivo, la app a abrir). Una receta SIN huecos solo sirve para esa frase exacta y casi nunca se vuelve a usar.
-- Crear carpetas o archivos, abrir, mover o copiar cosas, cambiar ajustes sencillos SI se pueden repetir: no digas NO solo porque la ruta sea larga o parezca temporal.
-- "resumen": lo que hace, en infinitivo y corto, puede usar huecos: "crear la carpeta {nombre} en documentos".
-- "pasos": de 1 a 6. Cada uno es {"tipo": "powershell", "script": "..."} con PowerShell 5.1 que haga la tarea sin preguntar nada y usando cada hueco como variable ($nombre), o {"tipo": "orden", "texto": "abre spotify"} si es una orden sencilla que Nova ya entiende.
-- "respuesta": la frase corta que Nova dira al terminar, puede usar huecos.
-- Escribe exactamente RECETA: NO si la tarea no se puede repetir igual (una respuesta o informacion, algo que depende de lo que hay en pantalla o de lo que encontraste), si hubo que borrar, cerrar programas, descargar o instalar algo, o si no estas seguro de que el script funcione solo.
+AL FINAL, en una linea aparte y despues de la frase de resumen, deja una RECETA en UNA sola linea de JSON para que Nova repita esto sola la proxima vez, en 1-3 segundos y sin ti. Hay DOS tipos:
+
+1) ACCION (cambia algo: crear, abrir, mover, escribir, pulsar teclas, abrir un enlace steam:// o una web):
+RECETA: {"tipo": "accion", "frase": "...", "resumen": "...", "pasos": [...], "respuesta": "..."}
+
+2) INFORMACION (solo mira y dice: que hay en una carpeta, cuanto ocupa algo, cuantos archivos hay, que juegos tienes...):
+RECETA: {"tipo": "info", "frase": "...", "resumen": "...", "pasos": [{"tipo": "lectura", "script": "..."}], "voz": {"modo": "plantilla", "plantilla": "...", "vacio": "..."}}
+- El script de "lectura" SOLO LEE. Puede usar Get-ChildItem, Get-Item, Get-Content, Test-Path, Join-Path, Get-Process, Get-CimInstance, Measure-Object, Select-Object, Sort-Object, Where-Object, ForEach-Object, Group-Object y ConvertTo-Json, y nada mas. Prohibido todo lo que empiece por Set-, New-, Remove-, Start-, Invoke-, Out-File, llamar a un .exe o redirigir con >. Usa $env:USERPROFILE, no [Environment].
+- Termina SIEMPRE escribiendo UN objeto con ConvertTo-Json -Compress, por ejemplo: [pscustomobject]@{ cuantos = $i.Count; nombres = @($i | Select-Object -First 5 | ForEach-Object { $_.Name }) } | ConvertTo-Json -Compress
+- "voz.plantilla": la frase que dira Nova con esos datos. {campo} pone el valor; {campo|singular|plural} pone el numero y su palabra ("3 archivos", "1 archivo"). Ejemplo: "En descargas tienes {cuantos|archivo|archivos}. Los ultimos: {nombres}."
+- "voz.vacio": lo que dice cuando no hay nada ("No tienes nada en descargas."). Es obligatorio.
+
+Para los dos tipos:
+- "frase": la orden del usuario como plantilla, en minusculas y sin tildes, con {hueco} en lo que cambiaria otra vez (maximo 3 huecos, nombres en minusculas, por ejemplo {nombre}, {carpeta}, {juego}).
+- IMPORTANTE: las partes fijas de "frase" copialas EXACTAMENTE como las dijo el usuario, mismas palabras y en el mismo orden, y las rutas completas tal cual. Nova compara la plantilla palabra por palabra: si resumes o acortas algo, no encajara nunca. No incluyas saludos, "ok", "mira" ni comentarios.
+- TODO hueco tiene que usarse: como variable ($nombre) en un script o como {nombre} en una orden. El nombre de un archivo o carpeta que el usuario dijo sale del hueco, nunca de un texto fijo.
+- Pon hueco a los nombres, textos, rutas, numeros o apps que cambiarian la proxima vez. Sin huecos solo si la orden no lleva ningun dato ("que tengo en mi escritorio").
+- "resumen": lo que hace, en infinitivo y corto, puede usar huecos.
+- "pasos": de 1 a 6. {"tipo": "powershell", "script": "..."} (PowerShell 5.1, sin preguntar nada), {"tipo": "orden", "texto": "abre spotify"} (una orden que Nova ya entiende) o {"tipo": "lectura", "script": "..."} (solo para informacion).
+- "respuesta" (solo accion): la frase corta que Nova dira al terminar, puede usar huecos.
+
+Si NO se puede repetir sin ti, escribe RECETA: NO y detras UNO de estos motivos:
+- NO pantalla: tuviste que MIRAR la pantalla para decidir donde pulsar o que elegir.
+- NO contenido: habia que elegir o redactar algo segun su contenido (que video, que contestar).
+- NO externo: enviaste, compraste, aceptaste algo o iniciaste sesion.
+- NO destructivo: hubo que borrar, cerrar programas o tocar el registro.
+- NO inseguro: no estas seguro de que el script funcione solo con otros valores.
+- NO charla: no era una tarea.
+Lo que SI se puede repetir, aunque antes se dijera que no: dar informacion con un script de lectura, mover archivos o accesos directos, y pulsar un atajo de teclado.
 '@
 
 function Get-Recetas {
@@ -5402,20 +5441,36 @@ function Find-CarpetaPorNombre([string]$nombre) {
     return $parecida
 }
 
-function Get-PrimerVideoYouTube([string]$q) {
+# EL VIDEO NUMERO N (16/09). El 15/09, "reproduce el segundo video de YouTube" y
+# "reproduce la segunda cancion de el" se fueron al agente cuatro veces (hasta 88 s) y
+# ni asi. Es la misma pagina de resultados: basta con coger la coincidencia numero N,
+# quitando repetidos (YouTube repite el mismo videoId varias veces en el HTML).
+function Get-PrimerVideoYouTube([string]$q, [int]$n = 1) {
     if (-not $q) { return '' }
+    if ($n -lt 1) { $n = 1 }
     try {
         $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 6 -Headers @{ 'Accept-Language' = 'es-ES,es;q=0.9' } `
             -Uri ('https://www.youtube.com/results?search_query=' + [Uri]::EscapeDataString($q))
-        $m = [regex]::Match([string]$r.Content, '"videoId":"([A-Za-z0-9_-]{11})"')
-        if ($m.Success) {
-            Log "YOUTUBE: '$q' -> $($m.Groups[1].Value)"
-            return 'https://www.youtube.com/watch?v=' + $m.Groups[1].Value
+        $ids = @([regex]::Matches([string]$r.Content, '"videoId":"([A-Za-z0-9_-]{11})"') |
+                 ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
+        if ($ids.Count -ge $n) {
+            Log "YOUTUBE: '$q' -> $($ids[$n - 1])$(if ($n -gt 1) { " (el numero $n de $($ids.Count))" })"
+            return 'https://www.youtube.com/watch?v=' + $ids[$n - 1]
+        }
+        if ($ids.Count -gt 0) {
+            Log "YOUTUBE: '$q' solo tiene $($ids.Count) videos; pongo el ultimo"
+            return 'https://www.youtube.com/watch?v=' + $ids[$ids.Count - 1]
         }
         Log "YOUTUBE: '$q' sin videos en la pagina; abro la busqueda"
     } catch { Log ("YOUTUBE: no pude sacar el video (" + $_.Exception.Message + "); abro la busqueda") }
     return ''
 }
+
+# LO ULTIMO QUE SE PUSO EN YOUTUBE, para poder decir "pon el segundo" despues
+$script:ytUltimaBusqueda = ''
+# "el segundo", "la tercera cancion", "el video numero 4"
+$ORDINALES_YT = @{ 'primer' = 1; 'primero' = 1; 'primera' = 1; 'segundo' = 2; 'segunda' = 2; 'tercer' = 3
+                   'tercero' = 3; 'tercera' = 3; 'cuarto' = 4; 'cuarta' = 4; 'quinto' = 5; 'quinta' = 5 }
 
 function Invoke-FastCommand([string]$text) {
     if (-not $cmds) { return $null }
@@ -5747,8 +5802,10 @@ function Invoke-FastCommand([string]$text) {
                 'url' {
                     $urlA = $a.url
                     if ($a.youtube) {
-                        $primerV = Get-PrimerVideoYouTube ([string]$a.youtube)
+                        $nV = if ($a.videoN) { [int]$a.videoN } else { 1 }
+                        $primerV = Get-PrimerVideoYouTube ([string]$a.youtube) $nV
                         if ($primerV) { $urlA = $primerV }
+                        $script:ytUltimaBusqueda = [string]$a.youtube   # para "pon el segundo"
                     }
                     if ($a.carpeta) { Start-Process -FilePath 'explorer.exe' -ArgumentList ('"' + $urlA + '"') -ErrorAction Stop }
                     elseif ($navegador) { Start-Process $navegador $urlA -ErrorAction Stop }
@@ -10859,7 +10916,12 @@ function Report-Reply($out) {
         $bloqueRec = $textoOut.Substring($mRec.Index + $mRec.Length).Trim()
         $out = @($textoOut.Substring(0, $mRec.Index).Trim())
         if ($bloqueRec -match '^(?i)no\b') {
-            Log "RECETA: el cerebro dice que esta tarea no se puede repetir igual"
+            # el motivo viene detras del NO (pantalla, contenido, externo, destructivo,
+            # inseguro, charla): sin el no habia forma de saber que se puede mejorar
+            $motivoRec = ''
+            if ($bloqueRec -match '^(?i)no[ \t:,-]+([a-z]+)') { $motivoRec = $Matches[1].ToLowerInvariant() }
+            Log ("RECETA: el cerebro dice que esto no se puede repetir igual" + $(if ($motivoRec) { " (motivo: $motivoRec)" } else { '' }))
+            Add-Estadistica 'receta-no' $(if ($motivoRec) { $motivoRec } else { 'sin motivo' })
         } elseif ($RecetasOn -and $script:jobModo -eq 'accion' -and $script:ccConHerramientas -and -not $script:invitado) {
             # lo que habia que conservar de la receta rota, ANTES de aprender la
             # nueva: si trae la misma plantilla, Add-Receta sustituye a la vieja
