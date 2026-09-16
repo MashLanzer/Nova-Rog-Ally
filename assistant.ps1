@@ -1992,6 +1992,14 @@ function Resolve-Fragment([string]$f) {
         $cosa = $Matches[1].Trim(); $cual2 = $Matches[2]
         if ($cosa) { return @(@{ kind = 'listaQuitar'; cosa = $cosa; lista = $cual2; desc = "quitar $cosa de la lista" }) }
     }
+    # CAMBIAR UN MODO HABLANDO va ANTES de anotar: "recuerda que en modo juego no abras
+    # discord" es configurar el modo, no una nota para el diario (15/09, 11:40)
+    $dModo = $null
+    try { $dModo = Resolve-ModoPorVoz $f } catch { $dModo = $null }
+    if ($dModo) {
+        $qModo = if ($dModo.quitar) { "quitar '$($dModo.orden)' del modo $($dModo.modo)" } else { "anadir '$($dModo.orden)' al modo $($dModo.modo)" }
+        return @(@{ kind = 'modoEditar'; datos = $dModo; desc = $qModo })
+    }
     if ($f -match '^(?:recuerda|recuerdame|acuerdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!(?:en|dentro de)\s+(?:\d+|un|una|uno|medi[ao]|(?:un\s+)?cuarto\s+de|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis\S+|veinte|veinti\S+|treinta|cuarenta|cincuenta|sesenta|noventa)(?:\s+y\s+\S+)?\s+(?:segundos?|minutos?|horas?)\b)(?!(?:\d+|un|una|medi[ao]|(?:un\s+)?cuarto\s+de|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis\S+|veinte|veinti\S+|treinta|cuarenta|cincuenta|sesenta|noventa)(?:\s+y\s+\S+)?\s+(?:minutos?|horas?)(?:\s+y\s+media)?\s+antes\b)(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?!(?:cual|cuales|que es|que fue|si|donde|cuando|quien|como|cuanto)\b)(?:que\s+|de\s+que\s+)?(.+)$') {
         return @(@{ kind = 'memoria'; texto = $Matches[1].Trim(); desc = "anotar en la memoria" })
     }
@@ -3259,6 +3267,75 @@ function Add-Perfil([string]$nombre, [string[]]$ordenes) {
         Log ("MODO CREADO: $nombre -> " + ($ordenes -join '; '))
         return $true
     } catch { Log ("no pude crear el modo: " + $_.Exception.Message); return $false }
+}
+
+# CAMBIAR UN MODO HABLANDO (16/09). El 15/09 braya dijo "recuerda que al poner modo
+# juego abras Steam y Discord no lo abras" y Nova lo guardo como una NOTA en el diario:
+# el modo juego siguio abriendo Discord, justo lo que pedia que dejara de hacer.
+#
+# Va en DOS partes a proposito. Resolve-ModoPorVoz solo mira la frase y no toca nada
+# (Resolve-Fragment se usa tambien para VALIDAR ordenes -al crear una receta, por
+# ejemplo-, y ahi cambiar un modo de verdad seria un desastre silencioso); el cambio lo
+# hace Invoke-ModoEditar desde el ejecutor, como cualquier otra accion.
+#   "en modo juego no abras discord"   -> quita 'abre discord' del modo juego
+#   "al poner modo juego abre steam"   -> anade 'abre steam' al modo juego
+function Resolve-ModoPorVoz([string]$texto) {
+    if (-not $texto -or -not $cmds -or -not $cmds.perfiles) { return $null }
+    $p = ConvertTo-Plain $texto
+    # se quita el "recuerda que" de delante: asi lo dijo el 15/09 y acabo en el diario
+    $p = ($p -replace '^(?:recuerda(?:me)?\s+que\s+|acuerdate\s+de\s+que\s+|apunta\s+que\s+)', '').Trim()
+    # el "en" A SECAS es la forma natural ("en modo juego no abras Discord"); exigir un
+    # verbo delante dejaba fuera justo la frase que provoco todo esto
+    if ($p -notmatch '^(?:(?:cuando|al|si)\s+(?:pong[ao]|poner|active|activar|entre|entrar)\s+(?:en\s+)?|en\s+|para\s+(?:el\s+)?)?(?:el\s+)?modo\s+(\w+)[,\s]+(.+)$') { return $null }
+    $modoN = $Matches[1].Trim(); $resto = $Matches[2].Trim()
+    if (-not (Test-Prop $cmds.perfiles $modoN)) { return $null }
+
+    $quitar = $false
+    if ($resto -match '^(?:ya\s+)?no\s+(.+)$') { $quitar = $true; $resto = $Matches[1].Trim() }
+    elseif ($resto -match '^(?:quita|saca|elimina|borra)\s+(?:el\s+|la\s+|lo\s+de\s+)?(.+)$') { $quitar = $true; $resto = $Matches[1].Trim() }
+    # el subjuntivo, como se dice al pedirlo ("abras steam", "no abras discord")
+    $resto = (Repair-Verb $resto).Trim()
+    if (-not $resto) { return $null }
+    # anadir algo que Nova no sabe hacer no tiene sentido: se dice y no se cambia nada
+    if (-not $quitar -and -not (Test-FastCommand $resto)) {
+        return @{ modo = $modoN; orden = $resto; quitar = $false; imposible = $true }
+    }
+    return @{ modo = $modoN; orden = $resto; quitar = $quitar; imposible = $false }
+}
+
+# Aplica lo que decidio Resolve-ModoPorVoz y devuelve la frase que dira Nova.
+function Invoke-ModoEditar($d) {
+    if (-not $d) { return 'No entendi que modo cambiar.' }
+    $modoN = [string]$d.modo; $resto = [string]$d.orden
+    if ($d.imposible) { return "No se hacer '$resto', asi que no lo meto en el modo $modoN." }
+    if (-not (Test-Prop $cmds.perfiles $modoN)) { return "No tengo ningun modo $modoN." }
+    $lista = @(@($cmds.perfiles.$modoN) | ForEach-Object { [string]$_ } | Where-Object { $_ })
+
+    if ($d.quitar) {
+        # POR CONTENCION, no con regex: una orden puede acabar en "0%", y un \b detras
+        # de % no casa nunca (no es caracter de palabra)
+        $clave = ConvertTo-Plain (($resto -replace '^(?:abre|abras|abrir|pon|pongas|poner)\s+', '').Trim())
+        if (-not $clave) { return "No entendi que quitar del modo $modoN." }
+        $fuera = @($lista | Where-Object { (ConvertTo-Plain $_).Contains($clave) })
+        if ($fuera.Count -eq 0) { return "El modo $modoN no hace nada con $clave." }
+        $lista = @($lista | Where-Object { $fuera -notcontains $_ })
+        if ($lista.Count -eq 0) { return "Si quito eso, el modo $modoN se queda vacio. Mejor dime: olvida el modo $modoN." }
+        if (-not (Add-Perfil $modoN $lista)) { return "No pude cambiar el modo $modoN." }
+        Log "MODO ${modoN}: quitado '$($fuera -join ', ')' (lo pediste hablando)"
+        Add-Estadistica 'modo-editado' "$modoN -sin- $($fuera -join ', ')"
+        Set-AcabaDeAprender
+        return "Hecho. El modo $modoN ya no $($fuera -join ' ni ')."
+    }
+    if (@($lista | Where-Object { (ConvertTo-Plain $_) -eq (ConvertTo-Plain $resto) }).Count -gt 0) {
+        return "El modo $modoN ya hace eso."
+    }
+    if ($lista.Count -ge 8) { return "El modo $modoN ya tiene muchas cosas; quita alguna antes." }
+    $lista += $resto
+    if (-not (Add-Perfil $modoN $lista)) { return "No pude cambiar el modo $modoN." }
+    Log "MODO ${modoN}: anadido '$resto' (lo pediste hablando)"
+    Add-Estadistica 'modo-editado' "$modoN +mas+ $resto"
+    Set-AcabaDeAprender
+    return "Hecho. El modo $modoN ahora tambien $resto."
 }
 
 function Remove-Perfil([string]$nombre) {
@@ -5838,6 +5915,7 @@ function Invoke-FastCommand([string]$text) {
                 'key' { for ($i = 0; $i -lt $a.repeat; $i++) { Send-Key $a.vk } }
                 'brillo' { Set-Brillo $a.nivel }
                 'memoria' { $null = Add-Memoria $a.texto }
+                'modoEditar' { $a.desc = Invoke-ModoEditar $a.datos }
                 'decir' {
                     # la respuesta ES la descripcion; se dice y ya. Si es un
                     # perfil, la capsula lo sabe ("noche" = paleta calida)

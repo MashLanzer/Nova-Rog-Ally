@@ -1194,9 +1194,16 @@ Queda del bloque 1 (por orden de impacto medido):
       descargas de Steam, los temporizadores puestos (sin los internos), el nivel,
       lo último que hizo y el juego abierto; el worker los pone delante del modelo
       (`texto_datos`) y se le dice que nunca conteste que no puede saberlos.
-- [ ] Confusiones que quedan: «¿recuerdas…?» a la memoria, «ábrelo» con el
-      último juego que nombró el agente, modo juego por voz, órdenes compuestas
-      a medias (decir en voz alta la parte que no se entendió).
+- [x] Confusiones que quedan: «¿recuerdas…?» a la memoria y «ábrelo» con el juego
+      que nombró el agente (16/09); **modo por voz** (16/09): «en modo juego no abras
+      Discord» cambia el modo de verdad, en vez de guardarse como nota en el diario.
+      Se analiza en `Resolve-ModoPorVoz` (sin tocar nada, porque `Resolve-Fragment`
+      se usa también para validar órdenes) y se aplica en `Invoke-ModoEditar` desde el
+      ejecutor. No se mete en un modo algo que Nova no sepa hacer, ni se deja un modo
+      vacío. Lo de «la parte que no entendí» queda descartado (ver más abajo).
+- [ ] Vigilante de la escucha: YA EXISTÍA (se comprueba cada 30 s, se relanza hasta
+      3 veces, se rearma si aguanta 5 minutos y, si se agota, avisa en voz alta de que
+      sigue el botón). No había nada que hacer.
 - [x] Traducciones que invierten el verbo o inventan un nombre. HECHO el 16/09:
       `Test-TraduccionOpuesta` y `Test-NombreInventado` se comprueban ANTES de
       ejecutar lo que propone la API; si la da la vuelta («cierra Google» → «Abre
