@@ -220,3 +220,9 @@ revisa mi correo => tu correo
 leeme el ultimo correo => leer el ultimo correo
 manda un correo a lucia@ejemplo.com diciendo que llego tarde => mandar un correo
 dicta un correo en el bloc de notas => dictado largo
+
+# --- los avisos por su cuenta (16/09); NO confundir con la sordina del microfono ---
+no me avises de nada => dejar de avisarte
+no me molestes => dejar de avisarte
+vuelve a avisarme => volver a avisarte
+no me escuches 10 minutos => me callo 10 minutos

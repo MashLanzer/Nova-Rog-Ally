@@ -115,5 +115,11 @@
     "recetas": {
         "activadas": true,
         "confirmarVeces": 2
+    },
+    "entorno": {
+        "avisos": false,
+        "porHora": 4,
+        "nocheDesde": 23,
+        "nocheHasta": 8
     }
 }

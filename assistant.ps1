@@ -2247,6 +2247,13 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(activa|pon|enciende|desactiva|quita|apaga)\s+(?:el\s+)?brillo\s+automatico$') {
         return @(@{ kind = 'brilloAuto'; activar = ($Matches[1] -match '^(?:activa|pon|enciende)$'); desc = 'brillo automatico' })
     }
+    # --- los avisos por su cuenta (ver NOVA SE ENTERA DE LO QUE PASA) ---
+    if ($f -match '^(?:no me avises|no avises|deja de avisarme|no me digas nada|no me molestes)(?:\s+de\s+nada)?$') {
+        return @(@{ kind = 'avisosEntorno'; encendido = $false; desc = 'dejar de avisarte' })
+    }
+    if ($f -match '^(?:vuelve a avisarme|avisame otra vez|puedes avisarme|ya puedes avisarme)(?:\s+de\s+(?:todo|las cosas))?$') {
+        return @(@{ kind = 'avisosEntorno'; encendido = $true; desc = 'volver a avisarte' })
+    }
     # --- EL CORREO (16/09; ver Invoke-Correo) ---
     # "revisa mi correo" / "tengo correos nuevos" / "que correos tengo"
     if ($f -match '^(?:revisa|mira|lee|checa|chequea|ver|dime)?\s*(?:mi|el|los)?\s*(?:correo|correos|email|emails|gmail|mail|bandeja)(?:\s+(?:nuevos?|no leidos?|de hoy|pendientes?))?$' -or
@@ -5138,6 +5145,73 @@ function Get-CancionAnterior {
     return $ultima
 }
 
+# =====================================================================
+# NOVA SE ENTERA DE LO QUE PASA (16/09). El motor de los avisos por su cuenta.
+#
+# Hasta ahora Nova solo hablaba cuando le hablabas. Esto le deja avisar de cosas que
+# pasan (dock, cascos, bateria, descargas, correo...), pero con freno de mano, porque
+# un asistente que habla solo se vuelve insoportable rapido:
+#   - como mucho $EntornoPorHora avisos por hora;
+#   - jugando, solo lo critico (nivel 'alto');
+#   - de $EntornoNocheDesde a $EntornoNocheHasta, solo lo critico;
+#   - el mismo aviso no se repite hasta que pasa su plazo;
+#   - los de nivel 'bajo' NO se dicen en voz alta: solo se ven en la capsula;
+#   - "no me avises de nada" lo apaga entero hasta que digas lo contrario.
+# =====================================================================
+$EntornoOn = [bool](Get-Cfg 'entorno' 'avisos' $false)
+$EntornoPorHora = [int](Get-Cfg 'entorno' 'porHora' 4)
+$EntornoNocheDesde = [int](Get-Cfg 'entorno' 'nocheDesde' 23)
+$EntornoNocheHasta = [int](Get-Cfg 'entorno' 'nocheHasta' 8)
+$script:entornoAvisos = New-Object System.Collections.ArrayList   # cuando salio cada uno
+$script:entornoVistos = @{}                                        # clave -> cuando (ms)
+$script:entornoCallado = $false                                    # "no me avises de nada"
+
+# ¿se puede avisar de esto AHORA? nivel: 'bajo' (solo capsula), 'medio', 'alto' (critico)
+function Test-PuedoAvisar([string]$clave, [string]$nivel = 'medio', [int]$cadaMin = 60) {
+    if (-not $EntornoOn -or $script:entornoCallado -or $script:invitado) { return $false }
+    $ahoraE = $sw.ElapsedMilliseconds
+    # el mismo aviso, una vez cada cuanto
+    if ($script:entornoVistos.ContainsKey($clave)) {
+        if (($ahoraE - [double]$script:entornoVistos[$clave]) -lt ($cadaMin * 60000)) { return $false }
+    }
+    if ($nivel -ne 'alto') {
+        # JUGANDO, SILENCIO: es cuando mas molesta y cuando menos caso se hace
+        if ($script:juegoActivo) { return $false }
+        $hE = (Get-Date).Hour
+        $esNocheE = if ($EntornoNocheDesde -gt $EntornoNocheHasta) { ($hE -ge $EntornoNocheDesde -or $hE -lt $EntornoNocheHasta) }
+                    else { ($hE -ge $EntornoNocheDesde -and $hE -lt $EntornoNocheHasta) }
+        if ($esNocheE) { return $false }
+        # y nunca mientras esta hablando, dictando o esperando un si
+        if ($script:busy -or $script:pendiente -or $script:dictandoLargo) { return $false }
+    }
+    # PRESUPUESTO POR HORA: se cuentan los de la ultima hora y se para ahi
+    $hace1h = $ahoraE - 3600000
+    while ($script:entornoAvisos.Count -gt 0 -and [double]$script:entornoAvisos[0] -lt $hace1h) { $script:entornoAvisos.RemoveAt(0) }
+    if ($script:entornoAvisos.Count -ge $EntornoPorHora -and $nivel -ne 'alto') { return $false }
+    return $true
+}
+
+# Avisa de algo. Devuelve $true si de verdad se dijo.
+function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'medio', [int]$cadaMin = 60) {
+    if (-not (Test-PuedoAvisar $clave $nivel $cadaMin)) { return $false }
+    $script:entornoVistos[$clave] = $sw.ElapsedMilliseconds
+    [void]$script:entornoAvisos.Add($sw.ElapsedMilliseconds)
+    Log "ENTORNO ($clave, $nivel): $texto"
+    Add-Estadistica 'aviso-entorno' $clave
+    $script:ultimaRespuesta = $texto
+    Show-Popup $texto
+    # los de poca monta NO se dicen: se ven y ya. Hablar por todo es lo que cansa.
+    if ($nivel -ne 'bajo') { Say $texto }
+    return $true
+}
+
+# "no me avises de nada" / "vuelve a avisarme"
+function Set-AvisosEntorno([bool]$encendido) {
+    $script:entornoCallado = -not $encendido
+    if ($encendido) { return 'Vale, vuelvo a avisarte de las cosas.' }
+    return 'Hecho, no te aviso de nada hasta que me digas lo contrario.'
+}
+
 # DOCK Y CASCOS (F8): cada 15 s, cuantas pantallas hay y si suena por unos cascos.
 # Solo el FLANCO (al conectar), como el cargador.
 $script:pantallasAntes = $null
@@ -6099,6 +6173,7 @@ function Invoke-FastCommand([string]$text) {
                 'memoria' { $null = Add-Memoria $a.texto }
                 'modoEditar' { $a.desc = Invoke-ModoEditar $a.datos }
                 'correo' { $a.desc = Invoke-Correo $a }
+                'avisosEntorno' { $a.desc = Set-AvisosEntorno ([bool]$a.encendido) }
                 'decir' {
                     # la respuesta ES la descripcion; se dice y ya. Si es un
                     # perfil, la capsula lo sabe ("noche" = paleta calida)

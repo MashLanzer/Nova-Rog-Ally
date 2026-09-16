@@ -98,6 +98,10 @@ Titulo "2h. Frases que ya te molestaron una vez (y que se curan solas)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-rechazos.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n8. Los avisos por su cuenta: que sepa CALLARSE"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-entorno.ps1') | Select-String 'MAL|todo correcto'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n7. El correo por voz (y que NUNCA envie sin un si)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-correo.ps1') | Select-String 'MAL|todo correcto'
 if ($LASTEXITCODE -ne 0) { $fallos++ }

@@ -1151,6 +1151,34 @@ Están todas contadas en los commits, pero por si acaso:
 
 ---
 
+## NOVA SE ENTERA DE LO QUE PASA (plan de braya, 16/09)
+
+Quiere que Nova reaccione a su entorno: al coger la consola, al pasar algo. Pidió 30
+ideas y aprobó las 30, más poder crearlas hablando («cuando pase X, haz Y»).
+
+**Fase 0 (hecha el 16/09): el motor.** No añade ningún comportamiento; monta el freno
+de mano, que es lo que hace que 30 avisos no sean insoportables:
+`Test-PuedoAvisar` / `Send-AvisoEntorno` con tope por hora (4), silencio total mientras
+juega salvo lo crítico, horas tranquilas (23-8), cada aviso una vez por su plazo, los
+de nivel bajo sin voz (solo cápsula), nada con invitado delante ni mientras habla o
+espera un sí, y «no me avises de nada» / «vuelve a avisarme».
+APAGADO por defecto: `config.json` → `entorno.avisos`.
+
+**Fase 1 (siguiente): lo que ya tiene sensores.** dock (2, 3), cascos (4, 5), cerrar
+un juego (9), descarga terminada (24), disco bajo (25), correo importante (21),
+batería (7, 13, 14, 15), juego colgado (12).
+
+**Fase 2: lo que necesita estado nuevo.** volver tras un rato (1), coger el mando (6),
+mensajes mientras juegas (8), descanso a las 2 h (10), actualización pendiente (11),
+batería que se gasta rara (16), parte de la mañana solo (17), hora de dormir (18),
+horas de hoy (19), aprender horarios (20), resumen de correo (22), agrupar avisos (23),
+recordar Gmail lleno (26), costumbres (27, 28), avisar de lo que falla (29), resumen
+semanal (30).
+
+**Fase 3: crear estas cosas hablando.** Ampliar las reglas por voz, que ya tienen 12
+tipos de evento (`Invoke-Reglas`), para que la acción pueda ser «díme X» y para los
+eventos nuevos de las fases 1 y 2.
+
 ## 16/09: el perfil, limpio y con filtro
 
 Tenía 26 líneas y solo cuatro decían algo cierto: ocho variantes contradictorias sobre
