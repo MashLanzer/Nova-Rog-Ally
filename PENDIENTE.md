@@ -1182,10 +1182,13 @@ Hecho y comprobado con el banco (88/89, 183/186, ruido 3/97, destinos en verde):
 
 Queda del bloque 1 (por orden de impacto medido):
 
-- [ ] **Las quejas rehacen la orden** (19 casos, evitaría ~16): «no te pedí la
-      hora, dije cierra Steam», «lo que dije fue que abrieras el juego». Paso de
-      corrección en `Process-Texto` antes de `$RE_MEMORIA` y de la charla, con
-      `$script:ultimaOrden`, y reutilizando `reescribir_orden` de `charla_worker.py`.
+- [x] **Las quejas rehacen la orden** (19 casos, evitaba ~16). HECHO el 16/09:
+      `Get-OrdenCorregida` + un paso en `Process-Texto` antes que nada, con
+      `$script:ultimaOrden` (solo lo de los últimos 3 minutos) y una sola vuelta
+      (`$script:corrigiendo`). Si lo que sale no es una orden que Nova sepa hacer,
+      no se hace nada: la frase sigue a la charla como siempre. Probado en
+      `tools\probar-correccion.ps1` con texto exacto, porque la primera versión
+      daba por buenas frases pegadas («la hora dije cierra steam»).
 - [ ] La charla no tiene los datos de Nova (10 casos): hora, fecha, descargas,
       temporizadores, nivel, lo último que hizo.
 - [ ] Confusiones que quedan: «¿recuerdas…?» a la memoria, «ábrelo» con el

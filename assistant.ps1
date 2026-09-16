@@ -228,6 +228,11 @@ $VERBOS_IMPERATIVO = @{
     'minimizar' = 'minimiza'; 'maximizar' = 'maximiza'; 'bloquear' = 'bloquea'
     'guardar' = 'guarda'; 'copiar' = 'copia'; 'leer' = 'lee'; 'enviar' = 'envia'
     'mandar' = 'manda'; 'crear' = 'crea'; 'avisar' = 'avisa'; 'mostrar' = 'muestra'
+    # subjuntivo: asi se dicen las correcciones ("lo que dije fue que ABRIERAS el juego")
+    'abras' = 'abre'; 'abrieras' = 'abre'; 'cierres' = 'cierra'; 'cerraras' = 'cierra'
+    'pongas' = 'pon'; 'pusieras' = 'pon'; 'busques' = 'busca'; 'buscaras' = 'busca'
+    'reproduzcas' = 'reproduce'; 'subas' = 'sube'; 'bajes' = 'baja'; 'quites' = 'quita'
+    'escribas' = 'escribe'; 'hicieras' = 'haz'; 'inicies' = 'inicia'; 'iniciaras' = 'inicia'
 }
 
 # El dictado deforma tambien los verbos ("buscal" por "busca"). Se corrige solo
@@ -11430,6 +11435,76 @@ function Invoke-DictadoLargo([string]$text) {
     return $true
 }
 
+# LAS QUEJAS REHACEN LA ORDEN (16/09). El 15/09, 19 ordenes acabaron en nada porque
+# Nova trataba la queja como charla ("perdona, me confundi") o como consulta a la
+# memoria, y braya tenia que repetirlo hasta 7 veces. Aqui la queja se convierte en la
+# orden que se pidio, usando la ULTIMA que se hizo. No es un modo que se quede puesto:
+# es un solo paso, y si lo que sale no es una orden que Nova sepa hacer, no se hace
+# nada raro, la frase sigue su camino de siempre (charla o modelo).
+$RE_QUEJA = '(?:^(?:no|pero|oye no|que no)\b|no te (?:pedi|dije)|yo no (?:dije|pedi)|lo que (?:dije|pedi|queria) fue|no es (?:el|la|eso)|no solo|por que no (?:abriste|cerraste|pusiste|hiciste|iniciaste)|te (?:dije|pedi) que)'
+
+function Get-OrdenCorregida([string]$text) {
+    if (-not $script:ultimaOrden -or -not $text) { return $null }
+    # solo lo reciente: una queja de hace media hora no habla de esa orden
+    if (($sw.ElapsedMilliseconds - [double]$script:ultimaOrden.cuando) -gt 180000) { return $null }
+    $p = ConvertTo-Plain $text
+    if ($p -notmatch $RE_QUEJA) { return $null }
+    # OJO: aqui NO hay comas ni signos (ConvertTo-Plain los quita). La primera version
+    # dependia de ellas y devolvia frases pegadas que no eran ordenes.
+    $ant = ConvertTo-Plain ([string]$script:ultimaOrden.texto)
+    $sale = $null
+
+    # 1) "...dije cierra steam" / "lo que dije fue que abrieras el juego".
+    #    El .* es CODICIOSO a proposito: vale la ULTIMA marca, no la primera. Con la
+    #    primera, "no te pedi la hora dije cierra steam" daba "la hora dije cierra steam".
+    if ($p -match '^.*\b(?:dije|pedi|queria)(?:\s+fue)?(?:\s+que)?\s+(.+)$') {
+        $sale = $Matches[1].Trim()
+    }
+    # 2) "no es el wifi es el bluetooth": se cambia esa palabra en la orden anterior
+    if (-not $sale -and $p -match '^(?:no|pero)\s+(?:es|era)\s+(?:el|la|lo)?\s*(.+?)\s+(?:es|sino|era)\s+(?:el|la|lo)?\s*(.+)$') {
+        $malo = $Matches[1].Trim(); $bueno = $Matches[2].Trim()
+        if ($malo -and $bueno -and $ant -match ('\b' + [regex]::Escape($malo) + '\b')) {
+            $sale = ($ant -replace ('\b' + [regex]::Escape($malo) + '\b'), $bueno)
+        }
+    }
+    # 3) "no es el volumen" (sin decir cual estaba mal): vale si la orden anterior era
+    #    "verbo + objeto"; se le cambia el objeto conservando el articulo y el resto
+    #    ("pon el brillo al 50" -> "pon el volumen al 50"). Si no, no se inventa nada.
+    if (-not $sale -and $p -match '^(?:no|pero)\s+(?:es|era)\s+(?:el|la|lo)?\s*(.+)$') {
+        $bueno = $Matches[1].Trim()
+        if ($bueno -and $ant -match '^(\S+)\s+(?:(el|la|lo)\s+)?(\S+)(.*)$') {
+            $artA = if ($Matches[2]) { $Matches[2] + ' ' } else { '' }
+            $sale = ($Matches[1] + ' ' + $artA + $bueno + $Matches[4])
+        }
+    }
+    # 4) "por que no abriste steam"
+    if (-not $sale -and $p -match 'por que no (abriste|cerraste|pusiste|iniciaste)\s+(?:el\s+|la\s+)?(.+)$') {
+        $verboQ = switch ($Matches[1]) { 'abriste' { 'abre' } 'cerraste' { 'cierra' } 'iniciaste' { 'inicia' } default { 'pon' } }
+        $sale = ($verboQ + ' ' + $Matches[2].Trim())
+    }
+    # 5) "no solo lo busques reproducelo": el verbo del final con el objeto de antes
+    if (-not $sale -and $p -match 'no solo\s+.*?\b(\w{4,})(?:lo|la|los|las)$' -and $script:ultimoObjetivo) {
+        $sale = ($Matches[1] + ' ' + $script:ultimoObjetivo)
+    }
+    if (-not $sale) { return $null }
+
+    $sale = (Repair-Verb ($sale -replace '\s+', ' ').Trim())
+    # LO QUE SALGA TIENE QUE PARECER UNA ORDEN. Si no, se devuelve nada y la frase sigue
+    # su camino normal: es preferible contestar a la queja que hacer algo que nadie pidio.
+    # La comprobacion de verdad la hace Test-FastCommand fuera; esto solo corta lo absurdo.
+    if ($sale.Length -lt 3 -or @($sale -split '\s+').Count -gt 8) { return $null }
+    $verbo0 = @($sale -split '\s+')[0]
+    # $VERBOS no los tiene todos (no estan activa, enciende, quita, crea...), y por eso la
+    # correccion del bluetooth se tiraba estando bien
+    $masVerbos = @('activa', 'activame', 'desactiva', 'enciende', 'prende', 'quita', 'quitame',
+                   'conecta', 'desconecta', 'crea', 'creame', 'haz', 'hazme', 'lee', 'leeme',
+                   'graba', 'corta', 'instala', 'desinstala', 'recuerdame', 'avisame', 'dime',
+                   'di', 'repite', 'traduce', 'apunta', 'anota', 'borra', 'cancela')
+    if ($VERBOS_LISTA -notcontains $verbo0 -and $masVerbos -notcontains $verbo0 -and
+        $verbo0 -notmatch '^(?:que|cuanto|cual|donde|cuando)$') { return $null }
+    if ($sale -eq $ant) { return $null }
+    return $sale
+}
 function Process-Texto([string]$text) {
     # EL MODO MANDA: con el dictado largo puesto, NADA de lo que se oiga abre,
     # cierra ni toca el sistema. O es una orden del modo, o se escribe. Esto va
@@ -11913,6 +11988,27 @@ function Process-Texto([string]$text) {
             }
         }
 
+        # LAS QUEJAS REHACEN LA ORDEN (ver Get-OrdenCorregida). Va antes que nada
+        # porque una queja puede encajar por accidente en una regla local ("no es el
+        # wifi, es el bluetooth" tiene dentro una orden de radio) y porque despues
+        # solo quedan la memoria, la charla y el modelo, que es donde se perdian.
+        if (-not $script:corrigiendo -and -not $script:pendiente -and -not $script:invitado) {
+            $corr = $null
+            try { $corr = Get-OrdenCorregida $text } catch { $corr = $null }
+            if ($corr) {
+                $corrOk = $false
+                try { $corrOk = [bool](Test-FastCommand $corr) } catch { $corrOk = $false }
+                if ($corrOk) {
+                    Log "CORRECCION: '$text' -> '$corr' (la ultima fue '$($script:ultimaOrden.texto)')"
+                    Add-Estadistica 'correccion' "$text -> $corr"
+                    $script:corrigiendo = $true
+                    try { Process-Texto $corr } finally { $script:corrigiendo = $false }
+                    return
+                }
+                Log "CORRECCION: de '$text' sale '$corr', que no se hacer; sigue su camino"
+            }
+        }
+
         # 1) local instantaneo
         $fast = $null
         $script:ultimoDescarte = ''
@@ -11929,6 +12025,7 @@ function Process-Texto([string]$text) {
                 Start-Confirmacion
             } else {
                 Log "LOCAL: $text -> $fast"
+                $script:ultimaOrden = @{ texto = $text; desc = [string]$fast; cuando = $sw.ElapsedMilliseconds }
                 $script:noEntendiSeguidos = 0
                 Add-Estadistica 'local' $text
                 # tus costumbres, para proponerte automatizarlas (ver HABITOS)
@@ -11980,6 +12077,7 @@ function Process-Texto([string]$text) {
                 try { $r = Invoke-FastCommand $apr } catch { $r = $null }
                 if ($r) {
                     Log "APRENDIDA: '$text' -> '$apr' -> $r"
+                    $script:ultimaOrden = @{ texto = $apr; desc = [string]$r; cuando = $sw.ElapsedMilliseconds }
                     $script:ultimaAprendida = $text
                     if ($script:ultimaAprendida) { Log "(si dices 'no era eso', la olvido)" }
                     Add-Estadistica 'aprendida' $text
@@ -12155,6 +12253,8 @@ $script:armed = $false
 $script:lastText = ""
 $script:lastChange = 0
 $script:ultimaRespuesta = ""
+$script:ultimaOrden = $null     # la ultima orden HECHA, para que una queja la rehaga
+$script:corrigiendo = $false
 $script:bateriaCheck = 0
 $script:bateriaAvisada = $false
 $script:cargaCheck = 0
