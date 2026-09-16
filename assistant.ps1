@@ -2950,6 +2950,19 @@ function Resolve-Fragment([string]$f) {
     # abrirla. Sin el, "pon" (verbo de abrir) se quedaba con la frase entera.
     if ($f -match '^(?:abre|abreme|abrele|abrir|abri|abrime|ejecuta|ejecutame|inicia|iniciame|lanza|lanzame|arranca|arrancame|prende|prendeme|ponme|poneme|ponele|pone|pon|metete|mete|entrate|entra|andate|anda|vete|ve|llevame|muestrame|ensename)\s+(?!.*\bal\s+\d{1,3}\s*(?:%|por ciento)?$)(?!(?:el\s+)?(?:juego|videojuego)\s+(?:(?:al|el)\s+)?\d{1,3}\s*(?:%|por ciento)?$)(?:a\s+|al\s+|en\s+|de\s+)?(.+)$') {
         $objAbrir = $Matches[1]
+        # "ABRE EL NAVEGADOR CON PINTEREST" (15/09, 11:30:56): se abria el navegador y
+        # Pinterest se perdia por el camino, sin avisar; y "abre pinterest en el
+        # navegador" ni se entendia. Las dos frases piden lo mismo: abrir ese sitio.
+        # Si lo de detras no es un sitio conocido ("abre el navegador en modo incognito"),
+        # no se toca nada y se abre el navegador como siempre.
+        if ($objAbrir -match '^(?:el\s+|la\s+)?(?:navegador|internet|web|explorador|chrome|edge|firefox)\s+(?:con|en|y)\s+(?:la\s+(?:pagina|web)\s+de\s+)?(.+)$') {
+            $rtNav = Resolve-Target ($Matches[1].Trim())
+            if ($rtNav) { return $rtNav }
+        }
+        if ($objAbrir -match '^(.+?)\s+en\s+(?:el\s+|la\s+)?(?:navegador|internet|web|chrome|edge|firefox)$') {
+            $rtNav = Resolve-Target ($Matches[1].Trim())
+            if ($rtNav) { return $rtNav }
+        }
         $rtAbrir = Resolve-Target $objAbrir
         if ($rtAbrir) { return $rtAbrir }
         # no es nada conocido por como se escribe: ¿un juego por como suena? (ver

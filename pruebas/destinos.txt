@@ -209,3 +209,8 @@ escribir hola que tal => escribir
 que tienes anotado sobre mi => lo que se de ti
 que has aprendido hoy => recetas aprendidas
 dime de los juegos cual tiene mas horas => se va al modelo
+
+# --- del uso real del 15/09 (11:30): el sitio se perdia al abrir el navegador ---
+abre el navegador con pinterest => pinterest
+abre pinterest en el navegador => pinterest
+abre el navegador => abrir navegador
