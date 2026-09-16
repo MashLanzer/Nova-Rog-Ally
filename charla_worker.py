@@ -524,7 +524,7 @@ def responder(p):
 
     tiempos["memoria"] = time.time() - ahora
     historial.append({"role": "user", "content": texto})
-    extra = ""
+    extra = texto_datos(p)   # ver LO QUE NOVA YA SABE
     if ayuda:
         extra += " braya te pide ayuda con su partida de %s: explícale en dos o tres frases claras qué tiene que hacer." % (p.get("juego") or "su juego")
     elif p.get("juego"):
@@ -768,6 +768,22 @@ def resumir_dias_pasados(hoy=None):
             pass
         return True
     return False
+
+
+def texto_datos(p):
+    """LO QUE NOVA YA SABE (16/09). Llega en el campo "datos" de cada peticion: la hora,
+    la fecha, las descargas, los temporizadores, el nivel y lo ultimo que hizo. Sin esto,
+    el modelo se los inventaba o decia que no tenia acceso a ellos (10 veces el 15/09)."""
+    d = (p or {}).get("datos")
+    if not isinstance(d, str):
+        return ""
+    d = d.strip()
+    if not d:
+        return ""
+    if len(d) > 600:
+        d = d[:600]
+    return (" Datos ciertos de ahora mismo, sacados del propio sistema: %s. Úsalos si vienen "
+            "a cuento y NUNCA digas que no puedes saberlos; si no vienen a cuento, ni los menciones." % d)
 
 
 def reescribir_orden(texto):

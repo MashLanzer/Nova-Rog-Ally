@@ -22,6 +22,14 @@ def comp(etq, ok, det=""):
     print("  %s  %s%s" % ("OK  " if ok else "MAL ", etq, ("  -> %s" % (det,)) if det != "" else ""))
 
 
+print("--- los datos que Nova ya sabe llegan a la charla (16/09) ---")
+_d = cw.texto_datos({"datos": "son las 21:30 del martes 15 de septiembre. no hay nada descargandose en Steam"})
+comp("la hora y las descargas entran en el contexto", "21:30" in _d and "descargandose" in _d, _d[:70])
+comp("y se le dice que no diga que no puede saberlos", "NUNCA digas que no puedes" in _d)
+comp("sin datos, no se le cuela nada", cw.texto_datos({}) == "" and cw.texto_datos({"datos": "   "}) == "")
+comp("un dato larguisimo se recorta", len(cw.texto_datos({"datos": "x" * 2000})) < 800)
+comp("si viene algo que no es texto, se ignora", cw.texto_datos({"datos": 5}) == "")
+
 print("--- troceo en frases ---")
 t = cw.Troceador()
 salen = []

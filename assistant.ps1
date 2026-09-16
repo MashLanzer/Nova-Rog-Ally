@@ -9964,6 +9964,43 @@ function Initialize-Charla {
     }
 }
 
+# LA CHARLA SABE LO QUE NOVA SABE (16/09). El 15/09, 10 respuestas se inventaron el
+# dato o dijeron "no tengo acceso" a cosas que el asistente tenia delante: la hora, el
+# temporizador puesto hacia un minuto, el nivel, las descargas de Steam y el clima. Van
+# con cada frase de charla, en texto corto. No es un modo ni una consulta mas: son datos
+# que ya estan en memoria, leidos en el momento.
+function Get-DatosNova {
+    $d = @()
+    try {
+        $cul = New-Object System.Globalization.CultureInfo('es-MX')
+        $ahora = Get-Date
+        $d += 'son las ' + $ahora.ToString('H:mm', $cul) + ' del ' + $ahora.ToString('dddd d "de" MMMM "de" yyyy', $cul)
+    } catch {}
+    if ($script:clima) { $d += "el tiempo ahora: $($script:clima.desc), $($script:clima.temp) grados" }
+    try {
+        $bajando = @($script:Juegos | Where-Object { $_.bajando })
+        if ($bajando.Count -gt 0) { $d += 'descargandose en Steam: ' + (($bajando | ForEach-Object { $_.nombre }) -join ', ') }
+        else { $d += 'no hay nada descargandose en Steam' }
+    } catch {}
+    try {
+        # los internos (sordina, descanso) no son "tus" temporizadores
+        $tempos = @($script:temporizadores | Where-Object { -not $_.tipo -or $_.tipo -eq 'foco' })
+        if ($tempos.Count -gt 0) {
+            $d += 'temporizadores puestos: ' + (($tempos | ForEach-Object {
+                $min = [Math]::Max(0, [int][Math]::Ceiling(($_.vence - $sw.ElapsedMilliseconds) / 60000))
+                $q = if ($_.texto) { [string]$_.texto } else { 'aviso' }
+                "$q (le quedan $min minutos)" }) -join '; ')
+        } else { $d += 'no hay ningun temporizador puesto' }
+    } catch {}
+    # lo ultimo que se hizo, mientras este reciente: "¿creaste la nota?" (15/09)
+    if ($script:ultimaOrden -and ($sw.ElapsedMilliseconds - [double]$script:ultimaOrden.cuando) -lt 600000) {
+        $d += 'lo ultimo que hiciste por el fue: ' + [string]$script:ultimaOrden.desc
+    }
+    try { $n = Get-FraseNivel; if ($n) { $d += $n } } catch {}
+    if ($script:juegoActivo) { $d += "tiene abierto el juego $($script:juegoActivo)" }
+    return ($d -join '. ')
+}
+
 function Send-CharlaPedido($pedido, [bool]$arrancar = $true) {
     if ($arrancar) { if (-not (Initialize-Charla)) { return $false } }
     elseif (-not $script:charlaProc -or $script:charlaProc.HasExited) { return $false }
@@ -9985,6 +10022,11 @@ function Send-Charla([string]$text, [bool]$duda = $false, [string]$op = 'hablar'
     $pedido = @{ op = $op; id = $script:charlaId; texto = $text; invitado = [bool]$script:invitado; duda = $duda }
     if ($extra) { foreach ($k in @($extra.Keys)) { $pedido[$k] = $extra[$k] } }
     if ($script:juegoActivo) { $pedido.juego = [string]$script:juegoActivo }
+    # ver LA CHARLA SABE LO QUE NOVA SABE. Solo al hablar: resumir mensajes o traducir
+    # no necesitan nada de esto, y el invitado no ve nada suyo.
+    if ($op -eq 'hablar' -and -not $script:invitado) {
+        try { $dn = Get-DatosNova; if ($dn) { $pedido.datos = $dn } } catch {}
+    }
     if (-not (Send-CharlaPedido $pedido)) { return $false }
     $script:charlaTexto = $text
     $script:charlaOp = $op

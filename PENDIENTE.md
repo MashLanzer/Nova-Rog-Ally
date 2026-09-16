@@ -1189,8 +1189,11 @@ Queda del bloque 1 (por orden de impacto medido):
       no se hace nada: la frase sigue a la charla como siempre. Probado en
       `tools\probar-correccion.ps1` con texto exacto, porque la primera versión
       daba por buenas frases pegadas («la hora dije cierra steam»).
-- [ ] La charla no tiene los datos de Nova (10 casos): hora, fecha, descargas,
-      temporizadores, nivel, lo último que hizo.
+- [x] La charla no tiene los datos de Nova (10 casos). HECHO el 16/09:
+      `Get-DatosNova` manda con cada frase la hora, la fecha, el clima, las
+      descargas de Steam, los temporizadores puestos (sin los internos), el nivel,
+      lo último que hizo y el juego abierto; el worker los pone delante del modelo
+      (`texto_datos`) y se le dice que nunca conteste que no puede saberlos.
 - [ ] Confusiones que quedan: «¿recuerdas…?» a la memoria, «ábrelo» con el
       último juego que nombró el agente, modo juego por voz, órdenes compuestas
       a medias (decir en voz alta la parte que no se entendió).
