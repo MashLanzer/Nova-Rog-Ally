@@ -1151,6 +1151,21 @@ Están todas contadas en los commits, pero por si acaso:
 
 ---
 
+## 16/09: el perfil, limpio y con filtro
+
+Tenía 26 líneas y solo cuatro decían algo cierto: ocho variantes contradictorias sobre
+música electrónica, cuatro sobre el apodo «Bull» (que salió de oírle mal), tres quejas
+sobre Nova convertidas en rasgo suyo y varias vacías («tiene juegos»). Todo eso viajaba
+con CADA petición al cerebro.
+
+- [x] No se guarda lo que habla de Nova, lo que viene de una queja ni lo que es una
+      deducción; del mismo tema solo queda una línea. El solapamiento se mira en los
+      dos sentidos: calcular solo qué parte de la frase nueva está en la vieja castiga
+      a las frases largas, que son las que más ruido meten.
+- [x] La instrucción del cerebro pide solo lo que braya afirma de sí mismo, y callar
+      en la duda.
+- [x] Perfil limpiado a 4 líneas comprobables. El anterior, en `tmp\perfil.md.bak-16sep`.
+
 ## 16/09: entender mejor (bloque 1 de 4), primera tanda
 
 Sale del análisis de las cinco sesiones de uso real del 15/09
