@@ -1222,5 +1222,18 @@ Bloque 2 (oído), empezado el 16/09:
 - [ ] Probarlo EN VIVO y medir cuántas veces llega dentro del tope (con las
       grabaciones: mediana 1,4 s, pero 5 de cada 20 pasan de 3 s).
 
-Bloques 3 y 4 (elegidos por braya el 15/09), aprender de todo (fase 1 de
+Bloque 3 (aprender de todo), fase 1 empezada el 16/09:
+
+- [x] Un paso de receta puede LEER y decir lo que encuentra: tipo `lectura`, su
+      salida en `$script:ultimaSalidaPaso` (antes solo se guardaba el ERROR del
+      script, por eso una receta no podía dar información), `Test-ScriptSoloLectura`
+      con lista blanca (no lista negra) y `Format-VozInfo` para pasar del JSON a la
+      frase, con singular/plural y frase propia cuando no hay nada.
+- [ ] La instrucción del agente (`$CcInstruccionReceta`) todavía dice «RECETA: NO»
+      para la información: falta el texto nuevo (sección 6.3 de `aprender.md`).
+- [ ] Sembrar las recetas de escritorio, descargas y documentos.
+- [ ] Despachar una receta `info` sin preguntar (es solo lectura) y confirmación
+      diferida a los 60 s.
+
+Bloque 4 (elegido por braya el 15/09), aprender de todo (fase 1 de
 `scratchpad\analisis\aprender.md`) y tareas sin Claude Code.

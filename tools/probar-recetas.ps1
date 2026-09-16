@@ -20,7 +20,42 @@ foreach ($n in 'ConvertTo-CmdArg', 'ConvertTo-Suave', 'Get-PatronReceta', 'Find-
     'Add-Receta', 'Invoke-Receta', 'Get-Recetas', 'Save-Recetas', 'Get-VarianteReceta', 'Add-VarianteReceta', 'Build-PromptTraduccion',
     'Get-DatosPerfil', 'Save-DatosPerfil', 'Add-DatoPerfil', 'Get-SistemaCerebro', 'Get-BalanceAprendizaje', 'Get-Estadisticas',
     'Send-UIEvento', 'Set-AcabaDeAprender', 'Get-CuentaAprendida', 'Get-Madurez', 'Get-FraseNivel', 'Write-Atomico',
-    'Start-PasoScript', 'Complete-PasoScript', 'Start-Receta', 'Step-Receta', 'Watch-Receta', 'Close-Receta', 'Complete-RecetaResultado') { Invoke-Expression (TraerFn $n) }
+    'Start-PasoScript', 'Complete-PasoScript', 'Start-Receta', 'Step-Receta', 'Watch-Receta', 'Close-Receta', 'Complete-RecetaResultado',
+    'Test-ScriptSoloLectura', 'Format-VozInfo') { Invoke-Expression (TraerFn $n) }
+# la lista blanca de la lectura, sacada del archivo real
+$topCL = $ast.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.AssignmentStatementAst] -and $_.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and $_.Left.VariablePath.UserPath -eq 'CMDLETS_LECTURA' }
+foreach ($a in $topCL) { Invoke-Expression $a.Extent.Text }
+
+# --- RECETAS DE INFORMACION (16/09): solo lectura de verdad, y de los datos a la frase ---
+# El 15/09, "que tengo en mi escritorio" costo 44 s de agente por no poder aprenderse.
+$falloInfo = 0
+function CompInfo($etq, $ok, $det) {
+    Write-Host ("  {0}  {1,-52} {2}" -f $(if ($ok) { 'OK ' } else { 'MAL' }), $etq, $det)
+    if (-not $ok) { $script:falloInfo++ }
+}
+Write-Host "`n== Recetas de informacion: el script SOLO puede leer"
+CompInfo 'listar el escritorio vale' (Test-ScriptSoloLectura 'Get-ChildItem (Join-Path $env:USERPROFILE "Desktop") | Measure-Object | ConvertTo-Json -Compress') ''
+CompInfo 'leer el disco vale' (Test-ScriptSoloLectura 'Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID, FreeSpace | ConvertTo-Json -Compress') ''
+CompInfo 'crear un archivo NO' (-not (Test-ScriptSoloLectura 'New-Item -ItemType File x.txt')) ''
+CompInfo 'borrar NO' (-not (Test-ScriptSoloLectura 'Remove-Item $env:USERPROFILE\Desktop\x.txt')) ''
+CompInfo 'escribir con > NO' (-not (Test-ScriptSoloLectura 'Get-ChildItem > salida.txt')) ''
+CompInfo 'llamar a un exe NO' (-not (Test-ScriptSoloLectura 'winget list')) ''
+CompInfo 'arrancar un proceso NO' (-not (Test-ScriptSoloLectura 'Start-Process notepad')) ''
+CompInfo 'bajar algo de internet NO' (-not (Test-ScriptSoloLectura 'Invoke-WebRequest http://x')) ''
+CompInfo 'vacio NO' (-not (Test-ScriptSoloLectura '')) ''
+
+Write-Host "`n== Recetas de informacion: de los datos a la frase"
+$vozEsc = @{ modo = 'plantilla'; plantilla = 'En el escritorio tienes {cuantos|cosa|cosas}: {nombres}.'; vacio = 'No tienes nada en el escritorio.' }
+$f1 = Format-VozInfo $vozEsc '{"cuantos":3,"nombres":["Games","Hola.txt","It Takes Two"]}'
+CompInfo 'cuenta y enumera' ($f1 -eq 'En el escritorio tienes 3 cosas: Games, Hola.txt, It Takes Two.') "'$f1'"
+$f2 = Format-VozInfo $vozEsc '{"cuantos":1,"nombres":["Games"]}'
+CompInfo 'singular' ($f2 -eq 'En el escritorio tienes 1 cosa: Games.') "'$f2'"
+$f3 = Format-VozInfo $vozEsc '{"cuantos":0,"nombres":[]}'
+CompInfo 'si no hay nada, lo dice con su frase' ($f3 -eq 'No tienes nada en el escritorio.') "'$f3'"
+$f4 = Format-VozInfo $vozEsc 'esto no es json'
+CompInfo 'si el script devuelve basura, la frase de vacio' ($f4 -eq 'No tienes nada en el escritorio.') "'$f4'"
+CompInfo 'sin plantilla, no dice nada' ((Format-VozInfo @{ modo = 'plantilla' } '{"a":1}') -eq '') ''
+if ($falloInfo -gt 0) { Write-Host "  $falloInfo MAL en recetas de informacion" -ForegroundColor Red }
 
 $dir = Join-Path $env:TEMP ('nova-recetas-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $dir | Out-Null

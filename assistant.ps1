@@ -3436,9 +3436,18 @@ function Get-Recetas {
                 foreach ($pp in @($x.pasos)) { if ($pp) { [void]$pasos.Add(@{ tipo = [string]$pp.tipo; texto = [string]$pp.texto }) } }
                 $vars = New-Object System.Collections.ArrayList
                 foreach ($vv in @($x.variantes)) { if ([string]$vv) { [void]$vars.Add([string]$vv) } }
+                # tipo y voz son de las recetas de INFORMACION (16/09). Una receta vieja
+                # sin ellos es de accion, como siempre.
+                $tipoR = if ([string]$x.tipo -eq 'info') { 'info' } else { 'accion' }
+                $vozR = $null
+                if ($x.voz) {
+                    $vozR = @{ modo = [string]$x.voz.modo; plantilla = [string]$x.voz.plantilla
+                               vacio = [string]$x.voz.vacio; instruccion = [string]$x.voz.instruccion }
+                }
                 [void]$script:recetas.Add(@{ id = [int]$x.id; frase = [string]$x.frase; resumen = [string]$x.resumen; respuesta = [string]$x.respuesta
                     pasos = $pasos; variantes = $vars; ejemplo = [string]$x.ejemplo; creada = [string]$x.creada
-                    usos = [int]$x.usos; confirmadas = [int]$x.confirmadas; fallos = [int]$x.fallos; rechazos = [int]$x.rechazos })
+                    usos = [int]$x.usos; confirmadas = [int]$x.confirmadas; fallos = [int]$x.fallos; rechazos = [int]$x.rechazos
+                    tipo = $tipoR; voz = $vozR })
             }
         } catch { Log ("recetas: no pude leer el archivo: " + $_.Exception.Message); Save-Corrupto $RecetasPath 'recetas' }
     }
@@ -3452,8 +3461,14 @@ function Save-Recetas {
         foreach ($r in $g) {
             $pasosJ = @()
             foreach ($pp in $r.pasos) { $pasosJ += New-Object PSObject -Property ([ordered]@{ tipo = $pp.tipo; texto = $pp.texto }) }
+            $vozJ = $null
+            if ($r.voz) {
+                $vozJ = New-Object PSObject -Property ([ordered]@{ modo = [string]$r.voz.modo; plantilla = [string]$r.voz.plantilla
+                                                                   vacio = [string]$r.voz.vacio; instruccion = [string]$r.voz.instruccion })
+            }
             $lista += New-Object PSObject -Property ([ordered]@{ id = $r.id; frase = $r.frase; resumen = $r.resumen; respuesta = $r.respuesta
-                pasos = $pasosJ; variantes = @(@($r.variantes) | Where-Object { $_ }); ejemplo = $r.ejemplo; creada = $r.creada; usos = $r.usos; confirmadas = $r.confirmadas; fallos = $r.fallos; rechazos = $r.rechazos })
+                pasos = $pasosJ; variantes = @(@($r.variantes) | Where-Object { $_ }); ejemplo = $r.ejemplo; creada = $r.creada; usos = $r.usos; confirmadas = $r.confirmadas; fallos = $r.fallos; rechazos = $r.rechazos
+                tipo = $(if ([string]$r.tipo -eq 'info') { 'info' } else { 'accion' }); voz = $vozJ })
         }
         $json = if ($lista.Count -eq 0) { '[]' } else { ConvertTo-Json -InputObject @($lista) -Depth 6 }
         Write-Atomico $RecetasPath $json
@@ -3586,6 +3601,34 @@ function Add-VarianteReceta($r, [string]$variante) {
     Set-AcabaDeAprender
 }
 
+# SOLO LECTURA DE VERDAD (16/09). Una receta de informacion se ejecuta SIN preguntar,
+# asi que su script no puede tocar nada. Aqui no vale la lista de lo prohibido (siempre
+# se queda corta): se exige que TODO lo que parezca un comando este en esta lista.
+$CMDLETS_LECTURA = @(
+    'get-childitem', 'gci', 'ls', 'dir', 'get-item', 'gi', 'get-content', 'gc', 'cat',
+    'test-path', 'join-path', 'split-path', 'resolve-path', 'get-process', 'get-date',
+    'get-ciminstance', 'get-itemproperty', 'measure-object', 'measure', 'select-object',
+    'select', 'sort-object', 'sort', 'where-object', 'where', 'foreach-object', 'foreach',
+    'group-object', 'group', 'convertto-json', 'convertfrom-json', 'out-string',
+    'select-string', 'compare-object', 'get-volume', 'get-psdrive', 'write-output', 'echo'
+)
+function Test-ScriptSoloLectura([string]$s) {
+    if (-not $s) { return $false }
+    if (Test-ScriptProhibido $s) { return $false }
+    # nada que escriba, redirija o llame fuera: >, >>, .exe, &, ., start, cmd
+    if ($s -match '(?m)(?<![-\w])>{1,2}(?!\s*\$null)') { return $false }
+    if ($s -match '(?i)\b(?:start-process|new-object\s+system\.diagnostics|saps|cmd|powershell|pwsh|\w+\.exe)\b') { return $false }
+    if ($s -match '(?m)^\s*[&.]\s') { return $false }
+    # los verbos que cambian algo, aunque no esten en la lista de prohibidos
+    if ($s -match '(?i)\b(?:set|new|remove|clear|add|move|copy|rename|start|stop|invoke|out|export|import|write|register|unregister|enable|disable|install|uninstall|restart|suspend|resume|send|receive)-\w+\b') {
+        # Write-Output y Out-String si valen: no cambian nada
+        $malos = @([regex]::Matches($s, '(?i)\b(?:set|new|remove|clear|add|move|copy|rename|start|stop|invoke|out|export|import|write|register|unregister|enable|disable|install|uninstall|restart|suspend|resume|send|receive)-\w+\b') |
+                   ForEach-Object { $_.Value.ToLowerInvariant() } | Where-Object { $CMDLETS_LECTURA -notcontains $_ })
+        if ($malos.Count -gt 0) { return $false }
+    }
+    return $true
+}
+
 function Test-ScriptProhibido([string]$s) {
     if ($s -match $RE_RECETA_PROHIBIDO) { return $true }
     # los alias cortos solo cuentan en posicion de comando: "del" o "rd" dentro
@@ -3714,12 +3757,16 @@ function Start-PasoScript([string]$cuerpo, $valores) {
     # el error del script se guarda: es lo que el cerebro necesita para arreglar
     # la receta (ver Complete-RecetaResultado, autorreparacion)
     $rutaE = [System.IO.Path]::ChangeExtension($rutaS, '.err.txt')
+    # LO QUE DEVUELVE EL SCRIPT (16/09): hasta ahora solo se guardaba el error, y por eso
+    # una receta no podia DECIR datos. Con la salida en un archivo, un paso de lectura
+    # puede contestar "en el escritorio tienes 3 cosas: ...".
+    $rutaO = [System.IO.Path]::ChangeExtension($rutaS, '.out.txt')
     try {
         foreach ($k in $valores.Keys) { [Environment]::SetEnvironmentVariable("NOVA_HUECO_$k", [string]$valores[$k], 'Process') }
         $pr = Start-Process -FilePath 'powershell.exe' -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File ' + (ConvertTo-CmdArg $rutaS)) `
-            -WorkingDirectory $WORKDIR -WindowStyle Hidden -PassThru -RedirectStandardError $rutaE
+            -WorkingDirectory $WORKDIR -WindowStyle Hidden -PassThru -RedirectStandardError $rutaE -RedirectStandardOutput $rutaO
         $null = $pr.Handle
-        return @{ ok = $true; proc = $pr; rutaS = $rutaS; rutaE = $rutaE }
+        return @{ ok = $true; proc = $pr; rutaS = $rutaS; rutaE = $rutaE; rutaO = $rutaO }
     } catch {
         Remove-Item -LiteralPath $rutaS -Force -ErrorAction SilentlyContinue
         return @{ ok = $false; error = "no pude ejecutar el script: $($_.Exception.Message)" }
@@ -3729,8 +3776,20 @@ function Start-PasoScript([string]$cuerpo, $valores) {
     }
 }
 # '' si fue bien; si no, el error. Borra los archivos del paso.
+# La SALIDA del script queda en $script:ultimaSalidaPaso (ver LO QUE DEVUELVE EL
+# SCRIPT). No se devuelve aqui para no cambiarle el contrato a los tres sitios que
+# llaman a esta funcion esperando un texto de error.
+$script:ultimaSalidaPaso = ''
 function Complete-PasoScript($ini, [bool]$tiempoAgotado = $false) {
+    $script:ultimaSalidaPaso = ''
     try {
+        if ($ini.rutaO -and (Test-Path -LiteralPath $ini.rutaO)) {
+            try {
+                $sal = [System.IO.File]::ReadAllText($ini.rutaO, [System.Text.Encoding]::UTF8)
+                if ($sal.Length -gt 4000) { $sal = $sal.Substring(0, 4000) }
+                $script:ultimaSalidaPaso = $sal.Trim()
+            } catch {}
+        }
         if ($tiempoAgotado) { try { $ini.proc.Kill() } catch {}; return 'tardo mas de 20 s' }
         if ($ini.proc.ExitCode -ne 0) {
             $errTxt = ''
@@ -3744,8 +3803,49 @@ function Complete-PasoScript($ini, [bool]$tiempoAgotado = $false) {
     } finally {
         Remove-Item -LiteralPath $ini.rutaS -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $ini.rutaE -Force -ErrorAction SilentlyContinue
+        if ($ini.rutaO) { Remove-Item -LiteralPath $ini.rutaO -Force -ErrorAction SilentlyContinue }
     }
 }
+
+# DE LOS DATOS A LA FRASE (16/09). El script de lectura devuelve UN objeto JSON y la
+# receta trae una plantilla: "En el escritorio tienes {cuantos|cosa|cosas}: {nombres}".
+#   {campo}                  -> el valor tal cual
+#   {campo|singular|plural}  -> el numero y su palabra ("3 cosas", "1 cosa")
+# Si no hay nada que decir (0, vacio o el campo no esta), se dice el texto de "vacio".
+function Format-VozInfo($voz, [string]$salida) {
+    if (-not $voz) { return '' }
+    $plantilla = [string]$voz.plantilla
+    if (-not $plantilla) { return '' }
+    $datos = $null
+    if ($salida) { try { $datos = $salida | ConvertFrom-Json } catch { $datos = $null } }
+    if ($null -eq $datos) { return [string]$voz.vacio }
+    # ¿hay algo que contar? un 0 o una lista vacia es "no hay nada"
+    $hayAlgo = $false
+    $texto = [regex]::Replace($plantilla, '\{([a-z_]+)(?:\|([^|}]+)\|([^}]+))?\}', {
+        param($m)
+        $campo = $m.Groups[1].Value
+        $val = $null
+        try { $val = $datos.$campo } catch { $val = $null }
+        if ($null -eq $val) { return '' }
+        if ($val -is [System.Array]) {
+            if ($val.Count -gt 0) { $script:vozHayAlgo = $true }
+            if ($m.Groups[2].Success) { return ('' + $val.Count + ' ' + $(if ($val.Count -eq 1) { $m.Groups[2].Value } else { $m.Groups[3].Value })) }
+            return (@($val | ForEach-Object { [string]$_ }) -join ', ')
+        }
+        if ($val -is [int] -or $val -is [long] -or $val -is [double]) {
+            if ([double]$val -gt 0) { $script:vozHayAlgo = $true }
+            if ($m.Groups[2].Success) { return ('' + $val + ' ' + $(if ([double]$val -eq 1) { $m.Groups[2].Value } else { $m.Groups[3].Value })) }
+            return [string]$val
+        }
+        if ([string]$val) { $script:vozHayAlgo = $true }
+        return [string]$val
+    })
+    $hayAlgo = [bool]$script:vozHayAlgo
+    $script:vozHayAlgo = $false
+    if (-not $hayAlgo -and [string]$voz.vacio) { return [string]$voz.vacio }
+    return (($texto -replace '\s+', ' ').Trim())
+}
+$script:vozHayAlgo = $false
 
 function Invoke-Receta($r, $valores) {
     foreach ($paso in $r.pasos) {
