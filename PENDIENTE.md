@@ -1197,7 +1197,11 @@ Queda del bloque 1 (por orden de impacto medido):
 - [ ] Confusiones que quedan: «¿recuerdas…?» a la memoria, «ábrelo» con el
       último juego que nombró el agente, modo juego por voz, órdenes compuestas
       a medias (decir en voz alta la parte que no se entendió).
-- [ ] Traducciones que invierten el verbo o inventan un nombre: rechazarlas.
+- [x] Traducciones que invierten el verbo o inventan un nombre. HECHO el 16/09:
+      `Test-TraduccionOpuesta` y `Test-NombreInventado` se comprueban ANTES de
+      ejecutar lo que propone la API; si la da la vuelta («cierra Google» → «Abre
+      Google») o mete un juego que no nombraste, no se hace nada y se pide repetir.
+      También «ábrelo» apunta ya al juego que nombró la respuesta del agente.
 - [ ] Reproducir el vídeo o la canción número N, e instalar un juego.
 
 Bloques 2, 3 y 4 (elegidos por braya el 15/09): oído (filtro de eco en small y

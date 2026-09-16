@@ -9964,6 +9964,39 @@ function Initialize-Charla {
     }
 }
 
+# UNA TRADUCCION NO PUEDE DAR LA VUELTA A LO QUE PEDISTE (16/09). El 15/09 "cierra
+# Google" volvio de la API como "Abre Google" y se abrio (y asi tres veces seguidas);
+# y de "mi ubicacion es Tampa, busca el clima" salio "abre Hollow Knight", un juego
+# que no habia nombrado nadie. Son los dos fallos que mas duelen, porque hacen lo
+# CONTRARIO de lo pedido o abren algo que no pediste. Si pasa, no se hace nada y se
+# pide repetir: mas vale un "no te entendi" que abrir lo que querias cerrar.
+$VERBOS_OPUESTOS = @{
+    'abre' = 'cierra'; 'cierra' = 'abre'; 'activa' = 'desactiva'; 'desactiva' = 'activa'
+    'enciende' = 'apaga'; 'apaga' = 'enciende'; 'sube' = 'baja'; 'baja' = 'sube'
+    'conecta' = 'desconecta'; 'desconecta' = 'conecta'; 'maximiza' = 'minimiza'
+    'minimiza' = 'maximiza'; 'silencia' = 'desilencia'; 'pausa' = 'reproduce'; 'reproduce' = 'pausa'
+}
+function Test-TraduccionOpuesta([string]$original, [string]$propuesta) {
+    if (-not $original -or -not $propuesta) { return $false }
+    $po = @((ConvertTo-Plain $original) -split '\s+' | Where-Object { $VERBOS_OPUESTOS.ContainsKey($_) })
+    $pp = @((ConvertTo-Plain $propuesta) -split '\s+' | Where-Object { $VERBOS_OPUESTOS.ContainsKey($_) })
+    if ($po.Count -eq 0 -or $pp.Count -eq 0) { return $false }
+    # solo el PRIMER verbo de cada uno: "abre steam y cierra discord" tiene los dos
+    return ([string]$VERBOS_OPUESTOS[[string]$po[0]] -eq [string]$pp[0])
+}
+function Test-NombreInventado([string]$original, [string]$propuesta) {
+    if (-not $propuesta -or -not $script:Juegos) { return $false }
+    $plO = ' ' + (ConvertTo-Plain $original) + ' '
+    $plP = ' ' + (ConvertTo-Plain $propuesta) + ' '
+    foreach ($j in @($script:Juegos)) {
+        $nJ = ConvertTo-Plain ([string]$j.nombre)
+        # nombres cortos no: "peak" o "raft" aparecen dentro de cualquier frase
+        if (-not $nJ -or $nJ.Length -lt 6) { continue }
+        if ($plP.Contains(' ' + $nJ + ' ') -and -not $plO.Contains($nJ)) { return $true }
+    }
+    return $false
+}
+
 # LA CHARLA SABE LO QUE NOVA SABE (16/09). El 15/09, 10 respuestas se inventaron el
 # dato o dijeron "no tengo acceso" a cosas que el asistente tenia delante: la hora, el
 # temporizador puesto hacia un minuto, el nivel, las descargas de Steam y el clima. Van
@@ -10417,6 +10450,19 @@ function Report-Reply($out) {
             # SILENT BREATH en steam') se ejecutaba a la primera. $sinDudosa
             # silencia solo la pregunta por parecido, que es lo que se queria.
             $script:sinDudosa = $true
+            # ver UNA TRADUCCION NO PUEDE DAR LA VUELTA A LO QUE PEDISTE
+            $vuelta = $false
+            try { $vuelta = (Test-TraduccionOpuesta $original $propuesta) -or (Test-NombreInventado $original $propuesta) } catch { $vuelta = $false }
+            if ($vuelta) {
+                Log "TRADUCCION RECHAZADA: '$original' -> '$propuesta' (le da la vuelta a lo pedido o mete un nombre que no dijiste)"
+                Add-Estadistica 'traduccion-rechazada' "$original -> $propuesta"
+                $script:seguimientoPendiente = $false
+                Send-UIEvento 'gesto:confuso'
+                Show-Popup "No te entendi. Repitelo." 'error'
+                Say "No te entendi"
+                Open-EscuchaTrasNoEntendi
+                return
+            }
             $script:preguntarTraduccion = (Test-OidoDudoso $original)
             try { $r = Invoke-FastCommand $propuesta } catch { $r = $null }
             $script:sinDudosa = $false
@@ -10569,6 +10615,20 @@ function Report-Reply($out) {
     if ($reply.Length -gt 1000) { $reply = $reply.Substring(0, 1000) + " [...]" }
     Log "REPLY: $reply"
     $script:ultimaRespuesta = $reply
+    # "ABRELO" DESPUES DE QUE NOVA NOMBRE UN JUEGO (16/09). El 15/09 "¿puedes abrirlo?"
+    # abrio Steam: el pronombre solo miraba el ultimo objetivo LOCAL, y el juego lo
+    # acababa de nombrar el agente en esta misma respuesta.
+    try {
+        $plR = ' ' + (ConvertTo-Plain $reply) + ' '
+        foreach ($jR in @($script:Juegos)) {
+            $nR = ConvertTo-Plain ([string]$jR.nombre)
+            if ($nR -and $nR.Length -ge 6 -and $plR.Contains(' ' + $nR + ' ')) {
+                $script:ultimoObjetivo = [string]$jR.nombre
+                Log "el pronombre apunta ahora a '$($jR.nombre)' (lo nombro la respuesta)"
+                break
+            }
+        }
+    } catch {}
     # tarea larga terminada: un pulso largo en el mando, por si estabas jugando
     if (($sw.ElapsedMilliseconds - $script:jobStart) -ge 8000) { Start-Vibracion @(220) 24000 }
     $eraSinTarjeta = [bool]$script:respuestaSinTarjeta
