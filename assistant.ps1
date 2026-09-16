@@ -475,6 +475,23 @@ function Get-FrasesEjemplo {
     } catch {}
     return $script:frasesEjemplo
 }
+# UNA SOLA FRASE DEL EJEMPLO (16/09). Test-RecitaEjemplo pide DOS partes, porque se
+# hizo para el recitado entero. Pero el repaso cuela de una en una: medido con las 214
+# grabaciones leidas, las 4 ordenes equivocadas graves del camino actual son esto
+# ("sube el volumen" se repaso como "¿Que hora es" y Nova dijo la hora). Cuando el
+# repaso trae UNA frase del ejemplo y lo primero no se le parecia, no vale.
+function Test-EsFraseEjemplo([string]$texto) {
+    $frases = @(Get-FrasesEjemplo)
+    if ($frases.Count -eq 0 -or -not $texto) { return $false }
+    $pl = (ConvertTo-Plain $texto) -replace '^(?:oye |hey |ey )?nova ?', ''
+    if (-not $pl) { return $false }
+    foreach ($f in $frases) {
+        $largo = [Math]::Max($pl.Length, $f.Length)
+        if ($largo -gt 0 -and (1.0 - (Get-Distancia $pl $f) / $largo) -ge 0.85) { return $true }
+    }
+    return $false
+}
+
 function Test-RecitaEjemplo([string]$texto) {
     $frases = @(Get-FrasesEjemplo)
     if ($frases.Count -eq 0 -or -not $texto) { return $false }
@@ -13230,7 +13247,11 @@ while ($true) {
                 Log "OIDO FINO: el repaso ('$limpio') no mejora '$orig'; la hago tal cual"
                 Add-Estadistica 'fino-igual' $orig
                 Process-Texto $orig
-            } elseif ($limpio -and (ConvertTo-Plain $limpio) -ne (ConvertTo-Plain $orig) -and (Test-MismoAudio $orig $limpio)) {
+            } elseif ($limpio -and (ConvertTo-Plain $limpio) -ne (ConvertTo-Plain $orig) -and (Test-MismoAudio $orig $limpio) -and
+                      ($mismoQueAntes -or -not ($ecoFino -or (Test-EsFraseEjemplo $limpio)))) {
+                # la guarda del eco va TAMBIEN aqui (16/09, ver UNA SOLA FRASE DEL EJEMPLO):
+                # antes solo la miraba la rama de abajo, y por esta entraban las cuatro
+                # equivocadas graves que se midieron con las grabaciones leidas
                 if ((Test-FastCommand $limpio) -or -not (Request-UltimoRecurso $orig $false $false 'procesar')) {
                     if ($script:siguioParakeet -and -not (Test-FastCommand $limpio)) {
                         # SMALL NO PISA A PARAKEET (15/09): "mueve It Takes Two a la carpeta Games"
@@ -13249,7 +13270,8 @@ while ($true) {
                 # con Parakeet en vez de "no te entendi" (ver SMALL NO PISA A PARAKEET)
                 Log "OIDO FINO: '$limpio' no se parece a lo de Parakeet ni es una orden; sigo con Parakeet: '$orig'"
                 Process-Texto $orig
-            } elseif ($limpio -and -not (Test-MismoAudio $orig $limpio) -and -not $ecoFino -and (Test-FastCommand $limpio)) {
+            } elseif ($limpio -and -not (Test-MismoAudio $orig $limpio) -and -not $ecoFino -and
+                      -not (Test-EsFraseEjemplo $limpio) -and (Test-FastCommand $limpio)) {
                 # EL REPASO ACIERTA AUNQUE NO SE PAREZCA (15/09). Cuando base oye basura, lo de small
                 # no comparte ninguna palabra con ello y se tiraba como "invento suyo". Medido con las
                 # 202 grabaciones: base sin orden y small con orden que no se parecen, 16 eran la orden

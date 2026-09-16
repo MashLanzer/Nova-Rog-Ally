@@ -21,6 +21,7 @@ Invoke-Expression (Traer 'ConvertTo-Plain')
 Invoke-Expression (Traer 'Get-Distancia')
 Invoke-Expression (Traer 'Get-FrasesEjemplo')
 Invoke-Expression (Traer 'Test-RecitaEjemplo')
+Invoke-Expression (Traer 'Test-EsFraseEjemplo')
 Invoke-Expression (Traer 'Add-OidoDudoso')
 Invoke-Expression (Traer 'Test-OidoDudoso')
 
@@ -40,6 +41,15 @@ Comp 'la misma repetida tambien es un recitado' (Test-RecitaEjemplo '¿Qué hora
 Comp 'dos ordenes que no son del ejemplo valen' (-not (Test-RecitaEjemplo 'abre steam y pon música')) ''
 Comp 'una del ejemplo con otra distinta vale' (-not (Test-RecitaEjemplo 'Sube el volumen, abre discord')) ''
 Comp 'nada dicho no es recitado' (-not (Test-RecitaEjemplo '')) ''
+
+# UNA SOLA FRASE DEL EJEMPLO (16/09): por aqui se colaban las 4 ordenes equivocadas
+# graves del repaso, medidas con las 214 grabaciones leidas
+Comp 'una sola frase del ejemplo se reconoce' (Test-EsFraseEjemplo 'Que hora es') ''
+Comp 'y con el signo de apertura tambien' (Test-EsFraseEjemplo '¿Que hora es') ''
+Comp 'y con una letra cambiada' (Test-EsFraseEjemplo 'Sube el volumen.') ''
+Comp 'una orden de verdad NO es la frase de ejemplo' (-not (Test-EsFraseEjemplo 'cierra steam')) ''
+Comp 'ni una frase larga que la contenga' (-not (Test-EsFraseEjemplo 'sube el volumen de spotify al cincuenta')) ''
+Comp 'nada dicho tampoco' (-not (Test-EsFraseEjemplo '')) ''
 
 Comp 'lo mal oido no esta marcado al principio' (-not (Test-OidoDudoso 'Ensectiva el modo noche')) ''
 Add-OidoDudoso 'Ensectiva el modo noche'

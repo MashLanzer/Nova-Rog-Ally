@@ -1204,6 +1204,14 @@ Queda del bloque 1 (por orden de impacto medido):
       También «ábrelo» apunta ya al juego que nombró la respuesta del agente.
 - [ ] Reproducir el vídeo o la canción número N, e instalar un juego.
 
-Bloques 2, 3 y 4 (elegidos por braya el 15/09): oído (filtro de eco en small y
-Gemini flash-lite con tope de 2-2,5 s), aprender de todo (fase 1 de
+Bloque 2 (oído), empezado el 16/09:
+
+- [x] Filtro de eco en el repaso. El agente midió que las 4 órdenes equivocadas
+      graves del camino actual salían del repaso («sube el volumen» → «¿Qué hora
+      es?»). La escucha SÍ marcaba el eco, pero el asistente solo miraba esa marca
+      en una de las ramas; ahora también en la que acepta un repaso parecido, y
+      además se comprueba el texto con `Test-EsFraseEjemplo` (una sola frase).
+- [ ] Gemini flash-lite como segunda opinión con tope de 2-2,5 s.
+
+Bloques 3 y 4 (elegidos por braya el 15/09), aprender de todo (fase 1 de
 `scratchpad\analisis\aprender.md`) y tareas sin Claude Code.
