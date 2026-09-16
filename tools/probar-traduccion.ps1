@@ -45,6 +45,9 @@ Comp 'vacios' (-not (Test-TraduccionOpuesta '' 'abre steam') -and -not (Test-Tra
 Write-Host "  -- se inventa un juego que no dijiste: se rechaza --"
 Comp 'busca el clima -> abre Hollow Knight Silksong' (Test-NombreInventado 'mi ubicacion es tampa busca el clima' 'abre Hollow Knight Silksong') ''
 Comp 'lo que SI nombraste, vale' (-not (Test-NombreInventado 'abre hollow knight silksong' 'abre Hollow Knight Silksong')) ''
+# nadie dice el titulo entero: completarlo es lo que hay que hacer, no un invento (16/09)
+Comp 'el titulo dicho a medias tambien vale' (-not (Test-NombreInventado 'abre hollow knight' 'abre Hollow Knight Silksong')) ''
+Comp 'pero con una sola palabra suelta del titulo, no' (Test-NombreInventado 'abre el knight' 'abre Hollow Knight Silksong') ''
 Comp 'un nombre corto no dispara nada' (-not (Test-NombreInventado 'sube el volumen' 'abre Peak')) ''
 Comp 'sin juegos en la biblioteca, no falla' (-not (Test-NombreInventado 'hola' 'abre lo que sea')) ''
 

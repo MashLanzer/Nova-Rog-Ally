@@ -10009,7 +10009,17 @@ function Test-NombreInventado([string]$original, [string]$propuesta) {
         $nJ = ConvertTo-Plain ([string]$j.nombre)
         # nombres cortos no: "peak" o "raft" aparecen dentro de cualquier frase
         if (-not $nJ -or $nJ.Length -lt 6) { continue }
-        if ($plP.Contains(' ' + $nJ + ' ') -and -not $plO.Contains($nJ)) { return $true }
+        if (-not $plP.Contains(' ' + $nJ + ' ')) { continue }
+        # EL JUEGO DICHO A MEDIAS NO ES UN INVENTO (16/09): "abre hollow knight" ->
+        # "Hollow Knight Silksong" es lo que hay que hacer, porque nadie dice el
+        # titulo entero. El invento es cuando NINGUNA palabra del titulo estaba en
+        # lo que dijiste ("busca el clima" -> "abre Hollow Knight").
+        $palJ = @($nJ -split '\s+' | Where-Object { $_.Length -ge 4 })
+        if ($palJ.Count -gt 0) {
+            $dichas = @($palJ | Where-Object { $plO.Contains(' ' + $_ + ' ') }).Count
+            if ($dichas -ge [Math]::Ceiling($palJ.Count / 2.0)) { continue }
+        } elseif ($plO.Contains($nJ)) { continue }
+        return $true
     }
     return $false
 }
@@ -11035,6 +11045,83 @@ function Test-OidoDudoso([string]$t) {
     $k = ConvertTo-Plain $t
     return [bool]($k -and $script:oidosDudosos.ContainsKey($k))
 }
+# SEGUNDA OPINION EN LA NUBE (16/09). Ver el comentario de arriba del archivo de
+# parche: se lanza junto al repaso de Whisper y solo vale si contesta a tiempo.
+# La clave vive en GEMINI_API_KEY (entorno del usuario), nunca en el repositorio.
+$NubeOir = [string](Get-Cfg 'escucha' 'nubeOir' '')
+$NubeTopeMs = [int](Get-Cfg 'escucha' 'nubeTopeMs' 2500)
+$NubeScript = Join-Path $LogDir 'tools\gemini-oir.py'
+$script:nubeProc = $null
+$script:nubeOut = ''
+$script:nubeWav = ''
+$script:nubeVence = 0
+
+# ¿Vale lo que oyo la nube en vez de lo que oyo el oido local? El booleano viene de
+# fuera (Test-FastCommand) para poder probar esta decision sin arrastrar medio archivo.
+function Test-NubeSirve([string]$nube, [string]$local, [bool]$esOrden) {
+    if (-not $nube) { return $false }
+    $t = $nube.Trim()
+    # una orden no es un parrafo: si devuelve una parrafada, no es lo que dijiste
+    if ($t.Length -lt 2 -or $t.Length -gt 120) { return $false }
+    # los mismos dos vicios que ya se cortan en el oido local y en la traduccion
+    if (Test-EsFraseEjemplo $t) { return $false }
+    if (Test-NombreInventado $local $t) { return $false }
+    return $esOrden
+}
+
+function Clear-NubeOir {
+    foreach ($fN in @($script:nubeOut, $script:nubeWav)) {
+        if ($fN) { Remove-Item -LiteralPath $fN -Force -ErrorAction SilentlyContinue }
+    }
+    $script:nubeOut = ''
+    $script:nubeWav = ''
+    $script:nubeVence = 0
+    $script:nubeProc = $null
+}
+
+function Start-NubeOir([string]$para) {
+    if ($NubeOir -ne 'gemini' -or $script:invitado) { return $false }
+    $wavN = Join-Path $TmpDir 'ultima-orden.wav'
+    if (-not (Test-Path -LiteralPath $wavN)) { return $false }
+    Clear-NubeOir
+    try {
+        $idN = [System.Guid]::NewGuid().ToString('N').Substring(0, 8)
+        # se COPIA: el siguiente dictado pisa ultima-orden.wav mientras esta viajando
+        $script:nubeWav = Join-Path $TmpDir "nube-$idN.wav"
+        Copy-Item -LiteralPath $wavN -Destination $script:nubeWav -Force
+        $script:nubeOut = Join-Path $TmpDir "nube-$idN.txt"
+        $script:nubeProc = Start-Process -FilePath $PyWorker -WindowStyle Hidden -PassThru `
+            -WorkingDirectory $LogDir `
+            -ArgumentList @($NubeScript, $script:nubeWav, $script:nubeOut, [string]$NubeTopeMs)
+        $null = $script:nubeProc.Handle
+        $script:nubeVence = $sw.ElapsedMilliseconds + $NubeTopeMs + 800
+        Log "NUBE: segunda opinion de '$para' (tope $([Math]::Round($NubeTopeMs / 1000.0, 1)) s)"
+        return $true
+    } catch {
+        Log ('NUBE: no pude lanzarla: ' + $_.Exception.Message)
+        Clear-NubeOir
+        return $false
+    }
+}
+
+# '' si no hay nada (o ya no da tiempo); el texto si contesto
+function Receive-NubeOir {
+    if (-not $script:nubeOut) { return '' }
+    if (Test-Path -LiteralPath $script:nubeOut) {
+        $tN = ''
+        try { $tN = [System.IO.File]::ReadAllText($script:nubeOut, [System.Text.Encoding]::UTF8) } catch { $tN = '' }
+        Clear-NubeOir
+        return $tN.Trim()
+    }
+    if ($sw.ElapsedMilliseconds -ge $script:nubeVence) {
+        Log 'NUBE: no contesto a tiempo; sigo con el oido de siempre'
+        Add-Estadistica 'nube-tarde' ''
+        try { if ($script:nubeProc -and -not $script:nubeProc.HasExited) { $script:nubeProc.Kill() } } catch {}
+        Clear-NubeOir
+    }
+    return ''
+}
+
 function Request-WhisperTras([string]$texto) {
     if (-not $script:wakeProc -or $script:wakeProc.HasExited) { return $false }
     try {
@@ -11046,6 +11133,7 @@ function Request-WhisperTras([string]$texto) {
         $script:reintentoVence = $sw.ElapsedMilliseconds + $ReintentoMaxMs
         Log "PARAKEET: '$texto' no es una orden que entienda; lo repasa Whisper"
         Add-Estadistica 'parakeet-a-whisper' $texto
+        [void](Start-NubeOir $texto)   # ver SEGUNDA OPINION EN LA NUBE
         Set-UI 'pensando'
         return $true
     } catch {
@@ -13144,6 +13232,28 @@ while ($true) {
             $script:yaReintentado = $false
             $sigueCon = if ($limpioW) { $limpioW } else { $origP }
             $script:siguioParakeet = $false
+            # LA NUBE, SI YA CONTESTO (ver SEGUNDA OPINION EN LA NUBE). Solo cuando ni
+            # Parakeet ni Whisper sacan una orden: si alguno la saca, se hace y punto,
+            # que es mas rapido que cualquier cosa que venga de fuera.
+            if ($script:nubeOut) {
+                $nubeTxt = Receive-NubeOir
+                $localOk = (Test-FastCommand $limpioW) -or (Test-FastCommand $origP)
+                if ($nubeTxt -and -not $localOk) {
+                    $esOrdenN = $false
+                    try { $esOrdenN = [bool](Test-FastCommand $nubeTxt) } catch { $esOrdenN = $false }
+                    if (Test-NubeSirve $nubeTxt $origP $esOrdenN) {
+                        Log "NUBE: '$origP' / '$limpioW' -> '$nubeTxt' (lo saca la nube)"
+                        Add-Estadistica 'nube-sirvio' "$origP -> $nubeTxt"
+                        $script:reintentoVence = 0
+                        $script:yaReintentado = $true
+                        Process-Texto $nubeTxt
+                        $fino = $null
+                        continue
+                    }
+                    Log "NUBE: '$nubeTxt' tampoco es una orden que sepa hacer; sigo con el oido local"
+                    Add-Estadistica 'nube-nada' "$origP -> $nubeTxt"
+                }
+            }
             # ver PARAKEET PARA LO QUE NO ES UNA ORDEN. El repaso con small se mantiene (oye
             # el AUDIO, no este texto): en las 202 grabaciones rescata 2 ordenes que Parakeet
             # oyo mal ("si agradezco y abre spotify" por "cierra discord y abre spotify").

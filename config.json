@@ -65,7 +65,9 @@
         "ganancia": "auto",
         "soloYo": true,
         "soloYoMargenHz": 42,
-        "soloYoMinimo": 12
+        "soloYoMinimo": 12,
+        "nubeOir": "",
+        "nubeTopeMs": 2500
     },
     "modelo": {
         "usarClaude": true,

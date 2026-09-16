@@ -883,6 +883,28 @@ def guardar_uso(bloques, **campos):
         anota("WARN: no pude guardar el uso (%s)" % e)
 
 
+# EL AUDIO DE LA ULTIMA ORDEN (16/09), siempre en el mismo sitio: tmp\ultima-orden.wav.
+# Es lo que permite al asistente pedir una segunda opinion a la nube cuando la capa
+# local no entiende, sin tener que volver a hablar. Se pisa en cada orden y no sale de
+# la maquina salvo que el propio asistente lo mande (y eso solo con nubeOir puesto).
+def guardar_ultima_orden(bloques):
+    if not bloques or not NIVEL:
+        return
+    try:
+        import wave
+        destino = os.path.join(os.path.dirname(NIVEL), "ultima-orden.wav")
+        datos = np.concatenate(bloques).astype(np.int16)
+        with wave.open(destino + ".tmp", "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(TASA)
+            w.writeframes(datos.tobytes())
+        # se escribe aparte y se renombra: si el asistente lo lee a medias, lee basura
+        os.replace(destino + ".tmp", destino)
+    except Exception as e:
+        anota("WARN: no pude guardar el audio de la ultima orden (%s)" % e)
+
+
 # NOTAS DE VOZ (13/09): si el asistente dejo una ruta en guardar-audio.txt, el
 # audio del dictado que acaba de terminar se guarda ahi en WAV (16 kHz, mono).
 def guardar_audio_si_toca(bloques):
@@ -1319,6 +1341,7 @@ try:
                                 seguridad=_ultima_seguridad, entregado=texto_final)
                     dictando = False
                     ultimo_audio = audio_dictado
+                    guardar_ultima_orden(ultimo_audio)   # ver EL AUDIO DE LA ULTIMA ORDEN
                     guardar_audio_si_toca(ultimo_audio)
                     audio_dictado = []
                     rec = nuevo_reconocedor()
@@ -1553,6 +1576,7 @@ try:
                                 pass
                             dictando = False
                             ultimo_audio = audio_dictado
+                            guardar_ultima_orden(ultimo_audio)   # ver EL AUDIO DE LA ULTIMA ORDEN
                             guardar_audio_si_toca(ultimo_audio)
                             audio_dictado = []
                             rec = nuevo_reconocedor()

@@ -98,6 +98,10 @@ Titulo "2h. Frases que ya te molestaron una vez (y que se curan solas)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-rechazos.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n1. La segunda opinion de la nube (cuando vale y cuando no)"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-nube.ps1') | Select-String 'MAL|todo correcto'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2z. La traduccion no da la vuelta a lo pedido ni inventa un juego"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-traduccion.ps1') | Select-String 'MAL|todo correcto'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
