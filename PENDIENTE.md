@@ -1148,3 +1148,52 @@ Están todas contadas en los commits, pero por si acaso:
   encendido (13/09, dos veces). Para parar el asistente de una prueba: guardar
   el PID de `Start-Process -PassThru`, parar sus hijos por `ParentProcessId` y
   comprobar después desde PowerShell, no desde el heredoc.
+
+---
+
+## 16/09: entender mejor (bloque 1 de 4), primera tanda
+
+Sale del análisis de las cinco sesiones de uso real del 15/09
+(`scratchpad\analisis\errores.md`): de 141 órdenes, solo 49 salieron bien. De
+las 116 con problema, **solo 17 eran del oído**; el resto era qué hace Nova con
+una frase que oyó bien. Por eso se empieza por entender, no por el oído.
+
+Hecho y comprobado con el banco (88/89, 183/186, ruido 3/97, destinos en verde):
+
+- «cierra todo» **cierra** (con la confirmación de siempre) en vez de mostrar el
+  escritorio. Se dijo 5 veces el 15/09 y siempre quería cerrar.
+- **El verbo de cabeza se normaliza a imperativo** (poner→pon, pone→pon,
+  reproducir→reproduce, cerrar→cierra…). Cada regla enumeraba sus propias formas,
+  así que «poner un temporizador de cinco minutos» y «reproducir lofi en youtube»
+  se iban al modelo (34 s) mientras «pon…» tardaba 2 s. Un solo sitio, todas las
+  reglas arregladas.
+- Temporizador con «para/por» y números en palabras.
+- La fecha con palabras delante («cuál es la fecha de hoy», «quiero saber qué día es hoy»).
+- Descargas: «hay algo descargándose en Steam», «revisa ahora si algo se está descargando».
+- Espacio: «qué espacio tengo disponible».
+- «cierra google/youtube/gmail» cierra el navegador (antes la API lo traducía como «Abre Google»).
+- «corta los últimos 30 segundos de juego» (antes, 41 s de agente).
+- «abre el teclado» (teclado en pantalla) y «escribir X» en infinitivo.
+- «qué tengo en mi escritorio», en local (antes 44 s de agente).
+- «qué tienes anotado sobre mí» y «qué has aprendido hoy».
+- Ya no se anota una PREGUNTA: «¿recuerdas cuál es mi música preferida?» se
+  guardaba como nota. Las tres copias de esa regla quedan iguales.
+- «lo que dije fue que…» ya no se toma por una consulta a la memoria: era una corrección.
+
+Queda del bloque 1 (por orden de impacto medido):
+
+- [ ] **Las quejas rehacen la orden** (19 casos, evitaría ~16): «no te pedí la
+      hora, dije cierra Steam», «lo que dije fue que abrieras el juego». Paso de
+      corrección en `Process-Texto` antes de `$RE_MEMORIA` y de la charla, con
+      `$script:ultimaOrden`, y reutilizando `reescribir_orden` de `charla_worker.py`.
+- [ ] La charla no tiene los datos de Nova (10 casos): hora, fecha, descargas,
+      temporizadores, nivel, lo último que hizo.
+- [ ] Confusiones que quedan: «¿recuerdas…?» a la memoria, «ábrelo» con el
+      último juego que nombró el agente, modo juego por voz, órdenes compuestas
+      a medias (decir en voz alta la parte que no se entendió).
+- [ ] Traducciones que invierten el verbo o inventan un nombre: rechazarlas.
+- [ ] Reproducir el vídeo o la canción número N, e instalar un juego.
+
+Bloques 2, 3 y 4 (elegidos por braya el 15/09): oído (filtro de eco en small y
+Gemini flash-lite con tope de 2-2,5 s), aprender de todo (fase 1 de
+`scratchpad\analisis\aprender.md`) y tareas sin Claude Code.

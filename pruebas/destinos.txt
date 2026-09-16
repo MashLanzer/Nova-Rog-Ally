@@ -191,3 +191,21 @@ que hora es steam => <se va al modelo>
 que hora es en tokio => <se va al modelo>
 adelante => <se va al modelo>
 pulsa adelante => pulsar adelante
+
+# --- del uso real del 15/09: formas que faltaban (analisis\errores.md, seccion 4) ---
+cierra todo => cerrar los programas abiertos
+cual es la fecha de hoy => Hoy es
+quiero saber que dia es hoy => Hoy es
+pon un temporizador para dos horas => temporizador de 2 horas
+poner un temporizador de cinco minutos => temporizador de 5 minutos
+hay algo descargandose en steam => estado de las descargas
+revisa ahora si algo se esta descargando => estado de las descargas
+que espacio tengo disponible => espacio libre
+corta los ultimos 30 segundos de juego => grabar los ultimos segundos
+cierra google => cerrar navegador
+abre el teclado => teclado en pantalla
+que tengo en mi escritorio => escritorio
+escribir hola que tal => escribir
+que tienes anotado sobre mi => lo que se de ti
+que has aprendido hoy => recetas aprendidas
+dime de los juegos cual tiene mas horas => se va al modelo

@@ -209,6 +209,27 @@ $VERBOS_OIDOS = @{
                          # distancia, pero asi no depende de ella)
 }
 
+# EL VERBO DE CABEZA, EN IMPERATIVO (15/09). Cada regla enumera sus propias formas
+# ("pon|ponme|reproduce|..."), y por eso "poner un temporizador de cinco minutos",
+# "pone el modo noche" o "reproducir lofi en youtube" no encajaban en ninguna y se
+# iban al modelo (34 s), mientras que "pon un temporizador de cinco minutos" tardaba
+# 2 s. Normalizando aqui una sola vez, TODAS las reglas los entienden.
+# Solo la primera palabra y solo si hay algo detras, como el resto de esta funcion:
+# un verbo suelto casi nunca es una orden, y sonando el altavoz es ruido.
+$VERBOS_IMPERATIVO = @{
+    'poner' = 'pon'; 'pone' = 'pon'; 'ponerme' = 'ponme'
+    'abrir' = 'abre'; 'cerrar' = 'cierra'; 'iniciar' = 'inicia'; 'lanzar' = 'lanza'
+    'ejecutar' = 'ejecuta'; 'arrancar' = 'arranca'; 'buscar' = 'busca'; 'googlear' = 'googlea'
+    'subir' = 'sube'; 'bajar' = 'baja'; 'aumentar' = 'aumenta'; 'reducir' = 'reduce'
+    'silenciar' = 'silencia'; 'pausar' = 'pausa'; 'reproducir' = 'reproduce'
+    'apagar' = 'apaga'; 'encender' = 'enciende'; 'activar' = 'activa'; 'desactivar' = 'desactiva'
+    'quitar' = 'quita'; 'escribir' = 'escribe'; 'teclear' = 'teclea'; 'grabar' = 'graba'
+    'cortar' = 'corta'; 'mover' = 'mueve'; 'instalar' = 'instala'; 'cambiar' = 'cambia'
+    'minimizar' = 'minimiza'; 'maximizar' = 'maximiza'; 'bloquear' = 'bloquea'
+    'guardar' = 'guarda'; 'copiar' = 'copia'; 'leer' = 'lee'; 'enviar' = 'envia'
+    'mandar' = 'manda'; 'crear' = 'crea'; 'avisar' = 'avisa'; 'mostrar' = 'muestra'
+}
+
 # El dictado deforma tambien los verbos ("buscal" por "busca"). Se corrige solo
 # la PRIMERA palabra y solo a distancia 1, para no inventar ordenes.
 function Repair-Verb([string]$f) {
@@ -216,6 +237,9 @@ function Repair-Verb([string]$f) {
     $partes = $f -split '\s+', 2
     if ($partes.Count -gt 1 -and $VERBOS_OIDOS.ContainsKey($partes[0])) {
         return ($VERBOS_OIDOS[$partes[0]] + ' ' + $partes[1])
+    }
+    if ($partes.Count -gt 1 -and $VERBOS_IMPERATIVO.ContainsKey($partes[0])) {
+        return ($VERBOS_IMPERATIVO[$partes[0]] + ' ' + $partes[1])
     }
     # UNA PALABRA SUELTA NO SE REPARA. Al hacerlo, una palabra cualquiera del
     # castellano se convertia en verbo y, ya reconocida, se ejecutaba saltandose
@@ -1946,7 +1970,7 @@ function Resolve-Fragment([string]$f) {
         $cosa = $Matches[1].Trim(); $cual2 = $Matches[2]
         if ($cosa) { return @(@{ kind = 'listaQuitar'; cosa = $cosa; lista = $cual2; desc = "quitar $cosa de la lista" }) }
     }
-    if ($f -match '^(?:recuerda|recuerdame|acuerdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!(?:en|dentro de)\s+(?:\d+|un|una|uno|medi[ao]|(?:un\s+)?cuarto\s+de|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis\S+|veinte|veinti\S+|treinta|cuarenta|cincuenta|sesenta|noventa)(?:\s+y\s+\S+)?\s+(?:segundos?|minutos?|horas?)\b)(?!(?:\d+|un|una|medi[ao]|(?:un\s+)?cuarto\s+de|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis\S+|veinte|veinti\S+|treinta|cuarenta|cincuenta|sesenta|noventa)(?:\s+y\s+\S+)?\s+(?:minutos?|horas?)(?:\s+y\s+media)?\s+antes\b)(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?:que\s+|de\s+que\s+)?(.+)$') {
+    if ($f -match '^(?:recuerda|recuerdame|acuerdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!(?:en|dentro de)\s+(?:\d+|un|una|uno|medi[ao]|(?:un\s+)?cuarto\s+de|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis\S+|veinte|veinti\S+|treinta|cuarenta|cincuenta|sesenta|noventa)(?:\s+y\s+\S+)?\s+(?:segundos?|minutos?|horas?)\b)(?!(?:\d+|un|una|medi[ao]|(?:un\s+)?cuarto\s+de|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis\S+|veinte|veinti\S+|treinta|cuarenta|cincuenta|sesenta|noventa)(?:\s+y\s+\S+)?\s+(?:minutos?|horas?)(?:\s+y\s+media)?\s+antes\b)(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?!(?:cual|cuales|que es|que fue|si|donde|cuando|quien|como|cuanto)\b)(?:que\s+|de\s+que\s+)?(.+)$') {
         return @(@{ kind = 'memoria'; texto = $Matches[1].Trim(); desc = "anotar en la memoria" })
     }
     # El lugar puede preceder al verbo ("en el navegador busca X"). Se separa
@@ -1988,7 +2012,9 @@ function Resolve-Fragment([string]$f) {
             $cul = New-Object System.Globalization.CultureInfo('es-MX')
             return @(@{ kind = 'decir'; desc = ("Son las " + (Get-Date).ToString('H:mm', $cul)) })
         }
-        '^(?:que dia es|que fecha es|dime la fecha|que fecha|el dia de hoy)\b' {
+        # 15/09: "¿cual es la fecha de hoy?" y "exacto, quiero saber que dia es hoy"
+        # se iban a la charla, que contestaba que no tiene la fecha
+        '^(?:(?:exacto|vale|ok|okey|si|correcto)\s+)?(?:(?:quiero saber|dime|sabes|me dices)\s+)?(?:que dia es|que fecha es|cual es la fecha|dime la fecha|que fecha|el dia de hoy)\b' {
             $cul = New-Object System.Globalization.CultureInfo('es-MX')
             return @(@{ kind = 'decir'; desc = ("Hoy es " + (Get-Date).ToString('dddd d "de" MMMM', $cul)) })
         }
@@ -2050,7 +2076,10 @@ function Resolve-Fragment([string]$f) {
     }
     # --- temporizadores: lo mas util con las manos ocupadas ---
     # "recuerdeme" / "recuerden" (validacion, 15/09): la forma de usted, asi lo oye Whisper
-    if ($f -match '^(?:recuerdame|recuerdeme|recuerdenme|recuerden|avisame|despiertame|ponme un temporizador|pon un temporizador|ponme una alarma|pon una alarma|temporizador|alarma)\s+(?:en|de|dentro de)\s+(\d+|(?:un\s+)?cuarto\s+de|un|una|medi[ao])\s*(segundo|segundos|minuto|minutos|hora|horas)\b\s*(?:que|para|de|a)?\s*(.*)$') {
+    # 15/09: "pon un temporizador PARA dos horas" y "¿puedes poner un temporizador de
+    # cinco minutos?" se iban al agente (34 s). Faltaban "para/por", el infinitivo y
+    # los numeros dichos con letras.
+    if ($f -match '^(?:recuerdame|recuerdeme|recuerdenme|recuerden|avisame|despiertame|ponme un temporizador|pon un temporizador|poner un temporizador|pon temporizador|ponme una alarma|pon una alarma|poner una alarma|temporizador|alarma)\s+(?:en|de|para|por|dentro de)\s+(\d+|(?:un\s+)?cuarto\s+de|un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|quince|veinte|treinta|cuarenta|cincuenta|sesenta|noventa|medi[ao])\s*(segundo|segundos|minuto|minutos|hora|horas)\b\s*(?:que|para|de|a)?\s*(.*)$') {
         $cuanto = $Matches[1]
         $unidad = $Matches[2]
         $que0 = $Matches[3]
@@ -2060,7 +2089,11 @@ function Resolve-Fragment([string]$f) {
         # "un cuarto de hora": 15 minutos, dichos en minutos (nunca lo entendio)
         $cuarto = ($cuanto -match 'cuarto')
         if ($cuarto) { $unidad = 'minutos' }
-        $n = if ($mitad) { 30 } elseif ($cuarto) { 15 } elseif ($cuanto -match '^\d+$') { [int]$cuanto } else { 1 }
+        $palT = @{ 'un' = 1; 'una' = 1; 'dos' = 2; 'tres' = 3; 'cuatro' = 4; 'cinco' = 5; 'seis' = 6; 'siete' = 7
+                   'ocho' = 8; 'nueve' = 9; 'diez' = 10; 'once' = 11; 'doce' = 12; 'quince' = 15; 'veinte' = 20
+                   'treinta' = 30; 'cuarenta' = 40; 'cincuenta' = 50; 'sesenta' = 60; 'noventa' = 90 }
+        $n = if ($mitad) { 30 } elseif ($cuarto) { 15 } elseif ($cuanto -match '^\d+$') { [int]$cuanto }
+             elseif ($palT.ContainsKey($cuanto)) { $palT[$cuanto] } else { 1 }
         if ($mitad) {
             $unidad = if ($unidad -like 'hora*') { 'minutos' } else { 'segundos' }
             if ($unidad -eq 'segundos') { $n = 30 }
@@ -2221,11 +2254,11 @@ function Resolve-Fragment([string]$f) {
         return @(@{ kind = 'balanceAprendizaje'; desc = 'lo aprendido' })
     }
     # --- lo que Nova sabe de ti ---
-    if ($f -match '^(?:que sabes de mi|que sabes sobre mi|que has aprendido de mi|que sabes de braya|que conoces de mi|que sabes de mi vida)$') {
+    if ($f -match '^(?:que sabes de mi|que sabes sobre mi|que has aprendido de mi|que sabes de braya|que conoces de mi|que sabes de mi vida|que tienes anotado (?:sobre|de) mi|que tienes apuntado (?:sobre|de) mi|que has anotado (?:sobre|de) mi)$') {
         return @(@{ kind = 'verPerfil'; desc = 'lo que se de ti' })
     }
     # --- recetas aprendidas: verlas y olvidarlas ---
-    if ($f -match '^(?:que (?:has aprendido|aprendiste|recetas tienes|sabes hacer sola)|que tareas (?:has aprendido|sabes hacer)|mis recetas|lista (?:las )?recetas|dime (?:las )?recetas)$') {
+    if ($f -match '^(?:que (?:has aprendido|aprendiste|recetas tienes|sabes hacer sola)(?:\s+(?:hoy|ayer|de la ultima sesion|en la ultima sesion|de la sesion|esta sesion|ultimamente))?|que tareas (?:has aprendido|sabes hacer)|mis recetas|lista (?:las )?recetas|dime (?:las )?recetas)$') {
         return @(@{ kind = 'verRecetas'; desc = 'recetas aprendidas' })
     }
     if ($f -match '^(?:olvida|borra|elimina)\s+(?:esa receta|la ultima receta|la receta|lo ultimo que aprendiste|lo que acabas de aprender)$') {
@@ -2295,6 +2328,13 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^que\s+(?:se\s+)?(?:esta|estan)\s+(?:descargando|bajando|actualizando)(?:\s+en\s+steam)?$') {
         return @(@{ kind = 'descargas'; desc = 'estado de las descargas' })
     }
+    # 15/09: "¿hay algo descargandose en Steam?" y "revisa ahora si algo se esta
+    # descargando" se fueron al agente (37 s y 25 s) teniendo el dato ya leido
+    if ($f -match '^(?:revisa\s+(?:ahora\s+)?)?(?:hay\s+)?algo\s+(?:que\s+se\s+(?:este|esta)\s+)?(?:descargando(?:se)?|bajando(?:se)?|instalando(?:se)?|actualizando(?:se)?)(?:\s+en\s+steam)?$' -or
+        $f -match '^revisa\s+(?:ahora\s+)?si\s+(?:hay\s+)?algo\s+se\s+esta\s+(?:descargando|bajando|instalando)(?:\s+en\s+steam)?$' -or
+        $f -match '^(?:en\s+)?cuanto\s+(?:va|esta|le\s+queda\s+a)\s+la\s+descarga(?:\s+de\s+steam)?$') {
+        return @(@{ kind = 'descargas'; desc = 'estado de las descargas' })
+    }
     # --- descargas de Steam (datos que ya se leen al arrancar) ---
     if ($f -match '^(?:como va|que tal va|en que va|cuanto queda de)\s+(?:la\s+)?(?:descarga|bajada|instalacion)\b') {
         return @(@{ kind = 'descargas'; desc = 'estado de las descargas' })
@@ -2302,9 +2342,25 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(?:hay|queda|falta)\s+(?:alguna\s+)?descarga\b') {
         return @(@{ kind = 'descargas'; desc = 'estado de las descargas' })
     }
+    # --- que tengo en el escritorio (15/09: 44 s de agente para leer una carpeta) ---
+    if ($f -match '^(?:que\s+(?:tengo|hay)|dime\s+que\s+(?:tengo|hay)|ensename\s+(?:lo\s+que\s+(?:tengo|hay)|el\s+contenido\s+de))\s+en\s+(?:mi\s+|el\s+)?escritorio$') {
+        $escD = [Environment]::GetFolderPath('Desktop')
+        $itemsD = @()
+        try {
+            $itemsD = @(Get-ChildItem -LiteralPath $escD -ErrorAction SilentlyContinue |
+                        Where-Object { $_.Name -ne 'desktop.ini' } | Sort-Object Name)
+        } catch { $itemsD = @() }
+        if ($itemsD.Count -eq 0) { return @(@{ kind = 'decir'; desc = 'No hay nada en tu escritorio' }) }
+        $nomsD = @($itemsD | ForEach-Object { $_.Name -replace '\.(?:lnk|url)$', '' } | Select-Object -First 12)
+        $textoD = "En el escritorio tienes $($itemsD.Count): " + ($nomsD -join ', ')
+        if ($itemsD.Count -gt $nomsD.Count) { $textoD += " y $($itemsD.Count - $nomsD.Count) mas" }
+        return @(@{ kind = 'decir'; desc = $textoD })
+    }
     # --- espacio en disco: "¿cabe la siguiente?" ---
+    # "que espacio tengo disponible" y "cuanto espacio libre me queda en la consola" (15/09)
     if ($f -match '^(?:cuanto\s+)?(?:espacio|disco|sitio)\s*(?:me\s+)?(?:queda|libre|hay|tengo)?$' -or
-        $f -match '^cuanto (?:espacio|sitio) (?:me )?(?:queda|hay|tengo)\b') {
+        $f -match '^cuanto (?:espacio|sitio) (?:me )?(?:queda|hay|tengo)\b' -or
+        $f -match '^(?:que|cuanto)\s+(?:espacio|sitio)\s+(?:libre\s+|disponible\s+)?(?:me\s+)?(?:queda|hay|tengo)(?:\s+(?:libre|disponible))?\b') {
         return @(@{ kind = 'disco'; desc = 'espacio libre' })
     }
     # --- DICTADO LARGO ---
@@ -2495,7 +2551,10 @@ function Resolve-Fragment([string]$f) {
     # documentacion recurria al truco de "recuerdame en 0 minutos que...".
     # "dime quien hizo outlast" es una PREGUNTA, no "di en voz alta 'quien hizo
     # outlast'" (probado el 14/09). "avisame si..." sigue siendo de reglas.
-    if ($f -match '^(?:(?:di|dime)\s+(?!(?:quien|quienes|cual|cuales|cuando|donde|como|cuanto|cuanta|cuantos|cuantas|por que|de que|a que)\b)|(?:avisa|avisame)\s+)(?:que\s+)?(.+)$') {
+    # 15/09: la anticipacion solo miraba la palabra siguiente, y "dime de los juegos
+    # cual tiene mas horas" se decia en voz alta tal cual. Ahora basta con que la
+    # pregunta aparezca en cualquier sitio de la frase.
+    if ($f -match '^(?:(?:di|dime)\s+(?!.*\b(?:quien|quienes|cual|cuales|cuando|donde|como|cuanto|cuanta|cuantos|cuantas|por que|de que|a que)\b)|(?:avisa|avisame)\s+)(?:que\s+)?(.+)$') {
         return @(@{ kind = 'decir'; desc = $Matches[1].Trim() })
     }
     # --- leer la pantalla (OCR de Windows) ---
@@ -2520,7 +2579,8 @@ function Resolve-Fragment([string]$f) {
             return @(@{ kind = 'winprt'; desc = 'captura de pantalla' })
         }
         # "graba un audio para mi madre" es una nota de voz, no un clip (14/09)
-        '^(?:graba|grabar)\b(?!\s+(?:un|una|me)\s+(?:audio|nota|mensaje))|^(?:clip|guarda el clip|graba los ultimos)\b' {
+        # "corta los ultimos 30 segundos de juego" (15/09) se fue al agente 41 s
+        '^(?:graba|grabar)\b(?!\s+(?:un|una|me)\s+(?:audio|nota|mensaje))|^(?:clip|guarda el clip|graba los ultimos)\b|^(?:corta|cortame|clipea|clipeame|guarda|guardame)\s+(?:los\s+)?ultimos\s+\d{1,3}\s+segundos(?:\s+de\s+(?:juego|la\s+partida|partida|video))?$' {
             return @(@{ kind = 'winaltg'; desc = 'grabar los ultimos segundos' })
         }
     }
@@ -2531,7 +2591,13 @@ function Resolve-Fragment([string]$f) {
         $obj = $Matches[1].Trim()
         if ($obj -match '^(?:esta ventana|la ventana|esto|esta|la app|la aplicacion|ventana)$') { return @(@{ kind = 'altf4'; desc = 'cerrar la ventana' }) }
         if ($obj -match '^(?:el juego|juego|este juego|el videojuego)$') { return @(@{ kind = 'cerrarJuego'; desc = 'cerrar el juego' }) }
-        if ($obj -match '^(?:todo|todas las ventanas|todas)$') { return @(@{ kind = 'winkey'; vk = 0x44; desc = 'mostrar el escritorio' }) }
+        # "CIERRA TODO" ES CERRAR (15/09, 5 veces en el uso real): mostraba el
+        # escritorio y braya seguia con "cierra Discord y Xbox" o "cierra todos".
+        # Cerrar pide confirmacion (ver el bloque 'cerrarTodo'), asi que equivocarse
+        # aqui no cierra nada a la primera. El escritorio sigue en "minimiza todo".
+        if ($obj -match '^(?:todo|todos|todas|todas las ventanas|todo lo que tengo abierto)$') {
+            return @(@{ kind = 'cerrarTodo'; excepto = ''; desc = 'cerrar los programas abiertos' })
+        }
         # cerrar de verdad, pero preguntando: ver el bloque 'cerrarTodo'
         # "procesos" y el "que estan abiertos" del final entraron el 12/09:
         # "cierra todos los procesos que estan abiertos" no encajaba, se fue al
@@ -2542,6 +2608,13 @@ function Resolve-Fragment([string]$f) {
         if ($obj -match '^(?:tod[oa]s? (?:los |las )?(?:programas|procesos|apps|aplicaciones)|los (?:programas|procesos)|las (?:apps|aplicaciones)|todo lo abierto|todo lo que (?:esta|este|tengo|hay) abierto|todo(?=\s+(?:menos|excepto|salvo|quitando|pero no)\s))(?:\s+(?:que\s+)?(?:estan|esten|tengo|hay)?\s*abiert[oa]s)?(?:\s+(?:menos|excepto|salvo|quitando|pero no)\s+(.+))?$') {
             $exceptoCT = if ($Matches[1]) { $Matches[1].Trim() } else { '' }
             return @(@{ kind = 'cerrarTodo'; excepto = $exceptoCT; desc = $(if ($exceptoCT) { "cerrar los programas abiertos menos $exceptoCT" } else { 'cerrar los programas abiertos' }) })
+        }
+        # "cierra google" / "cierra youtube": son paginas, y lo que se puede cerrar es
+        # el navegador. El 15/09 se dijo tres veces seguidas y acabo en la API, que
+        # lo tradujo al reves ("Abre Google").
+        if ($obj -match '^(?:google|youtube|gmail|el buscador|buscador|la pagina|pagina|la web|internet)$') {
+            $procNav = Resolve-Proceso 'navegador'
+            if ($procNav) { return @(@{ kind = 'cerrarApp'; proceso = $procNav.proceso; desc = "cerrar $($procNav.nombre)" }) }
         }
         $proc = Resolve-Proceso $obj
         if ($proc) { return @(@{ kind = 'cerrarApp'; proceso = $proc.proceso; desc = "cerrar $($proc.nombre)" }) }
@@ -2620,8 +2693,12 @@ function Resolve-Fragment([string]$f) {
         if ($rutaC) { return @(@{ kind = 'url'; url = $rutaC; carpeta = $true; desc = "abrir la carpeta $nomC" }) }
         return @(@{ kind = 'decir'; desc = "No encuentro ninguna carpeta que se llame $nomC" })
     }
-    # escribir en la app activa: "escribe hola que tal"
-    if ($f -match '^(?:escribe|escribeme|teclea|dicta|pon el texto)\s+(.+)$') {
+    # el teclado en pantalla de Windows ("abre el teclado", 15/09)
+    if ($f -match '^(?:abre|abreme|abrir|muestra|muestrame|saca|sacame|pon|ponme)\s+(?:el\s+)?teclado(?:\s+(?:en\s+pantalla|virtual|de\s+pantalla))?$') {
+        return @(@{ kind = 'app'; target = 'osk.exe'; desc = 'abrir el teclado en pantalla' })
+    }
+    # escribir en la app activa: "escribe hola que tal" ("escribir hola", 15/09)
+    if ($f -match '^(?:escribe|escribeme|escribir|teclea|teclear|dicta|pon el texto)\s+(.+)$') {
         return @(@{ kind = 'escribir'; texto = $Matches[1].Trim(); desc = "escribir '$($Matches[1].Trim())'" })
     }
     # teclas: "pulsa enter", "dale a escape", "presiona espacio"
@@ -5085,7 +5162,7 @@ function Test-FastCommand([string]$text) {
     # ojo: los mismos lookaheads que el ejecutor. Con el patron corto, este
     # atajo devolvia $true y se saltaba Resolve-Fragment, de modo que el
     # banco no podia ver que "guarda el archivo" acababa en el diario.
-    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!(?:en|dentro de)\s+(?:\d+|un|una|uno|medi[ao]|(?:un\s+)?cuarto\s+de|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis\S+|veinte|veinti\S+|treinta|cuarenta|cincuenta|sesenta|noventa)(?:\s+y\s+\S+)?\s+(?:segundos?|minutos?|horas?)\b)(?!(?:\d+|un|una|medi[ao]|(?:un\s+)?cuarto\s+de|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis\S+|veinte|veinti\S+|treinta|cuarenta|cincuenta|sesenta|noventa)(?:\s+y\s+\S+)?\s+(?:minutos?|horas?)(?:\s+y\s+media)?\s+antes\b)(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?:que\s+|de\s+que\s+)?(.+)$') { return $true }
+    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!(?:en|dentro de)\s+(?:\d+|un|una|uno|medi[ao]|(?:un\s+)?cuarto\s+de|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis\S+|veinte|veinti\S+|treinta|cuarenta|cincuenta|sesenta|noventa)(?:\s+y\s+\S+)?\s+(?:segundos?|minutos?|horas?)\b)(?!(?:\d+|un|una|medi[ao]|(?:un\s+)?cuarto\s+de|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis\S+|veinte|veinti\S+|treinta|cuarenta|cincuenta|sesenta|noventa)(?:\s+y\s+\S+)?\s+(?:minutos?|horas?)(?:\s+y\s+media)?\s+antes\b)(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?!(?:cual|cuales|que es|que fue|si|donde|cuando|quien|como|cuanto)\b)(?:que\s+|de\s+que\s+)?(.+)$' -and $text -notmatch '\?\s*$') { return $true }
     # Reglas y recordatorios con hora: los decide Invoke-ReglaVoz, que SI crea
     # cosas, asi que aqui no se puede llamar. Se responde $true solo si la
     # frase tiene la forma de una regla; el banco las prueba aparte llamando
@@ -5298,7 +5375,7 @@ function Invoke-FastCommand([string]$text) {
     # tildes, que es justo lo que no quieres leer meses despues en Obsidian.
     # mismo lookahead que en Resolve-Fragment: "en 20 minutos" es temporizador,
     # no una nota para el diario
-    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!(?:en|dentro de)\s+(?:\d+|un|una|uno|medi[ao]|(?:un\s+)?cuarto\s+de|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis\S+|veinte|veinti\S+|treinta|cuarenta|cincuenta|sesenta|noventa)(?:\s+y\s+\S+)?\s+(?:segundos?|minutos?|horas?)\b)(?!(?:\d+|un|una|medi[ao]|(?:un\s+)?cuarto\s+de|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis\S+|veinte|veinti\S+|treinta|cuarenta|cincuenta|sesenta|noventa)(?:\s+y\s+\S+)?\s+(?:minutos?|horas?)(?:\s+y\s+media)?\s+antes\b)(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?:que\s+|de\s+que\s+)?(.+)$') {
+    if ($text -match '(?i)^\s*(?:recu[eé]rdame|recuerda|acu[eé]rdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!(?:en|dentro de)\s+(?:\d+|un|una|uno|medi[ao]|(?:un\s+)?cuarto\s+de|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis\S+|veinte|veinti\S+|treinta|cuarenta|cincuenta|sesenta|noventa)(?:\s+y\s+\S+)?\s+(?:segundos?|minutos?|horas?)\b)(?!(?:\d+|un|una|medi[ao]|(?:un\s+)?cuarto\s+de|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis\S+|veinte|veinti\S+|treinta|cuarenta|cincuenta|sesenta|noventa)(?:\s+y\s+\S+)?\s+(?:minutos?|horas?)(?:\s+y\s+media)?\s+antes\b)(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?!(?:hoy|ma[nñ]ana|pasado\s+ma[nñ]ana|el\s+(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)|el\s+\d{1,2}\s+de\s|a\s+las?\s)\b)(?!(?:cual|cuales|que es|que fue|si|donde|cuando|quien|como|cuanto)\b)(?:que\s+|de\s+que\s+)?(.+)$' -and $text -notmatch '\?\s*$') {
         $frase = $Matches[1].Trim()
         if ($frase.Length -gt 0) {
             $null = Add-Memoria $frase
@@ -9642,7 +9719,9 @@ function Complete-OpencodeJob {
 
 # Si la frase pregunta por algo recordado, se le dice a opencode donde mirar y
 # que responda para ser ESCUCHADA (breve, sin listas ni codigo).
-$RE_MEMORIA = '\b(?:que sabes (?:de|del|sobre|acerca)|que te dije|que dije|que te conte|recuerdas|te acuerdas|en tus notas|en mis notas|que anote|que apunte|mi memoria|mis notas|que guardaste|que tengo anotado)\b'
+# "lo que dije fue que abrieras el juego" es una CORRECCION, no una consulta a la
+# memoria (15/09): con "que dije" a secas se iba a leer las notas.
+$RE_MEMORIA = '\b(?:que sabes (?:de|del|sobre|acerca)|que te dije(?!\s+fue)|que dije(?!\s+fue)|que te conte|recuerdas|te acuerdas|en tus notas|en mis notas|que anote|que apunte|mi memoria|mis notas|que guardaste|que tengo anotado|que tienes anotado)\b'
 
 function Expand-Prompt([string]$texto) {
     if ((ConvertTo-Plain $texto) -match $RE_MEMORIA) {
