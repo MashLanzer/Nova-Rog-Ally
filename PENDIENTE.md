@@ -1237,5 +1237,16 @@ Bloque 3 (aprender de todo), fase 1 empezada el 16/09:
 - [x] Una receta `info` se ejecuta sin preguntar (solo lee, no cambia nada).
 - [ ] Confirmación diferida a los 60 s (queda para la fase 2).
 
-Bloque 4 (elegido por braya el 15/09), aprender de todo (fase 1 de
+Bloque 4 (tareas sin Claude Code), empezado el 16/09:
+
+- [x] EL PLAN. Cuando la API dice TAREA, antes de llamar al agente (35-90 s) se le
+      pide que descomponga la petición en órdenes del vocabulario local, una por
+      línea. Se comprueban TODAS con `Test-FastCommand` antes de hacer ninguna; si
+      una sola no encaja, no se hace nada y la tarea va al agente como siempre. La
+      API no ejecuta nada: solo propone frases de una lista cerrada.
+      Si falla a mitad, se dice lo que sí se hizo y el resto va al agente.
+- [ ] Medir en uso real cuántas tareas resuelve el plan y cuántas siguen yendo al
+      agente (el 15/09: 20 llamadas, 11,6 min, el 23 % de toda la espera).
+- [ ] Pendiente de la fase 2 de `aprender.md`: correo, aprender de «no, dije X»,
+      traducciones por uso y el vídeo número N.
 `scratchpad\analisis\aprender.md`) y tareas sin Claude Code.

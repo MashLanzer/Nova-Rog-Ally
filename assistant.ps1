@@ -5282,6 +5282,7 @@ function Get-Configuracion {
 function Get-PlazoJob {
     switch ([string]$script:jobModo) {
         'traducir' { return 25000 }
+        'plan' { return 25000 }
         'pregunta' { return 90000 }
         'charla' { return 90000 }
         default { return $CliTimeoutMs }
@@ -9943,6 +9944,38 @@ $RE_PREGUNTA = '^(?:que|cual|cuanto|cuantos|cuando|donde|quien|como|por que|para
 
 # Construye la peticion de traduccion. Se le da el vocabulario REAL para que no
 # invente, y se le exige responder solo con la orden, sin explicaciones.
+# EL PLAN (16/09, ver TAREAS SIN EL AGENTE). Mismo vocabulario que la traduccion, pero
+# pidiendo VARIAS ordenes en vez de una. Se le deja decir que no se puede: mas vale
+# esperar al agente que hacer tres cosas que nadie pidio.
+function Build-PromptPlan([string]$text) {
+    return ((Build-PromptTraduccion $text) + @"
+
+ESTO ES UNA TAREA DE VARIOS PASOS. Descomponla en las ordenes de arriba, UNA POR LINEA,
+como maximo 5, en el orden en que hay que hacerlas. No escribas numeros, guiones ni
+explicaciones: solo las ordenes, tal cual aparecen en la lista, con los datos rellenados.
+Si la tarea necesita algo que NO esta en la lista (mirar la pantalla, elegir un resultado,
+descargar, instalar, mover archivos, escribir un correo...), responde una sola linea:
+NO SE PUEDE
+"@)
+}
+
+# De lo que devuelve la API a una lista de ordenes, comprobando TODAS antes de hacer
+# ninguna. Devuelve @() si el plan no sirve: entonces la tarea va al agente.
+# El booleano de cada orden lo pone quien llama (Test-FastCommand), para poder probar
+# esta funcion sin arrastrar medio archivo.
+function Split-Plan([string]$texto) {
+    if (-not $texto) { return @() }
+    $lineas = @(($texto -split '[\r\n]+') | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ })
+    # se le cuelan numeros, guiones y comillas de vez en cuando
+    $lineas = @($lineas | ForEach-Object { (($_ -replace '^\s*(?:\d+[\.\)]|[-*•])\s*', '').Trim().Trim('"').Trim("'")).Trim() } | Where-Object { $_ })
+    if ($lineas.Count -eq 0) { return @() }
+    if (@($lineas | Where-Object { $_.ToUpperInvariant() -match '^NO SE PUEDE' }).Count -gt 0) { return @() }
+    # lo que lleve un hueco sin rellenar no se puede hacer
+    if (@($lineas | Where-Object { $_ -match '<[^>]*>' }).Count -gt 0) { return @() }
+    if ($lineas.Count -gt 5) { return @() }
+    return $lineas
+}
+
 function Build-PromptTraduccion([string]$text) {
     $apps = (@($cmds.apps.PSObject.Properties.Name) | Select-Object -First 24) -join ', '
     $sitios = (@($cmds.sitios.PSObject.Properties.Name) | Select-Object -First 14) -join ', '
@@ -10450,12 +10483,14 @@ function Submit-Command([string]$text, [string]$modo = 'accion', [string]$adjunt
     # sin puntos suspensivos: la capsula ya pone tres puntos que laten
     # y en violeta, no en ambar: esto lo lleva la IA (ver Set-UI, "remoto")
     $script:uiRemoto = $true
-    Set-UI 'pensando' $(if ($modo -eq 'accion') { 'Procesando' } elseif ($modo -eq 'traducir') { 'Entendiendo' } else { 'Pensando' })
+    Set-UI 'pensando' $(if ($modo -eq 'accion') { 'Procesando' } elseif ($modo -eq 'traducir') { 'Entendiendo' } elseif ($modo -eq 'plan') { 'Viendo como hacerlo' } else { 'Pensando' })
     Add-Estadistica $modo $text
 
     $prompt = Expand-Prompt $text     # si pregunta por la memoria, ya viene guiado
     if ($modo -eq 'traducir') {
         $prompt = Build-PromptTraduccion $text
+    } elseif ($modo -eq 'plan') {
+        $prompt = Build-PromptPlan $text
     } elseif ($modo -ne 'accion' -and $prompt -eq $text) {
         $prompt = $PRE_HABLADO + $text
     } elseif ($modo -eq 'accion') {
@@ -10486,8 +10521,8 @@ function Submit-Command([string]$text, [string]$modo = 'accion', [string]$adjunt
     $porApi = ($ClaudeOn -and $modo -ne 'accion' -and (Test-Path -LiteralPath $ClaudeScript) -and (Test-ClaveClaude))
     if ($porApi -and -not $script:apiFallo) {
         # traducir devuelve una linea; hablar, una o dos frases
-        $modelo = if ($modo -eq 'traducir') { $ClaudeModeloRapido } else { $ClaudeModeloBueno }
-        $tope = if ($modo -eq 'traducir') { 60 } else { 400 }
+        $modelo = if ($modo -eq 'traducir' -or $modo -eq 'plan') { $ClaudeModeloRapido } else { $ClaudeModeloBueno }
+        $tope = if ($modo -eq 'traducir') { 60 } elseif ($modo -eq 'plan') { 150 } else { 400 }
         # se guarda por si hay que rehacerla con Claude Code u opencode
         $script:jobPrompt = $prompt
         $script:jobExtra = $extra
@@ -10580,6 +10615,48 @@ function Report-Reply($out) {
     # El modelo solo propone texto; aqui se VALIDA contra el vocabulario cerrado
     # y solo se ejecuta si la capa local lo reconoce. Nunca se ejecuta texto
     # libre devuelto por el modelo.
+    # EL PLAN (ver TAREAS SIN EL AGENTE): varias ordenes locales en vez de una tarea del
+    # agente. Se comprueban TODAS antes de hacer ninguna; si una sola no vale, no se hace
+    # nada y la peticion sigue su camino de siempre.
+    if ($script:jobModo -eq 'plan') {
+        $script:jobModo = ''
+        $originalP = $script:jobTextoOriginal
+        $ordenesP = @(Split-Plan (($out | Out-String)))
+        $malaP = ''
+        foreach ($oP in $ordenesP) {
+            $okP = $false
+            try { $okP = [bool](Test-FastCommand $oP) } catch { $okP = $false }
+            if (-not $okP) { $malaP = $oP; break }
+        }
+        if ($ordenesP.Count -gt 0 -and -not $malaP) {
+            Log ("PLAN: '$originalP' -> " + ($ordenesP -join ' | '))
+            Add-Estadistica 'plan-sirvio' ("$originalP -> " + ($ordenesP -join ' | '))
+            $hechasP = @()
+            foreach ($oP in $ordenesP) {
+                $rP = $null
+                try { $rP = Invoke-FastCommand $oP } catch { $rP = $null }
+                if (-not $rP) {
+                    # a mitad: se dice lo que si se hizo y el resto va al agente
+                    Log "PLAN: '$oP' no se pudo hacer; el resto va al agente"
+                    Add-Estadistica 'plan-a-medias' $oP
+                    if ($hechasP.Count -gt 0) { Say (($hechasP -join ', ') + '. Lo demas lo miro.') }
+                    Submit-Command $originalP 'accion'
+                    return
+                }
+                $hechasP += $rP
+            }
+            $script:ultimaOrden = @{ texto = $originalP; desc = ($hechasP -join ', '); cuando = $sw.ElapsedMilliseconds }
+            $script:ultimaRespuesta = ($hechasP -join ', ')
+            Send-UIEvento 'hecho'
+            Show-Popup $script:ultimaRespuesta
+            Say $script:ultimaRespuesta
+            return
+        }
+        Log "PLAN: no sale con ordenes que yo sepa hacer$(if ($malaP) { " ('$malaP')" }); va al agente"
+        Add-Estadistica 'plan-no' $originalP
+        Submit-Command $originalP 'accion'
+        return
+    }
     if ($script:jobModo -eq 'traducir') {
         $script:jobModo = ''
         # VARIAS ORDENES (15/09): una por linea, y se juntan con " y ", que la capa local
@@ -10619,6 +10696,13 @@ function Report-Reply($out) {
         # Peticion de verdad, pero fuera del vocabulario local: para eso esta
         # el agente. Esta es la UNICA puerta que le queda abierta a la voz.
         if ($veredicto -eq 'TAREA') {
+            # ANTES DEL AGENTE, EL PLAN (16/09): muchas "tareas" son dos o tres ordenes
+            # que Nova ya sabe hacer dichas de una vez, y el agente cuesta 35-90 s.
+            if ($ClaudeOn -and (Test-Path -LiteralPath $ClaudeScript) -and (Test-ClaveClaude) -and -not $script:apiFallo) {
+                Log "peticion fuera del vocabulario local: pruebo a hacerla con ordenes mias"
+                Submit-Command $original 'plan'
+                return
+            }
             Log "peticion fuera del vocabulario local: va al agente completo"
             Submit-Command $original 'accion'
             return
