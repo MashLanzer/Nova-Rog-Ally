@@ -2374,7 +2374,8 @@ function Resolve-Fragment([string]$f) {
         } catch { $itemsD = @() }
         if ($itemsD.Count -eq 0) { return @(@{ kind = 'decir'; desc = 'No hay nada en tu escritorio' }) }
         $nomsD = @($itemsD | ForEach-Object { $_.Name -replace '\.(?:lnk|url)$', '' } | Select-Object -First 12)
-        $textoD = "En el escritorio tienes $($itemsD.Count): " + ($nomsD -join ', ')
+        # dicho en voz alta, "tienes 3:" suena a medias (probado en vivo el 16/09)
+        $textoD = "En el escritorio tienes $($itemsD.Count) $(if ($itemsD.Count -eq 1) { 'cosa' } else { 'cosas' }): " + ($nomsD -join ', ')
         if ($itemsD.Count -gt $nomsD.Count) { $textoD += " y $($itemsD.Count - $nomsD.Count) mas" }
         return @(@{ kind = 'decir'; desc = $textoD })
     }
