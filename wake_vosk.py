@@ -1174,19 +1174,28 @@ ganancia = GANANCIA_INICIAL if automatica else float(GANANCIA_ARG)
 if automatica:
     _g = ganancia_guardada()
     if _g is not None:
-        # Una ganancia asi de baja no se calibro con tu voz: en esta maquina la
-        # voz entra a 0.02-0.05 y hace falta amplificar entre x8 y x26. Un valor
-        # por debajo de x1.5 sale de haber calibrado con los altavoces sonando,
-        # y arrastrarlo entre sesiones es empezar el dia sordo.
-        if _g < 1.5:
-            anota("ganancia recordada x%.1f descartada (demasiado baja: se calibro con ruido); se empieza en x%.1f"
-                  % (_g, GANANCIA_INICIAL))
-            # y se sobrescribe: si no, se descartaba lo mismo en CADA arranque y los
-            # primeros 15 s recortaban el audio (auditoria del 13/09)
-            escribir(RUTA_GANANCIA, "%.1f" % GANANCIA_INICIAL)
-        else:
-            ganancia = _g
-            anota("ganancia recordada de la sesion anterior: x%.1f" % ganancia)
+        # SE CONFIA EN LA CALIBRACION GUARDADA (16/09). Aqui habia una regla que
+        # descartaba cualquier ganancia por debajo de x1.5 y empezaba en x8, porque
+        # "la voz entra a 0.02-0.05 y hace falta amplificar entre x8 y x26". Eso era
+        # verdad con el microfono de entonces; con el de ahora la voz entra a p90
+        # 0.47-0.99 con x0.7, muy por encima de PICO_OBJETIVO (0.35).
+        #
+        # El efecto era el peor posible, y esta medido: la calibracion buena se tiro 38
+        # veces (dos el 16/09: x1.1 y x0.8 sustituidas por x8.0). Arrancando a x8, el
+        # ruido de fondo se amplificaba hasta activar a Nova SOLA -6 de las 13
+        # activaciones de ese dia con pico 0.000- y, como bajar es lento a proposito
+        # (factor 0.2), el descenso duraba minutos: por eso las falsas caian a x3.6,
+        # x2.9, x2.7 y x2.1. Mientras tanto la voz de verdad saturaba y no se reconocia.
+        # Un unico fallo causaba las dos quejas: "se activa sola" y "cuando le digo nova
+        # no me hace caso nunca".
+        #
+        # Arrancar desde lo guardado es seguro: el pulso recalcula la ganancia DESDE
+        # CERO (PICO_OBJETIVO / pico crudo) en cuanto hay voz sostenida, y para SUBIR es
+        # rapido (factor 0.6). Si el valor guardado fuera malo se corrige solo en
+        # segundos; el descarte, en cambio, estropeaba TODOS los arranques. El rango ya
+        # lo valida ganancia_guardada(), que solo acepta entre GANANCIA_MIN y _MAX.
+        ganancia = _g
+        anota("ganancia recordada de la sesion anterior: x%.1f" % ganancia)
 # NOTA: aqui hubo una 'ganancia_limpia' como red de seguridad, para recuperar
 # la ultima calibracion hecha en silencio. Era codigo muerto: los dos unicos
 # caminos que bajan la ganancia (el pulso y el detector de recorte) ya
