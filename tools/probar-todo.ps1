@@ -174,7 +174,7 @@ Titulo "5. Tu voz de verdad (si ya grabaste las ordenes)"
 # matar el banco a medias (14/09): mejor saltarla avisando, que no es un fallo.
 $libreMB = [int]((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024)
 if ($libreMB -lt 1500) {
-    Write-Host "   SALTADA: solo $libreMB MB libres (hacen falta 1500). Cierra algo y repitela sola: python tools/probar-audio.py" -ForegroundColor Yellow
+    Write-Host "   SALTADA: solo $libreMB MB de MEMORIA libres (hacen falta 1500; no es el disco). Cierra algo y repitela sola: python tools/probar-audio.py" -ForegroundColor Yellow
 } else {
     python (Join-Path $PSScriptRoot 'probar-audio.py')
     if ($LASTEXITCODE -ne 0) { $fallos++ }

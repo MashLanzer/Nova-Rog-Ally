@@ -14,7 +14,7 @@ import sys
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 fuente = open(os.path.join(RAIZ, "wake_vosk.py"), encoding="utf-8").read()
 arbol = ast.parse(fuente)
-QUIERO = {"SILENCIO_FIN", "SILENCIO_FIN_LOTENGO", "silencio_para_cerrar", "MARGEN_CORTE_HZ", "es_voz_de_braya", "PROMPT_ORDENES", "es_eco_del_ejemplo"}
+QUIERO = {"SILENCIO_FIN", "SILENCIO_FIN_LOTENGO", "silencio_para_cerrar", "MARGEN_CORTE_HZ", "es_voz_de_braya", "PROMPT_ORDENES", "es_eco_del_ejemplo", "PICO_OBJETIVO", "GANANCIA_MIN", "GANANCIA_MAX"}
 trozos = []
 for n in arbol.body:
     nombre = n.targets[0].id if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name) else getattr(n, "name", None)
@@ -62,6 +62,22 @@ comp("una orden que NO esta en el ejemplo no lo es", not eco("Sube el volumen al
 import re as _re
 comp("la frase de ejemplo no lleva numeros", not _re.search(r"[0-9]|\b(?:treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa|cien|veinte|diez)\b", ns["PROMPT_ORDENES"].lower()))
 comp("nada dicho no es eco", not eco("") and not eco("Nova"))
+
+# LA CALIBRACION GUARDADA NO SE TIRA (16/09). Habia una regla que descartaba cualquier
+# ganancia guardada por debajo de x1.5 y arrancaba en x8. Como la ganancia buena de braya
+# es 0.7, se cumplia SIEMPRE: se tiro 38 veces, dos el mismo 16/09. Arrancando a x8 el
+# ruido de fondo bastaba para activar a Nova sola (6 de las 13 activaciones de ese dia
+# con pico 0.000) y su voz de verdad saturaba, asi que no le oia. Sus dos quejas -"se
+# activa sola" y "cuando le digo nova no se activa nunca"- eran el MISMO fallo.
+comp("no se descarta la calibracion guardada por ser baja", "descartada (demasiado baja" not in fuente)
+comp("ni queda una regla que la compare con un minimo", not _re.search(r"if\s+_g\s*<", fuente))
+# el porque, con sus numeros: su voz entra a p90 0.47-0.99, asi que la ganancia que el
+# pulso calcula (PICO_OBJETIVO / pico crudo) le sale BAJA. Cualquier suelo por encima
+# volveria a tirarsela.
+_suya = [round(ns["PICO_OBJETIVO"] / p, 2) for p in (0.47, 0.75, 0.99)]
+comp("la ganancia correcta de braya es menor que x1", all(g < 1.0 for g in _suya), str(_suya))
+comp("o sea que la regla vieja se la habria tirado siempre", all(g < 1.5 for g in _suya), str(_suya))
+comp("y el sistema puede atenuar por debajo de x1", ns["GANANCIA_MIN"] < 1.0)
 
 print("")
 print("todo correcto" if fallos == 0 else "%d casos MAL" % fallos)
