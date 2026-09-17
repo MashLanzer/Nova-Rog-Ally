@@ -113,6 +113,26 @@ Seis casos nuevos en `probar-escucha.py`, incluido uno que reproduce el atasco.
 | 7 | El atajo de pronombres convierte «ponla siempre encima» en «pon spotify siempre encima» y acaba **abriendo Spotify** | MEDIO | `assistant.ps1:2190` |
 | 8 | `Test-FastCommand` (que valida todo y corre sobre los parciales **mientras hablas**) lee el escritorio, escanea siete carpetas y toca el estado de la cápsula | MEDIO | — |
 | 9 | `Find-Traduccion` devuelve la **primera** clave dentro del tope, no la más cercana: el resultado depende del orden del hashtable (fallo que no se reproduce) | MEDIO | `assistant.ps1:6105` |
+**HECHO (17/09) — 3.3 #2, la sordera de hasta 90 s.** Era peor de lo que decía el
+informe: `Say` fija la pausa por cuenta de letras ANTES de saber si habrá sonido, y había
+**tres** salidas que se iban sin tocarla (Piper, «no hay voz» y el `catch` final). Ahora,
+si no suena nada, se reanuda la escucha y la cápsula vuelve a reposo; y `Say-Piper` ajusta
+el plazo con la **duración real** del `.wav`, como ya hacía la voz en línea.
+- **NO se bajó el techo de 90 s**, que era la mejora nº 1 propuesta: si una frase larga
+  tarda más que el techo nuevo, la escucha se reanudaría **mientras Nova habla** y se
+  oiría a sí misma, que es justo lo que ese plazo existe para evitar. Se ataca el caso
+  real (no ha sonado nada) en vez del síntoma.
+- La tasa del `.wav` **se lee de su cabecera**, no de una constante. Primero puse 44100
+  B/s a mano; el modelo actual declara justo eso, pero una constante copiada se desajusta
+  en silencio el día que se cambie de voz. De paso: al verificarlo medí `ultima-orden.wav`
+  (16.000 Hz) creyendo que era de Piper — es del **micrófono**. Verificar contra la fuente
+  equivocada casi me hace «corregir» un número que estaba bien.
+
+**PENDIENTE — 3.3 #1, la `ReadLineAsync` huérfana.** Sigue sin tocar. Es el otro GRAVE de
+la voz: un plazo vencido deja la lectura viva sobre la tubería y la frase siguiente puede
+recibir la ruta de la anterior, o reventar y dejar la voz en línea por muerta el resto de
+la sesión.
+
 ### 3.3 La cápsula y los workers — HECHA (11 hallazgos)
 
 Lo más grave no está en el dibujado, sino en **el camino de la voz**.

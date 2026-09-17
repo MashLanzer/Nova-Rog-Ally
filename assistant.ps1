@@ -8037,6 +8037,41 @@ function Say-Piper([string]$texto) {
         $script:vozPlayer.SoundLocation = $w.FullName
         $script:vozPlayer.Load()
         $script:vozPlayer.Play()
+        # LA PAUSA REAL, TAMBIEN CON PIPER (17/09). Say puso el plazo contando letras
+        # (70 ms cada una, hasta 90 s) y solo Say-Online lo corregia: por aqui la escucha
+        # se quedaba sorda de mas en CADA frase. El .wav ya esta entero y se conoce su
+        # tamano, asi que la duracion sale del archivo y no de una estimacion: Piper
+        # escribe PCM de 16 bits a 22.050 Hz en mono, con 44 bytes de cabecera.
+        try {
+            if ($tam -gt 44) {
+                # LA TASA SE LEE DEL PROPIO .WAV, no se da por sabida. Aqui puse primero
+                # 44100 B/s a mano (22.050 Hz, 16 bits, mono), que es justo lo que declara
+                # es_MX-claude-high.onnx.json... hoy. El dia que se cambie de voz o de
+                # calidad, una constante copiada desajusta el plazo en silencio: corto,
+                # Nova se oye a si misma; largo, se queda sorda de mas. La cabecera del
+                # archivo que Piper acaba de escribir siempre dice la verdad (bytes por
+                # segundo en el byte 28), y si no se pudiera leer, se usa 44100.
+                $bytesSegP = 44100
+                try {
+                    $cabP = New-Object byte[] 44
+                    $fsP = [System.IO.File]::OpenRead($w.FullName)
+                    [void]$fsP.Read($cabP, 0, 44)
+                    $fsP.Close()
+                    $leidoP = [BitConverter]::ToUInt32($cabP, 28)
+                    if ($leidoP -gt 8000 -and $leidoP -lt 400000) { $bytesSegP = $leidoP }
+                } catch {}
+                $segundosP = ($tam - 44) / [double]$bytesSegP
+                $finP = $sw.ElapsedMilliseconds + [int]($segundosP * 1000) + 250
+                # solo si nadie ha tocado la pausa desde que Say la puso, igual que arriba
+                if ($script:pausaEstimadaVoz -gt 0 -and $script:pausaHasta -eq $script:pausaEstimadaVoz -and $script:sordinaHasta -le $sw.ElapsedMilliseconds) {
+                    $script:pausaHasta = $finP
+                } else {
+                    $script:pausaHasta = [Math]::Max($script:pausaHasta, $finP)
+                }
+                $script:pausaEstimadaVoz = -1
+                $script:uiHasta = [Math]::Max($script:uiHasta, $finP)
+            }
+        } catch {}
         # dejar solo los ultimos wav para no llenar el disco
         Get-ChildItem -LiteralPath $PiperSalida -Filter *.wav | Sort-Object LastWriteTime -Descending |
             Select-Object -Skip 3 | Remove-Item -Force -ErrorAction SilentlyContinue
@@ -8214,7 +8249,24 @@ function Say([string]$texto, [string]$emo = '') {
     # cadena de respaldo: si la red falla, sigue habiendo voz
     if ($script:ttsProc) { if (Say-Online $t $emo) { return } }
     if ($script:piperProc) { if (Say-Piper $t) { return } }
-    if (-not $script:vozSyn) { return }
+    # MUDA Y SORDA HASTA 90 SEGUNDOS (17/09). La pausa se fija ARRIBA, por cuenta de
+    # letras y antes de saber si va a sonar algo: con el tope de 1.200 letras de
+    # Get-TextoVoz son 85 s. Solo Say-Online la corrige. Si no hay voz ninguna se salia
+    # por aqui dejando el plazo entero: el worker ignorando el microfono, la capsula en
+    # 'hablando' moviendo la boca en silencio (Tic33 simula silabas si no hay envolvente)
+    # y "callate" sin servir, porque tambien pasa por el microfono pausado. Un modo
+    # pegado de los peores.
+    #
+    # Se reanuda SIN -Forzar a proposito: si braya dijo "no me escuches media hora", eso
+    # manda y Reanudar-Escucha lo respeta. Aqui solo se deshace lo que puso esta frase.
+    if (-not $script:vozSyn) {
+        Log "voz: no hay ninguna voz disponible; no me quedo sorda esperando a un audio que no va a sonar"
+        $script:pausaEstimadaVoz = -1
+        Reanudar-Escucha
+        $script:uiHasta = 0
+        Set-UI 'reposo'
+        return
+    }
     try {
         $st = Await-Voz ($script:vozSyn.SynthesizeTextToStreamAsync($t)) ([Windows.Media.SpeechSynthesis.SpeechSynthesisStream])
         if (-not $st) { return }
