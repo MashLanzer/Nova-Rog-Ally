@@ -42,6 +42,12 @@ Invoke-Expression (Traer 'Test-PuedoAvisar')
 $AvisoJuntarMs = 4000
 $script:avisoCola = New-Object System.Collections.ArrayList
 $script:avisoColaDesde = 0
+$script:habitosFalsos = @{ charlaHoras = @{} }
+function Get-Habitos { return $script:habitosFalsos }
+$script:statsFalsas = @{ dias = @{} }
+function Get-Estadisticas { return $script:statsFalsas }
+Invoke-Expression (Traer 'Get-AvisoHoraDormir')
+Invoke-Expression (Traer 'Get-AvisoFallos')
 Invoke-Expression (Traer 'Send-AvisoCola')
 Invoke-Expression (Traer 'Send-AvisoEntorno')
 Invoke-Expression (Traer 'Set-AvisosEntorno')
@@ -154,6 +160,41 @@ Reset
 [void](Send-AvisoEntorno 'descarga-z' 'Ya termino de descargarse.' 'medio' 180)
 [void](Send-AvisoEntorno 'bateria' 'Te queda el 5 por ciento.' 'alto')
 Comp 'se dice al momento y va primero' ($script:dicho.Count -eq 1 -and $script:dicho[0] -like 'Te queda el 5*') "$($script:dicho -join ' / ')"
+
+Write-Host "  -- de noche, y el aviso que se callaba a si mismo --"
+# EL FALLO QUE HABRIA PASADO DESAPERCIBIDO: el freno calla de noche todo lo que no sea
+# 'alto'... asi que un "vete a dormir" a las 2 de la madrugada no habria salido NUNCA.
+Reset
+$hAhora = (Get-Date).Hour
+$EntornoNocheDesde = $hAhora
+$EntornoNocheHasta = ($hAhora + 1) % 24
+Comp 'de noche, un aviso normal se calla' (-not (Send-AvisoEntorno 'dock' 'Pantalla conectada.')) ''
+Comp 'pero el de la hora de dormir SI sale' (Send-AvisoEntorno 'hora-dormir' 'Son las 2:30.' 'noche') ''
+Reset
+$script:juegoActivo = 'It Takes Two'
+Comp 'y aun asi no interrumpe la partida' (-not (Send-AvisoEntorno 'hora-dormir' 'Son las 2:30.' 'noche')) ''
+$EntornoNocheDesde = 23
+$EntornoNocheHasta = 8
+
+Write-Host "  -- la hora de dormir es LA TUYA, no las 23:00 de nadie --"
+Reset
+$noche = (Get-Date).Date.AddHours(2)
+$script:habitosFalsos.charlaHoras = @{}
+Comp 'a las 2 y nunca sueles estarlo: avisa' ((Get-AvisoHoraDormir $noche) -ne '') "$(Get-AvisoHoraDormir $noche)"
+foreach ($d in 1..4) { $script:habitosFalsos.charlaHoras[$noche.AddDays(-$d).ToString('yyyy-MM-dd|HH')] = 1 }
+Comp 'si SUELES estar despierto a esa hora, callado' ((Get-AvisoHoraDormir $noche) -eq '') ''
+Comp 'y a las 4 de la tarde jamas' ((Get-AvisoHoraDormir ((Get-Date).Date.AddHours(16))) -eq '') ''
+
+Write-Host "  -- cuando me equivoco mas de lo normal --"
+$hoyF = (Get-Date).ToString('yyyy-MM-dd')
+$script:statsFalsas.dias = @{}
+$script:statsFalsas.dias[$hoyF] = @{ error = 12 }
+foreach ($d in 1..4) { $script:statsFalsas.dias[(Get-Date).AddDays(-$d).ToString('yyyy-MM-dd')] = @{ error = 2 } }
+Comp '12 fallos con una media de 2: lo dice' ((Get-AvisoFallos) -ne '') "$(Get-AvisoFallos)"
+$script:statsFalsas.dias[$hoyF] = @{ error = 3 }
+Comp 'tres fallos sueltos: ni una palabra' ((Get-AvisoFallos) -eq '') ''
+$script:statsFalsas.dias = @{ $hoyF = @{ error = 12 } }
+Comp 'sin semana con que comparar, callado' ((Get-AvisoFallos) -eq '') ''
 
 Write-Host "  -- con un invitado delante, nada --"
 Reset

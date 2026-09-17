@@ -5214,7 +5214,10 @@ function Test-PuedoAvisar([string]$clave, [string]$nivel = 'medio', [int]$cadaMi
         $hE = (Get-Date).Hour
         $esNocheE = if ($EntornoNocheDesde -gt $EntornoNocheHasta) { ($hE -ge $EntornoNocheDesde -or $hE -lt $EntornoNocheHasta) }
                     else { ($hE -ge $EntornoNocheDesde -and $hE -lt $EntornoNocheHasta) }
-        if ($esNocheE) { return $false }
+        # 'noche' es el aviso que SOLO tiene sentido de noche (la hora de dormir):
+        # se salta el silencio nocturno y nada mas. Jugando sigue callado, y cuenta
+        # para el tope por hora como cualquier otro.
+        if ($esNocheE -and $nivel -ne 'noche') { return $false }
         # y nunca mientras esta hablando, dictando o esperando un si
         if ($script:busy -or $script:pendiente -or $script:dictandoLargo) { return $false }
     }
@@ -5335,6 +5338,31 @@ function Watch-Entorno([int]$botones = 0) {
         $script:entornoUnidades = $letras
     } catch {}
 
+    # IDEA 18: te has pasado de tu hora
+    try {
+        $txtD = Get-AvisoHoraDormir
+        if ($txtD) { [void](Send-AvisoEntorno 'hora-dormir' $txtD 'noche' 480) }
+    } catch {}
+
+    # IDEA 29: hoy me estoy equivocando mas de lo normal
+    try {
+        $txtF = Get-AvisoFallos
+        if ($txtF) { [void](Send-AvisoEntorno 'fallo-racha' $txtF 'medio' 720) }
+    } catch {}
+
+    # IDEA 22: el correo, una vez por la manana y sin congelar el bucle. Si Nova se
+    # reinicia se vuelve a mirar, pero el aviso no se repite: eso lo frena el 'una vez
+    # cada 12 horas' de Send-AvisoEntorno, que vive en disco.
+    try {
+        Receive-CorreoManana
+        $hC = (Get-Date).Hour
+        $diaC = (Get-Date).ToString('yyyy-MM-dd')
+        if (-not $script:invitado -and $hC -ge 7 -and $hC -lt 12 -and -not $script:correoOut -and $script:correoMananaDia -ne $diaC) {
+            $script:correoMananaDia = $diaC
+            [void](Start-CorreoManana)
+        }
+    } catch {}
+
     # IDEA 26: el correo lleno. Una vez por semana, que es lo que aguanta cualquiera.
     try {
         if ($EntornoGmailLleno) {
@@ -5351,6 +5379,92 @@ function Watch-Entorno([int]$botones = 0) {
             if ($balS) { [void](Send-AvisoEntorno 'resumen-semana' $balS 'bajo' 10080) }
         }
     } catch {}
+}
+
+# IDEA 18: TE HAS PASADO DE TU HORA. Nada de sermon a las 23:00 clavadas: solo si a
+# ESTA hora no sueles estar levantado. "Sueles" = tres dias de las dos ultimas semanas,
+# el mismo criterio que ya usa la precarga de la charla. Devuelve la frase o '', sin
+# hacer nada: el que decide si se dice es el vigilante.
+function Get-AvisoHoraDormir([datetime]$ahora = (Get-Date)) {
+    $hD = $ahora.Hour
+    if ($hD -lt $EntornoNocheDesde -and $hD -ge 5) { return '' }
+    $claveD = $ahora.ToString('HH')
+    $limD = $ahora.AddDays(-14).ToString('yyyy-MM-dd')
+    $diasD = @((Get-Habitos).charlaHoras.Keys | Where-Object { $_.EndsWith("|$claveD") -and $_.Substring(0, 10) -ge $limD }).Count
+    if ($diasD -ge 3) { return '' }   # a estas horas sueles estar despierto: no es noticia
+    return ('Son las ' + $ahora.ToString('H\:mm') + ' y a esta hora no sueles estar levantado.')
+}
+
+# IDEA 29: HOY ME ESTOY EQUIVOCANDO MAS DE LO NORMAL. Comparado con SU media de la
+# semana, no con un numero inventado (la misma regla que la bateria de los juegos).
+function Get-AvisoFallos([datetime]$ahora = (Get-Date)) {
+    $stE = Get-Estadisticas
+    $hoyE = $ahora.ToString('yyyy-MM-dd')
+    if (-not $stE.dias.ContainsKey($hoyE)) { return '' }
+    $malHoy = [int]$stE.dias[$hoyE]['error']
+    if ($malHoy -lt 5) { return '' }        # con menos, cualquier dia pareceria malo
+    $sumaE = 0; $nDiasE = 0
+    for ($i = 1; $i -le 7; $i++) {
+        $kE = $ahora.AddDays(-$i).ToString('yyyy-MM-dd')
+        if (-not $stE.dias.ContainsKey($kE)) { continue }
+        $sumaE += [int]$stE.dias[$kE]['error']
+        $nDiasE++
+    }
+    if ($nDiasE -lt 3) { return '' }        # sin con que comparar, mejor callarse
+    $mediaE = $sumaE / [double]$nDiasE
+    if ($mediaE -le 0 -or $malHoy -le ($mediaE * 2)) { return '' }
+    return "Hoy te estoy entendiendo peor de lo normal: $malHoy ordenes que no supe hacer. Si alguna se repite, dime: aprende que cuando diga..."
+}
+
+# IDEA 22: EL CORREO DE LA MANANA. Invoke-CorreoScript ESPERA a que el script termine
+# (hasta 25 s); llamarlo desde el bucle dejaria a Nova congelada ese rato, sorda a todo.
+# Asi que se lanza y se recoge en otra vuelta, igual que la segunda opinion de la nube.
+$script:correoProc = $null
+$script:correoOut = ''
+$script:correoVence = 0
+$script:correoMananaDia = ''
+
+function Start-CorreoManana {
+    if ($script:correoOut) { return $false }          # ya hay una mirando
+    if (-not (Test-CorreoListo)) { return $false }
+    try {
+        $idC = [System.Guid]::NewGuid().ToString('N').Substring(0, 8)
+        $script:correoOut = Join-Path $TmpDir "correo-manana-$idC.json"
+        $script:correoProc = Start-Process -FilePath $PyWorker -WindowStyle Hidden -PassThru `
+            -WorkingDirectory $LogDir -ArgumentList @($CorreoScript, 'no-leidos', '5', $script:correoOut)
+        $null = $script:correoProc.Handle
+        $script:correoVence = $sw.ElapsedMilliseconds + 30000
+        Log 'CORREO: mirando el de la manana'
+        return $true
+    } catch {
+        Log ('CORREO: no pude mirarlo: ' + $_.Exception.Message)
+        $script:correoOut = ''
+        return $false
+    }
+}
+
+function Receive-CorreoManana {
+    if (-not $script:correoOut) { return }
+    if (Test-Path -LiteralPath $script:correoOut) {
+        $rC = $null
+        try { $rC = [System.IO.File]::ReadAllText($script:correoOut, [System.Text.Encoding]::UTF8) | ConvertFrom-Json } catch {}
+        Remove-Item -LiteralPath $script:correoOut -Force -ErrorAction SilentlyContinue
+        $script:correoOut = ''
+        $script:correoProc = $null
+        if ($rC -and $rC.ok -and [int]$rC.cuantos -gt 0) {
+            # en el log SOLO cuantos habia: ni remitentes ni asuntos
+            Log "CORREO: $($rC.cuantos) sin leer (el de la manana)"
+            [void](Send-AvisoEntorno 'correo-manana' (Format-Correos $rC.correos) 'medio' 720)
+        }
+        return
+    }
+    if ($sw.ElapsedMilliseconds -ge $script:correoVence) {
+        try { if ($script:correoProc -and -not $script:correoProc.HasExited) { $script:correoProc.Kill() } } catch {}
+        Remove-Item -LiteralPath $script:correoOut -Force -ErrorAction SilentlyContinue
+        $script:correoOut = ''
+        $script:correoProc = $null
+        Log 'CORREO: el de la manana no contesto a tiempo'
+    }
 }
 
 # "no me avises de nada" / "vuelve a avisarme"
