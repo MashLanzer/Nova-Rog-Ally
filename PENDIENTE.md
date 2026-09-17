@@ -1168,12 +1168,21 @@ APAGADO por defecto: `config.json` → `entorno.avisos`.
 un juego (9), descarga terminada (24), disco bajo (25), correo importante (21),
 batería (7, 13, 14, 15), juego colgado (12).
 
-**Fase 2: lo que necesita estado nuevo.** volver tras un rato (1), coger el mando (6),
-mensajes mientras juegas (8), descanso a las 2 h (10), actualización pendiente (11),
-batería que se gasta rara (16), parte de la mañana solo (17), hora de dormir (18),
-horas de hoy (19), aprender horarios (20), resumen de correo (22), agrupar avisos (23),
-recordar Gmail lleno (26), costumbres (27, 28), avisar de lo que falla (29), resumen
-semanal (30).
+**Fase 2 (hecha en parte el 16/09).** Lo mejor fue descubrir cuánto ya existía:
+- [x] 1 y 17: el parte de la mañana y el resumen al volver ya estaban escritos, pero
+      colgaban de que braya hablara primero (se preparaban dentro de `Process-Texto`).
+      Ahora `Watch-Entorno` los llama desde el bucle y salen solos.
+- [x] 6: coger la consola. El bucle ya lee los cuatro mandos; si aparecen botones tras
+      90 minutos quietos, saluda y ofrece seguir con el último juego.
+- [x] 26: Gmail lleno, una vez por semana (`entorno.gmailLleno`).
+- [x] 30: resumen semanal, los domingos por la tarde, con `Get-BalanceAprendizaje`.
+- [x] 27 y 28: YA ESTABAN, y mejor de lo que las habría escrito. `Find-Propuesta` mira
+      tres patrones (misma orden a la misma hora, orden tras abrir una app, tres
+      seguidas), nunca propone jugando, una al día y con lista de rechazadas.
+- [ ] 19 (cuánto llevas hoy): se cayó de la tanda. Hace falta llevar la cuenta de
+      minutos POR DÍA al cerrar cada juego; hoy solo existe el tiempo de la partida en
+      curso y el de la semana. Improvisar un contador a medias daría cifras falsas.
+- [ ] Quedan: 8, 10, 11, 16, 18, 20, 22, 23, 29.
 
 **Fase 3: crear estas cosas hablando.** Ampliar las reglas por voz, que ya tienen 12
 tipos de evento (`Invoke-Reglas`), para que la acción pueda ser «díme X» y para los

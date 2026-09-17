@@ -5160,6 +5160,7 @@ function Get-CancionAnterior {
 # =====================================================================
 $EntornoOn = [bool](Get-Cfg 'entorno' 'avisos' $false)
 $EntornoPorHora = [int](Get-Cfg 'entorno' 'porHora' 4)
+$EntornoGmailLleno = [bool](Get-Cfg 'entorno' 'gmailLleno' $false)
 $EntornoNocheDesde = [int](Get-Cfg 'entorno' 'nocheDesde' 23)
 $EntornoNocheHasta = [int](Get-Cfg 'entorno' 'nocheHasta' 8)
 $script:entornoAvisos = New-Object System.Collections.ArrayList   # cuando salio cada uno
@@ -5203,6 +5204,61 @@ function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'med
     # los de poca monta NO se dicen: se ven y ya. Hablar por todo es lo que cansa.
     if ($nivel -ne 'bajo') { Say $texto }
     return $true
+}
+
+# LO QUE PASA SIN QUE DIGAS NADA (fase 2, 16/09). Se mira cada 30 s desde el bucle.
+# Todo pasa por Send-AvisoEntorno, o sea que respeta el tope por hora, el silencio
+# jugando, las horas tranquilas y el "no me avises".
+$script:entornoCheck = 0
+$script:entornoUltimaActividad = 0
+$script:entornoBotonesAntes = 0
+function Watch-Entorno([int]$botones = 0) {
+    if (-not $EntornoOn) { return }
+    # IDEA 6: COGES LA CONSOLA. El bucle ya lee los cuatro mandos; si aparecen botones
+    # tras un buen rato quieto, es que la acabas de coger.
+    $ahoraW = $sw.ElapsedMilliseconds
+    if ($botones -ne 0) {
+        $quietoMin = if ($script:entornoUltimaActividad -gt 0) { ($ahoraW - $script:entornoUltimaActividad) / 60000 } else { 0 }
+        $script:entornoUltimaActividad = $ahoraW
+        if ($quietoMin -ge 90 -and $script:entornoBotonesAntes -eq 0) {
+            $txtM = 'Hola. ¿Seguimos?'
+            if ($script:ultimoJuego) { $txtM = "Hola. ¿Seguimos con $($script:ultimoJuego)?" }
+            [void](Send-AvisoEntorno 'mando-vuelta' $txtM 'medio' 180)
+        }
+    }
+    $script:entornoBotonesAntes = $botones
+    if (($ahoraW - $script:entornoCheck) -lt 30000) { return }
+    $script:entornoCheck = $ahoraW
+
+    # IDEAS 1 y 17: el parte de la manana y el resumen al volver EXISTIAN, pero solo
+    # se preparaban dentro de Process-Texto: si no le hablabas, no salian nunca.
+    if (-not $script:invitado) {
+        try { Test-ParteManana } catch {}
+        try { Test-ResumenAlVolver } catch {}
+    }
+
+    # IDEA 19 (cuanto llevas hoy): NO va en esta tanda. Me invente Get-TiempoJuegoHoy,
+    # que no existe: hay tiempo de la PARTIDA de ahora ($script:juegoDesde) y el de la
+    # semana, pero no los minutos acumulados del dia. Hacerlo bien es llevar la cuenta
+    # por dia al cerrar cada juego, y eso es otra tanda; improvisar aqui un contador a
+    # medias daria numeros falsos, que es peor que no decir nada.
+
+    # IDEA 26: el correo lleno. Una vez por semana, que es lo que aguanta cualquiera.
+    try {
+        if ($EntornoGmailLleno) {
+            [void](Send-AvisoEntorno 'gmail-lleno' 'Recuerda que tienes el almacenamiento de Gmail lleno y puedes dejar de recibir correos.' 'medio' 10080)
+        }
+    } catch {}
+
+    # IDEA 30: el resumen de la semana, los domingos por la tarde
+    try {
+        $hoyS = Get-Date
+        if ($hoyS.DayOfWeek -eq [System.DayOfWeek]::Sunday -and $hoyS.Hour -ge 18) {
+            $balS = ''
+            try { $balS = [string](Get-BalanceAprendizaje) } catch { $balS = '' }
+            if ($balS) { [void](Send-AvisoEntorno 'resumen-semana' $balS 'bajo' 10080) }
+        }
+    } catch {}
 }
 
 # "no me avises de nada" / "vuelve a avisarme"
@@ -13540,6 +13596,9 @@ while ($true) {
         }
     }
 
+    # --- LO QUE PASA SIN QUE DIGAS NADA (fase 2) ---
+    try { Watch-Entorno $botones } catch { Log ("entorno: " + $_.Exception.Message) }
+
     # --- VIGILANCIA DEL WORKER DE ESCUCHA ---
     # Si muere, la palabra de activacion deja de funcionar EN SILENCIO durante
     # el resto de la sesion: el bucle solo miraba el archivo marca, que nunca
@@ -13651,7 +13710,9 @@ while ($true) {
             Set-UI 'escuchando' $ap.pregunta
             Start-Confirmacion
         } elseif ($script:resumenPendiente -and -not $script:busy -and -not $script:pendiente) {
-            # HAS VUELTO (ver RESUMEN AL VOLVER): una linea, sin voz
+            # HAS VUELTO (ver RESUMEN AL VOLVER): una linea, sin voz.
+            # Desde el 16/09 tambien lo prepara Watch-Entorno, asi que sale aunque no
+            # le hayas dicho nada; antes habia que hablarle para enterarte.
             $txtRes = $script:resumenPendiente
             $script:resumenPendiente = ''
             Send-UIEvento 'gesto:saludo'

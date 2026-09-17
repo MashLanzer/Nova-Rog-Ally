@@ -120,6 +120,7 @@
         "avisos": true,
         "porHora": 4,
         "nocheDesde": 23,
-        "nocheHasta": 8
+        "nocheHasta": 8,
+        "gmailLleno": true
     }
 }
