@@ -775,8 +775,28 @@ function Find-JuegoEn([string]$q, $lista) {
     $mejorPuntos = 9999
     foreach ($j in $lista) {
         $n = $j.plano
+        # UN TITULO QUE SE QUEDA EN NADA SE LLEVABA TODAS LAS CONSULTAS (17/09). Si el
+        # nombre normalizado queda vacio (un titulo solo de simbolos, o un manifiesto
+        # raro), la comprobacion de mas abajo se convertia en «$q -match '\b\b'», que
+        # casa SIEMPRE: ese juego ganaba dijeras lo que dijeras. Salio montando las
+        # primeras pruebas de esta funcion, que hasta hoy no tenia ninguna.
+        if (-not $n) { continue }
         if ($n -eq $q) { return $j }
         $puntos = $null
+        # COMO LO LLAMAS AL HABLAR, NO COMO LO ESCRIBE LA TIENDA (17/09). Nadie dice
+        # "Marvel's Spider-Man Remastered": se dice "spider man". No encajaba porque se
+        # exige que lo dicho cubra el 60 % del titulo, y 10 letras de 30 no llegan; ese
+        # 60 % no se toca, que es lo que evita que "ring" abra ELDEN RING. Se prueba
+        # ADEMAS el titulo sin el prefijo de marca ("marvel s", "tom clancy s") y sin la
+        # coletilla de edicion, comparando tambien sin espacios ("spiderman").
+        #
+        # Puntua 1, nunca 0: un titulo exacto sale antes por el return de arriba, asi que
+        # con "Little Nightmares" y "Little Nightmares Enhanced Edition" a la vez,
+        # "little nightmares" sigue abriendo el primero y no la edicion.
+        $corto = $n -replace '^\w+ s ', ''
+        $corto = $corto -replace '\s+(?:remastered|redux|reloaded|deluxe|goty|definitive|enhanced|complete|ultimate|extended)(?:\s+edicion|\s+edition)?$', ''
+        $corto = $corto -replace '\s+(?:edition|edicion)$', ''
+        if ($corto -and $corto -ne $n -and ($corto -replace '\s', '') -eq ($q -replace '\s', '')) { $puntos = 1 }
         # UNA CONSULTA CORTA 'CONTIENE' A MEDIA BIBLIOTECA. 'el' esta dentro de
         # 'elden ring', y como la contencion puntuaba mejor que cualquier
         # parecido, un simple articulo abria el juego SIN preguntar siquiera.
