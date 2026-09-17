@@ -1284,6 +1284,35 @@ Dos cosas más que salieron tirando de este hilo:
       Con Nova cerrada quedaron 1791 MB y la prueba corrió por fin: **20 de 20 (100 %)**,
       con el oído fino rescatando las 2 que falló el modelo rápido.
 
+## 17/09: ¿el oído fino ayuda o estorba? MEDIDO: se queda
+
+Uno de los «medir en uso real» que llevaban días abiertos. Con las 188 órdenes reales
+grabadas: el oído fino interviene en 125 y en 100 oye algo DISTINTO. La pregunta era si
+ese cambio mejora o empeora, porque cuesta ~4,8 s por orden.
+
+Método (repetible): de `registro.jsonl` se sacan los pares «antes → después» (el campo
+`entregado` es lo que se entregó antes del repaso; el `texto` de la línea del repaso es
+lo de después), y se pasan los dos por el resolvedor local con `assistant.ps1 -Probar`.
+Lo que se compara no es si suena mejor, sino si Nova **reconoce la orden**.
+
+    en local:  antes 8 de 100   ->   después 19 de 100
+
+- **rescata 18** («Abre St» → «Abre Steam», «Cierra la aplicación de Xbook» → «Xbox»,
+  «I go like a gun to say anything» → «¿Hay algo descargándose en Steam»)
+- **estropea 7**, y varias ya eran basura en ambos lados. Las que duelen de verdad son de
+  puntuación: «Sí, hazlo ahora en el escritorio» → «Si hazlo ahora en el escritorio», y
+  «describir mi fondo de pantalla» con mayúsculas de más.
+- 73 seguían sin entenderse en los dos casos.
+
+**Conclusión: se queda.** Rescata más del doble de lo que estropea. Pero el hallazgo
+gordo es ese 73: el oído fino se gasta sobre todo en audio que nunca fue una orden
+(charla, ruido, frases a medias), no en órdenes mal oídas. Ahí está el ahorro, no en
+quitarlo.
+
+- [ ] Siguiente: mirar si se puede saltar el repaso cuando lo oído no se parece a una
+      orden ni de lejos (las 73), y recuperar esas 7 normalizando puntuación y mayúsculas
+      antes de comparar.
+
 ## 16/09: el perfil, limpio y con filtro
 
 Tenía 26 líneas y solo cuatro decían algo cierto: ocho variantes contradictorias sobre
