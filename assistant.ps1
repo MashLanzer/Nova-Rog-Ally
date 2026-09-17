@@ -1344,8 +1344,45 @@ function Get-Estadisticas {
     return $script:stats
 }
 
+# QUE HIZO NOVA CON LO QUE OYO (17/09). El worker guarda en pruebas\audio\uso lo que
+# OYO cada modelo, pero no a donde fue a parar la frase. Por eso "cero ordenes
+# equivocadas" no se podia medir: sabiamos si te habia oido, no si habia acertado, y los
+# fallos de verdad solo salian cuando braya los notaba por casualidad.
+#
+# El worker deja el id de la orden en tmp\dictado-id.txt (ver guardar_uso) y aqui se
+# apunta el destino, emparejable por ese id. En un fichero APARTE del registro del
+# worker a proposito: el oido fino apunta su linea segundos despues, y dos procesos
+# haciendo append al mismo archivo es pedir una carrera justo en lo que existe para
+# medir bien.
+$DestinosUso = @('local', 'aprendida', 'memoria', 'traducida', 'receta', 'error', 'descarte', 'ruido', 'recitado')
+function Write-DestinoUso([string]$ruta, [string]$detalle = '') {
+    # solo los destinos de una frase: 'fino', 'turbo' o 'parakeet' cuentan como OYO, no
+    # como HIZO, y se llaman en la misma orden que el destino de verdad
+    if ($DestinosUso -notcontains $ruta) { return $false }
+    $marca = Join-Path $TmpDir 'dictado-id.txt'
+    if (-not (Test-Path -LiteralPath $marca)) { return $false }
+    try {
+        $idU = ([System.IO.File]::ReadAllText($marca)).Trim()
+        # se CONSUME: una frase tiene un destino, y si no el id se le pegaria a la siguiente
+        Remove-Item -LiteralPath $marca -Force -ErrorAction SilentlyContinue
+        if (-not $idU) { return $false }
+        $dirU = Join-Path $LogDir 'pruebas\audio\uso'
+        if (-not (Test-Path -LiteralPath $dirU)) { return $false }   # sin grabaciones no hay nada que emparejar
+        $dU = ($detalle -replace '\s+', ' ').Trim()
+        if ($dU.Length -gt 120) { $dU = $dU.Substring(0, 117) + '...' }
+        $oU = [ordered]@{ id = $idU; hora = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'); hizo = $ruta; detalle = $dU }
+        # UTF-8 SIN BOM: Add-Content -Encoding UTF8 lo mete, y el BOM rompe la primera
+        # linea al leer el .jsonl desde Python
+        [System.IO.File]::AppendAllText((Join-Path $dirU 'destinos.jsonl'),
+            ((ConvertTo-Json -InputObject $oU -Compress) + [Environment]::NewLine),
+            (New-Object System.Text.UTF8Encoding($false)))
+        return $true
+    } catch { return $false }
+}
+
 function Add-Estadistica([string]$ruta, [string]$detalle = '') {
     if ($script:invitado) { return }   # ver MODO INVITADO
+    try { [void](Write-DestinoUso $ruta $detalle) } catch {}
     try {
         $s = Get-Estadisticas
         $dia = Get-Date -Format 'yyyy-MM-dd'

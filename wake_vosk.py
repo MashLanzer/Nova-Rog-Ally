@@ -877,6 +877,13 @@ def guardar_uso(bloques, **campos):
             w.setframerate(TASA)
             w.writeframes(datos.tobytes())
         _uso["id"] = ident
+        # QUE HIZO NOVA CON ESTO (17/09): aqui solo sabemos lo que se OYO. El asistente
+        # apunta aparte a donde fue a parar la frase, y necesita saber de cual hablamos:
+        # se le deja el id, como ya se le deja el motor o la confianza. Va dentro de
+        # guardar_uso a proposito, que es el unico sitio por el que pasan los dos
+        # caminos (el boton y la activacion por nombre).
+        if NIVEL:
+            escribir(os.path.join(os.path.dirname(NIVEL), "dictado-id.txt"), ident)
         apuntar_uso(dict(id=ident, hora=time.strftime("%Y-%m-%d %H:%M:%S"), dur=round(datos.size / float(TASA), 2),
                          pico=round(float(np.max(np.abs(datos.astype(np.int32)))) / 32768.0, 3), **campos))
     except Exception as e:

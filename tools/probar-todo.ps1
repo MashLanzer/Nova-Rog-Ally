@@ -162,6 +162,10 @@ Titulo "2n9. Que juego te abre (titulos parecidos y palabras sueltas)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-titulos.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n10. Que HIZO Nova con lo que oyo (para poder medir los aciertos)"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-destino-uso.ps1') | Select-String 'todo correcto|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "3. Ordenes que SI deben reconocerse"
 foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     $salida = powershell -NoProfile -File 'assistant.ps1' -Probar (Join-Path 'pruebas' $banco) 2>&1
