@@ -9261,6 +9261,21 @@ function Invoke-ReglaVoz([string]$text) {
         $accion = "di $queDecir"
     }
     if (-not (Test-FastCommand $accion)) { return "Entendi la condicion, pero no reconozco la accion '$accion'. Tiene que ser una orden que yo sepa hacer." }
+    # NADA DESTRUCTIVO EN ALGO QUE SE VA A EJECUTAR SOLO (17/09). Este mismo filtro ya
+    # existia para las propuestas de costumbres ("que no se cuele nada destructivo en una
+    # regla que corre sola"), pero el camino HABLADO se lo habia saltado: se podia decir
+    # "cuando abra steam cierra todos los programas" y quedaba guardado. Es el MISMO
+    # criterio a proposito; dos listas distintas acabarian separandose.
+    # OJO CON LO QUE SOLO HABLA: "di ..." nunca es destructivo. Sin esta excepcion el
+    # banco cazo -bien cazado- que "cuando termine de cargar avisame", que se convierte
+    # en "di ya esta cargada del TODO", quedaba rechazada por la palabra "todo". El
+    # filtro es para lo que HACE, no para lo que dice.
+    if ((ConvertTo-Plain $accion) -notmatch '^di\s' -and
+        (ConvertTo-Plain $accion) -match '^(?:cierra|apaga|reinicia|bloquea|borra|elimina)\b|\b(?:todo|todos|todas)\b') {
+        Log "REGLA rechazada: '$accion' es demasiado gorda para dispararse sola"
+        Add-Estadistica 'regla-peligrosa' $accion
+        return "Eso prefiero que me lo pidas tu en el momento: no lo dejo en una regla que se dispara sola."
+    }
     $id = 1; foreach ($x in $g) { if ($x.id -ge $id) { $id = $x.id + 1 } }
     $r = @{ id = $id; tipo = $tipo; valor = $valor; accion = $accion; ultima = ''; cond = $condR }
     [void]$g.Add($r); Save-Reglas
@@ -9317,6 +9332,19 @@ function Invoke-Reglas([string]$tipo, [string]$dato = '') {
             $horaC = (Get-Date).Hour
             $esNocheC = ($horaC -ge 20 -or $horaC -lt 7)
             if (($r.cond -eq 'noche' -and -not $esNocheC) -or ($r.cond -eq 'dia' -and $esNocheC)) { continue }
+        }
+        # LA SEGUNDA PUERTA (17/09). Al crear ya no se admite nada destructivo, pero una
+        # regla guardada ANTES de ese filtro -o escrita a mano en reglas.json- llegaba
+        # aqui igual, y $script:confirmado = $true le daba carta blanca: "cierra todos
+        # los programas" se ejecutaba sin preguntar y sin que nadie pudiera pararlo.
+        # Mismo criterio que al crearla, a proposito.
+        # misma excepcion que al crearla: "di ..." solo habla, y "di ya esta cargada del
+        # TODO" no puede quedarse sin dispararse por llevar esa palabra
+        if ((ConvertTo-Plain $r.accion) -notmatch '^di\s' -and
+            (ConvertTo-Plain $r.accion) -match '^(?:cierra|apaga|reinicia|bloquea|borra|elimina)\b|\b(?:todo|todos|todas)\b') {
+            Log "REGLA $($r.id) NO se dispara: '$($r.accion)' es demasiado gorda para hacerla sola"
+            Add-Estadistica 'regla-peligrosa' $r.accion
+            continue
         }
         Log ("REGLA $($r.id) dispara: " + (Describe-Regla $r))
         $script:confirmado = $true

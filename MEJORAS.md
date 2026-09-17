@@ -156,8 +156,20 @@ Cada hallazgo trae 5 mejoras ordenadas de más barata a más cara, con cómo med
   siempre estuvo bien, lo roto era el vigilante.**
 - **HECHO — 3.2 #1**: el bug del volumen a cero.
 
-Pendiente de este bloque: 3.2 #5 (una regla disparada tiene carta blanca y ejecuta cosas
-destructivas sin preguntar) y 3.2 #6 (las recetas se prueban antes del filtro de ruido).
+- **HECHO — 3.2 #5, una regla disparada tenía carta blanca.** Se cierran **dos** puertas
+  con el **mismo** criterio que ya usaba el camino de costumbres (dos listas distintas
+  acabarían separándose): al **crear** la regla hablada, para que no llegue a existir; y
+  al **dispararla**, porque una regla guardada antes de este cambio —o escrita a mano en
+  `reglas.json`— llegaba igual a `$script:confirmado = $true` y se ejecutaba sin que
+  nadie pudiera pararla.
+  **Excepción `di ...`:** el filtro no se aplica a las acciones que solo hablan. El banco
+  cazó la regresión en cuanto la metí: «cuando termine de cargar avísame» se convierte en
+  «di ya esta cargada del **todo**», y el regex la rechazaba por esa palabra. El filtro es
+  para lo que **hace**, no para lo que dice.
+
+Pendiente de este bloque: 3.2 #6 (las recetas se prueban antes del filtro de ruido) y
+3.2 #2 (la prueba que ejecuta las acciones de verdad, la que habría cazado el bug del
+volumen).
 
 ---
 
