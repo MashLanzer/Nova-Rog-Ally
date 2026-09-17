@@ -1309,9 +1309,27 @@ gordo es ese 73: el oído fino se gasta sobre todo en audio que nunca fue una or
 (charla, ruido, frases a medias), no en órdenes mal oídas. Ahí está el ahorro, no en
 quitarlo.
 
-- [ ] Siguiente: mirar si se puede saltar el repaso cuando lo oído no se parece a una
-      orden ni de lejos (las 73), y recuperar esas 7 normalizando puntuación y mayúsculas
-      antes de comparar.
+- [x] **DESCARTADO (17/09): frenar el repaso cuando no parece una orden.** Era la idea
+      más prometedora de la lista y la medición la tumbó. El freno ya existe
+      (`Test-PareceCharla` + `Test-MereceRepaso`, que usa el «último recurso»); bastaba
+      con aplicarlo también a `Request-WhisperTras`, el camino Parakeet→Whisper, que hoy
+      dispara sin mirar si aquello era conversación. Pasando los dos grupos por esas
+      funciones reales:
+
+          de los 73 repasos inútiles  -> frenaría 22
+          de los 18 RESCATES          -> se cargaría 5
+
+      Perder el 28 % de los rescates («I can» → «Pero ¿qué», «Qué ve en mi pantalla»)
+      para ahorrar el 30 % de los repasos inútiles es un mal cambio, y va en contra de la
+      meta del 100 %. Segundos a cambio de órdenes perdidas: no.
+      Si algún día se retoma, el camino NO es un detector de charla más agresivo, sino
+      mirar el audio (duración y pico) en vez del texto: los rescates tienen mediana de
+      4,2 s y 4 palabras; los inútiles, 5,2 s y 7 palabras. Se solapan, así que haría
+      falta algo mejor que un umbral.
+
+- [ ] Lo que sí queda de aquí: recuperar esas 7 que el repaso estropea normalizando
+      puntuación y mayúsculas antes de comparar («Sí, hazlo ahora en el escritorio» dejó
+      de reconocerse al perder la coma).
 
 ## 16/09: el perfil, limpio y con filtro
 
