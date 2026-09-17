@@ -7844,6 +7844,10 @@ try {
 $TtsWorker = Join-Path $LogDir "tts_worker.py"
 $VozCache = Join-Path $TmpDir "voz"
 $script:ttsProc = $null
+# la lectura pendiente sobre la tuberia del worker de voz, y si la que llega es de la
+# frase anterior (ver UNA SOLA LECTURA VIVA SOBRE LA TUBERIA, en Say-Online)
+$script:ttsLectura = $null
+$script:ttsTardia = $false
 
 # --- REPRODUCCION DE AUDIO ---
 # Se usa MediaPlayer de WPF, NO MCI. MCI informaba 'playing' y la posicion
@@ -7908,6 +7912,9 @@ function Say-Online([string]$texto, [string]$emo = '') {
                 $script:ttsProc.Dispose()
             } catch {}
             $script:ttsProc = $null
+            # el worker nuevo trae una tuberia nueva: la lectura pendiente del anterior
+            # ya no sirve y dejarla apuntada la colgaria de un flujo muerto
+            $script:ttsLectura = $null
         }
         # sin Start-Sleep (14/09): congelaba el bucle 2 s. El worker lee la frase de
         # la tuberia en cuanto arranca, y la espera de abajo ya tiene su plazo de 8 s
@@ -7924,11 +7931,35 @@ function Say-Online([string]$texto, [string]$emo = '') {
         $t0Voz = $sw.ElapsedMilliseconds
         $flujo.Write($bytes, 0, $bytes.Length)
         $flujo.Flush()
-        # con tope: si la red se cae, no se puede colgar el bucle para siempre
-        $tarea = $script:ttsProc.StandardOutput.ReadLineAsync()
+        # UNA SOLA LECTURA VIVA SOBRE LA TUBERIA (17/09). Esto creaba una ReadLineAsync
+        # nueva en cada frase y, al vencer el plazo, hacia return dejando la anterior
+        # VIVA sobre el mismo StreamReader. Entonces pasaba una de dos: .NET lanzaba
+        # InvalidOperationException ("el flujo esta en uso") y la voz en linea se daba
+        # por muerta el RESTO DE LA SESION, o la lectura vieja se quedaba con la ruta y
+        # la frase nueva recibia la del audio anterior: Nova diciendo una cosa y la
+        # capsula moviendo la boca con la envolvente de otra.
+        #
+        # Es el mismo patron que Receive-Charla ya resolvia bien: la tarea se guarda y se
+        # reutiliza en vez de crear otra. Al vencer el plazo se deja APUNTADA para que la
+        # recoja la llamada siguiente, y esa linea tardia se DESCARTA, porque es la ruta
+        # de la frase anterior y usarla seria justo el descuadre que se quiere evitar.
+        if (-not $script:ttsLectura) {
+            $script:ttsLectura = $script:ttsProc.StandardOutput.ReadLineAsync()
+        } else {
+            $script:ttsTardia = $true
+        }
+        $tarea = $script:ttsLectura
         # una respuesta larga tarda mas en sintetizarse: plazo segun lo largo (ver RESPUESTAS LARGAS ENTERAS)
         $plazoVoz = [int][Math]::Min(30000, 8000 + $texto.Length * 15)
         if (-not $tarea.Wait($plazoVoz)) { Log "voz online: sin respuesta en $([int]($plazoVoz / 1000)) s"; return $false }
+        $script:ttsLectura = $null
+        if ($script:ttsTardia) {
+            # llego la de la frase ANTERIOR: se tira y esta frase se queda sin voz en
+            # linea (cae a Piper). Mejor muda un momento que hablar descuadrada.
+            $script:ttsTardia = $false
+            Log "voz online: la respuesta que llego era de la frase anterior; la descarto"
+            return $false
+        }
         # lo que ESPERO el bucle a la voz (ver VOZ PREPARADA): una frase ya hecha tarda
         # ms; una nueva, ~1 s. Solo se apunta en charla, o el log se llenaria de esto
         if ($script:charlaEsperando -or $script:charlaFrases.Count -gt 0 -or $script:prepVozProc) {

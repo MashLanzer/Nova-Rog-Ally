@@ -128,10 +128,19 @@ el plazo con la **duración real** del `.wav`, como ya hacía la voz en línea.
   (16.000 Hz) creyendo que era de Piper — es del **micrófono**. Verificar contra la fuente
   equivocada casi me hace «corregir» un número que estaba bien.
 
-**PENDIENTE — 3.3 #1, la `ReadLineAsync` huérfana.** Sigue sin tocar. Es el otro GRAVE de
-la voz: un plazo vencido deja la lectura viva sobre la tubería y la frase siguiente puede
-recibir la ruta de la anterior, o reventar y dejar la voz en línea por muerta el resto de
-la sesión.
+**HECHO (17/09) — 3.3 #1, la `ReadLineAsync` huérfana.** `Say-Online` creaba una lectura
+nueva en cada frase y, al vencer el plazo, hacía `return` dejando la anterior viva sobre
+el mismo `StreamReader`. De ahí salían los dos síntomas: `InvalidOperationException` («el
+flujo está en uso») que daba la voz en línea por muerta **el resto de la sesión**, o la
+lectura vieja quedándose con la ruta y la frase nueva recibiendo el audio de la anterior
+—Nova diciendo una cosa y la cápsula moviendo la boca con otra—.
+Se aplica el patrón que `Receive-Charla` ya usaba bien: la tarea se guarda en
+`$script:ttsLectura` y se reutiliza en vez de crear otra; se limpia al relanzar el worker,
+porque la tubería nueva invalida la pendiente.
+- **Coste asumido a propósito:** cuando vence el plazo, la línea que llega tarde es la de
+  la frase **anterior**, así que se descarta y esa frase cae a Piper. Es decir, un plazo
+  vencido cuesta dos frases sin voz en línea en vez de una. Preferible a hablar
+  descuadrada, pero queda escrito para que no parezca un efecto no visto.
 
 ### 3.3 La cápsula y los workers — HECHA (11 hallazgos)
 
