@@ -1,5 +1,11 @@
-# Prueba la autosordina SACANDO LA FUNCION DEL ARCHIVO REAL. Todo lo que toca el
+﻿# Prueba la autosordina SACANDO LA FUNCION DEL ARCHIVO REAL. Todo lo que toca el
 # mundo exterior (hablar, pausar la escucha, el popup) se simula.
+#
+# OJO, ESTA PRUEBA MENTIA (17/09, auditoria de robustez). Los casos 1, 2 y 3 IMPRIMIAN
+# el estado con el valor esperado al lado ("esperado: pausada=True racha=0 avisos=1")
+# pero no comparaban nada: eran cadenas sueltas. La unica comprobacion de verdad era la
+# del caso 4, y el script NO tenia `exit 1`, asi que ni esa podia hacer fallar el banco
+# (probar-todo.ps1 mira $LASTEXITCODE). Era decorativa entera.
 $ruta = 'C:\Users\braya\Documents\voice-ctrl\assistant.ps1'
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($ruta, [ref]$null, [ref]$null)
 function TraerFn([string]$n) {
@@ -26,31 +32,39 @@ function Show-Popup($t, $e) { }
 function Say($t) { $script:dicho += $t }
 function Pausar-Escucha($ms) { $script:pausaHasta = $script:reloj + $ms }
 
+$fallos = 0
+function Comp([string]$etiqueta, [bool]$ok, [string]$detalle) {
+    Write-Host ("  {0}  {1,-50} {2}" -f $(if ($ok) { 'OK ' } else { 'MAL' }), $etiqueta, $detalle)
+    if (-not $ok) { $script:fallos++ }
+}
 function Estado { "pausada=$([bool]($script:pausaHasta -gt 0)) racha=$($script:rachaRuido.Count) avisos=$($script:dicho.Count)" }
 
-Write-Host "--- 1) dos descartes seguidos: NO debe callarse ---"
+Write-Host '  -- dos descartes seguidos: NO debe callarse --'
 $script:reloj = 1000;  Add-RuidoRacha
 $script:reloj = 60000; Add-RuidoRacha
-"   $(Estado)   (esperado: pausada=False racha=2)"
+Comp 'con dos ruidos sigue escuchando' ($script:pausaHasta -eq 0) (Estado)
+Comp 'y lleva la cuenta de los dos' ($script:rachaRuido.Count -eq 2) (Estado)
+Comp 'sin decir nada todavia' ($script:dicho.Count -eq 0) (Estado)
 
-Write-Host "--- 2) el tercero dentro de la ventana: se calla ---"
+Write-Host '  -- el tercero dentro de la ventana: se calla --'
 $script:reloj = 120000; Add-RuidoRacha
-"   $(Estado)   (esperado: pausada=True racha=0 avisos=1)"
-if ($script:dicho.Count) { "   dijo: $($script:dicho[0])" }
-"   temporizador de vuelta encolado: $($script:temporizadores.Count)"
+Comp 'al tercero se calla' ($script:pausaHasta -gt 0) (Estado)
+Comp 'y lo avisa una vez' ($script:dicho.Count -eq 1) $(if ($script:dicho.Count) { $script:dicho[0] } else { '(no dijo nada)' })
+Comp 'la racha se reinicia' ($script:rachaRuido.Count -eq 0) (Estado)
+Comp 'y deja encolada la vuelta' ($script:temporizadores.Count -eq 1) "temporizadores=$($script:temporizadores.Count)"
 
-Write-Host "--- 3) mientras esta callada, no vuelve a avisar ---"
+Write-Host '  -- mientras esta callada, no vuelve a avisar --'
 $script:reloj = 130000; Add-RuidoRacha
-"   $(Estado)   (esperado: avisos=1, sigue en 1)"
+Comp 'no repite el aviso' ($script:dicho.Count -eq 1) (Estado)
 
-Write-Host "--- 4) descartes MUY separados en el tiempo: nunca se calla ---"
+Write-Host '  -- descartes MUY separados: nunca se calla --'
 $script:pausaHasta = 0
 $script:rachaRuido.Clear()
 $script:dicho = @()
 foreach ($t in 0, 400000, 800000, 1200000, 1600000) { $script:reloj = $t; Add-RuidoRacha }
-"   $(Estado)   (esperado: pausada=False, avisos=0)"
+Comp 'con ruidos espaciados sigue escuchando' ($script:pausaHasta -eq 0) (Estado)
+Comp 'y no dice nada' ($script:dicho.Count -eq 0) (Estado)
 
-Write-Host ""
-$fallos = 0
-if ($script:dicho.Count -ne 0) { $fallos++; Write-Host "MAL: se callo con descartes espaciados" }
-Write-Host $(if ($fallos) { "$fallos casos MAL" } else { "todo correcto" })
+Write-Host ''
+if ($fallos -gt 0) { Write-Host "$fallos casos MAL" -ForegroundColor Red; exit 1 }
+Write-Host 'todo correcto' -ForegroundColor Green

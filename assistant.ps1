@@ -1339,7 +1339,7 @@ function Get-Estadisticas {
             }
             $script:stats.descartes = @($j.descartes | ForEach-Object { [string]$_ })
             $script:stats.recientes = @($j.recientes | ForEach-Object { [string]$_ })
-        } catch {}
+        } catch { Log ("estadisticas: no pude leerlas (" + $_.Exception.Message + ")"); Save-Corrupto $EstadisticasJson 'estadisticas' }
     }
     return $script:stats
 }
@@ -3679,7 +3679,7 @@ function Get-Rechazos {
         try {
             $j = Get-Content -LiteralPath $RechazosPath -Raw -Encoding UTF8 | ConvertFrom-Json
             foreach ($x in $j.PSObject.Properties) { $script:rechazos[$x.Name] = [int]$x.Value }
-        } catch {}
+        } catch { Log ("rechazos: no pude leerlos (" + $_.Exception.Message + ")"); Save-Corrupto $RechazosPath 'rechazos' }
     }
     return $script:rechazos
 }
@@ -4656,7 +4656,7 @@ function Get-JuegosMem {
                 foreach ($q in $p.Value.PSObject.Properties) { $h[$q.Name] = $q.Value }
                 $script:juegosMem[$p.Name] = $h
             }
-        } catch { Log ("juegos: no pude leer la memoria: " + $_.Exception.Message) }
+        } catch { Log ("juegos: no pude leer la memoria: " + $_.Exception.Message); Save-Corrupto $rutaJ 'juegos' }
     }
     return $script:juegosMem
 }
@@ -4958,7 +4958,7 @@ function Get-Habitos {
             if ($crudoH.minutosJuego) { foreach ($pM in $crudoH.minutosJuego.PSObject.Properties) { $script:habitos.minutosJuego[$pM.Name] = [int]$pM.Value } }
             foreach ($x in @($crudoH.ritmo)) { if ($null -ne $x) { [void]$script:habitos.ritmo.Add([double]$x) } }
             if ($crudoH.charlaHoras) { foreach ($pf in $crudoH.charlaHoras.PSObject.Properties) { $script:habitos.charlaHoras[$pf.Name] = [int]$pf.Value } }
-        } catch { Log ("habitos: no pude leerlos: " + $_.Exception.Message) }
+        } catch { Log ("habitos: no pude leerlos: " + $_.Exception.Message); Save-Corrupto $rutaH 'habitos' }
     }
     return $script:habitos
 }
@@ -9319,7 +9319,7 @@ function Get-Fechas {
         try {
             $crudo = Get-Content -LiteralPath $FechasPath -Raw -Encoding UTF8 | ConvertFrom-Json
             foreach ($x in $crudo) { if ($null -ne $x -and [string]$x.texto) { $lista += $x } }
-        } catch { $lista = @() }
+        } catch { $lista = @(); Save-Corrupto $FechasPath 'fechas' }
     }
     return $lista
 }
@@ -9370,7 +9370,7 @@ function Get-Recordatorios {
         try {
             $crudo = Get-Content -LiteralPath $RecordatoriosPath -Raw -Encoding UTF8 | ConvertFrom-Json
             foreach ($x in $crudo) { if ($null -ne $x -and [string]$x.texto) { $lista += $x } }
-        } catch { $lista = @() }
+        } catch { $lista = @(); Save-Corrupto $RecordatoriosPath 'recordatorios' }
     }
     return $lista
 }

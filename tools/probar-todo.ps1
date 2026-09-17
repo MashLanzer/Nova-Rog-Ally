@@ -175,8 +175,20 @@ foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     $salida = powershell -NoProfile -File 'assistant.ps1' -Probar (Join-Path 'pruebas' $banco) 2>&1
     $linea = @($salida | Select-String 'reconocidas en local')[-1]
     Write-Host ("   {0,-32} {1}" -f $banco, $linea)
-    # las que fallan son controles a proposito; lo que importa es que no BAJE
-    if (-not $linea) { $fallos++ }
+    # LA CIFRA IMPORTA, NO QUE LA LINEA EXISTA (17/09). Esto solo miraba que la linea
+    # estuviera ahi, asi que una caida de 88 a 5 pasaba EN VERDE: justo lo que este banco
+    # existe para evitar. Las que fallan son controles a proposito, por eso el listero es
+    # un minimo y no una igualdad: lo que no puede es BAJAR.
+    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 183 }
+    $n = -1
+    if ($linea -and ("$linea" -match 'reconocidas en local:\s*(\d+)')) { $n = [int]$Matches[1] }
+    if ($n -lt 0) {
+        Write-Host "   MAL: no salio la linea de resultados" -ForegroundColor Red
+        $fallos++
+    } elseif ($n -lt $minimo) {
+        Write-Host ("   MAL: han BAJADO a {0}; el minimo conocido es {1}" -f $n, $minimo) -ForegroundColor Red
+        $fallos++
+    }
 }
 
 Titulo "5. Tu voz de verdad (si ya grabaste las ordenes)"
