@@ -1343,6 +1343,33 @@ quitarlo.
       Por motor, para cuando haya datos nuevos: base 60 repasos (rescata 10, estropea 6),
       small 24 (5 y 1), turbo 15 (3 y 0; turbo no estropeó ninguna).
 
+## 17/09: el ULTIMO RECURSO (turbo) cuesta 16 s y no sirve el 93 % de las veces
+
+Medido con las 188 ordenes reales y con `memoria\estadisticas.json` (5 dias), por dos
+vias que coinciden. Va directo contra lo que braya mas valora, que es la velocidad.
+
+| motor | veces | mediana | total  | rescata |
+|-------|-------|---------|--------|---------|
+| base  |  115  |  1,3 s  | 4,3 min|   10    |
+| small |   48  |  4,1 s  | 4,2 min|    5    |
+| turbo |   23  | 16,2 s  | 7,4 min|   ~3    |
+
+- turbo es NUEVE veces mas lento que base (media 19,4 s, maximo 76,5 s) y se lleva casi
+  la mitad de todo el tiempo de repasos.
+- Sale a **~149 s de espera por cada orden que salva**.
+- Las estadisticas lo dicen por otro lado: `turbo` 29 lanzamientos y `turbo-nada` 27, o
+  sea que aporta en ~2 de 29 (7 %).
+- A su favor: turbo NUNCA estropeo ninguna (0 de 15 en la medicion por motor).
+
+- [ ] **Decidir que hacer con el ultimo recurso.** Opciones, de menos a mas agresiva:
+      1. Bajarle el plazo (`ReintentoUltimoMs`) para que se rinda antes: hoy la mediana
+         ya son 16 s, asi que un tope de ~8 s se llevaria la mitad del gasto.
+      2. Lanzarlo solo con audio corto: los rescates medidos tienen mediana de 4,2 s.
+      3. Lanzarlo solo cuando la frase parezca una orden (no en charla).
+      4. Quitarlo del todo y quedarse con base + small.
+      Antes de tocarlo hay que ver si esos ~3 rescates eran ordenes que importaban: con
+      `destinos.jsonl` ya se puede saber que hizo Nova con ellas.
+
 ## 16/09: el perfil, limpio y con filtro
 
 Tenía 26 líneas y solo cuatro decían algo cierto: ocho variantes contradictorias sobre
