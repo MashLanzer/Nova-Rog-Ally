@@ -165,13 +165,18 @@ TRANSCRIBIR_MAX = 15.0
 
 TASA = 16000
 PICO_OBJETIVO = 0.35      # nivel al que queremos llevar la voz
-# Medido en esta maquina: la voz normal entra a 0.02-0.05 y hizo falta x26
-# para activarse. Empezar en x1 obligaba a gritar durante los primeros
-# minutos, mientras la ganancia trepaba sola.
-GANANCIA_INICIAL = 8.0
+# ARRANCAR BAJO ES MAS SEGURO QUE ARRANCAR ALTO (17/09). El comentario de antes
+# decia "la voz entra a 0.02-0.05 y hizo falta x26", y eso describia OTRO microfono:
+# medido sobre 400 pulsos reales de braya, el p90 crudo tiene mediana 0.601 y el 27 %
+# llega SATURADO, asi que la ganancia que pide es 0.58 de mediana. Arrancar en x8 era
+# lo que hacia que se activara sola con ruido y que no le oyera (17/09), y volveria a
+# pasar en cuanto faltara tmp\ganancia.txt, que es un directorio de usar y tirar.
+# Se arranca neutro: el pulso SUBE rapido (factor 0.6) y BAJA lento (0.2), asi que
+# quedarse corto se corrige en segundos y pasarse son minutos de activaciones solas.
+GANANCIA_INICIAL = 1.0
 # El minimo permite ATENUAR: si el microfono entra fuerte, amplificar recorta
 # la senal y el reconocimiento se vuelve imposible por el motivo contrario.
-GANANCIA_MIN = 0.5
+GANANCIA_MIN = 0.3
 GANANCIA_MAX = 40.0
 # Por debajo de esto la ventana es silencio: calibrar con silencio dispararia
 # la ganancia al maximo y luego saturaria la voz.
@@ -1703,6 +1708,14 @@ try:
                         propuesta = ganancia + (nueva - ganancia) * factor
                         # segunda red: tope de salto por ciclo
                         propuesta = max(ganancia - PASO_MAX, min(ganancia + PASO_MAX, propuesta))
+                        # EL REDONDEO SE COMIA LA BAJADA (17/09). Con ganancia 0.7 y
+                        # objetivo 0.58: propuesta = 0.7 + (0.58-0.7)*0.2 = 0.676, y
+                        # round(...,1) la devolvia a 0.7. Se quedaba clavada para
+                        # siempre aunque el microfono pidiera menos, que es justo lo
+                        # que pasaba: 27 % de los pulsos saturados sin poder atenuar.
+                        # Si toca bajar, se fuerza un decimal, sin pasarse del objetivo.
+                        if nueva < ganancia:
+                            propuesta = max(nueva, min(propuesta, ganancia - 0.1))
                         ganancia = round(max(GANANCIA_MIN, min(GANANCIA_MAX, propuesta)), 1)
                         anota("pulso: p90=%.4f bloques_voz=%d ganancia=x%.1f decodificado=%d%% altavoces=%.3f"
                               % (ref, bloques_voz, ganancia, pct_dec(), nivel_salida()))

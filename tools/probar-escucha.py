@@ -14,7 +14,7 @@ import sys
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 fuente = open(os.path.join(RAIZ, "wake_vosk.py"), encoding="utf-8").read()
 arbol = ast.parse(fuente)
-QUIERO = {"SILENCIO_FIN", "SILENCIO_FIN_LOTENGO", "silencio_para_cerrar", "MARGEN_CORTE_HZ", "es_voz_de_braya", "PROMPT_ORDENES", "es_eco_del_ejemplo", "PICO_OBJETIVO", "GANANCIA_MIN", "GANANCIA_MAX"}
+QUIERO = {"SILENCIO_FIN", "SILENCIO_FIN_LOTENGO", "silencio_para_cerrar", "MARGEN_CORTE_HZ", "es_voz_de_braya", "PROMPT_ORDENES", "es_eco_del_ejemplo", "PICO_OBJETIVO", "GANANCIA_MIN", "GANANCIA_MAX", "GANANCIA_INICIAL"}
 trozos = []
 for n in arbol.body:
     nombre = n.targets[0].id if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name) else getattr(n, "name", None)
@@ -78,6 +78,31 @@ _suya = [round(ns["PICO_OBJETIVO"] / p, 2) for p in (0.47, 0.75, 0.99)]
 comp("la ganancia correcta de braya es menor que x1", all(g < 1.0 for g in _suya), str(_suya))
 comp("o sea que la regla vieja se la habria tirado siempre", all(g < 1.5 for g in _suya), str(_suya))
 comp("y el sistema puede atenuar por debajo de x1", ns["GANANCIA_MIN"] < 1.0)
+
+# LA GANANCIA TIENE QUE PODER BAJAR (17/09). Se quedaba clavada en x0.7 por el REDONDEO:
+# con objetivo 0.58, propuesta = 0.7 + (0.58-0.7)*0.2 = 0.676 y round(...,1) devolvia 0.7
+# otra vez. Ocho ciclos sin moverse. Y mientras, el 27 % de los pulsos de braya llegaban
+# saturados (p90 crudo >= 0.98 en 109 de 400) pidiendo atenuar. Dos fallos que se tapaban.
+comp("el suelo deja atenuar lo que pide su microfono (0.35)", ns["GANANCIA_MIN"] <= 0.35)
+comp("no se arranca en x8, que fue lo que la activaba sola", ns["GANANCIA_INICIAL"] <= 2.0)
+comp("queda la correccion del redondeo al bajar", "if nueva < ganancia:" in fuente)
+
+# la formula es COPIA de la del pulso (esta dentro del bucle, no se puede sacar con ast):
+# si alli cambia, hay que cambiarla aqui. Lo que se comprueba es que BAJE, que es lo que
+# no hacia.
+def _ciclo(g, p90):
+    nueva = max(ns["GANANCIA_MIN"], min(ns["GANANCIA_MAX"], ns["PICO_OBJETIVO"] / p90))
+    prop = g + (nueva - g) * (0.6 if nueva > g else 0.2)
+    if nueva < g:
+        prop = max(nueva, min(prop, g - 0.1))
+    return round(max(ns["GANANCIA_MIN"], min(ns["GANANCIA_MAX"], prop)), 1)
+
+comp("con su voz (p90=0.601) baja de 0.7", _ciclo(0.7, 0.601) < 0.7, "-> %.1f" % _ciclo(0.7, 0.601))
+_g = 0.7
+for _ in range(6):
+    _g = _ciclo(_g, 0.99)
+comp("y con el microfono saturado llega abajo", _g <= 0.4, "-> %.1f" % _g)
+comp("subir sigue siendo rapido (no deja sordo al arrancar)", _ciclo(1.0, 0.05) >= 4.0, "-> %.1f" % _ciclo(1.0, 0.05))
 
 print("")
 print("todo correcto" if fallos == 0 else "%d casos MAL" % fallos)

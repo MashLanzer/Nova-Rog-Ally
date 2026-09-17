@@ -87,6 +87,19 @@ cómo se mide y **5 mejoras** concretas.
 | 9 | `leer_vocabulario()` no se llama desde ningún sitio, pero el asistente sigue generando y pasando `tmp\vocabulario.txt`; `pico_voz` es variable muerta | LEVE | — |
 | 10 | `decodificado=N%` es una media desde el arranque del proceso, no de la ventana: no puede avisar de nada | LEVE | — |
 
+**HECHO (17/09) — 3.1 #1, #2 y #3, los tres de la ganancia.** Medido sobre 400 pulsos
+reales: p90 crudo con mediana **0,601** y **27 % saturados** (109 de 400 con ≥0,98), o sea
+que el micrófono pide atenuar **0,58 de mediana y 0,35 en los picos**.
+- El **suelo** era 0,5, por encima de lo que pide: baja a 0,3.
+- El **redondeo se comía la bajada**: con 0,7 y objetivo 0,58, `0,7+(0,58-0,7)*0,2 = 0,676`
+  y `round(...,1)` devolvía 0,7. Clavada para siempre. Ahora, si toca bajar, se fuerza un
+  decimal sin pasarse del objetivo: 0,7 → 0,6 con su voz, y 0,7 → 0,4 con el micro saturado.
+- **`GANANCIA_INICIAL` era x8** y describía otro micrófono. Arrancar alto es lo que la hacía
+  activarse sola; arrancar neutro (x1) es seguro porque **subir es rápido** (0,6) y bajar
+  lento (0,2): simulado, 1,0 → 4,6 en un solo ciclo. Si faltara `tmp\ganancia.txt` ya no
+  vuelve el fallo de ayer.
+Seis casos nuevos en `probar-escucha.py`, incluido uno que reproduce el atasco.
+
 ### 3.2 El núcleo de órdenes — HECHA (9 hallazgos)
 
 | # | Hallazgo | Sev. | Dónde |
