@@ -1184,6 +1184,16 @@ batería (7, 13, 14, 15), juego colgado (12).
       curso y el de la semana. Improvisar un contador a medias daría cifras falsas.
 - [ ] Quedan: 8, 10, 11, 16, 18, 20, 22, 23, 29.
 
+**Idea 31 (nueva, del propio braya el 16/09): el disco de los juegos va y viene.**
+Conecta un disco externo (E:, «Extreme SSD») con 10 juegos más y lo quita. Se vio en
+vivo: por la mañana Nova indexaba 16 juegos y por la tarde 26. Hasta ahora la
+biblioteca solo se refrescaba cuando alguien preguntaba por un juego, así que con el
+disco fuera «abre Elden Ring» intentaría abrir algo que ya no está. Hecho: `Watch-Entorno`
+compara las unidades listas cada 30 s y, si cambian, reindexa y lo dice.
+
+- [ ] Pendiente menor: «abre spider man» se va al modelo porque el título empieza por
+      «Marvel's». Con «marvels spider man» sí encaja en local.
+
 **Fase 3: crear estas cosas hablando.** Ampliar las reglas por voz, que ya tienen 12
 tipos de evento (`Invoke-Reglas`), para que la acción pueda ser «díme X» y para los
 eventos nuevos de las fases 1 y 2.

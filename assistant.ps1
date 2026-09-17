@@ -693,7 +693,7 @@ function Get-JuegosSteam {
         [void]$libs.Add(($sp -replace '/', '\'))
         $vdf = Join-Path ($sp -replace '/', '\') 'steamapps\libraryfolders.vdf'
         if (Test-Path -LiteralPath $vdf) {
-            foreach ($l in ((Get-Content -LiteralPath $vdf -Raw) -split "`n")) {
+            foreach ($l in ((Get-Content -LiteralPath $vdf -Raw -Encoding UTF8) -split "`n")) {
                 if ($l -match '"path"\s*"([^"]+)"') { [void]$libs.Add(($Matches[1] -replace '\\\\', '\')) }
             }
         }
@@ -702,7 +702,7 @@ function Get-JuegosSteam {
             $d = Join-Path ($lib -replace '/', '\') 'steamapps'
             if (-not (Test-Path -LiteralPath $d)) { continue }
             foreach ($f in (Get-ChildItem -LiteralPath $d -Filter 'appmanifest_*.acf' -ErrorAction SilentlyContinue)) {
-                $c = Get-Content -LiteralPath $f.FullName -Raw -ErrorAction SilentlyContinue
+                $c = Get-Content -LiteralPath $f.FullName -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
                 if ($c -match '"appid"\s*"(\d+)"') { $id = $Matches[1] } else { continue }
                 if ($c -match '"name"\s*"([^"]+)"') { $nm = $Matches[1] } else { continue }
                 if ($vistos.ContainsKey($id)) { continue }
@@ -5212,6 +5212,7 @@ function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'med
 $script:entornoCheck = 0
 $script:entornoUltimaActividad = 0
 $script:entornoBotonesAntes = 0
+$script:entornoUnidades = $null      # las unidades que habia la ultima vez (idea 31)
 function Watch-Entorno([int]$botones = 0) {
     if (-not $EntornoOn) { return }
     # IDEA 6: COGES LA CONSOLA. El bucle ya lee los cuatro mandos; si aparecen botones
@@ -5242,6 +5243,28 @@ function Watch-Entorno([int]$botones = 0) {
     # semana, pero no los minutos acumulados del dia. Hacerlo bien es llevar la cuenta
     # por dia al cerrar cada juego, y eso es otra tanda; improvisar aqui un contador a
     # medias daria numeros falsos, que es peor que no decir nada.
+
+    # IDEA 31: EL DISCO DE LOS JUEGOS VA Y VIENE. braya conecta un disco externo con
+    # mas juegos y lo quita. Hasta ahora la biblioteca solo se refrescaba cuando alguien
+    # preguntaba por un juego: con el disco fuera, "abre Elden Ring" intentaria abrir
+    # algo que ya no esta; con el disco puesto, Nova no se enteraba de que tiene diez
+    # juegos mas. Se comprueban las unidades y, si cambian, se reindexa.
+    try {
+        $letras = @([System.IO.DriveInfo]::GetDrives() | Where-Object { $_.IsReady } | ForEach-Object { $_.Name }) -join ','
+        if ($null -ne $script:entornoUnidades -and $letras -ne $script:entornoUnidades) {
+            $antesJ = @($script:Juegos).Count
+            $script:JuegosStamp = (Get-Date).AddMinutes(-5)   # forzar el refresco
+            [void](Update-Juegos)
+            $ahoraJ = @($script:Juegos).Count
+            Log "UNIDADES: '$($script:entornoUnidades)' -> '$letras' (juegos: $antesJ -> $ahoraJ)"
+            if ($ahoraJ -gt $antesJ) {
+                [void](Send-AvisoEntorno 'disco-juegos' "Veo el disco de los juegos. Ahora tienes $ahoraJ juegos." 'medio' 5)
+            } elseif ($ahoraJ -lt $antesJ) {
+                [void](Send-AvisoEntorno 'disco-juegos' "Quitaste el disco: te quedan $ahoraJ juegos a mano." 'medio' 5)
+            }
+        }
+        $script:entornoUnidades = $letras
+    } catch {}
 
     # IDEA 26: el correo lleno. Una vez por semana, que es lo que aguanta cualquiera.
     try {
