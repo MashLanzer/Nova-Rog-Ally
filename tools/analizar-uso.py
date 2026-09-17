@@ -144,7 +144,12 @@ def main():
         print("  (%d ordenes con voz siguen sin destino: son anteriores al 17/09)" % sinDestino)
 
     # lo que costo oirlas
-    solo = [o for o in conVoz if o.get("parakeet") and not o.get("whisper")]
+    # OJO (17/09): esto decia "resueltas solo con Parakeet" mirando unicamente si la
+    # linea principal traia whisper vacio, y daba 144 de 187. Estaba MAL, y mi propio
+    # informe se contradecia sin que yo lo viera: 144 "solo Parakeet" + 125 "repasadas"
+    # suman mas que las 187 ordenes que hay. El repaso llega DESPUES, en otra linea, asi
+    # que ahorrarse Whisper significa no haber pagado ningun repaso.
+    solo = [o for o in conVoz if o.get("parakeet") and not o.get("whisper") and not o.get("repasos")]
     repasadas = [o for o in conVoz if o.get("repasos")]
     print("")
     print("EL OIDO:")
