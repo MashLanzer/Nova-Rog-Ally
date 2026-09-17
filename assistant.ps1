@@ -2044,7 +2044,14 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(?:el\s+)?(?:volumen|sonido)\s+(?:al?\s+)?(\d{1,3})(?:\s*(?:%|por ciento))?$') {
         $n = [int]$Matches[1]
         if ($n -ge 0 -and $n -le 100) {
-            return @(@{ kind = 'volumenPct'; nivel = $n; desc = "volumen al $n por ciento" })
+            # OJO CON EL NOMBRE DEL CAMPO (17/09): el ejecutor de 'volumenPct' lee $a.pct,
+            # no $a.nivel. Esta rama lo creaba como 'nivel', asi que $a.pct llegaba vacio,
+            # [int]$null es 0 y "volumen al 70" PONIA EL VOLUMEN A CERO... diciendo
+            # "volumen al 70 por ciento". Lo peor de todo: hacer lo contrario y presumir
+            # de ello. No lo cazaba nadie porque el banco -Probar solo compara la
+            # descripcion y nunca llega a ejecutar (ver probar-acciones.ps1).
+            # El hermano 'brillo' si usa 'nivel' en los dos lados y esta bien.
+            return @(@{ kind = 'volumenPct'; pct = $n; desc = "volumen al $n por ciento" })
         }
     }
     if ($f -match '^(?:el\s+)?brillo\s+(?:al?\s+)?(\d{1,3})(?:\s*(?:%|por ciento))?$') {
