@@ -63,6 +63,9 @@ def main():
     # una orden = un id. La linea que trae 'entregado' es la de la orden; las demas son
     # repasos del oido fino sobre esa misma orden.
     ordenes = collections.OrderedDict()
+    # lo que cuesta cada motor de repaso, en segundos reales. Se calculo a mano dos veces
+    # el 17/09 para decidir sobre el ultimo recurso; que salga solo.
+    costes = collections.defaultdict(list)
     for e in eventos:
         ident = txt(e, "id")
         if not ident or (dia and not ident.startswith(dia.replace("-", ""))):
@@ -77,6 +80,11 @@ def main():
             if txt(e, "texto"):
                 o["repaso_texto"] = txt(e, "texto")
                 o["repaso_motor"] = txt(e, "motor")
+            if e.get("segundos") is not None:
+                try:
+                    costes[txt(e, "motor") or "?"].append(float(e["segundos"]))
+                except (TypeError, ValueError):
+                    pass
 
     for d in destinos:
         ident = txt(d, "id")
@@ -148,6 +156,22 @@ def main():
         print("  ...y de esas, el repaso oyo algo DISTINTO en %d" % len(cambio))
     ori = collections.Counter(o.get("origen") or "?" for o in conVoz)
     print("  como empezaron: %s" % dict(ori.most_common()))
+
+    # LO QUE CUESTA REPASAR. El 17/09 salio de aqui que el ultimo recurso (turbo) tarda
+    # 16 s de mediana y no aporta el 93 % de las veces: es el motor mas lento con
+    # diferencia y se lleva casi la mitad del tiempo de todos los repasos.
+    if costes:
+        print("")
+        print("LO QUE CUESTA CADA REPASO:")
+        total = 0.0
+        for m in sorted(costes, key=lambda k: -sum(costes[k])):
+            v = sorted(costes[m])
+            total += sum(v)
+            mediana = v[len(v) // 2] if len(v) % 2 else (v[len(v) // 2 - 1] + v[len(v) // 2]) / 2.0
+            print("  %-6s n=%3d   media %5.1f s   mediana %5.1f s   max %5.1f s   TOTAL %6.1f s"
+                  % (m, len(v), sum(v) / len(v), mediana, max(v), sum(v)))
+        print("  ---")
+        print("  en total se han ido %.0f s (%.1f min) repasando audio" % (total, total / 60.0))
 
 
 if __name__ == "__main__":
