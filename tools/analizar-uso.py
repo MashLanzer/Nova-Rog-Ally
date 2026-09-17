@@ -80,7 +80,15 @@ def main():
 
     for d in destinos:
         ident = txt(d, "id")
-        if ident in ordenes:
+        if ident not in ordenes:
+            continue
+        # LO QUE DICE BRAYA MANDA. Un destino dice lo que Nova CREYO hacer: "abrir
+        # Outlast" cuenta como acierto aunque el quisiera Outlast 2. Si el dijo que
+        # estuvo mal, esa orden es un fallo por encima de lo que diga el destino.
+        if txt(d, "hizo") == "fallo-dicho-por-ti":
+            ordenes[ident]["lo_dijo_mal"] = True
+            ordenes[ident]["queria"] = txt(d, "detalle")
+        else:
             ordenes[ident]["hizo"] = txt(d, "hizo")
             ordenes[ident]["detalle"] = txt(d, "detalle")
 
@@ -100,19 +108,27 @@ def main():
         print("Ninguna tiene apuntado QUE HIZO Nova todavia.")
         print("Eso empieza a guardarse desde el 17/09: usa Nova un rato y vuelve a mirar.")
     else:
-        bien = [o for o in conDestino if o["hizo"] in BIEN]
-        mal = [o for o in conDestino if o["hizo"] in MAL]
+        # lo que dijo braya manda sobre lo que Nova creyo hacer
+        dichas = [o for o in conDestino if o.get("lo_dijo_mal")]
+        bien = [o for o in conDestino if o["hizo"] in BIEN and not o.get("lo_dijo_mal")]
+        mal = [o for o in conDestino if o["hizo"] in MAL or o.get("lo_dijo_mal")]
         print("")
         print("DE LAS %d QUE SE SABE QUE HIZO:" % len(conDestino))
         print("  acerto:  %3d  (%.0f %%)" % (len(bien), 100.0 * len(bien) / len(conDestino)))
         print("  fallo:   %3d  (%.0f %%)" % (len(mal), 100.0 * len(mal) / len(conDestino)))
+        if dichas:
+            print("  ...y %d de esos fallos los dijiste TU ('no era eso'), que es el dato" % len(dichas))
+            print("     que no depende de interpretar nada.")
         print("")
         print("  por destino: %s" % dict(collections.Counter(o["hizo"] for o in conDestino).most_common()))
         if mal:
             print("")
             print("  LAS QUE FALLARON (aqui esta el trabajo):")
             for o in mal[-15:]:
-                print("    %s  [%s]  '%s'" % (o.get("hora", "")[-8:], o["hizo"], o.get("entregado", "")[:52]))
+                marca = "TU LO DIJISTE" if o.get("lo_dijo_mal") else o["hizo"]
+                print("    %s  [%s]  '%s'" % (o.get("hora", "")[-8:], marca, o.get("entregado", "")[:52]))
+                if o.get("queria"):
+                    print("               querias: '%s'" % o["queria"][:52])
 
     sinDestino = len(conVoz) - len(conDestino)
     if sinDestino and conDestino:

@@ -1376,6 +1376,38 @@ function Write-DestinoUso([string]$ruta, [string]$detalle = '') {
         [System.IO.File]::AppendAllText((Join-Path $dirU 'destinos.jsonl'),
             ((ConvertTo-Json -InputObject $oU -Compress) + [Environment]::NewLine),
             (New-Object System.Text.UTF8Encoding($false)))
+        # se recuerda para poder corregirlo si braya dice que estuvo mal: cuando lo dice,
+        # el id de la marca ya se ha consumido y no quedaria a que orden referirse
+        $script:ultimoUsoId = $idU
+        $script:ultimoUsoEn = $sw.ElapsedMilliseconds
+        return $true
+    } catch { return $false }
+}
+
+# TU LO DICES, Y CUENTA (17/09). El destino apuntado dice lo que Nova CREYO hacer, pero
+# solo braya sabe si acerto: "abrir Outlast" cuenta como acierto aunque el queria
+# Outlast 2. Cuando dice "no era eso" (o "eso estuvo mal"), esa orden queda marcada como
+# fallo confirmado. Es el unico dato que no depende de que yo interprete nada, y es el
+# que de verdad mide la meta de cero ordenes equivocadas.
+$script:ultimoUsoId = ''
+$script:ultimoUsoEn = 0
+function Write-FalloUso([string]$porque = '') {
+    if (-not $script:ultimoUsoId) { return $false }
+    # una queja muy posterior ya no habla de esa orden: mejor no marcar nada que marcar
+    # la que no era, porque un dato falso es peor que un dato que falta
+    if (($sw.ElapsedMilliseconds - $script:ultimoUsoEn) -gt 300000) { $script:ultimoUsoId = ''; return $false }
+    $idF = $script:ultimoUsoId
+    $script:ultimoUsoId = ''   # una sola vez por orden
+    try {
+        $dirF = Join-Path $LogDir 'pruebas\audio\uso'
+        if (-not (Test-Path -LiteralPath $dirF)) { return $false }
+        $pF = ($porque -replace '\s+', ' ').Trim()
+        if ($pF.Length -gt 120) { $pF = $pF.Substring(0, 117) + '...' }
+        $oF = [ordered]@{ id = $idF; hora = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'); hizo = 'fallo-dicho-por-ti'; detalle = $pF }
+        [System.IO.File]::AppendAllText((Join-Path $dirF 'destinos.jsonl'),
+            ((ConvertTo-Json -InputObject $oF -Compress) + [Environment]::NewLine),
+            (New-Object System.Text.UTF8Encoding($false)))
+        Log "USO: la orden $idF queda marcada como fallo (lo dijiste tu)"
         return $true
     } catch { return $false }
 }
@@ -2380,7 +2412,10 @@ function Resolve-Fragment([string]$f) {
         return @(@{ kind = 'olvidarReceta'; desc = 'olvidar la receta' })
     }
     # --- "no era eso": deshacer Y no repetir el error ---
-    if ($f -match '^(?:no era eso|eso no era|no era esto|no te pedi eso|eso no|no queria eso|no era lo que dije)$') {
+    # "eso estuvo mal" y sus formas entran AQUI (17/09), no en una orden nueva: es la
+    # misma queja de siempre, y asi ademas queda apuntada como fallo en el registro de
+    # uso (ver Write-FalloUso), que es lo unico que mide de verdad si Nova acierta.
+    if ($f -match '^(?:no era eso|eso no era|no era esto|no te pedi eso|eso no|no queria eso|no era lo que dije|eso estuvo mal|eso esta mal|lo hiciste mal|te equivocaste|no era lo que queria)$') {
         return @(@{ kind = 'noEraEso'; desc = 'deshacer y olvidar esa interpretacion' })
     }
     # --- en que fallo ---
@@ -6835,6 +6870,9 @@ function Invoke-FastCommand([string]$text) {
                     # preguntar siempre (auditoria del 13/09)
                     $fraseRechazo = if ($script:ultimaAprendida) { [string]$script:ultimaAprendida } else { [string]$script:ultimoEjecutado }
                     if ($fraseRechazo) { $apuntada = Add-Rechazo $fraseRechazo }
+                    # 1c) y que cuente como fallo en el registro de uso: esto es lo que
+                    #     convierte "cero ordenes equivocadas" en un numero medible
+                    try { [void](Write-FalloUso $fraseRechazo) } catch {}
                     # 2) y si la orden salio de una traduccion APRENDIDA, borrarla:
                     #    si no, volveria a equivocarse igual la proxima vez. Esto es
                     #    lo que convierte un "no era eso" en algo que sirve.

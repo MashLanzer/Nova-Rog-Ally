@@ -166,6 +166,10 @@ Titulo "2n10. Que HIZO Nova con lo que oyo (para poder medir los aciertos)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-destino-uso.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n11. Cuando braya dice que estuvo mal (el dato que no interpreta nadie)"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-fallo-uso.ps1') | Select-String 'todo correcto|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "3. Ordenes que SI deben reconocerse"
 foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     $salida = powershell -NoProfile -File 'assistant.ps1' -Probar (Join-Path 'pruebas' $banco) 2>&1
