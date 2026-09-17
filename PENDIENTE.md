@@ -1164,11 +1164,12 @@ de nivel bajo sin voz (solo cápsula), nada con invitado delante ni mientras hab
 espera un sí, y «no me avises de nada» / «vuelve a avisarme».
 APAGADO por defecto: `config.json` → `entorno.avisos`.
 
-**Fase 1 (siguiente): lo que ya tiene sensores.** dock (2, 3), cascos (4, 5), cerrar
-un juego (9), descarga terminada (24), disco bajo (25), correo importante (21),
-batería (7, 13, 14, 15), juego colgado (12).
+**Fase 1 (hecha el 16/09): lo que ya tenía sensores.** Ninguno hubo que inventarlo:
+todos esos flancos ya se detectaban y lo único que faltaba era que Nova dijera algo.
+dock (2, 3), cascos (4, 5), cerrar un juego (9), descarga terminada (24), disco bajo
+(25), batería y cargador (7, 13, 14, 15).
 
-**Fase 2 (hecha en parte el 16/09).** Lo mejor fue descubrir cuánto ya existía:
+**Fase 2 (hecha el 16/09).** Lo mejor fue descubrir cuánto ya existía:
 - [x] 1 y 17: el parte de la mañana y el resumen al volver ya estaban escritos, pero
       colgaban de que braya hablara primero (se preparaban dentro de `Process-Texto`).
       Ahora `Watch-Entorno` los llama desde el bucle y salen solos.
@@ -1179,10 +1180,9 @@ batería (7, 13, 14, 15), juego colgado (12).
 - [x] 27 y 28: YA ESTABAN, y mejor de lo que las habría escrito. `Find-Propuesta` mira
       tres patrones (misma orden a la misma hora, orden tras abrir una app, tres
       seguidas), nunca propone jugando, una al día y con lista de rechazadas.
-- [ ] 19 (cuánto llevas hoy): se cayó de la tanda. Hace falta llevar la cuenta de
-      minutos POR DÍA al cerrar cada juego; hoy solo existe el tiempo de la partida en
-      curso y el de la semana. Improvisar un contador a medias daría cifras falsas.
-- [ ] Quedan: 8, 10, 11, 16, 18, 20, 22, 23, 29.
+- [x] 19 (cuánto llevas hoy): se cayó de esta tanda porque me inventé una función que
+      no existía (`Get-TiempoJuegoHoy`). Hecha en la fase 3, llevando la cuenta de
+      minutos POR DÍA al cerrar cada juego, que es cuando se sabe lo que duró.
 
 **Idea 31 (nueva, del propio braya el 16/09): el disco de los juegos va y viene.**
 Conecta un disco externo (E:, «Extreme SSD») con 10 juegos más y lo quita. Se vio en
@@ -1194,9 +1194,95 @@ compara las unidades listas cada 30 s y, si cambian, reindexa y lo dice.
 - [ ] Pendiente menor: «abre spider man» se va al modelo porque el título empieza por
       «Marvel's». Con «marvels spider man» sí encaja en local.
 
-**Fase 3: crear estas cosas hablando.** Ampliar las reglas por voz, que ya tienen 12
-tipos de evento (`Invoke-Reglas`), para que la acción pueda ser «díme X» y para los
-eventos nuevos de las fases 1 y 2.
+**Fase 3 (hecha el 16/09): 10, 11, 16, 19, 20 y 23.** La 8 (mensajes importantes
+jugando) ya existía y ya pasaba por el freno, así que no hubo nada que tocar.
+- [x] 23: dos avisos seguidos se dicen en UNA frase. La primera versión estaba MAL: le
+      pegaba al aviso nuevo el texto del anterior… que ya había sonado, o sea que lo
+      repetía en voz alta. Lo que se junta es solo la VOZ: el aviso se apunta y se ve al
+      momento, pero se dice unos segundos después con los que caigan. Lo crítico no hace
+      cola y además va primero.
+- [x] 11: al abrir un juego con actualización o descarga a medias en Steam (StateFlags
+      distinto de 4), lo dice ANTES de que el juego no arranque.
+- [x] 10: el aviso de las 2 horas jugando pasa por el freno de mano como todo lo demás.
+- [x] 19 y 20: minutos de juego por día, apuntados al cerrar. La madrugada cuenta como
+      el día anterior y se guardan 30 días. OJO: los hábitos se guardan campo a campo,
+      así que `minutosJuego` hubo que añadirlo a `Get-Habitos` Y a `Save-Habitos`; si no,
+      se pierde en el primer guardado (la misma trampa que tuvieron las recetas).
+- [x] 16: avisa si un juego gasta batería mucho más rápido que SU propia media, no que
+      un número inventado, y solo con tres muestras de historial.
+
+**Fase 4 (hecha el 17/09): 18, 22 y 29.** Las tres devuelven la frase (o cadena vacía)
+sin hacer nada, y el vigilante decide si se dice: así el banco puede probarlas sin que
+Nova hable.
+- [x] Nivel de aviso nuevo, `noche`. EL AVISO QUE SE CALLABA A SÍ MISMO: el freno
+      silencia de noche todo lo que no sea `alto`, así que un «vete a dormir» a las 2 de
+      la madrugada no habría salido nunca; y ponerlo `alto` es peor, porque lo crítico
+      suena jugando y se salta el tope. `noche` se salta el silencio nocturno y nada más.
+- [x] 18: la hora de dormir es LA TUYA. No un sermón a las 23:00 clavadas: solo si a esa
+      hora no sueles estar levantado (menos de 3 días de los últimos 14), el mismo
+      criterio que ya usaba la precarga de la charla.
+- [x] 22: el correo de la mañana, una vez al día. `Invoke-CorreoScript` ESPERA a que el
+      script termine (hasta 25 s): llamarlo desde el bucle dejaría a Nova congelada y
+      sorda ese rato, así que se lanza y se recoge en otra vuelta, como la nube.
+- [x] 29: avisa si hoy falla mucho más que SU media de la semana.
+
+**Crear estas cosas hablando (hecho el 17/09).** Al cruzar los datos salió que los 13
+disparadores que se podían pedir hablando eran EXACTAMENTE los 13 que ya existían: el
+hueco eran los sensores nuevos de las fases 1-4, que solo avisaban. Ahora hay cinco más:
+`dockQuita`, `cascosQuita`, `bateriaLlena`, `discoJuegos` y `mandoCoge` («cuando quite el
+dock, pon el modo batería», «cuando coja el mando, pon el modo juego»…).
+- Cada tipo nuevo tiene que estar en CINCO sitios o falla en silencio: el patrón (no se
+  crea), el switch de «avísame» a secas (nace muerta, porque `avisa` no es ejecutable),
+  `Describe-Regla` («qué reglas tengo» recitaría el nombre técnico), el switch de
+  `Invoke-Reglas` (se guarda y no dispara jamás) y el sensor.
+- OJO CON EL ORDEN, y lo cazó el banco: «cuando termine de cargar» lo capturaba antes la
+  regla de cerrar un juego («cuando termine X»), que tomaba «de cargar» como nombre de
+  juego. Va delante, igual que ya le pasó a la de descargas.
+- El mando dispara con 5 minutos quieto, no con los 90 del saludo: hablar cansa, pero
+  «pon el modo juego» no.
+
+Con esto el plan del entorno está terminado: las 31 ideas y poder crearlas hablando.
+
+## 17/09: se activaba sola y no le oía (era el MISMO fallo)
+
+braya: «se está activando sola más de lo normal, y no me entiende bien cuando le digo
+nova, o sea nunca se activa literalmente, pero sí lo hace sola a veces sin yo hablarle».
+
+`wake_vosk.py` descartaba cualquier ganancia guardada por debajo de x1.5 y arrancaba en
+x8, con el argumento de que «la voz entra a 0.02-0.05 y hace falta amplificar entre x8 y
+x26». Eso era cierto con el micrófono de entonces. Con el de ahora su voz entra a p90
+0.47-0.99 con x0.7 (muy por encima de `PICO_OBJETIVO`, 0.35): su ganancia correcta ES
+baja, así que la regla se cumplía SIEMPRE y además sobrescribía el archivo.
+
+Medido en el log: la calibración buena se ha tirado **38 veces**, dos solo el 16/09
+(x1.1 → x8.0 a las 19:55 y x0.8 → x8.0 a las 21:48). Arrancando a x8, el ruido de fondo
+basta para activarla sola —6 de las 13 activaciones de ese día tienen **pico 0.000**, y
+todas caen durante el descenso desde x8 (x3.6, x2.9, x2.7, x2.1), que dura minutos
+porque bajar es lento a propósito (factor 0.2)—, y mientras tanto la voz de verdad
+satura («recorte detectado: bajando ganancia a x1.0»). Un solo fallo, sus dos quejas.
+
+**POR QUÉ IMPORTA ANOTARLO: ya figuraba como arreglado.** Está en la auditoría del 13/09,
+en «Leves: ganancia recordada que se descartaba en cada arranque». Lo que se hizo
+entonces no fue quitar la regla, sino SOBRESCRIBIR el archivo con x8 para que el descarte
+no se repitiera en cada arranque; es decir, se consolidó el x8 y el fallo quedó vivo tres
+días más. Ahora no puede volver: `probar-escucha.py` comprueba sobre el texto de
+`wake_vosk.py` que no queda el descarte ni ninguna regla que compare la guardada con un
+mínimo, y deja escrito con sus números por qué su ganancia correcta es menor que x1.
+
+Arrancar desde lo guardado es seguro: el pulso recalcula la ganancia DESDE CERO
+(`PICO_OBJETIVO` / pico crudo) en cuanto hay voz sostenida y para subir es rápido.
+
+Dos cosas más que salieron tirando de este hilo:
+- [x] **Un banco no puede cambiar de color según la hora.** `probar-entorno.ps1` fijaba
+      la franja de noche real (23-8), así que pasarlo de madrugada bloqueaba todos los
+      avisos normales —lo correcto— y salían 12 casos MAL sin nada roto. Y peor: «nivel
+      bajo: sin voz» seguía en verde, porque con todo bloqueado se cumple solo. Era un OK
+      falso. Ahora la franja se pone lejos de la hora actual y los casos que van de horas
+      la fijan ellos.
+- [x] **«Solo 471 MB libres» era MEMORIA, no disco.** El aviso que salta la prueba con su
+      voz decía «MB libres» sin decir de qué (`FreePhysicalMemory`); el disco tenía 116 GB.
+      Con Nova cerrada quedaron 1791 MB y la prueba corrió por fin: **20 de 20 (100 %)**,
+      con el oído fino rescatando las 2 que falló el modelo rápido.
 
 ## 16/09: el perfil, limpio y con filtro
 
