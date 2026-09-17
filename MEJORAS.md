@@ -142,6 +142,26 @@ porque la tubería nueva invalida la pendiente.
   vencido cuesta dos frases sin voz en línea en vez de una. Preferible a hablar
   descuadrada, pero queda escrito para que no parezca un efecto no visto.
 
+**HECHO (17/09) — 3.3 #3, el cuarto de segundo de cada frase. Y la mejora propuesta era
+MALA: medirlo lo salvó.** `Play-Audio` dormía 250 ms fijos en el hilo del bucle (202
+frases en el log = **50,5 s congelado**, y la mitad eran frases ya preparadas que llegaban
+en milisegundos). Medido en esta máquina:
+- `Open()` tarda **453-547 ms** en estar listo, siempre → los 250 ms **no llegaban ni al
+  peor caso**: `Play()` ya se llamaba sobre un audio a medio cargar.
+- Y aun así sonaba, porque **`Play()` queda encolado**: llamándolo inmediatamente, la
+  posición empieza a avanzar a los 513 ms, igual que con pausa. La pausa solo congelaba.
+- `MediaOpened` (la mejora nº 2 que proponía la auditoría) **no llega NUNCA** aquí:
+  sin bucle de mensajes WPF en un script de PowerShell el evento no se entrega (probado,
+  ni en 2 s). Llegué a implementarlo y **empeoraba**: cada frase caía en una red de
+  600 ms. Sondear `NaturalDuration` tampoco vale: 543 ms.
+→ Queda `Open()` + `Play()` seguidos, sin esperar nada. **No reintentar `MediaOpened`.**
+
+**HECHO (17/09) — 3.3 #10, el revisor que despertaba 1.200 veces por hora.** Era
+`while True: sleep(3)` con un recorrido de hasta 5.000 recuerdos por vuelta. Ahora espera
+sobre un evento, **se para del todo con un juego delante** (colgado de la operación
+`descargar` que el asistente ya envía al abrir uno) y se reanuda en la siguiente charla;
+si no encuentra trabajo, va espaciando hasta 60 s.
+
 ### 3.3 La cápsula y los workers — HECHA (11 hallazgos)
 
 Lo más grave no está en el dibujado, sino en **el camino de la voz**.

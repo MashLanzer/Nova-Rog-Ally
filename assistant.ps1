@@ -7862,6 +7862,7 @@ function Play-Audio([string]$ruta) {
         if (-not $script:reproductor) {
             Add-Type -AssemblyName PresentationCore -ErrorAction Stop
             $script:reproductor = New-Object System.Windows.Media.MediaPlayer
+            # (ver EL CUARTO DE SEGUNDO QUE SE PAGABA EN CADA FRASE, mas abajo)
         }
         $script:reproductor.Open([Uri]$ruta)
         # DE NOCHE, MAS BAJITO (13/09): de 22:00 a 7:00 la voz suena al 55 %. Solo
@@ -7869,8 +7870,22 @@ function Play-Audio([string]$ruta) {
         # que no tiene volumen.
         $horaV = (Get-Date).Hour
         $script:reproductor.Volume = if ($horaV -ge 22 -or $horaV -lt 7) { 0.55 } else { 1.0 }
-        # Open es asincrono: sin esta pausa Play() no encuentra nada cargado
-        Start-Sleep -Milliseconds 250
+        # EL CUARTO DE SEGUNDO QUE SE PAGABA EN CADA FRASE (17/09). Aqui habia un
+        # Start-Sleep de 250 ms fijo, EN EL HILO DEL BUCLE, con el motivo "Open es
+        # asincrono: sin esta pausa Play() no encuentra nada cargado". En el log de braya
+        # son 202 frases = 50,5 s de bucle congelado, y la mitad eran frases ya
+        # preparadas que llegaban en milisegundos y pagaban el cuarto de segundo igual.
+        #
+        # Medido en esta maquina, y por eso se quita del todo:
+        #   - Open() tarda 453-547 ms en estar listo, SIEMPRE. O sea que los 250 ms no
+        #     llegaban ni al peor caso: Play() ya se llamaba sobre un audio a medio cargar.
+        #   - Y aun asi sonaba, porque Play() sobre un MediaPlayer que sigue cargando NO
+        #     se pierde: queda encolado y arranca solo al terminar. Comprobado llamandolo
+        #     inmediatamente: la posicion empezo a avanzar a los 513 ms, igual que con
+        #     pausa. La pausa solo servia para congelar el bucle.
+        #   - MediaOpened NO sirve aqui (era la mejora propuesta): en un script de
+        #     PowerShell no hay bucle de mensajes WPF y el evento no llega NUNCA (probado,
+        #     ni en 2 s). Sondear NaturalDuration tampoco: tarda 543 ms.
         $script:reproductor.Play()
         return $true
     } catch {

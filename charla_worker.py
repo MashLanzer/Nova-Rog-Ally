@@ -119,6 +119,11 @@ def clave_api():
 historial = []
 pedidos = queue.Queue()
 parar = threading.Event()
+# JUGANDO, EL REVISOR SE CALLA (17/09). No vale reutilizar 'parar': ese se activa en CADA
+# frase para cortar la respuesta en curso. Este es suyo: se pone cuando el asistente pide
+# 'descargar' (lo hace al abrir un juego) y se quita en la siguiente charla.
+revisor_parado = threading.Event()
+revisor_hay_trabajo = threading.Event()
 ocupado = threading.Event()     # contestando: la revision en segundo plano espera
 api_rota_hasta = 0.0
 ultima_charla = 0.0
@@ -661,12 +666,32 @@ def revisar_una():
 
 
 def revisor():
+    """Revision en segundo plano, sin despertar por nada.
+
+    Antes era "while True: time.sleep(3)" a secas: 1.200 despertares por hora mientras el
+    worker viviera, y en cada uno un recorrido de hasta 5.000 recuerdos para descubrir que
+    no habia nada que hacer. En una consola a bateria eso se nota, y se nota justo cuando
+    braya esta jugando, que es cuando menos debe notarse.
+
+    Ahora: espera sobre un evento (no gasta CPU), se para del todo con un juego delante y
+    va espaciando las vueltas cuando no encuentra trabajo.
+    """
+    espera = 3.0
     while True:
-        time.sleep(3)
+        if revisor_parado.is_set():
+            # con un juego delante no hay revision: se duerme hasta que vuelva la charla
+            revisor_hay_trabajo.wait(30.0)
+            revisor_hay_trabajo.clear()
+            continue
+        revisor_hay_trabajo.wait(espera)
+        revisor_hay_trabajo.clear()
         try:
-            revisar_una()
+            hizo = revisar_una()
         except Exception as e:  # noqa: BLE001
             salida("info", texto="memoria: %s" % e)
+            hizo = False
+        # si hubo algo que hacer, se sigue de cerca; si no, se va soltando hasta 60 s
+        espera = 3.0 if hizo else min(60.0, espera * 2)
 
 
 def descargar():
@@ -882,6 +907,9 @@ def atender(p):
         n = cerebro.olvidar(p.get("texto") or "") if cerebro is not None else 0
         salida("info", texto="memoria: olvidados %d recuerdos sobre '%s'" % (n, (p.get("texto") or "")[:60]))
     elif op == "descargar":
+        # el asistente lo pide al abrir un juego: fuera los modelos de la RAM y el
+        # revisor a dormir, que es lo que mas se nota jugando
+        revisor_parado.set()
         descargar()
     elif op == "calentar":
         threading.Thread(target=calentar, daemon=True).start()
@@ -894,6 +922,12 @@ def atender(p):
             except Exception as e:  # noqa: BLE001
                 salida("info", texto="memoria: no pude aprender (%s)" % e)
     elif op in ("hablar", "trivia", "resumir"):
+        # si vuelve a hablar, el juego ya no manda: el revisor se reanuda. Sin esto se
+        # quedaria dormido hasta que muriera el worker, y en vez de ahorrar CPU jugando
+        # habria dejado de revisar la memoria para siempre.
+        if revisor_parado.is_set():
+            revisor_parado.clear()
+            revisor_hay_trabajo.set()
         parar.clear()
         ocupado.set()
         try:
