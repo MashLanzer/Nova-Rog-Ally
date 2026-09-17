@@ -5449,6 +5449,9 @@ function Watch-Entorno([int]$botones = 0) {
         if ($txtD) { [void](Send-AvisoEntorno 'hora-dormir' $txtD 'noche' 480) }
     } catch {}
 
+    # SE REVISA A SI MISMA: una vez al dia mira sus numeros y apaga lo que no le sirve
+    try { [void](Test-RevisionPropia) } catch { Log ("revision propia: " + $_.Exception.Message) }
+
     # IDEA 29: hoy me estoy equivocando mas de lo normal
     try {
         $txtF = Get-AvisoFallos
@@ -5519,6 +5522,50 @@ function Get-AvisoFallos([datetime]$ahora = (Get-Date)) {
     $mediaE = $sumaE / [double]$nDiasE
     if ($mediaE -le 0 -or $malHoy -le ($mediaE * 2)) { return '' }
     return "Hoy te estoy entendiendo peor de lo normal: $malHoy ordenes que no supe hacer. Si alguna se repite, dime: aprende que cuando diga..."
+}
+
+# NOVA SE REVISA A SI MISMA (17/09). Hasta hoy sabia perfectamente lo que le pasaba
+# -guarda cada orden, cada repaso y cada fallo- pero no se miraba NUNCA: todo lo que
+# decidia acababa en "te aviso" o "¿quieres que...?", y esos datos solo los leia braya
+# lanzando tools\analizar-uso.py a mano. Esto es lo contrario: una vez al dia, cuando no
+# molesta, mira sus propias estadisticas y APAGA lo que no le esta sirviendo.
+#
+# El primer caso sale de sus numeros, no de una opinion: el ultimo recurso (turbo) se
+# lanzo 29 veces y sirvio 1, y cuesta 16,2 s de mediana. Tenia la prueba delante.
+#
+# Tres frenos, porque una maquina que se toca sus propios ajustes da mas miedo que
+# pereza: hace falta HISTORIAL (con cuatro intentos cualquier motor parece inutil), se
+# revisa UNA VEZ AL DIA, y se dice en voz alta lo que ha hecho y como deshacerlo.
+$script:revisionPropiaDia = ''
+function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
+    if ($script:invitado -or $script:juegoActivo) { return $false }
+    $hoyR = $ahora.ToString('yyyy-MM-dd')
+    if ($script:revisionPropiaDia -eq $hoyR) { return $false }
+    $script:revisionPropiaDia = $hoyR
+    if (-not $WhisperUltimo) { return $false }   # ya esta apagado, nada que decidir
+    $tR = 0; $tsR = 0
+    try {
+        $stR = Get-Estadisticas
+        for ($i = 0; $i -lt 14; $i++) {
+            $kR = $ahora.AddDays(-$i).ToString('yyyy-MM-dd')
+            if (-not $stR.dias.ContainsKey($kR)) { continue }
+            $tR += [int]$stR.dias[$kR]['turbo']
+            $tsR += [int]$stR.dias[$kR]['turbo-sirvio']
+        }
+    } catch { return $false }
+    if ($tR -lt 20) { return $false }                                  # sin historial no se juzga
+    if ($tsR -ge [int][Math]::Ceiling($tR * 0.15)) { return $false }   # si aporta, se queda
+    # Apagarlo es vaciar la variable VIVA y guardar la clave. Request-UltimoRecurso mira
+    # $WhisperUltimo, asi que surte efecto en la frase siguiente sin relanzar la escucha
+    # (el worker recibe el modelo al arrancar, pero nunca se lo piden). Importa: al
+    # relanzar la escucha, un valor vacio ya se le pasa como '-', que el worker entiende
+    # como desactivado; asi que esto NO deja a Nova sorda en el proximo arranque.
+    $script:WhisperUltimo = ''
+    [void](Set-Cfg 'input' 'whisperModeloUltimo' '')
+    Log "REVISION PROPIA: apago el ultimo recurso del oido ($tsR de $tR utiles en 14 dias)"
+    Add-Estadistica 'auto-ajuste' "ultimo recurso off: $tsR de $tR"
+    [void](Send-AvisoEntorno 'auto-ultimo' ("He apagado mi ultimo recurso del oido: en $tR intentos solo me sirvio $tsR veces y cada uno te hacia esperar unos 16 segundos. Si lo quieres de vuelta, esta en config.json, input.whisperModeloUltimo.") 'medio' 43200)
+    return $true
 }
 
 # IDEA 22: EL CORREO DE LA MANANA. Invoke-CorreoScript ESPERA a que el script termine

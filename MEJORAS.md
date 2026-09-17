@@ -267,6 +267,40 @@ Cada hallazgo trae 5 mejoras ordenadas de más barata a más cara, con cómo med
 
 ---
 
+## 4b. Que Nova se controle sola (17/09)
+
+braya: «no solo controlarla yo, sino que ella se pueda controlar, tomar decisiones por
+ella misma sin que yo tenga que despertarla».
+
+**El hueco, medido:** Nova tiene **diez vigilantes** y nueve decisiones propias, pero
+`Set-Cfg` —lo único que cambia su configuración— **solo se llamaba desde órdenes suyas**
+(esquina, color, escala, voz, «solo yo»). Y `destinos.jsonl` solo se escribía: nadie lo
+leía si braya no lanzaba `analizar-uso.py` a mano. Sabía lo que le pasaba y no se miraba
+nunca.
+
+**HECHO — se revisa a sí misma y apaga lo que no le sirve.** Una vez al día, en reposo,
+sin juego ni invitado: mira sus estadísticas de 14 días y decide. El primer caso sale de
+sus propios números, no de mi criterio: el último recurso (turbo) se lanzó **29 veces y
+sirvió 1**, costando 16,2 s de mediana.
+Tres frenos, porque una máquina que se toca sus ajustes da más respeto que pereza:
+necesita **historial** (con menos de 20 intentos no juzga), decide **una vez al día**, y
+**lo dice en voz alta** con sus números y cómo deshacerlo. 16 casos en
+`probar-revision-propia.ps1` (2n13), y los que más importan son los que comprueban lo que
+**no** debe hacer: con 10 útiles de 29 **no lo toca**.
+
+**DESCARTADO — 3.2 #8, «`Test-FastCommand` lee el escritorio y escanea siete carpetas».**
+No es cierto: los tres accesos a disco de `Resolve-Fragment` están dentro de `if` con
+regex específicos (solo se leen si preguntas por el escritorio), y `Resolve-Proceso` —que
+se llama 11 veces— **no enumera procesos**, solo mira `commands.json` en memoria. Lo único
+cierto del punto es que toca `$script:dudosa`, aunque lo restaura. Tercer hallazgo de la
+auditoría que se cae al verificarlo.
+
+**BLOQUEADO — autoajustar el tope de la nube.** Era el candidato obvio, pero
+`nube-sirvio` y `nube-tarde` **no tienen ni un dato** en las estadísticas (solo
+`nube-nada: 1`). Sin datos no hay decisión: sería inventármela.
+
+---
+
 ## 5. Orden de ataque propuesto
 
 Por daño real a braya, no por facilidad:
