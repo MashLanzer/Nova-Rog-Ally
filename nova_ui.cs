@@ -1459,16 +1459,35 @@ public class NovaUI : Window
                 // el texto blanco desaparece.
                 try
                 {
+                    // UN SOLO BLOQUEO EN VEZ DE UNO POR PIXEL (17/09). Esto usaba
+                    // GetPixel, que bloquea y desbloquea el bitmap en CADA llamada; con
+                    // el submuestreo de 8 en 8 son varios cientos por captura, y esta
+                    // captura ocurre al principio de CADA orden, en el hilo de la
+                    // interfaz (o sea, con la capsula congelada). LockBits lo bloquea
+                    // una vez y se recorre el array de bytes: misma cuenta, misma
+                    // formula, sin el ir y venir. CopyFromScreen da 32 bits en orden
+                    // BGRA, asi que el pixel son 4 bytes y el azul va primero.
                     double suma = 0; int cuenta = 0;
-                    for (int py = 0; py < bmp.Height; py += 8)
+                    var rect = new System.Drawing.Rectangle(0, 0, bmp.Width, bmp.Height);
+                    var datos = bmp.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadOnly,
+                                             System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                    try
                     {
-                        for (int px = 0; px < bmp.Width; px += 8)
+                        int paso = datos.Stride;
+                        byte[] bytes = new byte[paso * bmp.Height];
+                        System.Runtime.InteropServices.Marshal.Copy(datos.Scan0, bytes, 0, bytes.Length);
+                        for (int py = 0; py < bmp.Height; py += 8)
                         {
-                            var cp = bmp.GetPixel(px, py);
-                            suma += (0.2126 * cp.R + 0.7152 * cp.G + 0.0722 * cp.B) / 255.0;
-                            cuenta++;
+                            int fila = py * paso;
+                            for (int px = 0; px < bmp.Width; px += 8)
+                            {
+                                int i = fila + px * 4;
+                                suma += (0.2126 * bytes[i + 2] + 0.7152 * bytes[i + 1] + 0.0722 * bytes[i]) / 255.0;
+                                cuenta++;
+                            }
                         }
                     }
+                    finally { bmp.UnlockBits(datos); }
                     if (cuenta > 0) { luzFondo = suma / cuenta; AjustarTinte(); }
                 }
                 catch { }
@@ -3154,6 +3173,9 @@ public class NovaUI : Window
                 Desvanecer(orbita, 1, 300);
                 var g = new DoubleAnimation(0, 360, TimeSpan.FromMilliseconds(2400));
                 g.RepeatBehavior = RepeatBehavior.Forever;
+                // 20 fps: gira igual de suave y deja de repintar la ventana transparente
+                // 60 veces por segundo durante esperas que duran minutos
+                Timeline.SetDesiredFrameRate(g, 20);
                 giroOrbita.BeginAnimation(RotateTransform.AngleProperty, g);
                 Aplicar(estadoActual, textoActual, false);
             }
@@ -3837,6 +3859,7 @@ public class NovaUI : Window
                 a.RepeatBehavior = RepeatBehavior.Forever;
                 a.BeginTime = TimeSpan.FromMilliseconds(i * 160);
                 a.EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut };
+                Timeline.SetDesiredFrameRate(a, 15);   // ver PENSANDO A 60 FPS
                 puntitos[i].BeginAnimation(OpacityProperty, a);
                 var s = new ScaleTransform(1, 1);
                 puntitos[i].RenderTransformOrigin = new Point(0.5, 0.5);
@@ -3845,6 +3868,7 @@ public class NovaUI : Window
                 e.AutoReverse = true; e.RepeatBehavior = RepeatBehavior.Forever;
                 e.BeginTime = a.BeginTime;
                 e.EasingFunction = a.EasingFunction;
+                Timeline.SetDesiredFrameRate(e, 15);
                 s.BeginAnimation(ScaleTransform.ScaleXProperty, e);
                 s.BeginAnimation(ScaleTransform.ScaleYProperty, e);
             }

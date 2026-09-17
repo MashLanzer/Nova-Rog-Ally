@@ -162,6 +162,28 @@ sobre un evento, **se para del todo con un juego delante** (colgado de la operac
 `descargar` que el asistente ya envía al abrir uno) y se reanuda en la siguiente charla;
 si no encuentra trabajo, va espaciando hasta 60 s.
 
+**HECHO (17/09) — 3.3 #4, «pensando» era lo único que quedaba a 60 fps.** El trabajo del
+13/09 puso tope al latido, al vaivén y al halo, pero dejó fuera lo que acompaña a ese
+estado: los 9 relojes de los puntitos y el giro de la órbita, ambos `Forever` y sin tope.
+Y «pensando» dura minutos (la órbita ni siquiera aparece hasta los 20 s). Puntitos a
+15 fps, órbita a 20.
+
+**HECHO (17/09) — 3.3 #5, a medias y a propósito.** El muestreo de luz usaba `GetPixel`,
+que bloquea y desbloquea el bitmap en **cada** llamada, varios cientos por captura, al
+principio de cada orden y en el hilo de la interfaz. Ahora es un `LockBits` y un recorrido
+del array: misma fórmula, misma cuenta.
+- **El `Thread.Sleep(45)` NO se toca.** Está para que la cápsula no salga en su propia
+  captura, y comprobar si se cuela exige **mirar la pantalla**, que es justo lo que yo no
+  puedo hacer. Bajarlo a ciegas cambiaría CPU por un artefacto visible que descubriría
+  braya y yo no. Queda para cuando alguien pueda verlo.
+
+**APLAZADO — 3.3 #7, el cerebro reescribiendo sus JSON.** El hallazgo es correcto, pero
+la auditoría lo dimensionó con el tope (`MAX_RECUERDOS = 5000`). Lo real hoy: **32
+recuerdos y 31 vectores, 15,4 KB + 62,4 KB**. Reescribir 78 KB por turno no le quita
+rendimiento a nada. Se vuelve grave cuando el cerebro crezca, así que queda anotado con
+el umbral: **si `cerebro.json` pasa de ~1 MB, toca hacerlo** (no guardar en
+`respuesta_directa`, agrupar, y sacar los vectores a binario).
+
 ### 3.3 La cápsula y los workers — HECHA (11 hallazgos)
 
 Lo más grave no está en el dibujado, sino en **el camino de la voz**.
