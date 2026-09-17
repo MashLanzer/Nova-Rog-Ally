@@ -1327,9 +1327,21 @@ quitarlo.
       4,2 s y 4 palabras; los inútiles, 5,2 s y 7 palabras. Se solapan, así que haría
       falta algo mejor que un umbral.
 
-- [ ] Lo que sí queda de aquí: recuperar esas 7 que el repaso estropea normalizando
-      puntuación y mayúsculas antes de comparar («Sí, hazlo ahora en el escritorio» dejó
-      de reconocerse al perder la coma).
+- [x] **NO PROCEDE (17/09): «recuperar las 7 que el repaso estropea».** Lo anoté yo y
+      estaba mal por partida doble. Primero, solo 1 de las 7 es la misma frase salvo
+      puntuación y tildes; las otras 6 son transcripciones distintas y varias ni siquiera
+      eran órdenes de verdad («No, no, Gracias, Bull», «Ya día es hoy»), que se
+      reconocían por casualidad. Y segundo, lo importante: pasando las 7 por
+      `Test-EspanolLargo`, **las 7 están protegidas**, así que la red de
+      PARAKEET→WHISPER (`si el repaso no saca una orden y el original es español de 4+
+      palabras, se sigue con el original`) ya se queda con el texto bueno. braya nunca
+      perdió esas órdenes.
+
+      La lección es sobre la MEDICIÓN, no sobre el código: comparar «lo que oyó el
+      repaso» contra «lo que oyó Parakeet» no dice qué acabó haciendo Nova. El número
+      honesto saldrá de `destinos.jsonl`, que desde hoy apunta el destino real.
+      Por motor, para cuando haya datos nuevos: base 60 repasos (rescata 10, estropea 6),
+      small 24 (5 y 1), turbo 15 (3 y 0; turbo no estropeó ninguna).
 
 ## 16/09: el perfil, limpio y con filtro
 
