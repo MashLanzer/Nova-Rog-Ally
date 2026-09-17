@@ -11796,6 +11796,9 @@ $NubeScript = Join-Path $LogDir 'tools\gemini-oir.py'
 # el aviso va AQUI y no en el bloque de arranque: alli esta variable todavia no existe
 # (el script se lee de arriba abajo) y el log decia que la nube estaba apagada
 if ($NubeOir -eq 'gemini') { Log "segunda opinion en la nube: Gemini, con tope de $([Math]::Round($NubeTopeMs / 1000.0, 1)) s" }
+# lo mismo para los avisos por su cuenta: sin esta linea no habia forma de saber si
+# estaban puestos, que es justo la duda que costo un rato con la nube esta manana
+if ($EntornoOn) { Log "avisos por mi cuenta: puestos (hasta $EntornoPorHora por hora; de noche y jugando, solo lo importante)" }
 $script:nubeProc = $null
 $script:nubeOut = ''
 $script:nubeWav = ''
