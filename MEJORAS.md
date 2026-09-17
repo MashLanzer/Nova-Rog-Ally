@@ -94,7 +94,7 @@ cómo se mide y **5 mejoras** concretas.
 | 1 | **«volumen al 70» ponía el volumen a CERO** (`nivel` creado / `pct` leído) | GRAVE | `assistant.ps1:2047` → **ARREGLADO** |
 | 2 | **El banco nunca ejecuta**: `-Probar` solo imprime `desc` y no entra en el switch; `destinos.txt` compara texto, no lo que se hace. Por eso el nº 1 vivió tanto | GRAVE | `assistant.ps1:9879` |
 | 3 | **Las reglas por voz nacen sin guardas**: `Invoke-ReglaVoz` sale antes de `Test-Rechazada` y `Test-VozExtrana`. **La voz de un vídeo puede crear reglas y modos** | GRAVE | `assistant.ps1:6382` |
-| 4 | El patrón de la hora no exige «cuando»: «a las ocho cierra steam» guarda una **regla diaria** desde una frase de conversación | GRAVE | `assistant.ps1:9182` |
+| 4 | El patrón de la hora no exige «cuando»: «a las ocho cierra steam» guarda una **regla diaria** desde una frase de conversación | GRAVE | `assistant.ps1:9182` → **NO se arregla así, ver abajo** |
 | 5 | **Al dispararse, una regla tiene carta blanca**: `$script:confirmado = $true`, así que «cierra todos los programas» se ejecuta sin preguntar. El camino de hábitos sí filtra lo destructivo; el hablado se olvidó | GRAVE | `assistant.ps1:9290` |
 | 6 | Las recetas se prueban **antes** del filtro de ruido y sin rechazo ni voz ajena; con `confirmadas>=2` lanzan PowerShell sin preguntar | GRAVE | `assistant.ps1:13487` |
 | 7 | El atajo de pronombres convierte «ponla siempre encima» en «pon spotify siempre encima» y acaba **abriendo Spotify** | MEDIO | `assistant.ps1:2190` |
@@ -132,6 +132,32 @@ Cada hallazgo trae 5 mejoras ordenadas de más barata a más cara, con cómo med
 | 7 | El modo invitado tiene siete huecos (`Add-Traduccion`, `Add-Rechazo`…) y **no sobrevive a un reinicio** | MEDIO | — |
 | 8 | Ninguna prueba toca `New-CopiaSeguridad` ni `Get-Cfg` | MEDIO | — |
 | 9 | Verificado **sano** (para no perseguirlo): `$LASTEXITCODE` sí sobrevive a las tuberías `| Select-String`, y los 26 scripts con función de aserción usan bien `$script:` | — | — |
+
+### 3.5 Decisiones tomadas al implementar (17/09)
+
+- **HECHO — 3.2 #3, la voz de un vídeo creando reglas.** `Invoke-ReglaVoz` crea reglas,
+  modos y recordatorios y devuelve en el acto, así que nunca llegaba a `Test-Rechazada`
+  ni a `Test-VozExtrana`, unas 60 líneas más abajo. Y esas guardas no valían tal cual,
+  porque miran `$acciones` y una regla no genera ninguna. Ahora se comprueba la voz
+  **antes** de crear, con un patrón corto y conservador que solo decide si preguntar
+  (duplicar aquí el regex largo de `Test-FastCommand` los habría separado con el tiempo).
+- **NO SE ARREGLA — 3.2 #4, exigir «cuando» en el patrón de la hora.** El hallazgo es
+  cierto, pero el arreglo propuesto es malo: el banco tiene
+  `a las diez y media de la noche pon modo noche` como caso que **debe** funcionar
+  (`pruebas\casos-nuevos.txt:81`). Exigir el prefijo convertiría una forma legítima y
+  probada en un fallo. El riesgo real —que lo diga la tele— queda cubierto por la guarda
+  de voz de arriba, que es donde había que atacarlo.
+- **HECHO — 3.4 #2, el barrido de huérfanos.** Filtraba `Name='python.exe'` y los workers
+  son `pythonw.exe` desde el 14/09: llevaba tres días sin encontrar ni uno. Ahora acepta
+  los dos nombres y añade `charla_worker.py`, que faltaba y es el que más RAM gasta.
+- **HECHO — 3.4 #1, #3 y #4**: los seis lectores de JSON que faltaban ya apartan el
+  archivo dañado, el banco compara la cifra y `probar-autosordina.ps1` comprueba de
+  verdad. Al arreglar esta última, sus 10 casos pasaron a la primera: **la función
+  siempre estuvo bien, lo roto era el vigilante.**
+- **HECHO — 3.2 #1**: el bug del volumen a cero.
+
+Pendiente de este bloque: 3.2 #5 (una regla disparada tiene carta blanca y ejecuta cosas
+destructivas sin preguntar) y 3.2 #6 (las recetas se prueban antes del filtro de ruido).
 
 ---
 

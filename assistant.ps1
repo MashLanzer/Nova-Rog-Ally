@@ -6385,6 +6385,24 @@ function Invoke-FastCommand([string]$text) {
         return ("Tienes " + $fs.Count + ": " + (($fs | ForEach-Object { $_.texto }) -join '; '))
     }
     # reglas por voz: se interpretan sobre la frase ENTERA (no se parte por "y")
+    #
+    # LA VOZ DE UN VIDEO NO DEJA REGLAS PUESTAS (17/09). Invoke-ReglaVoz CREA cosas
+    # -reglas, modos, recordatorios- y devuelve en el acto, asi que nunca llegaba a las
+    # guardas de mas abajo (Test-Rechazada y Test-VozExtrana, unas 60 lineas despues):
+    # una frase del audio de fondo podia dejar una regla DIARIA puesta sin que nadie
+    # preguntara. Aqui no valen esas guardas tal cual, porque miran $acciones y una regla
+    # no genera ninguna.
+    #
+    # El patron es corto y conservador a proposito: solo decide SI PREGUNTAR. Duplicar
+    # aqui el regex largo de Test-FastCommand seria peor, porque los dos se separarian
+    # con el tiempo. Y Test-VozExtrana ya se calla sola con el boton y en seguimiento
+    # (ahi quien habla es braya), asi que esto solo muerde con la voz tras el nombre.
+    if (-not $script:confirmado -and (ConvertTo-Plain $text) -match '^(?:cuando\s|cada\s|todos los dias|cada dia|diariamente|a las?\s)' -and (Test-VozExtrana)) {
+        $script:pendiente = @{ texto = $text; vence = 0; tipo = 'peligrosa' }
+        Log ("VOZ EXTRANA: no creo nada con '$text' sin confirmar ($([int]$script:ultimaF0) Hz frente a $([int](Get-VozDuena)) Hz)")
+        Add-Estadistica 'voz-extrana' $text
+        return "No me suena tu voz. ¿$($text)?"
+    }
     $regla = $null
     try { $regla = Invoke-ReglaVoz $text } catch { Log ("regla: " + $_.Exception.Message); $regla = $null }
     if ($regla) { return $regla }
@@ -8333,8 +8351,15 @@ if (-not $Probar) {
     # workers de una sesion anterior que se quedaron huerfanos (su asistente ya
     # no existe): siguen con el microfono y al arrancar habria dos escuchando
     try {
-        foreach ($wo in @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
-                          Where-Object { $_.CommandLine -and ($_.CommandLine -match 'wake_vosk\.py' -or $_.CommandLine -match 'tts_worker\.py') })) {
+        # OJO CON EL NOMBRE DEL PROCESO (17/09): esto filtraba Name='python.exe', pero
+        # los workers se lanzan con pythonw.exe desde el 14/09 (ver $PyWorker), asi que
+        # este barrido llevaba tres dias sin encontrar NI UNO. El log acumulaba 30
+        # relanzamientos y 31 marcas huerfanas, y cada worker vivo se queda con el
+        # microfono y con su RAM en una maquina de 8 GB. Faltaba ademas charla_worker.py,
+        # que es el que mas memoria gasta de los tres.
+        foreach ($wo in @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+                          Where-Object { $_.Name -in @('python.exe', 'pythonw.exe') -and $_.CommandLine -and
+                                         ($_.CommandLine -match 'wake_vosk\.py' -or $_.CommandLine -match 'tts_worker\.py' -or $_.CommandLine -match 'charla_worker\.py') })) {
             if (-not (Get-Process -Id $wo.ProcessId -ErrorAction SilentlyContinue)) { continue }
             if (-not (Get-Process -Id $wo.ParentProcessId -ErrorAction SilentlyContinue)) {
                 Stop-Process -Id $wo.ProcessId -Force -ErrorAction SilentlyContinue
