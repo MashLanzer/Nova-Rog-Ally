@@ -16,8 +16,14 @@ $sw = [System.Diagnostics.Stopwatch]::StartNew()
 # la configuracion, con los valores por defecto del archivo real
 $EntornoOn = $true
 $EntornoPorHora = 4
-$EntornoNocheDesde = 23
-$EntornoNocheHasta = 8
+# UN BANCO NO PUEDE CAMBIAR DE COLOR SEGUN EL RELOJ (17/09). Con la franja real (23-8),
+# pasar las pruebas de madrugada bloqueaba TODOS los avisos normales -que es lo correcto
+# de noche- y salian 12 casos MAL sin que nada estuviera roto. Peor aun: "nivel bajo: sin
+# voz" seguia en verde, porque con todo bloqueado se cumple solo. Asi que la franja se
+# pone lejos de la hora actual, y los casos que necesitan noche la fijan ellos.
+$hAhoraP = (Get-Date).Hour
+$EntornoNocheDesde = ($hAhoraP + 2) % 24
+$EntornoNocheHasta = ($hAhoraP + 3) % 24
 $script:entornoAvisos = New-Object System.Collections.ArrayList
 $script:entornoVistos = @{}
 $script:entornoCallado = $false
@@ -173,17 +179,22 @@ Comp 'pero el de la hora de dormir SI sale' (Send-AvisoEntorno 'hora-dormir' 'So
 Reset
 $script:juegoActivo = 'It Takes Two'
 Comp 'y aun asi no interrumpe la partida' (-not (Send-AvisoEntorno 'hora-dormir' 'Son las 2:30.' 'noche')) ''
-$EntornoNocheDesde = 23
-$EntornoNocheHasta = 8
+$EntornoNocheDesde = ($hAhoraP + 2) % 24
+$EntornoNocheHasta = ($hAhoraP + 3) % 24
 
 Write-Host "  -- la hora de dormir es LA TUYA, no las 23:00 de nadie --"
 Reset
+# esta si necesita la franja de verdad: lo que prueba es a que horas son "raras"
+$EntornoNocheDesde = 23
+$EntornoNocheHasta = 8
 $noche = (Get-Date).Date.AddHours(2)
 $script:habitosFalsos.charlaHoras = @{}
 Comp 'a las 2 y nunca sueles estarlo: avisa' ((Get-AvisoHoraDormir $noche) -ne '') "$(Get-AvisoHoraDormir $noche)"
 foreach ($d in 1..4) { $script:habitosFalsos.charlaHoras[$noche.AddDays(-$d).ToString('yyyy-MM-dd|HH')] = 1 }
 Comp 'si SUELES estar despierto a esa hora, callado' ((Get-AvisoHoraDormir $noche) -eq '') ''
 Comp 'y a las 4 de la tarde jamas' ((Get-AvisoHoraDormir ((Get-Date).Date.AddHours(16))) -eq '') ''
+$EntornoNocheDesde = ($hAhoraP + 2) % 24
+$EntornoNocheHasta = ($hAhoraP + 3) % 24
 
 Write-Host "  -- cuando me equivoco mas de lo normal --"
 $hoyF = (Get-Date).ToString('yyyy-MM-dd')
