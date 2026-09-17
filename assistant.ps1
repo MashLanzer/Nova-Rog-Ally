@@ -5297,6 +5297,11 @@ function Watch-Entorno([int]$botones = 0) {
             if ($script:ultimoJuego) { $txtM = "Hola. ¿Seguimos con $($script:ultimoJuego)?" }
             [void](Send-AvisoEntorno 'mando-vuelta' $txtM 'medio' 180)
         }
+        if ($quietoMin -ge 5 -and $script:entornoBotonesAntes -eq 0) {
+            # para una regla basta con que lo cojas tras un rato quieto: el saludo
+            # pide 90 minutos porque hablar cansa, pero "pon el modo juego" no.
+            Invoke-Reglas 'mandoCoge' 'coge'
+        }
     }
     $script:entornoBotonesAntes = $botones
     try { Send-AvisoCola } catch {}
@@ -5329,6 +5334,7 @@ function Watch-Entorno([int]$botones = 0) {
             [void](Update-Juegos)
             $ahoraJ = @($script:Juegos).Count
             Log "UNIDADES: '$($script:entornoUnidades)' -> '$letras' (juegos: $antesJ -> $ahoraJ)"
+            Invoke-Reglas 'discoJuegos' $(if ($ahoraJ -lt $antesJ) { 'quita' } else { 'pone' })
             if ($ahoraJ -gt $antesJ) {
                 [void](Send-AvisoEntorno 'disco-juegos' "Veo el disco de los juegos. Ahora tienes $ahoraJ juegos." 'medio' 5)
             } elseif ($ahoraJ -lt $antesJ) {
@@ -5499,6 +5505,7 @@ function Watch-Dispositivos {
                 $txtD = "Sin la pantalla grande. Te queda el $([int]$bD.EstimatedChargeRemaining) por ciento de bateria."
             }
         } catch {}
+        Invoke-Reglas 'dockQuita' 'quita'
         [void](Send-AvisoEntorno 'dock-quita' $txtD 'medio' 30)
     }
     $dockAhora = if ($nP -gt 1) { 1 } else { 0 }
@@ -5524,6 +5531,7 @@ function Watch-Dispositivos {
     # idea 5: al quitarlos, lo que sonaba sale por los altavoces de golpe
     if ($null -ne $script:cascosAntes -and -not $casP -and $script:cascosAntes) {
         Log "CASCOS: quitados"
+        Invoke-Reglas 'cascosQuita' 'quita'
         # ¿suena algo? El worker deja el nivel de los altavoces en escucha-estado.txt
         # ("ganancia|ref|altavoces|bloques"); el mismo dato que usa "¿como me oyes?"
         $altC = 0.0
@@ -8916,6 +8924,11 @@ function Describe-Regla($r) {
         'cargadorPone' { 'cuando enchufes el cargador' }
         'dockPone' { 'cuando conectes el dock o una pantalla' }
         'cascosPone' { 'cuando te pongas los cascos' }
+        'dockQuita' { 'cuando quites la pantalla' }
+        'cascosQuita' { 'cuando te quites los cascos' }
+        'bateriaLlena' { 'cuando termine de cargar' }
+        'discoJuegos' { if ($r.valor -eq 'quita') { 'cuando quites el disco de los juegos' } else { 'cuando conectes el disco de los juegos' } }
+        'mandoCoge' { 'cuando cojas el mando' }
         'disco' { "cuando queden menos de $($r.valor) gigas" }
         'descarga' { if ($r.valor) { "cuando termine de descargarse $($r.valor)" } else { 'cuando termine una descarga' } }
         'hora' { "todos los dias a las $($r.valor)" }
@@ -9013,6 +9026,14 @@ function Invoke-ReglaVoz([string]$text) {
             $accion = "abre $valor"
         }
     }
+    # LA BATERIA LLENA: "cuando termine de cargar, avisame" (16/09).
+    # OJO CON EL ORDEN, y esto lo cazo el banco: tiene que ir ANTES que la de cerrar un
+    # juego ("cuando termine X"), porque esa se comia "cuando termine DE CARGAR" tomando
+    # "de cargar" como nombre de juego, y contestaba "no conozco 'de cargar'". Es la
+    # misma trampa que ya obligo a subir la de las descargas, unas lineas mas arriba.
+    elseif ($p -match '^cuando\s+(?:(?:se\s+)?(?:termine|acabe)\s+de\s+cargar(?:se)?|(?:la\s+)?(?:bateria|pila)\s+(?:este|se\s+ponga)\s+(?:llena|cargada|al\s+(?:cien|100)(?:\s*(?:por ciento|%))?))\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
+        $tipo = 'bateriaLlena'; $valor = ''; $accion = $Matches[1].Trim()
+    }
     elseif ($p -match '^cuando\s+(?:se\s+)?(?:cierre|cierres|cierro|termine|acabe|salga de|salga del)\s+(?:el\s+|un\s+|cualquier\s+)?(.+?)\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
         $tipo = 'juegoCierra'; $obj = $Matches[1].Trim(); $accion = $Matches[2].Trim()
         if ($obj -notmatch '^(?:juego|videojuego|algo|cualquier cosa)$') {
@@ -9038,6 +9059,26 @@ function Invoke-ReglaVoz([string]$text) {
     }
     elseif ($p -match '^cuando\s+(?:me\s+)?(?:conecte|conectes|ponga|pongas)\s+(?:los\s+|mis\s+)?(?:cascos|auriculares|audifonos)\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
         $tipo = 'cascosPone'; $valor = ''; $accion = $Matches[1].Trim()
+    }
+    # LOS SENSORES DE LAS 31 IDEAS, YA ENGANCHABLES (16/09). Hasta ahora Nova se
+    # enteraba de todo esto y solo lo decia; no se podia colgar nada de ello.
+    # "cuando quite el dock, pon el modo bateria"
+    elseif ($p -match '^cuando\s+(?:lo\s+|la\s+)?(?:quite|quites|desconecte|desconectes|saque|saques|desenchufe|desenchufes)\s+(?:el\s+|la\s+)?(?:dock|base|tele|television|monitor|pantalla)\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
+        $tipo = 'dockQuita'; $valor = ''; $accion = $Matches[1].Trim()
+    }
+    # "cuando me quite los cascos, pausa"
+    elseif ($p -match '^cuando\s+(?:me\s+)?(?:quite|quites|saque|saques)\s+(?:los\s+|mis\s+)?(?:cascos|auriculares|audifonos)\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
+        $tipo = 'cascosQuita'; $valor = ''; $accion = $Matches[1].Trim()
+    }
+    # "cuando conecte el disco de los juegos, di ya estan" (y al quitarlo).
+    # El verbo decide: el mismo patron sirve para las dos, y el valor guarda cual.
+    elseif ($p -match '^cuando\s+(conecte|conectes|enchufe|enchufes|ponga|pongas|quite|quites|desconecte|desconectes|saque|saques)\s+(?:el\s+)?disco(?:\s+(?:de\s+(?:los\s+)?juegos|externo|duro|de\s+fuera))?\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
+        $tipo = 'discoJuegos'; $accion = $Matches[2].Trim()
+        $valor = if ($Matches[1] -match '^(?:quite|quites|desconecte|desconectes|saque|saques)$') { 'quita' } else { 'pone' }
+    }
+    # "cuando coja el mando, pon el modo juego"
+    elseif ($p -match '^cuando\s+(?:coja|cojas|agarre|agarres|use|uses|toque|toques|encienda|enciendas)\s+(?:el\s+)?(?:mando|control|joystick|gamepad|mandito)\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
+        $tipo = 'mandoCoge'; $valor = ''; $accion = $Matches[1].Trim()
     }
     # DISCO: "cuando queden menos de 20 gigas avisame"
     elseif ($p -match '^cuando\s+(?:queden|quede|haya|tenga)\s+menos\s+de\s+(\d{1,4})\s*(?:gigas?|gb|g)\b\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
@@ -9079,6 +9120,11 @@ function Invoke-ReglaVoz([string]$text) {
             'cargadorPone' { 'ya esta cargando' }
             'dockPone' { 'has conectado una pantalla' }
             'cascosPone' { 'te has puesto los cascos' }
+            'dockQuita' { 'has quitado la pantalla' }
+            'cascosQuita' { 'te has quitado los cascos' }
+            'bateriaLlena' { 'ya esta cargada del todo' }
+            'discoJuegos' { if ($valor -eq 'quita') { 'has quitado el disco de los juegos' } else { 'ya esta el disco de los juegos' } }
+            'mandoCoge' { 'has cogido el mando' }
             'juegoAbre' { 'ya abriste el juego' }
             'juegoCierra' { 'ya cerraste el juego' }
             'appAbre' { "se abrio $valor" }
@@ -9118,6 +9164,12 @@ function Invoke-Reglas([string]$tipo, [string]$dato = '') {
             'cargadorPone' { $dispara = ($dato -eq 'pone') }
             'dockPone' { $dispara = ($dato -eq 'pone') }
             'cascosPone' { $dispara = ($dato -eq 'pone') }
+            'dockQuita' { $dispara = ($dato -eq 'quita') }
+            'cascosQuita' { $dispara = ($dato -eq 'quita') }
+            'bateriaLlena' { $dispara = ($dato -eq 'llena') }
+            # sin valor vale cualquiera de las dos, por si alguien dice solo "el disco"
+            'discoJuegos' { $dispara = (-not $r.valor -or $r.valor -eq $dato) }
+            'mandoCoge' { $dispara = ($dato -eq 'coge') }
             'disco' {
                 # igual que la bateria: solo al cruzar el umbral, y se rearma
                 # cuando vuelve a haber holgura (5 gigas de margen)
@@ -14803,6 +14855,7 @@ while ($true) {
                 }
                 # idea 15: la dejaste cargando toda la noche y ya esta llena
                 if ($cargando -and $pc -ge 100) {
+                    Invoke-Reglas 'bateriaLlena' 'llena'
                     [void](Send-AvisoEntorno 'bateria-llena' 'Ya esta cargada del todo, puedes desenchufarla.' 'bajo' 240)
                 }
                 # idea 14: por debajo del 15 %, y esto SI es critico (suena jugando)

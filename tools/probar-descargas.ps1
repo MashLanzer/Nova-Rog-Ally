@@ -86,6 +86,47 @@ Comp 'otro juego no la dispara' ($script:ejecutado.Count -eq 0) ''
 Invoke-Reglas 'descarga' 'ELDEN RING'
 Comp 'el suyo si la dispara' ($script:ejecutado.Count -eq 1 -and $script:ejecutado[0] -eq 'abre ELDEN RING') ("[" + ($script:ejecutado -join '|') + "]")
 
+# --- LOS SENSORES DE LAS 31 IDEAS, YA ENGANCHABLES (16/09, fase 3) ---
+# Nova se enteraba de todo esto pero solo lo decia: no se le podia colgar nada.
+# Cada tipo nuevo tiene que estar en CINCO sitios, y si falta uno falla EN SILENCIO:
+# el patron (no se crea), el switch de "avisame" (nace muerta), Describe-Regla (recita
+# el nombre tecnico), el switch de Invoke-Reglas (se guarda y no dispara jamas) y el
+# sensor. Aqui se comprueban los cuatro primeros de un tiron.
+$nuevas = @(
+    @{ frase = 'cuando quite el dock pon el modo bateria'; tipo = 'dockQuita'; dato = 'quita' }
+    @{ frase = 'cuando me quite los cascos pon el volumen al 30'; tipo = 'cascosQuita'; dato = 'quita' }
+    @{ frase = 'cuando termine de cargar pon el modo trabajo'; tipo = 'bateriaLlena'; dato = 'llena' }
+    @{ frase = 'cuando coja el mando pon el modo juego'; tipo = 'mandoCoge'; dato = 'coge' }
+    @{ frase = 'cuando conecte el disco de los juegos abre steam'; tipo = 'discoJuegos'; dato = 'pone' }
+)
+foreach ($n in $nuevas) {
+    $script:reglas.Clear()
+    $null = Invoke-ReglaVoz $n.frase
+    $rN = @($script:reglas)[-1]
+    Comp "se crea: $($n.frase)" ($rN -and $rN.tipo -eq $n.tipo) "tipo=$($rN.tipo)"
+    $desc = Describe-Regla $rN
+    Comp "  y sabe decirla en cristiano" ($desc -notmatch [regex]::Escape($n.tipo)) "$desc"
+    $script:ejecutado = @(); $script:dicho = @()
+    Invoke-Reglas $n.tipo $n.dato
+    Comp "  y dispara de verdad" ($script:ejecutado.Count -eq 1) ("[" + ($script:ejecutado -join '|') + "]")
+    $script:ejecutado = @()
+    Invoke-Reglas $n.tipo 'otracosa'
+    Comp "  pero no con otro dato" ($script:ejecutado.Count -eq 0) ("[" + ($script:ejecutado -join '|') + "]")
+}
+# "avisame" a secas no es ejecutable: tiene que convertirse en algo que DECIR
+$script:reglas.Clear()
+$null = Invoke-ReglaVoz 'cuando termine de cargar avisame'
+$rAv = @($script:reglas)[-1]
+Comp 'avisame se convierte en algo que decir' ($rAv -and $rAv.accion -match '^di\s+\S') "accion='$($rAv.accion)'"
+# quitar el disco y conectarlo son cosas distintas
+$script:reglas.Clear()
+$null = Invoke-ReglaVoz 'cuando quite el disco de los juegos di adios'
+$rQ = @($script:reglas)[-1]
+Comp 'quitar el disco se guarda como quita' ($rQ.tipo -eq 'discoJuegos' -and $rQ.valor -eq 'quita') "valor='$($rQ.valor)'"
+$script:ejecutado = @()
+Invoke-Reglas 'discoJuegos' 'pone'
+Comp 'y NO salta al conectarlo' ($script:ejecutado.Count -eq 0) ("[" + ($script:ejecutado -join '|') + "]")
+
 Write-Host ""
 if ($fallos) { Write-Host "$fallos casos MAL"; exit 1 }
 Write-Host "todo correcto"
