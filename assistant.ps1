@@ -4617,6 +4617,12 @@ function Update-BateriaJuego([int]$pct, [int]$cargando) {
             $m[$t.juego]['muestrasBateria'] = $nMu + 1
             Save-JuegosMem
             Log ("BATERIA: {0} gasta {1:N1} %/h en este tramo ({2:N0} min); media {3:N1} %/h" -f $t.juego, $ritmo, $minT, $nuevo)
+            # IDEA 16: comparado con SU media, no con un numero inventado. $antes y $nMu
+            # son todavia los de ANTES de este tramo. Hace falta historial (3 muestras) o
+            # cualquier tramo pareceria raro.
+            if ($nMu -ge 3 -and $antes -gt 0 -and $ritmo -gt ($antes * 1.6)) {
+                [void](Send-AvisoEntorno 'bateria-rara' ("La bateria se esta yendo mas rapido de lo normal con " + $t.juego + ".") 'medio' 240)
+            }
         }
         $script:tramoBat = $null
         $t = $null
@@ -4837,7 +4843,7 @@ function Watch-Musica($mu) {
 $script:habitos = $null
 function Get-Habitos {
     if ($null -ne $script:habitos) { return $script:habitos }
-    $script:habitos = @{ usos = (New-Object System.Collections.ArrayList); rechazadas = (New-Object System.Collections.ArrayList); ultimaPropuesta = ''; fin = @{}; cargaAvisada = ''; nivelVisto = 0; brilloAuto = $false; parteVisto = ''; ritmo = (New-Object System.Collections.ArrayList); charlaHoras = @{} }
+    $script:habitos = @{ usos = (New-Object System.Collections.ArrayList); rechazadas = (New-Object System.Collections.ArrayList); ultimaPropuesta = ''; fin = @{}; cargaAvisada = ''; nivelVisto = 0; brilloAuto = $false; parteVisto = ''; ritmo = (New-Object System.Collections.ArrayList); charlaHoras = @{}; minutosJuego = @{} }
     $rutaH = Join-Path $MemoriaDir 'habitos.json'
     if (Test-Path -LiteralPath $rutaH) {
         try {
@@ -4850,6 +4856,7 @@ function Get-Habitos {
             $script:habitos.nivelVisto = [int]$crudoH.nivelVisto
             $script:habitos.brilloAuto = [bool]$crudoH.brilloAuto
             $script:habitos.parteVisto = [string]$crudoH.parteVisto
+            if ($crudoH.minutosJuego) { foreach ($pM in $crudoH.minutosJuego.PSObject.Properties) { $script:habitos.minutosJuego[$pM.Name] = [int]$pM.Value } }
             foreach ($x in @($crudoH.ritmo)) { if ($null -ne $x) { [void]$script:habitos.ritmo.Add([double]$x) } }
             if ($crudoH.charlaHoras) { foreach ($pf in $crudoH.charlaHoras.PSObject.Properties) { $script:habitos.charlaHoras[$pf.Name] = [int]$pf.Value } }
         } catch { Log ("habitos: no pude leerlos: " + $_.Exception.Message) }
@@ -4859,7 +4866,7 @@ function Get-Habitos {
 function Save-Habitos {
     try {
         $hb = Get-Habitos
-        $o = [ordered]@{ usos = @($hb.usos); rechazadas = @($hb.rechazadas); ultimaPropuesta = $hb.ultimaPropuesta; fin = $hb.fin; cargaAvisada = $hb.cargaAvisada; nivelVisto = $hb.nivelVisto; brilloAuto = [bool]$hb.brilloAuto; parteVisto = [string]$hb.parteVisto; ritmo = @($hb.ritmo); charlaHoras = $hb.charlaHoras }
+        $o = [ordered]@{ usos = @($hb.usos); rechazadas = @($hb.rechazadas); ultimaPropuesta = $hb.ultimaPropuesta; fin = $hb.fin; cargaAvisada = $hb.cargaAvisada; nivelVisto = $hb.nivelVisto; brilloAuto = [bool]$hb.brilloAuto; parteVisto = [string]$hb.parteVisto; ritmo = @($hb.ritmo); charlaHoras = $hb.charlaHoras; minutosJuego = $hb.minutosJuego }
         $rutaH = Join-Path $MemoriaDir 'habitos.json'
         [System.IO.File]::WriteAllText($rutaH + '.tmp', (ConvertTo-Json -InputObject $o -Depth 4), (New-Object System.Text.UTF8Encoding($false)))
         Move-Item -LiteralPath ($rutaH + '.tmp') -Destination $rutaH -Force
@@ -5218,7 +5225,34 @@ function Test-PuedoAvisar([string]$clave, [string]$nivel = 'medio', [int]$cadaMi
     return $true
 }
 
-# Avisa de algo. Devuelve $true si de verdad se dijo.
+# IDEA 23: DOS AVISOS SEGUIDOS SE DICEN EN UNA SOLA FRASE. Pasa de verdad: sacas el
+# portatil del dock y en el mismo momento cambia la pantalla, se va el cargador y salta
+# la bateria. Tres frases seguidas cansan mas que los tres datos juntos.
+#
+# Se junta SOLO LA VOZ: el aviso se apunta, se ve y se registra al momento, pero se dice
+# unos segundos despues, pegado a los que hayan caido mientras. Lo critico ('alto') no
+# espera a nadie y ademas se cuela el primero.
+$script:avisoCola = New-Object System.Collections.ArrayList
+$script:avisoColaDesde = 0
+$AvisoJuntarMs = 4000
+
+# Suelta lo que haya esperando, todo junto. $yaMismo se salta la espera (lo critico).
+function Send-AvisoCola([bool]$yaMismo = $false) {
+    if ($script:avisoCola.Count -eq 0) { return }
+    if (-not $yaMismo) {
+        if (($sw.ElapsedMilliseconds - $script:avisoColaDesde) -lt $AvisoJuntarMs) { return }
+        # si esta hablando o esperando un si, que siga esperando: no se pisa una charla
+        if ($script:busy -or $script:pendiente) { return }
+    }
+    $piezas = @($script:avisoCola | ForEach-Object { ([string]$_).Trim().TrimEnd('.') })
+    $script:avisoCola.Clear()
+    $junto = ($piezas -join '. ')
+    if ($junto -notmatch '[?!]$') { $junto += '.' }
+    Say $junto
+}
+
+# Avisa de algo. Devuelve $true si el aviso pasa el filtro (los normales se dicen unos
+# segundos despues, ver la idea 23 aqui arriba).
 function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'medio', [int]$cadaMin = 60) {
     if (-not (Test-PuedoAvisar $clave $nivel $cadaMin)) { return $false }
     $script:entornoVistos[$clave] = (Get-Date).ToString('s')
@@ -5229,7 +5263,14 @@ function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'med
     $script:ultimaRespuesta = $texto
     Show-Popup $texto
     # los de poca monta NO se dicen: se ven y ya. Hablar por todo es lo que cansa.
-    if ($nivel -ne 'bajo') { Say $texto }
+    if ($nivel -eq 'alto') {
+        # lo critico va delante de lo que estuviera esperando, y sale ya
+        $script:avisoCola.Insert(0, $texto)
+        Send-AvisoCola $true
+    } elseif ($nivel -ne 'bajo') {
+        if ($script:avisoCola.Count -eq 0) { $script:avisoColaDesde = $sw.ElapsedMilliseconds }
+        [void]$script:avisoCola.Add($texto)
+    }
     return $true
 }
 
@@ -5255,6 +5296,7 @@ function Watch-Entorno([int]$botones = 0) {
         }
     }
     $script:entornoBotonesAntes = $botones
+    try { Send-AvisoCola } catch {}
     if (($ahoraW - $script:entornoCheck) -lt 30000) { return }
     $script:entornoCheck = $ahoraW
 
@@ -9349,6 +9391,15 @@ function Write-NotaSemanal {
 }
 
 function Enter-Juego([string]$nombre) {
+    # IDEA 11: el juego tiene algo pendiente. En los manifiestos de Steam, StateFlags 4
+    # es "instalado y listo"; cualquier otra cosa (6, 550, 1026...) es actualizacion o
+    # descarga a medias. Mejor saberlo AHORA que cuando el juego no arranca.
+    try {
+        $jE = @($script:Juegos | Where-Object { $_.nombre -eq $nombre }) | Select-Object -First 1
+        if ($jE -and [int]$jE.estado -ne 4) {
+            [void](Send-AvisoEntorno "juego-pendiente-$nombre" "Ojo, $nombre tiene una actualizacion o descarga pendiente en Steam." 'medio' 120)
+        }
+    } catch {}
     $script:juegoAvisado = $false
     $script:juegoHoras = 0
     $script:juegoBrilloAntes = $null
@@ -9379,6 +9430,25 @@ function Exit-Juego([string]$nombre) {
     # "me quede en..." dicho justo despues de salir sigue siendo de este juego
     $script:ultimoJuego = $nombre
     $script:ultimoJuegoEn = $sw.ElapsedMilliseconds
+    # IDEAS 19 y 20: cuanto se juega cada dia. Se apunta AL CERRAR, que es cuando se
+    # sabe lo que duro la partida; asi "cuanto llevo hoy" no se lo inventa nadie.
+    try {
+        $minJ = [int](($sw.ElapsedMilliseconds - $script:juegoDesde) / 60000)
+        if ($minJ -ge 2 -and $minJ -le 720) {
+            $hbJ = Get-Habitos
+            $diaJ = (Get-Date).AddHours(-5).ToString('yyyy-MM-dd')   # la madrugada cuenta como ayer
+            if (-not $hbJ.minutosJuego) { $hbJ.minutosJuego = @{} }
+            $hbJ.minutosJuego[$diaJ] = [int]$hbJ.minutosJuego[$diaJ] + $minJ
+            $limJ = (Get-Date).AddDays(-30).ToString('yyyy-MM-dd')
+            foreach ($k in @($hbJ.minutosJuego.Keys)) { if ($k -lt $limJ) { $hbJ.minutosJuego.Remove($k) } }
+            Save-Habitos
+            $totJ = [int]$hbJ.minutosJuego[$diaJ]
+            Log "JUEGO: $minJ min con $nombre (hoy van $totJ)"
+            if ($totJ -ge 240) {
+                [void](Send-AvisoEntorno 'horas-hoy' "Hoy llevas $([Math]::Round($totJ / 60.0, 1)) horas de juego." 'bajo' 480)
+            }
+        }
+    } catch {}
     Invoke-Reglas 'juegoCierra' $nombre
     # idea 9: es el momento en que te acuerdas; media hora despues, ya no
     if ($nombre) {
@@ -14504,6 +14574,9 @@ while ($true) {
             if ($j -and $JuegoAvisoMin -gt 0 -and -not $script:juegoAvisado -and
                       (($sw.ElapsedMilliseconds - $script:juegoDesde) -ge ($JuegoAvisoMin * 60000))) {
                 $script:juegoAvisado = $true
+                # IDEA 10: pasa por el freno de mano como todo lo demas. Es 'alto'
+                # porque suena JUGANDO, que es justo cuando hace falta oirlo.
+                [void](Test-PuedoAvisar 'juego-rato' 'alto' 120)
                 $horas = [Math]::Round($JuegoAvisoMin / 60.0, 1)
                 $cuanto = if ($JuegoAvisoMin -ge 60 -and ($JuegoAvisoMin % 60) -eq 0) { "$([int]$horas) horas" } else { "$JuegoAvisoMin minutos" }
                 if ($cuanto -eq '1 horas') { $cuanto = 'una hora' }

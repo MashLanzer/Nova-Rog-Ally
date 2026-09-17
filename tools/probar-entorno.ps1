@@ -38,6 +38,11 @@ function Write-Atomico($ruta, $texto) { [System.IO.File]::WriteAllText($ruta, $t
 Invoke-Expression (Traer 'Get-EntornoVistos')
 Invoke-Expression (Traer 'Save-EntornoVistos')
 Invoke-Expression (Traer 'Test-PuedoAvisar')
+# la voz de los avisos normales no sale al momento: espera unos segundos y sale junta
+$AvisoJuntarMs = 4000
+$script:avisoCola = New-Object System.Collections.ArrayList
+$script:avisoColaDesde = 0
+Invoke-Expression (Traer 'Send-AvisoCola')
 Invoke-Expression (Traer 'Send-AvisoEntorno')
 Invoke-Expression (Traer 'Set-AvisosEntorno')
 
@@ -55,12 +60,15 @@ function Reset {
     $script:juegoActivo = $null
     $script:busy = $false; $script:pendiente = $null; $script:dictandoLargo = $false
     $script:dicho = @()
+    $script:avisoCola = New-Object System.Collections.ArrayList
+    $script:avisoColaDesde = 0
 }
 
 Write-Host "  -- avisa cuando toca --"
 Reset
 Comp 'un aviso normal sale' (Send-AvisoEntorno 'dock' 'Pantalla conectada.') ''
-Comp 'y se dice en voz alta' ($script:dicho.Count -eq 1) ''
+Send-AvisoCola $true
+Comp 'y se dice en voz alta' ($script:dicho.Count -eq 1) ''''
 
 Write-Host "  -- pero no se repite --"
 Comp 'el mismo aviso, otra vez, NO' (-not (Send-AvisoEntorno 'dock' 'Pantalla conectada.')) ''
@@ -123,6 +131,29 @@ $script:entornoAvisos = New-Object System.Collections.ArrayList
 Comp 'tras reiniciar, NO se repite' (-not (Send-AvisoEntorno 'gmail-lleno' 'Gmail lleno.' 'medio' 10080)) ''
 Comp 'pero otro aviso distinto si sale' (Send-AvisoEntorno 'otra-cosa' 'Otra cosa.' 'medio' 10080) ''
 Remove-Item $EntornoVistosPath -ErrorAction SilentlyContinue
+
+Write-Host "  -- dos avisos seguidos, una sola frase --"
+# EL FALLO QUE ESTUVE A PUNTO DE METER (16/09): mi primera version le pegaba al aviso
+# nuevo el texto del anterior... que YA HABIA SONADO. O sea, lo repetia en voz alta.
+Reset
+[void](Send-AvisoEntorno 'uno' 'Cargando, vas por el 40 por ciento.')
+[void](Send-AvisoEntorno 'dos' 'Sin la pantalla grande.')
+Comp 'todavia no ha dicho nada' ($script:dicho.Count -eq 0) ''
+Send-AvisoCola $true
+Comp 'sale una frase, no dos' ($script:dicho.Count -eq 1) "$($script:dicho.Count)"
+Comp 'y estan las dos cosas' ($script:dicho[0] -like '*40 por ciento*' -and $script:dicho[0] -like '*pantalla grande*') "$($script:dicho[0])"
+Reset
+[void](Send-AvisoEntorno 'uno' 'Cargando, vas por el 40 por ciento.')
+Send-AvisoCola $true
+[void](Send-AvisoEntorno 'dos' 'Sin la pantalla grande.')
+Send-AvisoCola $true
+Comp 'lo ya dicho NO se repite' ($script:dicho.Count -eq 2 -and $script:dicho[1] -notlike '*40 por ciento*') "$($script:dicho -join ' / ')"
+
+Write-Host "  -- pero lo critico no hace cola --"
+Reset
+[void](Send-AvisoEntorno 'descarga-z' 'Ya termino de descargarse.' 'medio' 180)
+[void](Send-AvisoEntorno 'bateria' 'Te queda el 5 por ciento.' 'alto')
+Comp 'se dice al momento y va primero' ($script:dicho.Count -eq 1 -and $script:dicho[0] -like 'Te queda el 5*') "$($script:dicho -join ' / ')"
 
 Write-Host "  -- con un invitado delante, nada --"
 Reset
