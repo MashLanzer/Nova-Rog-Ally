@@ -5164,16 +5164,42 @@ $EntornoGmailLleno = [bool](Get-Cfg 'entorno' 'gmailLleno' $false)
 $EntornoNocheDesde = [int](Get-Cfg 'entorno' 'nocheDesde' 23)
 $EntornoNocheHasta = [int](Get-Cfg 'entorno' 'nocheHasta' 8)
 $script:entornoAvisos = New-Object System.Collections.ArrayList   # cuando salio cada uno
-$script:entornoVistos = @{}                                        # clave -> cuando (ms)
+# clave -> cuando salio, en HORA DE RELOJ (no en ms del cronometro, que se reinicia con
+# Nova). Se guarda en disco: si no, cada reinicio vuelve a avisar de todo.
+$script:entornoVistos = @{}
+$EntornoVistosPath = Join-Path $TmpDir 'avisos-vistos.json'
+function Get-EntornoVistos {
+    if ($script:entornoVistos.Count -gt 0) { return $script:entornoVistos }
+    try {
+        if (Test-Path -LiteralPath $EntornoVistosPath) {
+            $j = Get-Content -LiteralPath $EntornoVistosPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($p in $j.PSObject.Properties) { $script:entornoVistos[$p.Name] = [string]$p.Value }
+        }
+    } catch {}
+    return $script:entornoVistos
+}
+function Save-EntornoVistos {
+    try {
+        $o = [ordered]@{}
+        foreach ($k in ($script:entornoVistos.Keys | Sort-Object)) { $o[$k] = [string]$script:entornoVistos[$k] }
+        Write-Atomico $EntornoVistosPath (ConvertTo-Json -InputObject $o -Depth 3)
+    } catch {}
+}
 $script:entornoCallado = $false                                    # "no me avises de nada"
 
 # ¿se puede avisar de esto AHORA? nivel: 'bajo' (solo capsula), 'medio', 'alto' (critico)
 function Test-PuedoAvisar([string]$clave, [string]$nivel = 'medio', [int]$cadaMin = 60) {
     if (-not $EntornoOn -or $script:entornoCallado -or $script:invitado) { return $false }
     $ahoraE = $sw.ElapsedMilliseconds
-    # el mismo aviso, una vez cada cuanto
-    if ($script:entornoVistos.ContainsKey($clave)) {
-        if (($ahoraE - [double]$script:entornoVistos[$clave]) -lt ($cadaMin * 60000)) { return $false }
+    # el mismo aviso, una vez cada cuanto. Por HORA DE RELOJ y leido de disco: si no,
+    # cada reinicio de Nova rearmaba todos los avisos (16/09: el del Gmail lleno, con
+    # plazo de una semana, salio dos veces en once minutos).
+    $vistos = Get-EntornoVistos
+    if ($vistos.ContainsKey($clave)) {
+        $cuando = [datetime]::MinValue
+        if ([datetime]::TryParse([string]$vistos[$clave], [ref]$cuando)) {
+            if (((Get-Date) - $cuando).TotalMinutes -lt $cadaMin) { return $false }
+        }
     }
     if ($nivel -ne 'alto') {
         # JUGANDO, SILENCIO: es cuando mas molesta y cuando menos caso se hace
@@ -5195,7 +5221,8 @@ function Test-PuedoAvisar([string]$clave, [string]$nivel = 'medio', [int]$cadaMi
 # Avisa de algo. Devuelve $true si de verdad se dijo.
 function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'medio', [int]$cadaMin = 60) {
     if (-not (Test-PuedoAvisar $clave $nivel $cadaMin)) { return $false }
-    $script:entornoVistos[$clave] = $sw.ElapsedMilliseconds
+    $script:entornoVistos[$clave] = (Get-Date).ToString('s')
+    Save-EntornoVistos
     [void]$script:entornoAvisos.Add($sw.ElapsedMilliseconds)
     Log "ENTORNO ($clave, $nivel): $texto"
     Add-Estadistica 'aviso-entorno' $clave

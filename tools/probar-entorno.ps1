@@ -31,6 +31,12 @@ function Log($m) { }
 function Add-Estadistica($a, $b) { }
 function Show-Popup($t, $tipo = '') { }
 function Say($t) { $script:dicho += $t }
+# las marcas de "ya lo dije" viven en disco (si no, cada reinicio rearma los avisos),
+# asi que esto tiene que estar ANTES de la primera llamada a Send-AvisoEntorno
+$EntornoVistosPath = Join-Path $env:TEMP ('avisos-vistos-' + [guid]::NewGuid().ToString('N') + '.json')
+function Write-Atomico($ruta, $texto) { [System.IO.File]::WriteAllText($ruta, $texto, (New-Object System.Text.UTF8Encoding($false))) }
+Invoke-Expression (Traer 'Get-EntornoVistos')
+Invoke-Expression (Traer 'Save-EntornoVistos')
 Invoke-Expression (Traer 'Test-PuedoAvisar')
 Invoke-Expression (Traer 'Send-AvisoEntorno')
 Invoke-Expression (Traer 'Set-AvisosEntorno')
@@ -43,6 +49,8 @@ function Comp($etiqueta, $ok, $detalle) {
 function Reset {
     $script:entornoAvisos = New-Object System.Collections.ArrayList
     $script:entornoVistos = @{}
+    # las marcas ya viven en disco: si no se borran, un caso ensucia al siguiente
+    Remove-Item -LiteralPath $EntornoVistosPath -Force -ErrorAction SilentlyContinue
     $script:entornoCallado = $false
     $script:juegoActivo = $null
     $script:busy = $false; $script:pendiente = $null; $script:dictandoLargo = $false
@@ -101,6 +109,20 @@ Comp 'bateria baja avisa jugando (es critico)' (Send-AvisoEntorno 'bateria-baja'
 Comp 'una descarga terminada NO interrumpe la partida' (-not (Send-AvisoEntorno 'descarga-x' 'Ya termino de descargarse.' 'medio' 180)) ''
 Reset
 Comp 'y fuera del juego la descarga si se dice' (Send-AvisoEntorno 'descarga-x' 'Ya termino de descargarse.' 'medio' 180) ''
+
+Write-Host "  -- el 'una vez cada X' sobrevive al reinicio --"
+# EL FALLO DE VERDAD (16/09, visto en vivo): el aviso del Gmail lleno, con plazo de UNA
+# SEMANA, salio dos veces en once minutos porque entre medias se reinicio Nova. Las
+# marcas vivian en memoria, asi que cada arranque rearmaba todos los avisos.
+Reset
+Comp 'el aviso sale la primera vez' (Send-AvisoEntorno 'gmail-lleno' 'Gmail lleno.' 'medio' 10080) ''
+Comp 'y queda apuntado en disco' (Test-Path $EntornoVistosPath) ''
+# esto es reiniciar Nova: la memoria se vacia, el archivo se queda
+$script:entornoVistos = @{}
+$script:entornoAvisos = New-Object System.Collections.ArrayList
+Comp 'tras reiniciar, NO se repite' (-not (Send-AvisoEntorno 'gmail-lleno' 'Gmail lleno.' 'medio' 10080)) ''
+Comp 'pero otro aviso distinto si sale' (Send-AvisoEntorno 'otra-cosa' 'Otra cosa.' 'medio' 10080) ''
+Remove-Item $EntornoVistosPath -ErrorAction SilentlyContinue
 
 Write-Host "  -- con un invitado delante, nada --"
 Reset
