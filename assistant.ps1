@@ -13546,6 +13546,22 @@ function Process-Texto([string]$text) {
             $recEnc = $null
             try { $recEnc = Find-Receta $text } catch { $recEnc = $null }
             if ($recEnc) {
+                # LA VOZ DE UN VIDEO NO EJECUTA RECETAS (17/09). Las recetas se prueban
+                # unas 75 lineas ANTES del filtro de voz ajena, y las de tipo 'info' se
+                # lanzan sin preguntar nada; una receta normal con dos confirmaciones,
+                # tambien. Y una receta puede acabar ejecutando PowerShell. Asi que aqui
+                # se comprueba lo mismo que en las reglas: si no suena a braya, se
+                # pregunta en vez de hacerla. Va ANTES de la rama 'info' a proposito.
+                if (-not $script:confirmado -and (Test-VozExtrana)) {
+                    $script:pendiente = @{ texto = $text; vence = 0; tipo = 'peligrosa' }
+                    $preguntaVz = "No me suena tu voz. ¿$($text)?"
+                    Log ("VOZ EXTRANA: no ejecuto la receta $($recEnc.receta.id) de '$text' sin confirmar")
+                    Add-Estadistica 'voz-extrana' $text
+                    Say $preguntaVz
+                    Set-UI 'escuchando' $preguntaVz
+                    Start-Confirmacion
+                    return
+                }
                 # UNA RECETA DE INFORMACION NO SE PREGUNTA (16/09): solo mira y dice, no
                 # cambia nada, asi que preguntar "¿lo hago?" molesta sin proteger de nada.
                 if ([string]$recEnc.receta.tipo -eq 'info') {

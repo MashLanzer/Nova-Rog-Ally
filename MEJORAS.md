@@ -167,9 +167,19 @@ Cada hallazgo trae 5 mejoras ordenadas de más barata a más cara, con cómo med
   «di ya esta cargada del **todo**», y el regex la rechazaba por esa palabra. El filtro es
   para lo que **hace**, no para lo que dice.
 
-Pendiente de este bloque: 3.2 #6 (las recetas se prueban antes del filtro de ruido) y
-3.2 #2 (la prueba que ejecuta las acciones de verdad, la que habría cazado el bug del
-volumen).
+- **HECHO — 3.2 #6, las recetas se probaban antes del filtro de voz.** `Find-Receta`
+  corría ~75 líneas antes de comprobar si la voz era de braya, y las de tipo `info` se
+  lanzaban sin preguntar nada (una receta puede acabar ejecutando PowerShell). Ahora la
+  comprobación va **antes** de la rama `info`, con el mismo criterio que las reglas.
+- **HECHO — 3.2 #2, la prueba que faltaba.** No ejecuta las 113 ramas (abrirían programas
+  y apagarían el equipo): compara, para cada acción, los campos que el productor **escribe**
+  con los que su rama **lee**. Entra en el banco como 2n12.
+  **Me costó cinco intentos y dos de ellos habrían pasado por buenos**: la validé contra
+  una copia con el bug del volumen reintroducido y las dos primeras versiones decían
+  «todo correcto» igual. Los fallos fueron míos, y quedan escritos en el archivo: una
+  ventana de 1500 caracteres que tapaba el bug que buscaba, y juntar los cuatro
+  productores de `volumenPct` en bloque cuando el roto era **uno** de los cuatro.
+  Una prueba que no se ha visto fallar no vale nada.
 
 ---
 
