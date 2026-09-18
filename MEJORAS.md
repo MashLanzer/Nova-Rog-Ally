@@ -110,7 +110,7 @@ Seis casos nuevos en `probar-escucha.py`, incluido uno que reproduce el atasco.
 | 4 | El patrón de la hora no exige «cuando»: «a las ocho cierra steam» guarda una **regla diaria** desde una frase de conversación | GRAVE | `assistant.ps1:9182` → **NO se arregla así, ver abajo** |
 | 5 | **Al dispararse, una regla tiene carta blanca**: `$script:confirmado = $true`, así que «cierra todos los programas» se ejecuta sin preguntar. El camino de hábitos sí filtra lo destructivo; el hablado se olvidó | GRAVE | `assistant.ps1:9290` |
 | 6 | Las recetas se prueban **antes** del filtro de ruido y sin rechazo ni voz ajena; con `confirmadas>=2` lanzan PowerShell sin preguntar | GRAVE | `assistant.ps1:13487` |
-| 7 | El atajo de pronombres convierte «ponla siempre encima» en «pon spotify siempre encima» y acaba **abriendo Spotify** | MEDIO | `assistant.ps1:2190` |
+| 7 | El atajo de pronombres convierte «ponla siempre encima» en «pon spotify siempre encima» y acaba **abriendo Spotify** | MEDIO | `assistant.ps1:2190` → **HECHA** |
 | 8 | `Test-FastCommand` (que valida todo y corre sobre los parciales **mientras hablas**) lee el escritorio, escanea siete carpetas y toca el estado de la cápsula | MEDIO | — |
 | 9 | `Find-Traduccion` devuelve la **primera** clave dentro del tope, no la más cercana: el resultado depende del orden del hashtable (fallo que no se reproduce) | MEDIO | `assistant.ps1:6105` |
 **HECHO (17/09) — 3.3 #2, la sordera de hasta 90 s.** Era peor de lo que decía el
@@ -212,13 +212,26 @@ Cada hallazgo trae 5 mejoras ordenadas de más barata a más cara, con cómo med
 | 3 | **`probar-autosordina.ps1` siempre sale verde**: el único de los 38 sin `exit 1`, y tres de sus cuatro casos imprimen el valor esperado sin compararlo | GRAVE | `tools\probar-autosordina.ps1` |
 | 4 | **La sección 3 del banco solo comprueba que la línea exista, no el número**: una caída de 95 % a 5 % pasaría desapercibida | GRAVE | `tools\probar-todo.ps1` |
 | 5 | `Save-Habitos`, `Save-JuegosMem` y `Add-HistorialMusica` no usan `Write-Atomico` | MEDIO | — |
-| 6 | Un número mal escrito en `config.json` mata el arranque **antes de que exista `Log`** | MEDIO | —**HECHA** |
+| 6 | Un número mal escrito en `config.json` mata el arranque **antes de que exista `Log`** | MEDIO | → **HECHA** |
 | 7 | El modo invitado tiene siete huecos (`Add-Traduccion`, `Add-Rechazo`…) y **no sobrevive a un reinicio** | MEDIO | — |
 | 8 | Ninguna prueba toca `New-CopiaSeguridad` ni `Get-Cfg` | MEDIO | — |
 | 9 | Verificado **sano** (para no perseguirlo): `$LASTEXITCODE` sí sobrevive a las tuberías `| Select-String`, y los 26 scripts con función de aserción usan bien `$script:` | — | — |
 
 ### 3.5 Decisiones tomadas al implementar (17/09)
 
+- **HECHO — 3.2 #7, el pronombre tapaba otra orden.** El atajo de
+  `abrelo` reescribe la frase ANTES de que llegue a su propio patron, y los patrones que
+  empiezan igual estan cientos de lineas mas abajo. Resultado: era **mas grande de lo que
+  decia el hallazgo**, no uno sino tres: `ponla siempre encima` (~2986), `ponle el volumen
+  al 50` (~3005, la forma natural de esa orden) y `cierrala` (~2442, quitar la tarjeta).
+  **Decidido con el log, no a ojo:** braya dice `abrelo` (4 veces) y **nunca** las otras, asi
+  que el fallo es real por construccion pero no le ha mordido todavia; eso pide un arreglo
+  conservador, no una reestructuracion. El atajo sigue valiendo cuando detras no hay otra
+  orden: nada (`abrelo`), un donde (`abrelo en steam`) o relleno (`abrelo ya`).
+  Sacado a `Resolve-Pronombre`, **fuera** de `Resolve-Fragment` (1.300 lineas), para que la
+  prueba lo ejecute de verdad en vez de copiar el regex y creerselo. 17 casos en
+  `probar-pronombres.ps1` (2n15), y los dos ultimos sujetan el porque: que la frase salvada
+  **si** encaja con su patron, y que la que salia antes no encajaba con ninguno.
 - **HECHO — 3.4 #6, un `config.json` mal escrito mataba el arranque.** Verificado
   entero antes de tocarlo: `[int]'mucho'` lanza, `$ErrorActionPreference='Stop'` esta en la
   linea 6, y **siete** de esas lecturas pasan antes de que `Log` exista (lineas 57-78; `Log`

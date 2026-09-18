@@ -1959,6 +1959,35 @@ function Get-Veces([string]$txt) {
     return 1
 }
 
+# EL PRONOMBRE NO PUEDE TAPAR OTRA ORDEN (17/09). El atajo de "abrelo" reescribe la frase
+# ANTES de que llegue a su propio patron, y los patrones que empiezan igual estan cientos de
+# lineas mas abajo: "ponla siempre encima" (linea ~2986) se convertia en "pon spotify
+# siempre encima" y acababa ABRIENDO Spotify. Lo mismo "ponle el volumen al 50" (~3005), que
+# es la forma natural de esa orden.
+#
+# En el log de uso braya dice "abrelo" (4 veces) y NUNCA las otras, asi que no se toca lo
+# que funciona: el atajo sigue valiendo cuando detras no hay otra orden -o no hay nada
+# ("abrelo"), o es donde ("abrelo en steam"), o es relleno ("abrelo ya")-. Cualquier otra
+# cola es una orden distinta y se deja pasar entera.
+#
+# Esta aparte, y no dentro de Resolve-Fragment (1.300 lineas), para que una prueba pueda
+# ejecutarla de verdad en vez de copiar el regex y creerselo.
+# Devuelve la frase reescrita, o '' si el atajo NO debe aplicarse.
+function Resolve-Pronombre([string]$f, [string]$objetivo) {
+    if (-not $objetivo -or -not $f) { return '' }
+    if ($f -notmatch '^(abre|abrir|cierra|busca|buscar|pon|inicia|lanza|ejecuta)(?:lo|la|le|los|las|melo|mela|me lo|me la)\b\s*(.*)$') { return '' }
+    $verboP = $Matches[1]
+    $restoP = $Matches[2].Trim()
+    # "cierrala" ya es una orden con el pronombre pegado: quitar la tarjeta (ver el bloque
+    # de la tarjeta). braya para eso dice "quitala", que ni siquiera entra aqui.
+    if ($f -match '^cierrala$') { return '' }
+    if ($restoP -ne '' -and
+        $restoP -notmatch '^(?:en|de|del|a|al|con|para)\b' -and
+        $restoP -notmatch '^(?:ya|porfa|por favor|otra vez|de nuevo|ahora|rapido)$') { return '' }
+    if ($restoP) { return "$verboP $objetivo $restoP" }
+    return "$verboP $objetivo"
+}
+
 function Resolve-Fragment([string]$f) {
     # Los numeros, a cifras, ANTES de mirar ningun patron. Aqui no llega el
     # texto libre: las notas del diario las coge un atajo anterior con el texto
@@ -2233,11 +2262,9 @@ function Resolve-Fragment([string]$f) {
     # persistente que hubo que quitar por tragarse las ordenes.
     # Incluye "le" a proposito: el corrector de verbos convierte "abrelo" en
     # "abrele" (distancia 1) antes de llegar aqui.
-    if ($script:ultimoObjetivo -and $f -match '^(abre|abrir|cierra|busca|buscar|pon|inicia|lanza|ejecuta)(?:lo|la|le|los|las|melo|mela|me lo|me la)\b\s*(.*)$') {
-        $verbo = $Matches[1]
-        $resto = $Matches[2].Trim()
-        $f = "$verbo $($script:ultimoObjetivo)"
-        if ($resto) { $f = "$f $resto" }
+    if ($script:ultimoObjetivo) {
+        $fPron = Resolve-Pronombre $f $script:ultimoObjetivo
+        if ($fPron) { $f = $fPron }
     }
     # --- temporizadores: lo mas util con las manos ocupadas ---
     # "recuerdeme" / "recuerden" (validacion, 15/09): la forma de usted, asi lo oye Whisper
