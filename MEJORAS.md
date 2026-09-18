@@ -212,13 +212,26 @@ Cada hallazgo trae 5 mejoras ordenadas de más barata a más cara, con cómo med
 | 3 | **`probar-autosordina.ps1` siempre sale verde**: el único de los 38 sin `exit 1`, y tres de sus cuatro casos imprimen el valor esperado sin compararlo | GRAVE | `tools\probar-autosordina.ps1` |
 | 4 | **La sección 3 del banco solo comprueba que la línea exista, no el número**: una caída de 95 % a 5 % pasaría desapercibida | GRAVE | `tools\probar-todo.ps1` |
 | 5 | `Save-Habitos`, `Save-JuegosMem` y `Add-HistorialMusica` no usan `Write-Atomico` | MEDIO | — |
-| 6 | Un número mal escrito en `config.json` mata el arranque **antes de que exista `Log`** | MEDIO | — |
+| 6 | Un número mal escrito en `config.json` mata el arranque **antes de que exista `Log`** | MEDIO | —**HECHA** |
 | 7 | El modo invitado tiene siete huecos (`Add-Traduccion`, `Add-Rechazo`…) y **no sobrevive a un reinicio** | MEDIO | — |
 | 8 | Ninguna prueba toca `New-CopiaSeguridad` ni `Get-Cfg` | MEDIO | — |
 | 9 | Verificado **sano** (para no perseguirlo): `$LASTEXITCODE` sí sobrevive a las tuberías `| Select-String`, y los 26 scripts con función de aserción usan bien `$script:` | — | — |
 
 ### 3.5 Decisiones tomadas al implementar (17/09)
 
+- **HECHO — 3.4 #6, un `config.json` mal escrito mataba el arranque.** Verificado
+  entero antes de tocarlo: `[int]'mucho'` lanza, `$ErrorActionPreference='Stop'` esta en la
+  linea 6, y **siete** de esas lecturas pasan antes de que `Log` exista (lineas 57-78; `Log`
+  esta en la 95), asi que Nova moria sin dejar donde mirar. Son **52 lecturas**: se arregla
+  en la unica puerta, `Get-Cfg`, no en 52 sitios. Importa mas desde ayer, porque ahora Nova
+  **se escribe sola** en ese archivo.
+  Aparecio algo que el hallazgo no decia y es peor, porque no avisa: `[bool]'loquesea'` **no
+  lanza: devuelve `True`**. Un `"activada": "no"` se leia como activado, en silencio. Ahora
+  se entienden si/no/true/false/1/0/on/off, y lo que no se entiende usa el de siempre.
+  La regla es **rechazar lo que no encaja, nunca forzar el tipo**: forzandolo, una escala de
+  1.25 con un default de 1 se habria convertido en 1. Eso tiene su propio caso en la prueba.
+  De paso cae la mitad de **3.4 #8** (ninguna prueba tocaba `Get-Cfg`): 20 casos en
+  `probar-config.ps1`, seccion 2n14 del banco.
 - **HECHO — 3.2 #3, la voz de un vídeo creando reglas.** `Invoke-ReglaVoz` crea reglas,
   modos y recordatorios y devuelve en el acto, así que nunca llegaba a `Test-Rechazada`
   ni a `Test-VozExtrana`, unas 60 líneas más abajo. Y esas guardas no valían tal cual,

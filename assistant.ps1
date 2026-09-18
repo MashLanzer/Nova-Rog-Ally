@@ -17,9 +17,40 @@ if (Test-Path -LiteralPath $cfgPath) {
     try { $cfg = Get-Content -LiteralPath $cfgPath -Raw -Encoding UTF8 | ConvertFrom-Json }
     catch { $cfg = $null; $cfgError = $_.Exception.Message }
 }
+# UN VALOR MAL ESCRITO NO PUEDE MATAR EL ARRANQUE (17/09). Casi todas las lecturas van
+# envueltas en [int] o [double], y [int]'mucho' LANZA: con $ErrorActionPreference='Stop' y
+# SIETE de ellas antes de que exista Log (lineas 57-78, Log esta en la 95), Nova se moria
+# al arrancar sin dejar donde mirar por que. Son 52 lecturas: se arregla aqui, en la unica
+# puerta, y no en 52 sitios.
+#
+# Y habia algo peor que el reventon, porque no avisa: [bool]'loquesea' NO lanza, devuelve
+# True. Un "activada": "no" se leia como activado y en silencio.
+#
+# La regla es RECHAZAR lo que no encaja, nunca forzar el tipo: forzando, una escala de 1.25
+# con un default de 1 se convertiria en 1. Si el valor sirve se devuelve tal cual y lo
+# convierte quien llama, como hasta ahora.
 function Get-Cfg([string]$section, [string]$key, $default) {
     try {
-        if ($cfg -and $cfg.$section -and $null -ne $cfg.$section.$key) { return $cfg.$section.$key }
+        if ($cfg -and $cfg.$section -and $null -ne $cfg.$section.$key) {
+            $v = $cfg.$section.$key
+            if ($default -is [bool]) {
+                if ($v -is [bool]) { return $v }
+                # lo que una persona escribe a mano cuando quiere decir si o no
+                switch -Regex ([string]$v) {
+                    '^(?i)\s*(true|1|si|s\u00ed|yes|on)\s*$'   { return $true }
+                    '^(?i)\s*(false|0|no|off)\s*$'             { return $false }
+                }
+                return $default
+            }
+            if ($default -is [int] -or $default -is [long] -or $default -is [double] -or $default -is [decimal]) {
+                if ($v -is [int] -or $v -is [long] -or $v -is [double] -or $v -is [decimal]) { return $v }
+                $nD = 0.0
+                if ([double]::TryParse([string]$v, [System.Globalization.NumberStyles]::Float,
+                                       [System.Globalization.CultureInfo]::InvariantCulture, [ref]$nD)) { return $v }
+                return $default
+            }
+            return $v
+        }
     } catch {}
     return $default
 }

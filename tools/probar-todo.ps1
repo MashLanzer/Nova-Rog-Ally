@@ -178,6 +178,10 @@ Titulo "2n13. Nova se revisa a si misma (y NO apaga lo que si le sirve)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-revision-propia.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n14. Un config.json mal escrito no puede matar el arranque"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-config.ps1') | Select-String 'todo correcto|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "3. Ordenes que SI deben reconocerse"
 foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     $salida = powershell -NoProfile -File 'assistant.ps1' -Probar (Join-Path 'pruebas' $banco) 2>&1
