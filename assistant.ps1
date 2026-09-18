@@ -2168,6 +2168,14 @@ function Resolve-Fragment([string]$f) {
                                  elseif ($mins -ge 60) { "deshacer lo de la ultima " + $(if ($mins -eq 60) { 'hora' } else { [int]($mins / 60).ToString() + ' horas' }) }
                                  else { "deshacer lo de los ultimos $mins minutos" }) })
         }
+        # LO QUE CAMBIO ELLA SOLA. Va ANTES del "deshaz" generico de abajo, que termina en
+        # \b y si no se quedaria con la frase entera.
+        '^(?:deshaz|deshacer|revierte|quita|anula)\s+(?:todo\s+)?lo\s+que\s+(?:has\s+|hayas\s+)?(?:cambiado|cambiaste|decidido|decidiste|tocado|tocaste|apagado|apagaste|quitado|quitaste|hecho\s+tu|hiciste\s+tu)(?:\s+tu|\s+sola|\s+por\s+tu\s+cuenta)?$' {
+            return @(@{ kind = 'deshacerAuto'; desc = 'deshacer lo que decidi yo sola' })
+        }
+        '^(?:vuelve a poner|pon otra vez|ponme otra vez|reactiva|activa otra vez|devuelveme)\s+(?:el\s+|tu\s+)?ultimo recurso$' {
+            return @(@{ kind = 'deshacerAuto'; desc = 'volver a poner mi ultimo recurso' })
+        }
         '^(?:deshaz|deshacer|cancela eso|cancelalo|no cancela|revierte|vuelve atras|atras eso)\b' {
             return @(@{ kind = 'deshacer'; desc = 'deshacer lo ultimo' })
         }
@@ -3320,6 +3328,9 @@ function Invoke-DeshacerDesde([int]$minutos) {
 }
 
 function Invoke-Deshacer {
+    # si no hay nada TUYO que deshacer pero ella se cambio algo sola, eso es lo que quieres
+    # deshacer: contestar "no hay nada que deshacer" seria mentira (17/09)
+    if (-not $script:deshacer -and $script:autoDecision) { return (Undo-DecisionPropia) }
     if (-not $script:deshacer) { return "No hay nada que deshacer" }
     $hecho = @()
     if ($null -ne $script:deshacer.brillo) {
@@ -5536,6 +5547,44 @@ function Get-AvisoFallos([datetime]$ahora = (Get-Date)) {
 # Tres frenos, porque una maquina que se toca sus propios ajustes da mas miedo que
 # pereza: hace falta HISTORIAL (con cuatro intentos cualquier motor parece inutil), se
 # revisa UNA VEZ AL DIA, y se dice en voz alta lo que ha hecho y como deshacerlo.
+# DESHACER LO QUE DECIDIO ELLA (17/09). Test-RevisionPropia es lo primero que se cambia un
+# ajuste sin que braya se lo pida, y la unica forma de devolverlo era editar config.json a
+# mano. Un ajuste que se pone solo y no se quita hablando es justo lo que braya odia, asi
+# que cada decision se apunta CON SU VALOR DE ANTES y se revierte diciendolo.
+#
+# Se guarda en DOS sitios a proposito, y no sobra ninguno: la variable viva vale para esta
+# sesion, y config.json para despues de reiniciar. Hacen falta las dos porque Get-Cfg lee
+# $cfg -la copia cargada AL ARRANCAR- y Set-Cfg escribe el archivo sin refrescarla: recien
+# tomada la decision, preguntarle a Get-Cfg devolveria vacio, que es justo cuando mas se
+# pide deshacerla.
+$script:autoDecision = $null
+function Save-DecisionPropia([string]$seccion, [string]$clave, [string]$antes, [string]$que) {
+    $script:autoDecision = @{ seccion = $seccion; clave = $clave; antes = $antes; que = $que }
+    [void](Set-Cfg 'auto' 'ultimaDecision' "$seccion|$clave|$antes|$que")
+}
+
+function Undo-DecisionPropia {
+    $d = $script:autoDecision
+    if (-not $d) { return 'No he cambiado nada por mi cuenta' }
+    [void](Set-Cfg $d.seccion $d.clave $d.antes)
+    # y la variable VIVA, o no valdria hasta el proximo arranque. Con un solo caso hoy, un
+    # switch explicito dice mas verdad que fingir que esto ya es generico.
+    $enVivoD = $true
+    switch ("$($d.seccion).$($d.clave)") {
+        'input.whisperModeloUltimo' { $script:WhisperUltimo = [string]$d.antes }
+        default { $enVivoD = $false }
+    }
+    $script:autoDecision = $null
+    [void](Set-Cfg 'auto' 'ultimaDecision' '')
+    Log "DECISION PROPIA DESHECHA: $($d.seccion).$($d.clave) vuelve a '$($d.antes)'"
+    Add-Estadistica 'auto-deshecho' "$($d.seccion).$($d.clave)"
+    # y hoy no vuelve a decidir: si acabas de devolverselo, revisarse otra vez esta tarde y
+    # volver a apagarlo seria ponerse a discutir contigo.
+    $script:revisionPropiaDia = (Get-Date).ToString('yyyy-MM-dd')
+    if ($enVivoD) { return "Hecho: vuelvo a usar $($d.que)" }
+    return "Hecho: vuelvo a usar $($d.que) en cuanto me reinicies"
+}
+
 $script:revisionPropiaDia = ''
 function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     if ($script:invitado -or $script:juegoActivo) { return $false }
@@ -5560,11 +5609,13 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     # (el worker recibe el modelo al arrancar, pero nunca se lo piden). Importa: al
     # relanzar la escucha, un valor vacio ya se le pasa como '-', que el worker entiende
     # como desactivado; asi que esto NO deja a Nova sorda en el proximo arranque.
+    $antesR = [string]$WhisperUltimo
     $script:WhisperUltimo = ''
     [void](Set-Cfg 'input' 'whisperModeloUltimo' '')
+    Save-DecisionPropia 'input' 'whisperModeloUltimo' $antesR 'mi ultimo recurso del oido'
     Log "REVISION PROPIA: apago el ultimo recurso del oido ($tsR de $tR utiles en 14 dias)"
     Add-Estadistica 'auto-ajuste' "ultimo recurso off: $tsR de $tR"
-    [void](Send-AvisoEntorno 'auto-ultimo' ("He apagado mi ultimo recurso del oido: en $tR intentos solo me sirvio $tsR veces y cada uno te hacia esperar unos 16 segundos. Si lo quieres de vuelta, esta en config.json, input.whisperModeloUltimo.") 'medio' 43200)
+    [void](Send-AvisoEntorno 'auto-ultimo' ("He apagado mi ultimo recurso del oido: en $tR intentos solo me sirvio $tsR veces y cada uno te hacia esperar unos 16 segundos. Si lo quieres de vuelta, dime: deshaz lo que has cambiado.") 'medio' 43200)
     return $true
 }
 
@@ -6565,7 +6616,7 @@ function Invoke-FastCommand([string]$text) {
     # QUE FRASE FUE. Para que "no era eso" sepa a que se refiere. No se apunta
     # la propia "no era eso", claro, ni "deshaz": eso dejaria sin referencia a
     # la siguiente queja.
-    if (-not ($acciones | Where-Object { $_.kind -in @('noEraEso', 'deshacer', 'deshacerDesde') })) {
+    if (-not ($acciones | Where-Object { $_.kind -in @('noEraEso', 'deshacer', 'deshacerDesde', 'deshacerAuto') })) {
         $script:ultimoEjecutado = $text
     }
 
@@ -6590,6 +6641,7 @@ function Invoke-FastCommand([string]$text) {
             switch ($a.kind) {
                 # se sustituye la descripcion por el resultado real
                 'deshacer' { $a.desc = (Invoke-Deshacer) }
+                'deshacerAuto' { $a.desc = (Undo-DecisionPropia) }
                 'deshacerDesde' { $a.desc = (Invoke-DeshacerDesde ([int]$a.minutos)) }
                 'app' {
                     # ABRIR UN JUEGO MIENTRAS JUEGAS A OTRA COSA casi nunca es lo
@@ -8426,6 +8478,15 @@ $WhisperPreciso = [string](Get-Cfg 'input' 'whisperModeloPreciso' '')
 $WhisperUltimo = [string](Get-Cfg 'input' 'whisperModeloUltimo' 'large-v3-turbo')
 # OJO (15/09): vacio se le pasa a la escucha como '-'. Con un argumento vacio Start-Process
 # falla y la escucha NO arranca (paso al apagar turbo en uso real).
+# LO QUE DECIDIO SOLA Y AUN SE PUEDE DESHACER HABLANDO (ver Undo-DecisionPropia). Aqui si
+# vale Get-Cfg: $cfg acaba de cargarse del archivo.
+try {
+    $dGuardada = [string](Get-Cfg 'auto' 'ultimaDecision' '')
+    if ($dGuardada) {
+        $pD = $dGuardada -split '\|', 4
+        if ($pD.Count -eq 4) { $script:autoDecision = @{ seccion = $pD[0]; clave = $pD[1]; antes = $pD[2]; que = $pD[3] } }
+    }
+} catch {}
 $MarcaDictar = Join-Path $TmpDir "dictar.flag"
 # confirmacion por voz de coincidencias dudosas: el worker escucha si/no
 $MarcaConfirmar = Join-Path $TmpDir "confirmar.flag"
@@ -8824,7 +8885,7 @@ $GlifosAccion = @{
     'temporizador' = 'tiempo'; 'quitarTempo' = 'tiempo'
     'copiar' = 'copia'; 'pegar' = 'copia'; 'copiarRespuesta' = 'copia'
     'ocr' = 'pantalla'; 'seguirLeyendo' = 'pantalla'
-    'deshacer' = 'deshacer'; 'deshacerDesde' = 'deshacer'; 'noEraEso' = 'deshacer'
+    'deshacer' = 'deshacer'; 'deshacerDesde' = 'deshacer'; 'noEraEso' = 'deshacer'; 'deshacerAuto' = 'deshacer'
 }
 # CUANTAS COSAS SON Y POR CUAL VA. "abre steam y pon modo juego" son dos; si
 # falla la segunda, hasta ahora no habia forma de saber cual fue. Solo se manda

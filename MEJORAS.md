@@ -288,6 +288,26 @@ necesita **historial** (con menos de 20 intentos no juzga), decide **una vez al 
 `probar-revision-propia.ps1` (2n13), y los que más importan son los que comprueban lo que
 **no** debe hacer: con 10 útiles de 29 **no lo toca**.
 
+**HECHO - y se deshace hablando (idea 10 de autonomia).** Darle el poder de cambiarse un
+ajuste y no darle el deshacer por voz era dejar montado justo lo que braya odia: un ajuste
+que se pone solo y que solo se quita editando `config.json`. Ahora cada decision se apunta
+**con su valor de antes** y se revierte diciendolo: «deshaz lo que has cambiado», «deshaz
+lo que cambiaste», «vuelve a poner el ultimo recurso». Y «deshaz» a secas, cuando no hay
+nada tuyo pendiente, deshace lo suyo - contestar «no hay nada que deshacer» seria mentira.
+Lo tuyo manda: si hay algo tuyo en la pila, eso va primero y su ajuste queda pendiente.
+Ademas, si se lo devuelves, **ese dia no lo vuelve a apagar**; si no, revisarse por la
+tarde y apagarlo otra vez seria ponerse a discutir contigo.
+
+Dos detalles que costaron mas que el resto:
+- **La decision se guarda en dos sitios y ninguno sobra.** `Get-Cfg` lee `$cfg`, la copia
+  cargada AL ARRANCAR, y `Set-Cfg` escribe el archivo sin refrescarla: recien tomada la
+  decision, preguntarle a `Get-Cfg` devolveria vacio, que es justo cuando mas se pide
+  deshacerla. Variable viva para esta sesion, `config.json` para despues de reiniciar.
+- **El orden de los patrones.** El «deshaz» de toda la vida termina en ``, sin ancla
+  final, asi que se come «deshaz lo que has cambiado» entera. El patron nuevo va delante, y
+  hay un caso que comprueba que sigue delante - y otro que demuestra que el generico se la
+  habria comido, que es lo que explica por que el orden importa.
+
 **DESCARTADO — 3.2 #8, «`Test-FastCommand` lee el escritorio y escanea siete carpetas».**
 No es cierto: los tres accesos a disco de `Resolve-Fragment` están dentro de `if` con
 regex específicos (solo se leen si preguntas por el escritorio), y `Resolve-Proceso` —que
