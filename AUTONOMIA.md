@@ -662,6 +662,18 @@ decidir sobre ello. Ella ya apunta sus cambios en `auto-ajuste`, así que la fec
 
 ---
 
+## Y al terminar esta lista: `NOVA-LLM.md`
+
+braya, mientras se trabajaba en esto: «¿podemos hacer que Nova sea todo esto, o sea **ser un
+verdadero LLM sin serlo**?». Está escrito aparte, en **`NOVA-LLM.md`**, porque es un proyecto
+distinto y no una entrada más de esta lista.
+En corto: de las **seis piezas** que hacen útil a un asistente, **solo una necesita un LLM de
+verdad**. Nova ya tiene tres y media. La que más falta —y la que **no necesita modelo
+ninguno**— es el **bucle de verificación**: hacer, comprobar el resultado y corregirse.
+**Se empieza al acabar esta lista, y entonces solo se trabaja en eso.**
+
+---
+
 ## Cómo se elige la siguiente
 
 1. ¿Hay **dato propio** que la justifique? Si no, primero se mide.
