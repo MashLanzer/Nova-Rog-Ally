@@ -14287,6 +14287,23 @@ function Process-Texto([string]$text) {
             Say "De nada."
             return
         }
+        # EL ASENTIMIENTO A SECAS (18/09). Lo de arriba pilla "ok gracias"; esto pilla el "ok"
+        # solo, que acababa en "No te entendi" -7 veces en 8 dias, la ultima documentada como
+        # "RUIDO descartado: 'Muy bien'" el 15/09 a las 18:30-.
+        # No se contesta "De nada", que a un "ok" suelto suena raro: se cierra en silencio,
+        # igual que hace la rama del seguimiento cuando la frase no lleva "gracias".
+        # NO se toca Add-RuidoRacha: el titulo de esta idea decia que estos empujan hacia la
+        # autosordina de 10 minutos y es falso; mire las 5 autosordinas reales una a una y las
+        # dispararon "Enhanced Edition", "¡Yoraz" y tres frases largas de conversacion.
+        # Y no se pisa con las confirmaciones, que era el riesgo de verdad: "vale" y "ok" son
+        # PALABRAS_SI del worker, pero solo mientras hay una pregunta viva, y en ese rato el
+        # worker escucha con gramatica cerrada y contesta por confirmacion.txt; aqui no llega.
+        if ($plano -match '^(?:ok|okay|okey|vale|muy bien|perfecto|genial|listo|entendido|de acuerdo)$') {
+            Log "asentimiento: '$text'"
+            $script:seguimientoPendiente = $false
+            Set-UI 'reposo'
+            return
+        }
         # cualquier orden real deja preparado el seguimiento (se arma al
         # terminar de hablar); lo que no lleva respuesta hablada lo apaga
         $script:seguimientoPendiente = $true

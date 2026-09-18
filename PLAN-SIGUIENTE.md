@@ -744,7 +744,21 @@ cuando se toque ese patrón por otra cosa, no como tarea propia.
 
 ### 3.7. Interpretación
 
-#### I1 — Los asentimientos sueltos, a la cortesía que ya existe (recortada)
+#### I1 — Los asentimientos sueltos, a la cortesía que ya existe ✅ **HECHA el 18/09**
+
+> Se cierra **en silencio** (no «De nada», que a un «ok» suelto suena raro), igual que hace la
+> rama del seguimiento. `Add-RuidoRacha` no se toca, tal y como pedía la objeción.
+>
+> **El riesgo de verdad no estaba en la ficha, y se comprobó antes de escribir nada:** `vale` y
+> `ok` son `PALABRAS_SI` del worker (`wake_vosk.py:686`), o sea respuestas a una confirmación.
+> Pero solo lo son mientras hay una pregunta viva, y en ese rato el worker escucha con gramática
+> cerrada (`reconocedor_si_no`) y responde por `confirmacion.txt`: el texto no pasa por
+> `Process-Texto`, así que esta rama no puede robarle el «vale» a ninguna pregunta.
+>
+> Red nueva (`tools/probar-asentimiento.ps1`, bloque `2n31`, 23 casos): ningún probador cargaba
+> `Process-Texto` —pasa de las 700 líneas—, así que el patrón **se saca del archivo real** y se
+> prueba, como hace `probar-umbrales.ps1` con los umbrales. Lo que más vigila es lo que **no**
+> puede caer ahí: `si`, `no`, `claro`, `dale` y `cancela`.
 
 Un «ok», «vale» o «muy bien» suelto cuenta hoy como ruido, contesta «No te entendí» y suma para la
 autosordina. **La mitad ya está arreglada**: `assistant.ps1:14067` (commit `446acb1`, 15/09) ya
