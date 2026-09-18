@@ -333,6 +333,18 @@ _preciso_uso = 0.0
 # y este rato sin repasar nada, se suelta. Volver a cargarlo cuesta ~3 s, y solo
 # si llega a hacer falta; tenerlo cargado toda la partida eran ~500 MB para nada.
 PRECISO_SOLTAR_JUGANDO = 300.0
+# Y SIN JUEGO TAMBIEN, PERO CON MAS PACIENCIA (17/09). Hasta hoy el oido fino solo se soltaba
+# si habia un juego delante: sin juego se quedaba en RAM para siempre, ~500 MB, aunque
+# pasaran dias. En todo el log se solto UNA vez.
+#
+# Medido en el log antes de elegir el numero: entre dos usos del oido fino pasan 111 s de
+# mediana, pero el 30 % de los huecos pasa de 5 minutos, el 18 % de 10 y el 13 % de media
+# hora (el mayor, 59 horas). Recargarlo cuesta 2,5 s de mediana. Retenerlo horas para
+# ahorrar 2,5 s es mal negocio.
+#
+# 20 minutos deja fuera al 82 % de los huecos: no se suelta en medio de una racha de
+# ordenes, solo cuando de verdad has dejado de usarlo.
+PRECISO_SOLTAR_QUIETO = 1200.0
 
 
 # CUANTA RAM QUEDA, SIN INSTALAR NADA (17/09). psutil existe en esta maquina, pero el worker
@@ -603,14 +615,20 @@ def atender_reintento(ultimo_audio):
 
 def soltar_preciso_si_toca():
     global _preciso
-    if _preciso is None or time.time() - _preciso_uso < PRECISO_SOLTAR_JUGANDO:
+    if _preciso is None:
         return
-    if not (MARCA_SOLO_BOTON and os.path.exists(MARCA_SOLO_BOTON)):
+    quieto = time.time() - _preciso_uso
+    hay_juego = bool(MARCA_SOLO_BOTON and os.path.exists(MARCA_SOLO_BOTON))
+    # jugando, la RAM es del juego y se suelta antes; sin juego se espera mucho mas, pero
+    # se suelta igual (ver PRECISO_SOLTAR_QUIETO)
+    plazo = PRECISO_SOLTAR_JUGANDO if hay_juego else PRECISO_SOLTAR_QUIETO
+    if quieto < plazo:
         return
     _preciso = None
     import gc
     gc.collect()
-    anota("oido fino soltado: hay un juego delante y lleva %.0f min sin usarse" % ((time.time() - _preciso_uso) / 60))
+    anota("oido fino soltado: %s y lleva %.0f min sin usarse"
+          % ("hay un juego delante" if hay_juego else "sin juego delante", quieto / 60))
 
 
 def umbral_confianza(plano):

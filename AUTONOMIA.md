@@ -243,7 +243,21 @@ Whisper pasó de ~1 s a **12,9 s por orden**. Había guarda para la charla
   para siempre; esto es pasajero: al cerrar el juego hay sitio y se carga. Tiene su propio
   caso, y otro que comprueba que la guarda va **antes** del `try`.
 *22 casos en `probar-ram-modelos.ps1` (2n20).*
-**12.** Soltar modelos **por el uso real, no por un plazo fijo** (`soltar_preciso_si_toca`).
+**12.** Soltar modelos **por el uso real**. — **HECHA (17/09)**, y la respuesta fue distinta
+para cada modelo.
+*El hueco no era el plazo, era la condición:* `soltar_preciso_si_toca` **solo soltaba si había
+un juego delante**. Sin juego, el oído fino se quedaba en RAM para siempre (~500 MB) aunque
+pasaran días. En todo el log **se soltó una sola vez**.
+*Medido antes de elegir el número:* entre dos usos del oído fino pasan **111 s de mediana**,
+pero el **30 % de los huecos pasa de 5 minutos**, el 18 % de 10 y el **13 % de media hora** (el
+mayor, 59 horas). Recargarlo cuesta **2,5 s**. Retenerlo horas para ahorrar 2,5 s es mal
+negocio → se suelta también sin juego, con **20 minutos** de paciencia (deja fuera al 82 % de
+los huecos, así que no corta una racha de órdenes).
+**Y a Parakeet no se le pone plazo, a propósito:** se usa cada **28 s de mediana** (p90 170 s,
+solo el 8 % de huecos pasa de 5 min) y recargarlo cuesta **5,6 s**. Soltarlo por inactividad
+sería contraproducente. Aplicar la misma regla a los tres habría sido lo cómodo y lo peor.
+*8 casos nuevos en `probar-ram-modelos.ps1`, incluido el que vigila que Parakeet siga **sin**
+plazo.*
 **13.** **Autodiagnóstico al arrancar**: micro, voz y cápsula; si la voz online no responde,
 pasar a Piper **y decirlo**.
 **14.** Elegir **voz online o local por latencia medida**.

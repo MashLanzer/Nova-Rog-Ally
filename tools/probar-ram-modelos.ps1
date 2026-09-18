@@ -61,6 +61,31 @@ Comp 'Vosk se sigue cargando sin condiciones' ($iVosk -ge 0) ''
 $antes = $fuente.Substring([Math]::Max(0, $iVosk - 300), [Math]::Min(300, $iVosk))
 Comp 'y no se le ha puesto guarda de RAM' ($antes -notmatch 'ram_libre_mb') ''
 
+Write-Host '  -- y el oido fino se suelta tambien sin juego (idea 12) --'
+# Medido en el log: entre dos usos del oido fino pasan 111 s de mediana, pero el 30 % de los
+# huecos pasa de 5 min y el 13 % de media hora. Recargarlo cuesta 2,5 s. Retenerlo horas por
+# ahorrar 2,5 s es mal negocio. Parakeet NO: se usa cada 28 s de mediana y cuesta 5,6 s.
+$iSol = $fuente.IndexOf('def soltar_preciso_si_toca(')
+$jSol = $fuente.IndexOf("`ndef ", $iSol + 5)
+if ($jSol -lt 0) { $jSol = $fuente.Length }
+$cuerpoSol = $fuente.Substring($iSol, $jSol - $iSol)
+Comp 'soltar_preciso mira si hay juego' ($cuerpoSol -match 'hay_juego') ''
+Comp 'y tiene un plazo para cada caso' ($cuerpoSol -match 'PRECISO_SOLTAR_JUGANDO' -and $cuerpoSol -match 'PRECISO_SOLTAR_QUIETO') ''
+Comp 'ya NO se rinde cuando no hay juego' ($cuerpoSol -notmatch 'if not \(MARCA_SOLO_BOTON') ''
+Comp 'y dice en el log cual de los dos fue' ($cuerpoSol -match 'sin juego delante') ''
+
+$pj = if ($fuente -match '(?m)^PRECISO_SOLTAR_JUGANDO = ([0-9.]+)') { [double]$Matches[1] } else { -1 }
+$pq = if ($fuente -match '(?m)^PRECISO_SOLTAR_QUIETO = ([0-9.]+)') { [double]$Matches[1] } else { -1 }
+Comp 'sin juego se espera MAS que jugando' ($pq -gt $pj) ("$pq s frente a $pj s")
+Comp 'y lo bastante como para no cortar una racha' ($pq -ge 600) ("$pq s")
+
+Write-Host '  -- pero a Parakeet no se le pone plazo (se usa cada 28 s) --'
+$iPar = $fuente.IndexOf('def soltar_parakeet_si_toca(')
+$jPar = $fuente.IndexOf("`ndef ", $iPar + 5)
+if ($jPar -lt 0) { $jPar = $fuente.Length }
+$cuerpoPar = $fuente.Substring($iPar, $jPar - $iPar)
+Comp 'parakeet solo se suelta jugando, sin plazo' ($cuerpoPar -match 'jugando\(\)' -and $cuerpoPar -notmatch 'SOLTAR_QUIETO') ''
+
 Write-Host ''
 if ($mal -gt 0) { Write-Host "$mal casos MAL" -ForegroundColor Red; exit 1 }
 Write-Host 'todo correcto' -ForegroundColor Green
