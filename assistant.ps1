@@ -3246,7 +3246,11 @@ function Resolve-Fragment([string]$f) {
     # juegos INSTALADOS, asi que de uno que no lo esta no hay appid con el que montar un
     # steam://install. Se abre su ficha en la tienda y le das a instalar tu; y si ya lo
     # tienes, se dice en vez de mandarte a la tienda.
-    if ($f -match '^(?:instala|instalame|instalar|descarga|descargame|descargar|bajame|baja)\s+(?:el\s+juego\s+|el\s+|la\s+|en\s+steam\s+)?(.+?)(?:\s+en\s+(?:el\s+)?steam)?$') {
+    # "baja" A SECAS YA NO INSTALA (18/09): con ella dentro, cualquier "baja lo que sea" que no
+    # fuera volumen ni brillo acababa abriendo la tienda de Steam a buscar esas palabras como si
+    # fueran un juego. No es no entender: es hacer algo que nadie pidio. "bajame Elden Ring"
+    # sigue funcionando; "baja la musica", ya no abre nada.
+    if ($f -match '^(?:instala|instalame|instalar|descarga|descargame|descargar|bajame)\s+(?:el\s+juego\s+|el\s+|la\s+|en\s+steam\s+)?(.+?)(?:\s+en\s+(?:el\s+)?steam)?$') {
         $jInst = $Matches[1].Trim()
         # "instala en Steam It Takes Two": el nombre va detras del locativo
         $jInst = ($jInst -replace '^(?:en\s+(?:el\s+)?steam\s+)', '').Trim()
@@ -11585,6 +11589,13 @@ function Test-ClaveClaude {
 # y deja $script:proc, asi que la cancelacion con el boton, el progreso y la
 # recogida funcionan sin cambiar nada de eso.
 function Start-ClaudeJob([string]$texto, [string]$modelo, [int]$maxTokens, [string]$imagen = '') {
+    # LA ETIQUETA, AL ARRANCAR (18/09). $script:jobMotor solo se limpiaba dentro de la rama
+    # claude-code de Complete-OpencodeJob, asi que una salida de la API podia heredar la
+    # etiqueta anterior, leerse con el parser equivocado y acabar diciendo en voz alta
+    # "(error del cerebro: ...)", que Report-Reply ni siquiera reconoce.
+    # Se pone aqui y NO en Clear-OpencodeJob: alli romperia el camino principal entero, porque
+    # el finally { Clear-OpencodeJob } corre ANTES de que se lea la etiqueta.
+    $script:jobMotor = 'api'
     $id = [System.Guid]::NewGuid().ToString("N")
     $script:jobOut = Join-Path $TmpDir "out-$id.txt"
     $script:jobErr = Join-Path $TmpDir "err-$id.txt"
@@ -11622,6 +11633,7 @@ function Start-ClaudeJob([string]$texto, [string]$modelo, [int]$maxTokens, [stri
 # Antes se esperaba aqui hasta 240 s, y durante todo ese rato el bucle principal
 # no sondeaba XInput: cualquier pulsacion de ≡ se perdia en silencio.
 function Start-OpencodeJob([string]$text, [string]$extra = '') {
+    $script:jobMotor = 'opencode'          # ver la nota de Start-ClaudeJob (18/09)
     $id = [System.Guid]::NewGuid().ToString("N")
     $script:jobOut = Join-Path $TmpDir "out-$id.txt"
     $script:jobErr = Join-Path $TmpDir "err-$id.txt"
@@ -11691,10 +11703,18 @@ $HERRAMIENTAS_ES = @{
 }
 # Con la API son ~1-3 s; con opencode, 15-60. La capsula usa esto para dibujar
 # la barra de espera, y si miente la barra no sirve de nada.
-$DURACION_ESPERADA = @{ 'pregunta' = 4000; 'traducir' = 2500; 'charla' = 5000; 'accion' = 60000 }
+# 'plan' FALTABA (18/09): sin el caia al defecto de 60 s y un plan de dos segundos pintaba un
+# 3 % de barra, como si estuviera colgado. Va por parecido con 'traducir' -misma llamada al
+# modelo rapido, tope de 150 tokens en vez de 60- porque el plan aun tiene 0 ejecuciones y no
+# hay mediana real que copiar. Ojo: el 25 s de Get-PlazoJob es otra cosa (cuando se rinde).
+$DURACION_ESPERADA = @{ 'pregunta' = 4000; 'traducir' = 2500; 'plan' = 3000; 'charla' = 5000; 'accion' = 60000 }
 # con Claude Code, medido el 13/09: arrancar cuesta ~2-3 s y una tarea corta con
 # herramientas unos 14
-$DURACION_CC = @{ 'pregunta' = 8000; 'traducir' = 4000; 'charla' = 9000; 'accion' = 25000 }
+# traducir sube de 4.000 a 6.000 porque esa es la mediana medida (n=30). Subirlo RETRASA el
+# barrido de la capsula, que arranca al pasar de 0,95, asi que va a favor del gasto de CPU.
+# Y 'accion' se queda en 25.000 aunque la mediana sean 17 s, justo por lo contrario: bajarlo
+# adelantaria el barrido de los 23,7 s a los 16 s, con un juego delante.
+$DURACION_CC = @{ 'pregunta' = 8000; 'traducir' = 6000; 'plan' = 5000; 'charla' = 9000; 'accion' = 25000 }
 
 function Watch-OpencodeProgress {
     if (-not $script:busy -or -not $script:jobOut) { return }
@@ -11931,7 +11951,8 @@ function Build-PromptTraduccion([string]$text) {
 Traduce lo que dijo el usuario a ordenes que Nova sabe hacer, usando SOLO estas formas:
 abre <app> | abre <sitio> | abre <juego> en steam | abre la carpeta <nombre>
 cierra <app> | cierra todos los programas | minimiza todo
-minimiza <app> | maximiza <app> | a mitad de pantalla
+minimiza <app> | maximiza <app> | a mitad de pantalla | cambia a <app>
+revisa mi correo
 busca <texto> en <sitio> | pon <cancion o artista> en spotify
 sube el volumen | baja el volumen | pon el volumen al <n> | silencia | quita el silencio | pon <app> al <n>
 sube el brillo | baja el brillo | pon el brillo al <n>
@@ -14476,6 +14497,13 @@ function Process-Texto([string]$text) {
                 if ($corrOk) {
                     Log "CORRECCION: '$text' -> '$corr' (la ultima fue '$($script:ultimaOrden.texto)')"
                     Add-Estadistica 'correccion' "$text -> $corr"
+                    # LA ORDEN EQUIVOCADA CUENTA COMO FALLO (18/09). Nova reconocia la queja y
+                    # rehacia la orden, pero la que estuvo mal seguia contando como acierto, y
+                    # ese es el unico dato que mide la meta nº 1 de braya.
+                    # NO se mete 'correccion' en $DestinosUso: Write-DestinoUso CONSUME el id,
+                    # asi que la orden rehecha se quedaria sin destino y un solo error
+                    # escribiria DOS lineas MAL, con dos ids, en destinos.jsonl.
+                    try { [void](Write-FalloUso "queja: $text") } catch {}
                     $script:corrigiendo = $true
                     try { Process-Texto $corr } finally { $script:corrigiendo = $false }
                     return

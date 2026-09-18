@@ -358,7 +358,11 @@ Se registra en `tools/probar-todo.ps1` como bloque **`2n30`**, con las tres lín
 
 ### 3.1. Errores: identificar sus fallos y corregirlos
 
-#### E1 — `$script:ultimoUsoEn` está declarada dos veces y la guarda de la meta no vence nunca ⚠ **lo más serio del plan**
+#### E1 — `$script:ultimoUsoEn` está declarada dos veces y la guarda de la meta no vence nunca ✅ **HECHA el 18/09** (commit `f173331`)
+
+> Demostrada con sabotaje: simulando el `Test-ResumenAlVolver` viejo, la prueba nueva da **3 casos
+> MAL**, incluido «marco una orden vieja pese a los 6 min». El banco no podía verlo porque
+> `probar-fallo-uso.ps1` no cargaba esa función; ahora las mete a las dos en la misma habitación.
 
 **Qué pasa.** La misma variable la usan dos funciones con significados opuestos:
 `Write-FalloUso` (declarada en **1443**, leída en **1448** con `-gt 300000`, los 5 minutos que
@@ -408,7 +412,11 @@ entra en la lista, se come el id y los 10 `traducida` del 15/09 pasan de acierto
 el recorte. Nota adicional que salió de ahí: **eso ya pasa hoy** con `descarte` (14486), que se
 apunta justo antes del `Submit-Command 'traducir'` de 14488.
 
-#### E3 — Que la queja que Nova **sí** sabe arreglar cuente como fallo
+#### E3 — Que la queja que Nova **sí** sabe arreglar cuente como fallo ✅ **HECHA el 18/09**
+
+> Una línea antes de rehacer la orden, y `'correccion'` **no** entra en `$DestinosUso`, tal y
+> como pedía la objeción. Aviso que sigue en pie: el camino tiene **0 ejecuciones reales**, así
+> que esto no se puede comprobar en uso hasta que braya hable con Nova.
 
 **Qué hace.** Cuando braya se queja, Nova reconoce la queja y rehace la orden, la orden equivocada
 **sigue contando como acierto**.
@@ -475,7 +483,15 @@ guarda de memoria**. En todo el proyecto hay **una sola** comprobación de RAM, 
 `node`, igual que ya hace `tools/probar-ram-modelos.ps1`. **Si el pico se come más de la mitad de lo
 libre, hay decisión que tomar; si no, se cierra por escrito y no se vuelve a proponer.**
 
-#### A3 — `'plan'` no está en las tablas de duración de la barra (recortada)
+#### A3 — `'plan'` no está en las tablas de duración de la barra ✅ **HECHA el 18/09**
+
+> `'plan'` entra en las dos tablas (3 s API / 5 s Claude Code), por parecido con `traducir` y
+> dicho en el código que es una estimación: el plan tiene 0 ejecuciones y no hay mediana real.
+> La fórmula **no se toca** (valdría 0,65 en t=0) y `accion` se queda en 25 s aunque la mediana
+> sean 17: bajarlo adelantaría el barrido de la cápsula de 23,7 s a 16 s, y ese barrido gasta
+> CPU con un juego delante. `traducir` con Claude Code sí sube a 6 s (mediana medida, n=30),
+> porque subirlo **retrasa** el barrido. Aclaración: el 25 s de `Get-PlazoJob` es otra cosa
+> (cuándo se rinde), no la barra.
 
 `$script:jobModo` puede valer `'plan'` (12227, 12243) y **`'plan'` no está ni en
 `$DURACION_ESPERADA` (11523) ni en `$DURACION_CC` (11526)**: cae al defecto de 60.000 ms, así que un
@@ -490,7 +506,7 @@ pasar de 0,95, `nova_ui.cs:3376`) empiece **antes**, a los 16 s en vez de a los 
 **la fórmula no se toca**. El gasto del barrido ya tiene arreglo acordado y de una línea en
 `REVISION-2026-09-18.md` hallazgo 7 (`SetDesiredFrameRate` 30 fps).
 
-#### A4 — La etiqueta del motor, puesta por cada lanzador (recortada)
+#### A4 — La etiqueta del motor, puesta por cada lanzador ✅ **HECHA el 18/09**
 
 `$script:jobMotor` solo se limpia dentro de la rama `claude-code` de `Complete-OpencodeJob`
 (11603-11604): ni `Clear-OpencodeJob` ni `Stop-OpencodeJob` la tocan. Una salida de la API con la
@@ -506,7 +522,10 @@ ejecutaría nunca y las 68 llamadas del registro caerían al parser de opencode.
 **Y sin datos:** las 23 líneas «CANCELAR (hold durante procesamiento)» son 22 del 10/09 y 1 del
 11/09, cuando el motor era opencode. **0 cancelaciones desde que existe el motor que deja la marca.**
 
-#### A5 — El bloque de recetas: condicionarlo por lo que rinde, no por lo que retrasa (recortada)
+#### A5 — El bloque de recetas: condicionarlo por lo que rinde, no por lo que retrasa ❌ **NO entra (18/09)**
+
+> Lo tumba su propia objeción: el registro ya tiene el experimento gratis y dice que **un prompt
+> 2,4 veces más corto no da ni un segundo**. Sin ganancia de velocidad medida, no hay motivo.
 
 A cada tarea se le pegan **3.637 caracteres** pidiendo una receta. El reparto de lo que ha producido,
 desglosado por formato exacto: **7 «aprendida», 8 «RECETA descartada», 13 «el cerebro dice que esta
@@ -526,7 +545,7 @@ un segundo.*** Aceptada: **la tanda de 10 tareas con y sin bloque no se hace**. 
 
 ### 3.3. Decisiones: lo que Nova cambia sola
 
-#### D1 — Mirar el interruptor antes de anunciar una decisión pendiente ✅ **sobrevive intacta**
+#### D1 — Mirar el interruptor antes de anunciar una decisión pendiente ✅ **HECHA el 18/09** (commit `692d740`)
 
 **Qué hace.** Hoy la primera frase que Nova dirá al revisarse sería mentira: anuncia que va a apagar
 el último recurso del oído, **que lleva apagado desde el 15/09**.
@@ -615,7 +634,7 @@ ninguna clave `plan-*` en `estadisticas.json`), y es barato arreglarlo **antes**
 
 ### 3.5. IA: la charla, la memoria y el modelo
 
-#### IA1 — Que el interrogativo suelto no arrastre recuerdos ✅ **sobrevive intacta**
+#### IA1 — Que el interrogativo suelto no arrastre recuerdos ✅ **HECHA el 18/09** (commit `3455fc7`)
 
 **Qué hace.** Preguntar «qué es un volcán» o «qué tengo en mi escritorio» le mete a Nova el recuerdo
 «¿Qué es escribir?» delante, solo porque las dos empiezan por «qué». braya lo nota como respuestas
@@ -714,7 +733,14 @@ delante y recortados a 90 caracteres, así que la comparación fallaría justo e
 — quedaría implementado y sin efecto. Y una frase que falla 2 de cada 3 veces desaparecería al primer
 acierto, que es exactamente la que no puede desaparecer.*
 
-#### M3 — Que el prompt del traductor conozca lo que Nova ya hace (recortada)
+#### M3 — Que el prompt del traductor conozca lo que Nova ya hace ✅ **HECHA el 18/09 — entran DOS, no tres**
+
+> Medí las tres con el probador real antes de tocar el prompt, como exige el comentario que ya
+> había ahí. `revisa mi correo` → «tu correo» y `cambia a <app>` → «cambiar a …» funcionan y
+> entran. **YouTube no**: «reproduce el segundo vídeo de youtube» contesta *«Dime primero qué
+> quieres que ponga»* — necesita una búsqueda previa que deje la lista delante (para eso está el
+> bloque `2n3`). Meterlo en el menú haría que el traductor emitiera órdenes que fallan fuera de
+> contexto, y las traducciones **se aprenden** y se repiten para siempre.
 
 De las 33 peticiones que el registro escaló al agente, varias son formas que la capa local **ya
 resuelve** y el prompt no nombra: «Revisa mi correo» (3 veces), «Reproduce el segundo vídeo de
@@ -729,7 +755,13 @@ todo lo demás; una traducción equivocada deja a Nova tecleando lo que oiga. Y 
 un camino con **0 usos** (`store.steampowered` = 0 en todo el registro). Con el agravante de que la
 traducción **se aprende** (`Add-Traduccion`, 12536) y se repite para siempre.*
 
-#### M4 — Que «baja la música» no abra la tienda de Steam (recortada, y sin datos)
+#### M4 — Que «baja la música» no abra la tienda de Steam ✅ **HECHA el 18/09**
+
+> La ficha decía «se hace cuando se toque ese patrón por otra cosa»: fue hoy, al tocar los
+> patrones de las muletillas. **Demostrado con el antes y el después** contra la versión
+> commiteada: `baja la musica` respondía *«abrir musica en la tienda de Steam para instalarlo»*
+> y ahora se va al modelo; `instala elden ring` y `descargame hollow knight` siguen igual. Y
+> entraba sin red —ningún caso del banco cubría `baja`/`bajame`—: ahora hay 3 en `destinos.txt`.
 
 El patrón que instala juegos (3224) acepta «baja» y «bajame», así que cualquier «baja lo que sea»
 que no sea volumen o brillo acaba abriendo la tienda buscando esas palabras como si fueran un juego.
@@ -777,7 +809,12 @@ tres de las 99 líneas de `pruebas/ruido-real.txt`, que es el corpus de la tele 
 las palabras que una serie de fondo dice todo el rato.* Total real: **7 «no te entendí» evitados en
 8 días**.
 
-#### I2 — El detalle de descartes **por trozo** (recortada)
+#### I2 — El detalle de descartes **por trozo** ❌ **NO entra (18/09)**
+
+> Contar ya existe (`Get-Atragantos`), la rotación del log también, y quedan tres objeciones
+> vivas: **privacidad** (el repo es público y un `memoria/descartes.json` nuevo no estaría
+> ignorado), los **8 llamadores** de `Invoke-FastCommand` que no son la voz de braya, y el doble
+> conteo de la misma frase por Parakeet, Whisper y el oído fino.
 
 `assistant.ps1:7036` hace `$script:ultimoDescarte = $f` **dentro del bucle de trozos** (cada trozo
 pisa al anterior) y 14486 lo cuenta una vez por orden. Medido cruzando cada descarte con el dictado

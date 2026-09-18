@@ -275,3 +275,12 @@ bueno pon el modo noche => modo noche
 vale sube el volumen => subir volumen
 okay abre la calculadora => abrir calculadora
 busca cuanto vale una ps5 en google => cuanto vale una ps5
+
+# --- "baja" a secas ya no significa "instala" (18/09) ---
+# Antes, "baja la musica" contestaba "abrir musica en la tienda de Steam para instalarlo":
+# abria la tienda a buscar "musica" como si fuera un juego. No es no entender, es HACER algo
+# que nadie pidio, que es lo que braya menos perdona. Medido con el antes y el despues.
+# Los dos ultimos son la frontera: "baja" con volumen o brillo detras no se toca.
+baja la musica => <se va al modelo>
+baja el volumen => bajar volumen
+baja el brillo => bajar brillo
