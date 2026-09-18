@@ -249,6 +249,28 @@ class Cerebro:
             self._cache[r["id"]] = c
         return c
 
+    def _vale_de_contexto(self, h, contenido):
+        """?Este recuerdo habla de algo de lo preguntado, o solo coincide el 'que'?
+
+        MEDIDO el 18/09 sobre las 96 frases reales de charla: de 9 recuperaciones, 5 eran el
+        mismo recuerdo colandose por la ficha '?que' ("que tengo en mi escritorio" traia
+        "?Que es escribir?"). Compartir el interrogativo no es compartir el tema.
+
+        Solo se exige en la via lexica. Si el significado ya dice que se parecen, se respeta:
+        "?me gustan los felinos?" debe poder traer "braya adora los gatos" sin una palabra en
+        comun, que es justo lo que aporta buscar por significado.
+        """
+        if h["sem"] is not None and h["comb"] >= 0.45:
+            return True
+        if h["lex"] < 0.3:
+            return False
+        if not contenido:
+            return False                     # "?Que?" a secas no tiene tema: no arrastra nada
+        for formas in self._formas(h["r"]):
+            if contenido & {t for t in formas if not t.startswith("?")}:
+                return True
+        return False
+
     def _frecuencias(self):
         if self._df is None:
             df = {}
@@ -325,8 +347,9 @@ class Cerebro:
     def contexto(self, texto, qvec=None, invitado=False):
         """Lo que el modelo deberia tener delante al contestar esto."""
         tipos = {"respuesta"} if invitado else {"respuesta", "contado", "episodio"}
+        contenido = {t for t in fichas(texto) if not t.startswith("?")}
         hits = [h for h in self.buscar(texto, tipos=tipos, k=6, qvec=qvec)
-                if (h["sem"] is not None and h["comb"] >= 0.45) or h["lex"] >= 0.3]
+                if self._vale_de_contexto(h, contenido)]
         lineas = []
         for h in hits[:3]:
             r = h["r"]

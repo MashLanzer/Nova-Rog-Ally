@@ -157,6 +157,11 @@ try:
     c.aprender_turno(q, "La pintó Leonardo da Vinci.", "api", vector=c.vector(q))
     q2 = "¿quién hizo la Gioconda?"
     comp("por palabras no se parecen", c.buscar(q2, tipos={"respuesta"})[0]["lex"] < 0.3 if c.buscar(q2, tipos={"respuesta"}) else True)
+    # GUARDIAN DE IA1 (18/09): el filtro de palabra de contenido es SOLO para la via lexica.
+    # "pinto/mona/lisa" y "hizo/gioconda" no comparten una sola ficha de contenido; si el filtro
+    # se aplicara tambien al significado, esto saldria vacio y buscar por significado dejaria de
+    # servir justo para lo unico que sirve.
+    comp("por significado entra en el contexto sin compartir palabra", "Leonardo" in c.contexto(q2, qvec=c.vector(q2)))
     r = c.respuesta_directa(q2, qvec=c.vector(q2))
     comp("por significado si: respuesta directa", r and "Leonardo" in r["respuesta"], r)
     comp("y se apunta como otra forma de decirlo", any(cm.plano(v) == cm.plano(q2) for v in c._por_id(r["id"])["variantes"]))
@@ -201,6 +206,28 @@ try:
     comp("una vez al dia", c.repaso() is None)
     reloj.t += 86400
     comp("al dia siguiente, otra vez", c.repaso() is not None)
+
+    print("--- el interrogativo suelto no arrastra recuerdos (18/09) ---")
+    # MEDIDO sobre las 96 frases reales de CHARLA del registro, con el cerebro real y sin
+    # embedder (lo que pasa hoy en produccion): de 9 recuperaciones, 5 eran el MISMO recuerdo
+    # colandose por la ficha "?que" -"que tengo en mi escritorio" traia "?Que es escribir?"-.
+    # Tras el filtro: 4 recuperaciones y 0 malas.
+    c6 = cm.Cerebro(os.path.join(carpeta, "interrogativo"), reloj=reloj)
+    c6.aprender_turno("¿Qué es escribir?", "Escribir es plasmar palabras.", "api")
+    hit6 = c6.buscar("¿Qué?", tipos={"respuesta"})
+    # SIN ESTA LINEA EL CASO NO PROBARIA NADA: si la busqueda por palabras ni siquiera alcanzara
+    # el recuerdo, el contexto saldria vacio por otra razon y el verde seria falso. Con un solo
+    # recuerdo "?Que?" da 0.5; las frases con tema propio se quedan en 0.28-0.29 y por eso la
+    # rama de abajo se prueba contra la funcion, no por el lex.
+    comp("la busqueda por palabras SI alcanza el recuerdo", hit6 and hit6[0]["lex"] >= 0.3, round(hit6[0]["lex"], 3) if hit6 else "nada")
+    comp("pero '¿Qué?' a secas no lo arrastra", "plasmar" not in c6.contexto("¿Qué?"), c6.contexto("¿Qué?"))
+    comp("y compartiendo la palabra sigue entrando", "plasmar" in c6.contexto("¿qué es escribir, hola?"))
+    # la regla en crudo, con el MISMO recuerdo y un hit de mentira: una vez con tema en comun y
+    # otra sin el. Asi no depende de cuanto pese cada palabra en el cerebro de turno.
+    r6 = c6.buscar("¿qué es escribir?", tipos={"respuesta"})[0]["r"]
+    falso = {"sem": None, "comb": 0.0, "lex": 0.9, "r": r6}
+    comp("compartir solo el interrogativo no basta", not c6._vale_de_contexto(falso, {"escritorio"}))
+    comp("compartir el tema si", c6._vale_de_contexto(falso, {"escribir"}))
 
     print("--- limites ---")
     viejo = cm.MAX_RECUERDOS
