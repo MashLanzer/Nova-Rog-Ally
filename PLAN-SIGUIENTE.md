@@ -486,7 +486,34 @@ mediana se midieron con un prompt casi la mitad de largo que el de hoy**.
 **Coste** barata. **Riesgo** ninguno de comportamiento (solo escribe en el registro); mantener el
 formato exacto y no reutilizar las palabras `SUBMIT` ni `RUNNER`.
 
-#### A2 — Cuánta RAM se lleva el agente con un juego delante ✅ **sobrevive intacta**
+#### A2 — Cuánta RAM se lleva el agente con un juego delante ✅ **MEDIDA Y CERRADA el 18/09**
+
+> Medido **con Elden Ring abierto** (1.278 MB) y Discord (~1.080 MB en cinco procesos), sobre
+> 7.883 MB totales. Tarea inofensiva, contando **solo los procesos `claude`/`node` nuevos**: la
+> sesión de Claude Code desde la que se mide pesa 558 MB y se habría colado entera en la cifra.
+>
+> | modo | pico del agente | libre antes → mínimo | duración |
+> |---|---:|---:|---:|
+> | `traducir` (haiku, sin MCP, 1 turno) | 369 MB | 1.100 → 646 MB | 7,7 s |
+> | `accion` (sonnet + `windows-mcp`, 40 turnos) | **432 MB** | 1.199 → 748 MB | 19,4 s |
+>
+> **Veredicto con el criterio fijado _antes_ de medir** (si el pico se come más de la mitad de lo
+> libre, hay decisión que tomar): 432 MB frente a 600 MB. **Cabe. Se cierra por escrito y no se
+> vuelve a proponer.** Todo se liberó al terminar: 1.186 MB libres después.
+>
+> Tres cosas que conviene dejar dichas:
+> - el modo pesado **no** salió mucho más caro que el barato (432 vs 369 MB), porque la tarea no
+>   llegó a usar herramientas: el MCP se levanta, pero no es lo que dispara el consumo;
+> - la **frontera** de esta medición está en unos **864 MB libres**: por debajo de eso, ese mismo
+>   pico de 432 MB sí pasaría de la mitad. Con Elden Ring (1,2 GB) no se llega; con un juego de
+>   4-6 GB, sí se llegaría;
+> - y el hecho que originó la ficha sigue siendo cierto —`Start-ClaudeCodeJob` no mira la
+>   memoria—, pero **con estos números no hace falta guarda**, así que no se propone ninguna.
+>
+> La herramienta queda en `tools/medir-ram-agente.ps1` para poder repetirlo con otro juego. Aviso
+> guardado ahí: en su primera versión **dio un veredicto sin haber medido** (1,1 s, pico 0 MB y
+> «cabe de sobra») porque el proceso no llegaba a arrancar; ahora se niega a opinar si el pico es
+> 0 o la duración absurda.
 
 **Qué hace.** Medir, no cambiar. La prioridad 2 de braya es velocidad y poca RAM con un juego
 abierto, y la parte más pesada de Nova —levantar Claude Code con sus `node`— **no tiene ninguna
