@@ -444,7 +444,20 @@ reloj, que es mejor: si esta tarde no hay ruido, no se calla por costumbre.
 *Nota de método:* la primera medición dio «470 veces» y era falsa — el patrón se tragaba
 `ENVIAR (silencio)`, una marca interna del envío de órdenes. Rehecha con patrones precisos
 quedaron 12.
-**27.** Decidir entre **palabra o botón según lo que funciona** (`soloBotonEnJuego` es fijo).
+**27.** Decidir entre **palabra o botón según lo que funciona**. — **NO PROCEDE: el ajuste
+impide medirlo (17/09)**
+Medido con las marcas reales del log (`solo boton mientras juegas` / `vuelve la palabra de
+activacion`): **293 activaciones y 56 descartes, todos con la palabra activa; cero jugando**.
+Es lo coherente — `soloBotonEnJuego` está en `true`, así que con un juego delante la palabra
+se apaga y **no puede fallar ni acertar**. Solo hay **3 tramos de juego** en todo el log.
+O sea: **el dato que la decisión necesitaría no existe, y no existe porque el propio ajuste lo
+impide**. Para decidirlo habría que desactivarlo un tiempo y arriesgarse a activaciones
+equivocadas en mitad de una partida, que es justo lo que ese ajuste evita y lo que más
+molesta.
+*Nota de método, la segunda seguida:* mi primera medición daba «254 activaciones jugando», y
+era un artefacto — marcaba «jugando» al ver «juego en primer plano» y no lo apagaba nunca. Con
+las marcas correctas, cero. Van dos veces (idea 26 y esta) que un número grande a la primera
+resulta ser del medidor, no del sistema.
 
 ### Gastar con cabeza
 
