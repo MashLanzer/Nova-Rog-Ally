@@ -946,8 +946,25 @@ señala como floja («memoria a medias»), no de poda.
 local, 1 revisada; 31 firmes y 1 rechazada). Podar por antigüedad hoy sería tirar todo lo que ha
 aprendido desde que existe el cerebro.
 
-**49. Retirar traducciones que ya no hacen falta.** Si la capa local ya entiende la frase
-original, la traducción aprendida sobra (hoy hay 2 guardadas; el día que haya 200, importa).
+**49. Retirar traducciones que ya no hacen falta.** — **MEDIDA: 1 de 2 sobra, pero hoy no compensa (18/09)**
+*La idea es correcta y el método funciona.* Pasando las frases **originales** por el banco, sin
+traducciones cargadas:
+
+| frase aprendida | ¿la entiende ya la capa local? |
+|---|---|
+| «que espacio tengo disponible» | **sí** → `espacio libre` — su traducción **sobra** |
+| «hazme la pantalla mas clarita» | **no** → va a la IA — su traducción **hace falta** |
+
+*La medición es limpia:* el modo `-Probar` redirige `$TraduccionesPath` a un directorio temporal
+vacío, y `Find-Traduccion` solo se invoca en el flujo real de una orden hablada (línea 14162), que
+el banco no recorre. Así que ese «sí» es mérito de la capa local, no de la traducción.
+
+**Pero retirar una de dos no ahorra nada medible** — y la propia idea ya lo decía: «el día que
+haya 200, importa». Hoy el fichero entero son **123 bytes**. Queda el método probado y barato
+(pasar la frase original por el banco) para cuando el número crezca.
+
+*Y hay un motivo para no automatizarlo aún:* si mañana cambia el catálogo local y deja de
+entender la frase, la traducción retirada ya no estaría para salvarla.
 
 **50. Fundir recetas duplicadas.** Dos recetas que hacen lo mismo con distinta frase son una
 receta con dos variantes.
