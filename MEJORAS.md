@@ -213,12 +213,37 @@ Cada hallazgo trae 5 mejoras ordenadas de más barata a más cara, con cómo med
 | 4 | **La sección 3 del banco solo comprueba que la línea exista, no el número**: una caída de 95 % a 5 % pasaría desapercibida | GRAVE | `tools\probar-todo.ps1` |
 | 5 | `Save-Habitos`, `Save-JuegosMem` y `Add-HistorialMusica` no usan `Write-Atomico` | MEDIO | — → **DESCARTADO, ver abajo** |
 | 6 | Un número mal escrito en `config.json` mata el arranque **antes de que exista `Log`** | MEDIO | → **HECHA** |
-| 7 | El modo invitado tiene siete huecos (`Add-Traduccion`, `Add-Rechazo`…) y **no sobrevive a un reinicio** | MEDIO | — |
+| 7 | El modo invitado tiene siete huecos (`Add-Traduccion`, `Add-Rechazo`…) y **no sobrevive a un reinicio** | MEDIO | — → **HECHA (la 1a mitad)** |
 | 8 | Ninguna prueba toca `New-CopiaSeguridad` ni `Get-Cfg` | MEDIO | — |
 | 9 | Verificado **sano** (para no perseguirlo): `$LASTEXITCODE` sí sobrevive a las tuberías `| Select-String`, y los 26 scripts con función de aserción usan bien `$script:` | — | — |
 
 ### 3.5 Decisiones tomadas al implementar (17/09)
 
+- **HECHO — 3.4 #7, el modo invitado aprendia igual.** Y eran **11 huecos, no 7**.
+  Nova dice "modo invitado, no aprendo nada ni miro tus cosas" y no era verdad: la guarda
+  estaba en 6 funciones (estadisticas, habitos, perfil, musica, charla, ritmo) y faltaba en
+  **todas las que aprenden de lo que se DICE**: diario (`Add-Memoria`, 4 caminos),
+  **contactos**, fechas, rechazos, alias, recetas y sus variantes, notas de juego,
+  traducciones y tiempo jugado.
+  **Me equivoque a mitad de camino y conviene dejarlo escrito:** un primer analisis dijo que
+  17 de 19 llamadas estaban protegidas porque su funcion contenedora mencionaba `invitado`.
+  Era un falso positivo: `Invoke-FastCommand` ocupa **1.600 lineas** y sus dos unicas
+  menciones cubren solo "leer los mensajes". Comprobar que la palabra aparece en la funcion
+  no es comprobar que proteja **esa** llamada.
+  **La guarda va en la puerta de cada funcion que guarda**, no repartida por los llamadores:
+  asi no se puede olvidar al anadir un camino nuevo (mismo criterio que con `Get-Cfg`). Cada
+  una devuelve lo que devolveria si no hubiera nada que guardar -`$false` donde se mira el
+  resultado, `$null` donde se espera un objeto- para que el llamador no note la diferencia.
+  23 casos en `probar-invitado.ps1` (2n18), y **la mitad que mas vale es la segunda**: si
+  manana alguien anade una funcion de guardado y no la protege, la prueba falla hasta que
+  decida -o la protege, o la declara exenta **con su motivo escrito**-. Ademas se ejecuta de
+  verdad: con invitado no acumula tiempo de juego, y sin invitado sigue acumulando.
+- **NO SE HACE — la 2a mitad de 3.4 #7, "no sobrevive a un reinicio".** Es cierto, y se
+  queda asi a proposito. braya **odia los modos que se quedan activos**; un modo invitado que
+  resucita despues de reiniciar es exactamente eso, y el fallo seria silencioso: Nova
+  callada sin que nadie sepa por que. Hoy se quita solo a los 30 min sin ordenes y diciendolo
+  ("se quita solo en media hora sin ordenes"). Si algun dia se persiste, tendria que ser con
+  la hora guardada y **avisando al arrancar** de que sigue puesto.
 - **DESCARTADO — 3.1 #7, "los audios de mas de 8 s nunca reciben small ni turbo".**
   Septimo, y este se cae leyendo lo que son. El tope (`REPASO_MAX = 8.0`) no es un descuido:
   el codigo ya explica por que esta ahi (12/09, small tardo 24 y 35 s con audios largos, con

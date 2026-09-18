@@ -1250,6 +1250,7 @@ function Format-Lista([string]$nombre, $items) {
 }
 
 function Add-Memoria([string]$texto) {
+    if ($script:invitado) { return $null }   # MODO INVITADO: lo que diga otro no se queda (17/09)
     if (-not (Test-Path -LiteralPath $DiarioDir)) { New-Item -ItemType Directory -Force -Path $DiarioDir | Out-Null }
     $nota = Join-Path $DiarioDir ((Get-Date -Format 'yyyy-MM-dd') + '.md')
     if (-not (Test-Path -LiteralPath $nota)) {
@@ -1267,6 +1268,7 @@ function Add-Memoria([string]$texto) {
 # local lo hablado cada dia y aqui se anade al diario de ESE dia, bajo su titulo.
 # Asi "¿de que hablamos ayer?" lo encuentra la busqueda en tus notas.
 function Add-DiarioResumen([string]$fecha, [string]$texto) {
+    if ($script:invitado) { return }   # MODO INVITADO: lo que diga otro no se queda (17/09)
     if ($fecha -notmatch '^\d{4}-\d{2}-\d{2}$' -or -not $texto.Trim()) { return }
     if (-not (Test-Path -LiteralPath $DiarioDir)) { New-Item -ItemType Directory -Force -Path $DiarioDir | Out-Null }
     $notaD = Join-Path $DiarioDir ($fecha + '.md')
@@ -3667,6 +3669,7 @@ function Remove-Perfil([string]$nombre) {
 }
 
 function Add-Alias-Comando([string]$alias, [string]$objetivo) {
+    if ($script:invitado) { return $null }   # MODO INVITADO: lo que diga otro no se queda (17/09)
     $alias = (ConvertTo-Plain $alias).Trim()
     if (-not $alias -or -not $objetivo) { return $null }
     $destino = Resolve-Target (ConvertTo-Plain $objetivo)
@@ -3715,6 +3718,7 @@ function Get-Traducciones {
 }
 
 function Add-Traduccion([string]$original, [string]$traducida) {
+    if ($script:invitado) { return }   # MODO INVITADO: lo que diga otro no se queda (17/09)
     $clave = ConvertTo-Plain $original
     if (-not $clave -or -not $traducida) { return }
     $t = Get-Traducciones
@@ -3764,6 +3768,7 @@ function Save-Rechazos {
 }
 
 function Add-Rechazo([string]$texto) {
+    if ($script:invitado) { return $false }   # MODO INVITADO: lo que diga otro no se queda (17/09)
     $k = ConvertTo-Plain $texto
     # una palabra suelta no identifica nada y vetaria media lista de ordenes
     if (-not $k -or $k -notmatch '\s') { return $false }
@@ -4058,6 +4063,7 @@ function Find-RecetaIncompleta([string]$text, $lista = $null) {
 }
 
 function Add-VarianteReceta($r, [string]$variante) {
+    if ($script:invitado) { return }   # MODO INVITADO: lo que diga otro no se queda (17/09)
     if (-not $variante) { return }
     if (-not $r.variantes) { $r.variantes = New-Object System.Collections.ArrayList }
     foreach ($pl in (@([string]$r.frase) + @($r.variantes))) { if ((ConvertTo-Suave ([string]$pl)) -eq (ConvertTo-Suave $variante)) { return } }
@@ -4115,6 +4121,7 @@ function Get-TextoReceta($r, [string]$campo, $valores) {
 # Valida lo que devolvio el cerebro y, si vale, lo guarda. Devuelve la receta o
 # $null, y siempre deja en el log por que no se aprendio.
 function Add-Receta([string]$original, [string]$bloque) {
+    if ($script:invitado) { return $null }   # MODO INVITADO: lo que diga otro no se queda (17/09)
     $ini = $bloque.IndexOf('{'); $fin = $bloque.LastIndexOf('}')
     if ($ini -lt 0 -or $fin -le $ini) { Log "RECETA descartada: no trae JSON"; return $null }
     $o = $null
@@ -4744,6 +4751,7 @@ function Get-JuegoDeReferencia {
     return $null
 }
 function Set-NotaJuego([string]$juego, [string]$nota) {
+    if ($script:invitado) { return }   # MODO INVITADO: lo que diga otro no se queda (17/09)
     $m = Get-JuegosMem
     if (-not $m.ContainsKey($juego)) { $m[$juego] = @{} }
     $m[$juego]['nota'] = $nota
@@ -4895,6 +4903,7 @@ function Get-Contactos {
     return ,$script:contactos
 }
 function Save-Contactos {
+    if ($script:invitado) { return }   # MODO INVITADO: lo que diga otro no se queda (17/09)
     try { Write-Atomico (Join-Path $MemoriaDir 'contactos.json') (ConvertTo-Json -InputObject @($script:contactos)) } catch {}
 }
 function Watch-Notificaciones([object[]]$todas) {
@@ -5082,6 +5091,16 @@ function Test-ParteManana([datetime]$ahora = (Get-Date)) {
 # alguien. Mientras dura, Nova no aprende (costumbres, recetas, perfil, tu voz,
 # estadisticas), no mira tus notas ni lee tus mensajes y la charla no hereda lo
 # que hablaste tu. Se quita diciendolo o solo, tras 30 min sin ordenes.
+# MODO INVITADO (17/09). La guarda va DENTRO de cada funcion que guarda, no repartida por
+# los llamadores: asi no se puede olvidar al anadir un camino nuevo. Antes estaba puesta en
+# 6 funciones (estadisticas, habitos, perfil, musica, charla, ritmo) y faltaba en las 11 que
+# aprenden de lo que se DICE -diario, contactos, fechas, rechazos, alias, recetas, notas de
+# juego, traducciones y tiempo jugado-, porque la unica guarda dentro de Invoke-FastCommand
+# (1.600 lineas) cubre solo "leer los mensajes".
+#
+# Cada una devuelve lo mismo que devolveria si no hubiera nada que guardar, para que el
+# llamador no note la diferencia: $false donde se mira el resultado, $null donde se espera
+# un objeto.
 $script:invitado = $false
 $script:invitadoUltimo = 0
 function Test-FinInvitado {
@@ -6084,6 +6103,7 @@ function Set-Radio([string]$tipo, [bool]$encender) {
 $script:tiempoJuegoPend = @{}
 $script:tiempoJuegoVisto = 0
 function Add-TiempoJuego([string]$juego, [int]$seg) {
+    if ($script:invitado) { return }   # MODO INVITADO: lo que diga otro no se queda (17/09)
     if (-not $juego -or $seg -le 0 -or $seg -gt 120) { return }
     if (-not $script:tiempoJuegoPend.ContainsKey($juego)) { $script:tiempoJuegoPend[$juego] = 0 }
     $script:tiempoJuegoPend[$juego] += $seg
@@ -9672,6 +9692,7 @@ function Get-Fechas {
 }
 
 function Add-Fecha([string]$frase) {
+    if ($script:invitado) { return $null }   # MODO INVITADO: lo que diga otro no se queda (17/09)
     $p = ConvertTo-Plain $frase
     if ($p -notmatch '\b(?:el\s+)?(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\b') { return $null }
     $d = [int]$Matches[1]; $m = $MESES[$Matches[2]]
