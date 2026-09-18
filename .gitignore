@@ -75,3 +75,6 @@ memoria/musica.json
 
 # modelos de voz descargados (Parakeet...): pesan cientos de MB
 modelos/
+
+# la ubicacion cacheada por IP (18/09): es donde vives, no va al repo
+memoria/ubicacion.json
