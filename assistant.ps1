@@ -6176,12 +6176,26 @@ function Watch-Dispositivos {
 # RESUMEN AL VOLVER (13/09): si la orden llega tras mas de 2 h sin decirle
 # nada, despues de contestarla la capsula enseña una linea con lo que ha pasado
 # mientras tanto (hoy: los mensajes que te esperan). Si no paso nada, calla.
-$script:ultimoUsoEn = 0
+#
+# EL RELOJ SE LLAMABA IGUAL QUE OTRO, Y SE PISABAN (18/09). Esto se llamaba
+# $script:ultimoUsoEn, el mismo nombre que usa Write-FalloUso (1443) para su ventana de 5
+# minutos. Como aqui se sellaba en CADA llamada -y Watch-Entorno llama cada 30 s-, aquella
+# guarda no vencia nunca: un "no era eso" dicho tres horas despues habria marcado como fallo
+# una orden de hacia tres horas, que es lo contrario de lo que se queria ("un dato falso es
+# peor que un dato que falta"). Y de paso este resumen no podia salir jamas: 0 veces en
+# 26.811 lineas de registro.
+#
+# Ahora son dos relojes con dos nombres, y este solo lo sella la interaccion de verdad
+# (Set-HabloAhora desde Process-Texto). Mirar NO es hablar: por eso Test-ResumenAlVolver ya
+# no toca el reloj, y desde Watch-Entorno se llama solo para comprobar.
+$script:ultimoHabloEn = 0
 $script:resumenPendiente = ''
+function Set-HabloAhora {
+    $script:ultimoHabloEn = $sw.ElapsedMilliseconds
+}
 function Test-ResumenAlVolver {
     $ahoraU = $sw.ElapsedMilliseconds
-    $ausente = ($script:ultimoUsoEn -gt 0 -and ($ahoraU - $script:ultimoUsoEn) -ge 7200000)
-    $script:ultimoUsoEn = $ahoraU
+    $ausente = ($script:ultimoHabloEn -gt 0 -and ($ahoraU - $script:ultimoHabloEn) -ge 7200000)
     if (-not $ausente) { return }
     $partes = @()
     $nN = @($script:notifPendientes).Count
@@ -13760,6 +13774,9 @@ function Process-Texto([string]$text) {
             try { Test-ResumenAlVolver } catch {}
             try { Test-ParteManana } catch {}   # ver PARTE DE LA MANANA
             try { Set-UsoAhora } catch {}
+            # y AHORA se sella: hablar es lo unico que cuenta como "estaba aqui". Va detras
+            # de Test-ResumenAlVolver a proposito, o no habria ausencia que detectar (18/09).
+            try { Set-HabloAhora } catch {}
         }
         $plano = ConvertTo-Plain $text
         if ($script:invitado) { $script:invitadoUltimo = $sw.ElapsedMilliseconds }
