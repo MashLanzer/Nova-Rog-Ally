@@ -324,7 +324,19 @@ camino de la voz.
 
 ### Entenderte mejor sin que se lo pidas
 
-**17.** **Reordenar sus propios patrones** por lo que más aciertas.
+**17.** **Reordenar sus propios patrones** por lo que más aciertas. — **NO PROCEDE
+(verificado 17/09)**, y por tres motivos que se suman.
+*El dato no existe:* las estadísticas guardan la **ruta** (`local` 176, `traducida` 15,
+`receta` 7…), no **qué patrón** acertó. Habría que instrumentar `Resolve-Fragment`, que corre
+sobre **cada parcial mientras hablas**: el camino más caliente que tiene Nova.
+*Reordenar rompería cosas:* en esas **1.315 líneas** hay **21 comentarios explícitos sobre el
+orden** — «va ANTES de anotar: si no, "apunta lo copiado" guardaría una nota», «van ANTES que
+"apunta…"», «los números a cifras ANTES de mirar ningún patrón»… No es una lista reordenable
+por frecuencia: es una cadena con precedencias ganadas a base de fallos. En esta misma sesión
+tropecé con dos (el «deshaz» genérico que se comía al específico, y «ponla siempre encima»).
+*Y no hay nada que ganar:* la capa local ya resuelve **en menos de 1 s sin modelo**, y no hay
+ni una medición de lentitud suya en el log. Sería optimizar lo que no duele a cambio de
+arriesgar lo que sí.
 **18.** **Crearte atajos sola** para lo que repites (hoy solo propone).
 **19.** **Aprender a abrir lo que instalas** sin que se lo enseñes.
 **20.** **Retirar reglas suyas** que no se disparan en un mes o fallan siempre.
