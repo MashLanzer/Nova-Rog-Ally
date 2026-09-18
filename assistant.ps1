@@ -150,7 +150,17 @@ function Rotate-Log([string]$path) {
 if (-not $Probar) { Rotate-Log $EventLog }
 $script:logEscrituras = 0
 function Log([string]$msg) {
-    $line = (Get-Date -Format "yyyy-MM-dd HH:mm:ss") + "  " + $msg
+    $marca = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+    # CADA LINEA CON SU MARCA (18/09). La salida del agente llega con saltos de linea dentro, y
+    # Out-File la escribia tal cual: solo la primera quedaba fechada y las demas rompian
+    # cualquier analisis por columnas. En el log de hoy hay 79 lineas huerfanas de ese tipo
+    # ("Abro Steam ahora.", "La pagina de ... ya esta abierta en Steam").
+    # El split solo ocurre cuando de verdad hay saltos, que es la excepcion.
+    if ($msg -match "[`r`n]") {
+        $line = (($msg -split "`r?`n") | ForEach-Object { $marca + "  " + $_ }) -join [Environment]::NewLine
+    } else {
+        $line = $marca + "  " + $msg
+    }
     if (($script:logEscrituras % 50) -eq 0) { Rotate-Log $EventLog }
     $script:logEscrituras++
     try { Out-File -FilePath $EventLog -Append -Encoding utf8 -InputObject $line } catch {}
