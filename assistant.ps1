@@ -11058,6 +11058,16 @@ if (-not (Test-Path -LiteralPath $TmpDir)) {
 }
 
 Log "VoiceAssistant iniciado PID=$PID (trigger: mantener ≡ $([Math]::Round($HOLD_MS/1000,1)) s; cerebro: $([string](Get-Cfg 'modelo' 'cerebro' 'claude-code')))."
+# Y UNA LINEA AL CERRAR (18/09). Habia 188 "iniciado" en el registro y ninguna de salida, asi
+# que no habia forma de distinguir "braya lo cerro" de "se murio" -el unico rastro era la marca
+# huerfana de la sesion siguiente, que solo aparece cuando acabo mal-.
+# No cubre el cierre brusco: ahi no se escribe nada por definicion, y precisamente por eso
+# sirve. Un "iniciado" sin su "cerrado" detras ya dice que no fue un cierre normal.
+try {
+    $null = Register-EngineEvent PowerShell.Exiting -Action {
+        try { Log ("VoiceAssistant cerrado PID=" + $PID) } catch {}
+    }
+} catch {}
 if ($cfgError) { Log "WARN: config.json ilegible, se usan los valores por defecto: $cfgError" }
 elseif ($cfg) { Log "config.json cargado" }
 if ($cmdsError) { Log "WARN: commands.json ilegible, todo ira a opencode: $cmdsError" }
