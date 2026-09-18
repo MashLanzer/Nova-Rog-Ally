@@ -474,7 +474,21 @@ del log es uno, de 240 s. Sin acierto ni coste por motor, «cuándo merece la pe
 tiene números con los que decidirse.
 *El reparto real, para tenerlo escrito:* **201 órdenes en local** frente a **165 a un modelo**
 (charla 86, acción 69, pregunta 10); de las de charla, **87 por API y 47 por el local**.
-**29.** **Copia de seguridad cuando toca**: cambios importantes **y** tú sin hablarle.
+**29.** **Copia de seguridad cuando toca.** — **YA ESTABA, y mejor que la idea** — *pero deja
+una sospecha*
+`New-CopiaSeguridad` empaqueta traducciones, reglas, `commands.json`, `config.json`, toda
+`memoria/` y `mi-voz.json` en un zip con rotación, y **se dispara sola por dos vías**: en el
+**primer minuto tras arrancar** y al **cambiar de día**, con `Test-CopiaPendiente` (20 h desde
+la última).
+*Y la condición que pedía la idea sería peor:* «cuando lleves un rato sin hablarle» falla justo
+cuando Nova se enciende y se apaga a ratos. El disparo al arrancar cubre eso, y el comentario
+del 12/09 lo documenta: sin él «la copia no se hacía nunca», porque `diaVisto` nace con la
+fecha de hoy y el bloque de cambio de día no se alcanzaba.
+**⚠ Lo que sí hay que mirar:** no existe la carpeta `copias/`, **no hay ni un zip** y **ni una
+línea** en el log. Con `CopiasDir` inexistente, `Test-CopiaPendiente` devuelve `$true`, así que
+la copia **debería** haberse hecho en el primer minuto. O falla en silencio (el `try/catch` se
+traga el error) o el bucle no llega ahí. **Comprobar la próxima vez que Nova se encienda**, y
+si falla, que el `catch` lo diga en vez de callar.
 **30.** Ampliar el **parte semanal que ya existe** (`memoria\semanas\`) con lo que decidió
 sola. *No es crearlo: es que se incluya a sí misma.*
 
