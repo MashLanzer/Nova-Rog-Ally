@@ -14352,6 +14352,26 @@ if ($SaludoOn) {
 $startPrev = $false
 $downSince = 0
 $holdFired = $false
+
+# CUANTO TARDAS EN SOLTAR EL BOTON (18/09). holdMs (1100 ms) es el tiempo que hay que
+# MANTENER la tecla para que dicte, y estaba puesto a ojo... pero no habia forma de saber si
+# esta bien, porque la duracion de la pulsacion NO SE MEDIA EN NINGUN SITIO: el log solo
+# repetia el valor configurado ("mantener 1.1 s").
+#
+# El caso que delata un umbral demasiado alto es este: soltar SIN que llegue a disparar. Si
+# eso pasa a menudo cerca del limite, es que braya quiso dictar y se quedo sin dictado.
+#
+# Aqui NO se decide nada: solo se apunta, que es lo que faltaba. Se pasa sin detalle a
+# proposito, para no ensuciar "Ultimas ordenes" con algo que no es una orden.
+function Add-ToqueCorto([int]$ms) {
+    # un toque de verdad (el doble toque abre el panel rapido) no es un intento de dictar
+    if ($ms -lt 120) { return $false }
+    # y esto ya disparo: no es un toque corto
+    if ($ms -ge $HOLD_MS) { return $false }
+    Log ("TOQUE CORTO: soltaste a los $ms ms y el dictado pide $HOLD_MS")
+    try { Add-Estadistica 'toque-corto' } catch {}
+    return $true
+}
 $script:armed = $false
 $script:lastText = ""
 $script:lastChange = 0
@@ -14643,6 +14663,8 @@ while ($true) {
     # el panel rapido. Un toque corto no hacia nada hasta ahora, y mantenerlo
     # (dictar) sigue igual: soltar despues del hold no cuenta como toque.
     if (-not $startNow -and $startPrev -and -not $holdFired) {
+        # se solto ANTES de que disparase el dictado: lo unico que dice si holdMs esta alto
+        if ($downSince -gt 0) { try { [void](Add-ToqueCorto ($sw.ElapsedMilliseconds - $downSince)) } catch {} }
         if ($script:toqueEn -gt 0 -and ($sw.ElapsedMilliseconds - $script:toqueEn) -le 450) {
             $script:toqueEn = 0
             try {

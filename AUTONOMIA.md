@@ -630,7 +630,27 @@ midió (`f0 ≤ 0`) o no hay voz del dueño aprendida — o sea que **«no extra
 significa «no lo sé»**. En todo el log hay **2** `VOZ EXTRANA` frente a **83** eventos de ruido:
 usarla como guarda en `Add-RuidoRacha` dejaría la autosordina en **0 disparos, sin avisar**.
 
-**35. `holdMs` (1100).** Medir cuánto tardas **tú** en soltar el botón y ajustarlo.
+**35. `holdMs` (1100).** — **MEDIDOR INSTALADO; NO SE PUEDE DECIDIR TODAVÍA (18/09)**
+*La idea estaba mal enunciada:* `holdMs` no es «cuánto tardas en soltar», es el tiempo que hay
+que **mantener** ≡ para que empiece a dictar.
+
+*Y no se podía ajustar porque no había ni un dato:* la duración de la pulsación **no se medía
+en ningún sitio**. El log solo repite el valor configurado («mantener ≡ 1.1 s»), y la línea
+«soltado» que parecía servir resultó ser de *«último recurso soltado»*, del oído fino — nada
+que ver. El botón sí se usa (**102** `DICTADO (mantener` y **30** `(largo` en siete días), así
+que la pregunta es legítima; lo que faltaba era la medida.
+
+*Lo único que delata un umbral alto es **soltar sin que llegue a disparar**,* y el código ya
+detectaba ese caso exacto (`-not $startNow -and $startPrev -and -not $holdFired`) sin medir
+nada. Ahora `Add-ToqueCorto` apunta los milisegundos ahí, descartando los toques de menos de
+120 ms (el doble toque abre el panel rápido: no es un intento de dictar) y lo que ya disparó.
+Se apunta **sin detalle** a propósito, para no ensuciar «Últimas órdenes» con algo que no es una
+orden — y `Write-DestinoUso` filtra por `$DestinosUso`, así que una clave nueva no toca
+`destinos.jsonl`. `probar-toque-corto.ps1` (2n24) lo cubre.
+
+**Cuándo se podrá decidir:** cuando haya toques cortos repartidos en ≥3 días. Si se amontonan
+cerca de los 1100 ms, el umbral está alto; si casi no aparecen, el número era bueno y la idea
+se cierra sola.
 
 **36. `autoSubmitMs` (2500).** Igual con tus pausas reales al dictar: ya las mide (la pausa
 más larga dentro de una orden fue 0,81 s).
