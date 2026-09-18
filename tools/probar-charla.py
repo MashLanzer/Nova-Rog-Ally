@@ -7,10 +7,34 @@ import os
 import sys
 import json
 import time
+import shutil
+import tempfile
 
 sys.stdout.reconfigure(encoding="utf-8")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import charla_worker as cw  # noqa: E402
+
+# LA MEMORIA DE BRAYA NO SE TOCA (18/09). apuntar_charla() escribe en la global
+# CARPETA_CEREBRO, y hasta hoy solo se redirigia a mitad del fichero (linea ~369): todo lo
+# anterior -unas 14 conversaciones de mentira por pasada- acababa en el cerebro DE VERDAD,
+# que es de donde sale el diario que Nova le cuenta a braya.
+# Medido antes de arreglarlo: charla-2026-09-17.jsonl tenia 574 lineas (41 pasadas) con Nova
+# apagada desde las 19:07, y el diario del 14/09 quedo escrito entero con frases de esta
+# prueba (el oso polar, Hades). Se aisla AQUI, antes de la primera llamada.
+def _cuenta_lineas(carpeta):
+    # lineas del registro de charla de hoy en esa carpeta (0 si no hay)
+    p = os.path.join(carpeta, "charla-%s.jsonl" % time.strftime("%Y-%m-%d"))
+    try:
+        with open(p, encoding="utf-8") as f:
+            return sum(1 for _ in f)
+    except OSError:
+        return 0
+
+
+_CEREBRO_REAL = cw.CARPETA_CEREBRO
+_lineas_antes = _cuenta_lineas(_CEREBRO_REAL)
+_carpeta_banco = tempfile.mkdtemp(prefix="nova-charla-banco-")
+cw.CARPETA_CEREBRO = _carpeta_banco
 
 mal = 0
 
@@ -203,8 +227,6 @@ cw.recortar()
 comp("la memoria se recorta y empieza por el usuario", len(cw.historial) <= cw.MAX_HISTORIAL and cw.historial[0]["role"] == "user", len(cw.historial))
 
 print("--- con su propio cerebro ---")
-import shutil  # noqa: E402
-import tempfile  # noqa: E402
 import charla_memoria as cm  # noqa: E402
 
 carpeta = tempfile.mkdtemp(prefix="nova-charla-cerebro-")
@@ -406,6 +428,17 @@ try:
 finally:
     cw.CARPETA_CEREBRO = dir_antes
     shutil.rmtree(carpeta3, ignore_errors=True)
+
+# Y QUE SE NOTE SI VUELVE A PASAR (18/09). Esta comprobacion vale mas que el arreglo: si
+# alguien anade una llamada nueva antes del aislamiento, o lo quita, esto se pone rojo en vez
+# de ensuciar la memoria en silencio durante semanas.
+comp("el banco NO ha escrito en la memoria de verdad",
+     not os.path.exists(os.path.join(_CEREBRO_REAL, "charla-%s.jsonl" % time.strftime("%Y-%m-%d")))
+     or _lineas_antes == _cuenta_lineas(_CEREBRO_REAL),
+     "%s" % (_CEREBRO_REAL,))
+
+cw.CARPETA_CEREBRO = _CEREBRO_REAL
+shutil.rmtree(_carpeta_banco, ignore_errors=True)
 
 if mal:
     print("%d casos MAL" % mal)
