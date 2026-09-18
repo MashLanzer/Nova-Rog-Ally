@@ -734,8 +734,33 @@ código (`AVISO: bateria al`) da **1**.
 enchufas siempre al 40-50 %, avisar al 15 llega tarde; si enchufas al 100 por costumbre, el
 número da igual y la idea se cierra sola.
 
-**39. `entorno.nocheDesde` / `nocheHasta`.** Moverlos con tus horas medidas, no con las que
-se escribieron el primer día.
+**39. `entorno.nocheDesde` / `nocheHasta`.** — **NO PROCEDE: un número, dos usos opuestos (18/09)**
+*Las horas medidas sí dicen algo,* con 1407 eventos de uso repartidos en 7 días:
+
+```
+11h 103   14h 109   15h 288   17h 143   19h 132   21h  65
+22h  28   23h   9   00h  20   01h  59   02h-08h  0   09h  34
+```
+
+Usas la consola **hasta la 1-2 de la madrugada** (a la 01 h hay más actividad que a las 23 h) y
+de 02 a 08 no hay nada. Con `nocheDesde=23`, la franja de «solo lo crítico» te pilla despierto
+durante **88 eventos** — repartidos, además, en 6 días, así que el freno de datos no lo impide.
+
+*Pero moverlo no arregla nada y sí rompe algo.* Dos razones:
+
+1. **El camino casi no se recorre:** en todo el registro hay **5 avisos de entorno** (3
+   `gmail-lleno`, 2 `bateria-llena`), todos entre las 19 y las 21 h y **ninguno de noche**. La
+   franja no ha silenciado nada todavía — y encima ya hay una guarda anterior más fuerte: con un
+   juego abierto, los avisos que no son críticos callan igual.
+2. **El número lo comparten dos usos con exigencias contrarias:** para silenciar avisos querría
+   empezar más tarde (a las 2), pero `Get-AvisoHoraDormir` lo usa como umbral del aviso «son las
+   23:40 y a esta hora no sueles estar levantado», que necesita empezar **a las 23**. Subirlo a 2
+   dejaría ese aviso sin poder dispararse justo en su franja útil, y **rompería la idea 18**, que
+   ya se autoajusta bien con los hábitos (≥3 días de los últimos 14).
+
+**Si algún día hay que tocarlo, primero hay que separarlo en dos números** — «desde cuándo callo
+los avisos» y «desde cuándo es tarde para ti» — porque hoy son el mismo y tiran en direcciones
+opuestas.
 
 **40. `confirmacion.esperaMs`.** Cuánto tardas en contestar «sí» o «no», medido.
 
