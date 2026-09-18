@@ -380,7 +380,17 @@ va al cerebro **con la receta rota y su error**, y la versión corregida ocupa s
 **conservando usos, confirmaciones y formas de decirlo**. El comentario lo explica: «antes una
 receta que fallaba dos veces se borraba y se perdía lo aprendido».
 *Y no hay nada que desactivar hoy:* las 4 recetas tienen **`fallos = 0`**.
-**22.** **Dejar de dar los avisos que ignoras** (nunca batería crítica ni seguridad).
+**22.** **Dejar de dar los avisos que ignoras.** — **NO PROCEDE (medido 17/09)**
+*Los frenos ya existen y están calibrados uno a uno*, no en bloque: cada aviso lleva **su
+nivel y su plazo** — `bateria-baja` alto/20 min, `bateria-llena` bajo/**4 h**, `gmail-lleno`
+medio/**una semana**, `hora-dormir` noche/8 h, `disco-poco` medio/12 h, `resumen-semana`
+bajo/semana… — más un **tope global de 4 por hora**, silencio nocturno y silencio jugando.
+*Y no hay nada que silenciar:* se han dado **7 avisos en total**, de tres tipos
+(`bateria-llena` 2, `descarga-<juego>` 2, `gmail-lleno` 3).
+*El dato que haría falta no existe:* `entornoVistos` guarda **cuándo** se avisó, no si
+reaccionaste. Y aquí «reaccionar» ni siquiera está definido: ¿enchufar el cargador?, ¿vaciar
+el Gmail?, ¿decir algo? Habría que inventar un medidor de reacción para silenciar avisos que
+**ya tienen plazo de días**.
 **23.** **Ajustar el volumen de su voz al ruido** de la habitación.
 
 ### Cuándo callarse y cuándo actuar
