@@ -80,7 +80,7 @@ cómo se mide y **5 mejoras** concretas.
 | 2 | **El micrófono recorta en el propio conversor**: el p90 crudo llega a 0.99 en 206 de 806 pulsos y 40 de 188 grabaciones salen saturadas (329 «recorte detectado» en el log). Ninguna ganancia por software lo arregla, y **nadie toca nunca el nivel de captura de Windows** | GRAVE | `wake_vosk.py` |
 | 3 | `GANANCIA_INICIAL` sigue siendo **x8**: si falta `tmp\ganancia.txt` —un directorio de usar y tirar— vuelve el fallo de ayer entero. La prueba nueva vigila la regla de descarte, no el valor de arranque | GRAVE | `wake_vosk.py:171` |
 | 4 | «Parakeet primero» resuelve **29 de 188, no 144** (dato mío erróneo, ya corregido) | MEDIO | — |
-| 5 | **Durante el repaso está sorda y tira el audio**: 3.033 s descartados, y `atender_reintento` corre antes de mirar `dictar.flag` — justo cuando braya repite tras un «no te entendí» | MEDIO | `wake_vosk.py` |
+| 5 | **Durante el repaso está sorda y tira el audio**: 3.033 s descartados, y `atender_reintento` corre antes de mirar `dictar.flag` — justo cuando braya repite tras un «no te entendí» | MEDIO | `wake_vosk.py` → **NO se arregla, ver abajo** |
 | 6 | La confianza de Whisper **se hereda de la orden anterior** cuando gana Parakeet: solo 42 de 188 traen dato propio | MEDIO | → **DESCARTADO, ver abajo** |
 | 7 | Los audios de más de 8 s nunca reciben small ni turbo (25 de 188), y el camino Parakeet→Whisper no tiene ningún tope | MEDIO | — |
 | 8 | `probar-audio.py` mide **el circuito de antes del 15/09**: no carga Parakeet, así que su listón de 0,75 no avala lo que corre hoy | MEDIO | `tools\probar-audio.py` |
@@ -211,7 +211,7 @@ Cada hallazgo trae 5 mejoras ordenadas de más barata a más cara, con cómo med
 | 2 | **El barrido de workers huérfanos no encuentra ninguno desde el 14/09**: filtra `Name='python.exe'` pero `$PyWorker` es **pythonw.exe**. `charla_worker.py` no está en el filtro en ninguna versión. El log lleva 30 relanzamientos y 31 marcas huérfanas; en 8 GB eso se nota | GRAVE | `assistant.ps1:8329` |
 | 3 | **`probar-autosordina.ps1` siempre sale verde**: el único de los 38 sin `exit 1`, y tres de sus cuatro casos imprimen el valor esperado sin compararlo | GRAVE | `tools\probar-autosordina.ps1` |
 | 4 | **La sección 3 del banco solo comprueba que la línea exista, no el número**: una caída de 95 % a 5 % pasaría desapercibida | GRAVE | `tools\probar-todo.ps1` |
-| 5 | `Save-Habitos`, `Save-JuegosMem` y `Add-HistorialMusica` no usan `Write-Atomico` | MEDIO | — |
+| 5 | `Save-Habitos`, `Save-JuegosMem` y `Add-HistorialMusica` no usan `Write-Atomico` | MEDIO | — → **DESCARTADO, ver abajo** |
 | 6 | Un número mal escrito en `config.json` mata el arranque **antes de que exista `Log`** | MEDIO | → **HECHA** |
 | 7 | El modo invitado tiene siete huecos (`Add-Traduccion`, `Add-Rechazo`…) y **no sobrevive a un reinicio** | MEDIO | — |
 | 8 | Ninguna prueba toca `New-CopiaSeguridad` ni `Get-Cfg` | MEDIO | — |
@@ -219,6 +219,37 @@ Cada hallazgo trae 5 mejoras ordenadas de más barata a más cara, con cómo med
 
 ### 3.5 Decisiones tomadas al implementar (17/09)
 
+- **DESCARTADO — 3.4 #5, "tres sitios no usan `Write-Atomico`".** Quinto hallazgo
+  que se cae al verificarlo. Es cierto en la letra -no llaman a la funcion- y falso en lo que
+  importaba: **los tres hacen el patron atomico a mano**. `Save-Habitos`, `Save-JuegosMem` y
+  `Add-HistorialMusica` escriben con `WriteAllText` a un `.tmp` y despues
+  `Move-Item -LiteralPath ... -Force`, que es exactamente la rama final de `Write-Atomico`
+  (esta intenta antes `File::Replace`, que aqui no aporta nada: `Replace` ni siquiera vale si
+  el destino no existe, y por eso la propia funcion lo envuelve en un `Test-Path`).
+  O sea: **no hay escritura directa sobre el archivo bueno**, que era el riesgo denunciado.
+  Unificarlos seria tocar tres lineas que ya funcionan a cambio de nada.
+- **NO SE ARREGLA (de momento) — 3.1 #5, sorda durante el repaso.** El mecanismo
+  es cierto y el numero tambien: **3.033,2 s** descartados en total, y `transcribir_whisper`
+  corre en el hilo del bucle, asi que Nova esta sorda mientras repasa y al terminar tira la
+  cola. Pero medirlo cambia la decision.
+  **Desglose del audio tirado por repaso** (el motivo del log es siempre "oido fino", pero
+  `atender_reintento` lo llama por los tres caminos):
+  | camino | total | veces | por evento |
+  |---|---|---|---|
+  | ultimo recurso | 688,8 s | 25 | **27,6 s** |
+  | oido fino (small) | 691,6 s | 84 | 8,2 s |
+  | whisper tras parakeet | 268,6 s | 123 | 2,2 s |
+  El peor con diferencia era el **ultimo recurso, y Nova ya lo apago sola** (ver el bloque de
+  autonomia): ese 41 % se va sin tocar una linea. Confirma ademas aquella decision por un
+  motivo que no se habia contado: no solo ahorraba 16,2 s de espera por intento, tambien
+  dejaba de tirar 27,6 s de audio cada vez.
+  **Y el dano real es pequeno:** de los 84 repasos con hora, en 23 braya volvio a hablar en
+  los 12 s siguientes, pero con **mediana de 6 s** -el repaso dura 4,6 s de mediana, o sea
+  que ya habia terminado- y solo **2 de 84 (2,4 %)** cayeron en los 2 s siguientes, que es la
+  unica ventana donde se pudo perder voz.
+  Lo unico que lo arreglaria de verdad es sacar Whisper a otro hilo: el cambio mas
+  arriesgado que se puede hacer en Nova (el hilo del audio) para recuperar 2 casos de 84. Se
+  queda anotado con sus numeros por si el reparto cambia.
 - **HECHO — 3.3 #6, la cache de voz solo se podaba al arrancar.** Cierto:
   `limpiar_cache()` se llamaba una vez, fuera de `principal()`, y el worker vive desde el
   login, asi que con Nova encendida el tope de 60 MB **no se aplicaba nunca**. Medido antes
