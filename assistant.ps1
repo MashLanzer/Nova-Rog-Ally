@@ -5902,9 +5902,16 @@ $script:revisionPropiaDia = ''
 function Get-AvisoSinDatos($stats, $num, [datetime]$ahora = (Get-Date)) {
     try {
         foreach ($c in @(
-            @{ clave = 'turbo'; intentos = 'turbo'; utiles = 'turbo-sirvio'; que = 'mi ultimo recurso del oido' },
-            @{ clave = 'nube';  intentos = 'nube-intento'; utiles = 'nube-sirvio'; que = 'la segunda opinion de la nube' })) {
+            @{ clave = 'turbo'; intentos = 'turbo'; utiles = 'turbo-sirvio'; que = 'mi ultimo recurso del oido'
+               encendido = [bool]$WhisperUltimo },
+            @{ clave = 'nube';  intentos = 'nube-intento'; utiles = 'nube-sirvio'; que = 'la segunda opinion de la nube'
+               encendido = [bool]$NubeOir })) {
             $tot = [int]$num[$c.intentos]
+            # LO QUE YA ESTA APAGADO NO SE ANUNCIA (18/09). El ultimo recurso lleva apagado
+            # desde el 15/09 (input.whisperModeloUltimo = ''), y sin esto la primera frase que
+            # Nova diria al revisarse seria que va a apagarlo: una decision que ya esta tomada.
+            # Test-RevisionPropia ya mira su interruptor (5965 y 6015); este aviso, no.
+            if (-not $c.encendido) { continue }
             if ($tot -lt $DecisionMinIntentos) { continue }                     # sin historial no se juzga
             if ([int]$num[$c.utiles] -ge (Get-DecisionMinimo $tot)) { continue }   # si aporta, no hay decision pendiente
             if (Test-DatosRepartidos $stats $c.intentos $ahora) { continue }    # si los datos valen, ya decidiria sola

@@ -42,6 +42,10 @@ function Num([int]$turbo, [int]$sirvio, [int]$nubeI = 0, [int]$nubeS = 0) {
     return @{ 'turbo' = $turbo; 'turbo-sirvio' = $sirvio; 'nube-intento' = $nubeI; 'nube-sirvio' = $nubeS }
 }
 
+# los interruptores vivos: el aviso solo habla de lo que sigue encendido (D1)
+$WhisperUltimo = 'large-v3-turbo'
+$NubeOir = 'gemini'
+
 Write-Host '  -- el caso de verdad: 1 de 29, pero todo de un dia --'
 $real = Stats @{ '2026-09-15' = @{ 'turbo' = 29; 'turbo-sirvio' = 1 } }
 $t = Get-AvisoSinDatos $real (Num 29 1) $hoy
@@ -69,6 +73,17 @@ $nube = Stats @{ '2026-09-16' = @{ 'nube-intento' = 24; 'nube-sirvio' = 1 } }
 $tn = Get-AvisoSinDatos $nube (Num 0 0 24 1) $hoy
 Comp 'avisa de la nube' ($tn -match 'nube') ("'" + $tn + "'")
 Comp 'con su cifra' ($tn -match '1 de 24') ''
+
+Write-Host '  -- y NO anuncia lo que ya esta apagado (18/09, D1) --'
+# El ultimo recurso lleva apagado desde el 15/09 (config.json: whisperModeloUltimo = '').
+# Sin esta guarda, la primera frase de la revision seria que va a apagar algo ya apagado.
+$WhisperUltimo = ''
+Comp 'con el ultimo recurso apagado, no lo menciona' ((Get-AvisoSinDatos $real (Num 29 1) $hoy) -eq '') ''
+$WhisperUltimo = 'large-v3-turbo'
+Comp 'y si vuelve a encenderse, vuelve a contarlo' ((Get-AvisoSinDatos $real (Num 29 1) $hoy) -match '1 de 29') ''
+$NubeOir = ''
+Comp 'lo mismo con la nube apagada' ((Get-AvisoSinDatos $nube (Num 0 0 24 1) $hoy) -eq '') ''
+$NubeOir = 'gemini'
 
 Write-Host '  -- y lo raro no lo rompe --'
 Comp 'sin dias, no revienta' ((Get-AvisoSinDatos @{ dias = @{} } (Num 29 1) $hoy) -eq '') ''
