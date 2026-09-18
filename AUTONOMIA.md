@@ -525,9 +525,33 @@ falta» o «ese día no se usó», y hoy **no se distinguen**. Aplicarla tal cua
 guarda tras unas vacaciones. Si algún día se hace, tendrá que exigir **días con uso real**, no
 días de calendario — la misma lección de las ideas 2 y 8.
 
-**32. Reaccionar cuando el micro empieza a cazar audio.**
-La otra mitad de esa misma frase: «si `recitado` sube, el micrófono está cazando audio». Hoy
-lo escribe y no pasa nada. Que baje ganancia o suba exigencia, y lo cuente.
+**32. Reaccionar cuando el micro empieza a cazar audio.** — **HECHA, PERO AL REVÉS (18/09)**
+*La premisa era falsa y la medición la tumbó.* La frase decía: «si `recitado` sube, el
+micrófono está cazando audio». Medido sobre los 13 recitados del log, mirando el pico de audio
+de la activación que produjo cada uno:
+
+| | n | pico mediano | máximo |
+|---|---:|---:|---:|
+| recitado — eco del ejemplo | 7 | **0.000** | 0.268 |
+| recitado — catálogo | 6 | 0.078 | 0.364 |
+| *ruido de verdad* | 41 | 0.077 | **0.995** |
+
+El recitado llega con el micro **casi mudo**, no cazando audio. Y la causa está identificada:
+`PROMPT_ORDENES` (`wake_vosk.py:120`) se pasa como `initial_prompt` a Whisper, así que cuando
+no hay audio que transcribir **Whisper devuelve su propio prompt** — de ahí el famoso «¿Qué
+hora es? ¿Qué hora es». Bajar la ganancia, que es justo lo que pedía la idea, **la habría
+dejado más sorda precisamente cuando no oye**.
+
+**Y la otra reacción «obvia» era peor todavía:** sumar el recitado a la racha de la autosordina
+habría callado a Nova el 16/09 a las 11:47:27 — con braya hablándole (activación legítima «nova
+por», confianza 0.95, pico 0.268, y un dictado de seguimiento tres segundos después). Es el
+mismo fallo del 15/09 que `Add-RuidoRacha` ya documenta: «NO ES RUIDO SI ERES TU».
+
+**Lo que sí se hizo:** corregir la leyenda que ella misma escribe en `estadisticas.md`. Era la
+que guiaba mal —me guio mal a mí mientras trabajaba esta idea— y es la que ella leería para
+decidir sola. Ahora dice lo medido, nombra las dos formas del recitado, y avisa de que un cero
+puede ser un día sin uso. `probar-recitado.ps1` lo comprueba y deja en rojo a quien intente
+sumar el recitado a la sordina.
 
 **33. Generalizar el autoapagado del acelerómetro.**
 `Watch-Acelerometro` ya se apaga solo si la primera lectura tarda o viene vacía. Aplicar ese

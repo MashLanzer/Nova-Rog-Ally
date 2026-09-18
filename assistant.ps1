@@ -1492,7 +1492,13 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '') {
         [void]$sb.AppendLine("")
         [void]$sb.AppendLine("Actualizado: " + (Get-Date -Format 'yyyy-MM-dd HH:mm') + ". La genera el asistente sola; no hace falta editarla.")
         [void]$sb.AppendLine("")
-        [void]$sb.AppendLine("**activacion**: veces que se desperto al oir su nombre. **ruido**: lo que se descarto por no ser una orden. **recitado**: enumeraciones de nombres de tu biblioteca que Whisper se invento con el ruido (si esto sube, el microfono esta cazando audio; si baja a cero durante semanas, quiza ya no hace falta el filtro).")
+        # LA LEYENDA MENTIA, Y ERA LA QUE ME GUIABA A MI (18/09). Decia que un recitado
+        # significa que el microfono esta cazando audio. Medido sobre los 13 del log, es
+        # AL REVES: llegan con el pico a 0.000 de mediana (el ruido de verdad, 0.077, con
+        # cola hasta 0.995). Son las dos formas en que Whisper rellena el silencio: repite
+        # su propio initial_prompt (PROMPT_ORDENES en wake_vosk.py) o enumera la biblioteca.
+        # Bajar la ganancia por esto seria dejarla mas sorda justo cuando no oye nada.
+        [void]$sb.AppendLine("**activacion**: veces que se desperto al oir su nombre. **ruido**: lo que se descarto por no ser una orden. **recitado**: lo que Whisper se inventa cuando casi no hay audio, de dos formas: repitiendo su propia frase de ejemplo (Que hora es, Que hora es) o enumerando nombres de tu biblioteca. MEDIDO sobre 13 casos (18/09): NO quiere decir que el microfono este cazando audio, sino lo contrario, porque llegan con el pico a 0.000 de mediana frente a 0.077 del ruido de verdad; bajar la ganancia por esto la dejaria mas sorda todavia. Y un cero tampoco quiere decir que sobre el filtro: puede ser un dia sin usarla.")
         [void]$sb.AppendLine("")
         [void]$sb.AppendLine("Rutas: **local** (<1 s, sin modelo), **aprendida** (traducción guardada), **memoria** (búsqueda en notas), **pregunta** (modelo sin herramientas), **traducir** → **traducida** (el modelo la convirtió a una orden local y se aprendió), **accion** (agente completo), **charla**, **descarte** (trozo que la capa local no entendió).")
         [void]$sb.AppendLine("")
