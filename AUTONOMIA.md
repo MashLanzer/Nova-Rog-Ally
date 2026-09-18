@@ -156,9 +156,21 @@ devolvía la lista **sin la coma** (`return ,$lista`), así que PowerShell la de
 función recibía una copia y su `.Remove()` no tocaba el original. El código real sí la lleva.
 La prueba mentía, no el código.
 
-**7. Limpiarse por espacio, no por calendario.**
-Cuando el disco baje del umbral, podar lo más viejo y decir qué tiró. *Freno: nunca lo del
-día en curso.*
+**7. Limpiarse por espacio, no por calendario.** — **NO PROCEDE (medido 17/09)**
+Todo lo que Nova genera suma **~61 MB**: 33,4 de audios de uso (189 archivos) y 27,5 de
+`tmp`, con `memoria` entera en **0,2 MB**. Enfrente hay **115 GB libres**. Es el **0,05 %**
+del espacio disponible. Una poda por umbral de disco sería código que no se ejecuta nunca, y
+con el riesgo de borrar de más por un error de cálculo.
+**Y la premisa de la idea era falsa:** no hay ninguna limpieza «por calendario» que sustituir.
+Lo que hay es lo correcto ya:
+- la **caché de voz** se poda sola (tope 60 MB, hoy al 23 %) y se lleva su `.env` en pareja;
+- hay un **barrido de restos** de órdenes canceladas (`in|out|err|raw-` de más de un día), que
+  además se salta el banco para no tocar archivos de una orden viva.
+De los 1.075 archivos de `tmp`, **955 son esa caché**. El resto es estado vivo, más 13
+`.bak-*` (~3,2 MB) que son copias de mis propias sesiones de parcheo: basura de desarrollo,
+no de Nova.
+*Si algún día procede, la pieza ya está:* Nova sabe leer el espacio libre
+(`AvailableFreeSpace`), que es lo que usa para contestarte cuánto queda.
 
 **8. Ajustar el oído por hora y por ruido.**
 Tiene `ritmo` y `charlaHoras`. *Freno: solo franjas con muchos días de datos.*
