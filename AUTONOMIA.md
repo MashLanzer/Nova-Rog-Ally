@@ -418,8 +418,20 @@ rematada: cachea 3 s para no machacar el registro, escribe en el log cuándo se 
 cuándo vuelve**, y la usan dos sitios — `Say` (calla y lo enseña en la cápsula con su latido) y
 `Test-AvisoSinVoz`.
 *En el log no se ha disparado ni una vez, así que tampoco hay evidencia de que falle.*
-**25.** Afinar el **modo noche con tus horas reales**. *Ojo: ya calcula «esta hora no sueles
-estar levantado» y tu hora habitual de dejarla; falta que MUEVA el modo, no que lo sepa.*
+**25.** Afinar el **modo noche con tus horas reales**. — **NO PROCEDE (medido 17/09)**, y por
+tres motivos que se suman.
+*El cálculo ya existe:* `Get-HoraFinHabitual` saca tu hora habitual con la **mediana de los
+últimos 14 días** y ya exige **4 días como mínimo** para pronunciarse. Se usa para el
+recordatorio de cargar, con su media hora de antelación.
+*No hay datos:* solo **3 días** registrados, por debajo de ese mínimo, y con una dispersión
+enorme — **17:24, 01:00 y 21:59**, o sea **456 minutos** entre el más pronto y el más tarde.
+Mover una hora con eso sería el error de las ideas 2 y 8 otra vez.
+*Y la idea confundía dos cosas:* `nocheDesde`/`nocheHasta` (23 y 8) **no son «el modo noche»**
+que pides hablando: gobiernan el **silencio nocturno de todos los avisos de entorno**.
+Moverlos cambiaría cuándo se calla Nova para todo, que es un efecto mucho mayor que el que
+buscaba la idea.
+*Lo que sí queda:* el día que haya 4+ días de datos coherentes, `Get-HoraFinHabitual` ya está
+construida y solo hay que decidir **qué** mover.
 **26.** **Callarse en la franja en que siempre la mandas callar.**
 **27.** Decidir entre **palabra o botón según lo que funciona** (`soloBotonEnJuego` es fijo).
 
