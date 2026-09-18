@@ -38,13 +38,19 @@ function Send-AvisoEntorno($clave, $texto, $nivel = 'medio', $cada = 60) { $scri
 Invoke-Expression (Traer 'Save-DecisionPropia')
 Invoke-Expression (Traer 'Undo-DecisionPropia')
 Invoke-Expression (Traer 'Invoke-Deshacer')
+Invoke-Expression (Traer 'Test-DatosRepartidos')
 Invoke-Expression (Traer 'Test-RevisionPropia')
 
 $hoy = Get-Date
 function Poner([int]$intentos, [int]$utiles) {
-    # reparte los numeros en los ultimos 14 dias, como si fuera uso real
+    # REPARTIDO EN TRES DIAS (17/09): desde que existe Test-DatosRepartidos, un monton de
+    # intentos de una sola tarde ya no vale para decidir. Se reparte como seria en uso real.
     $script:stats = @{ dias = @{} }
-    $script:stats.dias[$hoy.AddDays(-1).ToString('yyyy-MM-dd')] = @{ turbo = $intentos; 'turbo-sirvio' = $utiles }
+    $tercio = [int][Math]::Floor($intentos / 3)
+    $resto = $intentos - ($tercio * 2)
+    $script:stats.dias[$hoy.AddDays(-1).ToString('yyyy-MM-dd')] = @{ turbo = $tercio; 'turbo-sirvio' = $utiles }
+    $script:stats.dias[$hoy.AddDays(-2).ToString('yyyy-MM-dd')] = @{ turbo = $tercio; 'turbo-sirvio' = 0 }
+    $script:stats.dias[$hoy.AddDays(-3).ToString('yyyy-MM-dd')] = @{ turbo = $resto; 'turbo-sirvio' = 0 }
     $script:cfgPuesta = @(); $script:avisos = @(); $script:apuntes = @()
     $script:revisionPropiaDia = ''
     $script:WhisperUltimo = 'large-v3-turbo'
@@ -157,7 +163,11 @@ Comp 'y su ajuste sigue pendiente de deshacer' (-not $WhisperUltimo) "WhisperUlt
 # "nube-nada: 1". Con ese dato, cualquier decision habria sido mentira.
 function PonerNube([int]$intentos, [int]$utiles) {
     $script:stats = @{ dias = @{} }
-    $script:stats.dias[$hoy.AddDays(-1).ToString('yyyy-MM-dd')] = @{ 'nube-intento' = $intentos; 'nube-sirvio' = $utiles }
+    $tercioN = [int][Math]::Floor($intentos / 3)
+    $restoN = $intentos - ($tercioN * 2)
+    $script:stats.dias[$hoy.AddDays(-1).ToString('yyyy-MM-dd')] = @{ 'nube-intento' = $tercioN; 'nube-sirvio' = $utiles }
+    $script:stats.dias[$hoy.AddDays(-2).ToString('yyyy-MM-dd')] = @{ 'nube-intento' = $tercioN; 'nube-sirvio' = 0 }
+    $script:stats.dias[$hoy.AddDays(-3).ToString('yyyy-MM-dd')] = @{ 'nube-intento' = $restoN; 'nube-sirvio' = 0 }
     $script:cfgPuesta = @(); $script:avisos = @(); $script:apuntes = @()
     $script:revisionPropiaDia = ''
     $script:NubeOir = 'gemini'
@@ -199,8 +209,11 @@ Comp 'sin pedir que reinicies' ($rD3 -notmatch 'reinicies') "'$rD3'"
 Write-Host '  -- UNA decision al dia: la segunda pisaria a la primera --'
 # las dos cosas mal a la vez: turbo inutil Y nube inutil
 $script:stats = @{ dias = @{} }
-$script:stats.dias[$hoy.AddDays(-1).ToString('yyyy-MM-dd')] = @{
-    turbo = 29; 'turbo-sirvio' = 1; 'nube-intento' = 24; 'nube-sirvio' = 1 }
+foreach ($dd in 1..3) {
+    $script:stats.dias[$hoy.AddDays(-$dd).ToString('yyyy-MM-dd')] = @{
+        turbo = 10; 'turbo-sirvio' = $(if ($dd -eq 1) { 1 } else { 0 })
+        'nube-intento' = 8; 'nube-sirvio' = $(if ($dd -eq 1) { 1 } else { 0 }) }
+}
 $script:cfgPuesta = @(); $script:avisos = @(); $script:apuntes = @()
 $script:revisionPropiaDia = ''
 $script:NubeOir = 'gemini'; $script:WhisperUltimo = 'large-v3-turbo'
@@ -222,6 +235,45 @@ Write-Host '  -- y el contador que lo hace posible sigue ahi --'
 $txtN = [System.IO.File]::ReadAllText($rutaA, [System.Text.Encoding]::UTF8)
 Comp 'Start-NubeOir cuenta cada intento' ($txtN -match "Add-Estadistica 'nube-intento'") ''
 Comp 'y se apunta cuando la nube sobra' ($txtN -match "Add-Estadistica 'nube-sobra'") ''
+
+# IDEA 2: UN SOLO DIA NO ES UNA COSTUMBRE (17/09).
+# Al ir a decidir el umbral de la palabra salio que 41 de los 49 descartes por confianza
+# eran del mismo dia (11/09), justo cuando la ganancia arrancaba en x8 y el microfono
+# saturaba: un fallo YA arreglado. Y lo mismo pasaba con lo que Nova ya decide: los 29
+# intentos del ultimo recurso son de un unico dia.
+Write-Host ''
+Write-Host '  -- una decision no sale de una sola tarde --'
+$st1 = @{ dias = @{} }
+$st1.dias[$hoy.AddDays(-1).ToString('yyyy-MM-dd')] = @{ turbo = 29 }
+Comp 'con 29 intentos de UN dia, no hay reparto' (-not (Test-DatosRepartidos $st1 'turbo' $hoy)) ''
+
+$st2 = @{ dias = @{} }
+foreach ($dd in 1..3) { $st2.dias[$hoy.AddDays(-$dd).ToString('yyyy-MM-dd')] = @{ turbo = 10 } }
+Comp 'repartido en tres dias, si vale' (Test-DatosRepartidos $st2 'turbo' $hoy) ''
+
+$st3 = @{ dias = @{} }
+$st3.dias[$hoy.AddDays(-1).ToString('yyyy-MM-dd')] = @{ turbo = 28 }
+$st3.dias[$hoy.AddDays(-2).ToString('yyyy-MM-dd')] = @{ turbo = 1 }
+$st3.dias[$hoy.AddDays(-3).ToString('yyyy-MM-dd')] = @{ turbo = 1 }
+Comp 'tres dias pero uno concentra el 93 %, no vale' (-not (Test-DatosRepartidos $st3 'turbo' $hoy)) ''
+
+$st4 = @{ dias = @{} }
+$st4.dias[$hoy.AddDays(-1).ToString('yyyy-MM-dd')] = @{ turbo = 10 }
+$st4.dias[$hoy.AddDays(-2).ToString('yyyy-MM-dd')] = @{ turbo = 10 }
+Comp 'dos dias no bastan, hacen falta tres' (-not (Test-DatosRepartidos $st4 'turbo' $hoy)) ''
+Comp 'y sin ningun dato, tampoco' (-not (Test-DatosRepartidos (@{ dias = @{} }) 'turbo' $hoy)) ''
+Comp 'una clave que no existe no revienta' (-not (Test-DatosRepartidos $st2 'no-existe' $hoy)) ''
+
+Write-Host '  -- y la revision propia lo exige de verdad --'
+# los numeros REALES de braya el 15/09: 29 intentos, 1 util... todos del mismo dia
+$script:stats = @{ dias = @{} }
+$script:stats.dias['2026-09-15'] = @{ turbo = 29; 'turbo-sirvio' = 1 }
+$script:cfgPuesta = @(); $script:avisos = @(); $script:apuntes = @()
+$script:revisionPropiaDia = ''
+$script:WhisperUltimo = 'large-v3-turbo'; $script:NubeOir = ''
+$script:invitado = $false; $script:juegoActivo = $null; $script:autoDecision = $null
+Comp 'con los 29 de una tarde NO decide' (-not (Test-RevisionPropia ([datetime]'2026-09-16'))) ''
+Comp 'y no toca nada' (@($script:cfgPuesta).Count -eq 0) ($script:cfgPuesta -join ' ')
 
 # QUE LA FRASE LLEGUE. El "deshaz" generico termina en \b, SIN ancla final, asi que se
 # come "deshaz lo que has cambiado" entera si alguien mueve el patron nuevo detras. Esto

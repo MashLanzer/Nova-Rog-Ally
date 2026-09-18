@@ -5663,6 +5663,36 @@ function Undo-DecisionPropia {
     return "Hecho: vuelvo a usar $($d.que) en cuanto me reinicies"
 }
 
+# UN SOLO DIA NO ES UNA COSTUMBRE (17/09). Al ir a decidir el umbral de la palabra salio
+# que 41 de los 49 descartes por confianza eran del MISMO dia, el 11/09, que es justo cuando
+# la ganancia arrancaba en x8 y el microfono saturaba: un fallo ya arreglado el 16/09
+# (commit 8d00a14). Bajar el umbral con eso habria sido "arreglar" con datos anteriores al
+# arreglo anterior.
+#
+# Y al mirarlo, lo mismo pasaba con lo que Nova YA decide: los 29 intentos del ultimo
+# recurso son de un unico dia (15/09). La decision era correcta en el fondo -1 util de 29,
+# 16,2 s cada uno- pero el metodo era fragil: una tarde rara habria bastado.
+#
+# Asi que cualquier decision propia exige ahora que los datos esten REPARTIDOS: al menos 3
+# dias distintos, y que ningun dia concentre mas del 70 %. Con los numeros de hoy el ultimo
+# recurso NO se habria decidido, y eso es lo correcto: 29 intentos de una tarde no dicen
+# como se comporta normalmente.
+function Test-DatosRepartidos($stats, [string]$clave, [datetime]$ahora, [int]$diasMin = 3, [double]$topeDia = 0.70) {
+    $tot = 0; $peor = 0; $dias = 0
+    try {
+        for ($i = 0; $i -lt 14; $i++) {
+            $k = $ahora.AddDays(-$i).ToString('yyyy-MM-dd')
+            if (-not $stats.dias.ContainsKey($k)) { continue }
+            $v = [int]$stats.dias[$k][$clave]
+            if ($v -le 0) { continue }
+            $tot += $v; $dias++
+            if ($v -gt $peor) { $peor = $v }
+        }
+    } catch { return $false }
+    if ($tot -le 0 -or $dias -lt $diasMin) { return $false }
+    return (($peor / [double]$tot) -le $topeDia)
+}
+
 $script:revisionPropiaDia = ''
 function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     if ($script:invitado -or $script:juegoActivo) { return $false }
@@ -5671,6 +5701,7 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     $script:revisionPropiaDia = $hoyR
     # los numeros de los ultimos 14 dias, de una vez para todas las decisiones
     $numR = @{}
+    $stR = $null
     try {
         $stR = Get-Estadisticas
         foreach ($cR in @('turbo', 'turbo-sirvio', 'nube-intento', 'nube-sirvio')) { $numR[$cR] = 0 }
@@ -5689,7 +5720,8 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     # Se mira ANTES que el turbo a proposito: el turbo ya suele estar apagado, y si se mirara
     # primero esta funcion saldria por el "ya esta apagado" sin llegar nunca aqui.
     if ($NubeOir -and $numR['nube-intento'] -ge 20 -and
-        $numR['nube-sirvio'] -lt [int][Math]::Ceiling($numR['nube-intento'] * 0.15)) {
+        $numR['nube-sirvio'] -lt [int][Math]::Ceiling($numR['nube-intento'] * 0.15) -and
+        (Test-DatosRepartidos $stR 'nube-intento' $ahora)) {
         $antesN = [string]$NubeOir
         $script:NubeOir = ''
         [void](Set-Cfg 'escucha' 'nubeOir' '')
@@ -5705,6 +5737,8 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     $tR = [int]$numR['turbo']; $tsR = [int]$numR['turbo-sirvio']
     if ($tR -lt 20) { return $false }                                  # sin historial no se juzga
     if ($tsR -ge [int][Math]::Ceiling($tR * 0.15)) { return $false }   # si aporta, se queda
+    # y que no salga de una sola tarde (ver Test-DatosRepartidos)
+    if (-not (Test-DatosRepartidos $stR 'turbo' $ahora)) { return $false }
     # Apagarlo es vaciar la variable VIVA y guardar la clave. Request-UltimoRecurso mira
     # $WhisperUltimo, asi que surte efecto en la frase siguiente sin relanzar la escucha
     # (el worker recibe el modelo al arrancar, pero nunca se lo piden). Importa: al

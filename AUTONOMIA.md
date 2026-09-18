@@ -58,9 +58,27 @@ Así que la idea son dos cosas: **el instrumento y luego la decisión**.
 *22 casos nuevos en `probar-revision-propia.ps1`, incluido uno que vigila que el contador de
 intentos siga existiendo: si alguien lo quita, la decisión vuelve a ser sobre un dato falso.*
 
-**2. Mover ella sola el umbral de confianza.**
-Hoy: ruido **3 de 97** y **132** activaciones. Si el ruido sube, más exigente; si se le
-escapan activaciones tuyas, que afloje. *Freno: pasos pequeños, una vez al día.*
+**2. Mover ella sola el umbral de confianza.** — **NO se hace todavía; salió algo mejor**
+*Lo que se buscaba:* en el log hay **49 descartes por confianza**, y el texto es voz tuya
+limpia (`'nova'` 25 veces, `'hola nova'` 4, `'ey nova'` 3), con un margen pequeño: a 0.10 o
+menos en el 53 %. Parecía la prueba de que el umbral estorbaba, y encaja con tu queja de
+«cuando le digo nova no se activa».
+*Lo que decía el reparto por día:* **41 de los 49 son del 11/09**. Los días siguientes tienen
+4, 5 y 0. El 11/09 es justo cuando la ganancia arrancaba en x8 y el micro saturaba — el fallo
+que **ya se arregló** (`8d00a14`, 16/09), y que `probar-escucha.py` documenta así: «sus dos
+quejas eran el MISMO fallo». Bajar el umbral ahora sería arreglar con datos **anteriores al
+arreglo anterior**.
+*Lo que sí salió, y vale más:* **ninguna decisión propia puede salir de un solo día.** Al
+mirarlo, lo mismo le pasaba a lo que Nova **ya decide**: los 29 intentos del último recurso
+son de **una única tarde** (15/09, 100 % concentrado). La decisión era correcta en el fondo,
+pero el método era frágil.
+→ **`Test-DatosRepartidos`**: ahora toda decisión exige **3 días distintos** y que **ningún
+día pase del 70 %**. Aplicado a las dos decisiones que ya existían (último recurso y nube).
+Con los números de hoy, el último recurso **no se habría decidido**, y eso es lo correcto.
+*8 casos nuevos en la prueba, incluido uno con los 29 intentos reales de braya: comprueba que
+con esos datos NO decide.*
+*Pendiente:* la bajada de umbral en sí, cuando haya descartes repartidos en varios días
+posteriores al arreglo de la ganancia. Hoy no los hay.
 
 **3. Apagar el oído fino cuando deje de aportar.**
 Hoy **sí** aporta (27 de 81 = 33 %), pero ya se inventa 5. Con el listón del 15 % que usó
