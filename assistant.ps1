@@ -8263,6 +8263,21 @@ try {
     if (Test-Path -LiteralPath $pyw) { $PyWorker = $pyw }
 } catch {}
 $TtsWorker = Join-Path $LogDir "tts_worker.py"
+# LO QUE NO ARRANCO (17/09). Nova ya comprueba sus piezas al arrancar -si falta wake_vosk.py,
+# nova_ui.exe, commands.json o el CLI del agente- pero todas esas comprobaciones mueren en el
+# log, donde nadie las ve: arrancaba a medias, saludaba igual y ya te enterarias cuando algo
+# no funcionase.
+#
+# Esto NO anade comprobaciones nuevas: recoge las que ya hay y las cuenta en el saludo, que
+# existe justo para eso (linea ~97: "saludo hablado al arrancar: confirma que la voz
+# funciona"). Si todo esta bien, el saludo es el de siempre.
+$script:fallosArranque = New-Object System.Collections.ArrayList
+function Add-FalloArranque([string]$que) {
+    if (-not $que) { return }
+    if ($script:fallosArranque -contains $que) { return }
+    [void]$script:fallosArranque.Add($que)
+}
+
 $VozCache = Join-Path $TmpDir "voz"
 $script:ttsProc = $null
 # la lectura pendiente sobre la tuberia del worker de voz, y si la que llega es de la
@@ -8581,6 +8596,7 @@ function Initialize-Voz {
         $script:vozPlayer = New-Object System.Media.SoundPlayer
     } catch {
         Log ("WARN: voz no disponible, se sigue sin ella: " + $_.Exception.Message)
+        Add-FalloArranque 'me he quedado sin voz'
         $script:vozSyn = $null
     }
 }
@@ -8956,7 +8972,7 @@ function Initialize-Escucha {
             # el microfono en vez de quedarse escuchando huerfano (auditoria 13/09)
             $env:NOVA_PID_PADRE = "$PID"
             $worker = Join-Path $LogDir "wake_vosk.py"
-            if (-not (Test-Path -LiteralPath $worker)) { Log "WARN: falta wake_vosk.py"; return }
+            if (-not (Test-Path -LiteralPath $worker)) { Log "WARN: falta wake_vosk.py"; Add-FalloArranque 'no puedo oirte por la palabra, solo con el boton'; return }
             # La confianza minima va TAMBIEN aqui: hasta ahora solo la recibia el
             # wake_worker.exe viejo, asi que el ajuste del config no hacia nada.
             $conf = $EscuchaConf.ToString([System.Globalization.CultureInfo]::InvariantCulture)
@@ -9319,7 +9335,7 @@ function Send-Aviso([string]$texto, [string]$tipo = '') {
 function Initialize-UI {
     if (-not $UiNuevaOn) { Log "interfaz nueva desactivada por configuracion"; return }
     $exe = Join-Path $LogDir "nova_ui.exe"
-    if (-not (Test-Path -LiteralPath $exe)) { Log "WARN: falta nova_ui.exe (compilar con tools\compilar-ui.ps1); sigue la barra antigua"; $script:UiNuevaOn = $false; return }
+    if (-not (Test-Path -LiteralPath $exe)) { Log "WARN: falta nova_ui.exe (compilar con tools\compilar-ui.ps1); sigue la barra antigua"; Add-FalloArranque 'me falta la capsula'; $script:UiNuevaOn = $false; return }
     try {
         # arrancar siempre en reposo: un JSON viejo de otra sesion dejaria la
         # capsula abierta con un texto rancio
@@ -10610,7 +10626,7 @@ elseif ($cmds) {
     Log ("commands.json cargado: " + @($cmds.apps.PSObject.Properties).Count + " apps, " +
          @($cmds.sitios.PSObject.Properties).Count + " sitios, " +
          @($cmds.busquedas.PSObject.Properties).Count + " buscadores")
-} else { Log "WARN: no hay commands.json; todo ira a opencode" }
+} else { Log "WARN: no hay commands.json; todo ira a opencode"; Add-FalloArranque 'no tengo mi lista de ordenes, asi que todo ira al agente y sere lenta' }
 
 Initialize-Voz
 Initialize-Escucha
@@ -10685,6 +10701,7 @@ if (@($script:Juegos).Count -gt 0) {
 }
 if (-not (Test-Path $OCODECLI)) {
     Log "ERROR: opencode CLI no encontrado en $OCODECLI"
+    Add-FalloArranque 'no encuentro el agente'
     exit 1
 }
 
@@ -14268,6 +14285,16 @@ $sw = [System.Diagnostics.Stopwatch]::StartNew()
 if ($SaludoOn) {
     try {
         $saludo = if ($EscuchaOn) { "Listo. Di $EscuchaNombre cuando me necesites." } else { "Listo." }
+        # SI ARRANCO A MEDIAS, SE DICE. Un "listo" cuando falta media Nova es mentira, y el
+        # fallo se descubriria a la primera orden que no funcione (17/09).
+        if ($script:fallosArranque.Count -gt 0) {
+            $listaF = @($script:fallosArranque)
+            $textoF = if ($listaF.Count -eq 1) { $listaF[0] }
+                      else { ($listaF[0..($listaF.Count - 2)] -join ', ') + ' y ' + $listaF[-1] }
+            $saludo = "Listo, pero arranque a medias: $textoF."
+            Log ("ARRANQUE A MEDIAS: " + ($listaF -join ' | '))
+            Add-Estadistica 'arranque-medias' ($listaF -join ' | ')
+        }
         Log "saludo de arranque"
         Say $saludo
     } catch { Log ("saludo fallido: " + $_.Exception.Message) }

@@ -258,8 +258,23 @@ solo el 8 % de huecos pasa de 5 min) y recargarlo cuesta **5,6 s**. Soltarlo por
 sería contraproducente. Aplicar la misma regla a los tres habría sido lo cómodo y lo peor.
 *8 casos nuevos en `probar-ram-modelos.ps1`, incluido el que vigila que Parakeet siga **sin**
 plazo.*
-**13.** **Autodiagnóstico al arrancar**: micro, voz y cápsula; si la voz online no responde,
-pasar a Piper **y decirlo**.
+**13.** **Autodiagnóstico al arrancar.** — **HECHA (17/09)**, y no había que diagnosticar
+nada nuevo: había que **contarlo**.
+*Lo que ya existía:* Nova **ya comprueba** sus piezas al arrancar —si falta `wake_vosk.py`,
+`nova_ui.exe`, `commands.json` o el CLI del agente— y **ya degrada bien**: la voz baja en
+cascada online → Piper → Windows, y hay vigilantes que avisan con un aviso a la vista cuando
+una pieza se cae **en marcha**.
+*El hueco:* todas esas comprobaciones de arranque **morían en el log**, donde nadie las ve.
+Nova arrancaba a medias, saludaba «Listo» igual, y el fallo se descubría a la primera orden
+que no funcionaba.
+*Lo hecho:* se recogen las comprobaciones que **ya había** —sin añadir ninguna— y se cuentan
+en el **saludo**, que existe justo para eso (el comentario de la línea 97 dice «saludo hablado
+al arrancar: confirma que la voz funciona»). Si todo está bien, el saludo es el de siempre; si
+no: *«Listo, pero arranqué a medias: me falta la cápsula y no encuentro el agente.»* Y queda
+en las estadísticas como `arranque-medias`.
+*16 casos en `probar-arranque.ps1` (2n21).* *Y un rojo falso que destapó un defecto de la
+prueba:* uno de los textos buscados aparece **también en el comentario que yo mismo escribí**,
+y como usaba `IndexOf` se quedaba en la primera aparición. Ahora recorre todas.
 **14.** Elegir **voz online o local por latencia medida**.
 **15.** Vigilar **su propio tamaño de datos** y compactar o archivar por meses.
 **16.** **Recuperarse de un worker muerto con paciencia creciente**: tres muertes seguidas,
