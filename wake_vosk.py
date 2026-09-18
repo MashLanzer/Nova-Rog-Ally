@@ -195,6 +195,28 @@ UMBRAL_ACTIVIDAD = 0.006
 ARRASTRE = 4              # bloques que se siguen decodificando tras el silencio
 PREBUFFER = 2             # bloques previos que se recuperan al detectar voz
 INTERVALO_PULSO = 15.0    # ajuste rapido; con 60 s tardaba minutos en subir
+# EL LATIDO SOLO CUANDO DICE ALGO NUEVO (18/09). Los 6 formatos de pulso eran el 43,9 % del log
+# (11.811 lineas; el 16/09 dejo 5.086), y el que mas se repite -"sin voz sostenida"- no aporta
+# nada que no diga el siguiente. Se calla mientras repita lo mismo, pero como mucho un minuto:
+# si Nova se quedara colgada, en el log tiene que notarse el hueco.
+# Ojo: esto NO toca el fichero de estado, que se sigue escribiendo siempre porque de ahi leen
+# la ganancia y la capsula.
+PULSO_REPETIDO_MAX = 60.0
+_pulso_ultimo = ""
+_pulso_ultimo_en = 0.0
+
+
+def anota_pulso(texto, ahora):
+    """El pulso, sin repetirse: igual que el anterior y hace menos de un minuto, se calla."""
+    global _pulso_ultimo, _pulso_ultimo_en
+    # lo que cambia en cada latido (el nivel exacto de los altavoces) no cuenta como novedad:
+    # se compara sin los numeros de coma flotante
+    clave = "".join(c for c in texto if not (c.isdigit() or c == "."))
+    if clave == _pulso_ultimo and (ahora - _pulso_ultimo_en) < PULSO_REPETIDO_MAX:
+        return
+    _pulso_ultimo = clave
+    _pulso_ultimo_en = ahora
+    anota(texto)
 # --- ALTAVOCES ---
 # Por encima de este pico en la SALIDA se considera que esta sonando algo
 # (medido en esta maquina: silencio 0.0002, fondo suave 0.007, video 0.30).
@@ -1780,8 +1802,8 @@ try:
                     # vuelve a ajustar cuando haya silencio.
                     altavoces_altos = nivel_salida() > UMBRAL_ALTAVOZ
                     if automatica and altavoces_altos and bloques_voz >= MIN_BLOQUES_VOZ:
-                        anota("pulso: ganancia congelada en x%.1f (suenan los altavoces: %.3f)"
-                              % (ganancia, nivel_salida()))
+                        anota_pulso("pulso: ganancia congelada en x%.1f (suenan los altavoces: %.3f)"
+                                    % (ganancia, nivel_salida()), ahora)
                         escribir(RUTA_ESTADO, "%.1f|0|%.3f|%d" % (ganancia, nivel_salida(), bloques_voz))
                     elif automatica and bloques_voz >= MIN_BLOQUES_VOZ and picos:
                         ref = float(np.percentile(np.array(picos), 90))
@@ -1806,13 +1828,15 @@ try:
                         if nueva < ganancia:
                             propuesta = max(nueva, min(propuesta, ganancia - 0.1))
                         ganancia = round(max(GANANCIA_MIN, min(GANANCIA_MAX, propuesta)), 1)
+                        # esta SI se escribe siempre: es el ajuste de ganancia de verdad, el
+                        # dato con el que se decide si la escucha esta bien calibrada
                         anota("pulso: p90=%.4f bloques_voz=%d ganancia=x%.1f decodificado=%d%% altavoces=%.3f"
                               % (ref, bloques_voz, ganancia, pct_dec(), nivel_salida()))
                         escribir(RUTA_GANANCIA, "%.1f" % ganancia)
                         escribir(RUTA_ESTADO, "%.1f|%.4f|%.3f|%d" % (ganancia, ref, nivel_salida(), bloques_voz))
                     else:
-                        anota("pulso: sin voz sostenida (%d bloques) ganancia=x%.1f decodificado=%d%% altavoces=%.3f"
-                              % (bloques_voz, ganancia, pct_dec(), nivel_salida()))
+                        anota_pulso("pulso: sin voz sostenida (%d bloques) ganancia=x%.1f decodificado=%d%% altavoces=%.3f"
+                                    % (bloques_voz, ganancia, pct_dec(), nivel_salida()), ahora)
                         escribir(RUTA_ESTADO, "%.1f|0|%.3f|%d" % (ganancia, nivel_salida(), bloques_voz))
                     picos = []
                     bloques_voz = 0

@@ -140,9 +140,16 @@ function Rotate-Log([string]$path) {
     } catch {}
 }
 
+# EL TAMAÑO DEL LOG, CADA 50 LINEAS (18/09). Rotate-Log hace un Get-Item .Length del fichero, y
+# se llamaba en CADA escritura: 26.906 comprobaciones en el registro, casi la mitad solo por el
+# latido de la escucha. El margen que se acepta a cambio es nada: el log puede pasarse del tope
+# en lo que ocupen 50 lineas (~5 KB) sobre un umbral de 5 MB. La primera llamada comprueba
+# igual, asi que un log que ya venga pasado se rota como hasta ahora.
+$script:logEscrituras = 0
 function Log([string]$msg) {
     $line = (Get-Date -Format "yyyy-MM-dd HH:mm:ss") + "  " + $msg
-    Rotate-Log $EventLog
+    if (($script:logEscrituras % 50) -eq 0) { Rotate-Log $EventLog }
+    $script:logEscrituras++
     try { Out-File -FilePath $EventLog -Append -Encoding utf8 -InputObject $line } catch {}
 }
 

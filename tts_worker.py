@@ -31,6 +31,14 @@ try:
 except Exception:  # noqa: BLE001
     miniaudio = None
 
+# numpy es OPCIONAL a proposito (18/09): acelera el calculo de la envolvente, que va delante de
+# la voz, pero este worker ES la voz. Si el import fallara y no estuviera envuelto, Nova se
+# quedaria muda por ahorrar 10 ms.
+try:
+    import numpy as _np
+except Exception:  # noqa: BLE001
+    _np = None
+
 VENTANA_MS = 50
 
 
@@ -38,28 +46,54 @@ def escribir_envolvente(ruta_mp3):
     if miniaudio is None:
         return
     ruta_env = ruta_mp3 + ".env"
+    # UN .env TRUNCADO NO SE REGENERABA NUNCA (18/09): la funcion salia solo con que el fichero
+    # existiera, asi que una frase con la envolvente a medias movia la boca mal para siempre.
+    # Medido: 19 de 487 mp3 de la cache no tienen envolvente.
     if os.path.exists(ruta_env):
-        return
+        try:
+            if os.path.getsize(ruta_env) > 4:
+                return
+        except OSError:
+            return
     try:
         d = miniaudio.decode_file(ruta_mp3, output_format=miniaudio.SampleFormat.SIGNED16,
                                   nchannels=1, sample_rate=16000)
         muestras = d.samples
         paso = int(16000 * VENTANA_MS / 1000)
-        valores = []
-        for i in range(0, len(muestras), paso):
-            trozo = muestras[i:i + paso]
-            if not trozo:
-                break
-            rms = math.sqrt(sum(m * m for m in trozo) / len(trozo)) / 32768.0
-            valores.append(rms)
+        if _np is not None:
+            # EL RMS, DE GOLPE (18/09). El bucle de Python costaba 8-11 ms en una frase tipica
+            # y 47-57 ms en una larga, y esto va DELANTE de que Nova empiece a hablar.
+            a = _np.frombuffer(memoryview(muestras).cast("B"), dtype=_np.int16).astype(_np.float32)
+            enteros = (len(a) // paso) * paso
+            valores = []
+            if enteros:
+                valores = list(_np.sqrt((a[:enteros].reshape(-1, paso) ** 2).mean(axis=1)) / 32768.0)
+            # el ultimo trozo incompleto cuenta igual que en el bucle de siempre: si no, la
+            # boca se quedaria quieta hasta 50 ms al final de cada frase, y un audio mas corto
+            # que un trozo se quedaria sin envolvente entera
+            resto = a[enteros:]
+            if len(resto):
+                valores.append(float(_np.sqrt((resto ** 2).mean()) / 32768.0))
+        else:
+            valores = []
+            for i in range(0, len(muestras), paso):
+                trozo = muestras[i:i + paso]
+                if not trozo:
+                    break
+                rms = math.sqrt(sum(m * m for m in trozo) / len(trozo)) / 32768.0
+                valores.append(rms)
         if not valores:
             return
         # normalizado al pico de la frase y con una curva que abre la boca
         # con las vocales sin que las consonantes la dejen cerrada
         pico = max(valores) or 1.0
         norm = [min(1.0, (v / pico) ** 0.7) for v in valores]
-        with open(ruta_env, "w", encoding="ascii") as f:
+        # ATOMICO, como el mp3 de al lado: se escribe aparte y se cambia de golpe, para que la
+        # capsula no lea nunca una envolvente a medias
+        parcial_env = ruta_env + ".part"
+        with open(parcial_env, "w", encoding="ascii") as f:
             f.write(" ".join("%.2f" % v for v in norm))
+        os.replace(parcial_env, ruta_env)
     except Exception:
         pass
 
