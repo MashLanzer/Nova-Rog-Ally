@@ -871,11 +871,42 @@ tiene que tocar solo el primero.
 Aunque mañana se añadiera el registro de saltos, el punto 4 seguiría en pie: primero habría que
 distinguir una canción de un vídeo cualquiera, y eso no lo da el título.
 
-**45. Aprender qué notificaciones te importan.**
-`Watch-Notificaciones` las ve todas. Que aprenda de cuáles reaccionas y calle el resto.
+**45. Aprender qué notificaciones te importan.** — **NO PROCEDE: ya calla todas (18/09)**
+*La idea va en dirección contraria a lo que hace el código.* `Watch-Notificaciones` **no anuncia
+todas**: solo habla si el título casa con alguien de `Get-Contactos`. Y **`contactos.json` no
+existe**, así que ese bloque nunca ha entrado.
 
-**46. Retirar reglas de apps que ya no abres.**
-`Watch-AppsReglas` vigila apps que quizá llevan meses sin abrirse.
+| | |
+|---|---:|
+| notificaciones vistas | **10** (7 de Discord, 3 de XBOX) |
+| anunciadas por voz | **0** |
+| `pulso:mensaje` (el aviso visual jugando) | **0** |
+
+Comprobé el único caso que parecía contradecirlo —`aviso aplazado … Hermes (#lspdfr-announcents…)`,
+a la misma hora que una notificación de Discord— y **no era de aquí**: `Send-Aviso` aplaza
+*cualquier* aviso mientras dictas (estabas dictando cuatro segundos antes), y ese texto no tiene
+la forma «X te ha escrito» que genera esta función.
+
+*Y ya está bien graduado por debajo:* con un juego delante o en modo silencio, nada de voz — solo
+pulso y texto en la cápsula (`Test-AvisoSinVoz`); no cuenta lo que ya estaba al arrancar
+(`notifPrimera`); y una lectura fallida no vacía lo visto.
+
+**⚠ Lo que sí hay que corregir algún día es una frase que miente:** la orden «ver contactos
+importantes» responde «no tienes contactos importantes; **todos los mensajes avisan igual**», y
+es al revés — sin contactos **no avisa ninguno**. El camino para arreglarlo ya existe: decirle
+«avísame si me escribe Fulano» lo añade (`contactoImp/poner`).
+
+**46. Retirar reglas de apps que ya no abres.** — **NO PROCEDE: no hay ninguna (18/09)**
+**`reglas.json` tiene 0 reglas.** No hay nada que retirar, y `Watch-AppsReglas` ya sale en la
+primera línea cuando no las hay (`if ($nombres.Count -eq 0) { $appsVivas = @{}; return }`), así
+que tampoco cuesta nada aunque corra cada 3 s.
+
+**⚠ Pero el log destapa algo que no estaba en la lista:** hay **1095** líneas `REGLA … guardada`
+y son **la misma docena reguardándose una y otra vez** — `REGLA 1 guardada` aparece **195 veces**,
+la 2 noventa y cinco, la 3 noventa y cuatro… Trece reglas que se guardaron cientos de veces, y
+**hoy el fichero está vacío**. O se reescriben enteras cada vez que cambia una (ruido en disco), o
+se perdieron en algún punto. Merece una mirada aparte: son reglas que braya creó hablando.
+*(Sexta cifra contaminada de la tanda: «1095 reglas» eran 13.)*
 
 **47. Cortar sola al agente cuando se eterniza.**
 `Watch-OpencodeProgress` ya sigue el progreso. Que decida rendirse con su propia mediana.
