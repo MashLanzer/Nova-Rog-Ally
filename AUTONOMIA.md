@@ -337,7 +337,19 @@ tropecé con dos (el «deshaz» genérico que se comía al específico, y «ponl
 *Y no hay nada que ganar:* la capa local ya resuelve **en menos de 1 s sin modelo**, y no hay
 ni una medición de lentitud suya en el log. Sería optimizar lo que no duele a cambio de
 arriesgar lo que sí.
-**18.** **Crearte atajos sola** para lo que repites (hoy solo propone).
+**18.** **Crearte atajos sola** para lo que repites. — **NO PROCEDE (medido 17/09)**
+*El mecanismo ya está entero:* `Find-Propuesta` detecta los tres patrones —la misma orden a la
+misma hora, la orden que sigue a abrir una app, y tres órdenes encadenadas— y te lo ofrece
+cuando no molesta. Lo que pedía la idea es **crearlo sin preguntar**.
+*Pero no hay nada que crear:* hay **18 usos guardados**, «abre steam» sale 3 veces… y
+**ninguna orden se repite en 3 días distintos**, que es el mínimo que `Find-Propuesta` exige.
+Hoy Nova no propondría ni una vez, así que saltarse la pregunta no cambiaría **nada**.
+*Y el precio sería alto:* quitar la confirmación es lo que convierte «aprende solo» en «hace
+cosas que no pediste» — el mismo fallo que ya mordió con las reglas creadas por voz (3.2 #3).
+Además rompería el equilibrio de la **idea 5**: el veto de una propuesta caduca a los 60 días
+**porque hay una pregunta de por medio**; sin pregunta, esa caducidad se vuelve peligrosa.
+*La forma sensata de esta idea ya está hecha:* Nova propone, tú dices sí, y entonces lo crea
+sola y no vuelve a preguntarlo nunca.
 **19.** **Aprender a abrir lo que instalas** sin que se lo enseñes.
 **20.** **Retirar reglas suyas** que no se disparan en un mes o fallan siempre.
 **21.** **Desactivar recetas que fallan**: ya cuenta `fallos`, que decida ella el corte.
