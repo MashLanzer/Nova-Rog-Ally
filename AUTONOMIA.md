@@ -432,7 +432,18 @@ Moverlos cambiaría cuándo se calla Nova para todo, que es un efecto mucho mayo
 buscaba la idea.
 *Lo que sí queda:* el día que haya 4+ días de datos coherentes, `Get-HoraFinHabitual` ya está
 construida y solo hay que decidir **qué** mover.
-**26.** **Callarse en la franja en que siempre la mandas callar.**
+**26.** **Callarse en la franja en que siempre la mandas callar.** — **NO PROCEDE
+(medido 17/09)**
+*No hay ninguna franja «de siempre»:* le has mandado callar **12 veces**, repartidas en **seis
+franjas distintas** (10, 14, 15, 16, 17 y 22 h), con un máximo de **4** en una sola (16 h) y
+varias de una única vez. Con el freno de la idea 2 —3 días distintos y ningún día por encima
+del 70 %— **no pasaría ninguna**.
+*Y ya se calla sola, pero por el motivo correcto:* la **autosordina** se disparó **5 veces**
+(3 descartes seguidos → 10 minutos de silencio, avisando). Reacciona al **ruido real**, no al
+reloj, que es mejor: si esta tarde no hay ruido, no se calla por costumbre.
+*Nota de método:* la primera medición dio «470 veces» y era falsa — el patrón se tragaba
+`ENVIAR (silencio)`, una marca interna del envío de órdenes. Rehecha con patrones precisos
+quedaron 12.
 **27.** Decidir entre **palabra o botón según lo que funciona** (`soloBotonEnJuego` es fijo).
 
 ### Gastar con cabeza
