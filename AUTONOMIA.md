@@ -305,8 +305,22 @@ notificaciones 30, variantes de receta 20, recetas `$RecetasMax`; y el cerebro t
   revisión un poco cada día. Podar por encima de, digamos, 120 días sería gratis.
 - **`charla-YYYY-MM-DD.jsonl`**: uno por día, sin tope (60 KB en un solo día). Es lo único con
   ritmo apreciable, y archivarlos por meses sí tendría sentido el día que estorben.
-**16.** **Recuperarse de un worker muerto con paciencia creciente**: tres muertes seguidas,
-desactivarlo y decirlo.
+**16.** **Recuperarse de un worker muerto con paciencia creciente.** — **NO PROCEDE
+(medido 17/09)**
+*Donde existe, está bien hecho y ha funcionado.* La escucha y la cápsula llevan 3 intentos,
+comprobación **cada 30 s** (no en cada vuelta), aviso hablado una sola vez al rendirse,
+degradación explícita al botón… y **rearme solo tras 5 minutos vivo**, con un comentario del
+13/09 que documenta justo lo que esta idea pedía: *«un worker que muere cada 40 s reiniciaba
+el contador sin parar y nunca se daba por perdido»*. Eso ya **es** paciencia creciente.
+*Y ha hecho falta de verdad:* **15 muertes** del worker de escucha y **15** de la interfaz en
+el log, todas resueltas en el intento 1/3 (una en el 2/3). Ninguna llegó a «no se sostiene».
+*Donde no existe, tampoco hace falta:* `ttsIntentos`, `piperIntentos` y `charlaIntentos` no
+existen, pero **el worker de voz no ha muerto ni una vez** (`voz online: el worker murió` = 0)
+ni el de charla (`charla: el worker se cerró` = 0). Y su relanzamiento no es un bucle ciego:
+la charla, al cerrarse, **reencamina la pregunta** en vez de reintentar, y la voz **cae a
+Piper en la misma frase**.
+Añadir contadores a tres workers que nunca han muerto sería código sin evidencia, y en el
+camino de la voz.
 
 ### Entenderte mejor sin que se lo pidas
 
