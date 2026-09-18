@@ -853,8 +853,23 @@ volumen alto al ponerlos, o que siga sonando por los altavoces al quitarlos.
 aviso (`Send-AvisoEntorno`) y la regla (`Invoke-Reglas`) son cosas distintas: quien retome esto
 tiene que tocar solo el primero.
 
-**44. Aprender qué música te gusta por lo que NO saltas.**
-`Watch-Musica` y `musica.json` ya guardan lo que suena. Lo que no saltas, gusta.
+**44. Aprender qué música te gusta por lo que NO saltas.** — **NO PROCEDE (18/09)**
+*Cuatro razones, y cualquiera bastaría:*
+
+1. **No hay saltos que aprender.** Cero saltos registrados. Las únicas órdenes de música de todo
+   el registro son **3** «Reproduce … en YouTube», y las tres buscan la misma canción de Pitbull
+   dicha de tres formas.
+2. **El dato no es derivable.** `Add-HistorialMusica` guarda **solo** `t`, `a` y `f` (título,
+   artista, hora). Ni saltos, ni duración, ni si sonó entera. «Lo que no saltas» no está ahí, y
+   saltar con el mando o el teclado Nova ni lo ve.
+3. **Falla el freno de datos repartidos.** Las 8 entradas de `musica.json` son **todas del
+   15/09**: el 100 % en un solo día, cuando hacen falta ≥3 días y ≤70 % en uno.
+4. **Y la fuente está contaminada de origen.** 4 de las 8 no son canciones: *Base44 Superagents*,
+   *Tripo AI Workflow*, *Firebase Brand Video*, *Copilot in Outlook*. Captura **cualquier audio
+   del navegador**, así que «lo que no saltas» incluiría vídeos de trabajo dejados sonando.
+
+Aunque mañana se añadiera el registro de saltos, el punto 4 seguiría en pie: primero habría que
+distinguir una canción de un vídeo cualquiera, y eso no lo da el título.
 
 **45. Aprender qué notificaciones te importan.**
 `Watch-Notificaciones` las ve todas. Que aprenda de cuáles reaccionas y calle el resto.
