@@ -81,7 +81,7 @@ cómo se mide y **5 mejoras** concretas.
 | 3 | `GANANCIA_INICIAL` sigue siendo **x8**: si falta `tmp\ganancia.txt` —un directorio de usar y tirar— vuelve el fallo de ayer entero. La prueba nueva vigila la regla de descarte, no el valor de arranque | GRAVE | `wake_vosk.py:171` |
 | 4 | «Parakeet primero» resuelve **29 de 188, no 144** (dato mío erróneo, ya corregido) | MEDIO | — |
 | 5 | **Durante el repaso está sorda y tira el audio**: 3.033 s descartados, y `atender_reintento` corre antes de mirar `dictar.flag` — justo cuando braya repite tras un «no te entendí» | MEDIO | `wake_vosk.py` |
-| 6 | La confianza de Whisper **se hereda de la orden anterior** cuando gana Parakeet: solo 42 de 188 traen dato propio | MEDIO | — |
+| 6 | La confianza de Whisper **se hereda de la orden anterior** cuando gana Parakeet: solo 42 de 188 traen dato propio | MEDIO | → **DESCARTADO, ver abajo** |
 | 7 | Los audios de más de 8 s nunca reciben small ni turbo (25 de 188), y el camino Parakeet→Whisper no tiene ningún tope | MEDIO | — |
 | 8 | `probar-audio.py` mide **el circuito de antes del 15/09**: no carga Parakeet, así que su listón de 0,75 no avala lo que corre hoy | MEDIO | `tools\probar-audio.py` |
 | 9 | `leer_vocabulario()` no se llama desde ningún sitio, pero el asistente sigue generando y pasando `tmp\vocabulario.txt`; `pico_voz` es variable muerta | LEVE | — |
@@ -112,7 +112,7 @@ Seis casos nuevos en `probar-escucha.py`, incluido uno que reproduce el atasco.
 | 6 | Las recetas se prueban **antes** del filtro de ruido y sin rechazo ni voz ajena; con `confirmadas>=2` lanzan PowerShell sin preguntar | GRAVE | `assistant.ps1:13487` |
 | 7 | El atajo de pronombres convierte «ponla siempre encima» en «pon spotify siempre encima» y acaba **abriendo Spotify** | MEDIO | `assistant.ps1:2190` → **HECHA** |
 | 8 | `Test-FastCommand` (que valida todo y corre sobre los parciales **mientras hablas**) lee el escritorio, escanea siete carpetas y toca el estado de la cápsula | MEDIO | — |
-| 9 | `Find-Traduccion` devuelve la **primera** clave dentro del tope, no la más cercana: el resultado depende del orden del hashtable (fallo que no se reproduce) | MEDIO | `assistant.ps1:6105` |
+| 9 | `Find-Traduccion` devuelve la **primera** clave dentro del tope, no la más cercana: el resultado depende del orden del hashtable (fallo que no se reproduce) | MEDIO | `assistant.ps1:6105` → **HECHA** |
 **HECHO (17/09) — 3.3 #2, la sordera de hasta 90 s.** Era peor de lo que decía el
 informe: `Say` fija la pausa por cuenta de letras ANTES de saber si habrá sonido, y había
 **tres** salidas que se iban sin tocarla (Piper, «no hay voz» y el `catch` final). Ahora,
@@ -219,6 +219,37 @@ Cada hallazgo trae 5 mejoras ordenadas de más barata a más cara, con cómo med
 
 ### 3.5 Decisiones tomadas al implementar (17/09)
 
+- **HECHO — 3.2 #9, `Find-Traduccion` devolvia la primera, no la mas parecida.**
+  Cierto en el codigo, pero **hoy no puede pasar**: hay 2 traducciones guardadas y no se
+  parecen en nada (distancia ~25 sobre un tope de 5). Asi que esto no rescata ninguna orden y
+  no se vende como tal; lo que quita es peor que un fallo normal: el resultado dependia del
+  **orden del hashtable**, o sea que los mismos datos podian dar respuestas distintas en dos
+  ejecuciones. Por eso el propio hallazgo decia "no se reproduce". Tres lineas, y el empate
+  se rompe por orden alfabetico.
+  **La leccion esta en la prueba, no en el arreglo.** El primer par que escribi
+  (`sube el brillo` / `sube el brillo ya`) no demostraba nada: medido, el segundo queda a
+  distancia 4 con tope 3, no entraba en el tope y por tanto **nunca competia**; esa prueba
+  habria pasado igual con el codigo viejo. Se vio ejecutando el algoritmo anterior contra los
+  dos ordenes: daba lo mismo. Con el par medido (`sube el brillo`, distancia 1, y
+  `sube el brillos`, distancia 2, las dos dentro de su tope) el viejo da **`CON S` en un orden
+  y `SIN S` en el otro**, y el nuevo siempre lo mismo. Una prueba que no se ha visto fallar no
+  vale nada.
+- **DESCARTADO — 3.1 #6, "la confianza se hereda de la orden anterior".** El
+  cuarto hallazgo de la auditoria que se cae al verificarlo. El numero es correcto (42 de 188
+  traen dato propio), pero la conclusion no: medido sobre las **144 ordenes en que gano
+  Parakeet -las que supuestamente heredarian el dato- lo traen CERO**. Queda `None`, no
+  heredado.
+  Ya estaba protegido por cinco sitios: `_ultima_seguridad = None` en tres (`wake_vosk.py`
+  764, 1343 y 1576, y los dos ultimos estan **justo antes de `if rapido:`**, o sea en el
+  mismo camino que se denunciaba), mas el borrado de `dictado-confianza.txt` en dos
+  (`assistant.ps1` 12638 y 12942). Y en PowerShell el valor si persiste en la variable, pero
+  **ningun consumidor lo usa sin comprobar frescura**: 60 s en `Test-DictadoDudoso`, 15 s en
+  los otros dos, y un `-999999` explicito antes de releer. La marca de tiempo era la
+  proteccion que el hallazgo no vio.
+  **Lo que si es cierto, como observacion y no como fallo:** 146 de 188 ordenes no tienen
+  medida de confianza propia porque Parakeet no produce `avg_logprob`. El repaso por
+  "dictado dudoso" no puede dispararse cuando gana Parakeet -por ausencia de dato, no por
+  herencia-; esas ordenes tienen otra red, que es si `Test-FastCommand` las entiende.
 - **HECHO — 3.2 #7, el pronombre tapaba otra orden.** El atajo de
   `abrelo` reescribe la frase ANTES de que llegue a su propio patron, y los patrones que
   empiezan igual estan cientos de lineas mas abajo. Resultado: era **mas grande de lo que

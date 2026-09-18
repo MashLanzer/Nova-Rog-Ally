@@ -6264,12 +6264,24 @@ function Find-Traduccion([string]$text) {
     if ($t.Count -eq 0) { return $null }
     $clave = ConvertTo-Plain $text
     if ($t.ContainsKey($clave)) { return $t[$clave] }
-    # tolerancia a variaciones del dictado sobre algo ya aprendido
+    # tolerancia a variaciones del dictado sobre algo ya aprendido.
+    # LA MAS PARECIDA, NO LA PRIMERA (17/09). Devolvia la primera clave que entrara en el
+    # tope, asi que con dos parecidas el resultado dependia del ORDEN DEL HASHTABLE: un
+    # fallo que puede cambiar de una ejecucion a otra y que por eso no se reproduce.
+    # Hoy no puede pasar -hay 2 traducciones y no se parecen en nada (distancia ~25 sobre
+    # un tope de 5)-, asi que esto no rescata nada: cuesta tres lineas y hace que la
+    # respuesta sea siempre la misma. El empate se rompe por orden alfabetico, no por
+    # como esten guardadas.
+    $mejorK = ''
+    $mejorD = 999
     foreach ($k in $t.Keys) {
         if ([Math]::Abs($k.Length - $clave.Length) -gt 6) { continue }
         $tope = [Math]::Max(2, [int][Math]::Floor($k.Length * 0.2))
-        if ((Get-Distancia $clave $k) -le $tope) { return $t[$k] }
+        $dK = Get-Distancia $clave $k
+        if ($dK -gt $tope) { continue }
+        if ($dK -lt $mejorD -or ($dK -eq $mejorD -and $k -lt $mejorK)) { $mejorD = $dK; $mejorK = $k }
     }
+    if ($mejorK) { return $t[$mejorK] }
     return $null
 }
 
