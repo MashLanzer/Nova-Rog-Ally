@@ -461,7 +461,19 @@ resulta ser del medidor, no del sistema.
 
 ### Gastar con cabeza
 
-**28.** Decidir **cuándo merece la pena la IA cara**.
+**28.** Decidir **cuándo merece la pena la IA cara**. — **NO PROCEDE (verificado 17/09)**
+*La jerarquía ya está decidida, y la elegiste tú:* «API PRIMERO (15/09, elegido por braya:
+capa local y API para las conversaciones)». Y lleva una **regla de coste real**: con la API
+activa **no se carga el modelo local**, porque «gastaría 1-2 GB de RAM que la escucha
+necesita».
+*Y ya degrada sola:* `$script:apiFallo` apaga la API hasta el próximo arranque cuando el error
+no se arregla reintentando, y entonces contesta el modelo local.
+*Lo que la idea pide no es calculable:* **no se registra qué motor atendió cada cosa** (no hay
+ninguna estadística de api/local/agente) ni hay **tiempos por camino** — el único «tras N s»
+del log es uno, de 240 s. Sin acierto ni coste por motor, «cuándo merece la pena la cara» no
+tiene números con los que decidirse.
+*El reparto real, para tenerlo escrito:* **201 órdenes en local** frente a **165 a un modelo**
+(charla 86, acción 69, pregunta 10); de las de charla, **87 por API y 47 por el local**.
 **29.** **Copia de seguridad cuando toca**: cambios importantes **y** tú sin hablarle.
 **30.** Ampliar el **parte semanal que ya existe** (`memoria\semanas\`) con lo que decidió
 sola. *No es crearlo: es que se incluya a sí misma.*
