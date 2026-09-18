@@ -33,11 +33,19 @@ $fallos = 0
 foreach ($frase in $esperado.Keys) {
     $debe = $esperado[$frase]
     $hace = if ($obtenido.ContainsKey($frase)) { $obtenido[$frase] } else { '<sin respuesta del probador>' }
-    $ok = $hace -like "*$debe*"
+    # VARIAS METAS EN UNA LINEA (18/09): una cadena tiene que hacer TODO lo que promete.
+    # Con una sola pieza, "abre steam y sube el brillo" pasaba mirando solo un trozo y podia
+    # perderse un eslabon entero sin que el numero se moviera. El separador es ' + ', el
+    # mismo que usa el probador al encadenar acciones.
+    $metas = @($debe -split '\s\+\s' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    $faltan = @($metas | Where-Object { $hace -notlike "*$_*" })
+    $ok = ($faltan.Count -eq 0)
     if ($ok) {
         Write-Host ("  OK   {0,-32} -> {1}" -f $frase, $hace)
     } else {
-        Write-Host ("  MAL  {0,-32} -> {1}   (esperaba algo con '{2}')" -f $frase, $hace, $debe)
+        # se dice CUAL falta: con cadenas de cuatro eslabones, "esperaba algo con ..." entero
+        # no sirve de nada para arreglarlo
+        Write-Host ("  MAL  {0,-32} -> {1}   (falta: '{2}')" -f $frase, $hace, ($faltan -join "' y '"))
         $fallos++
     }
 }

@@ -440,7 +440,11 @@ comprobar hasta que braya use Nova**.
 
 ### 3.2. Agentes: cuándo llamar al grande
 
-#### A1 — Una línea de cierre por trabajo ✅ **sobrevive intacta**
+#### A1 — Una línea de cierre por trabajo ✅ **HECHA el 18/09**
+
+> Una línea `TRABAJO modo= motor= prompt=Nc seg= pasos= salida=B exit=` junto al `RUNNER exit=`.
+> Comprobado antes de escribirla: `Clear-OpencodeJob` corre en el `finally` **antes** de ese log y
+> no toca ninguna de las cuatro variables, y `$script:jobMotor` se borra dos líneas **después**.
 
 **Qué hace.** Hoy, para saber cuánto tarda una tarea hay que emparejar a mano **tres** líneas
 (`SUBMIT`, `CEREBRO`, `RUNNER`), y ahí nacen los recuentos falsos. Una sola línea al terminar
@@ -551,7 +555,12 @@ días de `estadisticas.json`, y `config.json` **no tiene sección `"auto"`**, o 
 
 ### 3.4. Trabajos encadenados
 
-#### C1 — El banco de cadenas mide «la reconozco», no «hago las dos cosas» ✅ **sobrevive intacta**
+#### C1 — El banco de cadenas mide «la reconozco», no «hago las dos cosas» ✅ **HECHA el 18/09**
+
+> 10 cadenas reales en `destinos.txt` con varias metas separadas por ` + `, y las metas **medidas
+> con el probador real**, no inventadas. Dato que el plan no tenía: ` + ` ya era el separador que
+> usa la salida del probador al encadenar acciones, así que el `-like` de una pieza no podía
+> exigir dos. **Demostrado saboteando una meta**: el banco pasa a rojo con `falta: '…'`.
 
 **Qué hace.** Que una cadena a la que se le pierde un eslabón salga **en rojo**. Hoy puede perderse
 una orden entera y el número del banco no se mueve.
@@ -568,7 +577,14 @@ son cadenas reales de 2 a 5 acciones.
 
 **Riesgo** bajo: fichero aparte, ninguna cifra existente (88 / 183 / ruido 3) se toca.
 
-#### C2 — Que el PLAN abandone ante una confirmación pendiente (recortada)
+#### C2 — Que el PLAN abandone ante una confirmación pendiente ✅ **HECHA el 18/09**
+
+> Los dos agujeros cerrados, y el ejecutor **sacado a su propia función** (`Invoke-PlanLocal`):
+> estaba dentro de `Report-Reply`, que pasa de las 400 líneas, y por eso nadie lo había visto —
+> lo que no se puede sacar a una función no se puede probar. `probar-plan.ps1` pasa de 10 casos
+> (los 10 sobre `Split-Plan` con texto, ninguno sobre ejecutar) a 22. Añadido sobre el plan: al
+> abandonar se limpia `$script:pendiente`, porque nadie llamó a `Start-Confirmacion` y esa
+> pregunta no está viva en ninguna parte.
 
 **El agujero es real y está verificado línea a línea.** El plan (12375-12390) es el único de los tres
 ejecutores que **no mira `$script:pendiente`** (la charla sí, en 12189; las recetas también, en
@@ -904,7 +920,7 @@ Por daño real, no por facilidad.
    documento no se pueden juzgar sin eso: el PLAN, la corrección de quejas, las decisiones propias,
    la nube, el modelo local de charla. Un día de uso vale más que cualquier función nueva.
 
-4. **Los tres seguros baratos del agente y la cadena: A1, C1 y C2.** La línea de cierre por trabajo
+4. ~~**Los tres seguros baratos del agente y la cadena: A1, C1 y C2.**~~ ✅ **HECHOS el 18/09.** La línea de cierre por trabajo
    (para poder re-medir los 17 s con el prompt que ha crecido un 72 %), las cadenas con dos metas en
    `destinos.txt` (hoy una cadena puede perder un eslabón y el banco no se entera), y que el PLAN
    abandone ante una confirmación **antes** de estrenarse. Los tres son baratos y los tres tapan un

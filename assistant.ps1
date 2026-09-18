@@ -11744,6 +11744,18 @@ function Complete-OpencodeJob {
     }
 
     Log ("RUNNER exit=$code stdout=" + $stdout.Length + "B stderr=" + $stderr.Length + "B")
+    # UNA SOLA LINEA POR TRABAJO (18/09). Hasta ahora, medir cuanto tarda una tarea era
+    # emparejar a mano SUBMIT + CEREBRO + RUNNER, y de ese emparejado salen los recuentos
+    # falsos; con esto, cualquier medicion futura es un grep. Urge porque el prompt fijo ha
+    # crecido un 72 % (2.991 -> 5.131 caracteres desde el 15/09) y la mediana de 17 s que
+    # todos citamos se midio con el prompt viejo.
+    # El sitio no es casual: Clear-OpencodeJob ya paso por el finally y no toca ninguna de
+    # estas cuatro, pero $script:jobMotor se borra pocas lineas mas abajo.
+    try {
+        $segT = [Math]::Round(($sw.ElapsedMilliseconds - $script:jobStart) / 1000.0, 1)
+        $motorT = if ($script:jobMotor) { $script:jobMotor } else { 'api' }
+        Log ("TRABAJO modo=$($script:jobModo) motor=$motorT prompt=$(([string]$script:jobPrompt).Length)c seg=$segT pasos=$($script:jobPasos) salida=$($stdout.Length)B exit=$code")
+    } catch {}
 
     # --- CLAUDE CODE: la respuesta es el evento "result" del final ---
     if ($script:jobMotor -eq 'claude-code') {
@@ -12444,6 +12456,68 @@ function Submit-Command([string]$text, [string]$modo = 'accion', [string]$adjunt
 }
 
 # Formatea, registra y muestra la respuesta ya recogida.
+# EL PLAN, EN SU PROPIA FUNCION (18/09). Estaba metido dentro de Report-Reply, que pasa de
+# las 400 lineas, y por eso nadie habia visto que el plan es el UNICO de los tres ejecutores
+# que no mira $script:pendiente: la charla lo mira, las recetas tambien. Lo que no se puede
+# sacar a una funcion no se puede probar, y lo que no se prueba es donde se esconden estas.
+# Devuelve $true solo si hizo el plan entero.
+function Invoke-PlanLocal($ordenes, [string]$original) {
+    $ordenesP = @($ordenes)
+    # se comprueban TODAS antes de hacer ninguna: es preferible esperar al agente que hacer
+    # tres cosas que nadie pidio
+    $malaP = ''
+    foreach ($oP in $ordenesP) {
+        $okP = $false
+        try { $okP = [bool](Test-FastCommand $oP) } catch { $okP = $false }
+        if (-not $okP) { $malaP = $oP; break }
+    }
+    if ($ordenesP.Count -eq 0 -or $malaP) {
+        Log "PLAN: no sale con ordenes que yo sepa hacer$(if ($malaP) { " ('$malaP')" }); va al agente"
+        Add-Estadistica 'plan-no' $original
+        Submit-Command $original 'accion'
+        return $false
+    }
+    Log ("PLAN: '$original' -> " + ($ordenesP -join ' | '))
+    Add-Estadistica 'plan-sirvio' ("$original -> " + ($ordenesP -join ' | '))
+    $hechasP = @()
+    for ($iP = 0; $iP -lt $ordenesP.Count; $iP++) {
+        $oP = $ordenesP[$iP]
+        $rP = $null
+        try { $rP = Invoke-FastCommand $oP } catch { $rP = $null }
+        # UNA ORDEN QUE PIDE CONFIRMACION CORTA EL PLAN (18/09). En el vocabulario que se le
+        # ofrece al modelo hay "cierra todos los programas" y "abre <juego> en steam", que
+        # arman confirmacion: Invoke-FastCommand devuelve LA PREGUNTA como si fuera un
+        # resultado hecho. Sin esta guarda el plan la sumaba a lo hecho y seguia, y como
+        # nadie llamaba a Start-Confirmacion, $pendiente se quedaba con vence=0 y el bucle lo
+        # cerraba por plazo: ni se ejecutaba ni se hablaba.
+        if (-not $rP -or $script:pendiente) {
+            if ($script:pendiente) {
+                Log "PLAN: '$oP' pide confirmacion; el plan se abandona"
+                # se deshace lo que Invoke-FastCommand dejo a medias: nadie llamo a
+                # Start-Confirmacion, asi que esta pregunta no esta viva en ninguna parte y
+                # dejarla ahi solo sirve para que el bucle la cierre por plazo
+                $script:pendiente = $null
+            } else {
+                Log "PLAN: '$oP' no se pudo hacer; el resto va al agente"
+            }
+            Add-Estadistica 'plan-a-medias' $oP
+            if ($hechasP.Count -gt 0) { Say (($hechasP -join ', ') + '. Lo demas lo miro.') }
+            # LO QUE QUEDA, NO LA PETICION ENTERA (18/09). Antes se reenviaba $original
+            # completo -incluido lo que se ACABA de hacer-, asi que el agente repetia los
+            # pasos ya ejecutados. Esta orden entra en lo que queda: no llego a hacerse.
+            $quedaP = @($ordenesP[$iP..($ordenesP.Count - 1)])
+            Submit-Command ($quedaP -join ' y ') 'accion'
+            return $false
+        }
+        $hechasP += $rP
+    }
+    $script:ultimaOrden = @{ texto = $original; desc = ($hechasP -join ', '); cuando = $sw.ElapsedMilliseconds }
+    $script:ultimaRespuesta = ($hechasP -join ', ')
+    Send-UIEvento 'hecho'
+    Show-Popup $script:ultimaRespuesta
+    Say $script:ultimaRespuesta
+    return $true
+}
 function Report-Reply($out) {
     # ¿NO LLEGO A CONTESTAR EL CEREBRO? (no arranco, limite de uso, sesion
     # caducada). Entonces no hizo nada y la orden se rehace con opencode. Lo que
@@ -12516,41 +12590,7 @@ function Report-Reply($out) {
     # nada y la peticion sigue su camino de siempre.
     if ($script:jobModo -eq 'plan') {
         $script:jobModo = ''
-        $originalP = $script:jobTextoOriginal
-        $ordenesP = @(Split-Plan (($out | Out-String)))
-        $malaP = ''
-        foreach ($oP in $ordenesP) {
-            $okP = $false
-            try { $okP = [bool](Test-FastCommand $oP) } catch { $okP = $false }
-            if (-not $okP) { $malaP = $oP; break }
-        }
-        if ($ordenesP.Count -gt 0 -and -not $malaP) {
-            Log ("PLAN: '$originalP' -> " + ($ordenesP -join ' | '))
-            Add-Estadistica 'plan-sirvio' ("$originalP -> " + ($ordenesP -join ' | '))
-            $hechasP = @()
-            foreach ($oP in $ordenesP) {
-                $rP = $null
-                try { $rP = Invoke-FastCommand $oP } catch { $rP = $null }
-                if (-not $rP) {
-                    # a mitad: se dice lo que si se hizo y el resto va al agente
-                    Log "PLAN: '$oP' no se pudo hacer; el resto va al agente"
-                    Add-Estadistica 'plan-a-medias' $oP
-                    if ($hechasP.Count -gt 0) { Say (($hechasP -join ', ') + '. Lo demas lo miro.') }
-                    Submit-Command $originalP 'accion'
-                    return
-                }
-                $hechasP += $rP
-            }
-            $script:ultimaOrden = @{ texto = $originalP; desc = ($hechasP -join ', '); cuando = $sw.ElapsedMilliseconds }
-            $script:ultimaRespuesta = ($hechasP -join ', ')
-            Send-UIEvento 'hecho'
-            Show-Popup $script:ultimaRespuesta
-            Say $script:ultimaRespuesta
-            return
-        }
-        Log "PLAN: no sale con ordenes que yo sepa hacer$(if ($malaP) { " ('$malaP')" }); va al agente"
-        Add-Estadistica 'plan-no' $originalP
-        Submit-Command $originalP 'accion'
+        [void](Invoke-PlanLocal @(Split-Plan (($out | Out-String))) $script:jobTextoOriginal)
         return
     }
     if ($script:jobModo -eq 'traducir') {

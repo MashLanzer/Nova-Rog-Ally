@@ -242,3 +242,22 @@ no me avises de nada => dejar de avisarte
 no me molestes => dejar de avisarte
 vuelve a avisarme => volver a avisarte
 no me escuches 10 minutos => me callo 10 minutos
+
+# --- LAS CADENAS: que no se pierda un eslabon por el camino (18/09) ---
+# Varias metas separadas por ' + ': tienen que aparecer TODAS. Hasta hoy el banco solo
+# miraba si la frase se reconocia, asi que una cadena podia ejecutar la mitad y seguir en
+# verde. Las tres que fallaron el 10 y el 11/09 siguen en ordenes-que-funcionaban.txt
+# contando como OK por eso mismo.
+# Salen del registro real (lineas "LOCAL: ... -> ...; ..."), no de mi cabeza.
+abre la calculadora y abre el bloc de notas => abrir calculadora + abrir bloc de notas
+cierra la calculadora y cierra steam => cerrar calculadora + cerrar steam
+cierra discord y xbox => cerrar discord + cerrar xbox
+abre steam y sube el brillo => abrir steam + subir brillo
+baja el volumen al 50 y sube el brillo al maximo => volumen al 50 + brillo al maximo
+sube el brillo y el volumen al 100 => volumen al 100 + brillo al 100
+abre google y busca fotos de gatos => abrir google + fotos de gatos
+abre steam y despues abre el navegador y busca gatos con botas => abrir steam + abrir navegador + gatos con botas
+# y las dos que se abren solas en varias acciones: aqui lo que se vigila es que no se caiga
+# ninguna de las piezas del modo
+pon el modo noche => modo noche + brillo al 15 + volumen al 25
+cierra todo y pon el modo juego => cerrar los programas abiertos + modo juego + brillo al 100 + volumen al 70 + abrir discord
