@@ -702,7 +702,37 @@ diseño actual ya lo asume — `Test-VozExtrana` solo se consulta en los puntos 
 reglas, órdenes peligrosas), no en cada frase. La separación real tendría que venir de algo más
 que un número de hercios (huella de voz), y eso es otro proyecto, no un ajuste.
 
-**38. `avisos.bateriaPct` (15).** Aprender a qué porcentaje enchufas de verdad y avisar ahí.
+**38. `avisos.bateriaPct` (15).** — **MEDIDOR INSTALADO; NO SE PUEDE DECIDIR TODAVÍA (18/09)**
+*El dato que la idea necesita no existía.* Para saber si el 15 % es el bueno hay que saber a qué
+porcentaje enchufas de verdad… y eso **no se apuntaba en ninguna parte**: el log decía
+«cargador: enchufado» y nada más.
+
+*Lo que hay medido, y es casi nada:*
+
+| | |
+|---|---:|
+| avisos de batería realmente disparados (`AVISO: bateria al`) | **1** |
+| veces que se enchufó el cargador | **2** (en 2 días) |
+| nivel de batería visto | casi siempre **100 %** |
+
+Dos enchufados en dos días **no pasan el freno de datos repartidos** (≥3 días), y la consola
+vive enchufada, así que el aviso del 15 % prácticamente no llega a saltar. **Por eso el 15 no se
+toca:** solo se empieza a apuntar.
+
+`Add-CargaConectada` registra el nivel **en el flanco de enchufar** (no al quitarlo, que no dice
+nada, y no cada minuto), descartando lecturas imposibles. Se guarda **sin detalle**, como el
+toque corto, para no ensuciar «Últimas órdenes» con algo que no es una orden.
+`probar-cargador.ps1` (2n25) lo cubre.
+
+**⚠ Y de camino, una cifra mía que era falsa:** conté «84 avisos de batería» y resultó que
+**71 eran una sola regla tuya guardada** («cuando la batería baje del 15 por ciento…») repetida
+en el log, más preguntas tuyas del tipo «cuánta batería queda». Es la tercera vez en esta tanda
+que un número grande a la primera resulta ser del medidor y no del mundo; la marca exacta del
+código (`AVISO: bateria al`) da **1**.
+
+**Cuándo se podrá decidir:** cuando haya enchufados repartidos en ≥3 días. Si resulta que
+enchufas siempre al 40-50 %, avisar al 15 llega tarde; si enchufas al 100 por costumbre, el
+número da igual y la idea se cierra sola.
 
 **39. `entorno.nocheDesde` / `nocheHasta`.** Moverlos con tus horas medidas, no con las que
 se escribieron el primer día.

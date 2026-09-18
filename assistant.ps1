@@ -92,6 +92,23 @@ $HOLD_MS = [int](Get-Cfg 'input' 'holdMs' 1100)
 $AutoSubmitMs = [int](Get-Cfg 'input' 'autoSubmitMs' 2500)
 # aviso proactivo cuando la bateria baja de este porcentaje (0 = desactivado)
 $BateriaAviso = [int](Get-Cfg 'avisos' 'bateriaPct' 15)
+
+# A QUE PORCENTAJE ENCHUFA DE VERDAD (18/09). bateriaPct (15) es cuando avisa de que queda
+# poca... pero para saber si ese numero es el bueno haria falta saber a que % enchufa braya, y
+# ESO NO SE APUNTABA EN NINGUN SITIO: el log decia "cargador: enchufado" y nada mas.
+#
+# Medido antes de tocar nada: en todo el registro hay UN solo "AVISO: bateria al", 2 enchufados
+# y niveles casi siempre al 100 % (la consola vive enchufada). O sea que hoy no hay con que
+# decidir, y por eso aqui NO se cambia el 15: solo se empieza a apuntar.
+#
+# Se guarda sin detalle a proposito: "Ultimas ordenes" es lo que pidio braya, y enchufar el
+# cargador no es una orden.
+function Add-CargaConectada([int]$pc) {
+    if ($pc -le 0 -or $pc -gt 100) { return $false }   # lectura que no sirve
+    Log "CARGADOR PUESTO con la bateria al $pc %"
+    try { Add-Estadistica 'cargador-puesto' } catch {}
+    return $true
+}
 # traducir con el modelo lo que la capa local no entienda, y aprenderlo
 $TraducirOn = [bool](Get-Cfg 'opencode' 'traducir' $true)
 # saludo hablado al arrancar: confirma que la voz funciona
@@ -15727,6 +15744,8 @@ while ($true) {
                     Invoke-Reglas 'cargadorQuita' $(if ($cg -eq 0) { 'quita' } else { '' })
                     Invoke-Reglas 'cargadorPone' $(if ($cg -eq 1) { 'pone' } else { '' })
                     Log "cargador: $(if ($cg -eq 1) { 'enchufado' } else { 'desenchufado' })"
+                    # solo al PONERLO: el dato que falta es a que % decide enchufar
+                    if ($cg -eq 1) { try { [void](Add-CargaConectada $pc) } catch {} }
                     # idea 13: al enchufar, lo util es cuanto le falta
                     if ($cg -eq 1) {
                         [void](Send-AvisoEntorno 'cargador-pone' "Cargando, vas por el $pc por ciento." 'bajo' 20)
