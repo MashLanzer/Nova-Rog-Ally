@@ -18,8 +18,8 @@ trabajo es completar las otras, que **caben en local** y no dependen de pagar na
 |---|---|---|---|
 | 1 | **Razonamiento con lenguaje** | entender una frase torcida y deducir la intención | **prestado** (API primero, Ollama de respaldo) |
 | 2 | **Herramientas reales** | leer, escribir, ejecutar y ver el resultado | **sí, y muchas** |
-| 3 | **Bucle de verificación** | hacer → comprobar → corregir | **no** ← *lo que más falta* |
-| 4 | **Memoria con sentido** | recordar y traer lo relevante, no lo que coincide en letras | **a medias** |
+| 3 | **Bucle de verificación** | hacer → comprobar → corregir | **empezado (18/09)**: volumen, brillo y apertura de apps |
+| 4 | **Memoria con sentido** | recordar y traer lo relevante, no lo que coincide en letras | **sí**: busca por significado; le falta material, no código |
 | 5 | **Criterio para no actuar** | saber cuándo parar, preguntar o callarse | **sí, y bueno** |
 | 6 | **Rendir cuentas** | decir qué hizo y por qué, con números | **sí**, desde la tanda de autonomía |
 
@@ -27,6 +27,27 @@ trabajo es completar las otras, que **caben en local** y no dependen de pagar na
 modelo** y 165 van a uno. Y los fallos **no son de comprensión: son de oído** — los 38 errores
 registrados son «dictado vacío» y transcripciones rotas («Abre Team», «Abre Sting»).
 Por eso un modelo más grande no la arreglaría.
+
+---
+
+## Cómo quedó el plan (18/09)
+
+De las cuatro secciones que tenía este documento, **una era trabajo de verdad y tres ya estaban
+hechas o mal planteadas**. Comprobarlo costó menos que implementarlas a ciegas:
+
+| pieza | veredicto |
+|---|---|
+| **1. Bucle de verificación** | **HECHA la parte que se puede medir**: volumen, brillo y apertura de apps |
+| **2. Memoria con sentido** | **ya funcionaba**: busca por significado con 31 vectores; el «0 usos» era una métrica mía engañosa |
+| **3. Saber lo que no sabe** | **ya estaba**, y la premisa era falsa: los `fino-invento` son inventos **cazados**, no ejecutados |
+| **4. Más herramientas** | no es un proyecto con final, es trabajo continuo |
+
+*Lo que queda pendiente de verdad, por orden:* cerrar (`cerrarApp` ya cuenta «cerrados N de M»,
+falta que llegue a la frase), los archivos creados, y los relativos de volumen/brillo **si el uso
+real los pide** — hoy medido, no los pide.
+
+**Y lo que desbloquea todo lo demás no es código: es usar Nova.** El plan entero se apoya en
+datos de 4 días de uso, y varias piezas están esperando material real para poder decidirse.
 
 ---
 
@@ -107,31 +128,71 @@ circular. A partir de ahora sí se sabrá.
 *Por qué se empezó aquí:* ataca directamente la meta de «cero órdenes equivocadas», se prueba en
 el banco sin modelo, y cada trozo es independiente.
 
-## 2. Memoria con sentido
+## 2. Memoria con sentido — **YA FUNCIONA; falta material, no código (18/09)**
 
-Ya existe la infraestructura: `cerebro.json`, `vectores.json` (64 KB), tope de 5.000
-recuerdos, diario por días, `perfil.md` y un revisor en segundo plano.
+*Comprobado, y el diagnóstico de arriba era mío y estaba equivocado.* La búsqueda por
+significado **está activa**: el arranque registra «(significado: emb…)», hay **31 vectores para
+32 recuerdos** en `vectores.json` (63 KB, modelo `embeddinggemma:300m-qat-q8_0`) y ese modelo
+está instalado en Ollama junto a `qwen2.5:1.5b` y `qwen2.5:3b`.
 
-Lo que falla es **la recuperación**: traer lo que viene a cuento, no lo que coincide en
-palabras. Es donde un modelo pequeño **local** (embeddings) rinde de verdad, y ya hay uno
-configurado (`conversacion.modeloEmbeddings`).
+**Y los recuerdos sí se recuperan.** `contexto()` busca con
+`tipos={"respuesta","contado","episodio"}`, combina significado y palabras (`0.6·sem + 0.4·lex`)
+y mete los tres mejores en el prompt como «Lo que ya sabes (úsalo solo si viene al caso)», más
+el estilo y los temas de los que braya suele hablar.
 
-Señal de que importa: `Find-Traduccion` devolvía la primera coincidencia y no la más parecida
-—arreglado en esta tanda—. El mismo problema, más grande, está en la memoria.
+**El «0 usos de 32» era una métrica engañosa** —la escribí yo en `QUE-SABE-HACER.md`—. Ese
+contador **solo lo toca `respuesta_directa`**, que filtra `tipos={"respuesta"}` para decir algo
+*tal cual* sin preguntar al modelo. Y el reparto real es:
 
-## 3. Saber lo que no sabe
+| tipo | cuántos | ¿cuentan usos? |
+|---|---:|---|
+| `episodio` | **29** | no, pero **sí se usan** como contexto |
+| `respuesta` | 3 (1 rechazada) | sí |
 
-Yo digo «esto no lo he medido». Nova, cuando no entiende, **adivina**: son los
-`fino-invento`, **5 órdenes equivocadas de 81 repasos**. Una IA que reconoce su límite parece
-mucho más lista que una que acierta un poco más.
+Las dos respuestas firmes son trivia que no se repite nunca: «¿Cuál es la distancia entre la
+Tierra y el Sol?» y «¿Qué es escribir?». Por eso el contador está a cero.
 
-Ya hay piezas: la confianza del dictado, `Test-MereceRepaso`, el umbral de la palabra. Falta
-**juntarlas en una sola idea de «seguridad»** que decida entre hacer, preguntar o callar.
+*Lo que falta no es mejor recuperación, es material que merezca recuperarse,* y eso sale de
+conversar: **86 charlas** en cuatro días, y ninguna repetida. Se retomará cuando el uso real lo
+llene — igual que la idea 54: el mecanismo está listo y esperando datos.
 
-## 4. Más herramientas fiables, no más inteligencia
+*(Lo único pendiente de verdad, y menor: el recuerdo `id 3` no tiene vector.)*
+
+## 3. Saber lo que no sabe — **YA ESTÁ, y la premisa era falsa (18/09)**
+
+*Los 5 `fino-invento` no son «órdenes equivocadas»: son inventos **cazados**.* Ese camino
+registra el invento, dice «No te entendí» y **no ejecuta nada**. Los cinco del registro lo
+enseñan: «SILENCE», «¡Cochais en el mantenguero», «Tardenguelas»… y detrás no hay acción, solo
+la pausa (y en uno, la autosordina). Eso que el plan ponía como prueba de que Nova adivina es
+justo la prueba de que **ya sabe cuándo no sabe**.
+
+*Y las piezas no hay que juntarlas: ya están puestas y calibradas con medición.*
+
+| pieza | estado |
+|---|---|
+| `Test-DictadoDudoso` | umbral **−0,8**, calibrado con 20 grabaciones: preguntaba en 9, «todos mal oídos, y en ninguno bien oído» |
+| `Test-MereceRepaso` | descarta el repaso imposible antes de gastar segundos |
+| `$script:dudosa` → confirmación | **10** veces preguntó en vez de actuar |
+| `Test-VozExtrana` | pregunta antes de lo peligroso si no reconoce la voz |
+| filtro de ruido + autosordina | lo corto y lo repetido no llega a ejecutarse |
+
+**⚠ Y lo más valioso: el umbral de la palabra ya se probó y NO sirve.** Está medido en el
+código: el 12/09 «nova» saltó con confianzas de **0,65 a 0,96** mientras braya hablaba con otra
+persona, «así que subir el umbral no lo separa de las órdenes buenas». Lo que sí separó, mirando
+todas las frases largas del registro, fue **cómo empieza la frase** (`$INICIO_ORDEN`): una orden
+empieza por lo que se quiere («abre», «busca», «sube», «recuérdame»); la charla, por cualquier
+otra cosa.
+
+Quien retome esto que no repita el experimento del umbral: ya está hecho y salió que no.
+
+## 4. Más herramientas fiables, no más inteligencia — **trabajo continuo, no un proyecto**
 
 Cada herramienta nueva multiplica lo que puede hacer **con el mismo cerebro prestado**. Y una
 herramienta se prueba en el banco; un modelo, no.
+
+Esto no se «termina»: hoy son **24 apps, 14 sitios, 9 buscadores, 5 modos** y 336 funciones. La
+regla que sí aplica, y que esta tanda ha confirmado 20 veces, es **no añadir la número 25 sin
+medir que hace falta**.
 
 ---
 
