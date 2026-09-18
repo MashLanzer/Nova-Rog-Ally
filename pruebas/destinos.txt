@@ -221,6 +221,22 @@ leeme el ultimo correo => leer el ultimo correo
 manda un correo a lucia@ejemplo.com diciendo que llego tarde => mandar un correo
 dicta un correo en el bloc de notas => dictado largo
 
+# --- las formas que braya dijo DE VERDAD y se iban al agente (18/09) ---
+# Salen de lo que Nova apunta sola en "No reconocido por la capa local". Cada una de estas
+# tardaba ~16 s por el agente pudiendo tardar menos de 1 s. No son herramientas nuevas: es
+# el mismo boton con otro verbo.
+revisar mi correo => tu correo
+mirar mi correo => tu correo
+chequear mi correo => tu correo
+puedes revisar mi correo => tu correo
+ponme musica => poner la musica
+pon una cancion => poner la musica
+reproduce una cancion => poner la musica
+pon un temporizador => ¿De cuanto lo pongo?
+# Y LA COLISION QUE NO SE PUEDE ROMPER: con "en spotify" detras, es abrir la app, no dar al
+# play. Por eso el patron de la musica termina en '$'.
+ponme una cancion en spotify => Spotify
+
 # --- los avisos por su cuenta (16/09); NO confundir con la sordina del microfono ---
 no me avises de nada => dejar de avisarte
 no me molestes => dejar de avisarte

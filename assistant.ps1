@@ -2353,6 +2353,12 @@ function Resolve-Fragment([string]$f) {
         $desc = if ($que) { "aviso en $n $unidad" } else { "temporizador de $n $unidad" }
         return @(@{ kind = 'temporizador'; ms = $ms; texto = $que; n = $n; unidad = $unidad; desc = $desc })
     }
+    # "pon un temporizador" A SECAS (18/09). Sin tiempo no hay temporizador que poner, pero
+    # irse al agente para acabar preguntando "¿de cuanto?" cuesta unos 16 s. Se pregunta aqui,
+    # igual que YouTube cuando no sabe que poner.
+    if ($f -match '^(?:pon|ponme|pon un|ponme un|echa|echame)?\s*(?:un\s+)?(?:temporizador|cronometro|timer|alarma)$') {
+        return @(@{ kind = 'decir'; desc = '¿De cuanto lo pongo?' })
+    }
     # --- modo de energia (ver MODO DE ENERGIA POR VOZ) ---
     if ($f -match '^(?:modo|pon(?:me)?\s+(?:el\s+)?modo|activa\s+(?:el\s+)?modo|cambia\s+a\s+modo)\s+(ahorro(?: de (?:energia|bateria))?|bajo consumo|eficiencia|rendimiento|maximo rendimiento|alto rendimiento|equilibrado)$' -or
         $f -match '^(ahorra bateria|ahorra energia|ahorremos bateria)$') {
@@ -2471,7 +2477,7 @@ function Resolve-Fragment([string]$f) {
     }
     # --- EL CORREO (16/09; ver Invoke-Correo) ---
     # "revisa mi correo" / "tengo correos nuevos" / "que correos tengo"
-    if ($f -match '^(?:revisa|mira|lee|checa|chequea|ver|dime)?\s*(?:mi|el|los)?\s*(?:correo|correos|email|emails|gmail|mail|bandeja)(?:\s+(?:nuevos?|no leidos?|de hoy|pendientes?))?$' -or
+    if ($f -match '^(?:revisa|revisar|mira|mirar|lee|leer|checa|checar|chequea|chequear|ver|dime)?\s*(?:mi|el|los)?\s*(?:correo|correos|email|emails|gmail|mail|bandeja)(?:\s+(?:nuevos?|no leidos?|de hoy|pendientes?))?$' -or
         $f -match '^(?:tengo|hay|me llego|llego|me ha llegado)\s+(?:algun\s+|algunos\s+|correos?\s+|emails?\s+)*(?:correo|correos|email|emails|mail)(?:\s+(?:nuevos?|no leidos?|importantes?))?$' -or
         $f -match '^(?:que|cuantos)\s+correos?\s+(?:tengo|hay|me\s+(?:han\s+)?(?:llegado|escrito))(?:\s+(?:nuevos?|hoy))?$') {
         return @(@{ kind = 'correo'; accion = 'no-leidos'; desc = 'tu correo' })
@@ -3174,7 +3180,7 @@ function Resolve-Fragment([string]$f) {
         '^(?:pausa|para|apaga|quita)\s+(?:la\s+)?(?:musica|cancion)$' { return @(@{ kind = 'musicaPlay'; sonar = $false; desc = 'pausar la musica' }) }
         # "pausa spotify" abria Spotify: el verbo "pausa" caia en el de abrir (auditoria 13/09)
         '^(?:pausa|pausar|para)\s+(?:a\s+|el\s+|la\s+)?(?:spotify|youtube|netflix|el video|la serie|la pelicula|el reproductor)$' { return @(@{ kind = 'musicaPlay'; sonar = $false; desc = 'pausar lo que suena' }) }
-        '^(?:reanuda|quita la pausa a|pon|dale play a)\s+(?:la\s+)?(?:musica|cancion)$' { return @(@{ kind = 'musicaPlay'; sonar = $true; desc = 'poner la musica' }) }
+        '^(?:reanuda|quita la pausa a|pon|ponme|dale play a|reproduce|reproduceme|reproducir)\s+(?:la\s+|una\s+|esta\s+|algo\s+de\s+)?(?:musica|cancion)$' { return @(@{ kind = 'musicaPlay'; sonar = $true; desc = 'poner la musica' }) }
         '^(?:siguiente|pasa|pasala|adelanta)\b' { return @(@{ kind = 'key'; vk = 0xB0; repeat = 1; desc = 'siguiente' }) }
         # "regresa a steam" es volver a esa ventana, no la cancion anterior (14/09)
         '^(?:anterior|atras)\b|^regresa(?!\s+(?:a|al)\b)|^(?:la\s+|pon\s+la\s+)?cancion\s+anterior$|^pon\s+la\s+anterior$' { return @(@{ kind = 'key'; vk = 0xB1; repeat = 1; desc = 'anterior' }) }
