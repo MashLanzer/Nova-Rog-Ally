@@ -762,7 +762,31 @@ durante **88 eventos** — repartidos, además, en 6 días, así que el freno de
 los avisos» y «desde cuándo es tarde para ti» — porque hoy son el mismo y tiran en direcciones
 opuestas.
 
-**40. `confirmacion.esperaMs`.** Cuánto tardas en contestar «sí» o «no», medido.
+**40. `confirmacion.esperaMs`.** — **NO PROCEDE: medido, y el 3,5 ya está bien (18/09)**
+*El dato existe y es limpio.* Emparejando las líneas del worker (`esperando si/no` → la
+respuesta), lo que tardas en contestar:
+
+```
+0, 1, 1, 2, 2, 3, 3 segundos   →   mediana 2 s, máximo 3 s
+plazo configurado: 3,5 s
+```
+
+**No se puede bajar:** tu respuesta más lenta fue de 3 s y el plazo son 3,5. Quedan 0,5 s de
+margen; recortarlo te cortaría a ti.
+
+**Y no hace falta subirlo, porque el vencimiento ya es inofensivo.** `Complete-Confirmacion` lo
+dice: «CALLARSE NO EJECUTA NADA, tampoco en las dudosas. Antes el silencio valía por un sí a los
+3,5 s, y eso convertía cada coincidencia floja del ruido en una acción: el micrófono capta *el*,
+se pregunta *¿Edge?*, nadie contesta… y se abre Edge». Hoy, si vence, **no pasa nada**.
+
+**Los 2 únicos vencimientos no fueron por lentitud tuya:** los dos son la misma frase mal oída
+(«abre calcladra» → ¿calculadora?) del **10/09**, con el pulso diciendo «sin voz sostenida (0
+bloques)» en uno y **el worker de escucha muriéndose y relanzándose** en el otro. No contestaste
+porque no había micrófono oyendo. Y su «plazo → se ejecuta» es precisamente el comportamiento
+viejo, ya corregido: después de esa fecha no vuelve a aparecer.
+
+**Y el freno de datos lo prohíbe igualmente:** las 7 respuestas son **todas del 15/09** — el
+100 % en un solo día, cuando hacen falta ≥3 días y ≤70 % en uno.
 
 ### Decidir con lo que ya vigila
 
