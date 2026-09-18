@@ -6378,6 +6378,7 @@ function Send-Combinacion([string]$combo) {
 # disco ni al log (lo que se copia son contrasenas, direcciones, codigos...).
 $script:portaHist = New-Object System.Collections.ArrayList
 $script:portaCheck = 0
+$script:aperturaCheck = 0
 function Watch-Portapapeles([string]$texto) {
     if (-not $texto -or $texto.Length -gt 5000) { return }
     if ($script:portaHist.Count -gt 0 -and $script:portaHist[0] -ceq $texto) { return }
@@ -7139,6 +7140,8 @@ function Invoke-FastCommand([string]$text) {
                         # con -PassThru para poder cerrarlo si pides deshacer; las
                         # URI (steam://, shell:appsFolder) no devuelven proceso propio
                         $pr = Start-Process $a.target -PassThru -ErrorAction Stop
+                        # ¿se abrira de verdad? se apunta y se mira luego, sin bloquear
+                        if (-not $esJuego) { [void](Add-AperturaPendiente $comoSeLlama) }
                         # AVISO DE ACTUALIZACION (13/09): si Steam marca el juego con
                         # una actualizacion pendiente (StateFlags bit 2), se dice ya,
                         # antes de encontrarse la descarga al arrancar
@@ -14593,6 +14596,53 @@ $script:wakeCheck = 0
 $script:wakeIntentos = 0
 $script:pollReintento = 0
 $script:temporizadores = New-Object System.Collections.ArrayList
+
+# ¿SE ABRIO DE VERDAD? (18/09, NOVA-LLM pieza 1). Nova mandaba abrir y daba por hecho que se
+# abrio. Ahora se apunta que se espera y se mira despues.
+#
+# POR QUE DIFERIDO Y NO EN EL ACTO: medido, una app tarda 298 ms en aparecer como proceso y
+# unos 800 ms en tener ventana. Comprobar al instante daria un "no se abrio" falso siempre, y
+# esperar 800 ms dentro del bucle se pagaria en lo que mas importa, la velocidad. Asi que se
+# revisa sin bloquear, junto a los temporizadores.
+#
+# SOLO APPS, NO JUEGOS: un juego de Steam puede tardar un minuto en arrancar y ademas no deja
+# proceso propio (se abre por URI). Vigilarlo daria fallos falsos.
+$AperturaPlazoMs = 10000     # lo que se le da a una app para aparecer
+$script:aperturas = New-Object System.Collections.ArrayList
+
+# Apunta que deberia aparecer un proceso. Devuelve $true si se vigila, $false si no se sabe
+# comprobar (y entonces nadie dira nada: callar es mejor que inventar).
+function Add-AperturaPendiente([string]$queAbro) {
+    if (-not $queAbro) { return $false }
+    $pr = $null
+    try { $pr = Resolve-Proceso $queAbro } catch { $pr = $null }
+    if (-not $pr -or -not $pr.proceso -or $pr.proceso -eq '*juego*') { return $false }
+    # si ya estaba abierto, no hay nada que comprobar: la orden no cambia nada
+    try { if (@(Get-Process -Name $pr.proceso -ErrorAction SilentlyContinue).Count -gt 0) { return $false } } catch {}
+    [void]$script:aperturas.Add(@{ proceso = [string]$pr.proceso; nombre = [string]$pr.nombre
+                                   vence = $sw.ElapsedMilliseconds + $AperturaPlazoMs })
+    return $true
+}
+
+# Revisa las aperturas apuntadas. Las que ya estan, fuera sin ruido; las que vencen sin
+# aparecer, se dicen UNA vez y se apuntan. Devuelve los avisos (vacio casi siempre).
+function Test-AperturasPendientes {
+    $avisos = @()
+    if ($script:aperturas.Count -eq 0) { return $avisos }
+    for ($i = $script:aperturas.Count - 1; $i -ge 0; $i--) {
+        $ap = $script:aperturas[$i]
+        $vivo = $false
+        try { $vivo = (@(Get-Process -Name $ap.proceso -ErrorAction SilentlyContinue).Count -gt 0) } catch { $vivo = $false }
+        if ($vivo) { $script:aperturas.RemoveAt($i); continue }
+        if ($sw.ElapsedMilliseconds -ge $ap.vence) {
+            $script:aperturas.RemoveAt($i)
+            Log "NO SE ABRIO: $($ap.nombre) (no aparecio el proceso $($ap.proceso) en $([int]($AperturaPlazoMs/1000)) s)"
+            try { Add-Estadistica 'no-surtio-efecto' "abrir $($ap.nombre): no aparecio" } catch {}
+            $avisos += "Oye, mande abrir $($ap.nombre) y no se ha abierto."
+        }
+    }
+    return $avisos
+}
 $script:juegoCheck = 0
 $script:ultimoObjetivo = ''
 $script:dictaInicio = 0
@@ -15693,6 +15743,14 @@ while ($true) {
                 break   # de uno en uno: dos avisos seguidos serian una encerrona
             }
         }
+    }
+
+    # --- ¿se abrio lo que mande abrir? (cada 2 s, y solo si hay algo que mirar) ---
+    if ($script:aperturas.Count -gt 0 -and ($sw.ElapsedMilliseconds - $script:aperturaCheck) -ge 2000) {
+        $script:aperturaCheck = $sw.ElapsedMilliseconds
+        try {
+            foreach ($avisoAp in (Test-AperturasPendientes)) { Send-Aviso $avisoAp 'error' }
+        } catch { Log ("aperturas: " + $_.Exception.Message) }
     }
 
     # --- portapapeles (cada 4 s; ver HISTORIAL DEL PORTAPAPELES) ---

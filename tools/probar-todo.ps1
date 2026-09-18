@@ -142,6 +142,10 @@ Titulo "2x. La frase de ejemplo recitada no es una orden (y lo mal oido no se ap
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-recitado.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n28. Que compruebe si la app que mando abrir se abrio"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-apertura.ps1') | Select-String 'todo correcto|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n27. Que compruebe si la orden surtio efecto (y no presuma)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-efecto.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }

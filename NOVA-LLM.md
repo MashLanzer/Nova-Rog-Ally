@@ -67,14 +67,38 @@ roto `Invoke-Deshacer`. Hay un caso en el banco que lo vigila.
 
 `probar-efecto.ps1` (2n27), 36 casos.
 
+### Abrir una app — **HECHO (18/09)**
+
+*Es la orden estrella:* **61** de las ejecutadas en el registro son «→ abrir» (Steam 12 veces,
+la calculadora 8, Spotify, el bloc de notas, Elden Ring). Y Nova mandaba abrir y daba por hecho
+que se abrió.
+
+*Es diferido a propósito, y lo impone la medición:* una app tarda **298 ms** en aparecer como
+proceso y **~800 ms** en tener ventana. Comprobar en el acto daría un «no se abrió» falso
+siempre, y esperar 800 ms dentro del bucle se pagaría en velocidad. Así que `Add-AperturaPendiente`
+**apunta** lo que debería aparecer y `Test-AperturasPendientes` lo revisa **sin bloquear**, cada
+2 s y solo si hay algo que mirar. Si a los 10 s no está: lo dice una vez («mandé abrir X y no se
+ha abierto»), lo apunta como `no-surtio-efecto` y deja de vigilarlo.
+
+*Y calla cuando no debe opinar:* si la app **ya estaba abierta** (la orden no cambia nada), si es
+un **juego de Steam** (tarda más y no deja proceso propio, se abre por URI) o si `Resolve-Proceso`
+no sabe resolverla. El mapa `PROCESOS_URI` ya cubre los casos difíciles: steam→`steam`,
+spotify→`Spotify`, calculadora→`CalculatorApp`.
+
+`probar-apertura.ps1` (2n28), 29 casos.
+
+**⚠ Ojo con el «0 fallos al abrir» del registro:** no es evidencia de que nunca falle, sino de
+que **hasta hoy nadie lo comprobaba**, así que un fallo no podía quedar anotado. Es un cero
+circular. A partir de ahora sí se sabrá.
+
 ### Lo que queda de esta pieza
 
-- **Los relativos** («sube el volumen», «baja un poco el brillo»): necesitan saber cómo estaba
-  **antes**, y en el punto de enganche la acción ya se ejecutó. Hay que guardar el valor previo
-  antes del `switch`.
-- **Abrir una app**: comprobable por proceso y ventana… pero **no para los juegos de Steam**,
-  que se abren por URI (`steam://rungameid/…`) y no devuelven proceso propio. Ya existe el truco
-  de apuntar «qué y cuándo» para el deshacer; ese es el camino.
+- **Los relativos** («sube el volumen», «baja un poco el brillo»): técnicamente fácil —basta con
+  que la rama apunte el destino que ya calcula—, pero **medido, no hay caso**: las 349
+  apariciones que parecían uso real eran el prompt de Whisper (`PROMPT_ORDENES` lleva «Sube el
+  volumen» y «Baja el brillo») y líneas `RUNNER cmd:`. Las órdenes de volumen/brillo realmente
+  ejecutadas son **25**, y casi todas **absolutas**, que es lo que ya se verifica. Se retomará si
+  el uso real lo pide.
 - **Cerrar** (`cerrarApp`, `cerrarTodo`): ya cuentan «cerrados N de M», o sea media verificación
   hecha; falta que eso llegue a la frase y a las estadísticas.
 - **Archivos creados**: existe o no existe, trivial de comprobar, pero hoy solo lo hacen las
