@@ -71,6 +71,10 @@ os.makedirs(SALIDA, exist_ok=True)
 # proceso vive desde el login. A ~23 KB por frase son megas al mes; el usuario
 # tenia que vaciarla a mano. Se borran las mas viejas al pasar del tope.
 CACHE_MAX_MB = 60
+# ...y cada cuantas frases NUEVAS se vuelve a mirar con Nova encendida (ver principal()).
+# 50 frases nuevas son ~1,5 MB a 29 KB cada una: de sobra para no pasarse del tope entre
+# una poda y la siguiente, y lo bastante espaciado para que los 17 ms no se noten.
+PODA_CADA = 50
 
 
 def limpiar_cache():
@@ -128,6 +132,18 @@ AJUSTE_EMOCION = {"alegre": (6, "+6Hz"), "suave": (-8, "-5Hz")}
 
 async def principal():
     bucle = asyncio.get_event_loop()
+    # PODAR TAMBIEN EN CALIENTE (17/09). limpiar_cache() solo se llamaba AL ARRANCAR, y este
+    # proceso vive desde el login: con Nova encendida el tope de 60 MB no se aplicaba nunca.
+    # Hoy la cache esta en 13,8 MB (487 mp3, medido), asi que esto no rescata nada todavia;
+    # es para que dentro de unos meses no haya que vaciarla a mano, que es justo lo que se
+    # queria evitar cuando se puso el tope.
+    #
+    # Dos detalles que importan mas que el arreglo:
+    #  - solo cuentan las frases NUEVAS: un acierto de cache no deja ningun archivo, asi que
+    #    no hay nada que podar y seria trabajo para nada;
+    #  - la poda va DESPUES de entregar la ruta, nunca antes: cuesta 17,2 ms medidos con los
+    #    487 archivos de hoy, y delante de la voz eso es latencia en cada frase.
+    nuevas = 0
     while True:
         # stdin en BINARIO y decodificado como UTF-8 a mano. Con sys.stdin de
         # texto, Python usaba la pagina de codigos de la consola oculta (850)
@@ -160,6 +176,7 @@ async def principal():
         # la velocidad y el tono van en la clave: la misma frase a otro ritmo es otro audio
         clave = hashlib.md5((VOZ + "|" + ("" if ritmo == "+0%" else ritmo + "|") + ("" if tono == "+0Hz" else tono + "|") + texto).encode("utf-8")).hexdigest()
         ruta = os.path.join(SALIDA, clave + ".mp3")
+        creada = False
         if not os.path.exists(ruta):
             # Se baja a un temporal y se renombra al final. Antes se escribia
             # directamente en la ruta definitiva: si la red se cortaba a mitad
@@ -170,6 +187,7 @@ async def principal():
                 com = edge_tts.Communicate(texto, VOZ, rate=ritmo, pitch=tono)
                 await com.save(parcial)
                 os.replace(parcial, ruta)
+                creada = True
             except Exception as e:  # noqa: BLE001
                 try:
                     os.remove(parcial)
@@ -179,6 +197,12 @@ async def principal():
                 continue
         escribir_envolvente(ruta)
         print(ruta, flush=True)
+        # ya tiene la ruta: lo que se tarde aqui no retrasa esta frase
+        if creada:
+            nuevas += 1
+            if nuevas >= PODA_CADA:
+                nuevas = 0
+                limpiar_cache()
 
 
 if __name__ == "__main__":

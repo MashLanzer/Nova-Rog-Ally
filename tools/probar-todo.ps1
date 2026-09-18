@@ -190,6 +190,10 @@ Titulo "2n16. Que el texto de la capsula no se parta a mitad de palabra"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-texto-capsula.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n17. Que la cache de voz se pode con Nova encendida (y no delante de la voz)"
+python (Join-Path $PSScriptRoot 'probar-cache-voz.py') | Select-String 'todo correcto|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "3. Ordenes que SI deben reconocerse"
 foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     $salida = powershell -NoProfile -File 'assistant.ps1' -Probar (Join-Path 'pruebas' $banco) 2>&1

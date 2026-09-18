@@ -195,7 +195,7 @@ Lo más grave no está en el dibujado, sino en **el camino de la voz**.
 | 3 | `Start-Sleep 250 ms` fijo en **cada frase**, en el hilo del bucle (1 s por charla de 4 frases). El mp3 además queda abierto y la caché no puede borrarlo | GRAVE (velocidad) | `assistant.ps1:7830` | Usar el evento `MediaOpened` en vez de la espera fija |
 | 4 | «Pensando» es la única animación sin fin que quedó a 60 fps (9 relojes + órbita con sombra desenfocada), y es el estado que dura minutos | MEDIO | `nova_ui.cs:3828` | `SetDesiredFrameRate` a 15-20 fps: tres líneas |
 | 5 | `CapturarFondo` duerme el hilo de la interfaz 45 ms **en cada orden**, justo cuando se quiere ver la reacción | MEDIO | `nova_ui.cs:1431` | `LockBits` en vez de ~530 `GetPixel`, y bajar el sleep |
-| 6 | La caché de voz solo se poda **al arrancar**: el worker vive desde el login, así que el tope de 60 MB nunca se aplica en caliente | MEDIO | `tts_worker.py:107` | Podar cada N frases desde `principal()` |
+| 6 | La caché de voz solo se poda **al arrancar**: el worker vive desde el login, así que el tope de 60 MB nunca se aplica en caliente | MEDIO | `tts_worker.py:107` | Podar cada N frases desde `principal()` → **HECHA** |
 | 7 | El cerebro reescribe `cerebro.json` y `vectores.json` **enteros en cada turno** (~6 MB) aunque solo cambie `usos += 1`; y `completar_vectores` lo hace cada 16 vectores, en reposo y a batería | MEDIO | `charla_memoria.py:212` | No guardar en `respuesta_directa`; marcar sucio y agrupar |
 | 8 | La cápsula lee **un solo evento por vuelta** de 80 ms: dos eventos seguidos y el primero se pierde (ya hubo un parche puntual por esto) | MEDIO | `assistant.ps1:8596` | Encolar en `Send-UIEvento` cuando el anterior no se ha consumido |
 | 9 | El texto se corta a mitad de palabra (la voz sí corta bien) y la marquesina desplaza texto + copia desenfocada a 60 fps, ~7 s por respuesta larga | MEDIO | `assistant.ps1:8541` | Cortar por el último espacio, como ya hace `Get-TextoVoz` → **HECHA** |
@@ -219,6 +219,22 @@ Cada hallazgo trae 5 mejoras ordenadas de más barata a más cara, con cómo med
 
 ### 3.5 Decisiones tomadas al implementar (17/09)
 
+- **HECHO — 3.3 #6, la cache de voz solo se podaba al arrancar.** Cierto:
+  `limpiar_cache()` se llamaba una vez, fuera de `principal()`, y el worker vive desde el
+  login, asi que con Nova encendida el tope de 60 MB **no se aplicaba nunca**. Medido antes
+  de tocar: la cache esta hoy en **13,8 MB con 487 mp3**, o sea al 23 % del tope, y a ~29 KB
+  por frase faltan unas 1.600 frases nuevas para llegar. **Esto no rescata nada hoy**; sirve
+  para no tener que vaciarla a mano dentro de unos meses, que es justo lo que se queria
+  evitar cuando se puso el tope.
+  **Lo que decidio el diseno fueron dos medidas, no la idea:**
+  1. la poda cuesta **17,2 ms** con los 487 archivos de ahora (`listdir` + `stat`), asi que
+     va **despues** de `print(ruta, flush=True)` -cuando el asistente ya tiene la ruta- y
+     nunca delante de la voz: ahi serian 17 ms de retraso en cada frase;
+  2. solo cuentan las frases **nuevas**, porque un acierto de cache no deja ningun archivo y
+     podar entonces es trabajo para nada. `PODA_CADA = 50` son ~1,5 MB entre poda y poda.
+  17 casos en `probar-cache-voz.py` (2n17). Los que mandan no son los de borrar: son los de
+  **no** borrar `velocidad.txt` ni `ui-nivel.txt`, no llevarse el `.env` del que sobrevive, y
+  el que comprueba que la poda **sigue estando detras** de la entrega de la ruta.
 - **HECHO — 3.3 #9, el texto partido y la marquesina a 60 fps.** Dos mitades.
   **La que se ve:** `Set-UI` cortaba a 137 letras a pelo, o sea a mitad de palabra
   -"he abierto el esc..." por "el escritorio"-. La VOZ ya lo hacia bien **desde el 14/09**
