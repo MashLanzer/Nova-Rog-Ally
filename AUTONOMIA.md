@@ -827,9 +827,31 @@ la sonda de CPU de la idea 33.
 
 Bajar el 10 a 3 ahorraría tres cadenas en memoria: no es una mejora, es ruido en el código.
 
-**43. Aprender qué dispositivos son normales.**
-`Watch-Dispositivos` avisa de lo que aparece. Los que entran y salen a diario (tus cascos)
-no son noticia: que deje de anunciarlos.
+**43. Aprender qué dispositivos son normales.** — **NO PROCEDE: no ha anunciado ninguno (18/09)**
+*La premisa es falsa: no hay nada que silenciar.* Las cuatro marcas exactas del código, contadas
+en todo el registro:
+
+| marca | veces |
+|---|---:|
+| `CASCOS: puestos` | **0** |
+| `CASCOS: quitados` | **0** |
+| `DOCK: pantalla conectada` | **0** |
+| `DOCK: pantalla desconectada` | **0** |
+
+Y ningún `ENTORNO (cascos-…)` ni `(dock-…)`. Nunca ha anunciado un dispositivo, así que no hay
+molestia que quitar. (De paso, otra cifra mía que era basura: busqué «dispositivo» y salieron
+**168**, de las cuales **163** eran `worker Vosk en marcha: … dispositivo=…`, la palabra suelta
+del arranque del worker.)
+
+*Y lo que la idea pide ya está en el diseño:* `$cascosAntes` arranca en `$null`, así que **la
+primera detección no avisa** (no anuncia nada al arrancar con los cascos ya puestos); «Cascos
+puestos.» va en nivel `'bajo'`, y solo sube a `'medio'` **cuando hay algo que corregir** — el
+volumen alto al ponerlos, o que siga sonando por los altavoces al quitarlos.
+
+**⚠ Y silenciar el evento rompería una regla tuya,** como en la idea 39: existe la REGLA 1
+«cuando te pongas los cascos, di bajar el volumen», y vive de `Invoke-Reglas 'cascosPone'`. El
+aviso (`Send-AvisoEntorno`) y la regla (`Invoke-Reglas`) son cosas distintas: quien retome esto
+tiene que tocar solo el primero.
 
 **44. Aprender qué música te gusta por lo que NO saltas.**
 `Watch-Musica` y `musica.json` ya guardan lo que suena. Lo que no saltas, gusta.
