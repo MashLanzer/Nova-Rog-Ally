@@ -10218,6 +10218,47 @@ function Watch-Acelerometro {
 # NOTA SEMANAL: memoria\semanas\AAAA-Www.md, escrita en lenguaje hablado a
 # partir de las estadisticas y del diario de gestos. Una por semana vencida.
 # =====================================================================
+# LO QUE DECIDI YO SOLA, en el parte semanal (17/09). La nota ya contaba cuantas cosas
+# pediste, cuantas se resolvieron al instante y que no entendi... pero hablaba solo de ti.
+# Desde esta tanda Nova toma decisiones propias (apagar la nube, el oido fino o el ultimo
+# recurso, avisar de que su idea de tu voz se movio), y no estaban en ninguna parte que
+# leyeras: solo en el log.
+#
+# La regla de la lista: si no puede explicar una decision con un numero, es que no deberia
+# haberla tomado. Aqui se cumple sola, porque el detalle que se guarda YA trae el numero
+# ("ultimo recurso off: 1 de 29").
+#
+# Si esa semana no decidio nada, no escribe ninguna linea: un parte que dice "no hice nada
+# especial" cansa mas de lo que informa.
+function Get-ParrafoDecisiones($stats, [datetime]$ini, [datetime]$fin) {
+    $hechas = @(); $deshechas = 0; $medias = 0
+    try {
+        foreach ($r in @($stats.recientes)) {
+            if ($r -notmatch '^(\d{4}-\d{2}-\d{2})\s+\S+\s+\[([a-z-]+)\]\s+(.*)$') { continue }
+            $f = $null
+            try { $f = [DateTime]::ParseExact($Matches[1], 'yyyy-MM-dd', $null) } catch { continue }
+            if ($f -lt $ini -or $f -gt $fin) { continue }
+            switch ($Matches[2]) {
+                'auto-ajuste'     { $hechas += [string]$Matches[3] }
+                'auto-deshecho'   { $deshechas++ }
+                'arranque-medias' { $medias++ }
+            }
+        }
+    } catch { return '' }
+    if ($hechas.Count -eq 0 -and $deshechas -eq 0 -and $medias -eq 0) { return '' }
+    $lineas = @()
+    if ($hechas.Count -gt 0) {
+        $lineas += "Esta semana decidi " + $(if ($hechas.Count -eq 1) { 'una cosa' } else { "$($hechas.Count) cosas" }) + " por mi cuenta: " + (($hechas | Select-Object -First 4) -join '; ') + "."
+    }
+    if ($deshechas -gt 0) {
+        $lineas += "Me pediste deshacer " + $(if ($deshechas -eq 1) { 'una de ellas' } else { "$deshechas de ellas" }) + ", asi que ahi me equivoque."
+    }
+    if ($medias -gt 0) {
+        $lineas += "Y arranque a medias " + $(if ($medias -eq 1) { 'una vez' } else { "$medias veces" }) + "."
+    }
+    return ($lineas -join ' ')
+}
+
 function Write-NotaSemanal {
     try {
         $hoy = (Get-Date).Date
@@ -10262,6 +10303,8 @@ function Write-NotaSemanal {
         [void]$sb.AppendLine("Esta semana hablamos $dias " + $(if ($dias -eq 1) { 'día' } else { 'días' }) + ". Me pediste $n " + $(if ($n -eq 1) { 'cosa' } else { 'cosas' }) + $(if ($n -gt 0) { ", y $rapidas de ellas las resolví al instante sin pasar por el modelo" } else { '' }) + ".")
         if ($errores -gt 0) { [void]$sb.AppendLine("Hubo $errores " + $(if ($errores -eq 1) { 'tropiezo' } else { 'tropiezos' }) + " (cancelaciones, dictados vacíos o esperas que se pasaron de tiempo).") }
         if ($desc.Count -gt 0) { [void]$sb.AppendLine(""); [void]$sb.AppendLine("Cosas que no entendí a la primera y que podrías enseñarme en commands.json: " + (($desc | ForEach-Object { "«$_»" }) -join ', ') + ".") }
+        $parrafoYo = Get-ParrafoDecisiones $s $ini $fin
+        if ($parrafoYo) { [void]$sb.AppendLine(""); [void]$sb.AppendLine($parrafoYo) }
         if ($gestos.Count -gt 0) {
             $top = @($gestos.GetEnumerator() | Sort-Object -Property Value -Descending | Select-Object -First 4 | ForEach-Object { "$($_.Key) ×$($_.Value)" })
             [void]$sb.AppendLine(""); [void]$sb.AppendLine("Lo que más me dijiste, según mis gestos: " + ($top -join ', ') + ".")

@@ -489,8 +489,20 @@ línea** en el log. Con `CopiasDir` inexistente, `Test-CopiaPendiente` devuelve 
 la copia **debería** haberse hecho en el primer minuto. O falla en silencio (el `try/catch` se
 traga el error) o el bucle no llega ahí. **Comprobar la próxima vez que Nova se encienda**, y
 si falla, que el `catch` lo diga en vez de callar.
-**30.** Ampliar el **parte semanal que ya existe** (`memoria\semanas\`) con lo que decidió
-sola. *No es crearlo: es que se incluya a sí misma.*
+**30.** Ampliar el **parte semanal** con lo que decidió sola. — **HECHA (17/09)**
+El parte ya existía y estaba bien escrito —días hablados, cuántas órdenes, cuántas resolvió al
+instante, tropiezos, lo que no entendió y hasta los gestos— pero **hablaba solo de ti**. Desde
+esta tanda Nova toma decisiones propias, y eso solo vivía en el log.
+Ahora, si esa semana decidió algo, el parte lo cuenta **con el número que la justificó**:
+> *«Esta semana decidí una cosa por mi cuenta: último recurso off: 1 de 29. Me pediste deshacer
+> una de ellas, así que ahí me equivoqué.»*
+Incluye lo que **deshiciste** (o sea, dónde se equivocó) y las veces que **arrancó a medias**.
+Se cumple sola la regla de la lista —«si no puede explicar una decisión con un número, no
+debería haberla tomado»— porque el detalle que guarda ya trae el número.
+*Y si esa semana no decidió nada, no escribe ni una línea:* un parte que dice «no hice nada
+especial» cansa más de lo que informa. Ése es el primer caso de la prueba.
+*17 casos en `probar-parte-semanal.ps1` (2n22), incluidos los dos del filtro de fechas: lo de
+la semana anterior y la siguiente no cuenta, y los dos días del borde sí.*
 
 ---
 

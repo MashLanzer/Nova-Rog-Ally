@@ -210,6 +210,10 @@ Titulo "2n21. Que Nova diga si arranco a medias"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-arranque.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n22. Que Nova se incluya en su parte semanal"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-parte-semanal.ps1') | Select-String 'todo correcto|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "3. Ordenes que SI deben reconocerse"
 foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     $salida = powershell -NoProfile -File 'assistant.ps1' -Probar (Join-Path 'pruebas' $banco) 2>&1
