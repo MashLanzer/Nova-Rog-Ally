@@ -510,9 +510,20 @@ la semana anterior y la siguiente no cuenta, y los dos días del borde sí.*
 
 ### Que EJECUTE lo que ya escribe
 
-**31. Retirar el filtro de recitados cuando sobre.**
-`estadisticas.md` ya dice, escrito por ella: «si `recitado` baja a cero durante semanas,
-quizá ya no hace falta el filtro». Que lo retire ella y lo diga, en vez de dejar la frase ahí.
+**31. Retirar el filtro de recitados cuando sobre.** — **NO PROCEDE (medido 17/09)**
+*La condición que ella misma escribió no se cumple:* «si baja a cero **durante semanas**». Lo
+que hay es **0, 4, 0, 6, 3, 0** en seis días — **13 recitados**, el último hace dos días. El
+filtro sigue trabajando.
+*Y no es un filtro, son dos, y ninguno sobra:*
+- `Test-CatalogoRecitado`, descrita en el propio código como **«la defensa principal contra
+  abrir cosas solo»** — o sea, contra lo que más te molesta;
+- `Test-RecitaEjemplo`, que caza los ecos de la frase de ejemplo de Whisper. Con casos reales
+  guardados: *«¿Qué hora es? ¿Qué hora es»*, dos veces el 16/09.
+**⚠ Y la regla, tal como está escrita, es peligrosa:** el `0` del 17/09 es de un día con **0
+activaciones y 0 ruido**, o sea **sin uso**. Un contador a cero puede significar «ya no hace
+falta» o «ese día no se usó», y hoy **no se distinguen**. Aplicarla tal cual retiraría la
+guarda tras unas vacaciones. Si algún día se hace, tendrá que exigir **días con uso real**, no
+días de calendario — la misma lección de las ideas 2 y 8.
 
 **32. Reaccionar cuando el micro empieza a cazar audio.**
 La otra mitad de esa misma frase: «si `recitado` sube, el micrófono está cazando audio». Hoy
