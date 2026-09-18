@@ -289,7 +289,22 @@ estadística; sus 202 registros se parten 101/101 entre «ya preparada» y «sin
 momento», que es un dato sobre la **caché**, no sobre el motor. Y Piper no mide nada
 comparable. Habría que construir medidor, histórico y regla para gobernar 2 casos de 202, y
 todo eso en el camino de la voz, que es de los delicados.
-**15.** Vigilar **su propio tamaño de datos** y compactar o archivar por meses.
+**15.** Vigilar **su propio tamaño de datos**. — **NO PROCEDE por tamaño (medido 17/09)**,
+pero deja dos apuntes.
+*Lo que pesa de verdad:* todo `memoria/` suma **~182 KB** — estadísticas 10,4 (6 días),
+hábitos 4,7, recetas 4,7, diario 1,1, semanas 0,8 y el cerebro 158,7. Lo único voluminoso es
+`pruebas/audio/uso` con **34 MB**, y son los `.wav` con los que se mide todo: justo lo que no
+hay que compactar.
+*Y las podas ya existen, repartidas:* `recientes` 40, `descartes` 30, `usos` 400, música 300,
+notificaciones 30, variantes de receta 20, recetas `$RecetasMax`; y el cerebro tiene las suyas
+(`MAX_RECUERDOS = 5000`, `MAX_PENDIENTES = 300`…) con un `_podar()` propio.
+**Dos excepciones que sí quedan anotadas:**
+- **`$s.dias` no se poda nunca.** Los `Select-Object -First 30` y `-First 14` son para
+  **escribir el informe**, no para recortar el archivo. En tamaño da igual (~600 KB al año),
+  pero **`Test-DatosRepartidos` y las tres decisiones recorren `dias`**: crece el coste de cada
+  revisión un poco cada día. Podar por encima de, digamos, 120 días sería gratis.
+- **`charla-YYYY-MM-DD.jsonl`**: uno por día, sin tope (60 KB en un solo día). Es lo único con
+  ritmo apreciable, y archivarlos por meses sí tendría sentido el día que estorben.
 **16.** **Recuperarse de un worker muerto con paciencia creciente**: tres muertes seguidas,
 desactivarlo y decirlo.
 
