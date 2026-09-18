@@ -275,7 +275,20 @@ en las estadísticas como `arranque-medias`.
 *16 casos en `probar-arranque.ps1` (2n21).* *Y un rojo falso que destapó un defecto de la
 prueba:* uno de los textos buscados aparece **también en el comentario que yo mismo escribí**,
 y como usaba `IndexOf` se quedaba en la primera aparición. Ahora recorre todas.
-**14.** Elegir **voz online o local por latencia medida**.
+**14.** Elegir **voz online o local por latencia medida**. — **NO PROCEDE (medido 17/09)**
+*La cascada ya existe y ya funciona en marcha*, no solo al arrancar: `Say` intenta
+`Say-Online` y si devuelve falso cae a `Say-Piper` **en la misma frase** (8733-8734), y
+devuelve falso por todas las vías que importan (sin respuesta en el plazo, respuesta de la
+frase anterior, worker muerto). El cambio por latencia **ya ocurre**.
+*Y el 1 % no justifica gobernarlo:* de **202 frases**, la voz online falló **2 veces**
+(«sin respuesta»), y las otras tres vías de fallo están a **cero**. Piper está instalado, así
+que la alternativa es real — simplemente no hace falta decidir nada.
+*Además el instrumento no existe:* el único número es un `Log` que **solo se escribe en
+charla** («o el log se llenaría de esto»), no distingue online de Piper y no llega a ninguna
+estadística; sus 202 registros se parten 101/101 entre «ya preparada» y «sintetizada al
+momento», que es un dato sobre la **caché**, no sobre el motor. Y Piper no mide nada
+comparable. Habría que construir medidor, histórico y regla para gobernar 2 casos de 202, y
+todo eso en el camino de la voz, que es de los delicados.
 **15.** Vigilar **su propio tamaño de datos** y compactar o archivar por meses.
 **16.** **Recuperarse de un worker muerto con paciencia creciente**: tres muertes seguidas,
 desactivarlo y decirlo.
