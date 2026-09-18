@@ -134,9 +134,27 @@ silencio**.
 *19 casos en `probar-propuestas.ps1` (2n19), incluidos los dos que sujetan el sentido: lo
 aceptado sigue vetado cinco años después, y lo rechazado vuelve al día 60.*
 
-**6. Aprender del «deshaz» sin que se lo expliques.**
-Si deshaces en menos de 30 s lo que acaba de hacer, que se lo apunte como rechazo. Hoy solo
-aprende si le dices «no era eso». *Ataca la meta de cero órdenes equivocadas.*
+**6. Aprender del «deshaz» sin que se lo expliques.** — **HECHA (17/09)**
+Deshacer algo que acaba de pasar es decirle que estuvo mal, sin tener que explicarlo. Pero
+esta idea tenía un peligro que podía dejarla peor que antes: **«abre steam» reconocido
+limpio, ejecutado bien, y luego «deshaz» porque cambiaste de idea NO es una orden
+equivocada**. Apuntarla haría que Nova dejase de entender una orden buena. El propio
+`probar-rechazos.ps1` ya lo avisaba: *«una frase vetada para siempre por una vez que
+cambiaste de idea sería peor que el problema que arregla»*.
+**Así que aprende solo si se cumplen las dos cosas:** que la orden sea **reciente** (menos de
+30 s, con la marca de tiempo que `$script:ultimaOrden` ya llevaba) **y** que viniera de algo
+**dudoso** — una traducción aprendida o una receta de hace menos de 3 minutos. De un
+reconocimiento limpio no se aprende nada: solo se deshace.
+El núcleo que hacía `no era eso` (apuntar el rechazo, marcarlo como fallo medible, olvidar la
+traducción o la receta) se ha sacado a **`Invoke-AprenderDelError`** y ahora lo comparten los
+dos caminos: cuando lo dices, en modo normal; cuando solo deshaces, en modo conservador.
+*17 casos nuevos. Los que sujetan el sentido: una orden limpia deshecha **no** se apunta y
+«abre steam» sigue entendiéndose; y cuando vino de una traducción se apunta **tu** frase, no
+la orden a la que se tradujo.*
+*Y una trampa del lenguaje que costó un caso en rojo:* el doble de `Get-Recetas` en la prueba
+devolvía la lista **sin la coma** (`return ,$lista`), así que PowerShell la desenrollaba, la
+función recibía una copia y su `.Remove()` no tocaba el original. El código real sí la lleva.
+La prueba mentía, no el código.
 
 **7. Limpiarse por espacio, no por calendario.**
 Cuando el disco baje del umbral, podar lo más viejo y decir qué tiró. *Freno: nunca lo del

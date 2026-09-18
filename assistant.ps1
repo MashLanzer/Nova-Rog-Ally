@@ -3767,6 +3767,49 @@ function Save-Rechazos {
     } catch { Log ("no pude guardar los rechazos: " + $_.Exception.Message) }
 }
 
+# APRENDER DEL ERROR (17/09). Esto era el cuerpo de "no era eso" y ahora lo comparten dos
+# caminos: cuando lo dices ("no era eso") y cuando simplemente deshaces algo que acaba de
+# salir mal, sin explicar nada.
+#
+# EL PELIGRO, y por eso existe $soloSiDudosa: "abre steam" reconocido limpio, ejecutado
+# bien, y luego "deshaz" porque cambiaste de idea, NO es una orden equivocada. Apuntarla
+# haria que Nova dejase de entender una orden buena. El propio probar-rechazos.ps1 lo dice:
+# "una frase vetada para siempre por una vez que cambiaste de idea seria peor que el
+# problema que arregla". Asi que al deshacer solo se aprende si la orden vino de algo
+# DUDOSO: una traduccion aprendida o una receta. De un reconocimiento limpio no se aprende
+# nada, solo se deshace.
+$DeshazEnsenaMs = 30000
+
+function Invoke-AprenderDelError([bool]$soloSiDudosa = $false) {
+    $huboTraduccion = [bool]$script:ultimaAprendida
+    $huboReceta = [bool]($script:ultimaReceta -and ($sw.ElapsedMilliseconds - $script:ultimaRecetaEn) -lt 180000)
+    if ($soloSiDudosa -and -not $huboTraduccion -and -not $huboReceta) { return $null }
+
+    # si vino de una TRADUCCION, lo rechazado es tu frase original, no la orden normal a la
+    # que se tradujo: si no, "baja el volumen" pasaba a preguntar siempre (auditoria 13/09)
+    $fraseRechazo = if ($huboTraduccion) { [string]$script:ultimaAprendida } else { [string]$script:ultimoEjecutado }
+    $apuntada = $false
+    if ($fraseRechazo) { $apuntada = Add-Rechazo $fraseRechazo }
+    # y que cuente como fallo en el registro de uso: esto es lo que convierte "cero ordenes
+    # equivocadas" en un numero medible
+    try { [void](Write-FalloUso $fraseRechazo) } catch {}
+
+    $olvidada = $null
+    if ($huboTraduccion) {
+        $olvidada = $script:ultimaAprendida
+        [void](Remove-Traduccion $olvidada)
+        $script:ultimaAprendida = ''
+    }
+    $recetaOlvidada = $null
+    if ($huboReceta) {
+        $gR = Get-Recetas
+        $objR = @($gR | Where-Object { $_.id -eq $script:ultimaReceta })
+        if ($objR.Count -gt 0) { [void]$gR.Remove($objR[0]); Save-Recetas; $recetaOlvidada = [string]$objR[0].frase }
+        $script:ultimaReceta = $null
+    }
+    return @{ apuntada = $apuntada; olvidada = $olvidada; recetaOlvidada = $recetaOlvidada }
+}
+
 function Add-Rechazo([string]$texto) {
     if ($script:invitado) { return $false }   # MODO INVITADO: lo que diga otro no se queda (17/09)
     $k = ConvertTo-Plain $texto
@@ -6864,7 +6907,21 @@ function Invoke-FastCommand([string]$text) {
         try {
             switch ($a.kind) {
                 # se sustituye la descripcion por el resultado real
-                'deshacer' { $a.desc = (Invoke-Deshacer) }
+                'deshacer' {
+                    $a.desc = (Invoke-Deshacer)
+                    # DESHACER ALGO QUE ACABA DE PASAR ES DECIR QUE ESTUVO MAL (17/09), sin
+                    # tener que explicarlo. Pero solo cuenta si fue AHORA MISMO y si la orden
+                    # venia de algo dudoso (una traduccion o una receta): deshacer una orden
+                    # limpia por cambiar de idea no es un error suyo.
+                    if ($script:ultimaOrden -and ($sw.ElapsedMilliseconds - [double]$script:ultimaOrden.cuando) -lt $DeshazEnsenaMs) {
+                        $apD = Invoke-AprenderDelError $true
+                        if ($apD) {
+                            if ($apD.recetaOlvidada) { $a.desc = "$($a.desc). Y olvido esa receta." }
+                            elseif ($apD.olvidada) { $a.desc = "$($a.desc). Y olvido que '$($apD.olvidada)' significaba eso." }
+                            elseif ($apD.apuntada) { $a.desc = "$($a.desc). Si lo vuelvo a oir, te pregunto antes." }
+                        }
+                    }
+                }
                 'deshacerAuto' { $a.desc = (Undo-DecisionPropia) }
                 'deshacerDesde' { $a.desc = (Invoke-DeshacerDesde ([int]$a.minutos)) }
                 'app' {
@@ -7210,37 +7267,13 @@ function Invoke-FastCommand([string]$text) {
                 'noEraEso' {
                     # 1) deshacer lo que se hiciera
                     $r = Invoke-Deshacer
-                    # 1b) y apuntar la frase, que es lo que evita que vuelva a
-                    #     pasar cuando NO hay ninguna traduccion de por medio
-                    $apuntada = $false
-                    # si vino de una TRADUCCION, lo rechazado es tu frase original, no la
-                    # orden normal a la que se tradujo: si no, "baja el volumen" pasaba a
-                    # preguntar siempre (auditoria del 13/09)
-                    $fraseRechazo = if ($script:ultimaAprendida) { [string]$script:ultimaAprendida } else { [string]$script:ultimoEjecutado }
-                    if ($fraseRechazo) { $apuntada = Add-Rechazo $fraseRechazo }
-                    # 1c) y que cuente como fallo en el registro de uso: esto es lo que
-                    #     convierte "cero ordenes equivocadas" en un numero medible
-                    try { [void](Write-FalloUso $fraseRechazo) } catch {}
-                    # 2) y si la orden salio de una traduccion APRENDIDA, borrarla:
-                    #    si no, volveria a equivocarse igual la proxima vez. Esto es
-                    #    lo que convierte un "no era eso" en algo que sirve.
-                    $olvidada = $null
-                    if ($script:ultimaAprendida) {
-                        $olvidada = $script:ultimaAprendida
-                        [void](Remove-Traduccion $olvidada)   # sin [void] Nova decia "True"
-                        $script:ultimaAprendida = ''
-                    }
-                    # 2b) y si lo ultimo fue una RECETA (usada o recien aprendida), fuera
-                    $recetaOlvidada = $null
-                    if ($script:ultimaReceta -and ($sw.ElapsedMilliseconds - $script:ultimaRecetaEn) -lt 180000) {
-                        $gR = Get-Recetas
-                        $objR = @($gR | Where-Object { $_.id -eq $script:ultimaReceta })
-                        if ($objR.Count -gt 0) { [void]$gR.Remove($objR[0]); Save-Recetas; $recetaOlvidada = [string]$objR[0].frase }
-                        $script:ultimaReceta = $null
-                    }
-                    $a.desc = if ($recetaOlvidada) { "$r. Y olvido esa receta." }
-                              elseif ($olvidada) { "$r. Y olvido que '$olvidada' significaba eso." }
-                              elseif ($apuntada) { "$r. Si lo vuelvo a oir, te pregunto antes." }
+                    # 2) y aprender: apuntar la frase, marcarla como fallo y olvidar la
+                    #    traduccion o la receta de la que salio (ver Invoke-AprenderDelError).
+                    #    Aqui SIEMPRE, porque lo has dicho tu: "no era eso" no deja dudas.
+                    $ap = Invoke-AprenderDelError $false
+                    $a.desc = if ($ap.recetaOlvidada) { "$r. Y olvido esa receta." }
+                              elseif ($ap.olvidada) { "$r. Y olvido que '$($ap.olvidada)' significaba eso." }
+                              elseif ($ap.apuntada) { "$r. Si lo vuelvo a oir, te pregunto antes." }
                               else { $r }
                 }
                 'verModos' {
