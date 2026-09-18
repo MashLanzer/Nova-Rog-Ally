@@ -9795,9 +9795,35 @@ function Update-Clima {
     if (-not $ClimaOn) { return }
     try {
         if ($null -eq $ClimaLat -or $null -eq $ClimaLon) {
-            $g = Invoke-RestMethod -Uri 'http://ip-api.com/json/?fields=lat,lon,city' -TimeoutSec 4
-            if ($g -and $g.lat) { $script:ClimaLat = [double]$g.lat; $script:ClimaLon = [double]$g.lon; Log "clima: ubicacion por IP ($($g.city))" }
-            else { return }
+            # LA UBICACION, UNA VEZ AL DIA (18/09). Se pedia por IP en CADA arranque: 126
+            # llamadas en el registro, siempre el mismo resultado. Es red repetida para nada.
+            # OJO, y esto corrige a quien escribio la idea: NO son "20 s del arranque".
+            # Update-Clima se llama desde el bucle con "una vez por hora, la primera a los 20 s
+            # de arrancar", asi que esos 20 s son la espera de diseño, no lo que tarda esto.
+            # Lo que se gana es la red y no quedarse sin clima el dia que ip-api no conteste.
+            $rutaU = Join-Path $MemoriaDir 'ubicacion.json'
+            $hoyU = (Get-Date).ToString('yyyy-MM-dd')
+            $cacheU = $null
+            if (Test-Path -LiteralPath $rutaU) {
+                try { $cacheU = Get-Content -LiteralPath $rutaU -Raw -Encoding UTF8 | ConvertFrom-Json } catch {}
+            }
+            if ($cacheU -and $cacheU.lat -and [string]$cacheU.dia -eq $hoyU) {
+                $script:ClimaLat = [double]$cacheU.lat; $script:ClimaLon = [double]$cacheU.lon
+            } else {
+                $g = $null
+                try { $g = Invoke-RestMethod -Uri 'http://ip-api.com/json/?fields=lat,lon,city' -TimeoutSec 4 } catch { $g = $null }
+                if ($g -and $g.lat) {
+                    $script:ClimaLat = [double]$g.lat; $script:ClimaLon = [double]$g.lon
+                    Log "clima: ubicacion por IP ($($g.city))"
+                    try {
+                        Write-Atomico $rutaU (ConvertTo-Json -InputObject ([ordered]@{ lat = [double]$g.lat; lon = [double]$g.lon; ciudad = [string]$g.city; dia = $hoyU }) -Depth 3)
+                    } catch {}
+                } elseif ($cacheU -and $cacheU.lat) {
+                    # sin red: mejor el sitio de ayer que quedarse sin tiempo
+                    $script:ClimaLat = [double]$cacheU.lat; $script:ClimaLon = [double]$cacheU.lon
+                    Log "clima: sin respuesta de ip-api; uso la ubicacion guardada ($([string]$cacheU.ciudad))"
+                } else { return }
+            }
         }
         $cul = [System.Globalization.CultureInfo]::InvariantCulture
         $u = 'https://api.open-meteo.com/v1/forecast?latitude=' + ([double]$ClimaLat).ToString($cul) + '&longitude=' + ([double]$ClimaLon).ToString($cul) + '&current_weather=true'

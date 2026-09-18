@@ -199,6 +199,15 @@ class Cerebro:
                             a = np.frombuffer(base64.b64decode(b), dtype=np.float16).astype(np.float32)
                             self.vec[int(k)] = self._normal(a)
                 except Exception:  # noqa: BLE001
+                    # roto: se aparta igual que cerebro.json ahi arriba (18/09). Sin esto, el
+                    # primer guardado lo sobrescribia y no quedaba forma de ver que se rompio.
+                    # Lo que se pierde al regenerarlo es tiempo y RAM, no conocimiento
+                    # (completar_vectores los rehace), pero el fichero roto vale para saber
+                    # POR QUE se rompio, que es lo que hoy no se puede.
+                    try:
+                        os.replace(self.ruta_vec, self.ruta_vec + ".corrupto-" + time.strftime("%Y%m%d-%H%M%S"))
+                    except OSError:
+                        pass
                     self.vec = {}
             self._cambio()
 

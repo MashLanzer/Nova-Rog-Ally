@@ -695,12 +695,23 @@ def revisor():
 
 
 def descargar():
+    # NO DIGAS QUE LIBERASTE LO QUE NO LIBERASTE (18/09). El aviso estaba fuera del try y el
+    # except se comia el fallo de Ollama: Nova afirmaba haber soltado RAM que seguia ocupada, y
+    # esto corre justo al abrir un juego, o sea en plena prioridad de "poca RAM jugando".
+    fallo = ""
+    salieron = 0
     for m in [MODELO_LOCAL] + ([MODELO_EMBED] if MODELO_EMBED else []):
         try:
             httpx.post(OLLAMA + "/api/generate", json={"model": m, "keep_alive": 0}, timeout=10)
-        except Exception:  # noqa: BLE001
-            pass
-    salida("info", texto="modelos locales fuera de la RAM")
+            salieron += 1
+        except Exception as e:  # noqa: BLE001
+            fallo = str(e)
+    if salieron and not fallo:
+        salida("info", texto="modelos locales fuera de la RAM")
+    elif salieron:
+        salida("info", texto="parte de los modelos sigue en la RAM (%s)" % fallo)
+    else:
+        salida("info", texto="NO pude sacar los modelos de la RAM (%s)" % fallo)
 
 
 class EmbedOllama:

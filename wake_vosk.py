@@ -1087,7 +1087,12 @@ def vigilar_corte(datos):
                     s0 = max(0, int((float(w.get("start", 0)) - 0.4) * TASA) - _corte["base"])
                     s1 = max(s0, int((float(w.get("end", 0)) + 0.4) * TASA) - _corte["base"])
                     f0 = estimar_f0([todo[s0:s1]])
-                except Exception:
+                except Exception as _e_tono:  # noqa: BLE001
+                    # sin esto, un fallo aqui deja f0 = 0.0 y, con el tono ya aprendido,
+                    # es_voz_de_braya(0, duena) da falso: Nova NO SE CALLA cuando se lo dices
+                    # y no queda ni una linea. Que obedezca ante tono desconocido es otra
+                    # mejora (la 2 de este hallazgo) y se decide aparte.
+                    anota("no pude medir el tono de la palabra de corte (%s)" % _e_tono)
                     f0 = 0.0
                 duena = voz_duena()
                 if not es_voz_de_braya(f0, duena):
@@ -1109,6 +1114,13 @@ def quitar_nombre(texto):
     return PATRON_INICIO.sub("", texto or "").strip()
 
 
+# TOPE DE AVISOS DE ESCRITURA (18/09). Por aqui sale tambien el NIVEL del audio, que se
+# escribe constantemente mientras dictas: si el disco falla, anotar sin freno llenaria el log
+# con miles de lineas. Mismo criterio que la capsula con sus errores de animacion.
+_avisos_escribir = 0
+MAX_AVISOS_ESCRIBIR = 5
+
+
 def escribir(ruta, contenido):
     if not ruta:
         return
@@ -1116,19 +1128,27 @@ def escribir(ruta, contenido):
     # lea nunca un archivo a medio escribir (un texto de orden cortado). Si el
     # cambio falla porque justo lo tiene abierto el lector, se escribe directo
     # como antes: mejor eso que perder la escritura.
+    global _avisos_escribir
     tmp = ruta + ".tmp"
     try:
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(contenido)
         os.replace(tmp, ruta)
         return
-    except Exception:
-        pass
+    except Exception as e:  # noqa: BLE001
+        # no es grave por si solo: abajo se reintenta escribiendo directo
+        if _avisos_escribir < MAX_AVISOS_ESCRIBIR:
+            _avisos_escribir += 1
+            anota("escritura atomica fallida en %s (%s); lo intento directo" % (os.path.basename(ruta), e))
     try:
         with open(ruta, "w", encoding="utf-8") as f:
             f.write(contenido)
-    except Exception:
-        pass
+    except Exception as e:  # noqa: BLE001
+        # ESTO SI ES GRAVE: por aqui salen la orden, la confirmacion y el parcial. Si se
+        # pierde, el asistente no se entera de nada y solo ve vencer su plazo.
+        if _avisos_escribir < MAX_AVISOS_ESCRIBIR:
+            _avisos_escribir += 1
+            anota("NO PUDE ESCRIBIR %s (%s): lo que iba ahi se ha perdido" % (os.path.basename(ruta), e))
 
 
 try:
@@ -1738,8 +1758,11 @@ try:
                                     try:
                                         with open(MARCA, "w", encoding="utf-8") as f:
                                             f.write(time.strftime("%Y-%m-%dT%H:%M:%S"))
-                                    except Exception:
-                                        pass
+                                    except Exception as _e_marca:  # noqa: BLE001
+                                        # el anota("ACTIVADO...") ya salio arriba: si esto
+                                        # falla y no se dice, EL LOG MIENTE (dice que te oyo
+                                        # y no pasa nada)
+                                        anota("ACTIVADO pero no pude dejar la marca (%s): el asistente no se va a enterar" % _e_marca)
                                     rec = nuevo_reconocedor()
 
                 # pulso periodico: estado, nivel y ajuste de ganancia
@@ -1804,8 +1827,10 @@ try:
                 anota("fallo en una vuelta del bucle: %s" % e)
                 try:
                     rec = nuevo_reconocedor()
-                except Exception:
-                    pass
+                except Exception as _e_rec:  # noqa: BLE001
+                    # si esto falla, el reconocedor queda roto y cada vuelta vuelve a fallar:
+                    # un bucle de errores mudo. Al menos que se vea en el log.
+                    anota("no pude rehacer el reconocedor (%s): la escucha puede quedarse sorda" % _e_rec)
                 continue
 except Exception as e:
     anota("ERROR en el bucle: %s" % e)
