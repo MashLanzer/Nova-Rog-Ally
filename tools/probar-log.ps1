@@ -69,6 +69,19 @@ foreach ($i in 1..200) { Log ("mas relleno $i, texto largo para forzar varias ro
 Comp 'se guardan varias copias, no solo una' (Test-Path -LiteralPath "$EventLog.2") ''
 
 Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue
+
+# LA SALIDA LIMPIA EXISTE Y ESTA ENTERA (18/09). La linea "VoiceAssistant cerrado" solo se
+# escribe si el proceso sale por exit (PowerShell.Exiting no se dispara con un kill), y hasta
+# hoy la unica forma de parar a Nova era matarla: esa linea no habria salido jamas. Se lee el
+# fuente y se comprueba que las cuatro piezas siguen ahi.
+Write-Host '  -- la salida limpia, entera --'
+$src = [System.IO.File]::ReadAllText((Join-Path $raiz 'assistant.ps1'), [System.Text.Encoding]::UTF8)
+Comp 'la marca de salida esta definida' ($src -match '\$MarcaSalir = Join-Path \$TmpDir "salir\.flag"') ''
+Comp 'y se limpia al arrancar, con las demas' ($src -match '\$MarcaWake, \$MarcaSalir\)') ''
+Comp 'el bucle la mira y sale por exit (no por kill)' ($src -match 'Test-Path -LiteralPath \$MarcaSalir[\s\S]{0,400}exit 0') ''
+Comp 'y el cierre deja su linea en el log' ($src -match 'PowerShell\.Exiting[\s\S]{0,200}VoiceAssistant cerrado') ''
+Comp 'existe tools\parar-nova.ps1' (Test-Path -LiteralPath (Join-Path $raiz 'tools\parar-nova.ps1')) ''
+
 Write-Host ''
 if ($fallos -gt 0) { Write-Host "$fallos MAL" -ForegroundColor Red; exit 1 }
 Write-Host 'todo correcto' -ForegroundColor Green

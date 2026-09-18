@@ -88,6 +88,31 @@ Comp 'lo que no se parece a nada no traduce' ($null -eq (Find-Traduccion 'abre s
 $script:tradFalsas = @{}
 Comp 'sin traducciones guardadas, nada' ($null -eq (Find-Traduccion 'sube el brillu')) ''
 
+# UNA TRADUCCION DESTRUCTIVA NO SE APRENDE (18/09). Paso de verdad: "cierra lo ultimo que
+# habrete" = "cierra todos los programas" quedo guardado para siempre; la proxima vez que se
+# oyera mal, Nova habria pedido cerrar todo. Y la primera version de la guarda tenia un
+# backspace invisible en el regex y no cuadraba: por eso esto tiene que estar en el banco.
+Write-Host "  -- lo destructivo no se aprende como traduccion --"
+$script:logsT = @()
+function Log($m) { $script:logsT += $m }
+function Write-Atomico($r, $t) { }
+$script:invitado = $false
+$script:traducciones = @{}
+function Get-Traducciones { return $script:traducciones }
+$TraduccionesPath = Join-Path $env:TEMP 'traducciones-prueba-nunca.json'
+Invoke-Expression (Traer 'Add-Traduccion')
+Add-Traduccion 'cierra lo ultimo que habrete' 'cierra todos los programas'
+Comp 'cerrar todo NO se aprende' (-not $script:traducciones.ContainsKey('cierra lo ultimo que habrete')) (($script:logsT | Select-Object -Last 1))
+Comp 'y lo dice en el log' (($script:logsT -join ' ') -match 'NO APRENDO') ''
+Add-Traduccion 'apagame esto' 'apaga la consola'
+Comp 'apagar tampoco' (-not $script:traducciones.ContainsKey('apagame esto')) ''
+Add-Traduccion 'borra lo de la carpeta' 'borra la carpeta games'
+Comp 'ni borrar' (-not $script:traducciones.ContainsKey('borra lo de la carpeta')) ''
+Add-Traduccion 'hazme la pantalla mas clarita' 'sube el brillo'
+Comp 'pero lo inofensivo si' ($script:traducciones.ContainsKey('hazme la pantalla mas clarita')) ''
+Add-Traduccion 'cierra el navegador ese' 'cierra edge'
+Comp "y cerrar UNA app tambien (no es 'cerrar todo')" ($script:traducciones.ContainsKey('cierra el navegador ese')) ''
+
 Write-Host ""
 if ($fallos -gt 0) { Write-Host "$fallos MAL" -ForegroundColor Red; exit 1 }
 Write-Host "todo correcto" -ForegroundColor Green

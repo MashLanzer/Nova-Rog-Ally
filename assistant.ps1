@@ -409,6 +409,17 @@ function Split-Ordenes([string]$texto) {
         $planoS = [regex]::Replace($planoS, '\s*(?:\by\s+)?\ben\s+(?:una|otra)\s+(?:segunda\s+|nueva\s+)?(?:ventana|pestana)\b\s*', ' y ')
         $planoS = (($planoS -replace '^\s*y\s+', '') -replace '\s+y\s*$', '' -replace '\s+', ' ').Trim()
     }
+    # PANTALLA DIVIDIDA CON DOS COSAS (18/09). "abre youtube a la izquierda y pinterest a la
+    # derecha" se partia por la "y" en dos ordenes y la segunda se iba a buscar a Google.
+    # braya lo pidio cuatro veces seguidas. Se reescribe a una sola orden sin separadores.
+    if ($planoS -match '^(?:abre|abreme|pon|ponme|coloca|abrir|poner)\s+(.+?)\s+(?:a|en)\s+la\s+(?:pantalla\s+|mitad\s+|parte\s+)?(izquierda|derecha)\s+y\s+(?:(?:abre|pon|coloca)\s+)?(.+?)\s+(?:a|en)\s+la\s+(?:pantalla\s+|mitad\s+|parte\s+)?(izquierda|derecha)$') {
+        $ladoA = $Matches[2]; $ladoB = $Matches[4]
+        $izqD = if ($ladoA -eq 'izquierda') { $Matches[1] } else { $Matches[3] }
+        $derD = if ($ladoA -eq 'izquierda') { $Matches[3] } else { $Matches[1] }
+        if ($ladoA -ne $ladoB) { $planoS = "dividir pantalla $izqD con $derD" }
+    } elseif ($planoS -match '^(?:abre|abreme|pon|ponme|coloca|abrir|poner)\s+(.+?)\s+y\s+(.+?)\s+(?:en|a)\s+(?:pantalla\s+dividida|media\s+pantalla(?:\s+cada\s+uno)?|split(?:\s+screen)?|lado\s+a\s+lado)$') {
+        $planoS = "dividir pantalla $($Matches[1]) con $($Matches[2])"
+    }
     return (Split-Compound (Repair-Words $planoS))
 }
 
@@ -2669,6 +2680,18 @@ function Resolve-Fragment([string]$f) {
     }
     # 15/09: "¿hay algo descargandose en Steam?" y "revisa ahora si algo se esta
     # descargando" se fueron al agente (37 s y 25 s) teniendo el dato ya leido
+    # "QUE TENGO EN LA PAPELERA" (18/09): lo pregunto y se fue a la charla. Solo se LEE.
+    if ($f -match '^(?:que|qué)\s+(?:tengo|hay|queda)\s+en\s+(?:la\s+)?papelera(?:\s+de\s+reciclaje)?$' -or
+        $f -match '^(?:mira|revisa|dime|cuenta)\s+(?:que\s+hay\s+en\s+)?(?:la\s+)?papelera(?:\s+de\s+reciclaje)?$' -or
+        $f -match '^(?:la\s+)?papelera(?:\s+de\s+reciclaje)?$') {
+        return @(@{ kind = 'papelera'; desc = 'lo que hay en la papelera' })
+    }
+    # "HAY ALGUNA ACTUALIZACION" (18/09): el sustantivo, no solo el gerundio. braya lo pregunto
+    # once veces seguidas y las once acabaron en la charla, que no puede mirar Steam.
+    if ($f -match '^(?:hay|tengo|queda|hay que hacer)\s+(?:alguna|algun|alguna que otra|una|nueva|nuevas|algunas)?\s*(?:actualizacion(?:es)?|descarga(?:s)?|update(?:s)?)(?:\s+(?:pendiente(?:s)?|nueva(?:s)?|de\s+(?:steam|los\s+juegos|mis\s+juegos|algun\s+juego|este|esto)))?(?:\s+en\s+steam)?$' -or
+        $f -match '^(?:hay|tengo)\s+(?:algo|algun\s+juego|juegos)\s+(?:que|por|para)\s+actualizar(?:\s+en\s+steam)?$') {
+        return @(@{ kind = 'descargas'; desc = 'estado de las descargas' })
+    }
     if ($f -match '^(?:revisa\s+(?:ahora\s+)?)?(?:hay\s+)?algo\s+(?:que\s+se\s+(?:este|esta)\s+)?(?:descargando(?:se)?|bajando(?:se)?|instalando(?:se)?|actualizando(?:se)?)(?:\s+en\s+steam)?$' -or
         $f -match '^revisa\s+(?:ahora\s+)?si\s+(?:hay\s+)?algo\s+se\s+esta\s+(?:descargando|bajando|instalando)(?:\s+en\s+steam)?$' -or
         $f -match '^(?:en\s+)?cuanto\s+(?:va|esta|le\s+queda\s+a)\s+la\s+descarga(?:\s+de\s+steam)?$') {
@@ -3133,7 +3156,31 @@ function Resolve-Fragment([string]$f) {
         $f -match '^ya no (?:la |lo )?(?:dejes |pongas )?siempre\s+(?:encima|arriba|delante)$') {
         return @(@{ kind = 'siempreEncima'; encima = $false; desc = 'quitar el siempre encima' })
     }
+    # "CIERRA LO ULTIMO QUE ABRISTE" (18/09): lo dijo dos veces y no existia; la primera se
+    # aprendio como "cierra todos los programas". Se mira que fue lo ultimo que se abrio.
+    if ($f -match '^(?:cierra|cerrar|quita|quitar)\s+(?:lo\s+ultimo(?:\s+que\s+(?:abriste|abri|has\s+abierto|se\s+abrio))?|lo\s+que\s+acabas\s+de\s+abrir|eso\s+ultimo|lo\s+de\s+antes|lo\s+recien\s+abierto)$') {
+        $descU = if ($script:ultimaOrden) { [string]$script:ultimaOrden.desc } else { '' }
+        # la ULTIMA apertura de la cadena, que es la que esta delante
+        $abiertas = @([regex]::Matches($descU, 'abrir\s+([^+;,]+?)(?:\s+en Steam)?(?=\s*(?:\+|;|,|$))') | ForEach-Object { $_.Groups[1].Value.Trim() })
+        if ($abiertas.Count -eq 0) { return @(@{ kind = 'decir'; desc = 'no recuerdo haber abierto nada hace un momento' }) }
+        $ultimaAb = $abiertas[-1]
+        $procU = Resolve-Proceso $ultimaAb
+        if ($procU -and $procU.proceso -ne '*juego*') { return @(@{ kind = 'cerrarApp'; proceso = $procU.proceso; desc = "cerrar $($procU.nombre)" }) }
+        return @(@{ kind = 'decir'; desc = "lo ultimo fue $ultimaAb y eso no se cerrarlo desde aqui" })
+    }
     # --- colocacion de ventanas ---
+    # DOS COSAS A LA VEZ (18/09): "dividir pantalla X con Y" viene reescrito de Split-Ordenes.
+    # Las dos tienen que existir; si no, $null y que lo mire el modelo.
+    if ($f -match '^dividir\s+pantalla\s+(.+?)\s+con\s+(.+)$') {
+        $izqR = Resolve-Target $Matches[1]
+        $derR = Resolve-Target $Matches[2]
+        if ($izqR -and $derR) {
+            $izqR = @($izqR)[0]; $derR = @($derR)[0]
+            return @(@{ kind = 'dividir'; izq = $izqR; der = $derR
+                        desc = "$($izqR.desc -replace '^abrir ', '') a la izquierda y $($derR.desc -replace '^abrir ', '') a la derecha" })
+        }
+        return $null
+    }
     switch -regex ($f) {
         '^(?:a\s+)?(?:mitad de pantalla|media pantalla|la mitad|a la izquierda|izquierda)$' { return @(@{ kind = 'winkey'; vk = 0x25; desc = 'media pantalla izquierda' }) }
         '^(?:a\s+)?(?:la\s+)?derecha$' { return @(@{ kind = 'winkey'; vk = 0x27; desc = 'media pantalla derecha' }) }
@@ -3703,6 +3750,21 @@ function Format-Correos($correos) {
     return $txt
 }
 
+# LA PAPELERA, SOLO PARA MIRARLA (18/09). Por Shell.Application (carpeta especial 10), sin
+# instalar nada. Vaciarla es otra orden, y de las que preguntan antes.
+function Get-PapeleraResumen {
+    try {
+        $sh = New-Object -ComObject Shell.Application
+        $pp = $sh.Namespace(10)
+        if (-not $pp) { return 'no pude abrir la papelera' }
+        $items = @($pp.Items())
+        if ($items.Count -eq 0) { return 'la papelera esta vacia' }
+        $nombres = @($items | Select-Object -First 4 | ForEach-Object { [string]$_.Name })
+        $mas = if ($items.Count -gt 4) { " y $($items.Count - 4) mas" } else { '' }
+        $cuantas = if ($items.Count -eq 1) { 'una cosa' } else { "$($items.Count) cosas" }
+        return "en la papelera hay $cuantas`: " + ($nombres -join ', ') + $mas
+    } catch { return 'no pude mirar la papelera' }
+}
 function Invoke-Correo($a) {
     if (-not (Test-CorreoListo)) {
         return 'Todavia no tengo tu correo configurado. Hace falta una contrasena de aplicacion de Google.'
@@ -3899,6 +3961,14 @@ function Add-Traduccion([string]$original, [string]$traducida) {
     if ($script:invitado) { return }   # MODO INVITADO: lo que diga otro no se queda (17/09)
     $clave = ConvertTo-Plain $original
     if (-not $clave -or -not $traducida) { return }
+    # LO DESTRUCTIVO NO SE APRENDE (18/09). Hoy se guardo "cierra lo ultimo que habrete" =
+    # "cierra todos los programas", para siempre: la proxima vez que se oyera mal, Nova
+    # habria pedido cerrar todo. Una orden asi se ejecuta si se confirma ESA vez, pero no
+    # queda atada a una frase mal oida.
+    if ((ConvertTo-Plain $traducida) -match '\b(?:cierra\s+todo|todos\s+los\s+programas|apaga|apagar|reinicia|reiniciar|bloquea|bloquear|borra|borrar|elimina|eliminar|formatea|formatear|desinstala|desinstalar)\b') {
+        Log "NO APRENDO una traduccion destructiva: '$original' = '$traducida'"
+        return
+    }
     $t = Get-Traducciones
     $t[$clave] = $traducida
     try {
@@ -4770,6 +4840,7 @@ function Complete-RecetaResultado($enc, [string]$text, $res, [string]$variante =
 # Un archivo Markdown, una linea por dato: se lee y se corrige a mano.
 # =====================================================================
 $PerfilPath = Join-Path $MemoriaDir 'perfil.md'
+$script:ultimoDatoPerfil = ''      # lo ultimo que se aprendio de braya en esta sesion, por si es falso
 $PerfilMax = 60
 $RE_DATO_SENSIBLE = '(?i)contrase|password|\bclave\b|\bpin\b|tarjeta|cuenta bancaria|\bdni\b|pasaporte|seguro social|\bsalud\b|enfermedad|medicamento|diagnostic'
 
@@ -4848,6 +4919,9 @@ function Add-DatoPerfil([string]$dato, [string]$fuente = '') {
     $datos += $d
     while ($datos.Count -gt $PerfilMax) { $datos = @($datos | Select-Object -Skip 1) }
     Save-DatosPerfil $datos
+    # para poder decir "eso es un dato falso, eliminalo" (18/09): sin esto, "eso" no
+    # apuntaba a nada y Nova contestaba "?de donde sacas que lo tengo?"
+    $script:ultimoDatoPerfil = $d
     Log "PERFIL: aprendido ($fuente): $d"
     Add-Estadistica 'perfil' $d
     Set-AcabaDeAprender
@@ -6920,6 +6994,12 @@ function Test-FastCommand([string]$text) {
     # decia si, y luego no habia nada que aprender (y de paso Repair-Verb
     # convertia "aprende" en "prende" y la frase se perdia)
     if ($text -match '(?i)^\s*aprende\s+que\s+(?:a\s+)?(.+?)\s+(?:le\s+(?:digo|llamo|dicen)|es|se\s+llama)\s+(.+)$') { return $true }
+    # OLVIDAR UN DATO, los MISMOS patrones que el ejecutor (18/09). No tenian espejo aqui, ni el
+    # viejo "olvida que X": el banco decia "IA" para todos aunque en produccion si se ejecutaban.
+    if ($text -match '(?i)^\s*(?:olvida|olv[ií]date de|borra)\s+(?:que|lo de)\s+(.+)$') { return $true }
+    if ($text -match '(?i)^\s*(?:eso\s+(?:es\s+)?(?:un\s+dato\s+)?(?:falso|mentira|incorrecto|no\s+es\s+(?:verdad|cierto|asi))\s*[,.]?\s*)?(?:elim[ií]nalo|b[oó]rralo|qu[ií]talo|olv[ií]dalo|olvida\s+eso|borra\s+eso|elimina\s+eso)\s*[.!]?$') { return $true }
+    if ($text -match '(?i)^\s*(?:(?:el|lo|la|los|las)\s+(?:de|del|de la|de los)\s+)?(.+?)\s*[,.]?\s*(?:elim[ií]nalo|b[oó]rralo|qu[ií]talo|olv[ií]dalo)\s*[.!]?$' -or
+        $text -match '(?i)^\s*(?:elimina|quita|borra|olvida)\s+(?:el\s+dato\s+(?:de|del|sobre)|lo\s+(?:de|del)|(?:el|la|los|las)\s+(?:de|del))\s+(.+)$') { return $true }
     # el MISMO patron que el ejecutor, o el banco no ve que crear un modo es local
     if ($text -match '(?i)^\s*(?:crea|crear|haz|hazme|define|guardame)\s+(?:el\s+|un\s+)?modo\s+([^\s:,]{2,20})\s*(?::|,|\s+que\s+|\s+con\s+|\s+)\s*(.+)$') { return $true }
     $pl = ConvertTo-Plain $text
@@ -7121,6 +7201,23 @@ function Invoke-FastCommand([string]$text) {
     if ($text -match '(?i)^\s*(?:olvida|olv[ií]date de|borra)\s+(?:que|lo de)\s+(.+)$') {
         $quitado = Remove-DatoPerfil $Matches[1]
         if ($quitado) { return "Olvidado: " + ($quitado -replace '^Dicho por braya:\s*', '') + "." }
+    }
+    # "ESO ES UN DATO FALSO, ELIMINALO" (18/09): lo ULTIMO que aprendio de ti, fuera. braya lo
+    # dijo asi dos veces y Nova contesto "?de donde sacas que lo tengo?"; podia aprender datos
+    # falsos y no habia forma de borrarlos hablando.
+    if ($text -match '(?i)^\s*(?:eso\s+(?:es\s+)?(?:un\s+dato\s+)?(?:falso|mentira|incorrecto|no\s+es\s+(?:verdad|cierto|asi))\s*[,.]?\s*)?(?:elim[ií]nalo|b[oó]rralo|qu[ií]talo|olv[ií]dalo|olvida\s+eso|borra\s+eso|elimina\s+eso)\s*[.!]?$' -and $script:ultimoDatoPerfil) {
+        $quitado = Remove-DatoPerfil $script:ultimoDatoPerfil
+        $script:ultimoDatoPerfil = ''
+        if ($quitado) { return "Vale, lo quito: " + ($quitado -replace '^Dicho por braya:\s*', '') + "." }
+        return "Eso ya no lo tenia apuntado."
+    }
+    # "EL DEL OSO POLAR, ELIMINALO" / "elimina lo del oso polar" (18/09): el tema delante o
+    # detras, y con elimina/quita/borra ademas de olvida
+    if ($text -match '(?i)^\s*(?:(?:el|lo|la|los|las)\s+(?:de|del|de la|de los)\s+)?(.+?)\s*[,.]?\s*(?:elim[ií]nalo|b[oó]rralo|qu[ií]talo|olv[ií]dalo)\s*[.!]?$' -or
+        $text -match '(?i)^\s*(?:elimina|quita|borra|olvida)\s+(?:el\s+dato\s+(?:de|del|sobre)|lo\s+(?:de|del)|(?:el|la|los|las)\s+(?:de|del))\s+(.+)$') {
+        $temaB = $Matches[1].Trim()
+        $quitado = Remove-DatoPerfil $temaB
+        if ($quitado) { return "Vale, lo quito: " + ($quitado -replace '^Dicho por braya:\s*', '') + "." }
     }
     # aprender vocabulario hablando (se lee del texto ORIGINAL, sin normalizar)
     if ($text -match '(?i)^\s*aprende\s+que\s+(?:a\s+)?(.+?)\s+(?:le\s+(?:digo|llamo|dicen)|es|se\s+llama)\s+(.+)$') {
@@ -7407,6 +7504,7 @@ function Invoke-FastCommand([string]$text) {
                 'memoria' { $null = Add-Memoria $a.texto }
                 'modoEditar' { $a.desc = Invoke-ModoEditar $a.datos }
                 'correo' { $a.desc = Invoke-Correo $a }
+                'papelera' { $a.desc = Get-PapeleraResumen }
                 'avisosEntorno' { $a.desc = Set-AvisosEntorno ([bool]$a.encendido) }
                 'decir' {
                     # la respuesta ES la descripcion; se dice y ya. Si es un
@@ -8289,6 +8387,34 @@ function Invoke-FastCommand([string]$text) {
                     $a.desc = if ($quiere) { 'silencio' } else { 'sonido otra vez' }
                 }
                 'winkey' { Send-WinKey $a.vk }
+                'dividir' {
+                    # PANTALLA DIVIDIDA (18/09): abrir, esperar a que tenga ventana delante,
+                    # Win+Izquierda; y lo mismo con la otra a la derecha. La espera mira si
+                    # cambia la ventana en primer plano, hasta 4 s: lanzar la tecla antes de
+                    # que exista la ventana la colocaria en la que hubiera debajo.
+                    $antesH = [AX]::GetForegroundWindow()
+                    $colocadas = 0
+                    foreach ($parte in @(@{ que = $a.izq; vk = 0x25 }, @{ que = $a.der; vk = 0x27 })) {
+                        $q = $parte.que
+                        if ($q.kind -eq 'url') { Start-Process $q.url -ErrorAction Stop }
+                        else { $null = Start-Process $q.target -PassThru -ErrorAction Stop }
+                        $t0 = $sw.ElapsedMilliseconds
+                        $aparecio = $false
+                        while (($sw.ElapsedMilliseconds - $t0) -lt 4000) {
+                            Start-Sleep -Milliseconds 200
+                            $hAhora = [AX]::GetForegroundWindow()
+                            if ($hAhora -ne [IntPtr]::Zero -and $hAhora -ne $antesH) { $aparecio = $true; break }
+                        }
+                        if ($aparecio) {
+                            Start-Sleep -Milliseconds 350        # que termine de pintarse antes de moverla
+                            Send-WinKey $parte.vk
+                            $colocadas++
+                            Start-Sleep -Milliseconds 400
+                            $antesH = [AX]::GetForegroundWindow()
+                        }
+                    }
+                    if ($colocadas -lt 2) { $a.desc = "$($a.desc); una de las dos no llego a colocarse" }
+                }
                 'lock' { Start-Process 'rundll32.exe' 'user32.dll,LockWorkStation' -ErrorAction Stop }
                 'altf4' { [AX]::keybd_event([byte]$VK_MENU, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 40; Send-Key 0x73; [AX]::keybd_event([byte]$VK_MENU, 0, $KEYUP, [UIntPtr]::Zero) }
                 'alttab' { [AX]::keybd_event([byte]$VK_MENU, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 40; Send-Key 0x09; Start-Sleep -Milliseconds 40; [AX]::keybd_event([byte]$VK_MENU, 0, $KEYUP, [UIntPtr]::Zero) }
@@ -9211,6 +9337,10 @@ try {
 $MarcaDictar = Join-Path $TmpDir "dictar.flag"
 # confirmacion por voz de coincidencias dudosas: el worker escucha si/no
 $MarcaConfirmar = Join-Path $TmpDir "confirmar.flag"
+# PARAR LIMPIO (18/09): tools\parar-nova.ps1 deja esta marca y el bucle sale por exit, que
+# es lo unico que dispara PowerShell.Exiting (un Stop-Process no lo hace). Antes la unica
+# forma de parar a Nova era matarla, y la linea "VoiceAssistant cerrado" no salia nunca.
+$MarcaSalir = Join-Path $TmpDir "salir.flag"
 $RutaConfirmacion = Join-Path $TmpDir "confirmacion.txt"
 # vocabulario (apps, sitios, juegos) para que Whisper acierte los nombres
 $RutaVocabulario = Join-Path $TmpDir "vocabulario.txt"
@@ -9308,7 +9438,7 @@ try {
 # NO en el banco (-Probar): tmp\ es el MISMO que usa el asistente encendido, y
 # borrarle las marcas le quitaba la pausa mientras hablaba (se oia a si mismo,
 # 12/09 22:20) o le cancelaba un dictado o una confirmacion en curso.
-foreach ($m in $(if ($Probar) { @() } else { @($MarcaPausa, $MarcaSoloBoton, $MarcaDictar, $MarcaConfirmar, $MarcaReintento, $MarcaWake) })) {
+foreach ($m in $(if ($Probar) { @() } else { @($MarcaPausa, $MarcaSoloBoton, $MarcaDictar, $MarcaConfirmar, $MarcaReintento, $MarcaWake, $MarcaSalir) })) {
     if (Test-Path -LiteralPath $m) {
         Log "marca huerfana de la sesion anterior: $(Split-Path -Leaf $m)"
         try { Remove-Item -LiteralPath $m -Force -ErrorAction SilentlyContinue } catch {}
@@ -10407,6 +10537,25 @@ function Save-Recordatorios($lista) {
 
 function Invoke-RecordatorioVoz([string]$text) {
     $p = ConvertTo-Plain $text
+    # "REVISA MI CALENDARIO PARA MAÑANA" (18/09). braya lo pidio tres veces y acabo en el agente
+    # (23 s) o en la charla. Nova no tiene calendario -el correo va por IMAP y por ahi no se
+    # llega a Google Calendar-, pero tiene SUS recordatorios, que es justo lo que el agente
+    # acabo contestando. Aqui se contesta en local, filtrando por dia si lo dice. Lo que
+    # empieza por recuerdame/avisame/pon es CREAR uno y sigue su camino.
+    if ($p -notmatch '^(?:recuerdame|avisame|recordatorio|ponme|pon)\b' -and
+        ($p -match '\b(?:calendario|agenda)\b' -or $p -match '^(?:que\s+)?tengo\s+algo\s+(?:apuntado|anotado|programado|pendiente)\b' -or $p -match '^que\s+tengo\s+(?:apuntado|anotado|programado)\b') -and
+        $p -match '^(?:(?:puedes?\s+|podrias\s+)?(?:revisa|revisar|mira|mirar|consulta|consultar|dime|decirme|ver|que)\b.*|(?:que\s+)?tengo\s+algo\b.*)$') {
+        $hoyC = (Get-Date).Date
+        $diaC = $null
+        if ($p -match '\bpasado\s+manana\b') { $diaC = $hoyC.AddDays(2) } elseif ($p -match '\bmanana\b') { $diaC = $hoyC.AddDays(1) } elseif ($p -match '\bhoy\b') { $diaC = $hoyC }
+        $rsC = @(Get-Recordatorios | Sort-Object cuando)
+        if ($diaC) { $rsC = @($rsC | Where-Object { $c = $null; try { $c = [DateTime]$_.cuando } catch {}; $c -and $c.Date -eq $diaC }) }
+        $cuandoC = if (-not $diaC) { '' } elseif ($diaC -eq $hoyC) { ' para hoy' } elseif ($diaC -eq $hoyC.AddDays(1)) { ' para manana' } else { ' para pasado manana' }
+        if ($rsC.Count -eq 0) { return "No tienes nada apuntado$cuandoC. Si quieres, di: recuerdame manana a las diez que llame al medico." }
+        $culC = New-Object System.Globalization.CultureInfo('es-MX')
+        $listaC = @($rsC | ForEach-Object { ([DateTime]$_.cuando).ToString('dddd d "a las" H:mm', $culC) + ', ' + $_.texto })
+        return ("Tienes " + $(if ($rsC.Count -eq 1) { 'una cosa' } else { "$($rsC.Count) cosas" }) + "$cuandoC`: " + ($listaC -join '. ') + '.')
+    }
     if ($p -match '^(?:que recordatorios (?:tengo|hay)|mis recordatorios|que tengo pendiente|que me tienes que recordar)$') {
         $rs = @(Get-Recordatorios | Sort-Object cuando)
         if ($rs.Count -eq 0) { return "No tienes recordatorios. Di, por ejemplo: recuerdame manana a las diez que llame al medico." }
@@ -12523,7 +12672,10 @@ function Submit-Command([string]$text, [string]$modo = 'accion', [string]$adjunt
         # llego aqui y el agente cerro Claude (con el usuario escribiendo en
         # el), la capsula, Steam y Discord, sin preguntar. El agente tiene
         # manos de verdad: lo que nunca debe tocar se le dice cada vez.
-        $prompt = "REGLA FIJA: nunca cierres, mates ni reinicies estos procesos: nova_ui, powershell, pwsh, python, WindowsTerminal, OpenConsole, conhost, claude, opencode, node, explorer, ni ningun proceso del sistema; son el propio asistente y la sesion del usuario. Si la tarea es cerrar todos los programas o muchos a la vez, NO la hagas: contesta solo 'Para eso di: cierra todos los programas. Te pregunto antes de cerrar nada.' " + $prompt
+        # LO QUE YA EXISTE NO SE PISA (18/09). "Crea un archivo Hola con Hola Mundo dentro":
+        # Hola.txt ya estaba en el escritorio desde el 15/09, el agente lo sobrescribio y
+        # contesto "Listo, cree el archivo". Destructivo y ademas falso en el reporte.
+        $prompt = "REGLA FIJA: nunca cierres, mates ni reinicies estos procesos: nova_ui, powershell, pwsh, python, WindowsTerminal, OpenConsole, conhost, claude, opencode, node, explorer, ni ningun proceso del sistema; son el propio asistente y la sesion del usuario. Si la tarea es cerrar todos los programas o muchos a la vez, NO la hagas: contesta solo 'Para eso di: cierra todos los programas. Te pregunto antes de cerrar nada.' REGLA FIJA 2: si te piden crear un archivo o carpeta y YA EXISTE algo con ese nombre, NO lo sobrescribas ni lo modifiques: contesta que ya existe y que no lo has tocado. Nunca borres ni sobrescribas archivos del usuario. Y en el resumen final di exactamente lo que hiciste: 'creado', 'modificado' o 'ya existia, sin cambios'; nunca digas que creaste algo que ya estaba. " + $prompt
     }
     # 'charla' encadena la sesion anterior: recuerda lo hablado antes
     $extra = if ($modo -eq 'charla') { '--continue' } else { '' }
@@ -13021,7 +13173,10 @@ function Report-Reply($out) {
 
 # --- confirmacion por voz ---
 $ConfirmacionOn = [bool](Get-Cfg 'confirmacion' 'activada' $true)
-$ConfirmacionMs = [int](Get-Cfg 'confirmacion' 'esperaMs' 3500)
+# 6 s y no 3,5 (18/09): tres segundos y medio para decidir un si es poco para una persona,
+# y en el uso real del 18/09 se cancelo por plazo una pregunta a la que si iba a contestar.
+# Con 6 sigue siendo corto si no contestas, que es lo que hay que proteger.
+$ConfirmacionMs = [int](Get-Cfg 'confirmacion' 'esperaMs' 6000)
 $script:pendiente = $null
 $script:confirmado = $false
 # 'confirmado' = el usuario dijo que si. 'sinDudosa' = no preguntes por
@@ -15485,6 +15640,14 @@ while ($true) {
         $script:seguimientoPendiente = $false
     }
 
+    # --- PARAR LIMPIO (18/09): la marca de tools\parar-nova.ps1 ---
+    if (Test-Path -LiteralPath $MarcaSalir) {
+        Remove-Item -LiteralPath $MarcaSalir -Force -ErrorAction SilentlyContinue
+        Log "SALIDA pedida por marca: me cierro limpiamente"
+        try { Set-UI 'reposo' } catch {}
+        exit 0    # por aqui SI se dispara PowerShell.Exiting y se escribe "cerrado"
+    }
+
     # --- CONFIRMACION PENDIENTE (si / no / plazo) ---
     if ($script:pendiente) {
         # QUE SE VEA QUE ESPERA UN SI O UN NO. Mientras la pregunta suena manda
@@ -15493,6 +15656,13 @@ while ($true) {
         # que le estan preguntando algo, que es justo como el silencio acababa
         # cancelando ordenes buenas.
         if ($script:uiEstado -ne 'confirmando' -and -not $script:busy -and $script:uiHasta -le $sw.ElapsedMilliseconds) {
+            # EL PLAZO EMPIEZA AQUI, cuando de verdad termina de hablar (18/09). Hasta hoy
+            # empezaba al hacer la pregunta, con una ESTIMACION de lo que iba a durar la voz:
+            # si la frase real tardaba mas, el plazo se comia hablando. Caso de las 18:47:
+            # pregunta a las :18, micro libre a las :26, cancelada por plazo a las :29. Tres
+            # segundos reales para contestar. El worker ya esperaba a que acabara la pausa;
+            # el que contaba mal era este lado.
+            $script:pendiente.vence = $sw.ElapsedMilliseconds + $ConfirmacionMs
             $queda = [Math]::Max(0, $script:pendiente.vence - $sw.ElapsedMilliseconds)
             $script:confirmaFin = [DateTimeOffset]::Now.ToUnixTimeMilliseconds() + $queda
             $script:confirmaTotal = [Math]::Max(1, $queda)

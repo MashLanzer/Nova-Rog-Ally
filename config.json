@@ -90,7 +90,7 @@
     },
     "confirmacion": {
         "activada": true,
-        "esperaMs": 3500
+        "esperaMs": 6000
     },
     "clima": {
         "activada": true,

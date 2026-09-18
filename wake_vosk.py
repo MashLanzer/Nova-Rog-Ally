@@ -98,7 +98,9 @@ MODELO_PRECISO = sys.argv[17] if len(sys.argv) > 17 and sys.argv[17] not in ("",
 MODELO_ULTIMO = sys.argv[18] if len(sys.argv) > 18 and sys.argv[18] not in ("", "-") else ""
 # se suelta tras este rato sin usarse (~1 GB de RAM); con un juego delante, en seguida
 ULTIMO_SOLTAR = 120.0
-CONFIRMACION_MAX = 5.0
+# 8 s y no 5 (18/09): el worker tiene que escuchar el si/no AL MENOS lo que el asistente
+# espera (6 s), con margen. Antes era al reves y el asistente cortaba mientras este escuchaba.
+CONFIRMACION_MAX = 8.0
 # el oido fino no repasa audios mas largos que esto (ver atender_reintento)
 REPASO_MAX = 8.0
 
