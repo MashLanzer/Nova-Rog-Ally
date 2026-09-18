@@ -966,8 +966,23 @@ haya 200, importa». Hoy el fichero entero son **123 bytes**. Queda el método p
 *Y hay un motivo para no automatizarlo aún:* si mañana cambia el catálogo local y deja de
 entender la frase, la traducción retirada ya no estaría para salvarla.
 
-**50. Fundir recetas duplicadas.** Dos recetas que hacen lo mismo con distinta frase son una
-receta con dos variantes.
+**50. Fundir recetas duplicadas.** — **NO PROCEDE: no hay ninguna duplicada (18/09)**
+*Las 4 recetas hacen cosas distintas,* aunque dos lo parezcan. Mirando el paso de cada una (el
+campo es `texto`, no `script` — mi primera lectura lo dio como vacío):
+
+| receta | usos | lo que lee de verdad |
+|---|---:|---|
+| 1 · «crea una nota en el escritorio que diga {texto}» | 2 | *(ya tiene 1 variante guardada)* |
+| 2 · «que hay en mis descargas» | 0 | `$env:USERPROFILE\Downloads` |
+| 3 · «que hay en mis documentos» | 0 | `$env:USERPROFILE\Documents` |
+| 4 · «cuantos clips tengo» | 0 | `$env:USERPROFILE\Videos\Captures` |
+
+Las 2 y 3 son las que más se parecen, y **fundirlas daría una respuesta falsa**: apuntan a
+carpetas distintas. No hay dos recetas que hagan lo mismo.
+
+*Y el mecanismo que la idea propone ya existe y funciona:* la receta 1 guarda «crea una nota en
+el escritorio **llamada** {texto}» como **variante** de «…**que diga** {texto}». Eso es
+exactamente «una receta con dos formas de decirla», y se hizo sola.
 
 **51. Limpiar su `perfil.md` de lo caducado.** Lo que se contradice con algo más reciente no
 debería seguir contando como verdad.
