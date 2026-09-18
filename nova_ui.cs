@@ -3790,10 +3790,17 @@ public class NovaUI : Window
             ventanaTexto.OpacityMask = mascaraDer;
             var a = new DoubleAnimation(0, -sobra, TimeSpan.FromMilliseconds(sobra * 10));
             a.BeginTime = TimeSpan.FromMilliseconds(900);
+            // A 30 FPS, NO A 60 (17/09). Esto dura sobra*10 ms: con una respuesta larga son
+            // unos 7 s, y van DOS animaciones a la vez (el texto y su rastro desenfocado).
+            // Es la animacion mas larga que queda sin limitar, y encima cae justo cuando
+            // Nova acaba de contestar. Un texto que se desliza en linea recta no se
+            // distingue a 30, y son la mitad de fotogramas compuestos mientras juegas.
+            Timeline.SetDesiredFrameRate(a, 30);
             a.Completed += delegate { if (gen == generacionTexto) { ventanaTexto.OpacityMask = mascaraIzq; etiquetaSombra.BeginAnimation(OpacityProperty, new DoubleAnimation(0, TimeSpan.FromMilliseconds(250))); } };
             // el rastro: la misma animacion con 70 ms de retraso, desenfocada
             var s = new DoubleAnimation(0, -sobra, TimeSpan.FromMilliseconds(sobra * 10));
             s.BeginTime = TimeSpan.FromMilliseconds(970);
+            Timeline.SetDesiredFrameRate(s, 30);
             var arranque = new DispatcherTimer();
             arranque.Interval = TimeSpan.FromMilliseconds(950);
             arranque.Tick += delegate

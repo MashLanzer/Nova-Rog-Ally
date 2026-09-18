@@ -198,7 +198,7 @@ Lo más grave no está en el dibujado, sino en **el camino de la voz**.
 | 6 | La caché de voz solo se poda **al arrancar**: el worker vive desde el login, así que el tope de 60 MB nunca se aplica en caliente | MEDIO | `tts_worker.py:107` | Podar cada N frases desde `principal()` |
 | 7 | El cerebro reescribe `cerebro.json` y `vectores.json` **enteros en cada turno** (~6 MB) aunque solo cambie `usos += 1`; y `completar_vectores` lo hace cada 16 vectores, en reposo y a batería | MEDIO | `charla_memoria.py:212` | No guardar en `respuesta_directa`; marcar sucio y agrupar |
 | 8 | La cápsula lee **un solo evento por vuelta** de 80 ms: dos eventos seguidos y el primero se pierde (ya hubo un parche puntual por esto) | MEDIO | `assistant.ps1:8596` | Encolar en `Send-UIEvento` cuando el anterior no se ha consumido |
-| 9 | El texto se corta a mitad de palabra (la voz sí corta bien) y la marquesina desplaza texto + copia desenfocada a 60 fps, ~7 s por respuesta larga | MEDIO | `assistant.ps1:8541` | Cortar por el último espacio, como ya hace `Get-TextoVoz` |
+| 9 | El texto se corta a mitad de palabra (la voz sí corta bien) y la marquesina desplaza texto + copia desenfocada a 60 fps, ~7 s por respuesta larga | MEDIO | `assistant.ps1:8541` | Cortar por el último espacio, como ya hace `Get-TextoVoz` → **HECHA** |
 | 10 | El revisor de memoria despierta **cada 3 s para siempre** (1.200/hora) y recorre 5.000 recuerdos para descubrir que no hay nada que hacer | LEVE | `charla_worker.py:663` | Sleep adaptativo 3 s → 30 s |
 | 11 | La cápsula deja de anotar sus errores a partir del nº 50 **de toda la vida del proceso**, y al llegar a 200 KB borra el log en vez de rotarlo | LEVE | `nova_ui.cs:399` | Reiniciar el contador cada hora |
 
@@ -219,6 +219,19 @@ Cada hallazgo trae 5 mejoras ordenadas de más barata a más cara, con cómo med
 
 ### 3.5 Decisiones tomadas al implementar (17/09)
 
+- **HECHO — 3.3 #9, el texto partido y la marquesina a 60 fps.** Dos mitades.
+  **La que se ve:** `Set-UI` cortaba a 137 letras a pelo, o sea a mitad de palabra
+  -"he abierto el esc..." por "el escritorio"-. La VOZ ya lo hacia bien **desde el 14/09**
+  (`Get-TextoVoz` busca el final de una frase y si no el ultimo espacio): lo que se oia
+  estaba cuidado y lo que se leia no. Ahora corta por el ultimo espacio, sin dejar coma ni
+  punto colgando. Sacado a `Get-TextoCapsula` para poder ejecutarlo en una prueba sin montar
+  media capsula; 12 casos en `probar-texto-capsula.ps1` (2n16), **uno de ellos demuestra que
+  el corte viejo partia la palabra**, que es lo que hace que los otros 11 signifiquen algo.
+  **La que se nota:** la marquesina dura `sobra * 10` ms -con una respuesta larga, unos 7 s-
+  y van **dos animaciones a la vez**, el texto y su rastro desenfocado, las dos a 60 fps y
+  **ninguna limitada**: era la animacion mas larga que quedaba suelta, y cae justo cuando
+  Nova acaba de contestar. A 30 fps son la mitad de fotogramas compuestos; un texto que se
+  desliza en linea recta no se distingue a 30. Un juego delante lo agradece mas que nadie.
 - **HECHO — 3.2 #9, `Find-Traduccion` devolvia la primera, no la mas parecida.**
   Cierto en el codigo, pero **hoy no puede pasar**: hay 2 traducciones guardadas y no se
   parecen en nada (distancia ~25 sobre un tope de 5). Asi que esto no rescata ninguna orden y

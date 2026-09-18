@@ -8830,14 +8830,32 @@ function ConvertTo-JsonTexto([string]$s) {
     return $t.Replace('\', '\\').Replace('"', '\"')
 }
 
+# EL TEXTO DE LA CAPSULA, CORTADO POR DONDE SE PUEDE LEER (17/09). Cortaba a 137 letras a
+# pelo, o sea a mitad de palabra: "no he podido abrir la carpeta de desc..." se quedaba en
+# "desc". La VOZ ya lo hacia bien desde el 14/09 -Get-TextoVoz busca el final de una frase y
+# si no el ultimo espacio-; esto es lo mismo para lo que se LEE, que es por donde pasa TODO
+# el texto que ensena la capsula.
+#
+# Si la ultima palabra no cabe entera, se corta por el espacio anterior. Una palabra
+# larguisima sin espacios utiles (una ruta, una URL) se corta a pelo a proposito: es mejor
+# que ensenar tres palabras y kilometro y medio de nada.
+# Aparte de Set-UI para que una prueba pueda ejecutarla sin montar media capsula.
+function Get-TextoCapsula([string]$texto, [int]$tope = 140) {
+    $t = (($texto -replace '[\r\n\t]+', ' ') -replace '\s+', ' ').Trim()
+    if ($t.Length -le $tope) { return $t }
+    $cabe = $t.Substring(0, $tope - 3).TrimEnd()
+    $esp = $cabe.LastIndexOf(' ')
+    if ($esp -ge [int]($tope * 0.4)) { $cabe = $cabe.Substring(0, $esp) }
+    return $cabe.TrimEnd([char[]]@(' ', ',', ';', ':', '.')) + '...'
+}
+
 function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
     if (-not $UiNuevaOn) { return }
     # ESCONDIDA: volver al reposo es volver a esconderse. Sin esto, la propia
     # respuesta ("me quito...") la sacaba y al callar se quedaba a la vista
     # (13/09). Hablar o escuchar si la ensenan un momento.
     if ($estado -eq 'reposo' -and $script:uiRetirada) { $estado = 'retirada' }
-    $t = (($texto -replace '[\r\n\t]+', ' ') -replace '\s+', ' ').Trim()
-    if ($t.Length -gt 140) { $t = $t.Substring(0, 137) + "..." }
+    $t = Get-TextoCapsula $texto
     $script:uiEstado = $estado
     $script:uiTexto = $t
     # la marca de "lo lleva la IA" dura lo que dura el pensar: cualquier otro
