@@ -172,8 +172,18 @@ no de Nova.
 *Si algún día procede, la pieza ya está:* Nova sabe leer el espacio libre
 (`AvailableFreeSpace`), que es lo que usa para contestarte cuánto queda.
 
-**8. Ajustar el oído por hora y por ruido.**
-Tiene `ritmo` y `charlaHoras`. *Freno: solo franjas con muchos días de datos.*
+**8. Ajustar el oído por hora y por ruido.** — **NO PROCEDE (medido 17/09)**
+Misma causa que la idea 2, y conviene que quede junta: **41 de los 57 descartes son del
+11/09**, el día del fallo de ganancia ya arreglado, y ese día contamina **todas** las franjas
+(14h:3, 15h:7, 16h:4, 17h:6, 18h:5, 19h:11, 20h:5).
+Los días limpios (15 y 16/09) tienen **5 descartes cada uno**, repartidos de uno en uno. Solo
+dos franjas tienen descartes en 3 días o más —las 18h y las 19h— y **quitando el 11/09 quedan
+4 y 2**. Con eso no se decide nada: las franjas que peor pinta tienen (16h, 11h) son
+justamente las que menos datos tienen (5 y 6 activaciones en total).
+**Y de aquí sale una idea nueva, la 61:** `Test-DatosRepartidos` exige días distintos, pero
+**no** exige que los datos sean **posteriores al arreglo de la cosa que se mide**. Dos veces
+ya (ideas 2 y 8) los datos que invitaban a actuar eran de antes de arreglar el problema que
+los causaba.
 
 **9. Rehacer sola tu huella de voz.**
 El tono aprendido son **119,6 Hz**. Recalcular con muestras nuevas y **avisar del cambio**.
@@ -325,6 +335,17 @@ de lo normal, proponer deshacer **todos** sus ajustes de golpe.
 
 **60. Incluirse en el parte semanal que ya escribe.** Una sección de «lo que decidí, con qué
 dato, y si acerté». Si no puede explicar una decisión con un número, es que no debía tomarla.
+
+---
+
+## Una más, salida del trabajo (61)
+
+**61. No decidir con datos anteriores al arreglo de lo que se mide.**
+`Test-DatosRepartidos` ya exige 3 días distintos y que ninguno pase del 70 %, pero no sabe
+que el 16/09 se arregló la ganancia. Dos ideas seguidas (la **2** y la **8**) invitaban a
+actuar con datos que eran **secuela de un fallo ya corregido**. Haría falta una **fecha de
+corte**: cuando Nova cambia algo que afecta a lo que mide, los datos de antes no cuentan para
+decidir sobre ello. Ella ya apunta sus cambios en `auto-ajuste`, así que la fecha está.
 
 ---
 
