@@ -790,8 +790,26 @@ viejo, ya corregido: después de esa fecha no vuelve a aparecer.
 
 ### Decidir con lo que ya vigila
 
-**41. Dejar de vigilar logros de un juego que no los da.**
-`Watch-LogrosSteam` lee un `.bin` cada poco. Si un juego no suelta logros, dejarlo.
+**41. Dejar de vigilar logros de un juego que no los da.** — **YA HECHA, y no había nada que ganar (18/09)**
+*El autoapagado que pedía la idea ya existe.* Si no encuentra el `.bin` del juego,
+`Watch-LogrosSteam` marca `$logroArchivo = '-'` y a partir de ahí **sale en la primera línea sin
+tocar el disco** (línea 10172). Un juego que no suelta logros ya deja de vigilarse solo.
+
+*Y el centinela se reinicia bien en los tres caminos:* sin juego (10165), al **entrar** en uno
+(`Enter-Juego`, 10356) y en la búsqueda inicial. Comprobé a propósito el caso que parecía un
+fallo —saltar de un juego a otro sin pasar por «sin juego», donde la rama del cambio asigna
+`$juegoActivo` sin tocar el centinela— y **no lo es**: `Enter-Juego` lo limpia.
+
+*Y aunque no existiera, no habría nada que recoger.* Medido en este equipo, con 94 ficheros en
+`appcache\stats`:
+
+| | coste |
+|---|---:|
+| `Get-ChildItem` con filtro (una vez por juego) | 8 ms la primera, **1 ms** después |
+| `GetLastWriteTimeUtc` (la comprobación repetida) | **0 ms** |
+| cadencia | **cada 10 s**, y solo con un juego delante |
+
+Funciona, además: **3 logros** detectados, todos de *It Takes Two*.
 
 **42. Ajustar el historial del portapapeles.**
 `Watch-Portapapeles` guarda 10 fijos. Que lo suba o baje según cuántos reutilizas de verdad.
