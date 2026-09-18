@@ -393,7 +393,22 @@ auto-sellado de 6184 intacto, así que el resumen seguiría sin salir nunca.* Ac
 arriba. También hay que decir que el daño del lado de la meta **aún no ha ocurrido**: `destinos.jsonl`
 no existe y no ha habido órdenes de voz desde que la pieza entró (`5a567b2`, 17/09 09:33).
 
-#### E2 — Que la charla y el agente dejen huella, **sin robarle el id a la orden**
+#### E2 — Que la charla y el agente dejen huella, **sin robarle el id a la orden** ✅ **HECHA el 18/09**
+
+> `$DestinosNeutros` (charla, traducir, plan, accion, pregunta): dejan su línea y fijan el id
+> para poder corregirlo, pero **no lo consumen**, que era el recorte obligatorio de la ficha.
+>
+> **Un riesgo que la ficha no veía y que habría estropeado justo lo que mide la meta nº 1:**
+> `acerto` y `fallo` se imprimen como porcentaje sobre `len(conDestino)`. Metiendo ahí las
+> charlas, el denominador crece y **el porcentaje de aciertos baja solo**, sin que Nova falle ni
+> una vez más. Por eso el analizador ahora juzga solo lo juzgable y cuenta las neutras aparte.
+>
+> Y de paso, dos fallos **míos** en los casos, que dejo escritos porque valen para todo el banco:
+> comparar contra un conteo **absoluto** (se pone rojo en cuanto alguien añade un caso más
+> arriba) y, sobre todo, `@(Lineas)[0]`, que **no indexa una línea**: `Lineas` devuelve `,$res` y
+> el `@()` lo envuelve otra vez (medido: `Count=1` y su elemento 0 es otro `Object[]`), así que
+> `ConvertFrom-Json` recibía las cuatro líneas, `$j.hizo` era un array y el `-eq` **filtraba en
+> vez de comparar**: verde dijera lo que dijera. La forma correcta es `(Lineas)[i]`.
 
 **Qué hace.** Hoy más de la mitad del uso real no entra en la cuenta de «¿acertó?». Medido sobre
 `memoria/estadisticas.json`: el 15/09 hubo **142 eventos de rutas apuntables frente a 145 que no lo

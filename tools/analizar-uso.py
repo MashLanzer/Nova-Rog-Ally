@@ -29,6 +29,10 @@ USO = os.path.join(RAIZ, "pruebas", "audio", "uso")
 # lo que cuenta como que Nova ACERTO, y lo que cuenta como que fallo
 BIEN = ("local", "aprendida", "memoria", "traducida", "receta", "recitado")
 MAL = ("error", "descarte", "ruido")
+# NI ACIERTO NI FALLO (18/09): lo que Nova hizo con la frase, no si acerto. Mas de la mitad del
+# uso real es esto y hasta hoy no dejaba rastro ninguno. No pueden entrar en el porcentaje: si
+# lo hicieran, el denominador crece y los aciertos bajan solos sin que Nova falle ni una vez.
+NEUTRO = ("charla", "traducir", "plan", "accion", "pregunta")
 
 
 def leer(nombre):
@@ -120,10 +124,18 @@ def main():
         dichas = [o for o in conDestino if o.get("lo_dijo_mal")]
         bien = [o for o in conDestino if o["hizo"] in BIEN and not o.get("lo_dijo_mal")]
         mal = [o for o in conDestino if o["hizo"] in MAL or o.get("lo_dijo_mal")]
+        # las neutras se cuentan aparte: si entraran en el denominador, el porcentaje de
+        # aciertos bajaria solo por hablar con Nova, sin que se equivocara en nada
+        neutras = [o for o in conDestino if o["hizo"] in NEUTRO and not o.get("lo_dijo_mal")]
+        idsN = set(o["id"] for o in neutras)
+        juzgadas = [o for o in conDestino if o["id"] not in idsN]
+        base = max(1, len(juzgadas))
         print("")
         print("DE LAS %d QUE SE SABE QUE HIZO:" % len(conDestino))
-        print("  acerto:  %3d  (%.0f %%)" % (len(bien), 100.0 * len(bien) / len(conDestino)))
-        print("  fallo:   %3d  (%.0f %%)" % (len(mal), 100.0 * len(mal) / len(conDestino)))
+        if neutras:
+            print("  (%d son charla, traduccion o agente: ni acierto ni fallo, van aparte)" % len(neutras))
+        print("  acerto:  %3d  (%.0f %%)" % (len(bien), 100.0 * len(bien) / base))
+        print("  fallo:   %3d  (%.0f %%)" % (len(mal), 100.0 * len(mal) / base))
         if dichas:
             print("  ...y %d de esos fallos los dijiste TU ('no era eso'), que es el dato" % len(dichas))
             print("     que no depende de interpretar nada.")

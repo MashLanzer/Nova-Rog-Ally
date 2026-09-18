@@ -20,6 +20,9 @@ function Traer([string]$n) {
 $DestinosUso = Invoke-Expression (($ast.Find({ param($x)
     $x -is [System.Management.Automation.Language.AssignmentStatementAst] -and
     $x.Left.Extent.Text -eq '$DestinosUso' }, $true)).Right.Extent.Text)
+$DestinosNeutros = Invoke-Expression (($ast.Find({ param($x)
+    $x -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+    $x.Left.Extent.Text -eq '$DestinosNeutros' }, $true)).Right.Extent.Text)
 Invoke-Expression (Traer 'Write-DestinoUso')
 
 # un sitio de mentira, con la forma que tiene el de verdad
@@ -56,7 +59,10 @@ Write-Host '  -- se apunta lo que hizo --'
 PonId '20260917-010203'
 $r = Write-DestinoUso 'local' 'abre steam'
 Comp 'una orden local se apunta' ($r -and (Lineas).Count -eq 1) ("lineas: " + (Lineas).Count)
-$j = @(Lineas)[0] | ConvertFrom-Json
+# SIN @(): "@(Lineas)[0]" no da la primera LINEA, da el array entero, porque Lineas devuelve
+# ",$res" y el @() lo envuelve otra vez (medido: Count=1 y su elemento 0 es otro Object[]).
+# Aqui acertaba de milagro, porque en este punto solo hay una linea.
+$j = (Lineas)[0] | ConvertFrom-Json
 Comp 'con el id de esa orden' ($j.id -eq '20260917-010203') "id=$($j.id)"
 Comp 'y con lo que hizo' ($j.hizo -eq 'local' -and $j.detalle -eq 'abre steam') "hizo=$($j.hizo) detalle=$($j.detalle)"
 
@@ -73,12 +79,36 @@ Comp 'y NO se come el id de la frase' (Test-Path -LiteralPath $marca) ''
 $r4 = Write-DestinoUso 'error' 'no supe hacerlo'
 Comp 'el destino de verdad si lo usa' ($r4 -and (Lineas).Count -eq 2) ("lineas: " + (Lineas).Count)
 
+Write-Host '  -- la charla y el agente dejan huella, sin comerse el id (18/09) --'
+# Mas de la mitad del uso real es charla, traduccion o agente, y no dejaba rastro: un "no era
+# eso" dicho tras una charla marcaba la ultima orden LOCAL, de hasta 300 s antes.
+PonId '20260918-020000'
+$nAnt = (Lineas).Count
+$rN = Write-DestinoUso 'charla' 'que es un volcan'
+Comp 'una charla se apunta' ($rN -and (Lineas).Count -eq ($nAnt + 1)) ("lineas: " + (Lineas).Count)
+Comp 'pero NO se come el id de la frase' (Test-Path -LiteralPath $marca) ''
+Comp 'y queda recordada por si dices que estuvo mal' ($script:ultimoUsoId -eq '20260918-020000') "id=$($script:ultimoUsoId)"
+# y esto es lo que protege la medicion: el destino de verdad llega despues y SI lo consume
+$nAnt2 = (Lineas).Count
+$rR = Write-DestinoUso 'traducida' 'abre steam'
+Comp 'el destino de verdad se apunta con el mismo id' ($rR -and (Lineas).Count -eq ($nAnt2 + 1)) ''
+# OJO: "@(Lineas)[-1] | ConvertFrom-Json" NO da la ultima linea; le llegan todas y devuelve
+# un objeto por cada una, con lo que $jN.hizo es un ARRAY y cualquier -eq contra el filtra en
+# vez de comparar: el caso sale verde diga lo que diga. Se indexa sobre una variable.
+$todasN = (Lineas)
+$jN = $todasN[$todasN.Count - 1] | ConvertFrom-Json
+Comp 'y es el que manda al contar' ($jN.hizo -eq 'traducida' -and $jN.id -eq '20260918-020000') "hizo=$($jN.hizo)"
+Comp 'ahora si se consume el id' (-not (Test-Path -LiteralPath $marca)) ''
+
 Write-Host '  -- y no molesta cuando no toca --'
+# la referencia se toma AQUI y no se escribe a mano: cualquier caso que se añada mas arriba
+# deja mas lineas en el fichero, y un numero fijo se pondria rojo sin que nada este roto
+$nBase = (Lineas).Count
 $r5 = Write-DestinoUso 'local' 'sin ninguna orden delante'
-Comp 'sin id no apunta nada' ((-not $r5) -and (Lineas).Count -eq 2) ''
+Comp 'sin id no apunta nada' ((-not $r5) -and (Lineas).Count -eq $nBase) ''
 PonId ''
 $r6 = Write-DestinoUso 'local' 'id vacio'
-Comp 'con el id vacio tampoco' ((-not $r6) -and (Lineas).Count -eq 2) ''
+Comp 'con el id vacio tampoco' ((-not $r6) -and (Lineas).Count -eq $nBase) ''
 PonId '20260917-011000'
 Remove-Item -LiteralPath $dirUso -Recurse -Force
 $r7 = Write-DestinoUso 'local' 'sin grabaciones'

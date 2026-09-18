@@ -1416,16 +1416,28 @@ $script:descarteYaVa = @{}
 # haciendo append al mismo archivo es pedir una carrera justo en lo que existe para
 # medir bien.
 $DestinosUso = @('local', 'aprendida', 'memoria', 'traducida', 'receta', 'error', 'descarte', 'ruido', 'recitado')
+# LA CHARLA Y EL AGENTE TAMBIEN DEJAN HUELLA (18/09), pero no son ni acierto ni fallo: son lo
+# que Nova hizo con la frase, no si acerto. Mas de la mitad del uso real caia aqui y se quedaba
+# fuera de la cuenta (el 15/09: 142 eventos apuntables frente a 145 que no lo eran).
+# Lo importante es que NO CONSUMEN EL ID. Una sola frase dispara varias Add-Estadistica en
+# cadena -la misma frase del 16/09 21:59 esta apuntada como [charla], [traducir] y [traducida]-,
+# asi que si 'traducir' se comiera el id, el destino de verdad se quedaria sin el y los
+# 'traducida' del registro pasarian de acierto a neutro. Dejan linea, fijan el id para poder
+# corregirlo, y siguen su camino.
+$DestinosNeutros = @('charla', 'traducir', 'plan', 'accion', 'pregunta')
 function Write-DestinoUso([string]$ruta, [string]$detalle = '') {
     # solo los destinos de una frase: 'fino', 'turbo' o 'parakeet' cuentan como OYO, no
     # como HIZO, y se llaman en la misma orden que el destino de verdad
-    if ($DestinosUso -notcontains $ruta) { return $false }
+    $neutroU = ($DestinosNeutros -contains $ruta)
+    if (-not $neutroU -and $DestinosUso -notcontains $ruta) { return $false }
     $marca = Join-Path $TmpDir 'dictado-id.txt'
     if (-not (Test-Path -LiteralPath $marca)) { return $false }
     try {
         $idU = ([System.IO.File]::ReadAllText($marca)).Trim()
-        # se CONSUME: una frase tiene un destino, y si no el id se le pegaria a la siguiente
-        Remove-Item -LiteralPath $marca -Force -ErrorAction SilentlyContinue
+        # se CONSUME: una frase tiene un destino, y si no el id se le pegaria a la siguiente.
+        # Los neutros NO: la charla o la traduccion se apuntan ANTES de que se sepa el destino
+        # de verdad, y comerse el id ahi dejaria a la orden real sin el (18/09).
+        if (-not $neutroU) { Remove-Item -LiteralPath $marca -Force -ErrorAction SilentlyContinue }
         if (-not $idU) { return $false }
         $dirU = Join-Path $LogDir 'pruebas\audio\uso'
         if (-not (Test-Path -LiteralPath $dirU)) { return $false }   # sin grabaciones no hay nada que emparejar
