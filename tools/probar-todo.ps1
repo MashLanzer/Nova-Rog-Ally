@@ -142,6 +142,10 @@ Titulo "2x. La frase de ejemplo recitada no es una orden (y lo mal oido no se ap
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-recitado.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n23. La sonda de carga es barata (y se apaga sola si no lo es)"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-carga-cpu.ps1') | Select-String 'todo correcto|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2i. Deshacer por ventana de tiempo (la foto mas vieja, no la ultima)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-deshacer.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }

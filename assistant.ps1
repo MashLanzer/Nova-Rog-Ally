@@ -14361,6 +14361,63 @@ $script:corrigiendo = $false
 $script:bateriaCheck = 0
 $script:bateriaAvisada = $false
 $script:cargaCheck = 0
+
+# LA SONDA DE CARGA COSTABA UN SEGUNDO ENTERO (18/09). Get-CimInstance Win32_Processor
+# tarda entre 1057 y 1320 ms en este equipo (cinco medidas de cinco, en caliente), y se
+# llamaba SINCRONA dentro del bucle cada 30 s solo para mover la insignia de la capsula:
+# Nova se quedaba congelada un segundo de cada treinta por un adorno.
+#
+# El contador de rendimiento de .NET da lo mismo en 0-10 ms (~100 veces menos). Se crea
+# una sola vez; la primera lectura de un contador siempre vale 0, asi que esa se tira.
+#
+# Y AQUI SE GENERALIZA EL CRITERIO DEL ACELEROMETRO: "el que no responde o no da nada
+# util, se apaga". Si no hay contador y el respaldo por CIM tarda mas de $CargaTopeMs, la
+# sonda se apaga para siempre y se dice en el log. La insignia es cosmetica: no vale un
+# bloqueo. El acelerometro usa 150 ms porque corre cada 250 ms; aqui la cadencia es 30 s,
+# de modo que el tope es mas generoso.
+$CargaTopeMs = [int](Get-Cfg 'ui' 'cargaTopeMs' 400)
+$script:cargaSonda = ''          # '' = sin probar, 'contador', 'cim', 'no' = apagada
+$script:cargaContador = $null
+
+# aparte para poder cambiarla en la prueba sin tocar el mundo real
+function New-ContadorCarga {
+    try {
+        $c = New-Object System.Diagnostics.PerformanceCounter('Processor', '% Processor Time', '_Total')
+        $null = $c.NextValue()       # la primera siempre da 0; se tira
+        return $c
+    } catch { return $null }
+}
+
+function Get-CargaCPU {
+    if ($script:cargaSonda -eq 'no') { return $null }
+    if (-not $script:cargaSonda) {
+        $script:cargaContador = New-ContadorCarga
+        $script:cargaSonda = if ($script:cargaContador) { 'contador' } else { 'cim' }
+        Log ("carga de CPU: por " + $(if ($script:cargaContador) { 'contador de rendimiento' } else { 'CIM (no hay contador)' }))
+    }
+    if ($script:cargaSonda -eq 'contador') {
+        try {
+            $v = [int]$script:cargaContador.NextValue()
+            if ($v -lt 0) { return $null }
+            return [Math]::Min(100, $v)
+        } catch {
+            Log "carga de CPU: el contador dejo de responder; paso a CIM"
+            $script:cargaSonda = 'cim'; $script:cargaContador = $null
+        }
+    }
+    # respaldo, cronometrado: si es caro, no se vuelve a llamar
+    try {
+        $t = [System.Diagnostics.Stopwatch]::StartNew()
+        $v = (Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | Measure-Object -Property LoadPercentage -Average).Average
+        if ($t.ElapsedMilliseconds -gt $CargaTopeMs -or $null -eq $v) {
+            Log ("carga de CPU: la sonda cuesta " + $t.ElapsedMilliseconds + " ms (tope " + $CargaTopeMs + "); la apago, la insignia se queda quieta")
+            try { Add-Estadistica 'auto-ajuste' ("sonda de carga off: " + $t.ElapsedMilliseconds + " ms de " + $CargaTopeMs) } catch {}
+            $script:cargaSonda = 'no'
+            return $null
+        }
+        return [int]$v
+    } catch { $script:cargaSonda = 'no'; return $null }
+}
 $script:minutoVisto = ''
 $script:diaVisto = Get-Date -Format 'yyyy-MM-dd'
 # al arrancar: fechas de hoy y nota de la semana pasada (si toca)
@@ -15612,7 +15669,7 @@ while ($true) {
     if (($sw.ElapsedMilliseconds - $script:cargaCheck) -ge 30000) {
         $script:cargaCheck = $sw.ElapsedMilliseconds
         try {
-            $cpu = (Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | Measure-Object -Property LoadPercentage -Average).Average
+            $cpu = Get-CargaCPU
             if ($null -ne $cpu) {
                 $cpu = [int]$cpu
                 if ([Math]::Abs($cpu - $script:uiCarga) -ge 10 -or (($cpu -ge 85) -ne ($script:uiCarga -ge 85))) { $script:uiCarga = $cpu; Refresh-UI }

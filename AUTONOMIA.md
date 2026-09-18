@@ -553,9 +553,33 @@ decidir sola. Ahora dice lo medido, nombra las dos formas del recitado, y avisa 
 puede ser un día sin uso. `probar-recitado.ps1` lo comprueba y deja en rojo a quien intente
 sumar el recitado a la sordina.
 
-**33. Generalizar el autoapagado del acelerómetro.**
-`Watch-Acelerometro` ya se apaga solo si la primera lectura tarda o viene vacía. Aplicar ese
-mismo criterio a **todos** los vigilantes: el que no responde o no da nada útil, se apaga.
+**33. Generalizar el autoapagado del acelerómetro.** — **HECHA, Y DESTAPÓ UN SEGUNDO PERDIDO (18/09)**
+*Generalizarlo a «todos los vigilantes» no tenía caso:* de las 10 funciones `Watch-*`, varias
+reciben los datos por parámetro (`Watch-Notificaciones`, `Watch-Musica`, `Watch-Portapapeles`)
+— son manejadores, no sondas, y un manejador no puede «no responder». Las demás ya degradan
+con `try/catch`, y **el log no registra ni un fallo** de ninguna.
+
+*Pero al medir el coste apareció lo que nadie había mirado:*
+
+| sonda | cadencia | coste medido |
+|---|---|---:|
+| **`Win32_Processor`** (carga de CPU) | **cada 30 s** | **1057–1320 ms** |
+| `WmiMonitorBrightness` (con el juego) | con el juego | 12–15 ms |
+| `Win32_Battery` | cada 60 s | 22–30 ms |
+
+`Get-CimInstance Win32_Processor` tardaba **más de un segundo**, cinco medidas de cinco y en
+caliente, **síncrono dentro del bucle**, solo para mover la insignia de carga de la cápsula:
+Nova congelada un segundo de cada treinta **por un adorno**.
+
+**Alternativas medidas:** `Win32_PerfFormattedData_PerfOS_Processor` 288–295 ms; el
+**contador de rendimiento de .NET, 0–10 ms** — unas 100 veces menos, y más reactivo.
+
+**Lo que se hizo,** que es el criterio del acelerómetro generalizado *donde sí hay coste*:
+`Get-CargaCPU` usa el contador; si no existe, cae a CIM **cronometrado**; y si el respaldo pasa
+de `cargaTopeMs` (400 ms) **se apaga para siempre** y lo apunta con su número, porque una
+insignia cosmética no vale un bloqueo. El acelerómetro usa 150 ms porque corre cada 250 ms;
+aquí la cadencia es 30 s, así que el tope es más generoso. `probar-carga-cpu.ps1` (2n23) cubre
+los siete caminos, incluido que tras apagarse **no vuelve a llamar** a la sonda cara.
 
 ### Afinar sus propios números, que hoy son fijos en `config.json`
 
