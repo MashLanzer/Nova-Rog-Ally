@@ -674,8 +674,33 @@ tres décimas por orden. Esos valores se **subieron** a propósito, medidos sobr
 grabaciones, porque las pausas a propósito llegan a 1,44 s. Bajarlos cortaría órdenes por la
 mitad — y cortar una orden sale mucho más caro que esperar 0,3 s.
 
-**37. `soloYoMargenHz` (35) y `soloYoMinimo` (12).** Estrecharlos según lo separada que esté
-tu voz de las demás que ha oído.
+**37. `soloYoMargenHz` (35) y `soloYoMinimo` (12).** — **NO PROCEDE: no existe un valor que sirva (18/09)**
+*Primero, la idea cita el valor por defecto del código:* `config.json` ya tiene **42**, subido
+con dato en su día («gritando *basta* llegaste a 37 Hz de tu tono normal; el margen pasa de 40 a
+**42 Hz**»).
+
+*Y estrecharlo es imposible, no difícil.* Lo que hay aprendido de verdad:
+
+| | tono | muestras | distancia a la tuya |
+|---|---:|---:|---:|
+| **tú** (`voces.json`) | 115,4 Hz | **225** | — |
+| otra voz | 144,0 Hz | 42 | **28,6 Hz** |
+| otra | 172,6 Hz | 20 | 57,2 Hz |
+| otra | 233,2 Hz | 23 | 117,8 Hz |
+
+La segunda voz más oída está a **28,6 Hz**, o sea **ya dentro** del margen de 42: hoy se
+confunde contigo. Para separarla el margen tendría que ser **menor que 28,6**… pero para no
+rechazarte a ti cuando alzas la voz tiene que ser **mayor o igual que 37**. **37 > 28,6: las dos
+condiciones no se pueden cumplir a la vez.** Estrecharlo —lo que pedía la idea— te dejaría
+fuera a ti gritando, que es justo cuando más falta hace que obedezca.
+
+*Y `soloYoMinimo` (12) tampoco tiene recorrido:* hay **225** muestras de tu voz y 60 en
+`mi-voz.json` (el tope). Ya está superado de sobra por los dos lados.
+
+**Lo que esto enseña de verdad:** el tono **no puede ser** la única defensa de «solo yo», y el
+diseño actual ya lo asume — `Test-VozExtrana` solo se consulta en los puntos críticos (crear
+reglas, órdenes peligrosas), no en cada frase. La separación real tendría que venir de algo más
+que un número de hercios (huella de voz), y eso es otro proyecto, no un ajuste.
 
 **38. `avisos.bateriaPct` (15).** Aprender a qué porcentaje enchufas de verdad y avisar ahí.
 
