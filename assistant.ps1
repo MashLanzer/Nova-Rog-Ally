@@ -5715,13 +5715,20 @@ function Get-AvisoFallos([datetime]$ahora = (Get-Date)) {
 $script:autoDecision = $null
 function Save-DecisionPropia([string]$seccion, [string]$clave, [string]$antes, [string]$que) {
     $script:autoDecision = @{ seccion = $seccion; clave = $clave; antes = $antes; que = $que }
-    [void](Set-Cfg 'auto' 'ultimaDecision' "$seccion|$clave|$antes|$que")
+    # DEVUELVE SI PUDO GUARDARLO (17/09). Si esto falla, el "deshaz lo que has cambiado"
+    # sigue valiendo en esta sesion (la variable viva esta puesta) pero NO sobrevive a un
+    # reinicio, y eso hay que decirlo en vez de dar por hecho que quedo apuntado.
+    return (Set-Cfg 'auto' 'ultimaDecision' "$seccion|$clave|$antes|$que")
 }
 
 function Undo-DecisionPropia {
     $d = $script:autoDecision
     if (-not $d) { return 'No he cambiado nada por mi cuenta' }
-    [void](Set-Cfg $d.seccion $d.clave $d.antes)
+    # EL MISMO CUIDADO QUE AL DECIDIR (17/09). Si esto falla, la sesion de ahora queda bien
+    # -la variable viva se restaura abajo- pero al reiniciar volveria a aplicarse la decision
+    # y Nova habria dicho que la deshizo. Se dice la verdad y se deja apuntada para poder
+    # reintentarlo, en vez de darla por deshecha.
+    $okU = Set-Cfg $d.seccion $d.clave $d.antes
     # y la variable VIVA, o no valdria hasta el proximo arranque. Con un solo caso hoy, un
     # switch explicito dice mas verdad que fingir que esto ya es generico.
     $enVivoD = $true
@@ -5730,6 +5737,10 @@ function Undo-DecisionPropia {
         'escucha.nubeOir' { $script:NubeOir = [string]$d.antes }
         'input.whisperModeloPreciso' { $script:WhisperPreciso = [string]$d.antes }
         default { $enVivoD = $false }
+    }
+    if (-not $okU) {
+        Log "DECISION PROPIA: no pude guardar la vuelta atras de $($d.seccion).$($d.clave)"
+        return "Vale, vuelvo a usar $($d.que), pero no he podido guardarlo: si me reinicias, se apaga otra vez"
     }
     $script:autoDecision = $null
     [void](Set-Cfg 'auto' 'ultimaDecision' '')
@@ -5777,6 +5788,15 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     if ($script:invitado -or $script:juegoActivo) { return $false }
     $hoyR = $ahora.ToString('yyyy-MM-dd')
     if ($script:revisionPropiaDia -eq $hoyR) { return $false }
+    # SI NO PUEDE CONTARLO, NO LO DECIDE (17/09). Los avisos de nivel 'medio' se callan de
+    # noche, jugando, y mientras habla, dicta o espera un si; y Send-AvisoEntorno no
+    # reintenta nunca. Asi que decidir ahi seria cambiar algo EN SILENCIO, que es justo lo
+    # que esta funcion no puede hacer: rendir cuentas es parte de la decision, no un extra.
+    # Se pregunta con una clave que no se usa para avisar de nada, asi que solo responden
+    # las condiciones generales (la hora, si esta ocupada, el tope por hora).
+    # Y ojo: esto va ANTES de marcar el dia. Si se marcara primero, una decision aplazada
+    # de madrugada no se reintentaria hasta el dia siguiente en vez de por la manana.
+    if (-not (Test-PuedoAvisar 'auto-puedo-contar' 'medio' 1)) { return $false }
     $script:revisionPropiaDia = $hoyR
     # los numeros de los ultimos 14 dias, de una vez para todas las decisiones
     $numR = @{}
@@ -5804,11 +5824,18 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
         (Test-DatosRepartidos $stR 'nube-intento' $ahora)) {
         $antesN = [string]$NubeOir
         $script:NubeOir = ''
-        [void](Set-Cfg 'escucha' 'nubeOir' '')
-        Save-DecisionPropia 'escucha' 'nubeOir' $antesN 'la segunda opinion de la nube'
+        # SI NO SE PUEDE GUARDAR, NO SE HA DECIDIDO NADA (17/09): al reiniciar volveria a
+        # estar encendida y Nova habria dicho que la apago. Se deshace y se deja para otro dia.
+        if (-not (Set-Cfg 'escucha' 'nubeOir' '')) {
+            $script:NubeOir = $antesN
+            $script:revisionPropiaDia = ''
+            Log 'REVISION PROPIA: no pude guardar el cambio de la nube; lo dejo como estaba'
+            return $false
+        }
+        $apuntadaN = Save-DecisionPropia 'escucha' 'nubeOir' $antesN 'la segunda opinion de la nube'
         Log "REVISION PROPIA: apago la segunda opinion de la nube ($($numR['nube-sirvio']) de $($numR['nube-intento']) utiles en 14 dias)"
         Add-Estadistica 'auto-ajuste' "nube off: $($numR['nube-sirvio']) de $($numR['nube-intento'])"
-        [void](Send-AvisoEntorno 'auto-nube' ("He apagado la segunda opinion de la nube: la pedi $($numR['nube-intento']) veces y solo me sirvio $($numR['nube-sirvio']). Si la quieres de vuelta, dime: deshaz lo que has cambiado.") 'medio' 43200)
+        [void](Send-AvisoEntorno 'auto-nube' ("He apagado la segunda opinion de la nube: la pedi $($numR['nube-intento']) veces y solo me sirvio $($numR['nube-sirvio']). Si la quieres de vuelta, dime: deshaz lo que has cambiado." + $(if (-not $apuntadaN) { ' Aunque no he podido apuntarlo: si me reinicias, vuelve sola.' } else { '' })) 'medio' 43200)
         return $true
     }
 
@@ -5826,11 +5853,16 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
         $netoF = $numR['fino-sirvio'] - $numR['fino-invento']
         $antesF = [string]$WhisperPreciso
         $script:WhisperPreciso = ''
-        [void](Set-Cfg 'input' 'whisperModeloPreciso' '')
-        Save-DecisionPropia 'input' 'whisperModeloPreciso' $antesF 'mi oido fino'
+        if (-not (Set-Cfg 'input' 'whisperModeloPreciso' '')) {
+            $script:WhisperPreciso = $antesF
+            $script:revisionPropiaDia = ''
+            Log 'REVISION PROPIA: no pude guardar el cambio del oido fino; lo dejo como estaba'
+            return $false
+        }
+        $apuntadaF = Save-DecisionPropia 'input' 'whisperModeloPreciso' $antesF 'mi oido fino'
         Log "REVISION PROPIA: apago el oido fino ($($numR['fino-sirvio']) aciertos menos $($numR['fino-invento']) inventos de $($numR['fino']) repasos en 14 dias)"
         Add-Estadistica 'auto-ajuste' "oido fino off: neto $netoF de $($numR['fino'])"
-        [void](Send-AvisoEntorno 'auto-fino' ("He apagado mi oido fino: en $($numR['fino']) repasos acerto $($numR['fino-sirvio']) veces pero se invento la orden $($numR['fino-invento']), y eso ya no compensa lo que te hace esperar. Si lo quieres de vuelta, dime: deshaz lo que has cambiado.") 'medio' 43200)
+        [void](Send-AvisoEntorno 'auto-fino' ("He apagado mi oido fino: en $($numR['fino']) repasos acerto $($numR['fino-sirvio']) veces pero se invento la orden $($numR['fino-invento']), y eso ya no compensa lo que te hace esperar. Si lo quieres de vuelta, dime: deshaz lo que has cambiado." + $(if (-not $apuntadaF) { ' Aunque no he podido apuntarlo: si me reinicias, vuelve solo.' } else { '' })) 'medio' 43200)
         return $true
     }
 
@@ -5848,11 +5880,16 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     # como desactivado; asi que esto NO deja a Nova sorda en el proximo arranque.
     $antesR = [string]$WhisperUltimo
     $script:WhisperUltimo = ''
-    [void](Set-Cfg 'input' 'whisperModeloUltimo' '')
-    Save-DecisionPropia 'input' 'whisperModeloUltimo' $antesR 'mi ultimo recurso del oido'
+    if (-not (Set-Cfg 'input' 'whisperModeloUltimo' '')) {
+        $script:WhisperUltimo = $antesR
+        $script:revisionPropiaDia = ''
+        Log 'REVISION PROPIA: no pude guardar el cambio del ultimo recurso; lo dejo como estaba'
+        return $false
+    }
+    $apuntadaR = Save-DecisionPropia 'input' 'whisperModeloUltimo' $antesR 'mi ultimo recurso del oido'
     Log "REVISION PROPIA: apago el ultimo recurso del oido ($tsR de $tR utiles en 14 dias)"
     Add-Estadistica 'auto-ajuste' "ultimo recurso off: $tsR de $tR"
-    [void](Send-AvisoEntorno 'auto-ultimo' ("He apagado mi ultimo recurso del oido: en $tR intentos solo me sirvio $tsR veces y cada uno te hacia esperar unos 16 segundos. Si lo quieres de vuelta, dime: deshaz lo que has cambiado.") 'medio' 43200)
+    [void](Send-AvisoEntorno 'auto-ultimo' ("He apagado mi ultimo recurso del oido: en $tR intentos solo me sirvio $tsR veces y cada uno te hacia esperar unos 16 segundos. Si lo quieres de vuelta, dime: deshaz lo que has cambiado." + $(if (-not $apuntadaR) { ' Aunque no he podido apuntarlo: si me reinicias, vuelve solo.' } else { '' })) 'medio' 43200)
     return $true
 }
 

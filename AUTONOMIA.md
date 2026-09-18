@@ -363,6 +363,47 @@ dato, y si acerté». Si no puede explicar una decisión con un número, es que 
 
 ---
 
+## Inspección de las 10 primeras (17/09)
+
+Hecha al cerrar la décima, como estaba previsto. Salieron **dos huecos reales**, y los dos
+rompían reglas de la cabecera de este archivo.
+
+**Hueco A — `Set-Cfg` ignorado, en los dos sentidos.** Las tres decisiones,
+`Save-DecisionPropia` y `Undo-DecisionPropia` hacían `[void](Set-Cfg ...)`. `Set-Cfg`
+**devuelve `$false` si falla**, y el repo ya tenía el patrón bueno en cuatro sitios (esquina,
+color, escala, «solo yo»), que lo comprueban y lo dicen: *«pero no he podido guardarlo para la
+próxima»*. Sin eso, Nova decía «he apagado el último recurso» y al reiniciar seguía encendido:
+**mentía**. Y en el camino de vuelta, igual: «vuelvo a usar mi oído fino» y al reiniciar no.
+
+**Hueco B — el aviso se perdía de madrugada.** Los avisos son de nivel `'medio'`, y
+`Test-PuedoAvisar` se calla de noche, jugando, y mientras habla, dicta o espera un sí. Como
+`Send-AvisoEntorno` **no reintenta nunca**, Nova podía apagar algo a las 4 de la mañana y **no
+contarlo jamás**. Un cambio silencioso, que es justo lo que la cabecera prohíbe.
+
+**La regla que sale, y que ahora cumplen las tres decisiones:**
+> **Una decisión que no se puede guardar ni contar, no se toma.**
+- Si `Set-Cfg` falla: se **revierte la variable viva**, no se avisa de nada y **no se marca el
+  día**, para reintentarlo.
+- Si no se puede avisar: **no se decide**, y tampoco se marca el día — así se reintenta *esa
+  misma mañana* en vez de esperar a mañana (por eso la comprobación va **antes** de marcarlo).
+- Y al deshacer, si no se puede guardar, se dice la verdad («si me reinicias, se apaga otra
+  vez») y la decisión **sigue apuntada** para poder reintentarlo.
+*14 casos nuevos en `probar-revision-propia.ps1`.*
+
+### Y dos ideas nuevas que salen de la inspección
+
+**62. Que los umbrales de las decisiones vivan en un solo sitio.**
+El 15 % de aprovechamiento, los 20 intentos mínimos, los 3 días y el 70 % están repetidos **a
+mano en las tres decisiones**. Hoy coinciden; dentro de tres meses, no. Una tabla los mantiene
+juntos y hace evidente cuándo una decisión usa un criterio distinto **a propósito**.
+
+**63. Que apunte cuándo aplaza una decisión, y por qué.**
+La guarda nueva sale con un `return $false` **en silencio**. No es grave (no cambia nada), pero
+si Nova lleva semanas sin decidir nada no habría forma de saber si es que no hay datos, o que
+siempre la pillan de noche. Una línea de log al día lo resuelve.
+
+---
+
 ## Una más, salida del trabajo (61)
 
 **61. No decidir con datos anteriores al arreglo de lo que se mide.**

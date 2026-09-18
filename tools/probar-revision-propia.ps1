@@ -33,7 +33,13 @@ $script:apuntes = @()
 $script:deshacer = $null
 function Log($m) { }
 function Get-Estadisticas { return $script:stats }
-function Set-Cfg($sec, $clave, $valor) { $script:cfgPuesta += "$sec.$clave=$valor"; return $true }
+$script:cfgFalla = $false        # para probar que pasa si no se puede guardar
+$script:puedoAvisar = $true      # y si no se puede contar
+function Set-Cfg($sec, $clave, $valor) {
+    if ($script:cfgFalla) { return $false }
+    $script:cfgPuesta += "$sec.$clave=$valor"; return $true
+}
+function Test-PuedoAvisar([string]$clave, [string]$nivel = 'medio', [int]$cadaMin = 60) { return $script:puedoAvisar }
 function Add-Estadistica($ruta, $detalle) { $script:apuntes += "$ruta|$detalle" }
 function Send-AvisoEntorno($clave, $texto, $nivel = 'medio', $cada = 60) { $script:avisos += $texto; return $true }
 Invoke-Expression (Traer 'Save-DecisionPropia')
@@ -61,6 +67,8 @@ function Poner([int]$intentos, [int]$utiles) {
     $script:juegoActivo = $null
     $script:autoDecision = $null
     $script:deshacer = $null
+    $script:cfgFalla = $false
+    $script:puedoAvisar = $true
 }
 
 $mal = 0
@@ -179,6 +187,8 @@ function PonerNube([int]$intentos, [int]$utiles) {
     $script:juegoActivo = $null
     $script:autoDecision = $null
     $script:deshacer = $null
+    $script:cfgFalla = $false
+    $script:puedoAvisar = $true
 }
 
 Write-Host ''
@@ -293,6 +303,8 @@ function PonerFino([int]$repasos, [int]$sirvio, [int]$invento) {
     $script:WhisperUltimo = ''; $script:NubeOir = ''    # aqui se juzga el fino
     $script:invitado = $false; $script:juegoActivo = $null
     $script:autoDecision = $null; $script:deshacer = $null
+    $script:cfgFalla = $false
+    $script:puedoAvisar = $true
 }
 
 Write-Host ''
@@ -341,6 +353,50 @@ Write-Host '  -- si ya estaba apagado, no se mete --'
 PonerFino 24 2 0
 $script:WhisperPreciso = ''
 Comp 'no vuelve a apagar lo apagado' (-not (Test-RevisionPropia $hoy)) ''
+
+# INSPECCION DE LAS 10 (17/09): una decision que no se puede guardar ni contar, NO se toma.
+Write-Host ''
+Write-Host '  -- si no se puede guardar, no se ha decidido nada --'
+Poner 29 1
+$script:cfgFalla = $true
+$rG = Test-RevisionPropia $hoy
+Comp 'con el guardado roto, no decide' (-not $rG) ''
+Comp 'y deja el ultimo recurso como estaba' ($WhisperUltimo -eq 'large-v3-turbo') "WhisperUltimo='$WhisperUltimo'"
+Comp 'no avisa de algo que no ha hecho' (@($script:avisos).Count -eq 0) ("avisos: " + @($script:avisos).Count)
+Comp 'y lo reintentara (no se marca el dia)' ($script:revisionPropiaDia -eq '') "dia='$($script:revisionPropiaDia)'"
+
+Write-Host '  -- si no puede contarlo, tampoco lo decide --'
+Poner 29 1
+$script:puedoAvisar = $false
+$rS = Test-RevisionPropia $hoy
+Comp 'de madrugada (o hablando) no decide' (-not $rS) ''
+Comp 'y no toca nada' ($WhisperUltimo -eq 'large-v3-turbo' -and @($script:cfgPuesta).Count -eq 0) ''
+Comp 'sin marcar el dia: lo intentara por la manana' ($script:revisionPropiaDia -eq '') "dia='$($script:revisionPropiaDia)'"
+$script:puedoAvisar = $true
+$rS2 = Test-RevisionPropia $hoy
+Comp 'y cuando ya puede contarlo, decide' $rS2 ''
+Comp 'ahora si avisa' (@($script:avisos).Count -eq 1) ''
+
+Write-Host '  -- y si no puede apuntar el deshacer, lo dice --'
+Poner 29 1
+[void](Test-RevisionPropia $hoy)
+Comp 'con todo bien, el aviso no habla de reinicios' ($script:avisos[0] -notmatch 'reinicias') ''
+
+# Y EL MISMO CUIDADO AL DESHACER (17/09): si no se puede guardar la vuelta atras, la sesion
+# de ahora queda bien pero al reiniciar volveria a aplicarse la decision. Hay que decirlo.
+Write-Host ''
+Write-Host '  -- deshacer tambien puede fallar al guardar, y se dice --'
+Poner 29 1
+[void](Test-RevisionPropia $hoy)
+$script:cfgFalla = $true
+$rU = Undo-DecisionPropia
+Comp 'la sesion de ahora si queda arreglada' ($WhisperUltimo -eq 'large-v3-turbo') "WhisperUltimo='$WhisperUltimo'"
+Comp 'pero avisa de que no sobrevive al reinicio' ($rU -match 'reinicias') "'$rU'"
+Comp 'y la decision sigue apuntada para reintentarlo' ($null -ne $script:autoDecision) ''
+$script:cfgFalla = $false
+$rU2 = Undo-DecisionPropia
+Comp 'al reintentarlo, ya lo deshace del todo' ($rU2 -notmatch 'reinicias') "'$rU2'"
+Comp 'y ahora si se olvida' ($null -eq $script:autoDecision) ''
 
 # QUE LA FRASE LLEGUE. El "deshaz" generico termina en \b, SIN ancla final, asi que se
 # come "deshaz lo que has cambiado" entera si alguien mueve el patron nuevo detras. Esto
