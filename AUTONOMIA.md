@@ -484,11 +484,11 @@ la última).
 cuando Nova se enciende y se apaga a ratos. El disparo al arrancar cubre eso, y el comentario
 del 12/09 lo documenta: sin él «la copia no se hacía nunca», porque `diaVisto` nace con la
 fecha de hoy y el bloque de cambio de día no se alcanzaba.
-**⚠ Lo que sí hay que mirar:** no existe la carpeta `copias/`, **no hay ni un zip** y **ni una
-línea** en el log. Con `CopiasDir` inexistente, `Test-CopiaPendiente` devuelve `$true`, así que
-la copia **debería** haberse hecho en el primer minuto. O falla en silencio (el `try/catch` se
-traga el error) o el bucle no llega ahí. **Comprobar la próxima vez que Nova se encienda**, y
-si falla, que el `catch` lo diga en vez de callar.
+**✅ COMPROBADO EL 18/09, y la sospecha era mía, no un fallo suyo:** las copias **sí se hacen**.
+Hay **11** líneas `COPIA` en el log y una copia diaria del 14 al 17/09 — la última ayer a las
+17:26 (*25 archivos, 68 KB*) —, con su gemela en `OneDrive\Nova\copias`. Cuando lo miré, Nova
+llevaba días apagada y la carpeta aún no existía; en cuanto arrancó se hizo sola, tal como estaba
+escrito. **No hay nada que arreglar aquí.**
 **30.** Ampliar el **parte semanal** con lo que decidió sola. — **HECHA (17/09)**
 El parte ya existía y estaba bien escrito —días hablados, cuántas órdenes, cuántas resolvió al
 instante, tropiezos, lo que no entendió y hasta los gestos— pero **hablaba solo de ti**. Desde
@@ -901,12 +901,14 @@ es al revés — sin contactos **no avisa ninguno**. El camino para arreglarlo y
 primera línea cuando no las hay (`if ($nombres.Count -eq 0) { $appsVivas = @{}; return }`), así
 que tampoco cuesta nada aunque corra cada 3 s.
 
-**⚠ Pero el log destapa algo que no estaba en la lista:** hay **1095** líneas `REGLA … guardada`
-y son **la misma docena reguardándose una y otra vez** — `REGLA 1 guardada` aparece **195 veces**,
-la 2 noventa y cinco, la 3 noventa y cuatro… Trece reglas que se guardaron cientos de veces, y
-**hoy el fichero está vacío**. O se reescriben enteras cada vez que cambia una (ruido en disco), o
-se perdieron en algún punto. Merece una mirada aparte: son reglas que braya creó hablando.
-*(Sexta cifra contaminada de la tanda: «1095 reglas» eran 13.)*
+**✅ Y la alarma que levanté aquí queda descartada (18/09):** no se ha perdido ninguna regla tuya.
+Las **1095** líneas `REGLA … guardada` son **el banco de pruebas**: el mismo bloque de reglas 1-13
+se recrea entero en cada ejecución (el 12/09 aparece a las 00:47, 00:52, 07:01, 07:02, 07:03…,
+siempre idéntico), y las pruebas escriben en su propio directorio temporal, no en el fichero real.
+Lo que vació `reglas.json` fue **una orden tuya**: `2026-09-11 01:19:21 LOCAL: borra las reglas →
+Listo, sin reglas.`
+*Y `Save-Reglas` funciona:* lo probé creando una regla — **188 bytes** en disco, y al releer de
+cero vuelve a salir. *(Sexta cifra contaminada de la tanda: «1095 reglas» eran 13, y de pruebas.)*
 
 **47. Cortar sola al agente cuando se eterniza.** — **NO PROCEDE: no se eterniza (18/09)**
 *Medido sobre **230** trabajos con salida registrada:*
@@ -931,8 +933,18 @@ son del oído fino.
 
 ### Sobre su propio conocimiento
 
-**48. Podar el cerebro por lo que nunca se usa.** Guarda `usos` por recuerdo: lo que en
-meses no se ha usado ni una vez, archivarlo.
+**48. Podar el cerebro por lo que nunca se usa.** — **NO PROCEDE: borraría los 32 (18/09)**
+El cerebro tiene **32 recuerdos** y **los 32 están a `usos = 0`**. Podar «lo que no se ha usado ni
+una vez» no dejaría ninguno.
+
+El contador **no está roto**: `charla_memoria.py:317` lo incrementa de verdad
+(`r["usos"] = int(r.get("usos", 0)) + 1`). Lo que dice ese cero es que **nunca se ha recuperado un
+recuerdo** en una charla — y eso es un problema de *recuperación*, justo la pieza que `NOVA-LLM.md`
+señala como floja («memoria a medias»), no de poda.
+
+*Y tampoco hay «meses» que medir:* los 32 se crearon **en días** (29 de la charla, 1 de la API, 1
+local, 1 revisada; 31 firmes y 1 rechazada). Podar por antigüedad hoy sería tirar todo lo que ha
+aprendido desde que existe el cerebro.
 
 **49. Retirar traducciones que ya no hacen falta.** Si la capa local ya entiende la frase
 original, la traducción aprendida sobra (hoy hay 2 guardadas; el día que haya 200, importa).
