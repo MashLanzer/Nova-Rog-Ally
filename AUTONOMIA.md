@@ -365,8 +365,21 @@ por app desconocida. Las que no se reconocieron son transcripciones rotas —«A
 Sting», «Abre Team», «Abre este»— o frases de conversación entera. Encaja con lo ya medido
 sobre la nube: **los errores son de oído, no de vocabulario**. Un buscador de programas
 instalados no arregla «Abre Team».
-**20.** **Retirar reglas suyas** que no se disparan en un mes o fallan siempre.
-**21.** **Desactivar recetas que fallan**: ya cuenta `fallos`, que decida ella el corte.
+**20.** **Retirar reglas suyas** que no se disparan o fallan. — **SIN SUJETO (medido 17/09)**
+`reglas.json` tiene **0 entradas**: no hay ni una regla tuya que retirar. Las 1.095 líneas de
+«REGLA» del log son del mecanismo interno (`Invoke-Reglas 'juegoAbre'` y demás disparos por
+evento), no reglas guardadas. Y ya existe el filtro que impide **proponer** una regla si hay
+otra igual. El día que haya reglas de verdad, esta idea vuelve a tener sentido; hoy no tiene
+sobre qué actuar.
+**21.** **Desactivar recetas que fallan.** — **YA ESTABA, y mejor de lo que pedía la idea**
+El corte existe: `$r.fallos + 1` y, **a los 3 fallos seguidos**, la receta se borra y la orden
+se reencamina al agente. El contador **se resetea al acertar**, así que son tres seguidos, no
+tres en toda su vida.
+*Y antes de borrarla hay algo que la idea no contemplaba: se intenta **repararla**.* La tarea
+va al cerebro **con la receta rota y su error**, y la versión corregida ocupa su sitio
+**conservando usos, confirmaciones y formas de decirlo**. El comentario lo explica: «antes una
+receta que fallaba dos veces se borraba y se perdía lo aprendido».
+*Y no hay nada que desactivar hoy:* las 4 recetas tienen **`fallos = 0`**.
 **22.** **Dejar de dar los avisos que ignoras** (nunca batería crítica ni seguridad).
 **23.** **Ajustar el volumen de su voz al ruido** de la habitación.
 
