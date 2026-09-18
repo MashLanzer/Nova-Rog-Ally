@@ -38,9 +38,25 @@ al día** (no en cada vuelta del bucle) y **nunca jugando ni con un invitado del
 
 Cada una con **el dato que la justifica** (no son ideas al aire) y **su freno**.
 
-**1. Apagar la nube que no le sirve.**
-Gemini lleva **29 llamadas** con `nube-nada: 1` y **cero** `nube-sirvio`. Es calcado al caso
-del turbo que ya apagó sola. *Freno: mínimo 20 llamadas antes de juzgar, y avisarlo.*
+**1. Apagar la nube que no le sirve.** — **HECHA (17/09)**
+*Y lo primero fue descubrir que no se podía decidir todavía.* El log enseñaba **29 llamadas**
+a Gemini y las estadísticas decían `nube-nada: 1`: no cuadraba. El motivo es que había tres
+contadores de **desenlace** (`sirvio`, `nada`, `tarde`) y **ninguno de intento**, así que si
+la nube contestaba vacío —o si el oído local ya había sacado la orden— el lanzamiento no
+dejaba rastro en ningún sitio. Decidir con eso habría sido decidir sobre un dato falso.
+Así que la idea son dos cosas: **el instrumento y luego la decisión**.
+- `Start-NubeOir` apunta ahora **cada intento** (`nube-intento`), que es el único punto por el
+  que pasan todos los lanzamientos.
+- Y hay un contador nuevo, `nube-sobra`, para cuando la nube **acierta pero ya no hacía
+  falta**: una nube que siempre llega tarde no aporta aunque acierte siempre, y eso antes no
+  se distinguía de equivocarse.
+- Con ≥20 intentos y menos del 15 % de aciertos, la apaga sola, lo dice con sus números y se
+  deshace hablando.
+- **Freno nuevo que salió al hacerla: una sola decisión al día.** `Save-DecisionPropia` guarda
+  una; si tomara dos el mismo día, la segunda pisaría a la primera y la primera se quedaría
+  sin poder deshacerse. Tiene su propio caso en la prueba.
+*22 casos nuevos en `probar-revision-propia.ps1`, incluido uno que vigila que el contador de
+intentos siga existiendo: si alguien lo quita, la decisión vuelve a ser sobre un dato falso.*
 
 **2. Mover ella sola el umbral de confianza.**
 Hoy: ruido **3 de 97** y **132** activaciones. Si el ruido sube, más exigente; si se le

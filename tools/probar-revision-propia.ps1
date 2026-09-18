@@ -24,6 +24,7 @@ $script:invitado = $false
 $script:juegoActivo = $null
 $script:revisionPropiaDia = ''
 $WhisperUltimo = 'large-v3-turbo'
+$NubeOir = 'gemini'
 $script:stats = @{ dias = @{} }
 $script:cfgPuesta = @()
 $script:avisos = @()
@@ -47,6 +48,7 @@ function Poner([int]$intentos, [int]$utiles) {
     $script:cfgPuesta = @(); $script:avisos = @(); $script:apuntes = @()
     $script:revisionPropiaDia = ''
     $script:WhisperUltimo = 'large-v3-turbo'
+    $script:NubeOir = 'gemini'
     $script:invitado = $false
     $script:juegoActivo = $null
     $script:autoDecision = $null
@@ -149,6 +151,78 @@ Comp 'con algo tuyo pendiente, lo tuyo va primero' ($null -ne $script:autoDecisi
 Comp 'y su ajuste sigue pendiente de deshacer' (-not $WhisperUltimo) "WhisperUltimo='$WhisperUltimo'"
 
 # ---------------------------------------------------------------------------
+# IDEA 1: APAGAR LA NUBE QUE NO SIRVE (17/09).
+# Antes de decidir hizo falta poder medir: habia tres contadores de desenlace y ninguno de
+# INTENTO, asi que el log ensenaba 29 llamadas a Gemini y las estadisticas decian
+# "nube-nada: 1". Con ese dato, cualquier decision habria sido mentira.
+function PonerNube([int]$intentos, [int]$utiles) {
+    $script:stats = @{ dias = @{} }
+    $script:stats.dias[$hoy.AddDays(-1).ToString('yyyy-MM-dd')] = @{ 'nube-intento' = $intentos; 'nube-sirvio' = $utiles }
+    $script:cfgPuesta = @(); $script:avisos = @(); $script:apuntes = @()
+    $script:revisionPropiaDia = ''
+    $script:NubeOir = 'gemini'
+    $script:WhisperUltimo = ''      # ya apagado: aqui se juzga la nube
+    $script:invitado = $false
+    $script:juegoActivo = $null
+    $script:autoDecision = $null
+    $script:deshacer = $null
+}
+
+Write-Host ''
+Write-Host '  -- la nube que no sirve, la apaga --'
+PonerNube 24 1
+$rN = Test-RevisionPropia $hoy
+Comp 'con 1 util de 24, apaga la nube' $rN ''
+Comp 'y la deja vacia en vivo' (-not $NubeOir) "NubeOir='$NubeOir'"
+Comp 'lo guarda en la configuracion' (@($script:cfgPuesta) -contains 'escucha.nubeOir=') ($script:cfgPuesta -join ' ')
+Comp 'y lo dice con sus numeros' (@($script:avisos).Count -eq 1 -and $script:avisos[0] -match '24') ''
+
+Write-Host '  -- pero NO la apaga si aporta --'
+PonerNube 24 6        # el 25 %: se queda
+Comp 'con 6 utiles de 24, no la toca' (-not (Test-RevisionPropia $hoy)) ''
+Comp 'la nube sigue puesta' ($NubeOir -eq 'gemini') "NubeOir='$NubeOir'"
+
+Write-Host '  -- ni juzga sin intentos suficientes --'
+PonerNube 8 0         # ocho intentos no son historial
+Comp 'con 8 intentos no juzga' (-not (Test-RevisionPropia $hoy)) ''
+Comp 'la nube sigue puesta' ($NubeOir -eq 'gemini') ''
+
+Write-Host '  -- y se deshace hablando, como lo demas --'
+PonerNube 24 1
+[void](Test-RevisionPropia $hoy)
+$script:cfgPuesta = @()
+$rD3 = Undo-DecisionPropia
+Comp 'devuelve la nube en vivo' ($NubeOir -eq 'gemini') "NubeOir='$NubeOir'"
+Comp 'y lo guarda' (@($script:cfgPuesta) -contains 'escucha.nubeOir=gemini') ($script:cfgPuesta -join ' ')
+Comp 'sin pedir que reinicies' ($rD3 -notmatch 'reinicies') "'$rD3'"
+
+Write-Host '  -- UNA decision al dia: la segunda pisaria a la primera --'
+# las dos cosas mal a la vez: turbo inutil Y nube inutil
+$script:stats = @{ dias = @{} }
+$script:stats.dias[$hoy.AddDays(-1).ToString('yyyy-MM-dd')] = @{
+    turbo = 29; 'turbo-sirvio' = 1; 'nube-intento' = 24; 'nube-sirvio' = 1 }
+$script:cfgPuesta = @(); $script:avisos = @(); $script:apuntes = @()
+$script:revisionPropiaDia = ''
+$script:NubeOir = 'gemini'; $script:WhisperUltimo = 'large-v3-turbo'
+$script:invitado = $false; $script:juegoActivo = $null; $script:autoDecision = $null
+$uno = Test-RevisionPropia $hoy
+$dos = Test-RevisionPropia $hoy
+Comp 'decide una cosa' $uno ''
+Comp 'y no una segunda el mismo dia' (-not $dos) ''
+Comp 'solo un aviso' (@($script:avisos).Count -eq 1) ("avisos: " + @($script:avisos).Count)
+Comp 'y la decision guardada se puede deshacer' ($null -ne $script:autoDecision) ''
+
+Write-Host '  -- si la nube ya esta apagada, no se mete con ella --'
+PonerNube 24 1
+$script:NubeOir = ''
+Comp 'no vuelve a apagar lo apagado' (-not (Test-RevisionPropia $hoy)) ''
+
+# --- y que el INSTRUMENTO siga puesto: sin el, la decision es sobre un dato falso ---
+Write-Host '  -- y el contador que lo hace posible sigue ahi --'
+$txtN = [System.IO.File]::ReadAllText($rutaA, [System.Text.Encoding]::UTF8)
+Comp 'Start-NubeOir cuenta cada intento' ($txtN -match "Add-Estadistica 'nube-intento'") ''
+Comp 'y se apunta cuando la nube sobra' ($txtN -match "Add-Estadistica 'nube-sobra'") ''
+
 # QUE LA FRASE LLEGUE. El "deshaz" generico termina en \b, SIN ancla final, asi que se
 # come "deshaz lo que has cambiado" entera si alguien mueve el patron nuevo detras. Esto
 # es lo unico que sujeta ese orden.

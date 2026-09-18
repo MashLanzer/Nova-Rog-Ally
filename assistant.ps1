@@ -5649,6 +5649,7 @@ function Undo-DecisionPropia {
     $enVivoD = $true
     switch ("$($d.seccion).$($d.clave)") {
         'input.whisperModeloUltimo' { $script:WhisperUltimo = [string]$d.antes }
+        'escucha.nubeOir' { $script:NubeOir = [string]$d.antes }
         default { $enVivoD = $false }
     }
     $script:autoDecision = $null
@@ -5668,17 +5669,40 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     $hoyR = $ahora.ToString('yyyy-MM-dd')
     if ($script:revisionPropiaDia -eq $hoyR) { return $false }
     $script:revisionPropiaDia = $hoyR
-    if (-not $WhisperUltimo) { return $false }   # ya esta apagado, nada que decidir
-    $tR = 0; $tsR = 0
+    # los numeros de los ultimos 14 dias, de una vez para todas las decisiones
+    $numR = @{}
     try {
         $stR = Get-Estadisticas
+        foreach ($cR in @('turbo', 'turbo-sirvio', 'nube-intento', 'nube-sirvio')) { $numR[$cR] = 0 }
         for ($i = 0; $i -lt 14; $i++) {
             $kR = $ahora.AddDays(-$i).ToString('yyyy-MM-dd')
             if (-not $stR.dias.ContainsKey($kR)) { continue }
-            $tR += [int]$stR.dias[$kR]['turbo']
-            $tsR += [int]$stR.dias[$kR]['turbo-sirvio']
+            foreach ($cR in @($numR.Keys)) { $numR[$cR] += [int]$stR.dias[$kR][$cR] }
         }
     } catch { return $false }
+
+    # UNA DECISION AL DIA, Y NO MAS (17/09). Save-DecisionPropia guarda UNA: si tomara dos
+    # el mismo dia, la segunda pisaria a la primera y la primera se quedaria sin poderse
+    # deshacer hablando. Asi que se evaluan en orden y la primera que decida, manda.
+
+    # --- caso 2: la segunda opinion de la nube (idea 1) ---
+    # Se mira ANTES que el turbo a proposito: el turbo ya suele estar apagado, y si se mirara
+    # primero esta funcion saldria por el "ya esta apagado" sin llegar nunca aqui.
+    if ($NubeOir -and $numR['nube-intento'] -ge 20 -and
+        $numR['nube-sirvio'] -lt [int][Math]::Ceiling($numR['nube-intento'] * 0.15)) {
+        $antesN = [string]$NubeOir
+        $script:NubeOir = ''
+        [void](Set-Cfg 'escucha' 'nubeOir' '')
+        Save-DecisionPropia 'escucha' 'nubeOir' $antesN 'la segunda opinion de la nube'
+        Log "REVISION PROPIA: apago la segunda opinion de la nube ($($numR['nube-sirvio']) de $($numR['nube-intento']) utiles en 14 dias)"
+        Add-Estadistica 'auto-ajuste' "nube off: $($numR['nube-sirvio']) de $($numR['nube-intento'])"
+        [void](Send-AvisoEntorno 'auto-nube' ("He apagado la segunda opinion de la nube: la pedi $($numR['nube-intento']) veces y solo me sirvio $($numR['nube-sirvio']). Si la quieres de vuelta, dime: deshaz lo que has cambiado.") 'medio' 43200)
+        return $true
+    }
+
+    # --- caso 1: el ultimo recurso del oido ---
+    if (-not $WhisperUltimo) { return $false }   # ya esta apagado, nada que decidir
+    $tR = [int]$numR['turbo']; $tsR = [int]$numR['turbo-sirvio']
     if ($tR -lt 20) { return $false }                                  # sin historial no se juzga
     if ($tsR -ge [int][Math]::Ceiling($tR * 0.15)) { return $false }   # si aporta, se queda
     # Apagarlo es vaciar la variable VIVA y guardar la clave. Request-UltimoRecurso mira
@@ -12656,6 +12680,12 @@ function Start-NubeOir([string]$para) {
         $null = $script:nubeProc.Handle
         $script:nubeVence = $sw.ElapsedMilliseconds + $NubeTopeMs + 800
         Log "NUBE: segunda opinion de '$para' (tope $([Math]::Round($NubeTopeMs / 1000.0, 1)) s)"
+        # CUANTAS VECES SE LANZA (17/09). Habia tres contadores de desenlace -sirvio, nada,
+        # tarde- y ninguno de INTENTO: si la nube contestaba vacio, o si el oido local ya
+        # habia sacado la orden, el lanzamiento no dejaba rastro en ningun sitio. Por eso el
+        # log ensenaba 29 llamadas a Gemini y las estadisticas decian "nube-nada: 1".
+        # Sin este contador, decidir si la nube sirve seria decidir sobre un dato falso.
+        Add-Estadistica 'nube-intento' $para
         return $true
     } catch {
         Log ('NUBE: no pude lanzarla: ' + $_.Exception.Message)
@@ -14839,6 +14869,11 @@ while ($true) {
                     }
                     Log "NUBE: '$nubeTxt' tampoco es una orden que sepa hacer; sigo con el oido local"
                     Add-Estadistica 'nube-nada' "$origP -> $nubeTxt"
+                } elseif ($nubeTxt) {
+                    # CONTESTO, PERO YA NO HACIA FALTA: el oido local saco la orden antes.
+                    # No es que se equivoque, es que SOBRA, y son cosas distintas: una nube
+                    # que siempre llega tarde no aporta aunque acierte siempre (17/09).
+                    Add-Estadistica 'nube-sobra' "$origP -> $nubeTxt"
                 }
             }
             # ver PARAKEET PARA LO QUE NO ES UNA ORDEN. El repaso con small se mantiene (oye
