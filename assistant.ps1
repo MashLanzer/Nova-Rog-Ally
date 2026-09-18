@@ -5026,7 +5026,14 @@ function Get-Habitos {
         try {
             $crudoH = Get-Content -LiteralPath $rutaH -Raw -Encoding UTF8 | ConvertFrom-Json
             foreach ($u in @($crudoH.usos)) { if ($u -and $u.t) { [void]$script:habitos.usos.Add(@{ t = [string]$u.t; f = [string]$u.f; h = [string]$u.h }) } }
-            foreach ($r in @($crudoH.rechazadas)) { if ($r) { [void]$script:habitos.rechazadas.Add([string]$r) } }
+            # OJO: NO [string]$r. Desde el 17/09 una entrada puede ser un objeto
+            # (@{c=clave; r=si/no; f=fecha}) y [string] lo convertiria en
+            # "System.Collections.Hashtable", perdiendo la lista entera en silencio.
+            foreach ($r in @($crudoH.rechazadas)) {
+                if (-not $r) { continue }
+                if ($r -is [string]) { [void]$script:habitos.rechazadas.Add([string]$r) }
+                else { [void]$script:habitos.rechazadas.Add(@{ c = [string]$r.c; r = [string]$r.r; f = [string]$r.f }) }
+            }
             $script:habitos.ultimaPropuesta = [string]$crudoH.ultimaPropuesta
             if ($crudoH.fin) { foreach ($pf in $crudoH.fin.PSObject.Properties) { $script:habitos.fin[$pf.Name] = [string]$pf.Value } }
             $script:habitos.cargaAvisada = [string]$crudoH.cargaAvisada
@@ -5984,6 +5991,51 @@ function Update-BrilloAuto {
     try { Set-Brillo $objB; Log "BRILLO AUTOMATICO: $objB %" } catch {}
 }
 
+# UN "NO" NO PUEDE DURAR PARA SIEMPRE (17/09). La lista de propuestas ya tratadas no se
+# podaba NUNCA -comprobado: ni una linea que la limpie- asi que un "no" suelto de hace meses
+# vetaba esa propuesta el resto de la vida de Nova, y las costumbres cambian.
+#
+# Y habia otra cosa mezclada: a esa misma lista se anaden tambien las propuestas que
+# ACEPTASTE (para no volver a ofrecer algo que ya es una regla). Esas no deben caducar nunca:
+# la regla existe, volver a preguntar seria absurdo. Asi que ahora se distingue:
+#   - aceptada  -> para siempre
+#   - rechazada -> caduca a los 60 dias y se vuelve a ofrecer UNA vez
+# Las entradas viejas (texto suelto, sin fecha) se respetan como permanentes: no se puede
+# saber si fueron un si o un no, y equivocarse hacia el lado de no molestar es lo correcto.
+$PropuestaVetoDias = 60
+
+function Test-PropuestaVetada($hb, [string]$clave, [datetime]$ahora = (Get-Date)) {
+    foreach ($r in @($hb.rechazadas)) {
+        if (-not $r) { continue }
+        if ($r -is [string]) { if ($r -eq $clave) { return $true }; continue }
+        if ([string]$r.c -ne $clave) { continue }
+        if ([string]$r.r -eq 'si') { return $true }          # aceptada: no se repropone jamas
+        $f = $null
+        try { $f = [datetime]::ParseExact([string]$r.f, 'yyyy-MM-dd', [System.Globalization.CultureInfo]::InvariantCulture) } catch { $f = $null }
+        if ($null -eq $f) { return $true }                    # sin fecha legible, se respeta
+        if (($ahora - $f).TotalDays -lt $PropuestaVetoDias) { return $true }
+    }
+    return $false
+}
+
+function Add-PropuestaTratada($hb, [string]$clave, [bool]$aceptada, [datetime]$ahora = (Get-Date)) {
+    # fuera la entrada anterior de esa misma clave, y de paso los "no" ya caducados
+    $vivas = New-Object System.Collections.ArrayList
+    foreach ($r in @($hb.rechazadas)) {
+        if (-not $r) { continue }
+        $c = if ($r -is [string]) { [string]$r } else { [string]$r.c }
+        if ($c -eq $clave) { continue }
+        if ($r -isnot [string] -and [string]$r.r -eq 'no') {
+            $f = $null
+            try { $f = [datetime]::ParseExact([string]$r.f, 'yyyy-MM-dd', [System.Globalization.CultureInfo]::InvariantCulture) } catch { $f = $null }
+            if ($null -ne $f -and ($ahora - $f).TotalDays -ge $PropuestaVetoDias) { continue }
+        }
+        [void]$vivas.Add($r)
+    }
+    [void]$vivas.Add(@{ c = $clave; r = $(if ($aceptada) { 'si' } else { 'no' }); f = $ahora.ToString('yyyy-MM-dd') })
+    $hb.rechazadas = $vivas
+}
+
 function Find-Propuesta([datetime]$hoy = (Get-Date)) {
     $hb = Get-Habitos
     if ($hb.ultimaPropuesta -eq $hoy.ToString('yyyy-MM-dd')) { return $null }
@@ -6001,7 +6053,7 @@ function Find-Propuesta([datetime]$hoy = (Get-Date)) {
         $med5 = ([int]([Math]::Round($med / 5.0) * 5)) % 1440
         $hora = '{0:00}:{1:00}' -f [int][Math]::Floor($med5 / 60), ($med5 % 60)
         $clave = "hora|$($g.Name)"
-        if ($hb.rechazadas -contains $clave) { continue }
+        if (Test-PropuestaVetada $hb $clave) { continue }
         if (@($reglasP | Where-Object { $_.tipo -eq 'hora' -and (ConvertTo-Plain $_.accion) -eq $g.Name }).Count -gt 0) { continue }
         return @{ clave = $clave; tipo = 'hora'; valor = $hora; accion = $g.Name
             pregunta = "Estos dias, a eso de las $hora, sueles pedirme $($g.Name). ¿Quieres que lo haga yo sola cada dia a esa hora?" }
@@ -6022,7 +6074,7 @@ function Find-Propuesta([datetime]$hoy = (Get-Date)) {
         if ($pares[$k].Count -lt 3) { continue }
         $appP, $accP = $k -split '\|', 2
         $clave = "app|$k"
-        if ($hb.rechazadas -contains $clave) { continue }
+        if (Test-PropuestaVetada $hb $clave) { continue }
         if (@($reglasP | Where-Object { $_.tipo -eq 'appAbre' -and (ConvertTo-Plain $_.valor) -eq $appP -and (ConvertTo-Plain $_.accion) -eq $accP }).Count -gt 0) { continue }
         return @{ clave = $clave; tipo = 'appAbre'; valor = $appP; accion = $accP
             pregunta = "Cuando abres $appP, casi siempre me pides despues $accP. ¿Quieres que lo haga yo sola?" }
@@ -6044,7 +6096,7 @@ function Find-Propuesta([datetime]$hoy = (Get-Date)) {
     foreach ($kS in $seqs.Keys) {
         if ($seqs[$kS].Count -lt 3) { continue }
         $clave = "seq|$kS"
-        if ($hb.rechazadas -contains $clave) { continue }
+        if (Test-PropuestaVetada $hb $clave) { continue }
         $ords = @($kS -split '\|')
         return @{ clave = $clave; tipo = 'secuencia'; ordenes = $ords; valor = ''; accion = ''
             pregunta = "Sueles pedirme seguidas estas tres cosas: $($ords[0]), $($ords[1]) y $($ords[2]). ¿Te hago un modo que lo haga todo junto?" }
@@ -12440,7 +12492,7 @@ function Complete-Confirmacion([string]$respuesta) {
             # tres ordenes seguidas -> un MODO con las tres (ver Find-Propuesta, 3).
             # Se llama "rutina" (o "rutina 2", "rutina 3"... si ya hay).
             $hbS = Get-Habitos
-            [void]$hbS.rechazadas.Add($pr.clave)
+            Add-PropuestaTratada $hbS $pr.clave $true
             Save-Habitos
             $nomS = 'rutina'; $nS = 1
             while (Test-Prop $script:cmds.perfiles $nomS) { $nS++; $nomS = "rutina $nS" }
@@ -12476,16 +12528,16 @@ function Complete-Confirmacion([string]$respuesta) {
             # aceptada: no se vuelve a proponer (el nombre guardado en la regla puede
             # no coincidir con lo dicho, "navegador" frente a "Microsoft Edge")
             $hbA = Get-Habitos
-            [void]$hbA.rechazadas.Add($pr.clave)
+            Add-PropuestaTratada $hbA $pr.clave $true
             Save-Habitos
             Set-AcabaDeAprender
             Send-UIEvento 'hecho'
             Say "Hecho. Me encargo yo."
         } elseif ($respuesta -eq 'no') {
             $hbN = Get-Habitos
-            [void]$hbN.rechazadas.Add($pr.clave)
+            Add-PropuestaTratada $hbN $pr.clave $false
             Save-Habitos
-            Log "PROPUESTA rechazada: $($pr.clave)"
+            Log "PROPUESTA rechazada: $($pr.clave) (no se repropone en $PropuestaVetoDias dias)"
             Say "Vale, no te lo vuelvo a proponer."
         }
         Set-UI 'reposo'

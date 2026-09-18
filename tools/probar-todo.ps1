@@ -198,6 +198,10 @@ Titulo "2n18. Que el modo invitado no aprenda nada de quien no eres tu"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-invitado.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n19. Que un no no dure para siempre (y que un si si)"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-propuestas.ps1') | Select-String 'todo correcto|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "3. Ordenes que SI deben reconocerse"
 foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     $salida = powershell -NoProfile -File 'assistant.ps1' -Probar (Join-Path 'pruebas' $banco) 2>&1

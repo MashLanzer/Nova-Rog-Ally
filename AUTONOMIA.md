@@ -115,8 +115,24 @@ también para crear los reconocedores del **dictado** (líneas 630, 637, 643, 97
 Soltarlo jugando **rompería el botón**, que es justo lo único que funciona con un juego
 delante. Se destruiría lo que se quiere proteger.
 
-**5. Dejar de ofrecer lo que siempre rechazas.**
-Ya guarda `rechazadas` en `habitos.json`. Tres noes y deja de proponerlo.
+**5. Dejar de ofrecer lo que siempre rechazas.** — **HECHA (17/09)**, y al revés de lo que
+parecía. El filtro **ya existía** y era más duro de lo que pedía la idea: dejaba de proponer
+**al primer «no»**, no a los tres. Lo que faltaba era lo contrario, **dejar de vetar**:
+- **El veto no caducaba nunca.** Comprobado: ni una sola línea que pode esa lista. Un «no»
+  suelto de hace meses vetaba esa propuesta el resto de la vida de Nova, y las costumbres
+  cambian. Ahora un «no» caduca a los **60 días** y la propuesta vuelve **una** vez.
+- **La lista mezclaba dos cosas.** También se añade lo que **aceptas** (para no reofrecer algo
+  que ya es una regla). Eso **no** debe caducar: la regla existe. Así que ahora se distingue
+  «sí» (permanente) de «no» (caduca).
+- **Las entradas viejas se respetan como permanentes**: no se puede saber si fueron un sí o un
+  no, y equivocarse hacia el lado de no molestar es lo correcto.
+*Dos trampas que se llevaron por delante el primer intento:* las claves **ya llevan `|`
+dentro** (`app|edge|abre spotify`), así que la fecha no podía pegarse con ese separador y las
+entradas pasaron a ser objetos; y la línea que las lee hacía `[string]$r`, que habría
+convertido cada objeto en `"System.Collections.Hashtable"` **perdiendo la lista entera en
+silencio**.
+*19 casos en `probar-propuestas.ps1` (2n19), incluidos los dos que sujetan el sentido: lo
+aceptado sigue vetado cinco años después, y lo rechazado vuelve al día 60.*
 
 **6. Aprender del «deshaz» sin que se lo expliques.**
 Si deshaces en menos de 30 s lo que acaba de hacer, que se lo apunte como rechazo. Hoy solo

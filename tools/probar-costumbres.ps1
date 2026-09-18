@@ -3,7 +3,7 @@
 #    y que el resumen y la lectura digan lo que tienen que decir.
 #  - HABITOS: que proponga automatizar una costumbre de verdad (misma orden a la
 #    misma hora, o justo despues de abrir una app, tres dias distintos), y que
-#    no insista: una al dia, y un "no" es para siempre.
+#    no insista: una al dia, un "no" veta 60 dias y un "si" para siempre.
 # Trabaja en una carpeta temporal propia y la borra al acabar.
 #
 #   powershell -NoProfile -File tools\probar-costumbres.ps1
@@ -16,7 +16,13 @@ function TraerFn($n) {
 }
 foreach ($n in 'ConvertTo-Plain', 'Watch-Notificaciones', 'Get-ResumenNotificaciones', 'Get-LecturaNotificaciones', 'Get-Contactos', 'Save-Contactos',
     'Get-Habitos', 'Save-Habitos', 'Add-Habito', 'Find-Propuesta', 'Test-ParteManana',
-    'Add-RitmoSeguimiento', 'Get-VentanaSeguimiento', 'Add-CharlaHora', 'Test-PrecargaCharla', 'Write-Atomico') { Invoke-Expression (TraerFn $n) }
+    'Add-RitmoSeguimiento', 'Get-VentanaSeguimiento', 'Add-CharlaHora', 'Test-PrecargaCharla', 'Write-Atomico',
+    'Test-PropuestaVetada', 'Add-PropuestaTratada') { Invoke-Expression (TraerFn $n) }
+# Test-PropuestaVetada usa esta variable del script. Sin ella valdria $null y el veto
+# dejaria de aplicarse EN SILENCIO, que es peor que fallar (17/09).
+$txtCost = [System.IO.File]::ReadAllText($ruta, [System.Text.Encoding]::UTF8)
+if ($txtCost -match '(?m)^[$]PropuestaVetoDias = ([0-9]+)') { $PropuestaVetoDias = [int]$Matches[1] }
+else { throw 'falta $PropuestaVetoDias en assistant.ps1' }
 $script:invitado = $false
 
 $MemoriaDir = Join-Path $env:TEMP ('nova-costumbres-' + [guid]::NewGuid().ToString('N'))
@@ -76,8 +82,22 @@ Comp 'lo de hace mas de una semana no cuenta' ($null -eq (Find-Propuesta (Get-Da
 (Get-Habitos).ultimaPropuesta = '2026-09-20'
 Comp 'una al dia como mucho' ($null -eq (Find-Propuesta $hoy))
 (Get-Habitos).ultimaPropuesta = ''
+# FORMATO VIEJO (texto suelto, sin fecha): se respeta como permanente, porque no se puede
+# saber si fue un si o un no y equivocarse hacia el lado de no molestar es lo correcto
 [void](Get-Habitos).rechazadas.Add('hora|pon modo noche')
-Comp 'un no es para siempre' ($null -eq (Find-Propuesta $hoy))
+Comp 'lo vetado con el formato viejo sigue vetado' ($null -eq (Find-Propuesta $hoy))
+(Get-Habitos).rechazadas.Clear()
+# UN "NO" YA NO ES PARA SIEMPRE (17/09): veta ahora y caduca a los $PropuestaVetoDias dias.
+# Se comprueba sobre Test-PropuestaVetada y no sobre Find-Propuesta, porque con una fecha
+# 61 dias mas tarde los usos ya no entrarian en la ventana de una semana y el caso no
+# probaria lo que dice probar.
+Add-PropuestaTratada (Get-Habitos) 'hora|pon modo noche' $false $hoy
+Comp 'un no reciente si veta' ($null -eq (Find-Propuesta $hoy))
+Comp 'y sigue vetando a los 30 dias' (Test-PropuestaVetada (Get-Habitos) 'hora|pon modo noche' $hoy.AddDays(30))
+Comp 'pero caduca y se vuelve a ofrecer' (-not (Test-PropuestaVetada (Get-Habitos) 'hora|pon modo noche' $hoy.AddDays($PropuestaVetoDias + 1)))
+# y lo ACEPTADO no caduca nunca: la regla ya existe
+Add-PropuestaTratada (Get-Habitos) 'hora|pon modo noche' $true $hoy
+Comp 'lo aceptado no caduca jamas' (Test-PropuestaVetada (Get-Habitos) 'hora|pon modo noche' $hoy.AddDays(3650))
 (Get-Habitos).rechazadas.Clear()
 [void]$script:reglasFalsas.Add(@{ id = 1; tipo = 'hora'; valor = '21:00'; accion = 'pon modo noche' })
 Comp 'si ya hay una regla asi, no la propone' ($null -eq (Find-Propuesta $hoy))
