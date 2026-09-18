@@ -908,8 +908,26 @@ la 2 noventa y cinco, la 3 noventa y cuatro… Trece reglas que se guardaron cie
 se perdieron en algún punto. Merece una mirada aparte: son reglas que braya creó hablando.
 *(Sexta cifra contaminada de la tanda: «1095 reglas» eran 13.)*
 
-**47. Cortar sola al agente cuando se eterniza.**
-`Watch-OpencodeProgress` ya sigue el progreso. Que decida rendirse con su propia mediana.
+**47. Cortar sola al agente cuando se eterniza.** — **NO PROCEDE: no se eterniza (18/09)**
+*Medido sobre **230** trabajos con salida registrada:*
+
+| | |
+|---|---:|
+| mediana | **16 s** |
+| p90 | 33 s |
+| máximo | **91 s** |
+
+Nada se eterniza. La tabla ya espera 60 s para `accion` (25 s con Claude Code), así que el
+máximo real ni siquiera se sale mucho de lo previsto.
+
+*Y los 24 `SUBMIT` sin salida propia no son cuelgues:* son **18 del 10/09, 5 del 11/09 y 1 del
+12/09**, y **ninguno desde el 13/09**. Es un problema viejo que dejó de pasar solo; poner hoy un
+corte por mediana sería arreglar algo que ya no ocurre, con el riesgo de cortar un trabajo
+legítimo de minuto y medio.
+
+*Confirmado además que hoy no hay ningún corte por tiempo:* `Watch-OpencodeProgress` solo estima
+la barra de progreso (`$DURACION_ESPERADA` / `$DURACION_CC`); los únicos «rendirse» del código
+son del oído fino.
 
 ### Sobre su propio conocimiento
 
