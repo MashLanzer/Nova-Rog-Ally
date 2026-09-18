@@ -5807,6 +5807,45 @@ function Test-DatosRepartidos($stats, [string]$clave, [datetime]$ahora, [int]$di
 }
 
 $script:revisionPropiaDia = ''
+# LO QUE NO PUEDE DECIDIR, TAMBIEN SE CUENTA (18/09). Hasta hoy Nova solo hablaba cuando
+# decidia algo. Pero puede pasar -y pasa- que los numeros canten y el freno de datos repartidos
+# la pare: el ultimo recurso lleva 1 acierto de 29 intentos (muy por debajo del 15 %), y aun asi
+# no se apaga porque los 29 son TODOS del mismo dia y Test-DatosRepartidos pide >=3 dias y <=70 %
+# en uno.
+#
+# El freno esta bien: una sola tarde mala no puede cambiarle la configuracion. Lo que estaba mal
+# es CALLARSELO, porque desde fuera no se distingue de "no hay nada que revisar". Asi que lo
+# dice, una vez por semana y con la cifra que la frena.
+#
+# Devuelve el texto o '' (no habla: solo decide si habria algo que contar).
+function Get-AvisoSinDatos($stats, $num, [datetime]$ahora = (Get-Date)) {
+    try {
+        foreach ($c in @(
+            @{ clave = 'turbo'; intentos = 'turbo'; utiles = 'turbo-sirvio'; que = 'mi ultimo recurso del oido' },
+            @{ clave = 'nube';  intentos = 'nube-intento'; utiles = 'nube-sirvio'; que = 'la segunda opinion de la nube' })) {
+            $tot = [int]$num[$c.intentos]
+            if ($tot -lt 20) { continue }                                       # sin historial no se juzga
+            if ([int]$num[$c.utiles] -ge [int][Math]::Ceiling($tot * 0.15)) { continue }   # si aporta, no hay decision pendiente
+            if (Test-DatosRepartidos $stats $c.intentos $ahora) { continue }    # si los datos valen, ya decidiria sola
+            # cuantos dias distintos tiene, para decirlo con su numero
+            $dias = 0
+            for ($i = 0; $i -lt 14; $i++) {
+                $k = $ahora.AddDays(-$i).ToString('yyyy-MM-dd')
+                if (-not $stats.dias.ContainsKey($k)) { continue }
+                if ([int]$stats.dias[$k][$c.intentos] -gt 0) { $dias++ }
+            }
+            # SIN NI UN DIA CON DATOS, NO SE HABLA (18/09). Lo cazo la prueba: con contadores a
+            # 29 pero unas estadisticas sin dias, la frase salia como "todo eso es de 0 dias",
+            # que no se sostiene. Si los numeros y los dias no cuadran, mejor callar.
+            if ($dias -lt 1) { continue }
+            return ("Tengo una decision esperando: $($c.que) solo me ha servido $([int]$num[$c.utiles]) de $tot veces, " +
+                    "pero todo eso es de $dias $(if ($dias -eq 1) { 'dia' } else { 'dias' }) y no me fio de cambiar nada con tan poco. " +
+                    "Si sigue asi unos dias mas, lo apago y te aviso.")
+        }
+    } catch { return '' }
+    return ''
+}
+
 function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     if ($script:invitado -or $script:juegoActivo) { return $false }
     $hoyR = $ahora.ToString('yyyy-MM-dd')
@@ -5890,12 +5929,14 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     }
 
     # --- caso 1: el ultimo recurso del oido ---
-    if (-not $WhisperUltimo) { return $false }   # ya esta apagado, nada que decidir
+    # NOTA: si sale por aqui sin decidir, el aviso de "decision esperando datos" ya se ha
+    # evaluado arriba; no se repite.
+    if (-not $WhisperUltimo) { return (Send-AvisoSinDatos $stR $numR $ahora) }
     $tR = [int]$numR['turbo']; $tsR = [int]$numR['turbo-sirvio']
-    if ($tR -lt 20) { return $false }                                  # sin historial no se juzga
-    if ($tsR -ge [int][Math]::Ceiling($tR * 0.15)) { return $false }   # si aporta, se queda
+    if ($tR -lt 20) { return (Send-AvisoSinDatos $stR $numR $ahora) }   # sin historial no se juzga
+    if ($tsR -ge [int][Math]::Ceiling($tR * 0.15)) { return (Send-AvisoSinDatos $stR $numR $ahora) }   # si aporta, se queda
     # y que no salga de una sola tarde (ver Test-DatosRepartidos)
-    if (-not (Test-DatosRepartidos $stR 'turbo' $ahora)) { return $false }
+    if (-not (Test-DatosRepartidos $stR 'turbo' $ahora)) { return (Send-AvisoSinDatos $stR $numR $ahora) }
     # Apagarlo es vaciar la variable VIVA y guardar la clave. Request-UltimoRecurso mira
     # $WhisperUltimo, asi que surte efecto en la frase siguiente sin relanzar la escucha
     # (el worker recibe el modelo al arrancar, pero nunca se lo piden). Importa: al
@@ -5914,6 +5955,17 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     Add-Estadistica 'auto-ajuste' "ultimo recurso off: $tsR de $tR"
     [void](Send-AvisoEntorno 'auto-ultimo' ("He apagado mi ultimo recurso del oido: en $tR intentos solo me sirvio $tsR veces y cada uno te hacia esperar unos 16 segundos. Si lo quieres de vuelta, dime: deshaz lo que has cambiado." + $(if (-not $apuntadaR) { ' Aunque no he podido apuntarlo: si me reinicias, vuelve solo.' } else { '' })) 'medio' 43200)
     return $true
+}
+
+# Dice el aviso de "decision esperando datos", como mucho una vez por semana (10080 min). Va
+# aparte de Get-AvisoSinDatos para que la prueba pueda mirar el texto sin tocar el mundo.
+# Devuelve $false siempre: avisar NO es decidir, y Test-RevisionPropia informa de si decidio.
+function Send-AvisoSinDatos($stats, $num, [datetime]$ahora = (Get-Date)) {
+    try {
+        $t = Get-AvisoSinDatos $stats $num $ahora
+        if ($t) { [void](Send-AvisoEntorno 'auto-sin-datos' $t 'medio' 10080) }
+    } catch {}
+    return $false
 }
 
 # IDEA 22: EL CORREO DE LA MANANA. Invoke-CorreoScript ESPERA a que el script termine

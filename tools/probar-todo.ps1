@@ -142,6 +142,10 @@ Titulo "2x. La frase de ejemplo recitada no es una orden (y lo mal oido no se ap
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-recitado.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n26. Cuenta tambien lo que NO puede decidir por falta de datos"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-sin-datos.ps1') | Select-String 'todo correcto|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n25. A que porcentaje enchufas el cargador (el otro medidor que faltaba)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-cargador.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }

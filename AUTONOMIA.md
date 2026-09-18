@@ -1005,31 +1005,87 @@ lista sin los vencidos (línea 10144). Hoy `recordatorios.json` está **vacío**
 la única guardada —«el 15 de septiembre es el cumple de Ana», `"md": "09-15"`— **vuelve cada año**.
 Archivarla sería perder el aviso del año que viene: justo lo contrario de lo que se quiere.
 
-**53. Retirar alias aprendidos que nunca se usan.** Si te enseñó un nombre y no lo has vuelto
-a decir en meses, sobra y estorba al reconocimiento.
+**53. Retirar alias aprendidos que nunca se usan.** — **NO PROCEDE: no hay ninguno (18/09)**
+**Alias aprendidos: 0.** Las 14 líneas `APRENDIDO` del log son **traducciones** (formato
+`'original' = 'traducida'`, línea 3781), no alias (`'alias' -> descripción`, línea 3739).
+
+*Y si los hubiera, no se podrían distinguir:* `Add-Alias-Comando` los escribe **dentro de
+`apps`/`sitios` de `commands.json`**, mezclados con los de fábrica y sin marca de origen ni fecha.
+Retirar «los que no usas» exigiría primero saber cuáles puso Nova, y hoy eso no consta.
+
+*(Las 108 `correcciones` del fichero son otra cosa: erratas de transcripción de fábrica —
+«yutub» → «youtube», «guasap» → «whatsapp».)*
 
 ### Rendir cuentas y no repetir errores
 
-**54. Medir si sus propias decisiones acertaron.** Apagó el último recurso: ¿subieron los
-fallos después? Si sí, volver atrás **ella**.
+**54. Medir si sus propias decisiones acertaron.** — **SIN DATOS: no ha tomado ninguna (18/09)**
+**Cero decisiones propias**, por las tres vías: `auto-ajuste` 0 en el log, `auto-deshecho` 0, y en
+`estadisticas.json` ninguna clave `auto*` ni un solo `[auto…]` en recientes.
 
-**55. No insistir en una decisión que ya deshiciste dos veces.** A la segunda, retirarla de
-su lista para siempre y decirlo.
+*Y no es un fallo: es su propio freno funcionando.* El último recurso cumple los dos primeros
+requisitos para apagarse —29 intentos ≥ 20, y 1 acierto está muy por debajo del 15 %— pero cae en
+el tercero: los **29 son todos del 15/09**, y `Test-DatosRepartidos` exige ≥3 días y ≤70 % en uno.
+El oído fino, en cambio, no se apaga porque **sí compensa**: neto (27−5)/81 = **27 %**.
 
-**56. Saber explicarse cuando le preguntes «¿por qué hiciste eso?»** con el número que usó,
-no con una frase amable.
+Hasta que tome una, no hay nada que medir. *(Lo que sí se hizo: que **cuente** que tiene una
+decisión esperando datos — idea 57.)*
 
-**57. Avisar cuando lleva mucho sin poder decidir** por falta de datos: «llevo dos semanas
-sin suficientes intentos para juzgar el oído fino».
+**55. No insistir en una decisión que ya deshiciste dos veces.** — **SIN DATOS (18/09)**
+0 decisiones tomadas y 0 deshechas, así que no hay ninguna en la que insistir.
 
-**58. Detectar una mala racha y ofrecer volver a lo de fábrica.** Si lleva días fallando más
-de lo normal, proponer deshacer **todos** sus ajustes de golpe.
+*El concepto ya existe para lo que sí se propone:* `Add-PropuestaTratada` veta **60 días** una
+propuesta rechazada y **para siempre** una aceptada. Cuando haya auto-decisiones deshechas, el
+patrón a copiar ya está escrito y probado.
 
-**59. Guardar una foto de su configuración antes de cada auto-ajuste.** Hoy se guarda la
-última decisión; con una foto se puede volver a un día entero.
+**56. Saber explicarse cuando le preguntes «¿por qué hiciste eso?»** — **A MEDIAS, y sin nada que explicar aún (18/09)**
+*La mitad buena ya está:* cuando decide, **el aviso ya lleva el número** — «la pedí 29 veces y solo
+me sirvió 1», «27 aciertos menos 5 inventos de 81 repasos». No es una frase amable: es la cifra que
+la llevó a decidir.
 
-**60. Incluirse en el parte semanal que ya escribe.** Una sección de «lo que decidí, con qué
-dato, y si acerté». Si no puede explicar una decisión con un número, es que no debía tomarla.
+*Lo que falta es responder después,* y hoy no existe (las únicas coincidencias de «explícame» son
+del vocabulario de preguntas, `$RE_PREGUNTA`). Pero con **0 decisiones tomadas** no hay ninguna
+pregunta que contestar todavía: implementarlo ahora sería escribir una respuesta que siempre diría
+«no he decidido nada».
+
+**57. Avisar cuando lleva mucho sin poder decidir** — **HECHA (18/09)** ← *la única accionable de este bloque*
+*Había un caso vivo y Nova se lo callaba.* El último recurso lleva **1 acierto de 29 intentos** —de
+sobra para apagarlo— pero el freno lo para porque los 29 son **todos del mismo día**. El freno está
+bien; callárselo no, porque desde fuera **no se distingue de «no hay nada que revisar»**.
+
+`Get-AvisoSinDatos` detecta ese estado —números que cantan **+** datos que no llegan— y lo dice con
+su cifra: *«Tengo una decisión esperando: mi último recurso del oído solo me ha servido 1 de 29
+veces, pero todo eso es de 1 día y no me fío de cambiar nada con tan poco. Si sigue así unos días
+más, lo apago y te aviso.»*
+
+Calla en los demás casos: sin historial (<20), si el recurso **sí** sirve, y si los datos ya están
+repartidos (porque entonces **decide sola**, que es mejor que avisar). Como mucho **una vez por
+semana**, y **avisar no cuenta como decidir**: `Test-RevisionPropia` sigue devolviendo `$false`, así
+que no gasta la decisión del día. `probar-sin-datos.ps1` (2n26) lo cubre.
+
+**58. Detectar una mala racha y ofrecer volver a lo de fábrica.** — **SIN DATOS: no ha cambiado nada (18/09)**
+Con **0 auto-ajustes**, «deshacer todos sus ajustes de golpe» no deshace nada.
+
+*Y la primera mitad ya existe:* `Get-AvisoFallos` (idea 29) detecta «hoy me estoy equivocando más de
+lo normal» comparando con su propia media. Lo que la idea añadiría —ofrecer la vuelta atrás
+completa— necesita que antes haya algo que revertir.
+
+**59. Guardar una foto de su configuración antes de cada auto-ajuste.** — **YA EXISTE, y mejor de lo que pedía (18/09)**
+*La foto ya se hace, y de todo:* `New-CopiaSeguridad` empaqueta `config.json`, `commands.json`,
+traducciones, reglas, toda `memoria/` y `mi-voz.json` en un zip **cada día**, con rotación de 14 y
+copia en OneDrive. Comprobado hoy: **6 copias locales** (12→17/09) y 4 en OneDrive.
+
+Eso es más que «una foto antes de cada ajuste»: permite volver a **un día entero**, que es justo lo
+que la idea pedía. Y por debajo, `Save-DecisionPropia` guarda el valor anterior de la última
+decisión para poder deshacerla hablando.
+
+**60. Incluirse en el parte semanal que ya escribe.** — **YA HECHA: es la idea 30 (18/09)**
+Duplicada. `Get-ParrafoDecisiones` (línea 10256) ya escribe en el parte semanal lo que decidió, con
+el dato que lo justifica, cuántas veces se lo deshiciste y cuántas arrancó a medias — y **calla si
+esa semana no decidió nada**. Su probador es `probar-parte-semanal.ps1` (2n22).
+
+La regla que cierra la idea («si no puede explicar una decisión con un número, es que no debía
+tomarla») **se cumple sola**, porque el detalle guardado ya trae el número: `ultimo recurso off: 1
+de 29`.
 
 ---
 
@@ -1062,26 +1118,44 @@ contarlo jamás**. Un cambio silencioso, que es justo lo que la cabecera prohíb
 
 ### Y dos ideas nuevas que salen de la inspección
 
-**62. Que los umbrales de las decisiones vivan en un solo sitio.**
-El 15 % de aprovechamiento, los 20 intentos mínimos, los 3 días y el 70 % están repetidos **a
-mano en las tres decisiones**. Hoy coinciden; dentro de tres meses, no. Una tabla los mantiene
-juntos y hace evidente cuándo una decisión usa un criterio distinto **a propósito**.
+**62. Que los umbrales de las decisiones vivan en un solo sitio.** — **PENDIENTE, y hoy pesa más (18/09)**
+El 15 % de aprovechamiento, los 20 intentos mínimos, los 3 días y el 70 % siguen repetidos **a
+mano en las tres decisiones**. Y con la idea 57 ya son **cuatro** sitios: `Get-AvisoSinDatos`
+repite el `-lt 20` y el `* 0.15` para saber si hay una decisión esperando datos. Si alguien mueve
+el 15 % en `Test-RevisionPropia` y no aquí, Nova avisaría de decisiones que ya no tocan, o
+callaría las que sí.
 
-**63. Que apunte cuándo aplaza una decisión, y por qué.**
-La guarda nueva sale con un `return $false` **en silencio**. No es grave (no cambia nada), pero
-si Nova lleva semanas sin decidir nada no habría forma de saber si es que no hay datos, o que
-siempre la pillan de noche. Una línea de log al día lo resuelve.
+*No se hace ahora a propósito:* tocar los cuatro a la vez, el mismo día que se estrena el aviso,
+es justo cómo se cuelan los fallos silenciosos. Queda apuntado con su motivo, que es lo que pedía
+la lista.
+
+**63. Que apunte cuándo aplaza una decisión, y por qué.** — **HECHA a medias, por la 57 (18/09)**
+*La mitad que importaba ya está:* el caso «los números cantan pero los datos no llegan» ya no sale
+en silencio — lo cuenta `Get-AvisoSinDatos`, y no en el log sino **hablando**, que es donde braya
+se entera. Ese era el aplazamiento real: el último recurso lleva 1 acierto de 29 y no se apaga
+porque los 29 son del mismo día.
+
+*Lo que queda fuera* son los aplazamientos por contexto —que la pillen jugando, de noche, en modo
+invitado o ya habiendo decidido hoy—, que siguen saliendo con un `return $false` mudo. Esos son
+**transitorios de verdad** (a la hora siguiente ya no aplican), así que apuntarlos llenaría el log
+de ruido para contar que era de noche.
 
 ---
 
 ## Una más, salida del trabajo (61)
 
-**61. No decidir con datos anteriores al arreglo de lo que se mide.**
-`Test-DatosRepartidos` ya exige 3 días distintos y que ninguno pase del 70 %, pero no sabe
-que el 16/09 se arregló la ganancia. Dos ideas seguidas (la **2** y la **8**) invitaban a
-actuar con datos que eran **secuela de un fallo ya corregido**. Haría falta una **fecha de
-corte**: cuando Nova cambia algo que afecta a lo que mide, los datos de antes no cuentan para
-decidir sobre ello. Ella ya apunta sus cambios en `auto-ajuste`, así que la fecha está.
+**61. No decidir con datos anteriores al arreglo de lo que se mide.** — **PENDIENTE: la más valiosa de las tres (18/09)**
+`Test-DatosRepartidos` exige 3 días distintos y ≤70 % en uno, pero **no sabe** que el 16/09 se
+arregló la ganancia del micrófono. Dos ideas seguidas (la **2** y la **8**) invitaban a actuar con
+datos que eran **secuela de un fallo ya corregido**.
+
+*Y hoy tiene un caso concreto esperando:* los **29 intentos de `turbo` son del 15/09**, un día
+anterior a ese arreglo. Cuando lleguen datos de tres días distintos, Nova apagará el último recurso
+usando también esos 29 — medidos con un micrófono que se comportaba de otra manera.
+
+*La fecha de corte ya está a mano:* ella apunta sus propios cambios como `auto-ajuste`. Falta que
+`Test-DatosRepartidos` reciba «no cuentes nada anterior a X» y que las decisiones le pasen la fecha
+del último arreglo que afecte a lo que miden.
 
 ---
 

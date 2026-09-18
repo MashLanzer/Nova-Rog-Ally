@@ -1,0 +1,81 @@
+﻿# LO QUE NO PUEDE DECIDIR, TAMBIEN SE CUENTA (18/09).
+#
+# Hasta hoy Nova solo hablaba cuando decidia algo. Pero puede pasar -y pasa ahora mismo- que los
+# numeros canten y el freno de datos repartidos la pare: el ultimo recurso lleva 1 acierto de 29
+# intentos (muy por debajo del 15 %) y no se apaga porque los 29 son TODOS del 15/09, y
+# Test-DatosRepartidos pide >=3 dias y <=70 % en uno.
+#
+# El freno esta bien. Lo que estaba mal era callarselo: desde fuera no se distingue de "no hay
+# nada que revisar". Aqui se comprueba que lo cuenta SOLO cuando toca.
+$ErrorActionPreference = 'Stop'
+$raiz = Split-Path -Parent $PSScriptRoot
+$rutaA = Join-Path $raiz 'assistant.ps1'
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($rutaA, [ref]$null, [ref]$null)
+function Traer([string]$n) {
+    $fn = $ast.Find({ param($x) $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq $n }, $true)
+    if (-not $fn) { throw "no encuentro $n" }
+    return $fn.Extent.Text
+}
+Invoke-Expression (Traer 'Test-DatosRepartidos')
+Invoke-Expression (Traer 'Get-AvisoSinDatos')
+
+$mal = 0
+function Comp([string]$etq, [bool]$ok, [string]$det) {
+    Write-Host ("  {0}  {1,-54} {2}" -f $(if ($ok) { 'OK ' } else { 'MAL' }), $etq, $det)
+    if (-not $ok) { $script:mal++ }
+}
+$hoy = [datetime]'2026-09-18'
+function Stats([hashtable]$porDia) {
+    $d = @{}
+    foreach ($k in $porDia.Keys) { $d[$k] = $porDia[$k] }
+    return @{ dias = $d }
+}
+function Num([int]$turbo, [int]$sirvio, [int]$nubeI = 0, [int]$nubeS = 0) {
+    return @{ 'turbo' = $turbo; 'turbo-sirvio' = $sirvio; 'nube-intento' = $nubeI; 'nube-sirvio' = $nubeS }
+}
+
+Write-Host '  -- el caso de verdad: 1 de 29, pero todo de un dia --'
+$real = Stats @{ '2026-09-15' = @{ 'turbo' = 29; 'turbo-sirvio' = 1 } }
+$t = Get-AvisoSinDatos $real (Num 29 1) $hoy
+Comp 'avisa de que tiene una decision esperando' ($t -ne '') ("'" + $t + "'")
+Comp 'y dice cuantas veces le sirvio' ($t -match '1 de 29') ''
+Comp 'y de cuantos dias sale' ($t -match 'de 1 dia\b') ''
+Comp 'y que no se fia de cambiar con tan poco' ($t -match 'no me fio') ''
+Comp 'y que lo apagara si sigue asi' ($t -match 'lo apago y te aviso') ''
+
+Write-Host '  -- y CALLA cuando no hay nada que contar --'
+Comp 'sin intentos, nada' ((Get-AvisoSinDatos (Stats @{}) (Num 0 0) $hoy) -eq '') ''
+$pocos = Stats @{ '2026-09-15' = @{ 'turbo' = 12; 'turbo-sirvio' = 0 } }
+Comp 'con menos de 20 intentos, nada (no se juzga)' ((Get-AvisoSinDatos $pocos (Num 12 0) $hoy) -eq '') ''
+$util = Stats @{ '2026-09-15' = @{ 'turbo' = 29; 'turbo-sirvio' = 9 } }
+Comp 'si SI le sirve, no hay decision pendiente' ((Get-AvisoSinDatos $util (Num 29 9) $hoy) -eq '') ''
+
+Write-Host '  -- y si los datos YA valen, calla: entonces decide sola --'
+$rep = Stats @{ '2026-09-15' = @{ 'turbo' = 10; 'turbo-sirvio' = 0 }
+                '2026-09-16' = @{ 'turbo' = 10; 'turbo-sirvio' = 1 }
+                '2026-09-17' = @{ 'turbo' = 9;  'turbo-sirvio' = 0 } }
+Comp 'repartido en 3 dias: no avisa, decide' ((Get-AvisoSinDatos $rep (Num 29 1) $hoy) -eq '') ''
+
+Write-Host '  -- la nube tambien, por el mismo camino --'
+$nube = Stats @{ '2026-09-16' = @{ 'nube-intento' = 24; 'nube-sirvio' = 1 } }
+$tn = Get-AvisoSinDatos $nube (Num 0 0 24 1) $hoy
+Comp 'avisa de la nube' ($tn -match 'nube') ("'" + $tn + "'")
+Comp 'con su cifra' ($tn -match '1 de 24') ''
+
+Write-Host '  -- y lo raro no lo rompe --'
+Comp 'sin dias, no revienta' ((Get-AvisoSinDatos @{ dias = @{} } (Num 29 1) $hoy) -eq '') ''
+Comp 'con stats vacio tampoco' ((Get-AvisoSinDatos @{} (Num 29 1) $hoy) -eq '') ''
+
+# --- y que el codigo real lo use ---
+Write-Host '  -- y la revision propia lo cuenta en sus tres salidas --'
+$txt = [System.IO.File]::ReadAllText($rutaA, [System.Text.Encoding]::UTF8)
+Comp 'existe el envoltorio que habla' ($txt -match 'function Send-AvisoSinDatos') ''
+Comp 'avisa como mucho una vez por semana' ($txt -match "'auto-sin-datos' \`$t 'medio' 10080") ''
+$n = ([regex]::Matches($txt, 'Send-AvisoSinDatos \$stR \$numR \$ahora')).Count
+Comp 'se llama en las salidas sin decision' ($n -ge 4) "llamadas=$n"
+# avisar NO es decidir: Test-RevisionPropia tiene que seguir diciendo $false
+Comp 'y avisar no cuenta como decidir' ($txt -match 'return \$false\s*\r?\n\}\s*\r?\n\s*# IDEA 22') ''
+
+Write-Host ''
+if ($mal -gt 0) { Write-Host "$mal casos MAL" -ForegroundColor Red; exit 1 }
+Write-Host 'todo correcto' -ForegroundColor Green

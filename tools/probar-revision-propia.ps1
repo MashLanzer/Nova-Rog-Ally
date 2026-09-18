@@ -46,6 +46,12 @@ Invoke-Expression (Traer 'Save-DecisionPropia')
 Invoke-Expression (Traer 'Undo-DecisionPropia')
 Invoke-Expression (Traer 'Invoke-Deshacer')
 Invoke-Expression (Traer 'Test-DatosRepartidos')
+# LO QUE NO PUEDE DECIDIR TAMBIEN SE CUENTA (18/09). Test-RevisionPropia ya no sale con un
+# 'return $false' seco cuando no decide: llama a Send-AvisoSinDatos por si hay una decision
+# esperando datos. Sin traer estas dos, la funcion revienta a mitad y esta prueba se quedaba
+# sin ejecutar los casos siguientes (y encima salia con exit 0, que es lo peor de todo).
+Invoke-Expression (Traer 'Get-AvisoSinDatos')
+Invoke-Expression (Traer 'Send-AvisoSinDatos')
 Invoke-Expression (Traer 'Test-RevisionPropia')
 
 $hoy = Get-Date
