@@ -391,7 +391,18 @@ bajo/semana… — más un **tope global de 4 por hora**, silencio nocturno y si
 reaccionaste. Y aquí «reaccionar» ni siquiera está definido: ¿enchufar el cargador?, ¿vaciar
 el Gmail?, ¿decir algo? Habría que inventar un medidor de reacción para silenciar avisos que
 **ya tienen plazo de días**.
-**23.** **Ajustar el volumen de su voz al ruido** de la habitación.
+**23.** **Ajustar el volumen de su voz al ruido.** — **NO PROCEDE (verificado 17/09)**
+*La mitad útil ya existe:* de **22:00 a 7:00 la voz suena al 55 %** (del 13/09), con una
+limitación ya documentada — solo vale para la voz en línea, porque Piper va por `SoundPlayer`,
+que no tiene volumen.
+*El dato que haría falta no sirve:* `ui-nivel.txt` lo escribe el worker **para la cápsula**; el
+asistente solo le pasa la ruta y **nunca lo lee**. Y mide el nivel **mientras hablas**, no el
+ruido de la sala cuando Nova va a hablar (ahora mismo marca `0.000`).
+*Y `nivel_salida()` tampoco:* mide lo que **sale** por los altavoces, no lo que hay en la
+habitación — y de ella cuelgan **cuatro protecciones del oído** cuyo propio comentario avisa de
+que tocarla las hace desaparecer «en silencio» y devuelve los fallos del 11/09.
+Haría falta un medidor nuevo del micro en reposo para gobernar algo que ya resuelve el
+horario.
 
 ### Cuándo callarse y cuándo actuar
 
