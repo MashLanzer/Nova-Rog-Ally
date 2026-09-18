@@ -984,10 +984,26 @@ carpetas distintas. No hay dos recetas que hagan lo mismo.
 el escritorio **llamada** {texto}» como **variante** de «…**que diga** {texto}». Eso es
 exactamente «una receta con dos formas de decirla», y se hizo sola.
 
-**51. Limpiar su `perfil.md` de lo caducado.** Lo que se contradice con algo más reciente no
-debería seguir contando como verdad.
+**51. Limpiar su `perfil.md` de lo caducado.** — **YA EXISTE el olvido, y no hay nada caducado (18/09)**
+*El perfil entero son 4 líneas, y ninguna se contradice con otra:* la ROG Ally, su Gmail, que
+prefiere respuestas cortas, y que juega a *It Takes Two* con su pareja — justo el juego cuyos
+logros se detectaron el 16/09. Son cuatro hechos independientes y vigentes.
 
-**52. Archivar fechas y recordatorios pasados** en vez de arrastrarlos para siempre.
+*Y el olvido ya está hecho, a petición:* `Save-DatosPerfil` retira la línea que mejor casa con lo
+que se le pide olvidar y lo deja escrito (`PERFIL: olvidado`). Ha funcionado **2 veces de verdad**
+el 13/09 («mi juego favorito es Hollow Knight», «mi color favorito es el verde»), frente a 35
+«PERFIL: aprendido».
+
+Lo que la idea pediría de más —**detectar contradicciones sola**— no tiene sobre qué trabajar con
+cuatro hechos que no chocan, y aplicado a ciegas borraría cosas buenas.
+
+**52. Archivar fechas y recordatorios pasados** — **YA HECHO, y las fechas no deben archivarse (18/09)**
+*Los recordatorios ya se podan solos:* al dispararse, `Save-Recordatorios $quedan` reescribe la
+lista sin los vencidos (línea 10144). Hoy `recordatorios.json` está **vacío**, que es lo que toca.
+
+*Y las fechas NO son «pasadas»: son anuales por diseño.* `Test-FechasHoy` compara `MM-dd`, así que
+la única guardada —«el 15 de septiembre es el cumple de Ana», `"md": "09-15"`— **vuelve cada año**.
+Archivarla sería perder el aviso del año que viene: justo lo contrario de lo que se quiere.
 
 **53. Retirar alias aprendidos que nunca se usan.** Si te enseñó un nombre y no lo has vuelto
 a decir en meses, sobra y estorba al reconocimiento.
