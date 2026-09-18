@@ -811,8 +811,21 @@ fallo —saltar de un juego a otro sin pasar por «sin juego», donde la rama de
 
 Funciona, además: **3 logros** detectados, todos de *It Takes Two*.
 
-**42. Ajustar el historial del portapapeles.**
-`Watch-Portapapeles` guarda 10 fijos. Que lo suba o baje según cuántos reutilizas de verdad.
+**42. Ajustar el historial del portapapeles.** — **NO PROCEDE: solo 3 de los 10 son alcanzables (18/09)**
+*El número no se puede ajustar «según cuántos reutilizas», porque no hay forma de reutilizar más
+de tres.* El código nunca pasa del índice 2: «lo que has copiado» enseña los **3 primeros**
+(línea 7201) y «antes copiaste» usa el **[1]** (7187). Guardar 10 es inútil cuando **nadie puede
+pedir el séptimo**.
+
+*Y el historial no se usa:* en todo el registro hay **una** vez («que copie antes → antes
+copiaste: *texto de prueba*», y el propio texto delata que fue una prueba). La otra coincidencia
+que encontré era de la memoria de la charla («recuerdo 1, 1 usos»), no del portapapeles.
+
+*Tampoco hay coste que recortar,* aunque se lee cada 4 s: `ContainsText` y `GetText` cuestan
+**0 ms** tras la primera llamada (16 y 3 ms iniciales, de cargar el ensamblado). Nada que ver con
+la sonda de CPU de la idea 33.
+
+Bajar el 10 a 3 ahorraría tres cadenas en memoria: no es una mejora, es ruido en el código.
 
 **43. Aprender qué dispositivos son normales.**
 `Watch-Dispositivos` avisa de lo que aparece. Los que entran y salen a diario (tus cascos)
