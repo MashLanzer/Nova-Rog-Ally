@@ -185,8 +185,23 @@ justamente las que menos datos tienen (5 y 6 activaciones en total).
 ya (ideas 2 y 8) los datos que invitaban a actuar eran de antes de arreglar el problema que
 los causaba.
 
-**9. Rehacer sola tu huella de voz.**
-El tono aprendido son **119,6 Hz**. Recalcular con muestras nuevas y **avisar del cambio**.
+**9. Rehacer sola tu huella de voz.** — **HECHA (17/09)**, y la mitad ya estaba
+`Update-MiVoz` **ya la rehacía sola**: lleva una media `{f0, n}`, descarta saltos de más de
+60 Hz para que la voz de otro no arrastre tu referencia, y al llegar al tope (60) pasa a
+**media móvil**. De hecho **ya se había movido y nadie se enteró**: era 119,6 Hz y hoy
+`mi-voz.json` dice **116,8**.
+**El agujero que apareció al mirarlo:** la guarda de 60 Hz impide un **salto**, pero no una
+**deriva lenta**. En `tmpoces.json` la segunda voz de la casa está en **144,0 Hz**, a solo
+**27,2 Hz** de la tuya — o sea **dentro** de esa guarda. Si esa persona usa el botón a menudo,
+su tono entra poco a poco en tu media y un día «solo yo» la acepta a ella y duda de ti, sin
+que nadie lo sepa.
+**Lo que faltaba era enterarse**: ahora `mi-voz.json` guarda también la **referencia base**, y
+cuando la media se aleja **15 Hz** de ella (menos de medio margen de «solo yo», que son 35)
+Nova lo dice con los dos números y vuelve a fijar la base, para no repetirlo. No avisa con
+pocas muestras, no avisa dos veces, y un invitado sigue sin tocar nada.
+*11 casos nuevos en `probar-voz-dueno.ps1`.* *Y un error mío que la prueba destapó:* el bloque
+quedó colocado **después** de que el probador borrase su carpeta temporal, así que cinco casos
+fallaban por no encontrar el archivo. La prueba estaba mal puesta, no el código.
 
 **10. Ponerse un presupuesto de tiempo y rendirse a tiempo.**
 Si una orden va camino de pasar de X segundos encadenando repasos, renunciar y decirlo (el

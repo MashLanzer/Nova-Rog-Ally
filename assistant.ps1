@@ -1687,14 +1687,27 @@ function Get-Atragantos {
 # mueve contigo (un microfono nuevo, la voz con los anos) en vez de quedarse
 # clavado en la primera semana.
 $MiVozTope = 60
+# CUANTO SE PUEDE MOVER TU VOZ SIN QUE TE ENTERES (17/09). La media ya se rehace sola, y de
+# hecho se ha movido: era 119,6 Hz y hoy es 116,8. Eso esta bien. Lo que no esta bien es que
+# se mueva EN SILENCIO, porque de este numero depende "solo yo".
+#
+# La guarda de 60 Hz de abajo impide un SALTO (que la voz de otro entre de golpe), pero no
+# impide una DERIVA LENTA: en tmp\voces.json la segunda voz de la casa esta en 144,0 Hz, a
+# solo 27,2 Hz de la tuya, o sea DENTRO de esa guarda. Si esa persona usa el boton a menudo,
+# su tono entra poco a poco en tu media y un dia "solo yo" la acepta a ella y duda de ti.
+#
+# 15 Hz es menos de medio margen de "solo yo" (35): avisa ANTES de que empiece a molestarte.
+$MiVozDeriva = 15.0
 function Update-MiVoz([double]$f0) {
     if ($f0 -le 0 -or $script:invitado) { return }   # la voz de un invitado no es la tuya
     try {
         $ruta = Join-Path $TmpDir 'mi-voz.json'
-        $m = 0.0; $n = 0
+        $m = 0.0; $n = 0; $base = 0.0
         if (Test-Path -LiteralPath $ruta) {
             $d = Get-Content -LiteralPath $ruta -Raw -Encoding UTF8 | ConvertFrom-Json
             $m = [double]$d.f0; $n = [int]$d.n
+            # la referencia desde la ultima vez que se aviso (o la primera que hubo)
+            $base = [double]$d.base
         }
         # Un salto enorme no puede arrastrar la referencia: si un dia confirmas
         # a mano una orden dicha por otra persona, esa medida no tiene por que
@@ -1702,8 +1715,23 @@ function Update-MiVoz([double]$f0) {
         if ($n -gt 0 -and [Math]::Abs($f0 - $m) -gt 60) { return }
         if ($n -ge $MiVozTope) { $n = $MiVozTope - 1 }
         $m = if ($n -eq 0) { $f0 } else { (($m * $n) + $f0) / ($n + 1) }
-        $j = '{"f0":' + ([double]$m).ToString('0.0', [System.Globalization.CultureInfo]::InvariantCulture) + ',"n":' + ($n + 1) + '}'
+        # SE HA MOVIDO TANTO QUE HAY QUE DECIRLO (ver $MiVozDeriva). Solo cuando ya hay
+        # bastantes muestras: con cuatro medidas la media baila sola y avisar seria ruido.
+        $avisaVoz = $false
+        if ($base -le 0) { $base = $m }
+        elseif ($n -ge $SoloYoMinimo -and [Math]::Abs($m - $base) -ge $MiVozDeriva) {
+            $avisaVoz = $true
+        }
+        $j = '{"f0":' + ([double]$m).ToString('0.0', [System.Globalization.CultureInfo]::InvariantCulture) +
+             ',"n":' + ($n + 1) +
+             ',"base":' + ([double]$(if ($avisaVoz) { $m } else { $base })).ToString('0.0', [System.Globalization.CultureInfo]::InvariantCulture) + '}'
         [System.IO.File]::WriteAllText($ruta, $j, (New-Object System.Text.UTF8Encoding($false)))
+        if ($avisaVoz) {
+            $haciaV = if ($m -gt $base) { 'mas grave' } else { 'mas aguda' }
+            Log ("MI VOZ: la referencia se ha movido de $([int]$base) a $([int]$m) Hz")
+            Add-Estadistica 'auto-ajuste' "mi voz: $([int]$base) -> $([int]$m) Hz"
+            [void](Send-AvisoEntorno 'voz-deriva' ("Oye, mi idea de tu voz se ha ido moviendo: la tenia en $([int]$base) hercios y ahora la tengo en $([int]$m), $haciaV. Si no eres tu quien me habla ultimamente, dimelo, porque de esto depende que solo te haga caso a ti.") 'medio' 43200)
+        }
     } catch {}
 }
 

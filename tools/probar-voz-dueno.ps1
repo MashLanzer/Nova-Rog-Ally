@@ -14,6 +14,15 @@ Invoke-Expression (TraerFn 'Get-VozDuena')
 Invoke-Expression (TraerFn 'Test-VozExtrana')
 Invoke-Expression (TraerFn 'Update-MiVoz')
 $MiVozTope = 60
+# se saca del archivo real, como el resto: si alli cambia, la prueba lo sigue
+$txtV = [System.IO.File]::ReadAllText($ruta, [System.Text.Encoding]::UTF8)
+if ($txtV -match '(?m)^[$]MiVozDeriva = ([0-9.]+)') { $MiVozDeriva = [double]$Matches[1] }
+else { throw 'falta $MiVozDeriva en assistant.ps1' }
+$script:invitado = $false
+$script:avisosVoz = @()
+function Log($m) { }
+function Add-Estadistica($ruta, $detalle) { }
+function Send-AvisoEntorno($clave, $texto, $nivel = 'medio', $cada = 60) { $script:avisosVoz += $texto; return $true }
 
 # --- mundo de mentira ---
 $TmpDir = Join-Path $env:TEMP 'voz-dueno-prueba'
@@ -116,6 +125,63 @@ $antes = (Get-Content -LiteralPath $rutaMia -Raw | ConvertFrom-Json).n
 Update-MiVoz 0
 $despues = (Get-Content -LiteralPath $rutaMia -Raw | ConvertFrom-Json).n
 Ok 'sin medida, no cuenta' ($antes -eq $despues) $true "n=$despues"
+
+# --- QUE TU VOZ NO SE MUEVA EN SILENCIO (17/09) ---
+# La media ya se rehacia sola (y se ha movido de verdad: era 119,6 Hz y hoy es 116,8). Lo que
+# faltaba era enterarse, porque de este numero depende "solo yo". La guarda de 60 Hz impide
+# un SALTO pero no una DERIVA: la segunda voz de la casa esta a 27,2 Hz de la de braya, o sea
+# dentro de esa guarda.
+Write-Host ""
+Write-Host "  -- la huella se mueve sola, pero avisando --"
+$rutaMia = Join-Path $TmpDir 'mi-voz.json'
+function PonerVoz([double]$f0, [int]$n, [double]$base) {
+    [System.IO.File]::WriteAllText($rutaMia,
+        ('{"f0":' + $f0.ToString('0.0', [System.Globalization.CultureInfo]::InvariantCulture) +
+         ',"n":' + $n + ',"base":' + $base.ToString('0.0', [System.Globalization.CultureInfo]::InvariantCulture) + '}'),
+        (New-Object System.Text.UTF8Encoding($false)))
+    $script:avisosVoz = @()
+}
+function LeerVoz { return (Get-Content -LiteralPath $rutaMia -Raw -Encoding UTF8 | ConvertFrom-Json) }
+
+# 1) un movimiento pequeno NO se avisa: la media siempre baila un poco
+PonerVoz 116.8 60 116.8
+Update-MiVoz 120.0
+Ok 'un movimiento pequeno no molesta' (@($script:avisosVoz).Count -eq 0) $true ("avisos: " + @($script:avisosVoz).Count)
+Ok 'pero la media si se mueve' ((LeerVoz).f0 -ne 116.8) $true ("f0=" + (LeerVoz).f0)
+
+# 2) una deriva grande SI se avisa, y la base se pone al dia
+PonerVoz 116.8 60 135.0
+Update-MiVoz 117.0
+Ok 'una deriva de mas de 15 Hz se dice' (@($script:avisosVoz).Count -eq 1) $true
+Ok 'y el aviso trae los dos numeros' ($script:avisosVoz[0] -match '135' -and $script:avisosVoz[0] -match '11') $true
+Ok 'la base se pone al dia (no avisa dos veces)' ([Math]::Abs([double](LeerVoz).base - [double](LeerVoz).f0) -lt 0.2) $true ("base=" + (LeerVoz).base)
+$script:avisosVoz = @()
+Update-MiVoz 117.0
+Ok 'y en la siguiente ya no repite' (@($script:avisosVoz).Count -eq 0) $true
+
+# 3) con cuatro medidas no se avisa: la media baila sola
+PonerVoz 116.8 4 140.0
+Update-MiVoz 117.0
+Ok 'sin muestras suficientes no avisa' (@($script:avisosVoz).Count -eq 0) $true
+
+# 4) la primera vez se fija la base sin avisar de nada
+Remove-Item -LiteralPath $rutaMia -Force -ErrorAction SilentlyContinue
+$script:avisosVoz = @()
+Update-MiVoz 118.0
+Ok 'la primera vez solo fija la base' (@($script:avisosVoz).Count -eq 0) $true
+Ok 'y la base queda puesta' ([double](LeerVoz).base -gt 0) $true ("base=" + (LeerVoz).base)
+
+# 5) un invitado no mueve nada de esto
+PonerVoz 116.8 60 116.8
+$script:invitado = $true
+Update-MiVoz 200.0
+Ok 'la voz de un invitado no toca tu huella' ([double](LeerVoz).f0 -eq 116.8) $true
+$script:invitado = $false
+
+# 6) y el salto enorme se sigue descartando, como antes
+PonerVoz 116.8 60 116.8
+Update-MiVoz 250.0
+Ok 'un salto de 133 Hz se sigue descartando' ([double](LeerVoz).f0 -eq 116.8) $true
 
 Remove-Item $TmpDir -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ""
