@@ -335,10 +335,53 @@ _preciso_uso = 0.0
 PRECISO_SOLTAR_JUGANDO = 300.0
 
 
+# CUANTA RAM QUEDA, SIN INSTALAR NADA (17/09). psutil existe en esta maquina, pero el worker
+# no lo importa y no se le van a anadir dependencias por esto: GlobalMemoryStatusEx da el
+# mismo numero (comprobado: 2.414 MB por las dos vias) y viene con Python.
+def ram_libre_mb():
+    """MB de RAM fisica libre, o -1 si no se puede saber (entonces no se estorba)."""
+    try:
+        import ctypes
+
+        class _MS(ctypes.Structure):
+            _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                        ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                        ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                        ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                        ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+        m = _MS()
+        m.dwLength = ctypes.sizeof(_MS)
+        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m)):
+            return -1
+        return m.ullAvailPhys / 1048576.0
+    except Exception:  # noqa: BLE001
+        return -1
+
+
+# LO QUE HACE FALTA PARA CARGAR CADA UNO, con margen. Parakeet ocupa 639 MB en disco y el
+# oido fino unos 500 en int8; se pide casi el doble porque cargar deja picos y porque dejar
+# el equipo sin aire es justo lo que se quiere evitar.
+#
+# El 15/09 paso de verdad: con Parakeet, base y small cargados a la vez quedaron 0,3 GB
+# libres de 7,7 y Whisper tardo de 4,5 a 12,9 s por orden en vez de ~1 s. Ya habia guarda
+# para la charla (Test-RamParaCharla, 3000 MB) pero NINGUNA para estos, que son los que
+# causaron aquello.
+#
+# OJO: quedarse sin RAM no marca el modelo como roto. _parakeet_roto y _preciso_roto son
+# para siempre, y esto es pasajero: cuando cierres el juego habra sitio y se cargara.
+RAM_MIN_PARAKEET = 1200.0
+RAM_MIN_PRECISO = 900.0
+
+
 def modelo_preciso():
     global _preciso, _preciso_roto
     if _preciso is not None or _preciso_roto or not MODELO_PRECISO:
         return _preciso
+    _libre = ram_libre_mb()
+    if 0 <= _libre < RAM_MIN_PRECISO:
+        anota("oido fino: no lo cargo, solo quedan %.0f MB libres (hacen falta %.0f)"
+              % (_libre, RAM_MIN_PRECISO))
+        return None
     try:
         t0 = time.time()
         from faster_whisper import WhisperModel
@@ -368,6 +411,11 @@ def modelo_parakeet():
     global _parakeet, _parakeet_roto
     if _parakeet is not None or _parakeet_roto:
         return _parakeet
+    _libre = ram_libre_mb()
+    if 0 <= _libre < RAM_MIN_PARAKEET:
+        anota("parakeet: no lo cargo, solo quedan %.0f MB libres (hacen falta %.0f)"
+              % (_libre, RAM_MIN_PARAKEET))
+        return None
     try:
         import glob
         carpetas = [c for c in glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "modelos", "*parakeet*")) if os.path.isdir(c)]

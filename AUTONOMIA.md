@@ -223,7 +223,26 @@ idea de la lista.*
 
 ### Su propio cuerpo: memoria, arranque y recursos
 
-**11.** Decidir **qué modelos carga al arrancar según la RAM libre**.
+**11.** Decidir **qué modelos carga según la RAM libre**. — **HECHA (17/09)**, aunque no
+donde decía la idea.
+*Al arrancar no había nada que decidir:* lo único que se carga entonces es **Vosk** y
+**Whisper base**, y los dos son **imprescindibles** — sin ellos no hay palabra de activación
+ni dictado por botón. Ponerles una guarda de RAM dejaría a Nova inútil, igual que soltar Vosk
+jugando habría roto el botón (idea 4). La prueba incluye un caso que vigila que **no** se les
+ponga.
+*Lo que sí faltaba:* los modelos **perezosos** cargaban sin mirar la memoria — Parakeet
+(**639 MB** en disco) y el oído fino (~500 MB en int8) —, y son exactamente los del incidente
+documentado del **15/09**: con ellos y base a la vez quedaron **0,3 GB libres de 7,7** y
+Whisper pasó de ~1 s a **12,9 s por orden**. Había guarda para la charla
+(`Test-RamParaCharla`, 3000 MB) pero **ninguna** para estos.
+- `ram_libre_mb()` mide con `ctypes` + `GlobalMemoryStatusEx`, **sin añadir dependencias**:
+  comprobado que da lo mismo que `psutil` (2.414 MB por las dos vías).
+- Umbrales propios y menores que el de la charla: **1200 MB** para Parakeet, **900** para el
+  oído fino. No son 3000 porque estos no ocupan 2 GB.
+- **Quedarse sin RAM no marca el modelo como roto.** `_parakeet_roto` y `_preciso_roto` son
+  para siempre; esto es pasajero: al cerrar el juego hay sitio y se carga. Tiene su propio
+  caso, y otro que comprueba que la guarda va **antes** del `try`.
+*22 casos en `probar-ram-modelos.ps1` (2n20).*
 **12.** Soltar modelos **por el uso real, no por un plazo fijo** (`soltar_preciso_si_toca`).
 **13.** **Autodiagnóstico al arrancar**: micro, voz y cápsula; si la voz online no responde,
 pasar a Piper **y decirlo**.
