@@ -660,7 +660,15 @@ frases — hoy 9 (4 buenos, 5 malos), objetivo 4 y 0. Caso nuevo en `tools/proba
 
 ### 3.6. Comandos
 
-#### M1 — Las muletillas `ok / okey / vale / bueno`, y **`mira` fuera** (recortada)
+#### M1 — Las muletillas `ok / okey / vale / bueno`, y **`mira` fuera** ✅ **HECHA el 18/09**
+
+> Solo `$FILLER_INI`, como decía la ficha. Dato que la hace segura y que no estaba escrito: el
+> patrón exige `\s+` **detrás** de la muletilla, así que «Ok» a secas —la línea 19 de
+> `ruido-real.txt`, el corpus de la tele— no se toca. **Y M1 entraba sin red**: ningún probador
+> de `tools/` mencionaba `Remove-Filler` ni las listas de muletillas, con lo que un cambio en ese
+> regex —que decide si una frase es orden o charla— podía colarse entero sin ponerse nada en
+> rojo. Ahora hay 5 casos en `destinos.txt`, incluido el guardián
+> `busca cuanto vale una ps5 en google` → sigue buscando la frase entera.
 
 **Qué hace.** «ok abre steam» o «bueno pon modo noche» se van hoy al modelo; «okey abre steam»
 funciona en menos de un segundo. La lista vive en tres sitios que no dicen lo mismo:
@@ -683,7 +691,12 @@ minutos» (15/09 11:19). Las demás son charla, que ya se encamina bien. Y **«v
   youtube» → buscar **'totales'**. Con «vale» dentro, «busca cuánto vale una ps5 en google» →
   buscar «cuánto una ps5».*
 
-#### M2 — Que la lista de «no reconocido» **marque** lo ya resuelto (recortada)
+#### M2 — Que la lista de «no reconocido» **marque** lo ya resuelto ✅ **HECHA el 18/09**
+
+> Marcadas, no borradas, y el encabezado ya no manda a `commands.json`. Añadido sobre la ficha:
+> esto se escribe desde `Add-Estadistica`, que corre en **cada orden**, así que preguntarle a la
+> capa local por las 30 frases cada vez habría sido velocidad tirada —la prioridad nº 2 de
+> braya—. El resultado se guarda en una caché por frase: se calcula una vez y luego sale gratis.
 
 **El problema es real y caro.** El commit `d1e3bd0` de esta mañana lo dice con sus palabras: de
 **18 frases reales que se fueron al agente, 9 YA FUNCIONABAN**. Medido por otro lado: de los 23
@@ -791,7 +804,7 @@ fino: `veces` mentiría por arriba.*
 
 ### 3.8. Iniciativa
 
-#### I3 — La micro-charla, por `Send-Aviso` (recortada)
+#### I3 — La micro-charla, por `Send-Aviso` ✅ **HECHA el 18/09**
 
 **El defecto es real:** las dos frases de 15896-15903 («van tres horas, un vaso de agua» y «es la una
 de la mañana») son las **únicas** que Nova suelta saltándose todos los frenos, terminan en `Say`

@@ -261,3 +261,17 @@ abre steam y despues abre el navegador y busca gatos con botas => abrir steam + 
 # ninguna de las piezas del modo
 pon el modo noche => modo noche + brillo al 15 + volumen al 25
 cierra todo y pon el modo juego => cerrar los programas abiertos + modo juego + brillo al 100 + volumen al 70 + abrir discord
+
+# --- las muletillas del principio (18/09) ---
+# "ok abre steam" se iba al modelo (~13 s) mientras que "okey abre steam" se resolvia en menos
+# de un segundo, porque $FILLER_INI y $FILLER_GLOBAL no llevaban las mismas palabras. Es
+# higiene: de los 311 descartes del registro solo UNO se rescata por esto.
+# Ojo a las dos ultimas: son la frontera. El patron exige un espacio detras de la muletilla,
+# asi que "ok" a secas NO es una orden -es la linea 19 de ruido-real.txt, el corpus de la
+# tele- y "vale" dentro de la frase tiene que sobrevivir, o "cuanto vale una ps5" se
+# convertiria en "cuanto una ps5".
+ok abre steam => abrir steam
+bueno pon el modo noche => modo noche
+vale sube el volumen => subir volumen
+okay abre la calculadora => abrir calculadora
+busca cuanto vale una ps5 en google => cuanto vale una ps5

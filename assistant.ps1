@@ -190,7 +190,14 @@ $FILLER_GLOBAL = '\b(?:tambien|ademas|porfa|porfavor|por favor|gracias|oye|okey|
 # "a mi"/"ya me"/"me" salen mucho al dictar ("ya me abre steam", "ábreme")
 # "hey nova pon modo juego" se iba a la IA: el nombre y el saludo de delante no
 # son parte de la orden (auditoria del 13/09)
-$FILLER_INI = '^(?:(?:y|luego|despues|ahora|entonces|a mi|ami|ya me|me|pues|este|hey|ey|hola|nova)\s+)+'
+# ok/okey/vale/bueno al principio (18/09): "ok abre steam" se iba al modelo mientras que
+# "okey abre steam" funcionaba, porque la lista de aqui y la de $FILLER_GLOBAL no decian lo
+# mismo. Es HIGIENE, no un rescate: de los 311 descartes del registro solo UNO se resuelve
+# por esto ("ok poner un temporizador de cinco minutos"), y "vale" no encabeza ni un dictado.
+# El \s+ del final es lo que lo hace seguro: "Ok" a secas -linea 19 de ruido-real.txt, el
+# corpus de la tele- no se toca. Y NO se toca $FILLER_GLOBAL, que borraria la palabra en
+# mitad de la frase: "busca cuanto vale una ps5" acabaria buscando "cuanto una ps5".
+$FILLER_INI = '^(?:(?:y|luego|despues|ahora|entonces|a mi|ami|ya me|me|pues|este|hey|ey|hola|nova|ok|okey|okay|vale|bueno)\s+)+'
 
 # El lugar puede ir ANTES del verbo: "en el navegador busca X". Sin esto, el
 # fragmento no empezaba por verbo, se pegaba al anterior y rompia la frase.
@@ -1379,6 +1386,10 @@ $script:stats = $null
 function Get-Estadisticas {
     if ($null -ne $script:stats) { return $script:stats }
     $script:stats = @{ dias = @{}; descartes = @(); recientes = @() }
+# LO QUE YA SE RESUELVE, CALCULADO UNA VEZ (18/09). La lista de descartes se reescribe desde
+# Add-Estadistica, o sea en CADA orden: preguntarle a la capa local por las 30 frases cada vez
+# seria tiempo tirado. Son siempre las mismas, asi que la respuesta se guarda aqui.
+$script:descarteYaVa = @{}
     if (Test-Path -LiteralPath $EstadisticasJson) {
         try {
             $j = Get-Content -LiteralPath $EstadisticasJson -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -1543,10 +1554,24 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '') {
             [void]$sb.AppendLine("| $k | $act | $nada | $pct % |")
         }
         [void]$sb.AppendLine("")
-        [void]$sb.AppendLine("## No reconocido por la capa local (añadir a commands.json)")
+        [void]$sb.AppendLine("## No reconocido por la capa local")
+        [void]$sb.AppendLine("")
+        # EL ENCABEZADO MANDABA A commands.json Y ESO ESTABA MAL (18/09): en todo el registro
+        # hay UN solo fallo por app desconocida ("abre armony creator"), y "armoury crate" ya
+        # estaba en commands.json. Fallo el oido, no el vocabulario.
+        [void]$sb.AppendLine("_Las marcadas **(ya se resuelve)** las entiende el código de hoy: están aquí para poder medir, no hay nada que arreglar en ellas._")
         [void]$sb.AppendLine("")
         if ($s.descartes.Count -eq 0) { [void]$sb.AppendLine("_nada todavía_") }
-        foreach ($x in $s.descartes) { [void]$sb.AppendLine("- " + $x) }
+        foreach ($x in $s.descartes) {
+            # el formato es "yyyy-MM-dd  <fragmento>"
+            $fraseD = ([string]$x) -replace '^\S+\s+', ''
+            if (-not $script:descarteYaVa.ContainsKey($fraseD)) {
+                $yaD = $false
+                try { $yaD = [bool](Test-FastCommand $fraseD) } catch { $yaD = $false }
+                $script:descarteYaVa[$fraseD] = $yaD
+            }
+            [void]$sb.AppendLine("- " + $x + $(if ($script:descarteYaVa[$fraseD]) { "  **(ya se resuelve)**" } else { "" }))
+        }
         [void]$sb.AppendLine("")
         # LO QUE SE LE ATRAGANTA. Arriba ya estaban los descartes sueltos, pero
         # sin contar: una frase que falla cinco veces se leia igual que una que
@@ -16104,15 +16129,23 @@ while ($true) {
             try { Write-NotaSemanal } catch {}
         }
         # micro-charla: un comentario si viene a cuento, una vez al dia
+        # POR LA PUERTA DE SIEMPRE (18/09). Estas dos eran las unicas frases de toda Nova que
+        # se saltaban todos los frenos: Say directo, y encima solo salen CON un juego delante,
+        # que es justo lo que avisos.sinVozEnJuego prohibe para el resto. Son del 11/09, de
+        # antes de que existieran los frenos (16/09). Ahora van por Send-Aviso, que aplaza si
+        # estas dictando y calla -dejando el pulso en la capsula- con juego, sordina, modo
+        # silencio o el microfono cogido por otra app.
+        # NO por Send-AvisoEntorno: Test-PuedoAvisar mata todo lo que no sea 'alto' con un
+        # juego activo, asi que estas dos, que solo salen jugando, desaparecerian del todo.
         if ($CharlaOn -and $script:juegoActivo) {
             $minsJuego = ($sw.ElapsedMilliseconds - $script:juegoDesde) / 60000
             if ($minsJuego -ge 180 -and $script:charlaAgua -ne $diaAhora) {
                 $script:charlaAgua = $diaAhora
-                Say "Oye, ya van tres horas seguidas. Un vaso de agua no vendria mal."
+                Send-Aviso "Oye, ya van tres horas seguidas. Un vaso de agua no vendria mal." 'tiempo'
             }
             if ($minutoAhora -ge '01:00' -and $minutoAhora -le '01:05' -and $script:charlaTarde -ne $diaAhora) {
                 $script:charlaTarde = $diaAhora
-                Say "Es la una de la manana. ¿Seguimos, o lo dejamos por hoy?"
+                Send-Aviso "Es la una de la manana. ¿Seguimos, o lo dejamos por hoy?" 'tiempo'
             }
         }
     }
