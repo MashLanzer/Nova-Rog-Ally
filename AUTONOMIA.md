@@ -203,9 +203,19 @@ pocas muestras, no avisa dos veces, y un invitado sigue sin tocar nada.
 quedó colocado **después** de que el probador borrase su carpeta temporal, así que cinco casos
 fallaban por no encontrar el archivo. La prueba estaba mal puesta, no el código.
 
-**10. Ponerse un presupuesto de tiempo y rendirse a tiempo.**
-Si una orden va camino de pasar de X segundos encadenando repasos, renunciar y decirlo (el
-turbo costaba 16,2 s).
+**10. Ponerse un presupuesto de tiempo y rendirse a tiempo.** — **NO PROCEDE: lo arregló la
+idea 1** (medido 17/09)
+**El turbo era el problema, y Nova ya lo apagó sola.** Quitándolo, la cadena del oído hoy es
+**mediana 1,5 s y p90 5,0 s** (n=163), con solo **5 órdenes por encima de 10 s** y 3 por
+encima de 20. Por motor: `base` 1,3 s de mediana, `small` 4,1 s… y `turbo` **16,2 s**, con un
+máximo de 76,5. Un presupuesto para el oído rescataría 5 casos de 163, y meter un freno nuevo
+en el camino del oído es justo donde más daño hace equivocarse.
+**Y donde de verdad hacía falta, ya existía:** `Get-PlazoJob` (25 s para traducir o planear,
+90 s para pregunta o charla, 4 min por defecto) con **rendición real** que además lo dice
+(«el modelo tardó demasiado y lo he dejado»); `ReintentoMaxMs` por cada repaso; la vibración
+del mando a los 8 s; la barra de progreso; y rendiciones propias en el correo y las recetas.
+*Esto es lo más interesante del bloque: una decisión que Nova tomó sola dejó sin objeto a otra
+idea de la lista.*
 
 ---
 
