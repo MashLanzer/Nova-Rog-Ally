@@ -106,6 +106,40 @@ Write-Host ("  {0}  {1,-26} haciendo='{2}' descarga={3}" -f $(if ($okE) { 'OK ' 
 if (-not $okE) { $fallos++ }
 
 Remove-Item $RutaUiEstado -Force -ErrorAction SilentlyContinue
+
+# CADA ANIMACION SIN FIN, CON SU TOPE DE FOTOGRAMAS (18/09).
+# Una animacion Forever a 60 fps cuesta un cuarto de nucleo (lo dice el comentario de
+# nova_ui.cs junto al vaiven), y con un juego delante eso se paga en fluidez, que es la
+# prioridad numero dos de braya. El 13/09 y el 17/09 se les puso tope a todas... menos a una:
+# el barrido de la barra de progreso, que es justo la que sale en las esperas largas. Se
+# escapo DOS RONDAS SEGUIDAS porque nadie lo comprobaba.
+# Esto no ejecuta la capsula: lee el fuente y comprueba la regla.
+Write-Host ""
+Write-Host "  -- cada animacion sin fin lleva su tope de fotogramas --"
+$fuenteUI = [System.IO.File]::ReadAllText((Join-Path (Split-Path -Parent $PSScriptRoot) 'nova_ui.cs'))
+$lineasUI = $fuenteUI -split "`r?`n"
+$sinTope = @()
+for ($i = 0; $i -lt $lineasUI.Count; $i++) {
+    if ($lineasUI[$i] -notmatch 'RepeatBehavior\.Forever') { continue }
+    # la ventana: el tope se pone junto a la animacion, antes o despues de arrancarla.
+    # 8 y no 6, medido: las distancias reales son +2, +6, +3, +1, +4, +3, +3, y la del vaiven
+    # esta justo en el borde de 6. Con margen exacto, un comentario nuevo ahi pondria esto en
+    # rojo sin que nada estuviera roto.
+    $desde = [Math]::Max(0, $i - 8)
+    $hasta = [Math]::Min($lineasUI.Count - 1, $i + 8)
+    $trozo = ($lineasUI[$desde..$hasta] -join "`n")
+    if ($trozo -notmatch 'SetDesiredFrameRate') { $sinTope += ($i + 1) }
+}
+$nForever = ([regex]::Matches($fuenteUI, 'RepeatBehavior\.Forever')).Count
+Write-Host ("  {0}  {1,-42} {2}" -f $(if ($sinTope.Count -eq 0) { 'OK ' } else { 'MAL' }),
+    "las $nForever animaciones sin fin tienen tope", $(if ($sinTope.Count -eq 0) { '' } else { 'sin tope en la linea ' + ($sinTope -join ', ') }))
+if ($sinTope.Count -gt 0) { $fallos++ }
+# y que sigan existiendo: si alguien las quita o cambia el nombre, esto se queda en verde
+# comprobando nada, que es como se cuelan estas cosas
+Write-Host ("  {0}  {1,-42} {2}" -f $(if ($nForever -ge 7) { 'OK ' } else { 'MAL' }),
+    'y no han desaparecido del fuente', "hay $nForever")
+if ($nForever -lt 7) { $fallos++ }
+
 Write-Host ""
 if ($fallos) { Write-Host "$fallos casos MAL"; exit 1 }
 Write-Host "todo correcto"

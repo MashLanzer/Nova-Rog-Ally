@@ -3213,7 +3213,15 @@ public class NovaUI : Window
         AnimarA(lineaProgreso, OpacityProperty, 0.8, 250);
         var v = new DoubleAnimation(0, util - trazo, TimeSpan.FromMilliseconds(1100));
         v.EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut };
+        // EL TOPE QUE FALTABA (18/09). Esta era la UNICA animacion sin fin del fichero sin
+        // limite de fotogramas, y es la que sale en las esperas largas: barre en cuanto un
+        // trabajo pasa de su estimacion, y los reales tienen mediana 16 s, p90 33 s y maximo
+        // 91 s. A 60 fps una animacion sin fin cuesta un cuarto de nucleo (ver el comentario
+        // del vaiven). Un trazo que se desliza en linea recta no se distingue a 30, y con un
+        // juego delante baja a 20 como el resto, que es cuando mas importa no robar nada.
+        // El tope va PEGADO al Forever a proposito: es la regla que vigila probar-json-ui.ps1.
         v.AutoReverse = true; v.RepeatBehavior = RepeatBehavior.Forever;
+        Timeline.SetDesiredFrameRate(v, string.IsNullOrEmpty(juegoActual) ? 30 : 20);
         corrProgreso.BeginAnimation(TranslateTransform.XProperty, v);
     }
 
@@ -3460,6 +3468,11 @@ public class NovaUI : Window
             }
             if (est == "pensando" && estadoAnterior != "pensando") { pensandoDesde = DateTime.UtcNow; ultimoSudor = DateTime.UtcNow; }
             if (est != "pensando" && orbitando) { orbitando = false; Desvanecer(orbita, 0, 200); giroOrbita.BeginAnimation(RotateTransform.AngleProperty, null); }
+            // Y EL BARRIDO, IGUAL QUE LA ORBITA (18/09). Hasta ahora solo se paraba cuando
+            // cambiaba el NUMERO del progreso, asi que al salir del trabajo sin mas cambios
+            // podia quedarse barriendo. Ya paso una vez: por eso assistant.ps1 pone
+            // uiProgreso = 0 al limpiar el trabajo. Esto lo cierra por el lado del diseño.
+            if (est != "pensando" && barriendo) { PararBarrido(); }
             if (est != "hablando") { envolvente = null; }
             if (estabaEnReposo != (est == "reposo")) { EscalaFoco(foco && est == "reposo"); }
             Aplicar(est, txt, cambioTexto, textoAnterior);
