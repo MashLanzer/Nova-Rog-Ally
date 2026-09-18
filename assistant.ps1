@@ -5856,6 +5856,21 @@ function Undo-DecisionPropia {
 # dias distintos, y que ningun dia concentre mas del 70 %. Con los numeros de hoy el ultimo
 # recurso NO se habria decidido, y eso es lo correcto: 29 intentos de una tarde no dicen
 # como se comporta normalmente.
+# LOS UMBRALES DE LAS DECISIONES, EN UN SOLO SITIO (18/09, idea 62). El 15 % y los 20 intentos
+# estaban escritos a mano en cuatro sitios: las tres decisiones de Test-RevisionPropia y
+# Get-AvisoSinDatos. Hoy coincidian; dentro de tres meses, no. Y separarlos no daria ningun
+# error: Nova avisaria de decisiones que ya no tocan, o callaria las que si, en silencio.
+#
+# Aqui quedan juntos y a la vista. Si alguna decision necesita un criterio distinto A PROPOSITO,
+# que se vea que es distinto.
+$DecisionMinIntentos = 20      # sin este historial no se juzga nada
+$DecisionAprovecha = 0.15      # por debajo de esto, la herramienta no compensa
+
+# Cuantos aciertos hacen falta para que algo "aporte", con ese numero de intentos.
+function Get-DecisionMinimo([int]$intentos) {
+    return [int][Math]::Ceiling($intentos * $DecisionAprovecha)
+}
+
 function Test-DatosRepartidos($stats, [string]$clave, [datetime]$ahora, [int]$diasMin = 3, [double]$topeDia = 0.70) {
     $tot = 0; $peor = 0; $dias = 0
     try {
@@ -5890,8 +5905,8 @@ function Get-AvisoSinDatos($stats, $num, [datetime]$ahora = (Get-Date)) {
             @{ clave = 'turbo'; intentos = 'turbo'; utiles = 'turbo-sirvio'; que = 'mi ultimo recurso del oido' },
             @{ clave = 'nube';  intentos = 'nube-intento'; utiles = 'nube-sirvio'; que = 'la segunda opinion de la nube' })) {
             $tot = [int]$num[$c.intentos]
-            if ($tot -lt 20) { continue }                                       # sin historial no se juzga
-            if ([int]$num[$c.utiles] -ge [int][Math]::Ceiling($tot * 0.15)) { continue }   # si aporta, no hay decision pendiente
+            if ($tot -lt $DecisionMinIntentos) { continue }                     # sin historial no se juzga
+            if ([int]$num[$c.utiles] -ge (Get-DecisionMinimo $tot)) { continue }   # si aporta, no hay decision pendiente
             if (Test-DatosRepartidos $stats $c.intentos $ahora) { continue }    # si los datos valen, ya decidiria sola
             # cuantos dias distintos tiene, para decirlo con su numero
             $dias = 0
@@ -5947,8 +5962,8 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     # --- caso 2: la segunda opinion de la nube (idea 1) ---
     # Se mira ANTES que el turbo a proposito: el turbo ya suele estar apagado, y si se mirara
     # primero esta funcion saldria por el "ya esta apagado" sin llegar nunca aqui.
-    if ($NubeOir -and $numR['nube-intento'] -ge 20 -and
-        $numR['nube-sirvio'] -lt [int][Math]::Ceiling($numR['nube-intento'] * 0.15) -and
+    if ($NubeOir -and $numR['nube-intento'] -ge $DecisionMinIntentos -and
+        $numR['nube-sirvio'] -lt (Get-DecisionMinimo $numR['nube-intento']) -and
         (Test-DatosRepartidos $stR 'nube-intento' $ahora)) {
         $antesN = [string]$NubeOir
         $script:NubeOir = ''
@@ -5975,8 +5990,8 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     # Con los numeros de hoy: (27 - 5) / 81 = 27 %, muy por encima del 15 %. No se apaga, y
     # ademas tampoco pasaria el reparto (el 74 % es de un solo dia). Las dos cosas tienen su
     # caso en la prueba.
-    if ($WhisperPreciso -and $numR['fino'] -ge 20 -and
-        ($numR['fino-sirvio'] - $numR['fino-invento']) -lt [int][Math]::Ceiling($numR['fino'] * 0.15) -and
+    if ($WhisperPreciso -and $numR['fino'] -ge $DecisionMinIntentos -and
+        ($numR['fino-sirvio'] - $numR['fino-invento']) -lt (Get-DecisionMinimo $numR['fino']) -and
         (Test-DatosRepartidos $stR 'fino' $ahora)) {
         $netoF = $numR['fino-sirvio'] - $numR['fino-invento']
         $antesF = [string]$WhisperPreciso
@@ -5999,8 +6014,8 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     # evaluado arriba; no se repite.
     if (-not $WhisperUltimo) { return (Send-AvisoSinDatos $stR $numR $ahora) }
     $tR = [int]$numR['turbo']; $tsR = [int]$numR['turbo-sirvio']
-    if ($tR -lt 20) { return (Send-AvisoSinDatos $stR $numR $ahora) }   # sin historial no se juzga
-    if ($tsR -ge [int][Math]::Ceiling($tR * 0.15)) { return (Send-AvisoSinDatos $stR $numR $ahora) }   # si aporta, se queda
+    if ($tR -lt $DecisionMinIntentos) { return (Send-AvisoSinDatos $stR $numR $ahora) }   # sin historial no se juzga
+    if ($tsR -ge (Get-DecisionMinimo $tR)) { return (Send-AvisoSinDatos $stR $numR $ahora) }   # si aporta, se queda
     # y que no salga de una sola tarde (ver Test-DatosRepartidos)
     if (-not (Test-DatosRepartidos $stR 'turbo' $ahora)) { return (Send-AvisoSinDatos $stR $numR $ahora) }
     # Apagarlo es vaciar la variable VIVA y guardar la clave. Request-UltimoRecurso mira

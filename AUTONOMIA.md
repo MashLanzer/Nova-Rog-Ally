@@ -1118,16 +1118,20 @@ contarlo jamás**. Un cambio silencioso, que es justo lo que la cabecera prohíb
 
 ### Y dos ideas nuevas que salen de la inspección
 
-**62. Que los umbrales de las decisiones vivan en un solo sitio.** — **PENDIENTE, y hoy pesa más (18/09)**
-El 15 % de aprovechamiento, los 20 intentos mínimos, los 3 días y el 70 % siguen repetidos **a
-mano en las tres decisiones**. Y con la idea 57 ya son **cuatro** sitios: `Get-AvisoSinDatos`
-repite el `-lt 20` y el `* 0.15` para saber si hay una decisión esperando datos. Si alguien mueve
-el 15 % en `Test-RevisionPropia` y no aquí, Nova avisaría de decisiones que ya no tocan, o
-callaría las que sí.
+**62. Que los umbrales de las decisiones vivan en un solo sitio.** — **HECHA (18/09)**
+El 15 % de aprovechamiento y los 20 intentos mínimos estaban escritos **a mano en cuatro sitios**:
+las tres decisiones de `Test-RevisionPropia` (nube, oído fino, último recurso) y
+`Get-AvisoSinDatos`. Separarlos no habría dado ningún error: Nova avisaría de decisiones que ya no
+tocan, o callaría las que sí, **y nadie se enteraría**.
 
-*No se hace ahora a propósito:* tocar los cuatro a la vez, el mismo día que se estrena el aviso,
-es justo cómo se cuelan los fallos silenciosos. Queda apuntado con su motivo, que es lo que pedía
-la lista.
+Ahora hay dos constantes juntas y a la vista —`$DecisionMinIntentos` (20) y `$DecisionAprovecha`
+(0,15)— más `Get-DecisionMinimo`, que hace el cálculo una sola vez. Si alguna decisión necesita
+un criterio distinto **a propósito**, se verá que es distinto.
+
+*Lo que más protege es la prueba:* `probar-umbrales.ps1` (2n29) se pone **roja** si alguien vuelve
+a escribir `0.15` o `-lt 20` a mano dentro de esas dos funciones. Y comprueba el cálculo con los
+números reales: con 29 intentos hacen falta 5 aciertos (el último recurso lleva **1**, por eso se
+apagaría), y el oído fino con 22 netos de 81 supera los 13 que se le piden.
 
 **63. Que apunte cuándo aplaza una decisión, y por qué.** — **HECHA a medias, por la 57 (18/09)**
 *La mitad que importaba ya está:* el caso «los números cantan pero los datos no llegan» ya no sale
@@ -1139,6 +1143,9 @@ porque los 29 son del mismo día.
 invitado o ya habiendo decidido hoy—, que siguen saliendo con un `return $false` mudo. Esos son
 **transitorios de verdad** (a la hora siguiente ya no aplican), así que apuntarlos llenaría el log
 de ruido para contar que era de noche.
+
+**Y se queda así a propósito:** el único aplazamiento que importaba —«los números cantan pero los
+datos no llegan»— ya se cuenta, y **hablando**. Lo demás es ruido.
 
 ---
 

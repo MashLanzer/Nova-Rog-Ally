@@ -45,6 +45,14 @@ function Send-AvisoEntorno($clave, $texto, $nivel = 'medio', $cada = 60) { $scri
 Invoke-Expression (Traer 'Save-DecisionPropia')
 Invoke-Expression (Traer 'Undo-DecisionPropia')
 Invoke-Expression (Traer 'Invoke-Deshacer')
+# LOS UMBRALES VIVEN EN assistant.ps1 (18/09, idea 62). Test-RevisionPropia y Get-AvisoSinDatos
+# ya no llevan el 15 % ni los 20 intentos escritos a mano: usan $DecisionAprovecha,
+# $DecisionMinIntentos y Get-DecisionMinimo. Aqui se LEEN del fuente en vez de copiarlos, que es
+# justo lo que la idea 62 queria evitar: si cambian alli, esta prueba los sigue.
+$txtFuente = [System.IO.File]::ReadAllText($rutaA, [System.Text.Encoding]::UTF8)
+$DecisionAprovecha = if ($txtFuente -match '\$DecisionAprovecha = ([0-9.]+)') { [double]$Matches[1] } else { 0.15 }
+$DecisionMinIntentos = if ($txtFuente -match '\$DecisionMinIntentos = ([0-9]+)') { [int]$Matches[1] } else { 20 }
+Invoke-Expression (Traer 'Get-DecisionMinimo')
 Invoke-Expression (Traer 'Test-DatosRepartidos')
 # LO QUE NO PUEDE DECIDIR TAMBIEN SE CUENTA (18/09). Test-RevisionPropia ya no sale con un
 # 'return $false' seco cuando no decide: llama a Send-AvisoSinDatos por si hay una decision
