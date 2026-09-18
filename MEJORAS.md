@@ -498,6 +498,36 @@ auditoría que se cae al verificarlo.
 
 ---
 
+## 4c. Una IA de pago (OpenRouter) junto a Gemini: medido antes de pagar (17/09)
+
+braya pregunto si merece la pena poner una IA de OpenRouter que haga lo mismo que las
+locales, y cuanto uso le daria de verdad.
+
+**Lo primero: OpenRouter enruta modelos de TEXTO, no transcribe audio.** No puede sustituir
+a Vosk, Parakeet ni Whisper. Gemini esta donde esta porque **oye** (`tools\gemini-oir.py`).
+
+**El volumen, medido:** 188 ordenes con audio en 2 dias (~94/dia), 38 letras por orden
+(~10 tokens). Aunque fueran a la nube solo los fallos, son ~25-35 llamadas al dia: del orden
+de 1-2 millones de tokens al mes. **El dinero no es el problema** (centimos o pocos dolares
+al mes segun el modelo).
+
+**El problema es que no ataca el cuello.** Los errores acumulados son 38, y al mirarlos uno
+a uno **son de OIDO, no de entendimiento**: los recientes son todos `dictado vacio` -no
+llego texto ninguno, asi que no hay nada que interpretar- y los descartes son
+transcripciones rotas: "un palo y un caso de", "calle sesena y va", "aun es que tu la
+espantaya". Un modelo de texto no puede arreglar lo que no se oyo.
+El margen de entendimiento ya es minimo: la capa local acierta **183/186 y 88/89**.
+
+**Donde SI podria ganar algo:** frases mal transcritas pero adivinables por contexto, del
+tipo "mueve y state 2 a la capeta games" -> "mueve It Takes Two a la carpeta games". Son un
+punado, y con el riesgo de inventar (`fino-invento`: 5 de 81 ya hoy).
+
+**Y antes de anadir una segunda nube hay que explicar la primera:** Gemini se llamo 29 veces
+y las estadisticas dicen `nube-nada: 1` y **cero** `nube-sirvio`. Mas el precedente del
+ultimo recurso: 29 intentos, sirvio 1, y Nova lo apago sola.
+
+---
+
 ## 5. Orden de ataque propuesto
 
 Por daño real a braya, no por facilidad:
