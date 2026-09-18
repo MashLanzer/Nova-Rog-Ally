@@ -141,6 +141,24 @@ def falso_stream(metodo, url, **kw):
 
 
 cw.httpx.stream = falso_stream
+
+
+# Y EL CLIENTE REUTILIZADO DE LA API, TAMBIEN (18/09). Desde que la llamada a la API va por un
+# httpx.Client de modulo en vez de por httpx.stream, doblar solo el modulo dejaba de
+# interceptarla y el banco intentaba salir a la RED DE VERDAD. El doble tiene que seguir a lo
+# que hace produccion, no al reves.
+class _ClienteApiFalso:
+    @staticmethod
+    def stream(metodo, url, **kw):
+        return falso_stream(metodo, url, **kw)
+
+    @staticmethod
+    def post(url, **kw):
+        # los casos de abajo doblan cw.httpx.post para Ollama; aqui se delega en el mismo
+        return cw.httpx.post(url, **kw)
+
+
+cw._api = _ClienteApiFalso()
 eventos = []
 cw.salida = lambda ev, idp=0, **c: eventos.append(dict(ev=ev, id=idp, **c))
 

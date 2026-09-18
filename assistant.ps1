@@ -66,15 +66,11 @@ if (Test-Path -LiteralPath $cmdsPath) {
 
 $EventLog = Join-Path $LogDir "assistant.log"
 # EL LOG NO CRECE SIN FIN (14/09): nunca se rotaba e iba por 1,3 MB en cuatro dias.
-# Al arrancar, pasados 5 MB se guarda como assistant.log.1 (el anterior se pierde) y
-# se empieza otro. Con -Probar no se toca: el banco no debe mover el log real.
-if (-not $Probar) {
-    try {
-        if ((Test-Path -LiteralPath $EventLog) -and (Get-Item -LiteralPath $EventLog).Length -gt 5MB) {
-            Move-Item -LiteralPath $EventLog -Destination "$EventLog.1" -Force
-        }
-    } catch {}
-}
+# UN SOLO MECANISMO DE ROTACION (18/09): aqui habia un Move-Item propio que mandaba el log a
+# .1 y PERDIA el .1 anterior, mientras Rotate-Log -mas abajo- guarda 3 copias. Eran dos
+# mecanismos solapados, y el del arranque pisaba el historico del otro. La rotacion del
+# arranque se hace ahora por el MISMO camino, justo detras de donde se define Rotate-Log:
+# aqui no se puede, porque la funcion y sus umbrales se leen de la configuracion mas abajo.
 $ReplyLog = Join-Path $LogDir "replies.log"
 
 $VK_H = 0x48
@@ -145,6 +141,13 @@ function Rotate-Log([string]$path) {
 # latido de la escucha. El margen que se acepta a cambio es nada: el log puede pasarse del tope
 # en lo que ocupen 50 lineas (~5 KB) sobre un umbral de 5 MB. La primera llamada comprueba
 # igual, asi que un log que ya venga pasado se rota como hasta ahora.
+# Y AQUI ROTA EL ARRANQUE, por el mismo camino que todo lo demas (18/09), en cuanto Rotate-Log
+# y sus umbrales existen. Con -Probar no se toca: el banco no mueve el log real.
+# Queda dicho el efecto lateral: entre el principio del archivo y este punto hay UNA linea que
+# puede escribir en el log ("CARGADOR PUESTO", y solo si hay cargador). Con el log pasado de
+# tope, ese renglon cae en el fichero viejo y se va con el. A cambio, ya no se pierde el
+# historico entero en cada arranque.
+if (-not $Probar) { Rotate-Log $EventLog }
 $script:logEscrituras = 0
 function Log([string]$msg) {
     $line = (Get-Date -Format "yyyy-MM-dd HH:mm:ss") + "  " + $msg

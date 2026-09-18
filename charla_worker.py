@@ -44,6 +44,16 @@ import queue
 import threading
 
 import httpx
+import atexit
+
+# UN CLIENTE PARA LA API, NO UNO POR LLAMADA (18/09). El saludo TCP+TLS a api.anthropic.com
+# tiene mediana 61,5 ms desde esta maquina (TCP 22-42 + TLS 21-25), y desde que la API va
+# primero eso se paga EN CADA RESPUESTA HABLADA -dos veces si la charla reescribe una orden-.
+# Reutilizando el cliente, ese saludo se hace UNA vez y las demas van por la conexion abierta.
+# Solo para la API: las llamadas a Ollama son locales y sin TLS, ahi no hay saludo que ahorrar
+# y no merece la pena tocar el camino de la charla por nada.
+_api = httpx.Client(timeout=httpx.Timeout(30.0, connect=5.0))
+atexit.register(_api.close)
 
 import charla_memoria as cm
 
@@ -393,8 +403,7 @@ def generar_api(mensajes, marcas, emitir, extra="", buscar=False):
     troc = Troceador()
     ini = Inicio(marcas)
     try:
-        with httpx.stream("POST", "https://api.anthropic.com/v1/messages", json=cuerpo, headers=_cabeceras(),
-                          timeout=httpx.Timeout(30.0, connect=5.0)) as r:
+        with _api.stream("POST", "https://api.anthropic.com/v1/messages", json=cuerpo, headers=_cabeceras()) as r:
             if r.status_code != 200:
                 err = r.read().decode("utf-8", "replace")
                 _api_rota_si(err)
@@ -438,7 +447,7 @@ def generar_api(mensajes, marcas, emitir, extra="", buscar=False):
 
 def llamar_api_simple(sistema, texto, max_tokens=500):
     """Una llamada sin streaming (la revision de la memoria)."""
-    r = httpx.post("https://api.anthropic.com/v1/messages", headers=_cabeceras(), timeout=40,
+    r = _api.post("https://api.anthropic.com/v1/messages", headers=_cabeceras(), timeout=40,
                    json={"model": MODELO_API, "max_tokens": max_tokens, "system": sistema,
                          "messages": [{"role": "user", "content": texto}]})
     if r.status_code != 200:
