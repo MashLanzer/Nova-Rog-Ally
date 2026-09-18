@@ -350,7 +350,21 @@ Además rompería el equilibrio de la **idea 5**: el veto de una propuesta caduc
 **porque hay una pregunta de por medio**; sin pregunta, esa caducidad se vuelve peligrosa.
 *La forma sensata de esta idea ya está hecha:* Nova propone, tú dices sí, y entonces lo crea
 sola y no vuelve a preguntarlo nunca.
-**19.** **Aprender a abrir lo que instalas** sin que se lo enseñes.
+**19.** **Aprender a abrir lo que instalas.** — **YA ESTABA, para lo que importa
+(verificado 17/09)**
+*Los juegos se aprenden solos:* `Update-Juegos` relee la biblioteca de Steam **cada 60 s**, con
+un comentario que lo dice tal cual — «sin esto, un juego instalado después de arrancar no
+existiría hasta el siguiente reinicio» — y hay otro refresco cada 2 min para las descargas. En
+el log: «biblioteca de Steam: 14 juegos indexados». Instalas un juego y Nova lo conoce sin que
+nadie le enseñe nada.
+*Lo que no se aprende son las apps de escritorio:* `Resolve-Target` mira `commands.json`
+(24 apps, 14 sitios) y `Find-Aproximado` sobre esa misma lista; si no está, devuelve `$null`.
+Ese era el hueco.
+*Pero no le ha pasado ni una vez:* de **11 órdenes de abrir** en el registro, **ninguna** falló
+por app desconocida. Las que no se reconocieron son transcripciones rotas —«Abre St», «Abre
+Sting», «Abre Team», «Abre este»— o frases de conversación entera. Encaja con lo ya medido
+sobre la nube: **los errores son de oído, no de vocabulario**. Un buscador de programas
+instalados no arregla «Abre Team».
 **20.** **Retirar reglas suyas** que no se disparan en un mes o fallan siempre.
 **21.** **Desactivar recetas que fallan**: ya cuenta `fallos`, que decida ella el corte.
 **22.** **Dejar de dar los avisos que ignoras** (nunca batería crítica ni seguridad).
