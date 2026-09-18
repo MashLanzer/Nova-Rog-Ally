@@ -82,7 +82,7 @@ cómo se mide y **5 mejoras** concretas.
 | 4 | «Parakeet primero» resuelve **29 de 188, no 144** (dato mío erróneo, ya corregido) | MEDIO | — |
 | 5 | **Durante el repaso está sorda y tira el audio**: 3.033 s descartados, y `atender_reintento` corre antes de mirar `dictar.flag` — justo cuando braya repite tras un «no te entendí» | MEDIO | `wake_vosk.py` → **NO se arregla, ver abajo** |
 | 6 | La confianza de Whisper **se hereda de la orden anterior** cuando gana Parakeet: solo 42 de 188 traen dato propio | MEDIO | → **DESCARTADO, ver abajo** |
-| 7 | Los audios de más de 8 s nunca reciben small ni turbo (25 de 188), y el camino Parakeet→Whisper no tiene ningún tope | MEDIO | — |
+| 7 | Los audios de más de 8 s nunca reciben small ni turbo (25 de 188), y el camino Parakeet→Whisper no tiene ningún tope | MEDIO | — → **DESCARTADO, ver abajo** |
 | 8 | `probar-audio.py` mide **el circuito de antes del 15/09**: no carga Parakeet, así que su listón de 0,75 no avala lo que corre hoy | MEDIO | `tools\probar-audio.py` |
 | 9 | `leer_vocabulario()` no se llama desde ningún sitio, pero el asistente sigue generando y pasando `tmp\vocabulario.txt`; `pico_voz` es variable muerta | LEVE | — |
 | 10 | `decodificado=N%` es una media desde el arranque del proceso, no de la ventana: no puede avisar de nada | LEVE | — |
@@ -219,6 +219,22 @@ Cada hallazgo trae 5 mejoras ordenadas de más barata a más cara, con cómo med
 
 ### 3.5 Decisiones tomadas al implementar (17/09)
 
+- **DESCARTADO — 3.1 #7, "los audios de mas de 8 s nunca reciben small ni turbo".**
+  Septimo, y este se cae leyendo lo que son. El tope (`REPASO_MAX = 8.0`) no es un descuido:
+  el codigo ya explica por que esta ahi (12/09, small tardo 24 y 35 s con audios largos, con
+  el plazo del asistente en 15 s y el hilo sordo todo ese rato).
+  **Lo que hay dentro de esos 25 audios**, leidos uno a uno: conversacion y tele. "No, no
+  llegaste a crear la nota, pero esta bien", "No te confundes, la musica electronica si me
+  gusta", "Este senor abriendo de Estados Unidos paseado toda su tarjeta de credito vendio su
+  carro". Pasados por la capa local, **se reconocen 3 de 25**.
+  O sea: repasarlos costaria decenas de segundos de sordera para rescatar como mucho 3
+  frases, y **varias de esas 3 son la tele hablando**. Repasar audios largos no solo seria
+  lento: subiria las activaciones equivocadas, que es justo lo que braya no soporta. El tope
+  ahorra tiempo y ademas protege.
+  **La segunda mitad si es cierta** y se queda anotada: el camino Parakeet -> Whisper no
+  lleva tope (`and not base` en la linea 526). Medido, es barato -1,3 s de mediana, p90
+  3,8 s- con un solo caso extremo de 37,6 s, asi que no hay datos para justificar un tope
+  todavia.
 - **DESCARTADO — 3.3 #8, "la capsula pierde un evento si llegan dos seguidos".**
   Sexto. El mecanismo **es real**: `Send-UIEvento` sube `n` y reescribe el json al momento, y
   la capsula (cada 80 ms) dispara con `if (n != eventoN)` usando el `evento` que haya en ese
