@@ -284,5 +284,10 @@ Comp 'cincuenta o mas: el maximo, 5' ((Get-Madurez 50) -eq 5 -and (Get-Madurez 3
 Comp 'la frase cuenta cuanto falta' ((Get-FraseNivel) -eq 'estoy en el nivel 2 y se 6 cosas; con 6 mas subo al 3') (Get-FraseNivel)
 
 Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+# EL VERDE EN FALSO (18/09, revision del agente). $falloInfo contaba los fallos de las recetas
+# de informacion -las que comprueban que un script SOLO PUEDA LEER, ni borrar ni lanzar
+# procesos- pero se imprimia y nunca se sumaba a $mal, asi que el banco daba exito con esas
+# guardas rotas. Son 16 comprobaciones que no podian suspender.
+$mal += $falloInfo
 if ($mal -gt 0) { Write-Host "$mal casos MAL"; exit 1 }
 Write-Host "todo correcto"
