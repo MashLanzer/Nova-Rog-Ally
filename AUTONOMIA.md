@@ -406,7 +406,18 @@ horario.
 
 ### Cuándo callarse y cuándo actuar
 
-**24.** **Callarse cuando otra cosa usa el micro** (`Test-EnLlamada`, ampliado).
+**24.** **Callarse cuando otra cosa usa el micro.** — **YA ESTABA, y ampliarla la empeoraría**
+La idea pedía «añadir más casos (grabando, partida con voz)», pero `Test-EnLlamada` **no va por
+casos**: pregunta al registro de Windows
+(`CapabilityAccessManager\ConsentStore\microphone`) y detecta **cualquier** aplicación con el
+micro abierto — `LastUsedTimeStart` puesto y `LastUsedTimeStop` a cero —, saltándose a la
+propia Nova y a los componentes del sistema. Eso ya cubre Discord, OBS, el juego con voz y lo
+que se instale mañana, **sin listas que mantener**.
+Enumerar casos sería cambiar algo genérico por una lista que se queda corta. Y está bien
+rematada: cachea 3 s para no machacar el registro, escribe en el log cuándo se calla **y
+cuándo vuelve**, y la usan dos sitios — `Say` (calla y lo enseña en la cápsula con su latido) y
+`Test-AvisoSinVoz`.
+*En el log no se ha disparado ni una vez, así que tampoco hay evidencia de que falle.*
 **25.** Afinar el **modo noche con tus horas reales**. *Ojo: ya calcula «esta hora no sueles
 estar levantado» y tu hora habitual de dejarla; falta que MUEVA el modo, no que lo sepa.*
 **26.** **Callarse en la franja en que siempre la mandas callar.**
