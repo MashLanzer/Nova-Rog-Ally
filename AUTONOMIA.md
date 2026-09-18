@@ -583,8 +583,52 @@ los siete caminos, incluido que tras apagarse **no vuelve a llamar** a la sonda 
 
 ### Afinar sus propios números, que hoy son fijos en `config.json`
 
-**34. `autoSordinaRachas` (3), `autoSordinaVentanaMin` (5) y `autoSordinaMinutos` (10).**
-Tres números puestos a ojo. Que los calcule con sus rachas de ruido reales.
+**34. `autoSordinaRachas` (3), `autoSordinaVentanaMin` (5) y `autoSordinaMinutos` (10).** — **NO PROCEDE (18/09)**
+*Los números puestos a ojo resultaron ser los correctos.* Simulado con los **83 eventos reales
+que suman racha** (son **cuatro** caminos, no dos: `NO era una orden` 41, `RUIDO descartado` 35,
+`OIDO FINO descartado` 5, `NO era una pregunta` 2):
+
+| | vent=2 | vent=3 | **vent=5** | vent=8 | vent=10 |
+|---|---:|---:|---:|---:|---:|
+| rachas=2 | 22 | 24 | **26** | 29 | 31 |
+| **rachas=3 (hoy)** | 2 | 5 | **11** | 15 | 17 |
+| rachas=4 | 0 | 0 | **0** | 3 | 5 |
+
+Bajar a 2 la dispararía **26 veces**; subir a 4 la **apaga del todo**. El 3 es el único valor
+que ni la desboca ni la desactiva, así que **no hay dónde moverlo**. (Las reales fueron 5 y no
+11 porque las guardas de origen ya frenan la mitad.)
+
+*Y aunque lo hubiera:* las 5 sordinas se reparten **1 el 12/09 y 4 el 15/09 — el 80 % en un
+solo día**, así que el freno de «datos repartidos» (≥3 días, ≤70 % en uno) que pusimos en esta
+misma tanda **le prohíbe a Nova decidirlo sola**. Funciona como debe.
+
+**⚠ LO QUE APARECIÓ DE CAMINO, y también se cae al medirlo:** 2 de las 5 sordinas se
+dispararon con frases que son de braya — la de las 14:10 por *«Reproduce una canción»* y
+*«Vamos a ver el volumen»*, y la de las 14:48 por *«No, o sea, que me lo busques…»*, justo la
+única tras la cual intentó hablarle. Y el log enseña que **no falló el oído**: Parakeet, Whisper
+y turbo transcribieron *«Reproduce una canción»* palabra por palabra. Falló el **catálogo**, el
+traductor contestó «no es una orden»… y eso se contabiliza como **ruido del micrófono** y ayuda
+a callarla 10 minutos. Son dos cosas distintas mezcladas: **«no te oí» ≠ «no sé hacer eso»**.
+
+*Pero medido sobre los 41 «NO era una orden», es 1 caso, no muchos:*
+
+| señal | casos |
+|---|---:|
+| transcripción consistente entre motores | 2 de 41 |
+| «español claro» de 4+ palabras | 30 de 41 |
+| **las dos a la vez** | **1 de 41** |
+
+Y de paso se cae el indicador fácil: **«español claro» no sirve** aquí, porque deja pasar basura
+bien formada (*«CLAVARAL LUCTS, SODE MOTORMICISIN»*, *«Ocapainteres en el Nuevo Elad»*). La
+señal que sí distingue es **que varios motores coincidan**, y ya existe (`$script:siguioParakeet`
+y la línea `PARAKEET -> WHISPER`) — pero con 1 o 2 casos no hay con qué justificar tocar la
+autosordina.
+
+**Y la solución «obvia» queda prohibida, por si alguien la retoma:** `Test-VozExtrana` devuelve
+`$false` («no es extraña») cuando `SoloYo` está apagado, el origen es seguimiento, el tono no se
+midió (`f0 ≤ 0`) o no hay voz del dueño aprendida — o sea que **«no extraña» casi siempre
+significa «no lo sé»**. En todo el log hay **2** `VOZ EXTRANA` frente a **83** eventos de ruido:
+usarla como guarda en `Add-RuidoRacha` dejaría la autosordina en **0 disparos, sin avisar**.
 
 **35. `holdMs` (1100).** Medir cuánto tardas **tú** en soltar el botón y ajustarlo.
 
