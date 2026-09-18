@@ -197,7 +197,7 @@ Lo más grave no está en el dibujado, sino en **el camino de la voz**.
 | 5 | `CapturarFondo` duerme el hilo de la interfaz 45 ms **en cada orden**, justo cuando se quiere ver la reacción | MEDIO | `nova_ui.cs:1431` | `LockBits` en vez de ~530 `GetPixel`, y bajar el sleep |
 | 6 | La caché de voz solo se poda **al arrancar**: el worker vive desde el login, así que el tope de 60 MB nunca se aplica en caliente | MEDIO | `tts_worker.py:107` | Podar cada N frases desde `principal()` → **HECHA** |
 | 7 | El cerebro reescribe `cerebro.json` y `vectores.json` **enteros en cada turno** (~6 MB) aunque solo cambie `usos += 1`; y `completar_vectores` lo hace cada 16 vectores, en reposo y a batería | MEDIO | `charla_memoria.py:212` | No guardar en `respuesta_directa`; marcar sucio y agrupar |
-| 8 | La cápsula lee **un solo evento por vuelta** de 80 ms: dos eventos seguidos y el primero se pierde (ya hubo un parche puntual por esto) | MEDIO | `assistant.ps1:8596` | Encolar en `Send-UIEvento` cuando el anterior no se ha consumido |
+| 8 | La cápsula lee **un solo evento por vuelta** de 80 ms: dos eventos seguidos y el primero se pierde (ya hubo un parche puntual por esto) | MEDIO | `assistant.ps1:8596` | Encolar en `Send-UIEvento` cuando el anterior no se ha consumido → **DESCARTADO, ver abajo** |
 | 9 | El texto se corta a mitad de palabra (la voz sí corta bien) y la marquesina desplaza texto + copia desenfocada a 60 fps, ~7 s por respuesta larga | MEDIO | `assistant.ps1:8541` | Cortar por el último espacio, como ya hace `Get-TextoVoz` → **HECHA** |
 | 10 | El revisor de memoria despierta **cada 3 s para siempre** (1.200/hora) y recorre 5.000 recuerdos para descubrir que no hay nada que hacer | LEVE | `charla_worker.py:663` | Sleep adaptativo 3 s → 30 s |
 | 11 | La cápsula deja de anotar sus errores a partir del nº 50 **de toda la vida del proceso**, y al llegar a 200 KB borra el log en vez de rotarlo | LEVE | `nova_ui.cs:399` | Reiniciar el contador cada hora |
@@ -219,6 +219,25 @@ Cada hallazgo trae 5 mejoras ordenadas de más barata a más cara, con cómo med
 
 ### 3.5 Decisiones tomadas al implementar (17/09)
 
+- **DESCARTADO — 3.3 #8, "la capsula pierde un evento si llegan dos seguidos".**
+  Sexto. El mecanismo **es real**: `Send-UIEvento` sube `n` y reescribe el json al momento, y
+  la capsula (cada 80 ms) dispara con `if (n != eventoN)` usando el `evento` que haya en ese
+  instante; **no mira cuanto salto `n`**, asi que uno intermedio se perderia sin rastro.
+  Lo que no hay es ningun sitio donde pueda pasar. De las 60 llamadas, solo 6 pares caen a
+  menos de 12 lineas, y ninguno es un par de verdad:
+  - `9058`/`9063` (`pulso:` / `aviso`) y `4924`/`4930`: **ramas de un `if/else`**, nunca se
+    ejecutan las dos;
+  - `12315`/`12326` y `13502`/`13511`: **el mismo evento** `hecho`, perder uno no cambia nada
+    de lo que se ve;
+  - `14216`/`14226` (`negar` / `asentir`): tambien ramas excluyentes, y el `else` **ya lleva
+    `Start-Sleep 120`** con un comentario del 13/09 que explica justo este problema;
+  - `4502`/`4510` (`sinia` / `aprendido`): el unico vivo, y lo separan tres operaciones de
+    E/S (la tuberia de voz de `Say` y las dos escrituras json de `Add-VarianteReceta`).
+  El caso que **si** paso en real -el `hecho` que pisaba al `aprendido`- ya tiene su parche.
+  Y el arreglo propuesto ("encolar cuando el anterior no se ha consumido") **no se puede
+  escribir**: el asistente no tiene canal de vuelta para saber si la capsula consumio nada.
+  La alternativa -esperar ~100 ms dentro de `Send-UIEvento`- metería latencia en el hilo
+  principal a cambio de un problema que no se ha visto ocurrir.
 - **DESCARTADO — 3.4 #5, "tres sitios no usan `Write-Atomico`".** Quinto hallazgo
   que se cae al verificarlo. Es cierto en la letra -no llaman a la funcion- y falso en lo que
   importaba: **los tres hacen el patron atomico a mano**. `Save-Habitos`, `Save-JuegosMem` y
