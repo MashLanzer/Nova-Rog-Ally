@@ -25,6 +25,7 @@ $script:juegoActivo = $null
 $script:revisionPropiaDia = ''
 $WhisperUltimo = 'large-v3-turbo'
 $NubeOir = 'gemini'
+$WhisperPreciso = 'small'
 $script:stats = @{ dias = @{} }
 $script:cfgPuesta = @()
 $script:avisos = @()
@@ -55,6 +56,7 @@ function Poner([int]$intentos, [int]$utiles) {
     $script:revisionPropiaDia = ''
     $script:WhisperUltimo = 'large-v3-turbo'
     $script:NubeOir = 'gemini'
+    $script:WhisperPreciso = ''
     $script:invitado = $false
     $script:juegoActivo = $null
     $script:autoDecision = $null
@@ -171,6 +173,7 @@ function PonerNube([int]$intentos, [int]$utiles) {
     $script:cfgPuesta = @(); $script:avisos = @(); $script:apuntes = @()
     $script:revisionPropiaDia = ''
     $script:NubeOir = 'gemini'
+    $script:WhisperPreciso = ''
     $script:WhisperUltimo = ''      # ya apagado: aqui se juzga la nube
     $script:invitado = $false
     $script:juegoActivo = $null
@@ -274,6 +277,70 @@ $script:WhisperUltimo = 'large-v3-turbo'; $script:NubeOir = ''
 $script:invitado = $false; $script:juegoActivo = $null; $script:autoDecision = $null
 Comp 'con los 29 de una tarde NO decide' (-not (Test-RevisionPropia ([datetime]'2026-09-16'))) ''
 Comp 'y no toca nada' (@($script:cfgPuesta).Count -eq 0) ($script:cfgPuesta -join ' ')
+
+# IDEA 3: EL OIDO FINO, CON LOS INVENTOS EN CONTRA (17/09).
+# Acierta 27 de 81, pero se INVENTA la orden 5 veces. Un invento no es "no aporto": es una
+# orden equivocada. Asi que lo que se mide es el acierto NETO, sirvio menos inventado.
+function PonerFino([int]$repasos, [int]$sirvio, [int]$invento) {
+    $script:stats = @{ dias = @{} }
+    $t = [int][Math]::Floor($repasos / 3); $r = $repasos - ($t * 2)
+    $script:stats.dias[$hoy.AddDays(-1).ToString('yyyy-MM-dd')] = @{ fino = $t; 'fino-sirvio' = $sirvio; 'fino-invento' = $invento }
+    $script:stats.dias[$hoy.AddDays(-2).ToString('yyyy-MM-dd')] = @{ fino = $t; 'fino-sirvio' = 0; 'fino-invento' = 0 }
+    $script:stats.dias[$hoy.AddDays(-3).ToString('yyyy-MM-dd')] = @{ fino = $r; 'fino-sirvio' = 0; 'fino-invento' = 0 }
+    $script:cfgPuesta = @(); $script:avisos = @(); $script:apuntes = @()
+    $script:revisionPropiaDia = ''
+    $script:WhisperPreciso = 'small'
+    $script:WhisperUltimo = ''; $script:NubeOir = ''    # aqui se juzga el fino
+    $script:invitado = $false; $script:juegoActivo = $null
+    $script:autoDecision = $null; $script:deshacer = $null
+}
+
+Write-Host ''
+Write-Host '  -- el oido fino que ya no compensa, lo apaga --'
+PonerFino 24 2 0
+Comp 'con 2 aciertos de 24, lo apaga' (Test-RevisionPropia $hoy) ''
+Comp 'y lo deja vacio en vivo' (-not $WhisperPreciso) "WhisperPreciso='$WhisperPreciso'"
+Comp 'lo guarda' (@($script:cfgPuesta) -contains 'input.whisperModeloPreciso=') ($script:cfgPuesta -join ' ')
+
+Write-Host '  -- LOS INVENTOS CUENTAN EN CONTRA (lo que mejora la idea) --'
+PonerFino 24 10 0
+Comp 'con 10 aciertos limpios de 24, NO lo toca' (-not (Test-RevisionPropia $hoy)) ''
+Comp 'el fino sigue puesto' ($WhisperPreciso -eq 'small') "WhisperPreciso='$WhisperPreciso'"
+PonerFino 24 10 9
+Comp 'mismos aciertos pero 9 inventos: lo apaga' (Test-RevisionPropia $hoy) '(neto 1 de 24)'
+Comp 'y el aviso nombra los inventos' ($script:avisos[0] -match 'invento') ''
+
+Write-Host '  -- con los numeros REALES de braya no se apaga --'
+# 81 repasos, 27 aciertos, 5 inventos -> neto 22 de 81 = 27 %, muy por encima del 15 %
+PonerFino 81 27 5
+Comp 'con 27 aciertos y 5 inventos de 81, se queda' (-not (Test-RevisionPropia $hoy)) ''
+Comp 'el fino sigue puesto' ($WhisperPreciso -eq 'small') ''
+
+Write-Host '  -- y el reparto tambien lo frena --'
+# los dias REALES: 17, 60 y 4 -> el peor concentra el 74 %
+$script:stats = @{ dias = @{} }
+$script:stats.dias['2026-09-12'] = @{ fino = 17; 'fino-sirvio' = 0; 'fino-invento' = 0 }
+$script:stats.dias['2026-09-15'] = @{ fino = 60; 'fino-sirvio' = 1; 'fino-invento' = 0 }
+$script:stats.dias['2026-09-16'] = @{ fino = 4;  'fino-sirvio' = 0; 'fino-invento' = 0 }
+$script:cfgPuesta = @(); $script:avisos = @(); $script:revisionPropiaDia = ''
+$script:WhisperPreciso = 'small'; $script:WhisperUltimo = ''; $script:NubeOir = ''
+$script:invitado = $false; $script:juegoActivo = $null; $script:autoDecision = $null
+Comp 'aunque el ratio sea malo, un dia con el 74 % no decide' (-not (Test-RevisionPropia ([datetime]'2026-09-17'))) ''
+Comp 'y no toca nada' (@($script:cfgPuesta).Count -eq 0) ($script:cfgPuesta -join ' ')
+
+Write-Host '  -- y se deshace hablando --'
+PonerFino 24 2 0
+[void](Test-RevisionPropia $hoy)
+$script:cfgPuesta = @()
+$rF = Undo-DecisionPropia
+Comp 'devuelve el oido fino en vivo' ($WhisperPreciso -eq 'small') "WhisperPreciso='$WhisperPreciso'"
+Comp 'y lo guarda' (@($script:cfgPuesta) -contains 'input.whisperModeloPreciso=small') ($script:cfgPuesta -join ' ')
+Comp 'sin pedir que reinicies' ($rF -notmatch 'reinicies') "'$rF'"
+
+Write-Host '  -- si ya estaba apagado, no se mete --'
+PonerFino 24 2 0
+$script:WhisperPreciso = ''
+Comp 'no vuelve a apagar lo apagado' (-not (Test-RevisionPropia $hoy)) ''
 
 # QUE LA FRASE LLEGUE. El "deshaz" generico termina en \b, SIN ancla final, asi que se
 # come "deshaz lo que has cambiado" entera si alguien mueve el patron nuevo detras. Esto

@@ -5650,6 +5650,7 @@ function Undo-DecisionPropia {
     switch ("$($d.seccion).$($d.clave)") {
         'input.whisperModeloUltimo' { $script:WhisperUltimo = [string]$d.antes }
         'escucha.nubeOir' { $script:NubeOir = [string]$d.antes }
+        'input.whisperModeloPreciso' { $script:WhisperPreciso = [string]$d.antes }
         default { $enVivoD = $false }
     }
     $script:autoDecision = $null
@@ -5704,7 +5705,8 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     $stR = $null
     try {
         $stR = Get-Estadisticas
-        foreach ($cR in @('turbo', 'turbo-sirvio', 'nube-intento', 'nube-sirvio')) { $numR[$cR] = 0 }
+        foreach ($cR in @('turbo', 'turbo-sirvio', 'nube-intento', 'nube-sirvio',
+                          'fino', 'fino-sirvio', 'fino-invento')) { $numR[$cR] = 0 }
         for ($i = 0; $i -lt 14; $i++) {
             $kR = $ahora.AddDays(-$i).ToString('yyyy-MM-dd')
             if (-not $stR.dias.ContainsKey($kR)) { continue }
@@ -5729,6 +5731,28 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
         Log "REVISION PROPIA: apago la segunda opinion de la nube ($($numR['nube-sirvio']) de $($numR['nube-intento']) utiles en 14 dias)"
         Add-Estadistica 'auto-ajuste' "nube off: $($numR['nube-sirvio']) de $($numR['nube-intento'])"
         [void](Send-AvisoEntorno 'auto-nube' ("He apagado la segunda opinion de la nube: la pedi $($numR['nube-intento']) veces y solo me sirvio $($numR['nube-sirvio']). Si la quieres de vuelta, dime: deshaz lo que has cambiado.") 'medio' 43200)
+        return $true
+    }
+
+    # --- caso 3: el oido fino (idea 3) ---
+    # LOS INVENTOS CUENTAN EN CONTRA, no son un cero (17/09). El fino acierta 27 veces de 81
+    # pero SE INVENTA la orden 5 veces (fino-invento, rama excluyente de fino-sirvio), y un
+    # invento no es "no aporto": es una orden equivocada, que es justo lo que braya no
+    # soporta. Asi que lo que se mide es el acierto NETO: sirvio menos inventado.
+    # Con los numeros de hoy: (27 - 5) / 81 = 27 %, muy por encima del 15 %. No se apaga, y
+    # ademas tampoco pasaria el reparto (el 74 % es de un solo dia). Las dos cosas tienen su
+    # caso en la prueba.
+    if ($WhisperPreciso -and $numR['fino'] -ge 20 -and
+        ($numR['fino-sirvio'] - $numR['fino-invento']) -lt [int][Math]::Ceiling($numR['fino'] * 0.15) -and
+        (Test-DatosRepartidos $stR 'fino' $ahora)) {
+        $netoF = $numR['fino-sirvio'] - $numR['fino-invento']
+        $antesF = [string]$WhisperPreciso
+        $script:WhisperPreciso = ''
+        [void](Set-Cfg 'input' 'whisperModeloPreciso' '')
+        Save-DecisionPropia 'input' 'whisperModeloPreciso' $antesF 'mi oido fino'
+        Log "REVISION PROPIA: apago el oido fino ($($numR['fino-sirvio']) aciertos menos $($numR['fino-invento']) inventos de $($numR['fino']) repasos en 14 dias)"
+        Add-Estadistica 'auto-ajuste' "oido fino off: neto $netoF de $($numR['fino'])"
+        [void](Send-AvisoEntorno 'auto-fino' ("He apagado mi oido fino: en $($numR['fino']) repasos acerto $($numR['fino-sirvio']) veces pero se invento la orden $($numR['fino-invento']), y eso ya no compensa lo que te hace esperar. Si lo quieres de vuelta, dime: deshaz lo que has cambiado.") 'medio' 43200)
         return $true
     }
 

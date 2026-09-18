@@ -80,9 +80,22 @@ con esos datos NO decide.*
 *Pendiente:* la bajada de umbral en sí, cuando haya descartes repartidos en varios días
 posteriores al arreglo de la ganancia. Hoy no los hay.
 
-**3. Apagar el oído fino cuando deje de aportar.**
-Hoy **sí** aporta (27 de 81 = 33 %), pero ya se inventa 5. Con el listón del 15 % que usó
-para el turbo, que lo apague el día que baje. *Freno: el listón ya probado, no uno nuevo.*
+**3. Apagar el oído fino cuando deje de aportar.** — **HECHA (17/09)**
+*Y con un matiz que mejora la idea original:* **los inventos cuentan en contra**. El fino
+acierta 27 de 81, pero **se inventa la orden 5 veces** (`fino-invento`, que es rama
+excluyente de `fino-sirvio`, comprobado). Un invento no es «no aportó»: es **una orden
+equivocada**, justo lo que menos toleras. Así que lo que se mide es el acierto **neto**:
+acertó menos inventó.
+Comprobado antes de contar nada: `fino` cuenta cada repaso pedido por sus dos caminos y
+ambos hacen `return` (no se duplica), y `fino-ahorrado` es el camino en que **no** se pide,
+así que no ensucia el denominador.
+**Hoy no se apaga, por dos motivos independientes**, y los dos tienen su caso con los
+números reales: el neto es (27−5)/81 = **27 %**, muy por encima del 15 %; y el reparto
+concentra el **74 %** en un solo día, por encima del tope del 70 %.
+`$WhisperPreciso` se lee en vivo en las cuatro puertas que deciden si repasar, así que
+apagarlo surte efecto en el acto —a diferencia del umbral de la idea 2— y se deshace
+hablando. *14 casos nuevos, incluido el que demuestra que con 10 aciertos y 9 inventos sí lo
+apaga, y con los mismos 10 aciertos sin inventos no lo toca.*
 
 **4. Bajar su gasto sola al ver un juego, y devolverlo al salir.**
 fps de la cápsula, revisor parado, modelos soltados. *Freno: decirlo una vez, y deshacerlo
