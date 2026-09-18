@@ -652,8 +652,27 @@ orden — y `Write-DestinoUso` filtra por `$DestinosUso`, así que una clave nue
 cerca de los 1100 ms, el umbral está alto; si casi no aparecen, el número era bueno y la idea
 se cierra sola.
 
-**36. `autoSubmitMs` (2500).** Igual con tus pausas reales al dictar: ya las mide (la pausa
-más larga dentro de una orden fue 0,81 s).
+**36. `autoSubmitMs` (2500).** — **NO PROCEDE: el número no está en el camino que usa (18/09)**
+*Ese 2500 es letra muerta.* Solo actúa bajo `-not $script:ordenPorWorker`, y el propio código lo
+dice: «ENVÍO AUTOMÁTICO (**solo para el dictado antiguo de Windows**). Con Vosk el propio worker
+detecta el silencio y entrega el texto». Con `config.json` en `"motorOrdenes": "worker"`, esa
+condición es falsa siempre. Comprobado por cinco lados:
+
+- `$script:ordenPorWorker` pasa a `$false` en **un único sitio**: una **orden escrita** (texto,
+  sin audio), que va directa a `Process-Texto` — ahí no hay silencio que temporizar;
+- en el log: **0** auto-envíos por silencio;
+- `vozwin` y `vozwin-mudo` están **vacías todos los días** en la tabla.
+
+*Y lo que la idea pedía **ya está hecho**, en el número que sí manda.* Quien corta la frase en
+el uso real es `SILENCIO_FIN` (1,5 s) y `SILENCIO_FIN_LOTENGO` (1,1 s) de `wake_vosk.py`, y
+`PENDIENTE.md` documenta que se calcularon justo así: «dentro de una orden llegaste a **0,81 s**
+(con 20 parecía 0,45) y con pausas a propósito a **1,44 s**. El cierre rápido pasa de 0,8 a
+**1,1 s** y el normal de 1,4 a **1,5 s**».
+
+**⚠ Y de paso queda descartada una «mejora» que parecía obvia:** bajar `SILENCIO_FIN` para ganar
+tres décimas por orden. Esos valores se **subieron** a propósito, medidos sobre 90-110
+grabaciones, porque las pausas a propósito llegan a 1,44 s. Bajarlos cortaría órdenes por la
+mitad — y cortar una orden sale mucho más caro que esperar 0,3 s.
 
 **37. `soloYoMargenHz` (35) y `soloYoMinimo` (12).** Estrecharlos según lo separada que esté
 tu voz de las demás que ha oído.
