@@ -3356,18 +3356,78 @@ function Resolve-Fragment([string]$f) {
     return $sv
 }
 
+# El brillo que hay AHORA, 0-100. Devuelve -1 si no se puede leer, igual que
+# [AX]::LeerVolumen(): "no lo se" tiene que distinguirse de "esta mal" (18/09).
+function Get-BrilloActual {
+    try { return [int]((Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness -ErrorAction Stop | Select-Object -First 1).CurrentBrightness) }
+    catch { return -1 }
+}
+
+# A donde va a quedar el brillo con ese nivel. Estaba dentro de Set-Brillo, y hacia falta
+# fuera: para comprobar que una orden surtio efecto hay que saber QUE se esperaba, y
+# copiar la regla en dos sitios es la forma segura de que se separen (18/09).
+function Get-BrilloDestino([int]$nivel, [int]$actual) {
+    switch ($nivel) {
+        -1 { return [Math]::Min(100, [int]$actual + 20) }
+        -2 { return [Math]::Max(0, [int]$actual - 20) }
+        default { return [Math]::Max(0, [Math]::Min(100, $nivel)) }
+    }
+}
+
 # Brillo por WMI. nivel: 0-100 absoluto, -1 = subir un paso, -2 = bajar un paso.
 function Set-Brillo([int]$nivel) {
     $act = (Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness -ErrorAction Stop).CurrentBrightness
-    $destino = switch ($nivel) {
-        -1 { [Math]::Min(100, [int]$act + 20) }
-        -2 { [Math]::Max(0, [int]$act - 20) }
-        default { [Math]::Max(0, [Math]::Min(100, $nivel)) }
-    }
+    $destino = Get-BrilloDestino $nivel ([int]$act)
     $met = Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods -ErrorAction Stop
     $null = Invoke-CimMethod -InputObject $met -MethodName WmiSetBrightness -Arguments @{ Timeout = [uint32]1; Brightness = [byte]$destino }
     # la capsula ensena un sol con la barra del nivel un instante
     try { Send-UIEvento "brillo:$destino" } catch {}
+}
+
+# ================== ¿SURTIO EFECTO? (18/09, NOVA-LLM pieza 1) ==================
+# Hasta hoy Nova ejecutaba y daba por hecho que salio bien: ponia el volumen y no miraba si
+# se puso. El fallo mas caro de todo el proyecto fue justo ese -"volumen al 70" dejaba el
+# volumen A CERO mientras ella contestaba "volumen al 70 por ciento"- y vivio semanas porque
+# el banco comparaba la DESCRIPCION, nunca el efecto (ver tools\probar-acciones.py).
+#
+# Se comprueba SOLO lo que se puede leer y es absoluto:
+#   - volumenPct  ->  [AX]::LeerVolumen()
+#   - brillo con nivel >= 0  ->  Get-BrilloActual
+# Los relativos ("sube el volumen", "baja un poco el brillo") necesitan saber como estaba
+# ANTES, y aqui la accion ya se ejecuto: meterlos daria fallos falsos. Quedan fuera aposta.
+#
+# Devuelve $null cuando NO SABE (no es su tipo, o no se puede leer): callar es lo correcto,
+# porque inventar un fallo es peor que no comprobar. Si sabe, @{ ok; esperado; real }.
+$EfectoMargenVolumen = 2    # la conversion float->% puede bailar un punto
+$EfectoMargenBrillo = 5     # hay paneles que solo aceptan ciertos saltos
+function Test-EfectoAccion($a) {
+    if (-not $a -or -not $a.kind) { return $null }
+    try {
+        if ($a.kind -eq 'volumenPct') {
+            $esperado = [Math]::Max(0, [Math]::Min(100, [int]$a.pct))   # PonerVolumen recorta igual
+            $real = [AX]::LeerVolumen()
+            if ($real -lt 0) { return $null }                            # no se puede leer: no lo se
+            return @{ ok = ([Math]::Abs($real - $esperado) -le $EfectoMargenVolumen); esperado = $esperado; real = $real }
+        }
+        if ($a.kind -eq 'brillo') {
+            if ([int]$a.nivel -lt 0) { return $null }                    # relativo: fuera de esta pieza
+            $real = Get-BrilloActual
+            if ($real -lt 0) { return $null }
+            $esperado = Get-BrilloDestino ([int]$a.nivel) $real
+            return @{ ok = ([Math]::Abs($real - $esperado) -le $EfectoMargenBrillo); esperado = $esperado; real = $real }
+        }
+    } catch { return $null }
+    return $null
+}
+
+# Vuelve a intentar la accion UNA vez. Solo las idempotentes: poner el volumen al 70 dos
+# veces sigue siendo 70, pero repetir un "sube un paso" lo subiria dos.
+function Invoke-AccionOtraVez($a) {
+    try {
+        if ($a.kind -eq 'volumenPct') { [void][AX]::PonerVolumen([int]$a.pct); return $true }
+        if ($a.kind -eq 'brillo' -and [int]$a.nivel -ge 0) { Set-Brillo ([int]$a.nivel); return $true }
+    } catch { return $false }
+    return $false
 }
 
 # Ejecuta la orden si TODA ella se reconoce. Devuelve el resumen, o $null
@@ -8292,6 +8352,23 @@ function Invoke-FastCommand([string]$text) {
                     Start-Sleep -Milliseconds 700
                     [System.Windows.Forms.SendKeys]::SendWait(([regex]::Replace($a.texto, '[+^%~(){}\[\]]', { param($m) '{' + $m.Value + '}' })))
                 }
+            }
+            # ¿DE VERDAD SE HIZO? (18/09). Aqui la accion ya se ejecuto y $a.desc es lo que
+            # Nova va a decir en voz alta. Si el efecto no cuadra, lo peor seria presumir:
+            # se reintenta una vez, y si sigue sin cuadrar se dice la verdad y se apunta.
+            $efecto = Test-EfectoAccion $a
+            if ($null -ne $efecto -and -not $efecto.ok) {
+                Log ("EFECTO: $($a.kind) pedia $($efecto.esperado) y quedo en $($efecto.real); lo intento otra vez")
+                if (Invoke-AccionOtraVez $a) {
+                    Start-Sleep -Milliseconds 120
+                    $efecto = Test-EfectoAccion $a
+                }
+            }
+            if ($null -ne $efecto -and -not $efecto.ok) {
+                Log ("NO SURTIO EFECTO: $($a.kind) pedia $($efecto.esperado) y se quedo en $($efecto.real)")
+                Add-Estadistica 'no-surtio-efecto' "$($a.kind): pedi $($efecto.esperado) y quedo en $($efecto.real)"
+                $a.desc = "lo intente dos veces y no se puso: se quedo en $($efecto.real)"
+                Set-UICola $acciones.Count ($iAcc + 1) $true
             }
             $hechas += $a.desc
         } catch {

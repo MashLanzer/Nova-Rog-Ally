@@ -30,25 +30,58 @@ Por eso un modelo más grande no la arreglaría.
 
 ---
 
-## 1. El bucle de verificación — *empezar por aquí*
+## 1. El bucle de verificación — **EMPEZADO (18/09)**
 
 Es lo que más separa a Nova de un asistente que parece listo, y **no necesita modelo ninguno**.
 
-Hoy Nova **ejecuta y da por hecho que salió bien**. Abre Steam y no mira si se abrió; pone el
-volumen y no comprueba que se puso. Cuando algo falla, se entera braya.
+Hasta hoy Nova **ejecutaba y daba por hecho que salió bien**. El fallo más caro del proyecto fue
+justo ese: «volumen al 70» dejaba el volumen **a cero** mientras ella contestaba «volumen al 70
+por ciento». Vivió semanas porque el banco comparaba la **descripción** de la acción y nunca su
+efecto (`tools/probar-acciones.py` nació de ahí).
 
-Lo que haría falta, por orden:
-- **Comprobar el efecto** de las acciones que ya son comprobables: una app abierta tiene
-  proceso y ventana; el volumen se puede leer (`[AX]::LeerVolumen`, ya existe); el brillo
-  también; un archivo creado existe o no.
-- **Reintentar una vez** lo que falló por una causa conocida, y **solo una**.
-- **Decirlo cuando no se pudo**, en vez de callar: «lo intenté y no se abrió».
-- Y lo más valioso: **apuntarlo**. Una acción que falla a menudo es una orden que hay que
-  arreglar, y hoy no queda registrada como fallo salvo que braya se queje.
+### Lo hecho
 
-*Por qué primero:* ataca directamente la meta de «cero órdenes equivocadas», se puede probar
-en el banco sin modelo, y cada pieza es independiente (se puede empezar por el volumen, que
-ya se sabe leer).
+`Test-EfectoAccion` comprueba el efecto **después** de actuar, y va enganchada en el ejecutor
+justo antes de dar la acción por hecha (`$hechas += $a.desc`), que es donde Nova decide qué va a
+decir en voz alta:
+
+1. **Comprueba** lo que se puede leer y es absoluto: `volumenPct` (`[AX]::LeerVolumen`) y
+   `brillo` con nivel ≥ 0 (`Get-BrilloActual`).
+2. **Reintenta una vez**, y solo lo idempotente — `Invoke-AccionOtraVez`. Poner el volumen al 70
+   dos veces sigue siendo 70; repetir un «sube un paso» lo subiría dos.
+3. **Lo dice en vez de presumir**: si tras el reintento sigue sin cuadrar, la frase pasa a ser
+   «lo intenté dos veces y no se puso: se quedó en N», y la cápsula lo marca.
+4. **Lo apunta**: `Add-Estadistica 'no-surtio-efecto'` con lo pedido y lo que quedó. Antes una
+   acción que no surtía efecto **no dejaba ningún rastro** salvo que braya se quejara.
+
+*Y calla cuando no sabe*, que es la mitad difícil: si `LeerVolumen()` devuelve −1 (no se puede
+leer), si la acción es relativa o si no es de su tipo, devuelve `$null` y nadie dice nada.
+Inventar un fallo es peor que no comprobar. Márgenes: ±2 en volumen (la conversión float→%
+baila un punto) y ±5 en brillo (hay paneles que solo aceptan ciertos saltos).
+
+*De camino:* `Get-BrilloActual` y `Get-BrilloDestino` salen a funciones propias. El cálculo del
+destino vivía dentro de `Set-Brillo`, y copiarlo en dos sitios era la forma segura de que se
+separaran. `Set-Brillo` **sigue sin devolver nada** a propósito: tiene 7 llamadores y en
+PowerShell un valor que nadie recoge se cuela en la salida de la función que envuelve — habría
+roto `Invoke-Deshacer`. Hay un caso en el banco que lo vigila.
+
+`probar-efecto.ps1` (2n27), 36 casos.
+
+### Lo que queda de esta pieza
+
+- **Los relativos** («sube el volumen», «baja un poco el brillo»): necesitan saber cómo estaba
+  **antes**, y en el punto de enganche la acción ya se ejecutó. Hay que guardar el valor previo
+  antes del `switch`.
+- **Abrir una app**: comprobable por proceso y ventana… pero **no para los juegos de Steam**,
+  que se abren por URI (`steam://rungameid/…`) y no devuelven proceso propio. Ya existe el truco
+  de apuntar «qué y cuándo» para el deshacer; ese es el camino.
+- **Cerrar** (`cerrarApp`, `cerrarTodo`): ya cuentan «cerrados N de M», o sea media verificación
+  hecha; falta que eso llegue a la frase y a las estadísticas.
+- **Archivos creados**: existe o no existe, trivial de comprobar, pero hoy solo lo hacen las
+  recetas.
+
+*Por qué se empezó aquí:* ataca directamente la meta de «cero órdenes equivocadas», se prueba en
+el banco sin modelo, y cada trozo es independiente.
 
 ## 2. Memoria con sentido
 
