@@ -97,9 +97,23 @@ apagarlo surte efecto en el acto —a diferencia del umbral de la idea 2— y se
 hablando. *14 casos nuevos, incluido el que demuestra que con 10 aciertos y 9 inventos sí lo
 apaga, y con los mismos 10 aciertos sin inventos no lo toca.*
 
-**4. Bajar su gasto sola al ver un juego, y devolverlo al salir.**
-fps de la cápsula, revisor parado, modelos soltados. *Freno: decirlo una vez, y deshacerlo
-solo al cerrar el juego.*
+**4. Bajar su gasto sola al ver un juego, y devolverlo al salir.** — **YA ESTABA HECHA**
+Aplicado el criterio 4 (*¿ya existe a medias?*) antes de tocar nada, y la respuesta es que sí,
+casi entera, y no de esta tanda:
+- `soltar_parakeet_si_toca`, `soltar_preciso_si_toca` y `soltar_ultimo_si_toca` sueltan los
+  tres modelos con un juego delante;
+- el revisor de charla se descarga (`revisor_parado`);
+- la conversación no se precarga jugando;
+- la palabra pasa a solo botón (`solo-boton.flag`);
+- los fps de la cápsula ya se bajaron (15/20/30);
+- y **sí se devuelve al salir**: `Exit-Juego` restaura el brillo, con `restaurarAlSalir: true`
+  activo en la configuración de braya.
+
+**DESCARTADO — soltar Vosk jugando.** Era la única pieza que faltaba y parecía gratis: si
+jugando solo vale el botón, el modelo de la palabra sobra. **Pero no sobra**: `modelo` se usa
+también para crear los reconocedores del **dictado** (líneas 630, 637, 643, 976 y 1547).
+Soltarlo jugando **rompería el botón**, que es justo lo único que funciona con un juego
+delante. Se destruiría lo que se quiere proteger.
 
 **5. Dejar de ofrecer lo que siempre rechazas.**
 Ya guarda `rechazadas` en `habitos.json`. Tres noes y deja de proponerlo.
