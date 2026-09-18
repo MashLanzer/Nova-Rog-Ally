@@ -34,7 +34,28 @@ están marcadas una por una.
 
 ---
 
-## 2. LA FUNCIÓN QUE PIDIÓ braya — «has vuelto a la consola»
+## 2. LA FUNCIÓN QUE PIDIÓ braya — «has vuelto a la consola» ✅ **HECHA el 18/09**
+
+> **Estado:** implementada y en el banco (`tools/probar-vuelta.ps1`, bloque `2n30`, 26 casos en
+> verde). Tres decisiones que este plan dejaba abiertas y se tomaron al escribirla:
+>
+> 1. **El saludo sale solo ante la señal del mando.** Desde el bucle a secas saludaría a una
+>    habitación vacía en cuanto pasaran 45 minutos, y al recibir una orden hablada sonaría encima
+>    de su propia respuesta. Hablarle **sella** presencia, pero no dispara el saludo. «Tomar la
+>    consola en las manos» es literalmente lo que se pidió.
+> 2. **`Test-VueltaSaludo` corre ANTES de sellar la presencia.** Sellando primero, la ausencia
+>    sería siempre 0 y no saludaría jamás: el mismo fallo que E1 con otra ropa.
+> 3. **La marca de presencia no baja al disco en cada pulsación.** El bucle va a 30 ms y
+>    `Save-Habitos` reescribe el fichero entero: en memoria siempre, al disco como mucho una vez
+>    por minuto. Un caso del banco lo vigila (50 pulsaciones → 1 escritura).
+>
+> Y una corrección sobre lo que decía este plan: el gesto no puede mandarse antes de `Send-Aviso`
+> confiando en que la voz se calle sola. `Test-AvisoSinVoz` se consulta **antes** de elegir la vía,
+> porque el gesto `saludo` de la cápsula llama a `Sonar(sonSuave)`: con un juego delante se oiría
+> un ruido sin que nadie hable, que es peor que el saludo entero.
+>
+> Se retiró el `mando-vuelta` viejo (0 disparos en 9 días): hacía lo mismo peor, y dejar los dos
+> era saludar dos veces.
 
 > «cuando nova esté encendida, y pasa un tiempo sola, al tomar la consola en mis manos lo detecte y
 > me salude de alguna forma, no siempre igual porque se vuelve repetitivo»
@@ -889,9 +910,13 @@ Por daño real, no por facilidad.
    abandone ante una confirmación **antes** de estrenarse. Los tres son baratos y los tres tapan un
    agujero que hoy nadie ve.
 
-5. **D1 y IA1, las dos de un rato.** Que Nova no anuncie que va a apagar algo que lleva apagado desde
-   el 15/09, y que preguntar «qué es un volcán» deje de arrastrar «¿Qué es escribir?» (5 de los 9
-   recuerdos que hoy se recuperan son ese mismo error).
+5. ~~**D1 y IA1, las dos de un rato.**~~ ✅ **HECHAS el 18/09.** D1 en `692d740`: cada decisión
+   lleva su interruptor y lo apagado no se anuncia. IA1 en `3455fc7`, con el antes y el después
+   medidos sobre las 96 frases reales: **de 9 recuperaciones (4 buenas, 5 el mismo error) a 4 y 0**,
+   que era el objetivo exacto de esta ficha. Aviso guardado en la prueba: el caso obvio
+   («escritorio» no trae «escribir») **sale verde sin el filtro**, porque en un cerebro de
+   laboratorio ese `lex` ya está por debajo de 0,3; por eso la rama se prueba contra
+   `_vale_de_contexto` con un hit de mentira y con «¿Qué?» a secas, que sí llega a 0,5.
 
 ---
 

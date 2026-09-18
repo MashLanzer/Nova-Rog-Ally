@@ -5180,7 +5180,7 @@ function Watch-Musica($mu) {
 $script:habitos = $null
 function Get-Habitos {
     if ($null -ne $script:habitos) { return $script:habitos }
-    $script:habitos = @{ usos = (New-Object System.Collections.ArrayList); rechazadas = (New-Object System.Collections.ArrayList); ultimaPropuesta = ''; fin = @{}; cargaAvisada = ''; nivelVisto = 0; brilloAuto = $false; parteVisto = ''; ritmo = (New-Object System.Collections.ArrayList); charlaHoras = @{}; minutosJuego = @{} }
+    $script:habitos = @{ usos = (New-Object System.Collections.ArrayList); rechazadas = (New-Object System.Collections.ArrayList); ultimaPropuesta = ''; fin = @{}; cargaAvisada = ''; nivelVisto = 0; brilloAuto = $false; parteVisto = ''; ritmo = (New-Object System.Collections.ArrayList); charlaHoras = @{}; minutosJuego = @{}; presencia = @{} }
     $rutaH = Join-Path $MemoriaDir 'habitos.json'
     if (Test-Path -LiteralPath $rutaH) {
         try {
@@ -5201,6 +5201,15 @@ function Get-Habitos {
             $script:habitos.brilloAuto = [bool]$crudoH.brilloAuto
             $script:habitos.parteVisto = [string]$crudoH.parteVisto
             if ($crudoH.minutosJuego) { foreach ($pM in $crudoH.minutosJuego.PSObject.Properties) { $script:habitos.minutosJuego[$pM.Name] = [int]$pM.Value } }
+            # CUANDO TE VI POR ULTIMA VEZ (18/09). Va en hora de RELOJ, no del cronometro del
+            # proceso: con 187 arranques en 9 dias, un reloj de proceso no junta nunca una
+            # ausencia larga. Y las frases dichas viven aqui para que la variedad sobreviva
+            # a los reinicios ($script:ultimoRelleno solo existe en memoria).
+            if ($crudoH.presencia) {
+                $script:habitos.presencia['visto'] = [string]$crudoH.presencia.visto
+                $script:habitos.presencia['saludo'] = [string]$crudoH.presencia.saludo
+                $script:habitos.presencia['frases'] = @(@($crudoH.presencia.frases) | Where-Object { $_ } | ForEach-Object { [string]$_ })
+            }
             foreach ($x in @($crudoH.ritmo)) { if ($null -ne $x) { [void]$script:habitos.ritmo.Add([double]$x) } }
             if ($crudoH.charlaHoras) { foreach ($pf in $crudoH.charlaHoras.PSObject.Properties) { $script:habitos.charlaHoras[$pf.Name] = [int]$pf.Value } }
         } catch { Log ("habitos: no pude leerlos: " + $_.Exception.Message); Save-Corrupto $rutaH 'habitos' }
@@ -5210,7 +5219,7 @@ function Get-Habitos {
 function Save-Habitos {
     try {
         $hb = Get-Habitos
-        $o = [ordered]@{ usos = @($hb.usos); rechazadas = @($hb.rechazadas); ultimaPropuesta = $hb.ultimaPropuesta; fin = $hb.fin; cargaAvisada = $hb.cargaAvisada; nivelVisto = $hb.nivelVisto; brilloAuto = [bool]$hb.brilloAuto; parteVisto = [string]$hb.parteVisto; ritmo = @($hb.ritmo); charlaHoras = $hb.charlaHoras; minutosJuego = $hb.minutosJuego }
+        $o = [ordered]@{ usos = @($hb.usos); rechazadas = @($hb.rechazadas); ultimaPropuesta = $hb.ultimaPropuesta; fin = $hb.fin; cargaAvisada = $hb.cargaAvisada; nivelVisto = $hb.nivelVisto; brilloAuto = [bool]$hb.brilloAuto; parteVisto = [string]$hb.parteVisto; ritmo = @($hb.ritmo); charlaHoras = $hb.charlaHoras; minutosJuego = $hb.minutosJuego; presencia = $hb.presencia }
         $rutaH = Join-Path $MemoriaDir 'habitos.json'
         [System.IO.File]::WriteAllText($rutaH + '.tmp', (ConvertTo-Json -InputObject $o -Depth 4), (New-Object System.Text.UTF8Encoding($false)))
         Move-Item -LiteralPath ($rutaH + '.tmp') -Destination $rutaH -Force
@@ -5522,6 +5531,14 @@ function Get-CancionAnterior {
 $EntornoOn = [bool](Get-Cfg 'entorno' 'avisos' $false)
 $EntornoPorHora = [int](Get-Cfg 'entorno' 'porHora' 4)
 $EntornoGmailLleno = [bool](Get-Cfg 'entorno' 'gmailLleno' $false)
+# HAS VUELTO A LA CONSOLA (18/09). Los umbrales salen de contar los huecos reales del
+# registro de 9 dias, no a ojo. Con "Nova viva todo el hueco" (el latido escribe sin parar;
+# es lo que distingue "estuvo sola" de "estuvo apagada"): 20 min -> 2,8 saludos/dia;
+# 30 -> 1,7; 45 -> 1,1; 60 -> 0,7; 90 (lo de antes) -> 0,6. A 45 min sale poco mas de uno
+# al dia, que es estar atenta sin cansar. La voz se guarda para las ausencias de verdad.
+$VueltaOn = [bool](Get-Cfg 'entorno' 'saludoVuelta' $true)
+$VueltaMin = [int](Get-Cfg 'entorno' 'vueltaMin' 45)          # a partir de aqui, capsula
+$VueltaVozMin = [int](Get-Cfg 'entorno' 'vueltaVozMin' 180)   # y a partir de aqui, ademas voz
 $EntornoNocheDesde = [int](Get-Cfg 'entorno' 'nocheDesde' 23)
 $EntornoNocheHasta = [int](Get-Cfg 'entorno' 'nocheHasta' 8)
 $script:entornoAvisos = New-Object System.Collections.ArrayList   # cuando salio cada uno
@@ -5646,16 +5663,21 @@ function Watch-Entorno([int]$botones = 0) {
     if ($botones -ne 0) {
         $quietoMin = if ($script:entornoUltimaActividad -gt 0) { ($ahoraW - $script:entornoUltimaActividad) / 60000 } else { 0 }
         $script:entornoUltimaActividad = $ahoraW
-        if ($quietoMin -ge 90 -and $script:entornoBotonesAntes -eq 0) {
-            $txtM = 'Hola. ¿Seguimos?'
-            if ($script:ultimoJuego) { $txtM = "Hola. ¿Seguimos con $($script:ultimoJuego)?" }
-            [void](Send-AvisoEntorno 'mando-vuelta' $txtM 'medio' 180)
-        }
+        # EL mando-vuelta VIEJO SE FUE (18/09). Salio 0 veces en 9 dias y hacia lo mismo que
+        # Test-VueltaSaludo, pero con el reloj del proceso (187 arranques, mediana de sesion
+        # 5,8 min: nunca juntaba 90 minutos), con una sola frase y sin memoria entre arranques.
+        # Dejar los dos era saludar dos veces.
         if ($quietoMin -ge 5 -and $script:entornoBotonesAntes -eq 0) {
             # para una regla basta con que lo cojas tras un rato quieto: el saludo
             # pide 90 minutos porque hablar cansa, pero "pon el modo juego" no.
             Invoke-Reglas 'mandoCoge' 'coge'
         }
+        # HAS VUELTO. El orden importa: primero se mira la ausencia y DESPUES se sella, o la
+        # ausencia seria siempre cero y no saludaria jamas (el mismo fallo que E1, con otra
+        # ropa). Y la presencia lleva su propio reloj: $quietoMin alimenta tambien a
+        # 'mandoCoge', que no tiene rearme, y tocarlo dispararia esa regla en cada pulsacion.
+        try { [void](Test-VueltaSaludo) } catch { Log ("vuelta: " + $_.Exception.Message) }
+        try { Set-PresenciaAhora } catch {}
     }
     $script:entornoBotonesAntes = $botones
     try { Send-AvisoCola } catch {}
@@ -6225,6 +6247,109 @@ function Set-UsoAhora([datetime]$cuando = (Get-Date)) {
     $limite = $cuando.AddDays(-30).ToString('yyyy-MM-dd')
     foreach ($k in @($hb.fin.Keys)) { if ($k -lt $limite) { $hb.fin.Remove($k) } }
     Save-Habitos
+}
+# ------------------------------------------------------------------------------------
+# HAS VUELTO A LA CONSOLA (18/09): lo que pidio braya.
+#
+# La señal es el MANDO, que es lo que el llamo "tomar la consola en las manos". Hablarle
+# tambien cuenta como estar presente, pero solo para SELLAR: si el saludo saliera al recibir
+# una orden, hablaria encima de su propia respuesta. Y no sale desde el bucle a secas, o
+# saludaria a una habitacion vacia en cuanto pasaran 45 minutos.
+$script:presenciaVistoEn = 0       # cronometro del proceso: la ultima señal de esta sesion
+$script:presenciaGuardada = 0      # y la ultima vez que eso bajo al disco
+function Set-PresenciaAhora([datetime]$cuando = (Get-Date)) {
+    $script:presenciaVistoEn = $sw.ElapsedMilliseconds
+    # AL DISCO COMO MUCHO UNA VEZ POR MINUTO. Esto lo llama cada pulsacion del mando y el
+    # bucle va a 30 ms; Save-Habitos reescribe el fichero entero (1,33 ms medidos). Sin este
+    # freno serian cientos de escrituras por partida, que es justo lo que braya no quiere.
+    if ($script:presenciaGuardada -gt 0 -and ($sw.ElapsedMilliseconds - $script:presenciaGuardada) -lt 60000) { return }
+    $script:presenciaGuardada = $sw.ElapsedMilliseconds
+    try {
+        $hbP = Get-Habitos
+        $hbP.presencia['visto'] = $cuando.ToString('yyyy-MM-dd HH:mm:ss')
+        Save-Habitos
+    } catch {}
+}
+# Cuanto llevas fuera, en minutos. El "+60 s del arranque" no es un adorno: de los 55 huecos
+# de 20 min o mas del registro, 30 tienen un arranque de Nova dentro, y en esos ya saludo al
+# arrancar (142 veces). Sin esta mitad, Nova diria hola dos veces en pocos segundos.
+function Get-AusenciaMin([datetime]$ahora = (Get-Date)) {
+    $desde = $ahora.AddMilliseconds(-$sw.ElapsedMilliseconds).AddSeconds(60)
+    try {
+        $hbA = Get-Habitos
+        $vA = [datetime]::MinValue
+        if ($hbA.presencia['visto'] -and [datetime]::TryParse([string]$hbA.presencia['visto'], [ref]$vA) -and $vA -gt $desde) { $desde = $vA }
+    } catch {}
+    # la señal de esta sesion puede no haber bajado al disco todavia (el freno del minuto)
+    if ($script:presenciaVistoEn -gt 0) {
+        $enSesion = $ahora.AddMilliseconds(-($sw.ElapsedMilliseconds - $script:presenciaVistoEn))
+        if ($enSesion -gt $desde) { $desde = $enSesion }
+    }
+    return [int](($ahora - $desde).TotalMinutes)
+}
+# LA VARIEDAD (lo que pidio: "no siempre igual porque se vuelve repetitivo"). El patron ya
+# estaba en casa -el relleno de la charla, que sortea filtrando la ultima dicha- con dos
+# arreglos: se filtran las TRES ultimas, no una (con tres frases se repetian, lo dice su
+# propio comentario del 14/09), y la memoria vive en DISCO, porque con 187 arranques en 9
+# dias una memoria de proceso se olvida constantemente.
+# Las frases, por debajo de 40 letras: Say deja el microfono mudo len*70+1200 ms, o sea que
+# 40 letras ya son 4 segundos sordo.
+function Get-FraseVuelta([int]$aus, [datetime]$ahora, $ultimas, [bool]$esNoche = $false) {
+    if ($esNoche) { return 'Hola. Que sepas que es tarde.' }
+    $cands = @('Anda, ya estás aquí.', 'Mira quién vuelve.', 'Buenas. ¿Retomamos?', 'Por aquí, todo tranquilo.')
+    if ($aus -ge 180) { $cands += 'Cuánto tiempo.' }
+    if ($aus -ge 360) { $cands += @('Te hacía lejos.', 'Ya era hora, eh.') }
+    if ($ahora.Hour -ge 5 -and $ahora.Hour -lt 12) { $cands += 'Buenos días. ¿Empezamos?' }
+    # el juego solo si Nova lo tiene delante o lo dejaste hace menos de 2 h; tras un reinicio
+    # no hay nada que recordar, asi que esta frase casi nunca podra salir y no pasa nada
+    $jg = $null
+    try { $jg = Get-JuegoDeReferencia } catch {}
+    if ($jg) { $cands += "¿Seguimos con $jg?" }
+    $libres = @($cands | Where-Object { @($ultimas) -notcontains $_ })
+    if ($libres.Count -eq 0) { $libres = $cands }   # con pocas candidatas, antes repetir que callar
+    return (Get-Random -InputObject $libres)
+}
+function Test-VueltaSaludo([datetime]$ahora = (Get-Date)) {
+    if (-not $VueltaOn -or -not $EntornoOn -or $script:invitado -or $script:entornoCallado) { return $false }
+    # MIENTRAS DICTAS, NO. Send-Aviso ya aplaza la voz, pero la via de solo-capsula no pasa
+    # por ahi; y el saludo no corre prisa: en la siguiente pulsacion vuelve a mirarse.
+    if ($script:armed -or $script:busy -or $script:pendiente) { return $false }
+    # acaba de saludar al arrancar (142 veces en 9 dias): dos saludos seguidos sobran
+    if ($sw.ElapsedMilliseconds -lt 60000) { return $false }
+    $aus = Get-AusenciaMin $ahora
+    if ($aus -lt $VueltaMin) { return $false }
+    $hbV = Get-Habitos
+    $ultS = [datetime]::MinValue
+    if ($hbV.presencia['saludo'] -and [datetime]::TryParse([string]$hbV.presencia['saludo'], [ref]$ultS)) {
+        if (($ahora - $ultS).TotalMinutes -lt 60) { return $false }     # uno por hora y basta
+    }
+    $hV = $ahora.Hour
+    $esNocheV = if ($EntornoNocheDesde -gt $EntornoNocheHasta) { ($hV -ge $EntornoNocheDesde -or $hV -lt $EntornoNocheHasta) }
+                else { ($hV -ge $EntornoNocheDesde -and $hV -lt $EntornoNocheHasta) }
+    $ultimas = @($hbV.presencia['frases'])
+    $frase = Get-FraseVuelta $aus $ahora $ultimas $esNocheV
+    # se apunta ANTES de decirla: si algo falla al hablar, peor es repetir la misma manana
+    $hbV.presencia['saludo'] = $ahora.ToString('yyyy-MM-dd HH:mm:ss')
+    $hbV.presencia['frases'] = @(@($ultimas) + $frase | Select-Object -Last 3)
+    try { Save-Habitos } catch {}
+    Log ("VUELTA: $aus min fuera -> '$frase'" + $(if ($esNocheV) { ' (de noche, solo se ve)' } else { '' }))
+    # SE PREGUNTA ANTES DE ELEGIR LA VIA, no despues. El gesto 'saludo' de la capsula llama a
+    # Sonar(sonSuave) (nova_ui.cs), asi que mandarlo y confiar en que Send-Aviso se calle
+    # dejaria el sonido igual con un juego delante o en modo silencio: se oiria un ruido sin
+    # que nadie hable, que es peor que el saludo entero.
+    $sinVozV = $true
+    try { $sinVozV = [bool](Test-AvisoSinVoz) } catch {}
+    if ($esNocheV -or $sinVozV -or $aus -lt $VueltaVozMin) {
+        Show-Popup $frase
+        # de noche, jugando o en silencio, ni gesto ni pulso: solo se lee
+        if (-not $esNocheV -and -not $sinVozV) { Send-UIEvento 'pulso:saludo' }
+    } else {
+        Send-UIEvento 'gesto:saludo'
+        # por Send-Aviso, que es quien aplaza si estas dictando. Send-AvisoEntorno no hace
+        # nada de eso: sale por Say directo.
+        Send-Aviso $frase 'saludo'
+    }
+    return $true
 }
 # minutos desde las 00:00 del dia (la madrugada suma 24 h: la 01:00 son 1500), o -1
 function Get-HoraFinHabitual([datetime]$hoy = (Get-Date)) {
@@ -13784,6 +13909,9 @@ function Process-Texto([string]$text) {
             # y AHORA se sella: hablar es lo unico que cuenta como "estaba aqui". Va detras
             # de Test-ResumenAlVolver a proposito, o no habria ausencia que detectar (18/09).
             try { Set-HabloAhora } catch {}
+            # hablarle cuenta como estar delante, pero solo para SELLAR: si el saludo saliera
+            # aqui, sonaria encima de la respuesta a la orden que acabas de dar (18/09)
+            try { Set-PresenciaAhora } catch {}
         }
         $plano = ConvertTo-Plain $text
         if ($script:invitado) { $script:invitadoUltimo = $sw.ElapsedMilliseconds }
@@ -14527,7 +14655,26 @@ $sw = [System.Diagnostics.Stopwatch]::StartNew()
 # inmediata de que la cadena de audio funciona de extremo a extremo.
 if ($SaludoOn) {
     try {
-        $saludo = if ($EscuchaOn) { "Listo. Di $EscuchaNombre cuando me necesites." } else { "Listo." }
+        # 142 ARRANQUES, LA MISMA FRASE (18/09). Si la variedad rinde en algun sitio es aqui:
+        # este saludo se oyo 142 veces en 9 dias, frente a las ~10 vueltas que saludaria
+        # Test-VueltaSaludo. Comparte la memoria de las 3 ultimas con el, o el problema solo
+        # cambiaria de sitio.
+        $saludo = 'Listo.'
+        if ($EscuchaOn) {
+            $bolsaS = @("Listo. Di $EscuchaNombre cuando me necesites.", "Aquí estoy. Di $EscuchaNombre y aparezco.",
+                        "Ya estoy. Llámame por $EscuchaNombre.", "En marcha. Di $EscuchaNombre cuando quieras.",
+                        "Lista. Tú di $EscuchaNombre.")
+            $ultS = @()
+            try { $ultS = @((Get-Habitos).presencia['frases']) } catch {}
+            $libreS = @($bolsaS | Where-Object { $ultS -notcontains $_ })
+            if ($libreS.Count -eq 0) { $libreS = $bolsaS }
+            $saludo = Get-Random -InputObject $libreS
+            try {
+                $hbS = Get-Habitos
+                $hbS.presencia['frases'] = @(@($ultS) + $saludo | Select-Object -Last 3)
+                Save-Habitos
+            } catch {}
+        }
         # SI ARRANCO A MEDIAS, SE DICE. Un "listo" cuando falta media Nova es mentira, y el
         # fallo se descubriria a la primera orden que no funcione (17/09).
         if ($script:fallosArranque.Count -gt 0) {
