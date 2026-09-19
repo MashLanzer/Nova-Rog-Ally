@@ -572,7 +572,16 @@ def repasar_si_ingles(rapido, bloques):
     que se entregue lo suyo; si Whisper no saca nada, se entrega lo de Parakeet como siempre."""
     if not rapido or whisper is None or not suena_ingles(rapido):
         return rapido, ""
-    mejor = transcribir_whisper(bloques)
+    # EL REPASO, CON EL OIDO FINO (19/09). Medido pasando las 311 grabaciones de uso por
+    # este mismo camino: la guarda salta 22 veces (bien: detecta el ingles), pero el
+    # repaso lo hacia Whisper "base" y de esas 22 solo UNA acababa en una orden buena.
+    # Con "small" salen mas ("Si es el navegador" -> "Cierra el navegador"). Se pide el
+    # oido fino, que ya tiene su propia guarda de RAM (900 MB) y devuelve None si no cabe
+    # o si hay un juego comiendose la memoria; entonces se sigue con base, como siempre.
+    fino = modelo_preciso()
+    mejor = transcribir_whisper(bloques, modelo=fino) if fino is not None else ""
+    if not mejor:
+        mejor = transcribir_whisper(bloques)
     anota("parakeet: '%s' suena a ingles y tu hablas español; Whisper oye '%s'" % (rapido, mejor or "nada"))
     if not mejor:
         return rapido, ""
