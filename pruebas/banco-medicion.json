@@ -1,0 +1,20 @@
+[
+ {"f":"Abre YouTube a pantalla completa","e":"ORDEN"},
+ {"f":"Abre YouTube y reproduce Pitbull","e":"ORDEN"},
+ {"f":"Cierra también la aplicación de Xbook","e":"ORDEN"},
+ {"f":"Cierra todo y ponga en modo juego","e":"ORDEN"},
+ {"f":"Cierra todos los procesos que están habientos","e":"ORDEN"},
+ {"f":"Cierra lo último que habrete","e":"ORDEN"},
+ {"f":"Creame una nota en el escritorio que diga Hola","e":"ORDEN"},
+ {"f":"Que habrá Pinterest y YouTube a pantalla dividida","e":"ORDEN"},
+ {"f":"Que pongan música en YouTube","e":"ORDEN"},
+ {"f":"Dime de los juegos que tengo de Steam, cuál es el que más horas de juego tiene","e":"ORDEN"},
+ {"f":"Que ves en mi pantalla","e":"ORDEN"},
+ {"f":"Cuenta los últimos 30 segundos de huevo","e":"ORDEN"},
+ {"f":"Que opinas de Hades","e":"CHARLA"},
+ {"f":"Cuentame un chiste","e":"CHARLA"},
+ {"f":"Estoy cansado hoy","e":"CHARLA"},
+ {"f":"Que tal estas","e":"CHARLA"},
+ {"f":"Cual es la capital de Francia","e":"CHARLA"},
+ {"f":"Quien gano la liga este año","e":"API"}
+]

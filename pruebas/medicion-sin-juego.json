@@ -1,0 +1,157 @@
+{
+ "claude-haiku-4-5": {
+  "frio_s": 1.05,
+  "n": 18,
+  "media_s": 0.93,
+  "mediana_s": 0.65,
+  "max_s": 2.05,
+  "aciertos": 17,
+  "total": 18,
+  "detalle": [
+   {
+    "f": "Abre YouTube a pantalla completa",
+    "esperado": "ORDEN",
+    "dio": "ORDEN",
+    "ok": true,
+    "s": 0.75,
+    "resp": "[ORDEN]"
+   },
+   {
+    "f": "Abre YouTube y reproduce Pitbull",
+    "esperado": "ORDEN",
+    "dio": "ORDEN",
+    "ok": true,
+    "s": 0.65,
+    "resp": "[ORDEN]"
+   },
+   {
+    "f": "Cierra también la aplicación de Xbook",
+    "esperado": "ORDEN",
+    "dio": "ORDEN",
+    "ok": true,
+    "s": 0.54,
+    "resp": "[ORDEN]"
+   },
+   {
+    "f": "Cierra todo y ponga en modo juego",
+    "esperado": "ORDEN",
+    "dio": "ORDEN",
+    "ok": true,
+    "s": 0.65,
+    "resp": "[ORDEN]"
+   },
+   {
+    "f": "Cierra todos los procesos que están habientos",
+    "esperado": "ORDEN",
+    "dio": "ORDEN",
+    "ok": true,
+    "s": 0.53,
+    "resp": "[ORDEN]"
+   },
+   {
+    "f": "Cierra lo último que habrete",
+    "esperado": "ORDEN",
+    "dio": "ORDEN",
+    "ok": true,
+    "s": 0.61,
+    "resp": "[ORDEN]"
+   },
+   {
+    "f": "Creame una nota en el escritorio que diga Hola",
+    "esperado": "ORDEN",
+    "dio": "ORDEN",
+    "ok": true,
+    "s": 0.63,
+    "resp": "[ORDEN]"
+   },
+   {
+    "f": "Que habrá Pinterest y YouTube a pantalla dividida",
+    "esperado": "ORDEN",
+    "dio": "CHARLA",
+    "ok": false,
+    "s": 1.93,
+    "resp": "Oye, eso depende de si tu consola lo permite, pero te aviso que la ROG Ally no tiene una función nativa de pan"
+   },
+   {
+    "f": "Que pongan música en YouTube",
+    "esperado": "ORDEN",
+    "dio": "ORDEN",
+    "ok": true,
+    "s": 0.64,
+    "resp": "[ORDEN]"
+   },
+   {
+    "f": "Dime de los juegos que tengo de Steam, cuál es el que más horas de juego tiene",
+    "esperado": "ORDEN",
+    "dio": "ORDEN",
+    "ok": true,
+    "s": 0.65,
+    "resp": "[ORDEN]"
+   },
+   {
+    "f": "Que ves en mi pantalla",
+    "esperado": "ORDEN",
+    "dio": "ORDEN",
+    "ok": true,
+    "s": 0.65,
+    "resp": "[ORDEN]"
+   },
+   {
+    "f": "Cuenta los últimos 30 segundos de huevo",
+    "esperado": "ORDEN",
+    "dio": "ORDEN",
+    "ok": true,
+    "s": 0.61,
+    "resp": "[ORDEN]"
+   },
+   {
+    "f": "Que opinas de Hades",
+    "esperado": "CHARLA",
+    "dio": "CHARLA",
+    "ok": true,
+    "s": 2.05,
+    "resp": "Hades es una joya, la verdad. Ese rogueli de Supergiant te engancha porque cada carrera se siente diferente, l"
+   },
+   {
+    "f": "Cuentame un chiste",
+    "esperado": "CHARLA",
+    "dio": "CHARLA",
+    "ok": true,
+    "s": 1.5,
+    "resp": "Mira, un tío entra a una farmacia y le dice al farmacéutico: \"me duele todo el cuerpo, ¿qué me recomiendas?\" Y"
+   },
+   {
+    "f": "Estoy cansado hoy",
+    "esperado": "CHARLA",
+    "dio": "CHARLA",
+    "ok": true,
+    "s": 1.53,
+    "resp": "Uy, uno de esos días en los que el cuerpo pide tregua, ¿eh? A veces lo mejor es darse un respiro, jugar algo r"
+   },
+   {
+    "f": "Que tal estas",
+    "esperado": "CHARLA",
+    "dio": "CHARLA",
+    "ok": true,
+    "s": 1.09,
+    "resp": "¡Ey, qué onda! Bien aquí, lista para lo que necesites. ¿Y tú qué tal, todo bien en la ROG?"
+   },
+   {
+    "f": "Cual es la capital de Francia",
+    "esperado": "CHARLA",
+    "dio": "CHARLA",
+    "ok": true,
+    "s": 1.07,
+    "resp": "La capital de Francia es París, una de las ciudades más bonitas del mundo. ¿Alguna vez has estado allí o te gu"
+   },
+   {
+    "f": "Quien gano la liga este año",
+    "esperado": "API",
+    "dio": "API",
+    "ok": true,
+    "s": 0.62,
+    "resp": "[API]"
+   }
+  ]
+ }
+}

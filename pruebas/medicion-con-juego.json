@@ -1,0 +1,157 @@
+{
+ "qwen2.5:1.5b": {
+  "frio_s": 12.79,
+  "n": 18,
+  "media_s": 1.4,
+  "mediana_s": 1.34,
+  "max_s": 4.97,
+  "aciertos": 11,
+  "total": 18,
+  "detalle": [
+   {
+    "f": "Abre YouTube a pantalla completa",
+    "esperado": "ORDEN",
+    "dio": "ORDEN",
+    "ok": true,
+    "s": 0.57,
+    "resp": "[ORDEN]"
+   },
+   {
+    "f": "Abre YouTube y reproduce Pitbull",
+    "esperado": "ORDEN",
+    "dio": "ORDEN",
+    "ok": true,
+    "s": 0.54,
+    "resp": "[ORDEN]"
+   },
+   {
+    "f": "Cierra también la aplicación de Xbook",
+    "esperado": "ORDEN",
+    "dio": "ORDEN",
+    "ok": true,
+    "s": 0.6,
+    "resp": "[ORDEN]"
+   },
+   {
+    "f": "Cierra todo y ponga en modo juego",
+    "esperado": "ORDEN",
+    "dio": "ORDEN",
+    "ok": true,
+    "s": 0.57,
+    "resp": "[ORDEN]"
+   },
+   {
+    "f": "Cierra todos los procesos que están habientos",
+    "esperado": "ORDEN",
+    "dio": "ORDEN",
+    "ok": true,
+    "s": 0.6,
+    "resp": "[ORDEN]"
+   },
+   {
+    "f": "Cierra lo último que habrete",
+    "esperado": "ORDEN",
+    "dio": "ORDEN",
+    "ok": true,
+    "s": 0.56,
+    "resp": "[ORDEN]"
+   },
+   {
+    "f": "Creame una nota en el escritorio que diga Hola",
+    "esperado": "ORDEN",
+    "dio": "CHARLA",
+    "ok": false,
+    "s": 1.14,
+    "resp": "Hola, aquí tienes tu nota: Hola."
+   },
+   {
+    "f": "Que habrá Pinterest y YouTube a pantalla dividida",
+    "esperado": "ORDEN",
+    "dio": "CHARLA",
+    "ok": false,
+    "s": 1.34,
+    "resp": "¡Hola! Pinterest y YouTube estarán a pantalla dividida."
+   },
+   {
+    "f": "Que pongan música en YouTube",
+    "esperado": "ORDEN",
+    "dio": "CHARLA",
+    "ok": false,
+    "s": 1.94,
+    "resp": "Por supuesto, pero primero necesito saber el nombre de la canción que quieres que se ponga."
+   },
+   {
+    "f": "Dime de los juegos que tengo de Steam, cuál es el que más horas de juego tiene",
+    "esperado": "ORDEN",
+    "dio": "CHARLA",
+    "ok": false,
+    "s": 1.89,
+    "resp": "Hola, ¿sabes cuál es el juego que más horas de juego tienes?"
+   },
+   {
+    "f": "Que ves en mi pantalla",
+    "esperado": "ORDEN",
+    "dio": "CHARLA",
+    "ok": false,
+    "s": 1.08,
+    "resp": "Lo siento, no puedo ver tu pantalla."
+   },
+   {
+    "f": "Cuenta los últimos 30 segundos de huevo",
+    "esperado": "ORDEN",
+    "dio": "CHARLA",
+    "ok": false,
+    "s": 1.34,
+    "resp": "Lo siento, pero no puedo realizar esa solicitud."
+   },
+   {
+    "f": "Que opinas de Hades",
+    "esperado": "CHARLA",
+    "dio": "CHARLA",
+    "ok": true,
+    "s": 4.97,
+    "resp": "¡Me encanta Hades! Es un juego de acción-thriller que mezcla elementos de la mitología griega con la intriga y"
+   },
+   {
+    "f": "Cuentame un chiste",
+    "esperado": "CHARLA",
+    "dio": "CHARLA",
+    "ok": true,
+    "s": 2.21,
+    "resp": "Claro, aquí tienes uno: Por qué los pájaros no usan Facebook? Porque ya tienen Twitter."
+   },
+   {
+    "f": "Estoy cansado hoy",
+    "esperado": "CHARLA",
+    "dio": "CHARLA",
+    "ok": true,
+    "s": 1.77,
+    "resp": "¡Qué triste! ¿Te apetece algo de calentón o de comer?"
+   },
+   {
+    "f": "Que tal estas",
+    "esperado": "CHARLA",
+    "dio": "CHARLA",
+    "ok": true,
+    "s": 1.5,
+    "resp": "¡Hola! Estoy bien, gracias por preguntar. ¿Y tú?"
+   },
+   {
+    "f": "Cual es la capital de Francia",
+    "esperado": "CHARLA",
+    "dio": "CHARLA",
+    "ok": true,
+    "s": 1.04,
+    "resp": "La capital de Francia es París."
+   },
+   {
+    "f": "Quien gano la liga este año",
+    "esperado": "API",
+    "dio": "CHARLA",
+    "ok": false,
+    "s": 1.57,
+    "resp": "El equipo que ganó la Liga este año es el [ORDEN]."
+   }
+  ]
+ }
+}
