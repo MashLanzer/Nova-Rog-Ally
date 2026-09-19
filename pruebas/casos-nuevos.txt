@@ -224,3 +224,20 @@ cierra steam si sigue abierto
 # 'abrir' esta en VERBOS_CORTE y partia la frase en dos trozos que no resolvian nada ---
 cierra lo que acabas de abrir
 cierra lo que acabo de abrir
+
+# --- TEXTO PUNTUADO (19/09). El banco entero estaba escrito a mano SIN puntuacion,
+# pero todos los reconocedores la ponen (Gemini siempre, Parakeet y Whisper a menudo),
+# asi que 'Cierra todo.' no casaba con nada y se perdia la orden entera. 25 frases
+# reales del uso se ganaron solo con esto. Estas lineas existen para que no vuelva. ---
+Cierra todo.
+Pausa.
+Revisa mi correo.
+Activa el Bluetooth.
+Apaga el Bluetooth.
+Haz una captura de pantalla.
+Abre Steam.
+¿Puedes abrir Steam?
+¿Que hora es?
+Sube el volumen al 50%.
+Cierra Steam y pon un temporizador.
+No me escuches media hora.

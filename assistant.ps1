@@ -259,6 +259,14 @@ function ConvertTo-Plain([string]$s) {
     # simple "¿" delante hacia que "¿que hora es" no coincidiera con nada,
     # mientras que "que hora es" si. Aparecio en el log del usuario varias veces.
     $t = $t -replace '[¿?¡!,;:"]', ' '
+    # ...Y EL PUNTO FINAL (19/09). Lo de arriba se arreglo en su dia para el '¿' y se
+    # dejo el punto fuera. Todos los reconocedores modernos devuelven el texto PUNTUADO
+    # (Gemini siempre; Parakeet y Whisper a menudo), asi que "Cierra todo." no casaba con
+    # nada mientras "Cierra todo" si. Medido sobre 617 frases reales del uso: 115
+    # reconocidas -> 140 solo con esto, 25 ganadas, 0 perdidas, y el ruido sigue en 0 de 97.
+    # Se quitan los puntos de FIN DE FRASE (seguidos de espacio o final), no los de dentro
+    # de una palabra, para no romper "google.com" ni "3.5".
+    $t = $t -replace '\.(?=\s|$)', ' '
     return ($t -replace '\s+', ' ').Trim().ToLowerInvariant()
 }
 
