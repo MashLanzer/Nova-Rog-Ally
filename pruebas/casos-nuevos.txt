@@ -219,3 +219,8 @@ que se esta instalando ahora mismo
 quiero saber que se esta descargando en steam
 cierra el explorador de archivos si esta abierto
 cierra steam si sigue abierto
+
+# --- un infinitivo tras "de" es perifrasis, no una orden nueva (19/09):
+# 'abrir' esta en VERBOS_CORTE y partia la frase en dos trozos que no resolvian nada ---
+cierra lo que acabas de abrir
+cierra lo que acabo de abrir

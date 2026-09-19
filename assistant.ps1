@@ -377,7 +377,15 @@ function Add-CortesSinConector([string]$s) {
     $libre = $false
     for ($i = 0; $i -lt $palabras.Count; $i++) {
         $w = $palabras[$i]
-        if ($i -gt 0 -and -not $libre -and $w -match ('^' + $VERBOS_CORTE + '$')) { [void]$out.Add('|') }
+        # UN INFINITIVO DETRAS DE "DE" NO ES UNA ORDEN NUEVA (19/09). "cierra lo que
+        # acabas de abrir" se partia en "cierra lo que acabas de" + "abrir" porque
+        # 'abrir' esta en VERBOS_CORTE, y ninguno de los dos trozos resuelve nada: la
+        # frase acababa en el modelo aunque Resolve-Fragment tiene su patron exacto.
+        # Fallaba en vivo igual que en el banco, no era cosa del probador. Tras "de"
+        # siempre es perifrasis ("acabas de abrir", "deja de subir"): "de abre" no
+        # existe en castellano, asi que esto no deja de partir nada que si fuera orden.
+        $trasDe = ($i -gt 0 -and $palabras[$i - 1] -eq 'de')
+        if ($i -gt 0 -and -not $libre -and -not $trasDe -and $w -match ('^' + $VERBOS_CORTE + '$')) { [void]$out.Add('|') }
         if ($w -match ('^' + $VERBOS_TEXTO + '$')) { $libre = $true }
         elseif ($w -in @('y', 'luego', 'despues', 'ademas', 'tambien')) { $libre = $false }
         [void]$out.Add($w)
@@ -2625,7 +2633,7 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(?:que (?:has aprendido|aprendiste|recetas tienes|sabes hacer sola)(?:\s+(?:hoy|ayer|de la ultima sesion|en la ultima sesion|de la sesion|esta sesion|ultimamente))?|que tareas (?:has aprendido|sabes hacer)|mis recetas|lista (?:las )?recetas|dime (?:las )?recetas)$') {
         return @(@{ kind = 'verRecetas'; desc = 'recetas aprendidas' })
     }
-    if ($f -match '^(?:olvida|borra|elimina)\s+(?:esa receta|la ultima receta|la receta|lo ultimo que aprendiste|lo que acabas de aprender)$') {
+    if ($f -match '^(?:olvida|borra|elimina)\s+(?:esa receta|la ultima receta|la receta|lo ultimo que aprendiste|lo que acab(?:as|o) de aprender)$') {
         return @(@{ kind = 'olvidarReceta'; desc = 'olvidar la receta' })
     }
     # --- "no era eso": deshacer Y no repetir el error ---
@@ -3224,7 +3232,7 @@ function Resolve-Fragment([string]$f) {
     }
     # "CIERRA LO ULTIMO QUE ABRISTE" (18/09): lo dijo dos veces y no existia; la primera se
     # aprendio como "cierra todos los programas". Se mira que fue lo ultimo que se abrio.
-    if ($f -match '^(?:cierra|cerrar|quita|quitar)\s+(?:lo\s+ultimo(?:\s+que\s+(?:abriste|abri|has\s+abierto|se\s+abrio))?|lo\s+que\s+acabas\s+de\s+abrir|eso\s+ultimo|lo\s+de\s+antes|lo\s+recien\s+abierto)$') {
+    if ($f -match '^(?:cierra|cerrar|quita|quitar)\s+(?:lo\s+ultimo(?:\s+que\s+(?:abriste|abri|has\s+abierto|se\s+abrio))?|lo\s+que\s+acab(?:as|o)\s+de\s+abrir|eso\s+ultimo|lo\s+de\s+antes|lo\s+recien\s+abierto)$') {
         $descU = if ($script:ultimaOrden) { [string]$script:ultimaOrden.desc } else { '' }
         # la ULTIMA apertura de la cadena, que es la que esta delante
         $abiertas = @([regex]::Matches($descU, 'abrir\s+([^+;,]+?)(?:\s+en Steam)?(?=\s*(?:\+|;|,|$))') | ForEach-Object { $_.Groups[1].Value.Trim() })
