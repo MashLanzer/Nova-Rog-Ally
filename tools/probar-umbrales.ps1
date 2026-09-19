@@ -79,8 +79,13 @@ Comp 'y con margen (al menos 1 s)' (($workerSeg * 1000 - $esperaMs) -ge 1000) ''
 # y el plazo se REARMA cuando termina de hablar, no antes: la linea tiene que estar en el
 # bloque de la confirmacion pendiente del bucle
 $iConf = $txt.IndexOf('--- CONFIRMACION PENDIENTE (si / no / plazo) ---')
-$trozoConf = if ($iConf -ge 0) { $txt.Substring($iConf, [Math]::Min(2500, $txt.Length - $iConf)) } else { '' }
+$trozoConf = if ($iConf -ge 0) { $txt.Substring($iConf, [Math]::Min(4500, $txt.Length - $iConf)) } else { '' }
 Comp 'el plazo se rearma al pasar a confirmando' ($trozoConf -match '\$script:pendiente\.vence = \$sw\.ElapsedMilliseconds \+ \$ConfirmacionMs') ''
+# Y LO QUE DE VERDAD PROTEGE (18/09, 20:15): el rearme de arriba paso la prueba y fallo en
+# vivo, porque el plazo vencia ANTES de que la capsula pasara a 'confirmando' (la voz seguia
+# sonando). Mientras hable, el vencimiento tiene que empujarse a "fin de la voz + plazo".
+Comp 'mientras habla, el plazo NO corre (se empuja al fin de la voz)' ($trozoConf -match 'finVozC[\s\S]{0,300}\$script:pendiente\.vence = \$minimoC') ''
+Comp 'y el empuje va ANTES de decidir el plazo' (($trozoConf.IndexOf('$minimoC')) -lt ($trozoConf.IndexOf("Complete-Confirmacion 'plazo'"))) ''
 
 Write-Host ''
 if ($mal -gt 0) { Write-Host "$mal casos MAL" -ForegroundColor Red; exit 1 }

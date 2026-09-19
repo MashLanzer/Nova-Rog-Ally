@@ -1062,8 +1062,15 @@ def es_voz_de_braya(f0, duena):
     return abs(f0 - duena) <= MARGEN_CORTE_HZ
 
 
+# EL NOMBRE TAMBIEN CORTA (18/09): decir "nova" mientras habla la interrumpe y la deja
+# escuchando la orden nueva, igual que "para". Seguro por las dos guardas que ya habia: si
+# "nova" esta en la frase que ella misma dice se ignora (anti-eco), y solo vale con tu tono.
+def _palabras_corte():
+    return PALABRAS_CORTE + ([NOMBRE] if NOMBRE and NOMBRE not in PALABRAS_CORTE else [])
+
+
 def _reconocedor_corte():
-    r = KaldiRecognizer(modelo, TASA, json.dumps(PALABRAS_CORTE + ["[unk]"]))
+    r = KaldiRecognizer(modelo, TASA, json.dumps(_palabras_corte() + ["[unk]"]))
     r.SetWords(True)
     return r
 
@@ -1101,7 +1108,7 @@ def vigilar_corte(datos):
         for w in res.get("result") or []:
             palabra = w.get("word", "")
             conf = float(w.get("conf", 0))
-            if palabra in PALABRAS_CORTE and palabra not in _corte["texto"] and conf >= 0.9:
+            if palabra in _palabras_corte() and palabra not in _corte["texto"] and conf >= 0.9:
                 # el tono del trozo EXACTO de la palabra (con un margen), no del audio
                 # entero: si braya lo dice encima de Nova, ese trozo es sobre todo suyo
                 f0 = 0.0

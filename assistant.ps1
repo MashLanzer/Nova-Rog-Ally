@@ -217,7 +217,9 @@ $FILLER_GLOBAL = '\b(?:tambien|ademas|porfa|porfavor|por favor|gracias|oye|okey|
 # El \s+ del final es lo que lo hace seguro: "Ok" a secas -linea 19 de ruido-real.txt, el
 # corpus de la tele- no se toca. Y NO se toca $FILLER_GLOBAL, que borraria la palabra en
 # mitad de la frase: "busca cuanto vale una ps5" acabaria buscando "cuanto una ps5".
-$FILLER_INI = '^(?:(?:y|luego|despues|ahora|entonces|a mi|ami|ya me|me|pues|este|hey|ey|hola|nova|ok|okey|okay|vale|bueno)\s+)+'
+# "mira" SOLO delante de un verbo de orden (18/09): "mira, ponme un temporizador de 5 minutos"
+# se descarto entero. "mira si hay algo colgado" sigue siendo orden: el lookahead no la toca.
+$FILLER_INI = '^(?:(?:y|luego|despues|ahora|entonces|a mi|ami|ya me|me|pues|este|hey|ey|hola|nova|ok|okey|okay|vale|bueno|mira(?=\s+(?:pon|ponme|abre|abreme|cierra|sube|baja|pausa|reproduce|busca|buscame|quita|activa|desactiva|lanza|dime|di)\b))\s+)+'
 
 # El lugar puede ir ANTES del verbo: "en el navegador busca X". Sin esto, el
 # fragmento no empezaba por verbo, se pegaba al anterior y rompia la frase.
@@ -2550,6 +2552,13 @@ function Resolve-Fragment([string]$f) {
         $f -match '^(?:que|cuantos)\s+correos?\s+(?:tengo|hay|me\s+(?:han\s+)?(?:llegado|escrito))(?:\s+(?:nuevos?|hoy))?$') {
         return @(@{ kind = 'correo'; accion = 'no-leidos'; desc = 'tu correo' })
     }
+    # las respuestas a "?te digo los asuntos, te los resumo o te leo el ultimo?" (18/09)
+    if ($f -match '^(?:los\s+asuntos|dime\s+los\s+asuntos|de\s+que\s+van|de\s+que\s+son|dimelos|cuales\s+son|que\s+dicen|leelos|leemelos|todos)$') {
+        return @(@{ kind = 'correo'; accion = 'asuntos'; desc = 'los asuntos del correo' })
+    }
+    if ($f -match '^(?:resumelos|resumemelos|un\s+resumen|resumen|hazme\s+un\s+resumen|resumeme\s+(?:los\s+)?correos|resume\s+(?:los\s+)?correos)$') {
+        return @(@{ kind = 'correo'; accion = 'resumen'; desc = 'un resumen del correo' })
+    }
     # "leeme el ultimo correo": ese SI trae el cuerpo, porque lo has pedido
     if ($f -match '^(?:lee(?:me)?|abre(?:me)?|dime|que dice)\s+(?:el\s+)?(?:ultimo|primer|primero)?\s*(?:correo|email|mail)(?:\s+(?:entero|completo|de que va))?$' -or
         $f -match '^(?:de que va|que dice)\s+(?:el\s+)?(?:ultimo\s+)?(?:correo|email|mail)$') {
@@ -3110,6 +3119,26 @@ function Resolve-Fragment([string]$f) {
         '^(?:baja|bajar|desplaza hacia abajo|scroll abajo)$' { return @(@{ kind = 'key'; vk = 0x22; repeat = 1; desc = 'bajar la pagina' }) }
         '^(?:sube|subir|desplaza hacia arriba|scroll arriba)$' { return @(@{ kind = 'key'; vk = 0x21; repeat = 1; desc = 'subir la pagina' }) }
     }
+    # LA PREFERENCIA SE CAMBIA HABLANDO (18/09): "cuando te diga que pongas una cancion siempre
+    # tiene que ser en youtube". Se guarda en config.json y vale para siempre.
+    if ($f -match '^(?:de hecho\s+)?(?:cuando\s+(?:te\s+)?(?:diga|digo|pida|pido)\s+(?:que\s+)?(?:pongas|poner|pon|reproduzcas|reproducir)\s+(?:una\s+|la\s+|alguna\s+)?(?:cancion|musica|canciones)|la\s+musica|las\s+canciones)\s*,?\s*(?:siempre\s+)?(?:tiene\s+que\s+ser\s+|que\s+sea\s+|ponla\s+|ponlas\s+|va\s+|van\s+|las\s+quiero\s+)?(?:en|a|por)\s+(youtube|spotify)$' -or
+        $f -match '^(?:la\s+musica|las\s+canciones)\s+(?:siempre\s+)?(?:en|por)\s+(youtube|spotify)(?:\s+siempre)?$') {
+        # se devuelve una ACCION y guarda el ejecutor: resolver no puede tener efectos, o el
+        # banco (-Probar, que solo resuelve) escribiria en config.json
+        $sitioM = $Matches[1]
+        return @(@{ kind = 'musicaSitio'; sitio = $sitioM; desc = "vale, a partir de ahora la musica en $(if ($sitioM -eq 'youtube') { 'YouTube' } else { 'Spotify' })" })
+    }
+    # SIN SITIO, LA PREFERENCIA (18/09): "pon la cancion de pitbull give me everything", "pon give
+    # me everything de pitbull", "con la cancion de X" (la forma de un seguimiento). Se exige
+    # "cancion/musica/tema" o un "de <artista>" para no tragarse "pon el modo noche" y compañia,
+    # que ademas se resuelven mas arriba.
+    if ($f -match '^(?:pon|ponme|reproduce|reproduceme|toca|tocame|escuchar|quiero escuchar|con)\s+(?:la\s+cancion\s+(?:de\s+)?|una\s+cancion\s+(?:de\s+)?|la\s+musica\s+de\s+|musica\s+de\s+|el\s+tema\s+(?:de\s+)?|algo\s+de\s+)(.+?)$' -and $f -notmatch '\s+en\s+(?:youtube|spotify)$') {
+        $qM = $Matches[1].Trim()
+        if ($qM -and $qM -notmatch '^(?:el|la|los|las|un|una)$') {
+            if ($MusicaSitio -eq 'spotify') { return @(@{ kind = 'url'; url = ('spotify:search:' + [Uri]::EscapeDataString($qM)); desc = "buscar '$qM' en Spotify" }) }
+            return @(@{ kind = 'url'; url = ('https://www.youtube.com/results?search_query=' + [Uri]::EscapeDataString($qM)); youtube = $qM; desc = "poner '$qM' en YouTube" })
+        }
+    }
     # musica y video: "pon bad bunny en spotify", "reproduce lofi en youtube"
     if ($f -match '^(?:pon|ponme|reproduce|reproduceme|escuchar|quiero escuchar|toca|tocame)\s+(.+?)\s+en\s+spotify$') {
         $q = $Matches[1].Trim()
@@ -3155,6 +3184,31 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(?:quitale|quita|saca|sacale)\s+(?:el|lo(?:s)?)?\s*(?:de)?\s*siempre\s+(?:encima|arriba|delante)$' -or
         $f -match '^ya no (?:la |lo )?(?:dejes |pongas )?siempre\s+(?:encima|arriba|delante)$') {
         return @(@{ kind = 'siempreEncima'; encima = $false; desc = 'quitar el siempre encima' })
+    }
+    # LAS SECCIONES DE AJUSTES (18/09): "abre la seccion de aplicaciones de ajustes" fue dos
+    # veces al agente. Cada seccion tiene su URI ms-settings:, y va por explorer.exe.
+    if ($f -match '^(?:abre|abrir|abreme|ve a|entra en|muestra)\s+(?:la\s+)?(?:seccion\s+(?:de\s+)?|apartado\s+(?:de\s+)?|pagina\s+(?:de\s+)?)?(?:los\s+|las\s+|el\s+|la\s+)?(.+?)\s+(?:de|en)\s+(?:los\s+|la\s+)?(?:ajustes|configuracion)$' -or
+        $f -match '^(?:abre|abrir|abreme)\s+(?:los\s+)?(?:ajustes|configuracion)\s+de\s+(?:la\s+|el\s+|las\s+|los\s+)?(.+)$') {
+        $secc = $Matches[1].Trim()
+        $SECCIONES_AJUSTES = @{
+            'aplicaciones' = 'appsfeatures'; 'apps' = 'appsfeatures'; 'programas' = 'appsfeatures'
+            'bluetooth' = 'bluetooth'; 'dispositivos' = 'bluetooth'
+            'pantalla' = 'display'; 'brillo' = 'display'
+            'sonido' = 'sound'; 'audio' = 'sound'; 'volumen' = 'sound'
+            'wifi' = 'network-wifi'; 'red' = 'network-status'; 'internet' = 'network-status'
+            'actualizaciones' = 'windowsupdate'; 'actualizacion' = 'windowsupdate'; 'windows update' = 'windowsupdate'
+            'almacenamiento' = 'storagesense'; 'disco' = 'storagesense'
+            'bateria' = 'batterysaver'; 'energia' = 'powersleep'
+            'cuentas' = 'yourinfo'; 'cuenta' = 'yourinfo'; 'privacidad' = 'privacy'
+            'hora' = 'dateandtime'; 'fecha' = 'dateandtime'; 'idioma' = 'regionlanguage'
+            'notificaciones' = 'notifications'; 'personalizacion' = 'personalization'; 'fondo' = 'personalization-background'
+            'juegos' = 'gaming-gamebar'; 'barra de juegos' = 'gaming-gamebar'; 'mando' = 'devices-touch'
+            'teclado' = 'typing'; 'raton' = 'mousetouchpad'; 'impresoras' = 'printers'
+        }
+        $k = $SECCIONES_AJUSTES.Keys | Where-Object { $_ -eq $secc } | Select-Object -First 1
+        if (-not $k) { $k = $SECCIONES_AJUSTES.Keys | Where-Object { $secc -like "*$_*" -or $_ -like "*$secc*" } | Sort-Object Length -Descending | Select-Object -First 1 }
+        if ($k) { return @(@{ kind = 'app'; target = ('ms-settings:' + $SECCIONES_AJUSTES[$k]); desc = "abrir $k en ajustes" }) }
+        return @(@{ kind = 'app'; target = 'ms-settings:'; desc = "abrir ajustes (no tengo la seccion '$secc')" })
     }
     # "CIERRA LO ULTIMO QUE ABRISTE" (18/09): lo dijo dos veces y no existia; la primera se
     # aprendio como "cierra todos los programas". Se mira que fue lo ultimo que se abrio.
@@ -3700,6 +3754,10 @@ function Add-Perfil([string]$nombre, [string[]]$ordenes) {
 # ENVIAR sale de la maquina y no se deshace, y Nova oye mal a veces: NUNCA se envia sin
 # un si hablado, y antes se lee en voz alta a quien va y que dice.
 $CorreoScript = Join-Path $LogDir 'tools\correo.py'
+# PREGUNTAR ANTES DE LEERLO TODO (18/09): "revisa mi correo" dice cuantos y de quien, y ofrece
+# los asuntos, un resumen o leer el ultimo. braya se quejo de que se lo leia todo del tiron.
+$CorreoPreguntar = [bool](Get-Cfg 'correo' 'preguntarAntes' $true)
+$script:correoOfrecido = @()      # los correos de la ultima revision, por si pide asuntos/resumen
 $script:correoUltimo = $null      # el ultimo correo leido, para poder responderle
 
 function Test-CorreoListo {
@@ -3776,7 +3834,29 @@ function Invoke-Correo($a) {
         $script:correoUltimo = @($r.correos) | Select-Object -First 1
         # en el log, SOLO cuantos habia: ni remitentes ni asuntos
         Log "CORREO: $($r.cuantos) sin leer"
+        $script:correoOfrecido = @($r.correos)
+        # PREGUNTAR ANTES (18/09): de quien son y que quieres, con la escucha abierta
+        if ($CorreoPreguntar -and @($r.correos).Count -gt 1) {
+            $quienes = @(@($r.correos) | Select-Object -First 3 | ForEach-Object { [string]$_.de } | Select-Object -Unique)
+            $resto = @($r.correos).Count - $quienes.Count
+            $deQuien = ($quienes -join ', ') + $(if ($resto -gt 0) { " y $resto mas" } else { '' })
+            $script:seguimientoPendiente = $true
+            $script:seguimientoFactor = 2.4
+            return "Tienes $(@($r.correos).Count) correos nuevos, de $deQuien. ¿Te digo los asuntos, te los resumo o te leo el ultimo?"
+        }
         return (Format-Correos $r.correos)
+    }
+    if ($accion -eq 'asuntos') {
+        if (@($script:correoOfrecido).Count -eq 0) { return 'Primero dime: revisa mi correo.' }
+        return (Format-Correos $script:correoOfrecido)
+    }
+    if ($accion -eq 'resumen') {
+        if (@($script:correoOfrecido).Count -eq 0) { return 'Primero dime: revisa mi correo.' }
+        # SOLO ASUNTOS: el correo llega sin cuerpo (tools\correo.py lo trae solo al leer uno).
+        # Y por el modelo LOCAL, nunca la API: es tu correo.
+        $lineasR = @($script:correoOfrecido | ForEach-Object { "De $($_.de): $($_.asunto)" })
+        if ($ConversacionOn -and (Send-Charla ($lineasR -join "`n") $false 'resumir')) { return "vale, te los resumo" }
+        return (Format-Correos $script:correoOfrecido)
     }
     if ($accion -eq 'leer') {
         $r = Invoke-CorreoScript @('leer', '1')
@@ -7106,7 +7186,14 @@ function Get-PrimerVideoYouTube([string]$q, [int]$n = 1) {
 $script:ytUltimaBusqueda = ''
 # "el segundo", "la tercera cancion", "el video numero 4"
 $ORDINALES_YT = @{ 'primer' = 1; 'primero' = 1; 'primera' = 1; 'segundo' = 2; 'segunda' = 2; 'tercer' = 3
-                   'tercero' = 3; 'tercera' = 3; 'cuarto' = 4; 'cuarta' = 4; 'quinto' = 5; 'quinta' = 5 }
+                   'tercero' = 3; 'tercera' = 3; 'cuarto' = 4; 'cuarta' = 4; 'quinto' = 5; 'quinta' = 5
+                   # hasta el decimo (18/09): "con la novena cancion" se descarto
+                   'sexto' = 6; 'sexta' = 6; 'septimo' = 7; 'septima' = 7; 'octavo' = 8; 'octava' = 8
+                   'noveno' = 9; 'novena' = 9; 'decimo' = 10; 'decima' = 10 }
+# EL SITIO DE LA MUSICA, UNA PREFERENCIA DE VERDAD (18/09). braya pidio "siempre en YouTube",
+# la charla dijo "anotado" y no anoto nada. Ahora vive en config.json (musica.sitio) y se
+# cambia hablando (ver "cuando te diga que pongas una cancion").
+$MusicaSitio = [string](Get-Cfg 'musica' 'sitio' 'youtube')
 
 function Invoke-FastCommand([string]$text) {
     if (-not $cmds) { return $null }
@@ -7464,7 +7551,13 @@ function Invoke-FastCommand([string]$text) {
                     } else {
                         # con -PassThru para poder cerrarlo si pides deshacer; las
                         # URI (steam://, shell:appsFolder) no devuelven proceso propio
-                        $pr = Start-Process $a.target -PassThru -ErrorAction Stop
+                        # LAS URI DE WINDOWS NO DEVUELVEN PROCESO (18/09): Start-Process
+                        # 'ms-settings:' -PassThru falla con "no encuentra toda la informacion
+                        # necesaria" (probado); por explorer.exe abre bien. Los ajustes llevaban
+                        # fallando desde que existen.
+                        $pr = $null
+                        if ($a.target -match '^ms-[a-z-]+:') { Start-Process 'explorer.exe' $a.target -ErrorAction Stop }
+                        else { $pr = Start-Process $a.target -PassThru -ErrorAction Stop }
                         # ¿se abrira de verdad? se apunta y se mira luego, sin bloquear
                         if (-not $esJuego) { [void](Add-AperturaPendiente $comoSeLlama) }
                         # AVISO DE ACTUALIZACION (13/09): si Steam marca el juego con
@@ -7505,6 +7598,11 @@ function Invoke-FastCommand([string]$text) {
                 'modoEditar' { $a.desc = Invoke-ModoEditar $a.datos }
                 'correo' { $a.desc = Invoke-Correo $a }
                 'papelera' { $a.desc = Get-PapeleraResumen }
+                'musicaSitio' {
+                    # la preferencia se guarda AQUI, no al resolver: -Probar solo resuelve
+                    [void](Set-Cfg 'musica' 'sitio' $a.sitio)
+                    $script:MusicaSitio = [string]$a.sitio
+                }
                 'avisosEntorno' { $a.desc = Set-AvisosEntorno ([bool]$a.encendido) }
                 'decir' {
                     # la respuesta ES la descripcion; se dice y ya. Si es un
@@ -12170,7 +12268,7 @@ abre <app> | abre <sitio> | abre <juego> en steam | abre la carpeta <nombre>
 cierra <app> | cierra todos los programas | minimiza todo
 minimiza <app> | maximiza <app> | a mitad de pantalla | cambia a <app>
 revisa mi correo
-busca <texto> en <sitio> | pon <cancion o artista> en spotify
+busca <texto> en <sitio> | pon <cancion o artista> en youtube | pon <cancion o artista> en spotify
 sube el volumen | baja el volumen | pon el volumen al <n> | silencia | quita el silencio | pon <app> al <n>
 sube el brillo | baja el brillo | pon el brillo al <n>
 pausa | reproduce | siguiente cancion | anterior cancion | que esta sonando
@@ -15672,6 +15770,16 @@ while ($true) {
         if (Test-Path -LiteralPath $RutaConfirmacion) {
             try { $resp = ([System.IO.File]::ReadAllText($RutaConfirmacion)).Trim().ToLowerInvariant() } catch {}
             if ($resp -ne 'si' -and $resp -ne 'no') { $resp = '' }
+        }
+        # MIENTRAS NOVA HABLA, EL PLAZO NO CORRE (18/09, segunda vez). A las 20:15 la pregunta
+        # vencio a los 7 s con la voz todavia sonando: el worker ni llego a escuchar. El plazo
+        # se empuja en cada vuelta a "fin de la voz + ConfirmacionMs", asi que solo puede
+        # vencer tras ese tiempo de silencio. (El rearme de arriba, al pasar a 'confirmando',
+        # se queda; pero ya no es de lo que depende.)
+        $finVozC = [Math]::Max([double]$script:pausaHasta, [double]$script:uiHasta)
+        if ($finVozC -gt $sw.ElapsedMilliseconds) {
+            $minimoC = $finVozC + $ConfirmacionMs
+            if ($script:pendiente.vence -lt $minimoC) { $script:pendiente.vence = $minimoC }
         }
         if ($resp) { Complete-Confirmacion $resp }
         elseif ($sw.ElapsedMilliseconds -ge $script:pendiente.vence) { Complete-Confirmacion 'plazo' }
