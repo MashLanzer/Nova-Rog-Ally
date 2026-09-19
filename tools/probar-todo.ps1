@@ -258,6 +258,10 @@ Titulo "2n22. Que Nova se incluya en su parte semanal"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-parte-semanal.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n24. Que la charla y la traduccion no se pasen la misma frase sin parar"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-rebote.ps1') | Select-String 'todo correcto|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "3. Ordenes que SI deben reconocerse"
 foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     $salida = powershell -NoProfile -File 'assistant.ps1' -Probar (Join-Path 'pruebas' $banco) 2>&1
@@ -267,9 +271,17 @@ foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     # estuviera ahi, asi que una caida de 88 a 5 pasaba EN VERDE: justo lo que este banco
     # existe para evitar. Las que fallan son controles a proposito, por eso el listero es
     # un minimo y no una igualdad: lo que no puede es BAJAR.
-    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 183 }
+    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 188 }   # 188 desde el 19/09: cinco casos del uso real del 18/09 que antes pagaban un viaje a la API
     $n = -1
     if ($linea -and ("$linea" -match 'reconocidas en local:\s*(\d+)')) { $n = [int]$Matches[1] }
+    # LOS JUEGOS QUE YA NO TIENES NO SON UNA REGRESION (19/09): las lineas con
+    # '@si-tienes:<juego>' se saltan cuando ese juego no esta instalado, asi que cuentan
+    # como buenas para el minimo. Si se reinstala, vuelven a probarse de verdad.
+    $salt = 0
+    $lsalt = @($salida | Select-String 'saltadas por juegos que ya no tienes')[-1]
+    if ($lsalt -and ("$lsalt" -match ':\s*(\d+)')) { $salt = [int]$Matches[1] }
+    if ($salt -gt 0) { Write-Host ("   ({0} saltadas: juegos que ya no tienes instalados)" -f $salt) -ForegroundColor DarkGray }
+    if ($n -ge 0) { $n += $salt }
     if ($n -lt 0) {
         Write-Host "   MAL: no salio la linea de resultados" -ForegroundColor Red
         $fallos++

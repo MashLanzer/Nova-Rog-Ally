@@ -1,9 +1,9 @@
 # --- encadenadas sin conector ---
-abre steam inicia little nightmare 3
+abre steam inicia little nightmare 3   @si-tienes:Little Nightmares III
 abre steam abre el navegador
 abre la calculadora sube el volumen
 # --- las mismas con "y", que deberian funcionar ya ---
-abre steam y inicia little nightmare 3
+abre steam y inicia little nightmare 3   @si-tienes:Little Nightmares III
 abre la calculadora y sube el volumen
 # --- infinitivos ---
 abrir steam
@@ -213,3 +213,9 @@ vacia la lista
 que he hecho hoy
 que hice hoy
 resumen del dia
+# del uso real del 18/09: los dos se fueron a la API a traducir para volver con lo mismo
+que se esta instalando
+que se esta instalando ahora mismo
+quiero saber que se esta descargando en steam
+cierra el explorador de archivos si esta abierto
+cierra steam si sigue abierto

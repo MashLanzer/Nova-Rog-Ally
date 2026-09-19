@@ -220,6 +220,11 @@ $FILLER_GLOBAL = '\b(?:tambien|ademas|porfa|porfavor|por favor|gracias|oye|okey|
 # "mira" SOLO delante de un verbo de orden (18/09): "mira, ponme un temporizador de 5 minutos"
 # se descarto entero. "mira si hay algo colgado" sigue siendo orden: el lookahead no la toca.
 $FILLER_INI = '^(?:(?:y|luego|despues|ahora|entonces|a mi|ami|ya me|me|pues|este|hey|ey|hola|nova|ok|okey|okay|vale|bueno|mira(?=\s+(?:pon|ponme|abre|abreme|cierra|sube|baja|pausa|reproduce|busca|buscame|quita|activa|desactiva|lanza|dime|di)\b))\s+)+'
+# LA CONDICION DEL FINAL (19/09): "cierra el explorador de archivos si esta abierto" se fue
+# a la API a traducir y volvio como 'cierra explorador'; la coletilla sobraba entera, porque
+# cerrar lo que no esta abierto ya no hace nada. Va anclada al final y solo si queda orden
+# detras: "si esta abierto" a secas no es nada y tiene que seguir su camino.
+$FILLER_FIN = '\s+(?:si\s+(?:esta|sigue)\s+abiert[oa]|si\s+(?:lo|la)\s+tienes\s+abiert[oa]|si\s+esta\s+puest[oa]|ahora\s+mismo)$'
 
 # El lugar puede ir ANTES del verbo: "en el navegador busca X". Sin esto, el
 # fragmento no empezaba por verbo, se pegaba al anterior y rompia la frase.
@@ -233,6 +238,9 @@ function Remove-Filler([string]$s) {
     if (-not $s) { return "" }
     $t = [regex]::Replace($s, $FILLER_GLOBAL, ' ')
     $t = [regex]::Replace($t, $FILLER_INI, '')
+    # ver LA CONDICION DEL FINAL: se quita solo si lo que queda sigue siendo una orden
+    $tF = [regex]::Replace($t, $FILLER_FIN, '')
+    if (@($tF -split '\s+' | Where-Object { $_ }).Count -ge 2) { $t = $tF }
     return (($t -replace '\s+', ' ').Trim())
 }
 
@@ -2684,7 +2692,11 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(pausa|para|deten|reanuda|abre|ensename|muestrame)\s+(?:las\s+)?descargas(?:\s+de\s+steam)?$') {
         return @(@{ kind = 'descargasAbrir'; pausar = ($Matches[1] -match '^(?:pausa|para|deten|reanuda)$'); desc = 'las descargas de Steam' })
     }
-    if ($f -match '^que\s+(?:se\s+)?(?:esta|estan)\s+(?:descargando|bajando|actualizando)(?:\s+en\s+steam)?$') {
+    # "QUE SE ESTA INSTALANDO" (18/09): lo pregunto dos veces seguidas y las dos se fueron a
+    # la API a traducir (2,8 s y una llamada de pago) para volver con 'que se esta
+    # descargando', que es esto mismo. Faltaba el gerundio de "instalar" y el "quiero saber"
+    # de delante, que el dictado recoge tal cual.
+    if ($f -match '^(?:(?:quiero|queria)\s+saber\s+)?que\s+(?:se\s+)?(?:esta|estan)\s+(?:descargando|bajando|instalando|actualizando)(?:se)?(?:\s+en\s+steam)?$') {
         return @(@{ kind = 'descargas'; desc = 'estado de las descargas' })
     }
     # 15/09: "¿hay algo descargandose en Steam?" y "revisa ahora si algo se esta
@@ -11222,10 +11234,30 @@ if ($Probar) {
     $TraduccionesPath = Join-Path $pruebaDir 'traducciones.json'
     $EstadisticasJson = Join-Path $pruebaDir 'estadisticas.json'
     $EstadisticasMd = Join-Path $pruebaDir 'estadisticas.md'
-    $ok = 0; $no = 0
+    $ok = 0; $no = 0; $salt = 0
     foreach ($linea in (Get-Content -LiteralPath $Probar -Encoding UTF8)) {
         $t = $linea.Trim()
         if (-not $t -or $t.StartsWith('#')) { continue }
+        # LO QUE DEPENDE DE UN JUEGO QUE YA NO TIENES (19/09): el banco bajo de 88 a 85 y de
+        # 183 a 181 sin que nadie tocara el codigo; los cinco "fallos" eran Little Nightmares
+        # III, SILENT BREATH y REANIMAL, desinstalados de Steam esa semana. Un banco que se
+        # pone rojo solo porque cambio la biblioteca no sirve para ver una regresion de
+        # verdad. Con '@si-tienes:<juego>' la linea solo cuenta si ese juego esta instalado
+        # AHORA, con el nombre exacto: parecido no vale, que "Little Nightmares III" casa de
+        # sobra con "Little Nightmares Enhanced Edition" y eso taparia justo lo que se mira.
+        $exige = ''
+        $mJ = [regex]::Match($t, '\s*@si-tienes:\s*(.+)$')
+        if ($mJ.Success) { $exige = $mJ.Groups[1].Value.Trim(); $t = $t.Substring(0, $mJ.Index).Trim() }
+        if ($exige) {
+            [void](Update-Juegos)
+            $pe = (ConvertTo-Plain $exige).ToLowerInvariant()
+            $hayJ = @($script:Juegos | Where-Object { (ConvertTo-Plain ([string]$_.nombre)).ToLowerInvariant() -eq $pe }).Count -gt 0
+            if (-not $hayJ) {
+                $salt++
+                Write-Output ("  SALTO " + $t.PadRight(38) + "  (ya no tienes '$exige' instalado)")
+                continue
+            }
+        }
         # mismo orden que Process-Texto: reglas y recordatorios se resuelven
         # antes que las ordenes sueltas, o el banco mentiria
         $r = $false; $via = ''
@@ -11256,6 +11288,9 @@ if ($Probar) {
     }
     Write-Output ""
     Write-Output ("reconocidas en local: $ok de " + ($ok + $no))
+    # el listero de probar-todo.ps1 suma las dos: asi el minimo sigue siendo el mismo
+    # aunque hoy falte un juego, y baja de verdad solo si se rompe algo
+    Write-Output ("saltadas por juegos que ya no tienes: $salt")
     try { Remove-Item -LiteralPath $pruebaDir -Recurse -Force -ErrorAction SilentlyContinue } catch {}
     exit 0
 }
@@ -12337,6 +12372,11 @@ $script:charlaSilencios = 0
 $script:charlaDescargada = $true
 $script:vozFinReal = 0              # cuando acaba DE VERDAD la frase que suena (ver Say-Online)
 $script:charlaOp = 'hablar'         # que se le pidio al worker (hablar, trivia, resumir)
+# EL REBOTE (18/09): la frase que ya hizo el viaje charla -> traducir -> charla, para
+# que no lo haga dos veces. Caduca sola: al minuto, la misma frase vuelve a tener su
+# oportunidad entera (ver EL REBOTE CHARLA <-> TRADUCIR).
+$script:charlaRebote = ''
+$script:charlaReboteHasta = 0
 $script:triviaHasta = 0             # hasta cuando la proxima frase es la respuesta a la trivia
 $script:ventanaCharla = $false      # el proximo seguimiento es de una conversacion
 $script:precargaEn = -600000        # ultima precarga del modelo de charla
@@ -12585,6 +12625,18 @@ function Send-Charla([string]$text, [bool]$duda = $false, [string]$op = 'hablar'
     return $true
 }
 
+# ¿ESTA FRASE YA REBOTO? (18/09) La charla la dio por orden, la traduccion dijo que no
+# era una orden y volvio a la charla. Si la charla insiste, es un empate: ninguno de los
+# dos sabe que hacer con ella y no hay tercera vuelta. Caduca al minuto para que repetir
+# la misma orden mas tarde sea un intento nuevo y no un corte.
+function Test-ReboteCharla($ev) {
+    if (-not $script:charlaRebote) { return $false }
+    if ($sw.ElapsedMilliseconds -ge $script:charlaReboteHasta) { $script:charlaRebote = ''; return $false }
+    $t = ConvertTo-Plain ([string]$ev.texto)
+    $o = if ($ev.original) { ConvertTo-Plain ([string]$ev.original) } else { $t }
+    return ($script:charlaRebote -eq $t -or $script:charlaRebote -eq $o)
+}
+
 # ¿PARECE CHARLA? (14/09): "estoy muy cansado hoy" iba a Claude Code como si
 # fuera una orden (probado en vivo): Test-Charla solo da por charla las frases
 # largas o en ingles, porque se hizo para DESCARTAR ruido. Esta es para
@@ -12705,6 +12757,23 @@ function Receive-Charla {
             Log "charla: devuelve '$([string]$ev.texto)' suelto y no hay pregunta viva; se ignora"
             [void](Write-DestinoUso 'ruido' ([string]$ev.texto))
             $script:seguimientoPendiente = $false
+            Set-UI 'reposo'
+        } elseif ($ev.ev -eq 'orden' -and (Test-ReboteCharla $ev)) {
+            # EL REBOTE CHARLA <-> TRADUCIR (18/09, sacado del log): la charla decia "esto
+            # es una orden" y la traduccion decia "esto no es una orden", y cada una se lo
+            # devolvia a la otra. El 18/09 a las 23:35 dio 19 vueltas: 19 llamadas de pago
+            # en 90 s con Nova ocupada y sin contestar, y ninguna de las dos acabo haciendo
+            # nada. Si ninguno de los dos caminos la entiende, no hay una tercera vuelta:
+            # se dice y se pide de otra forma, que cuesta un segundo.
+            $script:charlaEsperando = $false
+            $script:charlaRebote = ''
+            Log "charla: '$([string]$ev.texto)' ya reboto entre la charla y la traduccion; no lo mando otra vez (ver EL REBOTE CHARLA <-> TRADUCIR)"
+            Add-Estadistica 'descarte' ([string]$ev.texto)
+            [void](Write-DestinoUso 'descarte' ([string]$ev.texto))
+            $script:seguimientoPendiente = $false
+            Send-UIEvento 'gesto:confuso'
+            Show-Popup "No te entendi. Dimelo de otra forma." 'error'
+            Say "No te entendi, dimelo de otra forma"
             Set-UI 'reposo'
         } elseif ($ev.ev -eq 'orden') {
             $script:charlaEsperando = $false
@@ -13000,7 +13069,12 @@ function Report-Reply($out) {
             if ($ConversacionOn -and -not $script:invitado -and (Test-EspanolLargo $original) -and -not (Test-VozExtrana)) {
                 Log "NO era una orden, pero es espanol tuyo: '$original' -> a la charla"
                 Add-Estadistica 'no-orden-a-charla' $original
-                if (Send-Charla $original) { return }
+                # va marcada: si la charla vuelve a decir que es una orden, se para aqui
+                # (ver EL REBOTE CHARLA <-> TRADUCIR). 'sin_orden' se lo dice tambien al
+                # worker, que asi contesta hablando en vez de devolverla.
+                $script:charlaRebote = ConvertTo-Plain $original
+                $script:charlaReboteHasta = $sw.ElapsedMilliseconds + 60000
+                if (Send-Charla $original $false 'hablar' @{ sin_orden = $true }) { return }
             }
             Log "NO era una orden: '$original' (descartado, no llega al agente)"
         $script:seguimientoPendiente = $false   # un descarte no encadena: era ruido

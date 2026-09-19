@@ -443,11 +443,42 @@ def jugando():
     return bool(MARCA_SOLO_BOTON) and os.path.exists(MARCA_SOLO_BOTON)
 
 
+# EL PRIMERO SE HACE SITIO (19/09). La noche del 18 Parakeet no cargo NI UNA vez en toda
+# la sesion: le faltaban entre 26 y 271 MB (quedaban 929, 976 y 1174 de los 1200 que pide).
+# Mientras tanto el oido fino ocupaba sus ~500 MB desde las 23:34 sin repasar nada, porque
+# su plazo sin juego delante son 20 minutos y la sesion duro 11. Resultado: la noche entera
+# oyendo con Whisper base, que es el repaso, no el titular (ver la medida del 18/09: de 75
+# pares, Parakeet acerto 23 que base fallo).
+#
+# Asi que, si falta poco, el titular se hace sitio: suelta el oido fino y lo vuelve a
+# mirar. Recargarlo cuesta 2,5 s de mediana y solo si vuelve a hacer falta. No se toca si
+# se uso hace menos de un minuto (estara en mitad de una racha), y si aun asi no cabe, no
+# se ha perdido nada: se sigue con base, igual que antes.
+PARAKEET_QUIETO_FINO = 60.0
+
+
+def hacer_sitio_a_parakeet(libre):
+    global _preciso
+    if _preciso is None:
+        return libre
+    if time.time() - _preciso_uso < PARAKEET_QUIETO_FINO:
+        return libre
+    _preciso = None
+    import gc
+    gc.collect()
+    ahora = ram_libre_mb()
+    anota("oido fino soltado para hacerle sitio a Parakeet: %.0f -> %.0f MB libres"
+          % (libre, ahora))
+    return ahora
+
+
 def modelo_parakeet():
     global _parakeet, _parakeet_roto
     if _parakeet is not None or _parakeet_roto:
         return _parakeet
     _libre = ram_libre_mb()
+    if 0 <= _libre < RAM_MIN_PARAKEET:
+        _libre = hacer_sitio_a_parakeet(_libre)
     if 0 <= _libre < RAM_MIN_PARAKEET:
         anota("parakeet: no lo cargo, solo quedan %.0f MB libres (hacen falta %.0f)"
               % (_libre, RAM_MIN_PARAKEET))

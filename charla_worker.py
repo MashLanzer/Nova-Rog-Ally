@@ -588,6 +588,16 @@ def responder(p):
                 continue      # solo si el local se aparto para la API y la API fallo
             res, dato = generar_local(list(historial), [MARCA_ORDEN], emitir, extra)
         if res == "marca" and dato == MARCA_ORDEN:
+            # YA VOLVIO UNA VEZ (18/09): el asistente la mando a traducir, la traduccion
+            # dijo que no era una orden y se la devolvio con "sin_orden". Insistir en
+            # [ORDEN] aqui es el rebote que el 18/09 dio 19 vueltas y 19 llamadas de pago
+            # sin hacer nada. Se contesta con la frase de siempre para lo que no se
+            # entiende, sin gastar otra generacion.
+            if p.get("sin_orden"):
+                historial.pop()
+                salida("frase", idp, texto="Eso no he sabido hacerlo. Dímelo de otra forma.", origen="fijo")
+                salida("fin", idp, origen="local")
+                return
             # no era charla: el asistente lo manda a quien sabe hacerlo, y si solo se
             # entiende con lo hablado ("recuerdamelo luego"), reescrita entera (M10)
             reescrita = reescribir_orden(texto)

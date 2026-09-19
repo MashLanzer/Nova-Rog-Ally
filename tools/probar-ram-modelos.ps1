@@ -1,4 +1,4 @@
-# QUE UN MODELO NO SE CARGUE SI NO CABE (17/09).
+﻿# QUE UN MODELO NO SE CARGUE SI NO CABE (17/09).
 #
 # El 15/09 paso de verdad: con Parakeet, base y small cargados a la vez quedaron 0,3 GB
 # libres de 7,7 y Whisper tardo de 4,5 a 12,9 s por orden en vez de ~1 s. Ya habia guarda
@@ -85,6 +85,26 @@ $jPar = $fuente.IndexOf("`ndef ", $iPar + 5)
 if ($jPar -lt 0) { $jPar = $fuente.Length }
 $cuerpoPar = $fuente.Substring($iPar, $jPar - $iPar)
 Comp 'parakeet solo se suelta jugando, sin plazo' ($cuerpoPar -match 'jugando\(\)' -and $cuerpoPar -notmatch 'SOLTAR_QUIETO') ''
+
+Write-Host '  -- y si a Parakeet le falta poco, se hace sitio el mismo (19/09) --'
+Comp 'existe hacer_sitio_a_parakeet' ($fuente -match 'def hacer_sitio_a_parakeet\(') ''
+$iHs = $fuente.IndexOf('def hacer_sitio_a_parakeet(')
+$jHs = $fuente.IndexOf("`ndef ", $iHs + 5)
+if ($jHs -lt 0) { $jHs = $fuente.Length }
+$cuerpoHs = if ($iHs -ge 0) { $fuente.Substring($iHs, $jHs - $iHs) } else { '' }
+Comp 'suelta el oido fino, no otra cosa' ($cuerpoHs -match '_preciso = None') ''
+Comp 'no lo toca si se acaba de usar' ($cuerpoHs -match '_preciso_uso < PARAKEET_QUIETO_FINO') ''
+Comp 'y vuelve a medir despues de soltarlo' ($cuerpoHs -match 'ahora = ram_libre_mb\(\)') ''
+Comp 'lo deja dicho en el log' ($cuerpoHs -match 'hacerle sitio a Parakeet') ''
+$qf = if ($fuente -match '(?m)^PARAKEET_QUIETO_FINO = ([0-9.]+)') { [double]$Matches[1] } else { -1 }
+Comp 'el plazo es corto pero no cero' ($qf -ge 30 -and $qf -le 300) ("$qf s")
+$iPk = $fuente.IndexOf('def modelo_parakeet(')
+$jPk = $fuente.IndexOf("`ndef ", $iPk + 5)
+$cuerpoPk = $fuente.Substring($iPk, $jPk - $iPk)
+Comp 'modelo_parakeet lo intenta ANTES de rendirse' (
+    $cuerpoPk.IndexOf('hacer_sitio_a_parakeet') -gt 0 -and
+    $cuerpoPk.IndexOf('hacer_sitio_a_parakeet') -lt $cuerpoPk.IndexOf('no lo cargo')) ''
+Comp 'y si aun asi no cabe, sigue sin cargarlo' ($cuerpoPk -match 'no lo cargo, solo quedan' -and $cuerpoPk -match 'return None') ''
 
 Write-Host ''
 if ($mal -gt 0) { Write-Host "$mal casos MAL" -ForegroundColor Red; exit 1 }
