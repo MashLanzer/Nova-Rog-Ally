@@ -88,12 +88,30 @@ def main():
     wav, salida = sys.argv[1], sys.argv[2]
     tope_s = (int(sys.argv[3]) if len(sys.argv) > 3 else 2500) / 1000.0
     t0 = time.time()
-    try:
-        texto, fallo = oir(wav, tope_s)
-    except urllib.error.HTTPError as e:
-        texto, fallo = "", "HTTP %d" % e.code
-    except Exception as e:  # noqa: BLE001
-        texto, fallo = "", repr(e)[:120]
+    # DOS INTENTOS DENTRO DEL MISMO PLAZO (19/09). Medido con 376 respuestas reales:
+    # la mediana es 2,69 s pero la cola es larguisima (p90 10,6 s, maximo 21 s). Y esa
+    # cola NO es audio dificil, es la red: los tres unicos clips del uso real que se
+    # pasaban del tope -5,0 / 18,2 / 14,6 s- contestaron en 1,5-2,2 s al repetirlos.
+    # Asi que en vez de esperar mucho una vez, se pide dos veces con la mitad del plazo
+    # cada una. Con el tope en 7 s eso sube la probabilidad de tener respuesta del 87 %
+    # (un intento de 7 s) al 92 % (dos de 3,5 s). Por debajo de 6 s de tope NO compensa
+    # partir: un solo intento largo gana. Si se vuelve a tocar el tope, rehacer la cuenta.
+    intentos = 2 if tope_s >= 6.0 else 1
+    cada = tope_s / intentos - 0.1   # margen para no pasarse del plazo del asistente
+    texto, fallo = "", ""
+    for i in range(intentos):
+        try:
+            texto, fallo = oir(wav, cada)
+        except urllib.error.HTTPError as e:
+            texto, fallo = "", "HTTP %d" % e.code
+            if 400 <= e.code < 500 and e.code != 429:
+                break   # clave mala o peticion mal formada: reintentar no arregla nada
+        except Exception as e:  # noqa: BLE001
+            texto, fallo = "", repr(e)[:120]
+        if texto:
+            break
+        if i + 1 < intentos:
+            sys.stderr.write("gemini-oir: intento %d sin respuesta en %.1f s; lo pido otra vez" % (i + 1, cada) + chr(10))
     # SIEMPRE se escribe el archivo, aunque sea vacio: el asistente lo espera y, si no
     # llega, se queda esperando al plazo entero para nada
     escribir(salida, texto)

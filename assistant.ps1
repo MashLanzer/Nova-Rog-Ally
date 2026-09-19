@@ -16197,6 +16197,25 @@ while ($true) {
             if ($script:nubeOut) {
                 $nubeTxt = Receive-NubeOir
                 $localOk = (Test-FastCommand $limpioW) -or (Test-FastCommand $origP)
+                # ESPERAR A LA NUBE CUANDO EL OIDO LOCAL SE HA QUEDADO SIN NADA (19/09).
+                # El oido fino tarda ~4 s (4,4 / 3,9 / 3,6 s en el log) y la nube vence a los
+                # 5,8 s: al llegar aqui la nube muchas veces AUN NO HA CONTESTADO, y su
+                # respuesta -que llega un segundo despues- no la recogia nadie, porque este es
+                # el UNICO punto donde se consulta. Se perdian ordenes que la nube habia sacado
+                # bien. Si el oido local no saco orden, se espera lo que le quede de plazo: la
+                # alternativa a esperar no es responder rapido, es no entender. Si el oido local
+                # SI saco algo, no se espera ni un milisegundo.
+                if (-not $nubeTxt -and -not $localOk -and $script:nubeOut) {
+                    $esperoDesde = $sw.ElapsedMilliseconds
+                    while (-not $nubeTxt -and $script:nubeOut -and $sw.ElapsedMilliseconds -lt $script:nubeVence) {
+                        Start-Sleep -Milliseconds 120
+                        $nubeTxt = Receive-NubeOir
+                    }
+                    if ($nubeTxt) {
+                        Log ('NUBE: contesto ' + [Math]::Round(($sw.ElapsedMilliseconds - $esperoDesde) / 1000.0, 1) + ' s despues del oido local')
+                        Add-Estadistica 'nube-esperada' ''
+                    }
+                }
                 if ($nubeTxt -and -not $localOk) {
                     $esOrdenN = $false
                     try { $esOrdenN = [bool](Test-FastCommand $nubeTxt) } catch { $esOrdenN = $false }
