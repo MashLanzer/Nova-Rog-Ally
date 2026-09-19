@@ -12438,11 +12438,20 @@ function Test-RamParaCharla {
         return $true
     } catch { return $true }
 }
+# LA MISMA GUARDA EN LOS DOS CAMINOS DE PRECARGA (19/09). Esta condicion estaba escrita
+# a mano en Test-PrecargaCharla, y al anadir la precarga por 'suena a charla' (14/09) no
+# se copio alli: ese camino podia cargar qwen (1-2 GB) teniendo la API, que contesta
+# primero y deja el modelo local sin usar. Nunca llego a morder porque el camino de
+# habitos se dispara antes en cada dictado y reinicia los 90 s que el otro necesita
+# (0 veces en el log frente a 5). Aqui una sola vez, para no volver a desincronizarlos.
+function Test-ApiContestaPrimero {
+    return ($ClaudeOn -and -not $script:apiFallo -and (Test-ClaveClaude))
+}
 function Test-PrecargaCharla([datetime]$ahora = (Get-Date)) {
     if (-not $ConversacionOn) { return $false }
     # con la API contesta ella primero (ver API PRIMERO en charla_worker.py): cargar el
     # modelo local solo gastaria 1-2 GB de RAM que la escucha necesita
-    if ($ClaudeOn -and -not $script:apiFallo -and (Test-ClaveClaude)) { return $false }
+    if (Test-ApiContestaPrimero) { return $false }
     $reciente = ($sw.ElapsedMilliseconds - $script:charlaUltima) -lt 1200000
     if ($reciente) { return $true }
     if ($script:juegoActivo) { return $false }
@@ -15972,7 +15981,7 @@ while ($true) {
                     # jugando (la RAM es del juego) ni si ya es una orden conocida.
                     if ($ConversacionOn -and -not $script:juegoActivo -and ($sw.ElapsedMilliseconds - $script:precargaEn) -gt 90000 -and
                         @($vista -split '\s+').Count -ge 3 -and -not $vista.StartsWith('...') -and
-                        (Test-PareceCharla $vista) -and -not (Test-FastCommand $vista)) {
+                        (Test-PareceCharla $vista) -and -not (Test-FastCommand $vista) -and -not (Test-ApiContestaPrimero)) {
                         $script:precargaEn = $sw.ElapsedMilliseconds
                         try { if ((Test-RamParaCharla) -and (Send-CharlaPedido @{ op = 'calentar' })) { Log "charla: precargo el modelo, '$vista' suena a charla" } } catch {}
                     }
