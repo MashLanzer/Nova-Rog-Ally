@@ -14,7 +14,7 @@ import sys
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 fuente = open(os.path.join(RAIZ, "wake_vosk.py"), encoding="utf-8").read()
 arbol = ast.parse(fuente)
-QUIERO = {"SILENCIO_FIN", "SILENCIO_FIN_LOTENGO", "silencio_para_cerrar", "MARGEN_CORTE_HZ", "es_voz_de_braya", "PROMPT_ORDENES", "es_eco_del_ejemplo", "PICO_OBJETIVO", "GANANCIA_MIN", "GANANCIA_MAX", "GANANCIA_INICIAL"}
+QUIERO = {"PALABRAS_ES", "PALABRAS_EN", "suena_ingles", "SILENCIO_FIN", "SILENCIO_FIN_LOTENGO", "silencio_para_cerrar", "MARGEN_CORTE_HZ", "es_voz_de_braya", "PROMPT_ORDENES", "es_eco_del_ejemplo", "PICO_OBJETIVO", "GANANCIA_MIN", "GANANCIA_MAX", "GANANCIA_INICIAL"}
 trozos = []
 for n in arbol.body:
     nombre = n.targets[0].id if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name) else getattr(n, "name", None)
@@ -103,6 +103,24 @@ for _ in range(6):
     _g = _ciclo(_g, 0.99)
 comp("y con el microfono saturado llega abajo", _g <= 0.4, "-> %.1f" % _g)
 comp("subir sigue siendo rapido (no deja sordo al arrancar)", _ciclo(1.0, 0.05) >= 4.0, "-> %.1f" % _ciclo(1.0, 0.05))
+
+# PARAKEET OYE INGLES EN TU ESPAÑOL (18/09): lo que dijo de verdad en 13 de 99 ordenes, y lo
+# que NO puede marcarse (nombres de apps y juegos en ingles, y español mal oido, que no es ingles)
+suena = ns["suena_ingles"]
+print("")
+print("-- suena a ingles: lo que Parakeet dijo de verdad el 18/09 --")
+for t in ("Haben The Ring", "Sierra and the Ring", "See it now", "Well probably", "Everything",
+          "And I think I'm tentative", "See,", "Here at the glow", "I'm gonna know", "See Garden", "See"):
+    comp("'%s' suena a ingles" % t, suena(t))
+print("-- y lo que NO puede marcarse --")
+for t in ("Abre Steam", "Enciende el Bluetooth", "Elden Ring", "Little Nightmares", "Rocket League", "Hollow Knight",
+          "Cierra ajustes", "Enciende bruto", "Pon Give me everything de Pitbull", "Abre Sting", "Activa Bluetooth",
+          "Tierra Sting", "Gracias", "Puedes abrir este", "abre the witcher", "pon sea of thieves", "Sí", "¿Qué hora es"):
+    comp("'%s' NO suena a ingles" % t, not suena(t))
+comp("vacio no suena a nada", not suena("") and not suena(None))
+# coste asumido, y que se sepa: un nombre ingles A SECAS con palabra vacia dentro si se marca;
+# Whisper lo repasa (forzado a español) y si no saca nada se entrega lo de Parakeet igual
+comp("'The Witcher' a secas SI se marca (coste asumido, documentado)", suena("The Witcher"))
 
 print("")
 print("todo correcto" if fallos == 0 else "%d casos MAL" % fallos)

@@ -498,12 +498,68 @@ def cobertura_parakeet(texto, audio):
     return letras / max(segundos_de_voz(audio), 0.3)
 
 
+# PARAKEET OYE INGLES EN TU ESPAÑOL (18/09). v3 elige el idioma por frase y 13 de 99 veces
+# eligio mal: "Haben The Ring", "See it now", "Well probably", "And I think I'm tentative".
+# Suena a ingles si NO lleva ni una palabra española corriente y SI alguna palabra vacia
+# inglesa. Solo palabras vacias, nunca digrafos ni terminaciones: "Bluetooth", "Elden Ring",
+# "Little Nightmares" o "Rocket League" son ingles y son ordenes tuyas de todos los dias, y
+# llevan casi siempre un verbo español delante ("abre", "pon") que las salva igualmente.
+PALABRAS_ES = set("""el la los las de del en un una unos unas que y a por con no si me te se lo le al es esta
+    pon ponme abre abreme cierra cierralo sube baja quita quitame cual cuales hora modo mi tu su para ya hay
+    dime revisa quiero como donde cuando cuanto cuanta todo esto eso nova ey oye vale bueno gracias ok okey
+    puedes puede crea crear abrir cerrar poner busca buscame enciende apaga activa desactiva llama mira
+    brillo volumen pantalla navegador correo cancion canciones musica juego juegos ajustes archivo carpeta
+    tambien otra otro ahora luego mas menos muy bien mal hoy manana ayer noche dia minuto minutos segundos
+    temporizador alarma recordatorio recuerdame agenda calendario haber ver dame cuentame explicame dile
+    ponlo quitalo cierre agrega anade elimina borra guarda escribe lee leeme traduce resume pausa reanuda
+    siguiente anterior captura foto bloquea apagar reinicia silencio calla para espera nada olvidalo
+    nuevo nueva ultimo ultima primero primera segundo segunda tercero tercera""".split())
+PALABRAS_EN = set("""the and i'm i im you your it it's is are was were this that these those here there now then
+    see well probably gonna wanna know think everything something nothing anything what where when how why
+    who which we they he she my me our their his her at on in to of for with from by as be been being have
+    has had do does did can could would should will won't don't doesn't didn't not or but if so just like
+    get got go going come came make made let yeah okay please thanks thank hello hi hey right left up down
+    over out about into back off all any some more most much very too also still again ever never always
+    sometimes tentative""".split())
+
+
+def suena_ingles(texto):
+    """True si lo de Parakeet es ingles de arriba abajo: sin una palabra española, con alguna inglesa."""
+    palabras = [unicodedata.normalize("NFD", w).encode("ascii", "ignore").decode().lower()
+                for w in re.findall(r"[a-záéíóúñüA-ZÁÉÍÓÚÑÜ']+", texto or "")]
+    palabras = [w for w in palabras if w]
+    if not palabras or any(w in PALABRAS_ES for w in palabras):
+        return False
+    if re.search(r"[áéíóúñ¿¡]", texto or ""):
+        return False
+    return any(w in PALABRAS_EN for w in palabras)
+
+
+def repasar_si_ingles(rapido, bloques):
+    """Si lo de Parakeet suena a ingles, lo oye Whisper (forzado a español) antes de entregar.
+    Devuelve (parakeet, whisper): con Whisper acertando, lo de Parakeet se queda en "" para
+    que se entregue lo suyo; si Whisper no saca nada, se entrega lo de Parakeet como siempre."""
+    if not rapido or whisper is None or not suena_ingles(rapido):
+        return rapido, ""
+    mejor = transcribir_whisper(bloques)
+    anota("parakeet: '%s' suena a ingles y tu hablas español; Whisper oye '%s'" % (rapido, mejor or "nada"))
+    if not mejor:
+        return rapido, ""
+    return "", mejor
+
+
 def oir_parakeet(bloques):
     """Lo que oye Parakeet, o "" (sin modelo, jugando, casi sin audio o sin cubrir la voz)."""
     if not bloques or jugando():
         return ""
     m = modelo_parakeet()
     if m is None:
+        return ""
+    # LA CARRERA CON EL JUEGO (18/09, 22:12): cargar tarda 11,5 s, el juego paso delante
+    # mientras tanto y Parakeet tardo 32,9 s en 14 s de audio con 400 MB libres. Se mira
+    # otra vez: con juego, lo oye Whisper base, que ya esta en la RAM y no la pelea.
+    if jugando():
+        anota("parakeet: el juego paso delante mientras cargaba; lo oye Whisper")
         return ""
     try:
         audio = np.concatenate(bloques).astype(np.float32) / 32768.0
@@ -1458,9 +1514,14 @@ try:
                     rapido = oir_parakeet(audio_dictado)
                     mejor = ""
                     _ultima_seguridad = None
+                    oido_parakeet = rapido
+                    rapido, mejor = repasar_si_ingles(rapido, audio_dictado)   # ver PARAKEET OYE INGLES
                     if rapido:
                         texto_final = rapido
                         marcar_parakeet()
+                        vaciar_cola("corte a mano")
+                    elif mejor:
+                        texto_final = mejor
                         vaciar_cola("corte a mano")
                     elif whisper is not None:
                         mejor = transcribir_whisper(audio_dictado)
@@ -1475,7 +1536,7 @@ try:
                     texto_final = quitar_nombre(texto_final)
                     anota("dictado: cortado a mano -> '%s'" % texto_final)
                     escribir(TEXTO, texto_final)
-                    guardar_uso(audio_dictado, origen="boton", parakeet=rapido, whisper=mejor,
+                    guardar_uso(audio_dictado, origen="boton", parakeet=oido_parakeet, whisper=mejor,
                                 seguridad=_ultima_seguridad, entregado=texto_final)
                     dictando = False
                     ultimo_audio = audio_dictado
@@ -1691,9 +1752,17 @@ try:
                             rapido = oir_parakeet(audio_dictado) if (not callado and not ajena) else ""
                             mejor = ""
                             _ultima_seguridad = None
+                            # lo que dijo Parakeet se guarda aunque suene a ingles: es el dato
+                            oido_parakeet = rapido
+                            rapido, mejor = repasar_si_ingles(rapido, audio_dictado)
                             if rapido:
                                 texto_final = rapido
                                 marcar_parakeet()
+                                vaciar_cola("transcripcion")
+                            elif mejor:
+                                # Parakeet sonaba a ingles y Whisper si saco algo: va lo de Whisper,
+                                # y sin marcar_parakeet, que el asistente lo trate como Whisper
+                                texto_final = mejor
                                 vaciar_cola("transcripcion")
                             elif whisper is not None and not callado and not ajena:
                                 escribir(PARCIAL, texto_vosk)
@@ -1706,7 +1775,7 @@ try:
                             escribir(TEXTO, texto_final)
                             if not callado:
                                 guardar_uso(audio_dictado, origen="nombre" if origen_nombre else "boton o seguimiento",
-                                            vosk=texto_vosk, parakeet=rapido, whisper=mejor, seguridad=_ultima_seguridad,
+                                            vosk=texto_vosk, parakeet=oido_parakeet, whisper=mejor, seguridad=_ultima_seguridad,
                                             entregado=texto_final, voz_ajena=ajena)
                             try:
                                 os.remove(DICTAR)

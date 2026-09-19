@@ -150,6 +150,10 @@ Titulo "2n31. Que un 'ok' suelto no sea ruido (y no se trague un si)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-asentimiento.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n33. 'No estaba hablando contigo' se calla, y un 'si' suelto no va a la API"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-no-era-contigo.ps1') | Select-String 'todo correcto|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n30. Que te salude al volver a la consola (y que sepa callarse)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-vuelta.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }

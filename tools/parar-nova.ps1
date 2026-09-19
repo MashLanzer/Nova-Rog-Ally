@@ -35,7 +35,7 @@ if (-not $viva) {
     Remove-Item -LiteralPath $marca -Force -ErrorAction SilentlyContinue
 }
 # lo que haya quedado de los workers, por si acaso (vigilan al padre, pero un kill los deja)
-Start-Sleep -Milliseconds 800
+Start-Sleep -Milliseconds 2600   # la capsula vigila al padre cada 2 s: mirar antes da un falso "viva"
 $restos = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'wake_vosk\.py|tts_worker\.py|charla_worker\.py' })
 $ui = @(Get-Process nova_ui -ErrorAction SilentlyContinue)
 if ($restos.Count -or $ui.Count) {

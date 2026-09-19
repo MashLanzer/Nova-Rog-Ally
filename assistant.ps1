@@ -12696,6 +12696,16 @@ function Receive-Charla {
                 $script:triviaHasta = if ($ev.origen -eq 'trivia') { $sw.ElapsedMilliseconds + 90000 } else { 0 }
                 if ($script:pausaHasta -le 0) { $script:pausaHasta = $sw.ElapsedMilliseconds + 100 }
             }
+        } elseif ($ev.ev -eq 'orden' -and (ConvertTo-Plain ([string]$ev.texto)) -match '^(?:si|no|claro|dale|vale|ok|okey|nop|sip|si si|no no)[.!]?$') {
+            # UN "SI" SUELTO QUE LA CHARLA DEVUELVE (18/09, 19:04 y 20:15): sin pregunta viva, la
+            # charla lo devolvia como "orden", el local no lo reconocia y se iba a la API a
+            # traducirlo para acabar en "ruido". Dos llamadas para nada: se descarta aqui. (Con
+            # una pregunta viva el "si" no pasa por la charla: lo contesta el worker.)
+            $script:charlaEsperando = $false
+            Log "charla: devuelve '$([string]$ev.texto)' suelto y no hay pregunta viva; se ignora"
+            [void](Write-DestinoUso 'ruido' ([string]$ev.texto))
+            $script:seguimientoPendiente = $false
+            Set-UI 'reposo'
         } elseif ($ev.ev -eq 'orden') {
             $script:charlaEsperando = $false
             $ordenC = [string]$ev.texto
@@ -14623,6 +14633,25 @@ function Process-Texto([string]$text) {
         # "GRACIAS" FUERA DEL SEGUIMIENTO (15/09): tras una tarea larga, braya dijo "gracias"
         # con el boton y Nova contesto "No te entendi" (se tomaba por ruido).
         # tambien "entiendo, gracias", "perfecto, gracias"... (15/09: acababa en "No te entendi")
+        # "NO ESTABA HABLANDO CONTIGO" (18/09). Dos veces hoy Nova se metio en una conversacion
+        # tuya con otra persona ("nova nova" a las 21:33 con confianza 1,00) y se gasto 20 s y
+        # dos llamadas a la API en una frase que no era para ella. Cuando se lo dices, se calla,
+        # suelta lo que tuviera pendiente y lo apunta como ruido, que es lo que fue.
+        if ($plano -match '^(?:(?:no|nada|perdon|perdona|eso|espera|nova)[\s,]+)*no\s+(?:te\s+)?(?:(?:estaba|estoy|iba)\s+)?(?:hablando\s+(?:contigo|con\s+vos|a\s+ti)|hablaba\s+(?:contigo|a\s+ti)|hablo\s+(?:contigo|a\s+ti)|era\s+(?:contigo|para\s+ti|a\s+ti)|es\s+(?:contigo|para\s+ti)|iba\s+(?:contigo|para\s+ti)|va\s+contigo|te\s+(?:hablaba|hablo|estaba\s+hablando)(?:\s+a\s+ti)?|te\s+lo\s+decia(?:\s+a\s+ti)?)(?:[\s,]+nova)?$') {
+            Log "no era para mi: '$text'"
+            [void](Write-DestinoUso 'ruido' 'no era para mi')
+            $script:seguimientoPendiente = $false
+            $script:huecoPendiente = $null
+            # la pregunta viva, si la hay, se suelta EN SILENCIO (lo mismo que hace
+            # Complete-Confirmacion al empezar, sin lo que dice despues)
+            $script:pendiente = $null
+            $script:confirmaFin = 0; $script:confirmaTotal = 0
+            Remove-Item -LiteralPath $MarcaConfirmar -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $RutaConfirmacion -Force -ErrorAction SilentlyContinue
+            try { Stop-Charla } catch {}
+            Set-UI 'reposo'
+            return
+        }
         if ($plano -match '^(?:(?:ok|okay|vale|perfecto|genial|listo|muy bien|entiendo|entendido|de acuerdo|bueno)\s+)?(?:muchas\s+)?gracias(?:\s+nova)?$') {
             Log "cortesia: '$text'"
             $script:seguimientoPendiente = $false
@@ -15743,6 +15772,13 @@ while ($true) {
         Remove-Item -LiteralPath $MarcaSalir -Force -ErrorAction SilentlyContinue
         Log "SALIDA pedida por marca: me cierro limpiamente"
         try { Set-UI 'reposo' } catch {}
+        # Y LOS WORKERS, CERRADOS (18/09): el de escucha mira al padre solo en su pulso, cada
+        # 15 s, y se quedaba vivo hasta que alguien lo mataba desde fuera. La charla por su
+        # camino; escucha y voz por Kill, que es lo que les iba a pasar 15 s despues.
+        try { Stop-Charla } catch {}
+        foreach ($pW in @($script:wakeProc, $script:ttsProc, $script:prepVozProc)) {
+            try { if ($pW -and -not $pW.HasExited) { $pW.Kill() } } catch {}
+        }
         exit 0    # por aqui SI se dispara PowerShell.Exiting y se escribe "cerrado"
     }
 

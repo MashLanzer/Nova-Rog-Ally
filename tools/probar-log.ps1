@@ -78,7 +78,11 @@ Write-Host '  -- la salida limpia, entera --'
 $src = [System.IO.File]::ReadAllText((Join-Path $raiz 'assistant.ps1'), [System.Text.Encoding]::UTF8)
 Comp 'la marca de salida esta definida' ($src -match '\$MarcaSalir = Join-Path \$TmpDir "salir\.flag"') ''
 Comp 'y se limpia al arrancar, con las demas' ($src -match '\$MarcaWake, \$MarcaSalir\)') ''
-Comp 'el bucle la mira y sale por exit (no por kill)' ($src -match 'Test-Path -LiteralPath \$MarcaSalir[\s\S]{0,400}exit 0') ''
+Comp 'el bucle la mira y sale por exit (no por kill)' ($src -match 'Test-Path -LiteralPath \$MarcaSalir[\s\S]{0,1200}exit 0') ''
+# Y CIERRA SUS WORKERS ANTES (18/09, noche): el de escucha miraba al padre solo en su pulso, cada
+# 15 s, y se quedaba vivo hasta que parar-nova.ps1 lo mataba. La charla por Stop-Charla, escucha
+# y voz por Kill, y todo ANTES del exit, que despues ya no hay quien lo haga.
+Comp 'y cierra sus workers antes de salir (charla, escucha, voz)' ($src -match 'Test-Path -LiteralPath \$MarcaSalir[\s\S]{0,900}Stop-Charla[\s\S]{0,500}wakeProc[\s\S]{0,200}ttsProc[\s\S]{0,300}\.Kill\(\)[\s\S]{0,300}exit 0') ''
 Comp 'y el cierre deja su linea en el log' ($src -match 'PowerShell\.Exiting[\s\S]{0,200}VoiceAssistant cerrado') ''
 Comp 'existe tools\parar-nova.ps1' (Test-Path -LiteralPath (Join-Path $raiz 'tools\parar-nova.ps1')) ''
 
