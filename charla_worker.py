@@ -776,6 +776,26 @@ def cerebro_dicho(que):
     return False
 
 
+# DE DONDE SALE CADA LINEA DEL DIARIO (20/09, D4). C7 cerro la puerta por la que el banco
+# metia recuerdos falsos -los osos polares y Hades acabaron en memoria\diario-: ya no se
+# escribe sin que digan la carpeta. Esto es la otra mitad, la de dentro: cada linea dice
+# de donde viene, y el resumidor solo se queda con las reales.
+#
+# LA SENAL NO HAY QUE INVENTARLA NI RECORDARLA: la carpeta ya lo dice. Si escribimos en
+# memoria\cerebro es la memoria de verdad; cualquier otra carpeta es una prueba. Asi no
+# depende de que alguien se acuerde de pasar una marca, que es justo lo que fallo.
+CEREBRO_REAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "memoria", "cerebro")
+
+
+def origen_linea():
+    try:
+        if not CARPETA_CEREBRO:
+            return "prueba"
+        return "real" if os.path.normcase(os.path.abspath(CARPETA_CEREBRO)) == os.path.normcase(CEREBRO_REAL) else "prueba"
+    except Exception:   # noqa: BLE001
+        return "prueba"   # ante la duda, NO es memoria de verdad
+
+
 def ruta_charla(dia):
     return os.path.join(CARPETA_CEREBRO, "charla-%s.jsonl" % dia)
 
@@ -788,7 +808,8 @@ def apuntar_charla(texto, respuesta):
     try:
         os.makedirs(CARPETA_CEREBRO, exist_ok=True)
         with open(ruta_charla(time.strftime("%Y-%m-%d")), "a", encoding="utf-8") as f:
-            f.write(json.dumps({"h": time.strftime("%H:%M"), "braya": cm.limpio(texto, 300),
+            f.write(json.dumps({"h": time.strftime("%H:%M"), "o": origen_linea(),
+                                "braya": cm.limpio(texto, 300),
                                 "nova": cm.limpio(respuesta, 300)}, ensure_ascii=False) + "\n")
     except Exception:  # noqa: BLE001
         pass
@@ -806,12 +827,20 @@ def resumir_dias_pasados(hoy=None):
         nombres = sorted(n for n in os.listdir(CARPETA_CEREBRO) if n.startswith("charla-") and n.endswith(".jsonl"))
     except OSError:
         return False
+    # SOLO SE FILTRA CUANDO ESTAMOS EN LA MEMORIA DE VERDAD (20/09). La primera version
+    # tiraba toda linea marcada "prueba" en cualquier sitio, y con eso el resumen se
+    # volvia imposible de probar: el banco escribe en su propia carpeta, o sea que TODO
+    # quedaba marcado como prueba y no se resumia nada. Lo que hay que proteger es la
+    # memoria real de lineas ajenas; dentro de una carpeta de pruebas, todo es coherente
+    # y el resumen tiene que funcionar igual que de verdad.
+    aqui_es_real = (origen_linea() == "real")
     for n in nombres:
         dia = n[len("charla-"):-len(".jsonl")]
         if dia >= hoy:
             continue
         ruta = os.path.join(CARPETA_CEREBRO, n)
         turnos = []
+        saltadas = 0
         try:
             with open(ruta, encoding="utf-8") as f:
                 for linea in f:
@@ -819,9 +848,20 @@ def resumir_dias_pasados(hoy=None):
                         t = json.loads(linea)
                     except ValueError:
                         continue
+                    # SOLO LO REAL LLEGA AL RESUMEN (20/09, D4). Una linea marcada como
+                    # prueba se salta aqui aunque se haya colado en el fichero: es la
+                    # segunda cerradura, por si algun dia falla la primera (C7).
+                    # Las lineas VIEJAS no traen el campo y cuentan como reales: son de
+                    # antes de esta marca, y las contaminadas ya se borraron el 19/09.
+                    # Tratarlas como sospechosas borraria historial bueno.
+                    if aqui_es_real and t.get("o", "real") != "real":
+                        saltadas += 1
+                        continue
                     turnos.append("braya: %s\nNova: %s" % (t.get("braya", ""), t.get("nova", "")))
         except OSError:
             continue
+        if saltadas:
+            salida("info", texto="diario %s: me salto %d linea(s) que no son de uso real" % (dia, saltadas))
         if not turnos:
             try:
                 os.remove(ruta)

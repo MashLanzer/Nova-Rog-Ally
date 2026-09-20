@@ -287,6 +287,10 @@ Titulo "2n24. Que la charla y la traduccion no se pasen la misma frase sin parar
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-rebote.ps1')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:todo correcto)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n42. El diario dice de donde viene cada linea (y el resumen solo usa lo real)"
+python (Join-Path $PSScriptRoot 'probar-diario-origen.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:solo usa lo real)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n41. Cuanto tarda la nube (el dato que le faltaba a C9)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-nube-tiempo.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no se inventan un p90)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
