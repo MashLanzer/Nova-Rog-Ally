@@ -33,7 +33,13 @@ $LogDir = $base
 $dirUso = Join-Path $base 'pruebas\audio\uso'
 $null = New-Item -ItemType Directory -Path $TmpDir -Force
 $null = New-Item -ItemType Directory -Path $dirUso -Force
+$DestinosFallo = Invoke-Expression (($ast.Find({ param($x)
+    $x -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+    $x.Left.Extent.Text -eq '$DestinosFallo' }, $true)).Right.Extent.Text)
 Invoke-Expression (Traer 'Write-DestinoUso')
+# la llama Write-DestinoUso: sin traerla aqui el banco revienta con CommandNotFoundException
+Invoke-Expression (Traer 'Write-FalloDeducido')
+$script:ultimoDeducidoId = ''
 Invoke-Expression (Traer 'Write-FalloUso')
 
 $mal = 0
@@ -114,6 +120,41 @@ $nAntes = @([System.IO.File]::ReadAllLines($fDestinos)).Count
 $f4 = Write-FalloUso 'sin ninguna orden antes'
 $n5 = @([System.IO.File]::ReadAllLines($fDestinos)).Count
 if ((-not $f4) -and $n5 -eq $nAntes) { Write-Host '  OK   sin orden previa no apunta ni revienta' } else { Write-Host "  MAL  apunto sin orden previa (devolvio=$f4)"; $mal++ }
+
+Write-Host '  -- un fallo deducido: rastro aparte, y sin robarle el id a la queja --'
+$fSenales = Join-Path $dirUso 'senales-fallo.jsonl'
+$nDestAntes = @([System.IO.File]::ReadAllLines($fDestinos)).Count
+$script:ultimoDeducidoId = ''
+[System.IO.File]::WriteAllText($fMarca, '20260920-030000')
+$dS = Write-DestinoUso 'descarte' 'pon la novena cancion'
+if (Test-Path -LiteralPath $fSenales) { Write-Host '  OK   el descarte deja su senal' } else { Write-Host '  MAL  el descarte no dejo senal'; $mal++ }
+if (Test-Path -LiteralPath $fSenales) {
+    $lS = @([System.IO.File]::ReadAllLines($fSenales))
+    $jS = $lS[0] | ConvertFrom-Json
+    if ($lS.Count -eq 1) { Write-Host '  OK   una sola linea' } else { Write-Host "  MAL  lineas=$($lS.Count)"; $mal++ }
+    if ($jS.senal -eq 'descarte') { Write-Host '  OK   con la senal, no con hizo' } else { Write-Host "  MAL  senal=$($jS.senal)"; $mal++ }
+    if (-not $jS.hizo) { Write-Host "  OK   y sin 'hizo': no se confunde con lo que dice braya" } else { Write-Host "  MAL  trae hizo=$($jS.hizo)"; $mal++ }
+    if ($jS.id -eq '20260920-030000') { Write-Host '  OK   con el id de esa orden' } else { Write-Host "  MAL  id=$($jS.id)"; $mal++ }
+    if ($jS.peso -eq 'alto') { Write-Host '  OK   y con peso alto' } else { Write-Host "  MAL  peso=$($jS.peso)"; $mal++ }
+}
+$nDestDespues = @([System.IO.File]::ReadAllLines($fDestinos)).Count
+if ($nDestDespues -eq ($nDestAntes + 1)) { Write-Host '  OK   destinos.jsonl solo crece por su destino' } else { Write-Host "  MAL  destinos.jsonl crecio de mas ($nDestAntes -> $nDestDespues)"; $mal++ }
+# LO QUE NO PUEDE PASAR NUNCA: que la senal deducida deje a braya sin poder quejarse
+$fQ = Write-FalloUso 'queria la novena de verdad'
+$nDestQ = @([System.IO.File]::ReadAllLines($fDestinos)).Count
+if ($fQ -and $nDestQ -eq ($nDestDespues + 1)) { Write-Host '  OK   y despues braya todavia puede decir que estuvo mal' } else { Write-Host "  MAL  la senal deducida se comio el id (devolvio=$fQ)"; $mal++ }
+# el boton pulsado sin hablar no es un fallo
+$nS1 = @([System.IO.File]::ReadAllLines($fSenales)).Count
+$script:ultimoDeducidoId = ''
+[System.IO.File]::WriteAllText($fMarca, '20260920-030100')
+[void](Write-DestinoUso 'error' 'dictado vacio')
+$nS2 = @([System.IO.File]::ReadAllLines($fSenales)).Count
+if ($nS2 -eq $nS1) { Write-Host '  OK   el boton pulsado sin hablar no cuenta' } else { Write-Host '  MAL  conto el dictado vacio'; $mal++ }
+# y 'recitado', que es seco pero es un ACIERTO, tampoco
+[System.IO.File]::WriteAllText($fMarca, '20260920-030200')
+[void](Write-DestinoUso 'recitado' 'la lista de la compra')
+$nS3 = @([System.IO.File]::ReadAllLines($fSenales)).Count
+if ($nS3 -eq $nS1) { Write-Host '  OK   y un recitado tampoco: es un acierto' } else { Write-Host '  MAL  conto un recitado como fallo'; $mal++ }
 
 Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ''

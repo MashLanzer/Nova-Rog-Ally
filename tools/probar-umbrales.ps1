@@ -24,6 +24,10 @@ $txt = [System.IO.File]::ReadAllText($rutaA, [System.Text.Encoding]::UTF8)
 $DecisionAprovecha = if ($txt -match '\$DecisionAprovecha = ([0-9.]+)') { [double]$Matches[1] } else { -1 }
 $DecisionMinIntentos = if ($txt -match '\$DecisionMinIntentos = ([0-9]+)') { [int]$Matches[1] } else { -1 }
 Invoke-Expression (Traer 'Get-DecisionMinimo')
+$DecisionAlfa = if ($txt -match '\$DecisionAlfa = ([0-9.]+)') { [double]$Matches[1] } else { -1 }
+$DecisionPorAcierto = if ($txt -match '\$DecisionPorAcierto = ([0-9]+)') { [int]$Matches[1] } else { -1 }
+Invoke-Expression (Traer 'Get-DecisionPValor')
+Invoke-Expression (Traer 'Test-DecisionSolida')
 
 $mal = 0
 function Comp([string]$etq, [bool]$ok, [string]$det) {
@@ -45,6 +49,45 @@ Comp 'y el neto del oido fino (22) SI aporta' ((27 - 5) -ge (Get-DecisionMinimo 
 Comp 'redondea hacia arriba, no hacia abajo' ((Get-DecisionMinimo 21) -eq 4) "21 -> $(Get-DecisionMinimo 21)"
 Comp 'con 0 intentos no pide nada' ((Get-DecisionMinimo 0) -eq 0) ''
 
+Write-Host ''
+Write-Host '  -- el alfa: la revision corre TODOS los dias, asi que 0,05 no vale --'
+Comp 'el alfa esta definido y no pasa de 0,01' ($DecisionAlfa -gt 0 -and $DecisionAlfa -le 0.01) "$DecisionAlfa"
+Comp 'y cada acierto pide mas intentos' ($DecisionPorAcierto -ge 1) "$DecisionPorAcierto"
+
+Write-Host '  -- la binomial, contra numeros calculados aparte --'
+# los p-valores estan calculados fuera de aqui; si la implementacion se tuerce, no cuadran
+Comp '0 de 20: p = 0,0388 (no llega al 1 %)' ([Math]::Abs((Get-DecisionPValor 0 20) - 0.03875953) -lt 1e-7) "$(Get-DecisionPValor 0 20)"
+Comp '1 de 29 -el caso real-: p = 0,0549' ([Math]::Abs((Get-DecisionPValor 1 29) - 0.05492035) -lt 1e-7) "$(Get-DecisionPValor 1 29)"
+Comp '2 de 81 -la nube real-: p = 0,00022' ([Math]::Abs((Get-DecisionPValor 2 81) - 0.00022290) -lt 1e-7) "$(Get-DecisionPValor 2 81)"
+Comp 'sin intentos no decide nada (p = 1)' ((Get-DecisionPValor 0 0) -eq 1.0) ''
+Comp 'un neto negativo cuenta como 0, no como imposible' ((Get-DecisionPValor (-3) 40) -eq (Get-DecisionPValor 0 40)) ''
+# LO QUE MAS IMPORTA DE LA IMPLEMENTACION: con 2000 intentos, 0,85^2000 es cero en coma
+# flotante. Sumado a pelo daria p = 0 y Nova apagaria por un desbordamiento.
+Comp 'y un historial enorme NO desborda a p = 0' ((Get-DecisionPValor 400 2000) -gt 0.99) "$(Get-DecisionPValor 400 2000)"
+
+Write-Host '  -- la regla nueva, con los datos de verdad de braya --'
+Comp '1 de 29 ya NO se apaga (antes si)' (-not (Test-DecisionSolida 1 29)) ''
+Comp 'pero 1 de 42 si' (Test-DecisionSolida 1 42) ''
+Comp '0 de 20 tampoco: hacen falta 29' (-not (Test-DecisionSolida 0 20)) ''
+Comp 'y 0 de 29 si' (Test-DecisionSolida 0 29) ''
+Comp 'la nube real (2 de 81) se apagaria' (Test-DecisionSolida 2 81) ''
+Comp 'el oido fino real (neto 28 de 110) no' (-not (Test-DecisionSolida (33 - 5) 110)) ''
+Comp 'y 6 de 29 tampoco: harian falta 93' (-not (Test-DecisionSolida 6 29)) ''
+
+Write-Host '  -- y NUNCA es mas blanda que la regla de ayer --'
+# la regla de ayer: 20 intentos y menos del 15 %. Se barren todos los casos plausibles
+# buscando UNO en que la nueva apague algo que la vieja dejaba puesto. No puede haberlo.
+$blanda = 0
+foreach ($nB in 20..400) {
+    foreach ($kB in 0..12) {
+        if ($kB -ge $nB) { continue }
+        $vieja = ($nB -ge $DecisionMinIntentos -and $kB -lt (Get-DecisionMinimo $nB))
+        if ((Test-DecisionSolida $kB $nB) -and (-not $vieja)) { $blanda++ }
+    }
+}
+Comp 'ni un caso en que decida donde la vieja no decidia' ($blanda -eq 0) "casos=$blanda"
+
+Write-Host ''
 Write-Host '  -- y NADIE escribe el numero a mano (lo que se queria evitar) --'
 # se miran solo las funciones que deciden: si vuelve a aparecer un 0.15 o un "-lt 20" ahi
 # dentro, es que alguien ha duplicado el criterio y volvemos al problema de partida
@@ -62,6 +105,11 @@ $cuantas = ([regex]::Matches($cuerpoR, 'Get-DecisionMinimo')).Count
 Comp 'las tres decisiones usan el calculo compartido' ($cuantas -ge 3) "usos=$cuantas"
 $cuantosMin = ([regex]::Matches($cuerpoR, 'DecisionMinIntentos')).Count
 Comp 'y las tres el minimo de intentos' ($cuantosMin -ge 3) "usos=$cuantosMin"
+# 20/09: y las tres pasan tambien por la binomial. Si alguien anade una cuarta decision y
+# se olvida del portero, esto se pone rojo.
+$cuantasB = ([regex]::Matches($cuerpoR, 'Test-DecisionSolida')).Count
+Comp 'y las tres por la prueba binomial' ($cuantasB -ge 3) "usos=$cuantasB"
+Comp 'el aviso de "decision esperando" tambien' ((Traer 'Get-AvisoSinDatos') -match 'Test-DecisionSolida') ''
 
 # EL SI/NO: EL WORKER TIENE QUE ESCUCHAR MAS DE LO QUE EL ASISTENTE ESPERA (18/09). Eran 5 s
 # de worker frente a 3,5 s + la voz del asistente, al reves de como debe ser, y nadie lo

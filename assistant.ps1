@@ -1545,6 +1545,11 @@ function Invoke-Olvido([int]$minutos) {
     & $sumar 'audios de uso' (Remove-ArchivosDesde $usoDir '*.wav' $corte)
     & $sumar 'el registro' (Remove-JsonlDesde (Join-Path $usoDir 'registro.jsonl') $corte)
     & $sumar 'el registro' (Remove-JsonlDesde (Join-Path $usoDir 'destinos.jsonl') $corte)
+    # senales-fallo.jsonl nacio DESPUES que esta lista (P1, el mismo dia) y trae el
+    # texto de la orden en 'detalle'. Es la primera fila que se anade desde que la
+    # lista existe: si no estuviera aqui, el olvido volveria a dejarse un sitio.
+    & $sumar 'el registro' (Remove-JsonlDesde (Join-Path $usoDir 'senales-fallo.jsonl') $corte)
+    & $sumar 'el registro' (Remove-JsonlDesde (Join-Path $usoDir 'activaciones.jsonl') $corte)
 
     # 3) lo que esta a medio camino en tmp (el wav que viaja a la nube vive aqui)
     & $sumar 'audios sueltos' (Remove-ArchivosDesde $TmpDir '*.wav' $corte)
@@ -1654,6 +1659,12 @@ $DestinosNeutros = @('charla', 'traducir', 'plan', 'accion', 'pregunta')
 # $DestinosUso, y son los que NO deben encadenar otra ventana de microfono: anoche
 # 5 activaciones falsas se convirtieron en 14 grabaciones justamente asi.
 $DestinosSecos = @('descarte', 'ruido', 'error', 'recitado')
+# LO QUE ES UN FALLO AUNQUE NADIE LO DENUNCIE (20/09). Son los destinos de $DestinosUso
+# que significan "no hizo nada con la frase", y coinciden con el $UsoMal de
+# Get-ComoTeEntendi (2118) y el MAL de tools\analizar-uso.py a proposito.
+# OJO: NO es $DestinosSecos. 'recitado' es seco -no encadena- pero cuenta como ACIERTO
+# en las dos listas de arriba, y meterlo aqui apuntaria como fallo algo que salio bien.
+$DestinosFallo = @('descarte', 'ruido', 'error')
 # EL DESCARTE LOCAL NO ES UN DESENLACE, ES UNA PARADA (19/09). Medido en el log del 18/09:
 # de las 14 ordenes apuntadas como 'descarte', TRES acabaron BIEN y quedaron contadas como
 # fallo. 'descarte' se escribe en Process-Texto justo ANTES de mandar la frase al modelo y,
@@ -1751,6 +1762,14 @@ function Write-DestinoUso([string]$ruta, [string]$detalle = '', [bool]$deCamino 
         # el id de la marca ya se ha consumido y no quedaria a que orden referirse
         $script:ultimoUsoId = $idU
         $script:ultimoUsoEn = $sw.ElapsedMilliseconds
+        # Y SI NO LLEGO A NINGUN SITIO, QUE SE SEPA (20/09). Ver Write-FalloDeducido.
+        # Aqui, y no en cada uno de los doce sitios que apuntan un destino: un ancla
+        # sola no se puede olvidar en la mitad de los caminos.
+        # $deCamino fuera: el descarte local es una parada y tres de los 14 del 18/09
+        # acabaron BIEN; apuntarlo ahi seria inventarse un fallo.
+        if (-not $neutroU -and -not $deCamino -and ($DestinosFallo -contains $ruta)) {
+            try { [void](Write-FalloDeducido $ruta $dU $idU) } catch {}
+        }
         return $true
     } catch { return $false }
 }
@@ -1783,6 +1802,156 @@ function Write-FalloUso([string]$porque = '') {
         Log "USO: la orden $idF queda marcada como fallo (lo dijiste tu)"
         return $true
     } catch { return $false }
+}
+
+# UN FALLO QUE NADIE DENUNCIA SIGUE SIENDO UN FALLO (20/09). 'fallo-dicho-por-ti' es el
+# unico dato humano de toda la medicion y va 0 de 236: braya no le ha dicho nunca "no era
+# eso" a Nova. Con ese 0, la meta -cero ordenes equivocadas- no se puede medir, y el motor
+# de decisiones propias lleva 0 decisiones en su vida por falta de dato, no por falta de
+# motor.
+#
+# Nova YA sabe cuando no ha llegado a ningun sitio. El 18/09 apunto 14 'descarte',
+# 7 'ruido' y 44 'no-orden-a-charla', y ninguna de esas senales dejaba rastro POR ORDEN.
+# Aqui se apuntan. APARTE, y por dos razones que no son la misma:
+#   1. NO VALEN LO MISMO. Lo que dice braya es verdad; esto es una sospecha. Mezclarlas
+#      bajo 'fallo-dicho-por-ti' ensuciaria la unica senal humana que hay, que es justo
+#      la que mide la meta. Por eso la clave es 'senal', no 'hizo'.
+#   2. NO SE TOCA LA CUENTA QUE YA FUNCIONA. Get-ComoTeEntendi y tools\analizar-uso.py
+#      leen destinos.jsonl y se quedan con la ULTIMA linea de cada id: una linea mas alli
+#      le cambiaria el destino a una orden ya contada, y una 'local' pasaria de acierto a
+#      ni-fu-ni-fa. En fichero aparte no pueden ni enterarse, y no hay que tocar ninguna
+#      de las tres listas que probar-meta.ps1 vigila.
+# Es la misma razon por la que destinos.jsonl nacio separado de registro.jsonl.
+#
+# NO CONSUME NADA, y esto es lo importante: ni borra tmp\dictado-id.txt ni vacia
+# $script:ultimoUsoId. Write-FalloUso SI los consume (una queja por orden). Si esta se
+# los comiera, un "no era eso" dicho despues se quedaria sin id y se perderia el unico
+# dato humano que existe: exactamente lo contrario de lo que esto viene a hacer.
+$script:ultimoDeducidoId = ''   # una senal por orden, la primera; no se cuenta dos veces
+function Write-FalloDeducido([string]$senal = '', [string]$detalle = '', [string]$id = '') {
+    if (-not $senal) { return $false }
+    $dF = ($detalle -replace '\s+', ' ').Trim()
+    if ($dF.Length -gt 120) { $dF = $dF.Substring(0, 117) + '...' }
+    # EL BOTON PULSADO SIN HABLAR NO ES QUE NO TE ENTIENDA (medido el 19/09): la misma
+    # linea que ya deja fuera Get-ComoTeEntendi. Esas ordenes nunca entregaron texto, y
+    # los 4 'error' que hay en el registro son todos este caso.
+    if ($senal -eq 'error' -and $dF -eq 'dictado vacio') { return $false }
+    $idD = $id
+    if (-not $idD) {
+        # sin id a mano se mira la marca del worker, y se mira SIN consumirla
+        $marcaD = Join-Path $TmpDir 'dictado-id.txt'
+        if (Test-Path -LiteralPath $marcaD) {
+            try { $idD = ([System.IO.File]::ReadAllText($marcaD)).Trim() } catch { $idD = '' }
+        }
+    }
+    if (-not $idD) { $idD = [string]$script:ultimoUsoId }
+    if (-not $idD) { return $false }
+    if ($idD -eq $script:ultimoDeducidoId) { return $false }
+    try {
+        $dirD = Join-Path $LogDir 'pruebas\audio\uso'
+        if (-not (Test-Path -LiteralPath $dirD)) { return $false }   # sin grabaciones, nada que emparejar
+        # 'alto': Nova no hizo NADA con la frase. 'bajo': hizo algo, pero pudo no ser lo
+        # que se le pedia. Van con peso para que quien lo lea los cuente por separado; si
+        # se sumaran a pelo, el 18/09 saldrian 63 fallos de 114 ordenes y no es verdad.
+        $pesoD = if ($senal -eq 'no-orden-a-charla') { 'bajo' } else { 'alto' }
+        $oD = [ordered]@{ id = $idD; hora = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'); senal = $senal; peso = $pesoD; detalle = $dF }
+        # UTF-8 SIN BOM, como destinos.jsonl: el BOM rompe la primera linea desde Python
+        [System.IO.File]::AppendAllText((Join-Path $dirD 'senales-fallo.jsonl'),
+            ((ConvertTo-Json -InputObject $oD -Compress) + [Environment]::NewLine),
+            (New-Object System.Text.UTF8Encoding($false)))
+        $script:ultimoDeducidoId = $idD
+        return $true
+    } catch { return $false }
+}
+
+# EL CONTADOR DE FALSAS ALARMAS DIVIDIA DOS POBLACIONES DISTINTAS (20/09). La tabla de
+# memoria\estadisticas.md decia 115 %, 250 % y hasta 489 %, y un porcentaje imposible no es
+# un numero que nadie pueda mirar: arriba ponia las veces que Nova se desperto al oir su
+# NOMBRE (contador 'activacion') y abajo TODO lo que acabo en nada ese dia (ruido +
+# descarte + error), que viene casi entero del boton y del seguimiento. Dividir una
+# poblacion entre otra no mide nada: el 11/09 salian 19 activaciones y 93 finales en nada.
+#
+# Lo que SI se puede cruzar esta en las grabaciones, y por id:
+#   pruebas\audio\uso\registro.jsonl   una linea por grabacion, con 'origen': 'nombre'
+#                                      (se desperto sola), 'boton', 'boton o seguimiento'.
+#   pruebas\audio\uso\destinos.jsonl   una linea por destino de esa misma orden, mismo id.
+# Acaba EN NADA la activacion por nombre cuyo ULTIMO destino de $DestinosUso esta en
+# $DestinosSecos ('descarte', 'ruido', 'error', 'recitado'), y tambien la que no dejo
+# ninguna linea: se desperto y no salio nada de ahi. Manda el ultimo porque 'descarte' se
+# apunta de camino, antes de mandar la frase al modelo (ver Write-DestinoUso), y tres del
+# 18/09 acabaron bien despues. La charla y el traductor ($DestinosNeutros) NO son nada:
+# son lo que Nova hizo con la frase, no un final en falso.
+#
+# SOLO LOS DIAS QUE TENGAN destinos.jsonl: antes del 18/09 ese fichero no existia, y contar
+# aquellas activaciones daria un 100 % falso por falta de datos, que es la misma clase de
+# mentira que esto viene a quitar.
+#
+# MEDIDO con sus grabaciones el 20/09: 18/09 -> 7 de 18; 19/09 -> 3 de 4. En la tabla
+# salen 39 % y 75 % (7 de 18 son 38,9 %, y aqui se redondea como en Get-ComoTeEntendi;
+# el informe que pidio esto decia 38 % porque truncaba). Con la cuenta vieja esos mismos
+# dias daban 114 % y 100 %.
+$script:falsasCache = $null
+$script:falsasSello = ''
+function Get-FalsasAlarmas([string]$dirUso = '') {
+    $fa = @{}
+    if (-not $dirUso) { $dirUso = Join-Path $LogDir 'pruebas\audio\uso' }
+    $rReg = Join-Path $dirUso 'registro.jsonl'
+    $rDes = Join-Path $dirUso 'destinos.jsonl'
+    # sin grabaciones no se inventa un numero, igual que Get-ComoTeEntendi
+    if (-not (Test-Path -LiteralPath $rReg)) { return $fa }
+    if (-not (Test-Path -LiteralPath $rDes)) { return $fa }
+    # LA VELOCIDAD MANDA (es la primera preferencia de braya): a esto lo llama
+    # Add-Estadistica en CADA orden, y releer los dos ficheros enteros cuesta 7,9 ms con las
+    # 820 lineas de hoy, que crecen con el uso. Los dos solo se escriben por el final y
+    # nunca se reescriben, asi que si ninguno ha cambiado de tamano el cruce sale igual y se
+    # devuelve el de antes. Quien lo recibe solo lee.
+    $selloF = ''
+    try { $selloF = $dirUso + '|' + (Get-Item -LiteralPath $rReg).Length + '|' + (Get-Item -LiteralPath $rDes).Length } catch { $selloF = '' }
+    if ($selloF -and $selloF -eq $script:falsasSello -and $null -ne $script:falsasCache) { return $script:falsasCache }
+    $ultimo = @{}     # id -> ultimo destino suyo que este en $DestinosUso
+    $conLinea = @{}   # id -> dejo alguna linea, aunque fuera neutra
+    $diasConDatos = @{}
+    try {
+        foreach ($lF in [System.IO.File]::ReadAllLines($rDes, [System.Text.Encoding]::UTF8)) {
+            $tF = [string]$lF
+            if ($tF -notmatch '"id"\s*:\s*"([^"]+)"') { continue }
+            $idF = $Matches[1]
+            # el id ES la fecha (20260919-093314): el dia sale sin parsear ninguna hora
+            if ($idF.Length -lt 8) { continue }
+            $diaF = $idF.Substring(0, 4) + '-' + $idF.Substring(4, 2) + '-' + $idF.Substring(6, 2)
+            $conLinea[$idF] = $true
+            $diasConDatos[$diaF] = $true
+            if ($tF -notmatch '"hizo"\s*:\s*"([^"]*)"') { continue }
+            $hF = $Matches[1]
+            if ($DestinosUso -contains $hF) { $ultimo[$idF] = $hF }
+        }
+    } catch { return @{} }
+    try {
+        foreach ($lF in [System.IO.File]::ReadAllLines($rReg, [System.Text.Encoding]::UTF8)) {
+            $tF = [string]$lF
+            # SOLO LAS QUE SE DESPERTARON POR SU NOMBRE: ese es el denominador honesto.
+            if ($tF -notmatch '"origen"\s*:\s*"nombre"') { continue }
+            if ($tF -notmatch '"id"\s*:\s*"([^"]+)"') { continue }
+            $idF = $Matches[1]
+            if ($idF.Length -lt 8) { continue }
+            $diaF = $idF.Substring(0, 4) + '-' + $idF.Substring(4, 2) + '-' + $idF.Substring(6, 2)
+            if (-not $diasConDatos.ContainsKey($diaF)) { continue }
+            if (-not $fa.ContainsKey($diaF)) { $fa[$diaF] = @{ act = 0; nada = 0; pct = 0 } }
+            $fa[$diaF].act++
+            if ($ultimo.ContainsKey($idF)) {
+                if ($DestinosSecos -contains $ultimo[$idF]) { $fa[$diaF].nada++ }
+            } elseif (-not $conLinea.ContainsKey($idF)) {
+                $fa[$diaF].nada++
+            }
+        }
+    } catch { return @{} }
+    foreach ($kF in @($fa.Keys)) {
+        # se REDONDEA, como Get-ComoTeEntendi: dos numeros de la misma casa no pueden
+        # redondear cada uno a su manera
+        $fa[$kF].pct = [int][Math]::Round(100.0 * $fa[$kF].nada / [Math]::Max(1, $fa[$kF].act))
+    }
+    if ($selloF) { $script:falsasSello = $selloF; $script:falsasCache = $fa }
+    return $fa
 }
 
 function Add-Estadistica([string]$ruta, [string]$detalle = '', [bool]$deCamino = $false) {
@@ -1855,16 +2024,17 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '', [bool]$deCamino =
         [void]$sb.AppendLine("## Falsas alarmas")
         [void]$sb.AppendLine("")
         [void]$sb.AppendLine("De cada vez que se desperto al oir su nombre, cuantas acabaron sin ejecutar nada.")
+        [void]$sb.AppendLine("Sale de las grabaciones (pruebas\audio\uso): las activaciones con origen 'nombre', cruzadas por id con su destino. Hasta el 20/09 se dividia el ruido del dia entero entre las activaciones por nombre -dos poblaciones distintas- y salian 115 %, 250 % y hasta 489 %.")
         [void]$sb.AppendLine("Si sube, el microfono esta cazando ruido; si las activaciones caen a cero, se ha vuelto sordo.")
+        [void]$sb.AppendLine("Solo salen los dias con destinos apuntados: sin ellos el porcentaje seria un 100 % por falta de datos, no por fallar.")
         [void]$sb.AppendLine("")
+        $fa = @{}
+        try { $fa = Get-FalsasAlarmas } catch { $fa = @{} }
+        if ($fa.Count -eq 0) { [void]$sb.AppendLine("_todavia no hay grabaciones que cruzar_"); [void]$sb.AppendLine("") }
         [void]$sb.AppendLine("| día | activaciones | en nada | % |")
         [void]$sb.AppendLine("|---|---:|---:|---:|")
-        foreach ($k in ($s.dias.Keys | Sort-Object -Descending | Select-Object -First 14)) {
-            $act = 0; $nada = 0
-            if ($s.dias[$k].ContainsKey('activacion')) { $act = $s.dias[$k]['activacion'] }
-            foreach ($r in @('ruido', 'descarte', 'error')) { if ($s.dias[$k].ContainsKey($r)) { $nada += $s.dias[$k][$r] } }
-            $pct = if ($act -gt 0) { [int](100.0 * $nada / $act) } else { 0 }
-            [void]$sb.AppendLine("| $k | $act | $nada | $pct % |")
+        foreach ($k in ($fa.Keys | Sort-Object -Descending | Select-Object -First 14)) {
+            [void]$sb.AppendLine("| $k | $($fa[$k].act) | $($fa[$k].nada) | $($fa[$k].pct) % |")
         }
         [void]$sb.AppendLine("")
         [void]$sb.AppendLine("## No reconocido por la capa local")
@@ -2232,10 +2402,12 @@ function Get-QueHeHecho {
             foreach ($r in @('local', 'aprendida', 'traducida', 'memoria')) {
                 if ($d.ContainsKey($r)) { $hechas += [int]$d[$r] }
             }
+            # LAS QUE SE DESPERTARON PARA NADA, DE LA MISMA POBLACION (20/09): ver
+            # Get-FalsasAlarmas. Antes se sumaba el ruido del dia entero, que llega casi
+            # todo por el boton y por el seguimiento; el 18/09 habria dicho 31 donde de
+            # verdad fueron 7.
             $nada = 0
-            foreach ($r in @('ruido', 'descarte', 'error')) {
-                if ($d.ContainsKey($r)) { $nada += [int]$d[$r] }
-            }
+            try { $faP = Get-FalsasAlarmas; if ($faP.ContainsKey($hoy)) { $nada = [int]$faP[$hoy].nada } } catch { $nada = 0 }
             if ($hechas -gt 0) {
                 $t = "me diste $hechas ordenes"
                 if ($nada -gt 0) { $t += " y $nada veces me desperte para nada" }
@@ -5868,7 +6040,7 @@ function Watch-Musica($mu) {
 $script:habitos = $null
 function Get-Habitos {
     if ($null -ne $script:habitos) { return $script:habitos }
-    $script:habitos = @{ usos = (New-Object System.Collections.ArrayList); rechazadas = (New-Object System.Collections.ArrayList); ultimaPropuesta = ''; fin = @{}; cargaAvisada = ''; nivelVisto = 0; brilloAuto = $false; parteVisto = ''; ritmo = (New-Object System.Collections.ArrayList); charlaHoras = @{}; minutosJuego = @{}; presencia = @{} }
+    $script:habitos = @{ usos = (New-Object System.Collections.ArrayList); rechazadas = (New-Object System.Collections.ArrayList); ultimaPropuesta = ''; fin = @{}; cargaAvisada = ''; nivelVisto = 0; brilloAuto = $false; parteVisto = ''; sinDatosVisto = ''; ritmo = (New-Object System.Collections.ArrayList); charlaHoras = @{}; minutosJuego = @{}; presencia = @{} }
     $rutaH = Join-Path $MemoriaDir 'habitos.json'
     if (Test-Path -LiteralPath $rutaH) {
         try {
@@ -5888,6 +6060,7 @@ function Get-Habitos {
             $script:habitos.nivelVisto = [int]$crudoH.nivelVisto
             $script:habitos.brilloAuto = [bool]$crudoH.brilloAuto
             $script:habitos.parteVisto = [string]$crudoH.parteVisto
+            $script:habitos.sinDatosVisto = [string]$crudoH.sinDatosVisto
             if ($crudoH.minutosJuego) { foreach ($pM in $crudoH.minutosJuego.PSObject.Properties) { $script:habitos.minutosJuego[$pM.Name] = [int]$pM.Value } }
             # CUANDO TE VI POR ULTIMA VEZ (18/09). Va en hora de RELOJ, no del cronometro del
             # proceso: con 187 arranques en 9 dias, un reloj de proceso no junta nunca una
@@ -5907,7 +6080,7 @@ function Get-Habitos {
 function Save-Habitos {
     try {
         $hb = Get-Habitos
-        $o = [ordered]@{ usos = @($hb.usos); rechazadas = @($hb.rechazadas); ultimaPropuesta = $hb.ultimaPropuesta; fin = $hb.fin; cargaAvisada = $hb.cargaAvisada; nivelVisto = $hb.nivelVisto; brilloAuto = [bool]$hb.brilloAuto; parteVisto = [string]$hb.parteVisto; ritmo = @($hb.ritmo); charlaHoras = $hb.charlaHoras; minutosJuego = $hb.minutosJuego; presencia = $hb.presencia }
+        $o = [ordered]@{ usos = @($hb.usos); rechazadas = @($hb.rechazadas); ultimaPropuesta = $hb.ultimaPropuesta; fin = $hb.fin; cargaAvisada = $hb.cargaAvisada; nivelVisto = $hb.nivelVisto; brilloAuto = [bool]$hb.brilloAuto; parteVisto = [string]$hb.parteVisto; sinDatosVisto = [string]$hb.sinDatosVisto; ritmo = @($hb.ritmo); charlaHoras = $hb.charlaHoras; minutosJuego = $hb.minutosJuego; presencia = $hb.presencia }
         $rutaH = Join-Path $MemoriaDir 'habitos.json'
         [System.IO.File]::WriteAllText($rutaH + '.tmp', (ConvertTo-Json -InputObject $o -Depth 4), (New-Object System.Text.UTF8Encoding($false)))
         Move-Item -LiteralPath ($rutaH + '.tmp') -Destination $rutaH -Force
@@ -5946,7 +6119,26 @@ function Test-ParteManana([datetime]$ahora = (Get-Date)) {
     $recHoy = @(Get-Recordatorios | Where-Object { $c = $null; try { $c = [DateTime]$_.cuando } catch {}; $c -and $c.Date -eq $ahora.Date })
     if ($recHoy.Count -eq 1) { $partes += "hoy: $($recHoy[0].texto)" }
     elseif ($recHoy.Count -gt 1) { $partes += "$($recHoy.Count) recordatorios hoy" }
-    if ($partes.Count -lt 2) { return }
+    # LA DECISION QUE ESPERA DATOS, EN EL PARTE (20/09). Get-AvisoSinDatos salia por un
+    # aviso suelto de nivel 'medio': se calla de noche, jugando y mientras Nova habla, y
+    # no reintenta nunca. Sono UNA vez (18/09 19:59) y no podia repetir hasta el 25/09.
+    # Aqui sale por donde braya lo lee de verdad, y sin ponerse pesada: una cada 7 dias,
+    # contados desde que SALE (no desde que se intenta), que es lo que fallaba antes.
+    $avisoM = ''
+    if ($script:parteSinDatos) {
+        $ultM = [datetime]::MinValue
+        $recienteM = ($hbM.sinDatosVisto -and [datetime]::TryParse([string]$hbM.sinDatosVisto, [ref]$ultM) -and ($ahora - $ultM).TotalDays -lt 7)
+        if (-not $recienteM) { $avisoM = [string]$script:parteSinDatos; $partes += $avisoM }
+    }
+    # dos datos hacen un parte; una decision esperando vale ella sola
+    if ($partes.Count -lt 2 -and -not $avisoM) { return }
+    if ($avisoM) {
+        # se marca AQUI, ya decidido que el parte sale: si se hubiera callado arriba, el
+        # aviso sigue apuntado para el proximo parte en vez de perderse.
+        $script:parteSinDatos = ''
+        $hbM.sinDatosVisto = $ahora.ToString('yyyy-MM-dd')
+        Save-Habitos
+    }
     $lineaM = 'Buenos dias · ' + ($partes -join ' · ')
     Log "PARTE DE LA MANANA: $lineaM"
     $script:resumenPendiente = if ($script:resumenPendiente) { "$($script:resumenPendiente) · $lineaM" } else { $lineaM }
@@ -6372,6 +6564,12 @@ function Watch-Entorno([int]$botones = 0) {
     if (($ahoraW - $script:entornoCheck) -lt 30000) { return }
     $script:entornoCheck = $ahoraW
 
+    # SE REVISA A SI MISMA: una vez al dia mira sus numeros y apaga lo que no le sirve.
+    # VA DELANTE DEL PARTE DE LA MANANA (20/09, P5), no detras: es quien deja apuntado el
+    # "tengo una decision esperando", y el parte solo sale UNA vez al dia. Detras, lo que
+    # apuntara hoy no se leeria hasta el parte de manana.
+    try { [void](Test-RevisionPropia) } catch { Log ("revision propia: " + $_.Exception.Message) }
+
     # IDEAS 1 y 17: el parte de la manana y el resumen al volver EXISTIAN, pero solo
     # se preparaban dentro de Process-Texto: si no le hablabas, no salian nunca.
     if (-not $script:invitado) {
@@ -6413,9 +6611,6 @@ function Watch-Entorno([int]$botones = 0) {
         $txtD = Get-AvisoHoraDormir
         if ($txtD) { [void](Send-AvisoEntorno 'hora-dormir' $txtD 'noche' 480) }
     } catch {}
-
-    # SE REVISA A SI MISMA: una vez al dia mira sus numeros y apaga lo que no le sirve
-    try { [void](Test-RevisionPropia) } catch { Log ("revision propia: " + $_.Exception.Message) }
 
     # IDEA 29: hoy me estoy equivocando mas de lo normal
     try {
@@ -6642,6 +6837,19 @@ function Undo-DecisionPropia {
 $DecisionMinIntentos = 20      # sin este historial no se juzga nada
 $DecisionAprovecha = 0.15      # por debajo de esto, la herramienta no compensa
 
+# Y CON CUANTA SEGURIDAD SE DEJA DECIDIR (20/09). Lo de arriba es una regla de tres, y con
+# 0 aciertos de 20 funciona. Pero con 1 acierto de 29 -los numeros REALES del ultimo
+# recurso- la probabilidad de ver eso o peor con una herramienta que SI acertara el 15 % es
+# 0,055: ni siquiera el 5 %, y aun asi Nova lo apagaria. Uno de cada veinte apagados seria
+# un error, y braya no soporta los cambios que no tocan.
+#
+# Y hay una segunda razon para apretar mas: la revision corre TODOS LOS DIAS. Mirar muchas
+# veces infla los falsos positivos -el problema del 'peeking'-: con alfa 0,05 y catorce
+# miradas, la probabilidad de equivocarse ALGUNA vez no es el 5 %, es mucho mayor. Con 0,01
+# se compensa, y ademas sube el listo: 29 intentos para 0 aciertos, 42 para 1, 53 para 2.
+$DecisionAlfa = 0.01           # como mucho 1 de cada 100 apagados por casualidad
+$DecisionPorAcierto = 10       # y cada acierto visto pide 10 intentos mas antes de juzgar
+
 # El primer dia ENTERO con la calibracion y la ganancia arregladas fue el 18/09, y ese fue el
 # corte hasta la madrugada del 20/09. Se subio a 2026-09-20 por dos motivos medidos: (1) los
 # contadores del 20/09 son del episodio de las cinco activaciones falsas -conversacion privada
@@ -6668,6 +6876,64 @@ function Test-DiaCuenta([string]$dia) {
 # Cuantos aciertos hacen falta para que algo "aporte", con ese numero de intentos.
 function Get-DecisionMinimo([int]$intentos) {
     return [int][Math]::Ceiling($intentos * $DecisionAprovecha)
+}
+
+# LA PRUEBA BINOMIAL, EN CRUDO (20/09). Probabilidad de sacar $aciertos o MENOS en
+# $intentos veces si la herramienta acertara de verdad el $base (el 15 %). Es la binomial
+# acumulada, sumada termino a termino con la recurrencia de siempre; nada de factoriales,
+# que con 80 intentos ya no caben en un numero.
+#
+# EN LOGARITMOS A PROPOSITO: 0,85 elevado a 300 es 2,6e-22, y elevado a 5000 es cero redondo
+# en coma flotante. Sumando los terminos a pelo, un historial grande daria p = 0 y Nova
+# apagaria cosas por un desbordamiento, que es el peor fallo posible aqui: silencioso y a su
+# favor. Restando el mayor antes de exponenciar, no pasa.
+#
+# Ante cualquier dato absurdo devuelve 1.0, que es 'no decidas': sin intentos, con un
+# aprovecho fuera de (0,1) o con mas aciertos que intentos. Y el neto del oido fino puede
+# ser NEGATIVO (inventa mas de lo que acierta); ahi se trata como 0, que da el p-valor mas
+# alto de los dos y por tanto es el que menos deja decidir.
+function Get-DecisionPValor([int]$aciertos, [int]$intentos, [double]$base = $DecisionAprovecha) {
+    if ($intentos -le 0) { return 1.0 }
+    if ($base -le 0.0 -or $base -ge 1.0) { return 1.0 }
+    if ($aciertos -lt 0) { $aciertos = 0 }
+    if ($aciertos -ge $intentos) { return 1.0 }
+    if ($aciertos -gt 5000) { return 1.0 }
+    $lRazon = [Math]::Log($base) - [Math]::Log(1.0 - $base)
+    $lT = $intentos * [Math]::Log(1.0 - $base)         # log P(X = 0)
+    $logs = New-Object 'double[]' ($aciertos + 1)
+    $logs[0] = $lT
+    $lMax = $lT
+    for ($i = 1; $i -le $aciertos; $i++) {
+        $lT = $lT + [Math]::Log(($intentos - $i + 1) / [double]$i) + $lRazon
+        $logs[$i] = $lT
+        if ($lT -gt $lMax) { $lMax = $lT }
+    }
+    if ($lMax -lt -700.0) { return 0.0 }               # no cabe ni el mayor: es cero de verdad
+    $suma = 0.0
+    foreach ($l in $logs) { $suma += [Math]::Exp($l - $lMax) }
+    $p = $suma * [Math]::Exp($lMax)
+    if ($p -gt 1.0) { return 1.0 }
+    if ($p -lt 0.0) { return 0.0 }
+    return $p
+}
+
+# SI LOS NUMEROS DAN PARA DECIDIR, O SOLO LO PARECEN (20/09). Cuatro filtros, y los cuatro
+# tienen que pasar; el orden va de barato a caro:
+#   1) el suelo de siempre: sin $DecisionMinIntentos intentos no se juzga nada;
+#   2) la regla de tres de siempre: si aporta el 15 %, se queda;
+#   3) n >= 20 + 10 x aciertos: cada acierto ya visto pide diez intentos mas antes de poder
+#      llamar inutil a la herramienta. Es el suelo que se ve a ojo, sin calculadora;
+#   4) y la cuenta de verdad: el p-valor binomial por debajo de $DecisionAlfa.
+#
+# LOS DOS PRIMEROS SE QUEDAN AUNQUE EL CUARTO YA LOS IMPLIQUE con alfa 0,01. No son adorno:
+# son lo que garantiza que esta funcion sea SIEMPRE al menos tan estricta como Nova era
+# ayer, pase lo que pase con el alfa manana. Nunca apaga nada que ayer se quedaba puesto.
+function Test-DecisionSolida([int]$aciertos, [int]$intentos) {
+    if ($intentos -lt $DecisionMinIntentos) { return $false }
+    $netos = [int][Math]::Max(0, $aciertos)            # un neto negativo cuenta como cero
+    if ($netos -ge (Get-DecisionMinimo $intentos)) { return $false }
+    if ($intentos -lt ($DecisionMinIntentos + ($DecisionPorAcierto * $netos))) { return $false }
+    return ((Get-DecisionPValor $netos $intentos) -le $DecisionAlfa)
 }
 
 function Test-DatosRepartidos($stats, [string]$clave, [datetime]$ahora, [int]$diasMin = 3, [double]$topeDia = 0.70) {
@@ -6698,6 +6964,14 @@ $script:revisionPropiaDia = ''
 # es CALLARSELO, porque desde fuera no se distingue de "no hay nada que revisar". Asi que lo
 # dice, una vez por semana y con la cifra que la frena.
 #
+# Y DESDE EL 20/09 SALE POR EL PARTE DE LA MANANA (P5), no por un aviso suelto, y mira
+# tambien el OIDO FINO: era la unica de las tres que sigue ENCENDIDA -el ultimo recurso
+# esta apagado desde el 15/09- o sea la unica que podia tener una decision esperando, y
+# justo la que faltaba en esta lista.
+#
+# El aviso suelto era de nivel 'medio': se calla de noche, jugando y mientras Nova habla,
+# y no reintenta. Sono UNA vez (18/09 19:59) y no podia volver hasta el 25/09.
+#
 # Devuelve el texto o '' (no habla: solo decide si habria algo que contar).
 function Get-AvisoSinDatos($stats, $num, [datetime]$ahora = (Get-Date)) {
     try {
@@ -6705,7 +6979,12 @@ function Get-AvisoSinDatos($stats, $num, [datetime]$ahora = (Get-Date)) {
             @{ clave = 'turbo'; intentos = 'turbo'; utiles = 'turbo-sirvio'; que = 'mi ultimo recurso del oido'
                encendido = [bool]$WhisperUltimo },
             @{ clave = 'nube';  intentos = 'nube-intento'; utiles = 'nube-sirvio'; que = 'la segunda opinion de la nube'
-               encendido = [bool]$NubeOir })) {
+               encendido = [bool]$NubeOir },
+            # EL OIDO FINO, CON LOS INVENTOS EN CONTRA (20/09), igual que en Test-RevisionPropia
+            # (idea 3): un invento no es un cero, es una orden equivocada, que es justo lo que
+            # braya no soporta. Se mide el acierto NETO: sirvio menos inventado.
+            @{ clave = 'fino'; intentos = 'fino'; utiles = 'fino-sirvio'; contra = 'fino-invento'
+               que = 'mi oido fino'; encendido = [bool]$WhisperPreciso })) {
             $tot = [int]$num[$c.intentos]
             # LO QUE YA ESTA APAGADO NO SE ANUNCIA (18/09). El ultimo recurso lleva apagado
             # desde el 15/09 (input.whisperModeloUltimo = ''), y sin esto la primera frase que
@@ -6713,7 +6992,13 @@ function Get-AvisoSinDatos($stats, $num, [datetime]$ahora = (Get-Date)) {
             # Test-RevisionPropia ya mira su interruptor (5965 y 6015); este aviso, no.
             if (-not $c.encendido) { continue }
             if ($tot -lt $DecisionMinIntentos) { continue }                     # sin historial no se juzga
-            if ([int]$num[$c.utiles] -ge (Get-DecisionMinimo $tot)) { continue }   # si aporta, no hay decision pendiente
+            $utilesC = [int]$num[$c.utiles]
+            if ($c.contra) { $utilesC -= [int]$num[$c.contra] }                 # el acierto NETO
+            if ($utilesC -ge (Get-DecisionMinimo $tot)) { continue }            # si aporta, no hay decision pendiente
+            # Y SI LA CUENTA NO LLEGA, TAMPOCO HAY DECISION (20/09). Este aviso promete
+            # 'si sigue asi unos dias mas, lo apago': solo es verdad cuando lo unico que
+            # frena es el reparto. Si lo que falta es seguridad, se calla.
+            if (-not (Test-DecisionSolida ([int]$num[$c.utiles]) $tot)) { continue }
             if (Test-DatosRepartidos $stats $c.intentos $ahora) { continue }    # si los datos valen, ya decidiria sola
             # cuantos dias distintos tiene, para decirlo con su numero
             $dias = 0
@@ -6727,7 +7012,9 @@ function Get-AvisoSinDatos($stats, $num, [datetime]$ahora = (Get-Date)) {
             # 29 pero unas estadisticas sin dias, la frase salia como "todo eso es de 0 dias",
             # que no se sostiene. Si los numeros y los dias no cuadran, mejor callar.
             if ($dias -lt 1) { continue }
-            return ("Tengo una decision esperando: $($c.que) solo me ha servido $([int]$num[$c.utiles]) de $tot veces, " +
+            $comoC = "solo me ha servido $([int]$num[$c.utiles]) de $tot veces"
+            if ($c.contra -and [int]$num[$c.contra] -gt 0) { $comoC += " y me invente la orden $([int]$num[$c.contra])" }
+            return ("Tengo una decision esperando: $($c.que) $comoC, " +
                     "pero todo eso es de $dias $(if ($dias -eq 1) { 'dia' } else { 'dias' }) y no me fio de cambiar nada con tan poco. " +
                     "Si sigue asi unos dias mas, lo apago y te aviso.")
         }
@@ -6776,6 +7063,7 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     # primero esta funcion saldria por el "ya esta apagado" sin llegar nunca aqui.
     if ($NubeOir -and $numR['nube-intento'] -ge $DecisionMinIntentos -and
         $numR['nube-sirvio'] -lt (Get-DecisionMinimo $numR['nube-intento']) -and
+        (Test-DecisionSolida ([int]$numR['nube-sirvio']) ([int]$numR['nube-intento'])) -and
         (Test-DatosRepartidos $stR 'nube-intento' $ahora)) {
         $antesN = [string]$NubeOir
         $script:NubeOir = ''
@@ -6804,6 +7092,7 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     # caso en la prueba.
     if ($WhisperPreciso -and $numR['fino'] -ge $DecisionMinIntentos -and
         ($numR['fino-sirvio'] - $numR['fino-invento']) -lt (Get-DecisionMinimo $numR['fino']) -and
+        (Test-DecisionSolida ([int]$numR['fino-sirvio'] - [int]$numR['fino-invento']) ([int]$numR['fino'])) -and
         (Test-DatosRepartidos $stR 'fino' $ahora)) {
         $netoF = $numR['fino-sirvio'] - $numR['fino-invento']
         $antesF = [string]$WhisperPreciso
@@ -6824,12 +7113,14 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     # --- caso 1: el ultimo recurso del oido ---
     # NOTA: si sale por aqui sin decidir, el aviso de "decision esperando datos" ya se ha
     # evaluado arriba; no se repite.
-    if (-not $WhisperUltimo) { return (Send-AvisoSinDatos $stR $numR $ahora) }
+    if (-not $WhisperUltimo) { return (Set-AvisoSinDatos $stR $numR $ahora) }
     $tR = [int]$numR['turbo']; $tsR = [int]$numR['turbo-sirvio']
-    if ($tR -lt $DecisionMinIntentos) { return (Send-AvisoSinDatos $stR $numR $ahora) }   # sin historial no se juzga
-    if ($tsR -ge (Get-DecisionMinimo $tR)) { return (Send-AvisoSinDatos $stR $numR $ahora) }   # si aporta, se queda
+    if ($tR -lt $DecisionMinIntentos) { return (Set-AvisoSinDatos $stR $numR $ahora) }   # sin historial no se juzga
+    if ($tsR -ge (Get-DecisionMinimo $tR)) { return (Set-AvisoSinDatos $stR $numR $ahora) }   # si aporta, se queda
+    # y que la cuenta llegue: 1 de 29 da p = 0,055 y ya no basta (20/09)
+    if (-not (Test-DecisionSolida $tsR $tR)) { return (Set-AvisoSinDatos $stR $numR $ahora) }
     # y que no salga de una sola tarde (ver Test-DatosRepartidos)
-    if (-not (Test-DatosRepartidos $stR 'turbo' $ahora)) { return (Send-AvisoSinDatos $stR $numR $ahora) }
+    if (-not (Test-DatosRepartidos $stR 'turbo' $ahora)) { return (Set-AvisoSinDatos $stR $numR $ahora) }
     # Apagarlo es vaciar la variable VIVA y guardar la clave. Request-UltimoRecurso mira
     # $WhisperUltimo, asi que surte efecto en la frase siguiente sin relanzar la escucha
     # (el worker recibe el modelo al arrancar, pero nunca se lo piden). Importa: al
@@ -6850,13 +7141,20 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     return $true
 }
 
-# Dice el aviso de "decision esperando datos", como mucho una vez por semana (10080 min). Va
-# aparte de Get-AvisoSinDatos para que la prueba pueda mirar el texto sin tocar el mundo.
+# DEJA APUNTADO el aviso de "decision esperando datos" para el PARTE DE LA MANANA (20/09,
+# P5). Antes lo decia por Send-AvisoEntorno con nivel 'medio' y se lo comia la noche: la
+# revision propia corre cuando puede rendir cuentas, que muchos dias es de madrugada, y
+# ese aviso no reintenta. Ahora se guarda aqui y Test-ParteManana lo saca por la manana.
+# Va aparte de Get-AvisoSinDatos para que la prueba pueda mirar el texto sin tocar el mundo.
 # Devuelve $false siempre: avisar NO es decidir, y Test-RevisionPropia informa de si decidio.
-function Send-AvisoSinDatos($stats, $num, [datetime]$ahora = (Get-Date)) {
+$script:parteSinDatos = ''
+function Set-AvisoSinDatos($stats, $num, [datetime]$ahora = (Get-Date)) {
     try {
         $t = Get-AvisoSinDatos $stats $num $ahora
-        if ($t) { [void](Send-AvisoEntorno 'auto-sin-datos' $t 'medio' 10080) }
+        if ($t -and $t -ne $script:parteSinDatos) {
+            $script:parteSinDatos = $t
+            Log "SIN DATOS: lo dejo para el parte de la manana: $t"
+        }
     } catch {}
     return $false
 }
@@ -9296,13 +9594,15 @@ function Invoke-FastCommand([string]$text) {
                         }
                         if ($alt -gt 0.02) { $partes += 'y ahora suenan los altavoces, asi que desconfio de lo que oigo' }
                         try {
-                            $s = Get-Estadisticas
-                            $dia = Get-Date -Format 'yyyy-MM-dd'
-                            if ($s.dias.ContainsKey($dia)) {
-                                $act = 0; $nada = 0
-                                if ($s.dias[$dia].ContainsKey('activacion')) { $act = $s.dias[$dia]['activacion'] }
-                                foreach ($r in @('ruido', 'descarte', 'error')) { if ($s.dias[$dia].ContainsKey($r)) { $nada += $s.dias[$dia][$r] } }
-                                if ($act -gt 0) { $partes += "hoy me has despertado $act veces y $nada no eran para mi" }
+                            # LAS DOS CIFRAS DE LA MISMA FRASE, DE LA MISMA POBLACION (20/09):
+                            # "despertado" salia de las activaciones por nombre y "no eran para
+                            # mi" del ruido del dia entero, asi que el 18/09 habria dicho 27 y
+                            # 31. Ver Get-FalsasAlarmas.
+                            $faE = Get-FalsasAlarmas
+                            $diaE = Get-Date -Format 'yyyy-MM-dd'
+                            if ($faE.ContainsKey($diaE)) {
+                                $actE = [int]$faE[$diaE].act; $nadaE = [int]$faE[$diaE].nada
+                                if ($actE -gt 0) { $partes += "hoy me has despertado $actE veces y $nadaE no eran para mi" }
                             }
                         } catch {}
                         $a.desc = ($partes -join ', ')
@@ -14004,6 +14304,13 @@ function Report-Reply($out) {
             if ($ConversacionOn -and -not $script:invitado -and (Test-EspanolLargo $original) -and -not (Test-VozExtrana)) {
                 Log "NO era una orden, pero es espanol tuyo: '$original' -> a la charla"
                 Add-Estadistica 'no-orden-a-charla' $original
+                # EL MODELO DIJO QUE NO ERA UNA ORDEN, sobre espanol tuyo y largo: o no lo
+                # era, o Nova no la entendio. 44 veces el 18/09 y ni una dejaba rastro por
+                # orden ('no-orden-a-charla' no esta en $DestinosUso ni en $DestinosNeutros,
+                # asi que Write-DestinoUso la rechaza y solo llegaba al contador del dia).
+                # Se apunta como SOSPECHA (peso 'bajo'), no como fallo, y sin consumir la
+                # marca: la 'charla' que viene detras sigue necesitando su id.
+                try { [void](Write-FalloDeducido 'no-orden-a-charla' $original) } catch {}
                 # va marcada: si la charla vuelve a decir que es una orden, se para aqui
                 # (ver EL REBOTE CHARLA <-> TRADUCIR). 'sin_orden' se lo dice tambien al
                 # worker, que asi contesta hablando en vez de devolverla.

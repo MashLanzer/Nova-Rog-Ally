@@ -281,7 +281,7 @@ Titulo "2n38. La memoria entre ordenes, y lo que sonaba antes de llamarla"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-contexto.ps1') | Select-String 'el ambiente va aparte|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
-Titulo "2n37. Olvidar lo de hace un rato, en los seis sitios donde queda rastro"
+Titulo "2n37. Olvidar lo de hace un rato, en los ocho sitios donde queda rastro"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-olvido.ps1') | Select-String 'no toca lo de antes|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
@@ -301,6 +301,10 @@ if ($LASTEXITCODE -ne 0) { $fallos++ }
 
 Titulo "2n35. El contador de la meta (como me has entendido hoy)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-meta.ps1') | Select-String 'todo correcto|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n39. Las falsas alarmas (que no vuelvan a salir porcentajes de 489 %)"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-falsas-alarmas.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
 Titulo "2n36. La copia que te salva (que se pueda abrir, que rote y que falle bien)"

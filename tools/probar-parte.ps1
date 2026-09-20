@@ -16,6 +16,9 @@ Invoke-Expression (TraerFn 'Get-ParteGeneral')
 # la bateria de verdad haria que la prueba dijera una cosa distinta cada vez, y
 # los colgados dependen de lo que haya abierto en ese momento.
 $script:fraseBateria = 'bateria al 40 por ciento, te quedan unos 1 h 10 min'
+# las falsas alarmas se prueban en probar-falsas-alarmas.ps1, con sus propios ficheros de
+# mentira: aqui solo hace falta que la llamada exista y no lea las grabaciones de verdad
+function Get-FalsasAlarmas([string]$dirUso = '') { return @{} }
 $script:zombis = @()
 function Get-FraseBateria([bool]$corto = $false) { return $script:fraseBateria }
 function Get-JuegosZombis { return $script:zombis }

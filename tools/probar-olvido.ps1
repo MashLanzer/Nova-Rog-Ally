@@ -66,6 +66,14 @@ foreach ($par in @(@{n = 'viejo.wav'; d = $viejo }, @{n = 'nuevo.wav'; d = $nuev
 [System.IO.File]::WriteAllLines((Join-Path $usoDir 'registro.jsonl'), @(
     ('{"id":"viejo","hora":"' + (& $f $viejo) + '","entregado":"abre steam"}'),
     ('{"id":"nuevo","hora":"' + (& $f $nuevo) + '","entregado":"algo privado"}')))
+# activaciones.jsonl (P2, 20/09): trae lo que se oyo en 'oido'
+[System.IO.File]::WriteAllLines((Join-Path $usoDir 'activaciones.jsonl'), @(
+    ('{"hora":"' + (& $f $viejo) + '","desenlace":"orden","oido":"pon musica"}'),
+    ('{"hora":"' + (& $f $nuevo) + '","desenlace":"nada","oido":"una frase de ahora mismo"}')))
+# senales-fallo.jsonl (P1, 20/09): trae el texto de la orden en 'detalle'
+[System.IO.File]::WriteAllLines((Join-Path $usoDir 'senales-fallo.jsonl'), @(
+    ('{"id":"viejo","hora":"' + (& $f $viejo) + '","senal":"ruido","detalle":"una orden vieja"}'),
+    ('{"id":"nuevo","hora":"' + (& $f $nuevo) + '","senal":"descarte","detalle":"algo privado deducido"}')))
 
 # 3) un wav a medio camino en tmp (el que viaja a la nube vive aqui)
 $wn = Join-Path $TmpDir 'nube-abcd1234.wav'
@@ -110,6 +118,14 @@ $reg = [System.IO.File]::ReadAllText((Join-Path $usoDir 'registro.jsonl'))
 Comp 'su linea del registro se va con el' (-not $reg.Contains('algo privado'))
 Comp 'la del audio viejo sigue' ($reg.Contains('abre steam'))
 
+$act = [System.IO.File]::ReadAllText((Join-Path $usoDir 'activaciones.jsonl'))
+Comp 'la activacion de hace 3 min se va' (-not $act.Contains('una frase de ahora mismo'))
+Comp 'y la vieja se queda' ($act.Contains('pon musica'))
+
+$sen = [System.IO.File]::ReadAllText((Join-Path $usoDir 'senales-fallo.jsonl'))
+Comp 'la senal de fallo deducida se va' (-not $sen.Contains('algo privado deducido'))
+Comp 'y la vieja se queda' ($sen.Contains('una orden vieja'))
+
 Comp 'el wav que iba a la nube se borra' (-not (Test-Path -LiteralPath $wn))
 Comp 'uno viejo de tmp se queda' (Test-Path -LiteralPath $wv)
 
@@ -134,5 +150,5 @@ Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue
 
 if ($fallos -gt 0) { Write-Host ''; Write-Host ("  $fallos fallo(s)"); exit 1 }
 Write-Host ''
-Write-Host '  el olvido borra lo de hace un rato en los 6 sitios y no toca lo de antes'
+Write-Host '  el olvido borra lo de hace un rato en los 8 sitios y no toca lo de antes'
 exit 0

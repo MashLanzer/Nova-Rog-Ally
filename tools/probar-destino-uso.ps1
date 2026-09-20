@@ -27,7 +27,13 @@ $DestinosUso = Invoke-Expression (($ast.Find({ param($x)
 $DestinosNeutros = Invoke-Expression (($ast.Find({ param($x)
     $x -is [System.Management.Automation.Language.AssignmentStatementAst] -and
     $x.Left.Extent.Text -eq '$DestinosNeutros' }, $true)).Right.Extent.Text)
+$DestinosFallo = Invoke-Expression (($ast.Find({ param($x)
+    $x -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+    $x.Left.Extent.Text -eq '$DestinosFallo' }, $true)).Right.Extent.Text)
 Invoke-Expression (Traer 'Write-DestinoUso')
+# la llama Write-DestinoUso: sin traerla aqui el banco revienta con CommandNotFoundException
+Invoke-Expression (Traer 'Write-FalloDeducido')
+$script:ultimoDeducidoId = ''
 
 # un sitio de mentira, con la forma que tiene el de verdad
 $base = Join-Path $env:TEMP ('destino-uso-' + [guid]::NewGuid().ToString('N'))

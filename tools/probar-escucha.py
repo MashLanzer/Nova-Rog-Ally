@@ -14,7 +14,7 @@ import sys
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 fuente = open(os.path.join(RAIZ, "wake_vosk.py"), encoding="utf-8").read()
 arbol = ast.parse(fuente)
-QUIERO = {"PALABRAS_ES", "PALABRAS_EN", "suena_ingles", "SILENCIO_FIN", "SILENCIO_FIN_LOTENGO", "silencio_para_cerrar", "MARGEN_CORTE_HZ", "es_voz_de_braya", "PROMPT_ORDENES", "es_eco_del_ejemplo", "PICO_OBJETIVO", "GANANCIA_MIN", "GANANCIA_MAX", "GANANCIA_INICIAL"}
+QUIERO = {"PALABRAS_ES", "PALABRAS_EN", "suena_ingles", "SILENCIO_FIN", "SILENCIO_FIN_LOTENGO", "silencio_para_cerrar", "MARGEN_CORTE_HZ", "es_voz_de_braya", "PROMPT_ORDENES", "es_eco_del_ejemplo", "PICO_OBJETIVO", "GANANCIA_MIN", "GANANCIA_MAX", "GANANCIA_INICIAL", "DICTADO_MAX", "ACT_ESPERA_MAX", "activacion_caducada", "fila_activacion"}
 trozos = []
 for n in arbol.body:
     nombre = n.targets[0].id if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name) else getattr(n, "name", None)
@@ -121,6 +121,29 @@ comp("vacio no suena a nada", not suena("") and not suena(None))
 # coste asumido, y que se sepa: un nombre ingles A SECAS con palabra vacia dentro si se marca;
 # Whisper lo repasa (forzado a español) y si no saca nada se entrega lo de Parakeet igual
 comp("'The Witcher' a secas SI se marca (coste asumido, documentado)", suena("The Witcher"))
+
+# LAS ACTIVACIONES SECAS (20/09/2026): la linea que se guarda en activaciones.jsonl
+_fila_act = ns["fila_activacion"]
+_caduca = ns["activacion_caducada"]
+print("")
+print("-- activaciones secas: la linea que se apunta --")
+_pend = dict(hora="2026-09-20 01:30:00", t=100.0, texto="por nova", conf=0.88, rafaga=0.015)
+_f = _fila_act(_pend, "nada", 112.5, dict(oido="", dur=8.0))
+comp("guarda el texto que disparo, la confianza y la rafaga",
+     _f["texto"] == "por nova" and _f["conf"] == 0.88 and _f["rafaga"] == 0.015)
+comp("y si acabo en orden o en nada", _f["desenlace"] == "nada")
+comp("el reloj interno no se guarda; lo que tardo, si", "t" not in _f and _f["espera"] == 12.5)
+comp("y lo que se sabe al cerrarla tambien", _f["dur"] == 8.0 and _f["oido"] == "")
+comp("una activacion, UNA linea: la original no se toca",
+     "desenlace" not in _pend and _pend["t"] == 100.0)
+comp("'dictando' es de andar por casa y no se guarda",
+     "dictando" not in _fila_act(dict(t=1.0, dictando=True), "orden", 2.0))
+comp("sin nada pendiente no caduca nada", not _caduca({}, 9999.0))
+comp("una activacion recien hecha no caduca", not _caduca(dict(t=100.0), 100.5))
+comp("si el dictado no llega a abrirse, caduca", _caduca(dict(t=100.0), 100.0 + ns["ACT_ESPERA_MAX"]))
+comp("pero con el dictado abierto no caduca nunca", not _caduca(dict(t=100.0, dictando=True), 1e6))
+comp("y se espera menos que el tope del dictado, que ya la cierra por el otro lado",
+     ns["ACT_ESPERA_MAX"] < ns["DICTADO_MAX"])
 
 print("")
 print("todo correcto" if fallos == 0 else "%d casos MAL" % fallos)

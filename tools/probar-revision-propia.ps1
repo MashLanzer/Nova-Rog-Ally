@@ -53,6 +53,11 @@ $txtFuente = [System.IO.File]::ReadAllText($rutaA, [System.Text.Encoding]::UTF8)
 $DecisionAprovecha = if ($txtFuente -match '\$DecisionAprovecha = ([0-9.]+)') { [double]$Matches[1] } else { 0.15 }
 $DecisionMinIntentos = if ($txtFuente -match '\$DecisionMinIntentos = ([0-9]+)') { [int]$Matches[1] } else { 20 }
 Invoke-Expression (Traer 'Get-DecisionMinimo')
+# 20/09: y el portero binomial, por el que pasan las tres decisiones.
+$DecisionAlfa = if ($txtFuente -match '\$DecisionAlfa = ([0-9.]+)') { [double]$Matches[1] } else { 0.01 }
+$DecisionPorAcierto = if ($txtFuente -match '\$DecisionPorAcierto = ([0-9]+)') { [int]$Matches[1] } else { 10 }
+Invoke-Expression (Traer 'Get-DecisionPValor')
+Invoke-Expression (Traer 'Test-DecisionSolida')
 Invoke-Expression (Traer 'Test-DiaCuenta')
 Invoke-Expression (Traer 'Test-DatosRepartidos')
 # EL CORTE, APAGADO PARA LOS CASOS DE SIEMPRE (19/09, idea 61). Casi todos los casos de
@@ -61,11 +66,11 @@ Invoke-Expression (Traer 'Test-DatosRepartidos')
 # El corte se prueba aparte, con fechas fijas, al final del bloque del reparto.
 $DecisionDatosDesde = ''
 # LO QUE NO PUEDE DECIDIR TAMBIEN SE CUENTA (18/09). Test-RevisionPropia ya no sale con un
-# 'return $false' seco cuando no decide: llama a Send-AvisoSinDatos por si hay una decision
+# 'return $false' seco cuando no decide: llama a Set-AvisoSinDatos por si hay una decision
 # esperando datos. Sin traer estas dos, la funcion revienta a mitad y esta prueba se quedaba
 # sin ejecutar los casos siguientes (y encima salia con exit 0, que es lo peor de todo).
 Invoke-Expression (Traer 'Get-AvisoSinDatos')
-Invoke-Expression (Traer 'Send-AvisoSinDatos')
+Invoke-Expression (Traer 'Set-AvisoSinDatos')
 Invoke-Expression (Traer 'Test-RevisionPropia')
 
 $hoy = Get-Date
@@ -98,13 +103,13 @@ function Comp([string]$etq, [bool]$ok, [string]$det) {
 }
 
 Write-Host '  -- lo que de verdad no sirve, lo apaga --'
-Poner 29 1        # los numeros reales de braya: 29 intentos, 1 util
+Poner 45 1        # 1 util de 45: p = 0,006, por debajo del 1 % (20/09)
 $r = Test-RevisionPropia $hoy
-Comp 'con 1 util de 29, lo apaga' $r ''
+Comp 'con 1 util de 45, lo apaga' $r ''
 Comp 'y deja la variable viva vacia' (-not $WhisperUltimo) "WhisperUltimo='$WhisperUltimo'"
 Comp 'lo guarda en la configuracion' (@($script:cfgPuesta) -contains 'input.whisperModeloUltimo=') ($script:cfgPuesta -join ' ')
 Comp 'y te lo dice, no lo hace a escondidas' (@($script:avisos).Count -eq 1) ''
-Comp 'el aviso explica con sus numeros' ($script:avisos[0] -match '29') ''
+Comp 'el aviso explica con sus numeros' ($script:avisos[0] -match '45') ''
 Comp 'y dice como deshacerlo HABLANDO, no editando json' ($script:avisos[0] -match 'deshaz lo que has cambiado' -and $script:avisos[0] -notmatch 'config\.json') ''
 
 Write-Host '  -- pero NO toca lo que si aporta (lo importante) --'
@@ -114,6 +119,15 @@ Comp 'con 10 utiles de 29, no lo toca' (-not $r) ''
 Comp 'la variable sigue puesta' ($WhisperUltimo -eq 'large-v3-turbo') "WhisperUltimo='$WhisperUltimo'"
 Comp 'y no cambia la configuracion' (@($script:cfgPuesta).Count -eq 0) ''
 
+Write-Host '  -- y con 1 de 29 -los numeros REALES- ya NO se lanza (20/09) --'
+# Hasta hoy los apagaba: 1 de 29 esta por debajo del 15 % y la regla de tres decia que si.
+# Pero ver 1 o menos en 29 con algo que acertara el 15 % pasa el 5,5 % de las veces: uno de
+# cada veinte apagados habria sido un error, y esto se revisa TODOS los dias.
+Poner 29 1
+Comp 'con 1 de 29 la binomial no llega (p = 0,055)' (-not (Test-RevisionPropia $hoy)) ''
+Comp 'el ultimo recurso sigue puesto' ($WhisperUltimo -eq 'large-v3-turbo') "WhisperUltimo='$WhisperUltimo'"
+Comp 'y no toca la configuracion' (@($script:cfgPuesta).Count -eq 0) ($script:cfgPuesta -join ' ')
+
 Write-Host '  -- ni decide con cuatro datos --'
 Poner 5 0         # nada util, pero cinco intentos no son historial
 $r = Test-RevisionPropia $hoy
@@ -121,15 +135,15 @@ Comp 'con 5 intentos no juzga' (-not $r) ''
 Comp 'la variable sigue puesta' ($WhisperUltimo -eq 'large-v3-turbo') ''
 
 Write-Host '  -- y se calla cuando no toca --'
-Poner 29 1
+Poner 45 1
 $script:juegoActivo = 'It Takes Two'
 Comp 'jugando no se pone a revisarse' (-not (Test-RevisionPropia $hoy)) ''
-Poner 29 1
+Poner 45 1
 $script:invitado = $true
 Comp 'con un invitado delante tampoco' (-not (Test-RevisionPropia $hoy)) ''
 
 Write-Host '  -- una vez al dia, no en cada vuelta del bucle --'
-Poner 29 1
+Poner 45 1
 $primero = Test-RevisionPropia $hoy
 $script:WhisperUltimo = 'large-v3-turbo'   # como si volviera a estar puesto
 $segundo = Test-RevisionPropia $hoy
@@ -138,7 +152,7 @@ Comp 'la segunda del mismo dia, no' (-not $segundo) ''
 Comp 'y no avisa dos veces' (@($script:avisos).Count -eq 1) ("avisos: " + @($script:avisos).Count)
 
 Write-Host '  -- si ya estaba apagado, no hace nada --'
-Poner 29 1
+Poner 45 1
 $script:WhisperUltimo = ''
 $r = Test-RevisionPropia $hoy
 Comp 'no vuelve a apagar lo apagado' ((-not $r) -and @($script:cfgPuesta).Count -eq 0) ''
@@ -148,7 +162,7 @@ Comp 'no vuelve a apagar lo apagado' ((-not $r) -and @($script:cfgPuesta).Count 
 # deshacerla seria adivinar a que estaba puesto.
 Write-Host ''
 Write-Host '  -- y se deshace hablando, sin tocar config.json --'
-Poner 29 1
+Poner 45 1
 [void](Test-RevisionPropia $hoy)
 Comp 'al decidir, apunta que deshacer' ($null -ne $script:autoDecision) ''
 Comp 'y se acuerda del valor DE ANTES' ($script:autoDecision.antes -eq 'large-v3-turbo') "antes='$($script:autoDecision.antes)'"
@@ -163,7 +177,7 @@ $rD2 = Undo-DecisionPropia
 Comp 'pedirlo dos veces no miente ni rompe' ($rD2 -match 'No he cambiado nada') "'$rD2'"
 
 Write-Host '  -- y no se pone a discutir contigo --'
-Poner 29 1
+Poner 45 1
 [void](Test-RevisionPropia $hoy)
 [void](Undo-DecisionPropia)
 $otra = Test-RevisionPropia $hoy
@@ -171,14 +185,14 @@ Comp 'si se lo devuelves, hoy no lo vuelve a apagar' (-not $otra) ''
 Comp 'y el valor sigue siendo el tuyo' ($WhisperUltimo -eq 'large-v3-turbo') "WhisperUltimo='$WhisperUltimo'"
 
 Write-Host '  -- "deshaz" a secas: primero lo tuyo, y si no, lo suyo --'
-Poner 29 1
+Poner 45 1
 [void](Test-RevisionPropia $hoy)
 $script:deshacer = $null
 $rE = Invoke-Deshacer
 Comp 'sin nada tuyo, deshace lo que decidio ella' ($WhisperUltimo -eq 'large-v3-turbo') "'$rE'"
 Comp 'y no contesta que no hay nada que deshacer' ($rE -notmatch 'No hay nada que deshacer') "'$rE'"
 # con algo tuyo pendiente, manda lo tuyo: su ajuste sigue ahi para deshacerlo luego
-Poner 29 1
+Poner 45 1
 [void](Test-RevisionPropia $hoy)
 $script:deshacer = @{ cuando = (Get-Date); brillo = $null; volumen = -1
                       procesos = @(); juego = $null }
@@ -213,12 +227,18 @@ function PonerNube([int]$intentos, [int]$utiles) {
 
 Write-Host ''
 Write-Host '  -- la nube que no sirve, la apaga --'
-PonerNube 24 1
+PonerNube 45 1
 $rN = Test-RevisionPropia $hoy
-Comp 'con 1 util de 24, apaga la nube' $rN ''
+Comp 'con 1 util de 45, apaga la nube' $rN ''
 Comp 'y la deja vacia en vivo' (-not $NubeOir) "NubeOir='$NubeOir'"
 Comp 'lo guarda en la configuracion' (@($script:cfgPuesta) -contains 'escucha.nubeOir=') ($script:cfgPuesta -join ' ')
-Comp 'y lo dice con sus numeros' (@($script:avisos).Count -eq 1 -and $script:avisos[0] -match '24') ''
+Comp 'y lo dice con sus numeros' (@($script:avisos).Count -eq 1 -and $script:avisos[0] -match '45') ''
+
+Write-Host '  -- y la nube REAL de braya (2 utiles de 81) se apaga sola --'
+# 81 intentos y solo 2 utiles: p = 0,00022. Es la unica de las tres que hoy pasaria.
+PonerNube 81 2
+Comp 'con 2 utiles de 81, la apaga' (Test-RevisionPropia $hoy) ''
+Comp 'y la deja vacia' (-not $NubeOir) "NubeOir='$NubeOir'"
 
 Write-Host '  -- pero NO la apaga si aporta --'
 PonerNube 24 6        # el 25 %: se queda
@@ -231,7 +251,7 @@ Comp 'con 8 intentos no juzga' (-not (Test-RevisionPropia $hoy)) ''
 Comp 'la nube sigue puesta' ($NubeOir -eq 'gemini') ''
 
 Write-Host '  -- y se deshace hablando, como lo demas --'
-PonerNube 24 1
+PonerNube 45 1
 [void](Test-RevisionPropia $hoy)
 $script:cfgPuesta = @()
 $rD3 = Undo-DecisionPropia
@@ -244,8 +264,8 @@ Write-Host '  -- UNA decision al dia: la segunda pisaria a la primera --'
 $script:stats = @{ dias = @{} }
 foreach ($dd in 1..3) {
     $script:stats.dias[$hoy.AddDays(-$dd).ToString('yyyy-MM-dd')] = @{
-        turbo = 10; 'turbo-sirvio' = $(if ($dd -eq 1) { 1 } else { 0 })
-        'nube-intento' = 8; 'nube-sirvio' = $(if ($dd -eq 1) { 1 } else { 0 }) }
+        turbo = 16; 'turbo-sirvio' = $(if ($dd -eq 1) { 1 } else { 0 })
+        'nube-intento' = 16; 'nube-sirvio' = $(if ($dd -eq 1) { 1 } else { 0 }) }
 }
 $script:cfgPuesta = @(); $script:avisos = @(); $script:apuntes = @()
 $script:revisionPropiaDia = ''
@@ -259,7 +279,7 @@ Comp 'solo un aviso' (@($script:avisos).Count -eq 1) ("avisos: " + @($script:avi
 Comp 'y la decision guardada se puede deshacer' ($null -ne $script:autoDecision) ''
 
 Write-Host '  -- si la nube ya esta apagada, no se mete con ella --'
-PonerNube 24 1
+PonerNube 45 1
 $script:NubeOir = ''
 Comp 'no vuelve a apagar lo apagado' (-not (Test-RevisionPropia $hoy)) ''
 
@@ -371,8 +391,8 @@ function PonerFino([int]$repasos, [int]$sirvio, [int]$invento) {
 
 Write-Host ''
 Write-Host '  -- el oido fino que ya no compensa, lo apaga --'
-PonerFino 24 2 0
-Comp 'con 2 aciertos de 24, lo apaga' (Test-RevisionPropia $hoy) ''
+PonerFino 55 2 0
+Comp 'con 2 aciertos de 55, lo apaga' (Test-RevisionPropia $hoy) ''
 Comp 'y lo deja vacio en vivo' (-not $WhisperPreciso) "WhisperPreciso='$WhisperPreciso'"
 Comp 'lo guarda' (@($script:cfgPuesta) -contains 'input.whisperModeloPreciso=') ($script:cfgPuesta -join ' ')
 
@@ -380,8 +400,8 @@ Write-Host '  -- LOS INVENTOS CUENTAN EN CONTRA (lo que mejora la idea) --'
 PonerFino 24 10 0
 Comp 'con 10 aciertos limpios de 24, NO lo toca' (-not (Test-RevisionPropia $hoy)) ''
 Comp 'el fino sigue puesto' ($WhisperPreciso -eq 'small') "WhisperPreciso='$WhisperPreciso'"
-PonerFino 24 10 9
-Comp 'mismos aciertos pero 9 inventos: lo apaga' (Test-RevisionPropia $hoy) '(neto 1 de 24)'
+PonerFino 45 10 9
+Comp 'mismos aciertos pero 9 inventos: lo apaga' (Test-RevisionPropia $hoy) '(neto 1 de 45)'
 Comp 'y el aviso nombra los inventos' ($script:avisos[0] -match 'invento') ''
 
 Write-Host '  -- con los numeros REALES de braya no se apaga --'
@@ -403,7 +423,7 @@ Comp 'aunque el ratio sea malo, un dia con el 74 % no decide' (-not (Test-Revisi
 Comp 'y no toca nada' (@($script:cfgPuesta).Count -eq 0) ($script:cfgPuesta -join ' ')
 
 Write-Host '  -- y se deshace hablando --'
-PonerFino 24 2 0
+PonerFino 55 2 0
 [void](Test-RevisionPropia $hoy)
 $script:cfgPuesta = @()
 $rF = Undo-DecisionPropia
@@ -412,14 +432,14 @@ Comp 'y lo guarda' (@($script:cfgPuesta) -contains 'input.whisperModeloPreciso=s
 Comp 'sin pedir que reinicies' ($rF -notmatch 'reinicies') "'$rF'"
 
 Write-Host '  -- si ya estaba apagado, no se mete --'
-PonerFino 24 2 0
+PonerFino 55 2 0
 $script:WhisperPreciso = ''
 Comp 'no vuelve a apagar lo apagado' (-not (Test-RevisionPropia $hoy)) ''
 
 # INSPECCION DE LAS 10 (17/09): una decision que no se puede guardar ni contar, NO se toma.
 Write-Host ''
 Write-Host '  -- si no se puede guardar, no se ha decidido nada --'
-Poner 29 1
+Poner 45 1
 $script:cfgFalla = $true
 $rG = Test-RevisionPropia $hoy
 Comp 'con el guardado roto, no decide' (-not $rG) ''
@@ -428,7 +448,7 @@ Comp 'no avisa de algo que no ha hecho' (@($script:avisos).Count -eq 0) ("avisos
 Comp 'y lo reintentara (no se marca el dia)' ($script:revisionPropiaDia -eq '') "dia='$($script:revisionPropiaDia)'"
 
 Write-Host '  -- si no puede contarlo, tampoco lo decide --'
-Poner 29 1
+Poner 45 1
 $script:puedoAvisar = $false
 $rS = Test-RevisionPropia $hoy
 Comp 'de madrugada (o hablando) no decide' (-not $rS) ''
@@ -440,7 +460,7 @@ Comp 'y cuando ya puede contarlo, decide' $rS2 ''
 Comp 'ahora si avisa' (@($script:avisos).Count -eq 1) ''
 
 Write-Host '  -- y si no puede apuntar el deshacer, lo dice --'
-Poner 29 1
+Poner 45 1
 [void](Test-RevisionPropia $hoy)
 Comp 'con todo bien, el aviso no habla de reinicios' ($script:avisos[0] -notmatch 'reinicias') ''
 
@@ -448,7 +468,7 @@ Comp 'con todo bien, el aviso no habla de reinicios' ($script:avisos[0] -notmatc
 # de ahora queda bien pero al reiniciar volveria a aplicarse la decision. Hay que decirlo.
 Write-Host ''
 Write-Host '  -- deshacer tambien puede fallar al guardar, y se dice --'
-Poner 29 1
+Poner 45 1
 [void](Test-RevisionPropia $hoy)
 $script:cfgFalla = $true
 $rU = Undo-DecisionPropia

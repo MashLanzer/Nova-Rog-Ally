@@ -159,6 +159,30 @@ Test-ParteManana (Get-Date '2026-09-21 08:00')
 Comp 'nada en modo invitado' ($script:resumenPendiente -eq '')
 $script:invitado = $false
 
+# LA DECISION QUE ESPERA DATOS SALE POR AQUI (20/09, P5). Antes iba por un aviso suelto de
+# nivel 'medio' que se calla de noche: sono UNA vez (18/09 19:59) y no podia repetir hasta
+# el 25/09. Ahora se apunta y lo saca el parte, sin ponerse pesada: una cada 7 dias.
+$script:habitos = $null
+Remove-Item (Join-Path $MemoriaDir 'habitos.json') -ErrorAction SilentlyContinue
+$script:resumenPendiente = ''
+$script:recFalsos = @()
+$script:clima = $null
+$script:parteSinDatos = 'Tengo una decision esperando: mi oido fino solo me ha servido 2 de 30 veces'
+Test-ParteManana (Get-Date '2026-09-22 08:30')
+Comp 'la decision que espera datos sale en el parte' ($script:resumenPendiente -match 'una decision esperando') $script:resumenPendiente
+Comp 'y sale ella sola, sin tiempo ni recordatorios' ($script:resumenPendiente -match '^Buenos dias') $script:resumenPendiente
+Comp 'dicha una vez, no se queda repitiendose' ($script:parteSinDatos -eq '')
+$script:parteSinDatos = 'Tengo una decision esperando: otra cosa'
+$script:resumenPendiente = ''
+Test-ParteManana (Get-Date '2026-09-23 08:30')
+Comp 'al dia siguiente NO insiste' ($script:resumenPendiente -eq '') $script:resumenPendiente
+Comp 'y la deja apuntada para cuando toque' ($script:parteSinDatos -ne '')
+$script:resumenPendiente = ''
+Test-ParteManana (Get-Date '2026-09-30 08:30')
+Comp 'pasada la semana, vuelve a salir' ($script:resumenPendiente -match 'otra cosa') $script:resumenPendiente
+$script:habitos = $null
+Comp 'y se acuerda entre reinicios (habitos.json)' ((Get-Habitos).sinDatosVisto -eq '2026-09-30')
+
 Write-Host "--- tu ritmo al hablar y la precarga de la charla ---"
 $script:habitos = $null; Remove-Item (Join-Path $MemoriaDir 'habitos.json') -ErrorAction SilentlyContinue
 $SeguimientoMs = 2500; $ConversacionEsperaMs = 7000; $ConversacionOn = $true; $TmpDir = $MemoriaDir

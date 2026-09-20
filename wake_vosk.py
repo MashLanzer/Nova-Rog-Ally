@@ -1373,6 +1373,77 @@ def apuntar_uso(campos):
         anota("WARN: no pude apuntar el uso (%s)" % e)
 
 
+# APUNTAR LAS ACTIVACIONES (20/09/2026). Nova se despierta y a veces no pasa nada: ni
+# orden, ni audio, ni linea en destinos.jsonl. Es el error mas limpio que comete, y el
+# unico que viene ETIQUETADO SOLO: si se activo y no dijiste nada, lo correcto era no
+# activarse. Hasta hoy solo vivia en assistant.log, que rota a los 5 MB (keepLogs 3) y
+# se lleva el historial; sin audio no deja rastro en ningun .jsonl.
+# Aqui cada activacion por el nombre deja UNA linea en activaciones.jsonl, se grabe el
+# uso o no (no hay audio que guardar, solo el dato). NO DECIDE NADA: solo apunta, igual
+# que apuntar_uso. Quien decida, que lea el fichero.
+# Desenlaces: 'orden' (salio texto), 'nada' (se abrio el dictado y no hubo ni palabra),
+# 'sin-dictado' (el dictado no llego a abrirse) y 'pisada' (otro "nova" antes que eso).
+ACT_PENDIENTE = {}
+# Cuanto se espera al dictado antes de dar la activacion por perdida. Del ACTIVADO al
+# "escuchando la orden" van ~2 s en el log; 25 s es de sobra y no pisa el tope del
+# dictado (DICTADO_MAX), que ya cierra la activacion por el otro lado.
+ACT_ESPERA_MAX = 25.0
+
+
+def activacion_caducada(pend, ahora):
+    """El dictado no llego a abrirse: esa activacion ya no va a contar nada."""
+    if not pend or pend.get("dictando"):
+        return False
+    return (ahora - float(pend.get("t", ahora))) >= ACT_ESPERA_MAX
+
+
+def fila_activacion(pend, desenlace, ahora, extra=None):
+    """La linea que se guarda. Pura a proposito: ni disco ni reloj, asi la prueba el banco."""
+    fila = dict(pend)
+    t0 = fila.pop("t", None)          # el reloj interno no se guarda
+    fila.pop("dictando", None)        # ni el apunte de andar por casa
+    fila["desenlace"] = desenlace
+    if t0 is not None:
+        fila["espera"] = round(max(0.0, ahora - float(t0)), 2)
+    for k, v in (extra or {}).items():
+        fila[k] = v
+    return fila
+
+
+def apuntar_activacion(campos):
+    try:
+        os.makedirs(USO_DIR, exist_ok=True)
+        with open(os.path.join(USO_DIR, "activaciones.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps(campos, ensure_ascii=False) + "\n")
+    except Exception as e:
+        anota("WARN: no pude apuntar la activacion (%s)" % e)
+
+
+def cerrar_activacion(desenlace, ahora, **extra):
+    if not ACT_PENDIENTE:
+        return False
+    fila = fila_activacion(ACT_PENDIENTE, desenlace, ahora, extra)
+    ACT_PENDIENTE.clear()   # una activacion, UNA linea: se vacia antes de escribir
+    apuntar_activacion(fila)
+    return True
+
+
+def activacion_nueva(campos, ahora):
+    cerrar_activacion("pisada", ahora)   # la anterior murio sin llegar al dictado
+    ACT_PENDIENTE.clear()
+    ACT_PENDIENTE.update(campos)
+
+
+def activacion_dictando():
+    if ACT_PENDIENTE:
+        ACT_PENDIENTE["dictando"] = True
+
+
+def caducar_activacion(ahora):
+    if activacion_caducada(ACT_PENDIENTE, ahora):
+        cerrar_activacion("sin-dictado", ahora)
+
+
 def guardar_uso(bloques, **campos):
     if not bloques or not grabar_uso_activo():
         return
@@ -1977,6 +2048,7 @@ try:
 
                 ahora = time.time()
                 crudo = datos   # se conserva para medir el nivel aunque se tire
+                caducar_activacion(ahora)   # ver APUNTAR LAS ACTIVACIONES
                 if datos is None and ahora - ultima_llegada > MIC_MUERTO:
                     anota("ERROR: el microfono lleva %.0f s sin entregar audio; salgo para que me relancen"
                           % (ahora - ultima_llegada))
@@ -2033,6 +2105,8 @@ try:
                         with open(DICTAR, "r", encoding="utf-8") as f:
                             contenido = f.read().strip()
                         origen_nombre = (contenido == "nombre")
+                        if origen_nombre:
+                            activacion_dictando()   # ver APUNTAR LAS ACTIVACIONES
                         if contenido.startswith("seguimiento:"):
                             espera_voz = float(contenido.split(":", 1)[1]) / 1000.0
                     except Exception:
@@ -2085,8 +2159,15 @@ try:
                     texto_final = quitar_nombre(texto_final)
                     anota("dictado: cortado a mano -> '%s'" % texto_final)
                     escribir(TEXTO, texto_final)
+                    uso_antes = _uso["id"]   # ver LA ACTIVACION SECA
                     guardar_uso(audio_dictado, origen="boton", parakeet=oido_parakeet, whisper=mejor,
                                 seguridad=_ultima_seguridad, entregado=texto_final)
+                    # si aquel "nova" venia del nombre, su vida acaba aqui
+                    if origen_nombre:
+                        cerrar_activacion("orden" if texto_final.strip() else "nada", ahora,
+                                          oido=texto_final, dur=round(ahora - dicta_inicio, 2),
+                                          corte="a mano",
+                                          id=(_uso["id"] if _uso["id"] != uso_antes else ""))
                     dictando = False
                     ultimo_audio = audio_dictado
                     guardar_ultima_orden(ultimo_audio)   # ver EL AUDIO DE LA ULTIMA ORDEN
@@ -2344,10 +2425,26 @@ try:
                             texto_final = quitar_nombre(texto_final)
                             anota("dictado: '%s'" % texto_final)
                             escribir(TEXTO, texto_final)
+                            uso_antes = _uso["id"]   # para saber si el WAV es EL de esta orden
                             if not callado:
                                 guardar_uso(audio_dictado, origen="nombre" if origen_nombre else "boton o seguimiento",
                                             vosk=texto_vosk, parakeet=oido_parakeet, whisper=mejor, seguridad=_ultima_seguridad,
                                             entregado=texto_final, voz_ajena=ajena)
+                            # LA ACTIVACION SECA (20/09/2026): aqui ya se sabe si aquel "nova"
+                            # llego a una orden o murio en silencio. Ver APUNTAR LAS ACTIVACIONES.
+                            if origen_nombre:
+                                # LA ORDEN ENTERA NO SE GUARDA SI LA VOZ NO ES LA TUYA
+                                # (20/09). P2 nacio unas horas antes que el filtro de voz
+                                # ajena de guardar_uso y no lo conocia: sin esto, lo que
+                                # se acababa de decidir NO grabar como wav entraba en
+                                # disco igual, en texto y por la puerta de al lado.
+                                # El DESENLACE si se guarda siempre: es lo que mide las
+                                # activaciones secas, y para eso no hace falta el texto.
+                                cerrar_activacion("orden" if texto_final.strip() else "nada", ahora,
+                                                  oido=("" if (ajena and modo_grabar_uso() != "todo") else texto_final),
+                                                  dur=round(ahora - dicta_inicio, 2),
+                                                  callado=bool(callado), ajena=bool(ajena),
+                                                  id=(_uso["id"] if _uso["id"] != uso_antes else ""))
                             try:
                                 os.remove(DICTAR)
                             except Exception:
@@ -2429,6 +2526,14 @@ try:
                                 elif ahora - ultima_marca > 2.0:
                                     # antirebote: no disparar dos veces por lo mismo
                                     ultima_marca = ahora
+                                    # ver APUNTAR LAS ACTIVACIONES: aqui se sabe lo que sono,
+                                    # con que confianza, con que rafaga y con que ganancia; si esto
+                                    # acaba en orden o en nada se apunta al cerrarla.
+                                    activacion_nueva(dict(
+                                        hora=time.strftime("%Y-%m-%d %H:%M:%S"), t=ahora, texto=texto,
+                                        conf=round(conf, 2), umbral=round(umbral_confianza(plano), 2),
+                                        rafaga=round(pico_rafaga, 3), pico=round(pico, 3),
+                                        ganancia=round(ganancia, 1), altavoces=round(salida, 3)), ahora)
                                     # 'pico' es el del ultimo bloque, que al cerrar la
                                     # frase suele ser silencio (0.000); lo que decide
                                     # es el de la rafaga, y sin el el log parecia
