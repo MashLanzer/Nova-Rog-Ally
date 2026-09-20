@@ -5251,9 +5251,13 @@ function Add-DatoPerfil([string]$dato, [string]$fuente = '') {
     #   18/09 20:12:33  braya: 'Que sigues abriendo las canciones en Spotify si te dije ahora mismo'
     # Le dijo que si y lo tiro dos segundos despues. La queja ya la corta la regla de abajo (la
     # de los verbos de opinion), asi que esta solo tiene que dejar pasar lo que es una INSTRUCCION.
-    $esInstruccion = ($plD -match '(?:quiere|quiero|prefiere|prefiero|pide|pido|dije|dijo)\s+que') -or ($plD -match '(?:siempre|nunca|cada vez que)')
-    if (-not $esInstruccion -and $plD -match '(?:nova|asistente|la ia|el modelo)') { Log "PERFIL: no guardo lo que habla de mi: $d"; return $null }
-    if ($esInstruccion -and $plD -match '(?:nova|asistente|la ia|el modelo)') { Log "PERFIL: habla de mi, pero es una instruccion tuya: la guardo" }
+    # SOLO 'siempre', 'nunca' o 'cada vez que', y no un 'quiere que' generico: con el generico el
+    # banco se puso rojo al instante porque 'Quiere que Nova sepa quien la creo' colaba como
+    # instruccion, y eso es hablar de Nova, no decirle como comportarse. Lo que separa una cosa
+    # de la otra es que la instruccion de verdad fija una REGLA: 'SIEMPRE en YouTube'.
+    $esInstruccion = $plD -match '\b(?:siempre|nunca|cada vez que)\b'   # una REGLA, no un "quiere que" generico
+    if (-not $esInstruccion -and $plD -match '\b(?:nova|asistente|la ia|el modelo)\b') { Log "PERFIL: no guardo lo que habla de mi: $d"; return $null }
+    if ($esInstruccion -and $plD -match '\b(?:nova|asistente|la ia|el modelo)\b') { Log "PERFIL: habla de mi, pero es una instruccion tuya: la guardo" }
     if ($plD -match '\b(?:se equivoca|no entiende|falla|no funciona|molesta|tarda|lento|frecuentemente)\b' -and
         $plD -match '\b(?:considera|siente|cree|piensa|opina|prefiere que)\b') { Log "PERFIL: eso era una queja, no un dato: $d"; return $null }
     # NI DEDUCCIONES: "Braya tiene una pareja (la llama 'mi amor')" salio de oirle decir
@@ -10096,6 +10100,16 @@ function Initialize-Escucha {
             # conversacion de fondo. Se pasa como argumento 21 para poder bajarlo desde
             # config.json (escucha.rafagaMinima) si alguna vez no le oye al llamarla flojo.
             $rafagaMin = ([double](Get-Cfg 'escucha' 'rafagaMinima' 0.03)).ToString([System.Globalization.CultureInfo]::InvariantCulture)
+            # EL JUEZ DE SEGUNDA ETAPA (20/09/2026). Ver EL JUEZ DEL NOMBRE en wake_vosk.py:
+            # la gramatica de Vosk es CERRADA y esta OBLIGADA a devolver algo de su lista ante
+            # cualquier ruido, y por eso la madrugada del 20/09 Nova grabo 70 s de una
+            # conversacion privada sin que braya dijera su nombre. El juez es el mismo modelo
+            # sin gramatica, escuchando en paralelo: no carga nada ni anade espera al llamarla.
+            # Argumento 22. Se estrena en 'mirar' porque todavia no hay medida: la rafaga del
+            # nombre no se guarda en pruebas\audio\uso, asi que el unico sitio donde se puede
+            # medir es el log de un dia de uso real. Valores: 'si', 'mirar', 'no'.
+            $juezNombre = [string](Get-Cfg 'escucha' 'juezNombre' 'mirar')
+            if ([string]::IsNullOrWhiteSpace($juezNombre)) { $juezNombre = 'mirar' }
             # EL STDERR DEL WORKER, A UN ARCHIVO. El 12/09 murio tres veces sin
             # dejar ni una linea (se lanzaba sin redirigir nada). Y lo que dejo
             # la vez anterior se pasa al log ANTES de relanzar, porque la
@@ -10111,7 +10125,7 @@ function Initialize-Escucha {
                 -ArgumentList @('-u', $worker, $EscuchaNombre, $MarcaWake, $EventLog, $EscuchaGanancia,
                                 $MarcaPausa, $MarcaDictar, $RutaDictado, $RutaParcial, $RutaNivel,
                                 $MarcaConfirmar, $RutaConfirmacion, "$MotorDictado`:$WhisperModelo", $RutaVocabulario,
-                                $conf, $MarcaReintento, $RutaReintento, $(if ($WhisperPreciso) { $WhisperPreciso } else { '-' }), $(if ($WhisperUltimo) { $WhisperUltimo } else { '-' }), $rafagaMin) `
+                                $conf, $MarcaReintento, $RutaReintento, $(if ($WhisperPreciso) { $WhisperPreciso } else { '-' }), $(if ($WhisperUltimo) { $WhisperUltimo } else { '-' }), $rafagaMin, $juezNombre) `
                 -WorkingDirectory $LogDir -WindowStyle Hidden -PassThru `
                 -RedirectStandardError $rutaErrWorker
         } else {
@@ -13214,6 +13228,29 @@ function Send-CharlaPedido($pedido, [bool]$arrancar = $true) {
     } catch { Log ("charla: no pude escribir al worker: " + $_.Exception.Message); return $false }
 }
 
+# EL HILO NO SE CORTA CON LAS ORDENES (M2, 20/09). La charla ya recuerda los ultimos
+# 6 turnos (charla_worker.py: historial / MAX_HISTORIAL) y los olvida sola a los 5
+# minutos (OLVIDO_S), pero ahi solo entra lo que PASA por ella. Las ordenes que
+# resuelve la capa local -305 en el log- nunca se apuntaban, y la frase siguiente no
+# sabia de que se hablaba: "que sigues abriendo las canciones en Spotify si te dije
+# ahora mismo que en YouTube" (18/09 20:12), "con la novena cancion" (20:10). Peor
+# aun: la orden que sale de la propia charla se BORRA del hilo (charla_worker.py,
+# historial.pop() al marcar [ORDEN]), asi que justo la frase que costo entender era la
+# que desaparecia. Aqui se deja el turno puesto en ese mismo hilo.
+#
+# No hay memoria nueva ni modo que se quede puesto: es una linea JSON por la tuberia
+# que ya esta abierta, sin modelo, sin disco y sin esperar respuesta (no toca
+# charlaEsperando ni charlaId). Y NO arranca el worker (el `$false`): si la charla
+# esta apagada no hay hilo que mantener, y levantarla aqui costaria segundos en mitad
+# de una orden, que es lo unico que braya no perdona.
+function Set-UltimaOrden([string]$texto, [string]$hecho) {
+    $script:ultimaOrden = @{ texto = $texto; desc = $hecho; cuando = $sw.ElapsedMilliseconds }
+    if (-not $ConversacionOn -or -not $texto) { return }
+    try {
+        [void](Send-CharlaPedido @{ op = 'apunta'; id = 0; texto = $texto; hecho = $hecho } $false)
+    } catch { Log ('hilo: no pude apuntar la orden: ' + $_.Exception.Message) }
+}
+
 function Send-Charla([string]$text, [bool]$duda = $false, [string]$op = 'hablar', $extra = $null) {
     if (-not $ConversacionOn -or -not $text) { return $false }
     $script:charlaId++
@@ -13415,6 +13452,7 @@ function Receive-Charla {
                 Start-Confirmacion
             } elseif ($fastC) {
                 Log "LOCAL (desde la charla): $ordenC -> $fastC"
+                Set-UltimaOrden $ordenC ([string]$fastC)
                 Send-UIEvento 'hecho'
                 Say $fastC
             } elseif ($TraducirOn) { Submit-Command $ordenC 'traducir' } else { Submit-Command $ordenC }
@@ -13442,6 +13480,65 @@ function Receive-Charla {
             }
         }
     }
+}
+
+# LO QUE SE DIJO ANTES, PARA EL MODELO (20/09). Hasta hoy la CHARLA tenia memoria
+# (charla_memoria.py, contexto()) pero las ORDENES que acaban en el modelo iban
+# DESNUDAS. En el log del 18/09 se ve lo que cuesta: a las 20:10:38 "Puedes abrir
+# YouTube y reproducir musica" -> LOCAL "abrir youtube; la pongo"; 20 s despues
+# "Con la novena cancion" llega a la API sin nada de eso delante, la API contesta NO
+# y Nova acaba diciendo "No se a que te referis con la novena cancion". Y a las
+# 19:04:14 un "Si" suelto se descarta, y braya tiene que explicar a mano "la
+# respuesta del si fue a que hicieras lo de las pantallas".
+# NO ES UN MODO QUE SE QUEDE PUESTO: como mucho 3 turnos, caducan a los 3 minutos,
+# no se escriben en disco, no cambian ninguna decision de Nova, y el propio texto le
+# dice al modelo que lo ignore si la frase se entiende sola.
+# Y NO VA AL AGENTE ('accion'): alli el modelo tiene manos de verdad y arrastrar
+# contexto seria hacer algo que nadie pidio, que es justo lo que no se quiere.
+$TurnosMax = 3
+$TurnosVidaMs = 180000
+
+$script:turnos = New-Object System.Collections.ArrayList
+
+# Apunta un turno ya cerrado (lo que dijo el / lo que hizo o contesto Nova).
+# Si la ultima entrada es de la MISMA frase, se le suma a esa en vez de crear otra:
+# la charla contesta frase a frase, y si no, tres frases serian tres turnos.
+function Add-Turno([string]$dicho, [string]$hecho) {
+    $d = ((([string]$dicho) -replace '\s+', ' ')).Trim()
+    if (-not $d) { return }
+    $h = ((([string]$hecho) -replace '\s+', ' ')).Trim()
+    if ($h.StartsWith('(')) { $h = '' }      # "(error del cerebro: ...)" no es una respuesta
+    if ($d.Length -gt 120) { $d = $d.Substring(0, 120) }
+    if ($h.Length -gt 120) { $h = $h.Substring(0, 120) }
+    $ult = $null
+    if ($script:turnos.Count -gt 0) { $ult = $script:turnos[$script:turnos.Count - 1] }
+    if ($ult -and $ult.dicho -eq $d) {
+        if ($h) { $ult.hecho = (($ult.hecho + ' ' + $h).Trim()) }
+        if ($ult.hecho.Length -gt 200) { $ult.hecho = $ult.hecho.Substring(0, 200) }
+        $ult.cuando = $sw.ElapsedMilliseconds
+        return
+    }
+    [void]$script:turnos.Add(@{ dicho = $d; hecho = $h; cuando = $sw.ElapsedMilliseconds })
+    while ($script:turnos.Count -gt $TurnosMax) { $script:turnos.RemoveAt(0) }
+}
+
+# El texto que se le pone al modelo DETRAS de la peticion. Devuelve '' si no hay
+# nada reciente, o si hay un invitado delante (lo de braya no se le ensena a nadie).
+function Get-ContextoTurnos {
+    if ($script:invitado) { return '' }
+    if (-not $script:turnos -or $script:turnos.Count -eq 0) { return '' }
+    $ls = @()
+    foreach ($t in $script:turnos) {
+        if (($sw.ElapsedMilliseconds - [double]$t.cuando) -gt $TurnosVidaMs) { continue }
+        $linea = '- el dijo: "' + $t.dicho + '"'
+        if ($t.hecho) { $linea += ' ; tu: "' + $t.hecho + '"' }
+        $ls += $linea
+    }
+    if ($ls.Count -eq 0) { return '' }
+    return ("CONTEXTO, lo de hace un momento (del mas viejo al mas nuevo):`n" + ($ls -join "`n") +
+            "`nUsalo SOLO para saber a que se refiere lo que te acaban de pedir cuando no se entiende" +
+            " solo (dice 'eso', 'este', 'el otro', 'si', 'no', 'y ahora...'). Si se entiende solo," +
+            " IGNORA este contexto entero. Nunca contestes ni traduzcas lo del contexto: solo lo de arriba.")
 }
 
 function Submit-Command([string]$text, [string]$modo = 'accion', [string]$adjunto = '') {
@@ -13477,6 +13574,20 @@ function Submit-Command([string]$text, [string]$modo = 'accion', [string]$adjunt
         # Hola.txt ya estaba en el escritorio desde el 15/09, el agente lo sobrescribio y
         # contesto "Listo, cree el archivo". Destructivo y ademas falso en el reporte.
         $prompt = "REGLA FIJA: nunca cierres, mates ni reinicies estos procesos: nova_ui, powershell, pwsh, python, WindowsTerminal, OpenConsole, conhost, claude, opencode, node, explorer, ni ningun proceso del sistema; son el propio asistente y la sesion del usuario. Si la tarea es cerrar todos los programas o muchos a la vez, NO la hagas: contesta solo 'Para eso di: cierra todos los programas. Te pregunto antes de cerrar nada.' REGLA FIJA 2: si te piden crear un archivo o carpeta y YA EXISTE algo con ese nombre, NO lo sobrescribas ni lo modifiques: contesta que ya existe y que no lo has tocado. Nunca borres ni sobrescribas archivos del usuario. Y en el resumen final di exactamente lo que hiciste: 'creado', 'modificado' o 'ya existia, sin cambios'; nunca digas que creaste algo que ya estaba. " + $prompt
+    }
+    # LO DE ANTES VA CON LA PETICION (20/09, ver LO QUE SE DIJO ANTES). Detras del
+    # prompt, que es donde esta la frase: asi lo ultimo le queda al modelo lo mas cerca,
+    # y ademas no mueve ni un byte del principio (por si algun dia se cachea el prefijo).
+    # Solo en los caminos que HABLAN o que TRADUCEN: lo que salga de traducir aun lo
+    # tiene que aprobar Test-FastCommand, y el plan entero Invoke-PlanLocal. En 'accion'
+    # NO: ese es el agente con manos.
+    if ($modo -eq 'traducir' -or $modo -eq 'plan' -or $modo -eq 'pregunta' -or $modo -eq 'charla') {
+        $ctxT = ''
+        try { $ctxT = Get-ContextoTurnos } catch { $ctxT = '' }
+        if ($ctxT) {
+            $prompt = $prompt + "`n`n" + $ctxT
+            Log "contexto: $($script:turnos.Count) turno(s) de antes van con la peticion"
+        }
     }
     # 'charla' encadena la sesion anterior: recuerda lo hablado antes
     $extra = if ($modo -eq 'charla') { '--continue' } else { '' }
@@ -13578,7 +13689,7 @@ function Invoke-PlanLocal($ordenes, [string]$original) {
         }
         $hechasP += $rP
     }
-    $script:ultimaOrden = @{ texto = $original; desc = ($hechasP -join ', '); cuando = $sw.ElapsedMilliseconds }
+    Set-UltimaOrden $original (($hechasP -join ', '))
     $script:ultimaRespuesta = ($hechasP -join ', ')
     Send-UIEvento 'hecho'
     Show-Popup $script:ultimaRespuesta
@@ -13797,6 +13908,7 @@ function Report-Reply($out) {
                 $script:ultimaAprendida = $original
                 Add-Estadistica 'traducida' "$original -> $propuesta"
                 $script:ultimaRespuesta = $r
+                Add-Turno $original $r
                 Send-UIEvento 'hecho'
                 Show-Popup $r
                 Say $r
@@ -13922,6 +14034,7 @@ function Report-Reply($out) {
     if ($reply.Length -gt 1000) { $reply = $reply.Substring(0, 1000) + " [...]" }
     Log "REPLY: $reply"
     $script:ultimaRespuesta = $reply
+    Add-Turno $script:jobTextoOriginal $reply
     # "ABRELO" DESPUES DE QUE NOVA NOMBRE UN JUEGO (16/09). El 15/09 "¿puedes abrirlo?"
     # abrio Steam: el pronombre solo miraba el ultimo objetivo LOCAL, y el juego lo
     # acababa de nombrar el agente en esta misma respuesta.
@@ -15621,7 +15734,7 @@ function Process-Texto([string]$text) {
                 Start-Confirmacion
             } else {
                 Log "LOCAL: $text -> $fast"
-                $script:ultimaOrden = @{ texto = $text; desc = [string]$fast; cuando = $sw.ElapsedMilliseconds }
+                Set-UltimaOrden $text ([string]$fast)
                 $script:noEntendiSeguidos = 0
                 Add-Estadistica 'local' $text
                 # tus costumbres, para proponerte automatizarlas (ver HABITOS)
@@ -15633,6 +15746,7 @@ function Process-Texto([string]$text) {
                 # pasando por dueno de la casa.
                 Update-MiVoz $script:ultimaF0
                 $script:ultimaRespuesta = $fast
+                Add-Turno $text $fast
                 Send-UIEvento 'hecho'
                 Show-Popup $fast
                 Say $fast
@@ -15673,7 +15787,7 @@ function Process-Texto([string]$text) {
                 try { $r = Invoke-FastCommand $apr } catch { $r = $null }
                 if ($r) {
                     Log "APRENDIDA: '$text' -> '$apr' -> $r"
-                    $script:ultimaOrden = @{ texto = $apr; desc = [string]$r; cuando = $sw.ElapsedMilliseconds }
+                    Set-UltimaOrden $apr ([string]$r)
                     $script:ultimaAprendida = $text
                     if ($script:ultimaAprendida) { Log "(si dices 'no era eso', la olvido)" }
                     Add-Estadistica 'aprendida' $text
@@ -16448,6 +16562,7 @@ while ($true) {
             $script:uiOrigen = [string]$frC.o
             Log "charla dice: $fraseC"
             $script:ultimaRespuesta = $fraseC
+            Add-Turno $script:charlaTexto $fraseC
             Say $fraseC (Get-EmocionFrase $fraseC)
         }
     }

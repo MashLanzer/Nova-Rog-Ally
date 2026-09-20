@@ -58,6 +58,7 @@
         "nombre": "nova",
         "confianzaMinima": 0.55,
         "rafagaMinima": 0.03,
+        "juezNombre": "mirar",
         "seguimientoTrasSeco": false,
         "soloBotonEnJuego": true,
         "autoSordina": true,

@@ -58,6 +58,12 @@ function Invoke-FastCommand($t) {
     return $null
 }
 Invoke-Expression (Traer 'Invoke-PlanLocal')
+# Set-UltimaOrden es nueva (20/09, el hilo de la memoria entre ordenes) y la llama
+# Invoke-PlanLocal al terminar. Sin traerla aqui, esta prueba se caia con
+# CommandNotFoundException: es el mismo despiste que hubo hoy con Test-ApiContestaPrimero
+# en probar-costumbres.ps1. REGLA: si se anade una funcion que llamen las que este banco
+# extrae, hay que traerla tambien, o el banco prueba media funcion.
+Invoke-Expression (Traer 'Set-UltimaOrden')
 function ResetP {
     $script:pendiente = $null; $script:dicho = @(); $script:alAgente = @()
     $script:eventos = @(); $script:rota = ''; $script:ultimaRespuesta = ''

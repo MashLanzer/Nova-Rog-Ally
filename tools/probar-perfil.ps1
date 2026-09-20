@@ -37,6 +37,13 @@ function Comp($etiqueta, $ok, $detalle) {
 }
 
 Write-Host "  -- lo que SI se guarda --"
+# LA INSTRUCCION SI SE GUARDA, AUNQUE NOMBRE A NOVA (20/09). El 18/09 a las 20:12 braya
+# dijo 'cuando te digo que pongas una cancion SIEMPRE tiene que ser en YouTube', Nova
+# contesto 'Entendido' y DOS SEGUNDOS despues el log decia 'PERFIL: no guardo lo que habla
+# de mi'. Veinte segundos mas tarde volvio a abrir Spotify y braya se quejo. La regla de
+# 'no hablar de mi' esta para las QUEJAS, no para las ordenes que el da. Este caso existe
+# para que no vuelva a perderse.
+Comp 'una INSTRUCCION tuya, aunque me nombre' ([bool](Add-DatoPerfil 'Quiere que Nova ponga musica siempre en YouTube' 'prueba')) ''
 $script:perfilFalso = @()
 Comp 'una ruta suya' ([bool](Add-DatoPerfil 'Su carpeta de capturas es D:\Capturas' 'prueba')) ''
 Comp 'su juego favorito' ([bool](Add-DatoPerfil 'Su juego favorito es Hollow Knight' 'prueba')) ''

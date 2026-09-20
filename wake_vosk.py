@@ -95,6 +95,34 @@ try:
 except ValueError:
     CONFIANZA_ARG = None
     RAFAGA_ARG = None
+# --- EL INTERRUPTOR DEL JUEZ (argumento 20, config.json -> escucha.juezNombre) ---
+# Tres posiciones a proposito, y no un si/no. Del juez todavia NO hay medida con las
+# grabaciones de braya, y no la puede haber: pruebas\audio\uso guarda la ORDEN (lo que se
+# dice DESPUES del nombre), no la rafaga del nombre, que es lo unico que el juez juzga. Asi
+# que se estrena en "mirar": escucha, apunta en el log cada vez que habria tumbado una
+# activacion y NO tumba nada. Un dia de uso y el log dice si acierta; entonces "si".
+#   "si"    -> tumba las activaciones que no confirma
+#   "mirar" -> solo lo apunta (como esta hoy: no cambia nada de lo que hace Nova)
+#   "no"    -> apagado del todo, ni siquiera decodifica
+# EL INDICE DEL ARGUMENTO, TERCERA VEZ QUE SE FALLA (20/09). PowerShell manda '-u' como
+# primer elemento de -ArgumentList, pero para Python sys.argv[0] es el SCRIPT: todo va
+# corrido uno. El ultimo que manda assistant.ps1 es $juezNombre y le toca el 20, no el 22.
+# Con el indice mal, esta clave queda MUERTA y el worker usa el valor por defecto sin que
+# nadie se entere, que es justo lo que paso con rafagaMinima hace dos horas.
+# PARA COMPROBARLO SIN ADIVINAR: contar los argumentos de la llamada en assistant.ps1 y
+# restar uno. Hoy son, en Python: 14 conf, 15 reintento, 16 texto, 17 preciso, 18 ultimo,
+# 19 rafaga, 20 juez.
+# El defecto es "mirar", no "si": si alguien lanza el worker a mano sin el argumento, que
+# APUNTE lo que haria pero no tumbe ninguna activacion. Un juez que se estrena decidiendo
+# sin que nadie haya visto sus cifras puede dejar a Nova sorda, y eso es peor que activarse
+# de mas: lo segundo ya tiene el umbral de rafaga.
+_JUEZ_ARG = (sys.argv[20].strip().lower() if len(sys.argv) > 20 else "mirar")
+if _JUEZ_ARG in ("0", "false", "no", "off", "-"):
+    JUEZ_NOMBRE = "no"
+elif _JUEZ_ARG in ("mirar", "observa", "observar", "log"):
+    JUEZ_NOMBRE = "mirar"
+else:
+    JUEZ_NOMBRE = "si"
 # --- SEGUNDA OPORTUNIDAD (oido fino) ---
 # El modelo rapido ("base") entiende mal los nombres propios: "abrestean" por
 # "abre steam". El preciso ("small") acierta bastante mas, pero tarda unas tres
@@ -880,6 +908,107 @@ def reconocedor_si_no():
     r = KaldiRecognizer(modelo, TASA, GRAMATICA_SI_NO)
     r.SetWords(False)
     return r
+
+
+# --- EL JUEZ DEL NOMBRE: LA SEGUNDA ETAPA, COMO LA DE ALEXA (20/09/2026) ---
+# LA GRAMATICA CERRADA ES LA CAUSA, no un accidente. GRAMATICA le dice al decodificador que
+# en el mundo solo existen "nova", "oye nova", "hola nova"... y [unk]: ante cualquier ruido
+# esta OBLIGADO a elegir de esa lista, asi que alucina el nombre. La madrugada del 20/09 Nova
+# se activo SOLA cinco veces en doce minutos y grabo 70 s de una conversacion privada de
+# braya, que nunca dijo su nombre (los cinco audios, por Gemini: "ou passatempo", "ritmo",
+# "Enero del", "Si o no?", "de la cosa esa..."). Y el dano se multiplico por tres: 5
+# activaciones se volvieron 14 grabaciones porque la escucha de seguimiento se reabre sola
+# (seguimientoMs 2500) y ahi ya no hace falta decir el nombre. Cortar el nombre corta la
+# cadena entera: sin la primera activacion no hay ningun seguimiento que reabrir.
+#
+# Alexa hace exactamente esto: etapa 1 pequena y permisiva a proposito, y etapa 2 que NO
+# despierta hasta confirmar, viendo ademas los 500 ms ANTERIORES a la palabra (Amazon publica
+# -67 % de falsas alarmas con esa segunda etapa). Aqui la etapa 2 es el MISMO modelo Vosk que
+# ya esta cargado pero SIN gramatica (reconocedor_libre): libre no tiene por que decir "nova",
+# y sobre "ou passatempo" escribe "ou passatempo". Es la pieza mas barata que hay en la casa:
+# no carga ni un modelo nuevo, no pelea RAM con Parakeet ni con el oido fino.
+#
+# POR QUE EN PARALELO, QUE ES LO QUE DECIDE SI ESTO VALE. Si el juez se pusiera a decodificar
+# DESPUES de oir el nombre, braya pagaria esa espera cada vez que la llama, y braya prioriza
+# la velocidad sobre todo. Escuchando la misma rafaga a la vez que el reconocedor con
+# gramatica, cuando este dice "nova" el veredicto ya esta hecho: solo queda cerrar la frase
+# (FinalResult), decenas de ms. Y no la deja sorda: el audio sigue entrando por el callback a
+# la cola, que aqui NO se vacia; como mucho se atrasa una fraccion de bloque (250 ms).
+# Parakeet o Whisper como juez se descartaron: Parakeet oye a 0,6 s por frase y pide 1200 MB
+# libres, y Whisper base tarda segundos. Los dos multiplican por diez el presupuesto de
+# ~300 ms y encima habria que sacarlos del hilo de la escucha. No compensan para cuatro
+# letras cuando el modelo que ya esta cargado las oye igual de bien.
+#
+# EN DUDA, SE DESPIERTA. El juez solo tumba cuando ha oido algo y ese algo no se parece al
+# nombre. Sin veredicto -apagado, sin RAM, error, juego delante o silencio- se despierta como
+# antes: mas vale despertar de mas que no acudir cuando la llaman.
+RAM_MIN_JUEZ = 150.0
+# Tolerante a proposito: acepta el nombre partido ("no va", que es lo que Vosk suele escribir
+# cuando lo oye suelto) y con algo pegado detras ("novato"). El \b del principio sigue
+# impidiendo que "genova" o "innova" cuelen, que es justo lo que arreglo PATRON_NOMBRE.
+PATRON_JUEZ = re.compile(r"\b" + r"\s?".join(re.escape(c) for c in NOMBRE_PLANO))
+_juez = {"rec": None, "roto": False}
+
+
+def juez_empieza():
+    """Rafaga nueva: el juez olvida la anterior y escucha esta desde el pre-roll."""
+    if JUEZ_NOMBRE == "no" or _juez["roto"]:
+        return
+    if jugando():
+        # con un juego delante el nombre se ignora igualmente (solo vale el boton):
+        # decodificar dos veces seria regalarle CPU al juego a cambio de nada
+        _juez["rec"] = None
+        return
+    try:
+        if _juez["rec"] is not None:
+            # Reset() en vez de crear otro: esto pasa en CADA rafaga de voz, varias veces
+            # por minuto cuando hay gente hablando cerca
+            _juez["rec"].Reset()
+            return
+        libre = ram_libre_mb()
+        if 0 <= libre < RAM_MIN_JUEZ:
+            # se rinde y deja pasar: antes despertar de mas que no despertar
+            return
+        _juez["rec"] = reconocedor_libre()
+    except Exception as e:   # noqa: BLE001
+        _juez["rec"] = None
+        _juez["roto"] = True
+        anota("WARN: el juez del nombre no arranca (%s); se despierta sin el, como antes" % e)
+
+
+def juez_oye(bloque):
+    """El mismo audio que le llega al reconocedor con gramatica, tambien al juez."""
+    if _juez["rec"] is None:
+        return
+    try:
+        _juez["rec"].AcceptWaveform(bloque)
+    except Exception as e:   # noqa: BLE001
+        _juez["rec"] = None
+        _juez["roto"] = True
+        anota("WARN: el juez del nombre fallo oyendo (%s); se despierta sin el" % e)
+
+
+def juez_deja_pasar(texto):
+    """True si se puede despertar. En "mirar" solo lo apunta y deja pasar siempre."""
+    r = _juez["rec"]
+    if r is None:
+        return True
+    try:
+        libre = sin_tildes(json.loads(r.FinalResult()).get("text", "") or "")
+    except Exception as e:   # noqa: BLE001
+        _juez["rec"] = None
+        _juez["roto"] = True
+        anota("WARN: el juez del nombre fallo al cerrar (%s); se despierta sin el" % e)
+        return True
+    if not libre or PATRON_JUEZ.search(libre):
+        return True
+    if JUEZ_NOMBRE == "mirar":
+        anota("juez (solo mirando): con gramatica sono '%s' pero libre suena a '%s'; HOY se despierta igual; ver EL JUEZ DEL NOMBRE"
+              % (texto, libre))
+        return True
+    anota("descartado '%s': el juez de segunda etapa oyo '%s' y ahi no esta '%s'; ver EL JUEZ DEL NOMBRE"
+          % (texto, libre, NOMBRE_PLANO))
+    return False
 
 
 # QUITADA leer_vocabulario() el 19/09: no la llamaba nadie (ver argv[13] arriba).
@@ -1902,6 +2031,9 @@ try:
                     if pico > UMBRAL_ACTIVIDAD:
                         if arrastre <= 0:
                             pico_rafaga = 0.0   # empieza una rafaga nueva
+                            # el juez juzga EXACTAMENTE la misma ventana que mide pico_rafaga:
+                            # asi lo que dice el log de una activacion cuadra consigo mismo
+                            juez_empieza()
                         arrastre = ARRASTRE
                     elif arrastre > 0:
                         arrastre -= 1
@@ -2087,10 +2219,20 @@ try:
                         for b in prebuffer:
                             if rec.AcceptWaveform(b):
                                 pass   # descartado: es solo contexto previo
+                            # EL PRE-ROLL, TAMBIEN PARA EL JUEZ (20/09/2026). Son los 500 ms
+                            # ANTERIORES a la palabra (PREBUFFER = 2 bloques x 4000 muestras a
+                            # 16 kHz = 0,5 s clavados), justo lo que mira la segunda etapa de
+                            # Alexa. Sin ellos el juez oiria el nombre descabezado y tumbaria
+                            # llamadas buenas, que es el unico error que aqui no se perdona.
+                            juez_oye(b)
                         prebuffer.clear()
                     # (bloques_decodificados ya se conto arriba, con bloques_totales)
                     # Solo se mira el resultado FINAL: los parciales cambian de
                     # hipotesis constantemente y no traen confianza por palabra.
+                    # el juez oye el bloque antes que la gramatica: cuando esta cierre la
+                    # frase y diga el nombre, el veredicto ya estara practicamente hecho
+                    if decodificar:
+                        juez_oye(bloque)
                     if decodificar and rec.AcceptWaveform(bloque):
                         resultado = json.loads(rec.Result())
                         texto = resultado.get("text", "")
@@ -2124,6 +2266,8 @@ try:
                                           % (texto, conf, umbral_confianza(plano),
                                              "" if len(plano.split()) <= PALABRAS_SIN_SOSPECHA
                                              else " (frase larga: se exige mas)"))
+                                elif not juez_deja_pasar(texto):
+                                    pass   # el juez ya lo apunto en el log con las dos versiones
                                 elif ahora - ultima_marca > 2.0:
                                     # antirebote: no disparar dos veces por lo mismo
                                     ultima_marca = ahora

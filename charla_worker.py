@@ -9,6 +9,7 @@
 #   {"op": "hablar", "id": 3, "texto": "...", "juego": "Hades", "invitado": false, "duda": false}
 #   {"op": "parar"}                         corta la respuesta en curso
 #   {"op": "olvidar"}                       borra lo hablado (no lo aprendido)
+#   {"op": "apunta", "texto": "...", "hecho": "..."}   deja en el hilo una orden
 #   {"op": "olvidar_tema", "texto": "..."}  borra lo aprendido sobre algo
 #   {"op": "descargar"}                     saca los modelos de la RAM (al jugar)
 # Escribe por stdout un JSON por linea, SOLO ASCII (los acentos van escapados:
@@ -957,6 +958,26 @@ def calentar():
         salida("info", texto="no pude precargar el modelo local: %s" % e)
 
 
+def apuntar_hilo(texto, hecho):
+    """EL HILO NO SE CORTA CON LAS ORDENES (M2, 20/09). Una orden que hizo el asistente
+    sin pasar por aqui: se deja el turno en el hilo para que la frase siguiente se
+    entienda ("con la novena cancion", "te dije que en YouTube"). No llama a ningun
+    modelo, no aprende nada y no escribe en disco: solo el hilo, que se olvida solo.
+
+    Se apunta el PAR entero (braya / Nova) a proposito: la API exige que los papeles
+    se alternen, y medio turno suelto rompería la charla siguiente."""
+    global ultima_charla
+    texto = (texto or "").strip()
+    if not texto:
+        return
+    ahora = time.time()
+    if ahora - ultima_charla > OLVIDO_S:
+        historial.clear()      # el mismo reloj que la charla: 5 minutos y a cero
+    ultima_charla = ahora
+    historial.append({"role": "user", "content": texto[:300]})
+    historial.append({"role": "assistant", "content": ((hecho or "").strip() or "hecho")[:300]})
+    recortar()
+
 def atender(p):
     op = p.get("op")
     if op == "olvidar":
@@ -979,6 +1000,8 @@ def atender(p):
                     salida("info", texto="memoria: aprendido de Claude Code '%s'" % (p.get("pregunta") or "")[:60])
             except Exception as e:  # noqa: BLE001
                 salida("info", texto="memoria: no pude aprender (%s)" % e)
+    elif op == "apunta":
+        apuntar_hilo(p.get("texto") or "", p.get("hecho") or "")
     elif op in ("hablar", "trivia", "resumir"):
         # si vuelve a hablar, el juego ya no manda: el revisor se reanuda. Sin esto se
         # quedaria dormido hasta que muriera el worker, y en vez de ahorrar CPU jugando
