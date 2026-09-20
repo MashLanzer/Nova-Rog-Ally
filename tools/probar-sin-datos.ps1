@@ -24,8 +24,14 @@ $txtFuente = [System.IO.File]::ReadAllText($rutaA, [System.Text.Encoding]::UTF8)
 $DecisionAprovecha = if ($txtFuente -match '\$DecisionAprovecha = ([0-9.]+)') { [double]$Matches[1] } else { 0.15 }
 $DecisionMinIntentos = if ($txtFuente -match '\$DecisionMinIntentos = ([0-9]+)') { [int]$Matches[1] } else { 20 }
 Invoke-Expression (Traer 'Get-DecisionMinimo')
+Invoke-Expression (Traer 'Test-DiaCuenta')
 Invoke-Expression (Traer 'Test-DatosRepartidos')
 Invoke-Expression (Traer 'Get-AvisoSinDatos')
+# EL CORTE, APAGADO AQUI A PROPOSITO (19/09, idea 61). Estos casos usan los dias REALES
+# del 15 al 17/09, que son justo los que el corte por defecto (18/09) descarta: con el
+# puesto, todos saldrian vacios y la prueba pasaria sin probar nada. Lo que se mira aqui
+# es el aviso; el corte tiene sus casos en tools\probar-revision-propia.ps1.
+$DecisionDatosDesde = ''
 
 $mal = 0
 function Comp([string]$etq, [bool]$ok, [string]$det) {
@@ -88,6 +94,14 @@ $NubeOir = 'gemini'
 Write-Host '  -- y lo raro no lo rompe --'
 Comp 'sin dias, no revienta' ((Get-AvisoSinDatos @{ dias = @{} } (Num 29 1) $hoy) -eq '') ''
 Comp 'con stats vacio tampoco' ((Get-AvisoSinDatos @{} (Num 29 1) $hoy) -eq '') ''
+
+Write-Host '  -- y con el corte puesto, esos dias ya no son una decision esperando --'
+# 19/09, idea 61: si los 29 son de antes de arreglar el microfono, no es que falten dias, es
+# que no hay decision. Callarse es lo correcto: lo que no se puede es decidir con ellos.
+$DecisionDatosDesde = '2026-09-18'
+Comp 'los 29 del 15/09 ya no cuentan' ((Get-AvisoSinDatos $real (Num 29 1) ([datetime]'2026-09-19')) -eq '') ''
+$DecisionDatosDesde = ''
+Comp 'y sin corte vuelve a avisar, como antes' ((Get-AvisoSinDatos $real (Num 29 1) $hoy) -match '1 de 29') ''
 
 # --- y que el codigo real lo use ---
 Write-Host '  -- y la revision propia lo cuenta en sus tres salidas --'

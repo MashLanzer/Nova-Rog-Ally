@@ -5978,6 +5978,22 @@ function Watch-Entorno([int]$botones = 0) {
         if ($txtF) { [void](Send-AvisoEntorno 'fallo-racha' $txtF 'medio' 720) }
     } catch {}
 
+    # H2m2 (19/09): LLEVO DIAS SIN QUE ME HABLES, y eso no es normal. Va por el mismo
+    # camino que todo lo demas -Send-AvisoEntorno-, asi que respeta el tope por hora, el
+    # silencio jugando y de noche, y el "no me avises de nada".
+    #
+    # El fichero se mira cada media hora y no cada 30 s: es un aviso de DIAS, y este bucle
+    # corre en una maquina de 4 nucleos. Aun asi quedan 48 intentos al dia, de sobra para
+    # que alguno pille a Nova libre (los de nivel 'medio' se callan si esta hablando o
+    # esperando un si, y Send-AvisoEntorno no reintenta por su cuenta).
+    try {
+        if ($null -eq $script:sinUsoMirado -or ((Get-Date) - $script:sinUsoMirado).TotalMinutes -ge 30) {
+            $script:sinUsoMirado = Get-Date
+            $txtU = Get-AvisoSinUso
+            if ($txtU) { [void](Send-AvisoEntorno 'sin-uso' $txtU 'medio' 1440) }
+        }
+    } catch {}
+
     # IDEA 22: el correo, una vez por la manana y sin congelar el bucle. Si Nova se
     # reinicia se vuelve a mirar, pero el aviso no se repite: eso lo frena el 'una vez
     # cada 12 horas' de Send-AvisoEntorno, que vive en disco.
@@ -6042,6 +6058,56 @@ function Get-AvisoFallos([datetime]$ahora = (Get-Date)) {
     $mediaE = $sumaE / [double]$nDiasE
     if ($mediaE -le 0 -or $malHoy -le ($mediaE * 2)) { return '' }
     return "Hoy te estoy entendiendo peor de lo normal: $malHoy ordenes que no supe hacer. Si alguna se repite, dime: aprende que cuando diga..."
+}
+
+# NADIE ME HABLA Y NADIE SE ENTERA (19/09, H2m2). Desde el 15/09 aqui no se decide nada
+# sin uso real: que modelo oye mejor, que se apaga, si el oido fino aporta. Ese dato es
+# una linea por orden en pruebas\audio\uso\destinos.jsonl, y cuando deja de escribirse no
+# se rompe nada A LA VISTA: Nova sigue encendida, la capsula sigue con su pulso, y las
+# decisiones se quedan congeladas sin que nadie lo note. Hoy mismo, 19/09, llevaba el dia
+# entero encendida con el decodificado al 0 % y se descubrio por casualidad, abriendo el
+# fichero a mano. Un medidor que se para en silencio es peor que no tenerlo.
+#
+# POR QUE 3 DIAS, y no 2 ni 7: sale del registro, no de una corazonada. En los 9 dias
+# apuntados en memoria\estadisticas.json (11 al 19/09) el hueco mas largo sin ni una orden
+# es UN dia (el 14/09), y el 17/09 se salvo con una sola. Con 2 dias esto saltaria en un
+# parentesis normal y en dos semanas ya seria ruido que se ignora; con 3 no habria saltado
+# NI UNA VEZ en esos 9 dias, asi que si salta es que pasa algo de verdad. Y esperar a 7 es
+# una semana entera decidiendo a ciegas. Se apaga poniendo entorno.sinUsoDias a 0.
+#
+# Se lee la ULTIMA LINEA, no la fecha del archivo: la hora la escribe Nova dentro del JSON,
+# y asi una copia, un git o un backup que toquen la fecha del fichero no le hacen creer que
+# hubo uso. Devuelve el texto o '' -no habla-: quien decide si se dice es el vigilante,
+# igual que Get-AvisoFallos y Get-AvisoHoraDormir.
+$SinUsoDias = [int](Get-Cfg 'entorno' 'sinUsoDias' 3)   # 0 lo apaga
+$script:sinUsoMirado = $null    # cuando se miro el fichero por ultima vez (ver Watch-Entorno)
+function Get-AvisoSinUso([string]$ruta = '', [datetime]$ahora = (Get-Date), [int]$dias = 0) {
+    if ($dias -le 0) { $dias = $SinUsoDias }
+    if ($dias -le 0) { return '' }
+    if (-not $ruta) { $ruta = Join-Path $LogDir 'pruebas\audio\uso\destinos.jsonl' }
+    # SIN FICHERO NO SE HABLA: ese es el estado de una instalacion recien puesta, y reganar
+    # por no haber usado todavia algo que acabas de instalar no ayuda a nadie.
+    if (-not (Test-Path -LiteralPath $ruta)) { return '' }
+    $ultimaU = $null
+    try {
+        # de atras hacia delante: manda la ultima linea con hora valida. Se miran unas
+        # pocas y no solo la ultima porque una linea a medias -Nova apagada justo mientras
+        # escribia- dejaria el aviso mudo para siempre, que es el fallo que viene a cazar.
+        $colaU = @(Get-Content -LiteralPath $ruta -Tail 5 -ErrorAction Stop)
+        for ($iU = $colaU.Count - 1; $iU -ge 0; $iU--) {
+            if (([string]$colaU[$iU]) -match '"hora"\s*:\s*"([^"]+)"') {
+                $dU = [datetime]::MinValue
+                if ([datetime]::TryParse($Matches[1], [ref]$dU)) { $ultimaU = $dU; break }
+            }
+        }
+    } catch { return '' }
+    if (-not $ultimaU) { return '' }
+    # por DIAS DE CALENDARIO, no por horas: "llevo 3 dias" tiene que querer decir lo mismo
+    # que dice el calendario, o la cifra del aviso no cuadraria con la del fichero.
+    $sinU = [int](($ahora.Date - $ultimaU.Date).TotalDays)
+    if ($sinU -lt $dias) { return '' }
+    return ("Llevo $sinU dias sin apuntar ni una orden tuya. Sin uso real no puedo medir si te entiendo " +
+            "ni decidir nada. Si me has hablado estos dias, es que algo se ha roto en mi oido.")
 }
 
 # NOVA SE REVISA A SI MISMA (17/09). Hasta hoy sabia perfectamente lo que le pasaba
@@ -6131,6 +6197,33 @@ function Undo-DecisionPropia {
 $DecisionMinIntentos = 20      # sin este historial no se juzga nada
 $DecisionAprovecha = 0.15      # por debajo de esto, la herramienta no compensa
 
+# Y NO SE DECIDE CON DATOS DE ANTES DE ARREGLAR LO QUE LOS MIDE (19/09, idea 61).
+# Test-DatosRepartidos ya pedia 3 dias distintos, pero no miraba QUE dias: contaba igual el
+# 15/09, y ese dia la calibracion se tiraba en cada arranque (commit 8d00a14, 16/09 22:09) y
+# la ganancia arrancaba clavada en x8 (commit 4fdf05c, 17/09 17:07). Los 29 intentos del
+# ultimo recurso -1 util- son justo de ese dia: la PRIMERA decision que Nova tomara sola
+# habria salido de un microfono que ya no existe, y encima no habria forma de saberlo.
+#
+# El primer dia ENTERO con la calibracion y la ganancia ya arregladas es el 18/09 (el 17 se
+# arreglo a las 17:07, media tarde ya medida con la ganancia vieja), asi que ese es el corte
+# por defecto. Vive en config.json (auto.datosDesde) porque hay que SUBIRLO cada vez que un
+# arreglo cambie lo que miden estos contadores: por ejemplo el 19/09 subio el tope de la nube
+# de 74,6 % a 95,8 % del oido (commit d53b6d5), asi que el dia que se juzgue 'nube-intento'
+# en serio, este corte tendra que ser 2026-09-20. Dejarlo en "" quita el corte.
+$DecisionDatosDesde = [string](Get-Cfg 'auto' 'datosDesde' '2026-09-18')
+if ($DecisionDatosDesde -and $DecisionDatosDesde -notmatch '^\d{4}-\d{2}-\d{2}$') {
+    Log "config: auto.datosDesde no es una fecha ('$DecisionDatosDesde'); uso 2026-09-18"
+    $DecisionDatosDesde = '2026-09-18'
+}
+
+# Si un dia (en 'yyyy-MM-dd') cuenta para decidir, o es anterior al arreglo.
+# Comparacion ORDINAL a proposito: -ge entre cadenas depende de la cultura y el guion es
+# un caracter que algunas culturas se saltan; aqui se comparan dos fechas, no dos palabras.
+function Test-DiaCuenta([string]$dia) {
+    if (-not $DecisionDatosDesde) { return $true }
+    return ([string]::CompareOrdinal($dia, $DecisionDatosDesde) -ge 0)
+}
+
 # Cuantos aciertos hacen falta para que algo "aporte", con ese numero de intentos.
 function Get-DecisionMinimo([int]$intentos) {
     return [int][Math]::Ceiling($intentos * $DecisionAprovecha)
@@ -6141,6 +6234,7 @@ function Test-DatosRepartidos($stats, [string]$clave, [datetime]$ahora, [int]$di
     try {
         for ($i = 0; $i -lt 14; $i++) {
             $k = $ahora.AddDays(-$i).ToString('yyyy-MM-dd')
+            if (-not (Test-DiaCuenta $k)) { continue }      # nada de antes del arreglo (19/09, idea 61)
             if (-not $stats.dias.ContainsKey($k)) { continue }
             $v = [int]$stats.dias[$k][$clave]
             if ($v -le 0) { continue }
@@ -6184,6 +6278,7 @@ function Get-AvisoSinDatos($stats, $num, [datetime]$ahora = (Get-Date)) {
             $dias = 0
             for ($i = 0; $i -lt 14; $i++) {
                 $k = $ahora.AddDays(-$i).ToString('yyyy-MM-dd')
+                if (-not (Test-DiaCuenta $k)) { continue }      # los mismos dias que cuenta el reparto
                 if (-not $stats.dias.ContainsKey($k)) { continue }
                 if ([int]$stats.dias[$k][$c.intentos] -gt 0) { $dias++ }
             }
@@ -6222,6 +6317,10 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
                           'fino', 'fino-sirvio', 'fino-invento')) { $numR[$cR] = 0 }
         for ($i = 0; $i -lt 14; $i++) {
             $kR = $ahora.AddDays(-$i).ToString('yyyy-MM-dd')
+            # EL CORTE TAMBIEN AQUI (19/09, idea 61): si solo lo respetara el reparto, el
+            # umbral (20 intentos, 15 % de aprovecho) se seguiria juzgando con los datos
+            # viejos y el freno seria de mentira. Los totales son lo que se decide.
+            if (-not (Test-DiaCuenta $kR)) { continue }
             if (-not $stR.dias.ContainsKey($kR)) { continue }
             foreach ($cR in @($numR.Keys)) { $numR[$cR] += [int]$stR.dias[$kR][$cR] }
         }

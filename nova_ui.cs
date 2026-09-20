@@ -396,17 +396,55 @@ public class NovaUI : Window
 
     // tmp\ui-error.log, junto al estado. Con tope: una animacion que falle en cada
     // fotograma no puede llenar el disco (12 fps son 43.000 lineas por hora).
+    //
+    // QUE FALLABA (19/09): el tope de 50 era de TODA LA VIDA DEL PROCESO -y la capsula
+    // vive desde el login, dias enteros-, y al llegar a 200 KB el log se BORRABA entero.
+    // O sea que justo cuando mas falla es cuando deja de contar por que, y lo poco que
+    // llego a contar se perdia. Y ese fichero es la unica pista del "la interfaz murio"
+    // que apunta assistant.ps1. Dos cambios:
+    //   - el contador se reinicia cada hora: 50 por hora siguen frenando un bucle cerrado
+    //     (a 12 fps serian 43.000 lineas/hora), pero un fallo nuevo manana se apunta igual.
+    //     Y la primera linea de cada hora dice cuantos se callo la anterior, que es el dato
+    //     que faltaba para saber si 50 se queda corto.
+    //   - el fichero ROTA a ui-error.log.1 en vez de desaparecer. El tope de disco pasa de
+    //     200 KB a 400 KB, que sigue siendo nada. Si el Move falla (assistant.ps1 lee este
+    //     fichero cuando la capsula muere) NO se borra: se reintenta en el error siguiente,
+    //     y solo se tira si aun asi se pasa de 1 MB, porque llenar el disco es peor.
+    // tmp\ esta en .gitignore, asi que el .1 no ensucia el repositorio.
     static int erroresAnotados = 0;
+    static int erroresCallados = 0;
+    static DateTime horaErrores = DateTime.MinValue;
     static void AnotarError(string tipo, Exception ex)
     {
         try
         {
-            if (erroresAnotados >= 50 && tipo != "FATAL") { return; }
+            string aviso = "";
+            DateTime ahora = DateTime.Now;
+            if ((ahora - horaErrores).TotalHours >= 1.0)
+            {
+                if (erroresCallados > 0) { aviso = "[y me calle " + erroresCallados + " mas en la hora anterior] "; }
+                horaErrores = ahora;
+                erroresAnotados = 0;
+                erroresCallados = 0;
+            }
+            if (erroresAnotados >= 50 && tipo != "FATAL") { erroresCallados++; return; }
             erroresAnotados++;
             string dir = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(rutaEstado));
             string ruta = System.IO.Path.Combine(dir, "ui-error.log");
-            if (System.IO.File.Exists(ruta) && new System.IO.FileInfo(ruta).Length > 200000) { System.IO.File.Delete(ruta); }
-            string linea = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + tipo + ": " +
+            if (System.IO.File.Exists(ruta) && new System.IO.FileInfo(ruta).Length > 200000)
+            {
+                string previo = ruta + ".1";
+                try
+                {
+                    if (System.IO.File.Exists(previo)) { System.IO.File.Delete(previo); }
+                    System.IO.File.Move(ruta, previo);
+                }
+                catch
+                {
+                    try { if (new System.IO.FileInfo(ruta).Length > 1000000) { System.IO.File.Delete(ruta); } } catch { }
+                }
+            }
+            string linea = ahora.ToString("yyyy-MM-dd HH:mm:ss") + "  " + tipo + ": " + aviso +
                 (ex == null ? "(sin detalle)" : (ex.GetType().Name + ": " + ex.Message + " | " +
                  (ex.StackTrace ?? "").Replace("\r", "").Replace("\n", " <- ").Trim())) + Environment.NewLine;
             System.IO.File.AppendAllText(ruta, linea);

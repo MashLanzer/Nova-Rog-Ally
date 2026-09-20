@@ -200,7 +200,7 @@ Lo más grave no está en el dibujado, sino en **el camino de la voz**.
 | 8 | La cápsula lee **un solo evento por vuelta** de 80 ms: dos eventos seguidos y el primero se pierde (ya hubo un parche puntual por esto) | MEDIO | `assistant.ps1:8596` | Encolar en `Send-UIEvento` cuando el anterior no se ha consumido → **DESCARTADO, ver abajo** |
 | 9 | El texto se corta a mitad de palabra (la voz sí corta bien) y la marquesina desplaza texto + copia desenfocada a 60 fps, ~7 s por respuesta larga | MEDIO | `assistant.ps1:8541` | Cortar por el último espacio, como ya hace `Get-TextoVoz` → **HECHA** |
 | 10 | El revisor de memoria despierta **cada 3 s para siempre** (1.200/hora) y recorre 5.000 recuerdos para descubrir que no hay nada que hacer | LEVE | `charla_worker.py:663` | Sleep adaptativo 3 s → 30 s |
-| 11 | La cápsula deja de anotar sus errores a partir del nº 50 **de toda la vida del proceso**, y al llegar a 200 KB borra el log en vez de rotarlo | LEVE | `nova_ui.cs:399` | Reiniciar el contador cada hora |
+| 11 | La cápsula deja de anotar sus errores a partir del nº 50 **de toda la vida del proceso**, y al llegar a 200 KB borra el log en vez de rotarlo | LEVE | `nova_ui.cs:399` | Reiniciar el contador cada hora → **HECHA (19/09)**: contador por hora, y el log rota a `.1` en vez de borrarse |
 
 Cada hallazgo trae 5 mejoras ordenadas de más barata a más cara, con cómo medirlas.
 ### 3.4 Robustez y datos — HECHA (9 hallazgos)

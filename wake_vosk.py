@@ -73,7 +73,12 @@ CONFIRMACION = sys.argv[11] if len(sys.argv) > 11 else ""
 # preciso: se graba la orden entera y se transcribe al callar. Vosk sigue
 # dando la transcripcion parcial en vivo mientras hablas.
 MOTOR_DICTADO = sys.argv[12] if len(sys.argv) > 12 else "vosk"
-VOCABULARIO = sys.argv[13] if len(sys.argv) > 13 else ""
+# argv[13] es tmp\vocabulario.txt: assistant.ps1 (:9632) lo sigue pasando en este
+# hueco, pero AQUI NO SE LEE y no hay que volver a leerlo. El initial_prompt de
+# Whisper es PROMPT_ORDENES a proposito: el 11/09 se quito la lista de nombres
+# porque con audio flojo Whisper la continuaba, y el 14/09 las 100 grabaciones
+# confirmaron que las hotwords hacian lo mismo. Por eso el 19/09 se quito
+# leer_vocabulario(), que era la unica que abria ese fichero y no la llamaba nadie.
 # --- CONFIANZA MINIMA (config.json -> escucha.confianzaMinima) ---
 # Hasta ahora este worker ignoraba ese ajuste: solo llegaba al wake_worker.exe
 # viejo, asi que el numero del config no hacia absolutamente nada.
@@ -197,6 +202,17 @@ UMBRAL_ACTIVIDAD = 0.006
 ARRASTRE = 4              # bloques que se siguen decodificando tras el silencio
 PREBUFFER = 2             # bloques previos que se recuperan al detectar voz
 INTERVALO_PULSO = 15.0    # ajuste rapido; con 60 s tardaba minutos en subir
+# LA VENTANA DEL "decodificado=N%" (19/09/2026). Ese porcentaje del pulso salia de
+# DOS CONTADORES QUE NO SE RESETEABAN NUNCA: era la media de toda la vida del
+# proceso. Con Nova encendida desde las 09:19 seguia marcando decodificado=0% a
+# las 19:18 (PENDIENTES-2026-09-19.md:10) y, aunque le hablaras diez veces
+# seguidas, con diez horas de silencio detras el numero no se habria movido ni un
+# punto: un aviso que tarda horas en reaccionar no avisa de nada.
+# Ahora se cuenta por cubos. Cada cubo dura un INTERVALO_PULSO -lo mismo que tarda
+# el pulso en salir, asi que cada latido resume cubos enteros- y se promedian los
+# ultimos VENTANA_DEC_CUBOS. 20 x 15 s = 5 minutos: bastante para que un silencio
+# corto no lo tire a cero, y poco para que hablarle se note en el latido siguiente.
+VENTANA_DEC_CUBOS = 20
 # EL LATIDO SOLO CUANDO DICE ALGO NUEVO (18/09). Los 6 formatos de pulso eran el 43,9 % del log
 # (11.811 lineas; el 16/09 dejo 5.086), y el que mas se repite -"sin voz sostenida"- no aporta
 # nada que no diga el siguiente. Se calla mientras repita lo mismo, pero como mucho un minuto:
@@ -764,10 +780,16 @@ def umbral_confianza(plano):
 
 
 def pct_dec():
-    # porcentaje de bloques que llegaron al decodificador: mide el ahorro real
-    if bloques_totales <= 0:
+    # Porcentaje de bloques que llegaron al decodificador EN LOS ULTIMOS ~5 MINUTOS
+    # (ver VENTANA_DEC_CUBOS): mide el ahorro real de la puerta de energia AHORA, no
+    # el promedio desde que arranco el proceso. Se suman los cubos ya cerrados MAS el
+    # que se esta llenando, para que el numero no dependa de si el cubo actual acaba
+    # de empezar (si no, cada 15 s el pulso daria un salto sin motivo).
+    tot = bloques_totales + sum(t for t, _ in ventana_dec)
+    dec = bloques_decodificados + sum(d for _, d in ventana_dec)
+    if tot <= 0:
         return 0
-    return int(100.0 * bloques_decodificados / bloques_totales)
+    return int(100.0 * dec / tot)
 
 
 def sin_tildes(s):
@@ -831,17 +853,7 @@ def reconocedor_si_no():
     return r
 
 
-def leer_vocabulario():
-    if not VOCABULARIO:
-        return None
-    try:
-        with open(VOCABULARIO, "r", encoding="utf-8") as f:
-            v = f.read().strip()
-        return v or None
-    except Exception:
-        return None
-
-
+# QUITADA leer_vocabulario() el 19/09: no la llamaba nadie (ver argv[13] arriba).
 def limpiar_whisper(texto):
     # Whisper puntua y pone mayusculas; la capa local espera texto plano.
     # Los puntos internos se vuelven comas (separan ordenes) y el final se quita.
@@ -1448,11 +1460,14 @@ conf_inicio = 0.0
 dicta_inicio = 0.0
 ultima_voz = 0.0
 prebuffer = collections.deque(maxlen=PREBUFFER)
-bloques_totales = 0
+bloques_totales = 0         # OJO: es el cubo ABIERTO, no el total del proceso
 bloques_decodificados = 0
+ventana_dec = collections.deque(maxlen=VENTANA_DEC_CUBOS)   # cubos ya cerrados
+cubo_dec_desde = time.time()
 picos = []
 bloques_voz = 0
-pico_voz = 0.0          # pico observado cuando SI habia voz reconocible
+# QUITADA pico_voz el 19/09: se actualizaba en cada texto reconocido y no la leia
+# nadie; el pico que SI se usa al activar y en el log es pico_rafaga.
 pico_rafaga = 0.0       # pico de la rafaga que se esta decodificando ahora
 ultima_marca = 0.0
 
@@ -1667,6 +1682,15 @@ try:
 
                     # PUERTA: si el bloque es silencio y no venimos de voz reciente,
                     # ni se toca el decodificador. Es donde esta el ahorro real.
+                    # El cubo de la ventana se cierra AQUI, con el audio en la mano, y
+                    # no donde se imprime el pulso: hay dos caminos (dictado y pausa)
+                    # que adelantan 'ultimo_pulso' sin llegar a imprimir nada, y la
+                    # ventana se quedaria congelada justo cuando le estas hablando.
+                    if ahora - cubo_dec_desde >= INTERVALO_PULSO:
+                        ventana_dec.append((bloques_totales, bloques_decodificados))
+                        bloques_totales = 0
+                        bloques_decodificados = 0
+                        cubo_dec_desde = ahora
                     bloques_totales += 1
                     if pico > UMBRAL_ACTIVIDAD:
                         if arrastre <= 0:
@@ -1676,6 +1700,16 @@ try:
                         arrastre -= 1
                     if arrastre > 0 and pico > pico_rafaga:
                         pico_rafaga = pico
+                    # LOS DECODIFICADOS SE CUENTAN AQUI, NO MAS ABAJO (19/09/2026). El
+                    # contador estaba detras del 'continue' del dictado y del de la
+                    # confirmacion, y en esas dos ramas el bloque SI pasa por el
+                    # decodificador (rec.AcceptWaveform en ambas). Con la media de toda
+                    # la vida el sesgo se diluia; con una ventana de 5 minutos salia al
+                    # reves de lo que interesa: un dictado de 30 s metia ~120 bloques
+                    # como "no decodificados" y hundia el porcentaje justo despues de
+                    # usarla, que es cuando tiene que estar alto.
+                    if confirmando or dictando or arrastre > 0:
+                        bloques_decodificados += 1
 
                     # --- MODO CONFIRMACION: solo si/no, y rapido (parciales) ---
                     if confirmando:
@@ -1847,8 +1881,7 @@ try:
                             if rec.AcceptWaveform(b):
                                 pass   # descartado: es solo contexto previo
                         prebuffer.clear()
-                    if decodificar:
-                        bloques_decodificados += 1
+                    # (bloques_decodificados ya se conto arriba, con bloques_totales)
                     # Solo se mira el resultado FINAL: los parciales cambian de
                     # hipotesis constantemente y no traen confianza por palabra.
                     if decodificar and rec.AcceptWaveform(bloque):
@@ -1856,8 +1889,6 @@ try:
                         texto = resultado.get("text", "")
                         if texto:
                             plano = sin_tildes(texto)
-                            if pico > pico_voz:
-                                pico_voz = pico
                             if PATRON_NOMBRE.search(plano):
                                 conf = 0.0
                                 solo_boton = bool(MARCA_SOLO_BOTON) and os.path.exists(MARCA_SOLO_BOTON)

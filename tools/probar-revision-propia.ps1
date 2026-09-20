@@ -53,7 +53,13 @@ $txtFuente = [System.IO.File]::ReadAllText($rutaA, [System.Text.Encoding]::UTF8)
 $DecisionAprovecha = if ($txtFuente -match '\$DecisionAprovecha = ([0-9.]+)') { [double]$Matches[1] } else { 0.15 }
 $DecisionMinIntentos = if ($txtFuente -match '\$DecisionMinIntentos = ([0-9]+)') { [int]$Matches[1] } else { 20 }
 Invoke-Expression (Traer 'Get-DecisionMinimo')
+Invoke-Expression (Traer 'Test-DiaCuenta')
 Invoke-Expression (Traer 'Test-DatosRepartidos')
+# EL CORTE, APAGADO PARA LOS CASOS DE SIEMPRE (19/09, idea 61). Casi todos los casos de
+# aqui montan los dias con AddDays sobre HOY, asi que el corte del 18/09 los dejaria sin
+# dias en cuanto pase una semana y la prueba empezaria a pasar por la razon equivocada.
+# El corte se prueba aparte, con fechas fijas, al final del bloque del reparto.
+$DecisionDatosDesde = ''
 # LO QUE NO PUEDE DECIDIR TAMBIEN SE CUENTA (18/09). Test-RevisionPropia ya no sale con un
 # 'return $false' seco cuando no decide: llama a Send-AvisoSinDatos por si hay una decision
 # esperando datos. Sin traer estas dos, la funcion revienta a mitad y esta prueba se quedaba
@@ -290,6 +296,48 @@ $st4.dias[$hoy.AddDays(-2).ToString('yyyy-MM-dd')] = @{ turbo = 10 }
 Comp 'dos dias no bastan, hacen falta tres' (-not (Test-DatosRepartidos $st4 'turbo' $hoy)) ''
 Comp 'y sin ningun dato, tampoco' (-not (Test-DatosRepartidos (@{ dias = @{} }) 'turbo' $hoy)) ''
 Comp 'una clave que no existe no revienta' (-not (Test-DatosRepartidos $st2 'no-existe' $hoy)) ''
+
+# NI CON DATOS DE ANTES DEL ARREGLO (19/09, idea 61). Tres dias de ANTES de arreglar el
+# microfono pasaban el reparto igual que tres dias buenos: los 29 intentos del ultimo recurso
+# son del 15/09, con la calibracion tirandose en cada arranque (8d00a14) y la ganancia clavada
+# en x8 (4fdf05c). Fechas fijas a proposito: el arreglo tiene fecha, no "hace tres dias".
+Write-Host '  -- y los dias anteriores al arreglo del microfono no cuentan --'
+$hoyC = [datetime]'2026-09-19'
+$stC = @{ dias = @{} }
+foreach ($dd in @('2026-09-15', '2026-09-16', '2026-09-17')) { $stC.dias[$dd] = @{ turbo = 10 } }
+$DecisionDatosDesde = ''
+Comp 'sin corte, tres dias viejos valdrian (como el 18/09)' (Test-DatosRepartidos $stC 'turbo' $hoyC) ''
+$DecisionDatosDesde = '2026-09-18'
+Comp 'con el corte del 18/09, esos tres dias no cuentan' (-not (Test-DatosRepartidos $stC 'turbo' $hoyC)) ''
+Comp 'el dia del corte SI cuenta' (Test-DiaCuenta '2026-09-18') ''
+Comp 'y el de antes, no' (-not (Test-DiaCuenta '2026-09-17')) ''
+$stC.dias['2026-09-18'] = @{ turbo = 10 }
+$stC.dias['2026-09-19'] = @{ turbo = 10 }
+Comp 'dos dias buenos no bastan: siguen haciendo falta tres' (-not (Test-DatosRepartidos $stC 'turbo' $hoyC)) ''
+$stC.dias['2026-09-20'] = @{ turbo = 10 }
+Comp 'y con tres dias de despues del arreglo, si vale' (Test-DatosRepartidos $stC 'turbo' ([datetime]'2026-09-20')) ''
+
+# Y LO QUE DE VERDAD IMPORTA: que tampoco los SUME. Si el corte solo lo respetara el reparto,
+# el umbral (20 intentos, 15 %) se seguiria juzgando con los datos podridos.
+Write-Host '  -- y la revision propia tampoco los suma --'
+$DecisionDatosDesde = '2026-09-18'
+$script:stats = @{ dias = @{} }
+foreach ($dd in @('2026-09-15', '2026-09-16', '2026-09-17')) { $script:stats.dias[$dd] = @{ turbo = 10; 'turbo-sirvio' = 0 } }
+$script:cfgPuesta = @(); $script:avisos = @(); $script:apuntes = @()
+$script:revisionPropiaDia = ''
+$script:WhisperUltimo = 'large-v3-turbo'; $script:NubeOir = ''; $script:WhisperPreciso = ''
+$script:invitado = $false; $script:juegoActivo = $null; $script:autoDecision = $null
+$script:cfgFalla = $false; $script:puedoAvisar = $true
+Comp 'con 30 intentos de antes del arreglo, no decide nada' (-not (Test-RevisionPropia $hoyC)) ''
+Comp 'y no toca la configuracion' (@($script:cfgPuesta).Count -eq 0) ($script:cfgPuesta -join ' ')
+Comp 'ni suelta el aviso de "decision esperando"' (@($script:avisos).Count -eq 0) (@($script:avisos) -join ' ')
+
+# el valor por defecto vive en assistant.ps1; config.json tiene que decir lo mismo
+$corteDef = if ($txtFuente -match "Get-Cfg 'auto' 'datosDesde' '([0-9-]+)'") { $Matches[1] } else { '' }
+Comp 'assistant.ps1 trae una fecha de corte por defecto' ($corteDef -match '^\d{4}-\d{2}-\d{2}$') "corte='$corteDef'"
+$cfgJ = Get-Content -LiteralPath (Join-Path $raiz 'config.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+Comp 'y config.json la trae escrita igual' ([string]$cfgJ.auto.datosDesde -eq $corteDef) ("config='" + [string]$cfgJ.auto.datosDesde + "'")
+$DecisionDatosDesde = ''        # los casos que quedan vuelven a usar dias relativos a hoy
 
 Write-Host '  -- y la revision propia lo exige de verdad --'
 # los numeros REALES de braya el 15/09: 29 intentos, 1 util... todos del mismo dia

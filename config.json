@@ -116,6 +116,9 @@
         "activadas": true,
         "confirmarVeces": 2
     },
+    "auto": {
+        "datosDesde": "2026-09-18"
+    },
     "entorno": {
         "avisos": true,
         "porHora": 4,

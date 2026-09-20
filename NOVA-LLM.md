@@ -156,7 +156,11 @@ Tierra y el Sol?» y «¿Qué es escribir?». Por eso el contador está a cero.
 conversar: **86 charlas** en cuatro días, y ninguna repetida. Se retomará cuando el uso real lo
 llene — igual que la idea 54: el mecanismo está listo y esperando datos.
 
-*(Lo único pendiente de verdad, y menor: el recuerdo `id 3` no tiene vector.)*
+*(Lo del `id 3` sin vector no era un fallo: está **rechazada**, y `completar_vectores`
+salta las rechazadas a propósito. Contado el 19/09: **53 recuerdos, 50 vectores**; los que
+faltaban de verdad eran el **53 y el 54**, de la noche del 18 —Nova se cerró antes de los
+5 min de reposo que espera el revisor para cargar embeddinggemma—. Se completan sin hablarle
+a Nova con `python tools\completar-vectores.py`.)*
 
 ## 3. Saber lo que no sabe — **YA ESTÁ, y la premisa era falsa (18/09)**
 

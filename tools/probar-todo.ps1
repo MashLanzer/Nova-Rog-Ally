@@ -11,6 +11,12 @@
 $raiz = Split-Path -Parent $PSScriptRoot
 Push-Location $raiz
 $fallos = 0
+# SECCIONES QUE NO SE EJECUTAN (19/09, B11): la 5 (tu voz de verdad) se salta sola
+# cuando no hay 1500 MB de RAM libres, y hasta hoy desaparecia sin rastro: el banco
+# acababa en "todo en orden" aunque lo UNICO que mide el microfono no se hubiera
+# ejecutado. Saltar no es fallar, asi que se apuntan aparte de $fallos, pero se
+# dicen por su nombre al final para que nadie lea un verde que no es entero.
+$secSaltadas = @()
 
 function Titulo($t) { Write-Host ""; Write-Host "== $t" -ForegroundColor Cyan }
 
@@ -262,6 +268,20 @@ Titulo "2n24. Que la charla y la traduccion no se pasen la misma frase sin parar
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-rebote.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n34. El OCR lee un codigo de la pantalla y acaba en la nota"
+# ENTRA EN EL BANCO EL 19/09 (B12): la prueba estaba escrita desde hace dias y no la
+# corria nadie. Cabe aqui porque NO necesita microfono, ni Nova encendida, ni cargar
+# modelos de voz: pinta ella misma una imagen con un codigo, la lee el OCR de Windows
+# y comprueba que la nota acaba en un diario de mentira ($env:TEMP), no en el tuyo.
+# Si algun dia falla por el motor, lo dice claro: "no hay motor de OCR" = falta el
+# idioma en Windows, no es una regresion de Nova.
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-ocr.ps1') | Select-String 'correcto|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n27. Que Nova avise si lleva dias sin apuntar ni una orden (sin uso no se decide nada)"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-sin-uso.ps1') | Select-String 'todo correcto|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "3. Ordenes que SI deben reconocerse"
 foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     $salida = powershell -NoProfile -File 'assistant.ps1' -Probar (Join-Path 'pruebas' $banco) 2>&1
@@ -299,6 +319,7 @@ Titulo "5. Tu voz de verdad (si ya grabaste las ordenes)"
 $libreMB = [int]((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024)
 if ($libreMB -lt 1500) {
     Write-Host "   SALTADA: solo $libreMB MB de MEMORIA libres (hacen falta 1500; no es el disco). Cierra algo y repitela sola: python tools/probar-audio.py" -ForegroundColor Yellow
+    $secSaltadas += "5. Tu voz de verdad (solo $libreMB MB libres, hacen falta 1500) -> python tools/probar-audio.py"
 } else {
     python (Join-Path $PSScriptRoot 'probar-audio.py')
     if ($LASTEXITCODE -ne 0) { $fallos++ }
@@ -319,7 +340,35 @@ if ("$linea" -match 'local:\s*(\d+)') {
     }
 }
 
+# LOS TRES QUE SE QUEDAN FUERA A PROPOSITO (19/09, B12). Este banco existe para pasarlo
+# despues de CADA cambio sin microfono y sin arrancar nada; estas tres no caben ahi, y
+# hasta hoy quedaban fuera sin que nadie dijera por que. Ojo: dos son .py, no .ps1.
+#
+#   tools\probar-vivo.ps1        ARRANCA NOVA DE VERDAD: exige que este APAGADA, pide
+#                                2000 MB libres, tarda minutos, habla en voz alta y toca
+#                                memoria\ y config.json (los copia y los devuelve, pero si
+#                                la matan a medias hay que llamarla con -Restaurar).
+#                                Es la UNICA que prueba el bucle principal: pasala a mano
+#                                antes de dar por buena una sesion, no en cada cambio.
+#   tools\probar-precarga.py     Carga el modelo local DOS veces (~1,9 GB y ~40 s) para
+#                                medir el frio contra la precarga. Solo al tocar
+#                                charla_worker.py, y con la maquina libre.
+#   tools\probar-voz-windows.py  INTERACTIVA: te pide hablar por el microfono cinco veces
+#                                seguidas. Sirve para decidir si el dictado de Windows oye
+#                                este microfono, no para vigilar regresiones.
+
 Write-Host ""
 Pop-Location
+if ($secSaltadas.Count -gt 0) {
+    # B11 (19/09): las secciones que NO se han ejecutado, por su nombre y antes del
+    # veredicto. Antes desaparecian y el verde final mentia por omision.
+    Write-Host ("$($secSaltadas.Count) seccion(es) SALTADA(S), no se han ejecutado:") -ForegroundColor Yellow
+    foreach ($sec in $secSaltadas) { Write-Host "   - $sec" -ForegroundColor Yellow }
+}
 if ($fallos -gt 0) { Write-Host "$fallos comprobaciones con problemas" -ForegroundColor Red; exit 1 }
+if ($secSaltadas.Count -gt 0) {
+    # se conserva el texto "todo en orden" porque tmp\cerrar-ronda*.ps1 lo busca tal cual
+    Write-Host "todo en orden, PERO con $($secSaltadas.Count) seccion(es) SALTADA(S) (arriba)" -ForegroundColor Yellow
+    exit 0
+}
 Write-Host "todo en orden" -ForegroundColor Green
