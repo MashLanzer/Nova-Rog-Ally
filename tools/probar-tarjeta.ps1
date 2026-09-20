@@ -98,7 +98,20 @@ Comp 'el cristal se pinta'      $pinta        ''
 Comp 'el filo de acento esta'   $acento       ''
 Comp 'el texto se lee'          $texto_ok    "$claros pixeles de letra"
 Comp 'esquinas redondeadas'     $redondeada   ''
-Comp 'el foco NO se ha movido'  ($despues -eq $antes) "antes=$antes despues=$despues tarjeta=$h"
+# LO QUE SE MIDE ES QUE LA TARJETA NO ROBE EL FOCO, no que el foco no se mueva (20/09).
+# Si mientras corre la prueba hay otra ventana viva -un juego, el navegador- el foco puede
+# cambiar por su cuenta, y eso salia ROJO como si lo hubiera robado la tarjeta. Paso con
+# It Takes Two y el navegador delante. Lo que de verdad importa es que el foco NO acabe en
+# la tarjeta: si se fue a otra parte, esta prueba no se puede medir aqui y lo dice, en vez
+# de acusar a la tarjeta de algo que no ha hecho.
+if ($despues -eq $antes) {
+    Comp 'el foco NO se ha movido' $true "antes=$antes despues=$despues tarjeta=$h"
+} elseif ($despues -eq $h) {
+    Comp 'el foco NO se ha movido' $false "LO ROBO LA TARJETA: despues=$despues tarjeta=$h"
+} else {
+    Write-Host '  --   el foco se fue a otra ventana, no a la tarjeta: aqui no se puede medir' -ForegroundColor DarkGray
+    Write-Host ("       antes=$antes despues=$despues tarjeta=$h. Cierra lo demas y repite.") -ForegroundColor DarkGray
+}
 
 Write-Host ""
 if ($fallos) { Write-Host "$fallos casos MAL"; exit 1 }

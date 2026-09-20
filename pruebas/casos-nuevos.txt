@@ -303,3 +303,11 @@ los juegos de steam
 que juegos hay
 has aprendido de la ultima seccion
 y has aprendido de la ultima seccion
+# --- D6 (20/09): "no, dije X" hace las dos cosas (deshacer y lo que si querias) ---
+no, dije abre steam
+no era eso, dije abre spotify
+no te dije eso, dije sube el volumen
+no, queria abre el navegador
+# --- control: estas NO son una correccion y deben seguir yendo a la IA ---
+no se que dije
+no me gusta esa cancion

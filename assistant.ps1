@@ -393,7 +393,16 @@ function Add-CortesSinConector([string]$s) {
         # siempre es perifrasis ("acabas de abrir", "deja de subir"): "de abre" no
         # existe en castellano, asi que esto no deja de partir nada que si fuera orden.
         $trasDe = ($i -gt 0 -and $palabras[$i - 1] -eq 'de')
-        if ($i -gt 0 -and -not $libre -and -not $trasDe -and $w -match ('^' + $VERBOS_CORTE + '$')) { [void]$out.Add('|') }
+        # LO QUE VA DETRAS DE "DIJE" ES LA CORRECCION, NO UNA ORDEN NUEVA (20/09, D6).
+        # "no dije abre steam" se partia en "no dije" + "abre steam", y como el primer
+        # trozo no resuelve nada, la frase entera se iba a la IA. Por eso funcionaba
+        # "no dije QUE ABRAS steam" -sin imperativo, no corta- y no la forma natural, que
+        # es justo la que se dice en voz alta cuando Nova se equivoca.
+        # Pide que la frase empiece por "no": "dije abre steam" a secas, en mitad de una
+        # charla, se sigue partiendo como antes.
+        $trasDije = ($i -gt 0 -and $palabras[0] -match '^no[,.]?$' -and
+                     $palabras[$i - 1] -match '^(?:dije|queria|decir)[,.]?$')
+        if ($i -gt 0 -and -not $libre -and -not $trasDe -and -not $trasDije -and $w -match ('^' + $VERBOS_CORTE + '$')) { [void]$out.Add('|') }
         if ($w -match ('^' + $VERBOS_TEXTO + '$')) { $libre = $true }
         elseif ($w -in @('y', 'luego', 'despues', 'ademas', 'tambien')) { $libre = $false }
         [void]$out.Add($w)
@@ -3276,6 +3285,24 @@ function Resolve-Fragment([string]$f) {
     # uso (ver Write-FalloUso), que es lo unico que mide de verdad si Nova acierta.
     if ($f -match '^(?:no era eso|eso no era|no era esto|no te pedi eso|eso no|no queria eso|no era lo que dije|eso estuvo mal|eso esta mal|lo hiciste mal|te equivocaste|no era lo que queria)$') {
         return @(@{ kind = 'noEraEso'; desc = 'deshacer y olvidar esa interpretacion' })
+    }
+    # "NO, DIJE ABRE STEAM": la correccion CON la orden buena dentro (20/09, D6). Hasta hoy
+    # "no era eso" solo deshacia, y si en la misma frase le decias lo que si querias, toda
+    # la frase se iba a la IA. Es la forma natural de corregir -das el error y el acierto de
+    # una vez- y era la unica de las cuatro de la fase 2 de "aprender" que seguia abierta.
+    # Se hacen LAS DOS cosas: deshacer lo anterior y ejecutar lo que de verdad pediste.
+    # Tiene que empezar por "no" a proposito: sin eso, "dije que..." en mitad de una charla
+    # se volveria una orden.
+    if ($f -match '^no[,. ]+(?:era eso[,.]?\s+|te (?:dije|pedi) eso[,.]?\s+)?(?:te\s+)?(?:dije|queria|quise decir)\s+(?:que\s+)?(.+)$') {
+        $corrD = $Matches[1].Trim()
+        if ($corrD) {
+            $accD = @(Resolve-Fragment $corrD)
+            # solo si lo corregido se entiende en local; si no, que vaya entera a la IA,
+            # que sabra mas que nosotros de lo que quiso decir
+            if ($accD.Count -gt 0 -and $accD[0]) {
+                return @(@{ kind = 'noEraEso'; desc = 'deshacer y olvidar esa interpretacion' }) + $accD
+            }
+        }
     }
     # --- en que fallo ---
     if ($f -match '^(?:que (?:me )?(?:estas |estoy )?entend\w* mal|en que fall\w*|que (?:no )?(?:entiendes|te cuesta|se te atraganta)|que se te atraganta|donde fall\w*)\b') {
