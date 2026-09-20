@@ -77,7 +77,7 @@ def worker_vivo():
 
 def modelo_configurado():
     try:
-        with open(os.path.join(RAIZ, "config.json"), encoding="utf-8") as f:
+        with open(os.path.join(RAIZ, "config.json"), encoding="utf-8-sig") as f:
             return (json.load(f).get("conversacion") or {}).get("modeloEmbeddings") or POR_DEFECTO
     except Exception:  # noqa: BLE001
         return POR_DEFECTO

@@ -34,7 +34,7 @@ HILOS = ns.get("HILOS_PRECISO", 8); PROMPT = ns.get("PROMPT_ORDENES", "")
 TMAX = ns.get("TRANSCRIBIR_MAX", 30)
 print("extraido de wake_vosk.py: cobertura=%.1f hilos=%d prompt=%r" % (COB, HILOS, PROMPT[:40]))
 
-cfg = json.load(io.open(os.path.join(REPO, "config.json"), encoding="utf-8"))
+cfg = json.load(io.open(os.path.join(REPO, "config.json"), encoding="utf-8-sig"))
 MOD_W = cfg.get("input", {}).get("whisperModelo", "base")
 print("whisper del worker: %r" % MOD_W)
 

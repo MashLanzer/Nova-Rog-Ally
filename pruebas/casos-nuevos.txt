@@ -298,3 +298,8 @@ termina elden ring   @si-tienes:ELDEN RING
 # --- control: estas NO son un juego y no deben volverse uno ---
 cierra la ventana
 cierra el archivo
+# --- D7 (20/09): frases del uso real que se iban a la IA por poco ---
+los juegos de steam
+que juegos hay
+has aprendido de la ultima seccion
+y has aprendido de la ultima seccion

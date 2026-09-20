@@ -338,7 +338,7 @@ foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     # estuviera ahi, asi que una caida de 88 a 5 pasaba EN VERDE: justo lo que este banco
     # existe para evitar. Las que fallan son controles a proposito, por eso el listero es
     # un minimo y no una igualdad: lo que no puede es BAJAR.
-    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 234 }   # 234 desde el 20/09 noche: MEDIDO (232 + 2 saltadas). +6 de D1 (cerrar un juego por su nombre). Antes 228, 221, 218, 210, 202, 190, 188
+    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 238 }   # 238 desde el 20/09 noche: MEDIDO (236 + 2 saltadas). +4 de D7 (frases del uso real). Antes 234, 228, 221, 218, 210, 202, 190, 188
     $n = -1
     if ($linea -and ("$linea" -match 'reconocidas en local:\s*(\d+)')) { $n = [int]$Matches[1] }
     # LOS JUEGOS QUE YA NO TIENES NO SON UNA REGRESION (19/09): las lineas con
@@ -464,6 +464,44 @@ if (-not $ultimaVoz) {
 
 Write-Host ""
 Pop-Location
+Titulo "8. Caracteres invisibles en el codigo (ROJO si los hay)"
+# COMO SE PIERDE UNA TARDE (20/09). Un parche escribio una barra invertida y una b en una
+# expresion regular, y lo que quedo en el archivo fue el caracter 0x08 (BACKSPACE), no las
+# dos letras. El grep lo ensena igual, el editor lo ensena igual, PowerShell lo compila sin
+# una queja... y el patron deja de casar con nada. "que juegos tengo" se fue a la IA y costo
+# cuatro intentos entender por que, porque lo que se lee y lo que hay no son lo mismo.
+# Y la primera version de ESTA seccion nacio con el mismo fallo dentro, en su propia tabla:
+# por eso ahora se mira tambien a si misma y a los demas bancos, no solo al codigo.
+# Se miran los peligrosos, los que deja caidos un escape mal hecho; el tabulador y el salto
+# de linea NO, que son legitimos.
+$malos = @{ 8 = 'b'; 7 = 'a'; 12 = 'f'; 11 = 'v'; 27 = 'ESC' }
+$sucios = @()
+$aMirar = @((Join-Path $raiz "assistant.ps1"), (Join-Path $raiz "wake_vosk.py"),
+            (Join-Path $raiz "charla_worker.py"), (Join-Path $raiz "charla_memoria.py"),
+            (Join-Path $raiz "config.json"), (Join-Path $raiz "commands.json"))
+$aMirar += @(Get-ChildItem -Path $PSScriptRoot -Filter "probar-*" -File | ForEach-Object { $_.FullName })
+foreach ($ruta in $aMirar) {
+    if (-not (Test-Path -LiteralPath $ruta)) { continue }
+    $txt = [System.IO.File]::ReadAllText($ruta)
+    foreach ($cod in $malos.Keys) {
+        $c = [string][char][int]$cod
+        $n = ([regex]::Matches($txt, [regex]::Escape($c))).Count
+        if ($n -gt 0) {
+            $idx = $txt.IndexOf($c)
+            $linea = if ($idx -ge 0) { ($txt.Substring(0, $idx) -split "`n").Count } else { 0 }
+            $comoSeEscribe = if ($malos[$cod] -eq 'ESC') { 'ESC' } else { [char]92 + [string]$malos[$cod] }
+            $sucios += ("{0}: {1} x {2} (primero en la linea {3})" -f (Split-Path -Leaf $ruta), $n, $comoSeEscribe, $linea)
+        }
+    }
+}
+if ($sucios.Count -gt 0) {
+    foreach ($su in $sucios) { Write-Host ("   MAL: " + $su) -ForegroundColor Red }
+    Write-Host "   Un escape mal hecho dejo el caracter de control en vez de las dos letras. Reescribe esa linea." -ForegroundColor Red
+    $fallos++
+} else {
+    Write-Host "   ninguno: lo que se lee es lo que hay" -ForegroundColor Green
+}
+
 Titulo "7. Bancos que llaman a funciones que no han traido (ROJO si los hay)"
 # No es un detalle de estilo: un banco asi no prueba lo que dice probar. probar-json-ui
 # soltaba 16 de estos por pasada y salia en verde; probar-costumbres estuvo un dia

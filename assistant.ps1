@@ -2859,8 +2859,22 @@ function Resolve-Fragment([string]$f) {
             if (-not $t) { return @(@{ kind = 'decir'; desc = "No pude leer la bateria" }) }
             return @(@{ kind = 'decir'; desc = $t })
         }
-        '^(?:cuantos juegos|que juegos tengo|mis juegos)\b' {
-            return @(@{ kind = 'decir'; desc = ("Tienes " + @($script:Juegos).Count + " juegos instalados en Steam") })
+        # TRES COSAS QUE ESTABAN MAL AQUI (20/09, D7, con frases del uso real):
+        # 1. Contaba $script:Juegos SIN refrescarla, asi que decia lo que hubiera en ese
+        #    momento: en pruebas seguidas salio "Tienes 1 juegos" y "Tienes 14 juegos"
+        #    con la misma biblioteca, sin instalar ni desinstalar nada. Update-Juegos ya
+        #    se frena sola a los 60 s, asi que llamarla aqui no cuesta y quita el numero
+        #    de mentira.
+        # 2. "1 juegos" no concuerda, y las voces robot son justo lo que no se quiere.
+        # 3. Faltaban las formas que de verdad dijo: "los juegos de steam" (18/09, se fue
+        #    a la IA) y "que juegos hay".
+        '^(?:cuantos juegos|que juegos tengo|que juegos hay|mis juegos|los juegos de steam|los juegos que tengo)\b' {
+            [void](Update-Juegos)   # se frena sola a los 60 s; sin esto el numero es el que hubiera
+            $nJ = @($script:Juegos).Count
+            if ($nJ -eq 0) { return @(@{ kind = 'decir'; desc = 'No veo ningun juego instalado en Steam' }) }
+            $plJ = ""
+            if ($nJ -ne 1) { $plJ = 's' }
+            return @(@{ kind = 'decir'; desc = ("Tienes " + $nJ + " juego" + $plJ + " instalado" + $plJ + " en Steam") })
         }
         # con ventana de tiempo PRIMERO: "deshaz todo lo de este minuto" tambien
         # encaja con el patron de abajo, y ese se quedaria solo con lo ultimo.
@@ -3160,7 +3174,7 @@ function Resolve-Fragment([string]$f) {
         return @(@{ kind = 'olvidoRato'; minutos = 10; desc = 'olvidar lo de hace un rato' })
     }
     # --- recetas aprendidas: verlas y olvidarlas ---
-    if ($f -match '^(?:que (?:has aprendido|aprendiste|recetas tienes|sabes hacer sola)(?:\s+(?:hoy|ayer|de la ultima sesion|en la ultima sesion|de la sesion|esta sesion|ultimamente))?|que tareas (?:has aprendido|sabes hacer)|mis recetas|lista (?:las )?recetas|dime (?:las )?recetas)$') {
+    if ($f -match '^(?:(?:y\s+)?(?:que\s+)?(?:has aprendido|aprendiste)(?:\s+(?:hoy|ayer|de la ultima sesion|de la ultima seccion|en la ultima sesion|en la ultima seccion|de la sesion|de la seccion|esta sesion|ultimamente))?|que (?:recetas tienes|sabes hacer sola)(?:\s+(?:hoy|ayer|de la ultima sesion|en la ultima sesion|de la sesion|esta sesion|ultimamente))?|que tareas (?:has aprendido|sabes hacer)|mis recetas|lista (?:las )?recetas|dime (?:las )?recetas)$') {
         return @(@{ kind = 'verRecetas'; desc = 'recetas aprendidas' })
     }
     if ($f -match '^(?:olvida|borra|elimina)\s+(?:esa receta|la ultima receta|la receta|lo ultimo que aprendiste|lo que acab(?:as|o) de aprender)$') {
