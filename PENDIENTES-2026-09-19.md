@@ -14,18 +14,27 @@ informes del 19/09 (OIDO, MEDICION-MODELOS, VRAM).
 
 > ## Estado al cierre del 19/09 (noche)
 >
-> **17 cerrados hoy**, de los 95 que había:
+> **27 cerrados hoy**, de los 95 que había:
 >
 > | grupo | hechos | cómo |
 > |---|---|---|
-> | B (pequeños) | **9 de 17** | commit `c4055dc` + B1 en `95ab5c5` |
-> | C (medianos) | **8 de 28** | commit `c714970` |
+> | B (pequeños) | **9 de 17** | commits `95ab5c5`, `c4055dc` |
+> | C (medianos) | **18 de 28** | commits `c714970`, `01e5f08`, `9775e5a` |
 >
-> Quedan **78**: 23 tuyos (probar en vivo o decidir), 8 pequeños, 20 medianos y 8 grandes.
+> De esos 18 medianos, **5 resultaron NO PROCEDER al medirlos** (C3, C12, C13, C17, C21) y
+> quedan cerrados con su dato en `MEJORAS.md`, para que nadie los reabra. Eso también cuenta:
+> es trabajo que ya no hay que hacer.
+>
+> Quedan **68**: 23 tuyos (probar en vivo o decidir), 8 pequeños, 10 medianos y 8 grandes.
 >
 > **Lo que NO se hizo y por qué:** `C9` (que Nova ajuste sola el tope de la nube) queda fuera
 > a propósito: es el mayor del grupo, toca bucle y escucha, escribe `config.json` por su cuenta
 > y por diseño no podría decidir nada hasta el 23/09. Merece su propia sesión.
+>
+> **Fuera a propósito, con motivo:** `C9` (Nova ajusta sola el tope de la nube),
+> `C18` (el contador de dudas rompe `probar-titulos.ps1`, un banco que nadie ejecutaba) y
+> `C6` (las traducciones perdidas: antes hay que separar «no pude leerlo» de «no es JSON
+> válido», o un cerrojo acabaría apartando el fichero bueno).
 >
 > **Un pendiente que parecía cerrado y no lo está:** «abre el navegador y a pantalla dividida,
 > abre Steam» —la frase real del 18/09— se sigue yendo a la IA. Se arregló la forma corta
