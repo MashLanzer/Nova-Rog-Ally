@@ -129,17 +129,36 @@ $script:reglasDisparadas = @()
 function Invoke-Reglas($tipo, $dato) { $script:reglasDisparadas += "$tipo=$dato" }
 $script:salidaNombre = 'Altavoces (Realtek)'
 function Get-SalidasAudio { return @(@{ nombre = $script:salidaNombre; actual = $true }) }
+# EL AVISO, QUE NADIE PROBABA (20/09). Watch-Dispositivos llama a Send-AvisoEntorno y
+# el banco no la traia: cada vuelta soltaba un CommandNotFoundException a stderr -4 en
+# una pasada- y la prueba seguia diciendo "todo correcto", porque nadie mira stderr.
+# Con el sustituto aqui, ademas de callar el error, se puede comprobar lo que avisa.
+$script:avisos = @()
+function Send-AvisoEntorno($clave, $texto, $nivel, $minutos) { $script:avisos += @{ clave = $clave; texto = $texto; nivel = $nivel }; return $true }
+$script:uiVolumen = 20
 $script:pantallasAntes = $null; $script:cascosAntes = $null; $script:uiDock = 0
 Watch-Dispositivos
 Comp 'la primera vez solo mira, no dispara' ($script:reglasDisparadas.Count -eq 0)
 $script:salidaNombre = 'Auriculares (WH-1000XM4)'
 Watch-Dispositivos
 Comp 'al ponerte los cascos, dispara' ($script:reglasDisparadas -contains 'cascosPone=pone' -and $script:reglasDisparadas.Count -eq 1) ($script:reglasDisparadas -join ',')
+Comp 'y avisa de los cascos' (@($script:avisos | Where-Object { $_.clave -eq 'cascos-pone' }).Count -eq 1) ($script:avisos.Count.ToString() + ' avisos')
+Comp 'con el volumen bajo, el aviso es tranquilo' ((@($script:avisos)[-1].nivel -eq 'bajo') -and (@($script:avisos)[-1].texto -eq 'Cascos puestos.')) (@($script:avisos)[-1].texto)
 Watch-Dispositivos
 Comp 'y no se repite mientras sigan puestos' ($script:reglasDisparadas.Count -eq 1)
 $script:pantallasAntes = 0
 Watch-Dispositivos
 Comp 'una pantalla mas: el dock' ($script:reglasDisparadas -contains 'dockPone=pone') ($script:reglasDisparadas -join ',')
+Comp 'y avisa del dock' (@($script:avisos | Where-Object { $_.clave -eq 'dock-pone' }).Count -eq 1) ''
+
+# LA RAMA QUE NO HABIA EJECUTADO NUNCA NADIE: con los altavoces altos, ponerse los
+# cascos es un susto, y el aviso cambia de nivel y dice el numero.
+$script:avisos = @(); $script:uiVolumen = 80
+$script:salidaNombre = 'Altavoces (Realtek)'; $script:cascosAntes = $null; Watch-Dispositivos
+$script:salidaNombre = 'Auriculares (WH-1000XM4)'; Watch-Dispositivos
+$avC = @($script:avisos | Where-Object { $_.clave -eq 'cascos-pone' })[-1]
+Comp 'con el volumen alto, el aviso sube de nivel' ($avC.nivel -eq 'medio') ($avC.nivel)
+Comp 'y dice a cuanto esta' ($avC.texto -match '80') ($avC.texto)
 
 Write-Host "--- dato dudoso de una receta y diario de conversaciones ---"
 $script:dictadoConfianza = -0.9; $script:dictadoConfianzaEn = $sw.ElapsedMilliseconds

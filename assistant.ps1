@@ -10644,6 +10644,11 @@ function Initialize-Escucha {
         # el juego en primer plano.
         try { $script:wakeProc.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal } catch {}
         $script:wakeDesde = $sw.ElapsedMilliseconds
+        # LA MARCA LA PONE QUIEN LLEGA PRIMERO (20/09, H5m4). La escribia el worker justo
+        # antes de cargar Whisper, y en el arranque de las 13:28 llego DOS SEGUNDOS tarde:
+        # el saludo ya habia salido. Aqui no hay carrera posible, porque esto pasa antes
+        # de lanzar nada que tarde. La borra el worker cuando ya oye de verdad.
+        try { [System.IO.File]::WriteAllText((Join-Path $TmpDir 'oido-cargando.txt'), $EscuchaMotor) } catch {}
         Log "escucha continua ACTIVA [$EscuchaMotor] (worker PID=$($script:wakeProc.Id)): di '$EscuchaNombre'"
     } catch {
         Log ("WARN: escucha continua no arranco: " + $_.Exception.Message)
@@ -16516,6 +16521,16 @@ if ($SaludoOn) {
             $saludo = "Listo, pero arranque a medias: $textoF."
             Log ("ARRANQUE A MEDIAS: " + ($listaF -join ' | '))
             Add-Estadistica 'arranque-medias' ($listaF -join ' | ')
+        }
+        # Y SI TODAVIA NO OYE, QUE LO DIGA (20/09, H5m4). El worker deja
+        # tmp\oido-cargando.txt mientras carga Whisper, y hasta que lo borra no oye ni
+        # el nombre: mediana 4,2 s, p90 9,9 s sobre los 241 arranques del log. Decir
+        # "Listo" y quedarse sordo es el fallo que mas confunde al arrancar. No se
+        # retrasa el saludo a proposito: mas vale saludar en su momento y avisar, que
+        # dejar a Nova muda cuatro segundos.
+        if (Test-Path -LiteralPath (Join-Path $TmpDir 'oido-cargando.txt')) {
+            $saludo = ($saludo.TrimEnd('.') + ', aunque todavia estoy abriendo el oido: dame un par de segundos.')
+            Log 'ARRANQUE: el oido aun carga, lo aviso en el saludo'
         }
         Log "saludo de arranque"
         Say $saludo

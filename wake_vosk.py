@@ -1292,6 +1292,7 @@ def idioma_dictado():
 # del 15/09 fue mucho peor de lo que decian. Esto mide con la voz de verdad. No sale
 # de la maquina: pruebas/audio/ esta en .gitignore.
 USO_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pruebas", "audio", "uso")
+VOZ_MIN_GUARDAR = 0.05   # segundos de voz por debajo de los cuales una activacion sin texto no se guarda
 _uso = {"id": "", "activo": None}
 _ultima_seguridad = None
 
@@ -1452,6 +1453,28 @@ def guardar_uso(bloques, **campos):
     if campos.get("voz_ajena") and modo_grabar_uso() == "ordenes":
         anota("uso: no lo guardo, esa voz no es la tuya")
         return
+    # NI PARA UNA ACTIVACION QUE MURIO EN SILENCIO (20/09). "ordenes" tiene que querer
+    # decir eso: si se desperto con un portazo y despues no hablo NADIE, lo unico que hay
+    # en ese wav es la habitacion. El dato de que hubo activacion seca no se pierde: lo
+    # guarda activaciones.jsonl con su desenlace, y para medir falsas alarmas no hace
+    # falta el audio.
+    # OJO A LA DIFERENCIA, que es la que justifica medir la voz en vez de mirar el texto:
+    # "le hable y no me entendio" TAMBIEN llega aqui con el texto vacio, y ese wav es de
+    # los mas valiosos que hay para mejorar el oido. Por eso no se mira si hay texto: se
+    # mira si hubo VOZ.
+    # EL UMBRAL ESTA MEDIDO sobre las 311 grabaciones de uso real que hay hoy: las 305
+    # que entregaron texto tienen como minimo 0,18 s de voz, y las 6 que no entregaron
+    # nada tienen 0,00 s clavado y pico 0,000. No se solapan ni de lejos; 0,05 deja el
+    # corte pegado al lado seguro, que es guardar de mas.
+    if modo_grabar_uso() == "ordenes" and not (campos.get("entregado") or "").strip():
+        try:
+            crudo = np.concatenate(bloques).astype(np.float32) / 32768.0
+            voz = segundos_de_voz(crudo)
+            if voz < VOZ_MIN_GUARDAR:
+                anota("uso: no lo guardo, esa activacion murio en silencio (%.2f s de voz)" % voz)
+                return
+        except Exception as e:   # noqa: BLE001
+            anota("WARN: no pude medir la voz del dictado (%s); lo guardo igual" % e)
     try:
         import wave
         os.makedirs(USO_DIR, exist_ok=True)
@@ -1888,6 +1911,24 @@ except Exception as e:
     anota("ERROR al iniciar: %s" % e)
     sys.exit(1)
 
+# MIENTRAS CARGA, NOVA ESTA SORDA Y LO DICE (20/09, H5m4). Esta carga es lo ULTIMO que
+# pasa antes del bucle: hasta que termine, el worker no oye ni el nombre. Mediana 4,2 s
+# y p90 9,9 s sobre los 241 arranques del log, o sea que si le hablas justo despues del
+# saludo, no te oye y no sabes por que. (El maximo del log, 117,9 s, fue el racimo del
+# 16/09 con dos instancias cargando a la vez; eso ya lo corta el cerrojo del worker.)
+# El informe del 18/09 dio esto por caro "porque habria que inventar un canal". No hace
+# falta inventarlo: el worker ya escribe archivos en tmp y el asistente ya los lee.
+# LA PONE EL ASISTENTE, no esto: escribirla aqui llegaba DOS SEGUNDOS tarde (arranque de
+# las 13:28 del 20/09) porque este proceso tarda en llegar hasta esta linea, y el saludo
+# ya habia salido. Se deja igualmente por si alguien lanza el worker a mano; escribirla
+# dos veces no hace dano, y quien la BORRA -abajo, al empezar a oir- si es solo este.
+MARCA_CARGANDO = os.path.join(os.path.dirname(NIVEL), "oido-cargando.txt") if NIVEL else ""
+if MARCA_CARGANDO:
+    try:
+        escribir(MARCA_CARGANDO, MOTOR_DICTADO)
+    except Exception:   # noqa: BLE001
+        pass
+
 whisper = None
 if MOTOR_DICTADO.startswith("whisper"):
     nombre_modelo = MOTOR_DICTADO.split(":", 1)[1] if ":" in MOTOR_DICTADO else "small"
@@ -2006,6 +2047,12 @@ if automatica:
 # jamas. La proteccion de verdad es que el medidor siga vivo, y de eso se
 # encarga nivel_salida(), que se rehace sola si falla o si cambias de salida.
 
+# ya oye: se quita la marca de "sorda mientras carga"
+if MARCA_CARGANDO:
+    try:
+        os.remove(MARCA_CARGANDO)
+    except OSError:
+        pass
 anota("worker Vosk en marcha: nombre='%s' dispositivo='%s' ganancia=%s"
       % (NOMBRE, dispositivo, "auto" if automatica else ganancia))
 

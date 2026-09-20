@@ -8,6 +8,11 @@ function TraerFn([string]$n) {
     return $f.Extent.Text
 }
 Invoke-Expression (TraerFn 'ConvertTo-JsonTexto')
+# LA LLAMA Set-UI POR DENTRO (20/09). Sin traerla, cada Set-UI de esta prueba soltaba
+# un CommandNotFoundException a stderr -16 en una sola pasada- y la prueba seguia
+# diciendo 'todo correcto', porque nadie mira stderr. Es el cuarto caso del mismo
+# patron en dos dias: funcion nueva llamada desde un banco que no la extrae.
+Invoke-Expression (TraerFn 'Get-TextoCapsula')
 Invoke-Expression (TraerFn 'Set-UI')
 
 # --- mundo de mentira ---
