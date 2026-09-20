@@ -277,6 +277,10 @@ Titulo "2n24. Que la charla y la traduccion no se pasen la misma frase sin parar
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-rebote.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n38. La memoria entre ordenes, y lo que sonaba antes de llamarla"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-contexto.ps1') | Select-String 'el ambiente va aparte|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n37. Olvidar lo de hace un rato, en los seis sitios donde queda rastro"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-olvido.ps1') | Select-String 'no toca lo de antes|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }

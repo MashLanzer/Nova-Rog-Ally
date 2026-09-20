@@ -954,6 +954,77 @@ RAM_MIN_JUEZ = 150.0
 PATRON_JUEZ = re.compile(r"\b" + r"\s?".join(re.escape(c) for c in NOMBRE_PLANO))
 _juez = {"rec": None, "roto": False}
 
+# --- ESCUCHAR NO ES GRABAR: EL CONTEXTO DE AMBIENTE (20/09) ---
+# Lo que pidio braya: "quiero que nova escuche siempre como Jarvis y que me interrumpa".
+#
+# La buena noticia es que Nova YA escucha siempre: la puerta de energia deja pasar el
+# 3,56 % del audio y Vosk decodifica eso 4 veces por segundo, dia y noche. Y el juez del
+# nombre, desde hoy, transcribe LIBREMENTE cada rafaga de voz que pasa esa puerta... y
+# tira el texto. Leerlo en vez de tirarlo cuesta 0 ms y 0 MB: ya esta hecho el trabajo.
+# Lo que NO cabe en esta maquina es Whisper transcribiendo siempre (0,87 nucleos de
+# media, p90 2,5 de 4) ni Parakeet residente (0,40 nucleos y 746 MB clavados).
+#
+# LA REGLA, y es la que hace que esto sea aceptable: ESTO NUNCA TOCA EL DISCO. Vive en
+# una lista en memoria, se poda por tiempo en cada vuelta, y al cerrar Nova se va con el
+# proceso. No hay archivo que borrar porque no hay archivo. Lo que se escribio al log
+# esta misma madrugada (el juez volcando la frase libre) se quito por esto mismo.
+#
+# Y viene APAGADO. Se enciende con escucha.ambiente = "si" cuando braya quiera, no antes:
+# hoy todavia no ha probado con su voz nada de lo de hoy, y esto no puede ensuciar esa
+# prueba. Con "no" el coste es exactamente cero: ni se llama.
+# SE LEE DE config.json Y NO DE sys.argv A PROPOSITO. Los dos ultimos ajustes que se
+# pasaron por argv (rafagaMinima y juezNombre) nacieron con el indice equivocado -en
+# PowerShell -ArgumentList el "-u" es el elemento 0, y en Python sys.argv[0] es el
+# script, asi que todo baja uno- y uno de ellos estuvo muerto un dia entero sin que se
+# notara. Aqui no hay indice que equivocar.
+def _ambiente_de_config():
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json"), encoding="utf-8-sig") as f:
+            v = (json.load(f).get("escucha") or {}).get("ambiente", "no")
+    except Exception:   # noqa: BLE001
+        return "no"
+    if isinstance(v, bool):
+        return "si" if v else "no"
+    return "si" if str(v).strip().lower() in ("si", "true", "1", "on") else "no"
+
+
+AMBIENTE_ON = _ambiente_de_config()
+AMBIENTE_SEG = 45.0        # cuanto se recuerda, en segundos
+AMBIENTE_MAX = 40          # y cuantas rafagas como mucho, por si alguien habla sin parar
+_ambiente = []             # [(cuando, texto)], en RAM y solo en RAM
+
+
+def ambiente_activo():
+    return AMBIENTE_ON == "si"
+
+
+def ambiente_apunta(texto):
+    """Guarda una rafaga de ambiente. Poda por tiempo y por numero en cada llamada."""
+    if not ambiente_activo():
+        return
+    t = (texto or "").strip()
+    if not t:
+        return
+    ahora = time.time()
+    _ambiente.append((ahora, t))
+    viejo = ahora - AMBIENTE_SEG
+    while _ambiente and (_ambiente[0][0] < viejo or len(_ambiente) > AMBIENTE_MAX):
+        _ambiente.pop(0)
+
+
+def ambiente_reciente(segundos=None):
+    """Lo que se ha oido en los ultimos N segundos, de lo mas viejo a lo mas nuevo."""
+    if not ambiente_activo() or not _ambiente:
+        return ""
+    tope = time.time() - (AMBIENTE_SEG if segundos is None else float(segundos))
+    return " ".join(t for (c, t) in _ambiente if c >= tope).strip()
+
+
+def ambiente_olvida():
+    """Para "olvida lo de hace un rato": lo de memoria tambien se va."""
+    _ambiente.clear()
+
+
 
 def juez_empieza():
     """Rafaga nueva: el juez olvida la anterior y escucha esta desde el pre-roll."""
@@ -966,6 +1037,15 @@ def juez_empieza():
         return
     try:
         if _juez["rec"] is not None:
+            # AQUI, antes del Reset, es donde el ambiente se lee (ver ESCUCHAR NO ES
+            # GRABAR). Lo que el juez oyo en la rafaga ANTERIOR se va a perder en la
+            # linea siguiente: si el ambiente esta encendido, se guarda en RAM primero.
+            # Un solo punto de cambio y fuera del bucle grande, que esta afinado.
+            if ambiente_activo():
+                try:
+                    ambiente_apunta(sin_tildes(json.loads(_juez["rec"].FinalResult()).get("text", "") or ""))
+                except Exception:   # noqa: BLE001
+                    pass            # el ambiente es un extra: si falla, no se lleva el oido
             # Reset() en vez de crear otro: esto pasa en CADA rafaga de voz, varias veces
             # por minuto cuando hay gente hablando cerca
             _juez["rec"].Reset()
@@ -2355,6 +2435,19 @@ try:
                                     # activarse con silencio puro
                                     anota("ACTIVADO por '%s' (confianza %.2f, pico %.3f, rafaga %.3f, ganancia x%.1f, altavoces %.3f)"
                                           % (texto, conf, pico, pico_rafaga, ganancia, nivel_salida()))
+                                    # EL AMBIENTE SE ENTREGA AQUI Y SOLO AQUI (20/09):
+                                    # en el instante en que la llamas, lo que se hablaba
+                                    # antes deja de ser ambiente y pasa a ser el contexto
+                                    # de TU orden ("nova, apunta eso"). El asistente lo
+                                    # lee y lo borra; vive en disco unos milisegundos, y
+                                    # Invoke-Olvido tambien lo barre por si acaso.
+                                    if ambiente_activo() and NIVEL:
+                                        try:
+                                            prev = ambiente_reciente()
+                                            if prev:
+                                                escribir(os.path.join(os.path.dirname(NIVEL), "ambiente.txt"), prev)
+                                        except Exception:   # noqa: BLE001
+                                            pass
                                     try:
                                         with open(MARCA, "w", encoding="utf-8") as f:
                                             f.write(time.strftime("%Y-%m-%dT%H:%M:%S"))

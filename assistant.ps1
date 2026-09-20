@@ -1548,7 +1548,7 @@ function Invoke-Olvido([int]$minutos) {
 
     # 3) lo que esta a medio camino en tmp (el wav que viaja a la nube vive aqui)
     & $sumar 'audios sueltos' (Remove-ArchivosDesde $TmpDir '*.wav' $corte)
-    foreach ($n in @('dictado-parcial.txt', 'dictado-voz.txt', 'dictado-id.txt', 'dictado-confianza.txt', 'texto.txt')) {
+    foreach ($n in @('dictado-parcial.txt', 'dictado-voz.txt', 'dictado-id.txt', 'dictado-confianza.txt', 'texto.txt', 'ambiente.txt')) {
         $r = Join-Path $TmpDir $n
         if ((Test-Path -LiteralPath $r) -and ((Get-Item -LiteralPath $r).LastWriteTime -ge $corte)) {
             Remove-Item -LiteralPath $r -Force -ErrorAction SilentlyContinue
@@ -10405,6 +10405,7 @@ $script:confirmaFin = 0
 $script:confirmaTotal = 0
 $script:uiVoz = 0           # indice de la voz que dicto (por tono), 0 = la habitual
 $script:ultimaF0 = 0        # tono de la ultima orden dictada, en Hz (0 = no se pudo medir)
+$script:ambienteUltimo = ''   # lo que sonaba antes de llamarla (solo con escucha.ambiente)
 $script:uiClima = ''        # emoji del tiempo: solo unos segundos cuando se pregunta
 $script:uiClimaHasta = 0
 $script:uiAnimo = 0         # -1..1 segun aciertos y errores de las ultimas 24 h
@@ -13714,8 +13715,19 @@ function Add-Turno([string]$dicho, [string]$hecho) {
 # nada reciente, o si hay un invitado delante (lo de braya no se le ensena a nadie).
 function Get-ContextoTurnos {
     if ($script:invitado) { return '' }
-    if (-not $script:turnos -or $script:turnos.Count -eq 0) { return '' }
     $ls = @()
+    # LO QUE SONABA ANTES DE LLAMARLA va el primero: es lo mas viejo de todo. Solo
+    # existe con escucha.ambiente = "si" (ver ESCUCHAR NO ES GRABAR en wake_vosk.py) y
+    # con su propia etiqueta, porque NO te lo decian a ti: es lo que habia en la
+    # habitacion. Sin la etiqueta, el modelo contestaria a una frase que no era suya.
+    if ($script:ambienteUltimo) {
+        $amb = $script:ambienteUltimo
+        if ($amb.Length -gt 240) { $amb = $amb.Substring($amb.Length - 240) }
+        $ls += '- antes de que le llamaras sonaba esto cerca (NO se lo decian a el): "' + $amb + '"'
+    }
+    if (-not $script:turnos -or $script:turnos.Count -eq 0) {
+        if ($ls.Count -eq 0) { return '' }
+    }
     foreach ($t in $script:turnos) {
         if (($sw.ElapsedMilliseconds - [double]$t.cuando) -gt $TurnosVidaMs) { continue }
         $linea = '- el dijo: "' + $t.dicho + '"'
@@ -16996,6 +17008,20 @@ while ($true) {
             # la voz que dicto (por tono): la capsula tine la escucha por persona,
             # y el TONO en Hz decide si esto lo has dicho tu o sale de un video
             try {
+                # LO QUE SE HABLABA ANTES DE LLAMARLA (20/09, ver ESCUCHAR NO ES GRABAR
+                # en wake_vosk.py). Solo existe con escucha.ambiente = "si"; el worker lo
+                # escribe en el instante de la activacion y AQUI se lee y se borra, asi que
+                # vive en disco unos milisegundos. No se apunta en el log ni en ningun lado:
+                # es contexto para entender un "eso" y se va con la orden.
+                $script:ambienteUltimo = ''
+                try {
+                    $ra = Join-Path $TmpDir 'ambiente.txt'
+                    if (Test-Path -LiteralPath $ra) {
+                        $script:ambienteUltimo = ([System.IO.File]::ReadAllText($ra, [System.Text.Encoding]::UTF8)).Trim()
+                        Remove-Item -LiteralPath $ra -Force -ErrorAction SilentlyContinue
+                        if ($script:ambienteUltimo) { Log ("AMBIENTE: tengo " + $script:ambienteUltimo.Length + " caracteres de lo de antes (no se guardan)") }
+                    }
+                } catch {}
                 $rv = Join-Path $TmpDir 'dictado-voz.txt'
                 if (Test-Path -LiteralPath $rv) {
                     $campos = @(([System.IO.File]::ReadAllText($rv).Trim() -split '\s+'))

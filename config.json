@@ -72,7 +72,8 @@
     "soloYoMinimo": 12,
     "nubeOir": "gemini",
     "nubeTopeMs": 7000,
-    "guardarUsoDias": 30
+    "guardarUsoDias": 30,
+    "ambiente": "no"
   },
   "modelo": {
     "usarClaude": true,
