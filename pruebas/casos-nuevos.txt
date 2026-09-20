@@ -288,3 +288,13 @@ olvida lo de hace un rato
 borra lo que acabo de decir
 olvidate de los ultimos treinta minutos
 olvida el modo noche
+# --- D1 (20/09): cerrar un juego por su nombre, no solo abrirlo ---
+# "abre en la ring" ya resolvia ELDEN RING por sonido; "cierra elden ring", con el
+# nombre bien dicho, se iba a la IA. El mismo juego y dependia del verbo.
+cierra elden ring   @si-tienes:ELDEN RING
+cierra en la ring   @si-tienes:ELDEN RING
+apaga elden ring   @si-tienes:ELDEN RING
+termina elden ring   @si-tienes:ELDEN RING
+# --- control: estas NO son un juego y no deben volverse uno ---
+cierra la ventana
+cierra el archivo

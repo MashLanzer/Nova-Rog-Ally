@@ -3522,7 +3522,7 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(?:cierra|cierrame|cerrar|apaga|quita|quitame|mata|termina|finaliza|acaba con)\s+(?!(?:el\s+|la\s+)?(?:sonido|volumen|audio|silencio|voz)\b)(?:el\s+|la\s+|a\s+)?(.+)$') {
         $obj = $Matches[1].Trim()
         if ($obj -match '^(?:esta ventana|la ventana|esto|esta|la app|la aplicacion|ventana)$') { return @(@{ kind = 'altf4'; desc = 'cerrar la ventana' }) }
-        if ($obj -match '^(?:el juego|juego|este juego|el videojuego)$') { return @(@{ kind = 'cerrarJuego'; desc = 'cerrar el juego' }) }
+        if ($obj -match '^(?:el juego|juego|este juego|el videojuego)$') { return @(@{ kind = 'cerrarJuego'; juego = ''; desc = 'cerrar el juego' }) }
         # "CIERRA TODO" ES CERRAR (15/09, 5 veces en el uso real): mostraba el
         # escritorio y braya seguia con "cierra Discord y Xbox" o "cierra todos".
         # Cerrar pide confirmacion (ver el bloque 'cerrarTodo'), asi que equivocarse
@@ -3550,6 +3550,15 @@ function Resolve-Fragment([string]$f) {
         }
         $proc = Resolve-Proceso $obj
         if ($proc) { return @(@{ kind = 'cerrarApp'; proceso = $proc.proceso; desc = "cerrar $($proc.nombre)" }) }
+        # UN JUEGO DE TU BIBLIOTECA TAMBIEN SE CIERRA POR SU NOMBRE (20/09, D1). Hasta hoy
+        # "abre en la ring" resolvia ELDEN RING por sonido y "cierra elden ring" -con el
+        # nombre BIEN DICHO- se iba a la IA, porque este camino solo preguntaba a
+        # Resolve-Proceso, que conoce las apps de commands.json y no la biblioteca de
+        # Steam. El mismo juego, la misma frase, y dependia del verbo.
+        # Va DESPUES de Resolve-Proceso a proposito: una app con nombre parecido a un
+        # juego se sigue cerrando como app.
+        $jC = Find-JuegoPorSonido $obj $f 0.5
+        if ($jC) { return @(@{ kind = 'cerrarJuego'; juego = $jC.nombre; desc = "cerrar $($jC.nombre)" }) }
         # no se reconoce que cerrar: que siga su camino (puede ser otra cosa)
     }
     # cambiar de app: "cambia a discord", "ve a steam", "enfoca el navegador", "muestra spotify"
@@ -9669,7 +9678,12 @@ function Invoke-FastCommand([string]$text) {
                     }
                 }
                 'cerrarJuego' {
-                    if ($script:juegoActivo -and $script:juegoExe) {
+                    # CON NOMBRE: "cierra elden ring". Si el que esta abierto es otro, se
+                    # dice y no se toca nada: cerrar el juego equivocado es de los errores
+                    # que no se perdonan. Sin nombre ("cierra el juego") sigue igual que antes.
+                    if ($a.juego -and (-not $script:juegoActivo -or (ConvertTo-Plain $a.juego) -ne (ConvertTo-Plain $script:juegoActivo))) {
+                        $a.desc = if ($script:juegoActivo) { "$($a.juego) no esta abierto; el que esta es $($script:juegoActivo)" } else { "$($a.juego) no esta abierto" }
+                    } elseif ($script:juegoActivo -and $script:juegoExe) {
                         $ps = @(Get-Process | Where-Object { try { $_.Path -eq $script:juegoExe } catch { $false } })
                         foreach ($pr in $ps) { try { if (-not $pr.CloseMainWindow()) { Start-Sleep -Milliseconds 1500; if (-not $pr.HasExited) { $pr.Kill() } } } catch {} }
                         $a.desc = "cerrando $($script:juegoActivo)"
