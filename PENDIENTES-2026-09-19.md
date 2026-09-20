@@ -36,6 +36,24 @@ informes del 19/09 (OIDO, MEDICION-MODELOS, VRAM).
 > | **S2‑S5** | Las cuatro puertas de privacidad | commit `e9fc18d`, con `tools\probar-olvido.ps1` (2n37) |
 > | **P1‑P5** | Aprendizaje autónomo, los cinco pasos | commit `47cd527` |
 >
+> | **S1** | El disco se abria para activaciones que morian en silencio | Cerrado: umbral de voz **medido** (0,05 s; las 305 con texto tienen ≥0,18 s y las 6 sin texto 0,00 s clavado). «Le hablé y no me entendió» **sí** se guarda |
+> | **D3 H5m4** | «Listo» y sorda hasta 4 s (la lista lo daba por *grande*) | Cerrado y **probado en vivo**: el saludo avisa si el oído aún carga. El canal que el informe daba por inexistente ya existía |
+> | **D1** | Nombres propios del oído local | Mordido con dato real: «cierra elden ring» **con el nombre bien dicho** se iba a la IA. De 10 formas, 10 resuelven en local (antes 2) |
+> | **C5** | Filtro del perfil en lo nuevo del cerebro | Ya estaba (`RE_SOBRE_NOVA` en `guardar_texto`) |
+> | **B14, B15** | Log de la cápsula y aviso por días sin uso | Ya estaban, del 19/09 |
+>
+> ### Y tres cosas que no estaban en ninguna lista
+>
+> - **Dos bancos decían «todo correcto» sin ejecutarse.** `probar-json-ui` (16 errores por
+>   pasada) y `probar-funciones5` (4) llamaban a funciones que no habían extraído. Quinto
+>   caso del mismo patrón en dos días. **La sección 7 del banco ahora lo vigila sola**, y se
+>   comprobó rompiendo un banco a propósito para ver que se pone roja.
+> - **«normal» contiene «mal».** Los 44 filtros del banco usaban `Select-String` sin
+>   distinguir mayúsculas, y colaban 21 líneas **correctas** a la lista de fallos cada vez.
+> - **Dos superficies nuevas con texto de tus órdenes** (`senales-fallo.jsonl` y
+>   `activaciones.jsonl`, de P1 y P2) entraron en la lista del olvido el mismo día que
+>   nacieron, y la segunda guardaba la orden entera sin mirar de quién era la voz.
+>
 > ### Lo que P1‑P5 cambian de esta lista
 >
 > **C28 (las seis de autonomía que esperaban datos) ya no espera a lo mismo.** No esperaba
