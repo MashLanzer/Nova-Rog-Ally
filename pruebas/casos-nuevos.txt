@@ -280,3 +280,11 @@ ancla spotify a inicio
 Este estado es cargando en Steam
 abre sting
 instala en sting it takes to
+# --- olvidar lo de hace un rato (20/09): la orden que faltaba la noche del 19/09 ---
+olvida los ultimos diez minutos
+olvida lo de los ultimos cinco minutos
+borra lo de la ultima media hora
+olvida lo de hace un rato
+borra lo que acabo de decir
+olvidate de los ultimos treinta minutos
+olvida el modo noche

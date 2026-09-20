@@ -61,7 +61,7 @@ def main():
     destinos = leer("destinos.jsonl")
     if not eventos:
         print("No hay nada grabado todavia en %s" % USO)
-        print("Se graba con config.json -> escucha.grabarUso = true, usando Nova de verdad.")
+        print('Se graba con config.json -> escucha.grabarUso = "ordenes" (o "todo"), usando Nova de verdad.')
         return
 
     # una orden = un id. La linea que trae 'entregado' es la de la orden; las demas son

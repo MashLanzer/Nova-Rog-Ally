@@ -1452,6 +1452,162 @@ $EstadisticasJson = Join-Path $MemoriaDir 'estadisticas.json'
 $EstadisticasMd = Join-Path $MemoriaDir 'estadisticas.md'
 $script:stats = $null
 
+# --- OLVIDAR LO DE HACE UN RATO (20/09) ---
+# La noche del 19/09 hubo que borrar una conversacion privada y se cazo A MANO por nueve
+# sitios; aun asi quedaron 128 rastros en cuatro archivos que no estaban en la lista
+# mental de aquel momento. Lo que fallo no fue el borrado: fue no tener LISTA. Aqui esta,
+# declarada y en un solo sitio, para que anadir una superficie nueva sea anadir una fila
+# y no acordarse. REGLA: en un olvido, pasarse es el error bueno. Donde solo se apunta el
+# DIA y no la hora (los descartes, los habitos) se va el dia entero antes que dejar la
+# frase dentro. Y estadisticas.md no se toca aqui: se REGENERA sola desde estas fuentes.
+function Remove-LineasDesde([string]$ruta, [datetime]$corte) {
+    if (-not (Test-Path -LiteralPath $ruta)) { return 0 }
+    try {
+        $lineas = [System.IO.File]::ReadAllLines($ruta)
+        $quedan = New-Object System.Collections.Generic.List[string]
+        $fuera = 0
+        foreach ($l in $lineas) {
+            $m = [regex]::Match($l, '^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})')
+            if ($m.Success) {
+                $h = [datetime]::MinValue
+                if ([datetime]::TryParseExact($m.Groups[1].Value, 'yyyy-MM-dd HH:mm:ss', [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$h) -and $h -ge $corte) {
+                    $fuera++
+                    continue
+                }
+            }
+            $quedan.Add($l)
+        }
+        if ($fuera -gt 0) { [System.IO.File]::WriteAllLines($ruta, $quedan) }
+        return $fuera
+    } catch { Log ('OLVIDO: no pude limpiar ' + $ruta + ': ' + $_.Exception.Message); return 0 }
+}
+
+function Remove-JsonlDesde([string]$ruta, [datetime]$corte) {
+    if (-not (Test-Path -LiteralPath $ruta)) { return 0 }
+    try {
+        $quedan = New-Object System.Collections.Generic.List[string]
+        $fuera = 0
+        foreach ($l in [System.IO.File]::ReadAllLines($ruta)) {
+            if (-not $l.Trim()) { continue }
+            $h = [datetime]::MinValue
+            $vieja = $true
+            try {
+                $o = $l | ConvertFrom-Json
+                if ($o.hora -and [datetime]::TryParseExact([string]$o.hora, 'yyyy-MM-dd HH:mm:ss', [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$h)) {
+                    $vieja = ($h -lt $corte)
+                }
+            } catch { $vieja = $true }
+            if ($vieja) { $quedan.Add($l) } else { $fuera++ }
+        }
+        if ($fuera -gt 0) { [System.IO.File]::WriteAllLines($ruta, $quedan) }
+        return $fuera
+    } catch { Log ('OLVIDO: no pude limpiar ' + $ruta + ': ' + $_.Exception.Message); return 0 }
+}
+
+function Remove-ArchivosDesde([string]$carpeta, [string]$patron, [datetime]$corte) {
+    if (-not (Test-Path -LiteralPath $carpeta)) { return 0 }
+    $fuera = 0
+    try {
+        foreach ($f in (Get-ChildItem -LiteralPath $carpeta -Filter $patron -File -ErrorAction SilentlyContinue)) {
+            if ($f.LastWriteTime -ge $corte) {
+                Remove-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue
+                if (-not (Test-Path -LiteralPath $f.FullName)) { $fuera++ }
+            }
+        }
+    } catch {}
+    return $fuera
+}
+
+# Devuelve un [ordered] con cuantas cosas se fueron de cada sitio. NO escribe en el log
+# NADA de lo que borra: seria volver a apuntar justo lo que se esta olvidando.
+function Invoke-Olvido([int]$minutos) {
+    if ($minutos -le 0) { $minutos = 10 }
+    $corte = (Get-Date).AddMinutes(-$minutos)
+    $corteDia = $corte.ToString('yyyy-MM-dd')
+    $cuenta = [ordered]@{}
+    $sumar = {
+        param([string]$q, [int]$n)
+        if ($n -gt 0) {
+            if ($cuenta.Contains($q)) { $cuenta[$q] = $cuenta[$q] + $n } else { $cuenta[$q] = $n }
+        }
+    }
+
+    # 1) los que apuntan linea a linea con fecha y hora
+    & $sumar 'el log' (Remove-LineasDesde (Join-Path $LogDir 'assistant.log') $corte)
+    & $sumar 'sus respuestas' (Remove-LineasDesde (Join-Path $LogDir 'replies.log') $corte)
+    & $sumar 'los gestos' (Remove-LineasDesde (Join-Path $TmpDir 'gestos.log') $corte)
+
+    # 2) el uso real: el wav y su linea del registro
+    # $LogDir y no $PSScriptRoot: asi la prueba puede apuntarla a una carpeta de mentira
+    # ($PSScriptRoot dentro de un scriptblock sacado del archivo sale vacio, y no se deja
+    # cambiar por ser automatica; con esto probar-olvido.ps1 corre contra la funcion REAL).
+    $usoDir = Join-Path $LogDir 'pruebas\audio\uso'
+    & $sumar 'audios de uso' (Remove-ArchivosDesde $usoDir '*.wav' $corte)
+    & $sumar 'el registro' (Remove-JsonlDesde (Join-Path $usoDir 'registro.jsonl') $corte)
+    & $sumar 'el registro' (Remove-JsonlDesde (Join-Path $usoDir 'destinos.jsonl') $corte)
+
+    # 3) lo que esta a medio camino en tmp (el wav que viaja a la nube vive aqui)
+    & $sumar 'audios sueltos' (Remove-ArchivosDesde $TmpDir '*.wav' $corte)
+    foreach ($n in @('dictado-parcial.txt', 'dictado-voz.txt', 'dictado-id.txt', 'dictado-confianza.txt', 'texto.txt')) {
+        $r = Join-Path $TmpDir $n
+        if ((Test-Path -LiteralPath $r) -and ((Get-Item -LiteralPath $r).LastWriteTime -ge $corte)) {
+            Remove-Item -LiteralPath $r -Force -ErrorAction SilentlyContinue
+            & $sumar 'audios sueltos' 1
+        }
+    }
+
+    # 4) las estadisticas: las listas con frases literales. Solo traen el DIA, asi que si
+    #    el corte cae hoy se va lo de hoy entero (ver la REGLA de arriba).
+    try {
+        $rEst = Join-Path $MemoriaDir 'estadisticas.json'
+        if (Test-Path -LiteralPath $rEst) {
+            $e = Get-Content -LiteralPath $rEst -Raw -Encoding UTF8 | ConvertFrom-Json
+            $tocado = 0
+            foreach ($campo in @('descartes', 'recientes')) {
+                if (($e.PSObject.Properties.Name -contains $campo) -and $e.$campo) {
+                    $antes = @($e.$campo).Count
+                    $e.$campo = @(@($e.$campo) | Where-Object { -not ([string]$_).StartsWith($corteDia) })
+                    $tocado += $antes - @($e.$campo).Count
+                }
+            }
+            if ($tocado -gt 0) {
+                [System.IO.File]::WriteAllText($rEst, ($e | ConvertTo-Json -Depth 12), (New-Object System.Text.UTF8Encoding $false))
+                & $sumar 'frases en estadisticas' $tocado
+            }
+        }
+    } catch { Log ('OLVIDO: no pude limpiar estadisticas.json: ' + $_.Exception.Message) }
+
+    # 5) los habitos: cada uso trae la fecha y la hora por separado
+    try {
+        $rHab = Join-Path $MemoriaDir 'habitos.json'
+        if (Test-Path -LiteralPath $rHab) {
+            $h = Get-Content -LiteralPath $rHab -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($h.usos) {
+                $antes = @($h.usos).Count
+                $h.usos = @(@($h.usos) | Where-Object {
+                        $t = [datetime]::MinValue
+                        if ([datetime]::TryParseExact(('{0} {1}' -f $_.f, $_.h), 'yyyy-MM-dd HH:mm', [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$t)) { $t -lt $corte } else { $true }
+                    })
+                $fuera = $antes - @($h.usos).Count
+                if ($fuera -gt 0) {
+                    [System.IO.File]::WriteAllText($rHab, ($h | ConvertTo-Json -Depth 12), (New-Object System.Text.UTF8Encoding $false))
+                    & $sumar 'habitos' $fuera
+                }
+            }
+        }
+    } catch { Log ('OLVIDO: no pude limpiar habitos.json: ' + $_.Exception.Message) }
+
+    # 6) el resumen en markdown NO se limpia aqui: se vuelve a escribir entero desde lo de
+    #    arriba en cuanto se apunta cualquier cosa. Este es el empujon para que lo haga.
+    try { Add-Estadistica 'olvido' '' } catch {}
+
+    $total = 0
+    foreach ($v in $cuenta.Values) { $total += $v }
+    Log "OLVIDO: los ultimos $minutos min, $total rastros en $($cuenta.Count) sitios"
+    $cuenta['minutos'] = $minutos
+    return $cuenta
+}
+
 function Get-Estadisticas {
     if ($null -ne $script:stats) { return $script:stats }
     $script:stats = @{ dias = @{}; descartes = @(); recientes = @() }
@@ -2371,7 +2527,7 @@ function Resolve-Fragment([string]$f) {
     }
     # solo "borra / elimina": "quita el modo juego" u "olvida el modo noche" se dicen
     # queriendo DESACTIVARLO, y lo borraban de commands.json sin preguntar (auditoria 13/09)
-    if ($f -match '^(?:borra|borrame|elimina)\s+(?:el\s+)?modo\s+(.+)$') {
+    if ($f -match '^(?:borra|borrame|elimina|olvida)\s+(?:el\s+)?modo\s+(.+)$') {
         return @(@{ kind = 'borrarModo'; nombre = $Matches[1].Trim(); desc = 'borrar un modo' })
     }
 
@@ -2811,6 +2967,25 @@ function Resolve-Fragment([string]$f) {
     # --- lo que Nova sabe de ti ---
     if ($f -match '^(?:que sabes de mi|que sabes sobre mi|que has aprendido de mi|que sabes de braya|que conoces de mi|que sabes de mi vida|que tienes anotado (?:sobre|de) mi|que tienes apuntado (?:sobre|de) mi|que has anotado (?:sobre|de) mi)$') {
         return @(@{ kind = 'verPerfil'; desc = 'lo que se de ti' })
+    }
+    # --- "olvida los ultimos diez minutos" (ver OLVIDAR LO DE HACE UN RATO) ---
+    # Va ANTES de "olvida esa receta" y de "olvida que...", y no se pisan: estos dos
+    # tienen que acabar en una medida de tiempo o en "un rato", y aquellos no la llevan.
+    # No pregunta "seguro?": cuando se pide esto se pide YA, y preguntarlo deja la frase
+    # dentro un rato mas. Borrar de mas en un olvido es el error bueno.
+    if ($f -match '^(?:olvida(?:te)?|borra|elimina)(?:\s+de)?\s+(?:todo\s+)?(?:lo\s+(?:de|que\s+(?:paso|ha pasado|dije|hablamos|hemos hablado))\s+)?(?:en\s+)?(?:l[oa]s?\s+)?(?:ultim[oa]s?\s+)?(\d{1,3}|un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|quince|veinte|treinta|cuarenta|sesenta|media)\s*(minutos?|hora|horas)$') {
+        $palO = @{ 'un' = 1; 'una' = 1; 'dos' = 2; 'tres' = 3; 'cuatro' = 4; 'cinco' = 5; 'seis' = 6; 'siete' = 7
+            'ocho' = 8; 'nueve' = 9; 'diez' = 10; 'once' = 11; 'doce' = 12; 'quince' = 15; 'veinte' = 20
+            'treinta' = 30; 'cuarenta' = 40; 'sesenta' = 60; 'media' = 30
+        }
+        $cantO = $Matches[1]
+        $nO = if ($cantO -match '^\d+$') { [int]$cantO } elseif ($palO.ContainsKey($cantO)) { $palO[$cantO] } else { 10 }
+        if ($Matches[2] -like 'hora*' -and $cantO -ne 'media') { $nO = $nO * 60 }
+        return @(@{ kind = 'olvidoRato'; minutos = $nO; desc = "olvidar los ultimos $nO minutos" })
+    }
+    # y la forma sin numero: "olvida lo de hace un rato", "borra lo que acabo de decir"
+    if ($f -match '^(?:olvida(?:te)?|borra|elimina)\s+(?:todo\s+)?(?:esto|eso|lo\s+(?:de|que)\s+(?:hace un rato|acabo de decir|acabamos de hablar|acabo de hablar|se ha dicho|dije(?:\s+antes)?|hemos hablado|acaba de pasar))$') {
+        return @(@{ kind = 'olvidoRato'; minutos = 10; desc = 'olvidar lo de hace un rato' })
     }
     # --- recetas aprendidas: verlas y olvidarlas ---
     if ($f -match '^(?:que (?:has aprendido|aprendiste|recetas tienes|sabes hacer sola)(?:\s+(?:hoy|ayer|de la ultima sesion|en la ultima sesion|de la sesion|esta sesion|ultimamente))?|que tareas (?:has aprendido|sabes hacer)|mis recetas|lista (?:las )?recetas|dime (?:las )?recetas)$') {
@@ -6467,23 +6642,19 @@ function Undo-DecisionPropia {
 $DecisionMinIntentos = 20      # sin este historial no se juzga nada
 $DecisionAprovecha = 0.15      # por debajo de esto, la herramienta no compensa
 
-# Y NO SE DECIDE CON DATOS DE ANTES DE ARREGLAR LO QUE LOS MIDE (19/09, idea 61).
-# Test-DatosRepartidos ya pedia 3 dias distintos, pero no miraba QUE dias: contaba igual el
-# 15/09, y ese dia la calibracion se tiraba en cada arranque (commit 8d00a14, 16/09 22:09) y
-# la ganancia arrancaba clavada en x8 (commit 4fdf05c, 17/09 17:07). Los 29 intentos del
-# ultimo recurso -1 util- son justo de ese dia: la PRIMERA decision que Nova tomara sola
-# habria salido de un microfono que ya no existe, y encima no habria forma de saberlo.
-#
-# El primer dia ENTERO con la calibracion y la ganancia ya arregladas es el 18/09 (el 17 se
-# arreglo a las 17:07, media tarde ya medida con la ganancia vieja), asi que ese es el corte
-# por defecto. Vive en config.json (auto.datosDesde) porque hay que SUBIRLO cada vez que un
-# arreglo cambie lo que miden estos contadores: por ejemplo el 19/09 subio el tope de la nube
-# de 74,6 % a 95,8 % del oido (commit d53b6d5), asi que el dia que se juzgue 'nube-intento'
-# en serio, este corte tendra que ser 2026-09-20. Dejarlo en "" quita el corte.
-$DecisionDatosDesde = [string](Get-Cfg 'auto' 'datosDesde' '2026-09-18')
+# El primer dia ENTERO con la calibracion y la ganancia arregladas fue el 18/09, y ese fue el
+# corte hasta la madrugada del 20/09. Se subio a 2026-09-20 por dos motivos medidos: (1) los
+# contadores del 20/09 son del episodio de las cinco activaciones falsas -conversacion privada
+# que braya pidio borrar-, y 2 de los 6 aciertos que salvaban al oido fino salian de ahi; (2)
+# los 81 intentos de nube del 18/09 son de OTRA nube: el 19/09 el tope paso de 2,5 a 7 s con
+# doble intento y el oido subio del 74,6 % al 95,8 % (commit d53b6d5). Decidir con esos datos
+# seria juzgar a una Nova que ya no existe.
+# HAY QUE SUBIRLO cada vez que un arreglo cambie lo que miden estos contadores. Dejarlo en ""
+# quita el corte.
+$DecisionDatosDesde = [string](Get-Cfg 'auto' 'datosDesde' '2026-09-20')
 if ($DecisionDatosDesde -and $DecisionDatosDesde -notmatch '^\d{4}-\d{2}-\d{2}$') {
-    Log "config: auto.datosDesde no es una fecha ('$DecisionDatosDesde'); uso 2026-09-18"
-    $DecisionDatosDesde = '2026-09-18'
+    Log "config: auto.datosDesde no es una fecha ('$DecisionDatosDesde'); uso 2026-09-20"
+    $DecisionDatosDesde = '2026-09-20'
 }
 
 # Si un dia (en 'yyyy-MM-dd') cuenta para decidir, o es anterior al arreglo.
@@ -8273,6 +8444,23 @@ function Invoke-FastCommand([string]$text) {
                     $cerebroV = ''
                     try { $cerebroV = Get-BalanceCerebro } catch {}
                     if ($cerebroV) { $a.desc = if ($rsV.Count -eq 0) { $cerebroV } else { "$($a.desc). Y $cerebroV" } }
+                }
+                'olvidoRato' {
+                    $rO = $null
+                    try { $rO = Invoke-Olvido ([int]$a.minutos) } catch { Log ('OLVIDO: fallo: ' + $_.Exception.Message) }
+                    if ($rO) {
+                        $totO = 0
+                        foreach ($kO in $rO.Keys) { if ($kO -ne 'minutos') { $totO += [int]$rO[$kO] } }
+                        $cuantoO = if ([int]$a.minutos -ge 60) { $m = [int]$a.minutos / 60; "$([Math]::Round($m,1)) horas" } else { "$($a.minutos) minutos" }
+                        # se dice CUANTO se borro y de cuantos sitios, nunca QUE se borro
+                        $a.desc = if ($totO -gt 0) {
+                            "Olvidado. He borrado $totO rastros de los ultimos $cuantoO en $($rO.Count - 1) sitios"
+                        } else {
+                            "No habia nada guardado de los ultimos $cuantoO"
+                        }
+                    } else {
+                        $a.desc = 'No he podido olvidarlo del todo, mirate el log'
+                    }
                 }
                 'olvidarReceta' {
                     $rsO = Get-Recetas
@@ -14514,6 +14702,11 @@ function Clear-NubeOir {
 
 function Start-NubeOir([string]$para) {
     if ($NubeOir -ne 'gemini' -or $script:invitado) { return $false }
+    # EL TONO, ANTES DEL VIAJE (20/09). Esta guarda vivia 1.300 lineas mas abajo
+    # ($esAjena, ~:15900): para cuando decia "esa voz no es la tuya", el wav ya
+    # estaba en Google. Asi viajaron la noche del 19/09 cinco audios de una
+    # conversacion que no era contigo. Comprobar el tono cuesta 0 ms y se hace aqui.
+    if (Test-VozExtrana) { Log 'NUBE: no la lanzo, esa voz no es la tuya'; Add-Estadistica 'nube-voz-ajena' ''; return $false }
     $wavN = Join-Path $TmpDir 'ultima-orden.wav'
     if (-not (Test-Path -LiteralPath $wavN)) { return $false }
     Clear-NubeOir

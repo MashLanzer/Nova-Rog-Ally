@@ -277,6 +277,10 @@ Titulo "2n24. Que la charla y la traduccion no se pasen la misma frase sin parar
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-rebote.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n37. Olvidar lo de hace un rato, en los seis sitios donde queda rastro"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-olvido.ps1') | Select-String 'no toca lo de antes|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n34. El OCR lee un codigo de la pantalla y acaba en la nota"
 # ENTRA EN EL BANCO EL 19/09 (B12): la prueba estaba escrita desde hace dias y no la
 # corria nadie. Cabe aqui porque NO necesita microfono, ni Nova encendida, ni cargar
@@ -312,7 +316,7 @@ foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     # estuviera ahi, asi que una caida de 88 a 5 pasaba EN VERDE: justo lo que este banco
     # existe para evitar. Las que fallan son controles a proposito, por eso el listero es
     # un minimo y no una igualdad: lo que no puede es BAJAR.
-    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 221 }   # 221 desde el 20/09: MEDIDO (219 + 2 saltadas). +3 de D7 (vocabulario del uso real). Antes 218, 210, 202, 190, 188
+    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 228 }   # 228 desde el 20/09 tarde: MEDIDO (226 + 2 saltadas). +7 de "olvida los ultimos X minutos". Antes 221, 218, 210, 202, 190, 188
     $n = -1
     if ($linea -and ("$linea" -match 'reconocidas en local:\s*(\d+)')) { $n = [int]$Matches[1] }
     # LOS JUEGOS QUE YA NO TIENES NO SON UNA REGRESION (19/09): las lineas con

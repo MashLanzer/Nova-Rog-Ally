@@ -119,6 +119,11 @@ except ValueError:
 _JUEZ_ARG = (sys.argv[20].strip().lower() if len(sys.argv) > 20 else "mirar")
 if _JUEZ_ARG in ("0", "false", "no", "off", "-"):
     JUEZ_NOMBRE = "no"
+elif _JUEZ_ARG in ("mirar-texto", "mirar_texto"):
+    # SOLO PARA MIRARLO A MANO un rato: apunta en el log la frase libre que oye
+    # el juez. Como el juez corre en CADA rafaga que pasa la puerta, esto acaba
+    # siendo la transcripcion de lo que se habla en casa. Nunca por defecto.
+    JUEZ_NOMBRE = "mirar-texto"
 elif _JUEZ_ARG in ("mirar", "observa", "observar", "log"):
     JUEZ_NOMBRE = "mirar"
 else:
@@ -1003,7 +1008,17 @@ def juez_deja_pasar(texto):
     if not libre or PATRON_JUEZ.search(libre):
         return True
     if JUEZ_NOMBRE == "mirar":
-        anota("juez (solo mirando): con gramatica sono '%s' pero libre suena a '%s'; HOY se despierta igual; ver EL JUEZ DEL NOMBRE"
+        # LO QUE APUNTA MIRANDO (20/09, el mismo dia que se escribio). La primera
+        # version volcaba aqui la frase libre. Pero esto corre en cada rafaga de
+        # voz que pasa la puerta de energia, no solo cuando hablas tu: el log se
+        # habria convertido en la transcripcion de lo que suena en casa. Y para
+        # decidir si el juez sirve solo hace falta CUANTAS descartaria, no que
+        # decian. Si algun dia hace falta ver ejemplos: juezNombre="mirar-texto".
+        anota("juez (solo mirando): habria descartado esta ('%s' con gramatica, %d palabras libres); HOY se despierta igual; ver EL JUEZ DEL NOMBRE"
+              % (texto, len(libre.split())))
+        return True
+    if JUEZ_NOMBRE == "mirar-texto":
+        anota("juez (mirar-texto): con gramatica sono '%s' pero libre suena a '%s'; HOY se despierta igual; ver EL JUEZ DEL NOMBRE"
               % (texto, libre))
         return True
     anota("descartado '%s': el juez de segunda etapa oyo '%s' y ahi no esta '%s'; ver EL JUEZ DEL NOMBRE"
@@ -1201,16 +1216,72 @@ _uso = {"id": "", "activo": None}
 _ultima_seguridad = None
 
 
-def grabar_uso_activo():
+# GRABAR EL USO YA NO ES UN SI/NO (20/09). Era True/False, y en True se guardaba
+# CUALQUIER rafaga que pasara la puerta: la noche del 19/09 acabaron ahi 14 wav de una
+# conversacion que no era con Nova. Ahora son tres modos:
+#   "no"      nada, ni un wav.
+#   "ordenes" lo que te oye A TI (por defecto): si el tono dice que la voz no es la
+#             tuya, no se guarda. Los fallos TUYOS si se guardan, que son justo los
+#             que hacen falta para mejorar el oido.
+#   "todo"    lo de antes, incluida la voz ajena. Solo para medir a proposito.
+# True -> "todo" y False -> "no", para que un config viejo siga significando lo mismo.
+def modo_grabar_uso():
     if _uso["activo"] is None:
+        v = False
         try:
             with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json"), encoding="utf-8-sig") as f:
-                _uso["activo"] = bool((json.load(f).get("escucha") or {}).get("grabarUso", False))
+                v = (json.load(f).get("escucha") or {}).get("grabarUso", False)
         except Exception:
-            _uso["activo"] = False
-        if _uso["activo"]:
-            anota("grabar el uso: cada orden se guarda en %s" % USO_DIR)
+            v = False
+        if isinstance(v, bool):
+            _uso["activo"] = "todo" if v else "no"
+        else:
+            m = str(v).strip().lower()
+            _uso["activo"] = m if m in ("no", "ordenes", "todo") else ("todo" if m in ("si", "true", "1") else "no")
+        if _uso["activo"] != "no":
+            anota("grabar el uso (%s): las ordenes se guardan en %s" % (_uso["activo"], USO_DIR))
     return _uso["activo"]
+
+
+def grabar_uso_activo():
+    return modo_grabar_uso() != "no"
+
+
+# EL AUDIO DE TU VOZ NO SE GUARDA PARA SIEMPRE (20/09). Sin esto la carpeta crece sin
+# fin: 311 wav y 56 MB en cinco dias. Se barre por antiguedad al arrancar, pero se
+# BORRA SOLO EL WAV: la linea de registro.jsonl (lo que se oyo, con que motor, cuanto
+# tardo) se queda, que es con lo que se mide. Lo que caduca es el audio crudo, no el dato.
+# Por defecto 30 dias y no 7: los 167 wav del 15/09 son la base de las medidas del oido y
+# borrarlos a los 7 dias dejaria sin poder re-medir con un motor nuevo. Es un numero de
+# gusto (privacidad frente a poder volver a medir): esta en escucha.guardarUsoDias, y
+# con 0 no se barre nada.
+def barrer_uso_viejo():
+    try:
+        dias = 30
+        try:
+            with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json"), encoding="utf-8-sig") as f:
+                dias = int((json.load(f).get("escucha") or {}).get("guardarUsoDias", 30))
+        except Exception:
+            dias = 30
+        if dias <= 0 or not os.path.isdir(USO_DIR):
+            return
+        tope = time.time() - dias * 86400.0
+        fuera, megas = 0, 0.0
+        for n in os.listdir(USO_DIR):
+            if not n.lower().endswith(".wav"):
+                continue
+            r = os.path.join(USO_DIR, n)
+            try:
+                if os.path.getmtime(r) < tope:
+                    megas += os.path.getsize(r) / 1e6
+                    os.remove(r)
+                    fuera += 1
+            except Exception:
+                pass
+        if fuera:
+            anota("uso: borrados %d wav de mas de %d dias (%.1f MB); su linea del registro se queda" % (fuera, dias, megas))
+    except Exception as e:   # noqa: BLE001
+        anota("WARN: no pude barrer el uso viejo (%s)" % e)
 
 
 def apuntar_uso(campos):
@@ -1224,6 +1295,11 @@ def apuntar_uso(campos):
 
 def guardar_uso(bloques, **campos):
     if not bloques or not grabar_uso_activo():
+        return
+    # EL DISCO NO SE ABRE PARA UNA VOZ QUE NO ES LA TUYA (20/09): antes esto se
+    # apuntaba como un campo mas (voz_ajena=True) y se guardaba igual.
+    if campos.get("voz_ajena") and modo_grabar_uso() == "ordenes":
+        anota("uso: no lo guardo, esa voz no es la tuya")
         return
     try:
         import wave
@@ -1649,6 +1725,8 @@ try:
     coger_cerrojo()
 except Exception as e:  # noqa: BLE001
     anota("WARN: el cerrojo del worker fallo (%s); sigo sin el antes que dejarte sin oido" % e)
+
+barrer_uso_viejo()   # ver EL AUDIO DE TU VOZ NO SE GUARDA PARA SIEMPRE
 
 
 try:
