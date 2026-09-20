@@ -105,6 +105,10 @@ try:
     comp("el estilo sin repetir", c.datos["estilo"] == ["respuestas cortas"], c.datos["estilo"])
     comp("temas contados", c.datos["temas"].get("animales") == 1)
     comp("lo contado y el recuerdo quedan", c.balance()["contado"] == 1 and c.balance()["episodios"] == 1, c.balance())
+    # 19/09: 36 de los 50 episodios que habia guardados eran esto
+    comp("lo que habla de Nova no entra en el cerebro",
+         c.guardar_texto("episodio", "Braya se queja de que Nova repite mucho las respuestas") is None and
+         c.balance()["episodios"] == 1, c.balance())
     comp("la revision sale de pendientes", all(j["id"] != j2["id"] for j in c.datos["pendientes"]))
     ctx = c.contexto("¿les tengo miedo a los osos polares?")
     comp("el contexto trae lo contado, el estilo y los temas", "braya te contó" in ctx and "respuestas cortas" in ctx and "animales" in ctx, ctx)

@@ -63,6 +63,51 @@ Comp 'y se vacia la pila' ($script:historial.Count -eq 0) "quedan $($script:hist
 $r = Invoke-DeshacerDesde 5
 Comp 'ventana vacia lo dice, no miente' ($r -match 'No he tocado nada') ''
 
+# ---------------------------------------------------------------------------
+# "DESHAZ" A SECAS, ENCADENADO (19/09). Hasta hoy Invoke-Deshacer no tocaba la pila:
+# el segundo "deshaz" contestaba "No hay nada que deshacer" con la foto del paso
+# anterior delante. Las fotos van SIN brillo a proposito y el WMI se tapa: así la
+# prueba no lee el hardware de la máquina y solo mide lo que se quiere medir.
+Write-Host "--- deshaz encadenado ---"
+function Get-CimInstance { throw 'en la prueba no hay WMI' }
+Invoke-Expression (Traer 'Invoke-Deshacer')
+Invoke-Expression (Traer 'Save-EstadoParaDeshacer')
+# el tope se lee del archivo, para que la prueba no mienta si algún día cambia
+$DeshacerMaxPasos = [int]([regex]::Match((Get-Content $ruta -Raw), '(?m)^\$DeshacerMaxPasos\s*=\s*(\d+)\s*$').Groups[1].Value)
+Comp 'el tope esta entre 3 y 5 pasos' ($DeshacerMaxPasos -ge 3 -and $DeshacerMaxPasos -le 5) "tope=$DeshacerMaxPasos"
+
+$script:historial = New-Object System.Collections.ArrayList
+foreach ($v in @(10, 70, 20)) { [void]$script:historial.Add((Foto 1 $null $v)) }
+$script:deshacer = $script:historial[$script:historial.Count - 1]
+$script:deshacerSeguidos = 0
+[AX]::volumen = 99
+
+[void](Invoke-Deshacer)
+Comp 'el primer deshaz devuelve lo ultimo' ([AX]::volumen -eq 20) "volumen=$([AX]::volumen)"
+$r2 = Invoke-Deshacer
+Comp 'el SEGUNDO ya no miente' ($r2 -notmatch 'No hay nada') "'$r2'"
+Comp 'y va un paso mas atras' ([AX]::volumen -eq 70) "volumen=$([AX]::volumen)"
+[void](Invoke-Deshacer)
+Comp 'y el tercero otro mas' ([AX]::volumen -eq 10) "volumen=$([AX]::volumen)"
+Comp 'la foto gastada sale de la pila' ($script:historial.Count -eq 0) "quedan $($script:historial.Count)"
+$r4 = Invoke-Deshacer
+Comp 'sin pila si dice que no hay nada' ($r4 -match 'No hay nada que deshacer') "'$r4'"
+
+# el tope: con mas fotos que pasos permitidos se para, y lo DICE
+$script:historial = New-Object System.Collections.ArrayList
+foreach ($i in 1..($DeshacerMaxPasos + 2)) { [void]$script:historial.Add((Foto 1 $null $i)) }
+$script:deshacer = $script:historial[$script:historial.Count - 1]
+$script:deshacerSeguidos = 0
+for ($i = 0; $i -lt $DeshacerMaxPasos; $i++) { [void](Invoke-Deshacer) }
+$rT = Invoke-Deshacer
+Comp 'al llegar al tope se para' ($script:historial.Count -eq 2) "quedan $($script:historial.Count)"
+Comp 'y no miente: dice como seguir' ($rT -match 'ultimos cinco minutos') "'$rT'"
+
+# una orden nueva rompe la cadena y vuelve a haber cinco pasos
+$script:deshacerSeguidos = 3
+Save-EstadoParaDeshacer
+Comp 'una orden nueva reinicia la cuenta' ($script:deshacerSeguidos -eq 0) "seguidos=$($script:deshacerSeguidos)"
+
 Write-Host ""
 if ($fallos) { Write-Host "$fallos casos MAL"; exit 1 }
 Write-Host "todo correcto"

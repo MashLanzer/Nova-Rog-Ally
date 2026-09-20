@@ -48,6 +48,33 @@ a **~149 s de espera por cada orden que salva** (`turbo` 29 lanzamientos / `turb
 la marca como fallo confirmado. `python tools\analizar-uso.py` junta las dos mitades y
 da el porcentaje. Es el único dato que no depende de que nadie interprete nada.
 
+### 1.6 Perfil de ruido por hora: DESCARTADO con datos (19/09)
+La idea era que el ruido de la tele a las 22:00 no es el de las 10:00 y que `UMBRAL_VOZ`
+(0.008) es fijo. Lo de fijo es cierto, y mas de lo que parece: `pico` se mide sobre el
+audio CRUDO (`wake_vosk.py`, `pico = max(abs(muestras))` antes de `muestras * ganancia`),
+o sea que la ganancia automatica NO adapta el umbral. Pero medido, no hay a que adaptarse.
+
+- El `pico` de `registro.jsonl` **no sirve** para esto: es el maximo de la grabacion
+  entregada, o sea la VOZ, y solo existe cuando braya habla. Sus 311 grabaciones cambian
+  por FECHA, no por hora: mediana 0.69-0.80 el 15-16/09 contra 0.398 clavado el 18/09
+  (un cambio de codigo). Dentro del 18/09: 18h 0.399, 19h 0.398, 20h 0.398, 21h 0.340,
+  22h 0.464, 23h 0.610. Plano, y si algo SUBE de noche.
+- La medida buena ya la guarda el log: 10.849 pulsos «sin voz sostenida (N bloques)»
+  (09/09-19/09) cuentan bloques por encima de `UMBRAL_VOZ` sin voz sostenida. En crudo
+  parece haber efecto (2 % de ventanas con bloques>0 de dia, 7-10 % de 18 a 22h, 41 % a
+  las 23h), pero **al quitar las horas en que braya hablo y en que sonaban los altavoces
+  la mediana es 0 en todas las franjas**. La media nocturna la pone UNA hora, el 16/09 a
+  las 22h, y mirandola era VOZ (p90=0.4727, bloques_voz=7, altavoces 0.000), no ruido.
+  Lo que subia por la noche era braya en casa.
+- Dano real del umbral fijo: **1** descarte por «sin voz real» en 11 dias, y a las 17:00.
+  De 00 a 08h: 0 activaciones, 0 % de ventanas con bloques.
+- De noche oye MEJOR: confianza mediana 0.98 (n=39, 18-23h) contra 0.925 (n=48, 09-17h).
+- Y la tele, cuando suena por esta maquina, ya la para `UMBRAL_ALTAVOZ`: a las 23h la
+  mediana de `altavoces` es 0.2165 y hay 170 vetos esa hora.
+
+24 casillas que aprender, guardar, caducar y depurar para un fallo cada 11 dias. No.
+Si algun dia cambia la habitacion, la medicion se repite sola: el log ya trae el dato.
+
 ---
 
 ## 2. Las 10 ideas nuevas (17/09) y su estado
@@ -57,9 +84,9 @@ da el porcentaje. Es el único dato que no depende de que nadie interprete nada.
 | 1 | Vocabulario según el juego abierto | **BLOQUEADA**: la duda entre candidatos no se registra en ningún sitio, así que no se puede saber si pasa 5 veces al día o 2 al mes. Hay que instrumentar un contador primero |
 | 2 | No repasar lo que nunca fue una orden | **DESCARTADA** con datos (ver 1.3) |
 | 3 | «¿Cómo me has entendido hoy?» | **HECHA** (19/09): `Get-ComoTeEntendi` cruza `destinos.jsonl` con las mismas listas BIEN/MAL/NEUTRO que `tools\analizar-uso.py` y lo contesta hablando; 8 frases en el banco y `tools\probar-meta.ps1` |
-| 4 | Repaso del día: preguntar por las 3 peores | pendiente |
-| 5 | Perfil de ruido por hora | pendiente |
-| 6 | Deshacer con historial | pendiente |
+| 4 | Repaso del día: preguntar por las 3 peores | **BLOQUEADA** (19/09): no hay de dónde sacar las 3 peores. `fallo-dicho-por-ti` = 0 de 236; los 4 `error` son `dictado vacio`; los 7 `ruido` son la tele; y `descarte` no es un desenlace sino una parada antes del modelo — 3 de los 14 del 18/09 acabaron BIEN. Arreglada la medición (`$deCamino`); se replantea con unos días de destinos de verdad |
+| 5 | Perfil de ruido por hora | **DESCARTADA** con datos (ver 1.6) |
+| 6 | Deshacer con historial | **HECHA** (19/09): la pila (`$script:historial`, 40 fotos / 1 h) ya existia desde el 17/09 pero solo la leia `Invoke-DeshacerDesde`; ahora "deshaz" a secas tambien la recorre, hasta 5 pasos seguidos, y al llegar al tope dice como seguir en vez de "no hay nada que deshacer". Deshacibles: brillo, volumen, programas que abrio Nova y el juego de Steam (se CIERRAN, no se reabren). No deshacibles: teclas y atajos, y todo lo que cierra (`cerrarTodo`) a proposito |
 | 7 | Leer una zona de la pantalla | pendiente |
 | 8 | Modo sin manos (confirmar con el mando) | pendiente |
 | 9 | Segunda opinión también en órdenes ambiguas | pendiente |

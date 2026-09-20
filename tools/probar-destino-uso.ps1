@@ -7,6 +7,10 @@
 # Lo que de verdad importa aqui es que el id se CONSUMA: si una frase deja su id puesto,
 # el siguiente apunte se lo colgaria a ella y las cuentas saldrian mal, que es peor que
 # no medir nada.
+#
+# Y desde el 19/09, lo contrario tambien: hay apuntes que son una PARADA en el camino
+# ($deCamino) y no pueden comerse el id, porque el desenlace llega despues. Comerselo
+# costo tres ordenes bien hechas contadas como fallo el 18/09.
 $ErrorActionPreference = 'Stop'
 $raiz = Split-Path -Parent $PSScriptRoot
 $ruta = Join-Path $raiz 'assistant.ps1'
@@ -99,6 +103,35 @@ $todasN = (Lineas)
 $jN = $todasN[$todasN.Count - 1] | ConvertFrom-Json
 Comp 'y es el que manda al contar' ($jN.hizo -eq 'traducida' -and $jN.id -eq '20260918-020000') "hizo=$($jN.hizo)"
 Comp 'ahora si se consume el id' (-not (Test-Path -LiteralPath $marca)) ''
+
+Write-Host '  -- el descarte local es una PARADA, no un desenlace (19/09) --'
+# En el log del 18/09, 'revisar mi agenda para manana' se apunto como 'descarte' y acabo
+# ejecutando la RECETA 6. Como el descarte se comia el id, la receta no pudo apuntar su
+# linea: una orden que SALIO BIEN quedo contada como fallo, y con ella otras dos. Eso es lo
+# que hacia inservible elegir "las 3 peores del dia" por el destino.
+PonId '20260918-191439'
+$nD = (Lineas).Count
+$rD = Write-DestinoUso 'descarte' 'revisar mi agenda para manana' $true
+Comp 'la parada se apunta igual' ($rD -and (Lineas).Count -eq ($nD + 1)) ("lineas: " + (Lineas).Count)
+Comp 'pero NO se come el id' (Test-Path -LiteralPath $marca) ''
+$rD2 = Write-DestinoUso 'receta' 'revisa mi calendario'
+Comp 'y el desenlace de verdad escribe detras' ($rD2 -and (Lineas).Count -eq ($nD + 2)) ("lineas: " + (Lineas).Count)
+# se indexa sobre una variable, no sobre (Lineas)[-1]: ver la nota de mas arriba
+$todasD = (Lineas)
+$jD = $todasD[$todasD.Count - 1] | ConvertFrom-Json
+Comp 'la ultima es la que manda al contar' ($jD.hizo -eq 'receta' -and $jD.id -eq '20260918-191439') "hizo=$($jD.hizo)"
+Comp 'y ESE si consume el id' (-not (Test-Path -LiteralPath $marca)) ''
+# LO QUE NO PUEDE CAMBIAR: una parada a la que no le llega nada detras sigue siendo un
+# fallo. 'cierra en la ring' (18/09 18:47) se tradujo a 'abre ELDEN RING en steam' y la
+# confirmacion vencio sin respuesta: nadie hizo nada, y eso cuenta.
+PonId '20260918-184632'
+$nD3 = (Lineas).Count
+[void](Write-DestinoUso 'descarte' 'cierra en la ring' $true)
+$todasD3 = (Lineas)
+$jD3 = $todasD3[$todasD3.Count - 1] | ConvertFrom-Json
+Comp 'sola, la parada sigue contando como descarte' ($jD3.hizo -eq 'descarte' -and (Lineas).Count -eq ($nD3 + 1)) "hizo=$($jD3.hizo)"
+# la parada deja el id vivo a proposito: se limpia para que el caso de abajo empiece sin marca
+Remove-Item -LiteralPath $marca -Force -ErrorAction SilentlyContinue
 
 Write-Host '  -- y no molesta cuando no toca --'
 # la referencia se toma AQUI y no se escribe a mano: cualquier caso que se añada mas arriba

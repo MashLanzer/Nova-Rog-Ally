@@ -1494,7 +1494,22 @@ $DestinosUso = @('local', 'aprendida', 'memoria', 'traducida', 'receta', 'error'
 # 'traducida' del registro pasarian de acierto a neutro. Dejan linea, fijan el id para poder
 # corregirlo, y siguen su camino.
 $DestinosNeutros = @('charla', 'traducir', 'plan', 'accion', 'pregunta')
-function Write-DestinoUso([string]$ruta, [string]$detalle = '') {
+# EL DESCARTE LOCAL NO ES UN DESENLACE, ES UNA PARADA (19/09). Medido en el log del 18/09:
+# de las 14 ordenes apuntadas como 'descarte', TRES acabaron BIEN y quedaron contadas como
+# fallo. 'descarte' se escribe en Process-Texto justo ANTES de mandar la frase al modelo y,
+# al consumir el id, el destino de verdad se queda sin donde colgarse:
+#   19:14  'revisar mi agenda para manana'       -> RECETA 6 ejecutada
+#   18:50  'crea un archivo ... hola mundo'      -> RECETA 5 aprendida (via agente)
+#   18:53  'abre aplicaciones dentro de ajustes' -> PLAN 'abre ajustes | lee la pantalla'
+# Por eso Get-ComoTeEntendi decia 58 de 77 (75 %) cuando del mismo dia salen 59 de 75
+# (79 %): la receta suma acierto, y el plan y la accion son neutros.
+#
+# Con $deCamino la parada se apunta IGUAL -si no llega nada mas detras sigue siendo un
+# fallo, y lo es: la confirmacion que vence sin respuesta es una orden perdida- pero deja
+# el id vivo para que el desenlace escriba su linea despues. Al contar manda la ultima
+# linea de cada id, y eso ya lo hacen igual Get-ComoTeEntendi y tools\analizar-uso.py: no
+# hay que tocar ninguno de los dos, ni sus listas.
+function Write-DestinoUso([string]$ruta, [string]$detalle = '', [bool]$deCamino = $false) {
     # solo los destinos de una frase: 'fino', 'turbo' o 'parakeet' cuentan como OYO, no
     # como HIZO, y se llaman en la misma orden que el destino de verdad
     $neutroU = ($DestinosNeutros -contains $ruta)
@@ -1506,7 +1521,8 @@ function Write-DestinoUso([string]$ruta, [string]$detalle = '') {
         # se CONSUME: una frase tiene un destino, y si no el id se le pegaria a la siguiente.
         # Los neutros NO: la charla o la traduccion se apuntan ANTES de que se sepa el destino
         # de verdad, y comerse el id ahi dejaria a la orden real sin el (18/09).
-        if (-not $neutroU) { Remove-Item -LiteralPath $marca -Force -ErrorAction SilentlyContinue }
+        # Y $deCamino tampoco (19/09): el descarte local es una parada, no una llegada.
+        if (-not $neutroU -and -not $deCamino) { Remove-Item -LiteralPath $marca -Force -ErrorAction SilentlyContinue }
         if (-not $idU) { return $false }
         $dirU = Join-Path $LogDir 'pruebas\audio\uso'
         if (-not (Test-Path -LiteralPath $dirU)) { return $false }   # sin grabaciones no hay nada que emparejar
@@ -1554,9 +1570,10 @@ function Write-FalloUso([string]$porque = '') {
     } catch { return $false }
 }
 
-function Add-Estadistica([string]$ruta, [string]$detalle = '') {
+function Add-Estadistica([string]$ruta, [string]$detalle = '', [bool]$deCamino = $false) {
     if ($script:invitado) { return }   # ver MODO INVITADO
-    try { [void](Write-DestinoUso $ruta $detalle) } catch {}
+    # $deCamino: esta apuntando una parada, no un desenlace (ver Write-DestinoUso)
+    try { [void](Write-DestinoUso $ruta $detalle $deCamino) } catch {}
     try {
         $s = Get-Estadisticas
         $dia = Get-Date -Format 'yyyy-MM-dd'
@@ -3785,6 +3802,14 @@ $script:deshacer = $null
 # Las fotos del estado, con su hora, para poder volver a "hace cinco minutos"
 # y no solo a "la orden anterior".
 $script:historial = New-Object System.Collections.ArrayList
+# CUANTOS "DESHAZ" SEGUIDOS SE ENCADENAN (19/09). La pila de arriba existe desde el
+# 17/09 pero solo la leia Invoke-DeshacerDesde: "deshaz" dos veces seguidas contestaba
+# "No hay nada que deshacer" con la foto del paso anterior delante. Ahora se encadena,
+# pero con tope: deshacer sabe CERRAR lo que Nova abrio y NO sabe reabrirlo, asi que
+# repetir "deshaz" -o que se oiga mal dos veces- no puede vaciarte el escritorio. Para
+# ir mas atras ya esta "deshaz lo de los ultimos N minutos", que lo dice en voz alta.
+$DeshacerMaxPasos = 5
+$script:deshacerSeguidos = 0
 
 function Save-EstadoParaDeshacer {
     $b = $null
@@ -3799,6 +3824,8 @@ function Save-EstadoParaDeshacer {
     # seguidas ya no tenia nada que devolver. Se guardan las de la ultima hora
     # y como mucho 40: mas es memoria que nadie va a pedir.
     [void]$script:historial.Add($script:deshacer)
+    # una orden nueva rompe la cadena: los pasos se cuentan SEGUIDOS, no en total
+    $script:deshacerSeguidos = 0
     $limite = (Get-Date).AddHours(-1)
     while ($script:historial.Count -gt 0 -and
            ($script:historial[0].cuando -lt $limite -or $script:historial.Count -gt 40)) {
@@ -3839,6 +3866,7 @@ function Invoke-DeshacerDesde([int]$minutos) {
     if ($cerrados -gt 0) { $hecho += "$cerrados " + $(if ($cerrados -eq 1) { 'programa cerrado' } else { 'programas cerrados' }) }
     foreach ($f in $fotos) { $script:historial.Remove($f) }
     $script:deshacer = $null
+    $script:deshacerSeguidos = 0
     if ($hecho.Count -eq 0) { return "No habia nada que devolver de esos $minutos minutos" }
     return ("Vuelto a como estaba: " + ($hecho -join '; '))
 }
@@ -3847,6 +3875,13 @@ function Invoke-Deshacer {
     # si no hay nada TUYO que deshacer pero ella se cambio algo sola, eso es lo que quieres
     # deshacer: contestar "no hay nada que deshacer" seria mentira (17/09)
     if (-not $script:deshacer -and $script:autoDecision) { return (Undo-DecisionPropia) }
+    # AL LLEGAR AL TOPE QUEDAN FOTOS EN LA PILA (19/09): decir "no hay nada que deshacer"
+    # seria mentira, la misma mentira que se arreglo el 17/09 dos lineas mas arriba. Se
+    # dice la verdad y como seguir.
+    if (-not $script:deshacer -and [int]$script:deshacerSeguidos -ge $DeshacerMaxPasos -and
+        $script:historial -and $script:historial.Count -gt 0) {
+        return "Ya he deshecho $DeshacerMaxPasos pasos seguidos. Para ir mas atras dime: deshaz lo de los ultimos cinco minutos"
+    }
     if (-not $script:deshacer) { return "No hay nada que deshacer" }
     $hecho = @()
     if ($null -ne $script:deshacer.brillo) {
@@ -3884,7 +3919,17 @@ function Invoke-Deshacer {
             } catch {}
         }
     }
+    # LA FOTO USADA SALE DE LA PILA y, si quedan pasos, la anterior queda armada para el
+    # siguiente "deshaz" (19/09). Antes la foto gastada se quedaba dentro -y
+    # Invoke-DeshacerDesde la volvia a aplicar- mientras "deshaz" se quedaba sin nada.
+    $usada = $script:deshacer
     $script:deshacer = $null
+    if ($script:historial) { [void]$script:historial.Remove($usada) }
+    $script:deshacerSeguidos = [int]$script:deshacerSeguidos + 1
+    if ($script:deshacerSeguidos -lt $DeshacerMaxPasos -and
+        $script:historial -and $script:historial.Count -gt 0) {
+        $script:deshacer = $script:historial[$script:historial.Count - 1]
+    }
     if ($hecho.Count -eq 0) { return "No pude deshacerlo: no habia nada que devolver" }
     return ($hecho -join '; ')
 }
@@ -15658,7 +15703,10 @@ function Process-Texto([string]$text) {
             if (((Test-CharlaCaliente) -or (Test-PareceCharla $text)) -and (Send-Charla $text)) { return }
             # 4) que el modelo la traduzca a una orden conocida (~13 s) y se
             #    aprenda; si no encaja, cae al agente completo
-            if ($script:ultimoDescarte) { Add-Estadistica 'descarte' $script:ultimoDescarte; $script:ultimoDescarte = '' }
+            # DE CAMINO, NO DE LLEGADA (19/09): la frase sigue hacia el modelo en la linea de
+            # abajo. Apuntada como destino final se comia el id, y la receta que salia bien o
+            # el plan que se ejecutaba despues ya no podian apuntar nada. Ver Write-DestinoUso.
+            if ($script:ultimoDescarte) { Add-Estadistica 'descarte' $script:ultimoDescarte $true; $script:ultimoDescarte = '' }
             Send-UIEvento 'gesto:confuso'   # "no te entendi del todo": ladea la cabeza
             if ($TraducirOn) { Submit-Command $text 'traducir' }
             else { Submit-Command $text }

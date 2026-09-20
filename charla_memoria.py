@@ -80,6 +80,16 @@ RE_PASAJERO = re.compile(
     r"cansad[oa]|agotad[oa]|aburrid[oa]|triste|contento|contenta|enfadad[oa]|nervios[oa]|con sueno|"
     r"de buen humor|de mal humor|estresad[oa]|agobiad[oa])\b")
 RE_SENSIBLE = re.compile(r"contrase|password|\bclave\b|\bpin\b|tarjeta|\bbanco\b|bancari|dinero|sueldo|salud|enfermedad|medicament|diagnostic|\bdni\b|pasaporte")
+# NI SOBRE NOVA (19/09). Lo que entra en el cerebro por "hechos" y "recuerdo" no
+# pasaba por el filtro del perfil, que si lo rechaza (Add-DatoPerfil, assistant.ps1
+# :5140). Y se nota: de los 50 episodios guardados hasta hoy, 36 hablan de Nova
+# ("Nova se contradijo...", "Braya se queja de que Nova repite mucho"). Eso es un
+# diario de mis fallos, no algo que sirva para contestarle. Lo que de ahi valia
+# ("prefiere que la musica se abra en YouTube en lugar de Spotify", "respuestas
+# cortas") ya esta en memoria\perfil.md y en el estilo, que si pasan por el filtro.
+# Las otras dos reglas del perfil -la queja y la deduccion- no se copian: sobre esos
+# 50 episodios cazan 0 y 0, y no se paga complejidad sin dato.
+RE_SOBRE_NOVA = re.compile(r"\b(?:nova|asistente|la ia|el modelo)\b")
 
 
 def plano(texto):
@@ -457,6 +467,8 @@ class Cerebro:
         texto = limpio(texto, 300)
         if not texto or len(texto) < 8 or sensible(texto):
             return None
+        if RE_SOBRE_NOVA.search(plano(texto)):
+            return None      # hablaba de mi, no de braya: al cerebro no entra (19/09)
         with self.lock:
             for h in self.buscar(texto, tipos={tipo}, k=1):
                 if h["lex"] >= 0.85:
