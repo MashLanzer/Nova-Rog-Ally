@@ -1,15 +1,46 @@
-ESTADO DEL ASISTENTE DE VOZ  (2026-09-14)
+ESTADO DEL ASISTENTE DE VOZ  ---  ARCHIVO HISTÓRICO, FOTO DEL 2026-09-14
 ================================================
 
-EJECUTANDO AHORA: NO. El 14/09 solo se encendió para pruebas en vivo y se
-  paró después de cada una. Arranca solo al INICIAR SESIÓN (clave Run), así
-  que la próxima vez que entres en Windows ya tendrá todo lo del 14/09.
-  (Historia: el 11/09 a las 20:30 se cerró porque se activaba solo mientras
-  jugabas y abría cosas que nadie había pedido; esas causas están corregidas.)
-  Cada vez que se toque assistant.ps1 o nova_ui.cs hay que reiniciarlo: el
-  script se lee entero al arrancar.
+ARCHIVADO EL 19/09/2026 (noche). Esto es la foto del 14/09, no el estado de
+  hoy. Desde el último commit que tocó este fichero (d2413ce, 14/09) van 182
+  commits: assistant.ps1 pasó de 12.712 a 17.429 líneas, wake_vosk.py de
+  1.439 a 2.189, y nacieron once documentos nuevos. No se reescribe a
+  propósito: rehacerlo sería copiar esos once y dejar un doceavo papel
+  envejeciendo igual. Se conserva porque cuenta cosas que no están en ningún
+  otro sitio; aquí debajo se dice cuáles.
 
-  Para encenderlo:
+  CÓMO ESTÁ NOVA HOY: LEE ESTOS, NO LO DE ABAJO.
+    QUE-SABE-HACER.md         qué sabe hacer, con las cifras medidas (18/09)
+    PENDIENTES-2026-09-19.md  lo que queda: las once listas, en una
+    OIDO-2026-09-19.md        el oído, medido clip a clip (19/09)
+    MEDICION-MODELOS-2026-09-19.md y VRAM-2026-09-19.md: modelos y memoria
+
+  LO DE ABAJO QUE SIGUE SIENDO CIERTO (comprobado contra el código el 19/09):
+    - Cómo se enciende y cómo se comprueba: el bloque que va aquí debajo.
+    - "CON QUÉ TE OYE": las dos cosas que NO hay que volver a intentar -la
+      API de voz de Windows (OneCore) con su zumbido de 82 Hz, y apartar el
+      panel de Win+H-. Le ahorran días a quien las lea y no están contadas
+      en ningún documento del 19/09.
+    - "QUÉ CAMBIÓ EL 11/09": los cinco caminos por los que hacía cosas sola.
+      Sigue explicando por qué el código es hoy como es.
+    - config.json el 19/09: input.motorOrdenes = "worker", input.vozWindows =
+      false, modelo.cerebro = "claude-code". Igual que el 14/09.
+  LO DE ABAJO QUE YA NO ES CIERTO:
+    - El oído no son "dos motores". Hoy es una cascada: Vosk (la palabra) ->
+      Parakeet -> Whisper base -> small -> turbo -> Gemini (nube, tope 7 s).
+      Medido en OIDO-2026-09-19.md.
+    - "Lo que queda por hacer: PENDIENTE.md" -> PENDIENTES-2026-09-19.md.
+    - El log dice 12 juegos de Steam al arrancar, no 14 (19/09, 22:35:00).
+
+EJECUTANDO AHORA: SÍ. El 19/09 a las 23:55 llevaba encendida desde las
+  22:34:56 (PID 9108), latiendo en assistant.log cada minuto. Arranca sola al
+  INICIAR SESIÓN: clave Run "VoiceAssistantController", comprobada el 19/09.
+  Cada vez que se toque assistant.ps1 o nova_ui.cs hay que reiniciarla: el
+  script se lee entero al arrancar.
+  (Historia: el 11/09 a las 20:30 se cerró porque se activaba sola mientras
+  jugabas y abría cosas que nadie había pedido; esas causas están corregidas.)
+
+  Para encenderla:
     Start-Process powershell -ArgumentList '-NoProfile','-WindowStyle','Hidden',
       '-ExecutionPolicy','Bypass','-File',
       'C:\Users\braya\Documents\voice-ctrl\assistant.ps1'
@@ -23,17 +54,18 @@ EJECUTANDO AHORA: NO. El 14/09 solo se encendió para pruebas en vivo y se
   HWND_TOPMOST devuelve true y no marca nada. Ahora la ventana de mentira se
   muestra con SW_SHOWNA, que la hace visible sin activarla, así que sigue sin
   robarle el foco a nadie.
+  OJO (19/09): ese "todo en orden" vale menos de lo que parece. El banco mide
+  que la línea exista y no el número, y se salta pruebas sin contarlas como
+  fallo: MEJORAS.md:240 y REVISION-2026-09-18.md:216-222.
 
-  OJO: el autoarranque por clave Run sigue puesto, así que al INICIAR SESIÓN
-  en Windows volverá a arrancar solo. Si no lo quieres todavía, se puede
-  quitar la clave (es reversible; pídelo).
-
-  Al arrancar, assistant.log debe mostrar:
+  Al arrancar, assistant.log debe mostrar esto (copiado del arranque real del
+  19/09 a las 22:34:59):
     commands.json cargado: 24 apps, 14 sitios, 9 buscadores
     voz: es-MX-DaliaNeural (neuronal en linea)
-    escucha continua ACTIVA [vosk] (...): di 'nova'
+    escucha continua ACTIVA [vosk] (worker PID=...): di 'nova'
     interfaz ACTIVA (PID=...)
-    biblioteca de Steam: 14 juegos indexados
+    biblioteca de Steam: 12 juegos indexados
+    segunda opinion en la nube: Gemini, con tope de 7 s
   Y decir en voz alta: "Listo. Di nova cuando me necesites."
 
 EL CEREBRO: CLAUDE CODE (desde el 13/09)

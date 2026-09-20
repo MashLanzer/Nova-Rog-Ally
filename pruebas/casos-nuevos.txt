@@ -272,3 +272,11 @@ guarda un acceso directo de steam en la barra de tareas
 ancla steam a la barra de tareas
 crea un acceso directo del navegador en el escritorio
 ancla spotify a inicio
+
+# --- VOCABULARIO DEL USO REAL (19/09, TRA-COMANDOS). Las tres unicas frases de las 507
+# de pruebas/audio/uso que pasan a resolverse en local con dos correcciones nuevas.
+# "Este estado es cargando en Steam" se dijo 5 veces seguidas el 18/09 y las 5 acabaron
+# en el modelo; "sting" por "steam" salio en 4 ordenes distintas. ---
+Este estado es cargando en Steam
+abre sting
+instala en sting it takes to

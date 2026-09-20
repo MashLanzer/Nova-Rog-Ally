@@ -1,8 +1,8 @@
 # Pendiente
 
-Lo que queda por hacer, con el porqué de cada cosa. Anotado el 12/09/2026.
-Para retomar: leer esto y `ESTADO.txt` (lo que ya funciona), y pasar
-`powershell -NoProfile -File tools\probar-todo.ps1` antes de tocar nada.
+Lo que queda por hacer, con el porqué de cada cosa. Anotado el 12/09/2026. DESFASADO:
+al retomar, lee `PENDIENTES-2026-09-19.md` (las once listas en una) y `QUE-SABE-HACER.md`;
+`ESTADO.txt` quedó archivado el 19/09 como foto del 14/09. Esto se guarda por el porqué.
 
 ---
 
@@ -14,8 +14,8 @@ Para retomar: leer esto y `ESTADO.txt` (lo que ya funciona), y pasar
       órdenes por archivo no se controla el foco). Abre el Bloc de notas, di
       "dicta un correo", di una frase y mira. Detalle en `ESTADO.txt`.
 
-- [ ] **Encender el asistente y probarlo.** Sigue apagado a propósito desde el
-      11/09. El comando está al principio de `ESTADO.txt`.
+- [x] **Encender el asistente y probarlo.** HECHO. El 19/09 lleva encendida todo
+      el día (PID 9108 desde las 22:34:56; late en `assistant.log`).
 
 Y para devolver la pantalla de la Ally a como estaba (ahora no se apaga nunca,
 ni con batería):
@@ -1504,8 +1504,16 @@ Bloque 4 (tareas sin Claude Code), empezado el 16/09:
       una sola no encaja, no se hace nada y la tarea va al agente como siempre. La
       API no ejecuta nada: solo propone frases de una lista cerrada.
       Si falla a mitad, se dice lo que sí se hizo y el resto va al agente.
-- [ ] Medir en uso real cuántas tareas resuelve el plan y cuántas siguen yendo al
-      agente (el 15/09: 20 llamadas, 11,6 min, el 23 % de toda la espera).
+- [x] MEDIDO el 19/09 con `tools\medir-local-vs-agente.py` (solo lee assistant.log y
+      las estadísticas; no arranca nada, se puede correr con Nova encendida). Sobre
+      todo el uso real guardado: **303 órdenes las resuelve la capa local (76,3 %)**,
+      2 el plan, y **92 acaban en el agente (23,2 %)**. El agente se lleva 32,3 min
+      de espera en 76 llamadas: el **49 % de todo lo que se espera a un modelo**.
+      El script reproduce clavado el recuento a mano del 15/09 -20 llamadas, 11,6
+      min-, que es la prueba de que mide lo que dice medir.
+      EL PLAN, de 7 veces que se le preguntó, sacó órdenes propias 2 (29 %): cuesta
+      10 s en total y ahorra unos 41 s. Sale a cuenta, pero con n=7 no decide nada;
+      hay que volver a medirlo después de una tanda de uso real.
 - [ ] Pendiente de la fase 2 de `aprender.md`: correo, aprender de «no, dije X»,
       traducciones por uso y el vídeo número N.
 `scratchpad\analisis\aprender.md`) y tareas sin Claude Code.

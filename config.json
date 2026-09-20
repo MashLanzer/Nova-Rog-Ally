@@ -56,6 +56,7 @@
         "grabarUso": true,
         "nombre": "nova",
         "confianzaMinima": 0.55,
+        "rafagaMinima": 0.03,
         "soloBotonEnJuego": true,
         "autoSordina": true,
         "autoSordinaRachas": 3,

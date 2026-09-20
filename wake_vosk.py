@@ -85,8 +85,10 @@ MOTOR_DICTADO = sys.argv[12] if len(sys.argv) > 12 else "vosk"
 # viejo, asi que el numero del config no hacia absolutamente nada.
 try:
     CONFIANZA_ARG = float(sys.argv[14]) if len(sys.argv) > 14 else None
+    RAFAGA_ARG = float(sys.argv[21]) if len(sys.argv) > 21 and sys.argv[21] not in ('', '-') else None
 except ValueError:
     CONFIANZA_ARG = None
+    RAFAGA_ARG = None
 # --- SEGUNDA OPORTUNIDAD (oido fino) ---
 # El modelo rapido ("base") entiende mal los nombres propios: "abrestean" por
 # "abre steam". El preciso ("small") acierta bastante mas, pero tarda unas tres
@@ -189,6 +191,26 @@ GANANCIA_MAX = 40.0
 # Por debajo de esto la ventana es silencio: calibrar con silencio dispararia
 # la ganancia al maximo y luego saturaria la voz.
 UMBRAL_VOZ = 0.008
+# --- LA RAFAGA QUE DE VERDAD TE DELATA (20/09) ---
+# UMBRAL_VOZ (0.008) vale para decidir si calibrar, pero se queda MUY corto como guarda
+# de la palabra de despertar. La madrugada del 20/09 Nova se activo SOLA cinco veces en
+# doce minutos y se puso a grabar una conversacion privada de braya, que nunca dijo su
+# nombre (comprobado: los cinco audios pasados por Gemini dicen "ou passatempo", "ritmo",
+# "Enero del", "Si o no?" y "de la cosa esa..."; ni rastro de "nova").
+#
+# EL DATO QUE SEPARA UNA COSA DE LA OTRA es el nivel de la rafaga, medido en CRUDO (antes
+# de amplificar, asi que no depende de la ganancia: mide lo que de verdad entro por el
+# microfono). Sobre las 92 activaciones con dato del log:
+#     las 5 falsas de esa noche   mediana 0.021   (0.014 - 0.029)
+#     las 87 del historico        mediana 0.405   (p25 0.109)
+# Veinte veces de diferencia. Cuando braya la llama de verdad la rafaga vale 0,4; un
+# fantasma vale 0,02. Con el corte en 0.030 caen las cinco falsas y se van 11 de las 87
+# historicas (12 %), y cuatro de esas once son los "engendros" que ya describe LA FIRMA
+# DEL FALSO POSITIVO ("oye nova oye nova", "oye nova por", "por nova"): tambien eran falsas.
+#
+# Se deja en config.json (escucha.rafagaMinima) para poder bajarlo sin tocar codigo: si
+# alguna vez la llama flojito desde lejos y no le oye, esto es lo primero que hay que bajar.
+RAFAGA_MIN_NOMBRE = RAFAGA_ARG if RAFAGA_ARG is not None else 0.030
 # bloques de 250 ms por encima del umbral que hacen falta para recalibrar:
 # con menos, un golpe suelto bastaba para mover la ganancia
 MIN_BLOQUES_VOZ = 4
@@ -2084,13 +2106,13 @@ try:
                                         ultimo_aviso_solo_boton = ahora
                                         anota("'%s' ignorado: los altavoces suenan fuerte (%.3f), la palabra no es de fiar"
                                               % (texto, salida))
-                                elif pico_rafaga < UMBRAL_VOZ:
+                                elif pico_rafaga < RAFAGA_MIN_NOMBRE:
                                     # Vosk daba confianza 1.00 al nombre sobre
                                     # bloques de pico 0.000, o sea silencio puro
                                     # amplificado. Sin haber sonado nada no hay
                                     # nada que reconocer.
-                                    anota("descartado '%s': sin voz real (pico rafaga %.4f)"
-                                          % (texto, pico_rafaga))
+                                    anota("descartado '%s': suena demasiado flojo para ser una llamada (rafaga %.4f < %.3f); ver LA RAFAGA QUE DE VERDAD TE DELATA"
+                                          % (texto, pico_rafaga, RAFAGA_MIN_NOMBRE))
                                 elif conf < umbral_confianza(plano):
                                     anota("descartado '%s': confianza %.2f < %.2f%s"
                                           % (texto, conf, umbral_confianza(plano),

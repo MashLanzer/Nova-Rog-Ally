@@ -213,4 +213,9 @@ Lo mismo que en todo lo demás: **con el banco y con el registro de uso**.
 - los `fino-invento` y los `error` tienen que **bajar**;
 - y las órdenes resueltas en local, subir.
 
+Eso último ya no se cuenta a mano: `tools\medir-local-vs-agente.py` lo saca del log
+(19/09, primera medida: 76,3 % en local, 23,2 % al agente, y el agente se lleva el 49 %
+de todo lo que se espera a un modelo). Si un cambio no mueve esos dos números, no ha
+servido de nada.
+
 Si una de estas piezas no se puede medir, es que no se ha entendido bien todavía.

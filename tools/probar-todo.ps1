@@ -117,6 +117,10 @@ Titulo "2n7. El correo por voz (y que NUNCA envie sin un si)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-correo.ps1') | Select-String 'MAL|todo correcto'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n7b. El correo de la manana (que no congele el bucle ni cuente de mas)"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-correo-manana.ps1') | Select-String 'MAL|todo correcto'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n6. El perfil solo guarda lo que braya dice de si mismo"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-perfil.ps1') | Select-String 'MAL|todo correcto'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
@@ -291,6 +295,14 @@ Titulo "2n35. El contador de la meta (como me has entendido hoy)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-meta.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n36. La copia que te salva (que se pueda abrir, que rote y que falle bien)"
+# ENTRA EN EL BANCO EL 19/09 (B13 = MEJORAS.md 3.4 #8): New-CopiaSeguridad existe desde el
+# 13/09 y no la tocaba ninguna prueba. Cabe aqui porque NO necesita microfono, ni Nova
+# encendida, ni cargar modelos: monta un voice-ctrl de mentira en $env:TEMP y cambia
+# $env:OneDrive para no rotar el tuyo. Tarda ~7 s.
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-copia.ps1') | Select-String 'todo correcto|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "3. Ordenes que SI deben reconocerse"
 foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     $salida = powershell -NoProfile -File 'assistant.ps1' -Probar (Join-Path 'pruebas' $banco) 2>&1
@@ -300,7 +312,7 @@ foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     # estuviera ahi, asi que una caida de 88 a 5 pasaba EN VERDE: justo lo que este banco
     # existe para evitar. Las que fallan son controles a proposito, por eso el listero es
     # un minimo y no una igualdad: lo que no puede es BAJAR.
-    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 218 }   # 218 desde el 19/09 (noche): MEDIDO, no calculado (216 reconocidas + 2 saltadas). +8 de C10-C11: "pon X a pantalla dividida" con UNA app y "guarda un acceso directo en la barra". Antes 210 (contador de la meta), 202 (texto puntuado), 190, 188
+    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 221 }   # 221 desde el 20/09: MEDIDO (219 + 2 saltadas). +3 de D7 (vocabulario del uso real). Antes 218, 210, 202, 190, 188
     $n = -1
     if ($linea -and ("$linea" -match 'reconocidas en local:\s*(\d+)')) { $n = [int]$Matches[1] }
     # LOS JUEGOS QUE YA NO TIENES NO SON UNA REGRESION (19/09): las lineas con

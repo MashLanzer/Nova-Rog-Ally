@@ -108,7 +108,9 @@
         "suelo volumen": "sube volumen",
         "suelta de volumen": "sube volumen",
         "seguidame": "recuerdame",
-        "seguedame": "recuerdame"
+        "seguedame": "recuerdame",
+        "este estado es cargando": "que se esta descargando",
+        "sting": "steam"
     },
     "apps": {
         "steam": "steam://open/main",

@@ -10012,6 +10012,11 @@ function Initialize-Escucha {
             # La confianza minima va TAMBIEN aqui: hasta ahora solo la recibia el
             # wake_worker.exe viejo, asi que el ajuste del config no hacia nada.
             $conf = $EscuchaConf.ToString([System.Globalization.CultureInfo]::InvariantCulture)
+            # LA RAFAGA MINIMA PARA LA PALABRA DE DESPERTAR (20/09). Ver LA RAFAGA QUE DE
+            # VERDAD TE DELATA en wake_vosk.py: con 0.008 Nova se activaba sola oyendo una
+            # conversacion de fondo. Se pasa como argumento 21 para poder bajarlo desde
+            # config.json (escucha.rafagaMinima) si alguna vez no le oye al llamarla flojo.
+            $rafagaMin = ([double](Get-Cfg 'escucha' 'rafagaMinima' 0.03)).ToString([System.Globalization.CultureInfo]::InvariantCulture)
             # EL STDERR DEL WORKER, A UN ARCHIVO. El 12/09 murio tres veces sin
             # dejar ni una linea (se lanzaba sin redirigir nada). Y lo que dejo
             # la vez anterior se pasa al log ANTES de relanzar, porque la
@@ -10027,7 +10032,7 @@ function Initialize-Escucha {
                 -ArgumentList @('-u', $worker, $EscuchaNombre, $MarcaWake, $EventLog, $EscuchaGanancia,
                                 $MarcaPausa, $MarcaDictar, $RutaDictado, $RutaParcial, $RutaNivel,
                                 $MarcaConfirmar, $RutaConfirmacion, "$MotorDictado`:$WhisperModelo", $RutaVocabulario,
-                                $conf, $MarcaReintento, $RutaReintento, $(if ($WhisperPreciso) { $WhisperPreciso } else { '-' }), $(if ($WhisperUltimo) { $WhisperUltimo } else { '-' })) `
+                                $conf, $MarcaReintento, $RutaReintento, $(if ($WhisperPreciso) { $WhisperPreciso } else { '-' }), $(if ($WhisperUltimo) { $WhisperUltimo } else { '-' }), $rafagaMin) `
                 -WorkingDirectory $LogDir -WindowStyle Hidden -PassThru `
                 -RedirectStandardError $rutaErrWorker
         } else {
