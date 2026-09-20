@@ -42,6 +42,8 @@ informes del 19/09 (OIDO, MEDICION-MODELOS, VRAM).
 > | **C5** | Filtro del perfil en lo nuevo del cerebro | Ya estaba (`RE_SOBRE_NOVA` en `guardar_texto`) |
 > | **B14, B15** | Log de la cápsula y aviso por días sin uso | Ya estaban, del 19/09 |
 >
+> | **D7** | Frases del uso real que no reconocía la capa local | Mordido: «los juegos de steam», «que juegos hay» y «y has aprendido de la última sección» ya resuelven. Y salió un bug: **«Tienes 1 juegos» teniendo 14** (contaba sin refrescar la biblioteca) |
+>
 > ### Y tres cosas que no estaban en ninguna lista
 >
 > - **Dos bancos decían «todo correcto» sin ejecutarse.** `probar-json-ui` (16 errores por
