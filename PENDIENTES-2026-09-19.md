@@ -11,6 +11,27 @@ informes del 19/09 (OIDO, MEDICION-MODELOS, VRAM).
 
 ---
 
+
+> ## Estado al cierre del 19/09 (noche)
+>
+> **17 cerrados hoy**, de los 95 que había:
+>
+> | grupo | hechos | cómo |
+> |---|---|---|
+> | B (pequeños) | **9 de 17** | commit `c4055dc` + B1 en `95ab5c5` |
+> | C (medianos) | **8 de 28** | commit `c714970` |
+>
+> Quedan **78**: 23 tuyos (probar en vivo o decidir), 8 pequeños, 20 medianos y 8 grandes.
+>
+> **Lo que NO se hizo y por qué:** `C9` (que Nova ajuste sola el tope de la nube) queda fuera
+> a propósito: es el mayor del grupo, toca bucle y escucha, escribe `config.json` por su cuenta
+> y por diseño no podría decidir nada hasta el 23/09. Merece su propia sesión.
+>
+> **Un pendiente que parecía cerrado y no lo está:** «abre el navegador y a pantalla dividida,
+> abre Steam» —la frase real del 18/09— se sigue yendo a la IA. Se arregló la forma corta
+> («pon X a pantalla dividida»), no la cadena con dos verbos.
+
+
 ## A) LO TUYO: probar en vivo o decidir (23)
 
 Va primero porque bloquea a casi todo lo demás.
