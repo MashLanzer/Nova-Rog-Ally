@@ -1494,6 +1494,10 @@ $DestinosUso = @('local', 'aprendida', 'memoria', 'traducida', 'receta', 'error'
 # 'traducida' del registro pasarian de acierto a neutro. Dejan linea, fijan el id para poder
 # corregirlo, y siguen su camino.
 $DestinosNeutros = @('charla', 'traducir', 'plan', 'accion', 'pregunta')
+# LO QUE NO LLEGO A NINGUN SITIO (20/09). Estos tres son los finales en nada de
+# $DestinosUso, y son los que NO deben encadenar otra ventana de microfono: anoche
+# 5 activaciones falsas se convirtieron en 14 grabaciones justamente asi.
+$DestinosSecos = @('descarte', 'ruido', 'error', 'recitado')
 # EL DESCARTE LOCAL NO ES UN DESENLACE, ES UNA PARADA (19/09). Medido en el log del 18/09:
 # de las 14 ordenes apuntadas como 'descarte', TRES acabaron BIEN y quedaron contadas como
 # fallo. 'descarte' se escribe en Process-Texto justo ANTES de mandar la frase al modelo y,
@@ -1509,11 +1513,49 @@ $DestinosNeutros = @('charla', 'traducir', 'plan', 'accion', 'pregunta')
 # el id vivo para que el desenlace escriba su linea despues. Al contar manda la ultima
 # linea de cada id, y eso ya lo hacen igual Get-ComoTeEntendi y tools\analizar-uso.py: no
 # hay que tocar ninguno de los dos, ni sus listas.
+# ¿ESTA FRASE APUNTABA A LA ANTERIOR? (20/09). braya dice que "a veces" Nova no sabe de
+# que le hablo en la orden de antes. Leyendo a mano sus grabaciones del 15 al 18/09 salen
+# 25 casos claros de 311 ordenes (8 %), y dos de ellos acabaron en bucle: 'Hay alguna
+# actualizacion de este' (18/09 19:00) dio 31 vueltas charla<->traducir en 54 s sin hacer
+# nada, y 'Este [que se] esta cargando en Steam' (23:35), 39 vueltas en 90 s.
+#
+# Pero eso esta contado A MANO. En destinos.jsonl no hay ni un campo que diga si la frase
+# dependia de la anterior, asi que no se puede medir si una memoria entre ordenes mejora o
+# empeora, ni por que tipo de referencia empezar. Esto solo apunta el dato; no decide nada
+# y no cambia ninguna ruta.
+#
+# LO QUE CUESTA: medido el 20/09, 0,036 ms por orden (media de 2.000 pasadas de las siete
+# regex sobre una frase larga), dentro de una funcion que ya esta abriendo un fichero para
+# escribir. No anade espera a ninguna orden (la velocidad manda, ver las preferencias).
+#
+# Las marcas salen de SUS frases reales, no de un manual:
+#   demostrativo  'Hay alguna actualizacion de este', 'Puedes reproducir esta cancion'
+#   pronombre     'Actívalo', 'Puedes abrirlo', 'El del oso polar, Elimínalo'
+#   elipsis       'Con la novena cancion' (falta el verbo: venia de la orden de antes)
+#   ordinal       'reproduce la segunda cancion de el', 'el segundo video'
+#   otra-vez      'otra vez', 'lo mismo'
+#   lo-que-hiciste 'Cierra lo ultimo que abriste', 'nunca abriste YouTube'
+#   si-suelto     'Si' a secas, que el 18/09 19:04 se apunto como ruido y era una respuesta
+$RE_REFERENCIA = [ordered]@{
+    'demostrativo'   = '\b(?:este|ese|esa|eso|aquel|aquella)\b|\besta\s+(?!\w+ando\b|\w+endo\b|bien\b|mal\b|en\b|de\b)\w'
+    'pronombre'      = '\b(?:abre|abrir|cierra|cerrar|pon|poner|activa|desactiva|enciende|apaga|haz|hacer|elimina|borra|quita|reproduce|instala|busca|guarda|mueve|sube|baja)(?:lo|la|los|las|melo|mela|selo)\b'
+    'elipsis'        = '^(?:con|y con|de|del|tambien)\b'
+    'ordinal'        = '\b(?:primer|primera|segundo|segunda|tercer|tercera|cuarta|quinta|novena|ultimo|ultima)\b'
+    'otra-vez'       = '\b(?:otra vez|de nuevo|lo mismo|igual que antes|repitelo)\b'
+    'lo-que-hiciste' = '\b(?:lo ultimo que|que te dije|acabo de decir|te lo acabo|nunca (?:abriste|creaste|pusiste)|sigues )'
+    'si-suelto'      = '^(?:si|no|exacto|correcto|vale|dale)\s*$'
+}
 function Write-DestinoUso([string]$ruta, [string]$detalle = '', [bool]$deCamino = $false) {
     # solo los destinos de una frase: 'fino', 'turbo' o 'parakeet' cuentan como OYO, no
     # como HIZO, y se llaman en la misma orden que el destino de verdad
     $neutroU = ($DestinosNeutros -contains $ruta)
     if (-not $neutroU -and $DestinosUso -notcontains $ruta) { return $false }
+    # LA ANTERIOR, ¿LLEGO A ALGO? (20/09). Se apunta AQUI, pasada la validacion y antes
+    # de mirar la marca del id: si no hay grabaciones que emparejar la funcion se va sin
+    # escribir nada, pero el desenlace ya se sabe y es lo unico que hace falta para no
+    # encadenar. Los neutros ('charla', 'traducir'...) no cuentan: se apuntan ANTES de
+    # saber el destino de verdad, y $deCamino tampoco, que es una parada, no una llegada.
+    if (-not $neutroU -and -not $deCamino) { $script:ultimaSeca = ($DestinosSecos -contains $ruta) }
     $marca = Join-Path $TmpDir 'dictado-id.txt'
     if (-not (Test-Path -LiteralPath $marca)) { return $false }
     try {
@@ -1528,7 +1570,22 @@ function Write-DestinoUso([string]$ruta, [string]$detalle = '', [bool]$deCamino 
         if (-not (Test-Path -LiteralPath $dirU)) { return $false }   # sin grabaciones no hay nada que emparejar
         $dU = ($detalle -replace '\s+', ' ').Trim()
         if ($dU.Length -gt 120) { $dU = $dU.Substring(0, 117) + '...' }
-        $oU = [ordered]@{ id = $idU; hora = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'); hizo = $ruta; detalle = $dU }
+        # ¿APUNTABA A LA ANTERIOR? Ver $RE_REFERENCIA. Solo se apunta el dato, no se usa.
+        $refU = @()
+        try {
+            $plU = ConvertTo-Plain $detalle
+            if ($plU) { foreach ($kR in $RE_REFERENCIA.Keys) { if ($plU -match $RE_REFERENCIA[$kR]) { $refU += [string]$kR } } }
+        } catch {}
+        # y CONTRA QUE apuntaba: lo que Nova hizo en la orden de antes, si fue hace poco.
+        # Los 3 minutos son los mismos que ya usa Get-OrdenCorregida para las quejas.
+        $antesU = ''
+        try {
+            if ($script:ultimaOrden -and ($sw.ElapsedMilliseconds - [double]$script:ultimaOrden.cuando) -lt 180000) {
+                $antesU = ([string]$script:ultimaOrden.desc -replace '\s+', ' ').Trim()
+                if ($antesU.Length -gt 60) { $antesU = $antesU.Substring(0, 57) + '...' }
+            }
+        } catch {}
+        $oU = [ordered]@{ id = $idU; hora = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'); hizo = $ruta; detalle = $dU; ref = ($refU -join ','); antes = $antesU }
         # UTF-8 SIN BOM: Add-Content -Encoding UTF8 lo mete, y el BOM rompe la primera
         # linea al leer el .jsonl desde Python
         [System.IO.File]::AppendAllText((Join-Path $dirU 'destinos.jsonl'),
@@ -1549,6 +1606,8 @@ function Write-DestinoUso([string]$ruta, [string]$detalle = '', [bool]$deCamino 
 # que de verdad mide la meta de cero ordenes equivocadas.
 $script:ultimoUsoId = ''
 $script:ultimoUsoEn = 0
+# la ultima orden acabo en 'descarte', 'ruido' o 'error' (ver CORTAR LA CADENA, 20/09)
+$script:ultimaSeca = $false
 function Write-FalloUso([string]$porque = '') {
     if (-not $script:ultimoUsoId) { return $false }
     # una queja muy posterior ya no habla de esa orden: mejor no marcar nada que marcar
@@ -5181,7 +5240,20 @@ function Add-DatoPerfil([string]$dato, [string]$fuente = '') {
     # siempre y viajando con cada peticion: "Braya considera que Nova se equivoca
     # frecuentemente" y "Braya siente que Nova no entiende bien lo que dice".
     $plD = ConvertTo-Suave $d
-    if ($plD -match '\b(?:nova|asistente|la ia|el modelo)\b') { Log "PERFIL: no guardo lo que habla de mi: $d"; return $null }
+    # ...PERO UNA INSTRUCCION TUYA SI SE GUARDA (20/09). Esta regla se puso el 16/09 para que
+    # no acabaran en el perfil las QUEJAS ('Braya considera que Nova se equivoca'), y eso sigue
+    # bien. Lo que no estaba bien es que se llevara por delante las PREFERENCIAS, que tambien
+    # nombran a Nova y son justo lo que hay que recordar. Paso de verdad y salio caro:
+    #   18/09 20:12:04  braya: 'cuando te digo que pongas una cancion SIEMPRE tiene que ser en YouTube'
+    #                   Nova : 'Entendido, va directo a YouTube'
+    #   18/09 20:12:06  PERFIL: no guardo lo que habla de mi: Quiere que Nova ponga musica siempre en YouTube
+    #   18/09 20:12:22  ...y la siguiente orden se traduce a 'pon ... en SPOTIFY'
+    #   18/09 20:12:33  braya: 'Que sigues abriendo las canciones en Spotify si te dije ahora mismo'
+    # Le dijo que si y lo tiro dos segundos despues. La queja ya la corta la regla de abajo (la
+    # de los verbos de opinion), asi que esta solo tiene que dejar pasar lo que es una INSTRUCCION.
+    $esInstruccion = ($plD -match '(?:quiere|quiero|prefiere|prefiero|pide|pido|dije|dijo)\s+que') -or ($plD -match '(?:siempre|nunca|cada vez que)')
+    if (-not $esInstruccion -and $plD -match '(?:nova|asistente|la ia|el modelo)') { Log "PERFIL: no guardo lo que habla de mi: $d"; return $null }
+    if ($esInstruccion -and $plD -match '(?:nova|asistente|la ia|el modelo)') { Log "PERFIL: habla de mi, pero es una instruccion tuya: la guardo" }
     if ($plD -match '\b(?:se equivoca|no entiende|falla|no funciona|molesta|tarda|lento|frecuentemente)\b' -and
         $plD -match '\b(?:considera|siente|cree|piensa|opina|prefiere que)\b') { Log "PERFIL: eso era una queja, no un dato: $d"; return $null }
     # NI DEDUCCIONES: "Braya tiene una pareja (la llama 'mi amor')" salio de oirle decir
@@ -9834,6 +9906,13 @@ $MotorDictado = [string](Get-Cfg 'input' 'dictado' 'vosk')
 # ... "y avisame en veinte minutos". 0 = desactivado. Solo con el dictado del
 # worker (whisper/vosk): Win+H no puede esperar sin robar el foco.
 $SeguimientoMs = [int](Get-Cfg 'input' 'seguimientoMs' 2500)
+# CORTAR LA CADENA (20/09). En seguimiento no hace falta decir 'nova', asi que el
+# umbral de rafaga (escucha.rafagaMinima = 0.030) no filtra nada ahi: anoche 5
+# activaciones falsas dieron 14 grabaciones de una conversacion privada. Con esto en
+# false (lo normal) el microfono no se reabre solo detras de un final en nada. En true
+# vuelve la segunda oportunidad que pidio braya el 15/09, pero UNA sola vez y nunca
+# encadenando seguimiento sobre seguimiento.
+$SeguimientoTrasSeco = [bool](Get-Cfg 'escucha' 'seguimientoTrasSeco' $false)
 # 'vosk' y 'whisper' comparten el camino: el worker de escucha graba la orden
 # y la transcribe (Whisper es mucho mas preciso; Vosk pequeno se queda para
 # la palabra de activacion). 'windows' es Win+H.
@@ -10082,6 +10161,15 @@ function Initialize-Escucha {
 # (opacidad minima) cuando la interfaz nueva esta activa.
 # =====================================================================
 $UiNuevaOn = [bool](Get-Cfg 'ui' 'nueva' $true)
+# EL MICROFONO NO SE ABRE EN SILENCIO (20/09/2026). Esa madrugada Nova se
+# activo sola 5 veces en 12 minutos y grabo 70 s de una conversacion privada;
+# las 5 activaciones se volvieron 14 grabaciones porque el seguimiento reabre
+# la escucha solo y lo hacia SIN sonido (9 de las 14 entraron por esa puerta).
+# La regla de Alexa es que el indicador suena CADA vez que se abre el micro,
+# sin excepcion: si suena, se oye que esta grabando y se puede cortar. El tono
+# es el sonTic que la capsula ya tiene (1320 Hz, 25 ms): corto para no pisar
+# la frase. Si molesta, ui.ticMicro = false y vuelve a callar.
+$TicMicroOn = [bool](Get-Cfg 'ui' 'ticMicro' $true)
 $RutaUiEstado = Join-Path $TmpDir "ui-estado.json"
 $script:uiProc = $null
 $script:uiUltimo = ''
@@ -14221,13 +14309,44 @@ $script:noEntendiSeguidos = 0
 $script:origenDictado = ''
 $script:siguioParakeet = $false
 function Open-EscuchaTrasNoEntendi {
+    # CORTAR LA CADENA (20/09). Las cuatro salidas sin salida ponian
+    # $script:seguimientoPendiente = $false con el comentario "un descarte no encadena" y
+    # acto seguido llamaban aqui, que lo volvia a poner a $true: el $false no servia de
+    # nada. Con 5 activaciones falsas anoche eso dio 14 grabaciones. En el log del 18 y 19
+    # de septiembre, 11 de las 110 ventanas de seguimiento se abrieron detras de un final
+    # en nada, y 5 de ellas encadenaban seguimiento sobre seguimiento.
+    # Sobre un seguimiento NUNCA se encadena: ahi nadie ha dicho 'nova', asi que un final
+    # en nada quiere decir que la ventana la abrio el ruido, no braya.
+    if ($script:origenDictado -eq 'seguimiento') {
+        Log "no te entendi en un seguimiento: corto la cadena, no abro otra ventana (ver CORTAR LA CADENA)"
+        $script:seguimientoPendiente = $false
+        return
+    }
+    if (-not $SeguimientoTrasSeco) {
+        Log "no te entendi: no llego a nada, no vuelvo a abrir el microfono sola (escucha.seguimientoTrasSeco = false)"
+        $script:seguimientoPendiente = $false
+        return
+    }
+    # con el interruptor puesto, UNA sola segunda oportunidad (antes eran dos seguidas)
     $script:noEntendiSeguidos++
-    if ($script:noEntendiSeguidos -gt 2) {
+    if ($script:noEntendiSeguidos -gt 1) {
         Log "no te entendi: van $($script:noEntendiSeguidos) seguidos; esta vez no vuelvo a escuchar"
+        $script:seguimientoPendiente = $false
         return
     }
     $script:seguimientoPendiente = $true
     $script:seguimientoFactor = 1.0
+}
+
+# EL PORTERO DE LA VENTANA (20/09). Lo de arriba tapa el camino del "no te entendi";
+# esto tapa el resto: cualquier orden cuyo destino fuera 'descarte', 'ruido' o 'error'
+# deja de reabrir el microfono. Es la etapa 2 de Alexa contada de otra forma: no se
+# vuelve a escuchar hasta que algo confirma que la vez anterior era de verdad.
+function Test-AbrirSeguimiento {
+    if (-not $script:ultimaSeca) { return $true }
+    if ($SeguimientoTrasSeco -and $script:origenDictado -ne 'seguimiento') { return $true }
+    Log "seguimiento: la anterior acabo en nada; no reabro el microfono (ver CORTAR LA CADENA)"
+    return $false
 }
 $script:preguntarTraduccion = $false
 function Add-OidoDudoso([string]$t) {
@@ -14489,6 +14608,7 @@ function Start-Dictado([string]$origen) {
     Log "DICTADO ($origen)"
     if ($origen -ne 'seguimiento') { $script:noEntendiSeguidos = 0 }
     $script:origenDictado = $origen
+    $script:ultimaSeca = $false   # el desenlace de ESTA ventana es el que decide (20/09)
     $script:siguioParakeet = $false
     # llamarla de nuevo corta lo que estuviera contestando (ver CONVERSACION DE VERDAD)
     if ($origen -ne 'seguimiento') { try { Stop-Charla } catch {} }
@@ -14604,7 +14724,10 @@ function Start-Dictado([string]$origen) {
     $seguimiento = ($origen -eq 'seguimiento') -or $largo
     $script:enSeguimiento = ($origen -eq 'seguimiento')
     # con la capsula, el sonido lo pone ella (un tono corto, no la campana)
-    if (-not $UiNuevaOn -and -not $seguimiento) { Play-Sonido 'te-oigo' ([System.Media.SystemSounds]::Exclamation) }
+    # 20/09/2026: el '-and -not $seguimiento' dejaba mudo justo el camino que
+    # mas grabo anoche (probablemente 9 de las 14 grabaciones (estimado, no medido:). Sin capsula no hay tic, asi
+    # que el aviso del seguimiento es la misma campana: mejor eso que nada.
+    if (-not $UiNuevaOn -and (-not $seguimiento -or $TicMicroOn)) { Play-Sonido 'te-oigo' ([System.Media.SystemSounds]::Exclamation) }
 
     # QUE MOTOR PARA ESTA ORDEN. Jugando manda no molestar; fuera del juego manda
     # acertar. El dictado largo va siempre por su camino, que ya lo decidio antes.
@@ -14652,8 +14775,15 @@ function Start-Dictado([string]$origen) {
         # en dictado largo NO: se quedaria con el foco, y el foco tiene que
         # estar en la ventana a la que se escribe
         if (-not $largo) { $capture.Show() }
-        if ($largo) { Set-UI 'escuchando' 'dictando... di ya esta para parar' }
-        elseif ($seguimiento) { Set-UI 'atenta' }
+        # 20/09/2026: estas dos ramas abrian el microfono sin mandar NINGUN
+        # evento de sonido; solo la de abajo ('despierta') sonaba. El
+        # seguimiento es el que grabo 9 de las 14 capturas de anoche, y el
+        # dictado largo mantiene el micro abierto 20 s. Un tic corto en las
+        # dos, como manda la regla de Alexa. Si nova_ui.exe esta sin
+        # recompilar, 'tic' es un evento desconocido y simplemente no hace
+        # nada: no rompe (la capsula ignora lo que no conoce).
+        if ($largo) { Set-UI 'escuchando' 'dictando... di ya esta para parar'; if ($TicMicroOn) { Send-UIEvento 'tic' } }
+        elseif ($seguimiento) { Set-UI 'atenta'; if ($TicMicroOn) { Send-UIEvento 'tic' } }
         else { Set-UI 'escuchando'; Send-UIEvento 'despierta' }
         $script:armed = $true
         $script:dictaInicio = $sw.ElapsedMilliseconds
@@ -16377,7 +16507,8 @@ while ($true) {
             Set-UI 'escuchando' $propH.pregunta
             Start-Confirmacion
         } elseif ($script:seguimientoPendiente -and $SeguimientoMs -gt 0 -and $script:seguimientoFactor -gt 0 -and $DictadoWorker -and $script:wakeProc -and
-            -not $script:wakeProc.HasExited -and -not $script:busy -and -not $script:pendiente -and $script:reintentoVence -le 0) {
+            -not $script:wakeProc.HasExited -and -not $script:busy -and -not $script:pendiente -and $script:reintentoVence -le 0 -and
+            (Test-AbrirSeguimiento)) {
             Start-Dictado 'seguimiento'
         }
         $script:seguimientoPendiente = $false

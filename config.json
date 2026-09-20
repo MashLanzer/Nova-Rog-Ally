@@ -24,6 +24,7 @@
     "ui": {
         "popupMs": 8000,
         "nueva": true,
+        "ticMicro": true,
         "gestos": [
             {
                 "gesto": "carino",
@@ -57,6 +58,7 @@
         "nombre": "nova",
         "confianzaMinima": 0.55,
         "rafagaMinima": 0.03,
+        "seguimientoTrasSeco": false,
         "soloBotonEnJuego": true,
         "autoSordina": true,
         "autoSordinaRachas": 3,

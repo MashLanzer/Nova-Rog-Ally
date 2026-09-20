@@ -2570,6 +2570,18 @@ public class NovaUI : Window
             case "logro": Logro(); break;
             case "error": Sacudir(); break;
             case "gesto": Gesto(arg); break;
+            // SE ABRE EL MICROFONO: TIC (20/09/2026). Alexa enciende el
+            // indicador CADA vez que abre el microfono, sin excepcion. Nova
+            // reabria la escucha de seguimiento sin luz ni sonido y por esa
+            // puerta muda entraron probablemente 9 de las 14 grabaciones (estimado, no medido: de esa madrugada
+            // (5 activaciones falsas, 70 s de conversacion privada). Reusa el
+            // sonTic que ya existe (1320 Hz, 25 ms) en vez de inventar otro.
+            // Una sola onda en verde de "atenta", no el salto de "despierta":
+            // avisa de que esta grabando sin gritar encima de la frase.
+            case "tic":
+                Ondas(1, ColorDe("atenta"));
+                Sonar(sonTic);
+                break;
             case "oculta":
                 {
                     // el asistente va a capturar la pantalla (OCR, contexto para

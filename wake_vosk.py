@@ -85,7 +85,13 @@ MOTOR_DICTADO = sys.argv[12] if len(sys.argv) > 12 else "vosk"
 # viejo, asi que el numero del config no hacia absolutamente nada.
 try:
     CONFIANZA_ARG = float(sys.argv[14]) if len(sys.argv) > 14 else None
-    RAFAGA_ARG = float(sys.argv[21]) if len(sys.argv) > 21 and sys.argv[21] not in ('', '-') else None
+    # OJO CON EL INDICE (20/09): PowerShell pasa '-u' como primer elemento de la lista,
+    # pero para Python sys.argv[0] es el SCRIPT, no '-u': todo va corrido uno. El ultimo
+    # argumento que manda assistant.ps1 ($rafagaMin) es el 19, no el 21. Con el 21 esta
+    # clave quedaba MUERTA: el umbral seguia funcionando por el valor por defecto de
+    # abajo, pero escucha.rafagaMinima en config.json no hacia nada, que es justo la
+    # perilla que hay que tocar si algun dia Nova deja de oir a braya.
+    RAFAGA_ARG = float(sys.argv[19]) if len(sys.argv) > 19 and sys.argv[19] not in ('', '-') else None
 except ValueError:
     CONFIANZA_ARG = None
     RAFAGA_ARG = None
