@@ -21,7 +21,7 @@ que le mando a Nova, y cuál es más rápido con y sin juegos delante?**
 | Motor | Aciertos | Mediana | En frío |
 |---|---|---|---|
 | **claude-haiku-4-5** (API) | **17/18** | **0,65 s** | 1,05 s |
-| **qwen2.5:3b** (local, el actual) | 16/18 | 1,08 s | 1,57 s |
+| **qwen2.5:3b** (local) | 16/18 | 1,08 s | 1,57 s |
 | qwen2.5:1.5b (local) | 13/18 | 0,93 s | 0,89 s |
 | llama3.2:1b (local) | 10/18 | 1,81 s | 11,90 s |
 | llama3.2:3b (local) | 7/18 | 2,16 s | 21,14 s |
@@ -45,7 +45,9 @@ que le mando a Nova, y cuál es más rápido con y sin juegos delante?**
 3. **llama es peor que qwen en los dos tamaños**, y no por poco: 7/18 y 10/18 frente a 16/18
    y 13/18. Llama se salta la instrucción de responder `[ORDEN]` y se pone a explicar. Queda
    descartado; la pregunta de braya tiene respuesta clara.
-4. **qwen2.5:3b es el mejor local y ya es el que usa Nova.** La configuración actual acierta.
+4. **qwen2.5:3b es el mejor local.** OJO: cuando se escribio esto, `config.json` tenia puesto
+   el **1.5b** (13/18), no el 3b. Se corrigio el 19/09 por la tarde: `conversacion.modeloLocal`
+   pasa de `qwen2.5:1.5b` a `qwen2.5:3b`. La frase original daba por hecho algo que no era.
 5. **El CLI acierta todo (6/6) pero tarda 7,00 s**, once veces más que la API, porque arranca
    un proceso entero por invocación. Sirve para tareas de agente, no para clasificar órdenes.
 

@@ -98,7 +98,7 @@
         "lon": null
     },
     "conversacion": {
-        "modeloLocal": "qwen2.5:1.5b"
+        "modeloLocal": "qwen2.5:3b"
     },
     "charla": {
         "activada": true
