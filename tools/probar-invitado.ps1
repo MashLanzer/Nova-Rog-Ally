@@ -51,6 +51,7 @@ $EXENTAS = @{
     'Save-DatosPerfil'        = 'lo llama Add-DatoPerfil, que ya mira el modo'
     'Add-Perfil'              = 'crear un modo se pide a proposito y se dice en voz alta'
     'Set-UsoAhora'            = 'marca de uso del propio Nova'
+    'Add-NubeTiempo'          = 'solo son milisegundos, y con invitado la nube ni se lanza (Start-NubeOir sale en su primera linea)'
 }
 
 $fns = $ast.FindAll({ param($x) $x -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)

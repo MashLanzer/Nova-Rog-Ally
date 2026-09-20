@@ -1613,6 +1613,90 @@ function Invoke-Olvido([int]$minutos) {
     return $cuenta
 }
 
+# --- CUANTO TARDA LA NUBE (20/09, el paso que le faltaba a C9) ---
+# El tope de la nube (escucha.nubeTopeMs) es un numero puesto a mano: nacio en 2.500 ms y
+# se subio a 7.000 el 19/09 porque 2,5 s se quedaba corto... y nadie sabe si 7 sobra o
+# falta, porque hasta hoy solo se apuntaba SI llego ('nube-sirvio') o si se paso del tope
+# ('nube-tarde'), nunca CUANTO tardo la que si llego. Sin ese dato, C9 -que Nova ajuste
+# sola el tope- no puede decidir nada: solo sabria apagar la nube entera, que es lo que
+# ya hace.
+#
+# VA EN SU PROPIO FICHERO, no en estadisticas.json, por dos razones: Get-Estadisticas
+# cachea en memoria y solo relee tres claves (dias, descartes, recientes), asi que meter
+# una cuarta obliga a tocar el corazon de las estadisticas y sus pruebas; y esto se
+# escribe en cada respuesta de la nube, mientras que estadisticas.json se reescribe
+# entero cada vez. Un fichero de numeros aparte no molesta a nadie.
+#
+# Y SOLO GUARDA NUMEROS, nunca la frase: por eso -al contrario que senales-fallo.jsonl y
+# activaciones.jsonl- este no necesita entrar en la lista de Invoke-Olvido.
+$NubeTiemposJson = Join-Path $MemoriaDir 'nube-tiempos.json'
+$NubeTiemposMax = 200          # los ultimos 200; de sobra para un p90 con sentido
+
+function Get-NubeTiempos {
+    # SIN CACHE A PROPOSITO (20/09). La primera version guardaba la lista en
+    # $script:nubeMs para no releer el fichero... y eso la hacia imposible de probar: las
+    # funciones sacadas del archivo con [scriptblock]::Create() tienen su PROPIO ambito
+    # "script", asi que la lista que llenaba una no la veia la siguiente, y el banco salia
+    # con 12 comprobaciones en rojo guardando un solo numero de 250.
+    # Releer un fichero de 200 enteros cuesta nada y esto corre UNA vez por respuesta de
+    # la nube, no en el bucle del oido. Mas vale simple y comprobable que rapido y opaco.
+    $l = New-Object System.Collections.ArrayList
+    if (Test-Path -LiteralPath $NubeTiemposJson) {
+        try {
+            $j = Get-Content -LiteralPath $NubeTiemposJson -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($v in @($j.ms)) {
+                $n = 0
+                if ([int]::TryParse([string]$v, [ref]$n) -and $n -gt 0) { [void]$l.Add($n) }
+            }
+        } catch { Log ('nube-tiempos: no pude leerlos (' + $_.Exception.Message + ')') }
+    }
+    # la coma no sobra: PowerShell desenrolla lo que devuelve una funcion, y una lista
+    # vacia desenrollada se queda en $null (el que la recibe peta al llamar a .Add)
+    return ,$l
+}
+
+function Add-NubeTiempo([int]$ms) {
+    if ($ms -le 0) { return $false }
+    try {
+        $l = Get-NubeTiempos
+        [void]$l.Add($ms)
+        while ($l.Count -gt $NubeTiemposMax) { $l.RemoveAt(0) }
+        $o = [ordered]@{ ms = @($l); hasta = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') }
+        [System.IO.File]::WriteAllText($NubeTiemposJson, ($o | ConvertTo-Json -Depth 4 -Compress), (New-Object System.Text.UTF8Encoding $false))
+        return $true
+    } catch { return $false }
+}
+
+# Percentil por el metodo del mas cercano: con pocos datos, interpolar es inventarse
+# precision que no hay.
+function Get-NubePercentil([int]$pct = 90) {
+    # se ASIGNA primero y se ordena despues, en dos pasos. Get-NubeTiempos devuelve con
+    # coma para que una lista vacia no se convierta en $null, pero esa misma coma hace que
+    # un pipe directo reciba la LISTA como un solo objeto en vez de sus numeros.
+    $lista = Get-NubeTiempos
+    $v = @($lista | Sort-Object)
+    if ($v.Count -eq 0) { return 0 }
+    $i = [int][Math]::Ceiling(($pct / 100.0) * $v.Count) - 1
+    if ($i -lt 0) { $i = 0 }
+    if ($i -ge $v.Count) { $i = $v.Count - 1 }
+    return [int]$v[$i]
+}
+
+# Lo que se contesta si se pregunta, y lo que mirara C9 el dia que se haga. Con menos de
+# $DecisionMinIntentos no se dice nada: el mismo liston que el resto de decisiones propias.
+function Get-FraseNubeTiempo {
+    $lista = Get-NubeTiempos
+    $v = @($lista)
+    if ($v.Count -lt $DecisionMinIntentos) {
+        return "Todavia no tengo suficientes: la nube me ha contestado $($v.Count) veces y necesito $DecisionMinIntentos para fiarme."
+    }
+    $p50 = Get-NubePercentil 50
+    $p90 = Get-NubePercentil 90
+    return ("La nube me contesta en $([Math]::Round($p50 / 1000.0, 1)) segundos de mediana y " +
+            "$([Math]::Round($p90 / 1000.0, 1)) en el peor de cada diez, sobre $($v.Count) veces. " +
+            "La espero hasta $([Math]::Round($NubeTopeMs / 1000.0, 1)) segundos.")
+}
+
 function Get-Estadisticas {
     if ($null -ne $script:stats) { return $script:stats }
     $script:stats = @{ dias = @{}; descartes = @(); recientes = @() }
@@ -2868,6 +2952,12 @@ function Resolve-Fragment([string]$f) {
         # 2. "1 juegos" no concuerda, y las voces robot son justo lo que no se quiere.
         # 3. Faltaban las formas que de verdad dijo: "los juegos de steam" (18/09, se fue
         #    a la IA) y "que juegos hay".
+        # Y QUE SE PUEDA PREGUNTAR (20/09). El dato de cuanto tarda la nube no sirve de
+        # nada guardado si nadie lo mira: asi braya puede pedirlo en voz alta antes de
+        # que C9 lo use para decidir el tope solo.
+        '^(?:cuanto tarda la nube|cuanto tarda gemini|que tal (?:va |anda )?la nube|como va la nube|cuanto tarda la segunda opinion)\b' {
+            return @(@{ kind = 'decir'; desc = (Get-FraseNubeTiempo) })
+        }
         '^(?:cuantos juegos|que juegos tengo|que juegos hay|mis juegos|los juegos de steam|los juegos que tengo)\b' {
             [void](Update-Juegos)   # se frena sola a los 60 s; sin esto el numero es el que hubiera
             $nJ = @($script:Juegos).Count
@@ -15072,6 +15162,7 @@ function Start-NubeOir([string]$para) {
             -WorkingDirectory $LogDir `
             -ArgumentList @($NubeScript, $script:nubeWav, $script:nubeOut, [string]$NubeTopeMs)
         $null = $script:nubeProc.Handle
+        $script:nubeDesde = $sw.ElapsedMilliseconds   # ver CUANTO TARDA LA NUBE
         $script:nubeVence = $sw.ElapsedMilliseconds + $NubeTopeMs + 800
         Log "NUBE: segunda opinion de '$para' (tope $([Math]::Round($NubeTopeMs / 1000.0, 1)) s)"
         # CUANTAS VECES SE LANZA (17/09). Habia tres contadores de desenlace -sirvio, nada,
@@ -15094,6 +15185,17 @@ function Receive-NubeOir {
     if (Test-Path -LiteralPath $script:nubeOut) {
         $tN = ''
         try { $tN = [System.IO.File]::ReadAllText($script:nubeOut, [System.Text.Encoding]::UTF8) } catch { $tN = '' }
+        # CUANTO TARDA LA NUBE (20/09). Hasta hoy solo se apuntaba si habia llegado
+        # ('nube-sirvio') o si se habia pasado del tope ('nube-tarde'), nunca CUANTO. Y sin
+        # eso el tope es un numero elegido a mano: se subio de 2,5 a 7 s el 19/09 porque
+        # 2,5 se quedaba corto, pero nadie sabe si 7 sobra o falta. Aqui se guardan los
+        # tiempos de los que SI contestaron, que es de lo unico que se puede sacar un p90.
+        # Es un numero, no una frase: no hace falta meterlo en la lista del olvido.
+        if ($script:nubeDesde -gt 0) {
+            $msN = [int]($sw.ElapsedMilliseconds - $script:nubeDesde)
+            $script:nubeDesde = 0
+            if ($msN -gt 0 -and $msN -lt 120000) { [void](Add-NubeTiempo $msN) }
+        }
         Clear-NubeOir
         return $tN.Trim()
     }
