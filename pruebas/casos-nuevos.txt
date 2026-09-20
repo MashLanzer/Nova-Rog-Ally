@@ -241,3 +241,34 @@ Abre Steam.
 Sube el volumen al 50%.
 Cierra Steam y pon un temporizador.
 No me escuches media hora.
+
+# --- EL CONTADOR DE LA META (19/09, idea 3 de MEJORAS.md): preguntarle el numero de la
+# meta hablando. "como va la meta" tiene que resolverse ANTES que las descargas, porque
+# "como va <lo que sea>" se la traga cuando hay una descarga en marcha ---
+como me has entendido hoy
+que tal me has entendido hoy
+cuanto me has entendido hoy
+como me entiendes
+como va la meta
+como vamos con la meta
+cuantas has fallado hoy
+¿Como me has entendido hoy?
+
+# --- PANTALLA DIVIDIDA CON UNA SOLA APP (19/09, del uso real del 18/09).
+# "ponme un temporizador, abre el navegador y a pantalla dividida, abre Steam"
+# (USO-2026-09-18.md:175) exigia DOS apps y se fue entera al agente. Ahora la app
+# nombrada va a la derecha y al otro lado se queda lo que ya tuvieras delante. ---
+a pantalla dividida abre steam
+abre el navegador y a pantalla dividida abre steam
+abre steam a pantalla dividida
+pon el navegador en pantalla dividida
+
+# --- EL ACCESO DIRECTO (19/09, USO-2026-09-18.md:75). "guarda un acceso directo en la
+# barra" no existia como orden. Windows 11 ya no expone el verbo de anclar a la barra
+# (comprobado el 19/09 sobre notepad.exe: hay "Anclar a Inicio" y "Crear acceso directo",
+# y ninguno de barra de tareas), asi que se hace lo que si se puede y se dice. ---
+guarda un acceso directo en la barra
+guarda un acceso directo de steam en la barra de tareas
+ancla steam a la barra de tareas
+crea un acceso directo del navegador en el escritorio
+ancla spotify a inicio

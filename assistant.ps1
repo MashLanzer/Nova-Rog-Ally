@@ -445,6 +445,18 @@ function Split-Ordenes([string]$texto) {
         if ($ladoA -ne $ladoB) { $planoS = "dividir pantalla $izqD con $derD" }
     } elseif ($planoS -match '^(?:abre|abreme|pon|ponme|coloca|abrir|poner)\s+(.+?)\s+y\s+(.+?)\s+(?:en|a)\s+(?:pantalla\s+dividida|media\s+pantalla(?:\s+cada\s+uno)?|split(?:\s+screen)?|lado\s+a\s+lado)$') {
         $planoS = "dividir pantalla $($Matches[1]) con $($Matches[2])"
+    } elseif ($planoS -match '^(?:abre|abreme|pon|ponme|coloca|abrir|poner)\s+(.+?)\s+(?:a|en)\s+(?:la\s+)?(?:pantalla\s+dividida|media\s+pantalla(?:\s+cada\s+uno)?|split(?:\s+screen)?|lado\s+a\s+lado)$') {
+        # CON UNA SOLA APP (19/09). Los dos patrones de arriba exigen DOS, y con una sola
+        # la orden se iba entera al agente. Canonico propio: "dividir pantalla con X", que
+        # NO choca con "dividir pantalla X con Y" porque ese pide algo delante del "con".
+        $planoS = "dividir pantalla con $($Matches[1])"
+    } elseif ($planoS -match '^(.*?)(?:\s+y)?\s*\b(?:a|en)\s+(?:la\s+)?pantalla\s+dividida\s+(?:abre|abreme|pon|ponme|coloca|abrir|poner)\s+(.+)$') {
+        # ...Y CON LA APP DETRAS, que es como lo dijo braya de verdad (USO-2026-09-18.md:175):
+        # "ponme un temporizador, abre el navegador y a pantalla dividida, abre Steam".
+        # ConvertTo-Plain ya se comio la coma, asi que el corte se marca con '|', que es el
+        # separador que Split-Compound si respeta (la coma sola no dice nada, ver arriba).
+        $antesS = ([string]$Matches[1]).Trim()
+        $planoS = if ($antesS) { "$antesS | dividir pantalla con $($Matches[2])" } else { "dividir pantalla con $($Matches[2])" }
     }
     return (Split-Compound (Repair-Words $planoS))
 }
@@ -2006,6 +2018,93 @@ function Get-QueHeHecho {
     return 'hoy ' + ($partes -join ', ')
 }
 
+# ¿COMO ME HAS ENTENDIDO HOY? (19/09; idea 3 de MEJORAS.md y el punto 5 de H2 en
+# REVISION-2026-09-18.md). La meta desde el 14/09 es que Nova entienda SIEMPRE, pero eso
+# era una idea y no un numero: el dato ya existia -pruebas\audio\uso\destinos.jsonl, 236
+# lineas el 19/09- y la unica forma de verlo era lanzar tools\analizar-uso.py a mano en
+# una consola. Un numero al que hay que ir no se mira; uno que se pregunta hablando, si.
+#
+# LAS MISMAS TRES LISTAS QUE analizar-uso.py, a proposito: si la frase hablada y el
+# analisis dieran porcentajes distintos no se podria creer ninguno de los dos.
+# tools\probar-meta.ps1 las compara con las del .py y se pone rojo si alguien cambia una
+# sola y se olvida de la otra.
+#   - NEUTRO fuera del porcentaje (medido el 18/09): charla, traduccion y agente son mas
+#     de la mitad del uso real; si entraran en el denominador, hablar con Nova le bajaria
+#     los aciertos sin que se equivocara ni una vez.
+#   - Lo que dices TU manda: un "no era eso" deja la orden con hizo = fallo-dicho-por-ti
+#     (ver Write-FalloUso), y eso pesa mas que lo que Nova creyera haber hecho.
+# Aqui NO se lee registro.jsonl: para contar basta el destino. registro.jsonl es un log de
+# EVENTOS (584 lineas frente a 236) que habria que agrupar por id, y esto se contesta
+# hablando. Lo unico que aportaba se replica abajo con una linea (el dictado vacio), y el
+# resultado se ha cruzado con el analisis del 18/09: 58 de 77, 75 %, los dos igual.
+$UsoBien   = @('local', 'aprendida', 'memoria', 'traducida', 'receta', 'recitado')
+$UsoMal    = @('error', 'descarte', 'ruido')
+$UsoNeutro = @('charla', 'traducir', 'plan', 'accion', 'pregunta')
+function Get-ComoTeEntendi([string]$ruta = '', [datetime]$ahora = (Get-Date)) {
+    if (-not $ruta) { $ruta = Join-Path $LogDir 'pruebas\audio\uso\destinos.jsonl' }
+    # SIN FICHERO NO SE INVENTA UN NUMERO, igual que Get-AvisoSinUso: una instalacion
+    # recien puesta no tiene nada que contar, y un 0 por ciento ahi seria mentira.
+    if (-not (Test-Path -LiteralPath $ruta)) { return 'todavia no tengo ni una orden apuntada, asi que no te puedo dar el numero' }
+    $hoyId = $ahora.ToString('yyyyMMdd')
+    $porId = @{}; $ordenU = @()
+    try {
+        foreach ($lU in [System.IO.File]::ReadAllLines($ruta, [System.Text.Encoding]::UTF8)) {
+            if (([string]$lU) -notmatch '"id"\s*:\s*"([^"]+)"') { continue }
+            $idU = $Matches[1]
+            # el id ES la fecha (20260919-093314): el dia se filtra sin parsear ninguna hora
+            if (-not $idU.StartsWith($hoyId)) { continue }
+            if (([string]$lU) -notmatch '"hizo"\s*:\s*"([^"]*)"') { continue }
+            $hizoU = $Matches[1]
+            $detU = ''
+            if (([string]$lU) -match '"detalle"\s*:\s*"([^"]*)"') { $detU = $Matches[1] }
+            if (-not $porId.ContainsKey($idU)) { $porId[$idU] = @{ hizo = ''; dicho = $false; detalle = '' }; $ordenU += $idU }
+            if ($hizoU -eq 'fallo-dicho-por-ti') { $porId[$idU].dicho = $true }
+            else { $porId[$idU].hizo = $hizoU; if ($detU) { $porId[$idU].detalle = $detU } }
+        }
+    } catch { return 'no pude leer lo que llevo apuntado hoy, esta en el log' }
+    $bienU = 0; $malU = 0; $neutrasU = 0; $dichasU = 0; $otrasU = 0; $ultimoU = ''
+    foreach ($kU in $ordenU) {
+        $oU = $porId[$kU]
+        # EL BOTON PULSADO SIN HABLAR NO ES QUE NO TE ENTIENDA (medido el 19/09). Los
+        # destinos 'error' con detalle 'dictado vacio' son pulsaciones sin voz -3 el 18/09-
+        # y analizar-uso.py tambien los deja fuera, porque esas ordenes nunca entregaron
+        # texto. Sin esta linea, del MISMO dia la frase decia 72 % y el analisis 75 %, y dos
+        # numeros que no cuadran no los cree nadie: comprobado, con ella salen 58 de 77 en
+        # los dos sitios.
+        if ($oU.hizo -eq 'error' -and $oU.detalle -eq 'dictado vacio' -and -not $oU.dicho) { continue }
+        if ($oU.dicho) { $malU++; $dichasU++; if ($oU.detalle) { $ultimoU = $oU.detalle }; continue }
+        if ($UsoNeutro -contains $oU.hizo) { $neutrasU++; continue }
+        if ($UsoBien -contains $oU.hizo) { $bienU++; continue }
+        if ($UsoMal -contains $oU.hizo) { $malU++; if ($oU.detalle) { $ultimoU = $oU.detalle }; continue }
+        # un destino que no esta en ninguna de las tres listas cuenta en el total pero no
+        # suma ni acierto ni fallo: es lo mismo que hace analizar-uso.py con su 'base'
+        $otrasU++
+    }
+    $juzgadasU = $bienU + $malU + $otrasU
+    if ($juzgadasU -eq 0) {
+        if ($neutrasU -gt 0) { return "hoy solo hemos hablado, $neutrasU veces, y eso no cuenta ni como acierto ni como fallo" }
+        return 'hoy todavia no me has pedido nada, asi que no hay ningun numero que darte'
+    }
+    $pctU = [int][Math]::Round(100.0 * $bienU / $juzgadasU)
+    if ($bienU -eq $juzgadasU) {
+        # el dia redondo se dice como lo que es: esto es LA meta, no una linea mas de un parte
+        $tU = "hoy vamos al 100 por ciento, $bienU de $bienU, ni una equivocada"
+    } else {
+        $tU = "hoy te he entendido $bienU de $juzgadasU, un $pctU por ciento"
+        if ($malU -eq 1) { $tU += ", y me equivoque una vez" } elseif ($malU -gt 1) { $tU += ", y me equivoque $malU veces" }
+        if ($dichasU -eq 1) { $tU += ", una porque me lo dijiste tu" } elseif ($dichasU -gt 1) { $tU += ", $dichasU porque me lo dijiste tu" }
+    }
+    if ($ultimoU) {
+        # LA ULTIMA QUE FALLE, dicha con ella: un porcentaje solo se oye y se olvida; con la
+        # frase al lado braya sabe QUE arreglar sin ir a buscar el fichero.
+        $dU = $ultimoU
+        if ($dU.Length -gt 40) { $dU = $dU.Substring(0, 37) + '...' }
+        $tU += ". La ultima que falle fue $dU"
+    }
+    if ($neutrasU -gt 0) { $tU += ". Aparte hablamos $neutrasU " + $(if ($neutrasU -eq 1) { 'vez' } else { 'veces' }) + ", y eso no cuenta" }
+    return $tU
+}
+
 function Get-ParteGeneral {
     $partes = @()
     # 1. a que juegas: es el contexto de todo lo demas
@@ -2697,6 +2796,16 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(?:pon(?:me)?|vuelve\s+a\s+poner|busca(?:me)?)\s+la\s+(?:cancion\s+)?que\s+(?:sonaba|estaba\s+sonando|escuchaba|estaba\s+escuchando)\s+(antes|hace un rato|esta manana|anoche|ayer por la noche|ayer por la manana|ayer por la tarde|ayer)$') {
         return @(@{ kind = 'musicaDe'; cuando = $Matches[1]; desc = 'la cancion de ' + $Matches[1] })
     }
+    # --- EL CONTADOR DE LA META, PREGUNTABLE (19/09, idea 3) ---
+    # VA ANTES QUE LAS DESCARGAS A PROPOSITO: el patron de abajo empieza por
+    # "como va (la descarga de )?" con el resto libre, asi que con una descarga en marcha
+    # se tragaria "como va la meta" y contestaria por un juego. Comprobado pasando estas
+    # frases por TODOS los patrones anclados de esta funcion: es el unico choque que hay.
+    if ($f -match '^(?:como|que tal|cuanto)\s+me\s+(?:has\s+entendido|entiendes)(?:\s+hoy)?$' -or
+        $f -match '^(?:como|que tal)\s+(?:va|vamos\s+con)\s+la\s+meta$' -or
+        $f -match '^(?:cuantas\s+(?:veces\s+)?(?:me\s+|te\s+)?(?:has\s+)?(?:acertado|fallado|equivocado)|como\s+vas\s+de\s+aciertos|que\s+porcentaje\s+llevas)(?:\s+hoy)?$') {
+        return @(@{ kind = 'comoTeEntendi'; desc = 'como te he entendido hoy' })
+    }
     # DESCARGAS DE STEAM (F5): cuanto le queda a un juego, que se esta bajando, y
     # abrir la pagina de descargas (pausar desde fuera no se puede)
     if ($f -match '^(?:cuanto\s+(?:le\s+)?(?:queda|falta)\s+(?:a|al)\s+|como\s+va\s+(?:la\s+descarga\s+de\s+)?)(.+?)(?:\s+(?:para|de|en)\s+(?:descargar(?:se)?|bajar(?:se)?|instalar(?:se)?))?$' -and
@@ -3250,9 +3359,49 @@ function Resolve-Fragment([string]$f) {
         if ($procU -and $procU.proceso -ne '*juego*') { return @(@{ kind = 'cerrarApp'; proceso = $procU.proceso; desc = "cerrar $($procU.nombre)" }) }
         return @(@{ kind = 'decir'; desc = "lo ultimo fue $ultimaAb y eso no se cerrarlo desde aqui" })
     }
+    # "GUARDA UN ACCESO DIRECTO EN LA BARRA" (19/09; lo dijo el 18/09 y se fue al agente,
+    # USO-2026-09-18.md:75). No existia como orden y no habia ni una coincidencia de
+    # "anclar" en el codigo.
+    # EL DATO QUE MANDA, medido hoy en esta maquina (Windows 11 26200) sobre notepad.exe:
+    # los verbos del shell son "Abrir, Ejecutar como administrador, Agregar a Favoritos,
+    # ANCLAR A INICIO, Copiar como ruta de acceso, Compartir, Restaurar versiones
+    # anteriores, Cortar, Copiar, CREAR ACCESO DIRECTO, Eliminar, Cambiar nombre,
+    # Propiedades". NO hay ninguno de barra de tareas: Microsoft lo quito, asi que anclar
+    # ahi desde un script NO se puede. Se hace lo que si se puede -el acceso directo y el
+    # anclaje a Inicio- y para la barra se dice la verdad en una frase, como con el
+    # calendario: el acceso directo se deja en el escritorio, y arrastrado a la barra si se
+    # ancla. Una accion y una frase: ni pregunta ni modo que se queda puesto.
+    if ($f -match '^(?:guarda|guardame|crea|creame|crear|haz|hazme|pon|ponme|deja|dejame)\s+(?:un\s+|el\s+|una\s+)?(?:acceso\s+directo|atajo|icono|lanzador)\s*(?:de\s+|del\s+|para\s+)?(.*?)\s*(?:a|en|al)\s+(?:la\s+|el\s+)?(barra(?:\s+de\s+tareas)?|escritorio|inicio|menu\s+de\s+inicio)$' -or
+        $f -match '^(?:ancla|anclame|anclar|fija|fijar)\s+(?:el\s+|la\s+|un\s+)?(.*?)\s*(?:a|en)\s+(?:la\s+|el\s+)?(barra(?:\s+de\s+tareas)?|escritorio|inicio|menu\s+de\s+inicio)$') {
+        $queA = ([string]$Matches[1]).Trim()
+        $dondeA = [string]$Matches[2]
+        if ($dondeA -match 'barra') { $dondeA = 'barra' }
+        elseif ($dondeA -match 'inicio') { $dondeA = 'inicio' }
+        else { $dondeA = 'escritorio' }
+        # sin nombre ("guarda un acceso directo en la barra", tal cual lo dijo) el objeto es
+        # la ventana que tenias delante al hablar; la resuelve el ejecutor, que es quien la ve
+        $comoA = if ($queA) { $queA } else { 'lo que tienes delante' }
+        $dicheA = if ($dondeA -eq 'inicio') { "anclar $comoA a Inicio" }
+                  elseif ($dondeA -eq 'barra') { "acceso directo de $comoA (la barra de tareas no deja anclar desde aqui)" }
+                  else { "acceso directo de $comoA en el escritorio" }
+        return @(@{ kind = 'anclar'; que = $queA; donde = $dondeA; desc = $dicheA })
+    }
     # --- colocacion de ventanas ---
     # DOS COSAS A LA VEZ (18/09): "dividir pantalla X con Y" viene reescrito de Split-Ordenes.
     # Las dos tienen que existir; si no, $null y que lo mire el modelo.
+    # ...Y CON UNA SOLA (19/09): "dividir pantalla con X" viene reescrito de Split-Ordenes.
+    # La app nombrada va a la DERECHA porque es la que se dice la ultima ("abre el navegador
+    # y a pantalla dividida, abre Steam": el navegador ya estaba, Steam es el que llega), y
+    # al otro lado se deja lo que ya tenias delante en vez de exigir una segunda app.
+    if ($f -match '^dividir\s+pantalla\s+con\s+(.+)$') {
+        $unaR = Resolve-Target $Matches[1]
+        if ($unaR) {
+            $unaR = @($unaR)[0]
+            return @(@{ kind = 'dividirUna'; que = $unaR
+                        desc = "$($unaR.desc -replace '^abrir ', '') a la derecha y lo que tenias delante a la izquierda" })
+        }
+        return $null
+    }
     if ($f -match '^dividir\s+pantalla\s+(.+?)\s+con\s+(.+)$') {
         $izqR = Resolve-Target $Matches[1]
         $derR = Resolve-Target $Matches[2]
@@ -8233,6 +8382,7 @@ function Invoke-FastCommand([string]$text) {
                     $a.desc = if ($c) { "hecha la copia: $($c.archivos) archivos guardados" } else { 'no pude hacer la copia, esta en el log' }
                 }
                 'queHeHecho' { $a.desc = (Get-QueHeHecho) }
+                'comoTeEntendi' { $a.desc = (Get-ComoTeEntendi) }
                 'listaAdd' {
                     $listas = Get-Listas
                     $cual = Resolve-Lista ([string]$a.lista) $listas
@@ -8639,6 +8789,109 @@ function Invoke-FastCommand([string]$text) {
                         }
                     }
                     if ($colocadas -lt 2) { $a.desc = "$($a.desc); una de las dos no llego a colocarse" }
+                }
+                'dividirUna' {
+                    # PANTALLA DIVIDIDA CON UNA SOLA APP (19/09). Igual que 'dividir', pero
+                    # el otro lado NO se abre: se reusa $script:ventanaUsuario, que es la
+                    # ventana que tenias delante al empezar a hablar y que ya deja fuera a
+                    # Nova y a su capsula (se apunta antes de mostrar nada del asistente).
+                    # Si no hay ninguna, se coloca solo la nueva y se dice: mover una ventana
+                    # que no era es peor que dejar media pantalla sola.
+                    $otraH = $script:ventanaUsuario
+                    $antesH = [AX]::GetForegroundWindow()
+                    $q = $a.que
+                    if ($q.kind -eq 'url') { Start-Process $q.url -ErrorAction Stop }
+                    else { $null = Start-Process $q.target -PassThru -ErrorAction Stop }
+                    $t0 = $sw.ElapsedMilliseconds
+                    $aparecio = $false
+                    while (($sw.ElapsedMilliseconds - $t0) -lt 4000) {
+                        Start-Sleep -Milliseconds 200
+                        $hAhora = [AX]::GetForegroundWindow()
+                        if ($hAhora -ne [IntPtr]::Zero -and $hAhora -ne $antesH) { $aparecio = $true; break }
+                    }
+                    if (-not $aparecio) {
+                        $a.desc = "$($a.desc); no llego a abrirse a tiempo"
+                    } else {
+                        Start-Sleep -Milliseconds 350        # que termine de pintarse antes de moverla
+                        Send-WinKey 0x27                     # Win+Derecha: la nueva, a la derecha
+                        Start-Sleep -Milliseconds 400
+                        $nuevaH = [AX]::GetForegroundWindow()
+                        # Win+Derecha deja a Windows ofreciendo el otro lado (Snap Assist) por
+                        # ENCIMA de todo. Poner la otra ventana delante lo quita y la coloca de
+                        # una vez; si no hay otra, Escape, que ese panel no se queda puesto.
+                        $ok2 = $false
+                        if ($otraH -ne [IntPtr]::Zero -and $otraH -ne $nuevaH) {
+                            try { $ok2 = [bool][AX]::ForceForeground($otraH) } catch { $ok2 = $false }
+                        }
+                        if ($ok2) {
+                            Start-Sleep -Milliseconds 250
+                            Send-WinKey 0x25                 # Win+Izquierda: la de antes, a la izquierda
+                            Start-Sleep -Milliseconds 300
+                        } else {
+                            Send-Key 0x1B                    # VK_ESCAPE: fuera el Snap Assist
+                            $a.desc = "$($q.desc -replace '^abrir ', '') a la derecha; no habia nada delante que poner al otro lado"
+                        }
+                    }
+                }
+                'anclar' {
+                    # De donde sale el .exe: si se dijo un nombre, del PROCESO abierto (asi
+                    # valen Steam, Discord y Spotify, cuyo target en commands.json es un URI
+                    # y no un fichero); si no se dijo ninguno, de la ventana que tenias
+                    # delante al hablar. Sin ruta no se inventa nada: se dice y se acaba.
+                    $rutaAn = ''
+                    $nombreAn = ''
+                    if ($a.que) {
+                        $prAn = Resolve-Proceso $a.que
+                        if ($prAn -and $prAn.proceso -ne '*juego*') {
+                            $nombreAn = [string]$prAn.nombre
+                            $pAn = @(Get-Process -Name $prAn.proceso -ErrorAction SilentlyContinue)[0]
+                            if ($pAn) { try { $rutaAn = [string]$pAn.MainModule.FileName } catch { $rutaAn = '' } }
+                            if (-not $rutaAn) {
+                                $tgAn = [string]$cmds.apps.$nombreAn
+                                if ($tgAn -match '\.exe$') {
+                                    try { $rutaAn = [string](Get-Command $tgAn -ErrorAction SilentlyContinue).Source } catch { $rutaAn = '' }
+                                }
+                            }
+                        }
+                    } else {
+                        $hAn = $script:ventanaUsuario
+                        if ($hAn -ne [IntPtr]::Zero) {
+                            $pidAn = Get-PidDeVentana $hAn
+                            if ($pidAn -gt 0) {
+                                $pAn = Get-Process -Id $pidAn -ErrorAction SilentlyContinue
+                                if ($pAn -and ($PROCESOS_INTOCABLES -notcontains $pAn.ProcessName)) {
+                                    try { $rutaAn = [string]$pAn.MainModule.FileName } catch { $rutaAn = '' }
+                                    $nombreAn = [string]$pAn.ProcessName
+                                }
+                            }
+                        }
+                    }
+                    if (-not $rutaAn -or -not (Test-Path -LiteralPath $rutaAn)) {
+                        $a.desc = if ($a.que) { "no tengo abierto '$($a.que)', y sin eso no se de que hacer el acceso directo" }
+                                  else { 'no se de que programa lo quieres: dimelo por su nombre' }
+                    } else {
+                        $etiqAn = if ($nombreAn) { $nombreAn } else { [System.IO.Path]::GetFileNameWithoutExtension($rutaAn) }
+                        if ($a.donde -eq 'inicio') {
+                            # el verbo, tal cual lo da Windows y sin el '&' del acelerador
+                            $shAn = New-Object -ComObject Shell.Application
+                            $itAn = $shAn.Namespace((Split-Path $rutaAn)).ParseName((Split-Path $rutaAn -Leaf))
+                            $vbAn = @($itAn.Verbs() | Where-Object { ($_.Name -replace '&', '') -match '^(?:Anclar a Inicio|Pin to Start)$' })[0]
+                            if ($vbAn) { $vbAn.DoIt(); $a.desc = "$etiqAn anclado a Inicio" }
+                            else { $a.desc = "Windows ya no me deja anclar $etiqAn a Inicio desde aqui" }
+                        } else {
+                            $lnkAn = Join-Path ([Environment]::GetFolderPath('Desktop')) ($etiqAn + '.lnk')
+                            $wsAn = New-Object -ComObject WScript.Shell
+                            $acAn = $wsAn.CreateShortcut($lnkAn)
+                            $acAn.TargetPath = $rutaAn
+                            $acAn.WorkingDirectory = (Split-Path $rutaAn)
+                            $acAn.Save()
+                            # LA BARRA, CON LA VERDAD POR DELANTE: el verbo de anclar a la barra
+                            # ya no existe en Windows 11 (comprobado el 19/09 sobre notepad.exe),
+                            # pero arrastrar el acceso directo a la barra si la ancla.
+                            $a.desc = if ($a.donde -eq 'barra') { "$etiqAn en el escritorio; la barra de tareas de Windows 11 ya no deja anclar desde un script, arrastralo ahi y se queda" }
+                                      else { "acceso directo de $etiqAn en el escritorio" }
+                        }
+                    }
                 }
                 'lock' { Start-Process 'rundll32.exe' 'user32.dll,LockWorkStation' -ErrorAction Stop }
                 'altf4' { [AX]::keybd_event([byte]$VK_MENU, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 40; Send-Key 0x73; [AX]::keybd_event([byte]$VK_MENU, 0, $KEYUP, [UIntPtr]::Zero) }
@@ -10109,6 +10362,10 @@ function Send-WinAlt([int]$vk) {
 # "busca una guia de esto") sin tener que nombrarlo cada vez.
 $script:juegoActivo = $null
 $script:juegoDesde = 0
+$script:juegoPid = 0             # PID del proceso que tiene la ventana del juego (C4, 19/09)
+$script:juegoPidCandidato = 0
+$script:juegoSalida = $null      # salida EN DUDA: @{nombre; exe; proc; desdeMs} (C4, 19/09)
+$script:juegoSesionMin = 0       # minutos de primer plano de la partida de ahora (C4, 19/09)
 
 function Get-ProcesoEnPrimerPlano {
     try {
@@ -10134,6 +10391,9 @@ function Get-JuegoEnPrimerPlano {
     $carpeta = $Matches[1]
     # el ejecutable se guarda aparte: la capsula saca de el el icono del juego
     $script:juegoExeCandidato = $ruta
+    # C4 (19/09): y el PID, para poder preguntar luego si ese proceso sigue vivo sin
+    # tener que enumerar todos los procesos de la maquina (4 nucleos)
+    $script:juegoPidCandidato = [int]$p.Id
     # la carpeta de instalacion suele parecerse al titulo
     $j = Find-Juego $carpeta
     if ($j) { return $j.nombre }
@@ -10147,6 +10407,13 @@ function Get-JuegoEnPrimerPlano {
 $JuegoPerfilEntrar = [string](Get-Cfg 'juego' 'perfilAlEntrar' 'juego')
 $JuegoRestaurar = [bool](Get-Cfg 'juego' 'restaurarAlSalir' $true)
 $JuegoAvisoMin = [int](Get-Cfg 'juego' 'avisoMinutos' 120)
+# C4 (19/09): CUANTO TIENE QUE DURAR UNA PARTIDA PARA QUE CONTESTE AL CERRARLA.
+# Sale del log del 10 al 19/09, de las 11 salidas con rastro completo:
+#   falsas (alt-tab o juego recien lanzado): 4 s, 10 s, 11 s, 83 s y 100 s
+#   partidas de verdad: 3 min 31 s, 4 min 10 s, 12 min 50 s, 33 min 55 s, 59 min 39 s, 6 h 14 min
+# El hueco esta entre 1 min 40 s y 3 min 31 s, asi que el corte va en 3 minutos: deja
+# fuera las cinco falsas con casi el doble de margen y no se come ninguna partida real.
+$JuegoSesionMin = [int](Get-Cfg 'juego' 'sesionMinima' 3)
 $script:juegoBrilloAntes = $null
 $script:juegoAvisado = $false
 
@@ -11112,6 +11379,10 @@ function Enter-Juego([string]$nombre) {
     } catch {}
     $script:juegoAvisado = $false
     $script:juegoHoras = 0
+    # C4 (19/09): los minutos de la partida SIGUEN contando si es el mismo juego al que
+    # se acaba de volver (un alt-tab de 10 s parte la sesion en dos, y el log del 18/09
+    # tiene tres de esos); con otro juego delante, la cuenta empieza de cero.
+    if (-not ($script:juegoSalida -and $script:juegoSalida.nombre -eq $nombre)) { $script:juegoSesionMin = 0 }
     $script:juegoBrilloAntes = $null
     $script:logroArchivo = ''
     try { Show-RecuerdoJuego $nombre } catch { Log ("juegos: " + $_.Exception.Message) }
@@ -11140,6 +11411,15 @@ function Exit-Juego([string]$nombre) {
     # "me quede en..." dicho justo despues de salir sigue siendo de este juego
     $script:ultimoJuego = $nombre
     $script:ultimoJuegoEn = $sw.ElapsedMilliseconds
+    # C4 (19/09): PERDER EL PRIMER PLANO NO ES CERRAR EL JUEGO. Esta funcion la llama el
+    # bucle en cuanto cambia la ventana de delante: de las 11 salidas del log (10-19/09)
+    # CINCO duraron menos de 2 minutos (ELDEN RING 4 s, 10 s, 11 s y 100 s; Little
+    # Nightmares III 83 s) y en tres de ellas se vuelve al MISMO juego en 20 s, 10 s y
+    # 3 min 51 s: el juego nunca se habia cerrado, era un alt-tab. Por eso aqui ya no
+    # sale ningun aviso de cierre: se suman los minutos jugados y se apunta una salida
+    # EN DUDA que Test-SalidaJuego confirma cuando el PROCESO ha muerto de verdad.
+    $minsFg = [int](($sw.ElapsedMilliseconds - $script:juegoDesde) / 60000)
+    if ($minsFg -gt 0 -and $minsFg -le 720) { $script:juegoSesionMin += $minsFg }
     # IDEAS 19 y 20: cuanto se juega cada dia. Se apunta AL CERRAR, que es cuando se
     # sabe lo que duro la partida; asi "cuanto llevo hoy" no se lo inventa nadie.
     try {
@@ -11154,15 +11434,22 @@ function Exit-Juego([string]$nombre) {
             Save-Habitos
             $totJ = [int]$hbJ.minutosJuego[$diaJ]
             Log "JUEGO: $minJ min con $nombre (hoy van $totJ)"
-            if ($totJ -ge 240) {
-                [void](Send-AvisoEntorno 'horas-hoy' "Hoy llevas $([Math]::Round($totJ / 60.0, 1)) horas de juego." 'bajo' 480)
-            }
+            # el "hoy llevas N horas" se ha mudado a Test-SalidaJuego (C4, 19/09): aqui
+            # nunca llegaba a decirse, porque $script:juegoActivo todavia vale el juego
+            # que se acaba de dejar y Test-PuedoAvisar tira todo lo que no sea 'alto'
+            # con un juego delante. Alli se dice al cerrarlo, que es cuando se escucha.
         }
     } catch {}
     Invoke-Reglas 'juegoCierra' $nombre
-    # idea 9: es el momento en que te acuerdas; media hora despues, ya no
+    # C4 (19/09): la salida queda EN DUDA hasta que se sepa que el proceso murio. El
+    # "Cerraste X, dime donde te quedaste" lo suelta Test-SalidaJuego desde el bucle.
     if ($nombre) {
-        [void](Send-AvisoEntorno "juego-cierra" "Cerraste $nombre. Si quieres, dime donde te quedaste." 'medio' 120)
+        $script:juegoSalida = @{
+            nombre  = $nombre
+            exe     = [string]$script:juegoExe
+            proc    = [int]$script:juegoPid
+            desdeMs = $sw.ElapsedMilliseconds
+        }
     }
     if (-not $JuegoRestaurar -or $null -eq $script:juegoBrilloAntes) { return }
     try {
@@ -11170,6 +11457,75 @@ function Exit-Juego([string]$nombre) {
         Log "JUEGO: brillo restaurado a $($script:juegoBrilloAntes) al salir de $nombre"
     } catch {}
     $script:juegoBrilloAntes = $null
+}
+
+# --- C4 (19/09): SE CERRO EL JUEGO, O SOLO CAMBIASTE DE VENTANA ---
+# Vivo = el proceso que tenia la ventana del juego sigue ahi. Se mira por PID, que es
+# una consulta barata; enumerar todos los procesos cada 10 s en una maquina de 4 nucleos
+# no lo es, y solo se hace si no hubo PID. Windows reutiliza los PID, asi que se
+# comprueba ademas la ruta; si la ruta no se puede leer se da por VIVO, que como mucho
+# retrasa un aviso (decir "cerraste ELDEN RING" jugando es mucho peor).
+function Test-JuegoVivo($s) {
+    if (-not $s) { return $false }
+    $idJ = 0
+    try { $idJ = [int]$s.proc } catch {}
+    if ($idJ -gt 0) {
+        $pJ = $null
+        try { $pJ = Get-Process -Id $idJ -ErrorAction SilentlyContinue } catch {}
+        if (-not $pJ) { return $false }
+        $rutaJ = ''
+        try { $rutaJ = [string]$pJ.Path } catch {}
+        if (-not $s.exe -or -not $rutaJ -or $rutaJ -eq [string]$s.exe) { return $true }
+        return $false
+    }
+    if ($s.exe) {
+        try { return (@(Get-Process -ErrorAction SilentlyContinue | Where-Object { try { $_.Path -eq $s.exe } catch { $false } }).Count -gt 0) } catch {}
+    }
+    return $false
+}
+
+# Lo llama el bucle cada 10 s, justo despues de mirar que hay en primer plano. Aqui es
+# donde salen los dos avisos del cierre, y no en Exit-Juego, por dos motivos:
+#  (a) el proceso: hasta que no muere, lo que hubo fue un alt-tab, no una salida;
+#  (b) $script:juegoActivo: el bucle ya lo ha puesto al dia cuando se llega aqui, asi
+#      que Test-PuedoAvisar deja pasar el aviso en vez de tirarlo por "esta jugando",
+#      que es lo que le pasaba a los dos desde que existen los frenos (16/09).
+function Test-SalidaJuego {
+    $s = $script:juegoSalida
+    if (-not $s) { return }
+    # ha vuelto al mismo juego: no era una salida
+    if ($script:juegoActivo -and $script:juegoActivo -eq $s.nombre) { $script:juegoSalida = $null; return }
+    if (Test-JuegoVivo $s) {
+        # dos horas con el juego abierto detras sin mirarlo: si se cierra ahora ya no
+        # viene a cuento preguntar donde te quedaste, asi que se deja de vigilar
+        if (($sw.ElapsedMilliseconds - [double]$s.desdeMs) -ge 7200000) {
+            Log "JUEGO: $($s.nombre) sigue abierto 2 h despues de dejarlo; se olvida la salida"
+            $script:juegoSalida = $null
+            $script:juegoSesionMin = 0
+        }
+        return
+    }
+    $script:juegoSalida = $null
+    $minsS = [int]$script:juegoSesionMin
+    $script:juegoSesionMin = 0
+    if ($minsS -lt $JuegoSesionMin) {
+        Log "JUEGO: $($s.nombre) cerrado con $minsS min de partida (minimo $JuegoSesionMin): sin aviso"
+        return
+    }
+    Log "JUEGO: cerrado de verdad $($s.nombre) ($minsS min de partida)"
+    # idea 9: es el momento en que te acuerdas; media hora despues, ya no
+    [void](Send-AvisoEntorno 'juego-cierra' "Cerraste $($s.nombre). Si quieres, dime donde te quedaste." 'medio' 120)
+    # IDEA 20: y de paso, lo que llevas hoy (se lee de habitos, que lo acaba de sumar
+    # Exit-Juego; si el ultimo tramo no llego a 2 min, el total del dia sigue valiendo)
+    try {
+        $hbS = Get-Habitos
+        $diaS = (Get-Date).AddHours(-5).ToString('yyyy-MM-dd')   # la madrugada cuenta como ayer
+        $totS = 0
+        if ($hbS.minutosJuego) { $totS = [int]$hbS.minutosJuego[$diaS] }
+        if ($totS -ge 240) {
+            [void](Send-AvisoEntorno 'horas-hoy' "Hoy llevas $([Math]::Round($totS / 60.0, 1)) horas de juego." 'bajo' 480)
+        }
+    } catch { Log ("horas de hoy: " + $_.Exception.Message) }
 }
 
 # =====================================================================
@@ -12567,9 +12923,15 @@ function Test-PrecargaCharla([datetime]$ahora = (Get-Date)) {
     # con la API contesta ella primero (ver API PRIMERO en charla_worker.py): cargar el
     # modelo local solo gastaria 1-2 GB de RAM que la escucha necesita
     if (Test-ApiContestaPrimero) { return $false }
+    # EL JUEGO MANDA, TAMBIEN SI ACABAS DE CHARLAR (19/09). "$reciente" (charla en los
+    # ultimos 20 min) devolvia $true por encima de esta linea, o sea que el boton pulsado
+    # dentro de un juego volvia a meter qwen2.5:3b (1,9 GB en disco, ~2 GB en RAM) justo
+    # despues de que el bucle del minuto lo hubiera sacado ('jugando, el modelo de charla
+    # sale de la RAM'). El camino de 'suena a charla' ya miraba el juego lo primero: aqui
+    # tambien. El 19/09 la consola tiene 11,7 GB visibles, pero jugando la RAM es del juego.
+    if ($script:juegoActivo) { return $false }
     $reciente = ($sw.ElapsedMilliseconds - $script:charlaUltima) -lt 1200000
     if ($reciente) { return $true }
-    if ($script:juegoActivo) { return $false }
     $hora = $ahora.ToString('HH')
     $limite = $ahora.AddDays(-14).ToString('yyyy-MM-dd')
     $dias = @((Get-Habitos).charlaHoras.Keys | Where-Object { $_.EndsWith("|$hora") -and $_.Substring(0, 10) -ge $limite }).Count
@@ -14085,7 +14447,10 @@ function Start-Dictado([string]$origen) {
         try {
             if (Test-PrecargaCharla) {
                 $script:precargaEn = $sw.ElapsedMilliseconds
-                if ((Test-RamParaCharla) -and (Send-CharlaPedido @{ op = 'calentar' })) { Log "charla: precargo el modelo (es probable charlar)" }
+                # charlaDescargada = el modelo NO esta en la RAM. Solo lo ponia a $false
+                # Send-Charla, asi que tras una precarga el bucle del minuto creia que ya
+                # estaba fuera y no lo sacaba al abrir un juego (19/09).
+                if ((Test-RamParaCharla) -and (Send-CharlaPedido @{ op = 'calentar' })) { $script:charlaDescargada = $false; Log "charla: precargo el modelo (es probable charlar)" }
             }
         } catch {}
     }
@@ -16098,7 +16463,7 @@ while ($true) {
                         @($vista -split '\s+').Count -ge 3 -and -not $vista.StartsWith('...') -and
                         (Test-PareceCharla $vista) -and -not (Test-FastCommand $vista) -and -not (Test-ApiContestaPrimero)) {
                         $script:precargaEn = $sw.ElapsedMilliseconds
-                        try { if ((Test-RamParaCharla) -and (Send-CharlaPedido @{ op = 'calentar' })) { Log "charla: precargo el modelo, '$vista' suena a charla" } } catch {}
+                        try { if ((Test-RamParaCharla) -and (Send-CharlaPedido @{ op = 'calentar' })) { $script:charlaDescargada = $false; Log "charla: precargo el modelo, '$vista' suena a charla" } } catch {}
                     }
                 }
             } catch {}
@@ -16690,6 +17055,7 @@ while ($true) {
         $script:juegoCheck = $sw.ElapsedMilliseconds
         try {
             $script:juegoExeCandidato = ''
+            $script:juegoPidCandidato = 0
             $j = Get-JuegoEnPrimerPlano
             # los segundos con el juego delante desde la ultima mirada (ver TIEMPO DE JUEGO)
             if ($script:juegoActivo -and $script:tiempoJuegoVisto -gt 0) {
@@ -16702,6 +17068,7 @@ while ($true) {
                     Log "juego en primer plano: $j"
                     $script:juegoDesde = $sw.ElapsedMilliseconds
                     $script:juegoExe = $script:juegoExeCandidato
+                    $script:juegoPid = $script:juegoPidCandidato   # C4 (19/09): para saber si muere
                     Enter-Juego $j
                     if ($SoloBotonEnJuego) {
                         try {
@@ -16711,6 +17078,7 @@ while ($true) {
                     }
                 } else {
                     $script:juegoExe = ''
+                    $script:juegoPid = 0
                     try { Remove-Item -LiteralPath $MarcaSoloBoton -Force -ErrorAction SilentlyContinue } catch {}
                     if ($SoloBotonEnJuego) { Log 'escucha: vuelve la palabra de activacion (fuera del juego)' }
                 }
@@ -16726,6 +17094,10 @@ while ($true) {
                     Send-UIEvento 'logro'
                 }
             }
+            # C4 (19/09): se cerro de verdad el juego que dejamos? Va DESPUES de poner al
+            # dia $script:juegoActivo a proposito: con el puesto, Test-PuedoAvisar tiraba
+            # los dos avisos del cierre por "esta jugando".
+            try { Test-SalidaJuego } catch { Log ("salida de juego: " + $_.Exception.Message) }
             if ($j -and $JuegoAvisoMin -gt 0 -and -not $script:juegoAvisado -and
                       (($sw.ElapsedMilliseconds - $script:juegoDesde) -ge ($JuegoAvisoMin * 60000))) {
                 $script:juegoAvisado = $true

@@ -17,6 +17,11 @@ $fallos = 0
 # ejecutado. Saltar no es fallar, asi que se apuntan aparte de $fallos, pero se
 # dicen por su nombre al final para que nadie lea un verde que no es entero.
 $secSaltadas = @()
+# AVISOS EN AMARILLO (19/09, H2m3): ni verde ni rojo. Son cosas que el banco NO puede
+# comprobar por si mismo -como que el codigo nuevo se haya usado de verdad- y que si se
+# dijeran en rojo molestarian en pleno desarrollo. Se juntan aqui para que el veredicto
+# final no diga un verde entero cuando no lo es.
+$avisosAmarillos = @()
 
 function Titulo($t) { Write-Host ""; Write-Host "== $t" -ForegroundColor Cyan }
 
@@ -282,6 +287,10 @@ Titulo "2n27. Que Nova avise si lleva dias sin apuntar ni una orden (sin uso no 
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-sin-uso.ps1') | Select-String 'todo correcto|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n35. El contador de la meta (como me has entendido hoy)"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-meta.ps1') | Select-String 'todo correcto|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "3. Ordenes que SI deben reconocerse"
 foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     $salida = powershell -NoProfile -File 'assistant.ps1' -Probar (Join-Path 'pruebas' $banco) 2>&1
@@ -291,7 +300,7 @@ foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     # estuviera ahi, asi que una caida de 88 a 5 pasaba EN VERDE: justo lo que este banco
     # existe para evitar. Las que fallan son controles a proposito, por eso el listero es
     # un minimo y no una igualdad: lo que no puede es BAJAR.
-    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 202 }   # 202 desde el 19/09 (tarde): +12 de texto PUNTUADO. El banco estaba escrito a mano sin puntuacion y por eso nadie vio que 'Cierra todo.' no casaba con nada. Antes 190: +2 por "cierra lo que acabas/acabo de abrir"; antes 188: cinco casos del uso real del 18/09
+    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 218 }   # 218 desde el 19/09 (noche): MEDIDO, no calculado (216 reconocidas + 2 saltadas). +8 de C10-C11: "pon X a pantalla dividida" con UNA app y "guarda un acceso directo en la barra". Antes 210 (contador de la meta), 202 (texto puntuado), 190, 188
     $n = -1
     if ($linea -and ("$linea" -match 'reconocidas en local:\s*(\d+)')) { $n = [int]$Matches[1] }
     # LOS JUEGOS QUE YA NO TIENES NO SON UNA REGRESION (19/09): las lineas con
@@ -340,6 +349,64 @@ if ("$linea" -match 'local:\s*(\d+)') {
     }
 }
 
+Titulo "6. Codigo del oido cambiado y ni una voz encima (AMARILLO, no fallo)"
+# CODIGO NUEVO Y CERO VOZ (19/09, H2m3). Este banco es TEXTO: pasarlo entero en verde no
+# dice nada sobre si Nova te entiende cuando hablas. Hoy 19/09 ha pasado justo eso: el
+# oido reescrito durante todo el dia y la ultima orden real de las 11:16, asi que las 251
+# veces que se puso verde no median el cambio que se acababa de hacer. Desde el 15/09 aqui
+# no se decide nada sin uso real (memoria: 'medir con uso real'), y un banco que no avisa
+# de eso deja creer que si.
+#
+# EN AMARILLO Y NO EN ROJO, y lo pedia ya la nota: en pleno desarrollo se tocan estos dos
+# ficheros veinte veces seguidas sin hablarle, y un rojo ahi se aprende a ignorar -que es
+# la unica forma de matar un aviso-. No suma a $fallos ni cambia el codigo de salida.
+#
+# SOLO assistant.ps1 Y wake_vosk.py: son los dos que estan en el camino de la voz, desde
+# que el microfono oye hasta que se hace la orden. Tocar una prueba o un analizador no
+# cambia lo que Nova entiende, y avisar por eso seria ruido.
+#
+# LA FECHA DEL FICHERO, no la del commit: lo que corre es el archivo del disco, y entre
+# editarlo y commitearlo pueden pasar horas en las que el banco ya se esta pasando. El
+# precio es que un 'git clone' recien hecho pone la fecha de hoy a todo y esto avisaria
+# una vez; se calla en cuanto le hables.
+$fUso = Join-Path $raiz 'pruebas\audio\uso\destinos.jsonl'
+$ultimaVoz = $null
+if (Test-Path -LiteralPath $fUso) {
+    # la hora se saca de DENTRO del JSON y mirando hacia atras, igual que Get-AvisoSinUso
+    # en assistant.ps1: la fecha del fichero la mueve una copia o un git, y la ultima linea
+    # puede estar partida si Nova se apago justo mientras la escribia.
+    $colaU = @(Get-Content -LiteralPath $fUso -Tail 5 -ErrorAction SilentlyContinue)
+    for ($iU = $colaU.Count - 1; $iU -ge 0; $iU--) {
+        if (([string]$colaU[$iU]) -match '"hora"\s*:\s*"([^"]+)"') {
+            $dU = [datetime]::MinValue
+            if ([datetime]::TryParse($Matches[1], [ref]$dU)) { $ultimaVoz = $dU; break }
+        }
+    }
+}
+if (-not $ultimaVoz) {
+    # sin fichero o sin ninguna hora legible no hay con que comparar: instalacion nueva.
+    # Que lleve dias sin uso ya lo dice Nova sola (Get-AvisoSinUso); aqui no se repite.
+    Write-Host "   (todavia no hay ni una orden apuntada: nada que comparar)" -ForegroundColor DarkGray
+} else {
+    $nuevos = @()
+    foreach ($nF in @('assistant.ps1', 'wake_vosk.py')) {
+        $rF = Join-Path $raiz $nF
+        if (-not (Test-Path -LiteralPath $rF)) { continue }
+        $mF = (Get-Item -LiteralPath $rF).LastWriteTime
+        if ($mF -gt $ultimaVoz) {
+            $nuevos += ('{0} tocado el {1}, {2:n1} h despues de la ultima orden' -f $nF, $mF.ToString('dd/MM HH:mm'), ($mF - $ultimaVoz).TotalHours)
+        }
+    }
+    if ($nuevos.Count -eq 0) {
+        Write-Host ('   OK  la ultima orden real ({0}) es posterior al codigo del oido' -f $ultimaVoz.ToString('dd/MM HH:mm')) -ForegroundColor DarkGray
+    } else {
+        Write-Host ('   AMARILLO: el oido cambio DESPUES de la ultima orden real ({0})' -f $ultimaVoz.ToString('dd/MM HH:mm')) -ForegroundColor Yellow
+        foreach ($nU in $nuevos) { Write-Host "      - $nU" -ForegroundColor Yellow }
+        Write-Host '      Este banco es texto: que pase en verde no dice si te entiende. Hablale un rato y vuelve.' -ForegroundColor Yellow
+        $avisosAmarillos += ('codigo del oido cambiado y sin voz encima: ' + ($nuevos -join ' / '))
+    }
+}
+
 # LOS TRES QUE SE QUEDAN FUERA A PROPOSITO (19/09, B12). Este banco existe para pasarlo
 # despues de CADA cambio sin microfono y sin arrancar nada; estas tres no caben ahi, y
 # hasta hoy quedaban fuera sin que nadie dijera por que. Ojo: dos son .py, no .ps1.
@@ -365,10 +432,19 @@ if ($secSaltadas.Count -gt 0) {
     Write-Host ("$($secSaltadas.Count) seccion(es) SALTADA(S), no se han ejecutado:") -ForegroundColor Yellow
     foreach ($sec in $secSaltadas) { Write-Host "   - $sec" -ForegroundColor Yellow }
 }
+if ($avisosAmarillos.Count -gt 0) {
+    Write-Host ("$($avisosAmarillos.Count) aviso(s) en AMARILLO (no son fallos, pero el verde no es entero):") -ForegroundColor Yellow
+    foreach ($avA in $avisosAmarillos) { Write-Host "   - $avA" -ForegroundColor Yellow }
+}
 if ($fallos -gt 0) { Write-Host "$fallos comprobaciones con problemas" -ForegroundColor Red; exit 1 }
-if ($secSaltadas.Count -gt 0) {
-    # se conserva el texto "todo en orden" porque tmp\cerrar-ronda*.ps1 lo busca tal cual
-    Write-Host "todo en orden, PERO con $($secSaltadas.Count) seccion(es) SALTADA(S) (arriba)" -ForegroundColor Yellow
+# UN SOLO 'PERO' (19/09, H2m3): antes solo contaba las saltadas, y ahora puede haber dos
+# motivos a la vez. Se conserva el texto "todo en orden" porque tmp\cerrar-ronda*.ps1 lo
+# busca tal cual, y se sigue saliendo con 0: un amarillo no rompe la ronda.
+$peros = @()
+if ($secSaltadas.Count -gt 0) { $peros += "$($secSaltadas.Count) seccion(es) SALTADA(S)" }
+if ($avisosAmarillos.Count -gt 0) { $peros += "$($avisosAmarillos.Count) aviso(s) en AMARILLO" }
+if ($peros.Count -gt 0) {
+    Write-Host ("todo en orden, PERO con " + ($peros -join ' y ') + " (arriba)") -ForegroundColor Yellow
     exit 0
 }
 Write-Host "todo en orden" -ForegroundColor Green

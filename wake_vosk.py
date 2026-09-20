@@ -22,6 +22,7 @@ import sys
 # tmp/wake-err.log.
 import faulthandler
 faulthandler.enable()
+import atexit   # soltar el cerrojo del worker al salir (ver CERROJO)
 import os
 import re
 import json
@@ -1290,6 +1291,209 @@ def escribir(ruta, contenido):
             anota("NO PUDE ESCRIBIR %s (%s): lo que iba ahi se ha perdido" % (os.path.basename(ruta), e))
 
 
+# EL ASISTENTE SIGUE VIVO? (auditoria del 13/09): si el asistente moria, este
+# worker seguia con el microfono, y al volver a arrancar quedaban dos
+# escuchando. El asistente pasa su PID en NOVA_PID_PADRE; se mira en cada pulso.
+# SUBIDO AQUI el 19/09 (estaba mas abajo, junto a MIC_MUERTO): el cerrojo del
+# final de este bloque se coge ANTES de cargar los modelos y necesita saber de
+# quien es hijo cada worker.
+try:
+    PID_PADRE = int(os.environ.get("NOVA_PID_PADRE", "0") or 0)
+except ValueError:
+    PID_PADRE = 0
+
+
+def proceso_vivo(pid):
+    # ANTE LA DUDA, VIVO: si ctypes falla se devuelve True. Dar por muerto a
+    # quien no lo esta es lo caro (se le pararia, o se abriria un segundo
+    # microfono); esperar de mas solo cuesta unos segundos.
+    if not pid:
+        return False
+    try:
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        h = k32.OpenProcess(0x1000, False, int(pid))   # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        codigo = ctypes.c_ulong()
+        ok = k32.GetExitCodeProcess(h, ctypes.byref(codigo))
+        k32.CloseHandle(h)
+        return (not ok) or codigo.value == 259   # 259 = STILL_ACTIVE
+    except Exception:
+        return True
+
+
+def padre_vivo():
+    if not PID_PADRE:
+        return True
+    return proceso_vivo(PID_PADRE)
+
+
+def creacion_de(pid):
+    # Hora de creacion del proceso (FILETIME: 100 ns desde 1601), 0 si no se sabe.
+    # Es lo que distingue a NUESTRO worker de un PID RECICLADO: Windows reparte
+    # los numeros en cuanto quedan libres y aqui se encadenan sesiones de dias
+    # (188 arranques contados hasta el 18/09). Sin esto, "parar al que tiene el
+    # cerrojo" podria parar a un proceso cualquiera que herede el numero.
+    if not pid:
+        return 0
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.windll.kernel32
+        h = k32.OpenProcess(0x1000, False, int(pid))
+        if not h:
+            return 0
+        crea = wintypes.FILETIME()
+        fin = wintypes.FILETIME()
+        nucleo = wintypes.FILETIME()
+        usuario = wintypes.FILETIME()
+        ok = k32.GetProcessTimes(h, ctypes.byref(crea), ctypes.byref(fin),
+                                 ctypes.byref(nucleo), ctypes.byref(usuario))
+        k32.CloseHandle(h)
+        if not ok:
+            return 0
+        return (crea.dwHighDateTime << 32) | crea.dwLowDateTime
+    except Exception:
+        return 0
+
+
+# --- UN SOLO WORKER A LA VEZ: CERROJO CON PID (19/09) ---
+# El asistente se protege con un candado desde el 13/09 (Mutex
+# "Local\VoiceAssistant" en assistant.ps1), pero ese candado protege al
+# ASISTENTE. El que carga los modelos es ESTE proceso, y a el no le impedia
+# nadie arrancar por duplicado.
+# LO QUE COSTO: el 16/09, con 6 relanzamientos en 25 minutos, hubo varios
+# workers cargando Whisper a la vez y la carga paso de 4,2 s de mediana (145
+# arranques) a un racimo de 72,0 / 75,2 / 76,5 y 117,9 s. Linea exacta:
+# "2026-09-16 21:48:27  [escucha] whisper 'base' cargado en 117.9 s". Son casi
+# dos minutos con Nova arrancada y SORDA, con dos copias del modelo comiendo
+# memoria en una maquina que deja ~11,7 GB a Windows.
+# El barrido de huerfanos del asistente (arreglado el 17/09, filtraba
+# 'python.exe' cuando los workers son 'pythonw.exe') tapa el caso corriente,
+# pero corre SOLO al arrancar el asistente y decide por el PID del padre: si ese
+# numero se reciclo, el huerfano parece adoptado y sigue con el microfono. Y un
+# worker atascado cargando Whisper tampoco se entera de que su padre murio,
+# porque esa comprobacion va en el pulso y el pulso esta bloqueado.
+#
+# REGLAS, y manda "que nunca te quedes sin oido" sobre todas las demas:
+#  1. Sin cerrojo, con el PID de un muerto o con un PID reciclado (la hora de
+#     creacion no cuadra) -> se coge y a cargar. Es el caso de todos los dias:
+#     no anade ni un milisegundo al arranque bueno.
+#  2. Con un worker de verdad dentro -> se espera hasta ESPERA_CERROJO a que
+#     salga solo: un huerfano se despide en su pulso (INTERVALO_PULSO = 15 s)
+#     y suelta el microfono.
+#  3. Si al vencer el plazo sigue ahi, manda el ultimo: se le para y se entra.
+#     El recien nacido es el que quiere el asistente de ahora; el viejo o es
+#     huerfano o esta colgado. Pararlo es seguro porque la hora de creacion ya
+#     confirmo que es un worker nuestro y no un numero reciclado.
+#  4. Si el cerrojo falla por lo que sea (permisos, disco, JSON a medias) se
+#     sigue adelante SIN cerrojo. La ficha temia justo esto ("un cerrojo mal
+#     liberado deja a Nova sin arrancar"): aqui un cerrojo con problemas nunca
+#     puede dejarte sordo, como mucho no protege.
+CERROJO = os.path.join(os.path.dirname(NIVEL or MARCA), "wake-worker.lock") if (NIVEL or MARCA) else ""
+ESPERA_CERROJO = 20.0   # s: 15 es el pulso en el que el huerfano se despide; 20 da margen
+PASO_CERROJO = 0.5      # s entre miradas: el fichero es diminuto y esta en tmp\
+
+
+def _leer_cerrojo():
+    try:
+        with open(CERROJO, encoding="utf-8") as f:
+            d = json.load(f)
+        return int(d.get("pid", 0)), int(d.get("padre", 0)), int(d.get("creado", 0))
+    except Exception:
+        return 0, 0, 0
+
+
+def _soltar_cerrojo():
+    # SOLO SI SIGUE SIENDO MIO: si otro worker me lo quito (regla 3), borrarlo
+    # al salir le dejaria a el sin cerrojo.
+    try:
+        pid, _, _ = _leer_cerrojo()
+        if pid == os.getpid():
+            os.remove(CERROJO)
+    except Exception:
+        pass
+
+
+def _parar_worker(pid):
+    try:
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        h = k32.OpenProcess(0x0001, False, int(pid))   # PROCESS_TERMINATE
+        if not h:
+            return False
+        ok = k32.TerminateProcess(h, 1)
+        k32.CloseHandle(h)
+        return bool(ok)
+    except Exception:
+        return False
+
+
+def _tomar_cerrojo():
+    # O_EXCL: si dos workers arrancan a la vez, solo uno crea el fichero. Sin
+    # esto quedaria el hueco de siempre entre mirar y escribir, que es
+    # exactamente el que se quiere cerrar.
+    datos = json.dumps({"pid": os.getpid(), "padre": PID_PADRE,
+                        "creado": creacion_de(os.getpid()),
+                        "desde": time.strftime("%Y-%m-%d %H:%M:%S")})
+    try:
+        fd = os.open(CERROJO, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except Exception:
+        return False
+    try:
+        os.write(fd, datos.encode("utf-8"))
+    finally:
+        os.close(fd)
+    atexit.register(_soltar_cerrojo)
+    return True
+
+
+def coger_cerrojo():
+    if not CERROJO:
+        return
+    limite = time.time() + ESPERA_CERROJO
+    avisado = False
+    while True:
+        if _tomar_cerrojo():
+            return
+        pid, padre, creado = _leer_cerrojo()
+        ocupado = bool(pid) and pid != os.getpid() and proceso_vivo(pid) and \
+            (not creado or creacion_de(pid) == creado)
+        if ocupado and time.time() < limite:
+            if not avisado:
+                avisado = True
+                anota("otro worker tiene el cerrojo (PID %d, hijo de %d); espero hasta %.0f s a que salga antes de cargar nada"
+                      % (pid, padre, ESPERA_CERROJO))
+            if not padre_vivo():
+                # mi asistente ya no esta: no hay a quien oir, y el otro worker
+                # sigue con el microfono. Salir es lo correcto.
+                anota("el asistente murio mientras esperaba el cerrojo; salgo sin tocar el microfono")
+                sys.exit(0)
+            time.sleep(PASO_CERROJO)
+            continue
+        if ocupado:
+            parado = _parar_worker(pid)
+            anota("el worker %d seguia dentro tras %.0f s (%s); me quedo yo con el oido"
+                  % (pid, ESPERA_CERROJO, "parado" if parado else "NO he podido pararlo"))
+        elif pid:
+            anota("cerrojo abandonado (PID %d: o murio, o su numero es ya de otro proceso); me lo quedo" % pid)
+        try:
+            os.remove(CERROJO)
+        except Exception:
+            pass
+        if not _tomar_cerrojo():
+            # regla 4: antes sin cerrojo que sin oido
+            anota("WARN: no puedo con el cerrojo (%s); sigo sin el" % os.path.basename(CERROJO))
+        return
+
+
+try:
+    coger_cerrojo()
+except Exception as e:  # noqa: BLE001
+    anota("WARN: el cerrojo del worker fallo (%s); sigo sin el antes que dejarte sin oido" % e)
+
+
 try:
     modelo = Model(ruta_modelo)
     rec = nuevo_reconocedor()
@@ -1327,31 +1531,6 @@ cola = queue.Queue()
 # pasa demasiado; el asistente lo relanza y el stream se abre de nuevo.
 MIC_MUERTO = 5.0
 ultima_llegada = time.time()
-
-# EL ASISTENTE SIGUE VIVO? (auditoria del 13/09): si el asistente moria, este
-# worker seguia con el microfono, y al volver a arrancar quedaban dos
-# escuchando. El asistente pasa su PID en NOVA_PID_PADRE; se mira en cada pulso.
-try:
-    PID_PADRE = int(os.environ.get("NOVA_PID_PADRE", "0") or 0)
-except ValueError:
-    PID_PADRE = 0
-
-
-def padre_vivo():
-    if not PID_PADRE:
-        return True
-    try:
-        import ctypes
-        k32 = ctypes.windll.kernel32
-        h = k32.OpenProcess(0x1000, False, PID_PADRE)   # PROCESS_QUERY_LIMITED_INFORMATION
-        if not h:
-            return False
-        codigo = ctypes.c_ulong()
-        ok = k32.GetExitCodeProcess(h, ctypes.byref(codigo))
-        k32.CloseHandle(h)
-        return (not ok) or codigo.value == 259   # 259 = STILL_ACTIVE
-    except Exception:
-        return True
 
 
 def entrada(datos, marcos, tiempo, estado):

@@ -1,11 +1,27 @@
 # -*- coding: utf-8 -*-
 """Mide si el reconocedor TE ENTIENDE A TI, con audio de verdad.
 
-Todo el resto del banco mide texto. Esto pasa tus grabaciones por el MISMO
-camino que usa el asistente -mismo modelo, mismos umbrales, misma frase de ejemplo,
-misma limpieza- y dice cuantas salen bien con el modelo rapido y cuantas
-necesitan el oido fino. Es la unica forma de saber si un cambio en el
-reconocimiento mejora o empeora, en vez de suponerlo.
+Todo el resto del banco mide texto. Esto pasa tus grabaciones por WHISPER
+-mismos modelos, mismos umbrales, misma frase de ejemplo, misma limpieza- y dice
+cuantas salen bien con el modelo rapido y cuantas necesitan el oido fino. Es la
+unica forma de saber si un cambio en Whisper mejora o empeora, en vez de suponerlo.
+
+LO QUE ESTO **NO** MIDE (19/09). Desde el 15/09 el que oye PRIMERO es Parakeet, y
+Whisper solo entra cuando Parakeet no saca nada o cuando lo que saco suena a ingles
+(la guarda de `wake_vosk.py`, repaso del ingles). Aqui NO se carga Parakeet por
+ningun lado: este numero avala el SEGUNDO oido, no el camino entero. El camino
+entero, en el mismo orden que el worker, se mide con:
+
+    python pruebas\\pipeline-hoy.py   (Parakeet -> cobertura -> ingles -> Whisper)
+
+POR QUE SOLO EL AVISO Y NO METERLE PARAKEET (19/09). Dos razones medidas, no de gusto:
+el liston de aqui (0,75) se calibro el 12/09 sobre estas 20 grabaciones CON Whisper
+solo, y cambiarle el circuito sin volver a medir dejaria el liston sin significado
+-que es exactamente lo que vigila-; y `pipeline-hoy.py` no puede sustituir a esta
+prueba, porque corre sobre `pruebas\\audio\\uso`, que no tiene `esperado.json`, asi
+que no da un aprobado/suspenso con el que cerrar el bloque 5 del banco. Cuando haya
+una medida de Parakeet sobre estas 20 con su verdad al lado, entonces si: se cambia
+el circuito Y el liston a la vez, en el mismo commit.
 
 QUE SE CUENTA COMO ACIERTO. No que el texto salga clavado, sino que el
 asistente HAGA LO MISMO. La primera version comparaba texto literal y por eso
@@ -183,6 +199,11 @@ def main():
     preciso = cfg("input", "whisperModeloPreciso") or "small"
     hw = vocabulario()
 
+    # El aviso, arriba del todo: esto NO es el camino de hoy. Desde el 15/09 oye
+    # primero Parakeet y aqui no se carga (19/09). Sin esta linea, un 90% aqui se
+    # lee como "Nova te entiende el 90%", y no es eso lo que se ha medido.
+    print("SOLO WHISPER: desde el 15/09 el que oye PRIMERO es Parakeet, y aqui no se carga.")
+    print("El camino entero (Parakeet -> cobertura -> ingles -> Whisper):  python pruebas\\pipeline-hoy.py")
     print("modelo rapido: %s     oido fino: %s     frase de ejemplo: %s"
           % (rapido, preciso, "si" if PROMPT_ORDENES else "no"))
     t0 = time.time()
@@ -268,11 +289,18 @@ def main():
     # 12/09 con las 20 grabaciones de esta casa: 8 de 20 el rapido, 17 de 20 en
     # total. El liston se pone en 0.75, por debajo de lo medido, para que avise
     # cuando algo se rompa y no cada vez que una frase salga regular.
+    #
+    # Y es el liston DE WHISPER SOLO (19/09): calibrado el 12/09, cuando Whisper era el
+    # unico oido. Si algun dia esta prueba carga Parakeet, este 0.75 hay que volver a
+    # medirlo en el mismo cambio; heredarlo seria aprobar con la vara de otro circuito.
     liston = 0.75
     logrado = (bien + (rescatadas if dudosos else 0)) / float(total) if total else 1.0
     print("")
-    print("entendidas en total: %d de %d (%d%%)  -- liston %d%%"
+    # se conserva el prefijo "entendidas en total" porque hay scripts de ronda que
+    # filtran el banco por esa cadena (tmp\cerrar-ronda.ps1 y los de las rondas)
+    print("entendidas en total (SOLO WHISPER, sin Parakeet): %d de %d (%d%%)  -- liston %d%%"
           % (bien + (rescatadas if dudosos else 0), total, int(logrado * 100), int(liston * 100)))
+    print("recuerda: esto no es el camino de hoy; el de hoy:  python pruebas\\pipeline-hoy.py")
     if logrado < liston:
         print("POR DEBAJO del liston")
         return 1

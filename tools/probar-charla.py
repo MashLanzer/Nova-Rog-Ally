@@ -31,7 +31,13 @@ def _cuenta_lineas(carpeta):
         return 0
 
 
-_CEREBRO_REAL = cw.CARPETA_CEREBRO
+# DESDE EL 19/09 EL WORKER NO ADIVINA LA CARPETA (C7): sin argv[4], CARPETA_CEREBRO queda
+# vacia y no escribe nada. Ese es el cerrojo de verdad; aqui se comprueba que sigue puesto
+# y se nombra a mano la carpeta real, que es la que hay que vigilar.
+assert cw.CARPETA_CEREBRO == "", (
+    "charla_worker.py vuelve a apuntar a una carpeta por defecto: %r" % (cw.CARPETA_CEREBRO,))
+_CEREBRO_REAL = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "memoria", "cerebro")
 _lineas_antes = _cuenta_lineas(_CEREBRO_REAL)
 _carpeta_banco = tempfile.mkdtemp(prefix="nova-charla-banco-")
 cw.CARPETA_CEREBRO = _carpeta_banco
@@ -455,7 +461,14 @@ comp("el banco NO ha escrito en la memoria de verdad",
      or _lineas_antes == _cuenta_lineas(_CEREBRO_REAL),
      "%s" % (_CEREBRO_REAL,))
 
-cw.CARPETA_CEREBRO = _CEREBRO_REAL
+# Y EL CERROJO, PROBADO (19/09): con la carpeta vacia no se escribe en ningun sitio, ni
+# siquiera relativo al directorio de trabajo (os.path.join("", ...) daria un fichero suelto).
+cw.CARPETA_CEREBRO = ""
+cw.apuntar_charla("prueba del cerrojo", "esto no debe escribirse")
+comp("sin carpeta dicha, el diario no se escribe en ningun sitio",
+     not os.path.exists("charla-%s.jsonl" % time.strftime("%Y-%m-%d"))
+     and cw.resumir_dias_pasados() is False)
+
 shutil.rmtree(_carpeta_banco, ignore_errors=True)
 
 if mal:

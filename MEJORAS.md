@@ -56,7 +56,7 @@ da el porcentaje. Es el único dato que no depende de que nadie interprete nada.
 |---|---|---|
 | 1 | Vocabulario según el juego abierto | **BLOQUEADA**: la duda entre candidatos no se registra en ningún sitio, así que no se puede saber si pasa 5 veces al día o 2 al mes. Hay que instrumentar un contador primero |
 | 2 | No repasar lo que nunca fue una orden | **DESCARTADA** con datos (ver 1.3) |
-| 3 | «¿Cómo me has entendido hoy?» | pendiente |
+| 3 | «¿Cómo me has entendido hoy?» | **HECHA** (19/09): `Get-ComoTeEntendi` cruza `destinos.jsonl` con las mismas listas BIEN/MAL/NEUTRO que `tools\analizar-uso.py` y lo contesta hablando; 8 frases en el banco y `tools\probar-meta.ps1` |
 | 4 | Repaso del día: preguntar por las 3 peores | pendiente |
 | 5 | Perfil de ruido por hora | pendiente |
 | 6 | Deshacer con historial | pendiente |

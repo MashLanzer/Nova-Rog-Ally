@@ -34,6 +34,8 @@
 # los 2 min sin hablar, y el asistente los descarga al abrir un juego.
 #
 # Uso:  python charla_worker.py <modelo_local> <modelo_api> <modelo_embeddings|-> <carpeta_cerebro> <perfil.md>
+# <carpeta_cerebro> es OBLIGATORIA: sin ella el worker habla igual, pero no escribe
+# nada (ni diario, ni resumen, ni cerebro). Ver LA CARPETA SE DICE, NO SE ADIVINA.
 
 import sys
 import os
@@ -61,7 +63,14 @@ OLLAMA = "http://127.0.0.1:11434"
 MODELO_LOCAL = sys.argv[1] if len(sys.argv) > 1 else "qwen2.5:3b"
 MODELO_API = sys.argv[2] if len(sys.argv) > 2 else "claude-haiku-4-5"
 MODELO_EMBED = sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] not in ("", "-") else ""
-CARPETA_CEREBRO = sys.argv[4] if len(sys.argv) > 4 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "memoria", "cerebro")
+# LA CARPETA SE DICE, NO SE ADIVINA (19/09). Hasta hoy, sin argv[4] esto apuntaba a
+# memoria\cerebro: la memoria DE VERDAD de braya. Por esa puerta el banco de pruebas le
+# metio recuerdos falsos -los osos polares y Hades acabaron en memoria\diario-: el
+# 17/09 el diario real tenia 574 lineas, el 100 % repetidas, o sea 41 pasadas del banco
+# con Nova apagada (REVISION-2026-09-18.md:81-95). Ahora, si nadie dice la carpeta, no
+# hay carpeta, y quien no la diga no escribe. Nova no se entera: assistant.ps1 se la
+# pasa siempre (Start-Charla, `"$CerebroDir`").
+CARPETA_CEREBRO = sys.argv[4] if len(sys.argv) > 4 else ""
 RUTA_PERFIL = sys.argv[5] if len(sys.argv) > 5 else ""
 ESPERA_TROZO = 25.0        # s maximos entre trozos del local (en frio carga el modelo)
 MAX_HISTORIAL = 12         # mensajes (6 idas y vueltas)
@@ -751,6 +760,21 @@ class EmbedOllama:
         return r.json()["embeddings"]
 
 
+_aviso_sin_cerebro = False
+
+
+def cerebro_dicho(que):
+    """EL CERROJO DE C7 (19/09): nadie escribe en la memoria sin haber dicho en que
+    carpeta. Se avisa UNA vez (si no, cada frase dejaria una linea en el log)."""
+    if CARPETA_CEREBRO:
+        return True
+    global _aviso_sin_cerebro
+    if not _aviso_sin_cerebro:
+        _aviso_sin_cerebro = True
+        salida("info", texto="no me han dicho la carpeta del cerebro (argv[4]): no escribo %s" % que)
+    return False
+
+
 def ruta_charla(dia):
     return os.path.join(CARPETA_CEREBRO, "charla-%s.jsonl" % dia)
 
@@ -758,6 +782,8 @@ def ruta_charla(dia):
 def apuntar_charla(texto, respuesta):
     """DIARIO DE CONVERSACIONES (M10, 14/09): cada intercambio del dia, en bruto,
     hasta que se resume (ver resumir_dias_pasados). Nunca de un invitado."""
+    if not cerebro_dicho("el diario de conversaciones"):
+        return
     try:
         os.makedirs(CARPETA_CEREBRO, exist_ok=True)
         with open(ruta_charla(time.strftime("%Y-%m-%d")), "a", encoding="utf-8") as f:
@@ -773,6 +799,8 @@ def resumir_dias_pasados(hoy=None):
     asistente anade al diario de ese dia; el registro en bruto se borra.
     Uno por vez. Si el modelo no esta, se queda para otro rato."""
     hoy = hoy or time.strftime("%Y-%m-%d")
+    if not cerebro_dicho("el resumen del diario"):
+        return False
     try:
         nombres = sorted(n for n in os.listdir(CARPETA_CEREBRO) if n.startswith("charla-") and n.endswith(".jsonl"))
     except OSError:
@@ -987,6 +1015,8 @@ def lector():
 def principal():
     global cerebro
     try:
+        if not CARPETA_CEREBRO:
+            raise ValueError("no me han dicho la carpeta del cerebro (argv[4]); no toco la memoria de braya")
         cerebro = cm.Cerebro(CARPETA_CEREBRO, EmbedOllama(MODELO_EMBED) if MODELO_EMBED else None)
         b = cerebro.balance()
         salida("info", texto="memoria: %d respuestas firmes, %d provisionales, %d recuerdos, %d pendientes (significado: %s)" % (

@@ -17,6 +17,11 @@ function TraerFn($n) {
 foreach ($n in 'ConvertTo-Plain', 'Watch-Notificaciones', 'Get-ResumenNotificaciones', 'Get-LecturaNotificaciones', 'Get-Contactos', 'Save-Contactos',
     'Get-Habitos', 'Save-Habitos', 'Add-Habito', 'Find-Propuesta', 'Test-ParteManana',
     'Add-RitmoSeguimiento', 'Get-VentanaSeguimiento', 'Add-CharlaHora', 'Test-PrecargaCharla', 'Write-Atomico',
+    # Test-ApiContestaPrimero (19/09, af8961a): Test-PrecargaCharla la llama en su primera
+    # linea. Sin traerla aqui, esta prueba corria con una funcion que NO existe: PowerShell
+    # escupia CommandNotFoundException, la condicion valia $false y los casos pasaban igual,
+    # o sea que se estaba probando media funcion sin enterarse.
+    'Test-ApiContestaPrimero',
     'Test-PropuestaVetada', 'Add-PropuestaTratada') { Invoke-Expression (TraerFn $n) }
 # Test-PropuestaVetada usa esta variable del script. Sin ella valdria $null y el veto
 # dejaria de aplicarse EN SILENCIO, que es peor que fallar (17/09).
@@ -182,8 +187,15 @@ Comp 'lo de hace mas de dos semanas no cuenta' (-not (Test-PrecargaCharla (Get-D
 $script:juegoActivo = 'Hades'
 Comp 'jugando no, que la RAM es del juego' (-not (Test-PrecargaCharla (Get-Date '2026-09-20 22:10')))
 $script:charlaUltima = $sw.ElapsedMilliseconds
-Comp 'salvo que acabeis de hablar' (Test-PrecargaCharla (Get-Date '2026-09-20 22:10'))
+# EL JUEGO MANDA, TAMBIEN SI ACABAS DE CHARLAR (19/09). Esta prueba comprobaba lo
+# contrario -que una charla reciente se saltaba el freno del juego- y se cambia a
+# proposito, no para que pase: con el modelo local ya en qwen2.5:3b (~2 GB en RAM,
+# antes 1.5b con 986 MB) volver a meterlo mientras juegas le quita al juego justo lo
+# que el bucle del minuto acababa de liberar. El camino de 'suena a charla' ya miraba
+# el juego lo primero; ahora los dos caminos hacen lo mismo.
+Comp 'jugando NO precarga, aunque acabeis de hablar' (-not (Test-PrecargaCharla (Get-Date '2026-09-20 22:10')))
 $script:juegoActivo = $null
+Comp 'y sin juego, una charla reciente si precarga' (Test-PrecargaCharla (Get-Date '2026-09-20 22:10'))
 $script:invitado = $true; Add-CharlaHora (Get-Date '2026-09-20 03:00'); $script:invitado = $false
 Comp 'lo de un invitado no cuenta' (@((Get-Habitos).charlaHoras.Keys | Where-Object { $_ -like '*|03' }).Count -eq 0)
 
