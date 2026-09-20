@@ -12,6 +12,62 @@ informes del 19/09 (OIDO, MEDICION-MODELOS, VRAM).
 ---
 
 
+---
+
+> ## Estado al cierre del 20/09
+>
+> **Lo primero, porque cambia cómo se lee el resto de esta lista:** Nova estuvo
+> **encendida** con el juez del nombre en modo «mirar» desde las 02:01 hasta las 03:00, y
+> ese juez escribía en `assistant.log` **la transcripción libre de cada ráfaga de voz** que
+> pasa la puerta del micrófono, no solo las tuyas. Se cortó con **cero líneas escritas**.
+> Junto a eso se cerraron otras tres puertas del mismo tipo (commit `e9fc18d`), y una de
+> ellas explica lo de la noche del 19/09: `Start-NubeOir` mandaba el WAV a Google y la
+> comprobación de «esa voz no es la tuya» vivía 1.300 líneas más abajo, o sea **después**
+> del viaje.
+>
+> ### Cerrados hoy
+>
+> | id | qué era | cómo se cerró |
+> |---|---|---|
+> | **B4** | El diario falso del 14/09 (osos polares, Hades) | Ya estaba vacío: se fue en la limpieza del 19/09. Queda solo el encabezado, como el del 17/09 |
+> | **B8** | Vectores que faltaban (ids 3, 53, 54) | 53 y 54 hechos; el **id 3 no debe tener vector**: está `rechazada` y `completar_vectores` la salta a propósito. No era un fallo |
+> | **C1** | `probar-audio.py` mide el camino viejo | **Medido y cerrado con dato**: `tools\medir-parakeet-20.py` da **11 de 20 (55 %)** para Parakeet solo frente a **19 de 20 (95 %)** de Whisper solo. Meterle Parakeet haría suspender su propio listón sin que nada hubiera empeorado. El circuito se queda |
+> | **C27** | «Apuntar el fallo aunque no salga orden» — estaba *bloqueado a propósito* | **Desbloqueado por P1**: ahora los fallos deducidos van a `senales-fallo.jsonl`, con etiqueta y peso propios |
+> | **S2‑S5** | Las cuatro puertas de privacidad | commit `e9fc18d`, con `tools\probar-olvido.ps1` (2n37) |
+> | **P1‑P5** | Aprendizaje autónomo, los cinco pasos | commit `47cd527` |
+>
+> ### Lo que P1‑P5 cambian de esta lista
+>
+> **C28 (las seis de autonomía que esperaban datos) ya no espera a lo mismo.** No esperaba
+> trabajo: esperaba que Nova pudiera *ver* sus errores. P1 le da esa vista (`descarte`,
+> `ruido` y `no-orden-a-charla` dejan rastro por orden) y P4 le da con qué juzgarla (una
+> binomial de verdad, con α 0,01 porque la revisión corre todos los días). Sigue haciendo
+> falta **uso real**: con `auto.datosDesde = 2026-09-20` la ventana arranca **vacía**.
+>
+> Y un número que conviene tener delante: **`fallo-dicho-por-ti` va 0 de 119 órdenes.** La
+> meta «cero órdenes equivocadas» hoy no se puede medir, porque el único dato humano que la
+> mediría nunca se ha producido. Por eso P1 no es un extra: es lo que hace medible la meta.
+>
+> ### Lo nuevo que hay que probar con tu voz (y no se puede probar sin ella)
+>
+> 1. «Abre Steam» y luego «sube el volumen»: que lo segundo **solo** suba el volumen.
+> 2. Tras 3 minutos de silencio, «hay alguna actualización de este» **no** debe resolver.
+> 3. Llamarla flojito desde lejos, para ver si `escucha.rafagaMinima` (0,030) se pasa de
+>    estricta contigo.
+> 4. «Olvida los últimos diez minutos»: debe contestar cuántos rastros borró y de cuántos
+>    sitios, **sin decir qué borró**.
+> 5. Mirar las líneas `juez (solo mirando)` del log antes de poner `juezNombre` en `"si"`.
+>
+> ### Dos números tuyos, no míos
+>
+> - **`escucha.guardarUsoDias` = 30.** A los 30 días se borra el WAV y se queda su línea del
+>   registro. Puesto en 30 y no en 7 porque los 167 audios del 15/09 son la base de las
+>   medidas del oído; bájalo si prefieres que el audio dure menos.
+> - **`escucha.ambiente` = `"no"`.** Encenderlo hace que Nova recuerde en RAM (45 s, nunca a
+>   disco) lo que sonaba **antes** de que la llamaras, para entender un «apunta eso». Es tu
+>   casa la que se oye: la decisión es tuya.
+
+
 > ## Estado al cierre del 19/09 (noche)
 >
 > **27 cerrados hoy**, de los 95 que había:

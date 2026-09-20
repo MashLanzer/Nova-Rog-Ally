@@ -23,6 +23,17 @@ que no da un aprobado/suspenso con el que cerrar el bloque 5 del banco. Cuando h
 una medida de Parakeet sobre estas 20 con su verdad al lado, entonces si: se cambia
 el circuito Y el liston a la vez, en el mismo commit.
 
+YA HAY MEDIDA, Y DICE QUE NO SE CAMBIE (20/09, tools\\medir-parakeet-20.py). Sobre estas
+mismas 20 y con el mismo criterio -la ACCION resuelta, no el texto- Parakeet solo saca
+11 de 20 (55 %) frente a los 19 de 20 (95 %) de Whisper solo. Tres las deja en blanco
+("sube el volumen", "baja el brillo", "que hora es": las cortas) y seis las oye mal
+("abre steam" -> "Habres quienes"). O sea que meterle Parakeet a esta prueba la haria
+suspender su propio liston sin que nada hubiera empeorado en Nova: lo que mide esta
+prueba -si Whisper te entiende- seguiria estando bien. El circuito se queda como esta.
+Lo que esa medida SI confirma es por que Parakeet va primero en el worker: 1,48 s de
+media por grabacion. Va delante por rapido, no por fino, y Whisper repasa detras; eso
+cuadra con la medida del 18/09 (de 75 pares, Whisper saca orden en 17 y Parakeet en 12).
+
 QUE SE CUENTA COMO ACIERTO. No que el texto salga clavado, sino que el
 asistente HAGA LO MISMO. La primera version comparaba texto literal y por eso
 mentia en las dos direcciones: "abre little nightmares tres en steam" oido como
