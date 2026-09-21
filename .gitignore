@@ -68,6 +68,9 @@ memoria/notas-voz/
 memoria/cerebro/
 # lo que has escuchado y cuando
 memoria/musica.json
+# cuanto tarda la nube en contestar: datos de uso, cambian en cada respuesta.
+# Son numeros, no frases, pero es memoria de uso igual que los habitos.
+memoria/nube-tiempos.json
 # lo que queda a medias si se va la luz justo al guardar (ver Write-Atomico)
 *.json.tmp
 # archivos de memoria que no se podian leer, apartados en vez de perderse
