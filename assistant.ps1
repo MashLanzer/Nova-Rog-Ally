@@ -4389,6 +4389,18 @@ function Test-EfectoAccion($a) {
             $esperado = Get-BrilloDestino ([int]$a.nivel) $real
             return @{ ok = ([Math]::Abs($real - $esperado) -le $EfectoMargenBrillo); esperado = $esperado; real = $real }
         }
+        # CERRAR UNA APP: QUE DE VERDAD SE HAYA CERRADO (20/09, B9). Hasta hoy la rama
+        # 'cerrarApp' mandaba CloseMainWindow, luego Kill si hacia falta, y decia "cerrado"
+        # sin mirar. Si la app pedia guardar y se quedaba abierta, Nova cantaba victoria
+        # igual. Es el mismo fallo de fondo que la mentira de las carpetas del 20/09: decir
+        # que algo esta hecho sin comprobarlo.
+        # Se espera un poco: cerrar no es instantaneo, y preguntar demasiado pronto diria
+        # que fallo algo que estaba a medio cerrar.
+        if ($a.kind -eq 'cerrarApp' -and $a.proceso -and $a.proceso -ne '*juego*') {
+            Start-Sleep -Milliseconds 600
+            $vivos = @(Get-Process -Name $a.proceso -ErrorAction SilentlyContinue)
+            return @{ ok = ($vivos.Count -eq 0); esperado = 0; real = $vivos.Count }
+        }
     } catch { return $null }
     return $null
 }

@@ -109,6 +109,23 @@ try:
     comp("lo que habla de Nova no entra en el cerebro",
          c.guardar_texto("episodio", "Braya se queja de que Nova repite mucho las respuestas") is None and
          c.balance()["episodios"] == 1, c.balance())
+    # Y EL ESTILO TAMPOCO (20/09, C5). El filtro del 19/09 solo estaba en guardar_texto;
+    # _estilo escribe en el MISMO cerebro.json y no lo tenia. Y es el que mas pesa: el
+    # estilo viaja en el prompt de TODAS las peticiones, mientras que los episodios
+    # entraban en 2 de 96. Medido sobre el cerebro real de braya: 6 de las 12 entradas de
+    # estilo hablaban de Nova, no de el ("le gusta que Nova entienda bien lo que dice").
+    _antes = len(c.datos["estilo"])
+    c._estilo("le gusta que Nova entienda bien lo que dice sin tergiversarlo")
+    c._estilo("prefiere honestidad sobre las limitaciones de Nova")
+    comp("lo que habla de Nova no entra en el ESTILO",
+         len(c.datos["estilo"]) == _antes, c.datos["estilo"])
+    c._estilo("le gustan las respuestas con ejemplos")
+    comp("pero una preferencia suya de verdad si entra",
+         len(c.datos["estilo"]) == _antes + 1, c.datos["estilo"])
+    _temas = len(c.datos["temas"])
+    c._tema("nova")
+    c._tema("el asistente")
+    comp("ni como tema de conversacion", len(c.datos["temas"]) == _temas, c.datos["temas"])
     comp("la revision sale de pendientes", all(j["id"] != j2["id"] for j in c.datos["pendientes"]))
     ctx = c.contexto("¿les tengo miedo a los osos polares?")
     comp("el contexto trae lo contado, el estilo y los temas", "braya te contó" in ctx and "respuestas cortas" in ctx and "animales" in ctx, ctx)

@@ -564,7 +564,18 @@ class Cerebro:
         return eventos
 
     def _estilo(self, e):
+        # EL MISMO FILTRO QUE guardar_texto, Y AQUI PESA MAS (20/09, C5). El filtro de
+        # "no guardes lo que habla de mi" se puso el 19/09 en guardar_texto, pero _estilo
+        # escribe en el MISMO cerebro.json desde la misma aplicar_revision y no lo tenia.
+        # Y es el que mas dano hace: el estilo viaja en el prompt de TODAS las peticiones
+        # (contexto() lo mete sin condicion), mientras que los episodios entraban en 2 de
+        # 96 turnos -ese fue justo el argumento con el que se descarto limpiar lo viejo-.
+        # Medido el 20/09: 6 de las 12 entradas de "estilo" caian con este criterio, entre
+        # ellas "le gusta que Nova entienda bien lo que dice sin tergiversarlo", que no es
+        # una preferencia de braya: es una queja sobre Nova.
         if not e or sensible(e):
+            return
+        if RE_SOBRE_NOVA.search(plano(e)):
             return
         est = self.datos.setdefault("estilo", [])
         if any(plano(x) == plano(e) for x in est):
@@ -576,6 +587,10 @@ class Cerebro:
     def _tema(self, t):
         t = plano(t)[:30]
         if not t or len(t.split()) > 3:
+            return
+        # y los temas tampoco: "nova" o "el asistente" como tema de conversacion acaba
+        # metiendose en el prompt igual que el estilo (ver el comentario de _estilo)
+        if RE_SOBRE_NOVA.search(t):
             return
         temas = self.datos.setdefault("temas", {})
         temas[t] = temas.get(t, 0) + 1

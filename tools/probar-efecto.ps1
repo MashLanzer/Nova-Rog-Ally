@@ -130,5 +130,17 @@ Comp 'Set-Brillo sigue sin devolver nada' ($cuerpoSB -notmatch 'return \$destino
 Comp 'y usa el calculo compartido' ($cuerpoSB -match 'Get-BrilloDestino') ''
 
 Write-Host ''
+Write-Host '-- cerrar una app: que de verdad se haya cerrado (B9, 20/09) --'
+# Hasta hoy la rama 'cerrarApp' mandaba cerrar y decia 'cerrado' sin mirar. Si la app
+# pedia guardar y se quedaba abierta, Nova cantaba victoria igual: el mismo fallo de
+# fondo que la mentira de las carpetas del 20/09.
+$rC = Test-EfectoAccion @{ kind = 'cerrarApp'; proceso = 'proceso-que-no-existe-jamas' }
+Comp 'un proceso que no esta, cuenta como cerrado' ($rC -and $rC.ok) ("real=" + $(if ($rC) { $rC.real } else { 'null' }))
+$rV = Test-EfectoAccion @{ kind = 'cerrarApp'; proceso = 'powershell' }
+Comp 'y uno que SIGUE vivo, como no cerrado' ($rV -and -not $rV.ok) ("real=" + $(if ($rV) { $rV.real } else { 'null' }))
+Comp 'el juego no entra por aqui (tiene su propio camino)' ($null -eq (Test-EfectoAccion @{ kind = 'cerrarApp'; proceso = '*juego*' })) ''
+Comp 'y una accion sin proceso tampoco' ($null -eq (Test-EfectoAccion @{ kind = 'cerrarApp' })) ''
+
+Write-Host ''
 if ($mal -gt 0) { Write-Host "$mal casos MAL" -ForegroundColor Red; exit 1 }
 Write-Host 'todo correcto' -ForegroundColor Green
