@@ -14,6 +14,69 @@ informes del 19/09 (OIDO, MEDICION-MODELOS, VRAM).
 
 ---
 
+# El recuento de verdad (auditoría del 20/09/2026)
+
+Braya pidió cerrar esta lista para siempre y saber cuántas quedaban **de verdad**. Se
+auditaron **los 77 puntos de los cuatro grupos, uno por uno, contra el código** — no
+contra los documentos, que se contradicen entre sí. 39 agentes: uno por grupo y un
+verificador por cada punto dado por HECHO, porque dar por cerrado algo que no lo está es
+el error que deja un fallo sin arreglar para siempre. El verificador tumbó varios.
+
+| | cuántos | qué significa |
+|---|---:|---|
+| **HECHO** | 21 | está en el código y se puede señalar dónde |
+| **ABIERTO** | 24 | trabajo mío que queda |
+| **NO PROCEDE** | 11 | se midió y no compensa, o quedó obsoleto |
+| **ES DE BRAYA** | 21 | solo lo cierra él: probar con su voz, decidir, o una clave |
+
+Es decir: de los 77, **32 ya no son trabajo** (hechos o descartados), **21 los tiene que
+cerrar él** y **24 quedan por hacer**.
+
+## Los 24 que quedan, por lo que cuestan
+
+| id | qué falta | tamaño |
+|---|---|---|
+| **A0 REINICIAR** | Cerrar Nova y volver a abrirla para que corra el codigo de hoy | ninguno |
+| **A1 OIDO-VIVO** | Hablarle y ver las 3 cosas del oido nuevo (espera de la nube, los 7 s, y wavs en tmp) | ninguno |
+| **A9 B6** | Decir «callate» mientras habla y ver que su propia voz no se cuela | ninguno |
+| **B1 MODELO-LOCAL** | Poner qwen2.5:3b como modelo local y corregir el documento que mentía | ninguno |
+| **B11 H3m4** | Resumen final del banco que nombre las secciones saltadas | ninguno |
+| **B3 H3m2** | Listón mínimo en tools\probar-regex.ps1: ya no sale verde con 0 patrones | ninguno |
+| **C19 META-NUMERO** | Contador visible de la meta y "¿como me has entendido hoy?" | ninguno |
+| **C23 VRAM-8** | Medir la pila entera del oido cargada a la vez | ninguno |
+| **C27 FALLO-DICHO** | Apuntar "no era eso / te equivocaste" aunque no salga orden | ninguno |
+| **C4 AVISOS-JUEGO** | Detectar la salida de juego de verdad y desbloquear los dos avisos | ninguno |
+| **C5 FILTRO-PERFIL** | Filtro del perfil en lo nuevo del cerebro de la charla | ninguno |
+| **D6 P5** | Fase 2 de «aprender»: correo, aprender de «no, dije X», traducciones por uso y el vídeo número N | ninguno |
+| **A16 VRAM-3** | Pasar el bloque 5 del banco (ya no deberia decir SALTADA) — Ejecutar `python tools\probar-audio.py` (o el banco entero) y ver si el bloque 5 aprueba su liston de 0,75. No lo he hecho aqui porque carga Whisper b | pequeno |
+| **B17 LIMPIEZA-LISTAS** | Tachar lo hecho en PENDIENTE.md, MEJORAS.md y ESTADO.txt y borrar lo que apunta a ficheros inexistentes — Borrar de PENDIENTE.md:1517-1519 la referencia a scratchpad\analisis\aprender.md y marcar ese punto según lo que ya dice D6 de esta misma lista («el v | pequeno |
+| **B9 VERIFICAR-ACCIONES** | Que el «cerrados N de M» llegue a la voz y a estadísticas, y comprobar que un archivo creado existe — Tres cosas: (1) que el resultado del cierre (cerrarTodo y sobre todo cerrarApp) se apunte con Add-Estadistica, como ya hace 'no-surtio-efecto' con vol | pequeno |
+| **C24 VRAM-9** | (opcional) Probar Ollama con OLLAMA_IGPU_ENABLE=1 — Nadie lo ha probado todavia. Falta lanzar Ollama con esa variable y comparar los segundos por respuesta contra la CPU; hay que hacerlo con Nova parada | pequeno |
+| **C10 USO-DIVIDIDA** | Pantalla dividida con una sola app — La forma corta ya va, la cadena real no. Falta que el encadenado con dos verbos ('abre X y a pantalla dividida, abre Y') se resuelva en local en vez d | medio |
+| **C15 I7** | Leer una zona de la pantalla — Hoy el OCR lee la ventana activa o la pantalla entera; no hay forma de pedir una zona. Falta el patron de voz para las zonas (esquinas, mitades, arrib | medio |
+| **C18 I1** | Vocabulario segun el juego abierto (bloqueada por el contador de dudas) — El contador sigue sin existir, asi que la idea sigue bloqueada exactamente igual que el 19/09. Falta instrumentar cuantas veces duda entre candidatos  | medio |
+| **C25 OID-2** | Medir Vosk grande (2,3 GB): o sirve o se borra — La herramienta esta escrita pero NUNCA se ha ejecutado: no existe el fichero de resultados pruebas\audio\medir-vosk-grande.json. Falta correrla con No | medio |
+| **C6 TRADUCCIONES-PISADAS** | Quien reescribio traducciones.json (14 aprendidos perdidos) — La investigacion no se ha hecho: quedo fuera a proposito el 19/09 y nadie la retomo el 20/09. Add-Traduccion sigue reescribiendo el fichero ENTERO des | medio |
+| **D7 TRA-COMANDOS** | Ampliar commands.json con lo que el uso real no reconoce — Tres cosas concretas, por orden de valor: (1) crear carpeta/archivo en el escritorio, que el 20/09 falló cuatro veces y hoy no existe en local; (2) la | medio |
+| **C9 N1** | Que Nova ajuste sola el tope de la nube — Se hizo el dato que faltaba, no la decision. Falta la regla que compare el p90 con el tope, el Set-Cfg 'escucha' 'nubeTopeMs' (no existe ni una sola l | grande |
+| **D1 EL-OÍDO** | Los nombres propios que el oído local sigue fallando («Abre St», «Sierra Gul», «Haben The Ring») — Lo cerrado el 20/09 fue otra cosa: que «cerrar» no preguntaba a la biblioteca de Steam (assistant.ps1:795 Find-JuegoPorSonido solo lo usaba el camino  | grande |
+
+## Lo que cambió el verificador
+
+Varios puntos que un primer agente dio por HECHOS no lo estaban. Los que más importan:
+
+- **C4 (detectar la salida de un juego)**: se daba por hecho y la sesión del 20/09 lo
+  desmiente en el propio log. Era la causa del lío de ELDEN RING.
+- **C5 (filtro del perfil)**: está la mitad barata; falta la que hace daño.
+- **C19 (contador de la meta)**: son dos cosas unidas por una «y». La segunda está, la
+  primera —un número que puedas **mirar**— no.
+- **C27 (apuntar el fallo dicho)**: a medias; tres agujeros comprobados.
+- **A0 (reiniciar)**: no bastaba con reiniciar una vez, el proceso vivo volvía a correr
+  código viejo. Cerrado ahora, a las 20:43.
+- **A16 (bloque 5 del banco)**: **no era trabajo de braya**, era mío: corre sobre las
+  grabaciones ya hechas, no sobre el micrófono. Cerrado: **19 de 20 (95 %)**, listón 75 %.
+
+
 > ## Estado al cierre del 20/09
 >
 > **Lo primero, porque cambia cómo se lee el resto de esta lista:** Nova estuvo
