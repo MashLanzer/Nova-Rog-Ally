@@ -339,3 +339,30 @@ borra el archivo notas
 # --- control: estos "borra" NO son de ficheros y siguen donde estaban ---
 borra el modo noche
 borra la ultima receta
+
+# --- leer SOLO UNA ZONA de la pantalla (C15, 20/09). Jugando, "lee la pantalla"
+# entera devuelve un chorro inutil: titulo, menu, chat y objetivo mezclados ---
+lee la esquina de arriba a la derecha
+lee arriba a la derecha
+leeme la esquina de abajo a la izquierda
+que dice arriba a la derecha
+lee la esquina superior derecha
+lee la derecha de arriba
+dime que dice arriba a la derecha
+lee el centro
+lee el centro de la pantalla
+que pone en el medio
+lee la mitad de arriba
+lee la parte de abajo
+lee lo de arriba
+lee el lado izquierdo
+lee la parte derecha
+que dice abajo
+# --- control: sin zona sigue siendo la pantalla ENTERA ---
+lee lo que dice la pantalla
+que pone aqui
+lee el texto
+# --- control: ponerse en una esquina es la capsula, NO leerla ---
+ponte abajo a la izquierda
+# --- control: esto no es ninguna zona y se va al agente ---
+lee la ultima noticia

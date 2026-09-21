@@ -317,6 +317,14 @@ Titulo "2n34. El OCR lee un codigo de la pantalla y acaba en la nota"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-ocr.ps1')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:correcto)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n43. Leer SOLO una zona de la pantalla (la esquina del objetivo, el centro)"
+# C15 (20/09). Tampoco necesita microfono ni Nova encendida: pinta un HUD de mentira,
+# recorta con la misma funcion que usa Save-Captura y comprueba que cada frase acaba
+# en SU zona. Lo segundo importa mas que lo primero: el banco de frases solo mira que
+# algo se reconozca, asi que leer la esquina contraria le pasaria en verde.
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-ocr-zona.ps1')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:todo correcto)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n27. Que Nova avise si lleva dias sin apuntar ni una orden (sin uso no se decide nada)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-sin-uso.ps1')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:todo correcto)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
@@ -346,7 +354,7 @@ foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     # estuviera ahi, asi que una caida de 88 a 5 pasaba EN VERDE: justo lo que este banco
     # existe para evitar. Las que fallan son controles a proposito, por eso el listero es
     # un minimo y no una igualdad: lo que no puede es BAJAR.
-    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 260 }   # 260 desde el 20/09 noche: MEDIDO (258 + 2 saltadas). +6 de borrar a la papelera. Antes 254, 242, 238, 234, 228, 221, 218, 210, 202, 190, 188
+    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 280 }   # 280 desde el 20/09 (C15, +20: leer una zona de la pantalla). Antes 260 desde el 20/09 noche: MEDIDO (258 + 2 saltadas). +6 de borrar a la papelera. Antes 254, 242, 238, 234, 228, 221, 218, 210, 202, 190, 188
     $n = -1
     if ($linea -and ("$linea" -match 'reconocidas en local:\s*(\d+)')) { $n = [int]$Matches[1] }
     # LOS JUEGOS QUE YA NO TIENES NO SON UNA REGRESION (19/09): las lineas con

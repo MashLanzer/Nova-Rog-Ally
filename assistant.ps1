@@ -3658,6 +3658,60 @@ function Resolve-Fragment([string]$f) {
         if ($script:clima) { $script:uiClima = $script:clima.emoji; $script:uiClimaHasta = $sw.ElapsedMilliseconds + 9000 }
         return @(@{ kind = 'decir'; desc = $t })
     }
+    # --- leer SOLO UNA ZONA de la pantalla (C15, 20/09) ---
+    # Jugando, "lee la pantalla" entera devuelve un chorro inútil: el título del
+    # juego, el menú, el chat y el objetivo, todo seguido. Lo que de verdad sirve es
+    # "lee la esquina de arriba a la derecha" (donde está el objetivo) o "lee el
+    # centro" (el cartel que acaba de salir).
+    # El recorte se hace ANTES del OCR, dentro de Save-Captura: leer una zona copia
+    # menos píxeles y le da menos área al motor, así que sale MÁS rápido que leer la
+    # pantalla entera. Con un juego delante comiéndose la CPU, eso era el requisito.
+    #
+    # Va DELANTE de "di/dime ..." a propósito: "dime que dice arriba a la derecha"
+    # casaba con la regla de hablar y Nova decía en voz alta "dice arriba a la
+    # derecha" (comprobado con -Probar el 20/09), o sea lo contrario de lo pedido.
+    # Por lo mismo baja aquí la regla de la pantalla entera, que llevaba escrito
+    # "dime que dice" desde el principio y nunca llegaba a usarse.
+    #
+    # Los patrones van escritos ENTEROS, sin trocearlos en variables: hay pruebas que
+    # sacan una sola función del archivo con el AST, y una variable de fuera valdría
+    # '' y el patrón pasaría a casar con CUALQUIER frase.
+    # La esquina diciendo primero el arriba/abajo: "lee la esquina de arriba a la derecha".
+    if ($f -match '^(?:lee|leeme|leemelo|leer|leelo|que dice|que pone|que hay escrito|dime que dice|dime que pone)\s+(?:lo que (?:hay|dice|pone)\s+)?(?:(?:en|de)\s+)?(?:(?:la|el|lo|los|las)\s+)?(?:(?:esquina|esquinita|mitad|parte|zona|franja|lado|banda|barra|linea|texto|letras|cartel)\s+)?(?:(?:de|del)\s+)?(?:(?:la|el)\s+)?(arriba|abajo|superior|inferior)\s+(?:a\s+la\s+|a\s+mano\s+|de\s+la\s+|a\s+|la\s+)?(izquierda|derecha|izquierdo|derecho)(?:\s+(?:de|en)\s+(?:la\s+)?pantalla)?$') {
+        # los dos grupos, a variables YA: el -eq de abajo no pisa $Matches, pero un
+        # -match sí lo haría, y esa trampa ya costó un fallo en este archivo.
+        $zmV = [string]$Matches[1]; $zmH = [string]$Matches[2]
+        $zOcrV = if ($zmV -eq 'arriba' -or $zmV -eq 'superior') { 'arriba' } else { 'abajo' }
+        $zOcrH = if ($zmH -eq 'izquierda' -or $zmH -eq 'izquierdo') { 'izquierda' } else { 'derecha' }
+        return @(@{ kind = 'ocr'; zona = "$zOcrV-$zOcrH"; zonaTxt = "la esquina de $zOcrV a la $zOcrH"; desc = "leer la esquina de $zOcrV a la $zOcrH" })
+    }
+    # La misma esquina al revés, que también se dice: "lee la derecha de arriba".
+    if ($f -match '^(?:lee|leeme|leemelo|leer|leelo|que dice|que pone|que hay escrito|dime que dice|dime que pone)\s+(?:lo que (?:hay|dice|pone)\s+)?(?:(?:en|de)\s+)?(?:(?:la|el|lo|los|las)\s+)?(?:(?:esquina|esquinita|mitad|parte|zona|franja|lado|banda|barra|linea|texto|letras|cartel)\s+)?(?:(?:de|del)\s+)?(?:(?:la|el)\s+)?(izquierda|derecha|izquierdo|derecho)\s+(?:de\s+)?(?:la\s+)?(arriba|abajo|superior|inferior)(?:\s+(?:de|en)\s+(?:la\s+)?pantalla)?$') {
+        $zmH = [string]$Matches[1]; $zmV = [string]$Matches[2]
+        $zOcrV = if ($zmV -eq 'arriba' -or $zmV -eq 'superior') { 'arriba' } else { 'abajo' }
+        $zOcrH = if ($zmH -eq 'izquierda' -or $zmH -eq 'izquierdo') { 'izquierda' } else { 'derecha' }
+        return @(@{ kind = 'ocr'; zona = "$zOcrV-$zOcrH"; zonaTxt = "la esquina de $zOcrV a la $zOcrH"; desc = "leer la esquina de $zOcrV a la $zOcrH" })
+    }
+    # Media pantalla: "lee la mitad de arriba", "lee la parte de abajo", "lee el lado
+    # izquierdo", "que dice abajo". "lee la esquina de arriba" (sin decir cuál de las
+    # dos) cae aquí a propósito: leer de más se arregla oyéndolo, y leer la esquina
+    # que no era es justo el fallo que a braya no se le perdona.
+    if ($f -match '^(?:lee|leeme|leemelo|leer|leelo|que dice|que pone|que hay escrito|dime que dice|dime que pone)\s+(?:lo que (?:hay|dice|pone)\s+)?(?:(?:en|de)\s+)?(?:(?:la|el|lo|los|las)\s+)?(?:(?:esquina|esquinita|mitad|parte|zona|franja|lado|banda|barra|linea|texto|letras|cartel)\s+)?(?:(?:de|del)\s+)?(?:(?:la|el)\s+)?(arriba|abajo|superior|inferior|izquierda|derecha|izquierdo|derecho)(?:\s+(?:de|en)\s+(?:la\s+)?pantalla)?$') {
+        $zm = [string]$Matches[1]
+        $zOcr = 'derecha'; $zOcrTxt = 'la derecha'
+        if     ($zm -eq 'arriba' -or $zm -eq 'superior')      { $zOcr = 'arriba';    $zOcrTxt = 'la parte de arriba' }
+        elseif ($zm -eq 'abajo' -or $zm -eq 'inferior')       { $zOcr = 'abajo';     $zOcrTxt = 'la parte de abajo' }
+        elseif ($zm -eq 'izquierda' -or $zm -eq 'izquierdo')  { $zOcr = 'izquierda'; $zOcrTxt = 'la izquierda' }
+        return @(@{ kind = 'ocr'; zona = $zOcr; zonaTxt = $zOcrTxt; desc = "leer $zOcrTxt" })
+    }
+    # El centro: "lee el centro", "que pone en el medio", "leeme lo del medio".
+    if ($f -match '^(?:lee|leeme|leemelo|leer|leelo|que dice|que pone|que hay escrito|dime que dice|dime que pone)\s+(?:lo que (?:hay|dice|pone)\s+)?(?:(?:en|de)\s+)?(?:(?:la|el|lo|los|las)\s+)?(?:(?:esquina|esquinita|mitad|parte|zona|franja|lado|banda|barra|linea|texto|letras|cartel)\s+)?(?:(?:de|del)\s+)?(?:(?:la|el)\s+)?(?:centro|medio|central)(?:\s+(?:de|en)\s+(?:la\s+)?pantalla)?$') {
+        return @(@{ kind = 'ocr'; zona = 'centro'; zonaTxt = 'el centro'; desc = 'leer el centro' })
+    }
+    # --- leer la pantalla ENTERA (OCR de Windows) ---
+    if ($f -match '^(?:lee|leeme|leer|que dice|que pone|que hay escrito|dime que dice)\s+(?:lo que (?:hay|dice|pone) (?:en\s+)?|en\s+)?(?:la\s+|esta\s+|el\s+)?(?:pantalla|ventana|esto|aqui|texto|mensaje)\b') {
+        return @(@{ kind = 'ocr'; zona = ''; desc = 'leer la pantalla' })
+    }
     # --- decir algo en voz alta ---
     # Existe sobre todo para las REGLAS: antes una regla no podia hablar y la
     # documentacion recurria al truco de "recuerdame en 0 minutos que...".
@@ -3668,10 +3722,6 @@ function Resolve-Fragment([string]$f) {
     # pregunta aparezca en cualquier sitio de la frase.
     if ($f -match '^(?:(?:di|dime)\s+(?!.*\b(?:quien|quienes|cual|cuales|cuando|donde|como|cuanto|cuanta|cuantos|cuantas|por que|de que|a que)\b)|(?:avisa|avisame)\s+)(?:que\s+)?(.+)$') {
         return @(@{ kind = 'decir'; desc = $Matches[1].Trim() })
-    }
-    # --- leer la pantalla (OCR de Windows) ---
-    if ($f -match '^(?:lee|leeme|leer|que dice|que pone|que hay escrito|dime que dice)\s+(?:lo que (?:hay|dice|pone) (?:en\s+)?|en\s+)?(?:la\s+|esta\s+|el\s+)?(?:pantalla|ventana|esto|aqui|texto|mensaje)\b') {
-        return @(@{ kind = 'ocr'; desc = 'leer la pantalla' })
     }
     # --- seguir leyendo donde se quedo ---
     # el complemento es OBLIGATORIO: un "sigue" o un "dale" sueltos son dos de
@@ -10044,11 +10094,16 @@ function Invoke-FastCommand([string]$text) {
                     if ($pr) { [AX]::ShowWindow($pr.MainWindowHandle, 9) | Out-Null; [void][AX]::ForceForeground($pr.MainWindowHandle) }
                 }
                 'ocr' {
-                    Set-UI 'pensando' 'leyendo la pantalla'
+                    # Sin zona, la pantalla entera de siempre. Con zona (C15, 20/09) se
+                    # captura SOLO ese trozo, que es menos trabajo que antes: leer una
+                    # esquina nunca puede tardar más que leerlo todo.
+                    $zonaOcr = [string]$a.zona
+                    $dondeOcr = if ($a.zonaTxt) { [string]$a.zonaTxt } else { 'la pantalla' }
+                    Set-UI 'pensando' "leyendo $dondeOcr"
                     $png = Join-Path $TmpDir 'pantalla.png'
-                    Save-Captura $png | Out-Null
+                    Save-Captura $png $zonaOcr | Out-Null
                     $texto = Invoke-OCR $png
-                    if (-not $texto) { $a.desc = 'No veo texto en la pantalla' }
+                    if (-not $texto) { $a.desc = "No veo texto en $dondeOcr" }
                     else {
                         try { [System.IO.File]::WriteAllText((Join-Path $TmpDir 'ocr.txt'), $texto, (New-Object System.Text.UTF8Encoding($false))) } catch {}
                         $script:ultimaLectura = $texto
@@ -12502,9 +12557,43 @@ function Await-WinRT($op, $tipo, [int]$esperaMs = 8000) {
     return $t.Result
 }
 
+# QUÉ TROZO DE LA PANTALLA (C15, 20/09). Devuelve el rectángulo de "arriba",
+# "abajo-derecha", "centro"... en FRACCIONES y no en píxeles, para que valga igual
+# en la pantalla de 7 pulgadas de la consola y en un monitor de casa.
+# El SOLAPE del 6 % no es un capricho: un renglón que cruce justo por la mitad se
+# partiría en dos y el OCR leería medias palabras, que es peor que no leer nada.
+# Así cada mitad se lleva un pellizco de la de al lado.
+# El centro es el 20-80 % de cada lado: el cartel que sale en medio de un juego cabe
+# de sobra ahí, y se queda fuera todo el HUD de los bordes, que es justo el ruido que
+# hacía inútil leer la pantalla entera mientras juegas.
+function Get-ZonaRect([int]$x, [int]$y, [int]$w, [int]$h, [string]$zona) {
+    if (-not $zona) { return @{ x = $x; y = $y; w = $w; h = $h } }
+    $sol = 0.06
+    $x0 = 0.0; $x1 = 1.0; $y0 = 0.0; $y1 = 1.0
+    if ($zona -eq 'centro') {
+        $x0 = 0.2; $x1 = 0.8; $y0 = 0.2; $y1 = 0.8
+    } else {
+        if     ($zona -like '*arriba*')    { $y1 = 0.5 + $sol }
+        elseif ($zona -like '*abajo*')     { $y0 = 0.5 - $sol }
+        if     ($zona -like '*izquierda*') { $x1 = 0.5 + $sol }
+        elseif ($zona -like '*derecha*')   { $x0 = 0.5 - $sol }
+    }
+    $nx = $x + [int][Math]::Round($w * $x0)
+    $ny = $y + [int][Math]::Round($h * $y0)
+    $nw = [int][Math]::Round($w * ($x1 - $x0))
+    $nh = [int][Math]::Round($h * ($y1 - $y0))
+    # un recorte ridículo no lo lee nadie: si la ventana ya era diminuta, entera.
+    if ($nw -lt 80 -or $nh -lt 40) { return @{ x = $x; y = $y; w = $w; h = $h } }
+    return @{ x = $nx; y = $ny; w = $nw; h = $nh }
+}
+
 # Guarda un PNG de la ventana en primer plano (o de toda la pantalla si no
 # hay ventana util). Esconde la capsula un instante para que no salga.
-function Save-Captura([string]$ruta) {
+# Con $zona guarda SOLO ese trozo (ver Get-ZonaRect). El recorte se hace aquí, al
+# copiar de la pantalla, y no después sobre el PNG: así se copian menos píxeles y el
+# OCR mira menos área, que es lo que hace que leer una esquina salga más rápido que
+# leer la pantalla entera, y no al revés.
+function Save-Captura([string]$ruta, [string]$zona = '') {
     if ($UiNuevaOn) { Send-UIEvento 'oculta'; Start-Sleep -Milliseconds 180 }
     $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
     $x = $b.Left; $y = $b.Top; $w = $b.Width; $h = $b.Height
@@ -12518,6 +12607,10 @@ function Save-Captura([string]$ruta) {
             }
         }
     } catch {}
+    if ($zona) {
+        $zR = Get-ZonaRect $x $y $w $h $zona
+        $x = $zR.x; $y = $zR.y; $w = $zR.w; $h = $zR.h
+    }
     $bmp = New-Object System.Drawing.Bitmap($w, $h)
     $g = [System.Drawing.Graphics]::FromImage($bmp)
     try {
