@@ -338,6 +338,15 @@ Titulo "2n46. Abrir un juego que no es de Steam (y que siga estando vigilado)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-juegos-xbox.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:sigue estando vigilado)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n48. Las doce de la noche son las doce de la noche"
+# 21/09, de la tanda de agentes. El mismo fallo en DOS sitios -las reglas por hora y los
+# recordatorios, que tienen las dos lineas copiadas-: el 12 era el unico numero que no
+# seguia la regla, y "de la manana" y "de la noche" estaban cambiados. Doce horas de
+# error, y no solo en un aviso: "a las doce de la noche pon modo noche" bajaba el brillo
+# al MEDIODIA. De paso, la madrugada no se reconocia y caia en "hora pequena = tarde".
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-horas.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la madrugada no es la tarde)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n47. La noche que se quedo muda: el .part compartido y el respaldo que no existia"
 # 21/09. 20/09 23:39:12, en mitad de una charla: los dos workers de voz escribieron en el
 # MISMO temporal, uno reventro con WinError 32, y el respaldo de Piper no se podia
@@ -385,7 +394,8 @@ foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     # estuviera ahi, asi que una caida de 88 a 5 pasaba EN VERDE: justo lo que este banco
     # existe para evitar. Las que fallan son controles a proposito, por eso el listero es
     # un minimo y no una igualdad: lo que no puede es BAJAR.
-    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 308 }   # 308 desde el 21/09 (D7: RAM, sordina y la muletilla del recordatorio). Antes 289 desde el 21/09: MEDIDO (287 + 2 saltadas). +9 de "mira la pantalla". Antes 280, 260, 254, 242, 238, 234, 228, 221
+    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 317 }   # 317 desde el 21/09 (las doce de la noche). Antes 308 (D7: RAM, sordina y la
+# muletilla del recordatorio) y 289 antes de eso: MEDIDO (287 + 2 saltadas). +9 de "mira la pantalla". Antes 280, 260, 254, 242, 238, 234, 228, 221
     $n = -1
     if ($linea -and ("$linea" -match 'reconocidas en local:\s*(\d+)')) { $n = [int]$Matches[1] }
     # LOS JUEGOS QUE YA NO TIENES NO SON UNA REGRESION (19/09): las lineas con

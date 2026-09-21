@@ -12201,7 +12201,7 @@ function Invoke-ReglaVoz([string]$text) {
     elseif ($p -match '^cuando\s+(?:queden|quede|haya|tenga)\s+menos\s+de\s+(\d{1,4})\s*(?:gigas?|gb|g)\b\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
         $tipo = 'disco'; $valor = [string][int]$Matches[1]; $accion = $Matches[2].Trim()
     }
-    elseif ($p -match '^(?:todos los dias|cada dia|diariamente|siempre)?\s*a\s+las?\s+(\d{1,2}|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)(?::(\d{2})|\s+y\s+media|\s+y\s+cuarto)?\s*(de la manana|de la tarde|de la noche|am|pm)?\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
+    elseif ($p -match '^(?:todos los dias|cada dia|diariamente|siempre)?\s*a\s+las?\s+(\d{1,2}|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)(?::(\d{2})|\s+y\s+media|\s+y\s+cuarto)?\s*(de la manana|de la tarde|de la noche|de la madrugada|am|pm)?\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
         # Los grupos, COPIADOS antes de nada: el primer -match de las lineas de
         # abajo (la franja) reescribe $Matches entero y $Matches[4] desaparecia.
         # 'a las 10 de la noche pon modo noche' reventaba con una excepcion que
@@ -12214,7 +12214,16 @@ function Invoke-ReglaVoz([string]$text) {
         if ($g2) { $m = [int]$g2 } elseif ($g0 -match 'y media') { $m = 30 } elseif ($g0 -match 'y cuarto') { $m = 15 }
         $franja = $g3
         if ($franja -match 'tarde|noche|pm' -and $h -lt 12) { $h += 12 }
-        if ($franja -match 'manana|am' -and $h -eq 12) { $h = 0 }
+        # LAS DOCE ES EL UNICO NUMERO QUE NO SIGUE LA REGLA (21/09). La linea de arriba
+        # suma 12 solo si la hora es MENOR que 12, asi que el 12 no lo tocaba; y esta
+        # miraba 'manana|am', que es justo al reves de como se dice en espanol:
+        #   las doce de la NOCHE son las 00:00   (se guardaba 12:00, el mediodia)
+        #   las doce de la MANANA son las 12:00  (se guardaba 00:00, la medianoche)
+        # Error de doce horas exactas, y no solo en un aviso: 'a las doce de la noche pon
+        # modo noche' le bajaba el brillo al MEDIODIA, jugando.
+        # 'manana' y 'madrugada' no contienen 'am' (comprobado), asi que la alternancia
+        # no se pisa a si misma.
+        if ($franja -match 'noche|madrugada|am' -and $h -eq 12) { $h = 0 }
         $tipo = 'hora'; $valor = ('{0:00}:{1:00}' -f $h, $m); $accion = $g4.Trim()
     }
     elseif ($p -match '^cada\s+(\d+)\s*(minutos?|horas?)\s*,?\s*((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
@@ -12510,7 +12519,7 @@ function Invoke-RecordatorioVoz([string]$text) {
     # "11:30" llega como "11 30": ConvertTo-Plain cambia los dos puntos por un
     # espacio, y con solo ':' el patron se quedaba con las 11 y guardaba "30 de
     # la noche que apague el horno" como texto del recordatorio (12/09).
-    if ($resto -match '^(?:a\s+las?\s+)(\d{1,2}|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)(?:(?::|\s+)(\d{2})\b|\s+y\s+media|\s+y\s+cuarto|\s+menos\s+cuarto)?\s*(de la manana|de la tarde|de la noche|am|pm)?\s*(.*)$') {
+    if ($resto -match '^(?:a\s+las?\s+)(\d{1,2}|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)(?:(?::|\s+)(\d{2})\b|\s+y\s+media|\s+y\s+cuarto|\s+menos\s+cuarto)?\s*(de la manana|de la tarde|de la noche|de la madrugada|am|pm)?\s*(.*)$') {
         # mismos cuidados que en las reglas: copiar ANTES de volver a usar
         # -match. Aqui el fallo era mudo: $resto quedaba vacio y contestaba
         # '¿Que te recuerdo?', asi que creias haber puesto el recordatorio y no
@@ -12520,7 +12529,16 @@ function Invoke-RecordatorioVoz([string]$text) {
         if ($g2) { $min = [int]$g2 } elseif ($g0 -match 'y media') { $min = 30 } elseif ($g0 -match 'y cuarto') { $min = 15 } elseif ($g0 -match 'menos cuarto') { $min = 45; $hora-- }
         $franja = $g3; $resto = $g4
         if ($franja -match 'tarde|noche|pm' -and $hora -lt 12) { $hora += 12 }
-        if ($franja -match 'manana|am' -and $hora -eq 12) { $hora = 0 }
+        # LAS DOCE ES EL UNICO NUMERO QUE NO SIGUE LA REGLA (21/09). La linea de arriba
+        # suma 12 solo si la hora es MENOR que 12, asi que el 12 no lo tocaba; y esta
+        # miraba 'manana|am', que es justo al reves de como se dice en espanol:
+        #   las doce de la NOCHE son las 00:00   (se guardaba 12:00, el mediodia)
+        #   las doce de la MANANA son las 12:00  (se guardaba 00:00, la medianoche)
+        # Error de doce horas exactas, y no solo en un aviso: 'a las doce de la noche pon
+        # modo noche' le bajaba el brillo al MEDIODIA, jugando.
+        # 'manana' y 'madrugada' no contienen 'am' (comprobado), asi que la alternancia
+        # no se pisa a si misma.
+        if ($franja -match 'noche|madrugada|am' -and $hora -eq 12) { $hora = 0 }
         # sin franja y hora "pequena": si ya paso de manana, sera de tarde
         if (-not $franja -and $hora -le 7 -and $hora -ge 1 -and $null -eq $fecha) { $hora += 12 }
     }
