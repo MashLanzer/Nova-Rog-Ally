@@ -145,6 +145,35 @@ comp("pero con el dictado abierto no caduca nunca", not _caduca(dict(t=100.0, di
 comp("y se espera menos que el tope del dictado, que ya la cierra por el otro lado",
      ns["ACT_ESPERA_MAX"] < ns["DICTADO_MAX"])
 
+
+# --- CADA MODELO SELLA SU MARCA AL CARGARSE (20/09) ---
+# El oido fino se cargaba a las 18:54:31 y se soltaba a las 18:54:34, TRES SEGUNDOS
+# despues, porque _preciso_uso seguia en 0.0: el camino del ingles cargaba el modelo sin
+# sellar la marca, y la cuenta daba 29.832.415 minutos sin usarse (56 anos). A las 18:57:04
+# hubo que cargarlo otra vez, perdiendo 3,2 s en mitad de una orden.
+#
+# NO BASTA CON QUE SE SELLE "EN ALGUN SITIO", y esa fue la primera version de esta
+# comprobacion: _preciso_uso SI se sellaba, en el camino del reintento, y aun asi el fallo
+# estaba. Lo que hay que exigir es que se selle DENTRO DE LA FUNCION QUE CARGA, que es el
+# unico punto por el que pasan todos los caminos. Probado quitando el sello a proposito:
+# la primera version seguia en verde, esta se pone roja.
+print("")
+print("-- cada modelo sella su marca de uso al cargarse --")
+import re as _re
+_raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_fuente = open(os.path.join(_raiz, "wake_vosk.py"), encoding="utf-8").read()
+_pares = [("modelo_preciso", "_preciso_uso"), ("modelo_parakeet", "_parakeet_uso"),
+          ("modelo_ultimo", "_ultimo_uso")]
+for _fn, _marca in _pares:
+    _m = _re.search(r"^def " + _fn + r"\(.*?(?=^def |\Z)", _fuente, _re.M | _re.S)
+    if not _m:
+        comp("%s existe" % _fn, False, "no la encuentro en wake_vosk.py")
+        continue
+    _cuerpo = _m.group(0)
+    comp("%s sella %s al cargar" % (_fn, _marca),
+         _re.search(_re.escape(_marca) + r"\s*=\s*time\.time\(\)", _cuerpo) is not None,
+         "" if _re.search(_re.escape(_marca) + r"\s*=\s*time\.time\(\)", _cuerpo) else "NO lo sella: se soltaria nada mas cargarlo")
+
 print("")
 print("todo correcto" if fallos == 0 else "%d casos MAL" % fallos)
 sys.exit(1 if fallos else 0)

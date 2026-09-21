@@ -488,7 +488,7 @@ RAM_MIN_PRECISO = 900.0
 
 
 def modelo_preciso():
-    global _preciso, _preciso_roto
+    global _preciso, _preciso_roto, _preciso_uso
     if _preciso is not None or _preciso_roto or not MODELO_PRECISO:
         return _preciso
     _libre = ram_libre_mb()
@@ -501,6 +501,14 @@ def modelo_preciso():
         from faster_whisper import WhisperModel
         _preciso = WhisperModel(MODELO_PRECISO, device="cpu", compute_type="int8",
                                 cpu_threads=HILOS_PRECISO)
+        # SE SELLA AQUI, NO EN QUIEN LO LLAMA (20/09). _preciso_uso solo se ponia en el
+        # camino del reintento (mas abajo), y repasar_si_ingles carga el modelo sin
+        # sellarlo: soltar_preciso_si_toca calculaba entonces time.time() - 0.0 y le salia
+        # que llevaba 29.832.415 minutos sin usarse -56 anos-, asi que lo soltaba en la
+        # vuelta siguiente. El 20/09 se cargo a las 18:54:31, se solto a las 18:54:34, y a
+        # las 18:57:04 hubo que cargarlo otra vez perdiendo 3,2 s EN MITAD de una orden.
+        # Sellandolo aqui ningun camino nuevo puede volver a desincronizarlo.
+        _preciso_uso = time.time()
         anota("oido fino '%s' cargado en %.1f s" % (MODELO_PRECISO, time.time() - t0))
     except Exception as e:
         _preciso_roto = True
@@ -514,6 +522,7 @@ def modelo_preciso():
 # pide "base" y Whisper repasa el mismo audio (ver atender_reintento). Si no esta
 # instalado (modelos/*parakeet*) o hay un juego delante, todo sigue con Whisper como antes.
 _parakeet = None
+_parakeet_uso = 0.0      # cuando se uso por ultima vez (ver PARAKEET NO SE SUELTA DE GOLPE)
 _parakeet_roto = False
 
 
@@ -551,7 +560,7 @@ def hacer_sitio_a_parakeet(libre):
 
 
 def modelo_parakeet():
-    global _parakeet, _parakeet_roto
+    global _parakeet, _parakeet_roto, _parakeet_uso
     if _parakeet is not None or _parakeet_roto:
         return _parakeet
     _libre = ram_libre_mb()
@@ -575,6 +584,7 @@ def modelo_parakeet():
         _parakeet = sherpa_onnx.OfflineRecognizer.from_transducer(
             encoder=fichero("encoder*.onnx"), decoder=fichero("decoder*.onnx"), joiner=fichero("joiner*.onnx"),
             tokens=fichero("tokens.txt"), num_threads=HILOS_PRECISO, decoding_method="greedy_search", model_type="nemo_transducer")
+        _parakeet_uso = time.time()
         anota("parakeet cargado en %.1f s" % (time.time() - t0))
     except Exception as e:
         _parakeet_roto = True
@@ -668,11 +678,13 @@ def repasar_si_ingles(rapido, bloques):
 
 def oir_parakeet(bloques):
     """Lo que oye Parakeet, o "" (sin modelo, jugando, casi sin audio o sin cubrir la voz)."""
+    global _parakeet_uso
     if not bloques or jugando():
         return ""
     m = modelo_parakeet()
     if m is None:
         return ""
+    _parakeet_uso = time.time()   # se acaba de usar: el plazo de soltarlo cuenta desde aqui
     # LA CARRERA CON EL JUEGO (18/09, 22:12): cargar tarda 11,5 s, el juego paso delante
     # mientras tanto y Parakeet tardo 32,9 s en 14 s de audio con 400 MB libres. Se mira
     # otra vez: con juego, lo oye Whisper base, que ya esta en la RAM y no la pelea.
@@ -706,13 +718,29 @@ def marcar_parakeet():
         escribir(os.path.join(os.path.dirname(NIVEL), "dictado-motor.txt"), "parakeet")
 
 
+# PARAKEET NO SE SUELTA DE GOLPE (20/09). Esto soltaba el modelo en cuanto veia un juego,
+# sin mirar el reloj. El 18/09 a las 22:11:40 se cargo en 11,5 s, a las 22:12:13 hizo una
+# transcripcion... y a las 22:12:15, DOS SEGUNDOS despues, se solto. La siguiente orden
+# mientras juega vuelve a pagar la carga entera, y con un juego delante esa carga cuesta el
+# doble: 8,4 s de mediana frente a 4,8 s sin juego, con maximos de 11,5 s.
+# La regla se escribio pensando en la RAM ("jugando, la RAM es del juego") y para el oido
+# fino tiene sentido: es grande y se usa a rachas. Pero Parakeet es el motor de TODAS las
+# ordenes y ocupa mucho menos. Se le da el mismo trato que al oido fino: un plazo. Si de
+# verdad no se usa en ese rato, se suelta igual y el juego se queda con la RAM.
+PARAKEET_SOLTAR_JUGANDO = 300.0     # 5 min sin usarlo con un juego delante, el mismo plazo
+
+
 def soltar_parakeet_si_toca():
     global _parakeet
-    if _parakeet is not None and jugando():
-        _parakeet = None
-        import gc
-        gc.collect()
-        anota("parakeet soltado: hay un juego delante")
+    if _parakeet is None or not jugando():
+        return
+    quieto = time.time() - _parakeet_uso
+    if quieto < PARAKEET_SOLTAR_JUGANDO:
+        return
+    _parakeet = None
+    import gc
+    gc.collect()
+    anota("parakeet soltado: hay un juego delante y lleva %.0f min sin usarse" % (quieto / 60.0))
 
 
 _ultimo = None
@@ -724,7 +752,7 @@ def modelo_ultimo():
     """Turbo, cargado solo si llega a hacer falta. Antes se suelta small: los dos a la
     vez son ~1,5 GB y la Ally no va sobrada (small se recarga en ~3 s si vuelve a hacer
     falta)."""
-    global _ultimo, _ultimo_roto, _preciso
+    global _ultimo, _ultimo_roto, _preciso, _ultimo_uso
     if _ultimo is not None or _ultimo_roto or not MODELO_ULTIMO:
         return _ultimo
     try:
@@ -734,6 +762,7 @@ def modelo_ultimo():
         t0 = time.time()
         from faster_whisper import WhisperModel
         _ultimo = WhisperModel(MODELO_ULTIMO, device="cpu", compute_type="int8", cpu_threads=HILOS_PRECISO)
+        _ultimo_uso = time.time()
         anota("ultimo recurso '%s' cargado en %.1f s" % (MODELO_ULTIMO, time.time() - t0))
     except Exception as e:
         _ultimo_roto = True
