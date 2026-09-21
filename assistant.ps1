@@ -219,7 +219,7 @@ $FILLER_GLOBAL = '\b(?:tambien|ademas|porfa|porfavor|por favor|gracias|oye|okey|
 # mitad de la frase: "busca cuanto vale una ps5" acabaria buscando "cuanto una ps5".
 # "mira" SOLO delante de un verbo de orden (18/09): "mira, ponme un temporizador de 5 minutos"
 # se descarto entero. "mira si hay algo colgado" sigue siendo orden: el lookahead no la toca.
-$FILLER_INI = '^(?:(?:y|luego|despues|ahora|entonces|a mi|ami|ya me|me|pues|este|hey|ey|hola|nova|ok|okey|okay|vale|bueno|mira(?=\s+(?:pon|ponme|abre|abreme|cierra|sube|baja|pausa|reproduce|busca|buscame|quita|activa|desactiva|lanza|dime|di)\b))\s+)+'
+$FILLER_INI = '^(?:(?:y|luego|despues|ahora|entonces|a mi|ami|ya me|me|pues|este|hey|ey|hola|nova|ok|okey|okay|vale|bueno|mira(?=\s+(?:pon|ponme|abre|abreme|cierra|sube|baja|pausa|reproduce|busca|buscame|quita|activa|desactiva|lanza|dime|di)\b)|sabes?\s+que(?=\s+(?:pon|ponme|abre|abreme|cierra|sube|baja|pausa|reproduce|busca|buscame|quita|activa|desactiva|lanza|dime|di)\b))\s+)+'
 # LA CONDICION DEL FINAL (19/09): "cierra el explorador de archivos si esta abierto" se fue
 # a la API a traducir y volvio como 'cierra explorador'; la coletilla sobraba entera, porque
 # cerrar lo que no esta abierto ya no hace nada. Va anclada al final y solo si queda orden
@@ -355,6 +355,13 @@ function Repair-Verb([string]$f) {
     # "describe mi fondo de pantalla" se corregia a "escribe ..." y TECLEABA el texto en la
     # ventana que hubiera delante (15/09)
     if ($primera -match '^(?:describe|describeme|describir|describelo|describela)$') { return $f }
+    # NI UNA PALABRA SEGUIDA DE "QUE" (20/09). "sabes que cierra el elden ring" se partia
+    # en "sabe que" + "cierra el elden ring", y aqui "sabe" se "reparaba" a "sube" por
+    # estar a una letra: nacia un fragmento falso ("sube que") que no reconoce nadie, y la
+    # regla de todo-o-nada se llevaba por delante el trozo BUENO. 39 s, una llamada de
+    # pago y una pregunta de confirmacion, para una orden que en local cuesta menos de 1 s.
+    # Nadie dice "sube que..." ni "abre que...": detras de un verbo de verdad no va "que".
+    if ($f -match '^\S+\s+que\b') { return $f }
     $mejor = $null
     $mejorD = 999
     foreach ($v in $VERBOS_LISTA) {
@@ -2952,6 +2959,24 @@ function Resolve-Fragment([string]$f) {
             if (-not $t) { return @(@{ kind = 'decir'; desc = "No pude leer la bateria" }) }
             return @(@{ kind = 'decir'; desc = $t })
         }
+        # LOS NOMBRES, QUE YA LOS TIENE (20/09). El 20/09 a las 19:03:58 Nova contesto
+        # "Tienes 14 juegos instalados en Steam", y doce segundos despues, al preguntarle
+        # cuales, dijo "No tengo acceso a la lista completa de nombres de tus juegos". Era
+        # MENTIRA: $script:Juegos trae .nombre y .ultimo, y los acababa de leer para poder
+        # contar los 14. La pregunta caia en la charla, y la charla contesta con sinceridad
+        # sobre si misma pero no sabe nada de la biblioteca.
+        '^(?:(?:me|te)\s+)?(?:puedes|podrias|podes)?\s*(?:dime|di|dame|decime|decir|dar)?\s*(?:cuales son|como se llaman|los nombres de|el nombre de|que juegos son)\s*(?:mis|esos|los|tus)?\s*juegos' {
+            [void](Update-Juegos)
+            $jsN = @($script:Juegos | Sort-Object -Property @{ Expression = { [int]$_.ultimo } } -Descending)
+            if ($jsN.Count -eq 0) { return @(@{ kind = 'decir'; desc = 'No veo ningun juego instalado en Steam' }) }
+            # los seis mas recientes y cuantos quedan: decirlos los catorce de un tiron es
+            # un chaparron que nadie retiene, y braya odia que se enrolle
+            $muestraN = @($jsN | Select-Object -First 6 | ForEach-Object { $_.nombre })
+            $txtN = ($muestraN -join ', ')
+            $restoN = $jsN.Count - $muestraN.Count
+            if ($restoN -gt 0) { $txtN += " y otros $restoN" }
+            return @(@{ kind = 'decir'; desc = "Por lo ultimo que jugaste: $txtN" })
+        }
         # TRES COSAS QUE ESTABAN MAL AQUI (20/09, D7, con frases del uso real):
         # 1. Contaba $script:Juegos SIN refrescarla, asi que decia lo que hubiera en ese
         #    momento: en pruebas seguidas salio "Tienes 1 juegos" y "Tienes 14 juegos"
@@ -2973,7 +2998,19 @@ function Resolve-Fragment([string]$f) {
             if ($nJ -eq 0) { return @(@{ kind = 'decir'; desc = 'No veo ningun juego instalado en Steam' }) }
             $plJ = ""
             if ($nJ -ne 1) { $plJ = 's' }
-            return @(@{ kind = 'decir'; desc = ("Tienes " + $nJ + " juego" + $plJ + " instalado" + $plJ + " en Steam") })
+            # ANTICIPARSE SIN HABLAR DE MAS (20/09). Nova contesto "Tienes 14 juegos" y
+            # DOCE SEGUNDOS despues braya pregunto cuales eran; esa pregunta se fue a la
+            # charla, tardo 10 s y encima mintio ("no tengo acceso a la lista completa de
+            # nombres de tus juegos"). Los nombres estaban en memoria: se acababan de leer
+            # para poder contar los 14. Decir los tres ultimos en la misma frase son tres
+            # palabras mas, no un discurso, y ahorra el viaje entero.
+            # Esta es la anticipacion barata: adelantar lo que ya se sabe que viene detras,
+            # no adivinar el futuro.
+            $ultJ = @($script:Juegos | Sort-Object -Property @{ Expression = { [int]$_.ultimo } } -Descending |
+                      Select-Object -First 3 | ForEach-Object { $_.nombre })
+            $colaJ = ''
+            if ($ultJ.Count -gt 0) { $colaJ = ". Los ultimos que tocaste: " + ($ultJ -join ', ') }
+            return @(@{ kind = 'decir'; desc = ("Tienes " + $nJ + " juego" + $plJ + " instalado" + $plJ + " en Steam" + $colaJ) })
         }
         # con ventana de tiempo PRIMERO: "deshaz todo lo de este minuto" tambien
         # encaja con el patron de abajo, y ese se quedaria solo con lo ultimo.
@@ -4150,6 +4187,22 @@ function Resolve-Fragment([string]$f) {
         if ((Resolve-Target $restoPeg) -or (Find-JuegoPorSonido $restoPeg $restoPeg 0.5)) {
             return (Resolve-Fragment "$verboPeg $restoPeg")
         }
+    }
+    # "ANDA, CIERRA STEAM" ABRIA STEAM (20/09). 'anda|ve|entra|mete' y sus formas son
+    # verbos de ABRIR en $VERBOS (assistant.ps1:207), pero braya los usa tambien como
+    # muletilla -habla latinoamericano y su propia nota lo recoge-. Con la muletilla
+    # delante, el analizador tomaba "anda" como el verbo y "cierra Steam" como su objeto,
+    # encontraba "steam" dentro y ABRIA. La orden justo contraria a la que se pidio, que
+    # es el unico error que aqui no se perdona.
+    # El propio codigo ya sabia que estos verbos son ambiguos: en assistant.ps1:374 se
+    # dejan fuera de $VERBOS_CORTE "por ambiguos en habla normal". Faltaba el mismo
+    # razonamiento aqui.
+    # La regla es estrecha a proposito: solo cuando lo que viene detras EMPIEZA por otro
+    # verbo. "metete a steam" o "ve a youtube" siguen abriendo como siempre, porque
+    # "a steam" no empieza por un verbo. El (?:y\s+)? se traga la "y" que mete el propio
+    # partidor de frases.
+    if ($f -match ('^(?:anda|andate|ve|vete|entra|entrate|mete|metete)\s*,?\s+(?:y\s+)?(' + $VERBOS + '\b.*)$')) {
+        return (Resolve-Fragment $Matches[1])
     }
     # --- abrir algo, con las variantes latinas de "abrir/ir a" ---
     # el lookahead suelta "pon spotify al 40": eso es volumen de esa app, no
@@ -11204,7 +11257,15 @@ $JuegoAvisoMin = [int](Get-Cfg 'juego' 'avisoMinutos' 120)
 #   partidas de verdad: 3 min 31 s, 4 min 10 s, 12 min 50 s, 33 min 55 s, 59 min 39 s, 6 h 14 min
 # El hueco esta entre 1 min 40 s y 3 min 31 s, asi que el corte va en 3 minutos: deja
 # fuera las cinco falsas con casi el doble de margen y no se come ninguna partida real.
-$JuegoSesionMin = [int](Get-Cfg 'juego' 'sesionMinima' 3)
+# OJO AL NOMBRE (20/09). Esto se llamaba $JuegoSesionMin, y PowerShell NO distingue
+# mayusculas en los nombres de variable: era LA MISMA que $script:juegoSesionMin, el
+# acumulador de minutos de tres lineas mas arriba. Se pisaban. El umbral de 3 minutos
+# que se puso el 19/09 -justo para no cantar cierres falsos de ELDEN RING- no ha
+# funcionado NUNCA: nacio roto en el commit c714970 y la linea 'sin aviso' no aparece
+# ni una vez en todo el log. El 20/09 a las 19:00:08 anuncio 'cerraste ELDEN RING' con
+# 0 minutos de partida, once segundos despues de abrirlo, y de ahi salio media hora de
+# lio con braya. El nombre nuevo no colisiona con nada.
+$JuegoMinimoPartida = [int](Get-Cfg 'juego' 'sesionMinima' 3)
 $script:juegoBrilloAntes = $null
 $script:juegoAvisado = $false
 
@@ -12209,7 +12270,9 @@ function Exit-Juego([string]$nombre) {
     # 3 min 51 s: el juego nunca se habia cerrado, era un alt-tab. Por eso aqui ya no
     # sale ningun aviso de cierre: se suman los minutos jugados y se apunta una salida
     # EN DUDA que Test-SalidaJuego confirma cuando el PROCESO ha muerto de verdad.
-    $minsFg = [int](($sw.ElapsedMilliseconds - $script:juegoDesde) / 60000)
+    # [int] REDONDEA en PowerShell: 40 s daban 1 minuto entero, y tres alt-tabs de 40 s
+    # sumaban 3 minutos sin haber jugado ni dos. Con Floor, un minuto es un minuto.
+    $minsFg = [int][Math]::Floor(($sw.ElapsedMilliseconds - $script:juegoDesde) / 60000)
     if ($minsFg -gt 0 -and $minsFg -le 720) { $script:juegoSesionMin += $minsFg }
     # IDEAS 19 y 20: cuanto se juega cada dia. Se apunta AL CERRAR, que es cuando se
     # sabe lo que duro la partida; asi "cuanto llevo hoy" no se lo inventa nadie.
@@ -12299,8 +12362,8 @@ function Test-SalidaJuego {
     $script:juegoSalida = $null
     $minsS = [int]$script:juegoSesionMin
     $script:juegoSesionMin = 0
-    if ($minsS -lt $JuegoSesionMin) {
-        Log "JUEGO: $($s.nombre) cerrado con $minsS min de partida (minimo $JuegoSesionMin): sin aviso"
+    if ($minsS -lt $JuegoMinimoPartida) {
+        Log "JUEGO: $($s.nombre) cerrado con $minsS min de partida (minimo $JuegoMinimoPartida): sin aviso"
         return
     }
     Log "JUEGO: cerrado de verdad $($s.nombre) ($minsS min de partida)"

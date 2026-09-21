@@ -311,3 +311,23 @@ no, queria abre el navegador
 # --- control: estas NO son una correccion y deben seguir yendo a la IA ---
 no se que dije
 no me gusta esa cancion
+# --- de la sesion de voz del 20/09, lo que fallo de verdad ---
+# "anda, cierra Steam" ABRIA Steam: anda/ve/entra/mete son verbos de abrir y hacian de verbo
+anda cierra steam
+ve cierra el navegador
+entra pon musica en youtube
+anda sube el volumen
+# y lo que ya iba, que tiene que seguir yendo
+metete a steam
+ve a youtube
+# "sabes que" convertia la orden en 'sube que' y se tiraba la frase entera
+sabes que cierra el elden ring   @si-tienes:ELDEN RING
+sabe que cierra el del ring   @si-tienes:ELDEN RING
+sabes que pon musica
+# los nombres de los juegos: Nova dijo que no tenia acceso, y los acababa de leer
+dime los nombres de esos juegos
+me puedes decir los nombres de esos juegos
+cuales son mis juegos
+# --- control: estas NO son ordenes con muletilla ---
+sabes que hora es
+sabes que me gusta el rock
