@@ -134,11 +134,25 @@ $usosViejo = @([regex]::Matches($fuenteC4, '(?m)^[^#
 Comp 'el nombre viejo solo queda en el comentario que lo explica' ($usosViejo.Count -eq 0) ("$($usosViejo.Count) usos fuera de comentario")
 
 # 2. y que la comparacion muerda de verdad
-foreach ($cas in @(@{ mins = 0; avisa = $false }, @{ mins = 2; avisa = $false }, @{ mins = 3; avisa = $true }, @{ mins = 40; avisa = $true })) {
-    $JuegoMinimoPartida = 3
-    $minsS = [int]$cas.mins
-    $avisaria = -not ($minsS -lt $JuegoMinimoPartida)
-    Comp ("con $($cas.mins) min de partida " + $(if ($cas.avisa) { 'avisa' } else { 'se calla' })) ($avisaria -eq $cas.avisa)
+# ESTO PROBABA EL OPERADOR -lt DE POWERSHELL, NO EL CODIGO (21/09). El bucle de abajo
+# fijaba $JuegoMinimoPartida = 3 a mano y reescribia la comparacion dentro de la prueba:
+#     $avisaria = -not ($minsS -lt $JuegoMinimoPartida)
+# Eso es una COPIA de la comparacion, no la comparacion. Si manana alguien cambia el if de
+# assistant.ps1 -o lo borra-, este bloque sigue en verde tan contento. Y el fallo que
+# obligo a escribir esta prueba era exactamente ese: el umbral no existia porque la
+# variable se pisaba, o sea que el if estaba ahi y no mordia.
+# Asi que primero se comprueba que el if ESTA, con su forma, sobre el archivo de verdad.
+Comp 'el cierre se calla de verdad por debajo del minimo' `
+    ($fuenteC4 -match '\$minsS = \[int\]\$script:juegoSesionMin[\s\S]{0,240}?if \(\$minsS -lt \$JuegoMinimoPartida\) \{')
+Comp 'y lo apunta en el log, para poder mirarlo luego' ($fuenteC4 -match 'min de partida \(minimo \$JuegoMinimoPartida\): sin aviso')
+# y la aritmetica, con la comparacion SACADA del archivo, no escrita aqui
+$mCmp = [regex]::Match($fuenteC4, '(?m)^\s*if \(\$minsS -lt \$JuegoMinimoPartida\) \{')
+if (-not $mCmp.Success) { Comp 'encuentro la comparacion en assistant.ps1' $false } else {
+    $cmp = [scriptblock]::Create('param($minsS, $JuegoMinimoPartida) ' + ($mCmp.Value.Trim() -replace '\{$', '') + ' { return $false }; return $true')
+    foreach ($cas in @(@{ mins = 0; avisa = $false }, @{ mins = 2; avisa = $false }, @{ mins = 3; avisa = $true }, @{ mins = 40; avisa = $true })) {
+        $avisaria = & $cmp ([int]$cas.mins) 3
+        Comp ("con $($cas.mins) min de partida " + $(if ($cas.avisa) { 'avisa' } else { 'se calla' })) ($avisaria -eq $cas.avisa)
+    }
 }
 
 # 3. el contador ya no redondea: [int] de 40 s daba UN MINUTO entero, y tres alt-tabs

@@ -130,6 +130,18 @@ def main():
     src = io.open(FUENTE, encoding="utf-8-sig").read()
     crean = productores(src)
     leen = consumidores(src)
+
+    # UN SUELO PARA LOS PRODUCTORES (21/09). consumidores() si estaba protegida: si no
+    # encuentra el switch, se planta. productores() no: si el patron deja de casar devuelve
+    # {} sin quejarse, el bucle de abajo salta TODOS los tipos con un continue, malos queda
+    # vacio y se imprime "todo correcto". Una prueba que no ve nada no puede suspender: es
+    # el mismo accidente que probar-regex.ps1 lleva documentado desde el 19/09 y para el que
+    # ya se invento el $MINIMOS. Hoy salen 125 tipos creados.
+    if len(crean) < 100:
+        print("  MAL  solo veo %d tipos de accion creados (hoy hay 125 y el suelo es 100):" % len(crean))
+        print("       el patron que los busca ha dejado de casar. No es que esten bien:")
+        print("       es que esta prueba ha dejado de verlos.")
+        return 1
     print("  acciones que se crean: %d     ramas que las ejecutan: %d" % (len(crean), len(leen)))
 
     malos, perdonados = [], []

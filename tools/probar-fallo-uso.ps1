@@ -36,6 +36,16 @@ $null = New-Item -ItemType Directory -Path $dirUso -Force
 $DestinosFallo = Invoke-Expression (($ast.Find({ param($x)
     $x -is [System.Management.Automation.Language.AssignmentStatementAst] -and
     $x.Left.Extent.Text -eq '$DestinosFallo' }, $true)).Right.Extent.Text)
+# Y LO QUE Write-DestinoUso LLAMA POR DENTRO (21/09). El bloque que apunta si la orden
+# apuntaba a la anterior ("ponlo mas alto", "ahora al 50") usa ConvertTo-Plain y la tabla
+# $RE_REFERENCIA, y va envuelto en su propio try/catch VACIO. Sin traerlas aqui, el
+# CommandNotFoundException se lo tragaba ese catch en cada pasada: ni salia por stderr, ni
+# fallaba nada, y todas las lineas se escribian con ref vacio. La prueba pasaba en verde
+# sin haber ejercitado esa parte ni una vez.
+Invoke-Expression (Traer 'ConvertTo-Plain')
+$RE_REFERENCIA = Invoke-Expression (($ast.Find({ param($x)
+    $x -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+    $x.Left.Extent.Text -eq '$RE_REFERENCIA' }, $true)).Right.Extent.Text)
 Invoke-Expression (Traer 'Write-DestinoUso')
 # la llama Write-DestinoUso: sin traerla aqui el banco revienta con CommandNotFoundException
 Invoke-Expression (Traer 'Write-FalloDeducido')

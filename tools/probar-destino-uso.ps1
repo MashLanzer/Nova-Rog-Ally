@@ -30,6 +30,16 @@ $DestinosNeutros = Invoke-Expression (($ast.Find({ param($x)
 $DestinosFallo = Invoke-Expression (($ast.Find({ param($x)
     $x -is [System.Management.Automation.Language.AssignmentStatementAst] -and
     $x.Left.Extent.Text -eq '$DestinosFallo' }, $true)).Right.Extent.Text)
+# Y LO QUE Write-DestinoUso LLAMA POR DENTRO (21/09). El bloque que apunta si la orden
+# apuntaba a la anterior ("ponlo mas alto", "ahora al 50") usa ConvertTo-Plain y la tabla
+# $RE_REFERENCIA, y va envuelto en su propio try/catch VACIO. Sin traerlas aqui, el
+# CommandNotFoundException se lo tragaba ese catch en cada pasada: ni salia por stderr, ni
+# fallaba nada, y todas las lineas se escribian con ref vacio. La prueba pasaba en verde
+# sin haber ejercitado esa parte ni una vez.
+Invoke-Expression (Traer 'ConvertTo-Plain')
+$RE_REFERENCIA = Invoke-Expression (($ast.Find({ param($x)
+    $x -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+    $x.Left.Extent.Text -eq '$RE_REFERENCIA' }, $true)).Right.Extent.Text)
 Invoke-Expression (Traer 'Write-DestinoUso')
 # la llama Write-DestinoUso: sin traerla aqui el banco revienta con CommandNotFoundException
 Invoke-Expression (Traer 'Write-FalloDeducido')
@@ -67,6 +77,41 @@ function PonId([string]$v) { [System.IO.File]::WriteAllText($marca, $v) }
 
 Write-Host '  -- se apunta lo que hizo --'
 PonId '20260917-010203'
+# LA MARCA DE "APUNTA A LA ANTERIOR" (21/09). Hasta hoy este bloque de Write-DestinoUso
+# no se ejercitaba NUNCA: moria en su try/catch vacio porque faltaba ConvertTo-Plain aqui,
+# y ningun caso miraba el campo 'ref'. Sirve para saber que ordenes dependen de la de
+# antes, que son las que peor salen cuando Nova pierde el hilo.
+# CADA LLAMADA CON SU PROPIO id: Write-DestinoUso apunta UNA linea por dictado, asi que
+# con el mismo id la segunda y las siguientes se descartan (bien hecho por su parte) y
+# salian todas como "(sin linea)".
+$script:nRef = 0
+function RefDe([string]$frase) {
+    Remove-Item -LiteralPath $destinos -Force -ErrorAction SilentlyContinue
+    $script:nRef++
+    PonId ('20260921-9999{0:00}' -f $script:nRef)
+    [void](Write-DestinoUso 'local' $frase)
+    $ls = Lineas
+    if ($ls.Count -eq 0) { return '(sin linea)' }
+    return [string](($ls[-1] | ConvertFrom-Json).ref)
+}
+foreach ($c in @(
+        @{ f = 'abre steam'; ref = '' },
+        @{ f = 'sube el volumen'; ref = '' },
+        @{ f = 'cierralo'; ref = 'pronombre' },
+        @{ f = 'pon ese'; ref = 'demostrativo' },
+        @{ f = 'y con discord'; ref = 'elipsis' },
+        @{ f = 'el segundo'; ref = 'ordinal' },
+        @{ f = 'otra vez'; ref = 'otra-vez' },
+        @{ f = 'si'; ref = 'si-suelto' }
+    )) {
+    $v = RefDe $c.f
+    $ok = if ($c.ref) { $v -match [regex]::Escape($c.ref) } else { -not $v }
+    Comp ("'$($c.f)' apunta a '$($c.ref)'") $ok "sale [$v]"
+}
+# y el escenario se deja como estaba, que lo de abajo cuenta lineas
+Remove-Item -LiteralPath $destinos -Force -ErrorAction SilentlyContinue
+PonId '20260917-010203'
+
 $r = Write-DestinoUso 'local' 'abre steam'
 Comp 'una orden local se apunta' ($r -and (Lineas).Count -eq 1) ("lineas: " + (Lineas).Count)
 # SIN @(): "@(Lineas)[0]" no da la primera LINEA, da el array entero, porque Lineas devuelve

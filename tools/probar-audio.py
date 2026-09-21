@@ -233,6 +233,25 @@ def main():
 
     acc = acciones_de([q for _, q, _, _ in oidas] + [o for _, _, o, _ in oidas])
 
+    # SI LA CAPA LOCAL NO CONTESTA, ESTO NO MIDE NADA Y DABA 100 % (21/09).
+    # acciones_de() envuelve la llamada a assistant.ps1 en un try/except que solo imprime
+    # un aviso y devuelve {}. Con acc vacio, ni una frase buena tiene accion, todas se caen
+    # a la rama de charla -"acierta si lo oido no dispara nada"- y ahi basta con que Whisper
+    # haya transcrito ALGO: las 20 salen OK, dudosos queda vacio y se imprime
+    # "entendidas en total: 20 de 20 (100%) -- liston 75%" y se devuelve 0.
+    # Es la UNICA prueba que mide el microfono de verdad. Un 100 % de mentira aqui es peor
+    # que no tenerla: hace creer que el oido va bien justo cuando no se ha medido.
+    # Las frases de charla TAMBIEN estan en acc (las lineas '->IA' se guardan con valor ""),
+    # asi que esto solo salta cuando la frase no aparecio en la salida.
+    faltan = [q.strip() for _, q, _, _ in oidas if q.strip() and q.strip() not in acc]
+    if faltan:
+        print("")
+        print("  MAL  la capa local no contesto por %d de las %d frases buenas." % (len(faltan), len(oidas)))
+        print("       Sin eso cada grabacion cuenta como acierto y esto no esta midiendo nada.")
+        for q in faltan[:5]:
+            print("         - %s" % q)
+        return 1
+
     bien = 0
     dudosos = []
     for nombre, quiero, oido, tarda in oidas:

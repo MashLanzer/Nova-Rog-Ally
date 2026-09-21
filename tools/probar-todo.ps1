@@ -459,15 +459,22 @@ Titulo "4. Ruido real (aqui cuanto MENOS se reconozca, mejor)"
 $salida = powershell -NoProfile -File 'assistant.ps1' -Probar (Join-Path 'pruebas' 'ruido-real.txt') 2>&1
 $linea = @($salida | Select-String 'reconocidas en local')[-1]
 Write-Host "   $linea"
-if ("$linea" -match 'local:\s*(\d+)') {
-    $n = [int]$Matches[1]
+# SI NO SALE LA LINEA, ESO TAMBIEN ES UN FALLO (21/09). La seccion 3 tiene esta guarda
+# desde siempre y la 4 se quedo sin ella: si -Probar reventaba o cambiaba el texto de la
+# linea de resultados, el -match no casaba, no se entraba al bloque y no se sumaba NADA.
+# O sea que la prueba del RUIDO -la que vigila que Nova no se vuelva confiada- pasaba en
+# verde justo cuando dejaba de medir.
+$n = -1
+if ("$linea" -match 'local:\s*(\d+)') { $n = [int]$Matches[1] }
+if ($n -lt 0) {
+    Write-Host "   MAL: no salio la linea de resultados del ruido; esto no ha medido nada" -ForegroundColor Red
+    $fallos++
+} elseif ($n -gt 3) {
     # 3 es lo que quedo el 11/09 con el corpus ya curado: dos nombres de juego
     # (que al ejecutarse preguntan antes) y un "Adios" que solo contesta. Si
     # sube, alguien ha aflojado la capa local y volvera a hacer cosas solo.
-    if ($n -gt 3) {
-        Write-Host "   OJO: antes eran 3. Ha subido: algo se ha vuelto mas confiado." -ForegroundColor Red
-        $fallos++
-    }
+    Write-Host "   OJO: antes eran 3. Ha subido: algo se ha vuelto mas confiado." -ForegroundColor Red
+    $fallos++
 }
 
 Titulo "5b. El DLL, al dia con su fuente (AMARILLO, no fallo)"

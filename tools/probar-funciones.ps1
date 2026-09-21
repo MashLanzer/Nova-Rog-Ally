@@ -127,7 +127,14 @@ $t1 = Get-Trozo $largo 0 120
 $t2 = Get-Trozo $largo $t1.fin 120
 $casosT = @(
     @('el primer trozo cabe',        ($t1.texto.Length -le 120)),
-    @('no parte una palabra',        ($t1.texto -match '[.\w]$')),
+    # NO PARTIR UNA PALABRA SE MIRA POR DONDE SE CORTO, NO POR COMO ACABA EL TROZO
+    # (21/09). El patron de antes, '[.\w]$', pedia que el trozo acabara en letra, digito
+    # o punto... y cortar a mitad de palabra deja JUSTAMENTE una letra al final. O sea que
+    # era cierto en el caso bueno Y en el malo: no podia detectar lo que decia detectar.
+    # El unico caso en que Get-Trozo parte una palabra es el corte de respaldo
+    # ($corte = $largo - 1), y lo que lo distingue es el caracter por el que corto: con un
+    # corte limpio el que queda justo antes del 'fin' es un espacio o un punto.
+    @('no parte una palabra',        ($t1.fin -ge $largo.Length -or $largo[$t1.fin - 1] -eq ' ' -or $largo[$t1.fin - 1] -eq '.')),
     @('y dice donde se quedo',       ($t1.fin -gt 0 -and $t1.fin -lt $largo.Length)),
     @('el segundo sigue, no repite', ($t2.texto -ne $t1.texto -and $largo.Substring($t1.fin).TrimStart().StartsWith($t2.texto.Substring(0, 12)))),
     @('un texto corto va entero',    ((Get-Trozo 'hola que tal' 0 120).texto -eq 'hola que tal')),
