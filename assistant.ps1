@@ -4997,13 +4997,17 @@ function Invoke-Correo($a) {
         return "De $($c.de), $($c.asunto). Dice: $cuerpo"
     }
     if ($accion -eq 'responder') {
-        if (-not $script:correoUltimo) { return 'Primero dime: revisa mi correo. Asi se a cual respondo.' }
+        # EL NUMERO PUEDE VENIR DADO (21/09): al confirmar un envio se reentra aqui desde
+        # Complete-Confirmacion, y entre la pregunta y el 'si' braya pudo decir 'lee mi
+        # correo' y mover $script:correoUltimo. Se responde al que se leyo EN VOZ ALTA.
+        $nResp = if ($a.n) { [int]$a.n } elseif ($script:correoUltimo) { [int]$script:correoUltimo.n } else { -1 }
+        if ($nResp -lt 0) { return 'Primero dime: revisa mi correo. Asi se a cual respondo.' }
         # NUNCA se envia a la primera: se lee a quien va y que dice, y se espera un si
         if (-not $script:confirmado) {
-            $script:pendiente = @{ texto = ''; vence = 0; tipo = 'peligrosa'; correo = @{ accion = 'responder'; n = [int]$script:correoUltimo.n; texto = [string]$a.texto } }
+            $script:pendiente = @{ texto = ''; vence = 0; tipo = 'peligrosa'; correo = @{ accion = 'responder'; n = $nResp; texto = [string]$a.texto } }
             return "Le respondo a $($script:correoUltimo.de) esto: $($a.texto). ¿Lo envio?"
         }
-        $r = Invoke-CorreoScript @('responder', [string]$script:correoUltimo.n, [string]$a.texto, '--confirmado') 40000
+        $r = Invoke-CorreoScript @('responder', [string]$nResp, [string]$a.texto, '--confirmado') 40000
         if (-not $r.ok) { return "No pude enviarlo: $($r.error)" }
         Log 'CORREO: respuesta enviada'
         return 'Enviado.'
@@ -5016,8 +5020,14 @@ function Invoke-Correo($a) {
             $cand = @()
             if ($r0.ok) { $cand = @($r0.correos | Where-Object { (ConvertTo-Plain ([string]$_.de)).Contains((ConvertTo-Plain $destino)) }) }
             if ($cand.Count -eq 0) { return "No se cual es el correo de $destino. Dime la direccion entera." }
+            # ENCONTRABA LA DIRECCION Y CONTESTABA QUE NO LA TENIA (21/09). Justo debajo de
+            # sacarla de los ultimos correos habia un return que decia 'No tengo la direccion
+            # de X guardada' -y ademas con $destino YA sustituido por la direccion entera,
+            # asi que sonaba 'no tengo la direccion de Pepe <pepe@x.com> guardada'. El correo
+            # no se mandaba nunca por nombre, que es la unica forma en que se dice hablando.
+            $quien = [string]$destino
             $destino = [string]$cand[0].de
-            return "No tengo la direccion de $destino guardada. Dimela entera y te lo mando."
+            Log "CORREO: $quien -> $destino (de los ultimos correos)"
         }
         if (-not $script:confirmado) {
             $script:pendiente = @{ texto = ''; vence = 0; tipo = 'peligrosa'; correo = @{ accion = 'enviar'; destino = $destino; texto = [string]$a.texto } }
@@ -6805,6 +6815,7 @@ function Invoke-Despertador {
     if ($hoyD.Count -eq 1) { $partesD += "hoy tienes: $($hoyD[0].texto)" } elseif ($hoyD.Count -gt 1) { $partesD += "hoy tienes $($hoyD.Count) recordatorios" }
     Say (($partesD -join '. ') + '. Si quieres, di cinco minutos mas.')
     $script:seguimientoPendiente = $true
+    $script:seguimientoFactor = 1.0   # acaba de invitarle a decir 'cinco minutos mas'
 }
 
 # RUTINA DE DORMIR (F3): "me voy a dormir". Brillo y volumen bajos y, si no hay
@@ -14762,6 +14773,7 @@ function Receive-Charla {
             $ordenC = [string]$ev.texto
             Log ("charla: no era charla sino una orden -> '$ordenC'" + $(if ($ev.original -and [string]$ev.original -ne $ordenC) { " (dicho: '$($ev.original)')" } else { '' }))
             $script:seguimientoPendiente = $true
+            $script:seguimientoFactor = 1.0   # viene de una charla: se sigue hablando
             # ORDENES DENTRO DE LA CHARLA (M10): ya reescrita con lo hablado. Primero
             # lo que Nova sabe hacer sola; si no, el camino de siempre
             $fastC = $null
@@ -15485,11 +15497,17 @@ function Complete-Confirmacion([string]$respuesta) {
         } else { Set-UI 'reposo' }
         return
     }
+# EL FACTOR SE REPONE DONDE SE REABRE LA ESCUCHA (21/09). El bucle exige
+# $script:seguimientoFactor -gt 0 para abrir el microfono, y ese factor se queda en 0
+# desde que braya dice 'baja el volumen, y ya' hasta que una frase llega al sitio donde
+# se repone. Si entre medias Nova PREGUNTA algo, preguntaba al aire: el se quedaba
+# contestando y ella con el microfono cerrado.
     # ¿TE PONGO EL DESPERTADOR? (rutina de dormir)
     if ($p.tipo -eq 'despertador') {
         if ($respuesta -eq 'si') {
             $script:despertadorHora = $sw.ElapsedMilliseconds + 60000
             $script:seguimientoPendiente = $true
+            $script:seguimientoFactor = 2.4   # una hora se piensa antes de decirla
             Say '¿A que hora?'
         } else { Say 'Buenas noches.' }
         return
@@ -15599,6 +15617,7 @@ function Complete-Confirmacion([string]$respuesta) {
             [void](Start-Receta @{ receta = $objD[0]; valores = $p.valores } $p.original)
         } elseif ($respuesta -eq 'no') {
             $script:seguimientoPendiente = $true
+            $script:seguimientoFactor = 1.0   # le pide que lo repita: hay que oirle
             Say 'Vale, dimelo otra vez.'
         } else { Set-UI 'reposo' }
         return
@@ -15656,6 +15675,33 @@ function Complete-Confirmacion([string]$respuesta) {
             # silencio: ni se ejecuta ni se habla, que a lo mejor no habia nadie
             Set-UI 'reposo'
         }
+        return
+    }
+    # EL CORREO NO TIENE TEXTO QUE REPROCESAR, Y POR ESO NO SE ENVIABA NUNCA (21/09).
+    # Los dos pendientes del correo se crean con texto = '' y el mensaje entero dentro
+    # del campo 'correo'. Al decir 'si' se caia en la cola de abajo, que hace
+    # Process-Texto '' -> 'vacio, ignorado', una estadistica de 'dictado vacio' y una
+    # tarjeta que dice 'No te escuche'. Sin voz. Asi que braya se quedaba creyendo que
+    # el correo habia salido. Un grep de .correo en todo el archivo daba solo las dos
+    # lineas que lo ESCRIBEN: no lo leia nadie.
+    #
+    # Se reentra por Invoke-Correo, no copiando aqui el envio: asi el manejo de errores,
+    # el log y los mensajes son los mismos que por el camino normal. Y con el texto
+    # GUARDADO, nunca volviendo a preguntarle al modelo, que podria redactar otra cosa
+    # distinta de la que se leyo en voz alta antes del 'si'.
+    if ($p.correo) {
+        Log "CONFIRMAR: si -> correo ($($p.correo.accion))"
+        $script:confirmado = $true
+        try {
+            $aC = @{ accion = [string]$p.correo.accion; texto = [string]$p.correo.texto }
+            if ($p.correo.n) { $aC.n = [int]$p.correo.n }
+            if ($p.correo.destino) { $aC.destino = [string]$p.correo.destino }
+            $dC = [string](Invoke-Correo $aC)
+        } catch {
+            $dC = 'No pude enviarlo: ' + $_.Exception.Message
+        } finally { $script:confirmado = $false }
+        if ($dC -match '^Enviado') { Send-UIEvento 'hecho' } else { Set-UI 'error' $dC 3000 }
+        Say $dC
         return
     }
     Log "CONFIRMAR: $respuesta -> se ejecuta '$($p.texto)'"
@@ -18217,6 +18263,7 @@ while ($true) {
                     $script:charlaSilencios++
                     Log "seguimiento: silencio en una conversacion, espero otro poco"
                     $script:seguimientoPendiente = $true
+                    if ($script:seguimientoFactor -le 0) { $script:seguimientoFactor = 1.0 }   # o esta espera no abre nada
                     $script:ventanaCharla = $true
                     $script:pausaHasta = $sw.ElapsedMilliseconds + 100
                 } else {

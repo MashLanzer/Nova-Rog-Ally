@@ -940,7 +940,10 @@ def reconocedor_libre():
 
 def reconocedor_si_no():
     r = KaldiRecognizer(modelo, TASA, GRAMATICA_SI_NO)
-    r.SetWords(False)
+    # CON CONFIANZA POR PALABRA (21/09). Estaba en False, asi que al confirmar no habia
+    # forma de saber si el "si" venia de una voz o de un ruido: detras de ese si/no estan
+    # borrar una carpeta, apagar la consola y mandar un correo.
+    r.SetWords(True)
     return r
 
 
@@ -2263,6 +2266,12 @@ try:
                     datos = None
                     rec = reconocedor_si_no()
                     conf_inicio = ahora
+                    # LA RAFAGA EMPIEZA DE CERO AL PREGUNTAR (21/09). pico_rafaga solo se
+                    # pone a 0 cuando arranca una rafaga NUEVA, asi que entre rafagas
+                    # conserva el pico de la anterior. Sin esto, lo que sono ANTES de la
+                    # pregunta -la propia voz de Nova leyendola, o lo que braya estuviera
+                    # diciendo- le regalaba la guarda al "si" de despues.
+                    pico_rafaga = 0.0
                     anota("confirmacion: esperando si/no")
                 elif confirmando and (not quiere_confirmar or (ahora - conf_inicio) >= CONFIRMACION_MAX):
                     if quiere_confirmar:
@@ -2377,7 +2386,28 @@ try:
                         if any(w in PALABRAS_NO for w in palabras):
                             respuesta = "no"
                         elif any(w in PALABRAS_SI for w in palabras):
-                            respuesta = "si"
+                            # EL "SI" EXIGE UNA RAFAGA DE VERDAD; EL "NO" NO (21/09).
+                            # La palabra de activacion tiene TRES guardas -altavoces,
+                            # rafaga y confianza- y esto no tenia NINGUNA, con la misma
+                            # gramatica cerrada que la madrugada del 20/09 fabrico 45
+                            # "nova" de la nada sobre silencio amplificado (la ganancia
+                            # llega a x40). Detras de este si/no hay: mandar un correo,
+                            # borrar una carpeta, borrar una lista, apagar, reiniciar y
+                            # cerrar los juegos. Un "si" fantasma los ejecuta.
+                            # El "no" se queda como estaba A PROPOSITO: cancelar de mas
+                            # no hace dano, y hacerlo dificil si.
+                            # No cuesta nada: arrastre y pico_rafaga ya vienen calculados
+                            # arriba para cada bloque, tambien mientras se confirma.
+                            # NO se exige que la rafaga siga VIVA (arrastre > 0): los
+                            # "si" de verdad llegan muchas veces en el resultado final,
+                            # cuando el arrastre ya se apago -son 4 bloques-, y perder un
+                            # "si" bueno es peor que tardar un segundo mas. Lo que se
+                            # exige es que desde la pregunta haya sonado ALGO.
+                            if pico_rafaga >= RAFAGA_MIN_NOMBRE:
+                                respuesta = "si"
+                            else:
+                                anota("confirmacion: oigo '%s' pero no ha sonado nada desde la pregunta (rafaga %.4f < %.3f); sigo esperando"
+                                      % (texto_c, pico_rafaga, RAFAGA_MIN_NOMBRE))
                         if respuesta:
                             anota("confirmacion: '%s' -> %s" % (texto_c, respuesta))
                             escribir(CONFIRMACION, respuesta)

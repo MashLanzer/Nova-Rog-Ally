@@ -338,6 +338,15 @@ Titulo "2n46. Abrir un juego que no es de Steam (y que siga estando vigilado)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-juegos-xbox.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:sigue estando vigilado)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n49. Lo que hay detras de un si (el correo, la direccion y el microfono)"
+# 21/09, de la tanda de agentes. Detras de una confirmacion si/no estan: mandar un correo,
+# borrar una carpeta, borrar una lista, apagar, reiniciar y cerrar los juegos. Y habia
+# tres agujeros: el correo NO se enviaba nunca (nadie leia su campo y se contestaba "No te
+# escuche"), mandarlo por nombre se contradecia solo, y cinco sitios reabrian la escucha
+# sin reponer el factor, o sea que Nova preguntaba al aire. Mas el "si" fantasma del oido.
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-confirmaciones.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:hace falta haber hablado)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n48. Las doce de la noche son las doce de la noche"
 # 21/09, de la tanda de agentes. El mismo fallo en DOS sitios -las reglas por hora y los
 # recordatorios, que tienen las dos lineas copiadas-: el 12 era el unico numero que no
