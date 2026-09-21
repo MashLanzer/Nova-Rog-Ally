@@ -3754,7 +3754,15 @@ function Resolve-Fragment([string]$f) {
     # 15/09: la anticipacion solo miraba la palabra siguiente, y "dime de los juegos
     # cual tiene mas horas" se decia en voz alta tal cual. Ahora basta con que la
     # pregunta aparezca en cualquier sitio de la frase.
-    if ($f -match '^(?:(?:di|dime)\s+(?!.*\b(?:quien|quienes|cual|cuales|cuando|donde|como|cuanto|cuanta|cuantos|cuantas|por que|de que|a que)\b)|(?:avisa|avisame)\s+)(?:que\s+)?(.+)$') {
+    # 21/09: FALTABAN LAS PREGUNTAS CON 'QUE'. La lista de arriba tiene quien, cual,
+    # cuando..., pero no 'que ves' ni 'que hay', y por eso el 20/09 a las 23:14:11 Nova
+    # DIJO EN VOZ ALTA 'el nombre del personaje que esta delante en mi pantalla' en vez de
+    # mirarlo (lo habia reescrito la charla como 'Dime el nombre del personaje...').
+    # Comprobado con -Probar antes del parche: 'dime que ves en la pantalla' -> recita 'ves
+    # en la pantalla', y 'dime que hay en la pantalla' -> recita 'hay en la pantalla'.
+    # NO se mete 'que' a secas: 'di que ya es hora de dormir' es del banco y tiene que
+    # seguir diciendose en voz alta.
+    if ($f -match '^(?:(?:di|dime)\s+(?!.*\b(?:quien|quienes|cual|cuales|cuando|donde|como|cuanto|cuanta|cuantos|cuantas|por que|de que|a que|que ves|que veo|que veas|que hay|que sale|que aparece|que pasa|que esta pasando|el nombre|los nombres)\b)|(?:avisa|avisame)\s+)(?:que\s+)?(.+)$') {
         return @(@{ kind = 'decir'; desc = $Matches[1].Trim() })
     }
     # --- seguir leyendo donde se quedo ---
@@ -16617,14 +16625,43 @@ function Process-Texto([string]$text) {
         # ...pero no si es una orden: "abre el juego que tengo en pantalla" acababa aqui y la API
         # contestaba NO, sin hacer nada (15/09). Eso lo resuelve EL JUEGO QUE SALE EN PANTALLA.
         if ($plano -notmatch '\b(?:abre|abras|abrir|abrelo|inicia|inicies|iniciar|arranca|lanza|juega|cierra|cierres|pon|ponme)\b' -and
-            $plano -match '\b(?:que (?:ves?|hay|sale|aparece|tengo) en (?:mi |la |esta )?pantalla|que es lo que ves|lo que (?:ves|hay) en (?:mi |la |esta )?pantalla|describe(?:me)? (?:mi |la |esta |el )?(?:fondo de )?pantalla|(?:mi|el) fondo de pantalla|mira (?:mi |la |esta )?pantalla)\b') {
+            # NO ANCLA EN EL PRINCIPIO (21/09). La noche del 20 al 21, jugando a Roblox con
+            # su novia al lado, braya le pidio CATORCE veces que mirara la pantalla y solo
+            # CINCO llegaron aqui: las otras nueve se fueron a la charla, que no ve nada y
+            # contesto igual. 23:15:32 'Acabo de mirar y veo el personaje que esta delante en
+            # tu pantalla' (no habia mirado nada); 23:48:48 'Jajaja, veo que va bien la cosa'.
+            # El acabo diciendo 'mira mira estas alucinando estas alucinando no estas hablando
+            # de mi pantalla' (00:00:23).
+            # La causa era el ancla: las formas viejas exigen la frase justa ('mira la
+            # pantalla'), y el no hablaba asi porque estaba conversando: 'mira a ver mi
+            # pantalla y mira a ver si tu encuentras otra solucion', 'bueno, miralo tu mismo en
+            # la pantalla y dime que ves', 'puedes puedes mirar la pantalla y ver el nombre'.
+            # Ahora basta con un verbo de mirar y la palabra pantalla a menos de cuatro
+            # palabras de distancia.
+            # MEDIDO, no a ojo: sus 14 frases reales pasan de 5 a 12; sobre las 451 frases de
+            # uso real de todas las sesiones gana 9 y no pierde ninguna; sobre las 424 del
+            # banco de ruido y de ordenes que funcionan, CERO falsos positivos.
+            # La lista de verbos no lleva 'veo' ni 'vi' a proposito: 'veo la pantalla rara' lo
+            # dice el, no lo pide.
+            $plano -match '\b(?:que (?:ves?|hay|sale|aparece|tengo) en (?:mi |la |esta )?pantalla|que es lo que ves|lo que (?:ves|hay) en (?:mi |la |esta )?pantalla|describe(?:me)? (?:mi |la |esta |el )?(?:fondo de )?pantalla|(?:mi|el) fondo de pantalla|mira (?:mi |la |esta )?pantalla|(?:mira|miras|mirame|miralo|mirala|mirar|mirarme|mirando|mires|ve|ver|ves|vea|veas|veis|viste|vieras|vistazo|fijate)(?:\s+\S+){0,4}?\s+(?:la |mi |esta |el |tu )?pantalla)\b') {
             Set-UI 'pensando' 'mirando la pantalla'
             $capV = ''
             try { $capV = Save-Captura (Join-Path $TmpDir 'pantalla.png') } catch { Log ("ver pantalla: " + $_.Exception.Message) }
             if ($capV) {
-                Log "VER PANTALLA: captura adjunta para '$text'"
+                # Y EL TEXTO TAMBIEN (21/09). La vista sola adivina los nombres propios: el
+                # 20/09 a las 23:16 braya pidio el nombre del personaje de su novia y la nube
+                # contesto 'Meramibu' cuando en la pantalla ponia 'Meramiau' (el se lo corrigio
+                # a las 23:17:52). El OCR de Windows esa noche leyo bien 'Codigo de union. La
+                # ultima parada. Inspeccionar. Soltar objeto. Kit' (23:57:39). Es local, tarda
+                # menos de medio segundo sobre la captura que YA esta en disco y no cuesta ni
+                # una llamada mas: se manda junto. Mismo truco que en 'preguntale a la ia'.
+                $txtV = ''
+                try { $txtV = [string](Invoke-OCR $capV) } catch { Log ('ver pantalla: el OCR fallo (' + $_.Exception.Message + ')') }
+                if ($txtV -and $txtV.Length -gt 1200) { $txtV = $txtV.Substring(0, 1200) }
+                $extraV = if ($txtV) { " [Texto que se lee en la pantalla ahora mismo: " + $txtV + "]" } else { '' }
+                Log "VER PANTALLA: captura adjunta para '$text'" + $(if ($txtV) { " (+$($txtV.Length) caracteres de OCR)" } else { ' (el OCR no vio texto)' })
                 $script:respuestaSinTarjeta = $true
-                Submit-Command ("Mira esta captura de la ventana que tengo delante y contesta a lo que te pido en una o dos frases cortas y naturales, porque se leera en voz alta. Lo que te pido: " + $text) 'pregunta' $capV
+                Submit-Command ("Mira esta captura de la ventana que tengo delante y contesta a lo que te pido en una o dos frases cortas y naturales, porque se leera en voz alta. Habla de lo que pasa EN EL JUEGO, no describas la interfaz salvo que te lo pida. Lo que te pido: " + $text + $extraV) 'pregunta' $capV
                 return
             }
         }

@@ -366,3 +366,15 @@ lee el texto
 ponte abajo a la izquierda
 # --- control: esto no es ninguna zona y se va al agente ---
 lee la ultima noticia
+# --- "mira la pantalla" (21/09): catorce veces se lo pidio jugando y las catorce se
+# fueron a la charla, que no ve nada y se lo invento ---
+mira la pantalla
+mira mi pantalla
+mira la pantalla y dime que ves
+mira la pantalla y ahi vas a ver lo que estoy jugando
+mira a ver mi pantalla y mira a ver si tu encuentras otra solucion
+puedes mirar la pantalla y ver el nombre de la persona que esta al lado
+que ves en mi pantalla
+# --- control: "mira" delante de un verbo sigue siendo muletilla, no OCR ---
+mira ponme un temporizador de 5 minutos
+mira mi correo
