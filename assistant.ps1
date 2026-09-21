@@ -3692,14 +3692,14 @@ function Resolve-Fragment([string]$f) {
         $zmV = [string]$Matches[1]; $zmH = [string]$Matches[2]
         $zOcrV = if ($zmV -eq 'arriba' -or $zmV -eq 'superior') { 'arriba' } else { 'abajo' }
         $zOcrH = if ($zmH -eq 'izquierda' -or $zmH -eq 'izquierdo') { 'izquierda' } else { 'derecha' }
-        return @(@{ kind = 'ocr'; zona = "$zOcrV-$zOcrH"; zonaTxt = "la esquina de $zOcrV a la $zOcrH"; desc = "leer la esquina de $zOcrV a la $zOcrH" })
+        return @(@{ kind = 'ocr'; interpretar = $false; zona = "$zOcrV-$zOcrH"; zonaTxt = "la esquina de $zOcrV a la $zOcrH"; desc = "leer la esquina de $zOcrV a la $zOcrH" })
     }
     # La misma esquina al revés, que también se dice: "lee la derecha de arriba".
     if ($f -match '^(?:lee|leeme|leemelo|leer|leelo|que dice|que pone|que hay escrito|dime que dice|dime que pone)\s+(?:lo que (?:hay|dice|pone)\s+)?(?:(?:en|de)\s+)?(?:(?:la|el|lo|los|las)\s+)?(?:(?:esquina|esquinita|mitad|parte|zona|franja|lado|banda|barra|linea|texto|letras|cartel)\s+)?(?:(?:de|del)\s+)?(?:(?:la|el)\s+)?(izquierda|derecha|izquierdo|derecho)\s+(?:de\s+)?(?:la\s+)?(arriba|abajo|superior|inferior)(?:\s+(?:de|en)\s+(?:la\s+)?pantalla)?$') {
         $zmH = [string]$Matches[1]; $zmV = [string]$Matches[2]
         $zOcrV = if ($zmV -eq 'arriba' -or $zmV -eq 'superior') { 'arriba' } else { 'abajo' }
         $zOcrH = if ($zmH -eq 'izquierda' -or $zmH -eq 'izquierdo') { 'izquierda' } else { 'derecha' }
-        return @(@{ kind = 'ocr'; zona = "$zOcrV-$zOcrH"; zonaTxt = "la esquina de $zOcrV a la $zOcrH"; desc = "leer la esquina de $zOcrV a la $zOcrH" })
+        return @(@{ kind = 'ocr'; interpretar = $false; zona = "$zOcrV-$zOcrH"; zonaTxt = "la esquina de $zOcrV a la $zOcrH"; desc = "leer la esquina de $zOcrV a la $zOcrH" })
     }
     # Media pantalla: "lee la mitad de arriba", "lee la parte de abajo", "lee el lado
     # izquierdo", "que dice abajo". "lee la esquina de arriba" (sin decir cuál de las
@@ -3711,11 +3711,11 @@ function Resolve-Fragment([string]$f) {
         if     ($zm -eq 'arriba' -or $zm -eq 'superior')      { $zOcr = 'arriba';    $zOcrTxt = 'la parte de arriba' }
         elseif ($zm -eq 'abajo' -or $zm -eq 'inferior')       { $zOcr = 'abajo';     $zOcrTxt = 'la parte de abajo' }
         elseif ($zm -eq 'izquierda' -or $zm -eq 'izquierdo')  { $zOcr = 'izquierda'; $zOcrTxt = 'la izquierda' }
-        return @(@{ kind = 'ocr'; zona = $zOcr; zonaTxt = $zOcrTxt; desc = "leer $zOcrTxt" })
+        return @(@{ kind = 'ocr'; interpretar = $false; zona = $zOcr; zonaTxt = $zOcrTxt; desc = "leer $zOcrTxt" })
     }
     # El centro: "lee el centro", "que pone en el medio", "leeme lo del medio".
     if ($f -match '^(?:lee|leeme|leemelo|leer|leelo|que dice|que pone|que hay escrito|dime que dice|dime que pone)\s+(?:lo que (?:hay|dice|pone)\s+)?(?:(?:en|de)\s+)?(?:(?:la|el|lo|los|las)\s+)?(?:(?:esquina|esquinita|mitad|parte|zona|franja|lado|banda|barra|linea|texto|letras|cartel)\s+)?(?:(?:de|del)\s+)?(?:(?:la|el)\s+)?(?:centro|medio|central)(?:\s+(?:de|en)\s+(?:la\s+)?pantalla)?$') {
-        return @(@{ kind = 'ocr'; zona = 'centro'; zonaTxt = 'el centro'; desc = 'leer el centro' })
+        return @(@{ kind = 'ocr'; interpretar = $false; zona = 'centro'; zonaTxt = 'el centro'; desc = 'leer el centro' })
     }
     # --- "MIRA LA PANTALLA" TAMBIEN ES LEERLA (21/09) ---
     # La noche del 20 al 21/09, jugando a Roblox, braya le pidio CATORCE veces que mirara
@@ -3735,16 +3735,24 @@ function Resolve-Fragment([string]$f) {
     # en $FILLER_INI antes de llegar aqui, y este patron exige que detras venga la pantalla,
     # asi que "mira si hay algo descargando" sigue su camino de siempre.
     if ($f -match '^(?:mira|mirame|miralo|mirala|mirar|echa un vistazo a|fijate en|ves|puedes ver|puedes mirar|podrias ver|podrias mirar|quiero que veas|quiero que mires)\s+(?:a\s+ver\s+)?(?:bien\s+)?(?:lo que (?:hay|dice|pone|se ve) (?:en\s+)?|en\s+)?(?:la\s+|mi\s+|esta\s+|el\s+)?(?:pantalla|ventana|imagen|foto)\b') {
-        return @(@{ kind = 'ocr'; zona = ''; desc = 'leer la pantalla' })
+        # QUE LE CUENTE, NO QUE LE RECITE (21/09). Si la frase pide interpretacion
+        # -"dime que ves", "cuentame que ves", "que esta pasando"- lo que hay que
+        # devolver NO es el texto del OCR en crudo. La noche del 20/09, a "Lee la
+        # pantalla con OCR y cuentame que ves", Nova contesto "O Codigo de union. la
+        # ultima parada. Inspeccionar. Soltar objeto. Kit": el HUD del juego leido
+        # letra a letra. braya se lo dijo con todas las palabras: "me hablaras del
+        # juego, no de lo que ves". Con esta marca, el texto leido va al modelo para
+        # que lo cuente en una frase, en vez de recitarse.
+        return @(@{ kind = 'ocr'; zona = ''; interpretar = $true; desc = 'leer la pantalla' })
     }
     # y la forma sin verbo delante, que tambien dijo: "a ver mi pantalla", "que ves en mi
     # pantalla", "que hay en la pantalla"
     if ($f -match '^(?:a ver|que ves en|que hay en|que se ve en)\s+(?:la\s+|mi\s+|esta\s+|el\s+)?(?:pantalla|ventana)\b') {
-        return @(@{ kind = 'ocr'; zona = ''; desc = 'leer la pantalla' })
+        return @(@{ kind = 'ocr'; interpretar = $false; zona = ''; desc = 'leer la pantalla' })
     }
     # --- leer la pantalla ENTERA (OCR de Windows) ---
     if ($f -match '^(?:lee|leeme|leer|que dice|que pone|que hay escrito|dime que dice)\s+(?:lo que (?:hay|dice|pone) (?:en\s+)?|en\s+)?(?:la\s+|esta\s+|el\s+)?(?:pantalla|ventana|esto|aqui|texto|mensaje)\b') {
-        return @(@{ kind = 'ocr'; zona = ''; desc = 'leer la pantalla' })
+        return @(@{ kind = 'ocr'; interpretar = $false; zona = ''; desc = 'leer la pantalla' })
     }
     # --- decir algo en voz alta ---
     # Existe sobre todo para las REGLAS: antes una regla no podia hablar y la
@@ -10172,6 +10180,7 @@ function Invoke-FastCommand([string]$text) {
                     # captura SOLO ese trozo, que es menos trabajo que antes: leer una
                     # esquina nunca puede tardar más que leerlo todo.
                     $zonaOcr = [string]$a.zona
+                    $texto0Ocr = [string]$script:jobTextoOriginal
                     $dondeOcr = if ($a.zonaTxt) { [string]$a.zonaTxt } else { 'la pantalla' }
                     Set-UI 'pensando' "leyendo $dondeOcr"
                     $png = Join-Path $TmpDir 'pantalla.png'
@@ -10181,6 +10190,22 @@ function Invoke-FastCommand([string]$text) {
                     else {
                         try { [System.IO.File]::WriteAllText((Join-Path $TmpDir 'ocr.txt'), $texto, (New-Object System.Text.UTF8Encoding($false))) } catch {}
                         $script:ultimaLectura = $texto
+                        # SI PEDISTE QUE TE LO CUENTE, NO SE RECITA (21/09). El texto de un
+                        # HUD de juego leido letra a letra no le dice nada a nadie: la
+                        # noche del 20/09, a "cuentame que ves", Nova solto "O Codigo de
+                        # union. la ultima parada. Inspeccionar. Soltar objeto. Kit". Se le
+                        # pasa al modelo lo leido para que lo cuente en una frase.
+                        # Si la charla esta apagada se recita, que es mejor que callarse.
+                        if ($a.interpretar -and $ConversacionOn) {
+                            $pregOcr = "Esto es lo que se lee ahora mismo en la pantalla de braya, sacado con OCR: <<$texto>>. " +
+                                       "Cuentale en UNA frase que esta pasando, con sus palabras, sin leerle el texto tal cual " +
+                                       "y sin inventarte nada que no este ahi. El te dijo: '" + $texto0Ocr + "'."
+                            if (Send-Charla $pregOcr $false 'hablar') {
+                                $a.desc = ''
+                                Set-UI 'pensando' 'mirando la pantalla'
+                                break
+                            }
+                        }
                         $trozo = Get-Trozo $texto 0
                         $script:lecturaPos = $trozo.fin
                         $a.desc = $trozo.texto + $(if ($trozo.fin -lt $texto.Length) { ' ... Di "sigue leyendo" para el resto.' } else { '' })
