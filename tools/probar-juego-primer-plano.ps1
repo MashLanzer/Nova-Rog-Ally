@@ -28,6 +28,10 @@ foreach ($v in @('CARPETAS_JUEGO', 'CARPETA_NO_JUEGO', 'EXES_JUEGO')) {
     if (-not $m.Success) { Write-Host ('  MAL  no encuentro $' + $v + ' en assistant.ps1'); exit 1 }
     . ([scriptblock]::Create($m.Value))
 }
+# Get-JuegoEnPrimerPlano llama a Get-NombreJuegoLimpio: las DOS, o esto prueba humo
+$ml = [regex]::Match($fuente, '(?ms)^function Get-NombreJuegoLimpio[ (].*?^\}')
+if (-not $ml.Success) { Write-Host '  MAL  no encuentro Get-NombreJuegoLimpio'; exit 1 }
+. ([scriptblock]::Create($ml.Value))
 $mf = [regex]::Match($fuente, '(?ms)^function Get-JuegoEnPrimerPlano \{.*?^\}')
 if (-not $mf.Success) { Write-Host '  MAL  no encuentro Get-JuegoEnPrimerPlano'; exit 1 }
 . ([scriptblock]::Create($mf.Value))
@@ -68,7 +72,7 @@ Comp 'BlackMythWukong' ((Mira 'C:\Program Files (x86)\Steam\steamapps\common\Bla
 Write-Host ''
 Write-Host '-- las demas tiendas --'
 foreach ($c in @(
-        @{ r = 'C:\XboxGames\Minecraft Launcher\Content\Minecraft.exe'; n = 'Minecraft'; e = 'Minecraft Launcher' },
+        @{ r = 'C:\XboxGames\Minecraft Launcher\Content\Minecraft.exe'; n = 'Minecraft'; e = 'Minecraft' }   # 'Launcher' no se dice hablando,
         @{ r = 'C:\Program Files\Epic Games\Fortnite\FortniteGame\Binaries\Win64\x.exe'; n = 'x'; e = 'Fortnite' },
         @{ r = 'D:\GOG Galaxy\Games\Cyberpunk 2077\bin\x64\game.exe'; n = 'game'; e = 'Cyberpunk 2077' },
         @{ r = 'C:\Ubisoft\Ubisoft Game Launcher\games\Far Cry 6\bin\fc.exe'; n = 'fc'; e = 'Far Cry 6' },
@@ -76,7 +80,7 @@ foreach ($c in @(
         @{ r = 'C:\Riot Games\VALORANT\live\v.exe'; n = 'v'; e = 'VALORANT' },
         @{ r = 'C:\Users\braya\AppData\Roaming\itch\apps\Celeste\Celeste.exe'; n = 'Celeste'; e = 'Celeste' },
         @{ r = 'C:\Users\braya\AppData\Local\Roblox\Versions\version-abc\RobloxPlayerBeta.exe'; n = 'RobloxPlayerBeta'; e = 'Roblox' },
-        @{ r = 'C:\Users\braya\AppData\Roaming\.minecraft\runtime\bin\javaw.exe'; n = 'javaw'; e = 'minecraft' }   # la carpeta es .minecraft, sin mayuscula
+        @{ r = 'C:\Users\braya\AppData\Roaming\.minecraft\runtime\bin\javaw.exe'; n = 'javaw'; e = 'minecraft' }   # la carpeta de datos es .minecraft, sin mayuscula
     )) {
     $v = Mira $c.r $c.n
     Comp ($c.e) ($v -eq $c.e) $(if ($v -ne $c.e) { "sale [$v]" } else { '' })

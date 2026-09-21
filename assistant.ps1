@@ -914,7 +914,11 @@ function Get-JuegosXbox {
         foreach ($dX in (Get-ChildItem -LiteralPath $raizX -Directory -ErrorAction SilentlyContinue)) {
             $lanX = Join-Path $dX.FullName 'Content\gamelaunchhelper.exe'
             if (-not (Test-Path -LiteralPath $lanX)) { continue }
-            $nmX = [string]$dX.Name
+            # la carpeta se llama 'Minecraft Launcher' y nadie dice eso hablando. Se
+            # limpia IGUAL que en Get-JuegoEnPrimerPlano: si los dos no dan el mismo
+            # nombre, el tiempo de juego se apunta a nombre de uno y se lee a nombre
+            # del otro, y no cuadra ninguno de los dos.
+            $nmX = (Get-NombreJuegoLimpio ([string]$dX.Name))
             $lpX = 0
             try {
                 if ($memX -and $memX.ContainsKey($nmX) -and $memX[$nmX]['dias']) {
@@ -11702,6 +11706,17 @@ function Get-ProcesoEnPrimerPlano {
 # CADA PATRON EXIGE UNA BARRA DETRAS DEL NOMBRE a proposito: es lo que distingue la
 # carpeta de un juego del ejecutable de la tienda. Sin ella, Epic Games\\algo.exe o el
 # propio GalaxyClient.exe entrarian como si fueran juegos.
+# EL NOMBRE QUE SE DICE EN VOZ ALTA. Las carpetas se llaman como les da la gana:
+# '.minecraft' es la de datos y 'Minecraft Launcher' la del lanzador. Lo usan
+# Get-JuegoEnPrimerPlano y Get-JuegosXbox, y tiene que ser LA MISMA limpieza en las
+# dos: si no, el tiempo de juego se apunta a nombre de una y se lee a nombre de otra.
+function Get-NombreJuegoLimpio([string]$n) {
+    if (-not $n) { return $n }
+    $n = $n.TrimStart('.')
+    $n = ($n -replace '\s+(?:Launcher|Game Preview Edition)$', '')
+    return $n.Trim()
+}
+
 $CARPETAS_JUEGO = @(
     '(?i)steamapps\\common\\([^\\]+)\\'   # Steam
     '(?i)\\XboxGames\\([^\\]+)\\'   # Xbox / Game Pass
@@ -11744,8 +11759,7 @@ function Get-JuegoEnPrimerPlano {
     # un momento y capturaba 'Fortnite': Nova diria que estas jugando mientras
     # esperas la descarga, y con eso se callaria los avisos que si querias.
     if ($ruta -match '(?i)\\(?:_CommonRedist|Redist|DirectX|vcredist|DotNetFX|Installers?)\\') { return $null }
-    # '.minecraft' es la carpeta de datos; el juego se llama Minecraft
-    $carpeta = $carpeta.TrimStart('.')
+    $carpeta = Get-NombreJuegoLimpio $carpeta
     # el ejecutable se guarda aparte: la capsula saca de el el icono del juego
     $script:juegoExeCandidato = $ruta
     # C4 (19/09): y el PID, para poder preguntar luego si ese proceso sigue vivo sin
@@ -13282,7 +13296,13 @@ try {
         $voc += @($cmds.apps.PSObject.Properties.Name | Where-Object { $_ -notmatch '\s' -or $_.Length -le 16 } | Select-Object -First 20)
         $voc += @($cmds.sitios.PSObject.Properties.Name | Select-Object -First 14)
     }
-    $voc += @($script:Juegos | ForEach-Object { $_.nombre } | Select-Object -First 20)
+    # POR LO ULTIMO QUE JUGASTE, no por el orden en que Steam los tuviera apuntados
+    # (21/09). Solo caben 20 nombres, y hasta hoy los que entraban dependian de en que
+    # orden estuvieran los archivos: Wallpaper Engine, que no es un juego, ocupaba
+    # sitio, y los de Game Pass -que van detras de los de Steam- se habrian caido en
+    # cuanto instalara cinco juegos mas. Lo que tiene que oir bien es lo que juega.
+    $voc += @($script:Juegos | Sort-Object -Property @{ Expression = { [long]$_.ultimo } } -Descending |
+              ForEach-Object { $_.nombre } | Select-Object -First 20)
     $voc = @($voc | Where-Object { $_ } | Select-Object -Unique)
     [System.IO.File]::WriteAllText($RutaVocabulario, (($voc -join ', ') + '.'), (New-Object System.Text.UTF8Encoding($false)))
 } catch {}

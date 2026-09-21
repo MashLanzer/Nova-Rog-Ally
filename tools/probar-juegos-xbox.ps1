@@ -23,7 +23,7 @@ function Comp($etiqueta, $ok, $detalle = '') {
 # llame aqui tiene que estar en esta lista. Me deje ConvertTo-Plain, que ConvertTo-Juego
 # llama por dentro, y Get-JuegosXbox devolvio CERO juegos sin una sola queja: el catch se
 # comio la excepcion. Parecia un fallo del codigo y era un fallo de la prueba.
-foreach ($fn in @('ConvertTo-Plain', 'ConvertTo-Juego', 'Get-JuegosXbox', 'New-AbrirJuego', 'Get-JuegosSteam')) {
+foreach ($fn in @('ConvertTo-Plain', 'ConvertTo-Juego', 'Get-NombreJuegoLimpio', 'Get-JuegosXbox', 'New-AbrirJuego', 'Get-JuegosSteam')) {
     # la llave de cierre va DOBLE: esto es una cadena de formato, y '}' suelta la rompe
     $m = [regex]::Match($fuente, ('(?ms)^function {0}[ (\r\n].*?^\}}' -f [regex]::Escape($fn)))
     if (-not $m.Success) { Write-Host ('  MAL  no encuentro {0} en assistant.ps1' -f $fn); exit 1 }
@@ -44,6 +44,10 @@ foreach ($j in $jx) { Write-Host ("       {0,-22} ultimo={1}" -f $j.nombre, $j.u
 Comp 'encuentra los juegos de Game Pass' ($jx.Count -ge 1) "$($jx.Count) juegos"
 Comp 'y Roblox esta entre ellos' (@($jx | Where-Object { $_.nombre -eq 'Roblox' }).Count -eq 1)
 Comp 'GameSave no es un juego (no tiene lanzador)' (@($jx | Where-Object { $_.nombre -eq 'GameSave' }).Count -eq 0)
+# la carpeta se llama 'Minecraft Launcher'; hablando se dice Minecraft, y tiene que
+# decirse IGUAL aqui que en Get-JuegoEnPrimerPlano o el tiempo de juego no cuadra
+Comp 'y Minecraft no se llama Minecraft Launcher' (@($jx | Where-Object { $_.nombre -eq 'Minecraft' }).Count -eq 1) `
+    (@($jx | ForEach-Object { $_.nombre }) -join ', ')
 Comp 'y en marcha cuesta como leer la biblioteca de Steam' ($ms -lt 200) "$ms ms"
 
 Write-Host ''
