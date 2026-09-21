@@ -15,8 +15,14 @@ function TraerFn($n) {
     return $f.Extent.Text
 }
 $top = $ast.EndBlock.Statements | Where-Object { $_ -is [System.Management.Automation.Language.AssignmentStatementAst] -and $_.Left -is [System.Management.Automation.Language.VariableExpressionAst] }
-foreach ($a in $top) { if (@('RE_RECETA_PROHIBIDO', 'RecetasMax', 'NIVELES_NOVA') -contains $a.Left.VariablePath.UserPath) { Invoke-Expression $a.Extent.Text } }
-foreach ($n in 'ConvertTo-CmdArg', 'ConvertTo-Suave', 'Get-PatronReceta', 'Find-Receta', 'Find-RecetaIncompleta','Test-ScriptProhibido', 'Get-TextoReceta',
+# RE_DATO_SENSIBLE ENTRA AQUI DESDE EL 21/09. No estaba, y Add-DatoPerfil lo usa: sin
+# el, la comparacion era '$d -match $null', o sea -match con patron VACIO, que en
+# PowerShell casa con CUALQUIER texto. Resultado: 'lo sensible no se guarda' salia en
+# verde porque se rechazaba TODO, incluido lo que si hay que guardar. Una prueba que
+# aprueba pase lo que pase es peor que no tenerla: dice que algo esta cubierto y no lo
+# esta. Es la misma regla de siempre: lo que se llama, se trae.
+foreach ($a in $top) { if (@('RE_RECETA_PROHIBIDO', 'RecetasMax', 'NIVELES_NOVA', 'RE_DATO_SENSIBLE', 'PerfilMax') -contains $a.Left.VariablePath.UserPath) { Invoke-Expression $a.Extent.Text } }
+foreach ($n in 'ConvertTo-Plain', 'ConvertTo-CmdArg', 'ConvertTo-Suave', 'Get-PatronReceta', 'Find-Receta', 'Find-RecetaIncompleta','Test-ScriptProhibido', 'Get-TextoReceta',
     'Add-Receta', 'Invoke-Receta', 'Get-Recetas', 'Save-Recetas', 'Get-VarianteReceta', 'Add-VarianteReceta', 'Build-PromptTraduccion',
     'Get-DatosPerfil', 'Save-DatosPerfil', 'Add-DatoPerfil', 'Get-SistemaCerebro', 'Get-BalanceAprendizaje', 'Get-Estadisticas',
     'Send-UIEvento', 'Set-AcabaDeAprender', 'Get-CuentaAprendida', 'Get-Madurez', 'Get-FraseNivel', 'Write-Atomico',
@@ -93,7 +99,13 @@ $PerfilPath = Join-Path $dir 'perfil.md'
 $EstadisticasJson = Join-Path $dir 'estadisticas.json'
 $TmpDir = $dir; $WORKDIR = $dir
 $CcSistema = Join-Path (Split-Path -Parent $PSScriptRoot) 'cerebro-sistema.md'
-$RE_DATO_SENSIBLE = '(?i)contrasen|password|clave del banco'; $PerfilMax = 60
+# AQUI HABIA UNA COPIA DEL PATRON, INVENTADA (21/09): '(?i)contrasen|password|clave del
+# banco'. O sea que este banco NO probaba el filtro de verdad, probaba tres palabras
+# escritas a mano aqui mismo: el de assistant.ps1 podia cambiar, romperse o quedarse
+# vacio y esta prueba seguia en verde. Comprobado quitandole 'contrase' al de verdad:
+# el banco no se enteraba. Es el mismo accidente que probar-juegos.ps1 con el umbral de
+# los 3 minutos. Ahora se trae del archivo, arriba, con las otras variables.
+$PerfilMax = 60
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
 $UiNuevaOn = $true
 $script:recetas = $null; $script:stats = $null
@@ -202,6 +214,9 @@ $rutaCapturas = 'D:' + $barra + 'Capturas'
 Comp 'un dato se guarda' ($null -ne (Add-DatoPerfil ('Su carpeta de capturas es ' + $rutaCapturas) 'prueba'))
 Comp 'repetido no se guarda dos veces' ($null -eq (Add-DatoPerfil ('Su carpeta de capturas es ' + $rutaCapturas) 'prueba'))
 Comp 'lo sensible no se guarda' ($null -eq (Add-DatoPerfil 'Su contrasena del correo es hola1234' 'prueba'))
+# EL OTRO LADO DEL FILTRO (21/09): con el patron sin traer, aqui se rechazaba TODO y la
+# linea de arriba salia verde igual. Un dato normal tiene que PASAR.
+Comp 'y un dato normal si se guarda' ($null -ne (Add-DatoPerfil 'Braya juega a Elden Ring por las noches' 'prueba'))
 $txt = Get-Content (Get-SistemaCerebro) -Raw -Encoding UTF8
 Comp 'el prompt del cerebro lleva a Nova Y el perfil' ($txt.Contains('Lo que sabes de braya') -and $txt.Contains('Su carpeta de capturas es ' + $rutaCapturas) -and $txt.Contains('Eres Nova'))
 

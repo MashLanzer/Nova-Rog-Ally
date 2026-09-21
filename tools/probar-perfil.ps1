@@ -18,6 +18,11 @@ function Traer([string]$n) {
 $txt = [System.IO.File]::ReadAllText($ruta, [System.Text.Encoding]::UTF8)
 if ($txt -match "(?m)^\`$RE_DATO_SENSIBLE = '(.+)'\s*$") { $RE_DATO_SENSIBLE = $Matches[1] } else { throw 'no encuentro RE_DATO_SENSIBLE' }
 $PerfilMax = 60
+# ConvertTo-Plain ENTRA AQUI DESDE EL 21/09: Add-DatoPerfil la usa para mirar el dato
+# SIN TILDES antes de compararlo con el patron de lo sensible, que esta escrito sin
+# ellas ('diagnostic' no casa con "diagnostico" jamas). Sin traerla, este banco reventaba
+# por dentro y la seccion 7 lo cantaba.
+Invoke-Expression (Traer 'ConvertTo-Plain')
 Invoke-Expression (Traer 'ConvertTo-Suave')
 Invoke-Expression (Traer 'Add-DatoPerfil')
 

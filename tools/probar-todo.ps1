@@ -347,6 +347,17 @@ Titulo "2n54. La cascada del repaso: Canary antes que Whisper, y sin tocar Parak
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-cascada-repaso.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:sin Canary todo sigue como antes)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n55. Lo que se guarda de ti, y lo que Nova dice que dijo"
+# 21/09. Tres filtros que no filtraban, y los tres fallaban EN SILENCIO: el de datos
+# sensibles del perfil comparaba CON tildes contra un patron escrito sin ellas
+# ('diagnostic' no casa con "diagnostico" jamas); el de deducciones pedia que la frase
+# EMPEZARA por 'probablemente', y los datos del perfil empiezan todos por 'Braya ...';
+# y un aviso de nivel bajo -de los que se VEN y no se dicen- se quedaba como la ultima
+# respuesta, asi que 'repite' soltaba una frase que Nova no habia dicho nunca.
+# Lo que entra en el perfil VIAJA CON CADA PETICION al modelo: por eso van juntos.
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-perfil-avisos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se filtra de verdad)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n53. Los juegos por su apodo, y el articulo que abria OTRO"
 # 21/09, de sondear como pide las cosas de verdad. "abre el warning" abria ELDEN RING
 # teniendo Content Warning instalado, y "cierra el warning" lo CERRABA: Get-ClaveSonido
@@ -446,7 +457,8 @@ foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     # estuviera ahi, asi que una caida de 88 a 5 pasaba EN VERDE: justo lo que este banco
     # existe para evitar. Las que fallan son controles a proposito, por eso el listero es
     # un minimo y no una igualdad: lo que no puede es BAJAR.
-    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 405 }   # 405 desde el 21/09 (los pronombres pegados). Antes 401 (muletillas y niveles sin
+    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 421 }   # 421 desde el 21/09 tarde (el filtro de 'a las?' sin hora, que se tragaba
+# cualquier frase que empezara por 'a la', y las preposiciones de las flechas). Antes 405
 # verbo), 389 ('dime que X'), 377 (los apodos), 369 (el volumen al reves), 346, 335,
 # 317, 308 y 289: MEDIDO (287 + 2 saltadas). +9 de "mira la pantalla". Antes 280, 260, 254, 242, 238, 234, 228, 221
     $n = -1

@@ -1292,6 +1292,7 @@ $script:descargaCheck = -120000
 # para no disparar una regla en el primer chequeo tras arrancar.
 $script:cargandoAntes = $null
 $script:bateriaMin = 0
+$script:reglasDisparadas = 0
 
 # ¿El repaso del oido fino tiene algo que ver con lo que se oyo primero?
 # Al modelo preciso se le pasa la lista de tus apps y juegos como pista, y con
@@ -1722,6 +1723,7 @@ function Find-EnMemoria([string]$text) {
 # se puede leer sin abrir logs. Dice exactamente que anadir a commands.json.
 $EstadisticasJson = Join-Path $MemoriaDir 'estadisticas.json'
 $EstadisticasMd = Join-Path $MemoriaDir 'estadisticas.md'
+$script:estadisticasMdEn = 0   # cuando se rehizo por ultima vez (21/09)
 $script:stats = $null
 
 # --- OLVIDAR LO DE HACE UN RATO (20/09) ---
@@ -2439,6 +2441,21 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '', [bool]$deCamino =
         if (-not (Test-Path -LiteralPath $MemoriaDir)) { New-Item -ItemType Directory -Force -Path $MemoriaDir | Out-Null }
         Write-Atomico $EstadisticasJson ($o | ConvertTo-Json -Depth 6)
 
+        # EL MARKDOWN NO SE REHACE EN CADA ORDEN (21/09). De aqui para abajo se
+        # construye memoria\estadisticas.md ENTERO -las tablas de 30 dias, los
+        # atragantos, las falsas alarmas- y ademas se lee tmp\gestos.log completo, que
+        # son 75 ms medidos. Y esto corre en el camino caliente: entre que Nova hace la
+        # orden y te contesta, y mas de una vez por orden (Add-Estadistica se llama
+        # tambien 'de camino'). Ese fichero no lo lee el codigo: es para mirarlo tu.
+        # El estado de verdad es el JSON de la linea de arriba, que SI se guarda
+        # siempre, y el markdown se reconstruye entero desde el JSON cada vez que toca:
+        # o sea que no se pierde un solo dato, como mucho el fichero se queda un minuto
+        # viejo hasta el siguiente apunte.
+        $msMd = $sw.ElapsedMilliseconds
+        if ($script:estadisticasMdEn -gt 0 -and ($msMd - $script:estadisticasMdEn) -lt 60000 -and
+            (Test-Path -LiteralPath $EstadisticasMd)) { return }
+        $script:estadisticasMdEn = $msMd
+
         $rutas = @('activacion', 'vozwin', 'vozwin-mudo', 'local', 'aprendida', 'memoria', 'pregunta', 'traducir', 'traducida', 'accion', 'charla', 'ruido', 'recitado', 'descarte', 'error', 'fino', 'fino-sirvio', 'fino-igual', 'fino-invento', 'fino-ahorrado')
         $sb = New-Object System.Text.StringBuilder
         [void]$sb.AppendLine("# Estadísticas del asistente")
@@ -2499,23 +2516,22 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '', [bool]$deCamino =
             [void]$sb.AppendLine("- " + $x + $(if ($script:descarteYaVa[$fraseD]) { "  **(ya se resuelve)**" } else { "" }))
         }
         [void]$sb.AppendLine("")
-        # LO QUE SE LE ATRAGANTA. Arriba ya estaban los descartes sueltos, pero
-        # sin contar: una frase que falla cinco veces se leia igual que una que
-        # fallo una vez y nunca mas. Agrupado y contado, se ve que arreglar.
-        try {
-            $at = @(Get-Atragantos | Where-Object { $_.veces -ge 2 } | Select-Object -First 12)
-            if ($at.Count -gt 0) {
-                # EL OIDO FINO, EN NUMEROS. Cuesta hasta unos segundos por orden y hasta
-        # ahora no habia forma de saber si compensa. Si "sirvio" se queda en cero
-        # semana tras semana, sobra; si es alto, es lo mejor que tiene.
+        # EL OIDO FINO, EN NUMEROS, Y POR SU CUENTA (21/09). Cuesta hasta unos segundos
+        # por orden, y esta tabla es la unica forma de saber si compensa. Hasta hoy el
+        # bloque estaba DENTRO del 'if ($at.Count -gt 0)' de los atragantos: una llave mal
+        # puesta, que se veia en la indentacion. O sea que la tabla solo salia los dias en
+        # que alguna frase habia fallado DOS veces, y desaparecia justo cuando todo iba
+        # bien. Las dos cosas no tienen que ver una con otra: cada una con su try.
+        # Si 'sirvio' se queda en cero semana tras semana, sobra; si es alto, es lo mejor
+        # que tiene.
         try {
             $fTot = 0; $fSir = 0; $fIgu = 0; $fInv = 0; $fAho = 0
             foreach ($k in $s.dias.Keys) {
-            if ($s.dias[$k].ContainsKey('fino')) { $fTot += $s.dias[$k]['fino'] }
-            if ($s.dias[$k].ContainsKey('fino-sirvio')) { $fSir += $s.dias[$k]['fino-sirvio'] }
-            if ($s.dias[$k].ContainsKey('fino-igual')) { $fIgu += $s.dias[$k]['fino-igual'] }
-            if ($s.dias[$k].ContainsKey('fino-invento')) { $fInv += $s.dias[$k]['fino-invento'] }
-            if ($s.dias[$k].ContainsKey('fino-ahorrado')) { $fAho += $s.dias[$k]['fino-ahorrado'] }
+                if ($s.dias[$k].ContainsKey('fino')) { $fTot += $s.dias[$k]['fino'] }
+                if ($s.dias[$k].ContainsKey('fino-sirvio')) { $fSir += $s.dias[$k]['fino-sirvio'] }
+                if ($s.dias[$k].ContainsKey('fino-igual')) { $fIgu += $s.dias[$k]['fino-igual'] }
+                if ($s.dias[$k].ContainsKey('fino-invento')) { $fInv += $s.dias[$k]['fino-invento'] }
+                if ($s.dias[$k].ContainsKey('fino-ahorrado')) { $fAho += $s.dias[$k]['fino-ahorrado'] }
             }
             if (($fTot + $fAho) -gt 0) {
                 [void]$sb.AppendLine("## El oído fino, ¿compensa?")
@@ -2531,7 +2547,13 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '', [bool]$deCamino =
                 [void]$sb.AppendLine("")
             }
         } catch {}
-        [void]$sb.AppendLine("## Lo que más se me atraganta")
+        # QUE SE ME ATRAGANTA: las frases que acabaron en el modelo, en nada o en un error,
+        # agrupadas y contadas. Sin contar, una frase que falla cinco veces se leia igual
+        # que una que fallo una vez y nunca mas.
+        try {
+            $at = @(Get-Atragantos | Where-Object { $_.veces -ge 2 } | Select-Object -First 12)
+            if ($at.Count -gt 0) {
+                [void]$sb.AppendLine("## Lo que más se me atraganta")
                 [void]$sb.AppendLine("")
                 [void]$sb.AppendLine('Frases que acabaron sin entenderse, en el modelo o en error, MÁS DE UNA VEZ. Para arreglar una: di "aprende que <la frase> es <la orden buena>".')
                 [void]$sb.AppendLine("")
@@ -3924,7 +3946,30 @@ function Resolve-Fragment([string]$f) {
     }
     # "adelante" A SECAS ya no pulsa (validacion, 15/09): "abre steam" dicho desde lejos se
     # oyo "Adelante" y pulso la tecla. Con verbo ("pulsa adelante") sigue valiendo.
-    if ($f -match '^(?!adelante$)(?:(?:pulsa|presiona|dale a|dale al|ve|vete|muevete|mueve|desplazate)\s+)?(?:la\s+|el\s+|tecla\s+|flecha\s+|hacia\s+|a la\s+|al\s+)?(abajo|arriba|izquierda|derecha|atras|acepta|aceptar|entra|entrar|confirma|adelante)(?:\s+(\d{1,2}|\w+)\s*(?:veces|vez))?$') {
+    # LA PREPOSICION Y EL ARTICULO, POR SEPARADO (21/09). El grupo de prefijos era uno
+    # solo -'la ', 'el ', 'tecla ', 'flecha ', 'hacia ', 'a la ', 'al '- y se aplica UNA
+    # vez: 'hacia la derecha' se comia el 'hacia ' y se quedaba mirando 'la derecha', que
+    # no es ninguna direccion. Con dos grupos encadenados entran todas las combinaciones
+    # ('hacia la derecha', 'para la izquierda', 'pulsa la flecha abajo', 'a la
+    # derecha' y 'al arriba' si) sin repetir alternativas a mano.
+    # PARTIR LA PANTALLA A UN LADO, QUE NO SE PODIA PEDIR (21/09). Mas abajo hay un switch
+    # con 'a la derecha' -> Win+Derecha, pero no lo alcanza nadie: la regla de las flechas
+    # de aqui debajo se come 'derecha', 'a la derecha', 'izquierda' y 'a la izquierda'
+    # antes de llegar. Y hace bien: navegando un menu con el mando, 'derecha' es moverse,
+    # que es como se usa el 99 % de las veces. El problema es que entonces NO QUEDABA
+    # NINGUNA forma de partir la pantalla a la derecha: 'media pantalla' sola va a la
+    # izquierda y era lo unico que funcionaba.
+    # Asi que las flechas se quedan como estan y aqui van las formas que no pueden ser
+    # otra cosa: las que nombran la pantalla o la ventana, y las que llevan un verbo de
+    # COLOCAR ('ponlo', 'mandalo', 'dejalo'), que no es un verbo de moverse por un menu.
+    if ($f -match '^(?:a\s+)?(?:media|mitad\s+de(?:\s+la)?)\s+pantalla\s+(?:a\s+)?(?:la\s+)?(izquierda|derecha)$' -or
+        $f -match '^(?:pon|ponlo|ponla|ponme|ponmelo|ponmela|manda|mandalo|mandala|deja|dejalo|dejala|coloca|colocalo|colocala)(?:\s+(?:esto|esta|esta\s+ventana|la\s+ventana|la\s+app|el\s+juego|la\s+pagina))?\s+(?:a\s+)?(?:la\s+)?(izquierda|derecha)$') {
+        # el grupo se copia YA: cualquier -match que venga despues pisa $Matches
+        $ladoP = [string]$Matches[1]
+        if ($ladoP -eq 'derecha') { return @(@{ kind = 'winkey'; vk = 0x27; desc = 'media pantalla derecha' }) }
+        return @(@{ kind = 'winkey'; vk = 0x25; desc = 'media pantalla izquierda' })
+    }
+    if ($f -match '^(?!adelante$)(?:(?:pulsa|presiona|dale a|dale al|ve|vete|muevete|mueve|desplazate)\s+)?(?:(?:hacia|para|a|al)\s+)?(?:(?:la|el|tecla|flecha)\s+){0,2}(abajo|arriba|izquierda|derecha|atras|acepta|aceptar|entra|entrar|confirma|adelante)(?:\s+(\d{1,2}|\w+)\s*(?:veces|vez))?$') {
         # $Matches se pisa con el siguiente -match: se copia ya
         $dir = $Matches[1]; $cuantas = $Matches[2]
         $veces = Get-Veces $cuantas
@@ -5201,7 +5246,16 @@ function Invoke-Deshacer {
             try {
                 if ($pr.Path -notmatch '(?i)steamapps\\common\\') { continue }
                 if ($pr.StartTime -lt $jg.desde) { continue }
-                if (-not $pr.CloseMainWindow()) { Start-Sleep -Milliseconds 1200 }
+                # SE LE DA TIEMPO A CERRARSE BIEN (21/09). Aqui solo se esperaba cuando
+                # CloseMainWindow devolvia FALSO -o sea, cuando la ventana ni acepto el
+                # mensaje-, y en el caso bueno se pasaba derecho al HasExited: un juego que
+                # dice 'vale, cierro' tarda segundos en guardar y salir, asi que HasExited
+                # era falso y lo matabamos igual, a los pocos milisegundos. O sea que el
+                # deshacer mataba el juego SIEMPRE, con partida sin guardar incluida, y eso
+                # es justo lo que el resto del codigo evita a toda costa.
+                # 6 s: cerrar Elden Ring desde su propia X tarda unos 4 segundos medidos.
+                if ($pr.CloseMainWindow()) { [void]$pr.WaitForExit(6000) }
+                else { Start-Sleep -Milliseconds 1200 }
                 if (-not $pr.HasExited) { $pr.Kill() }
                 $hecho += "cerrado $($jg.nombre)"
                 break
@@ -5631,7 +5685,12 @@ $DeshazEnsenaMs = 30000
 
 function Invoke-AprenderDelError([bool]$soloSiDudosa = $false) {
     $huboTraduccion = [bool]$script:ultimaAprendida
-    $huboReceta = [bool]($script:ultimaReceta -and ($sw.ElapsedMilliseconds - $script:ultimaRecetaEn) -lt 180000)
+    # SOLO SE OLVIDA UNA RECETA QUE ACABAS DE EJECUTAR (21/09). Ver ENSENARLA NO ES
+    # USARLA: sin ultimaRecetaUsada, ensenarle una receta y decir 'deshaz' en los tres
+    # minutos siguientes -por el volumen, por una app- se llevaba la receta por
+    # delante. 'Olvida eso' sigue pudiendo borrarla: ese camino es otro y es explicito.
+    $huboReceta = [bool]($script:ultimaReceta -and $script:ultimaRecetaUsada -and
+                         ($sw.ElapsedMilliseconds - $script:ultimaRecetaEn) -lt 180000)
     if ($soloSiDudosa -and -not $huboTraduccion -and -not $huboReceta) { return $null }
 
     # si vino de una TRADUCCION, lo rechazado es tu frase original, no la orden normal a la
@@ -5655,6 +5714,7 @@ function Invoke-AprenderDelError([bool]$soloSiDudosa = $false) {
         $objR = @($gR | Where-Object { $_.id -eq $script:ultimaReceta })
         if ($objR.Count -gt 0) { [void]$gR.Remove($objR[0]); Save-Recetas; $recetaOlvidada = [string]$objR[0].frase }
         $script:ultimaReceta = $null
+        $script:ultimaRecetaUsada = $false
     }
     return @{ apuntada = $apuntada; olvidada = $olvidada; recetaOlvidada = $recetaOlvidada }
 }
@@ -5744,6 +5804,12 @@ $RE_RECETA_PROHIBIDO = '(?i)\b(?:Remove-Item|Remove-ItemProperty|Clear-Item|Clea
 $script:recetas = $null
 $script:ultimaReceta = $null
 $script:ultimaRecetaEn = 0
+# ENSENARLA NO ES USARLA (21/09). Las dos cosas marcan ultimaReceta, porque
+# 'olvida eso' tiene que poder deshacer las dos. Pero 'deshaz' a secas solo
+# puede borrar una receta que acabas de EJECUTAR y salio mal: si la acabas de
+# ensenar y dices 'deshaz' por otra cosa -el volumen, una app abierta-, lo que
+# se borraba era el trabajo de ensenarsela, y sin avisar.
+$script:ultimaRecetaUsada = $false
 $script:ccConHerramientas = $false
 $script:reparandoReceta = $null   # receta que fallo y cuya tarea lleva ahora el cerebro para arreglarla
 $script:acabaDeAprender = $false  # la capsula celebrara en el proximo "hecho" (ver Send-UIEvento)
@@ -6292,6 +6358,7 @@ function New-RecetaEnsenada([string]$disparador, [string]$cuerpo) {
     Save-Recetas
     $script:ultimaReceta = $id
     $script:ultimaRecetaEn = $sw.ElapsedMilliseconds
+    $script:ultimaRecetaUsada = $false   # recien ensenada: 'deshaz' no la borra (21/09)
     Log "RECETA $id ensenada: '$clave' -> $($lineas -join ' | ')"
     Add-Estadistica 'receta-ensenada' $clave
     Set-AcabaDeAprender
@@ -6395,6 +6462,7 @@ function Complete-RecetaResultado($enc, [string]$text, $res, [string]$variante =
         Save-Recetas
         $script:ultimaReceta = $r.id
         $script:ultimaRecetaEn = $sw.ElapsedMilliseconds
+        $script:ultimaRecetaUsada = $true    # esta si la acaba de hacer (21/09)
         Add-Estadistica 'receta' $text
         $script:ultimaRespuesta = $res.texto
         # no el "hecho" de siempre: el gesto de "lo hice sola, sin IA"
@@ -6443,7 +6511,14 @@ function Complete-RecetaResultado($enc, [string]$text, $res, [string]$variante =
 $PerfilPath = Join-Path $MemoriaDir 'perfil.md'
 $script:ultimoDatoPerfil = ''      # lo ultimo que se aprendio de braya en esta sesion, por si es falso
 $PerfilMax = 60
-$RE_DATO_SENSIBLE = '(?i)contrase|password|\bclave\b|\bpin\b|tarjeta|cuenta bancaria|\bdni\b|pasaporte|seguro social|\bsalud\b|enfermedad|medicamento|diagnostic'
+# LA MISMA LISTA QUE LA CHARLA (21/09). charla_memoria.py:82 tiene su propio RE_SENSIBLE
+# para lo que entra en el cerebro, y era MAS COMPLETO que este: traia 'banco', 'bancari',
+# 'dinero', 'sueldo' y 'medicament' (que tambien caza 'medicamentos') donde aqui habia
+# 'cuenta bancaria' y 'medicamento' a secas. Dos listas para lo mismo acaban asi: una se
+# mejora y la otra no. Y la que se habia quedado corta es la que mas importa, porque lo
+# que entra en el perfil VIAJA CON CADA PETICION al modelo, mientras que el cerebro de la
+# charla solo sale cuando algo se le parece.
+$RE_DATO_SENSIBLE = '(?i)contrase|password|\bclave\b|\bpin\b|tarjeta|\bbanco\b|bancari|cuenta bancaria|\bdinero\b|sueldo|\bdni\b|pasaporte|seguro social|\bsalud\b|enfermedad|medicament|diagnostic'
 
 $CcInstruccionDato = @'
 
@@ -6475,7 +6550,14 @@ function Add-DatoPerfil([string]$dato, [string]$fuente = '') {
     if ($script:invitado) { Log "PERFIL: modo invitado, no guardo nada"; return $null }
     $d = ($dato -replace '\s+', ' ').Trim().TrimEnd('.').Trim()
     if ($d.Length -lt 8 -or $d.Length -gt 180) { return $null }
-    if ($d -match $RE_DATO_SENSIBLE) { Log "PERFIL: no guardo un dato sensible"; return $null }
+    # SE MIRA SIN TILDES (21/09). Esto comparaba contra $d tal cual llega, y el patron
+    # esta escrito sin tildes: 'diagnostic' NO casa con "diagnostico" -la o lleva tilde y
+    # rompe la palabra justo en medio-, ni 'medicamento' con "medicamentos" mal escrito,
+    # ni el resto. O sea que la mitad de la lista de palabras prohibidas no prohibia nada:
+    # un dato de salud dicho con tilde entraba en el perfil, y lo que entra ahi se queda
+    # para siempre Y VIAJA CON CADA PETICION al modelo. Lo que se guarda sigue siendo $d
+    # con sus tildes: lo que se mira sin ellas es solo la comprobacion.
+    if ((ConvertTo-Plain $d) -match $RE_DATO_SENSIBLE) { Log "PERFIL: no guardo un dato sensible"; return $null }
     # NI SOBRE NOVA NI DE UNA QUEJA (16/09). El 15/09 acabaron en el perfil, para
     # siempre y viajando con cada peticion: "Braya considera que Nova se equivoca
     # frecuentemente" y "Braya siente que Nova no entiende bien lo que dice".
@@ -6519,7 +6601,13 @@ function Add-DatoPerfil([string]$dato, [string]$fuente = '') {
     # NI DEDUCCIONES: "Braya tiene una pareja (la llama 'mi amor')" salio de oirle decir
     # "mi amor" una vez. Lo que empieza por "parece", "podria" o va entre parentesis
     # explicando de donde se saco, no es algo que el haya afirmado.
-    if ($plD -match '^(?:parece|puede que|posiblemente|probablemente|quiza)\b' -or $plD -match '\(.*(?:la llama|lo llama|porque dijo|segun).*\)') {
+    # EL ANCLA DE PRINCIPIO LO DEJABA SIN EFECTO (21/09). Un dato del perfil se escribe
+    # en tercera persona y empieza SIEMPRE por 'Braya ...' -asi lo pide la instruccion que
+    # se le da al modelo, y asi estan los 60 que hay-, de modo que ningun dato empieza por
+    # 'probablemente' y este filtro no rechazaba uno solo. Lo que llega de verdad es
+    # 'Braya probablemente juega de noche', con la palabra EN MEDIO. Y 'podria', que el
+    # comentario de arriba dice que se filtra, no estaba en la lista.
+    if ($plD -match '\b(?:parece|puede que|podria|posiblemente|probablemente|quiza|quizas|seguramente|supongo|diria|al parecer|por lo visto)\b' -or $plD -match '\(.*(?:la llama|lo llama|porque dijo|segun).*\)') {
         Log "PERFIL: eso es una deduccion, no algo que dijera: $d"; return $null
     }
     $datos = @(Get-DatosPerfil)
@@ -7017,8 +7105,13 @@ function Test-ParteManana([datetime]$ahora = (Get-Date)) {
     $hbM = Get-Habitos
     $hoyM = $ahora.ToString('yyyy-MM-dd')
     if ($hbM.parteVisto -eq $hoyM) { return }
-    $hbM.parteVisto = $hoyM
-    Save-Habitos
+    # EL DIA SE MARCA ABAJO, YA DECIDIDO QUE EL PARTE SALE (21/09). Aqui se marcaba
+    # y se guardaba antes de reunir ni un dato, y treinta lineas mas abajo hay un
+    # 'return' si no hay al menos dos: el caso normal de la primera orden del dia es
+    # que el clima aun no haya llegado -Update-Clima va por su cuenta y tarda-, asi
+    # que quedaba la bateria sola, se volvia sin decir nada... con el dia marcado. El
+    # parte de ese dia no salia NUNCA, ni una hora despues con el clima ya puesto.
+    # El aviso de 'decision esperando datos' de aqui abajo ya lo hacia bien; esto no.
     $partes = @()
     if ($script:clima) { $partes += "$($script:clima.emoji) $($script:clima.temp)°" }
     try {
@@ -7041,6 +7134,9 @@ function Test-ParteManana([datetime]$ahora = (Get-Date)) {
     }
     # dos datos hacen un parte; una decision esperando vale ella sola
     if ($partes.Count -lt 2 -and -not $avisoM) { return }
+    # AHORA SI: hay parte, asi que el dia queda dado.
+    $hbM.parteVisto = $hoyM
+    Save-Habitos
     if ($avisoM) {
         # se marca AQUI, ya decidido que el parte sale: si se hubiera callado arriba, el
         # aviso sigue apuntado para el proximo parte en vez de perderse.
@@ -7438,14 +7534,22 @@ function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'med
     [void]$script:entornoAvisos.Add($sw.ElapsedMilliseconds)
     Log "ENTORNO ($clave, $nivel): $texto"
     Add-Estadistica 'aviso-entorno' $clave
-    $script:ultimaRespuesta = $texto
     Show-Popup $texto
     # los de poca monta NO se dicen: se ven y ya. Hablar por todo es lo que cansa.
+    # Y POR ESO NO SON LA ULTIMA RESPUESTA (21/09). ultimaRespuesta es lo que contesta
+    # 'repite', y se ponia aqui arriba para TODOS los avisos, nivel 'bajo' incluido: o
+    # sea que 'ya esta cargada del todo' -que solo se ve en la capsula, nunca se dice-
+    # se quedaba como lo ultimo que Nova habia dicho, y 'repite' soltaba una frase que
+    # no habia sonado nunca, tapando ademas la respuesta de verdad. Ahora la ponen las
+    # dos ramas que SI hablan, que es lo que hacen los otros diez sitios del archivo:
+    # ultimaRespuesta va pegada al Say, no al Show-Popup.
     if ($nivel -eq 'alto') {
         # lo critico va delante de lo que estuviera esperando, y sale ya
+        $script:ultimaRespuesta = $texto
         $script:avisoCola.Insert(0, $texto)
         Send-AvisoCola $true
     } elseif ($nivel -ne 'bajo') {
+        $script:ultimaRespuesta = $texto
         if ($script:avisoCola.Count -eq 0) { $script:avisoColaDesde = $sw.ElapsedMilliseconds }
         [void]$script:avisoCola.Add($texto)
     }
@@ -7520,7 +7624,15 @@ function Watch-Entorno([int]$botones = 0) {
             [void](Update-Juegos)
             $ahoraJ = @($script:Juegos).Count
             Log "UNIDADES: '$($script:entornoUnidades)' -> '$letras' (juegos: $antesJ -> $ahoraJ)"
-            Invoke-Reglas 'discoJuegos' $(if ($ahoraJ -lt $antesJ) { 'quita' } else { 'pone' })
+            # LA REGLA MIRA LOS JUEGOS, NO LAS LETRAS (21/09). Esto se disparaba con CUALQUIER
+            # cambio de unidad: un pendrive con fotos, la microSD de las capturas, el movil por
+            # USB. Y el 'else' lo empeoraba, porque sin juegos nuevos ($ahoraJ igual a $antesJ)
+            # caia en 'pone': QUITAR un pendrive disparaba la regla de CONECTAR el disco de los
+            # juegos. Los avisos de aqui debajo ya lo hacian bien -solo hablan si el numero
+            # cambia-; era la regla suya, la que ejecuta una accion, la que se disparaba sola.
+            if ($ahoraJ -ne $antesJ) {
+                Invoke-Reglas 'discoJuegos' $(if ($ahoraJ -lt $antesJ) { 'quita' } else { 'pone' })
+            }
             if ($ahoraJ -gt $antesJ) {
                 [void](Send-AvisoEntorno 'disco-juegos' "Veo el disco de los juegos. Ahora tienes $ahoraJ juegos." 'medio' 5)
             } elseif ($ahoraJ -lt $antesJ) {
@@ -8957,7 +9069,17 @@ function Test-FastCommand([string]$text) {
     # OJO: solo las formas que DE VERDAD son una regla. Con un '^cuando\s' a
     # secas se colaban preguntas sobre el pasado -"cuando jugue a outlast"- que
     # no son reglas y acababan en el modelo por nada.
-    if ($pl -match '^(?:cuando\s+(?:se\s+)?(?:abra|abras|inicie|inicies|arranque|empiece|entre|cierre|cierres|termine|acabe|complete|salga|la bateria|la pila|quite|quites|enchufe|enchufes|ponga|pongas|conecte|desconecte)|cada\s+\d+\s*(?:minuto|hora)|todos los dias|a las?\s)') {
+    # Y 'A LAS?' PIDE UNA HORA DETRAS (21/09). Estaba puesto como 'a las?\s' a secas,
+    # o sea que CUALQUIER frase que empiece por 'a la ' o 'a las ' entraba aqui como si
+    # fuera una regla horaria, y salia por el return de abajo: falso, salvo que llevara
+    # un verbo de accion. Sin pasar por Resolve-Fragment, o sea sin que nadie mirara si
+    # era una orden. Se iban al modelo, calladas:
+    #     'a la derecha' y 'a la izquierda'  -> media pantalla; el switch existe y no
+    #                                           lo alcanzaba nadie
+    #     'a la mitad'                       -> el volumen a la mitad
+    # Con la hora detras, 'a las tres apaga el wifi' sigue entrando -que para eso esta-
+    # y 'a la una' tambien, que es la unica hora que va en singular.
+    if ($pl -match '^(?:cuando\s+(?:se\s+)?(?:abra|abras|inicie|inicies|arranque|empiece|entre|cierre|cierres|termine|acabe|complete|salga|la bateria|la pila|quite|quites|enchufe|enchufes|ponga|pongas|conecte|desconecte)|cada\s+\d+\s*(?:minuto|hora)|todos los dias|a las?\s+(?:\d{1,2}\b|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|medianoche|mediodia))') {
         return [bool]($pl -match ('(?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame|abrelo|abrela|ejecutalo|lanzalo|inicialo|arrancalo|juegalo)\b'))
     }
     # el mismo corte que en Invoke-FastCommand: este es el camino que usan la
@@ -10884,6 +11006,14 @@ function Invoke-FastCommand([string]$text) {
                     else {
                         try { [System.IO.File]::WriteAllText((Join-Path $TmpDir 'ocr.txt'), $texto, (New-Object System.Text.UTF8Encoding($false))) } catch {}
                         $script:ultimaLectura = $texto
+                        # Y LA POSICION VUELVE A CERO CON EL TEXTO (21/09). Texto nuevo, lectura
+                        # nueva. Esto faltaba y el agujero estaba justo debajo: cuando la frase
+                        # pide que te lo CUENTE, se le pasa al modelo y se sale con un 'break'
+                        # sin llegar a la linea que pone lecturaPos. O sea que ultimaLectura ya
+                        # era el texto nuevo y lecturaPos seguia siendo la de la pantalla
+                        # anterior: 'sigue leyendo' se saltaba un trozo del tamano de la lectura
+                        # de antes, o contestaba 'ya no queda mas' con la pantalla sin leer.
+                        $script:lecturaPos = 0
                         # SI PEDISTE QUE TE LO CUENTE, NO SE RECITA (21/09). El texto de un
                         # HUD de juego leido letra a letra no le dice nada a nadie: la
                         # noche del 20/09, a "cuentame que ves", Nova solto "O Codigo de
@@ -10925,6 +11055,7 @@ function Invoke-FastCommand([string]$text) {
                         $a.desc = 'No veo texto en la pantalla'
                     } else {
                         $script:ultimaLectura = $texto
+                        $script:lecturaPos = 0        # texto nuevo, lectura nueva (21/09)
                         # una pantalla viene en muchas lineas y en una nota de diario
                         # eso queda ilegible: se junta todo en una sola
                         $limpio = (($texto -replace '[\r\n]+', ' / ') -replace '\s{2,}', ' ').Trim()
@@ -12415,7 +12546,12 @@ function Update-Clima {
         elseif ($codigo -eq 3) { $emoji = '☁️'; $desc = 'esta nublado' }
         elseif ($codigo -ge 45 -and $codigo -le 48) { $emoji = '🌫️'; $desc = 'hay niebla' }
         elseif ($codigo -ge 51 -and $codigo -le 67) { $emoji = '🌧️'; $desc = 'esta lloviendo' }
-        elseif ($codigo -ge 71 -and $codigo -le 77) { $emoji = '🌨️'; $desc = 'esta nevando' }
+        # 85 Y 86 SON CHUBASCOS DE NIEVE, Y FALTABAN (21/09). Esta cadena saltaba de 77 a
+        # 80, asi que un codigo 85 u 86 no encajaba en ninguna rama y se quedaba con el
+        # valor de arriba: 'esta despejado'. Y la linea de la capsula, doce lineas mas
+        # abajo, SI los cuenta como nieve: Nova decia que estaba despejado mientras su
+        # propia cara dejaba caer copos.
+        elseif (($codigo -ge 71 -and $codigo -le 77) -or ($codigo -ge 85 -and $codigo -le 86)) { $emoji = '🌨️'; $desc = 'esta nevando' }
         elseif ($codigo -ge 80 -and $codigo -le 82) { $emoji = '🌦️'; $desc = 'hay chubascos' }
         elseif ($codigo -ge 95) { $emoji = '⛈️'; $desc = 'hay tormenta' }
         elseif ($noche) { $emoji = '🌙'; $desc = 'esta despejado' }
@@ -12823,6 +12959,11 @@ function Invoke-ReglaVoz([string]$text) {
 
 # Ejecuta las reglas de un tipo cuyo valor encaje.
 function Invoke-Reglas([string]$tipo, [string]$dato = '') {
+    # CUANTAS DISPARARON EN ESTA LLAMADA (21/09). No se devuelve con 'return' a
+    # proposito: esta funcion se llama desde treinta sitios sin [void], y cualquier
+    # cosa que devuelva se colaria en la salida de la funcion que la llama. Con un
+    # $script: lo lee quien lo necesite y nadie mas se entera.
+    $script:reglasDisparadas = 0
     $g = Get-Reglas
     if ($g.Count -eq 0) { return }
     $hoy = Get-Date -Format 'yyyy-MM-dd'
@@ -12884,6 +13025,7 @@ function Invoke-Reglas([string]$tipo, [string]$dato = '') {
             continue
         }
         Log ("REGLA $($r.id) dispara: " + (Describe-Regla $r))
+        $script:reglasDisparadas++
         $script:confirmado = $true
         $res = $null
         try { $res = Invoke-FastCommand $r.accion } catch { $res = $null } finally { $script:confirmado = $false }
@@ -13077,8 +13219,17 @@ function Invoke-RecordatorioVoz([string]$text) {
         # 'manana' y 'madrugada' no contienen 'am' (comprobado), asi que la alternancia
         # no se pisa a si misma.
         if ($franja -match 'noche|madrugada|am' -and $hora -eq 12) { $hora = 0 }
-        # sin franja y hora "pequena": si ya paso de manana, sera de tarde
-        if (-not $franja -and $hora -le 7 -and $hora -ge 1 -and $null -eq $fecha) { $hora += 12 }
+        # sin franja y hora "pequena": si ya paso, sera de tarde.
+        # PERO DE MADRUGADA NO (21/09). Esto sumaba 12 SIEMPRE que la hora fuera de 1 a 7
+        # y no se dijera la franja, y a las tres de la madrugada eso es justo al reves de
+        # lo que quiere decir: 'recuerdame a las siete que desayune', dicho a las 3:00, se
+        # guardaba para las 19:00 -cuando lo que queda son cuatro horas para las 7 de la
+        # manana-. Y braya juega de madrugada, que es cuando mas lo dice.
+        # La razon de sumar 12 es 'esa hora ya paso hoy', asi que se mira eso y no un
+        # numero fijo: si la hora pedida AUN NO HA LLEGADO, se toma tal cual.
+        $horaAhora = (Get-Date).Hour
+        if (-not $franja -and $hora -le 7 -and $hora -ge 1 -and $null -eq $fecha -and
+            $horaAhora -ge $hora) { $hora += 12 }
     }
     # no es un recordatorio con fecha... salvo que haya antelacion sin hora, que
     # se pregunta justo debajo
@@ -15315,6 +15466,13 @@ function Receive-Charla {
                 Start-Confirmacion
             } elseif ($fastC) {
                 Log "LOCAL (desde la charla): $ordenC -> $fastC"
+                # Y CUENTA COMO ORDEN LOCAL (21/09). Esta rama tenia el Log, el gesto y la
+                # voz, pero no el Add-Estadistica que llevan los otros caminos locales: la
+                # orden se hacia y no quedaba en ningun contador. En el log del 18 al 20/09
+                # hay seis asi. Y eso no es un numero cualquiera: 'cero ordenes equivocadas'
+                # se mide con estos contadores, o sea que seis aciertos de Nova no contaban
+                # para su propia meta, y el porcentaje que ella misma dice salia mas bajo.
+                Add-Estadistica 'local' $ordenC
                 Set-UltimaOrden $ordenC ([string]$fastC)
                 Send-UIEvento 'hecho'
                 Say $fastC
@@ -15913,10 +16071,12 @@ function Report-Reply($out) {
                 Add-Estadistica 'receta-reparada' ([string]$nuevaRec.frase)
                 $script:ultimaReceta = $nuevaRec.id
                 $script:ultimaRecetaEn = $sw.ElapsedMilliseconds
+                $script:ultimaRecetaUsada = $true    # venia de ejecutarla y fallar (21/09)
                 $out = @(([string]$out[0]).TrimEnd() + ' Y ya arregle lo que habia aprendido.')
             } elseif ($nuevaRec) {
                 $script:ultimaReceta = $nuevaRec.id
                 $script:ultimaRecetaEn = $sw.ElapsedMilliseconds
+                $script:ultimaRecetaUsada = $false   # recien aprendida, no ejecutada (21/09)
                 $out = @(([string]$out[0]).TrimEnd() + ' Aprendido para la proxima.')
             }
         }
@@ -18326,7 +18486,14 @@ while ($true) {
             break
         }
     }
-    if ($pollOk) { $pollErrs = 0 }
+    # SOLO CUENTA COMO BUENO SI SE LLEGO A MIRAR (21/09). Cuando XInput falla se aplaza
+    # el siguiente intento 5 segundos, y en las vueltas de ese rato $saltarPoll es cierto:
+    # el for no se ejecuta, $pollOk se queda en $true por no haberse tocado, y el contador
+    # volvia a cero. O sea que al reintentar y fallar otra vez, $pollErrs valia 1 y se
+    # escribia la linea en el log de nuevo... cada 5 segundos, para siempre. El silencio
+    # de los cinco primeros no llegaba a aplicarse nunca, que era justo para lo que se
+    # puso. Un mando desconectado llenaba assistant.log el solo.
+    if ($pollOk -and -not $saltarPoll) { $pollErrs = 0 }
 
     # RESPONDER CON EL MANDO (13/09): con una pregunta de si/no esperando, A es
     # si y B es no. Solo mientras hay pregunta: el resto del tiempo A y B son
@@ -19549,6 +19716,17 @@ while ($true) {
             $bat = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($bat -and $bat.EstimatedChargeRemaining) {
                 $pc = [int]$bat.EstimatedChargeRemaining
+                # CUANTO TIEMPO QUEDA, ANTES DE QUE NADIE LO USE (21/09). Esto estaba 26 lineas
+                # MAS ABAJO, detras del flanco del cargador que es el unico que lo lee: al
+                # desenchufar, 'te quedan N minutos' miraba el valor de la vuelta ANTERIOR -la de
+                # cuando aun estaba enchufada, que es justo cuando Windows no sabe estimarlo- y
+                # soltaba el texto corto, 'Sin cargador, al 47 por ciento'. El dato sale del mismo
+                # $bat que se acaba de leer dos lineas arriba, asi que no cuesta nada traerlo aqui.
+                $script:bateriaMin = 0
+                try {
+                    $rt = [int]$bat.EstimatedRunTime
+                    if ($rt -gt 0 -and $rt -lt 1000) { $script:bateriaMin = $rt }
+                } catch {}
                 $cargando = ($bat.BatteryStatus -eq 2)   # 2 = conectado a la red
                 # la insignia de la capsula avisa por debajo del 20 % y
                 # celebra la carga
@@ -19596,13 +19774,6 @@ while ($true) {
                         if (-not $script:busy -and -not $script:pendiente -and $script:uiEstado -eq 'reposo') { Set-UI 'hablando' 'Enchufame antes de dormir' 4000 }
                     }
                 } catch { Log ("recordatorio de carga: " + $_.Exception.Message) }
-                # cuanto tiempo queda, que es lo que decide si empiezas otra
-                # partida. Viene en el mismo objeto que ya se acaba de leer.
-                $script:bateriaMin = 0
-                try {
-                    $rt = [int]$bat.EstimatedRunTime
-                    if ($rt -gt 0 -and $rt -lt 1000) { $script:bateriaMin = $rt }
-                } catch {}
                 # DESCARGAS DE STEAM: por FLANCO. Lo que dispara es que un juego
                 # DEJE de estar bajando, no que este instalado; si no, cada juego
                 # ya instalado dispararia la regla en cada vuelta. La primera
@@ -19622,8 +19793,15 @@ while ($true) {
                                 if (-not $ahoraBajan.ContainsKey($nm)) {
                                     Log "DESCARGA terminada (regla): $nm"
                                     Invoke-Reglas 'descarga' $nm
+                                    # UNA SOLA VOZ POR DESCARGA (21/09). Aqui se decia SIEMPRE las dos cosas: la
+                                    # regla suya -'cuando termine de descargarse X, avisame'- suelta 'X ha
+                                    # terminado de descargarse', y tres segundos despues este aviso soltaba 'Ya
+                                    # termino de descargarse X'. La misma noticia, dos frases distintas, seguidas.
+                                    # Si una regla suya ya lo dijo, este se calla; si no tenia regla, habla.
                                     # idea 24: ya se puede jugar
-                                    [void](Send-AvisoEntorno "descarga-$nm" "Ya termino de descargarse $nm." 'medio' 180)
+                                    if ($script:reglasDisparadas -eq 0) {
+                                        [void](Send-AvisoEntorno "descarga-$nm" "Ya termino de descargarse $nm." 'medio' 180)
+                                    }
                                 }
                             }
                             $script:bajandoReglas = $ahoraBajan

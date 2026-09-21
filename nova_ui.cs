@@ -694,7 +694,18 @@ public class NovaUI : Window
             Desvanecer(panelNivel, 0, 200);
             var t = new DispatcherTimer();
             t.Interval = TimeSpan.FromMilliseconds(220);
-            t.Tick += delegate { t.Stop(); panelNivel.Visibility = Visibility.Collapsed; Aplicar(estadoActual, textoActual, false); };
+            // Y LA ESCALA VUELVE A DONDE ESTABA (21/09). MostrarNivel hace EscalaFoco(false)
+            // para que la barra se lea, pero al esconderla nadie deshacia eso: con un juego
+            // delante la capsula se queda a tamano COMPLETO el resto de la partida, que es
+            // justo cuando mas estorba (por eso ahi se encoge a 0,32 y no a 0,5). Pasaba con
+            // cada "sube el volumen". La condicion es la misma que usan los otros tres
+            // sitios que llaman a EscalaFoco, para que no haya dos criterios.
+            t.Tick += delegate {
+                t.Stop();
+                panelNivel.Visibility = Visibility.Collapsed;
+                Aplicar(estadoActual, textoActual, false);
+                EscalaFoco(foco && (estadoActual == "reposo" || estadoActual == ""));
+            };
             t.Start();
         };
 
@@ -1402,8 +1413,14 @@ public class NovaUI : Window
             if (volumen.GetMasterVolumeLevelScalar(out v) != 0 || volumen.GetMute(out m) != 0) { SoltarCom(volumen); volumen = null; return; }
             bool cambio = (Math.Abs(v - volAnterior) > 0.005f) || (m != muteAnterior);
             volAnterior = v; muteAnterior = m;
-            // glifos de Segoe MDL2 Assets: silencio, volumen 0 / medio / alto
-            if (cambio) { MostrarNivel(m ? "" : (v < 0.01f ? "" : (v < 0.5f ? "" : "")), m ? 0 : v); }
+            // GLIFOS DE SEGOE MDL2 ASSETS, ESCRITOS CON \u (21/09). Estaban puestos como
+            // los caracteres de verdad y en algun momento se perdieron: los cuatro eran
+            // cadenas VACIAS, asi que silencio y volumen al 3 % se veian igual -sin icono-
+            // y la barra era lo unico que los distinguia. Van por codigo, como los de
+            // Icono() de mas arriba: un \uE74F sobrevive a cualquier editor que pase el
+            // fichero por ASCII, y el caracter de verdad no.
+            //   E74F altavoz tachado - E992 sin volumen - E994 a medias - E995 alto
+            if (cambio) { MostrarNivel(m ? "\uE74F" : (v < 0.01f ? "\uE992" : (v < 0.5f ? "\uE994" : "\uE995")), m ? 0 : v); }
         }
         catch { SoltarCom(volumen); volumen = null; }
     }
@@ -2596,7 +2613,8 @@ public class NovaUI : Window
             case "brillo":
                 {
                     double v;
-                    if (double.TryParse(arg, NumberStyles.Any, CultureInfo.InvariantCulture, out v)) { MostrarNivel("", v / 100.0); }
+                    // \uE706 es el sol, el mismo que usa Icono() para "brillo" (21/09)
+                    if (double.TryParse(arg, NumberStyles.Any, CultureInfo.InvariantCulture, out v)) { MostrarNivel("\uE706", v / 100.0); }
                     break;
                 }
         }
@@ -3158,7 +3176,21 @@ public class NovaUI : Window
             double resta = tempoFin - ahora;
             if (resta <= 0)
             {
-                if (tempoActivo) { tempoActivo = false; anilloTempo.Opacity = 0; Ondas(2, ColorDe("pensando")); }
+                // EL ANILLO SE APAGA CON UNA ANIMACION, NO ASIGNANDO (21/09). Aqui ponia
+                // anilloTempo.Opacity = 0 y no servia de nada: la opacidad la sujeta la
+                // animacion de Desvanecer(anilloTempo, 0.9, 300) de mas abajo, y en WPF una
+                // animacion con HoldEnd manda sobre el valor local. O sea que al vencer el
+                // temporizador el arco se quedaba pintado alrededor de la cara, a 0,9, hasta
+                // que otra cosa animara esa opacidad. Misma trampa que la de Colocar() con
+                // LeftProperty. Se usa Desvanecer, que es lo que hace la rama de abajo al
+                // acabar, y el arco se limpia para no dejar geometria colgada.
+                if (tempoActivo)
+                {
+                    tempoActivo = false;
+                    Desvanecer(anilloTempo, 0, 300);
+                    anilloTempo.Data = null;
+                    Ondas(2, ColorDe("pensando"));
+                }
             }
             else
             {

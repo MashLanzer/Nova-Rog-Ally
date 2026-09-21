@@ -65,6 +65,7 @@ $script:ultimaAprendida = ''
 $script:ultimoEjecutado = ''
 $script:ultimaReceta = $null
 $script:ultimaRecetaEn = 0
+$script:ultimaRecetaUsada = $false
 $script:recetasFalsas = New-Object System.Collections.ArrayList
 $script:traduccionesQuitadas = @()
 $script:fallosMarcados = @()
@@ -95,16 +96,35 @@ Comp 'y NO veta la orden normal' (-not (Test-Rechazada 'sube el brillo')) ''
 Comp 'olvida la traduccion que la causo' ($script:traduccionesQuitadas -contains 'hazme la pantalla mas clarita') ''
 Comp 'y lo marca como fallo medible' (@($script:fallosMarcados).Count -eq 1) ''
 
-# 3) venia de una RECETA reciente: se olvida la receta
+# 3) venia de una RECETA reciente que se EJECUTO: se olvida la receta
 $script:rechazos = $null
 $script:ultimaAprendida = ''
 $script:ultimoEjecutado = 'pon la tele en el salon'
 [void]$script:recetasFalsas.Add(@{ id = 'r1'; frase = 'pon la tele en el salon' })
 $script:ultimaReceta = 'r1'
 $script:ultimaRecetaEn = $sw.ElapsedMilliseconds
+$script:ultimaRecetaUsada = $true     # se ejecuto y salio mal: ESE es el caso
 $r3 = Invoke-AprenderDelError $true
 Comp 'si vino de una receta, la olvida' ($r3 -and $r3.recetaOlvidada -eq 'pon la tele en el salon') ''
 Comp 'y la receta ya no esta' ($script:recetasFalsas.Count -eq 0) ''
+
+# 3b) RECIEN ENSENADA (21/09): 'deshaz' por cualquier otra cosa NO se la puede llevar.
+# Ensenarle una receta marca ultimaReceta igual que ejecutarla, porque 'olvida eso'
+# tiene que poder deshacer las dos; lo que distingue una de otra es ultimaRecetaUsada.
+# Sin esto, ensenarle algo y decir 'deshaz' en los tres minutos siguientes -por el
+# volumen, por una app- borraba la receta recien aprendida y sin avisar.
+$script:rechazos = $null
+$script:ultimaAprendida = ''
+$script:ultimoEjecutado = 'sube el volumen'
+[void]$script:recetasFalsas.Add(@{ id = 'r1b'; frase = 'pon la tele en el salon' })
+$script:ultimaReceta = 'r1b'
+$script:ultimaRecetaEn = $sw.ElapsedMilliseconds
+$script:ultimaRecetaUsada = $false    # ensenada, NO ejecutada
+$r3b = Invoke-AprenderDelError $true
+Comp 'una receta recien ensenada no se borra al deshacer' ($null -eq $r3b) ''
+Comp 'y sigue estando' ($script:recetasFalsas.Count -eq 1) ''
+$script:recetasFalsas.Clear()
+$script:ultimaRecetaUsada = $false
 
 # 4) una receta VIEJA (mas de 3 min) ya no cuenta como dudosa
 $script:rechazos = $null
@@ -112,6 +132,7 @@ $script:ultimaAprendida = ''
 $script:ultimoEjecutado = 'abre spotify'
 [void]$script:recetasFalsas.Add(@{ id = 'r2'; frase = 'abre spotify' })
 $script:ultimaReceta = 'r2'
+$script:ultimaRecetaUsada = $true     # ejecutada, para que lo que decida sea el PLAZO
 $script:ultimaRecetaEn = $sw.ElapsedMilliseconds - 200000    # hace mas de 3 minutos
 $r4 = Invoke-AprenderDelError $true
 Comp 'una receta de hace rato ya no cuenta' ($null -eq $r4) ''

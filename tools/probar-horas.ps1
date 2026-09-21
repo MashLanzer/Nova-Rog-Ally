@@ -86,8 +86,14 @@ Write-Host ''
 Write-Host '-- la madrugada ya no se confunde con la tarde --'
 # la regla de "sin franja y hora pequena, sera de tarde" es la que mandaba
 # "a las tres de la madrugada" a las 15:00, porque la madrugada no se reconocia
-$mS = [regex]::Match($fuente, "if \(-not \`$franja -and \`$hora -le 7 -and \`$hora -ge 1 -and \`$null -eq \`$fecha\) \{ \`$hora \+= 12 \}")
+# DESDE EL 21/09 LA REGLA MIRA ADEMAS LA HORA QUE ES. Sumar 12 solo tiene sentido si esa
+# hora YA PASO hoy: de madrugada no habia pasado, y "recuerdame a las siete" dicho a las
+# 3:00 se guardaba para las 19:00 en vez de para dentro de cuatro horas. Y braya juega de
+# madrugada, que es justo cuando mas lo dice. Por eso el patron va en dos trozos.
+$mS = [regex]::Match($fuente, "if \(-not \`$franja -and \`$hora -le 7 -and \`$hora -ge 1 -and \`$null -eq \`$fecha -and")
+$mS2 = [regex]::Match($fuente, "\`$horaAhora -ge \`$hora\) \{ \`$hora \+= 12 \}")
 Comp 'la regla de "hora pequena = tarde" sigue ahi' $mS.Success
+Comp 'y solo suma 12 si esa hora ya paso hoy' $mS2.Success
 foreach ($c in @('tres', 'cuatro', 'cinco', 'dos')) {
     $conFranja = Cuando $c 'de la madrugada'
     $esperado = [int]$HORAS_PALABRA[$c]

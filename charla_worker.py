@@ -543,6 +543,14 @@ def responder(p):
                         if qvec is not None:
                             sabida = cerebro.respuesta_directa(texto, qvec)
                 if sabida:
+                    # EL RELOJ SE PARA AQUI (21/09). tiempos["memoria"] se rellenaba
+                    # al final de la busqueda... DESPUES del return de este mismo
+                    # bloque, o sea que cuando la memoria SI sabia la respuesta -el
+                    # unico caso en que interesa saber lo que tardo- el numero se
+                    # quedaba en el 0.0 con el que nace, y la linea de info decia
+                    # "buscar en la memoria: 0.0 s" siempre. Medir el camino rapido es
+                    # justo lo que dice si la memoria compensa frente a llamar al modelo.
+                    tiempos["memoria"] = time.time() - ahora
                     historial.append({"role": "user", "content": texto})
                     troc = Troceador()
                     for f in troc.meter(sabida["respuesta"] + " ") + troc.cerrar():

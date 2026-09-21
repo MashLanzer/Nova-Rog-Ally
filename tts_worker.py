@@ -142,7 +142,8 @@ def limpiar_cache():
         tope = CACHE_MAX_MB * 1024 * 1024
         if total <= tope:
             return
-        archivos.sort()            # los mas viejos primero
+        # por mtime, que desde el 21/09 es EL ULTIMO USO (se toca al servir la frase)
+        archivos.sort()            # lo que hace mas tiempo que no se usa, primero
         for _, tam, ruta in archivos:
             if total <= tope * 0.8:
                 break
@@ -225,7 +226,21 @@ async def principal():
         clave = hashlib.md5((VOZ + "|" + ("" if ritmo == "+0%" else ritmo + "|") + ("" if tono == "+0Hz" else tono + "|") + texto).encode("utf-8")).hexdigest()
         ruta = os.path.join(SALIDA, clave + ".mp3")
         creada = False
-        if not os.path.exists(ruta):
+        if os.path.exists(ruta):
+            # LA FECHA ES EL ULTIMO USO, NO EL NACIMIENTO (21/09). La poda de abajo
+            # ordena por mtime, y un mp3 de la cache se escribe UNA vez y despues solo
+            # se lee: sin esto, mtime es la fecha en que nacio y las primeras en caer
+            # son las frases que MAS se repiten -'Vale', 'Hecho', 'Ya esta'-, que son
+            # justo las que interesa tener guardadas. Tocarla aqui convierte la poda en
+            # un LRU de verdad: cae lo que hace mas tiempo que no se usa.
+            # No se usa st_atime porque en NTFS depende de una politica del sistema
+            # (fsutil behavior DisableLastAccess) que puede estar apagada y se
+            # actualiza con una hora de retraso; esto no depende de nadie.
+            try:
+                os.utime(ruta, None)
+            except OSError:
+                pass
+        else:
             # Se baja a un temporal y se renombra al final. Antes se escribia
             # directamente en la ruta definitiva: si la red se cortaba a mitad
             # quedaba un mp3 truncado, y como el archivo YA EXISTIA esa frase

@@ -1627,6 +1627,16 @@ def caducar_activacion(ahora):
 
 
 def guardar_uso(bloques, **campos):
+    # EL ID SE BORRA ANTES QUE NADA (21/09). _uso['id'] es 'el wav de la orden que
+    # acaba de pasar', y solo se rellenaba al final, despues de escribirlo. Pero de
+    # aqui se sale por TRES sitios sin llegar a escribir nada -grabar apagado, una voz
+    # que no es la suya, una activacion que murio en silencio-, y en esos casos el id
+    # se quedaba pegado al de la orden ANTERIOR mientras ultimo_audio ya era el nuevo.
+    # Si despues venia un repaso, atender_reintento apuntaba lo que oyo Canary o
+    # Whisper colgado del wav de otra orden: el dato queda mintiendo, y ese fichero es
+    # justo el que se usa para medir el oido. Sin id el repaso no se apunta, que es lo
+    # correcto: no hay wav de esta orden al que colgarlo.
+    _uso["id"] = None
     if not bloques or not grabar_uso_activo():
         return
     # EL DISCO NO SE ABRE PARA UNA VOZ QUE NO ES LA TUYA (20/09): antes esto se
@@ -2387,7 +2397,6 @@ try:
                     texto_final = quitar_nombre(texto_final)
                     anota("dictado: cortado a mano -> '%s'" % texto_final)
                     escribir(TEXTO, texto_final)
-                    uso_antes = _uso["id"]   # ver LA ACTIVACION SECA
                     guardar_uso(audio_dictado, origen="boton", parakeet=oido_parakeet, whisper=mejor,
                                 seguridad=_ultima_seguridad, entregado=texto_final)
                     # si aquel "nova" venia del nombre, su vida acaba aqui
@@ -2395,7 +2404,10 @@ try:
                         cerrar_activacion("orden" if texto_final.strip() else "nada", ahora,
                                           oido=texto_final, dur=round(ahora - dicta_inicio, 2),
                                           corte="a mano",
-                                          id=(_uso["id"] if _uso["id"] != uso_antes else ""))
+                                          # DESDE EL 21/09 _uso["id"] es siempre el de ESTA orden o None:
+                                          # guardar_uso lo borra al entrar. Antes habia que compararlo con
+                                          # el de antes porque se quedaba pegado al de la orden anterior.
+                                          id=(_uso["id"] or ""))
                     dictando = False
                     ultimo_audio = audio_dictado
                     guardar_ultima_orden(ultimo_audio)   # ver EL AUDIO DE LA ULTIMA ORDEN
@@ -2680,7 +2692,6 @@ try:
                             texto_final = quitar_nombre(texto_final)
                             anota("dictado: '%s'" % texto_final)
                             escribir(TEXTO, texto_final)
-                            uso_antes = _uso["id"]   # para saber si el WAV es EL de esta orden
                             if not callado:
                                 guardar_uso(audio_dictado, origen="nombre" if origen_nombre else "boton o seguimiento",
                                             vosk=texto_vosk, parakeet=oido_parakeet, whisper=mejor, seguridad=_ultima_seguridad,
@@ -2699,7 +2710,7 @@ try:
                                                   oido=("" if (ajena and modo_grabar_uso() != "todo") else texto_final),
                                                   dur=round(ahora - dicta_inicio, 2),
                                                   callado=bool(callado), ajena=bool(ajena),
-                                                  id=(_uso["id"] if _uso["id"] != uso_antes else ""))
+                                                  id=(_uso["id"] or ""))
                             try:
                                 os.remove(DICTAR)
                             except Exception:

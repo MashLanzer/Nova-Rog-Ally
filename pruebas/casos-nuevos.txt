@@ -546,3 +546,33 @@ apagalo
 # --- control: el verbo pegado de verdad, que sigue funcionando ---
 abresteam
 abrepec
+
+# --- 'a la ...' ya no se traga por el filtro de las reglas horarias (21/09). El patron
+# que decide si una frase es una regla llevaba 'a las?\s' a secas, sin pedir una hora
+# detras: cualquier frase que empezara por 'a la' entraba ahi y salia sin pasar por el
+# resolvedor. Estas se iban al modelo, calladas, con la regla local ya escrita ---
+a la derecha
+a la izquierda
+# --- y partir la pantalla a un lado, que no se podia pedir: las flechas del mando se
+# quedan con 'derecha' e 'izquierda' a secas, asi que hacen falta formas que no puedan
+# ser otra cosa ---
+ponlo a la derecha
+ponlo a la izquierda
+media pantalla derecha
+mitad de pantalla a la derecha
+mandalo a la derecha
+dejalo a la izquierda
+# --- control: las reglas horarias de verdad siguen siendo reglas ---
+a las tres apaga el wifi
+todos los dias a las ocho ponme musica
+# --- control: 'derecha' a secas sigue siendo la flecha del mando, no partir la pantalla ---
+derecha
+ve a la derecha
+# --- la preposicion y el articulo de las flechas, por separado (21/09): antes el
+# grupo de prefijos se aplicaba UNA vez y 'hacia la derecha' se quedaba en 'la derecha' ---
+hacia la derecha
+para la izquierda
+pulsa la flecha abajo
+ve hacia arriba
+# --- control: 'adelante' a secas NO pulsa, desde el 15/09 (se oia al decir 'abre steam') ---
+adelante
