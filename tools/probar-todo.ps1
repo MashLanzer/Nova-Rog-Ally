@@ -338,6 +338,14 @@ Titulo "2n46. Abrir un juego que no es de Steam (y que siga estando vigilado)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-juegos-xbox.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:sigue estando vigilado)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n52. 'Eso no es verdad' rechaza lo que Nova dijo, no otra cosa"
+# 21/09, de la tanda. marcar_incorrecta se fiaba de ultimo_id, que es estado global y lo
+# escribe TAMBIEN el hilo del revisor, de fondo y entre turnos. braya podia decir "no, eso
+# no es verdad" y marcar como falso un recuerdo que no habia oido en su vida, dejando
+# firme el que estaba mal. Dos errores de un golpe, y ninguno se ve hasta mucho despues.
+python (Join-Path $PSScriptRoot 'probar-eso-no-es-verdad.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no lo que el revisor guardo de fondo)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n51. Cerrar un juego por el sonido del nombre PREGUNTA antes"
 # 21/09, de la tanda. Los dos caminos de ABRIR marcan la orden como dudosa y por eso Nova
 # pregunta; el de CERRAR -que es el que mata un proceso- no lo hacia. Medido con su

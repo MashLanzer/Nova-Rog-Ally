@@ -533,7 +533,13 @@ class Cerebro:
                     self._variante(prov, original)
                     self._cambio(prov)
                 elif prov is None or prov.get("estado") == "rechazada":
+                    # Y SIN TOCAR ultimo_id (21/09): esto corre en el hilo del revisor,
+                    # de fondo y entre turnos. Lo que guarda aqui NO es "lo ultimo que
+                    # Nova le dijo a braya", que es lo que significa ese campo y de lo
+                    # que depende "eso no es verdad".
+                    prevUlt = self.ultimo_id
                     r = self.guardar_respuesta(pg, buena, "firme", "revisada")
+                    self.ultimo_id = prevUlt
                     if r is not None and es_pregunta_general(job.get("pregunta", "")):
                         self._variante(r, job["pregunta"])
                 if job.get("origen") == "local" and rev.get("respuesta_correcta") is False:
@@ -598,10 +604,19 @@ class Cerebro:
             for k, _ in sorted(temas.items(), key=lambda kv: kv[1])[:len(temas) - MAX_TEMAS]:
                 del temas[k]
 
-    def marcar_incorrecta(self):
-        """ "Eso no es verdad": la ultima respuesta usada o aprendida no se usa mas."""
+    def marcar_incorrecta(self, idr=None):
+        """ "Eso no es verdad": la respuesta que se acaba de decir no se usa mas.
+
+        EL id VIENE DE FUERA DESDE EL 21/09, y self.ultimo_id queda solo de respaldo.
+        Antes esto se fiaba de ultimo_id, que es estado global y lo escribe TAMBIEN el
+        hilo del revisor por detras, entre turnos: braya preguntaba "quien hizo Hollow
+        Knight", el revisor terminaba un pendiente viejo mientras el escuchaba la
+        respuesta, ultimo_id pasaba a ser OTRO recuerdo, y "no, eso no es verdad"
+        rechazaba ese otro. El malo se quedaba firme y uno bueno se marcaba como falso:
+        los dos errores a la vez, y ninguno se ve hasta mucho despues.
+        """
         with self.lock:
-            r = self._por_id(self.ultimo_id)
+            r = self._por_id(idr if idr is not None else self.ultimo_id)
             if r is None or r.get("tipo") != "respuesta":
                 return None
             r["estado"] = "rechazada"

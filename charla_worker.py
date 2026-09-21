@@ -151,6 +151,10 @@ bloqueo_salida = threading.Lock()
 cerebro = None                  # se crea en principal(); las pruebas ponen el suyo
 _perfil = {"mtime": None, "lineas": []}
 trivia = {"r": None, "hasta": 0.0, "hechas": []}     # la pregunta de trivia que espera respuesta
+# LO ULTIMO QUE NOVA DIJO DE VERDAD (21/09), para que "eso no es verdad" rechace ESO.
+# No vale cerebro.ultimo_id: lo escribe tambien el hilo del revisor, de fondo y entre
+# turnos, asi que podia apuntar a un recuerdo que braya no ha oido en su vida.
+ultimo_dicho = None
 # lo que hace que una orden no se entienda suelta: pronombres pegados ("recuerdamelo",
 # "bajalo") o palabras que remiten a lo hablado
 RE_DEIXIS = re.compile(r"\b(\w{2,}(?:me|te|se)?(?:lo|la|los|las|le|les)|eso|esto|esa|ese|ahi|alli|luego|despues)\b")
@@ -467,7 +471,10 @@ def llamar_api_simple(sistema, texto, max_tokens=500):
 
 
 def responder(p):
-    global ultima_charla
+    # ultimo_dicho: sin este 'global', las dos asignaciones de mas abajo crearian una
+    # variable LOCAL y la lectura de "eso no es verdad" reventaria con UnboundLocalError
+    # en mitad de la charla. Python no avisa de esto hasta que se ejecuta.
+    global ultima_charla, ultimo_dicho
     idp = p.get("id", 0)
     texto = (p.get("texto") or "").strip()
     if not texto:
@@ -513,7 +520,11 @@ def responder(p):
     if cerebro is not None:
         try:
             if duda:
-                mala = cerebro.marcar_incorrecta()
+                # CON EL id DE LO QUE NOVA DIJO DE VERDAD (21/09). Antes esto se fiaba
+                # de cerebro.ultimo_id, que lo escribe TAMBIEN el hilo del revisor por
+                # detras, entre turnos: "no, eso no es verdad" podia rechazar un recuerdo
+                # que no tenia nada que ver y dejar firme el que estaba mal.
+                mala = cerebro.marcar_incorrecta(ultimo_dicho)
                 if mala:
                     salida("info", idp, texto="memoria: '%s' queda como incorrecta" % mala["pregunta"][:80])
             else:
@@ -541,6 +552,9 @@ def responder(p):
                     if not invitado:
                         apuntar_charla(texto, sabida["respuesta"])   # ver DIARIO DE CONVERSACIONES
                     salida("info", idp, texto="memoria: lo sé (recuerdo %d, %d usos)" % (sabida["id"], sabida.get("usos", 0)))
+                    # esto SI es "lo ultimo que Nova dijo": es la respuesta que acaba de
+                    # salir por la voz, no lo que el revisor guarde de fondo
+                    ultimo_dicho = sabida["id"]
                     salida("fin", idp, origen="memoria")
                     return
         except Exception as e:  # noqa: BLE001
@@ -632,7 +646,11 @@ def responder(p):
             # 4) APRENDER (nunca de un invitado)
             if cerebro is not None and not invitado:
                 try:
-                    cerebro.aprender_turno(texto, limpiar(respuesta), quien, previo, qvec)
+                    rAp = cerebro.aprender_turno(texto, limpiar(respuesta), quien, previo, qvec)
+                    # si ese turno dejo un recuerdo, ESE es el que rechaza "eso no es
+                    # verdad": es la respuesta que braya acaba de oir
+                    if rAp and rAp.get("recuerdo"):
+                        ultimo_dicho = rAp["recuerdo"]
                 except Exception as e:  # noqa: BLE001
                     salida("info", idp, texto="memoria: no pude aprender (%s)" % e)
             return

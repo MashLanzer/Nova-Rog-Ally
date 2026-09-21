@@ -15452,7 +15452,6 @@ function Report-Reply($out) {
             # propuesta nacida de un ruido ('cierra todos los programas', 'abre
             # SILENT BREATH en steam') se ejecutaba a la primera. $sinDudosa
             # silencia solo la pregunta por parecido, que es lo que se queria.
-            $script:sinDudosa = $true
             # ver UNA TRADUCCION NO PUEDE DAR LA VUELTA A LO QUE PEDISTE
             $vuelta = $false
             try { $vuelta = (Test-TraduccionOpuesta $original $propuesta) -or (Test-NombreInventado $original $propuesta) } catch { $vuelta = $false }
@@ -15467,6 +15466,18 @@ function Report-Reply($out) {
                 return
             }
             $script:preguntarTraduccion = (Test-OidoDudoso $original)
+            # LA BANDERA SE ENCIENDE AQUI, PEGADA A LA LLAMADA QUE LA NECESITA (21/09).
+            # Estaba veinte lineas mas arriba, antes de la comprobacion de la vuelta, y
+            # esa comprobacion hace 'return' cuando rechaza la traduccion: se salia sin
+            # pasar NUNCA por el $false. Y solo hay tres sitios en todo el archivo que la
+            # tocan, asi que desde ese return se quedaba encendida hasta que otra
+            # traduccion llegara entera hasta aqui.
+            # Lo que apaga es la pregunta por parecido: con ella encendida, 'abre little
+            # night' se ejecuta de golpe en vez de preguntar '¿abro Little Nightmares?',
+            # que es justo la guarda que se puso para que un ruido no abriera un juego.
+            # O sea que una traduccion rechazada -por dar la vuelta a lo pedido- dejaba a
+            # Nova mas confiada que antes, que es lo contrario de lo que toca.
+            $script:sinDudosa = $true
             try { $r = Invoke-FastCommand $propuesta } catch { $r = $null }
             $script:sinDudosa = $false
             $script:preguntarTraduccion = $false
