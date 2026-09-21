@@ -42,7 +42,48 @@ $nuevo = $ahora.AddMinutes(-3)       # de hace 3 minutos: se va
 $f = { param($d) $d.ToString('yyyy-MM-dd HH:mm:ss') }
 
 function Log($t) { }                                  # la de verdad escribe en el log
-function Add-Estadistica($r, $d = '', $c = $false) { }  # la de verdad regenera el .md
+
+# ESTE STUB ERA LO QUE TAPABA EL FALLO MAS GRAVE DE TODA LA LISTA (21/09). Estaba vacio,
+# y la de verdad reescribe estadisticas.json ENTERO desde $script:stats, que sigue en RAM
+# con las frases dentro. Asi que el olvido se deshacia a si mismo: Nova borraba, contestaba
+# "he borrado N rastros" y las devolvia al archivo antes de salir de Invoke-Olvido.
+# Ahora el stub hace lo MISMO que la de verdad en lo que importa -volcar la cache al
+# disco-, para que la prueba pueda ver si la cache quedo limpia o no.
+$script:stats = $null
+$script:habitos = $null
+function Get-Estadisticas {
+    if ($null -ne $script:stats) { return $script:stats }
+    $script:stats = @{ dias = @{}; descartes = @(); recientes = @() }
+    $rE = Join-Path $MemoriaDir 'estadisticas.json'
+    if (Test-Path -LiteralPath $rE) {
+        $jE = Get-Content -LiteralPath $rE -Raw | ConvertFrom-Json
+        $script:stats.descartes = @($jE.descartes)
+        $script:stats.recientes = @($jE.recientes)
+    }
+    return $script:stats
+}
+function Get-Habitos {
+    if ($null -ne $script:habitos) { return $script:habitos }
+    $script:habitos = @{ usos = (New-Object System.Collections.ArrayList) }
+    $rH = Join-Path $MemoriaDir 'habitos.json'
+    if (Test-Path -LiteralPath $rH) {
+        $jH = Get-Content -LiteralPath $rH -Raw | ConvertFrom-Json
+        foreach ($u in @($jH.usos)) { if ($u -and $u.t) { [void]$script:habitos.usos.Add(@{ t = [string]$u.t; f = [string]$u.f; h = [string]$u.h }) } }
+    }
+    return $script:habitos
+}
+function Save-Habitos {
+    # como la de verdad: reescribe el archivo ENTERO desde la cache
+    $hS = Get-Habitos
+    [System.IO.File]::WriteAllText((Join-Path $MemoriaDir 'habitos.json'),
+        (@{ usos = @($hS.usos) } | ConvertTo-Json -Depth 8), (New-Object System.Text.UTF8Encoding $false))
+}
+function Add-Estadistica($r, $d = '', $c = $false) {
+    $sE = Get-Estadisticas
+    [System.IO.File]::WriteAllText((Join-Path $MemoriaDir 'estadisticas.json'),
+        (@{ dias = @{}; descartes = @($sE.descartes); recientes = @($sE.recientes) } | ConvertTo-Json -Depth 8),
+        (New-Object System.Text.UTF8Encoding $false))
+}
 
 # 1) los de linea con fecha
 [System.IO.File]::WriteAllLines((Join-Path $base 'assistant.log'), @(
@@ -52,6 +93,17 @@ function Add-Estadistica($r, $d = '', $c = $false) { }  # la de verdad regenera 
 [System.IO.File]::WriteAllLines((Join-Path $base 'replies.log'), @(
     ((& $f $viejo) + '  respuesta vieja'),
     ((& $f $nuevo) + '  respuesta de hace un rato')))
+# LAS COPIAS ROTADAS (21/09): cuando el log pasa del tope, Rotate-Log lo mueve a
+# assistant.log.1, ese a .2 y asi. Lo que hay que olvidar puede estar entero ahi, y justo
+# cuando mas probable es: una conversacion larga es la que hace rotar el log.
+$KeepLogs = 3
+[System.IO.File]::WriteAllLines((Join-Path $base 'assistant.log.1'), @(
+    ((& $f $viejo) + '  una linea vieja de la copia rotada'),
+    ((& $f $nuevo) + '  NOVA: algo privado que roto al archivo 1')))
+[System.IO.File]::WriteAllLines((Join-Path $base 'assistant.log.2'), @(
+    ((& $f $nuevo) + '  NOVA: y algo privado del archivo 2')))
+[System.IO.File]::WriteAllLines((Join-Path $base 'replies.log.1'), @(
+    ((& $f $nuevo) + '  una respuesta privada que roto')))
 [System.IO.File]::WriteAllLines((Join-Path $TmpDir 'gestos.log'), @(
     ((& $f $viejo) + ' orgullo'),
     ((& $f $nuevo) + ' carino'),
@@ -96,6 +148,19 @@ $ayer = $ahora.AddDays(-1).ToString('yyyy-MM-dd')
                 @{ t = 'algo privado'; f = $nuevo.ToString('yyyy-MM-dd'); h = $nuevo.ToString('HH:mm') })
         } | ConvertTo-Json -Depth 8))
 
+# LA CACHE SE CARGA ANTES, QUE ES COMO PASA DE VERDAD (21/09). Nova lleva horas en marcha
+# cuando braya dice "olvida lo de hace un rato": $script:stats y $script:habitos estan en
+# RAM desde el arranque, con las frases dentro. Si esta prueba empieza con las dos en $null
+# el fallo NO se reproduce -Get-Estadisticas leeria del archivo ya limpio- y la prueba pasa
+# en verde con el codigo roto. Comprobado: quitando la invalidacion de assistant.ps1, sin
+# estas dos lineas no cantaba nada.
+$null = Get-Estadisticas
+$null = Get-Habitos
+Comp 'la cache trae la frase privada antes de olvidar' `
+    ((@($script:stats.descartes | ForEach-Object { [string]$_ }) -join ' | ').Contains('privada de hoy'))
+Comp 'y la de habitos tambien' `
+    ((@($script:habitos.usos | ForEach-Object { [string]$_.t }) -join ' | ').Contains('algo privado'))
+
 Write-Host '-- olvidar los ultimos 10 minutos --'
 $r = Invoke-Olvido 10
 
@@ -103,6 +168,15 @@ $log = [System.IO.File]::ReadAllText((Join-Path $base 'assistant.log'))
 Comp 'del log se va lo de hace 3 min' (-not $log.Contains('hace tres minutos'))
 Comp 'y se queda lo de hace una hora' ($log.Contains('se queda'))
 Comp 'la linea sin fecha no se toca' ($log.Contains('sin fecha'))
+
+Write-Host '-- y las copias rotadas, que es donde acaba una conversacion larga --'
+$r1 = [System.IO.File]::ReadAllText((Join-Path $base 'assistant.log.1'))
+Comp 'de la copia .1 se va lo de hace 3 min' (-not $r1.Contains('algo privado que roto'))
+Comp 'y se queda lo viejo de esa copia' ($r1.Contains('una linea vieja de la copia rotada'))
+$r2 = [System.IO.File]::ReadAllText((Join-Path $base 'assistant.log.2'))
+Comp 'la copia .2 tambien se limpia' (-not $r2.Contains('algo privado del archivo 2'))
+$rr1 = [System.IO.File]::ReadAllText((Join-Path $base 'replies.log.1'))
+Comp 'y las respuestas rotadas igual' (-not $rr1.Contains('una respuesta privada que roto'))
 
 $rep = [System.IO.File]::ReadAllText((Join-Path $base 'replies.log'))
 Comp 'sus respuestas, igual' ((-not $rep.Contains('de hace un rato')) -and $rep.Contains('vieja'))
@@ -143,8 +217,38 @@ Write-Host '-- y lo que devuelve --'
 Comp 'dice en cuantos sitios toco' ($r.Count -ge 6) ("$($r.Count) claves")
 Comp 'devuelve los minutos que olvido' ($r['minutos'] -eq 10)
 
+Write-Host '-- las dos caches en RAM: aqui se deshacia el olvido solo --'
+# Antes de este arreglo, estas dos lineas volvian a llenar los archivos que se acababan de
+# limpiar. Y habitos.json ni siquiera hacia falta hablar: Set-PresenciaAhora llama a
+# Save-Habitos desde el bucle del mando, como mucho una vez por minuto.
+# OJO: la de estadisticas NO queda en $null al final, y esta bien que sea asi: el empujon
+# del paso 7 la vuelve a cargar A PROPOSITO, ya del archivo limpio, para reescribir el .md.
+# Lo que hay que exigir no es que este vacia, sino que lo que tiene dentro este limpio.
+$cacheDesc = @($script:stats.descartes | ForEach-Object { [string]$_ }) -join ' | '
+Comp 'la cache de estadisticas se releyo del archivo limpio' (-not $cacheDesc.Contains('privada de hoy')) `
+    $(if ($cacheDesc.Contains('privada de hoy')) { 'sigue teniendo la frase privada' } else { '' })
+Comp 'y la de habitos queda tirada del todo' ($null -eq $script:habitos)
+# y lo que de verdad importa: que un guardado POSTERIOR no las devuelva
+Add-Estadistica 'lo que sea' ''
+$est2 = Get-Content -LiteralPath (Join-Path $MemoriaDir 'estadisticas.json') -Raw | ConvertFrom-Json
+$desc2 = @($est2.descartes) -join ' | '
+Comp 'tras guardar otra vez, la frase privada NO vuelve' (-not $desc2.Contains('privada de hoy'))
+Comp 'y la de ayer sigue estando' ($desc2.Contains('algo de ayer'))
+# EL DE HABITOS ES PEOR PORQUE NO HACE FALTA HABLAR: Set-PresenciaAhora llama a
+# Save-Habitos desde el bucle del mando, como mucho una vez por minuto. Menos de 60
+# segundos despues de olvidar, lo olvidado estaba de vuelta solo.
+Save-Habitos
+$hab2 = Get-Content -LiteralPath (Join-Path $MemoriaDir 'habitos.json') -Raw | ConvertFrom-Json
+$usos2 = @($hab2.usos | ForEach-Object { $_.t }) -join ' | '
+Comp 'y un guardado de habitos tampoco la devuelve' (-not $usos2.Contains('algo privado'))
+Comp 'con lo de hace una hora intacto' ($usos2.Contains('abre steam'))
+
 Write-Host '-- un olvido de 0 minutos se trata como 10, no como "todo" --'
-Comp 'no borra el historico entero' ($true)   # lo garantiza el `if ($minutos -le 0) { $minutos = 10 }`
+# esto era literalmente Comp '...' ($true): un verde de adorno. Ahora se ejecuta.
+$r0 = Invoke-Olvido 0
+Comp 'un olvido de 0 minutos se convierte en 10' ($r0['minutos'] -eq 10) "dice $($r0['minutos'])"
+$logF = [System.IO.File]::ReadAllText((Join-Path $base 'assistant.log'))
+Comp 'y no se lleva por delante lo de hace una hora' ($logF.Contains('se queda'))
 
 Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue
 

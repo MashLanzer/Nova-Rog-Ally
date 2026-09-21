@@ -1715,8 +1715,18 @@ function Invoke-Olvido([int]$minutos) {
     }
 
     # 1) los que apuntan linea a linea con fecha y hora
-    & $sumar 'el log' (Remove-LineasDesde (Join-Path $LogDir 'assistant.log') $corte)
-    & $sumar 'sus respuestas' (Remove-LineasDesde (Join-Path $LogDir 'replies.log') $corte)
+    # Y SUS COPIAS ROTADAS (21/09): cuando assistant.log pasa de $MaxLogBytes, Rotate-Log
+    # lo mueve a assistant.log.1, ese a .2 y asi hasta $KeepLogs. O sea que lo que hay que
+    # olvidar puede estar entero en una copia que este paso no miraba, y justo cuando mas
+    # probable es: una conversacion larga es la que hace rotar el log. Si la rotacion cae
+    # entre lo que se quiere olvidar y la orden de olvidarlo, no se borraba NADA de ahi.
+    foreach ($lg in @('assistant.log', 'replies.log')) {
+        $comoSeLlama = if ($lg -eq 'assistant.log') { 'el log' } else { 'sus respuestas' }
+        & $sumar $comoSeLlama (Remove-LineasDesde (Join-Path $LogDir $lg) $corte)
+        for ($iL = 1; $iL -le $KeepLogs; $iL++) {
+            & $sumar $comoSeLlama (Remove-LineasDesde (Join-Path $LogDir ($lg + '.' + $iL)) $corte)
+        }
+    }
     & $sumar 'los gestos' (Remove-LineasDesde (Join-Path $TmpDir 'gestos.log') $corte)
 
     # 2) el uso real: el wav y su linea del registro
@@ -1784,8 +1794,29 @@ function Invoke-Olvido([int]$minutos) {
         }
     } catch { Log ('OLVIDO: no pude limpiar habitos.json: ' + $_.Exception.Message) }
 
-    # 6) el resumen en markdown NO se limpia aqui: se vuelve a escribir entero desde lo de
-    #    arriba en cuanto se apunta cualquier cosa. Este es el empujon para que lo haga.
+    # 6) LAS DOS CACHES EN MEMORIA, ANTES DE NADA MAS (21/09). Esto es lo que hacia que
+    #    el olvido se deshiciera SOLO, y es el fallo mas grave que ha tenido esta lista:
+    #    los pasos 4 y 5 limpian estadisticas.json y habitos.json EN DISCO, pero
+    #    $script:stats y $script:habitos siguen en RAM con las frases dentro, cargadas al
+    #    arrancar. Las dos funciones que las leen empiezan con un 'si ya la tengo, la
+    #    devuelvo', asi que nadie volvia a mirar el disco; y Add-Estadistica y
+    #    Save-Habitos reescriben el archivo ENTERO desde ellas.
+    #
+    #    O sea: Nova contestaba 'he borrado N rastros' y las frases volvian al archivo
+    #    antes de salir de esta misma funcion. Y aunque se quitara el empujon de abajo,
+    #    habitos.json vuelve entero SIN QUE BRAYA DIGA NADA: Set-PresenciaAhora llama a
+    #    Save-Habitos desde el bucle del mando, como mucho una vez por minuto. Menos de
+    #    60 segundos y lo olvidado estaba de vuelta.
+    #
+    #    Tirar las caches no pierde nada: el paso 4 conserva 'dias' intacto y cada
+    #    cambio de $script:habitos llama a Save-Habitos justo despues, asi que el disco
+    #    esta al dia. Cuesta releer dos JSON pequenos una vez, en la orden de olvido.
+    $script:stats = $null
+    $script:habitos = $null
+
+    # 7) el resumen en markdown NO se limpia aqui: se vuelve a escribir entero desde lo de
+    #    arriba en cuanto se apunta cualquier cosa. Este es el empujon para que lo haga,
+    #    y ahora releera el archivo YA limpio.
     try { Add-Estadistica 'olvido' '' } catch {}
 
     $total = 0
