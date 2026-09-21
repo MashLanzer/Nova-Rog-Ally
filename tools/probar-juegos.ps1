@@ -110,6 +110,45 @@ Comp 'y lo de hoy' ($hadT.Count -eq 1 -and $hadT[0].minutos -eq 5) ("Hades=" + $
 Comp 'de mas a menos' ($semanaT[0].juego -eq 'Celeste')
 Comp 'en un mes si entra lo de hace 10 dias' ((@(Get-TiempoJugado 30 $hoyT | Where-Object { $_.juego -eq 'Celeste' })[0].minutos) -eq 90)
 
+
+Write-Host ''
+Write-Host '-- C4: no cantar un cierre de juego que no ha pasado (20/09) --'
+# EL CASO REAL: el 20/09 a las 18:59:51 braya abrio ELDEN RING y a las 19:00:08, ONCE
+# SEGUNDOS despues, Nova anuncio "Cerraste ELDEN RING. Si quieres, dime donde te quedaste"
+# con 0 minutos de partida. El juego seguia abierto -el se lo dijo: "Elden Ring si esta
+# abierto"- y de ahi salieron tres minutos de lio hasta que se rindio ("Ya, dejalo").
+#
+# La causa no era la deteccion, era que el umbral de 3 minutos NO EXISTIA: $JuegoSesionMin
+# y $script:juegoSesionMin son la MISMA variable, porque PowerShell no distingue mayusculas
+# en los nombres. El umbral se pisaba con el acumulador de minutos y la comparacion quedaba
+# en "$minsS -lt 0", falsa para cualquier valor. Nacio roto en el commit c714970 del 19/09
+# y la linea "sin aviso" no aparece NI UNA VEZ en todo el historial del log.
+$fuenteC4 = [System.IO.File]::ReadAllText($ruta)
+
+# 1. que no haya vuelto la colision de nombres
+$declaraC4 = ([regex]::Matches($fuenteC4, '(?m)^\$(?:script:)?juegoSesionMin\s*=', 'IgnoreCase')).Count
+Comp 'el acumulador de minutos se declara una sola vez' ($declaraC4 -eq 1) "$declaraC4 declaraciones"
+Comp 'y el umbral tiene un nombre que no choca' ($fuenteC4 -match '\$JuegoMinimoPartida\s*=\s*\[int\]\(Get-Cfg')
+$usosViejo = @([regex]::Matches($fuenteC4, '(?m)^[^#
+]*\$JuegoSesionMin'))
+Comp 'el nombre viejo solo queda en el comentario que lo explica' ($usosViejo.Count -eq 0) ("$($usosViejo.Count) usos fuera de comentario")
+
+# 2. y que la comparacion muerda de verdad
+foreach ($cas in @(@{ mins = 0; avisa = $false }, @{ mins = 2; avisa = $false }, @{ mins = 3; avisa = $true }, @{ mins = 40; avisa = $true })) {
+    $JuegoMinimoPartida = 3
+    $minsS = [int]$cas.mins
+    $avisaria = -not ($minsS -lt $JuegoMinimoPartida)
+    Comp ("con $($cas.mins) min de partida " + $(if ($cas.avisa) { 'avisa' } else { 'se calla' })) ($avisaria -eq $cas.avisa)
+}
+
+# 3. el contador ya no redondea: [int] de 40 s daba UN MINUTO entero, y tres alt-tabs
+#    cortos sumaban 3 minutos sin haber jugado ni dos
+Comp 'los minutos se truncan, no se redondean' ($fuenteC4 -match '\$minsFg = \[int\]\[Math\]::Floor')
+foreach ($par in @(@{ ms = 40000; min = 0 }, @{ ms = 100000; min = 1 }, @{ ms = 170000; min = 2 })) {
+    $v = [int][Math]::Floor($par.ms / 60000)
+    Comp ("$($par.ms) ms son $($par.min) minutos") ($v -eq $par.min) "salen $v"
+}
+
 Remove-Item -LiteralPath $MemoriaDir -Recurse -Force -ErrorAction SilentlyContinue
 if ($mal -gt 0) { Write-Host "$mal casos MAL"; exit 1 }
 Write-Host "todo correcto"
