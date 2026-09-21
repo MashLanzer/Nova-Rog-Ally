@@ -3027,7 +3027,7 @@ function Resolve-Fragment([string]$f) {
     # "modo foco" NO es un perfil: tiene su propia orden mas abajo (ver MODO FOCO),
     # y este bloque devuelve $null con un modo que no existe (revision del 13/09)
     # "pon UN modo juego": asi lo oye Whisper con la frase de ejemplo (14/09)
-    if ($f -match '^(?:modo|activa el modo|activa modo|activa un modo|pon el modo|pon modo|pon un modo|ponte en modo|cambia a modo|entra en modo)\s+(?!(?:foco|concentracion|ahorro|bajo consumo|eficiencia|rendimiento|maximo rendimiento|alto rendimiento|equilibrado)\b)(.+)$') {
+    if ($f -match '^(?:modo|activa el modo|activa modo|activa un modo|pon el modo|pon modo|pon un modo|ponte en modo|cambia a modo|entra en modo)\s+(?!(?:foco|concentracion|ahorro|bajo consumo|eficiencia|rendimiento|maximo rendimiento|alto rendimiento|equilibrado|normal|de siempre|nada)\b)(.+)$') {
         $nombre = $Matches[1].Trim()
         # UN MODO QUE SE PARECE (validacion, 15/09): "pon modo juego" se oyo "Pon el modo
         # huevo" (Whisper confunde la j con la h). Si no existe y UNO SOLO se le parece
@@ -3055,7 +3055,14 @@ function Resolve-Fragment([string]$f) {
                 }
             }
             if ($acc.Count -gt 0) {
-                return (@(@{ kind = 'decir'; desc = "modo $nombre" }) + $acc)
+                # SE APUNTA COMO ESTABA ANTES, PARA PODER SALIR (21/09). Un modo no es un
+                # estado que se encienda: es una lista de ordenes que se ejecutan. Por eso
+                # no habia forma de apagarlo, y braya lo pidio cinco veces de doce maneras
+                # distintas -todas al modelo- mientras encenderlo funcionaba de cinco.
+                # Va como una accion mas y la PRIMERA de la lista: leer el brillo cuesta
+                # una consulta WMI y aqui solo se RESUELVE, no se ejecuta (-Probar no puede
+                # tocar el hardware).
+                return (@(@{ kind = 'modoEntra'; modo = $nombre; desc = "modo $nombre" }) + $acc)
             }
             } finally { $script:hondoPerfil-- }
         }
@@ -4484,11 +4491,66 @@ function Resolve-Fragment([string]$f) {
             return (Resolve-Fragment ("$verboV $appV$restoV"))
         }
     }
+    # APAGAR UN MODO, QUE NO EXISTIA (21/09). Se podia encender de cinco maneras y
+    # apagar de NINGUNA: las doce formas de decirlo se iban al modelo. Y eso choca de
+    # frente con lo que mas le molesta, que es un modo que se queda puesto.
+    # LO QUE COSTO, entero en el log del 15/09 (10:20:59 -> 10:21:48): dijo "desactiva el
+    # modo noche", el oido lo saco BIEN, la capa local no lo reconocio, el modelo lo
+    # tradujo a "modo noche" -lo contrario- y Nova lo APRENDIO:
+    #   APRENDIDO: 'Ensectiva el modo noche' = 'modo noche'
+    # Cuarenta y nueve segundos para hacer lo de enfrente y guardarlo para siempre.
+    if ($f -match '^(?:quita|quitar|quitame|desactiva|desactivar|apaga|apagar|sal de|sal del|salte de|salte del|sacame de|termina|terminar|acaba|para|parar|deja|dejar|fuera)\s+(?:el\s+|del\s+|la\s+)?modo(?:\s+(.+))?$' -or
+        $f -match '^modo\s+(normal|de siempre|nada)$' -or
+        $f -match '^(?:vuelve|volver|volvamos)\s+a\s+(?:la\s+)?normalidad$' -or
+        $f -match '^(?:sin|quita\s+el)\s+modo$') {
+        $cualM = ''
+        if ($Matches.Count -gt 1 -and $Matches[1]) { $cualM = ([string]$Matches[1]).Trim() }
+        if ($cualM -match '^(?:normal|de siempre|nada)$') { $cualM = '' }
+        return @(@{ kind = 'modoFuera'; modo = $cualM
+                    desc = $(if ($cualM) { "salir del modo $cualM" } else { 'volver a como estaba' }) })
+    }
+
+    # COMO LO DICE DE VERDAD, SIN VERBO DELANTE (21/09). El bloque de niveles de abajo
+    # exige que la frase EMPIECE por sube/baja/pon, y asi es como lo dice el: "mas
+    # bajito", "mas alto", "mas brillo", "menos brillo", "la pantalla mas clara".
+    # Las seis estaban en sus grabaciones y las seis se iban al modelo.
+    # SE EXIGE QUE NO HAYA NADA MAS en la frase: "mas alto" suelto es el volumen, pero
+    # "ponlo mas alto en la estanteria" no tiene nada que ver y sigue su camino.
+    if ($f -match '^(?:ponlo|ponla|dejalo|dejala|hazlo|hazla)?\s*(mas|menos)\s+(alto|bajito|bajo|fuerte|flojo|suave|brillo|claro|clara|clarita|oscuro|oscura)$') {
+        $cuantoN = [string]$Matches[1]
+        $queN = [string]$Matches[2]
+        $subeN2 = ($cuantoN -eq 'mas')
+        # "menos oscuro" es MAS brillo: la palabra le da la vuelta al sentido
+        if ($queN -match '^(?:bajito|bajo|flojo|suave|oscuro|oscura)$') { $subeN2 = -not $subeN2 }
+        $esBrilloN = ($queN -match '^(?:brillo|claro|clara|clarita|oscuro|oscura)$')
+        # LOS CAMPOS, COMO LOS ESPERA EL EJECUTOR (21/09). La primera version de esto
+        # devolvia 'sube = $true', que no lo lee NADIE: el brillo va por 'nivel' con el
+        # convenio -1 = sube 20 y -2 = baja 20 (ver Get-BrilloDestino), y el volumen
+        # relativo es otro kind, 'volumenRel', con su 'paso'. Con el campo equivocado,
+        # 'mas brillo' habria puesto el brillo a CERO -[int]$null es 0- y 'mas alto' no
+        # habria hecho nada. Lo cazo el banco 2n12, no yo.
+        if ($esBrilloN) {
+            return @(@{ kind = 'brillo'; nivel = $(if ($subeN2) { -1 } else { -2 })
+                        desc = $(if ($subeN2) { 'subir brillo' } else { 'bajar brillo' }) })
+        }
+        return @(@{ kind = 'volumenRel'; sube = $subeN2; paso = $(if ($subeN2) { 10 } else { -10 })
+                    desc = $(if ($subeN2) { 'subir volumen' } else { 'bajar volumen' }) })
+    }
+    # y con la pantalla nombrada: "hazme la pantalla mas clarita"
+    if ($f -match '^(?:haz|hazme|pon|ponme|deja)\s+(?:la\s+|mi\s+)?pantalla\s+(mas|menos)\s+(clara|clarita|brillante|oscura|oscurita)$') {
+        $subeP = ([string]$Matches[1] -eq 'mas')
+        if ([string]$Matches[2] -match '^oscur') { $subeP = -not $subeP }
+        return @(@{ kind = 'brillo'; nivel = $(if ($subeP) { -1 } else { -2 })
+                    desc = $(if ($subeP) { 'subir brillo' } else { 'bajar brillo' }) })
+    }
+
     # --- niveles: volumen y brillo, con formas latinas (subele / bajale) ---
     # "pon"/"deja" entran aqui tambien ("pon el brillo al 20%"), pero si la
     # frase no habla de volumen ni brillo se DEJA PASAR al resto de la funcion:
     # devolver $null aqui rompería "ponme spotify".
-    if ($f -match '^(sube|subir|subele|aumenta|baja|bajar|bajale|reduce|pon|ponle|poner|deja|dejar)\b') {
+    # 'quita' entra el 21/09: "quita todo el volumen" y "quitale volumen" se iban al
+    # modelo. Va con los de BAJAR, que es lo que significa.
+    if ($f -match '^(sube|subir|subele|aumenta|baja|bajar|bajale|reduce|quita|quitale|quitame|pon|ponle|poner|deja|dejar)\b') {
         # el verbo se copia ANTES: el -match de $sube pisa $Matches
         $verboN = [string]$Matches[1]
         $sube = ($verboN -match '^(?:sube|subir|subele|aumenta)$')
@@ -4496,11 +4558,24 @@ function Resolve-Fragment([string]$f) {
         # "del todo" es a tope si sube y a cero si baja: "baja el volumen del todo"
         # lo ponia al MAXIMO (auditoria del 13/09)
         $delTodo = ($f -match '\bdel\s+todo\b')
-        $max = ($f -match '\b(?:maximo|tope|full)\b') -or ($f -match '\btodo\b' -and ($sube -or -not $delTodo))
+        # "UN POCO" NO ES NI TODO NI NADA (21/09). Salio de minar sus frases reales:
+        # "haz que suene todo un poco mas bajito" acababa en VOLUMEN AL MAXIMO. Es el
+        # peor fallo que puede tener esto -hacer lo contrario de lo que pidio- y ademas
+        # jugando y de noche.
+        $unPoco = ($f -match '\b(?:un poco|un poquito|poquito|algo|ligeramente|un pelin)\b')
+        # Y "TODO" SIGUE AL VERBO. El arreglo del 13/09 puso que "baja el volumen del
+        # todo" fuera el minimo, pero la condicion quedo al reves: '-not $delTodo' hacia
+        # que CUALQUIER "todo" sin "del" fuera el maximo, aunque el verbo fuera bajar.
+        $baja = ($verboN -match '^(?:baja|bajar|bajale|reduce|quita|quitale|quitame)$')
+        $max = ($f -match '\b(?:maximo|tope|full)\b') -or
+               ($f -match '\btodo\b' -and -not $baja -and -not $unPoco)
         # 'cero' y 'a cero' no estaban, y es como se dice: 'pon el volumen a cero'
         # se iba al modelo mientras 'al minimo' se resolvia aqui. Misma orden, dos
         # formas, y solo una servia (21/09).
-        $min = ($f -match '\b(?:minimo|nada|cero)\b') -or ($delTodo -and -not $sube -and -not $esPon)
+        $min = ($f -match '\b(?:minimo|nada|cero)\b') -or
+               ($delTodo -and -not $sube -and -not $esPon) -or
+               # "baja todo el volumen" SI es el minimo; con "un poco" detras, no
+               ($f -match '\btodo\b' -and $baja -and -not $unPoco)
         $mitad = ($f -match '\b(?:la\s+mitad|mitad|medio)\b')
         # Porcentaje POR OBJETIVO: se busca el numero mas cercano a cada palabra.
         # Con un solo $pct global, "el volumen al 50% y el brillo al 80%" ponia
@@ -9236,6 +9311,47 @@ function Invoke-FastCommand([string]$text) {
                 }
                 'key' { for ($i = 0; $i -lt $a.repeat; $i++) { Send-Key $a.vk } }
                 'brillo' { Set-Brillo $a.nivel }
+                'modoEntra' {
+                    # como estaba ANTES de aplicar el modo, para poder volver
+                    $brAntes = -1; $volAntes = -1
+                    try { $brAntes = Get-BrilloActual } catch {}
+                    try { $volAntes = [AX]::LeerVolumen() } catch {}
+                    $script:antesDeModo = @{ modo = [string]$a.modo; brillo = $brAntes
+                                             volumen = $volAntes; cuando = (Get-Date) }
+                    Log "MODO $($a.modo): antes estaba brillo=$brAntes volumen=$volAntes"
+                }
+                'modoFuera' {
+                    # SOLO SE DESHACE LO QUE SE PUEDE DESHACER, Y SE DICE CUAL (21/09).
+                    # Un modo puede abrir Discord, y cerrarlo al salir seria pasarse: no
+                    # se pidio eso. Lo que se devuelve es el brillo y el volumen, que es
+                    # lo que de verdad molesta cuando se queda puesto -la pantalla al 15
+                    # por ciento a media tarde- y es lo que el nombra al quejarse.
+                    # Y Nova dice EXACTAMENTE lo que hizo, ni mas ni menos: prometer que
+                    # ha 'salido del modo' cuando solo ha tocado dos cosas seria mentir.
+                    $aM = $script:antesDeModo
+                    $queriaM = [string]$a.modo
+                    if (-not $aM) {
+                        $a.desc = 'No tengo apuntado como estaba antes. Dime a que brillo y volumen lo dejo.'
+                    } elseif ($queriaM -and (ConvertTo-Plain $queriaM) -ne (ConvertTo-Plain ([string]$aM.modo))) {
+                        # pidio salir de OTRO modo distinto del que esta puesto
+                        $a.desc = "El ultimo modo que puse fue $($aM.modo), no $queriaM. Si quieres, dime: modo normal."
+                    } else {
+                        $hechoM = @()
+                        if ([int]$aM.brillo -ge 0) {
+                            try { $null = Set-Brillo ([int]$aM.brillo); $hechoM += "el brillo al $($aM.brillo)" } catch {}
+                        }
+                        if ([int]$aM.volumen -ge 0) {
+                            try { $null = [AX]::PonerVolumen([int]$aM.volumen); $hechoM += "el volumen al $($aM.volumen)" } catch {}
+                        }
+                        $script:antesDeModo = $null
+                        if ($hechoM.Count -gt 0) {
+                            $a.desc = "Vale, te dejo $($hechoM -join ' y '), como antes del modo $($aM.modo)."
+                            Log "MODO FUERA: $($aM.modo) -> $($hechoM -join ', ')"
+                        } else {
+                            $a.desc = 'No pude devolver el brillo ni el volumen.'
+                        }
+                    }
+                }
                 'memoria' { $null = Add-Memoria $a.texto }
                 'modoEditar' { $a.desc = Invoke-ModoEditar $a.datos }
                 'correo' { $a.desc = Invoke-Correo $a }
@@ -16374,6 +16490,8 @@ try {
 # "no era eso".
 $script:ultimoEjecutado = ''
 # Modos dentro de modos: cuantos van encadenados ahora mismo (ver el tope).
+# como estaba el brillo y el volumen ANTES del ultimo modo, para poder salir de el
+$script:antesDeModo = $null
 $script:hondoPerfil = 0
 # Que juegos estaban bajando en la vuelta anterior. $null (no vacio) hasta la
 # primera lectura: al arrancar no se sabe que estaba bajando antes, y anunciar

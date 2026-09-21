@@ -462,3 +462,32 @@ sube el brillo por favor
 cuanta ram esta ocupando roblox y nova o sea tu al mismo tiempo
 cuanta ram estas gastando tu
 cuanta ram esta usando steam y tu
+# --- salido de MINAR sus 360 frases reales (21/09), no de inventarlas ---
+# 'haz que suene todo un poco mas bajito' acababa en VOLUMEN AL MAXIMO: lo contrario
+baja todo el volumen un poco
+sube todo el volumen
+baja todo el volumen
+quita todo el volumen
+sube el volumen del todo
+baja el volumen del todo
+# --- apagar un modo: se podia encender de 5 formas y apagar de NINGUNA ---
+desactiva el modo noche
+quita el modo noche
+apaga el modo noche
+sal del modo juego
+quitame el modo trabajo
+modo normal
+vuelve a la normalidad
+# --- y como pide subir o bajar de verdad, sin decir numero ni verbo ---
+mas bajito
+mas alto
+mas brillo
+menos brillo
+menos oscuro
+ponlo mas bajito
+hazme la pantalla mas clarita
+pon la pantalla mas clara
+# --- control: esto NO es el volumen ni el brillo ---
+ponlo mas alto en la estanteria
+modo noche
+modo juego
