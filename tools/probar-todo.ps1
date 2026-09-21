@@ -437,8 +437,8 @@ foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     # estuviera ahi, asi que una caida de 88 a 5 pasaba EN VERDE: justo lo que este banco
     # existe para evitar. Las que fallan son controles a proposito, por eso el listero es
     # un minimo y no una igualdad: lo que no puede es BAJAR.
-    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 389 }   # 389 desde el 21/09 ('dime que X' es preguntar X). Antes 377 (los juegos por su
-# apodo), 369 (el volumen al reves y apagar un modo), 346, 335, 317, 308 y 289: MEDIDO (287 + 2 saltadas). +9 de "mira la pantalla". Antes 280, 260, 254, 242, 238, 234, 228, 221
+    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 401 }   # 401 desde el 21/09 (muletillas mexicanas y niveles sin verbo). Antes 389 ('dime que
+# X'), 377 (los apodos), 369 (el volumen al reves), 346, 335, 317, 308 y 289: MEDIDO (287 + 2 saltadas). +9 de "mira la pantalla". Antes 280, 260, 254, 242, 238, 234, 228, 221
     $n = -1
     if ($linea -and ("$linea" -match 'reconocidas en local:\s*(\d+)')) { $n = [int]$Matches[1] }
     # LOS JUEGOS QUE YA NO TIENES NO SON UNA REGRESION (19/09): las lineas con

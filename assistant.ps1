@@ -229,7 +229,7 @@ $FILLER_GLOBAL = '\b(?:tambien|ademas|porfa|porfavor|por favor|okey|dale(?!\s+al
 # mitad de la frase: "busca cuanto vale una ps5" acabaria buscando "cuanto una ps5".
 # "mira" SOLO delante de un verbo de orden (18/09): "mira, ponme un temporizador de 5 minutos"
 # se descarto entero. "mira si hay algo colgado" sigue siendo orden: el lookahead no la toca.
-$FILLER_INI = '^(?:(?:y|luego|despues|ahora|entonces|a mi|ami|ya me|me|pues|este|hey|ey|hola|nova|ok|okey|okay|vale|bueno|oye|gracias|a ver|mira(?=\s+(?:pon|ponme|abre|abreme|cierra|sube|baja|pausa|reproduce|busca|buscame|quita|activa|desactiva|lanza|dime|di)\b)|sabes?\s+que(?=\s+(?:pon|ponme|abre|abreme|cierra|sube|baja|pausa|reproduce|busca|buscame|quita|activa|desactiva|lanza|dime|di)\b))\s+)+'
+$FILLER_INI = '^(?:(?:y|luego|despues|ahora|entonces|a mi|ami|ya me|me|pues|este|hey|ey|hola|nova|ok|okey|okay|vale|bueno|oye|gracias|a ver|mira(?=\s+(?:pon|ponme|abre|abreme|cierra|sube|baja|pausa|reproduce|busca|buscame|quita|activa|desactiva|lanza|dime|di)\b)|ya(?=\s+(?:pon|ponme|abre|abreme|cierra|cierralo|sube|baja|pausa|reproduce|busca|buscame|quita|activa|desactiva|lanza|dime|di|apaga|enciende)\b)|ahorita(?=\s+(?:pon|ponme|abre|abreme|cierra|cierralo|sube|baja|pausa|reproduce|busca|buscame|quita|activa|desactiva|lanza|dime|di|apaga|enciende)\b)|sabes?\s+que(?=\s+(?:pon|ponme|abre|abreme|cierra|sube|baja|pausa|reproduce|busca|buscame|quita|activa|desactiva|lanza|dime|di)\b))\s+)+'
 # LA CONDICION DEL FINAL (19/09): "cierra el explorador de archivos si esta abierto" se fue
 # a la API a traducir y volvio como 'cierra explorador'; la coletilla sobraba entera, porque
 # cerrar lo que no esta abierto ya no hace nada. Va anclada al final y solo si queda orden
@@ -255,6 +255,11 @@ function Remove-Filler([string]$s) {
     # UNA palabra- y esa orden, que se resuelve en menos de un segundo, se iba entera
     # al modelo. Se exige un espacio delante, asi que 'gracias' a secas no se borra.
     $t = [regex]::Replace($t, '\s+(?:muchas\s+|mil\s+)?gracias\s*$', '')
+    # Y LAS MULETILLAS DE MEXICANO AL FINAL (21/09), que tampoco cambian la orden:
+    # 'apaga el wifi ahorita', 'cierra steam ya', 'sube el volumen porfa wey'. Van
+    # aqui y no en $FILLER_FIN por lo mismo que 'gracias': esa lista solo se aplica si
+    # quedan dos palabras o mas, y 'pausa ya' se quedaria sin tocar.
+    $t = [regex]::Replace($t, '\s+(?:ahorita|ahorita mismo|porfa|porfis|porfavor|wey|guey|ya)(?:\s+(?:ahorita|porfa|porfis|wey|guey|ya))*\s*$', '')
     # ver LA CONDICION DEL FINAL: se quita solo si lo que queda sigue siendo una orden
     $tF = [regex]::Replace($t, $FILLER_FIN, '')
     if (@($tF -split '\s+' | Where-Object { $_ }).Count -ge 2) { $t = $tF }
@@ -4614,19 +4619,34 @@ function Resolve-Fragment([string]$f) {
                     desc = $(if ($cualM) { "salir del modo $cualM" } else { 'volver a como estaba' }) })
     }
 
+    # Y EL NIVEL SIN VERBO: "el volumen a tope", "el volumen al maximo" (21/09).
+    # "pon el volumen a tope" funcionaba y esto no: la misma orden, dos formas.
+    if ($f -match '^(?:el\s+|la\s+)?(volumen|sonido|brillo)\s+(?:a|al|en)\s+(?:la\s+|el\s+)?(tope|maximo|minimo|mitad|medio|cero|nada|fondo|full|100|0|50)$') {
+        $queV = [string]$Matches[1]
+        $cuantoV = [string]$Matches[2]
+        $pctV = switch -Regex ($cuantoV) {
+            '^(?:tope|maximo|full|100)$' { 100; break }
+            '^(?:minimo|cero|nada|fondo|0)$' { 0; break }
+            default { 50 }
+        }
+        $comoV = switch ($pctV) { 100 { 'al maximo' } 0 { 'al minimo' } default { 'a la mitad' } }
+        if ($queV -eq 'brillo') { return @(@{ kind = 'brillo'; nivel = $pctV; desc = "brillo $comoV" }) }
+        return @(@{ kind = 'volumenPct'; pct = $pctV; desc = "volumen $comoV" })
+    }
+
     # COMO LO DICE DE VERDAD, SIN VERBO DELANTE (21/09). El bloque de niveles de abajo
     # exige que la frase EMPIECE por sube/baja/pon, y asi es como lo dice el: "mas
     # bajito", "mas alto", "mas brillo", "menos brillo", "la pantalla mas clara".
     # Las seis estaban en sus grabaciones y las seis se iban al modelo.
     # SE EXIGE QUE NO HAYA NADA MAS en la frase: "mas alto" suelto es el volumen, pero
     # "ponlo mas alto en la estanteria" no tiene nada que ver y sigue su camino.
-    if ($f -match '^(?:ponlo|ponla|dejalo|dejala|hazlo|hazla)?\s*(mas|menos)\s+(alto|bajito|bajo|fuerte|flojo|suave|brillo|claro|clara|clarita|oscuro|oscura)$') {
+    if ($f -match '^(?:ponlo|ponla|dejalo|dejala|hazlo|hazla)?\s*(mas|menos)\s+(alto|bajito|bajo|fuerte|flojo|suave|brillo|claro|clara|clarita|oscuro|oscura|volumen|sonido|luz)$') {
         $cuantoN = [string]$Matches[1]
         $queN = [string]$Matches[2]
         $subeN2 = ($cuantoN -eq 'mas')
         # "menos oscuro" es MAS brillo: la palabra le da la vuelta al sentido
         if ($queN -match '^(?:bajito|bajo|flojo|suave|oscuro|oscura)$') { $subeN2 = -not $subeN2 }
-        $esBrilloN = ($queN -match '^(?:brillo|claro|clara|clarita|oscuro|oscura)$')
+        $esBrilloN = ($queN -match '^(?:brillo|claro|clara|clarita|oscuro|oscura|luz)$')
         # LOS CAMPOS, COMO LOS ESPERA EL EJECUTOR (21/09). La primera version de esto
         # devolvia 'sube = $true', que no lo lee NADIE: el brillo va por 'nivel' con el
         # convenio -1 = sube 20 y -2 = baja 20 (ver Get-BrilloDestino), y el volumen

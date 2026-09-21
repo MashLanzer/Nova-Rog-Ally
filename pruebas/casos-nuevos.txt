@@ -517,3 +517,19 @@ dime que te quiero
 di hola
 di que llego tarde
 dime buenas noches
+# --- muletillas mexicanas y niveles sin verbo (21/09, del sondeo de 1356 formas) ---
+ya cierra todo
+ahorita cierra discord
+apaga el wifi ahorita
+cierra steam ya
+sube el volumen porfa
+mas volumen
+menos volumen
+mas luz
+el volumen a tope
+el volumen al maximo
+el volumen a la mitad
+el brillo al maximo
+# --- control: sueltas NO son ordenes y tienen que seguir yendo al modelo ---
+ya esta
+ahorita vuelvo
