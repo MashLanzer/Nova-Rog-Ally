@@ -3396,8 +3396,19 @@ public class NovaUI : Window
                 // jugando hace falta ≡ a la vez (revision del 13/09)
                 if (pistaSiNo != null)
                 {
-                    string pista = Campo(j, "peligrosa", "0") == "1" ? "Ⓑ no"
-                                 : (string.IsNullOrEmpty(juegoActual) ? "Ⓐ sí · Ⓑ no" : "≡+Ⓐ sí · ≡+Ⓑ no");
+                    // CON UN JUEGO DELANTE HACE FALTA ≡+B, TAMBIEN EN LAS PELIGROSAS (21/09).
+                    // La rama de "peligrosa" se saltaba la comprobacion del juego y ponia
+                    // "Ⓑ no" a secas. Pero el asistente exige el menu mientras juegas
+                    // ($mandoVale = ((-not $juegoActivo) -or $conMenu) ...), asi que braya
+                    // pulsaba la B que le decia la capsula, Nova no se enteraba, y esa B se
+                    // la comia el juego: la pregunta seguia delante despues de haber hecho
+                    // exactamente lo que se le dijo, y una pulsacion suelta metida en la
+                    // partida. Justo en las preguntas que mas importan: "¿cierro los juegos
+                    // colgados?", "¿borro la carpeta?", "¿lo envio?".
+                    bool pelig = Campo(j, "peligrosa", "0") == "1";
+                    string pista = string.IsNullOrEmpty(juegoActual)
+                                 ? (pelig ? "Ⓑ no" : "Ⓐ sí · Ⓑ no")
+                                 : (pelig ? "≡+Ⓑ no" : "≡+Ⓐ sí · ≡+Ⓑ no");
                     if (pistaSiNo.Text != pista) { pistaSiNo.Text = pista; }
                 }
                 tiempoActual = Campo(j, "tiempo", "");

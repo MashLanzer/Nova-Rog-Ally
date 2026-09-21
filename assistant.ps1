@@ -14420,6 +14420,9 @@ $RE_MEMORIA = '\b(?:que sabes (?:de|del|sobre|acerca)|que te dije(?!\s+fue)|que 
 function Expand-Prompt([string]$texto) {
     if ((ConvertTo-Plain $texto) -match $RE_MEMORIA) {
         Log "consulta a la memoria"
+        # ESTE PROMPT PIDE ABRIR ARCHIVOS, asi que NO puede ir por la API (ver el reparto
+        # de Submit-Command). El texto de aqui es lo que lo delata, y se busca alli tal
+        # cual: sin banderas globales, que se quedan encendidas (lo de $sinDudosa, hoy).
         return ("Consulta mis notas en la carpeta " + $MemoriaDir + " (Markdown, en diario\ y temas\). " +
                 "Responde BREVE y en lenguaje hablado, sin listas ni codigo: tu respuesta se lee en voz alta. " +
                 "Si no encuentras nada, dilo en una frase y no inventes. Pregunta: " + $texto)
@@ -15187,7 +15190,19 @@ function Submit-Command([string]$text, [string]$modo = 'accion', [string]$adjunt
     # ('accion') necesitan un agente con manos: esas van a Claude Code (35-90 s).
     # Si algo no arranca o falla, se baja un escalon: API -> Claude Code -> opencode.
     $script:jobAdjunto = $adjunto
-    $porApi = ($ClaudeOn -and $modo -ne 'accion' -and (Test-Path -LiteralPath $ClaudeScript) -and (Test-ClaveClaude))
+    # LA MEMORIA NO, QUE LA API NO PUEDE ABRIR UN ARCHIVO (21/09). tools\claude-api.ps1
+    # son 142 lineas de HTTP puro: sin herramientas, sin leer nada del disco. Y desde el
+    # 15/09 TODO lo que no es "accion" va por ahi primero, asi que la peticion mejor
+    # guiada del asistente -la que dice exactamente en que carpeta mirar- caia justo en
+    # el unico motor que no puede cumplirla. Paso las DOS veces que se disparo:
+    #   15/09 15:39:50  "ok y porque no has creado la nota que te dije entonces"
+    #   18/09 22:06:28  REPLY: "No puedo abrir esa carpeta: en esta conversacion no
+    #                   tengo acceso a los archivos de tu computadora"
+    # Se mira el PROMPT, no una bandera: una bandera global se queda encendida cuando
+    # alguien mete un return por medio, que es lo que paso hoy con $sinDudosa.
+    $pideArchivos = ([string]$prompt).Contains('Consulta mis notas en la carpeta')
+    $porApi = ($ClaudeOn -and $modo -ne 'accion' -and -not $pideArchivos -and (Test-Path -LiteralPath $ClaudeScript) -and (Test-ClaveClaude))
+    if ($pideArchivos) { Log 'MEMORIA: esto necesita leer archivos, va al cerebro y no a la API' }
     if ($porApi -and -not $script:apiFallo) {
         # traducir devuelve una linea; hablar, una o dos frases
         $modelo = if ($modo -eq 'traducir' -or $modo -eq 'plan') { $ClaudeModeloRapido } else { $ClaudeModeloBueno }
