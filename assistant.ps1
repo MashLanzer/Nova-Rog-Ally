@@ -206,7 +206,17 @@ $VERBOS = '(?:abre|abreme|abrele|abrir|abri|abrime|ejecuta|ejecutame|inicia|inic
 
 # Muletillas y cortesias que el dictado captura pero que NO son parte de la
 # orden. "busca tambien en el navegador X" fallaba justo por esto.
-$FILLER_GLOBAL = '\b(?:tambien|ademas|porfa|porfavor|por favor|gracias|oye|okey|dale(?!\s+al?\b)|a ver|quiero que|necesito que|me puedes|puedes|podrias|hazme el favor de)\b'
+# 'oye', 'gracias' y 'a ver' SALEN DE AQUI (21/09). Esta lista se aplica en CUALQUIER
+# posicion, tambien dentro de lo que va detras del verbo, y el comentario de
+# $FILLER_INI ya avisaba de este riesgo exacto -por eso ok/vale/bueno se quedaron
+# fuera-. Lo que hacian estas tres:
+#   'reproduce oye como va en youtube'  ->  pone otra cosa, no la de Santana
+#   'pon gracias a la vida en youtube'  ->  'pon a la vida en youtube'
+#   'escribe gracias por tu ayuda'      ->  TECLEA 'por tu ayuda' en la app de delante
+# La ultima es la peor con diferencia: no es una busqueda que se ve y se corrige, es
+# texto escrito mal en el sitio de otro. (PLAN-SIGUIENTE.md ya lo tenia medido desde
+# hace dias con 'busca gracias totales en youtube' -> 'totales'.)
+$FILLER_GLOBAL = '\b(?:tambien|ademas|porfa|porfavor|por favor|okey|dale(?!\s+al?\b)|quiero que|necesito que|me puedes|puedes|podrias|hazme el favor de)\b'
 # "a mi"/"ya me"/"me" salen mucho al dictar ("ya me abre steam", "ábreme")
 # "hey nova pon modo juego" se iba a la IA: el nombre y el saludo de delante no
 # son parte de la orden (auditoria del 13/09)
@@ -219,7 +229,7 @@ $FILLER_GLOBAL = '\b(?:tambien|ademas|porfa|porfavor|por favor|gracias|oye|okey|
 # mitad de la frase: "busca cuanto vale una ps5" acabaria buscando "cuanto una ps5".
 # "mira" SOLO delante de un verbo de orden (18/09): "mira, ponme un temporizador de 5 minutos"
 # se descarto entero. "mira si hay algo colgado" sigue siendo orden: el lookahead no la toca.
-$FILLER_INI = '^(?:(?:y|luego|despues|ahora|entonces|a mi|ami|ya me|me|pues|este|hey|ey|hola|nova|ok|okey|okay|vale|bueno|mira(?=\s+(?:pon|ponme|abre|abreme|cierra|sube|baja|pausa|reproduce|busca|buscame|quita|activa|desactiva|lanza|dime|di)\b)|sabes?\s+que(?=\s+(?:pon|ponme|abre|abreme|cierra|sube|baja|pausa|reproduce|busca|buscame|quita|activa|desactiva|lanza|dime|di)\b))\s+)+'
+$FILLER_INI = '^(?:(?:y|luego|despues|ahora|entonces|a mi|ami|ya me|me|pues|este|hey|ey|hola|nova|ok|okey|okay|vale|bueno|oye|gracias|a ver|mira(?=\s+(?:pon|ponme|abre|abreme|cierra|sube|baja|pausa|reproduce|busca|buscame|quita|activa|desactiva|lanza|dime|di)\b)|sabes?\s+que(?=\s+(?:pon|ponme|abre|abreme|cierra|sube|baja|pausa|reproduce|busca|buscame|quita|activa|desactiva|lanza|dime|di)\b))\s+)+'
 # LA CONDICION DEL FINAL (19/09): "cierra el explorador de archivos si esta abierto" se fue
 # a la API a traducir y volvio como 'cierra explorador'; la coletilla sobraba entera, porque
 # cerrar lo que no esta abierto ya no hace nada. Va anclada al final y solo si queda orden
@@ -238,6 +248,13 @@ function Remove-Filler([string]$s) {
     if (-not $s) { return "" }
     $t = [regex]::Replace($s, $FILLER_GLOBAL, ' ')
     $t = [regex]::Replace($t, $FILLER_INI, '')
+    # 'GRACIAS' AL FINAL SE QUITA SIEMPRE, sin pasar por la guarda de abajo (21/09).
+    # La guarda esta para las coletillas de $FILLER_FIN, que al quitarlas pueden dejar
+    # la frase coja. 'gracias' no: es cortesia pura y nunca es parte de la orden.
+    # Con la guarda, 'pausa gracias' se quedaba en 'pausa gracias' -porque 'pausa' es
+    # UNA palabra- y esa orden, que se resuelve en menos de un segundo, se iba entera
+    # al modelo. Se exige un espacio delante, asi que 'gracias' a secas no se borra.
+    $t = [regex]::Replace($t, '\s+(?:muchas\s+|mil\s+)?gracias\s*$', '')
     # ver LA CONDICION DEL FINAL: se quita solo si lo que queda sigue siendo una orden
     $tF = [regex]::Replace($t, $FILLER_FIN, '')
     if (@($tF -split '\s+' | Where-Object { $_ }).Count -ge 2) { $t = $tF }
@@ -1004,7 +1021,16 @@ function Get-RamResumen([string]$que) {
         # lo dicho puede traer cualquier cosa; aqui solo se compara texto
         $n = ($n -replace '[^a-z0-9 ]', '').Trim().ToLowerInvariant()
         if (-not $n) { continue }
-        if ($n -match '^(?:tu|ti|vos|nova|tu misma|ti misma|contigo)$') {
+        # SIN LA COLETILLA, Y ADMITIENDO EL 'A' DELANTE (21/09). Lo que braya dijo de
+        # verdad fue 'cuanta RAM esta ocupando Roblox y Nova, o sea, tu al mismo tiempo',
+        # y el trozo de despues del ' y ' llegaba aqui como 'o sea tu al mismo tiempo'.
+        # Con el patron anclado eso no casaba, se buscaba un programa que se llamara asi
+        # y contestaba '...y o sea tu al mismo tiempo no esta abierto': justo la parte
+        # que el pregunto -cuanta lleva ELLA- se quedaba sin contestar.
+        # Tambien vale 'a ti', que es como se dice igual de a menudo.
+        $n = ($n -replace '^(?:o sea|osea|es decir|digo|bueno)\s+', '')
+        $n = ($n -replace '\s+(?:al mismo tiempo|a la vez|ahora mismo|tambien|en total)$', '').Trim()
+        if ($n -match '^(?:a\s+)?(?:tu|ti|vos|nova|tu misma|ti misma|contigo|ti mismo)$') {
             $b = 0.0
             foreach ($pr in $procs) { if ($RAM_NOVA -contains $pr.Name.ToLowerInvariant()) { $b += [double]$pr.WorkingSet64 } }
             try { $b += [double](Get-Process -Id $PID -ErrorAction Stop).WorkingSet64 } catch {}
@@ -16183,6 +16209,8 @@ function Start-NubeOir([string]$para) {
             -ArgumentList @($NubeScript, $script:nubeWav, $script:nubeOut, [string]$NubeTopeMs)
         $null = $script:nubeProc.Handle
         $script:nubeDesde = $sw.ElapsedMilliseconds   # ver CUANTO TARDA LA NUBE
+        # Y LA HORA DE PARED, para poder medir hasta que el fichero SE ESCRIBIO
+        $script:nubeDesdeH = Get-Date
         $script:nubeVence = $sw.ElapsedMilliseconds + $NubeTopeMs + 800
         Log "NUBE: segunda opinion de '$para' (tope $([Math]::Round($NubeTopeMs / 1000.0, 1)) s)"
         # CUANTAS VECES SE LANZA (17/09). Habia tres contadores de desenlace -sirvio, nada,
@@ -16212,7 +16240,24 @@ function Receive-NubeOir {
         # tiempos de los que SI contestaron, que es de lo unico que se puede sacar un p90.
         # Es un numero, no una frase: no hace falta meterlo en la lista del olvido.
         if ($script:nubeDesde -gt 0) {
-            $msN = [int]($sw.ElapsedMilliseconds - $script:nubeDesde)
+            # HASTA QUE LA NUBE CONTESTO, NO HASTA QUE NOVA MIRA (21/09). Esto medía
+            # desde que se lanza el proceso hasta que el BUCLE lee el fichero, y el
+            # bucle solo lo lee DESPUES del oido fino, que tarda unos 4 s. Asi que lo
+            # que acababa en nube-tiempos.json no era lo que tarda la nube: era
+            # max(lo que tardo la nube, lo que tardo en llegar el oido fino).
+            # Y con ese numero se decide el tope de espera: el p90 salia en 7.456 ms y
+            # el tope habria subido a 8,5 s por un sesgo, no por la nube.
+            # (Las muestras del while de espera -que sondea cada 120 ms- si eran buenas;
+            # las malas son las de cuando la nube ya habia contestado al llegar el fino.)
+            # LastWriteTime no cuesta una vuelta de disco de mas: el Test-Path ya se hizo.
+            $msN = 0
+            try {
+                if ($script:nubeDesdeH) {
+                    $msN = [int](((Get-Item -LiteralPath $script:nubeOut).LastWriteTime - $script:nubeDesdeH).TotalMilliseconds)
+                }
+            } catch { $msN = 0 }
+            # si el reloj del fichero no sirve, lo de antes es mejor que nada
+            if ($msN -le 0) { $msN = [int]($sw.ElapsedMilliseconds - $script:nubeDesde) }
             $script:nubeDesde = 0
             if ($msN -gt 0 -and $msN -lt 120000) { [void](Add-NubeTiempo $msN) }
         }

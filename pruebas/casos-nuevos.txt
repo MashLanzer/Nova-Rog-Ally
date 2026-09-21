@@ -447,3 +447,18 @@ pon el audio en la tele
 pon el segundo video
 pon el video 2
 pon el tercer video
+# --- 'oye', 'gracias' y 'a ver' se borraban EN MITAD de la frase (21/09) ---
+# lo peor no era la busqueda: 'escribe gracias por tu ayuda' TECLEABA 'por tu ayuda'
+reproduce oye como va en youtube
+pon gracias a la vida en youtube
+busca gracias totales en youtube
+# --- y las que se dicen de verdad, que tienen que seguir limpiandose ---
+oye pon musica
+oye nova sube el volumen
+abre steam gracias
+pausa gracias
+sube el brillo por favor
+# --- 'cuanta RAM, o sea tu al mismo tiempo': lo que dijo de verdad ---
+cuanta ram esta ocupando roblox y nova o sea tu al mismo tiempo
+cuanta ram estas gastando tu
+cuanta ram esta usando steam y tu
