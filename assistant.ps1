@@ -7851,6 +7851,15 @@ function Watch-Dispositivos {
     } catch {}
     if ($null -ne $script:cascosAntes -and $casP -and -not $script:cascosAntes) {
         Log "CASCOS: puestos"
+        # EL ENDPOINT DEL VOLUMEN SE QUEDABA PEGADO A LOS ALTAVOCES (21/09).
+        # IAudioEndpointVolume es de UN aparato concreto, no "del predeterminado": al
+        # ponerse los cascos, los altavoces siguen ahi y el objeto cacheado sigue
+        # contestando S_OK sobre ELLOS. Asi que esto -el aviso que existe para
+        # cuidarle los oidos- decia el volumen de los altavoces, y si braya
+        # contestaba "pon el volumen al 30" lo que bajaba eran los altavoces:
+        # los cascos seguian a tope y Nova contestaba que hecho.
+        try { [AX]::OlvidarVolumen() } catch {}
+        try { $script:uiVolumen = [AX]::LeerVolumen() } catch {}
         Invoke-Reglas 'cascosPone' 'pone'
         # idea 4: con cascos, el volumen de los altavoces es un susto
         # $script:uiVolumen es lo ultimo que Nova puso o leyo; -1 = no lo sabe todavia
@@ -7864,6 +7873,9 @@ function Watch-Dispositivos {
     # idea 5: al quitarlos, lo que sonaba sale por los altavoces de golpe
     if ($null -ne $script:cascosAntes -and -not $casP -and $script:cascosAntes) {
         Log "CASCOS: quitados"
+        # al quitarlos pasa lo mismo al reves: el endpoint apunta a los cascos
+        try { [AX]::OlvidarVolumen() } catch {}
+        try { $script:uiVolumen = [AX]::LeerVolumen() } catch {}
         Invoke-Reglas 'cascosQuita' 'quita'
         # ¿suena algo? El worker deja el nivel de los altavoces en escucha-estado.txt
         # ("ganancia|ref|altavoces|bloques"); el mismo dato que usa "¿como me oyes?"
@@ -8412,6 +8424,7 @@ function Set-SalidaAudio([string]$quiere) {
     $objA = $candA[0]
     if ($objA.actual) { return "ya suena por $($objA.nombre)" }
     [NovaAudio.Salida]::Poner($objA.id)
+    try { [AX]::OlvidarVolumen() } catch {}   # el endpoint cacheado era del aparato de antes
     return "ahora suena por $($objA.nombre)"
 }
 
@@ -10707,7 +10720,29 @@ function Say-Online([string]$texto, [string]$emo = '') {
         $tarea = $script:ttsLectura
         # una respuesta larga tarda mas en sintetizarse: plazo segun lo largo (ver RESPUESTAS LARGAS ENTERAS)
         $plazoVoz = [int][Math]::Min(30000, 8000 + $texto.Length * 15)
-        if (-not $tarea.Wait($plazoVoz)) { Log "voz online: sin respuesta en $([int]($plazoVoz / 1000)) s"; return $false }
+        # AL VENCER EL PLAZO, LA TUBERIA YA NO ES DE FIAR (21/09). Antes se hacia return
+        # dejando la lectura APUNTADA, y el arreglo del 17/09 -descartar la linea tardia-
+        # solo cubre UNA frase, no el atasco. El worker contesta SIEMPRE una linea por cada
+        # una que entra, asi que la de la frase que vencio se queda en la tuberia sin dueno:
+        #   frase A vence      -> lectura apuntada, una linea debiendose
+        #   frase B            -> recoge la de A, la tira (bien), pero la de B queda sin leer
+        #   frase C            -> lectura nueva que recoge AL INSTANTE la linea de B, y
+        #                         ttsTardia ya vale false, asi que se la cree
+        # A partir de ahi Nova dice una frase y suena la ANTERIOR, con la envolvente de la
+        # anterior moviendo la boca y fijando la pausa del microfono. Y no se cierra solo:
+        # D coge la de C, E la de D... el resto de la sesion.
+        # EN EL LOG ESTA: 3 "sin respuesta en 8 s" (13/09, 15/09 y 19/09) y UN solo
+        # descarte (19/09 09:25:08). Las otras dos veces el desfase no se cerro nunca.
+        # Matar el worker es lo unico que deja la tuberia limpia de verdad; Say-Online lo
+        # relanza solo en la frase siguiente (mira HasExited mas arriba). Son 3 reinicios en
+        # once dias de log: no cuesta nada.
+        if (-not $tarea.Wait($plazoVoz)) {
+            Log "voz online: sin respuesta en $([int]($plazoVoz / 1000)) s; reinicio el worker para no descuadrar las siguientes"
+            try { $script:ttsProc.Kill() } catch {}
+            $script:ttsLectura = $null
+            $script:ttsTardia = $false
+            return $false
+        }
         $script:ttsLectura = $null
         if ($script:ttsTardia) {
             # llego la de la frase ANTERIOR: se tira y esta frase se queda sin voz en
@@ -17692,6 +17727,7 @@ function Invoke-PanelRapido([int]$pul) {
                     $iP = 0; for ($k = 0; $k -lt $listaP.Count; $k++) { if ($listaP[$k].actual) { $iP = $k } }
                     $iP = if ($abajo) { ($iP + $listaP.Count - 1) % $listaP.Count } else { ($iP + 1) % $listaP.Count }
                     [NovaAudio.Salida]::Poner($listaP[$iP].id)
+                    try { [AX]::OlvidarVolumen() } catch {}   # el endpoint cacheado era del aparato de antes
                     $script:panelSalida = $listaP[$iP].nombre
                     $script:panel.nota = ''
                 } else { $script:panel.nota = '(solo hay una)' }

@@ -453,6 +453,26 @@ if ("$linea" -match 'local:\s*(\d+)') {
     }
 }
 
+Titulo "5b. El DLL, al dia con su fuente (AMARILLO, no fallo)"
+# 21/09. assistant-dx.dll se PRECOMPILA a proposito -invocar csc en cada arranque colgaba
+# y mataba el proceso en silencio-, asi que tocar assistant-dx.cs no cambia nada hasta que
+# alguien recompila. Y mientras Nova esta en marcha el DLL esta BLOQUEADO, o sea que
+# recompilar hay que hacerlo con ella parada y es justo cuando se olvida. Paso hoy mismo
+# con OlvidarVolumen: el codigo ya la llama y el DLL todavia no la trae.
+$csDx = Join-Path $raiz 'assistant-dx.cs'
+$dllDx = Join-Path $raiz 'assistant-dx.dll'
+if ((Test-Path -LiteralPath $csDx) -and (Test-Path -LiteralPath $dllDx)) {
+    $tCs = (Get-Item -LiteralPath $csDx).LastWriteTime
+    $tDll = (Get-Item -LiteralPath $dllDx).LastWriteTime
+    if ($tCs -gt $tDll) {
+        Write-Host ('   AMARILLO: assistant-dx.cs es mas nuevo que el DLL ({0:dd/MM HH:mm} contra {1:dd/MM HH:mm})' -f $tCs, $tDll) -ForegroundColor Yellow
+        Write-Host '      Lo que cambiaste en el .cs NO esta corriendo. Para Nova y: powershell -NoProfile -File tools\recompilar-dx.ps1' -ForegroundColor Yellow
+        $avisosAmarillos += 'assistant-dx.cs cambiado y sin recompilar: lo que tocaste ahi no esta corriendo'
+    } else {
+        Write-Host '   OK  el DLL es igual o mas nuevo que su fuente' -ForegroundColor DarkGray
+    }
+}
+
 Titulo "6. Codigo del oido cambiado y ni una voz encima (AMARILLO, no fallo)"
 # CODIGO NUEVO Y CERO VOZ (19/09, H2m3). Este banco es TEXTO: pasarlo entero en verde no
 # dice nada sobre si Nova te entiende cuando hablas. Hoy 19/09 ha pasado justo eso: el

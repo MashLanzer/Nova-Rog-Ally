@@ -252,9 +252,34 @@ public class AX
     }
 
     // Se cachea el endpoint: crearlo cuesta unos ms y esto se llama a menudo.
-    // Si el dispositivo por defecto cambia (auriculares), el objeto viejo
-    // empieza a fallar; entonces se rehace en la siguiente llamada.
+    //
+    // LO QUE DECIA AQUI ERA FALSO Y COSTO CARO (21/09). Decia que "si el dispositivo por
+    // defecto cambia (auriculares), el objeto viejo empieza a fallar; entonces se rehace
+    // en la siguiente llamada". No es asi: IAudioEndpointVolume es de UN endpoint
+    // concreto, no "del predeterminado". Al ponerse unos cascos Bluetooth los altavoces
+    // siguen ahi, o sea que el objeto viejo sigue devolviendo S_OK tan contento... sobre
+    // los ALTAVOCES. Y el segundo intento con rehacer=true solo salta cuando la llamada
+    // FALLA, asi que no saltaba nunca: el cache se quedaba pegado desde el login.
+    //
+    // El caso de libro era justo la funcion que existe para cuidarle los oidos a braya:
+    // se pone los cascos, Nova avisa "cascos puestos y el volumen esta al 85, di: pon el
+    // volumen al 30", el lo dice, y lo que baja son los altavoces. Los cascos siguen a
+    // tope y Nova contesta que hecho. El 85 del aviso tampoco era el de los cascos.
+    //
+    // Por eso existe OlvidarVolumen(): assistant.ps1 la llama cuando la salida cambia.
     static IAudioEndpointVolume _vol;
+
+    // Tirar el endpoint cacheado. Se llama al cambiar la salida de audio, que es lo unico
+    // que lo invalida de verdad. Coste cero en la ruta normal: solo se rehace cuando ha
+    // cambiado algo.
+    public static void OlvidarVolumen()
+    {
+        if (_vol != null)
+        {
+            try { Marshal.FinalReleaseComObject(_vol); } catch { }
+            _vol = null;
+        }
+    }
 
     static IAudioEndpointVolume Volumen(bool rehacer)
     {
