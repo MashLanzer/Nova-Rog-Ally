@@ -3309,6 +3309,18 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(?:olvida(?:te)?|borra|elimina)\s+(?:todo\s+)?(?:esto|eso|lo\s+(?:de|que)\s+(?:hace un rato|acabo de decir|acabamos de hablar|acabo de hablar|se ha dicho|dije(?:\s+antes)?|hemos hablado|acaba de pasar))$') {
         return @(@{ kind = 'olvidoRato'; minutos = 10; desc = 'olvidar lo de hace un rato' })
     }
+    # BORRAR UNA CARPETA, A LA PAPELERA (20/09). El 20/09 braya pidio "borra la carpeta
+    # prueba y prueba dos" y Nova contesto, tras 34 s de agente, "No existian esas carpetas,
+    # asi que no habia nada que borrar": las dos seguian en el escritorio, creadas por ella
+    # misma diez minutos antes. No podia borrarlas -se lo prohibe su propio prompt, y
+    # $RE_RECETA_PROHIBIDO tampoco deja aprender un Remove-Item- pero en vez de decirlo se
+    # invento el motivo.
+    # A LA PAPELERA Y NO A Remove-Item, a proposito: es reversible. Y SIEMPRE preguntando,
+    # aunque braya lo pida claro: lo que se borra por un malentendido no vuelve solo.
+    if ($f -match '^(?:borra|borrame|elimina|eliminame|quita|manda|mandame|tira|echa)\s+(?:a\s+la\s+papelera\s+)?(?:la\s+|el\s+|los\s+|las\s+)?(?:carpeta|carpetas|archivo|archivos|fichero|ficheros)\s+(?:llamad[oa]s?\s+)?(.+?)(?:\s+(?:a|en)\s+la\s+papelera)?$') {
+        $quePap = $Matches[1].Trim()
+        if ($quePap) { return @(@{ kind = 'aPapelera'; que = $quePap; desc = "mandar $quePap a la papelera" }) }
+    }
     # --- recetas aprendidas: verlas y olvidarlas ---
     if ($f -match '^(?:(?:y\s+)?(?:que\s+)?(?:has aprendido|aprendiste)(?:\s+(?:hoy|ayer|de la ultima sesion|de la ultima seccion|en la ultima sesion|en la ultima seccion|de la sesion|de la seccion|esta sesion|ultimamente))?|que (?:recetas tienes|sabes hacer sola)(?:\s+(?:hoy|ayer|de la ultima sesion|en la ultima sesion|de la sesion|esta sesion|ultimamente))?|que tareas (?:has aprendido|sabes hacer)|mis recetas|lista (?:las )?recetas|dime (?:las )?recetas)$') {
         return @(@{ kind = 'verRecetas'; desc = 'recetas aprendidas' })
@@ -8953,6 +8965,85 @@ function Invoke-FastCommand([string]$text) {
                         $a.desc = 'No he podido olvidarlo del todo, mirate el log'
                     }
                 }
+                'aPapelera' {
+                    # SOLO SE MIRA DONDE BRAYA GUARDA SUS COSAS. Nada de rutas del sistema
+                    # ni de recorrer el disco entero: si no esta en uno de estos cuatro
+                    # sitios, se dice y no se busca mas.
+                    $dondeP = @(
+                        [Environment]::GetFolderPath('Desktop'),
+                        (Join-Path $env:USERPROFILE 'Downloads'),
+                        [Environment]::GetFolderPath('MyDocuments'),
+                        [Environment]::GetFolderPath('MyPictures')
+                    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+                    $buscaP = [string]$a.que
+                    # "PRUEBA DOS" LLEGA AQUI COMO "PRUEBA 2" (20/09). La capa de texto
+                    # normaliza los numeros hablados, y la carpeta del disco se llama
+                    # "Prueba dos". Buscar solo una de las dos formas es no encontrarla la
+                    # mitad de las veces. Se prueban las dos, del 1 al 10, que es hasta
+                    # donde llega un nombre de carpeta dicho en voz alta.
+                    $numsP = @{ '1' = 'uno'; '2' = 'dos'; '3' = 'tres'; '4' = 'cuatro'; '5' = 'cinco'
+                                '6' = 'seis'; '7' = 'siete'; '8' = 'ocho'; '9' = 'nueve'; '10' = 'diez' }
+                    $variantesP = New-Object System.Collections.Generic.List[string]
+                    $variantesP.Add($buscaP)
+                    foreach ($kN in $numsP.Keys) {
+                        $vN = $buscaP -replace ('\b' + [regex]::Escape($kN) + '\b'), $numsP[$kN]
+                        if ($vN -ne $buscaP) { $variantesP.Add($vN) }
+                        $vP = $buscaP -replace ('\b' + [regex]::Escape($numsP[$kN]) + '\b'), $kN
+                        if ($vP -ne $buscaP) { $variantesP.Add($vP) }
+                    }
+                    $variantesP = @($variantesP | Select-Object -Unique)
+                    $hallP = @()
+                    foreach ($dP in $dondeP) {
+                        try {
+                            $hallP += @(Get-ChildItem -LiteralPath $dP -Force -ErrorAction SilentlyContinue |
+                                        Where-Object { $variantesP -contains $_.Name })
+                        } catch {}
+                    }
+                    if ($hallP.Count -eq 0) {
+                        # y se dice DONDE se ha mirado: "no existe" a secas fue justo la
+                        # mentira del 20/09
+                        foreach ($dP in $dondeP) {
+                            try {
+                                $hallP += @(Get-ChildItem -LiteralPath $dP -Force -ErrorAction SilentlyContinue |
+                                            Where-Object { $n2P = $_.Name; @($variantesP | Where-Object { $n2P -like ("*" + $_ + "*") }).Count -gt 0 })
+                            } catch {}
+                        }
+                    }
+                    if ($hallP.Count -eq 0) {
+                        $a.desc = "No encuentro nada que se llame $buscaP. He mirado en el escritorio, descargas, documentos e imagenes"
+                    } elseif ($hallP.Count -gt 1 -and -not $script:confirmado) {
+                        $nomsP = @($hallP | Select-Object -First 4 | ForEach-Object { $_.Name })
+                        $a.desc = "Hay varios: " + ($nomsP -join ', ') + ". Dime cual exactamente"
+                    } elseif (-not $script:confirmado) {
+                        # NUNCA A LA PRIMERA, aunque lo pida claro: lo que se borra por un
+                        # malentendido no vuelve solo. Mismo mecanismo que el correo.
+                        $itP = $hallP[0]
+                        $queEsP = if ($itP.PSIsContainer) { 'la carpeta' } else { 'el archivo' }
+                        $script:pendiente = @{ texto = "borra la carpeta $buscaP"; vence = 0; tipo = 'peligrosa' }
+                        $dondeEstaP = Split-Path -Leaf (Split-Path -Parent $itP.FullName)
+                        $a.desc = "Encontre $queEsP $($itP.Name) en $dondeEstaP. La mando a la papelera?"
+                    } else {
+                        $itP = $hallP[0]
+                        $okP = $false
+                        try {
+                            Add-Type -AssemblyName Microsoft.VisualBasic -ErrorAction Stop
+                            if ($itP.PSIsContainer) {
+                                [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory(
+                                    $itP.FullName, 'OnlyErrorDialogs', 'SendToRecycleBin')
+                            } else {
+                                [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile(
+                                    $itP.FullName, 'OnlyErrorDialogs', 'SendToRecycleBin')
+                            }
+                            $okP = -not (Test-Path -LiteralPath $itP.FullName)
+                        } catch {
+                            Log ('PAPELERA: no pude mandar ' + $itP.FullName + ': ' + $_.Exception.Message)
+                        }
+                        # SE COMPRUEBA QUE DE VERDAD SE FUE, y se dice lo que paso: decir
+                        # "hecho" sin mirar es como nacio la mentira del 20/09
+                        $a.desc = if ($okP) { "$($itP.Name) esta en la papelera; si me equivoque, sacala de ahi" }
+                                  else { "No pude mandar $($itP.Name) a la papelera" }
+                    }
+                }
                 'olvidarReceta' {
                     $rsO = Get-Recetas
                     $objO = $null
@@ -14286,7 +14377,7 @@ function Submit-Command([string]$text, [string]$modo = 'accion', [string]$adjunt
         # LO QUE YA EXISTE NO SE PISA (18/09). "Crea un archivo Hola con Hola Mundo dentro":
         # Hola.txt ya estaba en el escritorio desde el 15/09, el agente lo sobrescribio y
         # contesto "Listo, cree el archivo". Destructivo y ademas falso en el reporte.
-        $prompt = "REGLA FIJA: nunca cierres, mates ni reinicies estos procesos: nova_ui, powershell, pwsh, python, WindowsTerminal, OpenConsole, conhost, claude, opencode, node, explorer, ni ningun proceso del sistema; son el propio asistente y la sesion del usuario. Si la tarea es cerrar todos los programas o muchos a la vez, NO la hagas: contesta solo 'Para eso di: cierra todos los programas. Te pregunto antes de cerrar nada.' REGLA FIJA 2: si te piden crear un archivo o carpeta y YA EXISTE algo con ese nombre, NO lo sobrescribas ni lo modifiques: contesta que ya existe y que no lo has tocado. Nunca borres ni sobrescribas archivos del usuario. Y en el resumen final di exactamente lo que hiciste: 'creado', 'modificado' o 'ya existia, sin cambios'; nunca digas que creaste algo que ya estaba. " + $prompt
+        $prompt = "REGLA FIJA: nunca cierres, mates ni reinicies estos procesos: nova_ui, powershell, pwsh, python, WindowsTerminal, OpenConsole, conhost, claude, opencode, node, explorer, ni ningun proceso del sistema; son el propio asistente y la sesion del usuario. Si la tarea es cerrar todos los programas o muchos a la vez, NO la hagas: contesta solo 'Para eso di: cierra todos los programas. Te pregunto antes de cerrar nada.' REGLA FIJA 2: si te piden crear un archivo o carpeta y YA EXISTE algo con ese nombre, NO lo sobrescribas ni lo modifiques: contesta que ya existe y que no lo has tocado. Nunca borres ni sobrescribas archivos del usuario. Y en el resumen final di exactamente lo que hiciste: 'creado', 'modificado' o 'ya existia, sin cambios'; nunca digas que creaste algo que ya estaba. REGLA FIJA 3: si te piden BORRAR algo, no lo borres y contesta exactamente esto: 'No borro archivos yo sola; dime que lo mande a la papelera y lo hago'. Y NUNCA afirmes que algo no existe sin haberlo mirado: si no has comprobado que un archivo o carpeta esta, no digas que no esta. Antes que inventarte un motivo, di que no puedes. " + $prompt
     }
     # LO DE ANTES VA CON LA PETICION (20/09, ver LO QUE SE DIJO ANTES). Detras del
     # prompt, que es donde esta la frase: asi lo ultimo le queda al modelo lo mas cerca,

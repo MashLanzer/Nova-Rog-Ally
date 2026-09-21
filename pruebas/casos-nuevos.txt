@@ -331,3 +331,11 @@ cuales son mis juegos
 # --- control: estas NO son ordenes con muletilla ---
 sabes que hora es
 sabes que me gusta el rock
+# --- borrar a la papelera (20/09): braya lo pidio y Nova se invento que no existian ---
+borra la carpeta prueba
+elimina la carpeta prueba dos
+manda la carpeta prueba a la papelera
+borra el archivo notas
+# --- control: estos "borra" NO son de ficheros y siguen donde estaban ---
+borra el modo noche
+borra la ultima receta
