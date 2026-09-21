@@ -422,3 +422,28 @@ recuerdame a las doce de la noche sacar la basura
 recuerdame a las diez de la noche tomar la pastilla
 a las ocho de la manana sube el brillo
 recuerdame a las tres de la tarde llamar a mama
+# --- la zona de ordenes, tanda de agentes del 21/09 ---
+# 'puedes ver la pantalla': el arreglo de ayer no cubria estas formas, porque
+# Remove-Filler se come 'puedes', 'podrias' y 'quiero que' ANTES de llegar al patron
+puedes ver la pantalla
+podrias ver mi pantalla
+quiero que veas la pantalla
+quiero que mires la pantalla
+puedes mirar la pantalla
+a ver mi pantalla
+# --- 'ya puedes avisarme': la forma natural de deshacer 'no me avises' ---
+ya puedes avisarme
+puedes avisarme
+vuelve a avisarme
+avisame otra vez
+# --- 'pon el sonido a la mitad' buscaba un altavoz llamado 'mitad' ---
+pon el sonido a la mitad
+pon el sonido a tope
+pon el audio a cero
+# --- control: esto SI es cambiar de altavoz, no de volumen ---
+pon el sonido en los cascos
+pon el audio en la tele
+# --- el video por numero, que ponia el primero diciendo 'el numero 0' ---
+pon el segundo video
+pon el video 2
+pon el tercer video

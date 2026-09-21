@@ -3387,7 +3387,17 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(?:pon|cambia|pasa|manda|saca)\s+(?:el\s+)?(?:sonido|audio)\s+(?:a|en|por)\s+(?:los\s+|las\s+|el\s+|la\s+|mis\s+)?(.+)$' -or
         $f -match '^(?:cambia|pon)\s+la\s+salida\s+(?:de\s+(?:audio|sonido)\s+)?(?:a|en|por)\s+(?:los\s+|las\s+|el\s+|la\s+|mis\s+)?(.+)$' -or
         $f -match '^(?:vuelve|regresa|cambia)\s+a\s+(?:los\s+|las\s+|mis\s+)?(altavoces|bocinas|parlantes|cascos|auriculares|audifonos)$') {
-        return @(@{ kind = 'salidaAudio'; quiere = [string]$Matches[1]; desc = 'cambiar la salida de sonido' })
+        # NI LA MITAD, NI A TOPE, NI A CERO: ESO ES EL VOLUMEN (21/09). Esta regla se
+        # quedaba con TODO lo que viniera detras de 'pon el sonido a' como si fuera el
+        # nombre de un aparato, y esta mil lineas por delante del bloque de niveles, que
+        # es el unico que sabe de 'la mitad', 'a tope' y 'a cero'. Resultado: 'pon el
+        # sonido a la mitad' contestaba 'no encuentro mitad; tengo Altavoces (Realtek)...'
+        # y el volumen se quedaba igual. Con la palabra 'volumen' funcionaba bien: dos
+        # formas de pedir lo mismo y solo una servia.
+        $quiereS = [string]$Matches[1]
+        if ($quiereS -notmatch '^(?:la\s+|el\s+)?(?:mitad|medio|tope|maximo|minimo|cero|nada|todo|fondo)$') {
+            return @(@{ kind = 'salidaAudio'; quiere = $quiereS; desc = 'cambiar la salida de sonido' })
+        }
     }
     if ($f -match '^(?:por donde suena(?: el sonido)?|que salida de (?:audio|sonido) tengo|donde suena el sonido|que altavoces uso)$') {
         return @(@{ kind = 'salidaAudio'; quiere = ''; desc = 'salida de sonido' })
@@ -3472,7 +3482,7 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(?:no me avises|no avises|deja de avisarme|no me digas nada|no me molestes)(?:\s+de\s+nada)?$') {
         return @(@{ kind = 'avisosEntorno'; encendido = $false; desc = 'dejar de avisarte' })
     }
-    if ($f -match '^(?:vuelve a avisarme|avisame otra vez|puedes avisarme|ya puedes avisarme)(?:\s+de\s+(?:todo|las cosas))?$') {
+    if ($f -match '^(?:vuelve a avisarme|avisame otra vez|(?:ya\s+)?avisarme)(?:\s+de\s+(?:todo|las cosas))?$') {
         return @(@{ kind = 'avisosEntorno'; encendido = $true; desc = 'volver a avisarte' })
     }
     # --- EL CORREO (16/09; ver Invoke-Correo) ---
@@ -3991,7 +4001,17 @@ function Resolve-Fragment([string]$f) {
     # Y NO SE COME LA MULETILLA: "mira" delante de un verbo ("mira, pon musica") se quita
     # en $FILLER_INI antes de llegar aqui, y este patron exige que detras venga la pantalla,
     # asi que "mira si hay algo descargando" sigue su camino de siempre.
-    if ($f -match '^(?:mira|mirame|miralo|mirala|mirar|echa un vistazo a|fijate en|ves|puedes ver|puedes mirar|podrias ver|podrias mirar|quiero que veas|quiero que mires)\s+(?:a\s+ver\s+)?(?:bien\s+)?(?:lo que (?:hay|dice|pone|se ve) (?:en\s+)?|en\s+)?(?:la\s+|mi\s+|esta\s+|el\s+)?(?:pantalla|ventana|imagen|foto)\b') {
+    # LOS PATRONES, CONTRA LA FORMA QUE LLEGA, NO CONTRA LA QUE SE DICE (21/09).
+    # El arreglo de ayer listaba 'puedes ver', 'podrias mirar', 'quiero que veas'... y
+    # ninguna de esas seis podia casar NUNCA, porque $FILLER_GLOBAL se come 'puedes',
+    # 'podrias' y 'quiero que' en Remove-Filler, que corre ANTES de llegar aqui:
+    #   'puedes ver la pantalla'      llega como 'ver la pantalla'
+    #   'quiero que veas la pantalla' llega como 'veas la pantalla'
+    #   'a ver mi pantalla'           llega como 'mi pantalla'
+    # Asi que se ponen las formas DESNUDAS -ver, veas, vea, mires, mire- y se quitan las
+    # seis con cabeza, que eran adorno. Es seguro porque el patron exige pantalla,
+    # ventana, imagen o foto detras.
+    if ($f -match '^(?:mira|mirame|miralo|mirala|mirar|ver|veas|vea|ves|mires|mire|echa un vistazo a|fijate en)\s+(?:a\s+ver\s+)?(?:bien\s+)?(?:lo que (?:hay|dice|pone|se ve) (?:en\s+)?|en\s+)?(?:la\s+|mi\s+|esta\s+|el\s+)?(?:pantalla|ventana|imagen|foto)\b') {
         # QUE LE CUENTE, NO QUE LE RECITE (21/09). Si la frase pide interpretacion
         # -"dime que ves", "cuentame que ves", "que esta pasando"- lo que hay que
         # devolver NO es el texto del OCR en crudo. La noche del 20/09, a "Lee la
@@ -4004,7 +4024,11 @@ function Resolve-Fragment([string]$f) {
     }
     # y la forma sin verbo delante, que tambien dijo: "a ver mi pantalla", "que ves en mi
     # pantalla", "que hay en la pantalla"
-    if ($f -match '^(?:a ver|que ves en|que hay en|que se ve en)\s+(?:la\s+|mi\s+|esta\s+|el\s+)?(?:pantalla|ventana)\b') {
+    # 'a ver mi pantalla' llega como 'mi pantalla' (Remove-Filler se lleva 'a ver'), asi
+    # que tambien vale la forma pelada. Se exige el posesivo o el demostrativo -mi, la,
+    # esta- para que 'pantalla' a secas no se lo coma todo.
+    if ($f -match '^(?:a ver|que ves en|que hay en|que se ve en)\s+(?:la\s+|mi\s+|esta\s+|el\s+)?(?:pantalla|ventana)\b' -or
+        $f -match '^(?:la|mi|esta)\s+(?:pantalla|ventana)$') {
         return @(@{ kind = 'ocr'; interpretar = $false; zona = ''; desc = 'leer la pantalla' })
     }
     # --- leer la pantalla ENTERA (OCR de Windows) ---
@@ -4087,7 +4111,18 @@ function Resolve-Fragment([string]$f) {
         # Va DESPUES de Resolve-Proceso a proposito: una app con nombre parecido a un
         # juego se sigue cerrando como app.
         $jC = Find-JuegoPorSonido $obj $f 0.5
-        if ($jC) { return @(@{ kind = 'cerrarJuego'; juego = $jC.nombre; desc = "cerrar $($jC.nombre)" }) }
+        # Y SE PREGUNTA ANTES, COMO AL ABRIR (21/09). Los otros dos sitios que usan este
+        # ayudante marcan $script:dudosa con el nombre, y por eso la guarda de mas abajo
+        # pregunta '¿cerrar ELDEN RING?' en vez de hacerlo. Aqui faltaba, y es el camino
+        # que MATA un proceso: lo comprobaron con su biblioteca de verdad y 'cierra el
+        # ring' da ELDEN RING con 0,67 de parecido, 'cierra el reino' con 0,56 y 'cierra
+        # la wu kong' da Black Myth: Wukong con 0,58. Los tres pasaban el umbral y se
+        # ejecutaban de golpe, con la partida abierta. El propio comentario de
+        # Find-JuegoPorSonido dice 'SIEMPRE pregunta antes', y aqui no lo hacia.
+        if ($jC) {
+            $script:dudosa = [string]$jC.nombre
+            return @(@{ kind = 'cerrarJuego'; juego = $jC.nombre; desc = "cerrar $($jC.nombre)" })
+        }
         # no se reconoce que cerrar: que siga su camino (puede ser otra cosa)
     }
     # cambiar de app: "cambia a discord", "ve a steam", "enfoca el navegador", "muestra spotify"
@@ -4263,8 +4298,21 @@ function Resolve-Fragment([string]$f) {
     }
     # "reproduce el segundo video de youtube" / "pon la tercera cancion": el numero N
     # de la ULTIMA busqueda (ver EL VIDEO NUMERO N)
+    # Y CON EL NUMERO DETRAS, que es como se dice mas veces: 'pon el video 2'. El patron
+    # de abajo solo admite 'pon el 2 video' o 'pon el segundo video'; esta forma se iba
+    # entera al modelo (21/09).
+    if ($f -match '^(?:pon|ponme|reproduce|reproduceme|quiero ver|toca|dale a)\s+(?:el|la)\s+(?:video|vídeo|cancion|resultado|tema)\s+(\d{1,2})$') {
+        # se devuelve IGUAL que la regla de al lado -kind 'url' con la busqueda dentro-,
+        # no una accion inventada: el ejecutor solo sabe abrir esa.
+        $nV2 = [int]$Matches[1]
+        if ($nV2 -gt 0) {
+            if (-not $script:ytUltimaBusqueda) { return @(@{ kind = 'decir'; desc = 'Dime primero que quieres que ponga' }) }
+            return @(@{ kind = 'url'; url = ('https://www.youtube.com/results?search_query=' + [Uri]::EscapeDataString($script:ytUltimaBusqueda))
+                        youtube = $script:ytUltimaBusqueda; videoN = $nV2; desc = "poner el numero $nV2 de '$($script:ytUltimaBusqueda)'" })
+        }
+    }
     if ($f -match '^(?:pon|ponme|reproduce|reproduceme|quiero ver|ver|toca|dale a)\s+(?:el|la)\s+(\w+)\s*(?:video|vídeo|cancion|resultado|tema)?\s*(?:de\s+(?:youtube|la\s+lista|la\s+busqueda))?$' -and
-        ($ORDINALES_YT.ContainsKey([string]$Matches[1]) -or [string]$Matches[1] -match '^\d{1,2}$')) {
+        ($ORDINALES_YT.ContainsKey([string]$Matches[1]) -or (([string]$Matches[1]).Length -le 2 -and ($Matches[1] -as [int]) -gt 0))) {
         $ordTxt = [string]$Matches[1]
         $nYT = if ($ORDINALES_YT.ContainsKey($ordTxt)) { [int]$ORDINALES_YT[$ordTxt] } else { [int]$ordTxt }
         if (-not $script:ytUltimaBusqueda) { return @(@{ kind = 'decir'; desc = 'Dime primero que quieres que ponga' }) }
@@ -4272,7 +4320,7 @@ function Resolve-Fragment([string]$f) {
                     youtube = $script:ytUltimaBusqueda; videoN = $nYT; desc = "poner el numero $nYT de '$($script:ytUltimaBusqueda)'" })
     }
     if ($f -match '^(?:pon|ponme|reproduce|reproduceme|quiero ver|ver|toca)\s+(?:el|la)\s+(\w+)\s+(?:video|vídeo|cancion|resultado|tema)\s+de\s+(.+)$' -and
-        ($ORDINALES_YT.ContainsKey([string]$Matches[1]) -or [string]$Matches[1] -match '^\d{1,2}$')) {
+        ($ORDINALES_YT.ContainsKey([string]$Matches[1]) -or (([string]$Matches[1]).Length -le 2 -and ($Matches[1] -as [int]) -gt 0))) {
         $ordTxt2 = [string]$Matches[1]; $quienYT = $Matches[2].Trim()
         $nYT2 = if ($ORDINALES_YT.ContainsKey($ordTxt2)) { [int]$ORDINALES_YT[$ordTxt2] } else { [int]$ordTxt2 }
         # "de el" = de lo ultimo que se puso (15/09: "reproduce la segunda cancion de el")
@@ -4423,7 +4471,10 @@ function Resolve-Fragment([string]$f) {
         # lo ponia al MAXIMO (auditoria del 13/09)
         $delTodo = ($f -match '\bdel\s+todo\b')
         $max = ($f -match '\b(?:maximo|tope|full)\b') -or ($f -match '\btodo\b' -and ($sube -or -not $delTodo))
-        $min = ($f -match '\b(?:minimo|nada)\b') -or ($delTodo -and -not $sube -and -not $esPon)
+        # 'cero' y 'a cero' no estaban, y es como se dice: 'pon el volumen a cero'
+        # se iba al modelo mientras 'al minimo' se resolvia aqui. Misma orden, dos
+        # formas, y solo una servia (21/09).
+        $min = ($f -match '\b(?:minimo|nada|cero)\b') -or ($delTodo -and -not $sube -and -not $esPon)
         $mitad = ($f -match '\b(?:la\s+mitad|mitad|medio)\b')
         # Porcentaje POR OBJETIVO: se busca el numero mas cercano a cada palabra.
         # Con un solo $pct global, "el volumen al 50% y el brillo al 80%" ponia

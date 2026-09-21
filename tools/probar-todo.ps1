@@ -338,6 +338,14 @@ Titulo "2n46. Abrir un juego que no es de Steam (y que siga estando vigilado)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-juegos-xbox.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:sigue estando vigilado)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n51. Cerrar un juego por el sonido del nombre PREGUNTA antes"
+# 21/09, de la tanda. Los dos caminos de ABRIR marcan la orden como dudosa y por eso Nova
+# pregunta; el de CERRAR -que es el que mata un proceso- no lo hacia. Medido con su
+# biblioteca de verdad: "cierra el ring" da ELDEN RING con 0,67 de parecido y se ejecutaba
+# de golpe, con la partida abierta.
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-cerrar-juego.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:pregunta antes, igual que abrirlo)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n50. El tope de la nube se guarda de verdad, y la sordina se calla de verdad"
 # 21/09, de la tanda. El caso 4 de la revision propia anunciaba por voz un cambio que solo
 # vivia en RAM: la mediana de sesion son 5,8 minutos y a los pocos minutos volvia a 7000
@@ -412,8 +420,8 @@ foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     # estuviera ahi, asi que una caida de 88 a 5 pasaba EN VERDE: justo lo que este banco
     # existe para evitar. Las que fallan son controles a proposito, por eso el listero es
     # un minimo y no una igualdad: lo que no puede es BAJAR.
-    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 317 }   # 317 desde el 21/09 (las doce de la noche). Antes 308 (D7: RAM, sordina y la
-# muletilla del recordatorio) y 289 antes de eso: MEDIDO (287 + 2 saltadas). +9 de "mira la pantalla". Antes 280, 260, 254, 242, 238, 234, 228, 221
+    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 335 }   # 335 desde el 21/09 (la zona de ordenes de la tanda de agentes). Antes 317 (las doce
+# de la noche), 308 (D7) y 289: MEDIDO (287 + 2 saltadas). +9 de "mira la pantalla". Antes 280, 260, 254, 242, 238, 234, 228, 221
     $n = -1
     if ($linea -and ("$linea" -match 'reconocidas en local:\s*(\d+)')) { $n = [int]$Matches[1] }
     # LOS JUEGOS QUE YA NO TIENES NO SON UNA REGRESION (19/09): las lineas con
