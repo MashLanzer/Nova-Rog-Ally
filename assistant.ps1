@@ -848,7 +848,16 @@ function Get-JuegosSteam {
         }
         $vistos = @{}
         foreach ($lib in ($libs | Select-Object -Unique)) {
-            $d = Join-Path ($lib -replace '/', '\') 'steamapps'
+            # SIN Join-Path A PROPOSITO (21/09). Join-Path resuelve la unidad, y con una
+            # que no esta puesta LANZA DriveNotFoundException; con $ErrorActionPreference
+            # en Stop eso salta al catch de esta funcion y se deja de leer el RESTO de
+            # bibliotecas. braya tiene declarada E:\SteamLibrary, de una microSD que hoy no
+            # esta puesta. Hoy no se pierde nada porque va la ultima, pero Steam reescribe
+            # libraryfolders.vdf cada vez que anades o quitas una biblioteca: el dia que
+            # quedara la primera, Nova se quedaba con CERO juegos y sin decir nada.
+            # Pegar las cadenas no resuelve unidades y no lanza nunca; Test-Path -LiteralPath
+            # sobre una unidad ausente devuelve $false limpiamente (comprobado hoy).
+            $d = ($lib -replace '/', '\').TrimEnd('\') + '\steamapps'
             if (-not (Test-Path -LiteralPath $d)) { continue }
             foreach ($f in (Get-ChildItem -LiteralPath $d -Filter 'appmanifest_*.acf' -ErrorAction SilentlyContinue)) {
                 $c = Get-Content -LiteralPath $f.FullName -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
@@ -879,6 +888,70 @@ function Get-JuegosSteam {
     return $res
 }
 
+# LOS JUEGOS QUE NO SON DE STEAM (21/09). Hasta hoy la biblioteca ERA Steam: si no
+# estaba en un appmanifest, para Nova no existia. braya juega a Roblox con su novia y
+# no podia ni abrirlo ni cerrarlo ni preguntar por el.
+#
+# POR EL LANZADOR, NO POR EL PAQUETE. Los juegos de Game Pass dejan siempre un
+# Content\gamelaunchhelper.exe en su carpeta de C:\XboxGames, y arrancarlo abre el juego.
+# Buscarlos asi cuesta 98 ms; preguntarle a Get-AppxPackage por el paquete de la
+# Store son 497 ms (medido hoy, las dos cosas), y esto se relee cada minuto.
+#
+# EL 'ULTIMO JUGADO' SALE DEL REGISTRO PROPIO DE NOVA. Game Pass no lo deja escrito
+# en ningun sitio legible -Steam si, en el appmanifest-, asi que se saca de la
+# memoria de juegos, que es donde ella misma apunta el tiempo que pasas en cada uno.
+# Hasta que juegues una vez con esto puesto sale 0, y entonces queda el ultimo de la
+# lista de 'lo ultimo que tocaste', que es exactamente lo que es: no lo sabemos.
+function Get-JuegosXbox {
+    $res = @()
+    try {
+        $raizX = Join-Path ([string]$env:SystemDrive) 'XboxGames'
+        if (-not (Test-Path -LiteralPath $raizX)) { return $res }
+        $memX = @{}
+        if (Get-Command Get-JuegosMem -ErrorAction SilentlyContinue) {
+            try { $memX = Get-JuegosMem } catch { $memX = @{} }
+        }
+        foreach ($dX in (Get-ChildItem -LiteralPath $raizX -Directory -ErrorAction SilentlyContinue)) {
+            $lanX = Join-Path $dX.FullName 'Content\gamelaunchhelper.exe'
+            if (-not (Test-Path -LiteralPath $lanX)) { continue }
+            $nmX = [string]$dX.Name
+            $lpX = 0
+            try {
+                if ($memX -and $memX.ContainsKey($nmX) -and $memX[$nmX]['dias']) {
+                    $diasX = @($memX[$nmX]['dias'].Keys | Sort-Object -Descending)
+                    if ($diasX.Count -gt 0) {
+                        $lpX = [long]([datetimeoffset]([datetime]::ParseExact(
+                               [string]$diasX[0], 'yyyy-MM-dd', $null))).ToUnixTimeSeconds()
+                    }
+                }
+            } catch {}
+            # CADA JUEGO EN SU PROPIO try: con uno solo envolviendo el bucle, un fallo
+            # en cualquiera se llevaba por delante la lista ENTERA y en silencio.
+            try {
+                $res += @{ id = ''; nombre = $nmX; plano = (ConvertTo-Juego $nmX); lanzar = $lanX
+                           estado = 4; bajando = $false; descargado = 0; total = 0
+                           tamano = 0; ultimo = $lpX; dir = [string]$dX.FullName }
+            } catch { Log ('no pude leer el juego ' + $nmX + ': ' + $_.Exception.Message) }
+        }
+    } catch {}
+    return $res
+}
+
+# COMO SE ABRE UN JUEGO, sea de donde sea. Antes esto estaba escrito tres veces a
+# mano con steam://rungameid dentro, asi que todo lo que no fuera de Steam no tenia
+# forma de abrirse. El campo esJuego va aparte del target a proposito: quien ejecuta
+# lo miraba con un -match contra 'steam://rungameid', y de ahi cuelgan la pregunta de
+# seguridad al abrir un juego mientras juegas a otro y el poder deshacerlo.
+function New-AbrirJuego($j) {
+    if (-not $j) { return $null }
+    if ($j.lanzar) {
+        return @(@{ kind = 'app'; target = [string]$j.lanzar; esJuego = $true
+                    desc = "abrir $($j.nombre)" })
+    }
+    return @(@{ kind = 'app'; target = "steam://rungameid/$($j.id)"; esJuego = $true
+                desc = "abrir $($j.nombre) en Steam" })
+}
+
 # Relee la biblioteca, como mucho una vez por minuto. Devuelve $true si releyo.
 # Sin esto, un juego instalado despues de arrancar no existiria para el
 # asistente hasta el siguiente reinicio.
@@ -886,7 +959,7 @@ $script:JuegosStamp = [DateTime]::MinValue
 function Update-Juegos {
     if (((Get-Date) - $script:JuegosStamp).TotalSeconds -lt 60) { return $false }
     $antes = @($script:Juegos).Count
-    $script:Juegos = Get-JuegosSteam
+    $script:Juegos = @(Get-JuegosSteam) + @(Get-JuegosXbox)
     $script:JuegosStamp = Get-Date
     $ahora = @($script:Juegos).Count
     if ($ahora -ne $antes) { Log "biblioteca de Steam actualizada: $antes -> $ahora juegos" }
@@ -1338,14 +1411,14 @@ function Resolve-Target([string]$t) {
     }
     if ($pistaJuego) {
         $j = Find-Juego $t
-        if ($j) { return @(@{ kind = 'app'; target = "steam://rungameid/$($j.id)"; desc = "abrir $($j.nombre) en Steam" }) }
+        if ($j) { return (New-AbrirJuego $j) }
         return $null
     }
-    if (Test-Prop $cmds.apps $t) { return @(@{ kind = 'app'; target = [string]$cmds.apps.$t; desc = "abrir $t" }) }
+    if (Test-Prop $cmds.apps $t) { return @(@{ kind = 'app'; target = [string]$cmds.apps.$t; esJuego = $false; desc = "abrir $t" }) }
     if (Test-Prop $cmds.sitios $t) { return @(@{ kind = 'url'; url = [string]$cmds.sitios.$t; desc = "abrir $t" }) }
     # un titulo de la biblioteca, aunque no se haya dicho "en steam"
     $j = Find-Juego $t
-    if ($j) { return @(@{ kind = 'app'; target = "steam://rungameid/$($j.id)"; desc = "abrir $($j.nombre) en Steam" }) }
+    if ($j) { return (New-AbrirJuego $j) }
     if ($t -match '^[\w\-]+\.(?:com|es|org|net|io|tv|gg|dev|app|mx|co|ar|cl)$') {
         return @(@{ kind = 'url'; url = "https://$t"; desc = "abrir $t" })
     }
@@ -1372,7 +1445,7 @@ function Resolve-Target([string]$t) {
     # Si la frase es larga y no se entiende, es mejor mandarla entera a opencode.
     if (($t -split '\s+').Count -le 3) {
         $ap = Find-Aproximado $t $cmds.apps
-        if ($ap) { return @(@{ kind = 'app'; target = [string]$cmds.apps.$ap; desc = "abrir $ap" }) }
+        if ($ap) { return @(@{ kind = 'app'; target = [string]$cmds.apps.$ap; esJuego = $false; desc = "abrir $ap" }) }
         $ap = Find-Aproximado $t $cmds.sitios
         if ($ap) { return @(@{ kind = 'url'; url = [string]$cmds.sitios.$ap; desc = "abrir $ap" }) }
     }
@@ -4020,7 +4093,7 @@ function Resolve-Fragment([string]$f) {
     }
     # el teclado en pantalla de Windows ("abre el teclado", 15/09)
     if ($f -match '^(?:abre|abreme|abrir|muestra|muestrame|saca|sacame|pon|ponme)\s+(?:el\s+)?teclado(?:\s+(?:en\s+pantalla|virtual|de\s+pantalla))?$') {
-        return @(@{ kind = 'app'; target = 'osk.exe'; desc = 'abrir el teclado en pantalla' })
+        return @(@{ kind = 'app'; target = 'osk.exe'; esJuego = $false; desc = 'abrir el teclado en pantalla' })
     }
     # escribir en la app activa: "escribe hola que tal" ("escribir hola", 15/09)
     if ($f -match '^(?:escribe|escribeme|escribir|teclea|teclear|dicta|pon el texto)\s+(.+)$') {
@@ -4160,8 +4233,8 @@ function Resolve-Fragment([string]$f) {
         }
         $k = $SECCIONES_AJUSTES.Keys | Where-Object { $_ -eq $secc } | Select-Object -First 1
         if (-not $k) { $k = $SECCIONES_AJUSTES.Keys | Where-Object { $secc -like "*$_*" -or $_ -like "*$secc*" } | Sort-Object Length -Descending | Select-Object -First 1 }
-        if ($k) { return @(@{ kind = 'app'; target = ('ms-settings:' + $SECCIONES_AJUSTES[$k]); desc = "abrir $k en ajustes" }) }
-        return @(@{ kind = 'app'; target = 'ms-settings:'; desc = "abrir ajustes (no tengo la seccion '$secc')" })
+        if ($k) { return @(@{ kind = 'app'; target = ('ms-settings:' + $SECCIONES_AJUSTES[$k]); esJuego = $false; desc = "abrir $k en ajustes" }) }
+        return @(@{ kind = 'app'; target = 'ms-settings:'; esJuego = $false; desc = "abrir ajustes (no tengo la seccion '$secc')" })
     }
     # "CIERRA LO ULTIMO QUE ABRISTE" (18/09): lo dijo dos veces y no existia; la primera se
     # aprendio como "cierra todos los programas". Se mira que fue lo ultimo que se abrio.
@@ -8885,7 +8958,9 @@ function Invoke-FastCommand([string]$text) {
                     # que pediste: es la firma de una orden mal oida. El 11/09 un
                     # ruido acabo abriendo SILENT BREATH en mitad de una partida.
                     # Se pregunta antes, igual que con 'cierra todos los programas'.
-                    $esJuego = ($a.target -match 'steam://rungameid')
+                    # el -match solo valia para Steam: los de Game Pass se abren por su
+                    # lanzador y sin este campo se quedaban sin pregunta y sin deshacer
+                    $esJuego = ([bool]$a.esJuego -or ($a.target -match 'steam://rungameid'))
                     $comoSeLlama = ($a.desc -replace '^abrir\s+', '' -replace '\s+en Steam$', '')
                     if ($esJuego -and -not $script:confirmado -and ($script:juegoActivo -or $a.sinVerbo)) {
                         $script:pendiente = @{ texto = "abre $comoSeLlama en steam"; vence = 0; tipo = 'peligrosa' }
@@ -13197,7 +13272,7 @@ try {
 } catch {}
 Initialize-UI
 
-$script:Juegos = Get-JuegosSteam
+$script:Juegos = @(Get-JuegosSteam) + @(Get-JuegosXbox)
 $script:JuegosStamp = Get-Date
 # Vocabulario para Whisper: nombres propios que el dictado suele destrozar.
 # Se le pasan como "prompt" y los transcribe bien ("Steam", no "stim").

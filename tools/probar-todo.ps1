@@ -329,7 +329,16 @@ Titulo "2n43. Leer SOLO una zona de la pantalla (la esquina del objetivo, el cen
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-ocr-zona.ps1')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:todo correcto)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
-Titulo "2n39. Que Nova sepa que Roblox es un juego (y que no se invente ninguno)"
+Titulo "2n46. Abrir un juego que no es de Steam (y que siga estando vigilado)"
+# D1, 2a parte (21/09). La biblioteca ERA Steam: lo que no tuviera appmanifest no
+# existia, y braya no podia ni abrir Roblox. Lo que mas se prueba aqui es que abrir un
+# juego siga siendo una orden vigilada: esa vigilancia colgaba de un -match contra
+# steam://rungameid, asi que un juego de fuera se habria abierto de golpe y sin deshacer.
+# De aqui salio tambien lo de la microSD que no esta puesta.
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-juegos-xbox.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:sigue estando vigilado)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n45. Que Nova sepa que Roblox es un juego (y que no se invente ninguno)"
 # D1 (21/09). Dos horas de Roblox y para Nova no estaba jugando: solo contaba como
 # juego lo que viviera en steamapps\common, y su Roblox es el de Game Pass. Lo que
 # mas se prueba aqui no es que reconozca juegos, sino que NO se invente ninguno: un
