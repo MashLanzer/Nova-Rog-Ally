@@ -5911,7 +5911,23 @@ function Add-DatoPerfil([string]$dato, [string]$fuente = '') {
     # banco se puso rojo al instante porque 'Quiere que Nova sepa quien la creo' colaba como
     # instruccion, y eso es hablar de Nova, no decirle como comportarse. Lo que separa una cosa
     # de la otra es que la instruccion de verdad fija una REGLA: 'SIEMPRE en YouTube'.
-    $esInstruccion = $plD -match '\b(?:siempre|nunca|cada vez que)\b'   # una REGLA, no un "quiere que" generico
+    # Y "NO ME LLAMES ASI" TAMBIEN ES UNA REGLA (21/09). La noche del 20/09 braya pidio
+    # CUATRO veces que dejaran de llamarle "man" y "tio" -la ultima diciendo "guardalo en
+    # memoria"- y las cuatro correcciones murieron aqui: nombran a Nova ("que Nova le diga",
+    # "que Nova lo llame", "que Nova use la palabra") y ninguna lleva siempre/nunca/cada vez
+    # que. El log lo ensena cuatro veces seguidas: "PERFIL: no guardo lo que habla de mi:
+    # braya no quiere que Nova lo llame 'tio'". Y mientras tanto Nova siguio diciendo "man"
+    # y "tio" toda la noche.
+    # "Deja de decirme X" no es una queja sobre Nova: es exactamente una regla de como
+    # hablarle, igual que "siempre en YouTube". Que nombre a Nova es inevitable, porque es
+    # a ella a quien se lo dice.
+    $esInstruccion = $plD -match '\b(?:siempre|nunca|cada vez que)\b'
+    if (-not $esInstruccion) {
+        $rechazaD = $plD -match '(?:no (?:le |lo |me )?(?:gusta|quiere|quieras)|deja de|deje de|dejes de|prefiere que no|no vuelvas a|pidio que[^.]{0,30}deje)'
+        $tratoD = $plD -match '(?:diga|digas|dice|decir|llame|llames|llamar|use|uses|usar|trate|trates|tratar)'
+        $esInstruccion = ($rechazaD -and $tratoD)
+        if ($esInstruccion) { Log 'PERFIL: es una instruccion de como hablarte, no una queja' }
+    }
     if (-not $esInstruccion -and $plD -match '\b(?:nova|asistente|la ia|el modelo)\b') { Log "PERFIL: no guardo lo que habla de mi: $d"; return $null }
     if ($esInstruccion -and $plD -match '\b(?:nova|asistente|la ia|el modelo)\b') { Log "PERFIL: habla de mi, pero es una instruccion tuya: la guardo" }
     if ($plD -match '\b(?:se equivoca|no entiende|falla|no funciona|molesta|tarda|lento|frecuentemente)\b' -and
