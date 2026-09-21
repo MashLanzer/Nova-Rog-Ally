@@ -533,3 +533,16 @@ el brillo al maximo
 # --- control: sueltas NO son ordenes y tienen que seguir yendo al modelo ---
 ya esta
 ahorita vuelvo
+# --- los pronombres pegados (21/09). 'cierramela' MATABA MECCHA CHAMELEON: la regla
+# del verbo pegado se creia que el clitico era el nombre de un juego ---
+cierralo todo
+cierralos todos
+# --- control: lo que NO se puede adivinar sin contexto y tiene que ir al modelo ---
+cierramela
+cierrasela
+abremela
+matalo
+apagalo
+# --- control: el verbo pegado de verdad, que sigue funcionando ---
+abresteam
+abrepec

@@ -338,6 +338,15 @@ Titulo "2n46. Abrir un juego que no es de Steam (y que siga estando vigilado)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-juegos-xbox.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:sigue estando vigilado)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n54. La cascada del repaso: Canary antes que Whisper, y sin tocar Parakeet"
+# 21/09. Cuando Parakeet no saca una orden se llamaba SIEMPRE a Whisper. Medido con las
+# 214 grabaciones suyas: anadir Canary da +23 ordenes bien resueltas (96 -> 119 de 181) y
+# ademas es MAS RAPIDO que lo que se usaba (793 ms contra 3425 de whisper base).
+# Lo que mas se prueba aqui no es que Canary funcione: es que si NO esta descargado, o si
+# falla, todo siga exactamente como antes. Un oido roto es peor que un oido que no mejora.
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-cascada-repaso.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:sin Canary todo sigue como antes)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n53. Los juegos por su apodo, y el articulo que abria OTRO"
 # 21/09, de sondear como pide las cosas de verdad. "abre el warning" abria ELDEN RING
 # teniendo Content Warning instalado, y "cierra el warning" lo CERRABA: Get-ClaveSonido
@@ -437,8 +446,9 @@ foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     # estuviera ahi, asi que una caida de 88 a 5 pasaba EN VERDE: justo lo que este banco
     # existe para evitar. Las que fallan son controles a proposito, por eso el listero es
     # un minimo y no una igualdad: lo que no puede es BAJAR.
-    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 401 }   # 401 desde el 21/09 (muletillas mexicanas y niveles sin verbo). Antes 389 ('dime que
-# X'), 377 (los apodos), 369 (el volumen al reves), 346, 335, 317, 308 y 289: MEDIDO (287 + 2 saltadas). +9 de "mira la pantalla". Antes 280, 260, 254, 242, 238, 234, 228, 221
+    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 405 }   # 405 desde el 21/09 (los pronombres pegados). Antes 401 (muletillas y niveles sin
+# verbo), 389 ('dime que X'), 377 (los apodos), 369 (el volumen al reves), 346, 335,
+# 317, 308 y 289: MEDIDO (287 + 2 saltadas). +9 de "mira la pantalla". Antes 280, 260, 254, 242, 238, 234, 228, 221
     $n = -1
     if ($linea -and ("$linea" -match 'reconocidas en local:\s*(\d+)')) { $n = [int]$Matches[1] }
     # LOS JUEGOS QUE YA NO TIENES NO SON UNA REGRESION (19/09): las lineas con

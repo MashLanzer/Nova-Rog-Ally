@@ -522,6 +522,24 @@ def modelo_preciso():
 # pide "base" y Whisper repasa el mismo audio (ver atender_reintento). Si no esta
 # instalado (modelos/*parakeet*) o hay un juego delante, todo sigue con Whisper como antes.
 _parakeet = None
+# CANARY: EL REPASO, NO EL PRIMERO (21/09). Parakeet sigue oyendo todas las ordenes; este
+# solo entra cuando lo que Parakeet saco NO es una orden que el asistente entienda, que es
+# justo cuando hoy se llama a Whisper. Medido con las 214 grabaciones de braya:
+#   Parakeet solo (lo de hoy)                    96 de 181 ordenes bien resueltas
+#   Parakeet, y Canary cuando lo suyo no vale   119 de 181   (+23)
+# Y cuesta MENOS que lo que se hace hoy: 793 ms por audio contra los 3425 de whisper base
+# y los 8649 de small. O sea que repasar con Canary es 4,3 veces mas rapido Y acierta mas.
+#
+# POR QUE ACIERTA MAS, y no es magia: Parakeet v3 es multilingue y ELIGE EL IDIOMA POR
+# FRASE (13 de 99 veces eligio mal: "Haben wir", "По фоку"). A Canary se le DICE que el
+# audio es espanol -src_lang="es"-, asi que no tiene que adivinarlo. Por eso saca
+# "Baja el brillo" donde Parakeet saca "Baja el Brio".
+_canary = None
+_canary_roto = False
+_canary_uso = 0.0
+_omni = None
+_omni_roto = False
+_omni_uso = 0.0
 _parakeet_uso = 0.0      # cuando se uso por ultima vez (ver PARAKEET NO SE SUELTA DE GOLPE)
 _parakeet_roto = False
 
@@ -557,6 +575,108 @@ def hacer_sitio_a_parakeet(libre):
     anota("oido fino soltado para hacerle sitio a Parakeet: %.0f -> %.0f MB libres"
           % (libre, ahora))
     return ahora
+
+
+def modelo_omni():
+    """Omnilingual 300M (Meta), el TERCER escalon del repaso. Se equivoca de forma
+    DISTINTA a los otros dos -es CTC, de otra casa y de otro entrenamiento-, y eso es
+    justamente lo que lo hace util: rescata 6 ordenes mas de las que ni Parakeet ni Canary
+    dejaron en nada, aunque por su cuenta solo resuelva 55 de 181. No hay que mirarlo como
+    "el peor de los tres": hay que mirarlo como el que coge lo que a los otros se les cae.
+    NO se le puede decir el idioma (from_omnilingual_asr_ctc solo acepta model y tokens),
+    asi que tiene el mismo riesgo que Parakeet; por eso va DETRAS de Canary y no delante."""
+    global _omni, _omni_roto, _omni_uso
+    if _omni is not None or _omni_roto:
+        _omni_uso = time.time()
+        return _omni
+    _libre = ram_libre_mb()
+    if 0 <= _libre < RAM_MIN_PARAKEET:
+        _libre = hacer_sitio_a_parakeet(_libre)
+    if 0 <= _libre < RAM_MIN_PARAKEET:
+        anota("omni: no lo cargo, solo quedan %.0f MB libres" % _libre)
+        return None
+    try:
+        import glob
+        carpetas = [c for c in glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                      "modelos", "*omnilingual*")) if os.path.isdir(c)]
+        if not carpetas:
+            _omni_roto = True
+            return None
+        import sherpa_onnx
+
+        def fichero(patron):
+            return sorted(glob.glob(os.path.join(carpetas[0], patron)))[0]
+        t0 = time.time()
+        _omni = sherpa_onnx.OfflineRecognizer.from_omnilingual_asr_ctc(
+            model=fichero("model*.onnx"), tokens=fichero("tokens.txt"),
+            num_threads=HILOS_PRECISO)
+        _omni_uso = time.time()
+        anota("omni cargado en %.1f s" % (time.time() - t0))
+    except Exception as e:
+        _omni_roto = True
+        anota("WARN: no se pudo cargar Omnilingual (%s); se sigue con el escalon siguiente" % e)
+    return _omni
+
+
+def transcribir_sherpa(bloques, modelo):
+    """El mismo audio que ya tiene el oido, por un reconocedor de sherpa-onnx."""
+    if modelo is None or not bloques:
+        return ""
+    try:
+        import numpy as _np
+        audio = _np.frombuffer(b"".join(bloques), dtype=_np.int16).astype("float32") / 32768.0
+        s = modelo.create_stream()
+        s.accept_waveform(TASA, audio)
+        modelo.decode_stream(s)
+        return (s.result.text or "").strip()
+    except Exception as e:
+        anota("WARN: fallo al transcribir (%s)" % e)
+        return ""
+
+
+def modelo_canary():
+    """Canary 180m en-es-de-fr, para repasar lo que Parakeet no dejo en una orden.
+    Se carga la PRIMERA vez que hace falta, no al arrancar: hay dias enteros en que
+    Parakeet acierta todo y este no se llega a usar."""
+    global _canary, _canary_roto, _canary_uso
+    if _canary is not None or _canary_roto:
+        _canary_uso = time.time()
+        return _canary
+    _libre = ram_libre_mb()
+    if 0 <= _libre < RAM_MIN_PARAKEET:
+        _libre = hacer_sitio_a_parakeet(_libre)
+    if 0 <= _libre < RAM_MIN_PARAKEET:
+        anota("canary: no lo cargo, solo quedan %.0f MB libres" % _libre)
+        return None
+    try:
+        import glob
+        carpetas = [c for c in glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                      "modelos", "*canary*")) if os.path.isdir(c)]
+        if not carpetas:
+            # NO es un fallo: si no esta descargado, todo sigue como antes
+            _canary_roto = True
+            return None
+        import sherpa_onnx
+
+        def fichero(patron):
+            return sorted(glob.glob(os.path.join(carpetas[0], patron)))[0]
+        t0 = time.time()
+        # src_lang="es" ES TODO EL ASUNTO: es lo que Parakeet no deja decir
+        _canary = sherpa_onnx.OfflineRecognizer.from_nemo_canary(
+            encoder=fichero("encoder*.onnx"), decoder=fichero("decoder*.onnx"),
+            tokens=fichero("tokens.txt"), src_lang="es", tgt_lang="es",
+            num_threads=HILOS_PRECISO)
+        _canary_uso = time.time()
+        anota("canary cargado en %.1f s" % (time.time() - t0))
+    except Exception as e:
+        _canary_roto = True
+        anota("WARN: no se pudo cargar Canary (%s); se repasa con Whisper como siempre" % e)
+    return _canary
+
+
+def transcribir_canary(bloques):
+    """El mismo audio que ya tiene el oido, por Canary. Devuelve texto o ''."""
+    return transcribir_sherpa(bloques, modelo_canary())
 
 
 def modelo_parakeet():
@@ -738,6 +858,15 @@ def soltar_parakeet_si_toca():
     if quieto < PARAKEET_SOLTAR_JUGANDO:
         return
     _parakeet = None
+    global _canary, _canary_uso
+    # Canary se suelta con el mismo criterio: es el segundo modelo mas grande de los dos
+    if _canary is not None and (time.time() - _canary_uso) >= PARAKEET_SOLTAR_JUGANDO:
+        _canary = None
+        _canary_uso = 0.0
+    global _omni, _omni_uso
+    if _omni is not None and (time.time() - _omni_uso) >= PARAKEET_SOLTAR_JUGANDO:
+        _omni = None
+        _omni_uso = 0.0
     import gc
     gc.collect()
     anota("parakeet soltado: hay un juego delante y lleva %.0f min sin usarse" % (quieto / 60.0))
@@ -799,6 +928,26 @@ def atender_reintento(ultimo_audio):
             pass
         ultimo = pedido == "ultimo" and bool(MODELO_ULTIMO)
         base = pedido == "base" and whisper is not None
+        # CANARY (21/09): el repaso mas rapido y el que mas acierta. Va aparte de los tres
+        # de Whisper porque no es un modelo de Whisper: es sherpa-onnx, con su propia
+        # llamada. Si no esta descargado, modelo_canary() devuelve None y el asistente lo
+        # ve con el texto vacio, asi que pide "base" y todo sigue como siempre.
+        if pedido in ("canary", "omni"):
+            t0 = time.time()
+            m = modelo_canary() if pedido == "canary" else modelo_omni()
+            texto = quitar_nombre(transcribir_sherpa(ultimo_audio, m))
+            anota("%s tras parakeet: '%s' (%.1f s)" % (pedido, texto, time.time() - t0))
+            if _uso["id"] and grabar_uso_activo():
+                apuntar_uso(dict(id=_uso["id"], hora=time.strftime("%Y-%m-%d %H:%M:%S"),
+                                 motor=pedido, texto=texto, seguridad=_ultima_seguridad,
+                                 segundos=round(time.time() - t0, 2)))
+            escribir(REINTENTO_TEXTO, texto)
+            try:
+                os.remove(REINTENTO)
+            except Exception:
+                pass
+            vaciar_cola(pedido)
+            return True
         global _preciso_uso, _ultimo_uso
         if ultimo:
             m = modelo_ultimo()

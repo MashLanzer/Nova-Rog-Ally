@@ -4837,7 +4837,29 @@ function Resolve-Fragment([string]$f) {
     }
     # --- VERBO PEGADO (validacion, 15/09): "abre peak" se oyo "Abrepec". Solo si lo de
     # detras del verbo es algo conocido o suena a un juego: "abreviar" se queda como esta.
-    if ($f -match '^(abre|cierra)([a-z]{3,})(\s.*)?$') {
+    # "CIERRALO TODO" ES "CIERRA TODO" (21/09). Aqui el pronombre es enfatico: el
+    # objeto de verdad es "todo", asi que no hay nada que adivinar. Por eso esta es la
+    # UNICA de su familia que se puede resolver sin contexto: "cierralo" a secas,
+    # "apagalo" o "matalo" se quedan fuera a proposito, porque sin saber a que apuntan,
+    # cerrar el juego equivocado es de los errores que no se perdonan (lo dice el propio
+    # comentario del cierre de juegos).
+    if ($f -match '^(?:cierra|cerra|quita|apaga)(?:lo|la|los|las|melo|mela|melos|melas)\s+(?:todo|todos|todas)$') {
+        return (Resolve-Fragment 'cierra todo')
+    }
+
+    # EL CLITICO NO ES EL NOMBRE DE UN JUEGO (21/09). Esta regla existe para cuando
+    # Whisper pega el verbo al objeto ("abresteam", "abrepec"), pero se tragaba tambien
+    # los pronombres pegados y buscaba un juego que se pareciera. Medido hoy:
+    #   cierramela / cierramelas / cierrasela / cierratela  ->  cerrar MECCHA CHAMELEON
+    #   abremela                                            ->  abrir MECCHA CHAMELEON
+    # O sea que un pronombre mal oido MATABA UN PROCESO. No es una orden sin entender:
+    # es Nova haciendo otra cosa, que es lo peor que puede pasar.
+    # Con la guarda, esas frases caen a Resolve-Pronombre -que corre 1.400 lineas ANTES
+    # y ya las cubre cuando hay contexto- y, si no hay contexto, no hacen nada.
+    # LO QUE NO SE PIERDE: el clitico tiene que ACABAR la palabra, asi que un nombre que
+    # empiece por uno sigue casando ("cierralost ark", "abrelden ring"). Comprobado
+    # sobre las 842 frases de los cinco bancos: ni una cambia de resultado.
+    if ($f -match '^(abre|cierra)(?!(?:me|te|se|nos|le|les)?(?:lo|la|los|las)(?:\s|$))([a-z]{3,})(\s.*)?$') {
         $verboPeg = $Matches[1]
         $restoPeg = ($Matches[2] + $Matches[3]).Trim()
         if ((Resolve-Target $restoPeg) -or (Find-JuegoPorSonido $restoPeg $restoPeg 0.5)) {
@@ -16513,18 +16535,48 @@ function Receive-NubeOir {
     return ''
 }
 
-function Request-WhisperTras([string]$texto) {
+# LA CASCADA DEL REPASO (21/09). Cuando Parakeet oye algo que NO es una orden, hasta hoy
+# se llamaba siempre a Whisper. Medido con las 214 grabaciones de braya que tienen su
+# texto de verdad apuntado, y con la capa local de hoy:
+#
+#   ORDENES BIEN RESUELTAS     TIEMPO POR AUDIO
+#   Parakeet solo      96/181   1018 ms   <- el primero, y sigue siendolo
+#   + Canary          119/181    793 ms   <- +23 ordenes, y MAS RAPIDO que whisper base
+#   whisper base                3425 ms   <- lo que se usaba de repaso
+#   whisper small               8649 ms   <- el oido fino, el ultimo escalon
+#
+# Por que Canary acierta mas: Parakeet v3 es multilingue y ELIGE EL IDIOMA POR FRASE (13
+# de 99 veces eligio mal: 'Haben wir', 'По фоку'). A Canary se le DICE que el audio es
+# espanol, asi que no tiene que adivinarlo. Saca 'Baja el brillo' donde Parakeet saca
+# 'Baja el Brio'.
+#
+# EL ORDEN ES UNA LISTA EN config.json, no esta escrito a fuego: se pregunta a cada uno
+# hasta que alguno entregue una orden, y Whisper queda de ultimo recurso como siempre.
+# Si un modelo no esta descargado, el oido devuelve texto vacio y se pasa al siguiente:
+# por eso se puede anadir o quitar uno sin tocar codigo.
+$RepasoCascada = @([string](Get-Cfg 'escucha' 'repasos' 'canary,base') -split '\s*,\s*' |
+                   Where-Object { $_ })
+$script:repasoPaso = 0          # por cual de la lista vamos con esta frase
+$script:repasoOriginal = ''     # lo que oyo Parakeet, para el log y la estadistica
+
+function Request-WhisperTras([string]$texto, [int]$paso = 0) {
     if (-not $script:wakeProc -or $script:wakeProc.HasExited) { return $false }
+    if ($paso -ge $RepasoCascada.Count) { return $false }
+    $quien = [string]$RepasoCascada[$paso]
     try {
         Remove-Item -LiteralPath $RutaReintento -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath (Join-Path $TmpDir 'dictado-confianza.txt') -Force -ErrorAction SilentlyContinue
-        [System.IO.File]::WriteAllText($MarcaReintento, 'base')
+        [System.IO.File]::WriteAllText($MarcaReintento, $quien)
         $script:reintentoTexto = $texto
         $script:reintentoBase = $true
+        $script:repasoPaso = $paso
+        if ($paso -eq 0) { $script:repasoOriginal = $texto }
         $script:reintentoVence = $sw.ElapsedMilliseconds + $ReintentoMaxMs
-        Log "PARAKEET: '$texto' no es una orden que entienda; lo repasa Whisper"
+        Log "PARAKEET: '$texto' no es una orden que entienda; lo repasa $quien"
         Add-Estadistica 'parakeet-a-whisper' $texto
-        [void](Start-NubeOir $texto)   # ver SEGUNDA OPINION EN LA NUBE
+        # LA NUBE SOLO SE LANZA UNA VEZ POR FRASE, en el primer paso: si no, cada escalon
+        # de la cascada mandaria el mismo audio a Google otra vez.
+        if ($paso -eq 0) { [void](Start-NubeOir $texto) }   # ver SEGUNDA OPINION EN LA NUBE
         Set-UI 'pensando'
         return $true
     } catch {
@@ -18915,6 +18967,25 @@ while ($true) {
         }
         # lo que pidio PARAKEET PRIMERO: Whisper sobre el mismo audio, que entra como si
         # fuera el dictado (con su seguridad y su marca de eco, y con el repaso disponible)
+        # EL SIGUIENTE ESCALON DE LA CASCADA, si este no saco una orden (21/09).
+        # Va ANTES del bloque de abajo y no dentro a proposito: poniendo $fino a $null
+        # se sale sin tocar nada mas, y el bloque de siempre queda intacto. Meter un
+        # 'continue' aqui se saltaria el final de la vuelta del bucle, que es un fallo
+        # que ya esta apuntado en la lista.
+        # SOLO SE ENCADENA SI EL ESCALON NO DIO ORDEN: si Canary la saca, se hace y ya,
+        # que es mas rapido que cualquier otra cosa. Y la nube no se relanza (ver
+        # Request-WhisperTras): sigue esperando desde el primer paso.
+        if ($null -ne $fino -and $script:reintentoBase -and
+            ($script:repasoPaso + 1) -lt $RepasoCascada.Count -and
+            -not (Test-FastCommand ([string]$fino).Trim())) {
+            $script:reintentoBase = $false
+            if (Request-WhisperTras $script:repasoOriginal ($script:repasoPaso + 1)) {
+                Log "REPASO: $([string]$RepasoCascada[$script:repasoPaso]) tampoco dio una orden; sigo la cascada"
+                $fino = $null
+            } else {
+                $script:reintentoBase = $true
+            }
+        }
         if ($null -ne $fino -and $script:reintentoBase) {
             $script:reintentoVence = 0
             $script:reintentoBase = $false

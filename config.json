@@ -73,7 +73,8 @@
     "nubeOir": "gemini",
     "nubeTopeMs": 7000,
     "guardarUsoDias": 30,
-    "ambiente": "no"
+    "ambiente": "no",
+    "repasos": "canary,omni,base"
   },
   "modelo": {
     "usarClaude": true,

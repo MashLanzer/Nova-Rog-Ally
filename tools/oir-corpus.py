@@ -41,6 +41,16 @@ def corpus():
 
 def carga():
     import sherpa_onnx
+    if CUAL == "omni":
+        # OMNILINGUAL 300M (Meta): 1600 idiomas, CTC. NO se le puede decir el idioma
+        # (from_omnilingual_asr_ctc solo acepta model/tokens), asi que tiene el mismo
+        # riesgo que Parakeet: adivinarlo. Se mide para saberlo, no para suponerlo.
+        d = [c for c in glob.glob(os.path.join(RAIZ, "modelos", "*omnilingual*")) if os.path.isdir(c)][0]
+
+        def f(p):
+            return sorted(glob.glob(os.path.join(d, p)))[0]
+        return sherpa_onnx.OfflineRecognizer.from_omnilingual_asr_ctc(
+            model=f("model*.onnx"), tokens=f("tokens.txt"), num_threads=4)
     if CUAL == "canary":
         d = [c for c in glob.glob(os.path.join(RAIZ, "modelos", "*canary*")) if os.path.isdir(c)][0]
 
@@ -62,6 +72,22 @@ def carga():
         model_type="nemo_transducer")
 
 
+class _Whisper:
+    """faster-whisper con el idioma FIJADO. Es lo que hace Nova hoy con base y small; aqui
+    sirve para medir tambien large-v3-turbo, que es mucho mejor y no se ha probado."""
+
+    def __init__(self, nombre):
+        from faster_whisper import WhisperModel
+        self.m = WhisperModel(nombre, device="cpu", compute_type="int8", cpu_threads=4)
+
+    def create_stream(self):
+        return {"a": None, "t": ""}
+
+    def decode(self, audio):
+        segs, _ = self.m.transcribe(audio, language="es", beam_size=2, best_of=1)
+        return " ".join(x.text.strip() for x in segs).strip()
+
+
 def main():
     import numpy as np
     datos = corpus()
@@ -69,7 +95,8 @@ def main():
         datos = datos[:CUANTOS]
     print("  %s: %d grabaciones" % (CUAL, len(datos)), flush=True)
     t0 = time.time()
-    rec = carga()
+    esWhisper = CUAL.startswith("whisper-")
+    rec = _Whisper(CUAL[len("whisper-"):]) if esWhisper else carga()
     tCarga = time.time() - t0
     print("  cargado en %.1f s" % tCarga, flush=True)
 
@@ -80,11 +107,14 @@ def main():
             tasa = x.getframerate()
             segAudio += x.getnframes() / float(tasa)
         t1 = time.time()
-        s = rec.create_stream()
-        s.accept_waveform(tasa, a)
-        rec.decode_stream(s)
+        if esWhisper:
+            salidas.append(rec.decode(a))
+        else:
+            s = rec.create_stream()
+            s.accept_waveform(tasa, a)
+            rec.decode_stream(s)
+            salidas.append(s.result.text)
         tTotal += time.time() - t1
-        salidas.append(s.result.text)
         if (i + 1) % 25 == 0:
             print("    %d/%d  (%.0f ms por audio)" % (i + 1, len(datos), 1000.0 * tTotal / (i + 1)), flush=True)
 
