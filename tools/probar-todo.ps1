@@ -291,6 +291,10 @@ Titulo "2n42. El diario dice de donde viene cada linea (y el resumen solo usa lo
 python (Join-Path $PSScriptRoot 'probar-diario-origen.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:solo usa lo real)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n44. Que Nova ajuste sola lo que espera a la nube (C9)"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-nube-tope.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:con suelo, techo y vuelta atras)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n41. Cuanto tarda la nube (el dato que le faltaba a C9)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-nube-tiempo.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no se inventan un p90)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }

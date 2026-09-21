@@ -7063,6 +7063,7 @@ function Undo-DecisionPropia {
         'input.whisperModeloUltimo' { $script:WhisperUltimo = [string]$d.antes }
         'escucha.nubeOir' { $script:NubeOir = [string]$d.antes }
         'input.whisperModeloPreciso' { $script:WhisperPreciso = [string]$d.antes }
+        'escucha.nubeTopeMs' { $script:NubeTopeMs = [int]$d.antes }
         default { $enVivoD = $false }
     }
     if (-not $okU) {
@@ -7375,6 +7376,45 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
         Add-Estadistica 'auto-ajuste' "oido fino off: neto $netoF de $($numR['fino'])"
         [void](Send-AvisoEntorno 'auto-fino' ("He apagado mi oido fino: en $($numR['fino']) repasos acerto $($numR['fino-sirvio']) veces pero se invento la orden $($numR['fino-invento']), y eso ya no compensa lo que te hace esperar. Si lo quieres de vuelta, dime: deshaz lo que has cambiado." + $(if (-not $apuntadaF) { ' Aunque no he podido apuntarlo: si me reinicias, vuelve solo.' } else { '' })) 'medio' 43200)
         return $true
+    }
+
+    # --- caso 4: AFINAR EL TOPE DE LA NUBE (C9, 21/09) ---
+    # Hasta hoy Nova solo sabia APAGAR la nube entera. Afinar cuanto la espera es otra
+    # cosa, y el numero nunca ha salido de un dato: nacio en 2.500 ms y se subio a 7.000
+    # el 19/09 porque 2,5 s se quedaba corto. Nadie sabia si 7 sobra o falta, porque hasta
+    # el 20/09 no se apuntaba CUANTO tarda la nube en contestar, solo si llegaba.
+    #
+    # LO QUE DECIDE, y por que asi: el tope se pone en el p90 de lo que tarda la nube mas
+    # un margen. Por debajo del p90 se tiran respuestas BUENAS que iban a llegar; muy por
+    # encima solo se hace esperar de mas cuando la nube no va a contestar. El margen de
+    # 800 ms es el mismo que ya se le suma al plazo en Start-NubeOir.
+    # NO se toca por menos de 1 s de diferencia: mover el tope 200 ms no se nota y
+    # convertiria esto en un numero que baila solo cada dia.
+    # Y con suelo y techo: por debajo de 2 s la nube no llega nunca (su mediana ya pasa de
+    # eso) y por encima de 12 s la espera es peor que no preguntar.
+    if ($NubeOir -and -not $script:autoDecision) {
+        $msN = @(Get-NubeTiempos)
+        if ($msN.Count -ge $DecisionMinIntentos) {
+            $p90N = Get-NubePercentil 90
+            $quieroN = [int]([Math]::Ceiling(($p90N + 800) / 500.0) * 500)
+            if ($quieroN -lt 2000) { $quieroN = 2000 }
+            if ($quieroN -gt 12000) { $quieroN = 12000 }
+            if ([Math]::Abs($quieroN - $NubeTopeMs) -ge 1000) {
+                $antesN = [string]$NubeTopeMs
+                $subeN = ($quieroN -gt $NubeTopeMs)
+                $okN = Save-DecisionPropia 'escucha' 'nubeTopeMs' $antesN "esperar a la nube $([Math]::Round($NubeTopeMs / 1000.0, 1)) segundos"
+                $script:NubeTopeMs = $quieroN
+                $script:revisionPropiaDia = $ahora.ToString('yyyy-MM-dd')
+                Log "REVISION PROPIA: tope de la nube $antesN -> $quieroN ms (p90 de $($msN.Count) respuestas: $p90N ms)"
+                Add-Estadistica 'auto-ajuste' "nube tope: $antesN -> $quieroN"
+                $comoN = if ($subeN) { 'se me quedaba corto' } else { 'estaba esperando de mas' }
+                [void](Send-AvisoEntorno 'auto-nube-tope' (
+                        "He cambiado lo que espero a la nube de $([Math]::Round([int]$antesN / 1000.0, 1)) a $([Math]::Round($quieroN / 1000.0, 1)) segundos: $comoN. " +
+                        "Lo he sacado de $($msN.Count) respuestas suyas. Si no te gusta, dime: deshaz lo que has cambiado." +
+                        $(if (-not $okN) { ' Aunque no he podido apuntarlo: si me reinicias, vuelve como estaba.' } else { '' })) 'medio' 43200)
+                return $true
+            }
+        }
     }
 
     # --- caso 1: el ultimo recurso del oido ---

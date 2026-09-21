@@ -87,6 +87,37 @@ try {
 
 $f.Close(); $f.Dispose(); $fuente.Dispose()
 
+# AQUI NO SE PUEDE MEDIR CON UN JUEGO DELANTE (21/09). Esta prueba pinta una tarjeta,
+# le hace una captura y cuenta pixeles de letra. Si hay una ventana a pantalla completa
+# en primer plano -Roblox, ELDEN RING, lo que sea-, la captura sale del juego y no de la
+# tarjeta: "el texto se lee: 186 pixeles" en vez de 1297, y "el filo de acento" en rojo.
+# Ejecutada sola pasa; dentro del listero, con braya jugando, daba dos rojos falsos.
+# Un rojo que depende de lo que haya abierto no es un fallo: es que aqui no se mide.
+$hayJuegoDelante = $false
+try {
+    Add-Type -Namespace TJ -Name Win -MemberDefinition @'
+[DllImport("user32.dll")] public static extern System.IntPtr GetForegroundWindow();
+[DllImport("user32.dll")] public static extern bool GetWindowRect(System.IntPtr h, out System.Drawing.Rectangle r);
+'@ -ReferencedAssemblies System.Drawing -ErrorAction Stop
+    $hFg = [TJ.Win]::GetForegroundWindow()
+    $rFg = New-Object System.Drawing.Rectangle
+    if ($hFg -ne [System.IntPtr]::Zero -and [TJ.Win]::GetWindowRect($hFg, [ref]$rFg)) {
+        $pan = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+        # "a pantalla completa" = ocupa al menos el 90 % de la pantalla en las dos medidas
+        $anchoFg = $rFg.Width - $rFg.X
+        $altoFg = $rFg.Height - $rFg.Y
+        if ($anchoFg -ge ($pan.Width * 0.9) -and $altoFg -ge ($pan.Height * 0.9)) {
+            $pFg = Get-Process | Where-Object { $_.MainWindowHandle -eq $hFg } | Select-Object -First 1
+            $nFg = if ($pFg) { $pFg.ProcessName } else { 'una ventana' }
+            if ($nFg -notin @('explorer', 'powershell', 'pwsh', 'WindowsTerminal', 'Code', 'claude')) {
+                $hayJuegoDelante = $true
+                Write-Host ("  --   $nFg esta a pantalla completa: la captura saldria de ahi y no de la tarjeta") -ForegroundColor DarkGray
+                Write-Host ('       Aqui no se puede medir. Cierralo y repite.') -ForegroundColor DarkGray
+            }
+        }
+    }
+} catch {}
+
 $fallos = 0
 function Comp($etiqueta, $ok, $detalle) {
     Write-Host ("  {0}  {1,-34} {2}" -f $(if ($ok) { 'OK ' } else { 'MAL' }), $etiqueta, $detalle)
@@ -95,8 +126,8 @@ function Comp($etiqueta, $ok, $detalle) {
 Comp 'se muestra sin activar'   $mostro       "visible=$mostro"
 Comp 'la ventana esta visible'  $visible      "tamano $tam"
 Comp 'el cristal se pinta'      $pinta        ''
-Comp 'el filo de acento esta'   $acento       ''
-Comp 'el texto se lee'          $texto_ok    "$claros pixeles de letra"
+if ($hayJuegoDelante) { Write-Host ("  --   " + 'el filo de acento' + ": no se puede medir con un juego delante") -ForegroundColor DarkGray } else { Comp 'el filo de acento esta'   $acento       '' }
+if ($hayJuegoDelante) { Write-Host ("  --   " + 'el texto se lee' + ": no se puede medir con un juego delante") -ForegroundColor DarkGray } else { Comp 'el texto se lee'          $texto_ok    "$claros pixeles de letra" }
 Comp 'esquinas redondeadas'     $redondeada   ''
 # LO QUE SE MIDE ES QUE LA TARJETA NO ROBE EL FOCO, no que el foco no se mueva (20/09).
 # Si mientras corre la prueba hay otra ventana viva -un juego, el navegador- el foco puede

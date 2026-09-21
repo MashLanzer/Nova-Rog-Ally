@@ -59,6 +59,10 @@ $DecisionPorAcierto = if ($txtFuente -match '\$DecisionPorAcierto = ([0-9]+)') {
 Invoke-Expression (Traer 'Get-DecisionPValor')
 Invoke-Expression (Traer 'Test-DecisionSolida')
 Invoke-Expression (Traer 'Test-DiaCuenta')
+Invoke-Expression (Traer 'Get-NubeTiempos')
+Invoke-Expression (Traer 'Get-NubePercentil')
+$NubeTiemposJson = Join-Path $env:TEMP 'nube-tiempos-prueba-revision.json'
+$NubeTiemposMax = 200
 Invoke-Expression (Traer 'Test-DatosRepartidos')
 # EL CORTE, APAGADO PARA LOS CASOS DE SIEMPRE (19/09, idea 61). Casi todos los casos de
 # aqui montan los dias con AddDays sobre HOY, asi que el corte del 18/09 los dejaria sin
