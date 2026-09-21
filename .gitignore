@@ -81,3 +81,9 @@ modelos/
 
 # la ubicacion cacheada por IP (18/09): es donde vives, no va al repo
 memoria/ubicacion.json
+
+# copias de trabajo que dejan los agentes al probar un parche sobre una copia.
+# El 21/09 se colaron tres en un commit: 37.000 lineas de assistant.ps1 duplicado.
+zz-*.ps1
+assistant-*tmp*.ps1
+*-probe-*.ps1
