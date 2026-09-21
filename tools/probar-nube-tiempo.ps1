@@ -22,7 +22,10 @@ function Comp($etiqueta, $ok, $detalle = '') {
 # REGLA (aprendida cinco veces ya): toda funcion que se llame aqui TIENE que estar en
 # esta lista, o la prueba corre contra algo que no existe. Desde hoy la seccion 7 del
 # banco lo caza sola, pero mejor no darle trabajo.
-foreach ($fn in @('Get-NubeTiempos', 'Add-NubeTiempo', 'Get-NubePercentil', 'Get-FraseNubeTiempo')) {
+# Get-NubeDias entra el 21/09: Add-NubeTiempo la llama por dentro para apuntar el dia de
+# cada muestra. Sin ella aqui, esta prueba se puso en rojo con DOCE casos y el codigo de
+# verdad correcto. Es la misma regla de siempre, y van ocho veces.
+foreach ($fn in @('Get-NubeTiempos', 'Get-NubeDias', 'Add-NubeTiempo', 'Get-NubePercentil', 'Get-FraseNubeTiempo')) {
     $m = [regex]::Match($fuente, ('(?ms)^function {0}[ (].*?^\}}' -f [regex]::Escape($fn)))
     if (-not $m.Success) { Write-Host ('  MAL  no encuentro {0} en assistant.ps1' -f $fn); exit 1 }
     . ([scriptblock]::Create($m.Value))

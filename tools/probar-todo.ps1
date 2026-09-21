@@ -338,6 +338,15 @@ Titulo "2n46. Abrir un juego que no es de Steam (y que siga estando vigilado)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-juegos-xbox.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:sigue estando vigilado)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n50. El tope de la nube se guarda de verdad, y la sordina se calla de verdad"
+# 21/09, de la tanda. El caso 4 de la revision propia anunciaba por voz un cambio que solo
+# vivia en RAM: la mediana de sesion son 5,8 minutos y a los pocos minutos volvia a 7000
+# sin decir nada, ademas de quedar bloqueado porque SI apuntaba que habia decidido. Y era
+# la unica decision propia sin el freno de "datos repartidos". La sordina, aparte: dejaba
+# la marca en modo voz y con eso decir "nova" la rompia y el worker seguia media hora.
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-nube-sordina.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la sordina se calla de verdad)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n49. Lo que hay detras de un si (el correo, la direccion y el microfono)"
 # 21/09, de la tanda de agentes. Detras de una confirmacion si/no estan: mandar un correo,
 # borrar una carpeta, borrar una lista, apagar, reiniciar y cerrar los juegos. Y habia

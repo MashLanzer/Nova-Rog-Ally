@@ -1868,13 +1868,69 @@ function Get-NubeTiempos {
     return ,$l
 }
 
+# CADA MUESTRA CON SU DIA (21/09). Antes esto era una lista pelada de enteros, y con eso
+# el tope de la nube era la UNICA decision propia sin el freno de 'datos repartidos' que
+# tienen las otras tres: bastaba una tarde jugando lejos del router para que veinte
+# respuestas lentas arrastraran el p90 y Nova se subiera el tope al techo con los datos
+# de un solo rato. Lo que dice el comentario de la revision propia para los otros casos
+# -decidir con los datos de otra Nova es juzgar a una que ya no existe- aqui era decidir
+# con los datos de otro sitio.
+function Get-NubeDias {
+    # en paralelo a Get-NubeTiempos, misma posicion = misma muestra. Las de antes del
+    # 21/09 no traen dia: salen como cadena vacia y NO cuentan para el reparto.
+    $dl = New-Object System.Collections.ArrayList
+    if (Test-Path -LiteralPath $NubeTiemposJson) {
+        try {
+            $j = Get-Content -LiteralPath $NubeTiemposJson -Raw -Encoding UTF8 | ConvertFrom-Json
+            $cuantas = @($j.ms).Count
+            $leidos = @($j.dias)
+            # si faltan dias -el archivo es de antes-, se rellena por DELANTE con vacios,
+            # que es donde estan las muestras viejas
+            for ($iD = 0; $iD -lt ($cuantas - $leidos.Count); $iD++) { [void]$dl.Add('') }
+            foreach ($v in $leidos) { [void]$dl.Add([string]$v) }
+        } catch { }
+    }
+    return ,$dl
+}
+
+# EL MISMO FRENO QUE LAS OTRAS DECISIONES: al menos 3 dias distintos y ninguno con mas
+# del 70 % de las muestras. Las que no traen dia no cuentan para esto, pero si para el
+# p90: son respuestas de verdad, solo que no sabemos de cuando.
+function Test-NubeRepartida([int]$diasMin = 3, [double]$topeDia = 0.70) {
+    $cuenta = @{}
+    $totD = 0
+    # SE ASIGNA PRIMERO, NO @(Get-NubeDias) (21/09). Get-NubeDias acaba en 'return ,$dl'
+    # para que una lista vacia no se convierta en $null al desenrollarse. El precio es
+    # que hay que ASIGNARLA: @(Get-NubeDias) deja un array de UN elemento que contiene el
+    # ArrayList entero, asi que este foreach daba una sola vuelta sobre un objeto que no
+    # es una fecha, no contaba ningun dia y Test-NubeRepartida devolvia $false SIEMPRE.
+    # O sea: el freno nuevo habria bloqueado la decision para siempre, en silencio.
+    # Lo caza la prueba, no yo. Get-NubeTiempos tiene el mismo trato tres lineas arriba.
+    $diasN = Get-NubeDias
+    foreach ($dia in $diasN) {
+        $dS = [string]$dia
+        if (-not $dS) { continue }
+        if (-not (Test-DiaCuenta $dS)) { continue }   # nada de antes del arreglo, como en las otras
+        if (-not $cuenta.ContainsKey($dS)) { $cuenta[$dS] = 0 }
+        $cuenta[$dS]++
+        $totD++
+    }
+    if ($totD -le 0 -or $cuenta.Count -lt $diasMin) { return $false }
+    $peorD = 0
+    foreach ($v in $cuenta.Values) { if ($v -gt $peorD) { $peorD = $v } }
+    return (($peorD / [double]$totD) -le $topeDia)
+}
+
 function Add-NubeTiempo([int]$ms) {
     if ($ms -le 0) { return $false }
     try {
         $l = Get-NubeTiempos
+        $dl = Get-NubeDias
         [void]$l.Add($ms)
+        [void]$dl.Add((Get-Date -Format 'yyyy-MM-dd'))
         while ($l.Count -gt $NubeTiemposMax) { $l.RemoveAt(0) }
-        $o = [ordered]@{ ms = @($l); hasta = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') }
+        while ($dl.Count -gt $NubeTiemposMax) { $dl.RemoveAt(0) }
+        $o = [ordered]@{ ms = @($l); dias = @($dl); hasta = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') }
         [System.IO.File]::WriteAllText($NubeTiemposJson, ($o | ConvertTo-Json -Depth 4 -Compress), (New-Object System.Text.UTF8Encoding $false))
         return $true
     } catch { return $false }
@@ -7683,15 +7739,33 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     # eso) y por encima de 12 s la espera es peor que no preguntar.
     if ($NubeOir -and -not $script:autoDecision) {
         $msN = @(Get-NubeTiempos)
-        if ($msN.Count -ge $DecisionMinIntentos) {
+        if ($msN.Count -ge $DecisionMinIntentos -and (Test-NubeRepartida)) {
             $p90N = Get-NubePercentil 90
             $quieroN = [int]([Math]::Ceiling(($p90N + 800) / 500.0) * 500)
             if ($quieroN -lt 2000) { $quieroN = 2000 }
-            if ($quieroN -gt 12000) { $quieroN = 12000 }
+            # EL TECHO BAJA DE 12 A 9 SEGUNDOS (21/09). Este numero no es cosmetico:
+            # alimenta $script:nubeVence, y el bucle principal se QUEDA PARADO en un
+            # while esperandolo cuando el oido local no saca la orden. 12,8 s clavado
+            # sin contestar nada es peor que no preguntarle a la nube, que es justo lo
+            # que dice el comentario de arriba.
+            if ($quieroN -gt 9000) { $quieroN = 9000 }
             if ([Math]::Abs($quieroN - $NubeTopeMs) -ge 1000) {
                 $antesN = [string]$NubeTopeMs
                 $subeN = ($quieroN -gt $NubeTopeMs)
-                $okN = Save-DecisionPropia 'escucha' 'nubeTopeMs' $antesN "esperar a la nube $([Math]::Round($NubeTopeMs / 1000.0, 1)) segundos"
+                # SI NO SE PUEDE GUARDAR, NO SE HA DECIDIDO NADA (21/09). Es lo que hacen
+                # los casos 2 y 3 desde el 17/09 y aqui faltaba: solo se cambiaba
+                # $script:NubeTopeMs, que vive en RAM, y $NubeTopeMs se relee de
+                # config.json en cada arranque. Nova anunciaba el cambio, la mediana de
+                # sesion son 5,8 minutos, y a los pocos minutos volvia a 7000 sin decir
+                # nada. Y encima Save-DecisionPropia SI dejaba escrito que habia decidido,
+                # asi que no lo volvia a intentar: bloqueada para siempre en un tope que
+                # no llego a cambiar nunca.
+                if (-not (Set-Cfg 'escucha' 'nubeTopeMs' ([string]$quieroN))) {
+                    $script:revisionPropiaDia = ''
+                    Log 'REVISION PROPIA: no pude guardar el tope de la nube; lo dejo como estaba'
+                    return $false
+                }
+                $okN = Save-DecisionPropia 'escucha' 'nubeTopeMs' $antesN "esperar a la nube $([Math]::Round([int]$antesN / 1000.0, 1)) segundos"
                 $script:NubeTopeMs = $quieroN
                 $script:revisionPropiaDia = $ahora.ToString('yyyy-MM-dd')
                 Log "REVISION PROPIA: tope de la nube $antesN -> $quieroN ms (p90 de $($msN.Count) respuestas: $p90N ms)"
@@ -11307,7 +11381,19 @@ function Pausar-Escucha([int]$ms, [string]$voz = '') {
         # INTERRUMPIR A NOVA (M5): si la pausa es porque habla, la marca lleva lo que
         # dice. El worker escucha solo "espera", "para", "calla"... y descarta la
         # palabra si esta en la propia frase (sin eso se cortaria con su eco)
-        $marcaTxt = if ($voz -and $InterrumpirOn) { 'voz:' + (ConvertTo-Plain $voz) } else { 'x' }
+        # Y NO EN SORDINA (21/09). La sordina pone la pausa larga SIN texto -marca 'x'-,
+        # pero justo despues Say dice 'me callo media hora, si me necesitas antes manten
+        # el boton' y vuelve a pasar por aqui CON texto: la marca se reescribia como
+        # 'voz:...' y ahi se quedaba los treinta minutos enteros, porque $pausaHasta no
+        # cambia (la sordina es mas larga).
+        # Con la marca en 'voz:', vigilar_corte sigue corriendo un reconocedor sobre CADA
+        # bloque de audio media hora, y acepta 'nova', 'para', 'calla'... o sea que decir
+        # 'nova' abria el microfono y sonaba el tic mientras escucha-pausa.flag seguia en
+        # disco: la sordina rota y Nova a medio despertar. Justo lo que braya pidio que
+        # NO pasara al decir 'no me escuches media hora'.
+        # Lo unico que se pierde es cortar con la voz la frase 'me callo media hora', que
+        # dura dos segundos y para la que esta el boton.
+        $marcaTxt = if ($voz -and $InterrumpirOn -and $script:sordinaHasta -le $sw.ElapsedMilliseconds) { 'voz:' + (ConvertTo-Plain $voz) } else { 'x' }
         [System.IO.File]::WriteAllText($MarcaPausa, $marcaTxt)
         $fin = $sw.ElapsedMilliseconds + $ms
         if ($fin -gt $script:pausaHasta) { $script:pausaHasta = $fin }

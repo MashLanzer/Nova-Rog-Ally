@@ -20,7 +20,7 @@ function Comp($etiqueta, $ok, $detalle = '') {
 
 # REGLA (aprendida cinco veces): toda funcion que se llame aqui TIENE que estar en esta
 # lista, o la prueba corre contra algo que no existe y pasa en verde sin probar nada.
-foreach ($fn in @('Get-NubeTiempos', 'Add-NubeTiempo', 'Get-NubePercentil')) {
+foreach ($fn in @('Get-NubeTiempos', 'Get-NubeDias', 'Add-NubeTiempo', 'Get-NubePercentil')) {
     $m = [regex]::Match($fuente, ('(?ms)^function {0}[ (].*?^\}}' -f [regex]::Escape($fn)))
     if (-not $m.Success) { Write-Host ('  MAL  no encuentro {0} en assistant.ps1' -f $fn); exit 1 }
     . ([scriptblock]::Create($m.Value))
@@ -35,9 +35,14 @@ function Log($t) { }
 
 # La cuenta, sacada TAL CUAL del archivo real y no copiada a mano: si alli cambia el
 # margen o el redondeo, esta prueba mide lo que hay y no lo que habia.
-$mCalc = [regex]::Match($fuente, '(?ms)\$p90N = Get-NubePercentil 90.*?if \(\$quieroN -gt 12000\) \{ \$quieroN = 12000 \}')
+# EL TECHO BAJO DE 12 A 9 SEGUNDOS EL 21/09, porque no es cosmetico: alimenta
+# $script:nubeVence y el bucle principal se QUEDA PARADO esperandolo. El patron se ata al
+# suelo -que no ha cambiado- y coge hasta el techo sea el que sea, para que bajarlo otra
+# vez no rompa esto; el valor se lee del archivo mas abajo y se comprueba de verdad.
+$mCalc = [regex]::Match($fuente, '(?ms)\$p90N = Get-NubePercentil 90.*?if \(\$quieroN -gt (\d+)\) \{ \$quieroN = \d+ \}')
 if (-not $mCalc.Success) { Write-Host '  MAL  no encuentro el calculo del tope en assistant.ps1'; exit 1 }
 $calculo = [scriptblock]::Create($mCalc.Value)
+$TECHO = [int]$mCalc.Groups[1].Value
 function TopeQueSaldria { . $calculo; return $quieroN }
 
 function PonTiempos([int[]]$ms) {
@@ -70,14 +75,17 @@ Comp 'y nunca queda por debajo del p90' ($t -gt $p90) "$t > $p90"
 PonTiempos (1..30 | ForEach-Object { 11000 + ($_ * 200) })
 $p90 = Get-NubePercentil 90
 $t = TopeQueSaldria
-Comp 'nube muy lenta: el tope se para en el techo' ($t -eq 12000) "p90=$p90 -> tope=$t"
+Comp 'nube muy lenta: el tope se para en el techo' ($t -eq $TECHO) "p90=$p90 -> tope=$t (techo $TECHO)"
 
 Write-Host ''
 Write-Host '-- el suelo y el techo, que son lo que impide un numero absurdo --'
 PonTiempos (1..25 | ForEach-Object { 10 })
 Comp 'ni con respuestas instantaneas baja de 2 s' ((TopeQueSaldria) -eq 2000) ("tope=" + (TopeQueSaldria))
 PonTiempos (1..25 | ForEach-Object { 60000 })
-Comp 'ni con respuestas de un minuto sube de 12 s' ((TopeQueSaldria) -eq 12000) ("tope=" + (TopeQueSaldria))
+Comp "ni con respuestas de un minuto sube de $([Math]::Round($TECHO/1000.0,1)) s" ((TopeQueSaldria) -eq $TECHO) ("tope=" + (TopeQueSaldria))
+# y que ese techo siga siendo una espera que se pueda aguantar: el bucle se queda PARADO
+# en un while hasta que vence, asi que un techo alto es tiempo callada sin contestar nada
+Comp 'y el techo no pasa de 10 s de espera bloqueante' ($TECHO -le 10000) "$TECHO ms"
 
 Write-Host ''
 Write-Host '-- y NO se mueve por una diferencia pequena --'
