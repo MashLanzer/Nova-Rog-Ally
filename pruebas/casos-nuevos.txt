@@ -491,3 +491,29 @@ pon la pantalla mas clara
 ponlo mas alto en la estanteria
 modo noche
 modo juego
+# --- los juegos por su apodo (21/09): 'abre el warning' abria ELDEN RING ---
+abre el warning
+cierra el warning
+abre el engine
+abre el wukong
+abre el hollow
+# --- control: palabras corrientes que NO son un juego ---
+cierra todo
+cierra la ventana
+cierra el navegador
+# --- 'dime que X' es PREGUNTAR X, no decir 'X' en voz alta (21/09) ---
+# 'dime que ves' decia 'ves' en voz alta; tenia que LEER LA PANTALLA, que es lo que
+# pidio catorce veces la noche del 20 al 21
+dime que ves
+que ves
+que veo
+dime que hay en la pantalla
+dime que juegos tengo
+dime que hora es
+avisa en 10 minutos
+# --- control: 'di que X' SI se dice en voz alta, que para eso esta ---
+di que ya es hora de dormir
+dime que te quiero
+di hola
+di que llego tarde
+dime buenas noches

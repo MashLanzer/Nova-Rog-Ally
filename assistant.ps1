@@ -824,25 +824,84 @@ function Find-JuegoPorSonido([string]$resto, [string]$frase, [double]$umbral = 0
         $script:ClavesJuegos = @{}
         foreach ($jS in @($script:Juegos)) { $script:ClavesJuegos[$jS.nombre] = Get-ClaveSonido $jS.nombre $true }
     }
+    # EL ARTICULO SE PEGA AL NOMBRE Y CAMBIA A QUE SE PARECE (21/09). Get-ClaveSonido
+    # junta las palabras, asi que "el warning" se vuelve 'elguarning'... que se parece
+    # muchisimo a 'eldenring'. Resultado medido: "abre el warning" abria ELDEN RING
+    # TENIENDO Content Warning instalado, y "cierra el warning" lo CERRABA. Igual
+    # "abre el engine" con Wallpaper Engine delante. Sin el articulo, 'guarning' ya no
+    # se parece a 'eldenring' y el juego bueno puede ganar.
+    # LO QUE NUNCA ES EL APODO DE UN JUEGO (21/09). Comparar contra las palabras sueltas
+    # del titulo rescata "el wukong" y "el warning", pero tambien hacia que "todo" se
+    # pareciera a "Hollow": "cierra todo" podia acabar cerrando Hollow Knight. No sirve
+    # medirlo por longitud -la clave de 'hollow' es 'olou', igual de corta que 'todo'-,
+    # asi que se miran las palabras: estas son corrientes en sus ordenes y ninguna es
+    # un juego.
+    $noEsJuego = @('todo', 'todos', 'nada', 'esto', 'eso', 'este', 'ese', 'esa', 'algo', 'otro',
+                   'otra', 'ahora', 'luego', 'aqui', 'alli', 'bien', 'mal', 'mismo', 'ultimo',
+                   'juego', 'juegos', 'ventana', 'pantalla', 'musica', 'correo', 'volumen', 'brillo')
+    if ($noEsJuego -contains (ConvertTo-Plain $resto).Trim()) { return $null }
+    $sinArt = ($resto -replace '^(?:el|la|los|las|un|una|lo)\s+', '').Trim()
+    if ($noEsJuego -contains (ConvertTo-Plain $sinArt).Trim()) { return $null }
     # con y sin la palabra de delante: "Aure el ring" se prueba como "el ring" y como "ring"
+    # EL ARTICULO NO ENTRA, NI SIQUIERA COMO VARIANTE (21/09). Get-ClaveSonido pega las
+    # palabras, asi que "el warning" se vuelve 'elguarning' y eso se parece MAS a
+    # 'eldenring' que a 'kontentguarning'. Mientras la variante con articulo siguiera en
+    # la lista, ganaba ella y abria ELDEN RING teniendo Content Warning instalado.
+    # El articulo nunca es parte del nombre de un juego: fuera.
     $variantes = New-Object System.Collections.ArrayList
-    [void]$variantes.Add((Get-ClaveSonido $resto))
+    [void]$variantes.Add((Get-ClaveSonido $(if ($sinArt) { $sinArt } else { $resto })))
     $sinPrimera = (($frase -split '\s+', 2) + @(''))[1]
-    if ($sinPrimera) { [void]$variantes.Add((Get-ClaveSonido $sinPrimera)) }
+    if ($sinPrimera) {
+        $sp2 = ($sinPrimera -replace '^(?:el|la|los|las|un|una|lo)\s+', '').Trim()
+        [void]$variantes.Add((Get-ClaveSonido $(if ($sp2) { $sp2 } else { $sinPrimera })))
+    }
     $variantes = @($variantes | Where-Object { $_.Length -ge 3 } | Select-Object -Unique)
     if ($variantes.Count -eq 0) { return $null }
-    $mejor = $null; $mejorP = 0.0; $segundaP = 0.0
-    foreach ($jS in @($script:Juegos)) {
-        $k = [string]$script:ClavesJuegos[$jS.nombre]
-        if (-not $k) { continue }
-        $p = 0.0
-        foreach ($q in $variantes) {
-            $pq = 1.0 - ((Get-Distancia $q $k) / [double][Math]::Max($q.Length, $k.Length))
-            if ($pq -gt $p) { $p = $pq }
+    # DOS PASADAS, Y EL APODO ES UN RESCATE, NO UN COMPETIDOR (21/09). Mezclar el titulo
+    # entero con sus palabras sueltas en la misma comparacion le daba a cada juego un
+    # camino mas para acercarse, y eso ESTRECHA los margenes: "cierra en la ring" pasaba
+    # de resolver ELDEN RING a no resolver nada, porque Content Warning llegaba a 0,63 por
+    # su palabra "Warning" contra el 0,67 de ELDEN RING por "RING", y la diferencia se
+    # quedaba por debajo del margen de 0,08 que impide adivinar.
+    # Asi que primero se busca por el titulo COMPLETO, como toda la vida; y solo si ahi no
+    # gana nadie, se prueba por el apodo. Con eso "el warning" encuentra Content Warning
+    # (por titulo no llegaba ninguno) y "la ring" sigue dando ELDEN RING.
+    function Busca-Mejor($claves) {
+        $mej = $null; $mejP = 0.0; $segP = 0.0
+        foreach ($jS in @($script:Juegos)) {
+            $lista = $claves[[string]$jS.nombre]
+            if (-not $lista -or @($lista).Count -eq 0) { continue }
+            $pp = 0.0
+            foreach ($q in $variantes) {
+                foreach ($kk in @($lista)) {
+                    $pq = 1.0 - ((Get-Distancia $q $kk) / [double][Math]::Max($q.Length, $kk.Length))
+                    if ($pq -gt $pp) { $pp = $pq }
+                }
+            }
+            if ($pp -gt $mejP) { $segP = $mejP; $mejP = $pp; $mej = $jS }
+            elseif ($pp -gt $segP) { $segP = $pp }
         }
-        if ($p -gt $mejorP) { $segundaP = $mejorP; $mejorP = $p; $mejor = $jS }
-        elseif ($p -gt $segundaP) { $segundaP = $p }
+        return @{ juego = $mej; p = $mejP; segunda = $segP }
     }
+    # pasada 1: el titulo entero
+    $porTitulo = @{}
+    foreach ($jS in @($script:Juegos)) { $porTitulo[[string]$jS.nombre] = @([string]$script:ClavesJuegos[$jS.nombre]) }
+    $r1 = Busca-Mejor $porTitulo
+    if ($r1.juego -and $r1.p -ge $umbral -and ($r1.p - $r1.segunda) -ge 0.08) { return $r1.juego }
+    # pasada 2: por el apodo, que es como se llaman hablando ("el wukong", "el warning").
+    # Se exigen 4 letras para que una palabra corta y comun no arrastre un juego entero.
+    $porApodo = @{}
+    foreach ($jS in @($script:Juegos)) {
+        $ap = New-Object System.Collections.ArrayList
+        foreach ($pal in @([string]$jS.nombre -split '[\s:,-]+')) {
+            if ($pal.Length -lt 4) { continue }
+            $kp = Get-ClaveSonido $pal $true
+            if ($kp.Length -ge 4 -and $kp -ne [string]$script:ClavesJuegos[$jS.nombre]) { [void]$ap.Add($kp) }
+        }
+        $porApodo[[string]$jS.nombre] = @($ap)
+    }
+    $r2 = Busca-Mejor $porApodo
+    $mejor = $r2.juego; $mejorP = $r2.p; $segundaP = $r2.segunda
     # sin un claro ganador (Outlast / Outlast 2) no se adivina
     if ($mejor -and $mejorP -ge $umbral -and ($mejorP - $segundaP) -ge 0.08) { return $mejor }
     return $null
@@ -4060,6 +4119,12 @@ function Resolve-Fragment([string]$f) {
     # 'a ver mi pantalla' llega como 'mi pantalla' (Remove-Filler se lleva 'a ver'), asi
     # que tambien vale la forma pelada. Se exige el posesivo o el demostrativo -mi, la,
     # esta- para que 'pantalla' a secas no se lo coma todo.
+    # "QUE VES" A SECAS TAMBIEN ES LA PANTALLA (21/09). Es como lo pidio la noche del
+    # 20 al 21 y no lo cogia nadie. Va anclado de ^ a $ para que no se lleve por delante
+    # "que ves en la tele" ni una charla cualquiera.
+    if ($f -match '^(?:que|qué)\s+(?:ves|veo|se ve)$') {
+        return @(@{ kind = 'ocr'; zona = ''; interpretar = $true; desc = 'leer la pantalla' })
+    }
     if ($f -match '^(?:a ver|que ves en|que hay en|que se ve en)\s+(?:la\s+|mi\s+|esta\s+|el\s+)?(?:pantalla|ventana)\b' -or
         $f -match '^(?:la|mi|esta)\s+(?:pantalla|ventana)$') {
         return @(@{ kind = 'ocr'; interpretar = $false; zona = ''; desc = 'leer la pantalla' })
@@ -4076,7 +4141,46 @@ function Resolve-Fragment([string]$f) {
     # 15/09: la anticipacion solo miraba la palabra siguiente, y "dime de los juegos
     # cual tiene mas horas" se decia en voz alta tal cual. Ahora basta con que la
     # pregunta aparezca en cualquier sitio de la frase.
-    if ($f -match '^(?:(?:di|dime)\s+(?!.*\b(?:quien|quienes|cual|cuales|cuando|donde|como|cuanto|cuanta|cuantos|cuantas|por que|de que|a que)\b)|(?:avisa|avisame)\s+)(?:que\s+)?(.+)$') {
+    # "DIME QUE X" ES PREGUNTAR X, NO DECIR "X" EN VOZ ALTA (21/09). Se le quita el
+    # "dime" y se resuelve lo de detras, igual que con las muletillas: asi "dime que
+    # ves" acaba en el OCR, "dime que juegos tengo" cuenta los juegos y "dime que hora
+    # es" da la hora, sin escribir tres veces lo mismo.
+    # LA LISTA ES CERRADA A PROPOSITO: con "dime que" suelto, "di que ya es hora de
+    # dormir" dejaria de decirse en voz alta, que es justo para lo que sirve la regla.
+    if ($f -match '^(?:dime|di|digame)\s+((?:que|cual|cuantos|cuantas|cuanto|cuanta|quien|donde|como)\s+.+)$') {
+        # EL GRUPO, COPIADO YA: el -match de la linea de abajo PISA $Matches y
+        # $Matches[1] se quedaba vacio. Es la misma trampa que este archivo documenta
+        # seis veces, que ya cazo hoy la tanda de agentes en la regla del 'video N'...
+        # y que me he vuelto a comer aqui mismo media hora despues.
+        $trasDime = [string]$Matches[1]
+        if ($trasDime -match '^(?:que\s+(?:ves|veo|hay|dice|pone|sale|falta|queda|quedan|tengo|tienes|toca|pasa|suena|se ve|juego|juegos|hora|dia|fecha|tal|temperatura|bateria|pila)|cual|cuantos|cuantas|cuanto|cuanta)\b') {
+            $rDime = Resolve-Fragment $trasDime
+            if ($rDime) { return $rDime }
+        }
+    }
+    # "avisa en 10 minutos" es el temporizador, igual que "avisame en 10 minutos"
+    if ($f -match '^avisa\s+(en\s+.+)$') {
+        $rAv = Resolve-Fragment ('avisame ' + [string]$Matches[1])
+        if ($rAv) { return $rAv }
+    }
+
+    # DOS AGUJEROS DE ESTA REGLA, medidos el 21/09 sondeando como pide las cosas.
+    #
+    # 1) 'avisa/avisame' entraba SIN el filtro de preguntas, asi que 'avisa en 10
+    #    minutos' salia OK... diciendo 'en 10 minutos' EN VOZ ALTA en vez de poner el
+    #    temporizador. Y 'avisame en 10 minutos' si funcionaba, porque lo pilla otra
+    #    regla antes: la misma orden, dos formas, y una hacia otra cosa.
+    #
+    # 2) 'que' no esta en la lista de interrogativos A PROPOSITO, para que 'di que ya es
+    #    hora de dormir' se diga tal cual. Pero eso se tragaba tambien las preguntas que
+    #    empiezan por 'que':
+    #      dime que ves            ->  decia 'ves' en voz alta   (tenia que LEER LA PANTALLA)
+    #      dime que hay en la pantalla  ->  decia 'hay en la pantalla'
+    #      dime que juegos tengo   ->  decia 'juegos tengo'
+    #    Y lo de la pantalla es justo lo que pidio CATORCE veces la noche del 20 al 21.
+    #    Asi que se excluye 'que' SOLO cuando lo sigue un verbo o un sustantivo de
+    #    pregunta; con cualquier otra cosa detras se sigue diciendo en voz alta.
+    if ($f -match '^(?:(?:di|dime)\s+(?!.*\b(?:quien|quienes|cual|cuales|cuando|donde|como|cuanto|cuanta|cuantos|cuantas|por que|de que|a que)\b)(?!que\s+(?:ves|veo|hay|dice|pone|sale|falta|queda|quedan|tengo|tienes|toca|pasa|suena|se ve|juego|juegos|hora|dia|fecha|tal|temperatura|bateria|pila)\b)|(?:avisa|avisame)\s+(?!.*\b(?:en|dentro de|cuando|si)\b)(?!.*\d))(?:que\s+)?(.+)$') {
         return @(@{ kind = 'decir'; desc = $Matches[1].Trim() })
     }
     # --- seguir leyendo donde se quedo ---

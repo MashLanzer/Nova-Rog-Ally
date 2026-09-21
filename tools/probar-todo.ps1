@@ -338,6 +338,15 @@ Titulo "2n46. Abrir un juego que no es de Steam (y que siga estando vigilado)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-juegos-xbox.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:sigue estando vigilado)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n53. Los juegos por su apodo, y el articulo que abria OTRO"
+# 21/09, de sondear como pide las cosas de verdad. "abre el warning" abria ELDEN RING
+# teniendo Content Warning instalado, y "cierra el warning" lo CERRABA: Get-ClaveSonido
+# pega las palabras y "elguarning" se parece mas a "eldenring" que a "kontentguarning".
+# Tres ordenes equivocadas. Lo que mas se prueba aqui son los CONTROLES: al comparar
+# tambien contra las palabras sueltas del titulo, "todo" empezo a parecerse a "Hollow".
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-apodos-juego.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el articulo ya no abre otro)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n52. 'Eso no es verdad' rechaza lo que Nova dijo, no otra cosa"
 # 21/09, de la tanda. marcar_incorrecta se fiaba de ultimo_id, que es estado global y lo
 # escribe TAMBIEN el hilo del revisor, de fondo y entre turnos. braya podia decir "no, eso
@@ -428,8 +437,8 @@ foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     # estuviera ahi, asi que una caida de 88 a 5 pasaba EN VERDE: justo lo que este banco
     # existe para evitar. Las que fallan son controles a proposito, por eso el listero es
     # un minimo y no una igualdad: lo que no puede es BAJAR.
-    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 369 }   # 369 desde el 21/09 (minando SUS 360 frases reales: el volumen al reves, apagar un
-# modo, y como pide subir y bajar sin verbo). Antes 346, 335, 317, 308 y 289: MEDIDO (287 + 2 saltadas). +9 de "mira la pantalla". Antes 280, 260, 254, 242, 238, 234, 228, 221
+    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 389 }   # 389 desde el 21/09 ('dime que X' es preguntar X). Antes 377 (los juegos por su
+# apodo), 369 (el volumen al reves y apagar un modo), 346, 335, 317, 308 y 289: MEDIDO (287 + 2 saltadas). +9 de "mira la pantalla". Antes 280, 260, 254, 242, 238, 234, 228, 221
     $n = -1
     if ($linea -and ("$linea" -match 'reconocidas en local:\s*(\d+)')) { $n = [int]$Matches[1] }
     # LOS JUEGOS QUE YA NO TIENES NO SON UNA REGRESION (19/09): las lineas con
