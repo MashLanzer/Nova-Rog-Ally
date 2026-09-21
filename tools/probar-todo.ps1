@@ -329,6 +329,14 @@ Titulo "2n43. Leer SOLO una zona de la pantalla (la esquina del objetivo, el cen
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-ocr-zona.ps1')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:todo correcto)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n39. Que Nova sepa que Roblox es un juego (y que no se invente ninguno)"
+# D1 (21/09). Dos horas de Roblox y para Nova no estaba jugando: solo contaba como
+# juego lo que viviera en steamapps\common, y su Roblox es el de Game Pass. Lo que
+# mas se prueba aqui no es que reconozca juegos, sino que NO se invente ninguno: un
+# falso positivo hace que se calle los avisos que si querias.
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-juego-primer-plano.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:sin inventarse ninguno)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n27. Que Nova avise si lleva dias sin apuntar ni una orden (sin uso no se decide nada)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-sin-uso.ps1')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:todo correcto)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }

@@ -11616,13 +11616,61 @@ function Get-ProcesoEnPrimerPlano {
 }
 
 # Devuelve el juego de Steam que esta en primer plano, o $null.
+# DE DONDE SALE ESTA LISTA (21/09): la noche del 20 al 21 braya jugo DOS HORAS a
+# Roblox y para Nova no estaba jugando. Aqui solo valia steamapps\\common, asi que
+# $script:juegoActivo se quedo en $null las dos horas y con el se quedaron fuera: el
+# tiempo de juego, el avatar de la capsula, el freno de los avisos, el limite de
+# tiempo, la nota semanal y -lo que mas se noto- el 'braya esta jugando a X' que va
+# en el prompt del cerebro y le pide contestar en UNA frase. Sin el, se enrollaba.
+# Su Roblox es el de Game Pass: C:\\XboxGames\\Roblox\\Content\\RobloxPlayerBeta.exe.
+#
+# CADA PATRON EXIGE UNA BARRA DETRAS DEL NOMBRE a proposito: es lo que distingue la
+# carpeta de un juego del ejecutable de la tienda. Sin ella, Epic Games\\algo.exe o el
+# propio GalaxyClient.exe entrarian como si fueran juegos.
+$CARPETAS_JUEGO = @(
+    '(?i)steamapps\\common\\([^\\]+)\\'   # Steam
+    '(?i)\\XboxGames\\([^\\]+)\\'   # Xbox / Game Pass
+    '(?i)\\Epic Games\\([^\\]+)\\'   # Epic
+    '(?i)\\GOG Galaxy\\Games\\([^\\]+)\\'   # GOG
+    '(?i)\\Ubisoft Game Launcher\\games\\([^\\]+)\\'   # Ubisoft
+    '(?i)\\(?:Origin|EA) Games\\([^\\]+)\\'   # EA
+    '(?i)\\Riot Games\\([^\\]+)\\'   # Riot
+    '(?i)\\itch\\apps\\([^\\]+)\\'   # itch.io
+    '(?i)\\(Roblox)\\Versions\\'   # Roblox de la web
+    '(?i)\\\.(minecraft)\\'   # Minecraft
+)
+# lo que vive en esas carpetas y no es un juego
+$CARPETA_NO_JUEGO = @('launcher', 'epic games launcher', 'gamesave', 'directxredist',
+                      'redistributables', '_commonredist', 'support', 'epic online services')
+# SI NO SE PUEDE LEER LA RUTA, POR EL NOMBRE DEL PROCESO. Las apps de la Store corren
+# protegidas y $p.Path puede saltar por permisos; antes eso era un 'no hay juego'.
+$EXES_JUEGO = @{ 'robloxplayerbeta' = 'Roblox'; 'minecraft' = 'Minecraft'
+                 'minecraftlauncher' = 'Minecraft'; 'fortniteclient-win64-shipping' = 'Fortnite' }
 function Get-JuegoEnPrimerPlano {
     $p = Get-ProcesoEnPrimerPlano
     if (-not $p) { return $null }
     $ruta = ''
-    try { $ruta = $p.Path } catch { return $null }
-    if (-not $ruta -or $ruta -notmatch '(?i)steamapps\\common\\([^\\]+)') { return $null }
-    $carpeta = $Matches[1]
+    try { $ruta = $p.Path } catch { $ruta = '' }
+    $carpeta = ''
+    if ($ruta) {
+        foreach ($reJ in $CARPETAS_JUEGO) {
+            if ($ruta -match $reJ) { $carpeta = $Matches[1]; break }
+        }
+    }
+    if (-not $carpeta) {
+        $nomP = ''
+        try { $nomP = ([string]$p.Name).ToLowerInvariant() } catch {}
+        if ($nomP -and $EXES_JUEGO.ContainsKey($nomP)) { $carpeta = [string]$EXES_JUEGO[$nomP] }
+    }
+    if (-not $carpeta) { return $null }
+    if ($CARPETA_NO_JUEGO -contains $carpeta.ToLowerInvariant()) { return $null }
+    # UN INSTALADOR DENTRO DE LA CARPETA DEL JUEGO NO ES JUGAR. Al instalar,
+    # .../Fortnite/Engine/Extras/Redist/_CommonRedist/vcredist.exe pasa por delante
+    # un momento y capturaba 'Fortnite': Nova diria que estas jugando mientras
+    # esperas la descarga, y con eso se callaria los avisos que si querias.
+    if ($ruta -match '(?i)\\(?:_CommonRedist|Redist|DirectX|vcredist|DotNetFX|Installers?)\\') { return $null }
+    # '.minecraft' es la carpeta de datos; el juego se llama Minecraft
+    $carpeta = $carpeta.TrimStart('.')
     # el ejecutable se guarda aparte: la capsula saca de el el icono del juego
     $script:juegoExeCandidato = $ruta
     # C4 (19/09): y el PID, para poder preguntar luego si ese proceso sigue vivo sin
