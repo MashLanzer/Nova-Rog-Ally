@@ -338,6 +338,16 @@ Titulo "2n46. Abrir un juego que no es de Steam (y que siga estando vigilado)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-juegos-xbox.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:sigue estando vigilado)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n47. La noche que se quedo muda: el .part compartido y el respaldo que no existia"
+# 21/09. 20/09 23:39:12, en mitad de una charla: los dos workers de voz escribieron en el
+# MISMO temporal, uno reventro con WinError 32, y el respaldo de Piper no se podia
+# alcanzar porque exigia una variable que nunca se llena. braya oyo media respuesta y
+# silencio. Piper llevaba sin sonar desde el 10/09 y nadie lo sabia.
+# Comprobado a mano el 21/09 que piper.exe SUENA: 2,9 s de audio con 276 ms de inferencia
+# (factor 0,10 en tiempo real). Aqui no se ejecuta: tarda 3 s en cargar el modelo.
+python (Join-Path $PSScriptRoot 'probar-voz-respaldo.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya no se queda muda)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n45. Que Nova sepa que Roblox es un juego (y que no se invente ninguno)"
 # D1 (21/09). Dos horas de Roblox y para Nova no estaba jugando: solo contaba como
 # juego lo que viviera en steamapps\common, y su Roblox es el de Game Pass. Lo que

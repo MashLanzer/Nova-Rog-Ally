@@ -28,8 +28,44 @@ for n in arbol.body:
     nombre = n.targets[0].id if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name) else getattr(n, "name", None)
     if nombre in QUIERO:
         trozos.append(ast.get_source_segment(FUENTE, n))
-ns = {"os": os}
+# EL ENTORNO TIENE QUE TRAER TODO LO QUE LA FUNCION USE (21/09). Aqui solo estaba "os", y
+# el dia que limpiar_cache empezo a usar time.time() para barrer los .part huerfanos esta
+# prueba se puso en rojo -cuatro casos- con el codigo de verdad correcto: tts_worker.py SI
+# importa time, era el entorno de aqui el que no lo tenia. Un rojo asi hace perder media
+# hora buscando donde no hay nada. La comprobacion de abajo evita que se repita en silencio.
+ns = {"os": os, "time": time}
 exec("\n".join(trozos), ns)
+
+# QUE NO FALTE NINGUNO MAS: se miran los nombres globales que usa limpiar_cache y se exige
+# que esten en el entorno O importados en tts_worker.py. Si un dia usa shutil y nadie lo
+# pone aqui, sale MAL con su nombre en vez de un NameError a mitad de la prueba.
+_fn = next(n for n in arbol.body if getattr(n, "name", None) == "limpiar_cache")
+_locales = {a.arg for a in _fn.args.args}
+for _n in ast.walk(_fn):
+    if isinstance(_n, ast.Assign):
+        _locales |= {t.id for t in _n.targets if isinstance(t, ast.Name)}
+    elif isinstance(_n, (ast.For, ast.comprehension)):
+        _tg = getattr(_n, "target", None)
+        if isinstance(_tg, ast.Name):
+            _locales.add(_tg.id)
+        elif isinstance(_tg, ast.Tuple):
+            _locales |= {e.id for e in _tg.elts if isinstance(e, ast.Name)}
+_usa = {x.id for x in ast.walk(_fn) if isinstance(x, ast.Name) and isinstance(x.ctx, ast.Load)}
+_import, _globales = set(), set()
+for _n in arbol.body:
+    if isinstance(_n, ast.Import):
+        _import |= {(a.asname or a.name).split(".")[0] for a in _n.names}
+    elif isinstance(_n, ast.ImportFrom):
+        _import |= {(a.asname or a.name) for a in _n.names}
+    elif isinstance(_n, ast.Assign):
+        _globales |= {t.id for t in _n.targets if isinstance(t, ast.Name)}
+    elif isinstance(_n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        _globales.add(_n.name)
+# SALIDA y compania son globales del modulo que esta prueba pone a mano mas abajo (a una
+# carpeta de mentira): no son imports que falten, son parte del trato.
+_faltan = sorted(x for x in _usa - _locales - set(ns) - set(dir(__builtins__)) - _globales
+                 if x not in QUIERO and not x.startswith("_"))
+_sin_importar = [x for x in _faltan if x not in _import]
 
 fallos = 0
 
@@ -39,6 +75,13 @@ def comp(etq, ok, det=""):
     print("  %s  %s%s" % ("OK " if ok else "MAL", etq, ("  -> %s" % det) if det else ""))
     if not ok:
         fallos += 1
+
+
+print("  -- la prueba y el modulo hablan el mismo idioma --")
+comp("el entorno de aqui trae todo lo que usa limpiar_cache", not _faltan,
+     ("le faltan: " + ", ".join(_faltan)) if _faltan else "")
+comp("y tts_worker.py importa de verdad lo que usa", not _sin_importar,
+     ("no estan importados: " + ", ".join(_sin_importar)) if _sin_importar else "")
 
 
 def montar(carpeta, cuantos, kb, edad_desde=0):

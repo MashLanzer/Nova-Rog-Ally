@@ -10994,7 +10994,25 @@ function Say([string]$texto, [string]$emo = '') {
     } catch {}
     # cadena de respaldo: si la red falla, sigue habiendo voz
     if ($script:ttsProc) { if (Say-Online $t $emo) { return } }
-    if ($script:piperProc) { if (Say-Piper $t) { return } }
+    # PIPER NO ARRANCABA NUNCA, Y ESTE RESPALDO NO EXISTIA (21/09). $script:piperProc
+    # solo se llena en Initialize-Piper, y a Initialize-Piper no se llegaba jamas: la
+    # linea de arriba de Initialize-Voz -'if ($VozMotor -eq online -and
+    # (Initialize-Online)) { return }'- hace return en cuanto arranca el worker en
+    # linea, y config.json tiene voz.motor = online. Asi que piperProc era $null para
+    # siempre, esta linea no se cumplia nunca y Say-Piper era codigo muerto. Los 73 MB
+    # de piper.exe y el modelo es-MX llevan sin usarse desde el 10/09.
+    #
+    # LO QUE COSTO: 20/09 23:39:12, en mitad de una charla y con braya delante.
+    #   charla dice: Te esta enganchando o aun estas viendo como va la cosa?
+    #   voz online: ERR [WinError 32] ... mp3.part -> mp3
+    #   voz: no hay ninguna voz disponible
+    # Dijo media respuesta y se callo. Ni Piper, ni Windows. Igual el 19/09 a las
+    # 09:24:46 y a las 09:25:08.
+    #
+    # Say-Piper ya arranca Piper sola cuando piperProc esta vacio, e Initialize-Piper
+    # devuelve $false en seco si faltan el .exe o el modelo: cuando la red va bien esto
+    # no cuesta nada, porque Say-Online ya devolvio antes.
+    if ($VozOn -and $VozMotor -ne 'windows') { if (Say-Piper $t) { return } }
     # MUDA Y SORDA HASTA 90 SEGUNDOS (17/09). La pausa se fija ARRIBA, por cuenta de
     # letras y antes de saber si va a sonar algo: con el tope de 1.200 letras de
     # Get-TextoVoz son 85 s. Solo Say-Online la corrige. Si no hay voz ninguna se salia
@@ -17968,7 +17986,9 @@ while ($true) {
         # 15 s, y se quedaba vivo hasta que alguien lo mataba desde fuera. La charla por su
         # camino; escucha y voz por Kill, que es lo que les iba a pasar 15 s despues.
         try { Stop-Charla } catch {}
-        foreach ($pW in @($script:wakeProc, $script:ttsProc, $script:prepVozProc)) {
+        # piperProc entra aqui desde el 21/09: antes no hacia falta porque no arrancaba
+        # nunca; ahora que el respaldo lo levanta de verdad, al parar limpio quedaba vivo.
+        foreach ($pW in @($script:wakeProc, $script:ttsProc, $script:prepVozProc, $script:piperProc)) {
             try { if ($pW -and -not $pW.HasExited) { $pW.Kill() } } catch {}
         }
         exit 0    # por aqui SI se dispara PowerShell.Exiting y se escribe "cerrado"

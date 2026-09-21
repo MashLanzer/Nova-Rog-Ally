@@ -13,6 +13,7 @@ import sys
 import os
 import asyncio
 import hashlib
+import time
 
 try:
     import edge_tts
@@ -90,7 +91,7 @@ def escribir_envolvente(ruta_mp3):
         norm = [min(1.0, (v / pico) ** 0.7) for v in valores]
         # ATOMICO, como el mp3 de al lado: se escribe aparte y se cambia de golpe, para que la
         # capsula no lea nunca una envolvente a medias
-        parcial_env = ruta_env + ".part"
+        parcial_env = ruta_env + (".%d.part" % os.getpid())
         with open(parcial_env, "w", encoding="ascii") as f:
             f.write(" ".join("%.2f" % v for v in norm))
         os.replace(parcial_env, ruta_env)
@@ -115,7 +116,20 @@ def limpiar_cache():
     try:
         archivos = []
         total = 0
+        ahora = time.time()
         for nombre in os.listdir(SALIDA):
+            # LOS .part HUERFANOS NO LOS BARRIA NADIE. La poda solo miraba .mp3, asi que
+            # un temporal de un proceso que murio a mitad -o de una red que se corto- se
+            # quedaba en la carpeta para siempre, sin contar para el tope ni borrarse.
+            # Media hora es de sobra: sintetizar una frase son segundos.
+            if nombre.endswith(".part"):
+                rp = os.path.join(SALIDA, nombre)
+                try:
+                    if ahora - os.stat(rp).st_mtime > 1800:
+                        os.remove(rp)
+                except OSError:
+                    pass
+                continue
             if not nombre.endswith(".mp3"):
                 continue
             ruta = os.path.join(SALIDA, nombre)
@@ -216,7 +230,16 @@ async def principal():
             # directamente en la ruta definitiva: si la red se cortaba a mitad
             # quedaba un mp3 truncado, y como el archivo YA EXISTIA esa frase
             # sonaba cortada para siempre, sin volver a intentarlo nunca.
-            parcial = ruta + ".part"
+                # EL .part LLEVA EL PID DESDE EL 21/09. Hay DOS de estos corriendo a la vez
+            # -la voz en vivo y la voz preparada, que se adelanta a decir la frase- y la
+            # frase que preparan es LA MISMA, asi que el nombre del temporal tambien lo
+            # era. Cuando coincidian, uno pillaba el archivo y el otro reventaba:
+            #   20/09 23:39:12  voz online: ERR [WinError 32] El proceso no tiene acceso
+            #   al archivo porque esta siendo utilizado por otro proceso: ...mp3.part
+            # y esa frase se quedo sin sonar, en mitad de una charla. El destino final no
+            # cambia: los dos escriben el mismo mp3 y os.replace es atomico, asi que si
+            # los dos acaban, el segundo deja exactamente el mismo audio.
+            parcial = ruta + (".%d.part" % os.getpid())
             try:
                 com = edge_tts.Communicate(texto, VOZ, rate=ritmo, pitch=tono)
                 await com.save(parcial)
