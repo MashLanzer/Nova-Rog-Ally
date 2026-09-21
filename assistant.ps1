@@ -7133,7 +7133,14 @@ function Test-PuedoAvisar([string]$clave, [string]$nivel = 'medio', [int]$cadaMi
         # para el tope por hora como cualquier otro.
         if ($esNocheE -and $nivel -ne 'noche') { return $false }
         # y nunca mientras esta hablando, dictando o esperando un si
-        if ($script:busy -or $script:pendiente -or $script:dictandoLargo) { return $false }
+        # Y NO MIENTRAS DICTAS (21/09). $script:busy no cubre el dictado -se pone al lanzar
+    # el cerebro, no al dictar-, asi que un aviso podia soltarse en mitad de una orden.
+    # Y Send-AvisoCola acaba en Say, que llama a Pausar-Escucha con el largo de la
+    # frase: deja al worker sordo varios segundos y la orden se corta a la mitad.
+    # Test-VueltaSaludo ya miraba $script:armed ('MIENTRAS DICTAS, NO'), o sea que la
+    # guarda existia en el archivo pero no en este camino. El aviso NO se pierde: sigue
+    # en la cola y sale en cuanto sueltas el boton.
+    if ($script:busy -or $script:pendiente -or $script:dictandoLargo -or $script:armed) { return $false }
     }
     # PRESUPUESTO POR HORA: se cuentan los de la ultima hora y se para ahi
     $hace1h = $ahoraE - 3600000
@@ -7159,7 +7166,14 @@ function Send-AvisoCola([bool]$yaMismo = $false) {
     if (-not $yaMismo) {
         if (($sw.ElapsedMilliseconds - $script:avisoColaDesde) -lt $AvisoJuntarMs) { return }
         # si esta hablando o esperando un si, que siga esperando: no se pisa una charla
-        if ($script:busy -or $script:pendiente) { return }
+    # Y NO MIENTRAS DICTAS (21/09). $script:busy no cubre el dictado -se pone al lanzar
+    # el cerebro, no al dictar-, asi que un aviso podia soltarse en mitad de una orden.
+    # Y Send-AvisoCola acaba en Say, que llama a Pausar-Escucha con el largo de la
+    # frase: deja al worker sordo varios segundos y la orden se corta a la mitad.
+    # Test-VueltaSaludo ya miraba $script:armed ('MIENTRAS DICTAS, NO'), o sea que la
+    # guarda existia en el archivo pero no en este camino. El aviso NO se pierde: sigue
+    # en la cola y sale en cuanto sueltas el boton.
+        if ($script:busy -or $script:pendiente -or $script:armed -or $script:dictandoLargo) { return }
     }
     $piezas = @($script:avisoCola | ForEach-Object { ([string]$_).Trim().TrimEnd('.') })
     $script:avisoCola.Clear()
@@ -11969,6 +11983,28 @@ $CARPETA_NO_JUEGO = @('launcher', 'epic games launcher', 'gamesave', 'directxred
 $EXES_JUEGO = @{ 'robloxplayerbeta' = 'Roblox'; 'minecraft' = 'Minecraft'
                  'minecraftlauncher' = 'Minecraft'; 'fortniteclient-win64-shipping' = 'Fortnite' }
 function Get-JuegoEnPrimerPlano {
+    # MI PROPIA VENTANA DELANTE NO ES SALIR DEL JUEGO (21/09). Esto solo miraba si la
+    # ventana de delante era de un juego; si no, devolvia $null y el bucle daba la
+    # partida por terminada: Exit-Juego, las reglas de 'juegoCierra', el brillo
+    # restaurado, vuelve la palabra de activacion y a cero el tiempo jugado. Y al dictar,
+    # la capsula se pone delante un momento.
+    # ESTA EN EL LOG DESDE EL 11/09, siempre igual y siempre con un dictado por medio:
+    #   15:43:46  dictado: escuchando la orden
+    #   15:43:49  JUEGO: brillo restaurado a 100 al salir de Little Nightmares III
+    #   15:44:0x  juego en primer plano: Little Nightmares III   (volvia una vuelta despues)
+    # Start-Dictado ya lo tenia resuelto para lo suyo, y lo dice: 'NINGUNA ventana del
+    # asistente cuenta como tuya: ni la de captura ni la CAPSULA'. Aqui faltaba.
+    # Se devuelve el juego que YA habia, no $null: con la capsula delante no se sabe que
+    # hay detras, y lo ultimo que se supo sigue siendo lo mas probable.
+    try {
+        $hFg = [AX]::GetForegroundWindow()
+        if ($hFg -ne [IntPtr]::Zero) {
+            $duenoFg = Get-PidDeVentana $hFg
+            $mio = ($duenoFg -eq $PID)
+            if (-not $mio -and $script:uiProc -and -not $script:uiProc.HasExited -and $duenoFg -eq $script:uiProc.Id) { $mio = $true }
+            if ($mio) { return $script:juegoActivo }
+        }
+    } catch {}
     $p = Get-ProcesoEnPrimerPlano
     if (-not $p) { return $null }
     $ruta = ''

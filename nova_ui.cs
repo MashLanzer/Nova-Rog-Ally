@@ -2979,6 +2979,16 @@ public class NovaUI : Window
         leftBase = ALaDerecha()
             ? area.Right - AnchoReal - SEPARACION - MARGEN * escalaUI
             : area.Left + SEPARACION - MARGEN * escalaUI;
+        // LA HORIZONTAL TAMBIEN, QUE SE QUEDO A MEDIAS (21/09). Apartarse mueve la ventana
+        // con BeginAnimation(LeftProperty, ...) y esa animacion NO lleva FillBehavior.Stop:
+        // queda RETENIDA sobre Window.Left para siempre. Dos lineas mas abajo se limpia la
+        // vertical -y el comentario dice exactamente por que-, pero la horizontal se quedo
+        // sin limpiar. Basta con que UNA vez una ventana haya tapado la esquina un segundo
+        // para que, a partir de ahi, "ponte en la esquina de abajo a la derecha" no mueva
+        // nada: Left se escribe y la animacion retenida lo tapa. Con esta linea quedan
+        // arreglados tambien AplicarEscala y RevisarPantalla, que escriben Left despues de
+        // llamar aqui.
+        BeginAnimation(LeftProperty, null);
         Left = leftBase;
         topBase = Arriba()
             ? area.Top + SEPARACION - MARGEN * escalaUI

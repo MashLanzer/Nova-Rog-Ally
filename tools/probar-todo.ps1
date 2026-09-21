@@ -477,23 +477,29 @@ if ($n -lt 0) {
     $fallos++
 }
 
-Titulo "5b. El DLL, al dia con su fuente (AMARILLO, no fallo)"
+Titulo "5b. El DLL y la capsula, al dia con su fuente (AMARILLO, no fallo)"
 # 21/09. assistant-dx.dll se PRECOMPILA a proposito -invocar csc en cada arranque colgaba
 # y mataba el proceso en silencio-, asi que tocar assistant-dx.cs no cambia nada hasta que
 # alguien recompila. Y mientras Nova esta en marcha el DLL esta BLOQUEADO, o sea que
 # recompilar hay que hacerlo con ella parada y es justo cuando se olvida. Paso hoy mismo
 # con OlvidarVolumen: el codigo ya la llama y el DLL todavia no la trae.
-$csDx = Join-Path $raiz 'assistant-dx.cs'
-$dllDx = Join-Path $raiz 'assistant-dx.dll'
-if ((Test-Path -LiteralPath $csDx) -and (Test-Path -LiteralPath $dllDx)) {
-    $tCs = (Get-Item -LiteralPath $csDx).LastWriteTime
-    $tDll = (Get-Item -LiteralPath $dllDx).LastWriteTime
-    if ($tCs -gt $tDll) {
-        Write-Host ('   AMARILLO: assistant-dx.cs es mas nuevo que el DLL ({0:dd/MM HH:mm} contra {1:dd/MM HH:mm})' -f $tCs, $tDll) -ForegroundColor Yellow
-        Write-Host '      Lo que cambiaste en el .cs NO esta corriendo. Para Nova y: powershell -NoProfile -File tools\recompilar-dx.ps1' -ForegroundColor Yellow
-        $avisosAmarillos += 'assistant-dx.cs cambiado y sin recompilar: lo que tocaste ahi no esta corriendo'
+# LOS DOS BINARIOS QUE SE PRECOMPILAN: el DLL de los P/Invoke y la capsula. Los dos se
+# quedan BLOQUEADOS mientras Nova corre, asi que recompilarlos hay que hacerlo con ella
+# parada, y es justo cuando se olvida.
+foreach ($par in @(
+        @{ cs = 'assistant-dx.cs'; bin = 'assistant-dx.dll'; como = 'powershell -NoProfile -File tools\recompilar-dx.ps1' },
+        @{ cs = 'nova_ui.cs'; bin = 'nova_ui.exe'; como = 'powershell -NoProfile -File tools\compilar-ui.ps1' })) {
+    $csX = Join-Path $raiz $par.cs
+    $binX = Join-Path $raiz $par.bin
+    if (-not (Test-Path -LiteralPath $csX) -or -not (Test-Path -LiteralPath $binX)) { continue }
+    $tCs = (Get-Item -LiteralPath $csX).LastWriteTime
+    $tBin = (Get-Item -LiteralPath $binX).LastWriteTime
+    if ($tCs -gt $tBin) {
+        Write-Host ('   AMARILLO: {0} es mas nuevo que {1} ({2:dd/MM HH:mm} contra {3:dd/MM HH:mm})' -f $par.cs, $par.bin, $tCs, $tBin) -ForegroundColor Yellow
+        Write-Host ('      Lo que cambiaste ahi NO esta corriendo. Para Nova y: {0}' -f $par.como) -ForegroundColor Yellow
+        $avisosAmarillos += ('{0} cambiado y sin recompilar: lo que tocaste ahi no esta corriendo' -f $par.cs)
     } else {
-        Write-Host '   OK  el DLL es igual o mas nuevo que su fuente' -ForegroundColor DarkGray
+        Write-Host ('   OK  {0} es igual o mas nuevo que su fuente' -f $par.bin) -ForegroundColor DarkGray
     }
 }
 
