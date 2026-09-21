@@ -378,3 +378,35 @@ que ves en mi pantalla
 # --- control: "mira" delante de un verbo sigue siendo muletilla, no OCR ---
 mira ponme un temporizador de 5 minutos
 mira mi correo
+# --- cuanta RAM, y de quien (21/09). Lo pregunto jugando a Roblox y Nova tardo 14 s,
+# gasto dos llamadas a la API y acabo abriendole el administrador de tareas encima ---
+cuanta ram queda
+cuanta memoria queda
+cuanta ram me queda libre
+cuanta ram libre hay
+como va la ram
+cuanta ram
+cuanta ram esta ocupando roblox
+cuanta ram esta ocupando roblox y nova
+cuanta ram estas usando
+cuanta memoria gasta steam
+# --- control: NO es la memoria del aparato ---
+cuanta memoria tienes de mi
+cuanta memoria
+borra la memoria
+# --- no te actives por diez minutos (21/09): lo pidio y Nova contesto 'vale, me
+# quedo aqui' sin callarse; 19 s despues ya estaba escuchando otra vez ---
+no te actives por diez minutos
+no te actives
+no te despiertes
+no me molestes 20 minutos
+no me interrumpas media hora
+solo estoy pensando en voz alta no te actives por diez minutos
+# --- control: NO es sordina ---
+no te actives asi conmigo
+# --- la muletilla de delante costo 49 s y el agente entero (21/09) ---
+mira recuerdame manana instalarme el juego el que esta guardado en mi lista
+oye recuerdame manana comprar pan
+bueno avisame en diez minutos
+# --- control: sin verbo de recordatorio detras, 'mira' no se toca ---
+mira que bonito

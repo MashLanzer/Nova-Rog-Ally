@@ -893,6 +893,86 @@ function Update-Juegos {
     return $true
 }
 
+# CUANTA RAM, Y DE QUIEN (21/09). Jugando a Roblox con su novia, braya pregunto
+# 'cuanta RAM esta ocupando Roblox y Nova, o sea, tu al mismo tiempo' (20/09 23:20:10).
+# Nova tardo 14 s, gasto DOS llamadas a la API -traducir de 4306 caracteres y plan de
+# 4763- y el plan acabo en 'abre administrador de tareas': le puso una ventana encima
+# de la partida. Es la misma familia que 'cuanta bateria' y 'cuanto espacio me queda',
+# que ya se contestan aqui, en local y en un suspiro.
+#
+# POR NOMBRE DE PROCESO, NO POR commands.json: Roblox no esta ni en apps ni en la
+# biblioteca de Steam, asi que Resolve-Proceso no lo encuentra. Aqui basta con que el
+# nombre del proceso o el titulo de su ventana contenga lo que se ha dicho.
+#
+# QUE CUENTA COMO 'NOVA': su propio PowerShell mas lo que ella levanta -la capsula,
+# el oido (python/pythonw) y el modelo local (ollama)-. El agente (claude/node) NO se
+# cuenta: vive unos segundos y ahora mismo puede ser otra sesion tuya, no la suya.
+$RAM_NOVA = @('nova_ui', 'python', 'pythonw', 'ollama', 'ollama_llama_server')
+# los que siempre salen arriba y no dicen nada: no son 'lo que mas ocupa'
+$RAM_SISTEMA = @('memory compression', 'secure system', 'system', 'registry', 'msmpeng')
+function Get-RamResumen([string]$que) {
+    $totB = 0.0; $libB = 0.0
+    try {
+        if (-not ('Microsoft.VisualBasic.Devices.ComputerInfo' -as [type])) { Add-Type -AssemblyName Microsoft.VisualBasic -ErrorAction Stop }
+        $ci = New-Object Microsoft.VisualBasic.Devices.ComputerInfo
+        $totB = [double]$ci.TotalPhysicalMemory
+        $libB = [double]$ci.AvailablePhysicalMemory
+    } catch {}
+    $procs = @()
+    try { $procs = @(Get-Process -ErrorAction SilentlyContinue) } catch {}
+    $partes = @()
+    # 'roblox y nova', 'roblox y tu': pregunta por varios a la vez
+    foreach ($n0 in @($que -split '\s+(?:y|e|mas|junto con)\s+')) {
+        $n = (ConvertTo-Plain $n0) -replace '^(?:el|la|los|las|mi|un|una|de|del)\s+', ''
+        # lo dicho puede traer cualquier cosa; aqui solo se compara texto
+        $n = ($n -replace '[^a-z0-9 ]', '').Trim().ToLowerInvariant()
+        if (-not $n) { continue }
+        if ($n -match '^(?:tu|ti|vos|nova|tu misma|ti misma|contigo)$') {
+            $b = 0.0
+            foreach ($pr in $procs) { if ($RAM_NOVA -contains $pr.Name.ToLowerInvariant()) { $b += [double]$pr.WorkingSet64 } }
+            try { $b += [double](Get-Process -Id $PID -ErrorAction Stop).WorkingSet64 } catch {}
+            $partes += ('yo llevo ' + (Format-Gigas $b))
+            continue
+        }
+        # 'elden ring' es el proceso 'eldenring': se prueba tambien sin espacios
+        $nsin = $n -replace ' ', ''
+        $b = 0.0
+        foreach ($pr in $procs) {
+            $nom = (ConvertTo-Plain ([string]$pr.Name)).ToLowerInvariant()
+            if ($nom.Contains($n) -or ($nsin -and $nom.Contains($nsin))) { $b += [double]$pr.WorkingSet64 }
+        }
+        # EL TITULO DE LA VENTANA SOLO SI NO SALIO POR EL NOMBRE, y solo de las que
+        # TIENEN ventana: leer MainWindowTitle de los 200 y pico procesos costaba de
+        # 500 a 740 ms frente a 20 ms (medido el 21/09), y aqui manda la velocidad.
+        if ($b -le 0) {
+            foreach ($pr in $procs) {
+                if ($pr.MainWindowHandle -eq 0) { continue }
+                $tit = ''
+                try { $tit = (ConvertTo-Plain ([string]$pr.MainWindowTitle)).ToLowerInvariant() } catch {}
+                if ($tit -and $tit.Contains($n)) { $b += [double]$pr.WorkingSet64 }
+            }
+        }
+        if ($b -gt 0) { $partes += ($n0.Trim() + ' lleva ' + (Format-Gigas $b)) }
+        else { $partes += ($n0.Trim() + ' no esta abierto') }
+    }
+    # corta, que se lee en voz alta: dos frases como mucho
+    $cola = ''
+    if ($totB -gt 0) { $cola = 'Quedan ' + (Format-Gigas $libB) + ' libres de ' + (Format-Gigas $totB) + '.' }
+    if ($partes.Count -gt 0) {
+        $t = (($partes -join ' y ') + '.')
+        if ($cola) { $t += ' ' + $cola }
+        return $t
+    }
+    if (-not $cola) { return 'No pude leer la memoria' }
+    $top = @($procs |
+        Where-Object { $RAM_SISTEMA -notcontains $_.Name.ToLowerInvariant() } |
+        Sort-Object WorkingSet64 -Descending | Select-Object -First 1)
+    if ($top.Count -gt 0 -and [double]$top[0].WorkingSet64 -gt 209715200) {
+        return ($cola + ' Lo que mas ocupa es ' + $top[0].Name + ', con ' + (Format-Gigas ([double]$top[0].WorkingSet64)) + '.')
+    }
+    return $cola
+}
+
 # "94,2 gigas" se lee mejor que "94200000000 bytes".
 function Format-Gigas([double]$bytes) {
     if ($bytes -le 0) { return "0 gigas" }
@@ -3484,6 +3564,19 @@ function Resolve-Fragment([string]$f) {
         $f -match '^(?:que|cuanto)\s+(?:espacio|sitio)\s+(?:libre\s+|disponible\s+)?(?:me\s+)?(?:queda|hay|tengo)(?:\s+(?:libre|disponible))?\b') {
         return @(@{ kind = 'disco'; desc = 'espacio libre' })
     }
+    # --- cuanta RAM, y de quien (ver CUANTA RAM, Y DE QUIEN) ---
+    # Lo que dijo: 'cuanta RAM esta ocupando Roblox y Nova, o sea, tu al mismo tiempo'.
+    # Se admite sin sujeto ('cuanta ram queda') y con uno o varios ('...roblox y nova').
+    # 'cuanta memoria' A SECAS NO ES ESTO: Nova tiene su propia memoria de lo que
+    # sabe de ti. Sin verbo detras solo vale 'ram'; 'memoria' exige queda/hay/libre.
+    if ($f -match '^(?:cuanta|cuanto)\s+(?:ram|memoria\s+ram)(?:\s+libre)?(?:\s+me)?(?:\s+(?:queda|quedan|hay|tengo|libre|disponible))?(?:\s+(?:libre|disponible))?$' -or
+        $f -match '^(?:cuanta|cuanto)\s+memoria(?:\s+libre)?(?:\s+me)?\s+(?:queda|quedan|hay|tengo|libre|disponible)(?:\s+(?:libre|disponible))?$' -or
+        $f -match '^(?:como|que tal)\s+(?:va|esta|anda)\s+(?:la\s+)?(?:ram|memoria)$') {
+        return @(@{ kind = 'ram'; que = ''; desc = 'la memoria' })
+    }
+    if ($f -match '^(?:cuanta|cuanto)\s+(?:ram|memoria(?:\s+ram)?)\s+(?:esta\s+|estan\s+|estas\s+)?(?:ocupando|usando|gastando|consumiendo|comiendo|ocupa|ocupan|usa|usan|gasta|gastan|consume|consumen)\s*(.*)$') {
+        return @(@{ kind = 'ram'; que = $Matches[1].Trim(); desc = 'la memoria' })
+    }
     # --- DICTADO LARGO ---
     # El dictado de siempre es para ordenes cortas; para escribir un mensaje no
     # sirve. Esto entra en modo continuo escribiendo en la ventana de delante.
@@ -3854,7 +3947,7 @@ function Resolve-Fragment([string]$f) {
     # vez de pelearse con el ruido, se calla. NO es un modo que se quede puesto:
     # siempre lleva plazo, el boton (mantener ≡) sigue funcionando mientras
     # tanto, y al volver te avisa en voz alta.
-    if ($f -match '^(?:no me escuches|no escuches|deja de escuchar|dejate de escuchar|duermete|vete a dormir|a dormir|descansa|apaga el oido|no me oigas|ignorame)(?:\s+(?:durante|por|en|un|una)?\s*(?:(\d+)\s*(minuto|minutos|hora|horas)|(una hora|un rato|media hora|un momento|rato)))?$') {
+    if ($f -match '^(?:no me escuches|no escuches|deja de escuchar|dejate de escuchar|duermete|vete a dormir|a dormir|descansa|apaga el oido|no me oigas|ignorame|no te actives|no te despiertes|no me interrumpas|no me molestes)(?:\s+(?:durante|por|en|un|una)?\s*(?:(\d+)\s*(minuto|minutos|hora|horas)|(una hora|un rato|media hora|un momento|rato)))?$') {
         # OJO: hay que copiar los grupos ANTES de usar -match otra vez, porque
         # cada -match reescribe $Matches entero. Con el numero y la unidad
         # leidos de $Matches despues de comprobar la unidad, decia 'me callo 2'
@@ -3876,6 +3969,25 @@ function Resolve-Fragment([string]$f) {
         }
         if ($ms -le 0) { return $null }
         return @(@{ kind = 'sordina'; ms = $ms; desc = "me callo $comoLoDigo; si me necesitas antes, manten el boton" })
+    }
+    # DICHO AL FINAL DE LO QUE ESTABA PENSANDO EN VOZ ALTA (21/09). Asi salio de
+    # verdad: 'Solo estoy pensando en Mojarta, no te actives por diez minutos'
+    # (20/09 23:48:12). Split-Ordenes lo deja en UN fragmento -no hay verbo donde
+    # cortar- y anclado en ^ no lo coge nadie: acabo en la charla, que contesto
+    # 'Vale, tranquilo, me quedo aqui cuando me necesites' y siguio escuchando: a
+    # las 23:48:31 estaba activa otra vez y a las 23:48:39 cogio 'Vamos comentar'.
+    # SOLO CON PLAZO EXPLICITO, que es lo que lo hace inofensivo: un 'no te actives'
+    # suelto al final de una frase larga sigue siendo charla.
+    if ($f -match '\bno te actives\s+(?:durante|por|en)\s+(?:(\d+)\s*(minuto|minutos|hora|horas)|(una hora|media hora))$') {
+        $num2 = $Matches[1]; $unidad2 = $Matches[2]; $expr2 = $Matches[3]
+        $ms2 = 15 * 60000; $comoLoDigo2 = 'un cuarto de hora'
+        if ($num2) {
+            $n2 = [int]$num2
+            if ($unidad2 -match '^hora') { $ms2 = $n2 * 3600000 } else { $ms2 = $n2 * 60000 }
+            $comoLoDigo2 = "$n2 $unidad2"
+        } elseif ($expr2 -eq 'una hora') { $ms2 = 3600000; $comoLoDigo2 = 'una hora' }
+        elseif ($expr2 -eq 'media hora') { $ms2 = 30 * 60000; $comoLoDigo2 = 'media hora' }
+        return @(@{ kind = 'sordina'; ms = $ms2; desc = "me callo $comoLoDigo2; si me necesitas antes, manten el boton" })
     }
     # Diagnostico hablado: hasta ahora, para saber por que no te oia habia que
     # abrir assistant.log y leer las lineas del pulso. Esto cuenta lo mismo en
@@ -9664,6 +9776,11 @@ function Invoke-FastCommand([string]$text) {
                         $a.desc = $t
                     }
                 }
+                'ram' {
+                    # se lee AL EJECUTAR, no al reconocer: un banco que solo resuelve
+                    # no tiene por que ir a mirar los procesos (igual que 'disco')
+                    $a.desc = Get-RamResumen ([string]$a.que)
+                }
                 'disco' {
                     # la unidad donde estan los juegos, no siempre C:
                     $unidades = @('C')
@@ -12154,6 +12271,18 @@ function Save-Recordatorios($lista) {
 
 function Invoke-RecordatorioVoz([string]$text) {
     $p = ConvertTo-Plain $text
+    # LA MULETILLA DE DELANTE COSTO 49 SEGUNDOS (21/09). 'Mira, recuerdame manana
+    # instalarme el juego el que esta guardado en mi lista' (20/09 23:08:04): sin el
+    # 'Mira,' se resuelve aqui al momento; con el, el log dice 'LOCAL descarta: no
+    # reconozco mira recuerdame manana...' (23:08:14) y la frase se fue a traducir
+    # (haiku, 4277 c.), a plan (haiku, 4734 c.) y AL AGENTE ENTERO (sonnet, 28,4 s,
+    # 3 pasos, 19534 B) para contestar a las 23:08:53, con Roblox delante.
+    # Remove-Filler ya quita estas palabras, pero se llama DESPUES: los recordatorios
+    # y las reglas se resuelven sobre la frase entera, antes de partirla en
+    # fragmentos. Por eso hay que quitarlas tambien aqui.
+    # EL LOOKAHEAD ES LA GUARDA: solo se borra si detras viene de verdad un verbo de
+    # recordatorio. 'mira que tengo apuntado' o 'bueno, pues nada' no se tocan.
+    $p = [regex]::Replace($p, '^(?:(?:oye|mira|escucha|hey|ey|hola|nova|ok|okey|okay|vale|bueno|pues|luego|despues|ahora|entonces)\s+)+(?=(?:recuerdame|avisame|recordatorio|ponme|pon)\b)', '')
     # "REVISA MI CALENDARIO PARA MAÑANA" (18/09). braya lo pidio tres veces y acabo en el agente
     # (23 s) o en la charla. Nova no tiene calendario -el correo va por IMAP y por ahi no se
     # llega a Google Calendar-, pero tiene SUS recordatorios, que es justo lo que el agente
