@@ -14,6 +14,17 @@ informes del 19/09 (OIDO, MEDICION-MODELOS, VRAM).
 
 ---
 
+## CERRADOS: a 22/09/2026, por la manana
+
+**No queda ninguno de los 24.** Los dos ultimos se midieron con la consola parada:
+
+| id | resultado |
+|---|---|
+| **C24** VRAM-9 | **HECHO, y la suposicion era falsa.** El informe de VRAM decia que «con 4 GB probablemente no compensa». Medido: la charla local pasa de 9,6 a **29,3 tokens/s** (+205 %) y de 0,47 a 0,29 s la primera palabra. Activado. Ver `OLLAMA-IGPU-2026-09-22.md`. |
+| **C25** OID-2 | **CERRADO: no sirve.** Vosk solo detecta el nombre -las ordenes las transcriben Parakeet y Whisper-, y eso ya va con confianza 0,96-1,00. El modelo grande pediria 2,3 GB permanentes para mejorar algo que no falla, y ni siquiera cabe para medirlo: tres intentos murieron por memoria. Ver `OIDO-VOSK-GRANDE-2026-09-22.md`. |
+
+---
+
 ## AL DIA (2): a 22/09/2026, de madrugada
 
 Quedan **dos**, y los dos piden la consola libre para medirse:
