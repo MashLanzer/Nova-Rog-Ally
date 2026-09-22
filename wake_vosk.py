@@ -2615,9 +2615,27 @@ if MOTOR_DICTADO.startswith("whisper"):
         # mismos aciertos. No le quita CPU al juego: este proceso corre con
         # prioridad baja y solo trabaja a rachas, al dictar.
         whisper = WhisperModel(nombre_modelo or "small", device="cpu", compute_type="int8", cpu_threads=HILOS_PRECISO)
-        # calentamiento: la primera transcripcion tarda 3 s; mejor ahora que
-        # en la primera orden
-        list(whisper.transcribe(np.zeros(TASA, dtype=np.float32), language="es", beam_size=1)[0])
+        # AQUI HABIA UN CALENTAMIENTO, Y NO CALENTABA NADA (22/09). Se le pasaba 1 s de
+        # CEROS con el motivo "la primera transcripcion tarda 3 s; mejor ahora que en la
+        # primera orden". Medido con seis grabaciones de braya, un proceso limpio por
+        # medida -que es lo unico que vale, porque dentro del mismo proceso la segunda
+        # transcripcion ya es rapida se caliente o no-, la primera transcripcion REAL:
+        #     audio    en frio   calentado
+        #     03.wav    3,36 s     4,18 s
+        #     05.wav    3,20 s     3,66 s
+        #     07.wav    2,69 s     3,19 s
+        #     11.wav    3,96 s     4,27 s
+        #     14.wav    1,36 s     1,50 s
+        # En frio gano las cinco veces. Tiene sentido: un segundo de ceros no le da trabajo
+        # al decodificador, solo al codificador, asi que no calienta la parte que luego
+        # tarda. O sea que se pagaban 0,82 s de mediana en CADA arranque por llegar despues
+        # un poco mas lento.
+        # Y esos 0,82 s eran de los caros: el microfono no se abre hasta 212 lineas mas
+        # abajo (el sd.RawInputStream), asi que Nova estaba sorda mientras tanto. En el log
+        # hay 196 cargas de Whisper, 195 de ellas con "worker Vosk en marcha" en el MISMO
+        # segundo, o sea que esto retrasaba el momento de poder oir en todas.
+        # Peor caso al quitarlo: la primera orden que llegue al tercer escalon de la
+        # cascada tras reiniciar paga el arranque frio. Medido arriba: no paga nada.
         anota("whisper '%s' cargado en %.1f s" % (nombre_modelo, time.time() - t0))
     except Exception as e:
         whisper = None

@@ -55,7 +55,25 @@ foreach ($frase in $esperado.Keys) {
     # perderse un eslabon entero sin que el numero se moviera. El separador es ' + ', el
     # mismo que usa el probador al encadenar acciones.
     $metas = @($debe -split '\s\+\s' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-    $faltan = @($metas | Where-Object { $hace -notlike "*$_*" })
+    # Y EN EL ORDEN QUE PROMETEN (22/09). Esto era '-notlike "*$_*"', que tiene dos
+    # agujeros y los dos se reprodujeron antes de tocarlo:
+    #  1. NO EXIGE ORDEN. Una cadena de tres acciones devuelta AL REVES pasaba en verde:
+    #     'abre steam + sube el brillo + pon modo noche' contra un resultado que hiciera
+    #     exactamente lo contrario daba 0 faltas. Y el orden es justo lo que distingue
+    #     "abre steam y luego pon modo noche" de "pon modo noche y luego abre steam".
+    #  2. -like TRATA LA META COMO PATRON, no como texto: un '*', un '?' o unos corchetes
+    #     dentro de lo esperado dejan de compararse literalmente y empiezan a casar cosas
+    #     que nadie escribio.
+    # IndexOf con StringComparison::Ordinal arregla los dos de una vez: es literal, y
+    # avanzando $pos obliga a que cada eslabon aparezca DESPUES del anterior. Se conserva
+    # lo de buscar por subcadena, que es lo que hacia falta: el probador devuelve la frase
+    # entera y las metas son trozos suyos.
+    $pos = 0
+    $faltan = @()
+    foreach ($m in $metas) {
+        $i = $hace.IndexOf($m, [Math]::Min($pos, $hace.Length), [StringComparison]::Ordinal)
+        if ($i -lt 0) { $faltan += $m } else { $pos = $i + $m.Length }
+    }
     $ok = ($faltan.Count -eq 0)
     if ($ok) {
         Write-Host ("  OK   {0,-32} -> {1}" -f $frase, $hace)

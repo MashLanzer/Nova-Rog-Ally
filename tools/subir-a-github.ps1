@@ -11,7 +11,11 @@ $ErrorActionPreference = 'Continue'
 $env:GIT_TERMINAL_PROMPT = '1'
 Remove-Item Env:\GCM_INTERACTIVE -ErrorAction SilentlyContinue
 
-Set-Location 'C:\Users\braya\Documents\voice-ctrl'
+# LA CARPETA DE ESTE SCRIPT, NO UNA ESCRITA A MANO (22/09). Aqui habia la ruta completa a
+# fuego, y en este fichero importa mas que en los bancos: esto PUBLICA. Desde una copia del
+# repo en otra carpeta, subiria la de siempre -commits de un sitio con el codigo de otro-
+# sin avisar de nada. Sube el repo dentro del que esta, que es lo que uno espera.
+Set-Location (Split-Path -Parent $PSScriptRoot)
 $git = Join-Path $env:ProgramFiles 'Git\cmd\git.exe'
 
 Write-Host ''

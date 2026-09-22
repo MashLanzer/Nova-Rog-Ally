@@ -853,6 +853,10 @@ Titulo "2n76. Que el propio banco diga de que seccion viene cada fallo"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-veredicto.ps1')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:de que seccion viene cada fallo)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n78. Que los bancos midan ESTE repo, en orden y sin etapas mudas"
+python (Join-Path $PSScriptRoot 'probar-bancos-de-verdad.py')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:sin etapas mudas)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "7. Bancos que llaman a funciones que no han traido (ROJO si los hay)"
 # No es un detalle de estilo: un banco asi no prueba lo que dice probar. probar-json-ui
 # soltaba 16 de estos por pasada y salia en verde; probar-costumbres estuvo un dia

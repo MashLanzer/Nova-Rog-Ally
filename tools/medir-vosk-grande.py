@@ -25,7 +25,9 @@ Se puede parar a media y repetir: lo ya oido se guarda y se salta.
 import ast, gc, io, json, os, subprocess, sys, tempfile, time, wave
 import numpy as np
 
-REPO = r"C:\Users\braya\Documents\voice-ctrl"
+# POR DONDE ESTE EL BANCO, NO POR UNA RUTA ESCRITA A MANO (22/09): con la ruta completa
+# a fuego, una copia del repo en otra carpeta seguiria midiendo los ficheros de SIEMPRE.
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 USO = os.path.join(REPO, "pruebas", "audio", "uso")
 # El resultado va DENTRO de pruebas\audio\ a proposito: el repositorio es PUBLICO y
 # .gitignore:33 ya tapa esa carpeta entera. Este JSON lleva transcrito lo que dices en las

@@ -1,7 +1,11 @@
 ﻿# Avisos sin voz: CUANDO se habla y cuando basta con que se vea.
 # Test-AvisoSinVoz se saca del archivo real, como en las demas pruebas. Lo que
 # se mide es la decision, no el pulso de la capsula (eso se ve mirandola).
-$ruta = 'C:\Users\braya\Documents\voice-ctrl\assistant.ps1'
+# POR DONDE ESTE EL BANCO, NO POR UNA RUTA ESCRITA A MANO (22/09). Aqui habia la ruta
+# completa a fuego: en una copia del repo en otra carpeta este banco seguiria midiendo el
+# assistant.ps1 de SIEMPRE -verde sobre codigo que no es el que se acaba de tocar- y si la
+# carpeta se renombrara se caeria entero por algo que no tiene que ver con lo que prueba.
+$ruta = Join-Path (Split-Path -Parent $PSScriptRoot) 'assistant.ps1'
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($ruta, [ref]$null, [ref]$null)
 $fn = $ast.Find({ param($x) $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq 'Test-AvisoSinVoz' }, $true)
 if (-not $fn) { throw "falta Test-AvisoSinVoz" }

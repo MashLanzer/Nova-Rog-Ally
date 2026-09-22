@@ -15,7 +15,9 @@ leer la parte fija del prompt (ver sistema_con en charla_worker.py).
 """
 import json, os, queue, subprocess, sys, tempfile, threading, time, urllib.request
 sys.stdout.reconfigure(encoding="utf-8")
-RAIZ = r"C:\Users\braya\Documents\voice-ctrl"
+# POR DONDE ESTE EL BANCO, NO POR UNA RUTA ESCRITA A MANO (22/09): con la ruta completa
+# a fuego, una copia del repo en otra carpeta seguiria midiendo los ficheros de SIEMPRE.
+RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 H = {"Content-Type": "application/json"}
 
 

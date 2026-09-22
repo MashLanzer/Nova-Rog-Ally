@@ -2,7 +2,14 @@
 # diario, con las funciones SACADAS DEL ARCHIVO REAL. En vez de capturar la
 # pantalla (que traeria lo que haya ahora), se genera una imagen con un codigo
 # como los que salen en los juegos, que es el caso de uso.
-$ruta = 'C:\Users\braya\Documents\voice-ctrl\assistant.ps1'
+# POR DONDE ESTE EL BANCO, NO POR UNA RUTA ESCRITA A MANO (22/09). Aqui habia
+# 'C:\Users\braya\Documents\voice-ctrl\assistant.ps1' a fuego: en una copia del repo en
+# otra carpeta este banco seguiria midiendo el assistant.ps1 de SIEMPRE, y si alguien
+# renombrara la carpeta se caeria entero sin que el fallo tuviera nada que ver con el OCR.
+# Y SIN Stop NO SE ENTERA NADIE: este banco imprimia cuatro etapas y solo comprobaba una,
+# asi que una excepcion por el camino se veia en pantalla y acababa en verde igual.
+$ErrorActionPreference = 'Stop'
+$ruta = Join-Path (Split-Path -Parent $PSScriptRoot) 'assistant.ps1'
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($ruta, [ref]$null, [ref]$null)
 function TraerFn([string]$n) {
     $f = $ast.Find({ param($x) $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq $n }, $true)
@@ -39,14 +46,36 @@ $limpio = (($texto -replace '[\r\n]+', ' / ') -replace '\s{2,}', ' ').Trim()
 $donde = 'SILENT BREATH'   # como si estuvieras jugando
 $nota = Add-Memoria ("(de $donde) " + $limpio)
 Get-Content -Raw -LiteralPath $nota | ForEach-Object { "   " + ($_ -replace "`r`n", "`n   ") }
+# ESTA ETAPA ERA MUDA (22/09): se imprimia la nota y no se miraba. Si Add-Memoria
+# devolviera vacio, escribiera en otro sitio o se dejara el texto por el camino, el banco
+# acababa en verde igual, porque el unico veredicto de abajo mira los digitos del OCR.
+$contenido = if ($nota -and (Test-Path -LiteralPath $nota)) { Get-Content -Raw -LiteralPath $nota } else { '' }
+if (-not $contenido) { Write-Host "MAL: Add-Memoria no dejo ninguna nota"; exit 1 }
+if ($contenido -notmatch '328|3 2 8') { Write-Host "MAL: la nota no tiene el codigo leido"; exit 1 }
+if ($contenido -notmatch [regex]::Escape($donde)) { Write-Host "MAL: la nota no dice de que juego salio"; exit 1 }
 
 Write-Host "--- y si luego preguntas por el codigo ---"
 Invoke-Expression (TraerFn 'ConvertTo-Plain')
+# REGLA DEL BANCO: Find-EnMemoria llama a Get-Distancia por dentro y aqui no se traia.
+# Hoy pasaba de milagro -con este texto entra por la coincidencia exacta y no llega a
+# usarla-, pero en cuanto una palabra cambiase moriria con CommandNotFoundException... y
+# el banco seguiria en verde, porque nadie miraba el resultado. Las dos mitades del fallo
+# quedan tapadas: se trae la funcion, y abajo se comprueba lo que devuelve.
+Invoke-Expression (TraerFn 'Get-Distancia')
 Invoke-Expression (TraerFn 'Find-EnMemoria')
 $MemoriaDir = $env:TEMP
 $PALABRAS_VACIAS = @('que','sabes','sobre','de','del','la','el','los','las','un','una','anote','apunte','cual','es','era')
 $r = Find-EnMemoria 'que codigo anote'
 Write-Host "   Find-EnMemoria('que codigo anote') -> $r"
+# Y ESTA TAMBIEN ERA MUDA. Es la etapa que de verdad le importa a braya: apuntar el codigo
+# no sirve de nada si luego no lo encuentra al preguntarlo.
+if (-not $r) { Write-Host "MAL: apunto el codigo pero no lo encuentra al preguntarlo"; exit 1 }
+if ($r -notmatch '328|3 2 8') { Write-Host "MAL: lo que devuelve no trae el codigo: '$r'"; exit 1 }
+# y que no conteste a cualquier cosa: una pregunta de algo que no anoto no puede devolver
+# esta nota, que seria justo una respuesta equivocada
+$rNo = Find-EnMemoria 'que me dijo el medico sobre las pastillas'
+if ($rNo -match '328') { Write-Host "MAL: devuelve el codigo a una pregunta que no tiene nada que ver: '$rNo'"; exit 1 }
+Write-Host "   y a una pregunta de otra cosa no le saca el codigo: correcto"
 
 Remove-Item $png -Force -ErrorAction SilentlyContinue
 Remove-Item $DiarioDir -Recurse -Force -ErrorAction SilentlyContinue

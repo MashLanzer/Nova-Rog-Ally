@@ -1,7 +1,11 @@
 ﻿# Listas de verdad: que se añada, se lea, se tache y se vacíe, y que el archivo
 # sobreviva a todo eso. Las funciones se sacan DEL ARCHIVO REAL, como en las
 # demás pruebas. No toca tus listas: usa una carpeta temporal.
-$ruta = 'C:\Users\braya\Documents\voice-ctrl\assistant.ps1'
+# POR DONDE ESTE EL BANCO, NO POR UNA RUTA ESCRITA A MANO (22/09). Aqui habia la ruta
+# completa a fuego: en una copia del repo en otra carpeta este banco seguiria midiendo el
+# assistant.ps1 de SIEMPRE -verde sobre codigo que no es el que se acaba de tocar- y si la
+# carpeta se renombrara se caeria entero por algo que no tiene que ver con lo que prueba.
+$ruta = Join-Path (Split-Path -Parent $PSScriptRoot) 'assistant.ps1'
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($ruta, [ref]$null, [ref]$null)
 function TraerFn([string]$n) {
     $f = $ast.Find({ param($x) $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq $n }, $true)
