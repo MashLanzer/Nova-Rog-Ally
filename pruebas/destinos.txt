@@ -288,3 +288,22 @@ busca cuanto vale una ps5 en google => cuanto vale una ps5
 baja la musica => <se va al modelo>
 baja el volumen => bajar volumen
 baja el brillo => bajar brillo
+
+# --- LA MINA DE LOS DESCARTES (22/09) ---
+# De las 30 frases que Nova habia tirado sin entender, 11 eran ordenes de verdad. Ocho ya
+# funcionaban con los arreglos de estos dias -la mina estaba casi agotada-, y estas dos no:
+# La vocal final del verbo se la come el oido constantemente ('termino' por 'termine').
+avisame cuando la descarga de steam termino => [regla]
+# Y el mismo sitio dicho al reves: braya lo dijo asi tres veces en el log.
+abre los ajustes en la seccion de aplicaciones => abrir aplicaciones en ajustes
+# Control: las otras dos formas de pedir lo mismo siguen yendo donde iban.
+abre la seccion de aplicaciones de ajustes => abrir aplicaciones en ajustes
+abre los ajustes de sonido => abrir sonido en ajustes
+# Y una muletilla delante no puede romper la orden (ya funcionaban; quedan vigiladas).
+oye sube el volumen => subir volumen
+a ver abre steam => abrir steam
+
+# El articulo cambia con la palabra: 'LOS ajustes' pero 'LA configuracion'.
+abre la configuracion en el apartado de bluetooth => abrir bluetooth en ajustes
+# Y lo que NO debe moverse: sin seccion, se abre la pagina principal.
+abre los ajustes => abrir ajustes

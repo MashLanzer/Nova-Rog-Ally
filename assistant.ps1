@@ -4683,8 +4683,16 @@ function Resolve-Fragment([string]$f) {
     }
     # LAS SECCIONES DE AJUSTES (18/09): "abre la seccion de aplicaciones de ajustes" fue dos
     # veces al agente. Cada seccion tiene su URI ms-settings:, y va por explorer.exe.
+    # Y 'LA configuracion', no solo 'LOS ajustes': el articulo cambia con la palabra, y el
+    # patron solo traia 'los'. 'abre la configuracion en el apartado de bluetooth' se iba
+    # al modelo por un articulo.
+    # Y EL ORDEN AL REVES TAMBIEN (22/09, minando los descartes). El primer patron cubre
+    # 'abre la seccion de aplicaciones DE ajustes' y el segundo 'abre los ajustes DE
+    # aplicaciones', pero braya lo dijo asi: 'abre los ajustes EN LA SECCION DE
+    # aplicaciones', y eso se iba al modelo. Lo dijo tres veces en el log, dos de una
+    # forma y una de la otra: es la misma orden dicha como sale.
     if ($f -match '^(?:abre|abrir|abreme|ve a|entra en|muestra)\s+(?:la\s+)?(?:seccion\s+(?:de\s+)?|apartado\s+(?:de\s+)?|pagina\s+(?:de\s+)?)?(?:los\s+|las\s+|el\s+|la\s+)?(.+?)\s+(?:de|en)\s+(?:los\s+|la\s+)?(?:ajustes|configuracion)$' -or
-        $f -match '^(?:abre|abrir|abreme)\s+(?:los\s+)?(?:ajustes|configuracion)\s+de\s+(?:la\s+|el\s+|las\s+|los\s+)?(.+)$') {
+        $f -match '^(?:abre|abrir|abreme)\s+(?:los\s+|la\s+)?(?:ajustes|configuracion)\s+(?:de|en)\s+(?:la\s+|el\s+|las\s+|los\s+)?(?:seccion\s+(?:de\s+)?|apartado\s+(?:de\s+)?|pagina\s+(?:de\s+)?)?(?:la\s+|el\s+|las\s+|los\s+)?(.+)$') {
         $secc = $Matches[1].Trim()
         $SECCIONES_AJUSTES = @{
             'aplicaciones' = 'appsfeatures'; 'apps' = 'appsfeatures'; 'programas' = 'appsfeatures'
@@ -13160,7 +13168,14 @@ function Invoke-ReglaVoz([string]$text) {
     # AQUI LA ACCION ES AVISAR, y por eso no hace falta que diga que hacer: 'avisame' YA es
     # lo que quiere. Va DELANTE del patron de abajo porque es mas especifico (pide el verbo
     # de avisar al principio) y no le quita ninguna frase.
-    if ($p -match '^(?:avisa|avisame|avisas|dime|me dices|me avisas)\s+(?:cuando|en cuanto)\s+(?:(?:se\s+)?(?:termine|acabe|complete|descargue|baje|instale)\s+(?:de\s+)?(?:descargar|bajar|instalar)?(?:se)?\s*(?:el\s+|la\s+|un\s+)?(?:descarga\s+de\s+)?(.*?)|(?:la\s+)?descarga(?:\s+de\s+(.*?))?\s+(?:termine|acabe|se\s+complete))\s*$') {
+    # LA VOCAL FINAL SE LA COME EL OIDO (22/09, minando los descartes). En la lista de
+    # frases tiradas estaba 'avisame cuando la descarga de Steam TERMINO' dos veces, con
+    # 'termino' donde braya dijo 'termine'. No es que lo dijera mal: es que Whisper y
+    # Parakeet fallan la vocal atona del final constantemente, que es de lo mas dificil
+    # de oir. Aceptar termine/termino/termina -y acabe/acabo/acaba, etc.- no abre la
+    # puerta a nada: 'la descarga termino' y 'cuando la descarga termine' piden lo mismo,
+    # y el patron ya exige el 'avisame cuando' delante.
+    if ($p -match '^(?:avisa|avisame|avisas|dime|me dices|me avisas)\s+(?:cuando|en cuanto)\s+(?:(?:se\s+)?(?:termin[eoa]|acab[eoa]|complet[eoa]|descargue|baj[eoa]|instal[eoa])\s+(?:de\s+)?(?:descargar|bajar|instalar)?(?:se)?\s*(?:el\s+|la\s+|un\s+)?(?:descarga\s+de\s+)?(.*?)|(?:la\s+)?descarga(?:\s+de\s+(.*?))?\s+(?:termin[eoa]|acab[eoa]|se\s+complet[eoa]))\s*$') {
         # los dos grupos se copian YA: el -match de Find-Juego pisaria $Matches
         $objA = ([string]$Matches[1]).Trim()
         if (-not $objA) { $objA = ([string]$Matches[2]).Trim() }

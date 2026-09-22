@@ -347,6 +347,27 @@ Titulo "2n54. La cascada del repaso: Canary antes que Whisper, y sin tocar Parak
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-cascada-repaso.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:sin Canary todo sigue como antes)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n67. El oido se calienta solo al arrancar (idea 3)"
+# 22/09. De 139 s de oido en una sesion de 12 minutos, 31 (el 22 %) fue SOLO cargar modelos,
+# y la primera orden del arranque se come los 5,2 s de Parakeet ella sola. Nova arranco
+# CATORCE veces ese dia: no es un caso raro, es el de todos los dias.
+# Lo que se prueba es EL CERROJO, que es lo unico que puede salir caro: con un hilo que
+# precarga, el de precarga y el del microfono pueden entrar a la vez y cargar DOS modelos de
+# 703 MB. Se prueba con hilos de verdad, que una condicion de carrera no se ve leyendo.
+python (Join-Path $PSScriptRoot 'probar-precarga-oido.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya no paga la carga)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n66. Una transcripcion no puede eternizarse (idea 4)"
+# 22/09. Medido sobre las 812 transcripciones del log: 2,3 s de mediana, 15,1 el p90... y
+# 238,9 la peor, con el audio limitado a 15 s. Eso no es audio largo, es la maquina ahogada.
+# Y pasado cierto punto el trabajo no le sirve a nadie: el asistente deja de esperar el repaso
+# a los 15 s, asi que lo que llegue despues se tira, pero mientras tanto el hilo esta sordo.
+# Con 30 s se corta el 4,1 % y se ahorran 838 s, y es el doble del p90. El banco ejecuta la
+# funcion de verdad con un modelo que entrega los segmentos despacio: lo que importa es que
+# al cortar DEVUELVA lo que ya tiene, y eso no se ve mirando el fuente.
+python (Join-Path $PSScriptRoot 'probar-tope-reloj.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no puede eternizarse)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n65. Una orden mal oida no envenena el vocabulario"
 # 22/09. La cadena entera: el liston de letras roto hizo que Whisper devolviera 'Si es a los
 # ajutos' donde braya dijo 'cierra los ajustes'; eso se aprendio, y Add-Alias-Comando metio

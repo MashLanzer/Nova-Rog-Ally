@@ -602,3 +602,9 @@ dime cuando termine la descarga de steam
 avisame cuando se descargue elden ring
 # --- control: los otros 'avisame' siguen siendo lo que eran ---
 avisame en diez minutos
+
+# --- de la mina de los descartes (22/09) ---
+avisame cuando la descarga de steam termino
+avisame cuando termina la descarga de elden ring
+abre los ajustes en la seccion de aplicaciones
+abre la configuracion en el apartado de sonido

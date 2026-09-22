@@ -27,6 +27,7 @@ import os
 import re
 import json
 import queue
+import threading   # el cerrojo de la carga y el hilo de precarga (ver PRECARGA)
 import time
 import collections
 import unicodedata
@@ -222,6 +223,8 @@ DICTADO_SIN_VOZ = 8.0
 # orden de verdad, incluso larga ("recuerdame manana a las diez que..."), cabe
 # de sobra en esto, y se coge el PRINCIPIO porque es donde esta la orden.
 TRANSCRIBIR_MAX = 15.0
+# Y CUANTO SE LE DEJA TARDAR (ver el bucle de segmentos en transcribir_whisper).
+TRANSCRIBIR_TOPE_S = 30.0
 
 TASA = 16000
 PICO_OBJETIVO = 0.35      # nivel al que queremos llevar la voz
@@ -780,6 +783,36 @@ _omni = None
 _omni_roto = False
 _omni_uso = 0.0
 _parakeet_uso = 0.0      # cuando se uso por ultima vez (ver PARAKEET NO SE SUELTA DE GOLPE)
+_carga_parakeet = threading.Lock()   # ver modelo_parakeet
+
+# PRECARGA: QUE LA PRIMERA ORDEN NO PAGUE LA CARGA (22/09, idea 3 de IDEAS-2026-09-22.md).
+# Medido en una sesion de 12 minutos: de 139 s de oido, 31 (el 22 %) fue SOLO cargar modelos,
+# y la primera orden del arranque se come los 5,2 s de Parakeet ella sola. Nova arranco
+# CATORCE veces el 22/09, asi que no es un caso raro: es el de todos los dias.
+# Se carga en un hilo aparte para no retrasar el arranque -el hilo principal tiene que estar
+# escuchando ya-, y con estas guardas:
+#   - se espera PRECARGA_ESPERA segundos: al arrancar ya se esta cargando Whisper base, y
+#     pelearse con el por la CPU haria las dos cosas mas lentas en vez de mas rapidas.
+#   - se mira si hay un juego delante ANTES y DESPUES de la espera: con un juego la RAM es
+#     suya, y ademas Parakeet ya se aparta solo en ese caso.
+#   - la guarda de RAM no hay que repetirla: modelo_parakeet ya se niega a cargar si no cabe.
+# Y el hilo es daemon: si el worker tiene que salir -cambio de microfono, cerrojo perdido-,
+# no se queda esperando a que termine de cargar.
+PRECARGA_ESPERA = 6.0
+
+
+def precargar_parakeet():
+    """En un hilo aparte al arrancar: que la primera orden llegue con el oido ya puesto."""
+    try:
+        if jugando():
+            return
+        time.sleep(PRECARGA_ESPERA)
+        if jugando() or _parakeet is not None or _parakeet_roto:
+            return
+        if modelo_parakeet() is not None:
+            anota("parakeet precargado: la primera orden ya no paga la carga")
+    except Exception as e:
+        anota("WARN: la precarga de parakeet fallo (%s); se cargara cuando haga falta" % e)
 _parakeet_roto = False
 
 
@@ -922,33 +955,50 @@ def modelo_parakeet():
     global _parakeet, _parakeet_roto, _parakeet_uso
     if _parakeet is not None or _parakeet_roto:
         return _parakeet
-    _libre = ram_libre_mb()
-    if 0 <= _libre < RAM_MIN_PARAKEET:
-        _libre = hacer_sitio_a_parakeet(_libre)
-    if 0 <= _libre < RAM_MIN_PARAKEET:
-        anota("parakeet: no lo cargo, solo quedan %.0f MB libres (hacen falta %.0f)"
-              % (_libre, RAM_MIN_PARAKEET))
-        return None
-    try:
-        import glob
-        carpetas = [c for c in glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "modelos", "*parakeet*")) if os.path.isdir(c)]
-        if not carpetas:
-            _parakeet_roto = True
+    # EL CERROJO, Y LA SEGUNDA COMPROBACION DENTRO (22/09, con la precarga).
+    # Hasta hoy esto solo lo llamaba el hilo del microfono y no hacia falta. Desde que hay un
+    # hilo que precarga al arrancar (ver PRECARGA), los dos pueden entrar a la vez: el de
+    # precarga empieza a cargar, llega una orden, el hilo principal ve _parakeet todavia en
+    # None y carga OTRO. Son 703 MB cada uno en una consola donde quedan 1,7 GB libres.
+    # La comprobacion se repite DENTRO del cerrojo a proposito: el que esperaba puede
+    # encontrarselo ya cargado por el otro, y entonces no hay nada que hacer.
+    #
+    # Y TODO SE QUEDA EN UNA SOLA FUNCION a proposito. La primera version partia la carga en
+    # un _cargar_parakeet aparte, que se lee mejor, y puso en rojo SIETE comprobaciones de
+    # tres bancos: los que vigilan que la guarda de RAM este dentro de modelo_parakeet, que
+    # vaya antes del try, y que se selle _parakeet_uso al cargar, todos buscan por el nombre
+    # de ESTA funcion. El codigo era correcto y los bancos tambien: lo que sobraba era el
+    # refactor.
+    with _carga_parakeet:
+        if _parakeet is not None or _parakeet_roto:
+            return _parakeet
+        _libre = ram_libre_mb()
+        if 0 <= _libre < RAM_MIN_PARAKEET:
+            _libre = hacer_sitio_a_parakeet(_libre)
+        if 0 <= _libre < RAM_MIN_PARAKEET:
+            anota("parakeet: no lo cargo, solo quedan %.0f MB libres (hacen falta %.0f)"
+                  % (_libre, RAM_MIN_PARAKEET))
             return None
-        import sherpa_onnx
+        try:
+            import glob
+            carpetas = [c for c in glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "modelos", "*parakeet*")) if os.path.isdir(c)]
+            if not carpetas:
+                _parakeet_roto = True
+                return None
+            import sherpa_onnx
 
-        def fichero(patron):
-            return sorted(glob.glob(os.path.join(carpetas[0], patron)))[0]
-        t0 = time.time()
-        _parakeet = sherpa_onnx.OfflineRecognizer.from_transducer(
-            encoder=fichero("encoder*.onnx"), decoder=fichero("decoder*.onnx"), joiner=fichero("joiner*.onnx"),
-            tokens=fichero("tokens.txt"), num_threads=HILOS_PRECISO, decoding_method="greedy_search", model_type="nemo_transducer")
-        _parakeet_uso = time.time()
-        anota("parakeet cargado en %.1f s" % (time.time() - t0))
-    except Exception as e:
-        _parakeet_roto = True
-        anota("WARN: no se pudo cargar Parakeet (%s); se sigue con Whisper" % e)
-    return _parakeet
+            def fichero(patron):
+                return sorted(glob.glob(os.path.join(carpetas[0], patron)))[0]
+            t0 = time.time()
+            _parakeet = sherpa_onnx.OfflineRecognizer.from_transducer(
+                encoder=fichero("encoder*.onnx"), decoder=fichero("decoder*.onnx"), joiner=fichero("joiner*.onnx"),
+                tokens=fichero("tokens.txt"), num_threads=HILOS_PRECISO, decoding_method="greedy_search", model_type="nemo_transducer")
+            _parakeet_uso = time.time()
+            anota("parakeet cargado en %.1f s" % (time.time() - t0))
+        except Exception as e:
+            _parakeet_roto = True
+            anota("WARN: no se pudo cargar Parakeet (%s); se sigue con Whisper" % e)
+        return _parakeet
 
 
 # COBERTURA DE PARAKEET: EL LISTON SE LO PONE ELLA (22/09). Lo de abajo es de cuando el
@@ -1813,6 +1863,23 @@ def transcribir_whisper(bloques, modelo=None, seguir=None):
         peor = min(peor, float(getattr(s, "avg_logprob", 0.0) or 0.0))
         if seguir is not None and not seguir():
             anota("whisper: cortado a medias, ya no hace falta")
+            break
+        # Y UN TOPE DE RELOJ (22/09, idea 4 de IDEAS-2026-09-22.md). Medido sobre las 812
+        # transcripciones del log: 2,3 s de mediana, 15,1 el p90... y 238,9 la peor, con
+        # TRANSCRIBIR_MAX limitando el audio a 15 s. Eso no es audio largo, es la maquina
+        # ahogada. Y pasado cierto punto el trabajo ya no le sirve a nadie: el asistente
+        # deja de esperar el repaso a los 15 s ($ReintentoMaxMs), asi que lo que llegue
+        # despues se tira igual, pero mientras tanto este hilo esta sordo.
+        # 30 s corta 33 de 812 (el 4,1 %) y ahorra 838 s; es el doble del p90, asi que no
+        # se lleva por delante ninguna transcripcion normal.
+        # LO QUE ESTO NO CUBRE, y conviene saberlo: el trabajo se hace al PEDIR cada
+        # segmento, asi que si el primero tarda los 30 s enteros, aqui no se llega a
+        # entrar. Para eso no hay parche barato -haria falta otro hilo-, y la causa de
+        # fondo (quedarse sin memoria) se ataca por el otro lado: ver plazo_soltar y
+        # RAM_MIN_PRECISO. Esto recorta la cola, no la elimina.
+        if time.time() - t0 > TRANSCRIBIR_TOPE_S:
+            anota("whisper: llevo %.0f s y lo dejo aqui (tope %.0f s); devuelvo lo que tengo"
+                  % (time.time() - t0, TRANSCRIBIR_TOPE_S))
             break
     texto = " ".join(partes).strip()
     _ultima_seguridad = round(peor, 2) if texto else None
@@ -2708,6 +2775,9 @@ bloques_ventana = 0   # ver RUIDO_CONSTANTE
 # nadie; el pico que SI se usa al activar y en el log es pico_rafaga.
 pico_rafaga = 0.0       # pico de la rafaga que se esta decodificando ahora
 ultima_marca = 0.0
+
+# el oido, calentandose en paralelo (ver PRECARGA)
+threading.Thread(target=precargar_parakeet, daemon=True).start()
 
 try:
     with sd.RawInputStream(samplerate=TASA, blocksize=4000, dtype="int16",
