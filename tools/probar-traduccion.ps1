@@ -61,6 +61,10 @@ Comp 'sin juegos en la biblioteca, no falla' (-not (Test-NombreInventado 'hola' 
 # El caso que de verdad sujeta el arreglo es el ultimo: dos ordenes de guardado distintos
 # tienen que dar LA MISMA respuesta.
 Invoke-Expression (Traer 'Get-Distancia')
+# ANTES que Find-Traduccion, que es quien la llama: en PowerShell da igual el orden
+# para llamar, pero si esta prueba usa Find-Traduccion mas arriba que esta linea,
+# revienta por dentro y sale en la seccion 7 de la bateria (paso el 21/09).
+Invoke-Expression (Traer 'Add-UsoTraduccion')
 Invoke-Expression (Traer 'Find-Traduccion')
 $script:tradFalsas = @{}
 function Get-Traducciones { return $script:tradFalsas }
@@ -102,6 +106,11 @@ $script:traducciones = @{}
 # que el guardado -que ahora fusiona con el disco- no las resucite. Sin esta linea, el
 # banco revienta por dentro al llamar a un metodo sobre $null.
 $script:traduccionesQuitadas = New-Object System.Collections.Generic.HashSet[string]
+# D6 (21/09): Find-Traduccion apunta el uso de la que acierta, asi que hace falta la
+# funcion y la tabla donde cuenta. Sin esto el banco revienta por dentro y la seccion 7
+# de la bateria lo canta.
+$script:traduccionesUsos = @{}
+$script:traduccionesUsoSucio = $false
 function Get-Traducciones { return $script:traducciones }
 $TraduccionesPath = Join-Path $env:TEMP 'traducciones-prueba-nunca.json'
 Invoke-Expression (Traer 'Add-Traduccion')

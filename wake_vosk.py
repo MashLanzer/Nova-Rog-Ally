@@ -150,6 +150,17 @@ ULTIMO_SOLTAR = 120.0
 CONFIRMACION_MAX = 8.0
 # el oido fino no repasa audios mas largos que esto (ver atender_reintento)
 REPASO_MAX = 8.0
+# Y UNO PROPIO PARA WHISPER BASE (21/09 noche, del uso real). El de arriba llevaba un
+# 'and not base' que lo dejaba sin efecto justo para el escalon que MAS se usa: 324 repasos
+# en el log contra 118 del oido fino. Sin tope, un audio largo se lo tragaba entero y el
+# hilo del oido se quedaba dentro: 60,8 segundos medidos en una sola transcripcion, y
+# mientras tanto Nova NO TE OYE. braya lo dijo tal cual: 'se demora en recibir lo que le
+# digo'.
+# 12 s y no 8: medido sobre sus 687 grabaciones, la mediana son 4,3 s y el p95 9,8 s, asi
+# que con 12 s se quedan sin repaso 12 de 687 (el 1,7 %) y con 8 s serian 86 (el 12,5 %).
+# El oido fino se queda en 8 porque es ~4 veces mas lento y solo sirve el 18 % de las veces
+# que se pide: ahi el audio largo no compensa.
+REPASO_MAX_BASE = 12.0
 
 # se da por terminada la frase tras este silencio
 SILENCIO_FIN = 1.5
@@ -250,6 +261,27 @@ UMBRAL_VOZ = 0.008
 # Se deja en config.json (escucha.rafagaMinima) para poder bajarlo sin tocar codigo: si
 # alguna vez la llama flojito desde lejos y no le oye, esto es lo primero que hay que bajar.
 RAFAGA_MIN_NOMBRE = RAFAGA_ARG if RAFAGA_ARG is not None else 0.030
+# EL LISTON ES RELATIVO A SU VOZ, NO UN NUMERO FIJO (21/09 noche). Medido sobre el log:
+# desde que este filtro existe (20/09) hay 52 activaciones y 39 descartes por 'suena
+# demasiado flojo'. Cruzando cada descarte con el p90 de la voz de braya en ese mismo
+# momento, la mayoria de esas rafagas eran MAS FUERTES que su propia voz: 127 %, 129 %,
+# 162 %. O sea que no es que hablara flojo: es que su voz ENTERA estaba por debajo del
+# liston fijo -p90 de 0,011 a 0,026 contra un liston de 0,030-, asi que no podia pasar
+# ninguna llamada por mucho que repitiera. Y repetir es justo lo que hacia: tres descartes
+# seguidos en dos minutos, sin una sola activacion entre medias.
+# Con el liston relativo, sobre esos mismos datos: RECUPERA 12 llamadas y NO PIERDE NI UNA
+# de las 52 que hoy activan. El 0,030 de antes se queda como TECHO -si habla fuerte, se le
+# exige lo mismo que hoy- y el suelo impide que en silencio absoluto valga cualquier cosa.
+RAFAGA_SUELO = 0.010      # por debajo de esto no se fia ni aunque su voz este bajisima
+RAFAGA_FACTOR = 0.85      # una llamada suya suele venir al nivel de su voz o por encima
+ultimo_p90 = 0.0          # el p90 de su voz en el ultimo pulso que tuvo voz
+
+def umbral_rafaga():
+    """Lo que tiene que dar una rafaga para valer como llamada. Sin p90 todavia -Nova
+    acaba de arrancar y nadie ha hablado- manda el techo de siempre."""
+    if ultimo_p90 <= 0:
+        return RAFAGA_MIN_NOMBRE
+    return max(RAFAGA_SUELO, min(RAFAGA_MIN_NOMBRE, ultimo_p90 * RAFAGA_FACTOR))
 # bloques de 250 ms por encima del umbral que hacen falta para recalibrar:
 # con menos, un golpe suelto bastaba para mover la ganancia
 MIN_BLOQUES_VOZ = 4
@@ -959,12 +991,15 @@ def atender_reintento(ultimo_audio):
             m = modelo_preciso()
             _preciso_uso = time.time()
         duracion = sum(len(b) for b in ultimo_audio) / float(TASA) if ultimo_audio else 0.0
-        if m is not None and duracion > REPASO_MAX and not base:
+        # cada uno con el suyo (ver REPASO_MAX_BASE): base es el que mas se usa y no
+        # tenia ninguno
+        tope_repaso = REPASO_MAX_BASE if base else REPASO_MAX
+        if m is not None and duracion > tope_repaso:
             # El 12/09 small tardo 24 y 35 s con audios largos, con el plazo del
             # asistente en 15 s y este hilo sordo todo ese rato. Una orden que
             # dura mas de esto es conversacion o ruido: no merece el repaso.
-            anota("oido fino: %.1f s de audio es demasiado para repasar (tope %.0f s)"
-                  % (duracion, REPASO_MAX))
+            anota("%s: %.1f s de audio es demasiado para repasar (tope %.0f s)"
+                  % ("whisper tras parakeet" if base else "oido fino", duracion, tope_repaso))
         elif m is not None and ultimo_audio:
             t0 = time.time()
             # si el asistente se rinde (quita la marca), se deja de transcribir
@@ -2564,11 +2599,11 @@ try:
                             # cuando el arrastre ya se apago -son 4 bloques-, y perder un
                             # "si" bueno es peor que tardar un segundo mas. Lo que se
                             # exige es que desde la pregunta haya sonado ALGO.
-                            if pico_rafaga >= RAFAGA_MIN_NOMBRE:
+                            if pico_rafaga >= umbral_rafaga():
                                 respuesta = "si"
                             else:
                                 anota("confirmacion: oigo '%s' pero no ha sonado nada desde la pregunta (rafaga %.4f < %.3f); sigo esperando"
-                                      % (texto_c, pico_rafaga, RAFAGA_MIN_NOMBRE))
+                                      % (texto_c, pico_rafaga, umbral_rafaga()))
                         if respuesta:
                             anota("confirmacion: '%s' -> %s" % (texto_c, respuesta))
                             escribir(CONFIRMACION, respuesta)
@@ -2775,13 +2810,13 @@ try:
                                         ultimo_aviso_solo_boton = ahora
                                         anota("'%s' ignorado: los altavoces suenan fuerte (%.3f), la palabra no es de fiar"
                                               % (texto, salida))
-                                elif pico_rafaga < RAFAGA_MIN_NOMBRE:
+                                elif pico_rafaga < umbral_rafaga():
                                     # Vosk daba confianza 1.00 al nombre sobre
                                     # bloques de pico 0.000, o sea silencio puro
                                     # amplificado. Sin haber sonado nada no hay
                                     # nada que reconocer.
                                     anota("descartado '%s': suena demasiado flojo para ser una llamada (rafaga %.4f < %.3f); ver LA RAFAGA QUE DE VERDAD TE DELATA"
-                                          % (texto, pico_rafaga, RAFAGA_MIN_NOMBRE))
+                                          % (texto, pico_rafaga, umbral_rafaga()))
                                 elif conf < umbral_confianza(plano):
                                     anota("descartado '%s': confianza %.2f < %.2f%s"
                                           % (texto, conf, umbral_confianza(plano),
@@ -2872,6 +2907,8 @@ try:
                         ganancia = round(max(GANANCIA_MIN, min(GANANCIA_MAX, propuesta)), 1)
                         # esta SI se escribe siempre: es el ajuste de ganancia de verdad, el
                         # dato con el que se decide si la escucha esta bien calibrada
+                        # el p90 de su voz, para el liston de la rafaga (ver umbral_rafaga)
+                        ultimo_p90 = ref
                         anota("pulso: p90=%.4f bloques_voz=%d ganancia=x%.1f decodificado=%d%% altavoces=%.3f"
                               % (ref, bloques_voz, ganancia, pct_dec(), nivel_salida()))
                         escribir(RUTA_GANANCIA, "%.1f" % ganancia)

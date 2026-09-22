@@ -3838,6 +3838,47 @@ function Resolve-Fragment([string]$f) {
             }
         }
     }
+    # CREAR UNA CARPETA O UN ARCHIVO (D7, 21/09). El 20/09 lo pidio CUATRO veces y las
+    # cuatro se fueron al agente, que para crear una carpeta es como usar una grua para
+    # levantar un vaso: segundos de espera y una llamada de pago.
+    # DONDE SE PUEDE CREAR ES UNA LISTA CERRADA, no cualquier ruta: escritorio, documentos,
+    # descargas, imagenes, musica y videos, que es lo que resuelve Find-CarpetaPorNombre. Sin
+    # decir donde, el escritorio, que es donde lo pidio siempre.
+    # Y EL NOMBRE NO PUEDE SER UNA RUTA: nada de barras, dos puntos ni '..'. Eso no es
+    # paranoia, es que el nombre sale de lo que se OYO, y un dictado que meta una barra
+    # convertiria 'crea la carpeta x' en escribir en otro sitio del disco.
+    # 'NOTA' NO ENTRA AQUI A PROPOSITO (21/09): "crea una nota que diga comprar pan" es
+    # apuntar algo, no crear un fichero, y la primera version de esto lo convertia en un
+    # archivo llamado "que diga comprar pan". Tampoco entra 'abre', que es abrir, ni
+    # 'documento', que se dice igual de poco y se presta a lo mismo.
+    if ($f -match '^(?:crea|creame|haz|hazme)(?:me)?\s+(?:una?\s+)?(carpeta|archivo|fichero)\s*(.*)$') {
+        $queD7 = $Matches[1]; $restoD7 = ([string]$Matches[2]).Trim()
+        # 'en el escritorio' puede ir delante o detras del nombre: se saca y se quita
+        $dondeD7 = ''
+        if ($restoD7 -match '\b(?:en|dentro de|de)\s+(?:el\s+|la\s+|mi\s+|mis\s+)?(escritorio|documentos|descargas|imagenes|fotos|musica|videos)\b') {
+            $dondeD7 = [string]$Matches[1]
+            $restoD7 = ($restoD7 -replace '\b(?:en|dentro de|de)\s+(?:el\s+|la\s+|mi\s+|mis\s+)?(?:escritorio|documentos|descargas|imagenes|fotos|musica|videos)\b', ' ').Trim()
+        }
+        # y el nombre, dicho de las tres formas naturales
+        $nomD7 = $restoD7
+        if ($nomD7 -match '^(?:que\s+se\s+llame|llamad[ao]|con\s+el\s+nombre\s+de|con\s+el\s+nombre|de\s+nombre|que\s+ponga)\s+(.+)$') { $nomD7 = [string]$Matches[1] }
+        $nomD7 = ($nomD7 -replace '^(?:nueva?|nuevo)\s+', '').Trim().TrimEnd('.', ',')
+        # LO QUE VIENE DETRAS DE 'QUE DIGA' ES EL CONTENIDO, NO EL NOMBRE (21/09). Si
+        # llega hasta aqui con eso delante es que la frase pedia otra cosa -escribir algo
+        # DENTRO del archivo-, y eso no se sabe hacer todavia: mejor mandarla al modelo
+        # que crear un archivo llamado "que diga comprar pan".
+        if ($nomD7 -match '^(?:que\s+(?:diga|ponga|contenga)|con\s+el\s+texto|donde\s+ponga)\b') { return $null }
+        # SIN NOMBRE NO SE INVENTA UNO: se pregunta. Una 'Nueva carpeta' en el escritorio es
+        # basura que luego hay que borrar a mano.
+        if (-not $nomD7) { return @(@{ kind = 'decir'; desc = ('¿Como quieres que se llame ' + $(if ($queD7 -eq 'carpeta') { 'la carpeta' } else { 'el archivo' }) + '?') }) }
+        # lo que NO puede ser un nombre de archivo (ver arriba)
+        if ($nomD7.Length -gt 60 -or $nomD7 -match '[\\/:*?"<>|]' -or $nomD7 -match '^\.|\.\.') { return $null }
+        $carpD7 = ($queD7 -eq 'carpeta')
+        $dondeD7 = if ($dondeD7) { $dondeD7 } else { 'escritorio' }
+        return @(@{ kind = 'crearAlgo'; carpeta = $carpD7; nombre = $nomD7; donde = $dondeD7
+                    desc = $(if ($carpD7) { "crear la carpeta $nomD7 en el $dondeD7" } else { "crear el archivo $nomD7 en el $dondeD7" }) })
+    }
+
     # --- en que fallo ---
     if ($f -match '^(?:que (?:me )?(?:estas |estoy )?entend\w* mal|en que fall\w*|que (?:no )?(?:entiendes|te cuesta|se te atraganta)|que se te atraganta|donde fall\w*)\b') {
         return @(@{ kind = 'queFallo'; desc = 'en que fallo' })
@@ -5707,6 +5748,19 @@ $script:traducciones = $null
 # guardar se fusiona con lo que haya en disco, y sin esta lista un 'olvida que X es Y'
 # volveria a aparecer en el siguiente guardado, resucitado desde el propio fichero.
 $script:traduccionesQuitadas = New-Object System.Collections.Generic.HashSet[string]
+# LAS TRADUCCIONES, POR USO (D6, 21/09). Era lo ultimo que quedaba de la fase 2 de
+# 'aprender'. Hasta hoy una traduccion aprendida se quedaba para siempre y todas valian lo
+# mismo: ni se sabia cuales usa de verdad ni habia tope, asi que el fichero solo podia
+# crecer. Las recetas SI tienen tope ($RecetasMax) desde el principio; esto se quedo atras.
+# El contador vive en el MISMO fichero, en un formato que acepta los dos: una entrada vieja
+# es 'clave': 'texto' y una nueva es 'clave': { t: 'texto'; usos: N }. Asi el traducciones.
+# json que hay hoy se lee igual sin convertir nada, y el que se escriba a partir de ahora
+# lleva la cuenta. Lo que NO se hace es escribir en disco en cada uso: se cuenta en memoria
+# y se guarda como mucho una vez por minuto, porque esto corre en el camino de una orden.
+$script:traduccionesUsos = @{}
+$script:traduccionesUsoSucio = $false
+$script:traduccionesUsoEn = 0
+$TraduccionesMax = 300        # de sobra: hoy hay 3. Es un tope, no un objetivo
 
 function Get-Traducciones {
     if ($null -ne $script:traducciones) { return $script:traducciones }
@@ -5714,7 +5768,18 @@ function Get-Traducciones {
     if (Test-Path -LiteralPath $TraduccionesPath) {
         try {
             $j = Get-Content -LiteralPath $TraduccionesPath -Raw -Encoding UTF8 | ConvertFrom-Json
-            foreach ($p in $j.PSObject.Properties) { $script:traducciones[$p.Name] = [string]$p.Value }
+            foreach ($p in $j.PSObject.Properties) {
+                # los DOS formatos (ver LAS TRADUCCIONES, POR USO): texto pelado el viejo,
+                # { t; usos } el nuevo. Lo que decide es si trae la propiedad 't'.
+                $vT = $p.Value
+                if ($vT -and $vT.PSObject -and $vT.PSObject.Properties['t']) {
+                    $script:traducciones[$p.Name] = [string]$vT.t
+                    $script:traduccionesUsos[$p.Name] = [int]$vT.usos
+                } else {
+                    $script:traducciones[$p.Name] = [string]$vT
+                    if (-not $script:traduccionesUsos.ContainsKey($p.Name)) { $script:traduccionesUsos[$p.Name] = 0 }
+                }
+            }
         } catch { Save-Corrupto $TraduccionesPath 'traducciones' }
     }
     return $script:traducciones
@@ -5745,11 +5810,30 @@ function Save-Traducciones {
     }
     foreach ($k in $t.Keys) { $fusion[$k] = $t[$k] }
     foreach ($q in @($script:traduccionesQuitadas)) { [void]$fusion.Remove($q) }
+    # EL TOPE, POR USO (D6, 21/09). Si alguna vez se pasa de $TraduccionesMax, caen las
+    # que MENOS se han usado, y entre las de cero usos las que llegaron antes -que es lo
+    # que hace $RecetasMax con las recetas-. Lo que nunca cae por aqui es una que acabas
+    # de aprender: aun no ha tenido ocasion de usarse, asi que va al final de la cola.
+    if ($fusion.Count -gt $TraduccionesMax) {
+        $sobran = $fusion.Count - $TraduccionesMax
+        $orden = @($fusion.Keys | Sort-Object @{ Expression = { [int]$script:traduccionesUsos[$_] } }, @{ Expression = { $_ } })
+        foreach ($kQ in @($orden | Select-Object -First $sobran)) {
+            [void]$fusion.Remove($kQ)
+            [void]$script:traduccionesUsos.Remove($kQ)
+            Log "TRADUCCIONES: tiro la de '$kQ', que no se usaba, para no pasar de $TraduccionesMax"
+        }
+    }
     # y la RAM se queda con lo fusionado, o la proxima vuelta volveria a ir corta
     $script:traducciones = $fusion
     $o = New-Object PSObject
-    foreach ($k in $fusion.Keys) { $o | Add-Member -NotePropertyName $k -NotePropertyValue $fusion[$k] -Force }
+    foreach ($k in $fusion.Keys) {
+        $uK = 0
+        if ($script:traduccionesUsos.ContainsKey($k)) { $uK = [int]$script:traduccionesUsos[$k] }
+        $o | Add-Member -NotePropertyName $k -NotePropertyValue ([ordered]@{ t = [string]$fusion[$k]; usos = $uK }) -Force
+    }
     Write-Atomico $TraduccionesPath ($o | ConvertTo-Json -Depth 4)
+    $script:traduccionesUsoSucio = $false
+    $script:traduccionesUsoEn = $sw.ElapsedMilliseconds
     return $fusion.Count
 }
 
@@ -9158,11 +9242,28 @@ function Get-PlazoJob {
     }
 }
 
+# SE APUNTA EL USO AQUI, que es el unico sitio por el que se usa una traduccion (D6,
+# 21/09). En memoria y sin tocar el disco: guardar en cada acierto seria escribir un
+# fichero en mitad de una orden, y eso es justo lo que no se hace.
+function Add-UsoTraduccion([string]$clave) {
+    if (-not $clave) { return }
+    # CONTAR NO PUEDE TUMBAR UNA ORDEN (21/09). Esto corre DENTRO de Find-Traduccion, o
+    # sea en mitad de resolver lo que acabas de decir: si la tabla no estuviera creada,
+    # el indexador revienta con NullArray y se lleva la orden por delante. Lo canto un
+    # banco que no la declaraba, y ahi se ve el riesgo de verdad: un contador que no le
+    # importa a nadie no puede ser la razon de que Nova no te abra el Steam.
+    if ($null -eq $script:traduccionesUsos) { $script:traduccionesUsos = @{} }
+    try {
+        $script:traduccionesUsos[$clave] = 1 + [int]$script:traduccionesUsos[$clave]
+        $script:traduccionesUsoSucio = $true
+    } catch { }
+}
+
 function Find-Traduccion([string]$text) {
     $t = Get-Traducciones
     if ($t.Count -eq 0) { return $null }
     $clave = ConvertTo-Plain $text
-    if ($t.ContainsKey($clave)) { return $t[$clave] }
+    if ($t.ContainsKey($clave)) { Add-UsoTraduccion $clave; return $t[$clave] }
     # tolerancia a variaciones del dictado sobre algo ya aprendido.
     # LA MAS PARECIDA, NO LA PRIMERA (17/09). Devolvia la primera clave que entrara en el
     # tope, asi que con dos parecidas el resultado dependia del ORDEN DEL HASHTABLE: un
@@ -9249,7 +9350,7 @@ function Test-FastCommand([string]$text) {
 # cuentan. Sirven para dos cosas distintas y las dos quieren la misma lista: dar
 # un respiro entre ellas, y decidir si una orden merece que se pregunte antes
 # (una voz que no es la tuya puede preguntar la hora; no puede cerrar el juego).
-$AccionesQueTocan = @('app', 'url', 'key', 'atajo', 'escribir', 'winkey', 'altf4', 'alttab', 'otroMonitor',
+$AccionesQueTocan = @('app', 'url', 'key', 'atajo', 'escribir', 'winkey', 'altf4', 'alttab', 'otroMonitor', 'crearAlgo',
                       'enfocar', 'enfocarJuego', 'buscarEquipo', 'winprt', 'winaltg',
                       'volumenPct', 'brillo', 'lock', 'cerrarApp', 'cerrarJuego', 'cerrarTodo')
 
@@ -9776,6 +9877,51 @@ function Invoke-FastCommand([string]$text) {
                     $script:MusicaSitio = [string]$a.sitio
                 }
                 'avisosEntorno' { $a.desc = Set-AvisosEntorno ([bool]$a.encendido) }
+                'crearAlgo' {
+                    # D7 (21/09). Donde se crea sale de Find-CarpetaPorNombre, que solo
+                    # conoce las seis carpetas de siempre: no hay forma de que esto escriba
+                    # en otro sitio del disco. El nombre ya viene limpio de Resolve-Fragment
+                    # (sin barras, sin dos puntos, sin '..' y de 60 como mucho).
+                    $dirC = Find-CarpetaPorNombre ([string]$a.donde)
+                    if (-not $dirC -or -not (Test-Path -LiteralPath $dirC)) {
+                        $a.desc = "no encuentro tu $($a.donde)"
+                        break
+                    }
+                    # un archivo sin extension no lo abre nadie: .txt, que es lo que pide
+                    # cuando dice 'un archivo' o 'una nota'
+                    $nomC = [string]$a.nombre
+                    if (-not $a.carpeta -and $nomC -notmatch '\.[A-Za-z0-9]{1,5}$') { $nomC += '.txt' }
+                    $rutaC = Join-Path $dirC $nomC
+                    if (Test-Path -LiteralPath $rutaC) {
+                        # YA ESTABA: no se toca ni se pisa. Crear encima de un archivo suyo
+                        # seria borrarlo, y eso no se hace sin preguntar.
+                        $a.desc = "ya tienes $(if ($a.carpeta) { 'esa carpeta' } else { 'ese archivo' }) en el $($a.donde)"
+                        break
+                    }
+                    try {
+                        if ($a.carpeta) { [void](New-Item -ItemType Directory -Path $rutaC -ErrorAction Stop) }
+                        else { [void](New-Item -ItemType File -Path $rutaC -ErrorAction Stop) }
+                    } catch {
+                        Log ("CREAR: no pude crear '$rutaC': " + $_.Exception.Message)
+                        $a.desc = 'no he podido crearlo'
+                        break
+                    }
+                    # Y SE COMPRUEBA QUE ESTA (B9, 21/09). Es la meta declarada de NOVA-LLM.md
+                    # -que compruebe que lo que hizo salio bien- y hasta hoy solo lo hacian las
+                    # recetas. New-Item puede no lanzar y aun asi no dejar nada (permisos, un
+                    # antivirus, un disco lleno): decir 'hecho' sin mirar es la misma mentira
+                    # que la de las carpetas del 20/09.
+                    if (-not (Test-Path -LiteralPath $rutaC)) {
+                        Log "CREAR: dije que cree '$rutaC' y no esta"
+                        Add-Estadistica 'no-surtio-efecto' "crearAlgo: $rutaC no aparecio"
+                        $a.desc = 'crei que lo habia creado, pero no esta'
+                        break
+                    }
+                    Log "CREADO: $rutaC"
+                    # "carpeta fotos CREADO" lo canto el banco: la concordancia tambien
+                    # se oye, y esto se dice en voz alta.
+                    $a.desc = $(if ($a.carpeta) { "carpeta $nomC creada" } else { "archivo $nomC creado" }) + " en tu $($a.donde)"
+                }
                 'decir' {
                     # la respuesta ES la descripcion; se dice y ya. Si es un
                     # perfil, la capsula lo sabe ("noche" = paleta calida)
@@ -12943,6 +13089,28 @@ function Invoke-ReglaVoz([string]$text) {
             if (-not $sujeto) { return "No conozco '$obj': no es un juego instalado ni una app de las que se abrir." }
             if ($sujeto.app) { $tipo = 'appAbre' }
             $valor = $sujeto.nombre
+        }
+    }
+    # "AVISAME CUANDO LA DESCARGA DE STEAM TERMINE" (21/09 noche, del uso real). braya lo
+    # dijo asi y le costo 46 SEGUNDOS para acabar oyendo que no se podia: parakeet ->
+    # canary -> omni -> whisper -> la nube -> la API, y la API contesto 'No puedo completar
+    # esta orden porque falta especificar que accion quieres'. La orden era perfecta; lo que
+    # faltaba era el patron. El de abajo solo entiende el orden inverso -'cuando termine de
+    # descargarse X, avisame'-, que nadie dice asi.
+    # AQUI LA ACCION ES AVISAR, y por eso no hace falta que diga que hacer: 'avisame' YA es
+    # lo que quiere. Va DELANTE del patron de abajo porque es mas especifico (pide el verbo
+    # de avisar al principio) y no le quita ninguna frase.
+    if ($p -match '^(?:avisa|avisame|avisas|dime|me dices|me avisas)\s+(?:cuando|en cuanto)\s+(?:(?:se\s+)?(?:termine|acabe|complete|descargue|baje|instale)\s+(?:de\s+)?(?:descargar|bajar|instalar)?(?:se)?\s*(?:el\s+|la\s+|un\s+)?(?:descarga\s+de\s+)?(.*?)|(?:la\s+)?descarga(?:\s+de\s+(.*?))?\s+(?:termine|acabe|se\s+complete))\s*$') {
+        # los dos grupos se copian YA: el -match de Find-Juego pisaria $Matches
+        $objA = ([string]$Matches[1]).Trim()
+        if (-not $objA) { $objA = ([string]$Matches[2]).Trim() }
+        $tipo = 'descarga'; $accion = 'avisame'
+        $valor = ''
+        # 'avisame cuando termine la descarga' sin decir cual: vale cualquiera, que es lo que
+        # hace el patron de abajo con 'algo'. Y 'de steam' no es un juego: es de donde baja.
+        if ($objA -and $objA -notmatch '^(?:algo|cualquier cosa|lo que sea|juego|videojuego|el juego|descarga|la descarga|steam|de steam|el steam)$') {
+            $jA = Find-Juego $objA
+            if ($jA) { $valor = $jA.nombre } else { return "No conozco el juego '$objA'" }
         }
     }
     # DESCARGAS: "cuando termine de descargarse elden ring, abrelo"

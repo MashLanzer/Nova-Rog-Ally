@@ -91,7 +91,12 @@ Write-Host ''
 Write-Host '-- 4. y el "si" fantasma del oido --'
 $oido = [System.IO.File]::ReadAllText((Join-Path $raiz 'wake_vosk.py'))
 Comp 'el reconocedor de si/no ya trae confianza por palabra' ($oido -match 'r\.SetWords\(True\)')
-Comp 'el "si" exige que haya sonado algo' ($oido -match 'if pico_rafaga >= RAFAGA_MIN_NOMBRE:\s*\r?\n\s*respuesta = "si"')
+# EL LISTON YA NO ES UN NUMERO PELADO (22/09): desde que se adapta a su voz, la
+# comparacion llama a umbral_rafaga(). Lo que esta prueba vigila es lo mismo de siempre
+# -que un 'si' exija que haya sonado algo de verdad-, no como se llame el liston.
+Comp 'el "si" exige que haya sonado algo' ($oido -match 'if pico_rafaga >= umbral_rafaga\(\):\s*\r?\n\s*respuesta = "si"')
+# y que ese liston no se pueda quedar en cero, que seria dejar pasar cualquier cosa
+Comp 'y ese liston tiene un suelo' ($oido -match 'return max\(RAFAGA_SUELO, min\(RAFAGA_MIN_NOMBRE, ultimo_p90 \* RAFAGA_FACTOR\)\)')
 Comp 'la rafaga se pone a cero al preguntar' `
     ($oido -match 'conf_inicio = ahora[\s\S]{0,700}pico_rafaga = 0\.0[\s\S]{0,120}confirmacion: esperando si/no')
 # EL "NO" SE QUEDA SIN GUARDA A PROPOSITO: cancelar de mas no hace dano, y hacerlo dificil si

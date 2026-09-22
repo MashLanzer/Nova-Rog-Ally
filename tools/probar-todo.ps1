@@ -347,6 +347,26 @@ Titulo "2n54. La cascada del repaso: Canary antes que Whisper, y sin tocar Parak
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-cascada-repaso.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:sin Canary todo sigue como antes)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n60. El liston de la rafaga, relativo a su voz"
+# 21/09 noche, y salio de que braya dijera usandola: 'se demora en recibir lo que le
+# digo'. El filtro de 'suena demasiado flojo' tenia un numero FIJO (0,030) y su voz
+# entera estaba a veces por debajo: p90 de 0,011 a 0,026. Cruzando cada descarte con el
+# p90 de su voz en ese momento, la mayoria de esas rafagas eran MAS FUERTES que su
+# propia voz (127 %, 162 %). Ahora el liston se adapta: recupera 12 llamadas de las 39
+# descartadas y no pierde ninguna de las 52 que ya activan.
+python (Join-Path $PSScriptRoot 'probar-rafaga.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se adapta a su voz)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n59. Crear una carpeta o un archivo por voz (D7 + B9)"
+# 21/09. El 20/09 braya lo pidio CUATRO veces y las cuatro se fueron al agente: para
+# crear una carpeta eso es una grua para levantar un vaso. Se prueban las dos mitades:
+# que se entienda -sin llevarse por delante 'crea una nota', que es apuntar, ni 'crea el
+# modo X'- y que se cree DE VERDAD, comprobandolo con Test-Path despues (B9). El destino
+# sale de Find-CarpetaPorNombre, que solo conoce seis carpetas, y el nombre no puede ser
+# una ruta: sale de lo que se OYO.
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-crear.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se entiende, se hace y se comprueba)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n58. Lo que se lee de fuera son DATOS, no ordenes"
 # 21/09. Nova le pasa al modelo texto que NO ha dicho braya en tres sitios: el OCR de la
 # pantalla, los correos y las notificaciones. Y la charla tiene un camino de vuelta -el
@@ -494,7 +514,7 @@ foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     # estuviera ahi, asi que una caida de 88 a 5 pasaba EN VERDE: justo lo que este banco
     # existe para evitar. Las que fallan son controles a proposito, por eso el listero es
     # un minimo y no una igualdad: lo que no puede es BAJAR.
-    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 423 }   # 423 desde el 21/09 noche (C10, la pantalla dividida encadenada). Antes 421 tarde (el filtro de 'a las?' sin hora, que se tragaba
+    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 433 }   # 433 desde el 22/09 (avisame cuando la descarga termine). Antes 429 (C10, la pantalla dividida encadenada). Antes 421 tarde (el filtro de 'a las?' sin hora, que se tragaba
 # cualquier frase que empezara por 'a la', y las preposiciones de las flechas). Antes 405
 # verbo), 389 ('dime que X'), 377 (los apodos), 369 (el volumen al reves), 346, 335,
 # 317, 308 y 289: MEDIDO (287 + 2 saltadas). +9 de "mira la pantalla". Antes 280, 260, 254, 242, 238, 234, 228, 221

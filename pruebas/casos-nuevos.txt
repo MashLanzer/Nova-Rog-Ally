@@ -580,3 +580,25 @@ pulsa la flecha abajo
 ve hacia arriba
 # --- control: 'adelante' a secas NO pulsa, desde el 15/09 (se oia al decir 'abre steam') ---
 adelante
+# --- D7: crear una carpeta o un archivo (21/09). El 20/09 lo pidio cuatro veces y las
+# cuatro se fueron al agente ---
+crea una carpeta en el escritorio que se llame fotos
+crea una carpeta fotos en el escritorio
+hazme una carpeta llamada capturas en el escritorio
+crea una carpeta que se llame juegos
+crea un archivo en el escritorio que se llame notas
+creame una carpeta en documentos que se llame trabajo
+# --- control: lo que ya significaba otra cosa y NO puede volverse un archivo ---
+crea una nota que diga comprar pan
+# --- control: un nombre no puede ser una ruta ---
+crea una carpeta que se llame ../fuera
+# --- 'avisame cuando la descarga de X termine' (21/09 noche, del uso real). braya lo
+# dijo asi y le costo 46 SEGUNDOS para acabar oyendo que no se podia: la orden era
+# perfecta, lo que faltaba era el patron. El de antes solo entendia el orden inverso ---
+avisame cuando la descarga de steam termine
+avisame cuando termine la descarga
+avisame cuando acabe de descargarse elden ring
+dime cuando termine la descarga de steam
+avisame cuando se descargue elden ring
+# --- control: los otros 'avisame' siguen siendo lo que eran ---
+avisame en diez minutos

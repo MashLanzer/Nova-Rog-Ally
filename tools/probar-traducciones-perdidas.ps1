@@ -33,6 +33,12 @@ $TraduccionesPath = Join-Path $LogDir 'traducciones.json'
 $script:traducciones = $null
 $script:traduccionesQuitadas = New-Object System.Collections.Generic.HashSet[string]
 $script:invitado = $false
+# D6 (21/09): el contador de usos y el tope, que ahora viven en el mismo fichero
+$script:traduccionesUsos = @{}
+$script:traduccionesUsoSucio = $false
+$script:traduccionesUsoEn = 0
+$TraduccionesMax = 300
+$sw = [System.Diagnostics.Stopwatch]::StartNew()
 
 Invoke-Expression (Traer 'ConvertTo-Plain')
 Invoke-Expression (Traer 'Write-Atomico')
@@ -40,6 +46,11 @@ Invoke-Expression (Traer 'Get-Traducciones')
 Invoke-Expression (Traer 'Save-Traducciones')
 Invoke-Expression (Traer 'Add-Traduccion')
 Invoke-Expression (Traer 'Remove-Traduccion')
+Invoke-Expression (Traer 'Add-UsoTraduccion')
+# Find-Traduccion es el UNICO sitio por el que se usa una traduccion, o sea el unico que
+# suma usos: sin traerla, los casos de D6 de abajo no prueban nada
+Invoke-Expression (Traer 'Find-Traduccion')
+Invoke-Expression (Traer 'Get-Distancia')
 
 $fallos = 0
 function Comp($etiqueta, $ok, $detalle = '') {
@@ -48,11 +59,26 @@ function Comp($etiqueta, $ok, $detalle = '') {
 }
 function Cuantas { if (-not (Test-Path -LiteralPath $TraduccionesPath)) { return 0 }
     return @((Get-Content -LiteralPath $TraduccionesPath -Raw -Encoding UTF8 | ConvertFrom-Json).PSObject.Properties).Count }
+# LOS DOS FORMATOS (D6, 21/09): una entrada vieja es 'clave': 'texto' y una nueva es
+# 'clave': { t: 'texto'; usos: N }. El banco tiene que leer los dos igual que el codigo,
+# porque el fichero que hay hoy en la consola de braya es del formato viejo.
 function Dice([string]$k) {
     if (-not (Test-Path -LiteralPath $TraduccionesPath)) { return '' }
     $j = Get-Content -LiteralPath $TraduccionesPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $pp = $j.PSObject.Properties[$k]
-    if ($pp) { return [string]$pp.Value } else { return '' }
+    if (-not $pp) { return '' }
+    $v = $pp.Value
+    if ($v -and $v.PSObject -and $v.PSObject.Properties['t']) { return [string]$v.t }
+    return [string]$v
+}
+function Usos([string]$k) {
+    if (-not (Test-Path -LiteralPath $TraduccionesPath)) { return -1 }
+    $j = Get-Content -LiteralPath $TraduccionesPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $pp = $j.PSObject.Properties[$k]
+    if (-not $pp) { return -1 }
+    $v = $pp.Value
+    if ($v -and $v.PSObject -and $v.PSObject.Properties['usos']) { return [int]$v.usos }
+    return 0
 }
 
 Write-Host ''
@@ -94,6 +120,40 @@ Add-Traduccion 'frase numero 3' 'la quiero otra vez'
 Comp 'vuelve a estar' ((Dice 'frase numero 3') -eq 'la quiero otra vez')
 Add-Traduccion 'y una mas' 'y una orden mas'
 Comp 'y sigue estando tras otro guardado' ((Dice 'frase numero 3') -eq 'la quiero otra vez')
+
+Write-Host ''
+Write-Host '-- D6: las traducciones cuentan sus usos --'
+# el formato viejo tiene que seguir leyendose: el fichero que hay hoy en la consola es asi
+$viejo = New-Object PSObject
+$viejo | Add-Member -NotePropertyName 'hazme la pantalla mas clarita' -NotePropertyValue 'sube el brillo'
+$viejo | Add-Member -NotePropertyName 'que espacio tengo disponible' -NotePropertyValue 'cuanto espacio me queda'
+Write-Atomico $TraduccionesPath ($viejo | ConvertTo-Json -Depth 4)
+$script:traducciones = $null
+$script:traduccionesUsos = @{}
+$script:traduccionesQuitadas = New-Object System.Collections.Generic.HashSet[string]
+Comp 'el formato viejo se lee igual' ((Find-Traduccion 'hazme la pantalla mas clarita') -eq 'sube el brillo')
+# y usarla la cuenta
+[void](Find-Traduccion 'hazme la pantalla mas clarita')
+[void](Find-Traduccion 'hazme la pantalla mas clarita')
+Comp 'usarla suma (3 veces en total)' ([int]$script:traduccionesUsos['hazme la pantalla mas clarita'] -eq 3) `
+    ("van $([int]$script:traduccionesUsos['hazme la pantalla mas clarita'])")
+Comp 'y la que no se usa se queda en cero' ([int]$script:traduccionesUsos['que espacio tengo disponible'] -eq 0)
+# EL DISCO NO SE TOCA EN CADA USO: eso corre en mitad de una orden
+Comp 'contar no escribe en disco' ((Usos 'hazme la pantalla mas clarita') -eq 0) 'el fichero sigue en formato viejo'
+# ...hasta que se guarda por otra cosa
+Add-Traduccion 'una nueva' 'abre steam'
+Comp 'al guardar, los usos quedan en el fichero' ((Usos 'hazme la pantalla mas clarita') -eq 3) ("usos=$(Usos 'hazme la pantalla mas clarita')")
+Comp 'y el texto sigue estando' ((Dice 'hazme la pantalla mas clarita') -eq 'sube el brillo')
+Comp 'la nueva nace con cero usos' ((Usos 'una nueva') -eq 0)
+
+Write-Host ''
+Write-Host '-- y hay tope: caen las que menos se usan --'
+$TraduccionesMax = 4
+Add-Traduccion 'otra mas todavia' 'abre spotify'
+Add-Traduccion 'y otra que sobra' 'abre discord'
+Comp 'no se pasa del tope' ((Cuantas) -le 4) ("hay $(Cuantas), tope 4")
+Comp 'la que MAS se usa sobrevive' ((Dice 'hazme la pantalla mas clarita') -eq 'sube el brillo')
+$TraduccionesMax = 300
 
 Remove-Item -LiteralPath $LogDir -Recurse -Force -ErrorAction SilentlyContinue
 if ($fallos -gt 0) { Write-Host ''; Write-Host "  $fallos caso(s) MAL"; exit 1 }

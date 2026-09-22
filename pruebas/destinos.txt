@@ -1,3 +1,7 @@
+# LOS JUEGOS QUE YA NO TIENES NO SON UNA REGRESION (21/09 noche). Hollow Knight, PEAK y
+# Goose Goose Duck se desinstalaron, y sin la marca '@si-tienes' estas cinco lineas
+# dejaban el banco en rojo para siempre por algo que no es un fallo del codigo. Una
+# bateria que sale roja sin motivo es una bateria que se deja de mirar.
 # A DONDE tiene que ir cada frase, no solo que se entienda.
 #
 # El resto del banco cuenta cuantas frases resuelve la capa local. Eso no ve
@@ -104,7 +108,7 @@ que opinas de hollow knight => <se va al modelo>
 hollow knight es dificil => <se va al modelo>
 te gusta steam => <se va al modelo>
 has jugado peak => <se va al modelo>
-hollow knight => Hollow Knight
+hollow knight => Hollow Knight   @si-tienes:Hollow Knight
 steam => abrir steam
 # lo que el modelo rapido casi acierta (correcciones de commands.json)
 si arra el discord, si arra el discord => cerrar discord
@@ -152,9 +156,9 @@ baja el volumen 2 veces => bajar volumen
 aqui estoy jugando con mi hermano => <se va al modelo>
 
 # tanda dirigida (14/09): juegos por como suenan (al ejecutar preguntan antes) y lo mal oido
-abre jolon nights => Hollow Knight
+abre jolon nights => Hollow Knight   @si-tienes:Hollow Knight
 aure el ring => ELDEN RING
-aura pic => PEAK
+aura pic => PEAK   @si-tienes:PEAK
 abre contenguarme => Content Warning
 abre su animal => REANIMAL   @si-tienes:REANIMAL
 siempre steam => <se va al modelo>
@@ -171,7 +175,7 @@ aufza => play/pausa
 pauza => play/pausa
 con malo noche => modo noche
 ahora esteñe y pon el modo juego => modo juego
-ahora gus gus dup => Goose Goose Duck
+ahora gus gus dup => Goose Goose Duck   @si-tienes:Goose Goose Duck
 se respodify y abre steam => cerrar spotify
 busca gato hendito => buscar 'gatos' en youtube
 con mala noche no se duerme => <se va al modelo>
@@ -183,7 +187,7 @@ hice una pausa en el trabajo => <se va al modelo>
 # validacion (15/09): arreglos generales, no de una sola grabacion
 recuerdeme en 15 minutos que saque la ropa => aviso en 15 minutos
 pon el modo huevo => modo juego
-abrepec => PEAK
+abrepec => PEAK   @si-tienes:PEAK
 serra steam => cerrar steam
 abrevia el texto => <se va al modelo>
 pon el modo fiesta => <se va al modelo>
