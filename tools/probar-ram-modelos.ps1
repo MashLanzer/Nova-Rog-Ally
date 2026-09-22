@@ -79,12 +79,29 @@ $pq = if ($fuente -match '(?m)^PRECISO_SOLTAR_QUIETO = ([0-9.]+)') { [double]$Ma
 Comp 'sin juego se espera MAS que jugando' ($pq -gt $pj) ("$pq s frente a $pj s")
 Comp 'y lo bastante como para no cortar una racha' ($pq -ge 600) ("$pq s")
 
-Write-Host '  -- pero a Parakeet no se le pone plazo (se usa cada 28 s) --'
+Write-Host '  -- y a Parakeet tambien, pero con mucha mas paciencia --'
 $iPar = $fuente.IndexOf('def soltar_parakeet_si_toca(')
 $jPar = $fuente.IndexOf("`ndef ", $iPar + 5)
 if ($jPar -lt 0) { $jPar = $fuente.Length }
 $cuerpoPar = $fuente.Substring($iPar, $jPar - $iPar)
-Comp 'parakeet solo se suelta jugando, sin plazo' ($cuerpoPar -match 'jugando\(\)' -and $cuerpoPar -notmatch 'SOLTAR_QUIETO') ''
+# ESTO CAMBIO EL 22/09, y conviene saber por que, porque lo de antes tambien estaba bien
+# razonado: 'a Parakeet no se le pone plazo, que se usa cada 28 s'. Sigue siendo verdad -medido
+# sobre los 477 huecos del log: 31 s de mediana, 51 el p75, 170 el p90-, pero desde que se
+# PRECARGA al arrancar (ver PRECARGA en wake_vosk.py) ya no se carga solo cuando hace falta:
+# esta siempre dentro, aunque braya no diga nada en toda la manana, y son 703 MB. El 22/09 la
+# consola se quedo en 2.946 MB libres de 11.979 con el worker del oido en 1.103.
+# Asi que se le da plazo, pero LARGO: con 20 min se suelta 19 veces de 477 -el 4 % de los
+# huecos, los de verdad largos- y recargarlo cuesta 4,8 s. La intencion de la regla vieja se
+# respeta entera: no cortar una racha. Lo que se vigila aqui es justo eso.
+Comp 'parakeet tiene plazo tambien sin juego' ($cuerpoPar -match 'PARAKEET_SOLTAR_QUIETO') ''
+Comp 'y distingue si hay juego o no' ($cuerpoPar -match 'hay_juego') ''
+Comp 'y lo dice en el log' ($cuerpoPar -match 'parakeet soltado') ''
+$qj = if ($fuente -match '(?m)^PARAKEET_SOLTAR_JUGANDO = ([0-9.]+)') { [double]$Matches[1] } else { -1 }
+$qq = if ($fuente -match '(?m)^PARAKEET_SOLTAR_QUIETO = ([0-9.]+)') { [double]$Matches[1] } else { -1 }
+Comp 'sin juego se espera MAS que jugando' ($qq -gt $qj) ("$qq s frente a $qj s")
+# el p90 de los huecos entre usos es 170 s: el plazo tiene que dejarlo pasar con mucho margen
+Comp 'y lo bastante como para no cortar una racha' ($qq -ge 900) ("$qq s, y el p90 de los huecos es 170 s")
+Comp 'pasa por plazo_soltar, o no mirara la RAM' ($cuerpoPar -match 'plazo_soltar\(') ''
 
 Write-Host '  -- y si a Parakeet le falta poco, se hace sitio el mismo (19/09) --'
 Comp 'existe hacer_sitio_a_parakeet' ($fuente -match 'def hacer_sitio_a_parakeet\(') ''

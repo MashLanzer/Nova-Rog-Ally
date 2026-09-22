@@ -1276,23 +1276,41 @@ def marcar_parakeet():
 # ordenes y ocupa mucho menos. Se le da el mismo trato que al oido fino: un plazo. Si de
 # verdad no se usa en ese rato, se suelta igual y el juego se queda con la RAM.
 PARAKEET_SOLTAR_JUGANDO = 300.0     # 5 min sin usarlo con un juego delante, el mismo plazo
+# Y SIN JUEGO TAMBIEN, DESDE QUE SE PRECARGA (22/09). Hasta hoy Parakeet solo se soltaba con
+# un juego delante: sin juego se quedaba cargado para siempre. Eso se podia defender mientras
+# solo se cargaba cuando hacia falta, pero desde que se precarga al arrancar (ver PRECARGA)
+# esta SIEMPRE dentro, aunque braya no diga nada en toda la manana. Son 703 MB, y el 22/09 la
+# consola se quedo en 2.946 MB libres de 11.979 con el worker del oido en 1.103.
+# EL PLAZO, MEDIDO sobre los 477 huecos entre usos del log: 31 s de mediana, 51 el p75 y 170
+# el p90 -o sea que usarlo es a rachas cortas-, y el mayor hueco fue de 44,7 horas.
+#   con 20 min se suelta 19 veces de 477 (el 4 % de los huecos)
+#   con 5 min se soltaria 32 veces, y eso ya empieza a cortar rachas
+# Recargarlo cuesta 4,8 s de mediana, asi que son unos 90 s en total a cambio de 703 MB en
+# los ratos muertos. Mismo numero que el oido fino (PRECISO_SOLTAR_QUIETO) y por el mismo
+# motivo: 20 minutos deja fuera al 96 % de los huecos, asi que no se suelta en mitad de nada.
+# Y pasa por plazo_soltar, asi que con la memoria justa se suelta mucho antes.
+PARAKEET_SOLTAR_QUIETO = 1200.0
 
 
 def soltar_parakeet_si_toca():
     global _parakeet
-    if _parakeet is None or not jugando():
+    if _parakeet is None:
         return
+    hay_juego = jugando()
+    plazo = plazo_soltar(PARAKEET_SOLTAR_JUGANDO if hay_juego else PARAKEET_SOLTAR_QUIETO)
     quieto = time.time() - _parakeet_uso
-    if quieto < plazo_soltar(PARAKEET_SOLTAR_JUGANDO):
+    if quieto < plazo:
         return
+    anota("parakeet soltado: %s y lleva %.0f min sin usarse"
+          % ("jugando" if hay_juego else "sin juego delante", quieto / 60.0))
     _parakeet = None
     global _canary, _canary_uso
     # Canary se suelta con el mismo criterio: es el segundo modelo mas grande de los dos
-    if _canary is not None and (time.time() - _canary_uso) >= plazo_soltar(PARAKEET_SOLTAR_JUGANDO):
+    if _canary is not None and (time.time() - _canary_uso) >= plazo:
         _canary = None
         _canary_uso = 0.0
     global _omni, _omni_uso
-    if _omni is not None and (time.time() - _omni_uso) >= plazo_soltar(PARAKEET_SOLTAR_JUGANDO):
+    if _omni is not None and (time.time() - _omni_uso) >= plazo:
         _omni = None
         _omni_uso = 0.0
     import gc

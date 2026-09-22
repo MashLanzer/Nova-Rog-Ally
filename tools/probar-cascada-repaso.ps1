@@ -92,9 +92,14 @@ if ($iCan -ge 0 -and $iOmn -ge 0) {
 # exige las DOS cosas: que sigan siendo el plazo de Parakeet -que es de lo que iba este
 # caso- y que vayan envueltos, porque quitar la envoltura los dejaria fijos otra vez sin
 # que nadie se enterara.
-Comp 'y los suelta jugando, como a Parakeet' `
-    (($oido -match '_canary is not None and \(time\.time\(\) - _canary_uso\) >= plazo_soltar\(PARAKEET_SOLTAR_JUGANDO\)') -and
-     ($oido -match '_omni is not None and \(time\.time\(\) - _omni_uso\) >= plazo_soltar\(PARAKEET_SOLTAR_JUGANDO\)'))
+# EL PLAZO SE CALCULA UNA VEZ Y SE REPARTE (22/09): desde que Parakeet se suelta tambien
+# sin juego, soltar_parakeet_si_toca elige el plazo al principio -jugando o quieto- y
+# canary y omni usan ESE mismo, que es lo que se quiere: los tres se van juntos.
+Comp 'y los suelta con el mismo plazo que a Parakeet' `
+    (($oido -match '_canary is not None and \(time\.time\(\) - _canary_uso\) >= plazo') -and
+     ($oido -match '_omni is not None and \(time\.time\(\) - _omni_uso\) >= plazo'))
+Comp 'y ese plazo distingue si hay juego delante' `
+    ($oido -match 'plazo = plazo_soltar\(PARAKEET_SOLTAR_JUGANDO if hay_juego else PARAKEET_SOLTAR_QUIETO\)')
 Comp 'y el plazo mira la RAM que queda' ($oido -match 'def plazo_soltar\(')
 Comp 'el repaso queda apuntado con su motor' ($oido -match 'motor=pedido')
 
