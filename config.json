@@ -74,7 +74,8 @@
     "nubeTopeMs": 7000,
     "guardarUsoDias": 30,
     "ambiente": "no",
-    "repasos": "canary,base"
+    "repasos": "canary,base",
+    "repasoMaxPalabras": 8
   },
   "modelo": {
     "usarClaude": true,

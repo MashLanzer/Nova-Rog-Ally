@@ -2488,7 +2488,7 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '', [bool]$deCamino =
             (Test-Path -LiteralPath $EstadisticasMd)) { return }
         $script:estadisticasMdEn = $msMd
 
-        $rutas = @('activacion', 'vozwin', 'vozwin-mudo', 'local', 'aprendida', 'memoria', 'pregunta', 'traducir', 'traducida', 'accion', 'charla', 'ruido', 'recitado', 'descarte', 'error', 'fino', 'fino-sirvio', 'fino-igual', 'fino-invento', 'fino-ahorrado')
+        $rutas = @('activacion', 'vozwin', 'vozwin-mudo', 'local', 'aprendida', 'memoria', 'pregunta', 'traducir', 'traducida', 'accion', 'charla', 'ruido', 'recitado', 'descarte', 'error', 'fino', 'fino-sirvio', 'fino-igual', 'fino-invento', 'fino-ahorrado', 'repaso-ahorrado')
         $sb = New-Object System.Text.StringBuilder
         [void]$sb.AppendLine("# Estadísticas del asistente")
         [void]$sb.AppendLine("")
@@ -17205,6 +17205,11 @@ $RepasoCascada = @([string](Get-Cfg 'escucha' 'repasos' 'canary,base') -split '\
                    Where-Object { $_ })
 $script:repasoPaso = 0          # por cual de la lista vamos con esta frase
 $script:repasoOriginal = ''     # lo que oyo Parakeet, para el log y la estadistica
+# EL CORTE DE "YA NO HACE FALTA REPASAR" (22/09). Por encima de estas palabras, si lo que
+# oyo Parakeet es espanol largo, NO se pide repaso y se sigue con lo suyo: ver NO REPASAR
+# LO QUE YA SE VA A TIRAR, en el bucle, que es donde estan los numeros. Con 0 se apaga y
+# todo vuelve a ser como antes, sin tocar codigo.
+$RepasoMaxPalabras = [int](Get-Cfg 'escucha' 'repasoMaxPalabras' 8)
 
 function Request-WhisperTras([string]$texto, [int]$paso = 0) {
     if (-not $script:wakeProc -or $script:wakeProc.HasExited) { return $false }
@@ -19551,12 +19556,49 @@ while ($true) {
                 if ($script:enSeguimiento) { try { Add-RitmoSeguimiento } catch {} }   # ver EL RITMO DE BRAYA
                 # PARAKEET PRIMERO: si lo que oyo no es una orden que se entienda, Whisper
                 # repasa el mismo audio y eso sigue el camino de siempre
-                if ($script:dictadoPorParakeet -and $dic.Trim() -and -not $script:dictandoLargo -and
-                    -not (Test-FastCommand ($dic.Trim())) -and (Request-WhisperTras ($dic.Trim()))) {
+                $dicPar = $dic.Trim()
+                $puedeRepaso = ($script:dictadoPorParakeet -and $dicPar -and -not $script:dictandoLargo)
+                $esOrdenPar = $false
+                if ($puedeRepaso) { $esOrdenPar = [bool](Test-FastCommand $dicPar) }
+                # NO REPASAR LO QUE YA SE VA A TIRAR (22/09). Cuando Parakeet ya ha oido una
+                # frase larga en espanol, pedir el repaso es pagar por un texto que se va a
+                # tirar entero. En el log hay 328 peticiones de repaso y 227 acaban en
+                # "Whisper no saca una orden: sigo con lo de Parakeet": se espera, se mira y
+                # se descarta. El corte de aqui -espanol largo Y mas de $RepasoMaxPalabras
+                # palabras- coge 148 de esas 328 (45 %), que son 474,3 s de reloj de
+                # transcripcion y 432,1 s de audio tirado con Nova sorda mientras repasaba;
+                # en el propio log, entre "lo repasa" y "PARAKEET -> WHISPER" pasan 5,1 s de
+                # media. NO SE PIERDE NI UNA ORDEN: de esas 148, en 120 ya se seguia con el
+                # texto de Parakeet, y en las 22 restantes Whisper tampoco sacaba ninguna
+                # orden local; en dos de ellas era Parakeet quien la tenia BIEN y Whisper la
+                # destrozo ("abre youtube y reproduce musica de Pitbull" -> "abre y duro y
+                # reproducente en musica de Pipboon"). La nube tampoco se pierde nada: en
+                # todo el log rescato 2 frases, las dos de menos de 8 palabras.
+                # POR QUE LAS DOS CONDICIONES Y NO SOLO EL NUMERO: de las 149 frases de mas
+                # de 8 palabras, 1 no era espanol largo ("No, but I don't know if it's a
+                # bien"), y esa si merece que la repase alguien que sepa de idiomas.
+                # LO CORTO NO ENTRA: si lo que oyo Parakeet ya es una orden que la capa
+                # local entiende, esto ni se mira ($esOrdenPar), y las frases cortas -donde
+                # el repaso SI rescata ordenes- se siguen repasando igual que siempre.
+                $repasoInutil = $false
+                if ($puedeRepaso -and -not $esOrdenPar -and $RepasoMaxPalabras -gt 0 -and
+                    @(((ConvertTo-Plain $dicPar) -split '\s+') | Where-Object { $_ }).Count -gt $RepasoMaxPalabras -and
+                    (Test-EspanolLargo $dicPar)) {
+                    $repasoInutil = $true
+                    # Y SE CIERRA LA PUERTA DE ATRAS. Sin esta linea la frase cae tres lineas
+                    # mas abajo en el oido fino, que repasa con small: 8649 ms por audio frente
+                    # a los 3425 de base, ~4 veces mas lento, para volver a preguntar justo lo
+                    # que se acaba de decidir no preguntar. El pestillo dura solo esta frase:
+                    # el siguiente dictado lo abre otra vez (ver Start-Dictado).
+                    $script:yaReintentado = $true
+                    Add-Estadistica 'repaso-ahorrado' $dicPar
+                    Log "REPASO AHORRADO: '$dicPar' es espanol largo de mas de $RepasoMaxPalabras palabras; Whisper no lo iba a mejorar, sigo con lo de Parakeet"
+                }
+                if ($puedeRepaso -and -not $esOrdenPar -and -not $repasoInutil -and (Request-WhisperTras $dicPar)) {
                     # lo recoge OIDO FINO: recoger el repaso
                 } else {
-                    if ($script:dictadoPorParakeet) { Add-Estadistica 'parakeet' ($dic.Trim()) }
-                    Process-Texto ($dic.Trim())
+                    if ($script:dictadoPorParakeet) { Add-Estadistica 'parakeet' $dicPar }
+                    Process-Texto $dicPar
                 }
             }
         }

@@ -347,6 +347,15 @@ Titulo "2n54. La cascada del repaso: Canary antes que Whisper, y sin tocar Parak
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-cascada-repaso.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:sin Canary todo sigue como antes)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n68. No repasar lo que ya se va a tirar"
+# 22/09. 328 peticiones de repaso en el log y 227 acaban en 'Whisper no saca una orden: sigo
+# con lo de Parakeet'. El corte -espanol largo Y mas de 8 palabras- coge 148 de esas 328,
+# que son 474,3 s de reloj y 432,1 s de audio tirado con Nova sorda. Cero ordenes perdidas.
+# La mitad del arreglo es cerrar detras el pestillo del oido fino: sin el, la frase cae tres
+# lineas mas abajo en small y se vuelve a preguntar lo que se acaba de decidir no preguntar.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-repaso-ahorrado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se iba a tirar)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n67. El oido se calienta solo al arrancar (idea 3)"
 # 22/09. De 139 s de oido en una sesion de 12 minutos, 31 (el 22 %) fue SOLO cargar modelos,
 # y la primera orden del arranque se come los 5,2 s de Parakeet ella sola. Nova arranco
