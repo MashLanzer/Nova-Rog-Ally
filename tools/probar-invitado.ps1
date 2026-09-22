@@ -52,6 +52,15 @@ $EXENTAS = @{
     'Add-Perfil'              = 'crear un modo se pide a proposito y se dice en voz alta'
     'Set-UsoAhora'            = 'marca de uso del propio Nova'
     'Add-NubeTiempo'          = 'solo son milisegundos, y con invitado la nube ni se lanza (Start-NubeOir sale en su primera linea)'
+    # 22/09: la hermana de la de arriba, pero SOLO por el primer motivo. Comprobado que el
+    # segundo NO vale aqui: Start-OpencodeJob no mira el modo invitado, asi que con un
+    # invitado delante SI se lanzan trabajos y SI se apuntan sus tiempos. Y aun asi no
+    # lleva guarda, porque lo que se guarda son milisegundos de la maquina y de la red, no
+    # nada de quien hablo: una pregunta tarda lo mismo la pida braya o la pida otro. El
+    # modo invitado esta para que Nova no APRENDA de quien no eres tu, y un tiempo de
+    # respuesta no dice nada de nadie. Ponerle la guarda solo dejaria huecos en la medicion
+    # de la barra sin tapar ni un dato personal.
+    'Add-TrabajoTiempo'       = 'milisegundos de la maquina y la red, no de quien habla (ver la nota de arriba)'
     # 21/09 (C6): la guarda la ponen los DOS que la llaman, y ahi es donde toca.
     # Add-Traduccion sale en su primera linea si hay invitado -o sea que un invitado no
     # ensena nada-, y Remove-Traduccion a proposito NO la tiene: olvidar algo tuyo se
