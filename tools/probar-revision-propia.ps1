@@ -230,6 +230,41 @@ function PonerNube([int]$intentos, [int]$utiles) {
 }
 
 Write-Host ''
+Write-Host '  -- LOS NUMEROS DE VERDAD, a 22/09: 2 de 194 en tres dias --'
+# Esto no es un caso inventado: son las cifras que hay en memoria\estadisticas.json el
+# 22/09 (18/09: 75 intentos y 2 utiles; 20/09: 92 y 0; 21/09: 27 y 0). La decision NO se
+# habia tomado todavia porque Test-RevisionPropia no decide nada que no pueda contarte, y
+# de noche los avisos de nivel medio se callan: se toma en cuanto sea de dia y no haya un
+# juego delante. Este caso comprueba que cuando llegue ese momento SE TOMA, en vez de
+# quedarse esperando para siempre.
+$script:stats = @{ dias = @{} }
+$script:stats.dias[$hoy.AddDays(-4).ToString('yyyy-MM-dd')] = @{ 'nube-intento' = 75; 'nube-sirvio' = 2 }
+$script:stats.dias[$hoy.AddDays(-2).ToString('yyyy-MM-dd')] = @{ 'nube-intento' = 92; 'nube-sirvio' = 0 }
+$script:stats.dias[$hoy.AddDays(-1).ToString('yyyy-MM-dd')] = @{ 'nube-intento' = 27; 'nube-sirvio' = 0 }
+$script:cfgPuesta = @(); $script:avisos = @(); $script:apuntes = @()
+$script:revisionPropiaDia = ''
+$script:NubeOir = 'gemini'
+$script:WhisperPreciso = ''
+$script:WhisperUltimo = ''
+$script:invitado = $false
+$script:juegoActivo = $null
+$script:autoDecision = $null
+$script:deshacer = $null
+$script:cfgFalla = $false
+$script:puedoAvisar = $true
+$rReal = Test-RevisionPropia $hoy
+Comp 'con 2 de 194 en tres dias, la apaga' $rReal ''
+Comp 'y lo dice con su numero' (@($script:avisos).Count -eq 1 -and $script:avisos[0] -match '194') ($script:avisos -join ' ')
+# LO QUE NO PUEDE PASAR: que la apague jugando o con un invitado, o sin poder decirtelo.
+# Decidir en silencio es lo unico que esta funcion tiene prohibido.
+$script:revisionPropiaDia = ''; $script:NubeOir = 'gemini'; $script:juegoActivo = 'ELDEN RING'
+Comp 'jugando no decide nada' (-not (Test-RevisionPropia $hoy)) ''
+Comp 'y la nube sigue puesta' ($NubeOir -eq 'gemini') "NubeOir='$NubeOir'"
+$script:juegoActivo = $null; $script:revisionPropiaDia = ''; $script:puedoAvisar = $false
+Comp 'si no puede contartelo, tampoco' (-not (Test-RevisionPropia $hoy)) ''
+$script:puedoAvisar = $true
+
+Write-Host ''
 Write-Host '  -- la nube que no sirve, la apaga --'
 PonerNube 45 1
 $rN = Test-RevisionPropia $hoy
