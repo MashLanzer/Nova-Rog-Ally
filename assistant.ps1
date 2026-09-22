@@ -8817,6 +8817,31 @@ function Watch-Dispositivos {
 # no toca el reloj, y desde Watch-Entorno se llama solo para comprobar.
 $script:ultimoHabloEn = 0
 $script:resumenPendiente = ''
+# EL RESUMEN NO SE APAGABA (22/09). Watch-Entorno llama aqui cada 30 s, y esto rearmaba el
+# aviso CADA VEZ mientras durase la ausencia, sin que nadie lo consumiera: 1.126 lineas
+# "RESUMEN AL VOLVER" el 21/09 de las 4.029 del dia, o sea el 28 % de todo lo que Nova
+# escribio ese dia. De ellas 774 son LA MISMA notificacion -una de XBOX Game Bar Widgets-
+# repetida de 03:18:13 a 09:45:03: 6 h 27 min diciendo lo mismo 120 veces por hora. El
+# 19/09 fueron otras 123. Las tres frases mas repetidas de todo el log son estas.
+#
+# La guarda es la de la funcion hermana Test-ParteManana, que lleva desde el 13/09 sin
+# repetirse gracias a $hbM.parteVisto: se guarda una firma de lo que ya se armo y no se
+# vuelve a armar lo mismo. La firma es cuando hablaste por ultima vez mas cuantos mensajes
+# hay; si llega una notificacion NUEVA cambia el numero, cambia la firma y vuelve a armarse
+# UNA vez, y si no llega nada se calla. En memoria y no en disco a proposito: el episodio
+# muere con el proceso, y tras un reinicio no hay ausencia que contar.
+#
+# EL "Y NO HAY NADA PENDIENTE" NO SOBRA. Con la firma a secas se perdia el resumen: si la
+# capsula lo consume mientras braya sigue fuera -paso de verdad el 21/09, el parte de la
+# manana se encontro $resumenPendiente ya vacio-, se habria mostrado a una habitacion vacia
+# y al volver el no veria nada. Rearmando solo cuando no queda nada puesto, se vuelve a
+# dejar y le espera. Salen tantas lineas como veces hable Nova durante la ausencia (2 el
+# 21/09) en vez de una cada 30 s.
+#
+# LO QUE NO SE HACE: tirar notificaciones viejas por su cuenta (20 de las 36 de esos dias
+# son de Discord, o sea personas escribiendo) ni una lista negra de apps de sistema a mano
+# (3 casos en 13 dias, y choca con que todo se pueda ajustar hablando).
+$script:resumenFirma = ''
 function Set-HabloAhora {
     $script:ultimoHabloEn = $sw.ElapsedMilliseconds
 }
@@ -8831,6 +8856,11 @@ function Test-ResumenAlVolver {
         $partes += $(if ($nN -eq 1) { '1 mensaje' } else { "$nN mensajes" }) + $(if ($apps.Count -eq 1) { " de $($apps[0])" } else { '' })
     }
     if ($partes.Count -eq 0) { return }
+    # LA FIRMA DEL EPISODIO (ver EL RESUMEN NO SE APAGABA, arriba): la misma ausencia con
+    # los mismos mensajes no se rearma mientras siga puesta en la capsula.
+    $firmaU = "$($script:ultimoHabloEn)|$nN"
+    if ($script:resumenFirma -eq $firmaU -and $script:resumenPendiente) { return }
+    $script:resumenFirma = $firmaU
     $script:resumenPendiente = 'Mientras no estabas: ' + ($partes -join ' · ')
     Log "RESUMEN AL VOLVER: $($script:resumenPendiente)"
 }

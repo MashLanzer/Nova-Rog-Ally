@@ -48,12 +48,17 @@ $script:juegoRef = $null
 $script:presenciaVistoEn = 0
 $script:presenciaGuardada = 0
 $script:avisosAplazados = New-Object System.Collections.ArrayList
+$script:logLineas = @()
+$script:notifPendientes = New-Object System.Collections.ArrayList
+$script:ultimoHabloEn = 0
+$script:resumenPendiente = ''
+$script:resumenFirma = ''
 $script:dicho = @()
 $script:popup = @()
 $script:eventos = @()
 $script:guardados = 0
 
-function Log($m) { }
+function Log($m) { $script:logLineas += $m }
 function Say($t) { $script:dicho += $t }
 function Show-Popup($t, $estadoUI = 'hablando') { $script:popup += $t }
 function Send-UIEvento($e) { $script:eventos += $e }
@@ -70,6 +75,8 @@ Invoke-Expression (Traer 'Set-PresenciaAhora')
 Invoke-Expression (Traer 'Get-AusenciaMin')
 Invoke-Expression (Traer 'Get-FraseVuelta')
 Invoke-Expression (Traer 'Test-VueltaSaludo')
+Invoke-Expression (Traer 'Set-HabloAhora')
+Invoke-Expression (Traer 'Test-ResumenAlVolver')
 
 $fallos = 0
 function Comp($etiqueta, $ok, $detalle = '') {
@@ -87,6 +94,11 @@ function Reset {
     $script:guardados = 0
     $script:avisosAplazados = New-Object System.Collections.ArrayList
     $script:relojMs = 18000000        # 5 h encendida: Nova lleva viva todo el hueco
+    $script:logLineas = @()
+    $script:notifPendientes = New-Object System.Collections.ArrayList
+    $script:ultimoHabloEn = 0
+    $script:resumenPendiente = ''
+    $script:resumenFirma = ''
 }
 function Visto([datetime]$t) { $script:hb.presencia['visto'] = $t.ToString('yyyy-MM-dd HH:mm:ss') }
 
@@ -198,6 +210,73 @@ Reset
 Visto $T.AddHours(-4)
 $script:invitado = $true
 Comp 'no saluda a quien no eres tu' (-not (Test-VueltaSaludo $T))
+
+Write-Host '  -- el resumen al volver no se queda repitiendose (22/09) --'
+# 1.126 lineas "RESUMEN AL VOLVER" el 21/09, 97 KB, el 25 % de lo que Nova escribio ese
+# dia; 774 de ellas la MISMA notificacion repetida cada 30 s durante 6 h 27 min, porque
+# Watch-Entorno llama cada 30 s y esto rearmaba siempre. Lo que se prueba: que una ausencia
+# larga deje UNA sola linea, que una notificacion nueva si vuelva a armarlo, y que si la
+# capsula ya lo mostro estando braya fuera se vuelva a dejar puesto para cuando vuelva.
+function Ausencia([int]$vueltas) {
+    foreach ($i in 1..$vueltas) { Test-ResumenAlVolver; $script:relojMs += 30000 }
+}
+Reset
+Set-HabloAhora
+[void]$script:notifPendientes.Add(@{ id = '1'; app = 'XBOX Game Bar Widgets' })
+$script:relojMs += 7200000
+Ausencia 774
+Comp 'las 774 vueltas de aquel dia dejan UNA sola linea' ($script:logLineas.Count -eq 1) "lineas=$($script:logLineas.Count)"
+Comp 'y el aviso queda puesto para cuando vuelva' ($script:resumenPendiente -eq 'Mientras no estabas: 1 mensaje de XBOX Game Bar Widgets') $script:resumenPendiente
+
+Write-Host '  -- pero si se mostro estando el fuera, se vuelve a dejar --'
+$script:resumenPendiente = ''
+Test-ResumenAlVolver
+Comp 'no se pierde: vuelve a armarse una vez' ($script:resumenPendiente -and $script:logLineas.Count -eq 2) "lineas=$($script:logLineas.Count)"
+Ausencia 100
+Comp 'y esa tampoco se repite en 100 vueltas mas' ($script:logLineas.Count -eq 2) "lineas=$($script:logLineas.Count)"
+
+Write-Host '  -- una notificacion NUEVA si vuelve a contar --'
+[void]$script:notifPendientes.Add(@{ id = '2'; app = 'Discord' })
+Test-ResumenAlVolver
+Comp 'con dos mensajes, se rearma y lo dice' ($script:logLineas.Count -eq 3 -and $script:resumenPendiente -eq 'Mientras no estabas: 2 mensajes') $script:resumenPendiente
+Ausencia 100
+Comp 'y se vuelve a callar' ($script:logLineas.Count -eq 3) "lineas=$($script:logLineas.Count)"
+
+Write-Host '  -- lo que NO debe cambiar --'
+Reset
+Set-HabloAhora
+[void]$script:notifPendientes.Add(@{ id = '3'; app = 'Discord' })
+$script:relojMs += 7000000      # 1 h 57 min
+Test-ResumenAlVolver
+Comp 'a 1 h 57 min todavia no es ausencia' ($script:resumenPendiente -eq '' -and $script:logLineas.Count -eq 0) $script:resumenPendiente
+$script:relojMs += 200000       # ya pasan de 2 h
+Test-ResumenAlVolver
+Comp 'pasadas las 2 h si sale, como siempre' ($script:resumenPendiente -eq 'Mientras no estabas: 1 mensaje de Discord') $script:resumenPendiente
+
+Reset
+Set-HabloAhora
+$script:relojMs += 7200000
+Ausencia 50
+Comp 'sin mensajes no dice nada, por muchas horas que pasen' ($script:resumenPendiente -eq '' -and $script:logLineas.Count -eq 0) "lineas=$($script:logLineas.Count)"
+
+Reset
+[void]$script:notifPendientes.Add(@{ id = '4'; app = 'Discord' })
+$script:relojMs += 99999999
+Test-ResumenAlVolver
+Comp 'recien arrancada, sin haberle hablado, no inventa una ausencia' ($script:resumenPendiente -eq '') $script:resumenPendiente
+
+Write-Host '  -- y una ausencia NUEVA vuelve a merecer su linea --'
+Reset
+Set-HabloAhora
+[void]$script:notifPendientes.Add(@{ id = '5'; app = 'Discord' })
+$script:relojMs += 7200000
+Ausencia 20
+$primeras = $script:logLineas.Count
+Set-HabloAhora                      # braya vuelve y le habla
+$script:resumenPendiente = ''
+$script:relojMs += 7200000          # y se va otras 2 h, con los mismos mensajes
+Test-ResumenAlVolver
+Comp 'otra ausencia con los mismos mensajes si cuenta' ($script:logLineas.Count -eq ($primeras + 1)) "antes=$primeras ahora=$($script:logLineas.Count)"
 
 Write-Host ''
 if ($fallos -gt 0) { Write-Host "$fallos MAL" -ForegroundColor Red; exit 1 }
