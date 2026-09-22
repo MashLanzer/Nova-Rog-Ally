@@ -2340,7 +2340,16 @@ def quitar_nombre(texto):
 # escribe constantemente mientras dictas: si el disco falla, anotar sin freno llenaria el log
 # con miles de lineas. Mismo criterio que la capsula con sus errores de animacion.
 _avisos_escribir = 0
-MAX_AVISOS_ESCRIBIR = 5
+# SUBIDO DE 5 A 50 (22/09), y el motivo es poder COMPROBAR el arreglo de al lado. Con el
+# tope en 5 por proceso, los 20 fallos que hay en el log -14 de ui-nivel.txt y 6 de
+# dictado-parcial.txt, en cuatro dias distintos- son un SUELO y no un numero: en cuanto un
+# proceso llegaba a cinco, dejaba de contar. Hoy se han tapado los dos sitios que los
+# causaban (la capsula y el asistente leian esos ficheros sin FileShare.Delete, asi que el
+# os.replace de aqui chocaba con ellos y Windows lo tumbaba con "Acceso denegado"), y para
+# saber si de verdad se acabaron hace falta que el log los cuente todos.
+# 50 sigue protegiendo de lo que el tope venia a evitar: si el disco falla de verdad, esto
+# escribe en cada palabra que oyes y sin freno llenaria el log con miles de lineas.
+MAX_AVISOS_ESCRIBIR = 50
 
 
 def escribir(ruta, contenido):

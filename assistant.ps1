@@ -7955,9 +7955,40 @@ $script:entornoUnidades = $null      # las unidades que habia la ultima vez (ide
 # juego, sin inventar nada nuevo. Y cada 30 minutos como mucho: un ventilador puede estar
 # sonando toda la tarde y eso no son ganas de que te lo repitan.
 # NO es un modo que se queda activo: no cambia nada, no hay que apagarlo, solo lo dice.
+# LA MEDICION DEL WORKER ANTERIOR (22/09). escucha-estado.txt lo escribe la escucha y lo
+# leen tres sitios de aqui, y NADIE LO BORRA NUNCA: cuando el worker muere y arranca otro,
+# el fichero viejo se queda, y hasta que el nuevo escribe su primer pulso lo que se lee es
+# la medicion del muerto. Medido sobre el log: 214 arranques, y de "worker Vosk en marcha"
+# al primer pulso pasan 16 s de mediana, 46 s en el p90, y el 14 % tarda mas de 30 s.
+#
+# NINGUNO DE LOS TRES EJECUTA UNA ORDEN -son un aviso de ruido, un aviso de cascos y la
+# respuesta a "como me oyes"-, asi que esto no abre la puerta a equivocarse de orden. Lo
+# que si hace es que Nova DIGA algo que no es verdad: "te quitaste los cascos y sigue
+# sonando" con el nivel de altavoces de hace horas, o "entra un ruido que me tapa la voz"
+# de un ruido que se fue con el worker anterior.
+#
+# EL LISTON SALE DE COMO SE REFRESCA DE VERDAD, no de una corazonada: el estado se escribe
+# en cada vuelta del pulso -fuera del filtro de repetidos, por eso se refresca aunque el
+# log calle-, y esas vueltas van a 15 s de mediana, 15 s en el p90, 29 s en el p99 y 72 s
+# de maximo (n=2.665). Con 45 s se deja pasar el 99 % de los estados legitimos y se corta
+# lo que son minutos u horas, que es la basura de verdad. Si se descarta uno bueno no pasa
+# nada: el aviso se da 15 s despues, con el dato fresco.
+#
+# NO SE TOCA EL FORMATO del fichero (anteponer un time.time() romperia los dos lectores
+# que parsean por posicion): se mira la fecha del propio archivo, que ya la lleva Windows.
+$EstadoMaxSegundos = 45
+function Test-EstadoFresco {
+    try {
+        $f = Get-Item -LiteralPath $RutaEstado -ErrorAction Stop
+        return (((Get-Date) - $f.LastWriteTime).TotalSeconds -le $EstadoMaxSegundos)
+    } catch { return $false }
+}
+
 function Get-OidoConRuido {
     # $true si el oido lleva rato oyendo ruido de fondo constante en vez de voz.
     if (-not (Test-Path -LiteralPath $RutaEstado)) { return $false }
+    # ...y si lo que hay es del worker anterior, no se sabe nada (ver arriba)
+    if (-not (Test-EstadoFresco)) { return $false }
     try {
         $st = ([System.IO.File]::ReadAllText($RutaEstado).Trim()) -split '\|'
         # worker viejo: solo cuatro campos, y entonces no hay nada que decir
@@ -8796,10 +8827,15 @@ function Watch-Dispositivos {
         # ¿suena algo? El worker deja el nivel de los altavoces en escucha-estado.txt
         # ("ganancia|ref|altavoces|bloques"); el mismo dato que usa "¿como me oyes?"
         $altC = 0.0
-        try {
-            $stC = ([System.IO.File]::ReadAllText($RutaEstado).Trim()) -split '\|'
-            $altC = [double]::Parse($stC[2], [System.Globalization.CultureInfo]::InvariantCulture)
-        } catch { $altC = 0.0 }
+        # y solo si la medicion es de AHORA: con el nivel de altavoces del worker anterior,
+        # este aviso le diria "te quitaste los cascos y sigue sonando" por algo que paso
+        # hace horas (ver LA MEDICION DEL WORKER ANTERIOR, en Test-EstadoFresco)
+        if (Test-EstadoFresco) {
+            try {
+                $stC = ([System.IO.File]::ReadAllText($RutaEstado).Trim()) -split '\|'
+                $altC = [double]::Parse($stC[2], [System.Globalization.CultureInfo]::InvariantCulture)
+            } catch { $altC = 0.0 }
+        }
         if ($altC -gt 0.02) {
             [void](Send-AvisoEntorno 'cascos-quita' 'Te quitaste los cascos y sigue sonando. Di: pausa.' 'medio' 5)
         }
@@ -11331,12 +11367,18 @@ function Invoke-FastCommand([string]$text) {
                         $a.desc = 'la escucha por voz no esta funcionando ahora mismo; el boton si'
                     } else {
                         $g = 0.0; $alt = 0.0
-                        try {
-                            $cul = [System.Globalization.CultureInfo]::InvariantCulture
-                            $st = ([System.IO.File]::ReadAllText($RutaEstado).Trim()) -split '\|'
-                            $g = [double]::Parse($st[0], $cul)
-                            $alt = [double]::Parse($st[2], $cul)
-                        } catch {}
+                        # "como me oyes" tiene que contestar con lo de ahora, no con la
+                        # medicion del worker anterior (ver Test-EstadoFresco). Con el
+                        # estado rancio los dos quedan en 0, que es como decir "aun no lo
+                        # se", y las frases de abajo se saltan solas.
+                        if (Test-EstadoFresco) {
+                            try {
+                                $cul = [System.Globalization.CultureInfo]::InvariantCulture
+                                $st = ([System.IO.File]::ReadAllText($RutaEstado).Trim()) -split '\|'
+                                $g = [double]::Parse($st[0], $cul)
+                                $alt = [double]::Parse($st[2], $cul)
+                            } catch {}
+                        }
                         $partes = @()
                         # lo primero, si hay ruido: es lo que mas explica que no le oiga
                         if (Get-OidoConRuido) {
@@ -19897,7 +19939,28 @@ while ($true) {
         # transcripcion en vivo: ver lo que oye mientras hablas
         if (Test-Path -LiteralPath $RutaParcial) {
             try {
-                $par = [System.IO.File]::ReadAllText($RutaParcial, [System.Text.Encoding]::UTF8)
+                # COMPARTIENDO EL ARCHIVO (22/09). ReadAllText lo abre SIN dejar que nadie
+                # lo borre ni lo renombre mientras tanto, y la escucha reescribe el parcial
+                # en cada palabra que oye, con un cambio atomico (.tmp + os.replace). Cuando
+                # el replace caia justo en esta lectura, Windows lo tumbaba con "WinError 5:
+                # Acceso denegado", la escucha se rendia y escribia encima sin atomicidad,
+                # que es justo la ventana por la que se puede leer una orden a medias. En el
+                # log hay 6 casos de dictado-parcial.txt en tres dias distintos, y el
+                # contador de la escucha esta topado a 5 por proceso: 6 es un suelo.
+                # FileShare.Delete es la parte que importa: es la que deja que el os.replace
+                # de la escucha ocurra mientras esto lee.
+                $par = ''
+                $fsP = $null; $srP = $null
+                try {
+                    $fsP = New-Object System.IO.FileStream($RutaParcial, [System.IO.FileMode]::Open,
+                            [System.IO.FileAccess]::Read,
+                            ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
+                    $srP = New-Object System.IO.StreamReader($fsP, [System.Text.Encoding]::UTF8)
+                    $par = $srP.ReadToEnd()
+                } finally {
+                    if ($srP) { $srP.Dispose() }
+                    if ($fsP) { $fsP.Dispose() }
+                }
                 $vista = ($par -replace '\s+', ' ').Trim()
                 if ($vista.Length -gt 44) {
                     # por PALABRAS (14/09): cortar a 41 letras dejaba "...lume al setenta"

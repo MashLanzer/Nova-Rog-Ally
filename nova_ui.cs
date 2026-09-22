@@ -3531,8 +3531,26 @@ public class NovaUI : Window
             {
                 if (File.Exists(rutaNivel) && (DateTime.UtcNow - File.GetLastWriteTimeUtc(rutaNivel)).TotalSeconds < 1.0)
                 {
+                    // COMPARTIENDO EL ARCHIVO, COMO YA SE HACE CON rutaEstado (22/09).
+                    // File.ReadAllText lo abre SIN permitir que nadie lo borre o renombre
+                    // mientras tanto, y la escucha reescribe este fichero constantemente
+                    // con un cambio atomico (escribe .tmp y hace os.replace). Cuando el
+                    // replace coincidia con esta lectura, Windows lo tumbaba con
+                    // "WinError 5: Acceso denegado", la escucha se rendia y escribia
+                    // encima sin atomicidad. En el log hay 14 casos de ui-nivel.txt en
+                    // cuatro dias distintos, y el contador de la escucha esta topado a 5
+                    // por proceso, asi que 14 es un suelo.
+                    // FileShare.Delete es la parte que importa: es la que deja que el
+                    // os.replace de al lado ocurra mientras esto lee.
+                    string txtNivel;
+                    using (var fsNivel = new FileStream(rutaNivel, FileMode.Open, FileAccess.Read,
+                                                        FileShare.ReadWrite | FileShare.Delete))
+                    using (var srNivel = new StreamReader(fsNivel, System.Text.Encoding.UTF8))
+                    {
+                        txtNivel = srNivel.ReadToEnd();
+                    }
                     double v;
-                    if (double.TryParse(File.ReadAllText(rutaNivel).Trim(), NumberStyles.Any, CultureInfo.InvariantCulture, out v)) { niv = Math.Max(niv, v); }
+                    if (double.TryParse(txtNivel.Trim(), NumberStyles.Any, CultureInfo.InvariantCulture, out v)) { niv = Math.Max(niv, v); }
                 }
             }
             catch { }
