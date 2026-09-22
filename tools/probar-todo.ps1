@@ -23,7 +23,29 @@ $secSaltadas = @()
 # final no diga un verde entero cuando no lo es.
 $avisosAmarillos = @()
 
-function Titulo($t) { Write-Host ""; Write-Host "== $t" -ForegroundColor Cyan }
+# EL BANCO SE TRAGABA SUS PROPIOS ERRORES (22/09, idea 8). Aqui habia 104 subidas de
+# $fallos y 98 eran la MISMA linea muda -if ($LASTEXITCODE -ne 0) { $fallos++ }-, sin un
+# solo mensaje y sin guardar de que seccion venian. Encima 95 de esas 98 filtran su salida
+# con Select-String, asi que un banco que muere por una excepcion no imprime NADA. El
+# veredicto solo podia decir "3 comprobaciones con problemas" y tocaba reejecutar secciones
+# a ciegas -hasta 104- para saber cuales eran.
+#
+# COMO SE APUNTA EL NOMBRE SIN TOCAR LAS 98 LINEAS: cada seccion empieza SIEMPRE llamando a
+# Titulo, y sus $fallos++ vienen despues, asi que la propia Titulo puede mirar si el contador
+# subio durante la seccion ANTERIOR y apuntarla por su nombre. Asi cuentan las 104 subidas y
+# no solo las 98 mudas -entran tambien la 3, la 4, la 7 y la 8, que si tienen mensaje pero
+# tampoco decian su nombre al final-, y vale para la seccion que alguien anada manana sin
+# acordarse de esto. La ultima seccion no tiene detras otro Titulo: la cierra el veredicto.
+$secFallidas = @()
+$script:tituloActual = ''
+$script:fallosAlEmpezar = 0
+
+function Titulo($t) {
+    if ($script:tituloActual -and $script:fallos -gt $script:fallosAlEmpezar) { $script:secFallidas += $script:tituloActual }
+    $script:tituloActual = $t
+    $script:fallosAlEmpezar = $script:fallos
+    Write-Host ""; Write-Host "== $t" -ForegroundColor Cyan
+}
 
 Titulo "1. Patrones (todos deben compilar)"
 # Tambien las herramientas: un CR suelto colado en una ruta dentro de una
@@ -295,7 +317,7 @@ Titulo "2n22. Que Nova se incluya en su parte semanal"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-parte-semanal.ps1')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:todo correcto)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
-Titulo "2n24. Que la charla y la traduccion no se pasen la misma frase sin parar"
+Titulo "2n74. Que la charla y la traduccion no se pasen la misma frase sin parar"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-rebote.ps1')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:todo correcto)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
@@ -594,7 +616,7 @@ Titulo "2n45. Que Nova sepa que Roblox es un juego (y que no se invente ninguno)
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-juego-primer-plano.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:sin inventarse ninguno)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
-Titulo "2n27. Que Nova avise si lleva dias sin apuntar ni una orden (sin uso no se decide nada)"
+Titulo "2n75. Que Nova avise si lleva dias sin apuntar ni una orden (sin uso no se decide nada)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-sin-uso.ps1')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:todo correcto)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
@@ -823,6 +845,10 @@ if ($sucios.Count -gt 0) {
     Write-Host "   ninguno: lo que se lee es lo que hay" -ForegroundColor Green
 }
 
+Titulo "2n76. Que el propio banco diga de que seccion viene cada fallo"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-veredicto.ps1')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:de que seccion viene cada fallo)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "7. Bancos que llaman a funciones que no han traido (ROJO si los hay)"
 # No es un detalle de estilo: un banco asi no prueba lo que dice probar. probar-json-ui
 # soltaba 16 de estos por pasada y salia en verde; probar-costumbres estuvo un dia
@@ -832,15 +858,48 @@ Titulo "7. Bancos que llaman a funciones que no han traido (ROJO si los hay)"
 if (Test-Path -LiteralPath $script:errBanco) {
     $lineasErr = @(Get-Content -LiteralPath $script:errBanco -ErrorAction SilentlyContinue)
     $noExiste = @($lineasErr | Select-String -Pattern "CommandNotFoundException" -SimpleMatch)
+    # LO QUE NO ERA "FUNCION QUE NO EXISTE" TAMBIEN CUENTA (22/09, idea 8). Esta seccion
+    # miraba UN SOLO patron. Cualquier otra excepcion -un JSON roto, un fichero que no esta,
+    # python que revienta al importar- pasaba de largo, la seccion se pintaba en VERDE
+    # diciendo "todos los bancos ejecutan de verdad lo que dicen", y la linea de abajo
+    # BORRABA el fichero: el unico rastro del fallo se destruia en la misma pasada que lo
+    # producia. Y no asomaba por ningun otro lado, porque 95 de las 98 secciones filtran su
+    # salida con Select-String y un banco muerto no imprime ninguna de las palabras buscadas.
+    # No se intenta clasificar linea por linea -un error de PowerShell ocupa seis lineas y se
+    # parte solo por el ancho de la consola, asi que cualquier filtro fino se equivoca-:
+    # basta con saber si quedo ALGO escrito ahi, y ensenarlo.
+    $conAlgo = @($lineasErr | Where-Object { ([string]$_).Trim() })
     if ($noExiste.Count -gt 0) {
         $quienes = @($lineasErr | ForEach-Object { if ($_ -match "El t.rmino .([A-Za-z]+-[A-Za-z]+).") { $Matches[1] } } | Sort-Object -Unique)
         Write-Host ("   MAL: " + $noExiste.Count + " llamada(s) a funciones que el banco no trajo: " + ($quienes -join ", ")) -ForegroundColor Red
         Write-Host "   Ese banco NO esta probando lo que dice probar. Traela con Traer/TraerFn, o ponle un sustituto." -ForegroundColor Red
         $fallos++
     } else {
-        Write-Host "   ninguno: todos los bancos ejecutan de verdad lo que dicen" -ForegroundColor Green
+        if ($conAlgo.Count -eq 0) {
+            Write-Host "   ninguno: todos los bancos ejecutan de verdad lo que dicen" -ForegroundColor Green
+        } else {
+            # NI VERDE NI ROJO (22/09, idea 8): ninguna llamada a una funcion sin traer, pero
+            # algo solto esas lineas por la salida de error. El verde entero aqui seria mentira.
+            # EN AMARILLO Y NO EN ROJO, igual que la seccion 6: por aqui pasa tambien ruido
+            # legitimo (avisos de python, barras de progreso), y un rojo que sale siempre se
+            # aprende a ignorar, que es la unica forma de matar un aviso. Cuando se haya visto
+            # en unas cuantas pasadas que aqui no cae ruido, se sube a rojo.
+            Write-Host ("   AMARILLO: ninguna funcion sin traer, pero quedaron " + $conAlgo.Count + " linea(s) en la salida de error. Algun banco pudo morir a medias:") -ForegroundColor Yellow
+            foreach ($oL in ($conAlgo | Select-Object -First 12)) { Write-Host ("      " + $oL) -ForegroundColor Yellow }
+            if ($conAlgo.Count -gt 12) { Write-Host ("      ... y " + ($conAlgo.Count - 12) + " linea(s) mas en el fichero") -ForegroundColor Yellow }
+            $avisosAmarillos += ("" + $conAlgo.Count + " linea(s) en la salida de error de los bancos (quedan en " + $script:errBanco + ")")
+        }
     }
-    Remove-Item -LiteralPath $script:errBanco -Force -ErrorAction SilentlyContinue
+    # EL FICHERO SOLO SE BORRA SI NO QUEDABA NADA QUE MIRAR (22/09, idea 8). Antes se
+    # borraba SIEMPRE, tambien cuando dentro estaba la excepcion que acababa de matar a un
+    # banco: el unico rastro desaparecia en la misma pasada que lo producia. Cuando esta
+    # vacio -el caso de todos los dias- se borra igual que siempre, que no hay por que dejar
+    # basura en TEMP.
+    if ($conAlgo.Count -eq 0) {
+        Remove-Item -LiteralPath $script:errBanco -Force -ErrorAction SilentlyContinue
+    } else {
+        Write-Host ("   (la salida de error entera queda en " + $script:errBanco + "; borrala tu cuando la hayas mirado)") -ForegroundColor DarkGray
+    }
 }
 
 if ($secSaltadas.Count -gt 0) {
@@ -853,7 +912,19 @@ if ($avisosAmarillos.Count -gt 0) {
     Write-Host ("$($avisosAmarillos.Count) aviso(s) en AMARILLO (no son fallos, pero el verde no es entero):") -ForegroundColor Yellow
     foreach ($avA in $avisosAmarillos) { Write-Host "   - $avA" -ForegroundColor Yellow }
 }
-if ($fallos -gt 0) { Write-Host "$fallos comprobaciones con problemas" -ForegroundColor Red; exit 1 }
+# LA ULTIMA SECCION LA CIERRA EL VEREDICTO (22/09, idea 8). Titulo apunta la seccion anterior
+# cuando arranca la siguiente, asi que la ultima que se ejecuta -la 7- no tiene detras ningun
+# Titulo que la cierre. Se cierra aqui, justo antes de dar el veredicto.
+if ($script:tituloActual -and $fallos -gt $script:fallosAlEmpezar) { $secFallidas += $script:tituloActual }
+if ($fallos -gt 0) {
+    # EL NUMERO SOLO NO SERVIA DE NADA (22/09, idea 8): con 104 sitios donde sube el contador,
+    # "3 comprobaciones con problemas" obligaba a reejecutar secciones a ciegas hasta dar con
+    # ellas. Ahora los nombres van debajo. La linea del numero se conserva PALABRA POR PALABRA
+    # porque los cerrar-ronda*.ps1 de tmp la buscan tal cual con Select-String.
+    Write-Host "$fallos comprobaciones con problemas" -ForegroundColor Red
+    foreach ($sF in $secFallidas) { Write-Host "   - $sF" -ForegroundColor Red }
+    exit 1
+}
 # UN SOLO 'PERO' (19/09, H2m3): antes solo contaba las saltadas, y ahora puede haber dos
 # motivos a la vez. Se conserva el texto "todo en orden" porque tmp\cerrar-ronda*.ps1 lo
 # busca tal cual, y se sigue saliendo con 0: un amarillo no rompe la ronda.
