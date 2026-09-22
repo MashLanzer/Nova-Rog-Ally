@@ -1301,8 +1301,6 @@ def soltar_parakeet_si_toca():
     quieto = time.time() - _parakeet_uso
     if quieto < plazo:
         return
-    anota("parakeet soltado: %s y lleva %.0f min sin usarse"
-          % ("jugando" if hay_juego else "sin juego delante", quieto / 60.0))
     _parakeet = None
     global _canary, _canary_uso
     # Canary se suelta con el mismo criterio: es el segundo modelo mas grande de los dos
@@ -1315,7 +1313,11 @@ def soltar_parakeet_si_toca():
         _omni_uso = 0.0
     import gc
     gc.collect()
-    anota("parakeet soltado: hay un juego delante y lleva %.0f min sin usarse" % (quieto / 60.0))
+    # se avisa DESPUES de soltarlo todo, que es cuando de verdad esta hecho. El texto era
+    # fijo -'hay un juego delante'- porque cuando se escribio esto la funcion solo corria
+    # jugando; desde el 22/09 tambien suelta sin juego, asi que lo dice.
+    anota("parakeet soltado: %s y lleva %.0f min sin usarse"
+          % ("hay un juego delante" if hay_juego else "sin juego delante", quieto / 60.0))
 
 
 _ultimo = None

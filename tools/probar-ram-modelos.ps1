@@ -96,6 +96,14 @@ $cuerpoPar = $fuente.Substring($iPar, $jPar - $iPar)
 Comp 'parakeet tiene plazo tambien sin juego' ($cuerpoPar -match 'PARAKEET_SOLTAR_QUIETO') ''
 Comp 'y distingue si hay juego o no' ($cuerpoPar -match 'hay_juego') ''
 Comp 'y lo dice en el log' ($cuerpoPar -match 'parakeet soltado') ''
+# UNA SOLA VEZ, y que diga la verdad. El 22/09 quedaron DOS avisos: el nuevo arriba y el de
+# siempre abajo, que decia 'hay un juego delante' fijo porque cuando se escribio la funcion
+# solo corria jugando. En el log salieron los dos, un segundo aparte y contradiciendose:
+#   09:12:08  parakeet soltado: sin juego delante y lleva 20 min sin usarse
+#   09:12:09  parakeet soltado: hay un juego delante y lleva 20 min sin usarse
+$nAvisos = ([regex]::Matches($cuerpoPar, 'parakeet soltado')).Count
+Comp 'una sola vez, no dos contradiciendose' ($nAvisos -eq 1) ("$nAvisos avisos")
+Comp 'y el texto sale de hay_juego, no es fijo' ($cuerpoPar -match 'if hay_juego else') ''
 $qj = if ($fuente -match '(?m)^PARAKEET_SOLTAR_JUGANDO = ([0-9.]+)') { [double]$Matches[1] } else { -1 }
 $qq = if ($fuente -match '(?m)^PARAKEET_SOLTAR_QUIETO = ([0-9.]+)') { [double]$Matches[1] } else { -1 }
 Comp 'sin juego se espera MAS que jugando' ($qq -gt $qj) ("$qq s frente a $qj s")
