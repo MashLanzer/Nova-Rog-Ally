@@ -52,6 +52,13 @@ $EXENTAS = @{
     'Add-Perfil'              = 'crear un modo se pide a proposito y se dice en voz alta'
     'Set-UsoAhora'            = 'marca de uso del propio Nova'
     'Add-NubeTiempo'          = 'solo son milisegundos, y con invitado la nube ni se lanza (Start-NubeOir sale en su primera linea)'
+    # 21/09 (C6): la guarda la ponen los DOS que la llaman, y ahi es donde toca.
+    # Add-Traduccion sale en su primera linea si hay invitado -o sea que un invitado no
+    # ensena nada-, y Remove-Traduccion a proposito NO la tiene: olvidar algo tuyo se
+    # puede pedir siempre, tambien mientras le dejas la consola a alguien. Si la guarda
+    # se pusiera aqui dentro, ese olvido se quedaria a medias: borrado de la memoria y
+    # no del fichero, o sea que volveria al reiniciar.
+    'Save-Traducciones'       = 'la decide quien la llama: Add-Traduccion tiene la guarda y Remove-Traduccion no la quiere'
 }
 
 $fns = $ast.FindAll({ param($x) $x -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)

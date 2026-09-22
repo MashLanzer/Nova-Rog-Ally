@@ -98,6 +98,10 @@ function Log($m) { $script:logsT += $m }
 function Write-Atomico($r, $t) { }
 $script:invitado = $false
 $script:traducciones = @{}
+# 21/09 (C6): Add-Traduccion apunta aqui las claves que se olvidaron a proposito, para
+# que el guardado -que ahora fusiona con el disco- no las resucite. Sin esta linea, el
+# banco revienta por dentro al llamar a un metodo sobre $null.
+$script:traduccionesQuitadas = New-Object System.Collections.Generic.HashSet[string]
 function Get-Traducciones { return $script:traducciones }
 $TraduccionesPath = Join-Path $env:TEMP 'traducciones-prueba-nunca.json'
 Invoke-Expression (Traer 'Add-Traduccion')

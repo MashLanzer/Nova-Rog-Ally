@@ -14,6 +14,40 @@ informes del 19/09 (OIDO, MEDICION-MODELOS, VRAM).
 
 ---
 
+## AL DIA: lo que queda de estos 24, a 21/09/2026 por la noche
+
+braya pidio cerrar los pendientes acumulados antes de empezar otra cosa, asi que los 24
+se volvieron a cruzar **contra el codigo**, no contra este documento. **Siete ya estaban
+hechos y aqui no constaba**, que es justo el fallo que B17 venia a arreglar: una lista que
+no se tacha deja de servir para saber cuanto queda.
+
+| id | estado a 21/09 |
+|---|---|
+| **A0** REINICIAR | HECHO. Nova reiniciada a las 19:27 con el codigo del dia |
+| **A16** VRAM-3 | HECHO el 20/09: el bloque 5 da 20 de 20 (liston 75 %) |
+| **C9** N1 | HECHO: commit `ee93627`, Nova ajusta sola el tope de la nube con su p90 |
+| **C4** AVISOS-JUEGO | HECHO: commit `66c8daf`, con la prueba que vigila el cierre falso |
+| **B1** MODELO-LOCAL | HECHO: `conversacion.modeloLocal` = qwen2.5:3b en config.json |
+| **B3** H3m2 | HECHO: `$MINIMOS` en probar-regex.ps1, ya no sale verde con 0 patrones |
+| **B11** H3m4 | HECHO: la bateria nombra las secciones saltadas antes del veredicto |
+| **C15** I7 | HECHO el 20/09: el OCR ya lee zonas (esquinas, mitades) |
+| **C6** TRADUCCIONES-PISADAS | **HECHO el 21/09**: era el guardado, que reescribia el fichero entero desde la RAM. Reproducido y cerrado con `tools\probar-traducciones.ps1` (2n56) |
+| **C10** USO-DIVIDIDA | **HECHO el 21/09**: el corte que pone el codigo con '|' lo deshacia el re-unificador de Split-Compound |
+| **C5** FILTRO-PERFIL | NO PROCEDE, y esta razonado en `charla_memoria.py:88`: las otras dos reglas del perfil cazan 0 y 0 sobre los 50 episodios guardados |
+| **C27** FALLO-DICHO | Bloqueado a proposito CON DATO: con lo que hay hoy produciria 1 apunte en toda la historia |
+| **C18** I1 | Sigue bloqueada por el contador de dudas, que no existe |
+| **A1**, **A9** | SUYOS: hablarle al oido nuevo, y decir "callate" mientras habla |
+
+**Lo que queda de verdad:** `C19` (un numero de la meta que se pueda MIRAR, no solo
+preguntar), `C23` (medir la pila del oido entera cargada a la vez), `C25` (Vosk grande: la
+herramienta esta escrita y nunca se ha ejecutado), `D7` (crear carpeta/archivo en el
+escritorio, que fallo cuatro veces el 20/09), `D6` (fase 2 de aprender), `B9` (a medias: el
+cierre ya se comprueba, falta que un archivo creado exista), `C24` (Ollama con
+`OLLAMA_IGPU_ENABLE=1`, opcional) y `D1` (los nombres propios del oido, que la cascada
+Canary+Omni del 21/09 ataca pero no cierra).
+
+---
+
 # El recuento de verdad (auditoría del 20/09/2026)
 
 Braya pidió cerrar esta lista para siempre y saber cuántas quedaban **de verdad**. Se

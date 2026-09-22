@@ -262,6 +262,10 @@ a pantalla dividida abre steam
 abre el navegador y a pantalla dividida abre steam
 abre steam a pantalla dividida
 pon el navegador en pantalla dividida
+# Y LA FRASE ENTERA, COMO LA DIJO (C10, 21/09). Las de arriba son trozos; esta es la
+# del log del 18/09, con las TRES cosas seguidas. Se iba al modelo porque el corte que
+# pone Split-Ordenes con '|' lo deshacia el re-unificador de Split-Compound.
+ponme un temporizador de 10 minutos, abre el navegador y a pantalla dividida, abre steam
 
 # --- EL ACCESO DIRECTO (19/09, USO-2026-09-18.md:75). "guarda un acceso directo en la
 # barra" no existia como orden. Windows 11 ya no expone el verbo de anclar a la barra

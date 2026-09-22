@@ -347,6 +347,32 @@ Titulo "2n54. La cascada del repaso: Canary antes que Whisper, y sin tocar Parak
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-cascada-repaso.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:sin Canary todo sigue como antes)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n57. El numero de la meta, para mirarlo (C19)"
+# OJO AL NOMBRE: probar-meta.ps1 ES OTRO BANCO (el 2n35, la frase hablada). El 21/09
+# se sobrescribio sin querer al crear este, y lo canto la propia bateria: la seccion
+# 2n35 se quedo sin una sola linea de salida. Este es probar-meta-TABLA.ps1.
+# Preguntarlo ya se podia desde el 19/09; lo que faltaba era un sitio donde VERLO sin
+# preguntar, y es la tabla que abre memoria\estadisticas.md. Lo que mas se prueba aqui
+# no es la tabla: es que los DOS contadores -la frase hablada y la tabla- den el MISMO
+# numero. El 19/09 la frase decia 72 % y el analisis 75 % del mismo dia, y dos numeros
+# que no cuadran no se los cree nadie.
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-meta-tabla.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el mismo que si lo preguntas)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n56. Las 14 traducciones que se perdieron (C6)"
+# OJO AL NOMBRE, igual que con probar-meta: probar-traduccion.ps1 (en singular) ES
+# OTRO BANCO, el de que no se aprenda una traduccion destructiva. Este es el de las
+# 14 perdidas y se llama probar-traducciones-PERDIDAS.ps1.
+# 19/09: aparecieron 14 aprendidos menos en traducciones.json y nadie supo quien los
+# habia borrado. La pista era el formato -dos espacios tras los dos puntos, o sea
+# ConvertTo-Json de PowerShell 5.1-: lo reescribio Nova misma. Aprender y olvidar
+# escribian el fichero ENTERO desde la copia que vive en RAM, y esa copia se queda
+# VACIA cuando el JSON llega corrupto. Aqui se reproduce: 14 en el fichero, la RAM
+# vacia, aprende una... y quedaba 1. Lo que mas importa del arreglo es lo de abajo:
+# que fusionar con el disco NO resucite lo que acabas de mandar olvidar.
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-traducciones-perdidas.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no se lleva por delante)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n55. Lo que se guarda de ti, y lo que Nova dice que dijo"
 # 21/09. Tres filtros que no filtraban, y los tres fallaban EN SILENCIO: el de datos
 # sensibles del perfil comparaba CON tildes contra un patron escrito sin ellas
@@ -457,7 +483,7 @@ foreach ($banco in @('ordenes-que-funcionaban.txt', 'casos-nuevos.txt')) {
     # estuviera ahi, asi que una caida de 88 a 5 pasaba EN VERDE: justo lo que este banco
     # existe para evitar. Las que fallan son controles a proposito, por eso el listero es
     # un minimo y no una igualdad: lo que no puede es BAJAR.
-    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 421 }   # 421 desde el 21/09 tarde (el filtro de 'a las?' sin hora, que se tragaba
+    $minimo = if ($banco -eq 'ordenes-que-funcionaban.txt') { 88 } else { 423 }   # 423 desde el 21/09 noche (C10, la pantalla dividida encadenada). Antes 421 tarde (el filtro de 'a las?' sin hora, que se tragaba
 # cualquier frase que empezara por 'a la', y las preposiciones de las flechas). Antes 405
 # verbo), 389 ('dime que X'), 377 (los apodos), 369 (el volumen al reves), 346, 335,
 # 317, 308 y 289: MEDIDO (287 + 2 saltadas). +9 de "mira la pantalla". Antes 280, 260, 254, 242, 238, 234, 228, 221

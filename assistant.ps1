@@ -509,6 +509,28 @@ function Split-Ordenes([string]$texto) {
 }
 
 function Split-Compound([string]$s) {
+    # UN '|' ES UN CORTE QUE PONE EL CODIGO, NO EL DICTADO (C10, 21/09). Split-Ordenes
+    # reescribe algunas frases a un canonico propio y marca el corte con '|', porque
+    # ConvertTo-Plain ya se comio las comas. Pero ese corte se DESHACIA aqui abajo: el
+    # re-unificador pega un trozo al anterior cuando no empieza por un verbo de $VERBOS,
+    # y el canonico 'dividir pantalla con X' empieza por 'dividir', que no esta en esa
+    # lista. O sea que
+    #     'abre el navegador y a pantalla dividida, abre steam'
+    # se reescribia bien a 'abre el navegador | dividir pantalla con steam'... y volvia
+    # a juntarse en 'abre el navegador y dividir pantalla con steam', que no resuelve
+    # nada. La frase entera se iba al modelo. Es como braya lo dijo de verdad el 18/09.
+    # Lo que decide un corte del dictado (una 'y', una coma) es discutible y por eso
+    # hay toda esa logica; un '|' no lo es, porque lo acaba de poner el codigo de al
+    # lado sabiendo lo que hacia. Asi que se parte por ahi primero y cada trozo va por
+    # su cuenta, con toda la logica de siempre dentro.
+    if ($s -match '\|') {
+        $resP = New-Object System.Collections.ArrayList
+        foreach ($trozoP in ($s -split '\s*\|\s*')) {
+            if (-not ([string]$trozoP).Trim()) { continue }
+            foreach ($fP in @(Split-Compound $trozoP)) { [void]$resP.Add($fP) }
+        }
+        return $resP.ToArray()
+    }
     # "ademas"/"tambien" son SEPARADORES si les sigue un verbo de accion, y
     # simples muletillas si no. Confundir ambos casos era lo que metia
     # "...ADEMAS sube el volumen" dentro de la busqueda anterior.
@@ -2472,6 +2494,33 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '', [bool]$deCamino =
         [void]$sb.AppendLine("")
         [void]$sb.AppendLine("Rutas: **local** (<1 s, sin modelo), **aprendida** (traducción guardada), **memoria** (búsqueda en notas), **pregunta** (modelo sin herramientas), **traducir** → **traducida** (el modelo la convirtió a una orden local y se aprendió), **accion** (agente completo), **charla**, **descarte** (trozo que la capa local no entendió).")
         [void]$sb.AppendLine("")
+        # EL NUMERO DE LA META, LO PRIMERO QUE SE VE (C19, 21/09). Debajo hay tablas de
+        # rutas y de fallos, pero ninguna contesta "¿me esta entendiendo?", que es LA
+        # pregunta del proyecto desde el 14/09. Va arriba del todo y con el dato de hoy
+        # primero.
+        try {
+            $metaD = Get-MetaDias 14
+            if ($metaD.Count -gt 0) {
+                [void]$sb.AppendLine("## La meta: ¿te estoy entendiendo?")
+                [void]$sb.AppendLine("")
+                [void]$sb.AppendLine('La meta es el **100 %** con **cero ordenes equivocadas**. Se cuenta sobre las ordenes que de verdad juzgan (no cuentan las charlas ni el boton pulsado sin hablar), y es el MISMO numero que si le preguntas "¿como me has entendido hoy?".')
+                [void]$sb.AppendLine("")
+                [void]$sb.AppendLine("| dia | bien | equivocadas | total | |")
+                [void]$sb.AppendLine("|---|---:|---:|---:|---|")
+                foreach ($kD in ($metaD.Keys | Sort-Object -Descending)) {
+                    $vD = $metaD[$kD]
+                    $totD = [int]$vD.bien + [int]$vD.mal + [int]$vD.otras
+                    if ($totD -eq 0) { continue }
+                    $pctD = [int][Math]::Round(100.0 * $vD.bien / $totD)
+                    $fechaD = $kD.Substring(0, 4) + "-" + $kD.Substring(4, 2) + "-" + $kD.Substring(6, 2)
+                    # la barra se ve de un vistazo, que es de lo que va esto
+                    $barraD = ("#" * [int][Math]::Round($pctD / 10.0)).PadRight(10, ".")
+                    $marcaD = if ($vD.mal -eq 0 -and $vD.bien -eq $totD) { " **100 %**" } else { " $pctD %" }
+                    [void]$sb.AppendLine("| $fechaD | $($vD.bien) | $($vD.mal) | $totD | ``$barraD``$marcaD |")
+                }
+                [void]$sb.AppendLine("")
+            }
+        } catch {}
         [void]$sb.AppendLine("## Por día")
         [void]$sb.AppendLine("")
         [void]$sb.AppendLine("| día | " + ($rutas -join ' | ') + " |")
@@ -2909,6 +2958,50 @@ function Get-QueHeHecho {
 $UsoBien   = @('local', 'aprendida', 'memoria', 'traducida', 'receta', 'recitado')
 $UsoMal    = @('error', 'descarte', 'ruido')
 $UsoNeutro = @('charla', 'traducir', 'plan', 'accion', 'pregunta')
+# EL NUMERO DE LA META, DIA A DIA (C19, 21/09). Get-ComoTeEntendi de aqui abajo contesta
+# con una frase para decirla en voz alta, y eso solo sirve si preguntas. Esto devuelve los
+# NUMEROS, un dia por fila, para la tabla de memoria\estadisticas.md: el sitio donde braya
+# puede MIRAR como va sin tener que preguntarle nada.
+# El criterio es el mismo, a proposito, y esta comprobado por el banco: dos formas de
+# contar lo mismo que se separan acaban dando dos numeros distintos, y entonces no se cree
+# ninguno (paso el 19/09: la frase decia 72 % y el analisis 75 %).
+function Get-MetaDias([int]$dias = 14, [string]$ruta = '', [datetime]$ahora = (Get-Date)) {
+    if (-not $ruta) { $ruta = Join-Path $LogDir 'pruebas\audio\uso\destinos.jsonl' }
+    $fuera = @{}
+    if (-not (Test-Path -LiteralPath $ruta)) { return $fuera }
+    $desde = $ahora.AddDays(-$dias).ToString('yyyyMMdd')
+    $porId = @{}; $diaDe = @{}
+    try {
+        foreach ($lM in [System.IO.File]::ReadAllLines($ruta, [System.Text.Encoding]::UTF8)) {
+            if (([string]$lM) -notmatch '"id"\s*:\s*"([^"]+)"') { continue }
+            $idM = $Matches[1]
+            if ($idM.Length -lt 8) { continue }
+            $dM = $idM.Substring(0, 8)
+            if ($dM -lt $desde) { continue }
+            if (([string]$lM) -notmatch '"hizo"\s*:\s*"([^"]*)"') { continue }
+            $hM = $Matches[1]
+            $detM = ''
+            if (([string]$lM) -match '"detalle"\s*:\s*"([^"]*)"') { $detM = $Matches[1] }
+            if (-not $porId.ContainsKey($idM)) { $porId[$idM] = @{ hizo = ''; dicho = $false; detalle = '' }; $diaDe[$idM] = $dM }
+            if ($hM -eq 'fallo-dicho-por-ti') { $porId[$idM].dicho = $true }
+            else { $porId[$idM].hizo = $hM; if ($detM) { $porId[$idM].detalle = $detM } }
+        }
+    } catch { return $fuera }
+    foreach ($kM in $porId.Keys) {
+        $oM = $porId[$kM]
+        # mismas exclusiones que Get-ComoTeEntendi, una por una
+        if ($oM.hizo -eq 'error' -and $oM.detalle -eq 'dictado vacio' -and -not $oM.dicho) { continue }
+        $dM = $diaDe[$kM]
+        if (-not $fuera.ContainsKey($dM)) { $fuera[$dM] = @{ bien = 0; mal = 0; otras = 0; neutras = 0 } }
+        if ($oM.dicho) { $fuera[$dM].mal++; continue }
+        if ($UsoNeutro -contains $oM.hizo) { $fuera[$dM].neutras++; continue }
+        if ($UsoBien -contains $oM.hizo) { $fuera[$dM].bien++; continue }
+        if ($UsoMal -contains $oM.hizo) { $fuera[$dM].mal++; continue }
+        $fuera[$dM].otras++
+    }
+    return $fuera
+}
+
 function Get-ComoTeEntendi([string]$ruta = '', [datetime]$ahora = (Get-Date)) {
     if (-not $ruta) { $ruta = Join-Path $LogDir 'pruebas\audio\uso\destinos.jsonl' }
     # SIN FICHERO NO SE INVENTA UN NUMERO, igual que Get-AvisoSinUso: una instalacion
@@ -5599,6 +5692,10 @@ function Add-Alias-Comando([string]$alias, [string]$objetivo) {
 # =====================================================================
 $TraduccionesPath = Join-Path $LogDir "traducciones.json"
 $script:traducciones = $null
+# LO QUE SE BORRO A PROPOSITO EN ESTA SESION (C6, 21/09). Ver Save-Traducciones: al
+# guardar se fusiona con lo que haya en disco, y sin esta lista un 'olvida que X es Y'
+# volveria a aparecer en el siguiente guardado, resucitado desde el propio fichero.
+$script:traduccionesQuitadas = New-Object System.Collections.Generic.HashSet[string]
 
 function Get-Traducciones {
     if ($null -ne $script:traducciones) { return $script:traducciones }
@@ -5610,6 +5707,39 @@ function Get-Traducciones {
         } catch { Save-Corrupto $TraduccionesPath 'traducciones' }
     }
     return $script:traducciones
+}
+
+# C6, LAS 14 TRADUCCIONES QUE SE PERDIERON (21/09). Los dos sitios que guardan este
+# fichero -aprender una y olvidar una- hacian lo mismo: coger $script:traducciones (la
+# copia que vive en RAM) y ESCRIBIRLA ENTERA encima del fichero. Eso da por hecho que
+# la copia en RAM lo tiene todo, y no siempre es verdad:
+#   - si el JSON llego corrupto, Get-Traducciones se lo lleva a un lado y devuelve una
+#     tabla VACIA; el siguiente 'aprende que...' deja el fichero con UNA sola entrada.
+#   - si otro proceso escribio mientras tanto, lo suyo desaparece sin rastro.
+# El formato del fichero del dia que paso lo dice: dos espacios tras los dos puntos, que
+# es como escribe ConvertTo-Json de PowerShell 5.1. O sea que lo reescribio Nova misma,
+# no un editor: encaja con lo de arriba.
+# Ahora se relee el disco y se FUSIONA, con lo que hay en RAM mandando (es lo mas
+# nuevo). Lo unico que no vuelve es lo que se borro a proposito, que va en
+# $script:traduccionesQuitadas: si no, 'olvida que X es Y' se deshacia solo en el
+# siguiente guardado. Ese es el motivo por el que esto no se hizo antes.
+function Save-Traducciones {
+    $t = Get-Traducciones
+    $fusion = @{}
+    if (Test-Path -LiteralPath $TraduccionesPath) {
+        try {
+            $jD = Get-Content -LiteralPath $TraduccionesPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($pD in $jD.PSObject.Properties) { $fusion[$pD.Name] = [string]$pD.Value }
+        } catch { }   # el fichero no se puede leer: se escribe lo que hay en RAM, como antes
+    }
+    foreach ($k in $t.Keys) { $fusion[$k] = $t[$k] }
+    foreach ($q in @($script:traduccionesQuitadas)) { [void]$fusion.Remove($q) }
+    # y la RAM se queda con lo fusionado, o la proxima vuelta volveria a ir corta
+    $script:traducciones = $fusion
+    $o = New-Object PSObject
+    foreach ($k in $fusion.Keys) { $o | Add-Member -NotePropertyName $k -NotePropertyValue $fusion[$k] -Force }
+    Write-Atomico $TraduccionesPath ($o | ConvertTo-Json -Depth 4)
+    return $fusion.Count
 }
 
 function Add-Traduccion([string]$original, [string]$traducida) {
@@ -5626,10 +5756,9 @@ function Add-Traduccion([string]$original, [string]$traducida) {
     }
     $t = Get-Traducciones
     $t[$clave] = $traducida
+    [void]$script:traduccionesQuitadas.Remove($clave)   # si se olvido antes, ahora se vuelve a querer
     try {
-        $o = New-Object PSObject
-        foreach ($k in $t.Keys) { $o | Add-Member -NotePropertyName $k -NotePropertyValue $t[$k] -Force }
-        Write-Atomico $TraduccionesPath ($o | ConvertTo-Json -Depth 4)
+        [void](Save-Traducciones)
         Log "APRENDIDO: '$original' = '$traducida'"
     } catch { Log ("no pude guardar la traduccion: " + $_.Exception.Message) }
 }
@@ -5755,10 +5884,9 @@ function Remove-Traduccion([string]$original) {
     $t = Get-Traducciones
     if (-not $t.ContainsKey($clave)) { return $false }
     $t.Remove($clave)
+    [void]$script:traduccionesQuitadas.Add($clave)   # que la fusion no la resucite
     try {
-        $o = New-Object PSObject
-        foreach ($k in $t.Keys) { $o | Add-Member -NotePropertyName $k -NotePropertyValue $t[$k] -Force }
-        Write-Atomico $TraduccionesPath ($o | ConvertTo-Json -Depth 4)
+        [void](Save-Traducciones)
         Log "OLVIDADO: la traduccion de '$original'"
         return $true
     } catch { Log ("no pude olvidar la traduccion: " + $_.Exception.Message); return $false }

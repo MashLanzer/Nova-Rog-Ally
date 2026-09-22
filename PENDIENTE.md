@@ -1,5 +1,9 @@
 # Pendiente
 
+**ESTE DOCUMENTO NO ES LA LISTA BUENA (B17, 21/09).** Es del 12/09 y se guarda solo por
+el PORQUÉ de cada cosa, que sigue valiendo. Para saber qué queda, la lista viva es
+`PENDIENTES-2026-09-19.md`, que tiene al principio el recuento al día.
+
 Lo que queda por hacer, con el porqué de cada cosa. Anotado el 12/09/2026. DESFASADO:
 al retomar, lee `PENDIENTES-2026-09-19.md` (las once listas en una) y `QUE-SABE-HACER.md`;
 `ESTADO.txt` quedó archivado el 19/09 como foto del 14/09. Esto se guarda por el porqué.
@@ -1516,4 +1520,4 @@ Bloque 4 (tareas sin Claude Code), empezado el 16/09:
       hay que volver a medirlo después de una tanda de uso real.
 - [ ] Pendiente de la fase 2 de `aprender.md`: correo, aprender de «no, dije X»,
       traducciones por uso y el vídeo número N.
-`scratchpad\analisis\aprender.md`) y tareas sin Claude Code.
+**(B17, 21/09: el fichero que se citaba aqui, `scratchpad\analisis\aprender.md`, NO EXISTE. Esto es el punto D6 de PENDIENTES-2026-09-19.md, que es la lista buena.)**
