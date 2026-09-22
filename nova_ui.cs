@@ -2135,36 +2135,61 @@ public class NovaUI : Window
         new[] { "carino",   @"\b(de nada|con gusto|un placer|para eso estoy)\b" },
     };
 
+    // LOS PATRONES SE COMPILAN UNA VEZ, NO EN CADA PARCIAL (21/09). Regex.IsMatch(texto,
+    // patron) recompila salvo que el patron este en la cache de .NET, y esa cache son 15
+    // entradas por defecto (Regex.CacheSize): aqui hay 18 patrones fijos MAS los que
+    // braya anada por config.json, o sea que la cache se desborda y se recompila de
+    // continuo. Y AnalizarTexto no se llama de vez en cuando: se llama con CADA PARCIAL
+    // del dictado, varias veces por segundo mientras el habla, que es justo cuando la
+    // capsula tiene que ir suelta.
+    // Con RegexOptions.Compiled se paga una vez al arrancar y despues es codigo maquina.
+    static Regex[] Compilar(string[][] xs)
+    {
+        Regex[] r = new Regex[xs.Length];
+        for (int i = 0; i < xs.Length; i++)
+        {
+            // uno malo no puede tumbar los demas: se deja en null y se salta
+            try { r[i] = new Regex(xs[i][1], RegexOptions.Compiled | RegexOptions.CultureInvariant); }
+            catch { r[i] = null; }
+        }
+        return r;
+    }
+    static readonly Regex[] RX_USUARIO = Compilar(GESTOS_USUARIO);
+    static readonly Regex[] RX_JUEGO   = Compilar(GESTOS_JUEGO);
+    static readonly Regex[] RX_PROPIOS = Compilar(GESTOS_PROPIOS);
+    // los de config.json se compilan al cargarlos (ver CargarGestosExtra)
+    Regex[] rxExtra = new Regex[0];
+
     void AnalizarTexto(string texto, bool propio)
     {
         string p = Plano(texto);
         if (p.Trim().Length == 0) { return; }
         if (propio)
         {
-            foreach (var g in GESTOS_PROPIOS)
+            for (int i = 0; i < GESTOS_PROPIOS.Length; i++)
             {
-                try { if (Regex.IsMatch(p, g[1])) { Gesto(g[0]); break; } } catch { }
+                if (RX_PROPIOS[i] != null && RX_PROPIOS[i].IsMatch(p)) { Gesto(GESTOS_PROPIOS[i][0]); break; }
             }
             Entonar(texto);
             return;
         }
         // 1) los gestos del usuario (config.json -> ui.gestos), que mandan
-        foreach (var g in gestosExtra)
+        for (int i = 0; i < gestosExtra.Count && i < rxExtra.Length; i++)
         {
-            try { if (Regex.IsMatch(p, g[1])) { Gesto(g[0]); return; } } catch { }
+            if (rxExtra[i] != null && rxExtra[i].IsMatch(p)) { Gesto(gestosExtra[i][0]); return; }
         }
         // 2) complicidad con el juego
         if (!string.IsNullOrEmpty(juegoActual))
         {
-            foreach (var g in GESTOS_JUEGO)
+            for (int i = 0; i < GESTOS_JUEGO.Length; i++)
             {
-                try { if (Regex.IsMatch(p, g[1])) { Gesto(g[0]); return; } } catch { }
+                if (RX_JUEGO[i] != null && RX_JUEGO[i].IsMatch(p)) { Gesto(GESTOS_JUEGO[i][0]); return; }
             }
         }
         // 3) el vocabulario general
-        foreach (var g in GESTOS_USUARIO)
+        for (int i = 0; i < GESTOS_USUARIO.Length; i++)
         {
-            try { if (Regex.IsMatch(p, g[1])) { Gesto(g[0]); return; } } catch { }
+            if (RX_USUARIO[i] != null && RX_USUARIO[i].IsMatch(p)) { Gesto(GESTOS_USUARIO[i][0]); return; }
         }
     }
 
@@ -2189,6 +2214,9 @@ public class NovaUI : Window
                 try { new Regex(patron); } catch { continue; }
                 gestosExtra.Add(new[] { gesto, patron });
             }
+            // COMPILADOS AQUI, que es donde se leen: este fichero se mira cada 30 s pero
+            // solo se relee cuando cambia de fecha, asi que compilar aqui sale gratis.
+            rxExtra = Compilar(gestosExtra.ToArray());
         }
         catch { }
     }

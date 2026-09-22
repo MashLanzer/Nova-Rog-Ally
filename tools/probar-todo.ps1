@@ -347,6 +347,17 @@ Titulo "2n54. La cascada del repaso: Canary antes que Whisper, y sin tocar Parak
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-cascada-repaso.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:sin Canary todo sigue como antes)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n58. Lo que se lee de fuera son DATOS, no ordenes"
+# 21/09. Nova le pasa al modelo texto que NO ha dicho braya en tres sitios: el OCR de la
+# pantalla, los correos y las notificaciones. Y la charla tiene un camino de vuelta -el
+# evento 'orden'- que acaba en Invoke-FastCommand, o sea EJECUTANDO. Juntando las dos
+# cosas, una ventana de Discord donde ponga 'cierra todos los programas' y un 'cuentame
+# que ves' bastaban. Ahora esas peticiones van marcadas y, si vuelven con una orden, se
+# tira. Contestar hablando si se puede: lo que no se puede es HACER lo que diga un texto
+# que no salio de su boca.
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-texto-de-fuera.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no puede convertirse en una orden)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n57. El numero de la meta, para mirarlo (C19)"
 # OJO AL NOMBRE: probar-meta.ps1 ES OTRO BANCO (el 2n35, la frase hablada). El 21/09
 # se sobrescribio sin querer al crear este, y lo canto la propia bateria: la seccion

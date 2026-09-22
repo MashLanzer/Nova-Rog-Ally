@@ -142,6 +142,18 @@ Comp 'con 2 de 30 (p=0,15) se calla, no lo promete' ((Get-AvisoSinDatos $finoP (
 # 30 aportan (hacen falta 5), asi que no hay decision esperando.
 $finoU = Stats @{ '2026-09-15' = @{ 'fino' = 30; 'fino-sirvio' = 6; 'fino-invento' = 0 } }
 Comp 'si aporta limpio, no hay decision esperando' ((Get-AvisoSinDatos $finoU (Num 0 0 0 0 30 6 0) $hoy) -eq '') ''
+# EL AVISO Y LA DECISION TIENEN QUE JUZGAR IGUAL (21/09). Aqui iba el acierto BRUTO a
+# Test-DecisionSolida mientras Test-RevisionPropia -la que apaga el oido fino de verdad-
+# le pasa el NETO (sirvio menos invento). Con 6 de 30 pero 6 inventos, el neto es 0: la
+# decision de verdad lo ve como un cero redondo y este aviso lo veia como 6 y se callaba.
+# O sea que Nova no avisaba de una decision que SI iba a tomar. Los numeros son los
+# mismos que el caso de arriba, cambiando solo los inventos: si alguien vuelve a poner el
+# bruto, este caso se cae y el de arriba no.
+$finoN = Stats @{ '2026-09-15' = @{ 'fino' = 30; 'fino-sirvio' = 6; 'fino-invento' = 6 } }
+$tn = Get-AvisoSinDatos $finoN (Num 0 0 0 0 30 6 6) $hoy
+Comp 'con 6 aciertos y 6 inventos (neto 0) SI avisa' ($tn -match 'oido fino') ("'" + $tn + "'")
+Comp 'y dice los dos numeros, no el neto a secas' (($tn -match '6 de 30') -and ($tn -match 'invente la orden 6')) ''
+
 $finoR = Stats @{ '2026-09-15' = @{ 'fino' = 10; 'fino-sirvio' = 0; 'fino-invento' = 0 }
                   '2026-09-16' = @{ 'fino' = 10; 'fino-sirvio' = 0; 'fino-invento' = 0 }
                   '2026-09-17' = @{ 'fino' = 10; 'fino-sirvio' = 0; 'fino-invento' = 0 } }

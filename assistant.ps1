@@ -847,6 +847,9 @@ function Get-ClaveSonido([string]$t, [bool]$ingles = $false) {
 $script:ClavesJuegos = $null
 function Find-JuegoPorSonido([string]$resto, [string]$frase, [double]$umbral = 0.5) {
     if (-not $script:Juegos -or @($script:Juegos).Count -eq 0) { return $null }
+    # LA RED DE ABAJO, no la puerta: quien tira esta tabla de verdad es Update-Juegos
+    # cuando relee la biblioteca (ver alli). Esto solo caza el caso de que cambie el
+    # numero sin pasar por ahi.
     if (-not $script:ClavesJuegos -or $script:ClavesJuegos.Count -ne @($script:Juegos).Count) {
         $script:ClavesJuegos = @{}
         foreach ($jS in @($script:Juegos)) { $script:ClavesJuegos[$jS.nombre] = Get-ClaveSonido $jS.nombre $true }
@@ -1070,6 +1073,13 @@ function Update-Juegos {
     $script:JuegosStamp = Get-Date
     $ahora = @($script:Juegos).Count
     if ($ahora -ne $antes) { Log "biblioteca de Steam actualizada: $antes -> $ahora juegos" }
+    # Y LAS CLAVES DE SONIDO SE TIRAN AQUI (21/09). Find-JuegoPorSonido guarda una tabla
+    # con el sonido de cada nombre -es cara de construir- y la rehacia solo si el NUMERO
+    # de juegos habia cambiado. Desinstalar uno e instalar otro deja el mismo numero: la
+    # tabla se quedaba con el juego viejo y el nuevo NO se podia encontrar por sonido
+    # nunca, ni diciendo su nombre bien. Aqui es donde se sabe que la biblioteca se ha
+    # releido, asi que aqui es donde toca tirarla: se rehace sola en la siguiente busqueda.
+    $script:ClavesJuegos = $null
     return $true
 }
 
@@ -5513,7 +5523,8 @@ function Invoke-Correo($a) {
         # SOLO ASUNTOS: el correo llega sin cuerpo (tools\correo.py lo trae solo al leer uno).
         # Y por el modelo LOCAL, nunca la API: es tu correo.
         $lineasR = @($script:correoOfrecido | ForEach-Object { "De $($_.de): $($_.asunto)" })
-        if ($ConversacionOn -and (Send-Charla ($lineasR -join "`n") $false 'resumir')) { return "vale, te los resumo" }
+        # el texto de un correo lo escribio otro: datos, no ordenes (ver Send-Charla)
+        if ($ConversacionOn -and (Send-Charla ($lineasR -join "`n") $false 'resumir' $null $true)) { return "vale, te los resumo" }
         return (Format-Correos $script:correoOfrecido)
     }
     if ($accion -eq 'leer') {
@@ -8163,7 +8174,14 @@ function Get-AvisoSinDatos($stats, $num, [datetime]$ahora = (Get-Date)) {
             # Y SI LA CUENTA NO LLEGA, TAMPOCO HAY DECISION (20/09). Este aviso promete
             # 'si sigue asi unos dias mas, lo apago': solo es verdad cuando lo unico que
             # frena es el reparto. Si lo que falta es seguridad, se calla.
-            if (-not (Test-DecisionSolida ([int]$num[$c.utiles]) $tot)) { continue }
+            # CON EL NETO, COMO LA DECISION DE VERDAD (21/09). Aqui iba el acierto BRUTO
+            # ([int]$num[$c.utiles]) mientras que Test-RevisionPropia, que es quien apaga el
+            # oido fino de verdad, le pasa 'fino-sirvio menos fino-invento'. Dos formas de
+            # juzgar lo mismo: este aviso podia prometer 'si sigue asi, lo apago' con unas
+            # cuentas que la decision no comparte, o callarse con unas que si. Y la propia
+            # funcion lo dice en su primera linea: 'un neto negativo cuenta como cero', o
+            # sea que espera el neto. $utilesC ya lo trae calculado dos lineas mas arriba.
+            if (-not (Test-DecisionSolida $utilesC $tot)) { continue }
             if (Test-DatosRepartidos $stats $c.intentos $ahora) { continue }    # si los datos valen, ya decidiria sola
             # cuantos dias distintos tiene, para decirlo con su numero
             $dias = 0
@@ -9946,7 +9964,8 @@ function Invoke-FastCommand([string]$text) {
                     $nPendL = @($script:notifPendientes).Count
                     if ($nPendL -ge 4 -and $ConversacionOn) {
                         $todosL = Get-LecturaNotificaciones 15
-                        if (Send-Charla $todosL $false 'resumir') { $a.desc = "tienes $nPendL; te los resumo"; break }
+                        # lo que pone en una notificacion tampoco lo dijo el (ver Send-Charla)
+                        if (Send-Charla $todosL $false 'resumir' $null $true) { $a.desc = "tienes $nPendL; te los resumo"; break }
                         $a.desc = $todosL
                     } else {
                         $a.desc = Get-LecturaNotificaciones
@@ -11152,7 +11171,8 @@ function Invoke-FastCommand([string]$text) {
                             $pregOcr = "Esto es lo que se lee ahora mismo en la pantalla de braya, sacado con OCR: <<$texto>>. " +
                                        "Cuentale en UNA frase que esta pasando, con sus palabras, sin leerle el texto tal cual " +
                                        "y sin inventarte nada que no este ahi. El te dijo: '" + $texto0Ocr + "'."
-                            if (Send-Charla $pregOcr $false 'hablar') {
+                            # lo que se lee en la pantalla es de quien la escribio (ver Send-Charla)
+                            if (Send-Charla $pregOcr $false 'hablar' $null $true) {
                                 $a.desc = ''
                                 Set-UI 'pensando' 'mirando la pantalla'
                                 break
@@ -15392,9 +15412,22 @@ function Set-UltimaOrden([string]$texto, [string]$hecho) {
     } catch { Log ('hilo: no pude apuntar la orden: ' + $_.Exception.Message) }
 }
 
-function Send-Charla([string]$text, [bool]$duda = $false, [string]$op = 'hablar', $extra = $null) {
+# LO QUE SE LEE DE FUERA SON DATOS, NO ORDENES (21/09). Hay tres sitios que le pasan al
+# modelo texto que NO ha dicho braya: el OCR de la pantalla, los correos y las
+# notificaciones. Y la charla tiene un camino de vuelta -el evento 'orden'- que acaba
+# en Invoke-FastCommand, o sea EJECUTANDO. Juntando las dos cosas, un texto en la
+# pantalla o dentro de un correo podia convertirse en una orden que Nova hace: eso es
+# una inyeccion de instrucciones de manual, y no hace falta que nadie sea listo -basta
+# una ventana de Discord que ponga 'cierra todos los programas' y un 'cuentame que ves'.
+# Con $externo se apunta el id de esa peticion y, si vuelve con una orden, se tira.
+# Contestar hablando SI se puede: lo que no se puede es HACER lo que diga un texto que
+# no salio de su boca.
+$script:charlaIdExterno = -1   # ver LO QUE SE LEE DE FUERA
+
+function Send-Charla([string]$text, [bool]$duda = $false, [string]$op = 'hablar', $extra = $null, [bool]$externo = $false) {
     if (-not $ConversacionOn -or -not $text) { return $false }
     $script:charlaId++
+    if ($externo) { $script:charlaIdExterno = $script:charlaId }
     # invitado: ni se aprende de lo que diga ni se le pone delante lo tuyo.
     # duda: "eso no es verdad", la ultima respuesta queda como incorrecta
     $pedido = @{ op = $op; id = $script:charlaId; texto = $text; invitado = [bool]$script:invitado; duda = $duda }
@@ -15580,6 +15613,18 @@ function Receive-Charla {
         } elseif ($ev.ev -eq 'orden') {
             $script:charlaEsperando = $false
             $ordenC = [string]$ev.texto
+            # UNA ORDEN QUE SALE DE UN TEXTO DE FUERA NO SE HACE (21/09). Ver LO QUE SE LEE
+            # DE FUERA en Send-Charla: si esta respuesta viene de la peticion que llevaba el
+            # OCR, un correo o una notificacion, lo que hay detras de la 'orden' no lo dijo
+            # braya sino quien escribio ese texto. Se apunta y se dice, pero no se ejecuta.
+            if ([int]$ev.id -eq $script:charlaIdExterno) {
+                Log "CHARLA: '$ordenC' sale de un texto de fuera (pantalla, correo o aviso); NO se ejecuta"
+                Add-Estadistica 'orden-de-fuera' $ordenC
+                $script:charlaIdExterno = -1
+                Say 'Eso lo pone en la pantalla, no te lo hago sin que me lo pidas tu'
+                Set-UI 'reposo'
+                continue
+            }
             Log ("charla: no era charla sino una orden -> '$ordenC'" + $(if ($ev.original -and [string]$ev.original -ne $ordenC) { " (dicho: '$($ev.original)')" } else { '' }))
             $script:seguimientoPendiente = $true
             $script:seguimientoFactor = 1.0   # viene de una charla: se sigue hablando
@@ -15611,6 +15656,12 @@ function Receive-Charla {
             # cerebro de preguntas, que busca de verdad
             $script:charlaEsperando = $false
             $datoC = [string]$ev.texto
+            if ([int]$ev.id -eq $script:charlaIdExterno) {
+                Log "CHARLA: no delego '$datoC': sale de un texto de fuera"
+                $script:charlaIdExterno = -1
+                Set-UI 'reposo'
+                continue
+            }
             Log "charla: sin API, '$datoC' es un dato concreto; va al cerebro de preguntas"
             Submit-Command $datoC 'pregunta'
         } elseif ($ev.ev -eq 'err') {
