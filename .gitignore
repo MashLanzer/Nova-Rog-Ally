@@ -71,6 +71,9 @@ memoria/musica.json
 # cuanto tarda la nube en contestar: datos de uso, cambian en cada respuesta.
 # Son numeros, no frases, pero es memoria de uso igual que los habitos.
 memoria/nube-tiempos.json
+# cuanto tarda CADA trabajo suyo, por motor y modo: de ahi sale la barra de espera.
+# Numeros, no frases, pero memoria de uso igual que el de arriba.
+memoria/trabajo-tiempos.json
 # lo que queda a medias si se va la luz justo al guardar (ver Write-Atomico)
 *.json.tmp
 # archivos de memoria que no se podian leer, apartados en vez de perderse

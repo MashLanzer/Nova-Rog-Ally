@@ -14969,6 +14969,7 @@ $script:apiFallo = $false       # la API dio un error que no se arregla reintent
 $script:jobErr = $null
 $script:jobIn = $null
 $script:jobStart = 0
+$script:jobEspMs = 0            # cuanto se espera que tarde ESTE trabajo (ver LA BARRA DE ESPERA SE LA MIDE ELLA)
 
 # Libera el trabajo actual y devuelve la UI a reposo.
 function Clear-OpencodeJob {
@@ -14976,6 +14977,10 @@ function Clear-OpencodeJob {
         if ($f) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }
     }
     $script:jobOut = $null; $script:jobErr = $null; $script:jobIn = $null
+    # LA ESTIMACION ES DE ESTE TRABAJO, NO DE LOS QUE VENGAN (22/09). Se pide una sola vez
+    # por trabajo -abre un fichero- y se borra aqui, que es el unico sitio por el que pasan
+    # los tres finales: terminado, cancelado y vencido (ver LA BARRA DE ESPERA SE LA MIDE ELLA).
+    $script:jobEspMs = 0
     # sin esto, cancelar pasada la estimacion dejaba el barrido de progreso en reposo
     $script:uiProgreso = 0
     try { if ($script:proc) { $script:proc.Dispose() } } catch {}
@@ -15283,8 +15288,17 @@ $HERRAMIENTAS_ES = @{
 # 'plan' FALTABA (18/09): sin el caia al defecto de 60 s y un plan de dos segundos pintaba un
 # 3 % de barra, como si estuviera colgado. Va por parecido con 'traducir' -misma llamada al
 # modelo rapido, tope de 150 tokens en vez de 60- porque el plan aun tiene 0 ejecuciones y no
-# hay mediana real que copiar. Ojo: el 25 s de Get-PlazoJob es otra cosa (cuando se rinde).
-$DURACION_ESPERADA = @{ 'pregunta' = 4000; 'traducir' = 2500; 'plan' = 3000; 'charla' = 5000; 'accion' = 60000 }
+# hay mediana real que copiar. ESO ERA EL 18/09: el 22/09 el log trae 15 planes medidos y el
+# parecido con 'traducir' resulto ser el doble de lo que tarda (ver abajo).
+# Ojo: el 25 s de Get-PlazoJob es otra cosa (cuando se rinde), y no depende de esto.
+# ESTOS NUMEROS YA NO SON PARA SIEMPRE (22/09): son el punto de partida -lo que manda hasta
+# que haya muestras- y el suelo y el techo de lo que Nova se mide sola (ver LA BARRA DE
+# ESPERA SE LA MIDE ELLA, unas lineas mas abajo). Y se ponen al dia con sus 141 trabajos
+# medidos: 'plan' 3.000 -> 1.600 (p75 de 15) y 'pregunta' 4.000 -> 6.600 (p75 de 11), que
+# eran los dos que mentian. 'traducir' 2.500 -> 2.200, que es practicamente lo que ya habia
+# (n=104). 'charla' se queda en 5.000 porque no hay ni una charla medida todavia, y el
+# 'accion' de 60 s es el de opencode, que no ha corrido ni una vez desde que se mide.
+$DURACION_ESPERADA = @{ 'pregunta' = 6600; 'traducir' = 2200; 'plan' = 1600; 'charla' = 5000; 'accion' = 60000 }
 # con Claude Code, medido el 13/09: arrancar cuesta ~2-3 s y una tarea corta con
 # herramientas unos 14
 # traducir sube de 4.000 a 6.000 porque esa es la mediana medida (n=30). Subirlo RETRASA el
@@ -15292,6 +15306,133 @@ $DURACION_ESPERADA = @{ 'pregunta' = 4000; 'traducir' = 2500; 'plan' = 3000; 'ch
 # Y 'accion' se queda en 25.000 aunque la mediana sean 17 s, justo por lo contrario: bajarlo
 # adelantaria el barrido de los 23,7 s a los 16 s, con un juego delante.
 $DURACION_CC = @{ 'pregunta' = 8000; 'traducir' = 6000; 'plan' = 5000; 'charla' = 9000; 'accion' = 25000 }
+
+# --- LA BARRA DE ESPERA SE LA MIDE ELLA (22/09) ---
+# Las dos tablas de arriba son numeros escritos a mano, y el log dice que dos de ellos
+# mentian. Contra las 141 lineas 'TRABAJO ... seg=' que Nova apunta desde el 18/09:
+#   api-plan       n=15    mediana 1,5 s   p75 1,6    maximo 2,9    escrito 3,0
+#   api-pregunta   n=11    mediana 5,7 s   p75 6,6    maximo 7,6    escrito 4,0
+#   api-traducir   n=104   mediana 1,9 s   p75 2,2    maximo 6,0    escrito 2,5
+#   cc-accion      n=11    mediana 20,4 s  p75 23,5   maximo 28,4   escrito 25,0
+# O sea: el plan pintaba el 50 % de la barra cuando YA HABIA TERMINADO, y la pregunta se
+# quedaba clavada en el 97 % los dos segundos largos que le faltaban. El comentario de
+# arriba ya lo avisaba -'si miente la barra no sirve de nada'- y el del 18/09 decia que el
+# plan 'aun tiene 0 ejecuciones y no hay mediana real que copiar'. Ahora hay quince.
+# braya lo pidio para el liston de letras y vale igual aqui: 'todo deberia ser ajustable por
+# ella'. Asi que el numero deja de estar escrito: sale de lo que tarda de verdad.
+#
+# EL P75 Y NO LA MEDIANA, que es lo unico que hubo que pensar. La mediana se pasa la MITAD de
+# las veces por definicion, y pasarse ES el fallo de 'pregunta': barra clavada al final. El
+# p75 acierta en tres de cada cuatro y, cuando se queda corto, se queda poco. Y hay prueba de
+# que es el liston bueno: el p75 REPRODUCE los dos numeros que si se pensaron el 18/09
+# -traducir 2.200 frente a 2.500, accion 23.500 frente a 25.000- y solo mueve los dos que
+# entonces nadie pudo medir. Con la mediana pelada, 'accion' se iria a 20,4 s y adelantaria
+# el barrido de la capsula (nova_ui: progreso >= 0,95) casi cuatro segundos con un juego
+# delante, que es exactamente lo que el 18/09 se decidio NO hacer. Con el p75 se adelanta
+# 1,4 s (de 23,75 a 22,3), y a cambio la barra deja de mentir.
+#
+# SIN BUCLE, que es el peligro de todo lo que se mide solo: se apunta el tiempo de TODOS los
+# trabajos que terminan, sin mirar lo que dijera la barra. La barra no decide nada -no corta,
+# no reintenta, no cambia de motor- y el plazo de rendirse es Get-PlazoJob, que no mira esto
+# ni lo mirara. Asi que el numero no puede alimentarse de datos que el mismo haya filtrado.
+# Lo unico que NO entra son los trabajos que no llegaron a correr (exit distinto de 0, o
+# menos de 300 ms): esos no miden lo que tarda un trabajo, miden lo que tarda un fallo.
+# CON SUELO Y TECHO, como el liston de letras de wake_vosk: nunca menos de la mitad ni mas
+# del doble de lo escrito. El suelo es el que protege el barrido de la capsula de irse
+# adelante; el techo, que una tarde de red mala deje la barra parada en el 10 %.
+# Y HASTA $TrabajoTiemposMin MUESTRAS manda lo escrito: un p75 de tres datos es una
+# corazonada con aspecto de dato (la misma regla que Get-FraseNubeTiempo).
+$TrabajoTiemposJson = Join-Path $MemoriaDir 'trabajo-tiempos.json'
+$TrabajoTiemposMax = 60         # cuantas se recuerdan por motor y modo
+$TrabajoTiemposMin = 10         # menos que esto y manda el numero escrito
+$TrabajoPercentil = 75          # ver arriba: la mediana se pasa la mitad de las veces
+$TrabajoSuelo = 0.5             # nunca por debajo de la mitad de lo escrito
+$TrabajoTecho = 2.0             # ni por encima del doble
+
+# LA CLAVE ES MOTOR Y MODO JUNTOS ('api-plan', 'claude-code-accion'): el mismo modo por la
+# API y por Claude Code no se parecen en nada (1,5 s contra 20), y mezclarlos daria un numero
+# que no sirve para ninguno de los dos. Se escribe igual que la linea TRABAJO del log, para
+# que lo guardado y lo apuntado se puedan comparar de un vistazo.
+function Get-TrabajoTiempos([string]$clave) {
+    # SIN CACHE, por lo mismo que Get-NubeTiempos: una funcion sacada del archivo con
+    # [scriptblock]::Create() tiene su PROPIO ambito 'script', asi que lo que guardara una no
+    # lo veria la siguiente y el banco estaria probando otra cosa. Quien no quiera pagar el
+    # fichero, que se guarde el numero: Watch-OpencodeProgress lo pide UNA vez por trabajo.
+    $l = New-Object System.Collections.ArrayList
+    if (-not $clave) { return ,$l }
+    if (Test-Path -LiteralPath $TrabajoTiemposJson) {
+        try {
+            $j = Get-Content -LiteralPath $TrabajoTiemposJson -Raw -Encoding UTF8 | ConvertFrom-Json
+            $prop = $j.PSObject.Properties[$clave]
+            if ($prop) {
+                foreach ($v in @($prop.Value)) {
+                    $n = 0
+                    if ([int]::TryParse([string]$v, [ref]$n) -and $n -gt 0) { [void]$l.Add($n) }
+                }
+            }
+        } catch { }
+    }
+    # la coma no sobra: PowerShell desenrolla lo que devuelve una funcion, y una lista vacia
+    # desenrollada se queda en $null (el que la recibe peta al llamar a .Count)
+    return ,$l
+}
+
+function Add-TrabajoTiempo([string]$clave, [int]$ms) {
+    if (-not $clave -or $ms -le 0) { return $false }
+    try {
+        $l = Get-TrabajoTiempos $clave
+        [void]$l.Add($ms)
+        while ($l.Count -gt $TrabajoTiemposMax) { $l.RemoveAt(0) }
+        # SE REESCRIBE EL FICHERO ENTERO, PERO RESPETANDO LAS DEMAS CLAVES: aqui solo se sabe
+        # de un motor y un modo, y perder los otros seria empezar de cero en cada trabajo.
+        $o = [ordered]@{}
+        if (Test-Path -LiteralPath $TrabajoTiemposJson) {
+            try {
+                $j = Get-Content -LiteralPath $TrabajoTiemposJson -Raw -Encoding UTF8 | ConvertFrom-Json
+                foreach ($p in $j.PSObject.Properties) {
+                    if ($p.Name -ne $clave) { $o[$p.Name] = @($p.Value) }
+                }
+            } catch { }
+        }
+        $o[$clave] = @($l)
+        [System.IO.File]::WriteAllText($TrabajoTiemposJson, ($o | ConvertTo-Json -Depth 4 -Compress), (New-Object System.Text.UTF8Encoding $false))
+        return $true
+    } catch { return $false }
+}
+
+# Percentil por el metodo del mas cercano, igual que Get-NubePercentil: con pocos datos,
+# interpolar es inventarse precision que no hay. Devuelve 0 si aun no hay bastantes muestras,
+# que es como se dice 'no me preguntes todavia'.
+function Get-TrabajoPercentil([string]$clave, [int]$pct = 75) {
+    # se ASIGNA primero y se ordena despues, en dos pasos: el 'return ,$l' de arriba hace que
+    # un pipe directo reciba la LISTA entera como un solo objeto en vez de sus numeros
+    $lista = Get-TrabajoTiempos $clave
+    $v = @($lista | Sort-Object)
+    if ($v.Count -lt $TrabajoTiemposMin) { return 0 }
+    $i = [int][Math]::Ceiling(($pct / 100.0) * $v.Count) - 1
+    if ($i -lt 0) { $i = 0 }
+    if ($i -ge $v.Count) { $i = $v.Count - 1 }
+    return [int]$v[$i]
+}
+
+# Lo que la barra da por bueno para ESTE trabajo: lo medido si hay bastante, y si no, lo
+# escrito; siempre entre el suelo y el techo de lo escrito (ver arriba).
+function Get-DuracionEsperada([string]$motor, [string]$modo) {
+    $m = [string]$motor
+    if (-not $m) { $m = 'api' }          # lo mismo que hace la linea TRABAJO del log
+    $md = [string]$modo
+    # el [string] no es decorativo: Hashtable.ContainsKey($null) revienta, y $script:jobModo
+    # esta vacio entre trabajo y trabajo
+    $tablaEsp = if ($m -eq 'claude-code') { $DURACION_CC } else { $DURACION_ESPERADA }
+    $escrito = if ($tablaEsp.ContainsKey($md)) { [int]$tablaEsp[$md] } else { 60000 }
+    $medido = Get-TrabajoPercentil ($m + '-' + $md) $TrabajoPercentil
+    if ($medido -le 0) { return $escrito }
+    $suelo = [int]($escrito * $TrabajoSuelo)
+    $techo = [int]($escrito * $TrabajoTecho)
+    if ($medido -lt $suelo) { return $suelo }
+    if ($medido -gt $techo) { return $techo }
+    return $medido
+}
 
 function Watch-OpencodeProgress {
     if (-not $script:busy -or -not $script:jobOut) { return }
@@ -15333,8 +15474,16 @@ function Watch-OpencodeProgress {
         }
     }
     # progreso estimado: tiempo transcurrido sobre lo esperado por modo
-    $tablaEsp = if ($script:jobMotor -eq 'claude-code') { $DURACION_CC } else { $DURACION_ESPERADA }
-    $esp = if ($tablaEsp.ContainsKey($script:jobModo)) { $tablaEsp[$script:jobModo] } else { 60000 }
+    # UNA SOLA VEZ POR TRABAJO (22/09): esto corre cada 600 ms y Get-DuracionEsperada abre un
+    # fichero. Se pide en el primer latido y se guarda hasta que Clear-OpencodeJob lo borre;
+    # asi el trabajo entero pinta contra el mismo numero y no hay disco dentro del bucle.
+    if ($script:jobEspMs -le 0) {
+        $script:jobEspMs = Get-DuracionEsperada $script:jobMotor $script:jobModo
+        # que no pueda ser 0 jamas: tres lineas mas abajo se divide por el
+        if ($script:jobEspMs -le 0) { $script:jobEspMs = 60000 }
+        Log ("BARRA $($script:jobMotor)-$($script:jobModo): cuento con $([Math]::Round($script:jobEspMs / 1000.0, 1)) s")
+    }
+    $esp = $script:jobEspMs
     $p = [Math]::Min(0.97, ($sw.ElapsedMilliseconds - $script:jobStart) / [double]$esp)
     if ([Math]::Abs($p - $script:uiProgreso) -ge 0.02) { $script:uiProgreso = [Math]::Round($p, 2); Refresh-UI }
 }
@@ -15377,6 +15526,17 @@ function Complete-OpencodeJob {
         $segT = [Math]::Round(($sw.ElapsedMilliseconds - $script:jobStart) / 1000.0, 1)
         $motorT = if ($script:jobMotor) { $script:jobMotor } else { 'api' }
         Log ("TRABAJO modo=$($script:jobModo) motor=$motorT prompt=$(([string]$script:jobPrompt).Length)c seg=$segT pasos=$($script:jobPasos) salida=$($stdout.Length)B exit=$code")
+        # Y SE GUARDA PARA LA BARRA (22/09, ver LA BARRA DE ESPERA SE LA MIDE ELLA). Aqui y no
+        # en otro sitio: este es el UNICO punto por el que pasa un trabajo TERMINADO -el que
+        # se cancela o vence se va por Stop-OpencodeJob y no llega hasta aqui-, asi que lo
+        # que se apunta son trabajos de verdad, enteros. Dentro del try de arriba a proposito:
+        # apuntar un numero para una barra no puede ser la razon de que no te conteste.
+        # exit=0 y 300 ms: los 141 trabajos medidos son todos exit=0 y el mas rapido tardo
+        # 1,3 s, asi que por debajo de eso no es un trabajo, es un arranque fallido.
+        $msT = [int]($sw.ElapsedMilliseconds - $script:jobStart)
+        if ($code -eq 0 -and $script:jobModo -and $msT -ge 300) {
+            [void](Add-TrabajoTiempo ($motorT + '-' + $script:jobModo) $msT)
+        }
     } catch {}
 
     # --- CLAUDE CODE: la respuesta es el evento "result" del final ---
