@@ -2684,6 +2684,20 @@ def decir_estado(ref=0.0):
 # y la confirmacion siguen funcionando con normalidad.
 MARCA_SOLO_BOTON = os.path.join(os.path.dirname(NIVEL), "solo-boton.flag") if NIVEL else ""
 LOTENGO = os.path.join(os.path.dirname(NIVEL), "lotengo.txt") if NIVEL else ""
+# LA ONDA VERDE MENTIA (22/09). Cuando braya deja de hablar, el microfono ya esta
+# cerrado y el trabajo empieza aqui dentro: Parakeet, el repaso de ingles, Whisper.
+# El asistente no se enteraba hasta que aparecia dictado.txt, asi que la capsula
+# seguia en 'escuchando' -onda verde animada, ojos atentos- diciendole "sigue, te
+# escucho" a alguien que ya habia terminado. Medido en el log: 412 veces de cerrar
+# el micro a entregar el texto, media 3,48 s, mediana 2,0 s, p90 7,0 s, maximo 37 s,
+# 1.434 s en total, y 229 de las 412 por encima de dos segundos. Otras 54 veces el
+# texto no llego nunca y la mentira duro los 38,9 s de media hasta la red de
+# seguridad del asistente.
+# Mientras exista esta marca, la escucha esta SORDA transcribiendo: se crea al
+# cerrar el microfono y se borra justo antes de entregar el texto, asi que vive lo
+# que dura la transcripcion y ni un milisegundo mas. Solo cambia lo que se VE: ni
+# una palabra hablada, ni un plazo tocado.
+TRANSCRIBIENDO = os.path.join(os.path.dirname(NIVEL), "transcribiendo.flag") if NIVEL else ""
 
 
 # LA GANANCIA ES DE UN MICROFONO, NO DE LA CONSOLA (22/09). braya enchufo un micro USB y
@@ -2912,6 +2926,12 @@ try:
                     anota("dictado: escuchando la orden")
                 elif dictando and not quiere_dictar:
                     # el asistente lo corto a mano (boton): se entrega lo que haya
+                    # EL MISMO EMBUSTE, POR LA OTRA PUERTA: soltar el boton tambien
+                    # cierra el micro y deja aqui a Parakeet y a Whisper trabajando.
+                    # Sin esta marca, arreglar solo el cierre por silencio dejaria la
+                    # onda verde mintiendo cada vez que braya usa el boton.
+                    if TRANSCRIBIENDO:
+                        escribir(TRANSCRIBIENDO, "1")
                     texto_final = " ".join([t for t in dictado if t]).strip()
                     parcial = json.loads(rec.FinalResult()).get("text", "")
                     if parcial:
@@ -2939,6 +2959,11 @@ try:
                         # camino normal ya lo hacia; este, el del boton, no.
                         vaciar_cola("corte a mano")
                     texto_final = quitar_nombre(texto_final)
+                    if TRANSCRIBIENDO:
+                        try:
+                            os.remove(TRANSCRIBIENDO)
+                        except Exception:
+                            pass
                     anota("dictado: cortado a mano -> '%s'" % texto_final)
                     escribir(TEXTO, texto_final)
                     guardar_uso(audio_dictado, origen="boton", parakeet=oido_parakeet, whisper=mejor,
@@ -3200,6 +3225,13 @@ try:
                             texto_vosk = " ".join([t for t in dictado if t])
                             texto_final = texto_vosk
                             f0_dictado = anotar_voz(audio_dictado)
+                            # EL MICROFONO YA ESTA CERRADO: que la capsula lo sepa YA
+                            # (ver LA ONDA VERDE MENTIA, arriba en TRANSCRIBIENDO). Todo
+                            # lo que viene debajo -Parakeet, el repaso de ingles,
+                            # Whisper- es trabajo con la escucha sorda. La marca se borra
+                            # unas lineas mas abajo, justo antes de escribir TEXTO.
+                            if TRANSCRIBIENDO:
+                                escribir(TRANSCRIBIENDO, "1")
                             # Cerrar por el tope de 30 s SIN haber oido nada quiere
                             # decir que eso no era una orden, sino ruido continuo.
                             # Antes se le daban igual 15 s de ruido a Whisper: unos
@@ -3246,6 +3278,15 @@ try:
                                     texto_final = mejor
                                 vaciar_cola("transcripcion")
                             texto_final = quitar_nombre(texto_final)
+                            # LA MARCA SE QUITA ANTES DEL TEXTO, no despues: el asistente
+                            # mira si existe en cada vuelta de su bucle (30 ms) y en cuanto
+                            # ve dictado.txt se pone a lo suyo. Al reves quedaria un hueco
+                            # con el texto ya puesto y la capsula todavia en 'pensando'.
+                            if TRANSCRIBIENDO:
+                                try:
+                                    os.remove(TRANSCRIBIENDO)
+                                except Exception:
+                                    pass
                             anota("dictado: '%s'" % texto_final)
                             escribir(TEXTO, texto_final)
                             if not callado:

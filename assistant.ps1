@@ -12316,6 +12316,15 @@ $RutaConfirmacion = Join-Path $TmpDir "confirmacion.txt"
 $RutaVocabulario = Join-Path $TmpDir "vocabulario.txt"
 $RutaDictado = Join-Path $TmpDir "dictado.txt"
 $RutaParcial = Join-Path $TmpDir "dictado-parcial.txt"
+# YA NO TE OYE, AUNQUE LA ONDA SIGA MOVIENDOSE (22/09). La escucha crea esta marca en
+# el instante en que cierra el microfono y la borra justo antes de dejar el texto:
+# mientras existe, esta transcribiendo y esta sorda. Sin ella la capsula se quedaba en
+# 'escuchando' -onda verde animada y ojos atentos- una media de 3,48 s por orden
+# (mediana 2,0 s, p90 7,0 s, maximo 37 s; 229 de 412 por encima de dos segundos): 1.434
+# segundos en total diciendo "sigue, te escucho" a alguien que ya habia terminado.
+$RutaTranscribiendo = Join-Path $TmpDir "transcribiendo.flag"
+# $true en cuanto se ha visto esa marca en el dictado de ahora; Start-Dictado lo baja
+$script:dictaSordo = $false
 # la orden ya se entiende entera: la escucha cierra la frase antes (ver SILENCIO_FIN_LOTENGO)
 $RutaLoTengo = Join-Path $TmpDir "lotengo.txt"
 $RutaEstado = Join-Path $TmpDir "escucha-estado.txt"
@@ -17710,6 +17719,13 @@ function Start-Dictado([string]$origen) {
     if ($usaWorker -and $script:wakeProc) {
         Remove-Item -LiteralPath $RutaDictado -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $RutaParcial -Force -ErrorAction SilentlyContinue
+        # MARCA HUERFANA DE TRANSCRIPCION: si la escucha murio a media transcripcion,
+        # transcribiendo.flag se queda puesta y el dictado SIGUIENTE naceria en
+        # 'pensando'. Se borra al empezar cada uno, que es cuando de verdad se sabe que
+        # nada de lo anterior vale. NO se mete en la lista de marcas huerfanas del
+        # arranque a proposito: tools\probar-log.ps1 comprueba esa lista letra a letra.
+        Remove-Item -LiteralPath $RutaTranscribiendo -Force -ErrorAction SilentlyContinue
+        $script:dictaSordo = $false
         # en seguimiento, la marca lleva el plazo: si no hay voz en ese tiempo
         # el worker cierra solo y entrega vacio
         $ventana = if ($largo) { 20000 }
@@ -19597,6 +19613,24 @@ while ($true) {
 
     # --- DICTADO POR VOSK: recoger lo transcrito y mostrarlo en vivo ---
     if ($script:armed -and $script:ordenPorWorker) {
+        # LA ONDA VERDE SEGUIA MOVIENDOSE CUANDO YA NO TE OIA (22/09). Al callarte, la
+        # escucha cierra el microfono y se pone a transcribir (Parakeet, el repaso de
+        # ingles, Whisper), pero este lado no se enteraba hasta que aparecia dictado.txt.
+        # Medido en el log: 412 veces de "cerro el micro" a "texto listo", media 3,48 s,
+        # mediana 2,0 s, p90 7,0 s, maximo 37 s, y 229 de las 412 por encima de dos
+        # segundos. Todo ese rato la capsula seguia en 'escuchando', con la onda animada
+        # y los ojos atentos: "sigue, te escucho" a alguien que ya habia terminado. Y las
+        # 54 veces en que el texto no llego nunca, la mentira duro 38,9 s de media hasta
+        # la red de seguridad de aqui abajo.
+        # Ahora la escucha deja transcribiendo.flag al cerrar el micro y la capsula pasa
+        # a 'pensando', que es exactamente lo que esta haciendo. CERO palabras habladas:
+        # esto solo se ve, no se oye, y no toca ni un plazo ni una decision.
+        # Se mira UNA sola vez por dictado: en cuanto se sabe sorda no hace falta volver
+        # a tocar el disco en cada vuelta de 30 ms.
+        if (-not $script:dictaSordo -and (Test-Path -LiteralPath $RutaTranscribiendo)) {
+            $script:dictaSordo = $true
+            Set-UI 'pensando' $script:uiTexto
+        }
         # transcripcion en vivo: ver lo que oye mientras hablas
         if (Test-Path -LiteralPath $RutaParcial) {
             try {
@@ -19611,7 +19645,15 @@ while ($true) {
                 }
                 $nuevo = if ($vista) { "● $vista" } else { "● VOZ..." }
                 if ($lbl.Text -ne $nuevo) {
-                    $lbl.Text = $nuevo; Set-UI 'escuchando' $vista; Test-LoTengo $vista
+                    # Y NO VUELVE A 'escuchando' SI YA ESTA TRANSCRIBIENDO: la escucha
+                    # escribe un parcial MAS -el de Vosk- justo antes de llamar a Whisper,
+                    # con el microfono cerrado desde hace rato. Sin este reparo ese ultimo
+                    # parcial rearmaba la onda verde en plena transcripcion, que es justo
+                    # lo que se venia a quitar.
+                    $lbl.Text = $nuevo
+                    $estadoCapsula = if ($script:dictaSordo) { 'pensando' } else { 'escuchando' }
+                    Set-UI $estadoCapsula $vista
+                    Test-LoTengo $vista
                     # CERRAR ANTES LO QUE YA SE ENTIENDE (14/09): se le dice a la escucha
                     # QUE texto se entendio; si sigues hablando, ya no coincide y espera
                     # los 1,4 s de siempre. Solo con la frase entera delante, no con "...".

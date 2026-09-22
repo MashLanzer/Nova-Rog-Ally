@@ -169,6 +169,44 @@ foreach ($par in @(@{ n = 'canary'; f = @('encoder*.onnx', 'decoder*.onnx', 'tok
     }
 }
 
+Write-Host ''
+Write-Host '-- mientras transcribe, la capsula ya no dice "te escucho" --'
+# TODO LO DE ARRIBA PASA CON EL MICROFONO CERRADO (22/09). Parakeet, Canary, Omni y
+# Whisper trabajan cuando braya ya ha terminado de hablar: 412 veces medidas de cerrar
+# el micro a entregar el texto, media 3,48 s, mediana 2,0 s, p90 7,0 s, maximo 37 s, y
+# 229 de las 412 por encima de dos segundos. Hasta hoy la capsula se quedaba en
+# 'escuchando' todo ese rato, con la onda verde animada y los ojos atentos.
+Comp 'la escucha avisa de que ya no oye' `
+    ($oido -match 'TRANSCRIBIENDO = os\.path\.join\(os\.path\.dirname\(NIVEL\), "transcribiendo\.flag"\)')
+Comp 'la marca se pone al cerrar el micro, antes de Parakeet' `
+    ($oido -match '(?s)f0_dictado = anotar_voz\(audio_dictado\).{0,600}escribir\(TRANSCRIBIENDO, "1"\).{0,3000}rapido = oir_parakeet\(audio_dictado\) if')
+Comp 'y se quita ANTES de entregar el texto' `
+    ($oido -match '(?s)os\.remove\(TRANSCRIBIENDO\).{0,400}escribir\(TEXTO, texto_final\)')
+Comp 'el corte con el boton tambien la pone y la quita' `
+    ((([regex]::Match($oido, '(?s)el asistente lo corto a mano \(boton\).{0,4000}?escribir\(TEXTO, texto_final\)')).Value -match 'escribir\(TRANSCRIBIENDO') -and
+     (([regex]::Match($oido, '(?s)el asistente lo corto a mano \(boton\).{0,4000}?escribir\(TEXTO, texto_final\)')).Value -match 'os\.remove\(TRANSCRIBIENDO'))
+Comp 'el asistente sabe donde esta la marca' `
+    ($fuente -match '\$RutaTranscribiendo = Join-Path \$TmpDir "transcribiendo\.flag"')
+Comp 'y al verla pone la capsula a pensar' `
+    ($fuente -match "(?s)if \(-not \`$script:dictaSordo -and \(Test-Path -LiteralPath \`$RutaTranscribiendo\)\) \{.{0,140}Set-UI 'pensando'")
+Comp 'un parcial tardio ya no rearma la onda verde' `
+    ($fuente -match "\`$estadoCapsula = if \(\`$script:dictaSordo\) \{ 'pensando' \} else \{ 'escuchando' \}")
+Comp 'y cada dictado empieza sin marca vieja' `
+    ($fuente -match "(?s)Remove-Item -LiteralPath \`$RutaTranscribiendo.{0,40}\r?\n\s*\`$script:dictaSordo = \`$false")
+
+Write-Host ''
+Write-Host '-- y lo que NO puede cambiar --'
+Comp 'sigue siendo solo visual: ni una palabra nueva' `
+    (-not ($fuente -match "(?s)Test-Path -LiteralPath \`$RutaTranscribiendo\)\) \{.{0,400}(Say |Show-Popup|Play-Sonido|Send-UIEvento)"))
+Comp 'el estado normal sigue siendo escuchando' ($fuente -match "'pensando' \} else \{ 'escuchando' \}")
+Comp 'la red de seguridad de los 50 s sigue en su sitio' `
+    ($fuente -match 'dictado sin respuesta del worker; se cancela')
+Comp 'la lista de marcas huerfanas del arranque no se ha tocado' `
+    ($fuente -match '\$MarcaWake, \$MarcaSalir\)')
+Comp 'y la marca no se toca en ningun otro sitio de la escucha' `
+    ((([regex]::Matches($oido, 'escribir\(TRANSCRIBIENDO')).Count -eq 2) -and
+     (([regex]::Matches($oido, 'os\.remove\(TRANSCRIBIENDO')).Count -eq 2))
+
 if ($fallos -gt 0) { Write-Host ''; Write-Host "  $fallos fallo(s)"; exit 1 }
 Write-Host ''
 Write-Host '  la cascada del repaso esta puesta, y sin Canary todo sigue como antes'
