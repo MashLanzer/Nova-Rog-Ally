@@ -507,10 +507,35 @@ def anota_pulso(texto, ahora):
     _pulso_ultimo = clave
     _pulso_ultimo_en = ahora
     anota(texto)
+# DE config.json Y NO DE sys.argv, A PROPOSITO (22/09). Es la misma decision que ya se
+# tomo para escucha.ambiente y por el mismo motivo, que esta contado ahi abajo: los dos
+# ultimos ajustes que se pasaron por argv -rafagaMinima y juezNombre- nacieron con el
+# indice equivocado, porque en -ArgumentList de PowerShell el "-u" es el elemento 0 y en
+# Python sys.argv[0] es el script, asi que todo baja uno; uno de ellos estuvo muerto un dia
+# entero sin que se notara. Aqui no hay indice que equivocar.
+def _num_de_config(clave, defecto):
+    """Un numero de config.json -> escucha.<clave>, o el de siempre si no esta o no vale."""
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json"),
+                  encoding="utf-8-sig") as f:
+            v = (json.load(f).get("escucha") or {}).get(clave, None)
+        if v is None:
+            return defecto
+        v = float(v)
+        # un numero absurdo es peor que el de siempre: aqui se decide si Nova se despierta
+        return v if 0.0 < v <= 1.0 else defecto
+    except Exception:   # noqa: BLE001
+        return defecto
+
+
 # --- ALTAVOCES ---
 # Por encima de este pico en la SALIDA se considera que esta sonando algo
 # (medido en esta maquina: silencio 0.0002, fondo suave 0.007, video 0.30).
-UMBRAL_ALTAVOZ = 0.02
+# AJUSTABLE DESDE EL 22/09 (escucha.umbralAltavoz), CON EL MISMO VALOR: no se cambia nada
+# de como se comporta hoy, solo deja de estar a fuego. De el cuelgan cuatro protecciones
+# segun el docstring de nivel_salida(), asi que moverlo a ciegas no se hace: primero hay
+# que mirar la linea de descarte, que desde hoy dice el nivel que habia.
+UMBRAL_ALTAVOZ = _num_de_config("umbralAltavoz", 0.02)
 # Por encima de esto no suena "algo de fondo": suena FUERTE (un juego, un
 # video a volumen normal). Ahi la palabra de activacion no es fiable -el
 # 11/09 a las 20:16 se activo con los altavoces a 0.39 y confianza 0.91,
@@ -1527,9 +1552,23 @@ CONFIANZA_MIN = CONFIANZA_ARG if CONFIANZA_ARG is not None else 0.55
 # OBLIGADO a devolver algo de esa lista, y lo que devuelve entonces son
 # engendros como "ey favor ey nova" o "por hola nova" (log del 11/09). Cuando
 # de verdad llamas, dices una frase limpia y corta. Asi que a partir de tres
-# palabras se exige mucha mas confianza: no cuesta nada y no toca el caso
-# normal, que es decir "nova" a secas.
-CONFIANZA_LARGA = 0.85
+# palabras se exige mucha mas confianza.
+#
+# AQUI PONIA "y no toca el caso normal, que es decir nova a secas", Y ES FALSO (22/09).
+# Lo toca, y mucho, pero por la OTRA rama: umbral_confianza sube a este mismo 0,85 en
+# cuanto los altavoces pasan de UMBRAL_ALTAVOZ, y eso vale tambien con una sola palabra.
+# Contado sobre assistant.log: de los 62 descartes contra 0,85, CUARENTA Y CUATRO son
+# "nova" a secas. O sea que el liston que de verdad decide casi siempre es este, no el
+# 0,55 de config.json (43 descartes).
+#
+# Y AUN ASI NO SE BAJA, porque se simulo: dejar pasar todo a 0,55 colaria 47 de esos 62,
+# y entre ellos hay siete engendros confirmados en cuatro dias distintos -'nova por' 0,82,
+# 'nova favor ey nova' 0,60, 'por oye nova' 0,77, 'por hola nova' 0,62, 'nova oye' 0,57,
+# 'ey nova ey' 0,83-. Siete despertares falsos en once dias es exactamente lo que braya no
+# quiere. Lo que SI se hace es dejarlo ajustable con su valor de hoy, y medir el otro lado:
+# la linea de descarte dice desde hoy el nivel de altavoces que habia, que es el dato que
+# falta para saber si el problema es este 0,85 o el 0,02 de al lado.
+CONFIANZA_LARGA = _num_de_config("confianzaLarga", 0.85)
 PALABRAS_SIN_SOSPECHA = 2
 GRAMATICA_SI_NO = json.dumps(["si", "si dale", "dale", "vale", "claro", "ok", "no", "no cancela", "cancela", "[unk]"], ensure_ascii=False)
 PALABRAS_SI = ("si", "dale", "vale", "claro", "ok")
@@ -3423,10 +3462,28 @@ try:
                                     anota("descartado '%s': suena demasiado flojo para ser una llamada (rafaga %.4f < %.3f); ver LA RAFAGA QUE DE VERDAD TE DELATA"
                                           % (texto, pico_rafaga, umbral_rafaga()))
                                 elif conf < umbral_confianza(plano):
+                                    # Y POR QUE SE SUBIO EL LISTON (22/09). Hasta hoy esta
+                                    # linea decia contra que numero se comparaba, pero no
+                                    # CUAL de las dos ramas lo habia subido, y son dos
+                                    # cosas distintas: la frase larga (mas de dos palabras)
+                                    # y los altavoces sonando. Sin saberlo, los 62 descartes
+                                    # contra 0,85 del log no se pueden repartir, y 44 de
+                                    # ellos son "nova" a secas, o sea que NO vienen de la
+                                    # frase larga: vienen de los altavoces. El nivel va en
+                                    # la linea para poder mirar si el que hay que mover es
+                                    # el 0,85 o el 0,02, en vez de adivinarlo.
+                                    _larga = len(plano.split()) > PALABRAS_SIN_SOSPECHA
+                                    _alt = nivel_salida()
+                                    if _larga and _alt > UMBRAL_ALTAVOZ:
+                                        _porque = " (frase larga: se exige mas; y altavoces %.3f)" % _alt
+                                    elif _larga:
+                                        _porque = " (frase larga: se exige mas)"
+                                    elif _alt > UMBRAL_ALTAVOZ:
+                                        _porque = " (altavoces %.3f > %.3f: se exige mas)" % (_alt, UMBRAL_ALTAVOZ)
+                                    else:
+                                        _porque = ""
                                     anota("descartado '%s': confianza %.2f < %.2f%s"
-                                          % (texto, conf, umbral_confianza(plano),
-                                             "" if len(plano.split()) <= PALABRAS_SIN_SOSPECHA
-                                             else " (frase larga: se exige mas)"))
+                                          % (texto, conf, umbral_confianza(plano), _porque))
                                 elif not juez_deja_pasar(texto):
                                     pass   # el juez ya lo apunto en el log con las dos versiones
                                 elif ahora - ultima_marca > 2.0:

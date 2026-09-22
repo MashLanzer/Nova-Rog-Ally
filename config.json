@@ -57,6 +57,8 @@
     "grabarUso": "ordenes",
     "nombre": "nova",
     "confianzaMinima": 0.55,
+    "confianzaLarga": 0.85,
+    "umbralAltavoz": 0.02,
     "rafagaMinima": 0.03,
     "juezNombre": "mirar",
     "seguimientoTrasSeco": false,

@@ -61,6 +61,12 @@ Invoke-Expression (Traer 'Test-DecisionSolida')
 Invoke-Expression (Traer 'Test-DiaCuenta')
 Invoke-Expression (Traer 'Get-NubeTiempos')
 Invoke-Expression (Traer 'Get-NubePercentil')
+# LA REGLA DEL BANCO (van veintidos): desde el 22/09 el caso 4 mira SOLO las muestras que
+# traen dia -74 de las 80 del fichero no lo traen, y el p90 salia de todas mientras el
+# freno del reparto ya las ignoraba-, y para eso llama a estas dos. Sin traerlas, este
+# banco muere con CommandNotFoundException a mitad, que es justo como lo cazo.
+Invoke-Expression (Traer 'Get-NubeDias')
+Invoke-Expression (Traer 'Get-NubeTiemposConDia')
 $NubeTiemposJson = Join-Path $env:TEMP 'nube-tiempos-prueba-revision.json'
 $NubeTiemposMax = 200
 Invoke-Expression (Traer 'Test-DatosRepartidos')

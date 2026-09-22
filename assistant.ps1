@@ -1891,7 +1891,9 @@ function Invoke-Olvido([int]$minutos) {
         if (Test-Path -LiteralPath $rEst) {
             $e = Get-Content -LiteralPath $rEst -Raw -Encoding UTF8 | ConvertFrom-Json
             $tocado = 0
-            foreach ($campo in @('descartes', 'recientes')) {
+            # 'decisiones' va con las otras dos: si no, el olvido no la tocaria y las
+            # decisiones de hace meses seguirian ahi cuando todo lo demas ya se borro.
+            foreach ($campo in @('descartes', 'recientes', 'decisiones')) {
                 if (($e.PSObject.Properties.Name -contains $campo) -and $e.$campo) {
                     $antes = @($e.$campo).Count
                     $e.$campo = @(@($e.$campo) | Where-Object { -not ([string]$_).StartsWith($corteDia) })
@@ -2069,11 +2071,35 @@ function Add-NubeTiempo([int]$ms) {
 
 # Percentil por el metodo del mas cercano: con pocos datos, interpolar es inventarse
 # precision que no hay.
-function Get-NubePercentil([int]$pct = 90) {
+# SOLO LAS QUE SE SABE CUANDO PASARON (22/09). nube-tiempos.json guarda dos listas en
+# paralelo, los milisegundos y el dia de cada uno, y hoy tiene 80 muestras de las que
+# SETENTA Y CUATRO no traen dia (el 92,5 %): son de antes de que se empezara a apuntar la
+# fecha. El reparto por dias ya las ignora -Test-NubeRepartida exige tres dias distintos y
+# ninguno con mas del 70 %-, pero el p90 y el recuento de intentos se calculaban sobre las
+# 80, asi que el tope de la nube se iba a decidir con datos de una Nova que ya no existe.
+# Y no es un matiz: p90 de las 80 = 6.708 ms -> tope 7.500; p90 de las 6 fechadas =
+# 4.685 ms -> tope 5.500. Dos segundos de espera en cada pregunta a la nube, y hacia el
+# lado malo, porque las viejas son mas lentas.
+# NO SE BORRA NADA del fichero: las sin fecha se quedan, simplemente dejan de mandar, y la
+# cinta de 200 las va sacando sola. Borrar a mano un fichero de memoria por una decision
+# que aun no se ha tomado es justo lo que no se hace aqui.
+function Get-NubeTiemposConDia {
+    $l = New-Object System.Collections.ArrayList
+    $ms = Get-NubeTiempos
+    $ds = Get-NubeDias
+    $n = [Math]::Min(@($ms).Count, @($ds).Count)
+    for ($i = 0; $i -lt $n; $i++) {
+        if ([string]$ds[$i]) { [void]$l.Add([int]$ms[$i]) }
+    }
+    # la coma, como sus dos hermanas: una lista vacia desenrollada se queda en $null
+    return ,$l
+}
+
+function Get-NubePercentil([int]$pct = 90, $lista = $null) {
     # se ASIGNA primero y se ordena despues, en dos pasos. Get-NubeTiempos devuelve con
     # coma para que una lista vacia no se convierta en $null, pero esa misma coma hace que
     # un pipe directo reciba la LISTA como un solo objeto en vez de sus numeros.
-    $lista = Get-NubeTiempos
+    if ($null -eq $lista) { $lista = Get-NubeTiempos }
     $v = @($lista | Sort-Object)
     if ($v.Count -eq 0) { return 0 }
     $i = [int][Math]::Ceiling(($pct / 100.0) * $v.Count) - 1
@@ -2099,7 +2125,7 @@ function Get-FraseNubeTiempo {
 
 function Get-Estadisticas {
     if ($null -ne $script:stats) { return $script:stats }
-    $script:stats = @{ dias = @{}; descartes = @(); recientes = @() }
+    $script:stats = @{ dias = @{}; descartes = @(); recientes = @(); decisiones = @() }
 # LO QUE YA SE RESUELVE, CALCULADO UNA VEZ (18/09). La lista de descartes se reescribe desde
 # Add-Estadistica, o sea en CADA orden: preguntarle a la capa local por las 30 frases cada vez
 # seria tiempo tirado. Son siempre las mismas, asi que la respuesta se guarda aqui.
@@ -2114,6 +2140,11 @@ $script:descarteYaVa = @{}
             }
             $script:stats.descartes = @($j.descartes | ForEach-Object { [string]$_ })
             $script:stats.recientes = @($j.recientes | ForEach-Object { [string]$_ })
+            # SIN "decisiones" TAMBIEN VALE: los estadisticas.json de antes del 22/09 no
+            # la traen, y entonces se queda vacia y se va llenando. Nada que migrar.
+            if ($j.PSObject.Properties['decisiones']) {
+                $script:stats.decisiones = @($j.decisiones | ForEach-Object { [string]$_ })
+            }
         } catch { Log ("estadisticas: no pude leerlas (" + $_.Exception.Message + ")"); Save-Corrupto $EstadisticasJson 'estadisticas' }
     }
     return $script:stats
@@ -2463,7 +2494,24 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '', [bool]$deCamino =
         if ($ruta -eq 'descarte' -and $d) {
             $s.descartes = @(@("$dia  $d") + @($s.descartes | Where-Object { $_ -notmatch ('  ' + [regex]::Escape($d) + '$') }) | Select-Object -First 30)
         } elseif ($d) {
-            $s.recientes = @(@((Get-Date -Format 'yyyy-MM-dd HH:mm') + "  [$ruta]  $d") + $s.recientes | Select-Object -First 40)
+            $fila = (Get-Date -Format 'yyyy-MM-dd HH:mm') + "  [$ruta]  $d"
+            $s.recientes = @(@($fila) + $s.recientes | Select-Object -First 40)
+            # LAS DECISIONES, EN SU PROPIA LISTA (22/09). Get-ParrafoDecisiones hace un
+            # resumen SEMANAL buscando auto-ajuste / auto-deshecho / arranque-medias... en
+            # "recientes", que tiene 40 filas y se las lleva cualquier racha. Medido hoy
+            # sobre memoria\estadisticas.json: de las 40 filas, VEINTIOCHO son aviso-entorno
+            # (el 70 %) y las decisiones que hay dentro de la ventana son CERO. Y en los
+            # dias cargados entran 560-600 eventos, asi que la ventana real no son 17 horas:
+            # es una hora. O sea que el parrafo semanal de "lo que decidi por mi cuenta"
+            # lleva saliendo vacio desde que existe.
+            # Se COPIA, no se mueve: recientes sigue igual -mismo tope de 40, mismo formato,
+            # y el resumen del dia la sigue leyendo entera- y ademas queda aqui, donde solo
+            # entran decisiones y por tanto una semana cabe de sobra. Mismo formato de linea,
+            # que es lo que lee el regex de Get-ParrafoDecisiones.
+            if ($ruta -in @('auto-ajuste', 'auto-deshecho', 'arranque-medias')) {
+                if (-not $s.ContainsKey('decisiones')) { $s.decisiones = @() }
+                $s.decisiones = @(@($fila) + $s.decisiones | Select-Object -First 60)
+            }
         }
         # json (estado) + markdown (lectura)
         $o = New-Object PSObject
@@ -2476,6 +2524,7 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '', [bool]$deCamino =
         $o | Add-Member -NotePropertyName dias -NotePropertyValue $dias
         $o | Add-Member -NotePropertyName descartes -NotePropertyValue @($s.descartes)
         $o | Add-Member -NotePropertyName recientes -NotePropertyValue @($s.recientes)
+        $o | Add-Member -NotePropertyName decisiones -NotePropertyValue @($s.decisiones)
         $enc = New-Object System.Text.UTF8Encoding($false)
         if (-not (Test-Path -LiteralPath $MemoriaDir)) { New-Item -ItemType Directory -Force -Path $MemoriaDir | Out-Null }
         Write-Atomico $EstadisticasJson ($o | ConvertTo-Json -Depth 6)
@@ -7406,7 +7455,7 @@ function Watch-Musica($mu) {
 $script:habitos = $null
 function Get-Habitos {
     if ($null -ne $script:habitos) { return $script:habitos }
-    $script:habitos = @{ usos = (New-Object System.Collections.ArrayList); rechazadas = (New-Object System.Collections.ArrayList); ultimaPropuesta = ''; fin = @{}; cargaAvisada = ''; nivelVisto = 0; brilloAuto = $false; parteVisto = ''; sinDatosVisto = ''; ritmo = (New-Object System.Collections.ArrayList); charlaHoras = @{}; minutosJuego = @{}; presencia = @{} }
+    $script:habitos = @{ usos = (New-Object System.Collections.ArrayList); rechazadas = (New-Object System.Collections.ArrayList); ultimaPropuesta = ''; fin = @{}; cargaAvisada = ''; nivelVisto = 0; brilloAuto = $false; parteVisto = ''; sinDatosVisto = ''; sinDatosTexto = ''; ritmo = (New-Object System.Collections.ArrayList); charlaHoras = @{}; minutosJuego = @{}; presencia = @{} }
     $rutaH = Join-Path $MemoriaDir 'habitos.json'
     if (Test-Path -LiteralPath $rutaH) {
         try {
@@ -7426,6 +7475,11 @@ function Get-Habitos {
             $script:habitos.nivelVisto = [int]$crudoH.nivelVisto
             $script:habitos.brilloAuto = [bool]$crudoH.brilloAuto
             $script:habitos.parteVisto = [string]$crudoH.parteVisto
+            # EL AVISO PENDIENTE, EN DISCO (22/09). Si el archivo es de antes de hoy no
+            # lo trae, y entonces se queda vacio: no hay nada que migrar.
+            if ($crudoH.PSObject.Properties['sinDatosTexto']) {
+                $script:habitos.sinDatosTexto = [string]$crudoH.sinDatosTexto
+            }
             $script:habitos.sinDatosVisto = [string]$crudoH.sinDatosVisto
             if ($crudoH.minutosJuego) { foreach ($pM in $crudoH.minutosJuego.PSObject.Properties) { $script:habitos.minutosJuego[$pM.Name] = [int]$pM.Value } }
             # CUANDO TE VI POR ULTIMA VEZ (18/09). Va en hora de RELOJ, no del cronometro del
@@ -7446,7 +7500,7 @@ function Get-Habitos {
 function Save-Habitos {
     try {
         $hb = Get-Habitos
-        $o = [ordered]@{ usos = @($hb.usos); rechazadas = @($hb.rechazadas); ultimaPropuesta = $hb.ultimaPropuesta; fin = $hb.fin; cargaAvisada = $hb.cargaAvisada; nivelVisto = $hb.nivelVisto; brilloAuto = [bool]$hb.brilloAuto; parteVisto = [string]$hb.parteVisto; sinDatosVisto = [string]$hb.sinDatosVisto; ritmo = @($hb.ritmo); charlaHoras = $hb.charlaHoras; minutosJuego = $hb.minutosJuego; presencia = $hb.presencia }
+        $o = [ordered]@{ usos = @($hb.usos); rechazadas = @($hb.rechazadas); ultimaPropuesta = $hb.ultimaPropuesta; fin = $hb.fin; cargaAvisada = $hb.cargaAvisada; nivelVisto = $hb.nivelVisto; brilloAuto = [bool]$hb.brilloAuto; parteVisto = [string]$hb.parteVisto; sinDatosVisto = [string]$hb.sinDatosVisto; sinDatosTexto = [string]$hb.sinDatosTexto; ritmo = @($hb.ritmo); charlaHoras = $hb.charlaHoras; minutosJuego = $hb.minutosJuego; presencia = $hb.presencia }
         $rutaH = Join-Path $MemoriaDir 'habitos.json'
         [System.IO.File]::WriteAllText($rutaH + '.tmp', (ConvertTo-Json -InputObject $o -Depth 4), (New-Object System.Text.UTF8Encoding($false)))
         Move-Item -LiteralPath ($rutaH + '.tmp') -Destination $rutaH -Force
@@ -7496,6 +7550,12 @@ function Test-ParteManana([datetime]$ahora = (Get-Date)) {
     # Aqui sale por donde braya lo lee de verdad, y sin ponerse pesada: una cada 7 dias,
     # contados desde que SALE (no desde que se intenta), que es lo que fallaba antes.
     $avisoM = ''
+    # DEL DISCO SI LA SESION NO LO TRAE (22/09, ver Set-AvisoSinDatos). El aviso se apunta
+    # durante el dia y este parte sale a las 05:00, con Nova reiniciada muchas veces por
+    # medio: leyendo solo la variable de sesion llegaba siempre vacia.
+    if (-not $script:parteSinDatos -and $hbM.sinDatosTexto) {
+        $script:parteSinDatos = [string]$hbM.sinDatosTexto
+    }
     if ($script:parteSinDatos) {
         $ultM = [datetime]::MinValue
         $recienteM = ($hbM.sinDatosVisto -and [datetime]::TryParse([string]$hbM.sinDatosVisto, [ref]$ultM) -and ($ahora - $ultM).TotalDays -lt 7)
@@ -7510,6 +7570,9 @@ function Test-ParteManana([datetime]$ahora = (Get-Date)) {
         # se marca AQUI, ya decidido que el parte sale: si se hubiera callado arriba, el
         # aviso sigue apuntado para el proximo parte en vez de perderse.
         $script:parteSinDatos = ''
+        # y tambien del disco: si no, el aviso volveria a salir en cuanto se reiniciara,
+        # que es justo el fallo de al lado pero por el otro lado
+        $hbM.sinDatosTexto = ''
         $hbM.sinDatosVisto = $ahora.ToString('yyyy-MM-dd')
         Save-Habitos
     }
@@ -8611,9 +8674,16 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     # Y con suelo y techo: por debajo de 2 s la nube no llega nunca (su mediana ya pasa de
     # eso) y por encima de 12 s la espera es peor que no preguntar.
     if ($NubeOir -and -not $script:autoDecision) {
-        $msN = @(Get-NubeTiempos)
+        # SOLO LAS FECHADAS, LAS MISMAS QUE YA CUENTAN PARA EL REPARTO (22/09, ver
+        # Get-NubeTiemposConDia). Aqui se contaban las 80 muestras del fichero y se sacaba
+        # el p90 de todas, pero 74 de ellas no traen dia, asi que Test-NubeRepartida las
+        # ignoraba y el p90 no: el freno miraba unos datos y el numero salia de otros.
+        # Con esto la decision se retrasa hasta que haya 20 respuestas fechadas repartidas
+        # en tres dias, que es exactamente lo que se queria: no decidir con lo de antes.
+        $listaN = Get-NubeTiemposConDia
+        $msN = @($listaN)
         if ($msN.Count -ge $DecisionMinIntentos -and (Test-NubeRepartida)) {
-            $p90N = Get-NubePercentil 90
+            $p90N = Get-NubePercentil 90 $listaN
             $quieroN = [int]([Math]::Ceiling(($p90N + 800) / 500.0) * 500)
             if ($quieroN -lt 2000) { $quieroN = 2000 }
             # EL TECHO BAJA DE 12 A 9 SEGUNDOS (21/09). Este numero no es cosmetico:
@@ -8696,6 +8766,19 @@ function Set-AvisoSinDatos($stats, $num, [datetime]$ahora = (Get-Date)) {
         $t = Get-AvisoSinDatos $stats $num $ahora
         if ($t -and $t -ne $script:parteSinDatos) {
             $script:parteSinDatos = $t
+            # Y EN DISCO, QUE ES LO QUE FALTABA (22/09). Esto vivia SOLO en una variable de
+            # sesion, y el parte que lo recoge sale a las 05:00: entre que se apunta y que
+            # se lee, Nova se reinicia -la mediana de sesion son 5,8 minutos, y ese dia hubo
+            # 16 arranques-, asi que la variable llegaba vacia y el aviso no salia NUNCA. En
+            # el log hay 12 lineas "SIN DATOS: lo dejo para el parte de la manana" y ni un
+            # solo parte que lo dijera; las tres ultimas son la misma frase a las 08:00,
+            # 08:34 y 09:50, o sea el mismo aviso reapuntandose en cada arranque.
+            # Su pareja ya estaba en disco: $hbM.sinDatosVisto -la fecha en que SALIO- se
+            # guarda en habitos.json desde que existe. Faltaba el texto.
+            try {
+                $hbS = Get-Habitos
+                if ($hbS) { $hbS.sinDatosTexto = $t; Save-Habitos }
+            } catch {}
             Log "SIN DATOS: lo dejo para el parte de la manana: $t"
         }
     } catch {}
@@ -14127,7 +14210,15 @@ function Watch-Acelerometro {
 function Get-ParrafoDecisiones($stats, [datetime]$ini, [datetime]$fin) {
     $hechas = @(); $deshechas = 0; $medias = 0
     try {
-        foreach ($r in @($stats.recientes)) {
+        # DE "decisiones", QUE PARA ESO SE HIZO (22/09). Esto leia "recientes", que tiene 40
+        # filas y se las lleva cualquier racha: medido hoy, 28 de esas 40 eran aviso-entorno
+        # y las decisiones dentro de la ventana eran CERO, asi que este parrafo -que es
+        # SEMANAL- salia vacio siempre. Se sigue mirando "recientes" si la lista nueva esta
+        # vacia, que es lo que pasa con un estadisticas.json de antes de hoy: asi el primer
+        # resumen despues del cambio no se queda sin lo que ya habia.
+        $deDonde = @($stats.decisiones)
+        if ($deDonde.Count -eq 0) { $deDonde = @($stats.recientes) }
+        foreach ($r in $deDonde) {
             if ($r -notmatch '^(\d{4}-\d{2}-\d{2})\s+\S+\s+\[([a-z-]+)\]\s+(.*)$') { continue }
             $f = $null
             try { $f = [DateTime]::ParseExact($Matches[1], 'yyyy-MM-dd', $null) } catch { continue }

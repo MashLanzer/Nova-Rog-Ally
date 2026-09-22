@@ -853,6 +853,10 @@ Titulo "2n76. Que el propio banco diga de que seccion viene cada fallo"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-veredicto.ps1')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:de que seccion viene cada fallo)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n80. Que Nova decida con datos de ahora, y llegue a contarlo"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-decide-con-datos.ps1')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:datos de ahora)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n79. Los ficheros por los que se hablan los tres procesos"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-ficheros-compartidos.ps1')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:nadie bloquea el cambio atomico)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
