@@ -261,7 +261,73 @@ comp("y antes de la de los altavoces", 0 < i_ruido < i_alta)
 comp("la de calibrar sigue existiendo", i_cal > 0)
 
 print("")
-print("-- 9) el oido no llama a nada que no exista --")
+print("-- 9) la ganancia que se congela tiene que ser una BUENA --")
+# ESTO SALIO AL ESTRENARLO, la mañana del 22, y es el caso que faltaba. La deteccion de ruido
+# funcionaba a la primera -"esto no es voz, es ruido de fondo (60 de 60 bloques)"- pero
+# congelaba la ganancia EN EL VALOR YA ENVENENADO: con la voz de braya por este micro la buena
+# estaba en x13-15, el ruido de las 01:18 la hundio a x3,1 persiguiendolo, y eso es lo que
+# quedaba congelado. Peor: se habia guardado en tmp/ganancia.txt, asi que sobrevivia a los
+# reinicios. Congelar la ultima calibracion solo sirve si la ultima era buena.
+comp("se recuerda aparte la ultima ganancia buena", "ganancia_buena = 0.0" in SRC)
+comp("al ver ruido se vuelve a ella, no se congela la de ahora",
+     "ganancia = ganancia_buena" in SRC)
+comp("y se dice en el log, que si no nadie se entera",
+     "vuelvo a la x%.1f de cuando te oia" in SRC)
+# el orden importa: volver ANTES de anotar, o el log diria la vieja
+_i_vuelta = SRC.find("ganancia = ganancia_buena")
+_i_anota = SRC.find('anota("pulso: esto no es voz')
+comp("se vuelve antes de anotarlo", 0 < _i_vuelta < _i_anota)
+# solo la buena va al disco
+_i_marca = SRC.find("ganancia_buena = ganancia")
+_i_disco = SRC.find('escribir(RUTA_GANANCIA, "%.1f|%s"')
+comp("solo se guarda en disco la calibrada con voz de verdad", 0 < _i_marca < _i_disco,
+     "se marca como buena justo antes de escribirla")
+# Y LO QUE FALLO AL ESTRENARLO POR SEGUNDA VEZ: el ruido pide RUIDO_PULSOS pulsos seguidos
+# para confirmarse, asi que el PRIMERO llegaba a la rama de calibrar y marcaba como buena una
+# ganancia ya contaminada. Visto en vivo: 07:45:03 recorte -> x8,7; 07:45:17 calibra x7,6 y la
+# marca buena; 07:45:32 ruido confirmado, y ya no habia a que volver.
+comp("solo un pulso SIN NADA de ruido cuenta como bueno",
+     "if pulsos_ruidosos == 0:" in SRC)
+_i_guarda = SRC.find('if pulsos_ruidosos == 0:')
+_i_esc = SRC.find('escribir(RUTA_GANANCIA', _i_guarda)
+comp("y el disco va dentro de esa guarda", 0 < _i_guarda < _i_esc < _i_guarda + 700,
+     "si no, la proxima sesion hereda una ganancia hecha sobre ruido")
+comp("y esta dentro de la rama de calibrar, no fuera",
+     SRC[:_i_marca].rfind("elif automatica and bloques_voz >= MIN_BLOQUES_VOZ and picos:") >
+     SRC[:_i_marca].rfind("if automatica and ruido_constante:"))
+comp("lo que se recupera al arrancar cuenta como buena",
+     "ganancia_buena = _g" in SRC)
+# y el margen de 0,2: sin el, se reescribiria la misma ganancia en cada pulso ruidoso
+# Y EL PIN-PON, que salio al estrenarlo por tercera vez: devolver la ganancia buena con un
+# ruido que la hace saturar daba un ciclo de 15 segundos -vuelve a x14,5, satura, el detector
+# la baja a x8,7, vuelve a x14,5- y cada vuelta destrozaba un segundo de audio. Con ese ruido
+# esa ganancia no existe en esa habitacion: manda el detector de recorte.
+# Y ESPERAR AL RECORTE NO BASTABA: solo espaciaba el pin-pon a 45 s. Hay que CALCULAR si esa
+# ganancia cabe en esta habitacion, que es aritmetica, no espera.
+comp("se calcula si la ganancia buena cabe con este ruido",
+     "suelo_ruido * ganancia_buena < CABE_MAX" in SRC)
+_ic = re.search(r"^CABE_MAX = ([0-9.]+)", SRC, re.M)
+comp("y deja sitio para que su voz asome", _ic and 0.4 <= float(_ic.group(1)) <= 0.9,
+     "CABE_MAX %s" % (_ic.group(1) if _ic else "?"))
+if _ic:
+    _cm = float(_ic.group(1))
+    # los dos casos reales, con los numeros del 22/09
+    comp("con el ruido de esa manana (0,0907) la x14,5 NO cabe", 0.0907 * 14.5 >= _cm,
+         "%.2f de rango" % (0.0907 * 14.5))
+    comp("y con su silencio normal (0,022) SI cabe", 0.022 * 14.5 < _cm,
+         "%.2f de rango" % (0.022 * 14.5))
+comp("sin suelo medido aun, no estorba", "suelo_ruido <= 0" in SRC)
+comp("no se vuelve a una ganancia que esta saturando",
+     "ahora - ultimo_recorte > RECORTE_RECIENTE" in SRC)
+comp("y el detector de recorte apunta cuando fue", "ultimo_recorte = ahora" in SRC)
+_ir = re.search(r"^RECORTE_RECIENTE = ([0-9.]+)", SRC, re.M)
+comp("con un margen de al menos medio minuto", _ir and float(_ir.group(1)) >= 30,
+     "%s s" % (_ir.group(1) if _ir else "?"))
+comp("no se toca si ya esta en la buena",
+     "abs(ganancia - ganancia_buena) > 0.2" in SRC)
+
+print("")
+print("-- 10) el oido no llama a nada que no exista --")
 # ESTO PASO DE VERDAD ESTA MISMA NOCHE, y por eso esta aqui: un parche mio se llevo por
 # delante cuatro funciones (segundos_de_voz, cobertura_parakeet, suena_ingles y
 # repasar_si_ingles) al cortar un tramo por un ancla que no era. El fichero SEGUIA

@@ -297,6 +297,36 @@ MIN_BLOQUES_VOZ = 4
 RUIDO_CONSTANTE = 0.92
 RUIDO_PULSOS = 2
 pulsos_ruidosos = 0
+# Y LA GANANCIA BUENA SE GUARDA APARTE (22/09, por la mañana, estrenandolo).
+# Al arrancar el worker con el codigo nuevo se vio el caso que faltaba: la deteccion de ruido
+# funcionaba -'esto no es voz, es ruido de fondo (60 de 60 bloques)'- pero congelaba la
+# ganancia EN EL VALOR YA ENVENENADO. Con la voz de braya por este micro la ganancia buena
+# estaba en x13-15; el ruido de las 01:18 la hundio a x3,1 persiguiendolo, y eso es lo que
+# quedo congelado... y ademas guardado en tmp/ganancia.txt, asi que sobrevivia a los
+# reinicios. Congelar la ultima calibracion solo sirve si la ultima era buena.
+# Ahora se recuerda aparte la ultima ganancia calibrada CON VOZ DE VERDAD, y es la unica que
+# se guarda en disco. En cuanto se ve que lo que entra es ruido, se vuelve a ella.
+ganancia_buena = 0.0      # la ultima calibrada sin ruido constante de por medio
+# Y NO SE VUELVE A UNA GANANCIA QUE SATURA (22/09, estrenandolo por tercera vez).
+# Devolver la ganancia buena al detectar ruido daba un pin-pon de libro, visto en vivo:
+#   07:47:58  ruido -> vuelvo a la x14,5
+#   07:47:59  recorte detectado: bajando ganancia a x8,7
+#   07:48:13  ruido -> vuelvo a la x14,5        ...y asi cada 15 segundos
+# Con un ruido de 0,10 en crudo, amplificar x14,5 satura si o si: no es que la calibracion
+# sea mala, es que en esa habitacion ESA ganancia no existe. Y cada vuelta destrozaba un
+# segundo de audio antes de que el detector la bajara.
+# Esperar al recorte NO BASTA -se probo, y solo espaciaba el pin-pon a un ciclo de 45 s, con
+# un segundo de audio destrozado en cada vuelta-. Hay que CALCULAR si esa ganancia cabe:
+# si el propio ruido de fondo, amplificado por ella, ya llena el rango, entonces en esta
+# habitacion esa ganancia no existe y no hay nada que decidir.
+#   ruido 0,0907 x 14,5 = 1,31   ->  satura solo el fondo: no se vuelve
+#   silencio 0,022 x 14,5 = 0,32 ->  cabe de sobra: se vuelve
+# El 0,70 deja sitio para que su voz asome por encima del fondo sin recortar.
+# Y cuando no se puede volver, lo que toca no es afinar nada: es DECIR que hay ruido, de lo
+# que ya se encarga el quinto campo de escucha-estado.txt.
+CABE_MAX = 0.70           # si ruido x ganancia pasa de esto, esa ganancia no cabe aqui
+RECORTE_RECIENTE = 45.0   # y ademas, ni tocarla justo despues de un recorte
+ultimo_recorte = 0.0
 PASO_MAX = 4.0
 # --- PUERTA DE ENERGIA ---
 # Sin esto Vosk decodifica 4 bloques por segundo las 24 horas, aunque no haya
@@ -2610,6 +2640,7 @@ if automatica:
         anota("microfono distinto: antes '%s', ahora '%s'; empiezo a calibrar de nuevo"
               % (_de_quien[:40], dispositivo[:40]))
     if _g is not None:
+        ganancia_buena = _g   # lo guardado solo puede ser una calibracion buena (ver arriba)
         # SE CONFIA EN LA CALIBRACION GUARDADA (16/09). Aqui habia una regla que
         # descartaba cualquier ganancia por debajo de x1.5 y empezaba en x8, porque
         # "la voz entra a 0.02-0.05 y hace falta amplificar entre x8 y x26". Eso era
@@ -2927,6 +2958,9 @@ try:
                                               % (nivel_salida(), ganancia))
                                 else:
                                     ganancia = round(max(GANANCIA_MIN, ganancia * 0.6), 1)
+                                    # cuando fue: si el audio esta saturando, volver a la
+                                    # ganancia buena es imposible (ver ULTIMO_RECORTE)
+                                    ultimo_recorte = ahora
                                     anota("recorte detectado: bajando ganancia a x%.1f" % ganancia)
                                     recortes = 0
                                     amplificado = muestras * ganancia
@@ -3311,12 +3345,20 @@ try:
                     ruido_constante = pulsos_ruidosos >= RUIDO_PULSOS
                     altavoces_altos = nivel_salida() > UMBRAL_ALTAVOZ
                     if automatica and ruido_constante:
-                        # se deja la ganancia como estaba, igual que con los altavoces: la
-                        # ultima calibracion buena es la de cuando de verdad hablaba alguien
+                        # SE VUELVE A LA ULTIMA BUENA, no se congela la de ahora (ver
+                        # ganancia_buena): si el ruido ya la habia arrastrado, congelarla
+                        # seria quedarse con el destrozo.
+                        vuelta = ""
+                        cabe = (suelo_ruido <= 0
+                                or suelo_ruido * ganancia_buena < CABE_MAX)
+                        if (ganancia_buena > 0 and abs(ganancia - ganancia_buena) > 0.2
+                                and cabe and ahora - ultimo_recorte > RECORTE_RECIENTE):
+                            vuelta = "; vuelvo a la x%.1f de cuando te oia" % ganancia_buena
+                            ganancia = ganancia_buena
                         anota("pulso: esto no es voz, es ruido de fondo (%d de %d bloques, %d pulsos"
-                              " seguidos); dejo la ganancia en x%.1f y la puerta en %.4f"
+                              " seguidos); dejo la ganancia en x%.1f y la puerta en %.4f%s"
                               % (bloques_voz, bloques_ventana, pulsos_ruidosos, ganancia,
-                                 umbral_actividad()))
+                                 umbral_actividad(), vuelta))
                         escribir(RUTA_ESTADO, decir_estado())
                     elif automatica and altavoces_altos and bloques_voz >= MIN_BLOQUES_VOZ:
                         anota_pulso("pulso: ganancia congelada en x%.1f (suenan los altavoces: %.3f)"
@@ -3364,9 +3406,24 @@ try:
                                     % (suelo_ruido, umbral_actividad(),
                                        ("%.0f MB" % _ram) if _ram >= 0 else "?",
                                        plazo_soltar(1.0)), ahora)
-                        # con el nombre del micro: sin el, la proxima sesion heredaria
-                        # esta calibracion aunque braya haya cambiado de microfono
-                        escribir(RUTA_GANANCIA, "%.1f|%s" % (ganancia, dispositivo))
+                        # BUENA ES UN PULSO SIN NADA DE RUIDO, no uno que TODAVIA no se ha
+                        # confirmado (22/09, estrenandolo por segunda vez). El ruido pide
+                        # RUIDO_PULSOS pulsos seguidos para darse por bueno, asi que el
+                        # PRIMERO llega hasta aqui y calibraba con normalidad. Visto en
+                        # vivo:
+                        #   07:45:03  recorte detectado: bajando ganancia a x8.7
+                        #   07:45:17  pulso normal -> calibra a x7,6 y la marca como buena
+                        #   07:45:32  ruido confirmado -> ya no habia a que volver
+                        # La x14,5 buena, recuperada del disco al arrancar, se perdio en ese
+                        # hueco de 15 segundos. Con pulsos_ruidosos == 0 se exige un pulso
+                        # limpio de verdad, no solo uno sin confirmar.
+                        if pulsos_ruidosos == 0:
+                            ganancia_buena = ganancia
+                            # y al disco solo va lo limpio, por el mismo motivo: si no,
+                            # la proxima sesion heredaria una ganancia hecha sobre ruido
+                            # (paso: tmp/ganancia.txt llego a tener x3,1).
+                            # Con el nombre del micro, que lo de un micro no vale para otro.
+                            escribir(RUTA_GANANCIA, "%.1f|%s" % (ganancia, dispositivo))
                         escribir(RUTA_ESTADO, decir_estado(ref))
                     else:
                         anota_pulso("pulso: sin voz sostenida (%d bloques) ganancia=x%.1f decodificado=%d%% altavoces=%.3f"
