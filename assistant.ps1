@@ -17224,7 +17224,24 @@ function Request-WhisperTras([string]$texto, [int]$paso = 0) {
         # LA NUBE SOLO SE LANZA UNA VEZ POR FRASE, en el primer paso: si no, cada escalon
         # de la cascada mandaria el mismo audio a Google otra vez.
         if ($paso -eq 0) { [void](Start-NubeOir $texto) }   # ver SEGUNDA OPINION EN LA NUBE
-        Set-UI 'pensando'
+        # LA CAPSULA SE QUEDABA MUDA JUSTO AQUI (22/09). Esta llamada era "Set-UI
+        # 'pensando'" a secas, y Set-UI escribe SIEMPRE el texto que le pasan: ese vacio
+        # BORRABA la frase que habia puesta -la transcripcion en vivo, la que deja
+        # "Set-UI 'escuchando' $vista"- y dejaba tres puntitos ambar y nada mas. O sea
+        # que "no te he pillado, lo estoy repasando" se veia EXACTAMENTE IGUAL que
+        # "estoy pensando", y son dos cosas distintas: una se espera, la otra se repite.
+        # MEDIDO EN assistant.log: 328 repasos. Desde que se pide el repaso hasta que la
+        # capsula vuelve a escribir algo, mediana 3,0 s, p90 10 s y el peor 35 s; 194 de
+        # los 328 llegaron a 3 s o mas, y suman 27 minutos de capsula en blanco.
+        # LOS TRES CAMINOS HERMANOS YA PONIAN ETIQUETA -'Pensandolo mejor' en el ultimo
+        # recurso, 'Afinando el oido' en el oido fino, dos veces-: este era el unico que
+        # no. Aqui va la etiqueta Y lo que se oyo, como el "leyendo $dondeOcr" del OCR:
+        # asi la frase no desaparece, se queda con el aviso delante, y ademas se ve QUE
+        # entendio, que es lo que dice si vale la pena esperar o repetirlo ya.
+        # No cambia nada mas: mismo estado 'pensando', misma animacion, mismo plazo. Y
+        # cuando la cascada encadena el siguiente escalon se vuelve a pasar por aqui con
+        # $script:repasoOriginal -el mismo texto-, asi que no parpadea.
+        Set-UI 'pensando' "Repasando: $texto"
         return $true
     } catch {
         $script:reintentoBase = $false

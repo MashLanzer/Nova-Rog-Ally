@@ -104,6 +104,56 @@ Comp 'y el plazo mira la RAM que queda' ($oido -match 'def plazo_soltar\(')
 Comp 'el repaso queda apuntado con su motor' ($oido -match 'motor=pedido')
 
 Write-Host ''
+Write-Host '-- y mientras repasa, la capsula no se queda muda --'
+# LA CAPSULA MUDA (22/09). Request-WhisperTras terminaba con Set-UI 'pensando' a secas, y
+# Set-UI escribe SIEMPRE el texto que le pasan: ese vacio BORRABA de la capsula la frase
+# que habia, asi que "no te he pillado, lo estoy repasando" se veia igual que "estoy
+# pensando". Medido en assistant.log: 328 repasos, mediana 3,0 s, p90 10 s, el peor 35 s;
+# 194 de los 328 llegaron a 3 s o mas.
+# AQUI SE EJECUTA LA FUNCION DE VERDAD, no se busca el texto en el fuente: lo que importa
+# no es que la linea exista, es lo que acaba recibiendo la capsula.
+$astR = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $raiz 'assistant.ps1'), [ref]$null, [ref]$null)
+function TraerFn([string]$n) {
+    $f = $astR.Find({ param($x) $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq $n }, $true)
+    if (-not $f) { throw "falta $n" }
+    return $f.Extent.Text
+}
+Invoke-Expression (TraerFn 'Request-WhisperTras')
+# el mundo de mentira: lo justo para que corra sin microfono, sin worker y sin nube
+$script:uiEst = ''; $script:uiTxt = ''; $script:uiN = 0
+function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
+    $script:uiEst = $estado; $script:uiTxt = $texto; $script:uiN++
+}
+function Log($m) {}
+function Add-Estadistica($q, $t = '') {}
+function Start-NubeOir($t) { return $false }
+$script:reloj = 100000
+$sw = [PSCustomObject]@{}
+$sw | Add-Member -MemberType ScriptProperty -Name ElapsedMilliseconds -Value { $script:reloj }
+$script:wakeProc = [PSCustomObject]@{ HasExited = $false }
+$RepasoCascada = @('canary', 'base')
+$ReintentoMaxMs = 20000
+$TmpDir = Join-Path $env:TEMP 'nova-banco-capsula'
+New-Item -ItemType Directory -Path $TmpDir -Force | Out-Null
+$RutaReintento = Join-Path $TmpDir 'reintento.txt'
+$MarcaReintento = Join-Path $TmpDir 'reintento.flag'
+
+Comp 'se pide el repaso' ([bool](Request-WhisperTras 'baja el brio' 0))
+Comp 'y la capsula se queda pensando' ($script:uiEst -eq 'pensando')
+Comp 'CON TEXTO, no en blanco' ([bool]$script:uiTxt) ("capsula: '" + $script:uiTxt + "'")
+Comp 'y dentro sigue lo que se oyo' ($script:uiTxt -like '*baja el brio*')
+Comp 'con una etiqueta delante, no solo la frase' ($script:uiTxt -ne 'baja el brio')
+Comp 'una sola escritura de capsula por repaso' ($script:uiN -eq 1) "$($script:uiN)"
+Comp 'y se le sigue pidiendo al escalon que toca' (([System.IO.File]::ReadAllText($MarcaReintento)) -eq 'canary')
+$antesUI = $script:uiTxt
+[void](Request-WhisperTras 'baja el brio' 1)
+Comp 'el segundo escalon pone lo mismo (no parpadea)' ($script:uiTxt -eq $antesUI)
+Comp 'y pasada la cascada no se pide nada' (-not (Request-WhisperTras 'baja el brio' 9))
+# LO QUE NO DEBE CAMBIAR: los tres caminos hermanos siguen con su etiqueta de siempre.
+Comp "el ultimo recurso sigue diciendo 'Pensandolo mejor'" ($fuente -match "Set-UI 'pensando' 'Pensandolo mejor'")
+Comp "y el oido fino, 'Afinando el oido' las dos veces" (([regex]::Matches($fuente, "Set-UI 'pensando' 'Afinando el oido'")).Count -eq 2)
+
+Write-Host ''
 Write-Host '-- y el modelo esta donde se espera --'
 foreach ($par in @(@{ n = 'canary'; f = @('encoder*.onnx', 'decoder*.onnx', 'tokens.txt') },
                    @{ n = 'omnilingual'; f = @('model*.onnx', 'tokens.txt') })) {
