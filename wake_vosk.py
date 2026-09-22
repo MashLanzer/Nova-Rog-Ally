@@ -547,6 +547,16 @@ _medidor_visto = 0.0
 _medidor_fallos = 0
 _medidor_creado = 0.0
 _medidor_reintento = 0.0
+# EL AVISO DE ARRANQUE, UNA VEZ Y NO 421 (22/09). El "medidor de altavoces activo" se
+# guardaba con 'elif _medidor_creado == ahora', tres lineas despues de asignarle ahora:
+# esa comparacion no puede dar falso nunca. Lo que se escribio como un aviso de arranque
+# salia en cada REFRESCO_MEDIDOR (300 s), porque el medidor se rehace cada tanto a
+# proposito -por si cambias de altavoces a cascos- y cada vez volvia a "nacer".
+# Medido: 421 apariciones en el log, 209 de ellas en un solo proceso del worker en 23,8 h,
+# cadencia mediana de 300 s clavados. Un barrido con AST sobre los cuatro .py del proyecto
+# busca comparaciones entre dos nombres donde uno se acaba de asignar del otro: sale esta
+# y solo esta.
+_medidor_avisado = False
 REFRESCO_MEDIDOR = 300.0   # s: rehacerlo por si cambiaste de altavoces a cascos
 
 
@@ -604,7 +614,7 @@ def nivel_salida():
     al cambiar de altavoces a cascos el viejo devuelve 0.0 sin dar ningun
     error."""
     global _medidor, _medidor_valor, _medidor_visto
-    global _medidor_fallos, _medidor_creado, _medidor_reintento
+    global _medidor_fallos, _medidor_creado, _medidor_reintento, _medidor_avisado
     ahora = time.time()
     if ahora - _medidor_visto < INTERVALO_MEDIDOR:
         return _medidor_valor
@@ -621,7 +631,13 @@ def nivel_salida():
             _medidor_creado = ahora
             if _medidor_fallos:
                 anota("medidor de altavoces recuperado tras %d fallos" % _medidor_fallos)
-            elif _medidor_creado == ahora and not _medidor_valor:
+            elif not _medidor_avisado and not _medidor_valor:
+                # una vez por proceso (ver EL AVISO DE ARRANQUE, arriba). Lo que habia
+                # aqui -'_medidor_creado == ahora'- se acababa de asignar dos lineas mas
+                # arriba, asi que no podia dar falso nunca. Los refrescos de cada 300 s
+                # siguen rehaciendo el medidor igual que siempre: lo unico que cambia es
+                # que no lo cuentan.
+                _medidor_avisado = True
                 anota("medidor de altavoces activo: se desconfia del microfono mientras suena algo")
             _medidor_fallos = 0
         _medidor_valor = float(_medidor.GetPeakValue())
@@ -3486,10 +3502,27 @@ try:
                                 and cabe and ahora - ultimo_recorte > RECORTE_RECIENTE):
                             vuelta = "; vuelvo a la x%.1f de cuando te oia" % ganancia_buena
                             ganancia = ganancia_buena
-                        anota("pulso: esto no es voz, es ruido de fondo (%d de %d bloques, %d pulsos"
-                              " seguidos); dejo la ganancia en x%.1f y la puerta en %.4f%s"
-                              % (bloques_voz, bloques_ventana, pulsos_ruidosos, ganancia,
-                                 umbral_actividad(), vuelta))
+                        # POR anota_pulso, COMO SUS TRES HERMANAS (22/09). Esta linea nacio
+                        # hoy y se escribio con anota() directo, saltandose la regla del
+                        # 18/09 -"el latido solo cuando dice algo nuevo"- que las otras tres
+                        # ramas del pulso si respetan. A lo bruto: 2.451 lineas identicas en
+                        # un dia, 392 KB, el 56,2 % de todo lo que Nova escribio hoy, una
+                        # cada 15,0 s y hasta 1.054 seguidas. Las hermanas van a 61,0 s
+                        # medidos. Y el log estaba en 4,62 MB de los 5,24 de maxLogBytes sin
+                        # haber rotado NUNCA todavia: con keepLogs = 3 esto iba a recortar el
+                        # historial de ~70 dias a ~31, y el historial es de donde salen los
+                        # numeros con los que se decide aqui (las 141 lineas TRABAJO, los 328
+                        # repasos).
+                        # LO QUE SE PIERDE, mirado antes de hacerlo: anota_pulso compara sin
+                        # digitos, asi que dos recuperaciones de ganancia ("vuelvo a la x...")
+                        # dentro del mismo minuto se quedan en una. En todo el log hay 9, y
+                        # OCHO son la misma racha de 07:47:58 a 07:50:59: justo la repeticion
+                        # que se viene a quitar. La novena, a las 13:05:53, sigue saliendo
+                        # porque su texto no se parece al del latido de antes.
+                        anota_pulso("pulso: esto no es voz, es ruido de fondo (%d de %d bloques, %d pulsos"
+                                    " seguidos); dejo la ganancia en x%.1f y la puerta en %.4f%s"
+                                    % (bloques_voz, bloques_ventana, pulsos_ruidosos, ganancia,
+                                       umbral_actividad(), vuelta), ahora)
                         escribir(RUTA_ESTADO, decir_estado())
                     elif automatica and altavoces_altos and bloques_voz >= MIN_BLOQUES_VOZ:
                         anota_pulso("pulso: ganancia congelada en x%.1f (suenan los altavoces: %.3f)"

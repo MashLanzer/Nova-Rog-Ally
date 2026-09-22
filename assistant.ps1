@@ -1334,9 +1334,16 @@ $script:reglasDisparadas = 0
 # 'abrestean' -> 'abre steam' si comparte ('abre' esta dentro), y ese es el caso
 # para el que existe el repaso.
 # LA FIRMA DE LA ALUCINACION DE WHISPER.
-# A Whisper se le pasan tus apps y juegos como pistas (hotwords) para que
-# acierte los nombres propios. El efecto secundario es que, cuando lo que oye
-# NO es voz, devuelve justo esos nombres, en fila y separados por comas:
+# EN PASADO, Y ESO ES LA NOTICIA (22/09): a Whisper se le PASABAN tus apps y juegos como
+# pistas (hotwords) para que acertara los nombres propios. Ya no: desde el 11/09 su
+# initial_prompt es PROMPT_ORDENES, una frase de ejemplo sin un solo nombre propio
+# (wake_vosk.py:181), y el 19/09 se quito ademas leer_vocabulario(). Este comentario
+# llevaba once dias diciendo lo contrario en presente.
+# Y LA RETIRADA FUNCIONO, contado sobre el log entero buscando lineas con tres o mas
+# nombres del catalogo en fila: 4 casos, los CUATRO del 11/09, y ni uno solo en los once
+# dias siguientes. Por eso esta funcion se queda aunque ya no dispare: cuesta un -notmatch
+# ',' en el 99 % de las frases, y es la red que avisaria si alguien volviera a meter
+# nombres propios en el prompt de un modelo. Lo que sigue describe lo que PASABA:
 #   'SILENT BREATH, PEAK, Hollow Knight, Outlast 2, Little Nightmares III,'
 #   'Engine, Little Nightmares II, Goose Duck, REANIMAL,'
 # La capa local se lo tragaba como una orden multiple y abria los cinco juegos.
@@ -12391,7 +12398,13 @@ $MarcaConfirmar = Join-Path $TmpDir "confirmar.flag"
 # forma de parar a Nova era matarla, y la linea "VoiceAssistant cerrado" no salia nunca.
 $MarcaSalir = Join-Path $TmpDir "salir.flag"
 $RutaConfirmacion = Join-Path $TmpDir "confirmacion.txt"
-# vocabulario (apps, sitios, juegos) para que Whisper acierte los nombres
+# NO ES "para que Whisper acierte los nombres" (22/09): eso es lo que ponia aqui, y hace
+# once dias que no es verdad. Whisper no lee este fichero desde el 11/09 (su initial_prompt
+# es PROMPT_ORDENES, sin nombres propios) y la escucha dejo de abrirlo el 19/09, cuando se
+# quito leer_vocabulario(). Se sigue pasando en argv[13] y se sigue escribiendo, y el unico
+# que lo lee hoy es tools\probar-audio.py, que es justo la herramienta que compara Whisper
+# CON y SIN estas pistas. Por eso no se borra: borrarlo dejaria esa medicion sin la mitad
+# que compara. Ver LA FIRMA DE LA ALUCINACION DE WHISPER para por que se quitaron.
 $RutaVocabulario = Join-Path $TmpDir "vocabulario.txt"
 $RutaDictado = Join-Path $TmpDir "dictado.txt"
 $RutaParcial = Join-Path $TmpDir "dictado-parcial.txt"
@@ -14702,6 +14715,11 @@ try {
     $voc += @($script:Juegos | Sort-Object -Property @{ Expression = { [long]$_.ultimo } } -Descending |
               ForEach-Object { $_.nombre } | Select-Object -First 20)
     $voc = @($voc | Where-Object { $_ } | Select-Object -Unique)
+    # PARA QUIEN LO LEA HOY (22/09): esto NO alimenta a Whisper, por mucho que lo diga el
+    # nombre. Whisper dejo de recibir nombres propios el 11/09 y la escucha dejo de abrir
+    # este fichero el 19/09. Lo escrito -46 nombres, 498 bytes, ~12 ms UNA vez por arranque,
+    # 0 ms por orden- lo lee solo tools\probar-audio.py, la herramienta que mide Whisper con
+    # y sin pistas. O sea que esto es material de medicion, no del camino de una orden.
     [System.IO.File]::WriteAllText($RutaVocabulario, (($voc -join ', ') + '.'), (New-Object System.Text.UTF8Encoding($false)))
 } catch {}
 # TRES RECETAS DE INFORMACION YA PUESTAS (16/09). Para no empezar de cero: son las

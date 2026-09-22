@@ -273,9 +273,13 @@ comp("al ver ruido se vuelve a ella, no se congela la de ahora",
      "ganancia = ganancia_buena" in SRC)
 comp("y se dice en el log, que si no nadie se entera",
      "vuelvo a la x%.1f de cuando te oia" in SRC)
-# el orden importa: volver ANTES de anotar, o el log diria la vieja
+# el orden importa: volver ANTES de anotar, o el log diria la vieja.
+# SIN EL PREFIJO DE LA LLAMADA (22/09): esto buscaba 'anota("pulso: esto no es voz' tal
+# cual, y se puso rojo el dia que esa linea paso a anota_pulso() para dejar de escribir la
+# misma frase 2.451 veces al dia. Lo que se comprueba es el ORDEN, no con que funcion se
+# anota, asi que se busca solo el texto y vale para las dos.
 _i_vuelta = SRC.find("ganancia = ganancia_buena")
-_i_anota = SRC.find('anota("pulso: esto no es voz')
+_i_anota = SRC.find('("pulso: esto no es voz')
 comp("se vuelve antes de anotarlo", 0 < _i_vuelta < _i_anota)
 # solo la buena va al disco
 _i_marca = SRC.find("ganancia_buena = ganancia")

@@ -845,6 +845,10 @@ if ($sucios.Count -gt 0) {
     Write-Host "   ninguno: lo que se lee es lo que hay" -ForegroundColor Green
 }
 
+Titulo "2n77. Que el log no se llene de la misma linea (y los comentarios no mientan)"
+python (Join-Path $PSScriptRoot 'probar-log-que-no-crece.py')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:dicen la verdad)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n76. Que el propio banco diga de que seccion viene cada fallo"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-veredicto.ps1')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:de que seccion viene cada fallo)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
