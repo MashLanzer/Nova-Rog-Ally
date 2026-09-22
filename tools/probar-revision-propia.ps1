@@ -230,7 +230,18 @@ function PonerNube([int]$intentos, [int]$utiles) {
 }
 
 Write-Host ''
-Write-Host '  -- LOS NUMEROS DE VERDAD, a 22/09: 2 de 194 en tres dias --'
+Write-Host '  -- LOS NUMEROS DE VERDAD, a 22/09 --'
+# CUIDADO CON ESTE CASO, que la primera version lo conto mal: el fichero tiene 194
+# intentos repartidos en TRES dias (18/09: 75 y 2 utiles; 20/09: 92 y 0; 21/09: 27 y 0),
+# pero config.json trae auto.datosDesde = 2026-09-20 y Test-DiaCuenta descarta todo lo
+# anterior a esa fecha. Asi que lo que la decision ve DE VERDAD es 119 intentos, CERO
+# utiles y DOS dias, y el freno de datos repartidos pide tres. O sea que la nube NO se
+# apaga todavia: le falta un tercer dia de uso desde el 20/09.
+# Y aqui arriba, en la linea 71, este banco pone $DecisionDatosDesde = '' -el corte
+# apagado a proposito, para que los casos inventados no dependan de la fecha de hoy-. Si
+# se mete el caso real sin volver a poner el corte, PASA POR LA RAZON EQUIVOCADA: cuenta
+# el 18/09, ve tres dias y decide. Por eso aqui se pone el corte de verdad.
+$DecisionDatosDesde = '2026-09-20'
 # Esto no es un caso inventado: son las cifras que hay en memoria\estadisticas.json el
 # 22/09 (18/09: 75 intentos y 2 utiles; 20/09: 92 y 0; 21/09: 27 y 0). La decision NO se
 # habia tomado todavia porque Test-RevisionPropia no decide nada que no pueda contarte, y
@@ -253,8 +264,16 @@ $script:deshacer = $null
 $script:cfgFalla = $false
 $script:puedoAvisar = $true
 $rReal = Test-RevisionPropia $hoy
-Comp 'con 2 de 194 en tres dias, la apaga' $rReal ''
-Comp 'y lo dice con su numero' (@($script:avisos).Count -eq 1 -and $script:avisos[0] -match '194') ($script:avisos -join ' ')
+# LO QUE PASA HOY: dos dias contados, y el freno de repartidos pide tres
+Comp 'con solo dos dias contados, NO la apaga todavia' (-not $rReal) ''
+Comp 'y la nube sigue puesta' ($NubeOir -eq 'gemini') "NubeOir='$NubeOir'"
+# EN CUANTO HAYA UN TERCER DIA desde el corte, se apaga. Esto es lo que va a pasar en
+# cuanto braya use Nova hoy: mismos numeros, un dia mas.
+$script:stats.dias[$hoy.ToString('yyyy-MM-dd')] = @{ 'nube-intento' = 20; 'nube-sirvio' = 0 }
+$script:revisionPropiaDia = ''
+$rTres = Test-RevisionPropia $hoy
+Comp 'con el tercer dia, la apaga' $rTres ''
+Comp 'y lo dice con su numero' (@($script:avisos).Count -eq 1 -and $script:avisos[0] -match '139') ($script:avisos -join ' ')
 # LO QUE NO PUEDE PASAR: que la apague jugando o con un invitado, o sin poder decirtelo.
 # Decidir en silencio es lo unico que esta funcion tiene prohibido.
 $script:revisionPropiaDia = ''; $script:NubeOir = 'gemini'; $script:juegoActivo = 'ELDEN RING'
@@ -263,6 +282,8 @@ Comp 'y la nube sigue puesta' ($NubeOir -eq 'gemini') "NubeOir='$NubeOir'"
 $script:juegoActivo = $null; $script:revisionPropiaDia = ''; $script:puedoAvisar = $false
 Comp 'si no puede contartelo, tampoco' (-not (Test-RevisionPropia $hoy)) ''
 $script:puedoAvisar = $true
+# y el corte vuelve a estar apagado para los casos inventados de abajo
+$DecisionDatosDesde = ''
 
 Write-Host ''
 Write-Host '  -- la nube que no sirve, la apaga --'

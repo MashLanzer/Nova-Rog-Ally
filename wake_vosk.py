@@ -293,6 +293,35 @@ PASO_MAX = 4.0
 # Se deja un margen de arrastre para no cortar el final de la palabra, y un
 # pre-buffer para no perder su principio.
 UMBRAL_ACTIVIDAD = 0.006
+# Y LA PUERTA SE APOYA EN EL RUIDO DE ESTE MICROFONO (22/09). El 0,006 de arriba se midio
+# con el array de Realtek, que trae supresion de ruido y da un silencio casi perfecto. El
+# 22/09 braya enchufo un micro USB y se vio lo que pasa cuando el numero es fijo:
+#
+#     con el Realtek   Vosk decodificaba el   0 % del tiempo
+#     con el USB                             100 % del tiempo
+#
+# El USB tiene un suelo de ruido de 0,048 a 0,064 -diez veces el umbral-, asi que TODOS los
+# bloques pasaban la puerta y el reconocedor no paraba nunca. En una consola eso es bateria
+# y calor, y ademas ensucia el p90 'de voz' con el que se decide todo lo demas.
+# La puerta pasa a ser: el maximo entre el 0,006 de siempre y el suelo de ruido medido
+# AHORA MISMO por un pelin. Con el Realtek el suelo es ~0,001 y la puerta se queda en 0,006
+# como toda la vida; con el USB sube a ~0,062 y el ruido deja de entrar.
+# EL FACTOR ES CORTO A PROPOSITO, y se bajo de 1,25 a 1,15 al probarlo con los numeros de
+# verdad: la voz de braya por el micro USB llega a 0,081 de rafaga y el peor suelo medido
+# es 0,064. Con 1,25 la puerta quedaba en 0,080 y su voz pasaba POR UN PELO (0,081); con
+# 1,15 queda en 0,074 y hay margen. Perder una llamada suya es mil veces peor que
+# decodificar unos bloques de ruido: ante la duda, oir de mas.
+SUELO_FACTOR = 1.15
+SUELO_VENTANA = 240       # bloques (~60 s a 4 por segundo) para medir el suelo
+suelo_ruido = 0.0         # lo que suena cuando NO hay nadie hablando, medido en marcha
+picos_suelo = []          # los picos de TODOS los bloques, con voz o sin ella
+
+def umbral_actividad():
+    """Lo que tiene que dar un bloque para que se moleste al reconocedor."""
+    if suelo_ruido <= 0:
+        return UMBRAL_ACTIVIDAD
+    return max(UMBRAL_ACTIVIDAD, suelo_ruido * SUELO_FACTOR)
+
 ARRASTRE = 4              # bloques que se siguen decodificando tras el silencio
 PREBUFFER = 2             # bloques previos que se recuperan al detectar voz
 INTERVALO_PULSO = 15.0    # ajuste rapido; con 60 s tardaba minutos en subir
@@ -2550,6 +2579,14 @@ try:
                 if datos is not None:
                     muestras = np.frombuffer(datos, dtype=np.int16).astype(np.float32)
                     pico = float(np.max(np.abs(muestras))) / 32768.0
+                    # EL SUELO DE RUIDO (ver umbral_actividad): entran TODOS los bloques,
+                    # con voz y sin ella. El percentil 25 de esa ventana es lo que suena
+                    # cuando no hay nadie hablando: usar la mediana lo subiria en cuanto
+                    # braya hable un rato seguido, y usar el minimo lo dejaria pegado a un
+                    # solo bloque mudo.
+                    picos_suelo.append(pico)
+                    if len(picos_suelo) > SUELO_VENTANA:
+                        del picos_suelo[:len(picos_suelo) - SUELO_VENTANA]
                     # Se guardan los picos de los bloques CON VOZ, no el maximo
                     # suelto: calibrar con el maximo dejaba que un solo golpe (o un
                     # resto de eco) mandara sobre toda la ventana. Se usa el p90.
@@ -2598,7 +2635,7 @@ try:
                         bloques_decodificados = 0
                         cubo_dec_desde = ahora
                     bloques_totales += 1
-                    if pico > UMBRAL_ACTIVIDAD:
+                    if pico > umbral_actividad():
                         if arrastre <= 0:
                             pico_rafaga = 0.0   # empieza una rafaga nueva
                             # el juez juzga EXACTAMENTE la misma ventana que mide pico_rafaga:
@@ -2667,7 +2704,7 @@ try:
 
                     # --- MODO DICTADO: transcribir todo, no buscar el nombre ---
                     if dictando:
-                        if pico > UMBRAL_ACTIVIDAD:
+                        if pico > umbral_actividad():
                             ultima_voz = ahora
                             hubo_voz += 1
                         # EL RITMO DE BRAYA (13/09): cuanto tarda en empezar a hablar en
@@ -2959,8 +2996,12 @@ try:
                         # dato con el que se decide si la escucha esta bien calibrada
                         # el p90 de su voz, para el liston de la rafaga (ver umbral_rafaga)
                         ultimo_p90 = ref
+                        # el suelo, del percentil 25 de la ventana (ver umbral_actividad)
+                        if len(picos_suelo) >= 40:
+                            suelo_ruido = float(np.percentile(np.array(picos_suelo), 25))
                         anota("pulso: p90=%.4f bloques_voz=%d ganancia=x%.1f decodificado=%d%% altavoces=%.3f"
                               % (ref, bloques_voz, ganancia, pct_dec(), nivel_salida()))
+                        anota_pulso("pulso: suelo=%.4f puerta=%.4f" % (suelo_ruido, umbral_actividad()), ahora)
                         # con el nombre del micro: sin el, la proxima sesion heredaria
                         # esta calibracion aunque braya haya cambiado de microfono
                         escribir(RUTA_GANANCIA, "%.1f|%s" % (ganancia, dispositivo))
