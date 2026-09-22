@@ -2183,6 +2183,14 @@ cola = queue.Queue()
 # cuando llego el ultimo bloque (desde el hilo del audio) y el bucle sale si
 # pasa demasiado; el asistente lo relanza y el stream se abre de nuevo.
 MIC_MUERTO = 5.0
+# CADA CUANTO SE MIRA SI HAS CAMBIADO DE MICROFONO (22/09). braya enchufo un micro USB con
+# Nova en marcha y ella siguio con el array de Realtek: el stream ya estaba abierto y nadie
+# volvia a preguntar. Desenchufar SI se notaba -deja de llegar audio y salta MIC_MUERTO-,
+# pero ENCHUFAR uno nuevo no se notaba de ninguna manera.
+# 20 s: suficiente para que no tengas que esperar, y lo bastante espaciado para que
+# preguntarle al sistema por sus dispositivos no cueste nada. Solo se mira cuando no hay
+# nada en marcha (ni dictado, ni confirmacion, ni pausa), para no cortar una orden a medias.
+MIRAR_MICRO_CADA = 20.0
 ultima_llegada = time.time()
 
 
@@ -2226,22 +2234,45 @@ MARCA_SOLO_BOTON = os.path.join(os.path.dirname(NIVEL), "solo-boton.flag") if NI
 LOTENGO = os.path.join(os.path.dirname(NIVEL), "lotengo.txt") if NIVEL else ""
 
 
-def ganancia_guardada():
+# LA GANANCIA ES DE UN MICROFONO, NO DE LA CONSOLA (22/09). braya enchufo un micro USB y
+# dijo lo que hacia falta: 'Nova tiene que saber detectar cuando esta y no esta ese micro y
+# reajustar su ganancia sola'. Tiene razon y era un fallo de verdad: la ganancia se guardaba
+# a pelo en ganancia.txt y al arrancar se recuperaba SIN MIRAR de que microfono era. Con el
+# array de Realtek estaba en x18,3; ese numero en un micro USB -que entra mucho mas fuerte-
+# satura, y al reves deja a Nova sorda. Cambiar de micro y heredar la calibracion del
+# anterior es peor que no recordar nada.
+# Ahora el fichero guarda 'ganancia|nombre del micro'. Si el nombre no es el mismo, la
+# ganancia NO se hereda: se empieza por GANANCIA_INICIAL y el ajuste automatico la lleva a
+# su sitio en unos pulsos, que es justo para lo que esta. El formato viejo (solo el numero)
+# se sigue leyendo, pero como 'de un micro desconocido': tampoco se hereda, y asi la
+# primera vez tras este cambio tambien recalibra.
+def ganancia_guardada(micro_actual=""):
     if not RUTA_GANANCIA:
-        return None
+        return None, ""
     try:
         with open(RUTA_GANANCIA, "r", encoding="utf-8") as f:
-            g = float(f.read().strip())
-        if GANANCIA_MIN <= g <= GANANCIA_MAX:
-            return g
+            crudo = f.read().strip()
+        trozos = crudo.split("|", 1)
+        g = float(trozos[0])
+        de_quien = trozos[1].strip() if len(trozos) > 1 else ""
+        if not (GANANCIA_MIN <= g <= GANANCIA_MAX):
+            return None, de_quien
+        # sin nombre guardado, o de otro micro: el numero no vale para este
+        if not de_quien or (micro_actual and de_quien != micro_actual):
+            return None, de_quien
+        return g, de_quien
     except Exception:
         pass
-    return None
+    return None, ""
 
 
 ganancia = GANANCIA_INICIAL if automatica else float(GANANCIA_ARG)
 if automatica:
-    _g = ganancia_guardada()
+    _g, _de_quien = ganancia_guardada(dispositivo)
+    if _g is None and _de_quien and _de_quien != dispositivo:
+        # EL MICRO HA CAMBIADO: se dice, y se recalibra desde cero
+        anota("microfono distinto: antes '%s', ahora '%s'; empiezo a calibrar de nuevo"
+              % (_de_quien[:40], dispositivo[:40]))
     if _g is not None:
         # SE CONFIA EN LA CALIBRACION GUARDADA (16/09). Aqui habia una regla que
         # descartaba cualquier ganancia por debajo de x1.5 y empezaba en x8, porque
@@ -2283,6 +2314,7 @@ anota("worker Vosk en marcha: nombre='%s' dispositivo='%s' ganancia=%s"
       % (NOMBRE, dispositivo, "auto" if automatica else ganancia))
 
 ultimo_pulso = time.time()
+ultimo_miro_micro = time.time()   # ver MIRAR_MICRO_CADA
 recortes = 0
 ultimo_aviso_recorte = 0.0
 ultimo_aviso_solo_boton = 0.0
@@ -2326,6 +2358,24 @@ try:
                     anota("ERROR: el microfono lleva %.0f s sin entregar audio; salgo para que me relancen"
                           % (ahora - ultima_llegada))
                     sys.exit(3)
+
+                # ¿HAS CAMBIADO DE MICROFONO? (22/09, ver MIRAR_MICRO_CADA). Salir es la
+                # forma LIMPIA de cambiar: el asistente relanza este worker -ya lo hace
+                # cuando muere-, y al arrancar se lee el dispositivo de nuevo y, como la
+                # ganancia va con el nombre del micro, se recalibra desde cero. Reabrir el
+                # stream aqui dentro seria mas rapido y mucho mas fragil: hay un callback
+                # vivo, una cola a medias y un reconocedor con estado.
+                if (not dictando and not confirmando and not pausado
+                        and ahora - ultimo_miro_micro >= MIRAR_MICRO_CADA):
+                    ultimo_miro_micro = ahora
+                    try:
+                        de_ahora = sd.query_devices(sd.default.device[0])["name"]
+                    except Exception:
+                        de_ahora = dispositivo   # si no se puede preguntar, no se toca nada
+                    if de_ahora and de_ahora != dispositivo:
+                        anota("has cambiado de microfono: de '%s' a '%s'; salgo para volver con el nuevo"
+                              % (dispositivo[:40], de_ahora[:40]))
+                        sys.exit(3)
 
                 # PAUSA: el asistente esta hablando o dictando. Se tira el audio
                 # sin mirarlo y sin recalibrar; al reanudar se reinicia el
@@ -2911,7 +2961,9 @@ try:
                         ultimo_p90 = ref
                         anota("pulso: p90=%.4f bloques_voz=%d ganancia=x%.1f decodificado=%d%% altavoces=%.3f"
                               % (ref, bloques_voz, ganancia, pct_dec(), nivel_salida()))
-                        escribir(RUTA_GANANCIA, "%.1f" % ganancia)
+                        # con el nombre del micro: sin el, la proxima sesion heredaria
+                        # esta calibracion aunque braya haya cambiado de microfono
+                        escribir(RUTA_GANANCIA, "%.1f|%s" % (ganancia, dispositivo))
                         escribir(RUTA_ESTADO, "%.1f|%.4f|%.3f|%d" % (ganancia, ref, nivel_salida(), bloques_voz))
                     else:
                         anota_pulso("pulso: sin voz sostenida (%d bloques) ganancia=x%.1f decodificado=%d%% altavoces=%.3f"
