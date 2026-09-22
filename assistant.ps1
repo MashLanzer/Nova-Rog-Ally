@@ -6893,7 +6893,14 @@ function Add-DatoPerfil([string]$dato, [string]$fuente = '') {
     $palD = @($clave -split '\s+' | Where-Object { $_.Length -ge 4 } | Select-Object -Unique)
     foreach ($x in $datos) {
         $cx = (((ConvertTo-Suave $x) -replace '[^a-z0-9 ]', ' ') -replace '\s+', ' ').Trim()
-        if ($cx -eq $clave -or $cx.Contains($clave)) { return $null }   # ya lo sabia
+        # ...Y ESO ES QUE LO HA REPETIDO (22/09, ver el comentario del tope, abajo): el
+        # viejo se renueva -se va al final de la lista- en vez de quedarse donde estaba.
+        if ($cx -eq $clave -or $cx.Contains($clave)) {
+            $datos = @(@($datos | Where-Object { $_ -ne $x }) + @($x))
+            Save-DatosPerfil $datos
+            Log "PERFIL: ya lo sabia ('$x'); lo renuevo, que lo acaba de repetir"
+            return $null
+        }
         # EN LOS DOS SENTIDOS (16/09): mirar solo que porcentaje de la frase NUEVA esta
         # en la vieja castiga a las frases largas, que son justo las que mas ruido
         # meten ("braya no le gusta cierto estilo de musica electronica que escuchaba
@@ -6906,13 +6913,53 @@ function Add-DatoPerfil([string]$dato, [string]$fuente = '') {
             # el mismo tema si coincide la mayoria de una de las dos, o si comparten
             # tres palabras con contenido (dos frases sobre "musica electronica" lo son)
             if ($propD -ge 0.6 -or $propX -ge 0.6 -or $comunes -ge 3) {
-                Log "PERFIL: ya se algo de eso ('$x'); no apunto '$d'"
+                # ...PERO ACABA DE REPETIRLO, Y ESO VALE (22/09). Esto salto 56 veces en
+                # el log y hasta hoy no servia mas que para descartar: la senal mas clara
+                # de que un dato le importa -que lo vuelva a decir con otras palabras- se
+                # tiraba a la basura. Ahora el viejo sube al final de la lista, que es por
+                # donde NO se poda. Ver el comentario del tope, abajo.
+                Log "PERFIL: ya se algo de eso ('$x'); no apunto '$d' (pero renuevo el que ya estaba)"
+                $datos = @(@($datos | Where-Object { $_ -ne $x }) + @($x))
+                Save-DatosPerfil $datos
                 return $null
             }
         }
     }
     $datos += $d
-    while ($datos.Count -gt $PerfilMax) { $datos = @($datos | Select-Object -Skip 1) }
+    # EL TOPE TIRABA LO MAS VIEJO, NO LO QUE MENOS VALE (22/09). Caben 60 y al llegar se
+    # iba "el primero", o sea el mas antiguo, sin mirar que era. Medido hoy sobre
+    # assistant.log y memoria\perfil.md: se aprendieron 91 datos distintos y quedan 60.
+    # De los 35 que ya no estan (no todos por el tope: alguno lo borro "olvida que..." o
+    # un filtro posterior, pero el tope es el unico que tira SIN MIRAR) se fueron:
+    #   - 'Dicho por braya: mi juego favorito es Hollow Knight'
+    #   - 'Dicho por braya: mi color favorito es el verde'
+    #     ...los DOS unicos que el enseno a mano con "aprende que...". Hoy no queda ni un
+    #     solo 'Dicho por braya:' en el perfil: se los llevo la cinta.
+    #   - 'braya guarda sus partidas en una carpeta llamada Partidas Guardadas en el
+    #     escritorio', que es una ruta suya, justo para lo que nacio este archivo.
+    #   - 'Braya prefiere respuestas concisas', 'le gusta ir directo al grano' y
+    #     'Prefiere comunicacion directa y clara': lo mismo dicho de tres formas, o sea
+    #     lo que mas ha repetido, y las tres fuera.
+    # Y mientras tanto siguen dentro 'vio una casa con fuego', 'ha vendido zombies en el
+    # juego', 'tiene 8 dolares' y 'quiere dejar un zoom configurado'.
+    # Dos reglas, sin contador nuevo ni cambiar el formato del archivo:
+    #  1. LO QUE REPITE SE RENUEVA (arriba, en los dos filtros de "ya se algo de eso").
+    #     Con el dato viejo movido al final, "tirar el primero" deja de querer decir "el
+    #     mas viejo" y pasa a decir "el que lleva mas tiempo sin que braya lo repita".
+    #  2. LO QUE ENSENO A MANO NO SE CAE. Un dato que empieza por "Dicho por braya:" lo
+    #     escribio el mismo pidiendo "aprende que...". Se salta el turno: solo cae si
+    #     TODO lo que queda es suyo, y entonces se tira el mas viejo igual, como antes.
+    while ($datos.Count -gt $PerfilMax) {
+        $iTira = -1
+        for ($i = 0; $i -lt $datos.Count; $i++) {
+            if ($datos[$i] -notmatch '^\s*Dicho por braya\s*:') { $iTira = $i; break }
+        }
+        if ($iTira -lt 0) { $iTira = 0 }   # todo es suyo: cae el mas viejo, como antes
+        Log "PERFIL: lleno ($PerfilMax); tiro lo que lleva mas sin repetirse: $($datos[$iTira])"
+        $quedan = @()
+        for ($i = 0; $i -lt $datos.Count; $i++) { if ($i -ne $iTira) { $quedan += $datos[$i] } }
+        $datos = @($quedan)
+    }
     Save-DatosPerfil $datos
     # para poder decir "eso es un dato falso, eliminalo" (18/09): sin esto, "eso" no
     # apuntaba a nada y Nova contestaba "?de donde sacas que lo tengo?"

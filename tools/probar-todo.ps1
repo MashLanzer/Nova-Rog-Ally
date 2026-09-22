@@ -135,6 +135,14 @@ Titulo "2n6. El perfil solo guarda lo que braya dice de si mismo"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-perfil.ps1')  2>>$script:errBanco| Select-String 'MAL|todo correcto'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n70. Y no tira lo que repite ni lo que enseno a mano"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-poda-perfil.ps1')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:no tira lo que)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n71. El estilo deja de contradecirse a si mismo"
+python (Join-Path $PSScriptRoot 'probar-poda-estilo.py')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:ya no se contradice)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n5. Cambiar un modo hablando ('en modo juego no abras discord')"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-modo-voz.ps1')  2>>$script:errBanco| Select-String 'MAL|todo correcto'
 if ($LASTEXITCODE -ne 0) { $fallos++ }

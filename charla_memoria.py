@@ -155,6 +155,24 @@ def sensible(texto):
     return bool(RE_SENSIBLE.search(plano(texto)))
 
 
+# LAS PALABRAS QUE EL PONE ENTRE COMILLAS (22/09). Cuando braya corrige como quiere
+# que le hablen, el revisor escribe la palabra exacta entrecomillada: "No usar la
+# palabra 'man'", 'sin usar "tio" para dirigirse'. Esa palabra es el TEMA de la regla,
+# y es lo unico que deja ver que dos frases escritas de forma distinta hablan de lo
+# mismo. Se descarta lo de una letra, lo que son varias palabras (eso es una frase, no
+# una forma de llamarle) y lo que ya esta en VACIAS ("si", "no", "vale").
+RE_CITADA = re.compile("['\"‘’“”]([^'\"‘’“”]{2,20}?)['\"‘’“”]")
+
+
+def citadas(texto):
+    fuera = set()
+    for trozo in RE_CITADA.findall(str(texto or "")):
+        p = plano(trozo)
+        if p and " " not in p and len(p) >= 2 and p not in VACIAS:
+            fuera.add(p)
+    return fuera
+
+
 def limpio(x, maximo=300):
     t = re.sub(r"\s+", " ", str(x or "")).strip()
     return t[:maximo]
@@ -584,8 +602,38 @@ class Cerebro:
         if RE_SOBRE_NOVA.search(plano(e)):
             return
         est = self.datos.setdefault("estilo", [])
-        if any(plano(x) == plano(e) for x in est):
-            return
+        # PODABA POR ANTIGUEDAD Y SE CONTRADECIA A SI MISMA (22/09). Caben 12 y se
+        # tiraba la primera, o sea la mas vieja, sin mirar que era; y el filtro de
+        # repetidas comparaba TEXTO EXACTO, asi que cada forma NUEVA de decir lo mismo
+        # gastaba una plaza. Esto es lo que habia hoy en cerebro.json, y entero viaja
+        # en el prompt de TODAS las charlas (contexto() lo mete sin condicion):
+        #   "Prefiere tono casual y desenfadado (tuteo, 'man')"
+        #   "No usar la palabra 'man' al dirigirse a el"
+        #   "tono informal y de confianza ('tio')"
+        #   "sin usar la palabra 'tio'" / "sin usar 'tio' para dirigirse"
+        #   "evitar usar 'tio' para dirigirse" / "prefiere que no le digan 'tio'"
+        # Cinco de las doce plazas para lo mismo, y al lado las DOS que dicen justo lo
+        # contrario. A Nova se le pedia en la misma frase que le hablara con confianza
+        # llamandole "tio" y que no le llamara "tio": asi no hay forma de acertar.
+        # Dos reglas, sin contadores ni formato nuevo (la lista sigue siendo de textos):
+        #  1. SI LO REPITE, SE RENUEVA. La entrada vieja se mueve al final en vez de
+        #     ignorarse. Como la poda entra por el principio, "la primera" deja de
+        #     querer decir "la mas vieja" y pasa a decir "la que lleva mas tiempo sin
+        #     que el la repita", que es lo unico que aqui se parece a lo que le importa.
+        #  2. LA ULTIMA PALABRA SOBRE UNA PALABRA GANA. Si la entrada nueva entrecomilla
+        #     una palabra ("tio"), se van las viejas que la nombren. Una correccion de
+        #     como llamarle no convive con la regla anterior sobre eso mismo: la
+        #     sustituye, que para eso la esta corrigiendo.
+        # Probado sobre las 12 de verdad: quedan 7, ninguna contradice a otra, y siguen
+        # dentro las dos reglas que importan (la de "man" y la ultima de "tio").
+        pe = plano(e)
+        for i, x in enumerate(est):
+            if plano(x) == pe:
+                est.append(est.pop(i))
+                return
+        nuevas = citadas(e)
+        if nuevas:
+            est[:] = [x for x in est if not (nuevas & set(plano(x).split()))]
         est.append(e)
         while len(est) > MAX_ESTILO:
             est.pop(0)
