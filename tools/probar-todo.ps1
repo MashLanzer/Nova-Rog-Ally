@@ -393,6 +393,10 @@ Titulo "2n66. Una transcripcion no puede eternizarse (idea 4)"
 python (Join-Path $PSScriptRoot 'probar-tope-reloj.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no puede eternizarse)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n73. Y la pregunta que la dejaba entrar ya no interrumpe"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-alias-apagado.ps1')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:ya no interrumpe)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n65. Una orden mal oida no envenena el vocabulario"
 # 22/09. La cadena entera: el liston de letras roto hizo que Whisper devolviera 'Si es a los
 # ajutos' donde braya dijo 'cierra los ajustes'; eso se aprendio, y Add-Alias-Comando metio

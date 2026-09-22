@@ -5912,6 +5912,31 @@ function Add-Traduccion([string]$original, [string]$traducida) {
 # corresponde a UNA app o sitio conocidos? Entonces vale la pena aprender esa
 # palabra como alias (sirve para cualquier frase futura).
 $PALABRAS_COMUNES = @('abre','abrir','pon','ponme','busca','en','el','la','los','las','un','una','de','del','al','a','y','con','por','para','que','me','lo','le','mi','tu','su','ya','ahora','porfa','por','favor','steam','juego')
+# LA PREGUNTA DE ALIAS, APAGADA (22/09). Once dias de log y cinco preguntas, ni una
+# palabra aprendida que sirviera:
+#   15/09 13:14  'ponga'   -> spotify   NO
+#   15/09 15:42  'google'  -> edge      NO
+#   18/09 20:11  'cancion' -> spotify   NO
+#   18/09 20:12  'cancion' -> spotify   NO   (la MISMA, 51 s despues)
+#   22/09 01:14  'ajutos'  -> ajustes   SI... y fue la mala: 'ajutos' salia de una orden
+#                mal oida y acabo metiendo  'ajutos': ''  en commands.json.
+# Cero de cinco. Y no es gratis: de punta a punta cada pregunta costo entre 5 y 8 s
+# medidos en el log (voz, plazo, respuesta), y ademas se come el SEGUIMIENTO, porque
+# en el bucle principal, justo despues de Reanudar-Escucha, la pregunta de alias es
+# la PRIMERA rama de la cadena de elseif y la escucha encadenada ya no se abre. O sea
+# que se paga velocidad -lo que mas le importa a braya- por una apuesta a futuro, y
+# encima justo despues de una orden que YA habia salido bien.
+# Y es redundante: la frase exacta se guarda en traducciones.json un segundo antes
+# (Add-Traduccion). Lo unico que anadia la pregunta era generalizar a OTRAS frases,
+# que es justo la parte que puede envenenar el vocabulario.
+# Se probaron los filtros duros contra los cinco casos de verdad: arreglar el 'o' roto
+# de Find-Generalizacion mata 'google' y el parecido mata 'ajutos', pero 'ponga' y
+# 'cancion' siguen pasando, porque son palabras normales del castellano y Nova no
+# tiene diccionario. Tres preguntas malas de cinco no es un liston. Asi que no se
+# pregunta: el candidato se APUNTA en el log y nada mas. Si dentro de un mes el log
+# tiene candidatos que braya habria querido, se enciende esto y vuelve. Con datos,
+# que es como se decide aqui. Para encenderla: "aprender": { "preguntarAlias": true }.
+$PreguntarAlias = [bool](Get-Cfg 'aprender' 'preguntarAlias' $false)
 # =====================================================================
 # FRASES QUE YA TE MOLESTARON UNA VEZ
 # "no era eso" apunta aqui la frase. La proxima vez que llegue exactamente
@@ -6052,7 +6077,24 @@ function Find-Generalizacion([string]$original, [string]$traducida) {
     $objetivos = @($objetivos | Select-Object -Unique)
     if ($objetivos.Count -ne 1) { return $null }
     # que no sea ya una correccion o alias conocido
-    if (Test-Prop $cmds.apps $alias[0] -or Test-Prop $cmds.sitios $alias[0]) { return $null }
+    # LOS PARENTESIS NO SOBRAN (22/09). Sin ellos PowerShell no lee aqui un 'o' logico:
+    # lee UNA sola llamada a Test-Prop con '-or' de argumento suelto, asi que la lista
+    # de SITIOS no se miraba nunca. Por eso el 15/09 pregunto si 'google' era siempre
+    # 'edge' teniendo google en $cmds.sitios desde el primer dia. Comprobado corriendolo.
+    # Y de paso las correcciones, que este comentario prometia desde siempre y nadie
+    # habia llegado a mirar.
+    if ((Test-Prop $cmds.apps $alias[0]) -or (Test-Prop $cmds.sitios $alias[0]) -or (Test-Prop $cmds.correcciones $alias[0])) { return $null }
+    # NI UNA PALABRA QUE SE PARECE A OTRA QUE YA EXISTE (22/09). 'ajutos' esta a DOS
+    # ediciones de 'ajustes': no era un apodo, era 'ajustes' mal oido, y aprenderlo
+    # habria sido atar una orden buena a un fallo del micro. Un apodo de verdad no se
+    # parece letra a letra, se parece en que es mas corto: 'calcu' esta a 6 ediciones
+    # de 'calculadora' y sigue pasando este filtro, comprobado.
+    $aliasCerca = $false
+    foreach ($kCerca in @($objetivos[0]) + @($cmds.apps.PSObject.Properties.Name) + @($cmds.sitios.PSObject.Properties.Name)) {
+        if (-not $kCerca) { continue }
+        if ([Math]::Abs($kCerca.Length - $alias[0].Length) -le 2 -and (Get-Distancia $alias[0] $kCerca) -le 2) { $aliasCerca = $true; break }
+    }
+    if ($aliasCerca) { Log "ALIAS descartado: '$($alias[0])' se parece demasiado a algo que ya conozco"; return $null }
     return @{ alias = $alias[0]; objetivo = $objetivos[0] }
 }
 
@@ -16776,10 +16818,16 @@ function Report-Reply($out) {
                 Say $r
                 # AUTOAPRENDIZAJE: si la diferencia es UNA palabra ("calcu" ->
                 # "calculadora"), se propone aprenderla como alias para que
-                # valga en cualquier frase, no solo en esta
+                # valga en cualquier frase, no solo en esta.
+                # APAGADO el 22/09 (ver LA PREGUNTA DE ALIAS, APAGADA): 5 preguntas
+                # en 11 dias, 0 aprendidas, 4 noes y 1 si que envenino el vocabulario.
+                # El candidato se APUNTA siempre -esa linea del log es la que dejara
+                # volver a decidirlo dentro de un mes-, pero solo se PREGUNTA si braya
+                # enciende aprender.preguntarAlias en config.json.
                 try {
                     $gen = if (Test-OidoDudoso $original) { $null } else { Find-Generalizacion $original $propuesta }
-                    if ($gen) {
+                    if ($gen) { Log "ALIAS candidato: '$($gen.alias)' -> '$($gen.objetivo)'" }
+                    if ($gen -and $PreguntarAlias) {
                         $script:aprenderPendiente = @{ alias = $gen.alias; objetivo = $gen.objetivo
                             pregunta = ("¿Quieres que " + $gen.alias + " sea siempre " + $gen.objetivo + "?") }
                     }
