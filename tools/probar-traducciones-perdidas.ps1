@@ -122,6 +122,46 @@ Add-Traduccion 'y una mas' 'y una orden mas'
 Comp 'y sigue estando tras otro guardado' ((Dice 'frase numero 3') -eq 'la quiero otra vez')
 
 Write-Host ''
+Write-Host '-- E6: el fichero de HOY, que ya es del formato nuevo --'
+# EL FALLO QUE CAZA ESTE CASO (22/09). El bloque de las 14 de arriba deja el fichero en
+# formato VIEJO ('clave': 'texto'), que es como era el dia que paso; con ese formato la
+# fusion funcionaba. Pero desde el 22/09 lo que Nova escribe es el formato NUEVO
+# ('clave': { t; usos }), y sobre ese objeto el [string] de la fusion no sacaba el texto:
+# sacaba "@{t=...; usos=0}". O sea que el arreglo de las 14 destruia justo lo que salvaba.
+# Reproducido con el traducciones.json de verdad: 5 de 5 entradas hechas basura con un
+# solo 'aprende'. Con el codigo de antes del arreglo este bloque da MAL.
+$nuevo = New-Object PSObject
+for ($i = 1; $i -le 5; $i++) {
+    $nuevo | Add-Member -NotePropertyName "dilo asi $i" -NotePropertyValue ([ordered]@{ t = "orden buena $i"; usos = ($i * 2) })
+}
+Write-Atomico $TraduccionesPath ($nuevo | ConvertTo-Json -Depth 4)
+$script:traducciones = @{}                # la RAM vacia: es lo que deja un JSON corrupto
+$script:traduccionesUsos = @{}
+$script:traduccionesQuitadas = New-Object System.Collections.Generic.HashSet[string]
+Add-Traduccion 'otra frase cualquiera' 'abre el explorador'
+Comp 'siguen las 5 y entra la nueva' ((Cuantas) -eq 6) ("quedaron $(Cuantas)")
+Comp 'la 4 dice su orden, no el objeto' ((Dice 'dilo asi 4') -eq 'orden buena 4') (Dice 'dilo asi 4')
+Comp 'ninguna quedo con un @{ dentro' (-not ((Get-Content -LiteralPath $TraduccionesPath -Raw -Encoding UTF8) -match '@\{')) ''
+Comp 'y los usos del disco no se ponen a cero' ((Usos 'dilo asi 4') -eq 8) ("usos=$(Usos 'dilo asi 4')")
+Comp 'la recien aprendida si nace en cero' ((Usos 'otra frase cualquiera') -eq 0)
+
+# LO QUE NO DEBE CAMBIAR: el formato viejo se sigue fusionando igual. Un traducciones.json
+# que no se haya vuelto a guardar desde el 22/09 sigue siendo 'clave': 'texto', y puede
+# haber de los dos en el mismo fichero.
+$mezcla = New-Object PSObject
+$mezcla | Add-Member -NotePropertyName 'la vieja de toda la vida' -NotePropertyValue 'sube el volumen'
+$mezcla | Add-Member -NotePropertyName 'la nueva del 22' -NotePropertyValue ([ordered]@{ t = 'baja el volumen'; usos = 4 })
+Write-Atomico $TraduccionesPath ($mezcla | ConvertTo-Json -Depth 4)
+$script:traducciones = @{}
+$script:traduccionesUsos = @{}
+$script:traduccionesQuitadas = New-Object System.Collections.Generic.HashSet[string]
+Add-Traduccion 'y una tercera' 'pon el mando a cargar'
+Comp 'la del formato viejo sobrevive entera' ((Dice 'la vieja de toda la vida') -eq 'sube el volumen') (Dice 'la vieja de toda la vida')
+Comp 'la del formato nuevo tambien' ((Dice 'la nueva del 22') -eq 'baja el volumen') (Dice 'la nueva del 22')
+Comp 'la vieja arranca en cero usos' ((Usos 'la vieja de toda la vida') -eq 0) ("usos=$(Usos 'la vieja de toda la vida')")
+Comp 'y la nueva conserva los suyos' ((Usos 'la nueva del 22') -eq 4) ("usos=$(Usos 'la nueva del 22')")
+
+Write-Host ''
 Write-Host '-- D6: las traducciones cuentan sus usos --'
 # el formato viejo tiene que seguir leyendose: el fichero que hay hoy en la consola es asi
 $viejo = New-Object PSObject

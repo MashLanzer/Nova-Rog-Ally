@@ -5827,7 +5827,35 @@ function Save-Traducciones {
     if (Test-Path -LiteralPath $TraduccionesPath) {
         try {
             $jD = Get-Content -LiteralPath $TraduccionesPath -Raw -Encoding UTF8 | ConvertFrom-Json
-            foreach ($pD in $jD.PSObject.Properties) { $fusion[$pD.Name] = [string]$pD.Value }
+            # CONTAR NO PUEDE TUMBAR LA FUSION (22/09). Todo esto vive dentro de un
+            # try con el catch vacio: si la tabla de usos no estuviera creada, el
+            # indexador reventaria y se saltaria la fusion ENTERA sin decir nada, o
+            # sea que volveriamos a escribir solo lo que hay en RAM. Misma guarda que
+            # en Add-UsoTraduccion, y por el mismo motivo.
+            if ($null -eq $script:traduccionesUsos) { $script:traduccionesUsos = @{} }
+            foreach ($pD in $jD.PSObject.Properties) {
+                # LOS DOS FORMATOS, TAMBIEN AL FUSIONAR (E6, 22/09). Aqui habia un
+                # "[string]$pD.Value" a secas. Se escribio cuando el fichero solo podia ser
+                # 'clave': 'texto'. Desde el 22/09 lo que Nova escribe es 'clave': { t; usos },
+                # y [string] sobre ese objeto NO saca el texto: saca su representacion,
+                # "@{t=cierra administrador de tareas; usos=0}". O sea que el guardado que se
+                # hizo para no perder traducciones convertia en basura todo lo que estuviera en
+                # el fichero y no en la RAM. Reproducido con el traducciones.json de verdad de
+                # la consola: 5 de 5 entradas destruidas con un solo 'aprende'.
+                # Se leen los DOS formatos, igual que en Get-Traducciones: lo que decide es si
+                # el valor trae la propiedad 't'.
+                $vD = $pD.Value
+                if ($vD -and $vD.PSObject -and $vD.PSObject.Properties['t']) {
+                    $fusion[$pD.Name] = [string]$vD.t
+                    # y los usos del disco tampoco se tiran. Si la RAM no sabe de esta clave
+                    # -porque viene del fichero y no de esta sesion- su cuenta se quedaba en 0
+                    # al reescribir, y eso la ponia la primera de la cola para caer por el tope.
+                    # Manda la RAM cuando la conoce, que es lo mas nuevo.
+                    if (-not $script:traduccionesUsos.ContainsKey($pD.Name)) { $script:traduccionesUsos[$pD.Name] = [int]$vD.usos }
+                } else {
+                    $fusion[$pD.Name] = [string]$vD
+                }
+            }
         } catch { }   # el fichero no se puede leer: se escribe lo que hay en RAM, como antes
     }
     foreach ($k in $t.Keys) { $fusion[$k] = $t[$k] }
