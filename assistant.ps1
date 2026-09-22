@@ -12169,12 +12169,19 @@ function Send-PrepVoz([string]$texto, [string]$emo = '') {
 #     instante de reloj que hoy (Refresh-UI no se ha movido); lo unico que cambia es que la
 #     voz empieza y acaba 433 ms antes, o sea que la sordina sobra un poco al final, que es
 #     el lado seguro. Y la charla encadena en el mismo instante que hoy, ni antes ni despues.
-#   - el "-300" del reloj de la envolvente en nova_ui.cs (~2976) es lo mismo por el lado de
-#     la capsula, y tampoco se toca. Efecto conocido: en las frases que SI se abren por
-#     adelantado, la boca arranca ~270 ms despues de la voz (hoy arranca ~164 ms antes). Es
-#     feo, no es peligroso, y no se arregla aqui porque el adelanto no acierta siempre:
-#     hacerlo bien pide decirle a la capsula, frase a frase, cuanto tardo el arranque de
-#     verdad. Queda apuntado para su propio paso.
+#   - el "-300" del reloj de la envolvente en nova_ui.cs (~2976) tampoco se toca, pero NO
+#     por el motivo que puse aqui primero. Escribi que era "lo mismo por el lado de la
+#     capsula", o sea que compensaba este Open, y es falso: el -300 entro el 11/09 en el
+#     commit 866db98, seis dias ANTES de que nadie midiera Open. Nunca compenso nada de
+#     esto. Y tampoco hay "boca" que se desincronice: el ecualizador de cuatro bandas se
+#     quito el 12/09 porque "parecia una boca de palitos y se veia mal" (nova_ui.cs:1053),
+#     y lo que queda solo mueve el resplandor y el tamano del punto entero.
+#     Lo que hay de verdad, medido: desde el 11/09 ese punto late ~170 ms POR DELANTE de la
+#     voz, en 599 frases y ocho dias de log, y braya no lo ha mencionado ni una vez. Esa es
+#     la unica medida real de lo que se nota, y es >= 170 ms. Con el adelanto puesto pasa a
+#     ir ~270 ms por detras: mas, pero del mismo orden, en un brillo y no en unos labios.
+#     Asi que NO queda apuntado como paso pendiente: no hay dato que diga que molesta, y
+#     cero casos en el log todavia. Si algun dia lo dice el, entonces se mide y se arregla.
 function Get-RutaVozCache([string]$texto, [string]$emo = '') {
     if (-not $texto -or -not $VozCache) { return '' }
     try {
