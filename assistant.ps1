@@ -5717,10 +5717,24 @@ function Add-Alias-Comando([string]$alias, [string]$objetivo) {
     $d = $destino[0]
     try {
         $j = Get-Content -LiteralPath $cmdsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        # UN SITIO SIN DIRECCION NO ES UN SITIO (22/09). Este else se tragaba cualquier
+        # destino que no fuera una app, tuviera url o no, y lo guardaba en $j.sitios con
+        # cadena vacia. Paso de verdad: la madrugada del 22, con el liston de letras roto,
+        # Whisper devolvio 'Si es a los ajutos' donde braya habia dicho 'cierra los
+        # ajustes'; eso se aprendio, y commands.json acabo con  'ajutos': ''  entre los
+        # sitios web. A partir de ahi, 'busca gatos en otra pestana' se resolvia como
+        # 'abrir ajutos' -lo caza el banco de destinos- y abrir eso es abrir una url vacia.
+        # Una entrada sin valor no mejora nada y envenena el vocabulario entero, que es
+        # justo por donde se cuelan las ordenes equivocadas.
+        $valor = if ($d.kind -eq 'app') { [string]$d.target } else { [string]$d.url }
+        if (-not $valor.Trim()) {
+            Log "NO aprendo '$alias': lo que resolvio no tiene ni programa ni direccion"
+            return $null
+        }
         if ($d.kind -eq 'app') {
-            $j.apps | Add-Member -NotePropertyName $alias -NotePropertyValue ([string]$d.target) -Force
+            $j.apps | Add-Member -NotePropertyName $alias -NotePropertyValue $valor -Force
         } else {
-            $j.sitios | Add-Member -NotePropertyName $alias -NotePropertyValue ([string]$d.url) -Force
+            $j.sitios | Add-Member -NotePropertyName $alias -NotePropertyValue $valor -Force
         }
         $txt = $j | ConvertTo-Json -Depth 8
         Write-Atomico $cmdsPath $txt
@@ -7786,6 +7800,40 @@ $script:entornoCheck = 0
 $script:entornoUltimaActividad = 0
 $script:entornoBotonesAntes = 0
 $script:entornoUnidades = $null      # las unidades que habia la ultima vez (idea 31)
+# ¿ESTOY OYENDO RUIDO EN VEZ DE A BRAYA? (22/09, idea 5 de IDEAS-2026-09-22.md)
+#
+# La madrugada del 22, a las 01:18:40, empezo a sonar algo constante: el suelo de ruido subio
+# de 0,0048 a 0,1126 y la puerta de energia con el, hasta 0,1264. La voz de braya asoma 0,0195
+# sobre el ruido, o sea que en esa habitacion valdria 0,1294: pasaba por un 2 %. No se puede
+# afirmar que se quedara sorda -dejo de hablarle a las 01:18:36 y no hubo ni un intento
+# despues- pero un 2 % de margen no es un sistema que funciona, es uno que aun no ha fallado.
+# Y lo que Nova no hizo en esos 34 minutos fue DECIR que estaba oyendo ruido. El arreglo de
+# fondo esta en
+# wake_vosk.py (la puerta ya no puede pasar de la rafaga mas floja con la que se le ha oido,
+# ver techo_puerta), pero aunque no se quede sorda hay algo que Nova tiene que saber decir:
+# 'hay tanto ruido que no te voy a oir'. Callarse es lo peor, porque desde fuera es idéntico
+# a estar funcionando.
+#
+# El worker deja el dato en el QUINTO campo de escucha-estado.txt (ganancia|ref|altavoces|
+# bloques|ruido), anadido al final para que las dos lecturas viejas -la de los cascos y la de
+# '¿como me oyes?', que cogen los campos 0 a 3- sigan funcionando igual.
+#
+# EL AVISO VA POR Send-AvisoEntorno A PROPOSITO, y con nivel 'medio': asi respeta los limites
+# de avisos por hora, el silencio de la noche (de 23:00 a 8:00 solo pasa lo 'alto') y el modo
+# juego, sin inventar nada nuevo. Y cada 30 minutos como mucho: un ventilador puede estar
+# sonando toda la tarde y eso no son ganas de que te lo repitan.
+# NO es un modo que se queda activo: no cambia nada, no hay que apagarlo, solo lo dice.
+function Get-OidoConRuido {
+    # $true si el oido lleva rato oyendo ruido de fondo constante en vez de voz.
+    if (-not (Test-Path -LiteralPath $RutaEstado)) { return $false }
+    try {
+        $st = ([System.IO.File]::ReadAllText($RutaEstado).Trim()) -split '\|'
+        # worker viejo: solo cuatro campos, y entonces no hay nada que decir
+        if ($st.Count -lt 5) { return $false }
+        return ($st[4].Trim() -eq '1')
+    } catch { return $false }
+}
+
 function Watch-Entorno([int]$botones = 0) {
     if (-not $EntornoOn) { return }
     # IDEA 6: COGES LA CONSOLA. El bucle ya lee los cuatro mandos; si aparecen botones
@@ -7863,6 +7911,14 @@ function Watch-Entorno([int]$botones = 0) {
             }
         }
         $script:entornoUnidades = $letras
+    } catch {}
+
+    # NO TE ESTOY OYENDO, Y TE LO DIGO (ver Get-OidoConRuido)
+    try {
+        if (Get-OidoConRuido) {
+            [void](Send-AvisoEntorno 'oido-ruido' `
+                'Hay un ruido de fondo constante y asi no te voy a oir bien. Si puedes, quitalo o acercame el microfono.' 'medio' 30)
+        }
     } catch {}
 
     # IDEA 18: te has pasado de tu hora
@@ -11120,6 +11176,10 @@ function Invoke-FastCommand([string]$text) {
                             $alt = [double]::Parse($st[2], $cul)
                         } catch {}
                         $partes = @()
+                        # lo primero, si hay ruido: es lo que mas explica que no le oiga
+                        if (Get-OidoConRuido) {
+                            $partes += 'ahora mismo entra un ruido de fondo constante y me esta tapando tu voz'
+                        }
                         if ($script:pausaHasta -gt 0) {
                             $partes += 'ahora mismo no estoy escuchando, me pediste silencio; di escuchame para volver'
                         } elseif ($g -ge 6) {
@@ -16210,9 +16270,24 @@ function Report-Reply($out) {
                 if (Send-Charla $original $false 'hablar' @{ sin_orden = $true }) { return }
             }
             Log "NO era una orden: '$original' (descartado, no llega al agente)"
-        $script:seguimientoPendiente = $false   # un descarte no encadena: era ruido
+        $script:seguimientoPendiente = $false   # un descarte no encadena
             Add-Estadistica 'ruido' $original
-            Add-RuidoRacha
+                # ESTO NO ES RUIDO: ES UNA FRASE SUYA QUE NO SUPE ENCAJAR (22/09).
+                # Aqui NO se llama a Add-RuidoRacha, y el motivo esta medido. La autosordina
+                # (ver $AutoSordinaMs) calla a Nova 10 minutos cuando junta 3 descartes 'por
+                # ruido' en 5 minutos. Se miraron las CINCO autosordinas de toda la historia
+                # del log, una a una, y las cinco las disparo LA VOZ DE BRAYA, ninguna el
+                # ruido: 'Enhanced Edition', '¡Yoraz', 'Reproduce una cancion', 'Busca mi
+                # informacion sobre este juego' y una frase larga de conversacion. Dos de
+                # ellas eran ordenes suyas de verdad, mal oidas.
+                # El razonamiento: una frase que ha llegado HASTA AQUI ya ha pasado por el
+                # cerebro -Haiku la ha leido y ha dicho que no es una orden-. Para llegar
+                # tuvo que ser una frase entera y bien formada. Que no encaje en una orden
+                # no dice nada del microfono; dice que braya hablo y Nova no supo que hacer
+                # con ello. Contarlo como ruido y callarse por eso es lo contrario de lo que
+                # hace falta justo en ese momento.
+                # SIGUE CONTANDO donde si tiene sentido: en el filtro de frases de dos
+                # palabras que nunca llegan al agente, que es para lo que se hizo.
             Send-UIEvento 'gesto:confuso'
             Show-Popup "No te entendi. Repitelo." 'error'
             Say "No te entendi"
@@ -16355,7 +16430,22 @@ function Report-Reply($out) {
             $script:jobModo = ''
             Log "NO era una pregunta: '$($script:jobTextoOriginal)' (descartada)"
             Add-Estadistica 'ruido' $script:jobTextoOriginal
-            Add-RuidoRacha
+                # ESTO NO ES RUIDO: ES UNA FRASE SUYA QUE NO SUPE ENCAJAR (22/09).
+                # Aqui NO se llama a Add-RuidoRacha, y el motivo esta medido. La autosordina
+                # (ver $AutoSordinaMs) calla a Nova 10 minutos cuando junta 3 descartes 'por
+                # ruido' en 5 minutos. Se miraron las CINCO autosordinas de toda la historia
+                # del log, una a una, y las cinco las disparo LA VOZ DE BRAYA, ninguna el
+                # ruido: 'Enhanced Edition', '¡Yoraz', 'Reproduce una cancion', 'Busca mi
+                # informacion sobre este juego' y una frase larga de conversacion. Dos de
+                # ellas eran ordenes suyas de verdad, mal oidas.
+                # El razonamiento: una frase que ha llegado HASTA AQUI ya ha pasado por el
+                # cerebro -Haiku la ha leido y ha dicho que no es una orden-. Para llegar
+                # tuvo que ser una frase entera y bien formada. Que no encaje en una orden
+                # no dice nada del microfono; dice que braya hablo y Nova no supo que hacer
+                # con ello. Contarlo como ruido y callarse por eso es lo contrario de lo que
+                # hace falta justo en ese momento.
+                # SIGUE CONTANDO donde si tiene sentido: en el filtro de frases de dos
+                # palabras que nunca llegan al agente, que es para lo que se hizo.
             $script:seguimientoPendiente = $false   # un descarte no encadena: era ruido
             Send-UIEvento 'gesto:confuso'
             Show-Popup "No te entendi. Repitelo." 'error'

@@ -14,6 +14,24 @@ informes del 19/09 (OIDO, MEDICION-MODELOS, VRAM).
 
 ---
 
+## AL DIA (2): a 22/09/2026, de madrugada
+
+Quedan **dos**, y los dos piden la consola libre para medirse:
+
+| id | que falta |
+|---|---|
+| **C24** VRAM-9 | Ollama con `OLLAMA_IGPU_ENABLE=1`. Hay que lanzarlo con Nova PARADA y comparar segundos por respuesta contra la CPU. Opcional: el propio informe de VRAM duda de que compense con 4 GB. |
+| **C25** OID-2 | Medir Vosk grande (2,3 GB). La herramienta (`tools\medir-vosk-grande.py`) esta escrita y nunca se ha ejecutado. La noche del 22 no cabia: solo habia 2.421 MB libres. |
+
+Los demas se cerraron: `C19`, `C23`, `D6`, `D7` y `B9` el 21-22/09; `D1` espera a que braya
+avise; `C18` la bloqueaba el contador de dudas, que los agentes refutaron el 22/09; `C27`
+sigue bloqueada a proposito con su dato (produciria 1 apunte en toda la historia).
+
+Lo que salio de la noche del 22 -cuatro numeros fijos que estaban mal, no solo rigidos- esta
+en `IDEAS-2026-09-22.md`, seccion **AL CERRAR LA NOCHE DEL 22**.
+
+---
+
 ## AL DIA: lo que queda de estos 24, a 21/09/2026 por la noche
 
 braya pidio cerrar los pendientes acumulados antes de empezar otra cosa, asi que los 24

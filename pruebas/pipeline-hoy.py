@@ -17,8 +17,16 @@ SAL = os.path.join(AQUI, "pipeline-hoy.json")
 src = io.open(os.path.join(REPO, "wake_vosk.py"), encoding="utf-8").read()
 arbol = ast.parse(src)
 ns = {"np": np, "re": re, "unicodedata": unicodedata, "time": time, "os": os}
-QUIERO_FUN = {"segundos_de_voz", "cobertura_parakeet", "suena_ingles", "limpiar_whisper"}
-QUIERO_VAR = {"PALABRAS_ES", "PALABRAS_EN", "PARAKEET_COBERTURA_MIN", "TASA", "HILOS_PRECISO",
+# EL LISTON YA NO ES UN NUMERO, ES UNA FUNCION (22/09). Antes se traia
+# PARAKEET_COBERTURA_MIN, un 4,0 escrito a mano; desde el 22/09 el liston se lo pone Nova
+# con el ritmo de habla de braya (cobertura_min + apuntar_cobertura). Aqui se traen las
+# dos y se alimenta el aprendizaje wav a wav, en el mismo orden, para que esta herramienta
+# mida el camino DE VERDAD y no uno congelado.
+QUIERO_FUN = {"segundos_de_voz", "cobertura_parakeet", "suena_ingles", "limpiar_whisper",
+              "cobertura_min", "apuntar_cobertura"}
+QUIERO_VAR = {"PALABRAS_ES", "PALABRAS_EN", "COBERTURA_ARRANQUE", "COBERTURA_SUELO",
+              "COBERTURA_TECHO", "COBERTURA_FRACCION", "COBERTURA_MEMORIA",
+              "COBERTURA_MINIMAS", "TASA", "HILOS_PRECISO",
               "PROMPT_ORDENES", "TRANSCRIBIR_MAX"}
 for nodo in arbol.body:
     if isinstance(nodo, ast.FunctionDef) and nodo.name in QUIERO_FUN:
@@ -29,10 +37,12 @@ for nodo in arbol.body:
         except Exception: pass
 faltan = (QUIERO_FUN | QUIERO_VAR) - set(ns)
 if faltan: print("OJO, no se pudo extraer: %s" % sorted(faltan))
-TASA = ns.get("TASA", 16000); COB = ns.get("PARAKEET_COBERTURA_MIN", 4.0)
+TASA = ns.get("TASA", 16000)
+ns["coberturas"] = []   # la memoria del liston, igual que en el worker
 HILOS = ns.get("HILOS_PRECISO", 8); PROMPT = ns.get("PROMPT_ORDENES", "")
 TMAX = ns.get("TRANSCRIBIR_MAX", 30)
-print("extraido de wake_vosk.py: cobertura=%.1f hilos=%d prompt=%r" % (COB, HILOS, PROMPT[:40]))
+print("extraido de wake_vosk.py: liston de arranque=%.1f (aprende solo) hilos=%d prompt=%r"
+      % (ns.get("COBERTURA_ARRANQUE", 4.0), HILOS, PROMPT[:40]))
 
 cfg = json.load(io.open(os.path.join(REPO, "config.json"), encoding="utf-8-sig"))
 MOD_W = cfg.get("input", {}).get("whisperModelo", "base")
@@ -81,8 +91,12 @@ def pipeline(a16):
     if audio.size >= TASA // 4:
         st = par.create_stream(); st.accept_waveform(TASA, audio); par.decode_stream(st)
         par_txt = ns["limpiar_whisper"](st.result.text.strip())
-        if par_txt and ns["cobertura_parakeet"](par_txt, audio) < COB:
-            motivo = "cobertura"; par_txt = ""
+        if par_txt:
+            _c = ns["cobertura_parakeet"](par_txt, audio)
+            _lis = ns["cobertura_min"]()
+            ns["apuntar_cobertura"](_c)   # ANTES de decidir, como en el worker
+            if _c < _lis:
+                motivo = "cobertura"; par_txt = ""
     if par_txt and ns["suena_ingles"](par_txt):
         w = oir_whisper(a16)
         if w: return w, par_txt, "repaso-ingles"

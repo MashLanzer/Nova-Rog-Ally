@@ -347,6 +347,65 @@ Titulo "2n54. La cascada del repaso: Canary antes que Whisper, y sin tocar Parak
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-cascada-repaso.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:sin Canary todo sigue como antes)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n65. Una orden mal oida no envenena el vocabulario"
+# 22/09. La cadena entera: el liston de letras roto hizo que Whisper devolviera 'Si es a los
+# ajutos' donde braya dijo 'cierra los ajustes'; eso se aprendio, y Add-Alias-Comando metio
+# ademas  'ajutos': ''  en la lista de SITIOS WEB de commands.json, porque su else guardaba
+# $d.url tuviera valor o no. Desde entonces 'busca gatos en otra pestana' se resolvia como
+# 'abrir ajutos' -abrir una direccion vacia-, y lo cazo el banco de destinos. Una sola orden
+# mal oida envenenando el vocabulario para siempre es justo lo peor que puede pasar.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-alias-vacio.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no envenena el vocabulario)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n64. Y que lo DIGA cuando el ruido le tapa la voz (idea 5)"
+# La otra mitad de 2n63. Lo peor de la madrugada del 22 no fue quedarse sorda: fue que no lo
+# dijo. 34 minutos sin oir y sin una palabra, que desde fuera es identico a funcionar bien.
+# El worker deja el dato en el QUINTO campo de escucha-estado.txt -al final, para que las dos
+# lecturas viejas sigan cogiendo los campos 0 a 3- y el aviso va por Send-AvisoEntorno con
+# nivel 'medio', asi respeta el silencio de la noche, el modo juego y el limite por hora.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-aviso-ruido.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:le tapa la voz)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n63. Que Nova no se pueda quedar sorda"
+# 22/09 de madrugada, el fallo mas gordo de la noche. A las 01:18:40 empezo a sonar algo
+# constante; a partir de ahi TODOS los bloques pasaban UMBRAL_VOZ, el p90 'de voz' paso a ser
+# el del ruido (0,13), la ganancia se calibro contra el y se hundio de x15,5 a x2,6, y la
+# puerta subio a 0,1264. Las cinco rafagas con las que braya habia llamado a Nova esa noche
+# fueron 0,024-0,081 CON EL SUELO EN 0,0045, o sea que su voz asoma 0,0195 sobre el ruido: en
+# esa habitacion valdria 0,1294 contra una puerta de 0,1264, un 2 % de margen. No se puede
+# afirmar que se quedara sorda -dejo de hablarle a las 01:18:36 y no hubo ni un intento
+# despues-, pero un 2 % no es un sistema que funciona, es uno que aun no ha fallado.
+# La leccion: un numero que sube solo necesita un techo que NO dependa de el. Ahora la puerta
+# nunca pasa de la rafaga mas floja con la que se le ha oido de verdad, y el ruido constante
+# (casi todos los bloques, dos pulsos seguidos) ni calibra ni sube nada, y ademas se dice.
+python (Join-Path $PSScriptRoot 'probar-no-sorda.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no puede subir por encima de su voz)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n62. Los plazos de soltar modelos, segun la RAM que quede"
+# 22/09, y de la misma peticion de braya: 'nova tiene que adaptarse a la situacion y cambiar
+# sola'. Los cuatro plazos del oido (20 min el oido fino, 5 min con juego, 2 min el ultimo
+# recurso) estaban escritos a mano. Medido ese dia con Nova en marcha: el worker del oido
+# llevaba 1.668 MB con los cuatro modelos dentro y quedaban 1.767 MB libres de 11.979; y esa
+# madrugada el asistente se murio a mitad de un dictado sin dejar ni un error en el Visor de
+# eventos -la pinta de quedarse sin memoria-, sin una sola linea en el log que dijera cuanta
+# RAM habia. Ahora el plazo sale de lo libre (entero con 2.500 MB, la decima parte con 1.000)
+# y el pulso apunta la RAM, para que la proxima vez se pueda saber.
+python (Join-Path $PSScriptRoot 'probar-plazos-soltar.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se adaptan a la memoria)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n61. El liston de letras, que se lo pone ella"
+# 22/09, y sale de que braya dijera: 'no se puede hacer que el liston de letras sea
+# ajustable por nova, de hecho todo deberia ser ajustable por ella'. Tenia razon y habia
+# algo peor debajo: segundos_de_voz cortaba en un 0,008 fijo, por debajo del silencio del
+# micro USB (0,018-0,025), y devolvia el FICHERO ENTERO como voz (11,0 s de audio -> 10,9 s
+# de 'voz'). Eso hundia las letras por segundo y mandaba a Whisper ordenes que Parakeet ya
+# tenia bien -'Cierra los ajustes' (3,4)-, que volvian PEOR: 'Si es a los ajutos'. Un numero
+# fijo causando ordenes equivocadas. Ahora la voz se mide contra su propio silencio y el
+# liston sale del ritmo de braya (mediana 13,7 letras/s en sus 395 grabaciones; * 0,30 = 4,1,
+# que es el 4,0 de siempre). Lo que mas se prueba aqui es que el aprendizaje NO SE VAYA SOLO.
+python (Join-Path $PSScriptRoot 'probar-liston-letras.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no se le va solo)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n60. El liston de la rafaga, relativo a su voz"
 # 21/09 noche, y salio de que braya dijera usandola: 'se demora en recibir lo que le
 # digo'. El filtro de 'suena demasiado flojo' tenia un numero FIJO (0,030) y su voz

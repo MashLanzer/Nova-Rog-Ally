@@ -285,6 +285,18 @@ def umbral_rafaga():
 # bloques de 250 ms por encima del umbral que hacen falta para recalibrar:
 # con menos, un golpe suelto bastaba para mover la ganancia
 MIN_BLOQUES_VOZ = 4
+# Y EL RUIDO CONSTANTE NO CUENTA COMO VOZ (22/09, ver el relato de arriba). La voz de una
+# persona tiene silencios: entre palabras, entre frases, y desde luego entre una orden y la
+# siguiente. Un ventilador, una tele de fondo o un micro que roza algo, no. Cuando
+# practicamente TODOS los bloques de la ventana pasan el umbral, eso no es alguien hablando:
+# es ruido, y calibrar la ganancia contra el hundio la ganancia de x15,5 a x2,6 la noche
+# del 22/09, que es el audio que despues comen Parakeet y Whisper.
+# 0,92 y no 1,00 a proposito: con 60 bloques de 250 ms (15 s), 0,92 son 55, y hablar 55
+# cuartos de segundo seguidos sin una sola pausa no lo hace nadie. Y hacen falta dos pulsos
+# seguidos, que un solo pulso ruidoso -un portazo, una moto- no tiene por que apagar nada.
+RUIDO_CONSTANTE = 0.92
+RUIDO_PULSOS = 2
+pulsos_ruidosos = 0
 PASO_MAX = 4.0
 # --- PUERTA DE ENERGIA ---
 # Sin esto Vosk decodifica 4 bloques por segundo las 24 horas, aunque no haya
@@ -316,11 +328,115 @@ SUELO_VENTANA = 240       # bloques (~60 s a 4 por segundo) para medir el suelo
 suelo_ruido = 0.0         # lo que suena cuando NO hay nadie hablando, medido en marcha
 picos_suelo = []          # los picos de TODOS los bloques, con voz o sin ella
 
+# Y PASE LO QUE PASE, LA PUERTA TIENE UN TECHO QUE SALE DE SU VOZ (22/09 de madrugada).
+#
+#
+#     01:17:52  suelo 0,0048  puerta 0,0060  p90 0,021  ganancia x15,5   6 de 60 bloques
+#     01:18:47  suelo 0,0048  puerta 0,0060  p90 0,133  ganancia x5,0   39 de 60
+#     01:20:17  suelo 0,1126  puerta 0,1295  p90 0,136  ganancia x3,2   60 de 60
+#
+# A las 01:18:40 empezo a sonar algo constante. Desde ahi TODOS los bloques pasaban
+# UMBRAL_VOZ, el p90 "de voz" dejo de ser la voz y paso a ser el ruido (0,13), y la ganancia
+# se calibro contra ese numero: de x15,5 a x2,6.
+#
+# LO QUE NO SE PUEDE AFIRMAR, y conviene dejarlo escrito porque la primera version de este
+# comentario lo afirmaba: que Nova se quedara sorda. braya dejo de hablarle a las 01:18:36 y
+# despues no hubo NI UN intento -ni una activacion, ni un descarte, ni una grabacion nueva en
+# pruebas\audio\uso-. Sin intentos no hay prueba de sordera. Lo encontro un agente refutando
+# esta misma explicacion, y tenia razon.
+#
+# LO QUE SI ESTA MEDIDO, y basta de sobra para arreglarlo:
+#
+#   1. EL MARGEN SE QUEDO EN EL 2 %. Con el suelo en 0,1099 la puerta se puso en 0,1264. La
+#      voz de braya asoma 0,0195 sobre el ruido (medido: rafaga 0,024 con suelo 0,0045 la vez
+#      que mas flojo se le oyo), asi que en esa habitacion valdria 0,1294. Pasaba por un 2 %.
+#      Un 2 % no es un sistema que funciona: es uno que todavia no ha fallado.
+#
+#   2. LA GANANCIA SE HUNDIO PERSIGUIENDO AL RUIDO, de x15,5 a x2,6, y ese es el audio que
+#      llega a Parakeet y a Whisper. El propio codigo ya tenia escrito que una ganancia mal
+#      puesta dejaba "la voz recortada y no se reconocia nada".
+#
+#   3. Y HABIA UN CERROJO. suelo_ruido solo se recalculaba DENTRO de la rama de calibrar, que
+#      pide bloques_voz >= MIN_BLOQUES_VOZ. Si la puerta llega a subir lo justo para dejar el
+#      pulso por debajo de 4 bloques, esa rama no vuelve a entrar y el suelo no baja NUNCA
+#      mas: solo se sale reiniciando el worker. Un estado del que no se sale solo es
+#      exactamente lo que braya rechaza. Eso si era un fallo, y ya esta arreglado: el suelo se
+#      mide siempre, fuera de toda rama.
+#
+# Los tres arreglos que salieron de aqui: el suelo se mide siempre; el ruido constante ni
+# calibra ni cuenta como voz; y la puerta tiene un techo que sale de cuanto asoma su voz sobre
+# el ruido, no de un numero escrito a mano.
+#
+# La leccion no es 'afinar el factor otra vez'. Es que un numero que sube solo necesita un
+# TECHO que no dependa de el mismo. Y el techo bueno esta a la vista: Nova SABE con que
+# rafagas la ha llamado braya de verdad, porque las apunta cada vez que se activa. Si le ha
+# oido a 0,024, la puerta no puede ponerse en 0,126 jamas, diga lo que diga el suelo.
+# Se guardan las RAFAGAS_RECUERDO ultimas llamadas suyas -cuanto asomo su voz sobre el
+# ruido de ese momento, ver mas abajo- y la puerta se queda por debajo de la que menos
+# asomo. Si aun no hay ninguna (primer arranque con un micro nuevo), no hay techo y manda
+# lo de siempre: no se puede poner un techo con datos que no existen.
+# LO QUE SE GUARDA NO ES EL NIVEL, ES CUANTO SOBRESALE (22/09, segunda vuelta).
+# La primera version guardaba la rafaga tal cual y ponia la puerta por debajo de la mas
+# floja. Un agente refutandola encontro el fallo, y tiene razon: 'pico' es max|muestras| del
+# bloque EN CRUDO, antes de amplificar, asi que en una habitacion con un suelo de 0,109
+# TODOS los bloques -los de su voz tambien- valen 0,109 o mas. Una rafaga de 0,024 y un suelo
+# de 0,109 no pueden darse a la vez: aquella se midio con el suelo en 0,0045.
+# Con el techo por nivel, en una habitacion ruidosa la puerta se iria a 0,019 y se abriria
+# SIEMPRE: Vosk decodificando las 24 horas, que es bateria y calor en una consola.
+#
+# Lo que si se conserva de una habitacion a otra es CUANTO SOBRESALE su voz sobre lo que
+# suena de fondo. Esa noche: rafaga 0,024 con suelo 0,0045, o sea que su voz asomaba 0,0195
+# por encima del ruido. En la misma habitacion con el suelo en 0,109, su voz llegaria a
+# 0,1285, y el techo se pone en 0,109 + 0,0195*0,8 = 0,1246, justo por debajo. La puerta
+# calculada era 0,1264, o sea que el techo la baja lo justo para que su voz entre, sin
+# abrirla de par en par.
+# Y funciona igual en silencio: con el suelo en 0,0045 el techo queda en 0,0201, por debajo
+# de su llamada mas floja (0,024) y por encima del ruido.
+#
+# SI AUN ASI NO LLEGA -si el ruido sube tanto que su voz deja de asomar-, no hay numero que
+# lo arregle, y entonces lo que toca no es afinar nada: es DECIRLO. De eso se encarga el
+# quinto campo de escucha-estado.txt y el aviso 'oido-ruido' del asistente.
+RAFAGAS_RECUERDO = 20     # llamadas suyas que se recuerdan
+RAFAGA_MARGEN = 0.80      # la puerta se queda a este trozo de lo que menos ha asomado
+MARGEN_MINIMO = 0.004     # y nunca menos que esto sobre el suelo, ni aunque asomara menos
+margenes_buenos = []      # cuanto asomo su voz sobre el ruido, en cada llamada de verdad
+
+
+def techo_puerta():
+    """Lo mas alto que puede ponerse la puerta sin dejar de oir a braya (ver arriba)."""
+    if not margenes_buenos:
+        return None
+    asoma = max(MARGEN_MINIMO, min(margenes_buenos))
+    return suelo_ruido + asoma * RAFAGA_MARGEN
+
+
+def apuntar_rafaga_buena(r):
+    """Una llamada suya que paso todos los filtros: se apunta CUANTO ASOMO sobre el ruido
+
+    de ese momento, no su nivel (ver arriba). Si el suelo aun no esta medido se deja pasar:
+    un margen calculado contra un suelo de cero seria el nivel entero, que es justo lo que
+    no queremos guardar."""
+    if r <= 0 or suelo_ruido <= 0:
+        return
+    asomo = r - suelo_ruido
+    if asomo <= 0:
+        return
+    margenes_buenos.append(float(asomo))
+    if len(margenes_buenos) > RAFAGAS_RECUERDO:
+        del margenes_buenos[:len(margenes_buenos) - RAFAGAS_RECUERDO]
+    guardar_margenes()
+
 def umbral_actividad():
     """Lo que tiene que dar un bloque para que se moleste al reconocedor."""
     if suelo_ruido <= 0:
         return UMBRAL_ACTIVIDAD
-    return max(UMBRAL_ACTIVIDAD, suelo_ruido * SUELO_FACTOR)
+    puerta = max(UMBRAL_ACTIVIDAD, suelo_ruido * SUELO_FACTOR)
+    # el techo manda SIEMPRE, incluso por debajo del 0,006 de toda la vida: si a braya se
+    # le ha oido mas flojo que eso, es que ahi abajo hay voz suya (ver techo_puerta)
+    techo = techo_puerta()
+    if techo is not None:
+        puerta = min(puerta, techo)
+    return puerta
 
 ARRASTRE = 4              # bloques que se siguen decodificando tras el silencio
 PREBUFFER = 2             # bloques previos que se recuperan al detectar voz
@@ -538,6 +654,38 @@ def ram_libre_mb():
 # el equipo sin aire es justo lo que se quiere evitar.
 #
 # El 15/09 paso de verdad: con Parakeet, base y small cargados a la vez quedaron 0,3 GB
+# LOS PLAZOS DE SOLTAR MIRAN LA RAM QUE QUEDA (22/09). Los tres plazos de abajo
+# -PRECISO_SOLTAR_QUIETO 20 min, PRECISO_SOLTAR_JUGANDO y PARAKEET_SOLTAR_JUGANDO 5 min,
+# ULTIMO_SOLTAR 2 min- estaban escritos a mano y no miraban nada. Con memoria de sobra eso
+# esta bien y es lo rapido: el modelo sigue cargado y la siguiente orden no paga los 2,5-5 s
+# de volver a traerlo. Con la memoria justa es al reves.
+# EL 22/09, midiendo la consola con Nova en marcha: el worker del oido llevaba 1.668 MB con
+# los cuatro modelos dentro y quedaban 1.767 MB libres de 11.979. Un juego pide 4-6 GB. Y esa
+# madrugada el asistente se murio a mitad de un dictado sin dejar ni un error en el Visor de
+# eventos de Windows, que es justo la pinta que tiene quedarse sin memoria.
+# braya lo pidio asi: 'todo deberia ser ajustable por ella, nova tiene que adaptarse a la
+# situacion y cambiar sola'. Asi que el plazo sale ahora de lo que queda libre:
+#   - con RAM_COMODA o mas, el plazo entero: manda la rapidez, el modelo se queda.
+#   - con RAM_APRETADA o menos, una decima parte: manda no morirse.
+#   - en medio, proporcional.
+# Y SI NO SE PUEDE SABER, EL PLAZO DE SIEMPRE: ram_libre_mb devuelve -1 cuando falla, y ahi
+# lo prudente es no cambiar nada en vez de suponer lo peor y ponerse lento por si acaso.
+RAM_COMODA = 2500.0     # de aqui para arriba, ni se toca el plazo
+RAM_APRETADA = 1000.0   # de aqui para abajo, se suelta en cuanto se puede
+SOLTAR_MIN_FACTOR = 0.1
+
+
+def plazo_soltar(base):
+    """El plazo de arriba, encogido si la consola anda justa de memoria (ver arriba)."""
+    libre = ram_libre_mb()
+    if libre < 0 or libre >= RAM_COMODA:
+        return base
+    if libre <= RAM_APRETADA:
+        return base * SOLTAR_MIN_FACTOR
+    hueco = (libre - RAM_APRETADA) / (RAM_COMODA - RAM_APRETADA)
+    return base * (SOLTAR_MIN_FACTOR + (1.0 - SOLTAR_MIN_FACTOR) * hueco)
+
+
 # libres de 7,7 y Whisper tardo de 4,5 a 12,9 s por orden en vez de ~1 s. Ya habia guarda
 # para la charla (Test-RamParaCharla, 3000 MB) pero NINGUNA para estos, que son los que
 # causaron aquello.
@@ -773,23 +921,159 @@ def modelo_parakeet():
     return _parakeet
 
 
+# COBERTURA DE PARAKEET: EL LISTON SE LO PONE ELLA (22/09). Lo de abajo es de cuando el
+# numero estaba escrito a mano (4,0) y se midio con el array de Realtek. El 22/09 braya
+# enchufo un micro USB y el numero fijo se volvio en contra: Parakeet cedio a Whisper por no
+# llegar al liston teniendo YA LA ORDEN BIEN -- 'Cierra el navegador' (3,6), 'Cierra los ajustes'
+# (3,4), 'Cierra el administrador' (3,5)--, y Whisper tardo 2,1 s mas en devolverlas PEOR:
+# 'Si es a los ajutos', 'Si es la Administrador'. El numero fijo no costaba solo tiempo:
+# convertia ordenes buenas en ordenes equivocadas, que es lo peor que puede pasar.
+# braya lo dijo asi: 'no se puede hacer que el liston de letras sea ajustable por nova, de
+# hecho todo deberia ser ajustable por ella, nova tiene que adaptarse a la situacion y cambiar
+# sola'. Y es lo correcto: cuanto cubre Parakeet depende de como hable el de delante y de que
+# microfono haya, no de una constante. Igual que la ganancia, la puerta de energia y el liston
+# de rafaga, este sale ahora de lo que Nova mide en su propia voz.
+#
+# COMO SE APRENDE, y por que asi: se apunta la cobertura de TODO lo que saca Parakeet, pase o
+# no pase el liston, y el liston es la MEDIANA de esas coberturas por COBERTURA_FRACCION.
+#   - apuntar TODAS, y no solo las que aprueban, es lo que evita el bucle: si solo entraran
+#     las que ya pasan, la mediana subiria en cada vuelta, el liston con ella, y acabaria
+#     mandandolo todo a Whisper -justo lo que veniamos a arreglar-.
+#   - la MEDIANA y no la media, porque los recortes son minoria (10 de 395) y no deben moverla.
+# MEDIDO SOBRE SUS 395 GRABACIONES con la voz ya bien medida: el ritmo de braya es 13,7
+# letras/s de mediana (p10 7,9; p25 10,5; p75 16,4) y los recortes de verdad estan en 0,6-3,6
+# ('Se nave' de 9,7 s de voz, 'See', 'Lo que', 'Ahora esta'). 13,7 * 0,30 = 4,1, que es
+# practicamente el 4,0 que se midio a mano el 15/09: el aprendizaje reproduce el numero bueno
+# y ademas se mueve solo si braya cambia de micro o de forma de hablar. Con ese liston ceden
+# 10 de 395 (3 %), y los 10 son recortes de verdad.
+# CON SUELO Y TECHO, que un aprendizaje sin frenos se va solo: nunca por debajo de
+# COBERTURA_SUELO (dejaria pasar recortes; el caso del Xbox fue 1,5) ni por encima de
+# COBERTURA_TECHO (volveria a mandarlo todo a Whisper). Y hasta COBERTURA_MINIMAS muestras se
+# usa COBERTURA_ARRANQUE, que es el 4,0 de siempre.
+#
+# Lo de antes, que explica de donde salio el 4,0:
 # COBERTURA DE PARAKEET (15/09). En vivo, tras una respuesta larga, oyo solo "el Xbox" de
 # 8 s de audio con 4 s de voz ("y ahora podrias decirme quien invento el Xbox") y se abrio
 # Xbox. Lo que saca tiene que cubrir la voz que hubo: letras por segundo de voz. Medido con
 # las 214 grabaciones de orden, charla y ruido: la orden buena con menos cobertura tuvo 6,2
 # ("Abre in the ring") y el caso del Xbox 1,5; con 3, 5 o 7 no se pierde ningun acierto.
 # Por debajo, Parakeet no manda y el audio lo oye Whisper como siempre.
-PARAKEET_COBERTURA_MIN = 4.0
+COBERTURA_ARRANQUE = 4.0        # el de siempre, hasta que hay muestras suyas
+COBERTURA_SUELO = 2.5           # por debajo no baja: los recortes reales llegan a 3,6
+COBERTURA_TECHO = 6.0           # por encima no sube: seria mandarlo todo a Whisper otra vez
+COBERTURA_FRACCION = 0.30       # el liston, como fraccion de su ritmo normal (13,7 -> 4,1)
+COBERTURA_MEMORIA = 80          # cuantas coberturas se recuerdan
+COBERTURA_MINIMAS = 15          # hasta aqui, el de arranque
+coberturas = []                 # las de TODO lo que saca Parakeet (ver arriba: sin filtrar)
+
+
+def cobertura_min():
+    """El liston de ahora mismo, sacado del ritmo de braya por este microfono (ver arriba)."""
+    if len(coberturas) < COBERTURA_MINIMAS:
+        return COBERTURA_ARRANQUE
+    ritmo = float(np.median(np.array(coberturas)))
+    return max(COBERTURA_SUELO, min(COBERTURA_TECHO, ritmo * COBERTURA_FRACCION))
+
+
+def apuntar_cobertura(c):
+    """Toda frase de Parakeet cuenta, apruebe o no: es lo que evita el bucle (ver arriba)."""
+    if c <= 0:
+        return
+    coberturas.append(float(c))
+    if len(coberturas) > COBERTURA_MEMORIA:
+        del coberturas[:len(coberturas) - COBERTURA_MEMORIA]
+    guardar_coberturas()
+
+
+# LO QUE APRENDE DE SU VOZ SOBREVIVE AL REINICIO, Y VA CON SU MICROFONO (22/09).
+# Sin esto, todo lo aprendido se perdia en cada arranque del worker y volvia al valor de
+# partida. No es un caso raro: el 22/09 Nova arranco CATORCE veces en un dia, asi que se
+# pasaria la vida sin llegar a usar nada de lo que aprende.
+# CON EL NOMBRE DEL MICROFONO, como la ganancia: lo que se mide de un micro no vale para
+# otro, y heredarlo a ciegas es exactamente el fallo que se arreglo esa misma noche con la
+# ganancia -x18,3 calibrada con el array de Realtek aplicada a un micro USB-.
+# Si el fichero no esta, esta roto o es de otro micro, se empieza de cero y ya.
+# UN SOLO VALOR IMPOSIBLE TIRA EL FICHERO ENTERO: media lista buena y media corrupta es peor
+# que ninguna, porque el percentil sale torcido y nadie se entera.
+def guardar_lista(ruta, valores):
+    if not ruta or not valores:
+        return
+    try:
+        escribir(ruta, "%s|%s" % (
+            ",".join("%.4f" % v for v in valores), dispositivo))
+    except Exception:
+        pass
+
+
+def cargar_lista(ruta, tope, tope_valor=200.0):
+    """Lo aprendido en sesiones anteriores, SOLO si era de este mismo microfono."""
+    if not ruta:
+        return []
+    try:
+        with open(ruta, "r", encoding="utf-8") as f:
+            crudo = f.read().strip()
+        trozos = crudo.split("|", 1)
+        de_quien = trozos[1].strip() if len(trozos) > 1 else ""
+        if not de_quien or de_quien != dispositivo:
+            return []
+        vals = []
+        for t in trozos[0].split(","):
+            v = float(t)
+            if not (0.0 < v < tope_valor):
+                return []
+            vals.append(v)
+        return vals[-tope:]
+    except Exception:
+        return []
+
+
+def guardar_coberturas():
+    guardar_lista(RUTA_COBERTURAS, coberturas)
+
+
+def guardar_margenes():
+    guardar_lista(RUTA_RAFAGAS, margenes_buenos)
+
+
+def cargar_lo_aprendido():
+    """Al arrancar: el ritmo de habla de braya y las rafagas con las que la ha llamado."""
+    coberturas[:] = cargar_lista(RUTA_COBERTURAS, COBERTURA_MEMORIA)
+    if coberturas:
+        anota("el liston de letras, recordado de antes: %.1f con %d frases tuyas"
+              % (cobertura_min(), len(coberturas)))
+    # el tope es 1.0 porque es un margen entre picos normalizados: mas de 1 no existe
+    margenes_buenos[:] = cargar_lista(RUTA_RAFAGAS, RAFAGAS_RECUERDO, 1.0)
+    if margenes_buenos:
+        anota("tu voz asoma al menos %.4f sobre el ruido (%d llamadas); la puerta no pasara de ahi"
+              % (min(margenes_buenos), len(margenes_buenos)))
 
 
 def segundos_de_voz(audio):
-    """Lo mismo que mide analizar-100: de la primera a la ultima trama de 30 ms con voz."""
+    """De la primera a la ultima trama de 30 ms con voz.
+
+    EL CORTE SALE DEL PROPIO AUDIO (22/09). Antes era max(0,008, p90*0,15), y ese 0,008
+    fijo se calibro con el array de Realtek, que da un silencio casi perfecto. Con el micro
+    USB que braya enchufo el 22/09 el silencio esta en 0,018-0,025 -tres veces por encima-,
+    asi que TODAS las tramas pasaban el corte y esto devolvia el fichero entero como voz.
+    Medido sobre sus grabaciones: 11,0 s de audio -> 10,9 s de 'voz'; 3,2 -> 3,2; 2,2 -> 2,2.
+    Es decir, no media nada. Y como esto es el divisor de cobertura_parakeet, hundia las
+    letras por segundo de todas las frases y las mandaba a Whisper sin motivo: 'Cierra el
+    navegador' salia a 3,6 y el liston pedia 4.
+    Ahora el suelo sale del audio (percentil 20 de la energia = lo que suena cuando calla),
+    la misma receta que la puerta de energia y el liston de rafaga. Con las mismas
+    grabaciones: 3,2 -> 1,0 s, 4,2 -> 2,2 s, 11,0 -> 7,0 s. Y es quirurgico: sobre las 395
+    grabaciones emparejadas, las del Realtek no se mueven ni una decima (13,8 -> 13,8,
+    14,5 -> 14,5) y solo cambian las del USB, que era lo estropeado.
+    El max() con 0,008 se queda: es el suelo de un microfono limpio, y sin el un audio
+    entero en silencio daria un corte ridiculo."""
     tr = 480
     n = audio.size // tr
     if n == 0:
         return 0.0
     e = np.sqrt(np.mean(audio[:n * tr].reshape(n, tr) ** 2, axis=1))
-    idx = np.where(e > max(0.008, float(np.percentile(e, 90)) * 0.15))[0]
+    suelo = float(np.percentile(e, 20))
+    corte = max(0.008, suelo * 1.8, float(np.percentile(e, 90)) * 0.15)
+    idx = np.where(e > corte)[0]
     return 0.0 if idx.size == 0 else (idx[-1] - idx[0]) * 0.03
 
 
@@ -884,9 +1168,12 @@ def oir_parakeet(bloques):
         anota("parakeet: %.1f s de audio en %.2f s -> '%s'" % (audio.size / TASA, time.time() - t0, texto))
         if texto:
             c = cobertura_parakeet(texto, audio)
-            if c < PARAKEET_COBERTURA_MIN:
-                anota("parakeet: '%s' no cubre la voz (%.1f letras por segundo de voz, minimo %.0f); lo oye Whisper"
-                      % (texto, c, PARAKEET_COBERTURA_MIN))
+            liston = cobertura_min()
+            # se apunta ANTES de decidir, y pase lo que pase: ver COBERTURA_FRACCION
+            apuntar_cobertura(c)
+            if c < liston:
+                anota("parakeet: '%s' no cubre la voz (%.1f letras por segundo, mi liston de hoy %.1f); lo oye Whisper"
+                      % (texto, c, liston))
                 return ""
         return texto
     except Exception as e:
@@ -916,16 +1203,16 @@ def soltar_parakeet_si_toca():
     if _parakeet is None or not jugando():
         return
     quieto = time.time() - _parakeet_uso
-    if quieto < PARAKEET_SOLTAR_JUGANDO:
+    if quieto < plazo_soltar(PARAKEET_SOLTAR_JUGANDO):
         return
     _parakeet = None
     global _canary, _canary_uso
     # Canary se suelta con el mismo criterio: es el segundo modelo mas grande de los dos
-    if _canary is not None and (time.time() - _canary_uso) >= PARAKEET_SOLTAR_JUGANDO:
+    if _canary is not None and (time.time() - _canary_uso) >= plazo_soltar(PARAKEET_SOLTAR_JUGANDO):
         _canary = None
         _canary_uso = 0.0
     global _omni, _omni_uso
-    if _omni is not None and (time.time() - _omni_uso) >= PARAKEET_SOLTAR_JUGANDO:
+    if _omni is not None and (time.time() - _omni_uso) >= plazo_soltar(PARAKEET_SOLTAR_JUGANDO):
         _omni = None
         _omni_uso = 0.0
     import gc
@@ -965,7 +1252,7 @@ def soltar_ultimo_si_toca():
     if _ultimo is None:
         return
     jugando = bool(MARCA_SOLO_BOTON) and os.path.exists(MARCA_SOLO_BOTON)
-    if not jugando and time.time() - _ultimo_uso < ULTIMO_SOLTAR:
+    if not jugando and time.time() - _ultimo_uso < plazo_soltar(ULTIMO_SOLTAR):
         return
     _ultimo = None
     import gc
@@ -1061,7 +1348,7 @@ def soltar_preciso_si_toca():
     hay_juego = bool(MARCA_SOLO_BOTON and os.path.exists(MARCA_SOLO_BOTON))
     # jugando, la RAM es del juego y se suelta antes; sin juego se espera mucho mas, pero
     # se suelta igual (ver PRECISO_SOLTAR_QUIETO)
-    plazo = PRECISO_SOLTAR_JUGANDO if hay_juego else PRECISO_SOLTAR_QUIETO
+    plazo = plazo_soltar(PRECISO_SOLTAR_JUGANDO if hay_juego else PRECISO_SOLTAR_QUIETO)
     if quieto < plazo:
         return
     _preciso = None
@@ -2253,9 +2540,28 @@ automatica = (GANANCIA_ARG == "auto")
 # la calibracion bajaba sola -justo los minutos en los que no se entendia nada.
 # Se recuerda la ultima y se empieza ahi.
 RUTA_GANANCIA = os.path.join(os.path.dirname(NIVEL), "ganancia.txt") if NIVEL else ""
+# lo aprendido del ritmo de habla de braya, al lado de la ganancia y con las mismas
+# reglas: va con el nombre del microfono (ver cargar_coberturas)
+RUTA_COBERTURAS = os.path.join(os.path.dirname(NIVEL), "coberturas.txt") if NIVEL else ""
+RUTA_RAFAGAS = os.path.join(os.path.dirname(NIVEL), "rafagas.txt") if NIVEL else ""
 # Estado legible para el asistente, escrito en cada pulso. Sirve para que
 # puedas preguntarle "¿como me oyes?" en vez de tener que abrir el log.
 RUTA_ESTADO = os.path.join(os.path.dirname(NIVEL), "escucha-estado.txt") if NIVEL else ""
+
+
+def decir_estado(ref=0.0):
+    """La linea que lee el asistente: "ganancia|ref|altavoces|bloques|ruido".
+
+    EL QUINTO CAMPO ES DEL 22/09 y se anade AL FINAL a proposito: assistant.ps1 lee esto
+    por indice en dos sitios (el de los cascos y el de '¿como me oyes?') y los dos cogen
+    los campos 0 a 3. Poniendolo detras, la version vieja del asistente sigue leyendo lo
+    mismo aunque el worker sea el nuevo, que es lo que pasa justo despues de actualizar.
+    El quinto vale 1 cuando lo que entra por el microfono es ruido de fondo constante y no
+    voz (ver RUIDO_CONSTANTE): es lo que permite a Nova DECIR que no esta oyendo, en vez de
+    callarse como la madrugada del 22."""
+    return "%.1f|%s|%.3f|%d|%d" % (
+        ganancia, ("%.4f" % ref) if ref else "0",
+        nivel_salida(), bloques_voz, 1 if pulsos_ruidosos >= RUIDO_PULSOS else 0)
 # Mientras exista esta marca no se evalua la palabra de activacion: solo el
 # boton. La crea el asistente cuando hay un juego en primer plano. El dictado
 # y la confirmacion siguen funcionando con normalidad.
@@ -2298,6 +2604,7 @@ def ganancia_guardada(micro_actual=""):
 ganancia = GANANCIA_INICIAL if automatica else float(GANANCIA_ARG)
 if automatica:
     _g, _de_quien = ganancia_guardada(dispositivo)
+    cargar_lo_aprendido()   # ritmo de habla y rafagas, si eran de este micro
     if _g is None and _de_quien and _de_quien != dispositivo:
         # EL MICRO HA CAMBIADO: se dice, y se recalibra desde cero
         anota("microfono distinto: antes '%s', ahora '%s'; empiezo a calibrar de nuevo"
@@ -2365,6 +2672,7 @@ ventana_dec = collections.deque(maxlen=VENTANA_DEC_CUBOS)   # cubos ya cerrados
 cubo_dec_desde = time.time()
 picos = []
 bloques_voz = 0
+bloques_ventana = 0   # ver RUIDO_CONSTANTE
 # QUITADA pico_voz el 19/09: se actualizaba en cada texto reconocido y no la leia
 # nadie; el pico que SI se usa al activar y en el log es pico_rafaga.
 pico_rafaga = 0.0       # pico de la rafaga que se esta decodificando ahora
@@ -2417,6 +2725,7 @@ try:
                     datos = None
                     picos = []
                     bloques_voz = 0
+                    bloques_ventana = 0   # ver RUIDO_CONSTANTE
                     ultimo_pulso = ahora
                 elif pausado:
                     pausado = False
@@ -2593,6 +2902,7 @@ try:
                     # Meter tambien los bloques de silencio hundia ese p90 a 0.0000
                     # y la ganancia se iba a x9: entonces el ruido de fondo entraba
                     # amplificado y Vosk "oia" el nombre en el silencio.
+                    bloques_ventana += 1
                     if pico > UMBRAL_VOZ:
                         picos.append(pico)
                         bloques_voz += 1
@@ -2914,6 +3224,14 @@ try:
                                 elif ahora - ultima_marca > 2.0:
                                     # antirebote: no disparar dos veces por lo mismo
                                     ultima_marca = ahora
+                                    # ESTA RAFAGA ES SU VOZ, Y ESO PONE TECHO A LA PUERTA
+                                    # (ver techo_puerta). Se apunta aqui y no antes porque
+                                    # aqui ya han pasado TODOS los filtros -la confianza, el
+                                    # juez, los altavoces, el antirebote-: lo que llega a esta
+                                    # linea es braya llamando a Nova, no un ruido que suena
+                                    # parecido. Meter aqui un falso positivo subiria el techo
+                                    # y estropearia justo lo que viene a proteger.
+                                    apuntar_rafaga_buena(pico_rafaga)
                                     # ver APUNTAR LAS ACTIVACIONES: aqui se sabe lo que sono,
                                     # con que confianza, con que rafaga y con que ganancia; si esto
                                     # acaba en orden o en nada se apunta al cerrarla.
@@ -2964,11 +3282,46 @@ try:
                     # x0.7 es quedarse sordo justo cuando mas falta hace decir
                     # "nova, pausa". Se conserva la ultima calibracion buena y se
                     # vuelve a ajustar cuando haya silencio.
+                    # EL SUELO SE MIDE SIEMPRE, PASE LO QUE PASE (22/09). Antes esto vivia
+                    # DENTRO de la rama de calibrar (el 'elif automatica and bloques_voz >=
+                    # MIN_BLOQUES_VOZ and picos'), y eso era un cerrojo: la senal de la que
+                    # sale la puerta solo se actualizaba cuando la propia puerta habia dejado
+                    # pasar bloques. Si la puerta subia lo bastante como para dejar el pulso
+                    # por debajo de MIN_BLOQUES_VOZ, el suelo no se volvia a calcular NUNCA:
+                    # se quedaba congelado alto y solo se salia de ahi reiniciando el worker.
+                    # Un estado del que no se sale solo es justo lo que braya no quiere.
+                    # Y sin cerrojo ni nada, tambien estaba mal: si braya se calla media hora,
+                    # la puerta tampoco se reajustaba, aunque el ruido de la habitacion
+                    # hubiera cambiado del todo. picos_suelo se llena con TODOS los bloques
+                    # (ver SUELO_VENTANA), asi que aqui hay dato siempre; no depende de que
+                    # nadie hable. Lo encontro un agente refutando otra propuesta distinta.
+                    if len(picos_suelo) >= 40:
+                        suelo_ruido = float(np.percentile(np.array(picos_suelo), 25))
+
+                    # ¿ESTO ES VOZ O ES RUIDO? (22/09, ver RUIDO_CONSTANTE). Si casi todos
+                    # los bloques de la ventana pasan el umbral, no hay nadie hablando: hay
+                    # algo sonando. Calibrar la ganancia contra eso es lo que la hundio de
+                    # x15,5 a x2,6 la madrugada del 22: el p90 'de voz' pasaba a ser el p90
+                    # del ruido y la ganancia lo perseguia. Ese es el audio que despues comen
+                    # Parakeet y Whisper.
+                    if bloques_ventana >= 20 and bloques_voz >= bloques_ventana * RUIDO_CONSTANTE:
+                        pulsos_ruidosos += 1
+                    else:
+                        pulsos_ruidosos = 0
+                    ruido_constante = pulsos_ruidosos >= RUIDO_PULSOS
                     altavoces_altos = nivel_salida() > UMBRAL_ALTAVOZ
-                    if automatica and altavoces_altos and bloques_voz >= MIN_BLOQUES_VOZ:
+                    if automatica and ruido_constante:
+                        # se deja la ganancia como estaba, igual que con los altavoces: la
+                        # ultima calibracion buena es la de cuando de verdad hablaba alguien
+                        anota("pulso: esto no es voz, es ruido de fondo (%d de %d bloques, %d pulsos"
+                              " seguidos); dejo la ganancia en x%.1f y la puerta en %.4f"
+                              % (bloques_voz, bloques_ventana, pulsos_ruidosos, ganancia,
+                                 umbral_actividad()))
+                        escribir(RUTA_ESTADO, decir_estado())
+                    elif automatica and altavoces_altos and bloques_voz >= MIN_BLOQUES_VOZ:
                         anota_pulso("pulso: ganancia congelada en x%.1f (suenan los altavoces: %.3f)"
                                     % (ganancia, nivel_salida()), ahora)
-                        escribir(RUTA_ESTADO, "%.1f|0|%.3f|%d" % (ganancia, nivel_salida(), bloques_voz))
+                        escribir(RUTA_ESTADO, decir_estado())
                     elif automatica and bloques_voz >= MIN_BLOQUES_VOZ and picos:
                         ref = float(np.percentile(np.array(picos), 90))
                         ref = max(ref, 1e-6)
@@ -2996,22 +3349,32 @@ try:
                         # dato con el que se decide si la escucha esta bien calibrada
                         # el p90 de su voz, para el liston de la rafaga (ver umbral_rafaga)
                         ultimo_p90 = ref
-                        # el suelo, del percentil 25 de la ventana (ver umbral_actividad)
-                        if len(picos_suelo) >= 40:
-                            suelo_ruido = float(np.percentile(np.array(picos_suelo), 25))
                         anota("pulso: p90=%.4f bloques_voz=%d ganancia=x%.1f decodificado=%d%% altavoces=%.3f"
                               % (ref, bloques_voz, ganancia, pct_dec(), nivel_salida()))
-                        anota_pulso("pulso: suelo=%.4f puerta=%.4f" % (suelo_ruido, umbral_actividad()), ahora)
+                        # LA RAM, EN EL PULSO (22/09). La madrugada del 22 el asistente se murio
+                        # a mitad de un dictado y no habia forma de saber por que: el Visor de
+                        # eventos de Windows no registro ni un error -que es lo que pasa cuando
+                        # algo se queda sin memoria- y en TODO el log no hay ni una linea que diga
+                        # cuanta RAM quedaba. Con los cuatro modelos dentro este worker llega a
+                        # 1.668 MB y esa noche quedaban 1.767 MB libres de 11.979. Ahora queda
+                        # escrito en cada pulso, junto al plazo que se esta aplicando (ver
+                        # plazo_soltar): si vuelve a morirse, el log lo dira.
+                        _ram = ram_libre_mb()
+                        anota_pulso("pulso: suelo=%.4f puerta=%.4f ram_libre=%s plazo=x%.2f"
+                                    % (suelo_ruido, umbral_actividad(),
+                                       ("%.0f MB" % _ram) if _ram >= 0 else "?",
+                                       plazo_soltar(1.0)), ahora)
                         # con el nombre del micro: sin el, la proxima sesion heredaria
                         # esta calibracion aunque braya haya cambiado de microfono
                         escribir(RUTA_GANANCIA, "%.1f|%s" % (ganancia, dispositivo))
-                        escribir(RUTA_ESTADO, "%.1f|%.4f|%.3f|%d" % (ganancia, ref, nivel_salida(), bloques_voz))
+                        escribir(RUTA_ESTADO, decir_estado(ref))
                     else:
                         anota_pulso("pulso: sin voz sostenida (%d bloques) ganancia=x%.1f decodificado=%d%% altavoces=%.3f"
                                     % (bloques_voz, ganancia, pct_dec(), nivel_salida()), ahora)
-                        escribir(RUTA_ESTADO, "%.1f|0|%.3f|%d" % (ganancia, nivel_salida(), bloques_voz))
+                        escribir(RUTA_ESTADO, decir_estado())
                     picos = []
                     bloques_voz = 0
+                    bloques_ventana = 0   # ver RUIDO_CONSTANTE
                     # tres recortes sueltos repartidos en horas (un portazo, una
                     # tos) no deben sumarse hasta provocar una bajada espuria
                     recortes = 0

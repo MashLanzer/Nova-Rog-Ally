@@ -87,9 +87,15 @@ $iOmn = ([array]::IndexOf($lista, 'omni'))
 if ($iCan -ge 0 -and $iOmn -ge 0) {
     Comp 'y omni va DETRAS de canary, no delante' ($iCan -lt $iOmn) "canary en $iCan, omni en $iOmn"
 }
+# EL PLAZO YA NO ES UN NUMERO PELADO (22/09): pasa por plazo_soltar(), que lo encoge cuando
+# la consola anda justa de memoria (ver wake_vosk.py, RAM_COMODA / RAM_APRETADA). El banco
+# exige las DOS cosas: que sigan siendo el plazo de Parakeet -que es de lo que iba este
+# caso- y que vayan envueltos, porque quitar la envoltura los dejaria fijos otra vez sin
+# que nadie se enterara.
 Comp 'y los suelta jugando, como a Parakeet' `
-    (($oido -match '_canary is not None and \(time\.time\(\) - _canary_uso\) >= PARAKEET_SOLTAR_JUGANDO') -and
-     ($oido -match '_omni is not None and \(time\.time\(\) - _omni_uso\) >= PARAKEET_SOLTAR_JUGANDO'))
+    (($oido -match '_canary is not None and \(time\.time\(\) - _canary_uso\) >= plazo_soltar\(PARAKEET_SOLTAR_JUGANDO\)') -and
+     ($oido -match '_omni is not None and \(time\.time\(\) - _omni_uso\) >= plazo_soltar\(PARAKEET_SOLTAR_JUGANDO\)'))
+Comp 'y el plazo mira la RAM que queda' ($oido -match 'def plazo_soltar\(')
 Comp 'el repaso queda apuntado con su motor' ($oido -match 'motor=pedido')
 
 Write-Host ''

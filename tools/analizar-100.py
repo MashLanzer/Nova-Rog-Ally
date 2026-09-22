@@ -87,7 +87,13 @@ def pausas(a):
     e = np.array([np.sqrt(np.mean(a[i:i + tr] ** 2)) for i in range(0, max(0, len(a) - tr), tr)])
     if e.size == 0:
         return 0.0, 0.0, 0.0
-    umbral = max(0.008, float(np.percentile(e, 90)) * 0.15)
+    # EL MISMO CORTE QUE segundos_de_voz EN wake_vosk.py, y por el mismo motivo (22/09): el
+    # 0,008 a secas se calibro con el array de Realtek, y con el micro USB que braya enchufo
+    # el 22/09 el silencio esta en 0,018-0,025, por encima de el. Con el corte viejo esta
+    # funcion daba el fichero entero como voz y las cuentas de esta herramienta -que es JUSTO
+    # con la que se deciden los listones- salian mal. El suelo sale ahora del propio audio.
+    # Si se toca aqui, hay que tocarlo alli: son la misma medida a proposito.
+    umbral = max(0.008, float(np.percentile(e, 20)) * 1.8, float(np.percentile(e, 90)) * 0.15)
     idx = np.where(e > umbral)[0]
     if idx.size == 0:
         return 0.0, 0.0, 0.0
