@@ -16351,6 +16351,13 @@ $script:dudosa = $null
 function Start-Confirmacion {
     if (-not $script:pendiente) { return }
     Remove-Item -LiteralPath $RutaConfirmacion -Force -ErrorAction SilentlyContinue
+    # ESTE PLAZO ES LA RED, NO EL BUENO (21/09). El bucle lo recalcula en cuanto pasa a
+    # 'confirmando' -y lo empuja en CADA vuelta mientras Nova siga hablando-, asi que lo
+    # que se ponga aqui solo vale durante las pocas decimas que van de esta llamada a la
+    # siguiente vuelta. Se deja porque sin nada 'vence' quedaria a 0 y la pregunta moriria
+    # al nacer, y se suma la pausa por si esa vuelta tardara: no sobra, pero no es de lo
+    # que depende que puedas contestar. Si alguien viene a cambiar cuanto tiempo hay para
+    # decir 'si', el sitio es el bucle, no esto.
     $espera = $ConfirmacionMs
     if ($script:pausaHasta -gt $sw.ElapsedMilliseconds) { $espera += ($script:pausaHasta - $sw.ElapsedMilliseconds) }
     $script:pendiente.vence = $sw.ElapsedMilliseconds + $espera
@@ -19388,6 +19395,16 @@ while ($true) {
                         $script:yaReintentado = $true
                         Process-Texto $nubeTxt
                         $fino = $null
+                        # EL FLANCO DEL BOTON, ANTES DE SALTAR (21/09). Este 'continue' se
+                        # salta el final de la vuelta, y ahi esta '$startPrev = $startNow',
+                        # que es lo que convierte 'el boton esta pulsado' en 'el boton se
+                        # ACABA de pulsar'. Sin esto, startPrev se queda con el valor de dos
+                        # vueltas atras: si braya tenia el menu apretado cuando contesto la
+                        # nube, la vuelta siguiente ve un flanco que no existe (o se pierde
+                        # el que si). Son dos lineas mas abajo en el codigo y aqui no cuestan
+                        # nada; el Start-Sleep que tambien se salta da igual, solo adelanta
+                        # una vuelta.
+                        $startPrev = $startNow
                         continue
                     }
                     Log "NUBE: '$nubeTxt' tampoco es una orden que sepa hacer; sigo con el oido local"
