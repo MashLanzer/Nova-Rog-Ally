@@ -223,6 +223,10 @@ Titulo "2k. Los tres sonidos propios (y que sin ellos no se quede mudo)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-sonidos.ps1')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:todo correcto)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n69. El mp3 abierto antes de hablar (y que la sordina NO se mueva)"
+powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-voz-adelantada.ps1')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:todo correcto)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2b. Autosordina (se calla sola si el microfono caza ruido en racha)"
 powershell -NoProfile -File (Join-Path $PSScriptRoot 'probar-autosordina.ps1')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:todo correcto)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }

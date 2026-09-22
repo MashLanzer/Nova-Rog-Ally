@@ -11557,6 +11557,15 @@ $script:ttsTardia = $false
 # "hablaba" en silencio. MediaPlayer es el metodo con el que el usuario SI
 # escucho las pruebas de voz, asi que esta comprobado que suena aqui.
 $script:reproductor = $null
+# EL MP3 ABIERTO ANTES DE HABLAR (22/09). El reproductor de repuesto: aqui se deja
+# cargado el audio de la frase QUE VIENE, para que Play() no pague el medio segundo de
+# Open(). El porque, con los numeros, esta en Open-VozAdelantada (mas abajo).
+$script:reproductorPrevio = $null
+$script:preVozRuta = ''      # el mp3 que ESTA abierto en el de repuesto ('' = ninguno)
+$script:preVozDesde = 0      # cuando se abrio, para poder medir el adelanto en el log
+$script:preVozTexto = ''     # la frase de la cabeza de la cola, para no rehacer el md5 cada vuelta
+$script:preVozCalc = ''      # su ruta calculada
+$script:preVozMd5 = $null
 
 function Play-Audio([string]$ruta) {
     if (-not (Test-Path -LiteralPath $ruta)) { return $false }
@@ -11566,7 +11575,31 @@ function Play-Audio([string]$ruta) {
             $script:reproductor = New-Object System.Windows.Media.MediaPlayer
             # (ver EL CUARTO DE SEGUNDO QUE SE PAGABA EN CADA FRASE, mas abajo)
         }
-        $script:reproductor.Open([Uri]$ruta)
+        # EL MP3 ABIERTO ANTES DE HABLAR (22/09). Si Open-VozAdelantada ya cargo ESTE
+        # mismo mp3 en el reproductor de repuesto, aqui no hay nada que abrir: se cambian
+        # los dos de sitio y Play() suena en 31 ms en vez de 464 (medido, 120 medidas).
+        # Se compara con la ruta que DEVOLVIO el worker, no con la calculada: si el md5 de
+        # aqui y el de tts_worker.py se separasen algun dia, esto simplemente no acierta y
+        # se abre como siempre. Lo peor que puede pasar es no ganar los 433 ms; nunca
+        # puede sonar otra frase.
+        # El cambio de sitio importa: $script:reproductor tiene que seguir siendo SIEMPRE
+        # el que suena, porque es al que paran "callate", el dictado y el cierre limpio.
+        if ($ruta -eq $script:preVozRuta -and $script:reproductorPrevio) {
+            $otroRep = $script:reproductor
+            $script:reproductor = $script:reproductorPrevio
+            $script:reproductorPrevio = $otroRep
+            # y el que sale se calla A MANO: con un solo reproductor, Open() cortaba el
+            # solo la frase anterior; con dos, si no se para, se oirian las dos a la vez.
+            # Close() ademas suelta el mp3, para que la poda de la cache pueda borrarlo.
+            if ($script:reproductorPrevio) {
+                try { $script:reproductorPrevio.Stop() } catch {}
+                try { $script:reproductorPrevio.Close() } catch {}
+            }
+            Log ("voz: el mp3 ya estaba abierto, " + ($sw.ElapsedMilliseconds - $script:preVozDesde) + " ms antes de decirla")
+            $script:preVozRuta = ''
+        } else {
+            $script:reproductor.Open([Uri]$ruta)
+        }
         # DE NOCHE, MAS BAJITO (13/09): de 22:00 a 7:00 la voz suena al 55 %. Solo
         # la voz en linea: Piper (el respaldo sin internet) va por SoundPlayer,
         # que no tiene volumen.
@@ -11988,6 +12021,92 @@ function Send-PrepVoz([string]$texto, [string]$emo = '') {
         $script:prepVozProc.StandardInput.BaseStream.Write($bytesP, 0, $bytesP.Length)
         $script:prepVozProc.StandardInput.BaseStream.Flush()
     } catch { Log ("voz preparada: " + $_.Exception.Message) }
+}
+
+# EL MP3 ABIERTO ANTES DE HABLAR (22/09). Play-Audio hacia Open() y Play() pegados, y eso
+# cuesta: desde el Open hasta que sale sonido pasan 464 ms de media (120 medidas en esta
+# maquina; el rango 453-547 ya estaba apuntado en Play-Audio, en EL CUARTO DE SEGUNDO QUE
+# SE PAGABA EN CADA FRASE). Con el mismo mp3 YA abierto en otro MediaPlayer, ese Play()
+# suena en 31 ms. Son 433 ms menos por frase, y en el log de braya hay 599 frases de voz:
+# 259 segundos de Nova callada esperando a que cargue un audio que ya tenia hecho.
+#
+# DONDE SE PUEDE PAGAR POR ADELANTADO: en la charla. Las frases llegan en cola
+# (charlaFrases) y la siguiente no se dice hasta que acaba la que suena, o sea que hay
+# SEGUNDOS de margen, y durante ese rato la voz preparada ya le esta haciendo el mp3. La
+# ruta no hay que adivinarla: tts_worker.py (~226) la saca de md5(VOZ|[ritmo|][tono|]texto),
+# asi que se calcula igual aqui y se abre en cuanto el archivo aparece.
+# De las 599 frases del log, 309 llegaron "ya preparadas": esas son las que esto gana. Las
+# otras 290 se sintetizan al momento, y de un mp3 que aun no existe no hay nada que abrir.
+#
+# SI LAS DOS CUENTAS SE SEPARAN, NO PASA NADA: Play-Audio compara con la ruta que DEVUELVE
+# el worker. Un md5 que no cuadre solo significa no ganar los 433 ms.
+#
+# LO QUE NO SE TOCA, A PROPOSITO:
+#   - el "+450" de Say-Online ($dur = $n * 50 + 450) NO es margen de cola: es esta misma
+#     latencia de Open, y con ella se fija pausaHasta, que es la VENTANA DE SORDINA. Si se
+#     bajara a la vez que la latencia, el instante en que Nova vuelve a escuchar se
+#     adelantaria y podria oirse a si misma: eso es una orden equivocada, que es lo peor
+#     que le puede pasar. Dejandolo en 450 la sordina se abre EXACTAMENTE en el mismo
+#     instante de reloj que hoy (Refresh-UI no se ha movido); lo unico que cambia es que la
+#     voz empieza y acaba 433 ms antes, o sea que la sordina sobra un poco al final, que es
+#     el lado seguro. Y la charla encadena en el mismo instante que hoy, ni antes ni despues.
+#   - el "-300" del reloj de la envolvente en nova_ui.cs (~2976) es lo mismo por el lado de
+#     la capsula, y tampoco se toca. Efecto conocido: en las frases que SI se abren por
+#     adelantado, la boca arranca ~270 ms despues de la voz (hoy arranca ~164 ms antes). Es
+#     feo, no es peligroso, y no se arregla aqui porque el adelanto no acierta siempre:
+#     hacerlo bien pide decirle a la capsula, frase a frase, cuanto tardo el arranque de
+#     verdad. Queda apuntado para su propio paso.
+function Get-RutaVozCache([string]$texto, [string]$emo = '') {
+    if (-not $texto -or -not $VozCache) { return '' }
+    try {
+        # la misma cuenta que velocidad() en tts_worker.py (~166): el numero de
+        # velocidad.txt, recortado a -50..100
+        $vv = 0
+        $fVel = Join-Path $VozCache 'velocidad.txt'
+        if (Test-Path -LiteralPath $fVel) {
+            try { $vv = [int](([System.IO.File]::ReadAllText($fVel)).Trim()) } catch { $vv = 0 }
+        }
+        $vv = [Math]::Max(-50, [Math]::Min(100, $vv))
+        # y AJUSTE_EMOCION (~179): alegre suma 6 y sube a +6Hz; suave resta 8 y baja a -5Hz
+        $tonoV = '+0Hz'
+        if ($emo -eq 'alegre') { $vv = $vv + 6; $tonoV = '+6Hz' }
+        elseif ($emo -eq 'suave') { $vv = $vv - 8; $tonoV = '-5Hz' }
+        $vv = [Math]::Max(-50, [Math]::Min(100, $vv))
+        $ritmoV = $(if ($vv -ge 0) { '+' + [string]$vv + '%' } else { [string]$vv + '%' })
+        # el ritmo y el tono solo entran en la clave cuando NO son los de siempre
+        $trozoR = $(if ($ritmoV -eq '+0%') { '' } else { $ritmoV + '|' })
+        $trozoT = $(if ($tonoV -eq '+0Hz') { '' } else { $tonoV + '|' })
+        $clave = $VozOnlineNombre + '|' + $trozoR + $trozoT + $texto
+        if (-not $script:preVozMd5) { $script:preVozMd5 = [System.Security.Cryptography.MD5]::Create() }
+        $hV = $script:preVozMd5.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($clave))
+        return (Join-Path $VozCache ([System.BitConverter]::ToString($hV).Replace('-', '').ToLowerInvariant() + '.mp3'))
+    } catch { return '' }
+}
+
+function Open-VozAdelantada {
+    if ($script:charlaFrases.Count -eq 0) { return }
+    try {
+        $cabezaV = $script:charlaFrases.Peek()
+        $crudoV = [string]$cabezaV.t
+        if ($crudoV -ne $script:preVozTexto) {
+            # la cabeza de la cola cambio: se calcula la ruta UNA vez y se guarda, que esto
+            # corre en cada vuelta del bucle. El texto y la emocion se sacan igual que al
+            # decirla de verdad (Get-TextoVoz dentro de Say, Get-EmocionFrase al sacarla de
+            # la cola); si no fueran los mismos, el md5 no coincidiria y no se ganaria nada.
+            $script:preVozTexto = $crudoV
+            $script:preVozCalc = Get-RutaVozCache (Get-TextoVoz $crudoV) (Get-EmocionFrase $crudoV)
+        }
+        if (-not $script:preVozCalc) { return }
+        if ($script:preVozRuta -eq $script:preVozCalc) { return }           # ya esta abierto
+        if (-not (Test-Path -LiteralPath $script:preVozCalc)) { return }    # el worker aun lo esta haciendo
+        if (-not $script:reproductorPrevio) {
+            Add-Type -AssemblyName PresentationCore -ErrorAction Stop
+            $script:reproductorPrevio = New-Object System.Windows.Media.MediaPlayer
+        }
+        $script:reproductorPrevio.Open([Uri]$script:preVozCalc)
+        $script:preVozRuta = $script:preVozCalc
+        $script:preVozDesde = $sw.ElapsedMilliseconds
+    } catch { $script:preVozRuta = '' }
 }
 
 # Habla sin bloquear el bucle: la sintesis tarda ~60 ms y Play() es asincrono.
@@ -19219,6 +19338,10 @@ while ($true) {
     # --- CONVERSACION: lo que contesta el worker, frase a frase (ver CONVERSACION DE VERDAD) ---
     # tambien solo con la voz preparada viva: Receive-Charla es quien la cierra
     if ($script:charlaProc -or $script:prepVozProc) { try { Receive-Charla } catch { Log ("charla: " + $_.Exception.Message) } }
+    # EL MP3 ABIERTO ANTES DE HABLAR: mientras suena una frase de la charla, la voz
+    # preparada ya le esta haciendo el mp3 a la siguiente. Abrirlo AHORA le quita los
+    # 433 ms de Open al decirla (ver Open-VozAdelantada). Con la cola vacia no hace nada.
+    if ($script:charlaFrases.Count -gt 0) { Open-VozAdelantada }
     # EN FRIO el modelo tarda en cargar (~12-16 s medido): pasados 5 s sin nada,
     # una palabra corta para que no parezca colgada. Una vez por respuesta.
     if ($script:charlaEsperando -and -not $script:charlaRelleno -and $script:charlaFrases.Count -eq 0 -and -not $script:armed -and
