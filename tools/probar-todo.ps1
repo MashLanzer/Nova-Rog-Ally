@@ -429,6 +429,17 @@ Titulo "2n65. Una orden mal oida no envenena el vocabulario"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-alias-vacio.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no envenena el vocabulario)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n106. Elegir con el mando"
+# Funcion 10, y el numero que la pide es redondo: en catorce dias el mando se uso para
+# contestar una pregunta CERO veces. No por falta de preguntas (unas cuarenta confirmaciones,
+# seis muertas por plazo) ni por falta de mando (es una consola de mano; XInput lo ve en el
+# puerto 0 y leerlo cuesta 0,197 ms). Era invisible: Nova preguntaba y no decia en ningun
+# sitio que valia un boton. Ahora lo dice, y ademas vale para listas cerradas, no solo para
+# si/no. Lo que se vigila: que sin mando no cambie NADA (la voz es el camino), que A siga sin
+# valer en una pregunta peligrosa, y que el modo tenga sus tres salidas.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-elegir-mando.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:sin mando todo sigue igual)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n105. A que podemos jugar los dos"
 # Funcion 9. De sus doce juegos instalados SIETE son de dos, y tres -A Way Out, The Past
 # Within y Content Warning- NO SE PUEDEN JUGAR SOLO. Ademas juega a Roblox con su novia. El

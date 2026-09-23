@@ -13354,9 +13354,10 @@ function Invoke-Ajedrez([string]$texto) {
         $r = Invoke-AjedrezPy @('--deshacer')
         return $(if ($r) { [string]$r.decir } else { $null })
     }
-    # CONTESTANDO A "¿foxtrot tres o charlie tres?"
-    if ($pl -match '^(?:la\s+)?(?:primera|primero|el\s+primero|uno)$') { $r = Invoke-AjedrezPy @('--elegir', '1'); return $(if ($r) { [string]$r.decir } else { $null }) }
-    if ($pl -match '^(?:la\s+)?(?:segunda|segundo|el\s+segundo|dos)$')  { $r = Invoke-AjedrezPy @('--elegir', '2'); return $(if ($r) { [string]$r.decir } else { $null }) }
+    # CONTESTANDO A "¿foxtrot tres o charlie tres?" -- con la voz de siempre. El mando
+    # (funcion 10) es la OTRA manera, no la unica: aqui se cierra el selector si estaba.
+    if ($pl -match '^(?:la\s+)?(?:primera|primero|el\s+primero|uno)$') { Close-Eleccion $false; $r = Invoke-AjedrezPy @('--elegir', '1'); return $(if ($r) { [string]$r.decir } else { $null }) }
+    if ($pl -match '^(?:la\s+)?(?:segunda|segundo|el\s+segundo|dos)$')  { Close-Eleccion $false; $r = Invoke-AjedrezPy @('--elegir', '2'); return $(if ($r) { [string]$r.decir } else { $null }) }
     # UNA JUGADA. El patron es la llave (b): pieza o columna, y una fila. Anclado en ^...$ y
     # escrito contra lo que LLEGA (ConvertTo-Plain ya lo paso a minusculas y quito la coma).
     $piezas = 'rey|dama|reina|torre|alfil|caballo|peon'
@@ -13366,7 +13367,16 @@ function Invoke-Ajedrez([string]$texto) {
         $pl -match ("^(?:$piezas)\s+(?:a\s+|come\s+en\s+)?(?:$cols|[a-h])\s+(?:$filas)$") -or
         $pl -match ("^(?:$cols)\s+(?:$filas)$")) {
         $r = Invoke-AjedrezPy @('--dicho', $texto)
-        if ($r -and $r.decir) { return [string]$r.decir }
+        if ($r -and $r.decir) {
+            # SI PREGUNTA ENTRE DOS, EL MANDO LAS RESUELVE (23/09, funcion 10). Es el caso
+            # con mas motivo de todos: las dos opciones se parecen un 70 % al oido -por eso
+            # se pregunta-, asi que contestar hablando es pedirle al oido justo lo que no
+            # sabe hacer. Con la cruceta no hay nada que entender.
+            if ($r.opciones -and @($r.opciones).Count -ge 2) {
+                [void](Open-Eleccion @($r.opciones) 'ajedrez')
+            }
+            return [string]$r.decir
+        }
         return $null      # tenia forma pero no era legal: que siga su camino
     }
     return $null
@@ -21084,6 +21094,98 @@ function Invoke-PanelRapido([int]$pul) {
     Log "PANEL RAPIDO: $item $(if ($boton) { 'A' } elseif ($arriba) { 'arriba' } else { 'abajo' })"
 }
 
+# =============== ELEGIR CON EL MANDO (23/09, funcion 10) ================================
+# EL DATO QUE LO PIDE: en catorce dias el mando se uso para contestar una pregunta CERO
+# veces. Cero. Y no es que no haya preguntas: hubo unas cuarenta confirmaciones, y SEIS
+# murieron por plazo -"CONFIRMAR: no se ejecuta '...' (plazo)"-, o sea que braya no contesto
+# o Nova no le oyo. Una de ellas era "abre Hollow Knight en steam", que es exactamente la
+# clase de orden que ya venia de un oido dudoso.
+#
+# Y NO ES QUE EL MANDO NO ESTE: esta siempre, es una consola de mano. Medido hoy, XInput lo
+# ve en el puerto 0 y leerlo cuesta 0,197 ms. Lo que pasa es que NADIE LO SABE: Nova pregunta
+# y no dice en ningun sitio que se puede contestar con un boton. Un atajo invisible es un
+# atajo que no existe.
+#
+# Asi que esto son dos cosas:
+#   1. QUE SE VEA. Cuando hay una pregunta esperando, la capsula lo dice: "A si / B no", y
+#      con un juego delante "≡+A / ≡+B", que es lo que vale ahi. Sin decirlo en voz alta:
+#      eso ya se alarga bastante.
+#   2. QUE VALGA PARA LISTAS, no solo para si/no. El oido va al 70,4 % y ese techo no lo
+#      mueve nada; pero cuando la respuesta es UNA DE ESTAS DOS, el mando acierta al 100 %.
+#      La cruceta mueve, A elige, B cancela, y la voz ("la primera") sigue valiendo igual.
+#
+# TIENE LAS TRES SALIDAS DE LA CASA, porque es un modo: la cruceta+A, la voz de siempre, y
+# un plazo de 15 s que lo cierra solo. Y B tambien.
+$EleccionMs = 15000
+$script:eleccion = $null
+$script:mandoHay = $false
+
+function Show-Eleccion {
+    if (-not $script:eleccion) { return }
+    $e = $script:eleccion
+    $op = [string]$e.opciones[$e.i]
+    if ($op.Length -gt 26) { $op = $op.Substring(0, 25) + [string][char]0x2026 }
+    $etq = [string][char]0x2039 + " $op " + [char]0x203A + "  $($e.i + 1)/$($e.opciones.Count)  A"
+    # EL ANILLO TIENE QUE CONTAR ESTE PLAZO, no el de la pregunta anterior. Sin esto la
+    # capsula dibuja 'confirmando' con un confirmaFin viejo: o el anillo sale lleno para
+    # siempre o sale vacio de entrada, y en las dos parece que ya se acabo el tiempo.
+    $quedaE = [Math]::Max(0, $e.hasta - $sw.ElapsedMilliseconds)
+    $script:confirmaFin = [DateTimeOffset]::Now.ToUnixTimeMilliseconds() + $quedaE
+    $script:confirmaTotal = [Math]::Max(1, $EleccionMs)
+    Set-UI 'confirmando' $etq ($EleccionMs + 500)
+}
+
+# Devuelve $true si se abrio. Si no hay mando, o hay otra cosa mandando en la capsula, no
+# se abre y quien llama sigue con la voz de siempre: esto NUNCA es la unica salida.
+function Open-Eleccion([string[]]$opciones, [string]$origen) {
+    if (-not $script:mandoHay) { return $false }
+    if ($script:panel -or $script:pendiente -or $script:eleccion) { return $false }
+    $ops = @($opciones | Where-Object { $_ })
+    if ($ops.Count -lt 2 -or $ops.Count -gt 6) { return $false }
+    $script:eleccion = @{ opciones = $ops; i = 0; origen = [string]$origen
+                          hasta = $sw.ElapsedMilliseconds + $EleccionMs }
+    Log ("ELEGIR ($origen): " + ($ops -join ' | '))
+    Start-Vibracion @(30, 40, 30) 14000
+    Show-Eleccion
+    return $true
+}
+
+function Close-Eleccion([bool]$tocarUI = $true) {
+    if (-not $script:eleccion) { return }
+    $script:eleccion = $null
+    $script:confirmaFin = 0; $script:confirmaTotal = 0
+    if ($tocarUI) { Set-UI 'reposo' }
+}
+
+# Elegida la numero $n (1..N). Cada origen sabe que hacer con su numero; lo que se diga
+# vuelve por la voz de siempre.
+function Complete-Eleccion([int]$n) {
+    if (-not $script:eleccion) { return }
+    $e = $script:eleccion
+    $script:eleccion = $null
+    $script:confirmaFin = 0; $script:confirmaTotal = 0
+    if ($n -lt 1 -or $n -gt $e.opciones.Count) { Set-UI 'reposo'; return }
+    Log ("ELEGIR ($($e.origen)): la $n, " + [string]$e.opciones[$n - 1])
+    Start-Vibracion @(70) 14000
+    switch ([string]$e.origen) {
+        'ajedrez' {
+            $r = Invoke-AjedrezPy @('--elegir', [string]$n)
+            if ($r -and $r.decir) { Say ([string]$r.decir) } else { Set-UI 'reposo' }
+        }
+        default { Set-UI 'reposo' }
+    }
+}
+
+# LA PISTA, que es la mitad de esta funcion. Con un juego delante A y B son del juego y
+# aqui solo valen con ≡ apretado; fuera del juego valen solos. Y en una pregunta peligrosa
+# A NO vale nunca (esa regla es del 13/09 y no se toca): ahi la pista solo ofrece el no.
+function Get-PistaMando([string]$tipo) {
+    if (-not $script:mandoHay) { return '' }
+    $pre = if ($script:juegoActivo) { [string][char]0x2261 + '+' } else { '' }
+    if ($tipo -eq 'peligrosa') { return "   ${pre}B no" }
+    return "   ${pre}A si  ${pre}B no"
+}
+
 $pollErrs = 0
 # botones del mando en la vuelta anterior: A y B contestan preguntas (ver abajo)
 $XINPUT_A = 0x1000
@@ -21108,7 +21210,7 @@ while ($true) {
         try {
             $state = New-Object AX+XINPUT_STATE
             $r = [AX]::XInputGetState([uint32]$u, [ref]$state)
-            if ($r -eq 0) { $botones = $botones -bor [int]$state.Gamepad.wButtons }
+            if ($r -eq 0) { $botones = $botones -bor [int]$state.Gamepad.wButtons; $script:mandoHay = $true }
             if ($r -eq 0 -and (($state.Gamepad.wButtons -band $TRIGGER) -eq $TRIGGER)) {
                 $startNow = $true
                 break
@@ -21192,6 +21294,27 @@ while ($true) {
                 elseif ($pulsados -band ($XINPUT_ARR -bor $XINPUT_ABA -bor $XINPUT_A)) { Invoke-PanelRapido $pulsados; Show-PanelRapido }
             }
         } catch { Log ("panel rapido: " + $_.Exception.Message); $script:panel = $null }
+    }
+
+    # ELIGIENDO DE UNA LISTA (23/09, funcion 10): la cruceta mueve, A elige, B cancela.
+    # Igual que el panel rapido, y por lo mismo: XInput no es exclusivo, asi que con un
+    # juego delante la cruceta le llega tambien al juego. Por eso dura 15 s y no mas.
+    if ($script:eleccion) {
+        try {
+            if ($script:pendiente -or $script:busy -or $script:panel) {
+                Close-Eleccion $false            # otra cosa manda en la capsula: no la pises
+            } elseif ($sw.ElapsedMilliseconds -ge $script:eleccion.hasta) {
+                Log "ELEGIR: se acabo el plazo"
+                Close-Eleccion
+            } elseif ($pulsados -ne 0) {
+                $n = $script:eleccion.opciones.Count
+                $script:eleccion.hasta = $sw.ElapsedMilliseconds + $EleccionMs
+                if ($pulsados -band $XINPUT_B) { Log "ELEGIR: cancelado con B"; Close-Eleccion }
+                elseif ($pulsados -band $XINPUT_A) { Complete-Eleccion ($script:eleccion.i + 1) }
+                elseif ($pulsados -band ($XINPUT_IZQ -bor $XINPUT_ARR)) { $script:eleccion.i = ($script:eleccion.i + $n - 1) % $n; Show-Eleccion }
+                elseif ($pulsados -band ($XINPUT_DER -bor $XINPUT_ABA)) { $script:eleccion.i = ($script:eleccion.i + 1) % $n; Show-Eleccion }
+            }
+        } catch { Log ("elegir: " + $_.Exception.Message); $script:eleccion = $null }
     }
 
     # DOBLE TOQUE en ≡ (dos pulsaciones cortas en menos de 450 ms): abre o cierra
@@ -21543,7 +21666,9 @@ while ($true) {
             $queda = [Math]::Max(0, $script:pendiente.vence - $sw.ElapsedMilliseconds)
             $script:confirmaFin = [DateTimeOffset]::Now.ToUnixTimeMilliseconds() + $queda
             $script:confirmaTotal = [Math]::Max(1, $queda)
-            Set-UI 'confirmando' $script:uiTexto
+            # Y AQUI SE DICE QUE EL MANDO VALE (23/09, funcion 10). En catorce dias se uso
+            # cero veces para contestar, teniendolo en las manos: nadie se lo habia dicho.
+            Set-UI 'confirmando' ($script:uiTexto + (Get-PistaMando ([string]$script:pendiente.tipo)))
         }
         $resp = ''
         if (Test-Path -LiteralPath $RutaConfirmacion) {
