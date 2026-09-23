@@ -52,6 +52,10 @@ $script:habitosFalsos = @{ charlaHoras = @{} }
 function Get-Habitos { return $script:habitosFalsos }
 $script:statsFalsas = @{ dias = @{} }
 function Get-Estadisticas { return $script:statsFalsas }
+# Get-HoraFinHabitual entra el 22/09: desde ese dia Get-AvisoHoraDormir decide con la hora a
+# la que braya PARA de verdad, no con las horas en que ha tenido conversacion. Sin traerla,
+# esto muere con CommandNotFoundException a la primera.
+Invoke-Expression (Traer 'Get-HoraFinHabitual')
 Invoke-Expression (Traer 'Get-AvisoHoraDormir')
 Invoke-Expression (Traer 'Get-AvisoFallos')
 Invoke-Expression (Traer 'Send-AvisoCola')

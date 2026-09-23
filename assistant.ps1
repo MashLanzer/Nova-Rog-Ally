@@ -490,6 +490,26 @@ function Split-Ordenes([string]$texto) {
         $izqD = if ($ladoA -eq 'izquierda') { $Matches[1] } else { $Matches[3] }
         $derD = if ($ladoA -eq 'izquierda') { $Matches[3] } else { $Matches[1] }
         if ($ladoA -ne $ladoB) { $planoS = "dividir pantalla $izqD con $derD" }
+    } elseif ($planoS -match '^(?:abre|abreme|pon|ponme|coloca|abrir|poner)?\s*(.+?)\s+(?:a|en)\s+la\s+mitad\s+y\s+(?:a|en)\s+la\s+otra\s+mitad\s+(?:(?:abre|abreme|pon|ponme|coloca|abrir|poner)\s+)?([^|]+?)\s*$') {
+        # "X EN LA MITAD Y EN LA OTRA MITAD Y" (22/09 por la noche, idea 9). Es la forma que
+        # braya usa de verdad y no la cogia ninguno de los cuatro patrones de aqui arriba: la
+        # dijo tres veces en tres dias distintos (18/09 20:03, 20/09 18:55 y 22/09 01:10) y
+        # las tres acabaron en el modelo, en una busqueda de Google equivocada o en una
+        # traduccion basura. La del 22 costo 68 segundos y acabo con braya cerrando el
+        # navegador a mano. En catorce dias la pantalla dividida no se ejecuto bien ni una
+        # sola vez por voz: cero de once intentos.
+        # DOS GUARDAS, y sin ellas esto hace mas mal que bien:
+        #  - la cola NO es glotona: con (.+)$ hasta el final, la frase real del 10/09 -"...y en
+        #    la otra mitad abre el navegador y busque el gato con botas"- dejaba el segundo
+        #    destino en "el navegador y busque el gato con botas", Resolve-Target fallaba y
+        #    todo volvia al agente: cero ganancia justo en el caso con mas peligro.
+        #  - y "a la mitad" es TAMBIEN el canonico del volumen y del brillo: si lo que va
+        #    delante es uno de esos, esto no es una pantalla dividida y se deja pasar.
+        $unoM = ([string]$Matches[1]).Trim()
+        $dosM = ([string]$Matches[2]).Trim()
+        if ($unoM -notmatch '^(?:el\s+|la\s+)?(?:volumen|sonido|brillo|musica|cancion)\b' -and $unoM -and $dosM) {
+            $planoS = "dividir pantalla $unoM con $dosM"
+        }
     } elseif ($planoS -match '^(?:abre|abreme|pon|ponme|coloca|abrir|poner)\s+(.+?)\s+y\s+(.+?)\s+(?:en|a)\s+(?:pantalla\s+dividida|media\s+pantalla(?:\s+cada\s+uno)?|split(?:\s+screen)?|lado\s+a\s+lado)$') {
         $planoS = "dividir pantalla $($Matches[1]) con $($Matches[2])"
     } elseif ($planoS -match '^(?:abre|abreme|pon|ponme|coloca|abrir|poner)\s+(.+?)\s+(?:a|en)\s+(?:la\s+)?(?:pantalla\s+dividida|media\s+pantalla(?:\s+cada\s+uno)?|split(?:\s+screen)?|lado\s+a\s+lado)$') {
@@ -5592,6 +5612,41 @@ function Format-Correos($correos) {
     return $txt
 }
 
+# EL AVISO QUE NO HAS PEDIDO SE DICE CORTO (22/09 por la noche, idea 6). Format-Correos lee
+# remitente Y ASUNTO de los cuatro primeros, y eso esta bien cuando braya PREGUNTA por su
+# correo. Pero el parte de la mañana no lo pide nadie, y medido: el del 19/09 duro 27
+# segundos clavados de microfono sordo (de la pausa a 'pausa: fin'), y el del 22/09 son 327
+# caracteres -la frase hablada mas larga de Nova en todo el log-, unos 32 s al mismo ritmo.
+# Y hay dos numeros mas que lo rematan: de los cuatro asuntos que leyo, DOS eran byte a byte
+# el mismo aviso de saldo de su banco -o sea que le dijo el saldo de su cuenta en voz alta,
+# dos dias seguidos, sin que lo pidiera-; y el 22/09 a las 08:35:41 braya dijo 'calla'
+# (confianza 0,94), que es la UNICA vez en todo el log que corta algo que Nova empezo sola.
+# El aviso de ruido sono 25 veces y no lo corto ni una.
+# Asi que el no pedido dice de QUIEN es -que es lo que deja decidir si merece la pena- y no
+# de que. Es el molde que ya usa Get-ResumenNotificaciones con las notificaciones: agrupar,
+# contar y ofrecer. El camino PEDIDO (Invoke-Correo) no se toca: ahi el asunto es justo lo
+# que hace falta.
+function Format-CorreosCorto($correos) {
+    $n = @($correos).Count
+    if ($n -eq 0) { return 'No tienes correos nuevos.' }
+    # por remitente, el que mas primero, y sin repetir a nadie
+    $porQuien = @{}
+    foreach ($c in @($correos)) {
+        $de = ([string]$c.de).Trim()
+        if (-not $de) { $de = 'alguien' }
+        $porQuien[$de] = [int]$porQuien[$de] + 1
+    }
+    $orden = @($porQuien.GetEnumerator() | Sort-Object -Property @{ Expression = 'Value'; Descending = $true }, @{ Expression = 'Name' })
+    $trozos = @()
+    foreach ($q in @($orden | Select-Object -First 3)) {
+        $trozos += $(if ([int]$q.Value -gt 1) { "$([int]$q.Value) de $($q.Name)" } else { "uno de $($q.Name)" })
+    }
+    $resto = $n - (@($orden | Select-Object -First 3) | ForEach-Object { [int]$_.Value } | Measure-Object -Sum).Sum
+    if ($resto -gt 0) { $trozos += $(if ($resto -eq 1) { 'y uno mas' } else { "y $resto mas" }) }
+    $cab = if ($n -eq 1) { 'Tienes un correo nuevo: ' } else { "Tienes $n correos nuevos: " }
+    return ($cab + ($trozos -join ', ') + '.')
+}
+
 # LA PAPELERA, SOLO PARA MIRARLA (18/09). Por Shell.Application (carpeta especial 10), sin
 # instalar nada. Vaciarla es otra orden, y de las que preguntan antes.
 function Get-PapeleraResumen {
@@ -6999,22 +7054,48 @@ function Add-DatoPerfil([string]$dato, [string]$fuente = '') {
     # electronica", "no le gusta la musica electronica" y cinco matices mas. Ahora, si
     # comparte la mayoria de sus palabras con algo que ya se sabe, es el mismo tema: se
     # queda lo que ya habia (y para cambiarlo esta "olvida que...").
-    $palD = @($clave -split '\s+' | Where-Object { $_.Length -ge 4 } | Select-Object -Unique)
+    # LAS PALABRAS QUE SALEN EN MEDIO PERFIL NO DISTINGUEN NADA (22/09 por la noche, idea 7).
+    # El parecido se medía contando palabras comunes de 4 letras o mas, y ahi entraban las que
+    # estan en casi todos los datos: medido sobre los 60 que tiene hoy, 'braya' sale en 29
+    # (el 48 %), 'tiene' en 15 y 'juega' en 11. Con eso, "braya juega a It Takes Two" se
+    # parecia a "braya juega juegos de terror" por dos palabras que no dicen nada del tema.
+    # No es una lista escrita a mano: sale de SUS datos, se recalcula sola y cambia con el
+    # perfil. El liston, un tercio de los datos, y solo cuenta si hay unos cuantos (con tres
+    # datos, todo saldria en un tercio de ellos).
+    $vaciasP = @()
+    if ($datos.Count -ge 8) {
+        $cuenta = @{}
+        foreach ($y in $datos) {
+            $cy = (((ConvertTo-Suave $y) -replace '[^a-z0-9 ]', ' ') -replace '\s+', ' ').Trim()
+            foreach ($w in @($cy -split '\s+' | Where-Object { $_.Length -ge 4 } | Select-Object -Unique)) {
+                $cuenta[$w] = [int]$cuenta[$w] + 1
+            }
+        }
+        $topeV = [Math]::Max(3, [int][Math]::Ceiling($datos.Count / 3.0))
+        $vaciasP = @($cuenta.Keys | Where-Object { $cuenta[$_] -ge $topeV })
+    }
+    $palD = @($clave -split '\s+' | Where-Object { $_.Length -ge 4 -and $vaciasP -notcontains $_ } | Select-Object -Unique)
+    # Y SE QUEDA EL QUE MAS SE PARECE, NO EL PRIMERO QUE PASE (22/09, idea 7). Esto renovaba
+    # dentro del bucle y salia corriendo, asi que blindaba el primer dato de la lista que
+    # pasara el liston. Medido: las cinco primeras renovaciones reales del perfil fueron las
+    # cinco al dato equivocado -braya dijo 'It Takes Two' y se renovo 'juegos de terror',
+    # 'La ultima parada', 'videojuegos de supervivencia'...-. Ahora se recorren todos y gana
+    # el de mas parecido.
+    $mejorX = $null; $mejorP = 0.0; $mejorEsContenida = $false
     foreach ($x in $datos) {
         $cx = (((ConvertTo-Suave $x) -replace '[^a-z0-9 ]', ' ') -replace '\s+', ' ').Trim()
         # ...Y ESO ES QUE LO HA REPETIDO (22/09, ver el comentario del tope, abajo): el
         # viejo se renueva -se va al final de la lista- en vez de quedarse donde estaba.
         if ($cx -eq $clave -or $cx.Contains($clave)) {
-            $datos = @(@($datos | Where-Object { $_ -ne $x }) + @($x))
-            Save-DatosPerfil $datos
-            Log "PERFIL: ya lo sabia ('$x'); lo renuevo, que lo acaba de repetir"
-            return $null
+            # la frase entera dentro de otra: no hay parecido mayor que ese
+            if (2.0 -gt $mejorP) { $mejorP = 2.0; $mejorX = $x; $mejorEsContenida = $true }
+            continue
         }
         # EN LOS DOS SENTIDOS (16/09): mirar solo que porcentaje de la frase NUEVA esta
         # en la vieja castiga a las frases largas, que son justo las que mas ruido
         # meten ("braya no le gusta cierto estilo de musica electronica que escuchaba
         # recientemente" colaba al lado de "no le gusta la musica electronica").
-        $palX = @($cx -split '\s+' | Where-Object { $_.Length -ge 4 } | Select-Object -Unique)
+        $palX = @($cx -split '\s+' | Where-Object { $_.Length -ge 4 -and $vaciasP -notcontains $_ } | Select-Object -Unique)
         if ($palD.Count -ge 2 -and $palX.Count -ge 2) {
             $comunes = @($palD | Where-Object { $palX -contains $_ }).Count
             $propD = $comunes / [double]$palD.Count
@@ -7022,17 +7103,26 @@ function Add-DatoPerfil([string]$dato, [string]$fuente = '') {
             # el mismo tema si coincide la mayoria de una de las dos, o si comparten
             # tres palabras con contenido (dos frases sobre "musica electronica" lo son)
             if ($propD -ge 0.6 -or $propX -ge 0.6 -or $comunes -ge 3) {
-                # ...PERO ACABA DE REPETIRLO, Y ESO VALE (22/09). Esto salto 56 veces en
-                # el log y hasta hoy no servia mas que para descartar: la senal mas clara
-                # de que un dato le importa -que lo vuelva a decir con otras palabras- se
-                # tiraba a la basura. Ahora el viejo sube al final de la lista, que es por
-                # donde NO se poda. Ver el comentario del tope, abajo.
-                Log "PERFIL: ya se algo de eso ('$x'); no apunto '$d' (pero renuevo el que ya estaba)"
-                $datos = @(@($datos | Where-Object { $_ -ne $x }) + @($x))
-                Save-DatosPerfil $datos
-                return $null
+                # el desempate por palabras comunes, para que entre dos que empatan en
+                # proporcion gane el que comparte mas contenido
+                $puntX = [Math]::Max($propD, $propX) + ($comunes / 100.0)
+                if ($puntX -gt $mejorP) { $mejorP = $puntX; $mejorX = $x; $mejorEsContenida = $false }
             }
         }
+    }
+    # ...PERO ACABA DE REPETIRLO, Y ESO VALE (22/09). Esto salto 56 veces en el log y hasta
+    # entonces no servia mas que para descartar: la senal mas clara de que un dato le importa
+    # -que lo vuelva a decir con otras palabras- se tiraba a la basura. El viejo sube al final
+    # de la lista, que es por donde NO se poda. Ver el comentario del tope, abajo.
+    if ($null -ne $mejorX) {
+        if ($mejorEsContenida) {
+            Log "PERFIL: ya lo sabia ('$mejorX'); lo renuevo, que lo acaba de repetir"
+        } else {
+            Log "PERFIL: ya se algo de eso ('$mejorX', parecido $([Math]::Round($mejorP, 2))); no apunto '$d' (pero renuevo el que ya estaba)"
+        }
+        $datos = @(@($datos | Where-Object { $_ -ne $mejorX }) + @($mejorX))
+        Save-DatosPerfil $datos
+        return $null
     }
     $datos += $d
     # EL TOPE TIRABA LO MAS VIEJO, NO LO QUE MENOS VALE (22/09). Caben 60 y al llegar se
@@ -7466,7 +7556,7 @@ function Watch-Musica($mu) {
 $script:habitos = $null
 function Get-Habitos {
     if ($null -ne $script:habitos) { return $script:habitos }
-    $script:habitos = @{ usos = (New-Object System.Collections.ArrayList); rechazadas = (New-Object System.Collections.ArrayList); ultimaPropuesta = ''; fin = @{}; cargaAvisada = ''; nivelVisto = 0; brilloAuto = $false; parteVisto = ''; sinDatosVisto = ''; sinDatosTexto = ''; ritmo = (New-Object System.Collections.ArrayList); charlaHoras = @{}; minutosJuego = @{}; presencia = @{} }
+    $script:habitos = @{ usos = (New-Object System.Collections.ArrayList); rechazadas = (New-Object System.Collections.ArrayList); ultimaPropuesta = ''; fin = @{}; cargaAvisada = ''; nivelVisto = 0; brilloAuto = $false; parteVisto = ''; parteTexto = ''; sinDatosVisto = ''; sinDatosTexto = ''; ritmo = (New-Object System.Collections.ArrayList); charlaHoras = @{}; minutosJuego = @{}; presencia = @{} }
     $rutaH = Join-Path $MemoriaDir 'habitos.json'
     if (Test-Path -LiteralPath $rutaH) {
         try {
@@ -7486,6 +7576,13 @@ function Get-Habitos {
             $script:habitos.nivelVisto = [int]$crudoH.nivelVisto
             $script:habitos.brilloAuto = [bool]$crudoH.brilloAuto
             $script:habitos.parteVisto = [string]$crudoH.parteVisto
+            # EL TEXTO DEL PARTE, TAMBIEN EN DISCO (22/09 noche, idea 8). Ver Test-ParteManana:
+            # se preparaba a las 05:00 y vivia solo en una variable de sesion; Nova reinicia
+            # varias veces por manana, asi que el dia quedaba gastado en el disco y el mensaje
+            # perdido en la memoria. Tres de tres los dias 20, 21 y 22.
+            if ($crudoH.PSObject.Properties['parteTexto']) {
+                $script:habitos.parteTexto = [string]$crudoH.parteTexto
+            }
             # EL AVISO PENDIENTE, EN DISCO (22/09). Si el archivo es de antes de hoy no
             # lo trae, y entonces se queda vacio: no hay nada que migrar.
             if ($crudoH.PSObject.Properties['sinDatosTexto']) {
@@ -7511,7 +7608,7 @@ function Get-Habitos {
 function Save-Habitos {
     try {
         $hb = Get-Habitos
-        $o = [ordered]@{ usos = @($hb.usos); rechazadas = @($hb.rechazadas); ultimaPropuesta = $hb.ultimaPropuesta; fin = $hb.fin; cargaAvisada = $hb.cargaAvisada; nivelVisto = $hb.nivelVisto; brilloAuto = [bool]$hb.brilloAuto; parteVisto = [string]$hb.parteVisto; sinDatosVisto = [string]$hb.sinDatosVisto; sinDatosTexto = [string]$hb.sinDatosTexto; ritmo = @($hb.ritmo); charlaHoras = $hb.charlaHoras; minutosJuego = $hb.minutosJuego; presencia = $hb.presencia }
+        $o = [ordered]@{ usos = @($hb.usos); rechazadas = @($hb.rechazadas); ultimaPropuesta = $hb.ultimaPropuesta; fin = $hb.fin; cargaAvisada = $hb.cargaAvisada; nivelVisto = $hb.nivelVisto; brilloAuto = [bool]$hb.brilloAuto; parteVisto = [string]$hb.parteVisto; parteTexto = [string]$hb.parteTexto; sinDatosVisto = [string]$hb.sinDatosVisto; sinDatosTexto = [string]$hb.sinDatosTexto; ritmo = @($hb.ritmo); charlaHoras = $hb.charlaHoras; minutosJuego = $hb.minutosJuego; presencia = $hb.presencia }
         $rutaH = Join-Path $MemoriaDir 'habitos.json'
         [System.IO.File]::WriteAllText($rutaH + '.tmp', (ConvertTo-Json -InputObject $o -Depth 4), (New-Object System.Text.UTF8Encoding($false)))
         Move-Item -LiteralPath ($rutaH + '.tmp') -Destination $rutaH -Force
@@ -7534,11 +7631,39 @@ function Add-Habito([string]$texto, [datetime]$cuando = (Get-Date)) {
 # de contestarla, UNA linea en la capsula y sin voz: el tiempo, la bateria y lo
 # que tienes hoy. Va por el mismo camino que el resumen al volver. Si solo hay
 # la bateria, no es un parte: calla.
-function Test-ParteManana([datetime]$ahora = (Get-Date)) {
+# EL PARTE SE GASTABA A LAS 05:00 CON NADIE DELANTE (22/09 por la noche, idea 8).
+# Desde el 20/09 lo llama tambien el bucle, y sale a las 05:00:2x clavadas. La primera
+# actividad real de braya esos dias: 12:53, 16:31 y 20:25 -472, 691 y 925 minutos despues-.
+# Y es peor que llegar tarde: los tres dias NO LLEGO. El texto vivia en una variable de
+# sesion y Nova reinicio entre medias las tres veces (20/09 12:08, 21/09 12:48, 22/09 07:44)
+# con el dia ya marcado en disco: dia gastado en el disco, mensaje perdido en la memoria,
+# tres de tres. Dos arreglos, y hacen falta los dos:
+#   1. Desde el BUCLE no se prepara si braya no ha dado señales de vida (su primera orden si
+#      lo dispara, como antes del 20/09). El switch es necesario: en Process-Texto esta
+#      funcion corre ANTES de Set-HabloAhora, asi que una guarda de presencia puesta ahi
+#      tambien bloquearia el parte justo en el momento en que braya acaba de hablar.
+#   2. El texto se guarda en habitos.json, y si Nova reinicia antes de decirlo, lo recupera.
+function Test-ParteManana([datetime]$ahora = (Get-Date), [switch]$DesdeBucle) {
     if ($script:invitado -or $ahora.Hour -lt 5 -or $ahora.Hour -ge 12) { return }
     $hbM = Get-Habitos
     $hoyM = $ahora.ToString('yyyy-MM-dd')
-    if ($hbM.parteVisto -eq $hoyM) { return }
+    if ($hbM.parteVisto -eq $hoyM) {
+        # ya se preparo hoy... ¿pero llego a decirse? Si Nova reinicio por medio, el texto se
+        # perdia y el dia quedaba gastado. Se repone y sale en cuanto haya alguien.
+        if ($hbM.parteTexto -and -not $script:resumenPendiente) {
+            $script:resumenPendiente = [string]$hbM.parteTexto
+            Log 'PARTE DE LA MANANA: recuperado del disco, no habia llegado a decirse'
+        }
+        return
+    }
+    if ($DesdeBucle) {
+        # SIN NADIE DELANTE NO SE GASTA EL DIA. La presencia la sellan el mando y sus ordenes
+        # (Set-PresenciaAhora); si lo ultimo que se sabe de braya es de hace horas, el parte
+        # espera. No se marca nada: se reintenta en la siguiente vuelta.
+        $vistoM = [datetime]::MinValue
+        $okM = $hbM.presencia['visto'] -and [datetime]::TryParse([string]$hbM.presencia['visto'], [ref]$vistoM)
+        if (-not $okM -or ($ahora - $vistoM).TotalMinutes -gt 30) { return }
+    }
     # EL DIA SE MARCA ABAJO, YA DECIDIDO QUE EL PARTE SALE (21/09). Aqui se marcaba
     # y se guardaba antes de reunir ni un dato, y treinta lineas mas abajo hay un
     # 'return' si no hay al menos dos: el caso normal de la primera orden del dia es
@@ -7590,6 +7715,9 @@ function Test-ParteManana([datetime]$ahora = (Get-Date)) {
     $lineaM = 'Buenos dias · ' + ($partes -join ' · ')
     Log "PARTE DE LA MANANA: $lineaM"
     $script:resumenPendiente = if ($script:resumenPendiente) { "$($script:resumenPendiente) · $lineaM" } else { $lineaM }
+    # y en disco, por si Nova reinicia antes de decirlo (ver arriba)
+    $hbM.parteTexto = [string]$script:resumenPendiente
+    Save-Habitos
 }
 # MODO INVITADO (13/09): "pon el modo invitado" antes de dejarle la consola a
 # alguien. Mientras dura, Nova no aprende (costumbres, recetas, perfil, tu voz,
@@ -8198,7 +8326,7 @@ function Watch-Entorno([int]$botones = 0) {
     # IDEAS 1 y 17: el parte de la manana y el resumen al volver EXISTIAN, pero solo
     # se preparaban dentro de Process-Texto: si no le hablabas, no salian nunca.
     if (-not $script:invitado) {
-        try { Test-ParteManana } catch {}
+        try { Test-ParteManana -DesdeBucle } catch {}
         try { Test-ResumenAlVolver } catch {}
     }
 
@@ -8344,9 +8472,33 @@ function Watch-Entorno([int]$botones = 0) {
 # ESTA hora no sueles estar levantado. "Sueles" = tres dias de las dos ultimas semanas,
 # el mismo criterio que ya usa la precarga de la charla. Devuelve la frase o '', sin
 # hacer nada: el que decide si se dice es el vigilante.
+# SE DECIDIA CON LAS HORAS EN QUE HABLA, NO CON LA HORA A LA QUE PARA (22/09 noche, idea 10).
+# Este aviso salio 4 veces (18/09 23:30, 19/09 23:00, 20/09 23:00, 21/09 23:00) y LAS CUATRO
+# las desmiente su propio habitos.json: esas noches braya siguio 8, 84, 138 y 138 minutos
+# mas, hasta las 23:38, 00:24, 01:18 y 01:18. Su hora habitual de parar son las 00:24, y en
+# 5 de los 7 dias con dato seguia despierto pasadas las 23:00. Es el unico aviso de nivel
+# 'noche', el unico que se salta el silencio de 23:00 a 08:00: o sea que lo unico que Nova
+# dice de madrugada era algo que no es verdad.
+# El motivo: contaba en cuantos dias ha habido CONVERSACION a esa hora, y hablar con Nova es
+# una parte pequeña de estar despierto. La hora a la que de verdad para ya se calcula desde
+# el 20/09 para otra cosa (Get-HoraFinHabitual, la mediana de los ultimos 14 dias), asi que
+# aqui se usa esa: solo es noticia si va MAS TARDE de lo que suele parar, con su margen.
+# Si aun no hay datos suficientes (menos de 4 dias), se cae a lo de antes en vez de callarse:
+# el aviso no desaparece, solo deja de mentir cuando se sabe la verdad.
 function Get-AvisoHoraDormir([datetime]$ahora = (Get-Date)) {
     $hD = $ahora.Hour
     if ($hD -lt $EntornoNocheDesde -and $hD -ge 5) { return '' }
+    $finD = Get-HoraFinHabitual $ahora
+    if ($finD -ge 0) {
+        $mD = $ahora.Hour * 60 + $ahora.Minute
+        if ($mD -lt 300) { $mD += 1440 }      # la madrugada cuenta como el dia anterior
+        $margenD = [int](Get-Cfg 'entorno' 'margenDormirMin' 30)
+        if ($mD -le ($finD + $margenD)) { return '' }
+        $hFin = [int][Math]::Floor(($finD % 1440) / 60)
+        $mFin = $finD % 60
+        return ('Son las ' + $ahora.ToString('H\:mm') + ' y sueles parar sobre las ' +
+                ('{0}:{1:00}' -f $hFin, $mFin) + '.')
+    }
     $claveD = $ahora.ToString('HH')
     $limD = $ahora.AddDays(-14).ToString('yyyy-MM-dd')
     $diasD = @((Get-Habitos).charlaHoras.Keys | Where-Object { $_.EndsWith("|$claveD") -and $_.Substring(0, 10) -ge $limD }).Count
@@ -8970,7 +9122,7 @@ function Receive-CorreoManana {
         if ($rC -and $rC.ok -and [int]$rC.cuantos -gt 0) {
             # en el log SOLO cuantos habia: ni remitentes ni asuntos
             Log "CORREO: $($rC.cuantos) sin leer (el de la manana)"
-            [void](Send-AvisoEntorno 'correo-manana' (Format-Correos $rC.correos) 'medio' 720)
+            [void](Send-AvisoEntorno 'correo-manana' (Format-CorreosCorto $rC.correos) 'medio' 720)
         }
         return
     }
@@ -20072,6 +20224,11 @@ while ($true) {
             # le hayas dicho nada; antes habia que hablarle para enterarte.
             $txtRes = $script:resumenPendiente
             $script:resumenPendiente = ''
+            # dicho: fuera tambien del disco, o volveria a salir en cada arranque (idea 8)
+            try {
+                $hbR = Get-Habitos
+                if ($hbR.parteTexto) { $hbR.parteTexto = ''; Save-Habitos }
+            } catch {}
             Send-UIEvento 'gesto:saludo'
             Set-UI 'hablando' $txtRes 4500
         } elseif ($script:invitadoPropuesta -and -not $script:busy -and -not $script:pendiente -and -not $script:invitado) {

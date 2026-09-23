@@ -429,6 +429,37 @@ Titulo "2n65. Una orden mal oida no envenena el vocabulario"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-alias-vacio.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no envenena el vocabulario)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n92. La pantalla dividida, como la dice braya"
+# Idea 9. En catorce dias la pantalla dividida no se ejecuto bien ni una vez por voz: cero de
+# once intentos. La forma "X en la mitad y en la otra mitad Y" la dijo tres veces en tres
+# dias y las tres acabaron en el modelo o en una busqueda equivocada; la del 22 costo 68 s.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-pantalla-mitad.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya es una pantalla dividida)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n91. El parte de la manana y la hora de dormir"
+# Ideas 8 y 10. El parte salia a las 05:00 clavadas -braya aparecia a las 12:53, 16:31 y
+# 20:25- y los tres dias NO llego: vivia en una variable de sesion y Nova reiniciaba por
+# medio, con el dia ya marcado en disco. Y el aviso de la hora de dormir salio 4 veces y las
+# cuatro las desmiente su propio habitos.json: siguio 8, 84, 138 y 138 minutos mas.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-parte-y-dormir.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la hora de dormir es la tuya)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n90. El correo que no pediste, en una linea"
+# Idea 6. El parte del correo leia remitente y asunto: 27 segundos clavados de microfono
+# sordo el 19/09 y 327 caracteres el 22/09, la frase mas larga que ha dicho Nova. Dos de los
+# cuatro asuntos eran el mismo aviso de saldo de su banco. Y es la UNICA vez en todo el log
+# que braya corta algo que Nova empezo sola ("calla", 22/09 08:35:41).
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-correo-corto.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se dice en una linea)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n89. Que lo que repites renueve el dato que se le parece"
+# Idea 7. Las cinco primeras renovaciones reales del perfil fueron las cinco al dato
+# equivocado: dijo "It Takes Two" y blindo "juegos de terror". Dos motivos: se quedaba con el
+# PRIMERO que pasara el liston, y contaba como contenido palabras que estan en medio perfil
+# ("braya" sale en 29 de 60 datos).
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-perfil-parecido.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el dato que se le parece)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n88. Que lo que te corrige valga tambien para lo ya guardado"
 # Idea 5 de la tercera tanda. braya pidio TRES veces que no le llamara "tio" ni "man", Nova
 # prometio dos veces que no, y dos dias despues: "No te sigo, tio". En cerebro.json habia 12
