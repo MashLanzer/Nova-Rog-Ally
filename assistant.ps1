@@ -1110,6 +1110,183 @@ function Update-Juegos {
     return $true
 }
 
+
+# ===================== A QUE PODEMOS JUGAR LOS DOS (23/09, funcion 9) =====================
+# De donde sale: de su propia biblioteca. De los doce juegos que tiene instalados, SIETE son
+# de dos, y dos de ellos -A Way Out y The Past Within- NO SE PUEDEN JUGAR SOLO: no traen la
+# categoria "Un jugador". Ademas juega a Roblox con su novia y tiene It Takes Two apuntado en
+# su memoria de juegos, que tambien es solo de dos. Nova tenia todo eso delante y no sabia
+# decir cual es cual: "abre A Way Out" lo abria igual que cualquier otro.
+#
+# EL DATO NO SE INVENTA NI SE LE PREGUNTA A UN MODELO: lo da Steam. La ficha de la tienda
+# (store.steampowered.com/api/appdetails) trae las categorias del juego, sin clave, gratis y
+# en español, y ahi esta escrito lo unico que hace falta:
+#     9  Cooperativo          38 Cooperativo en linea      39 Coop. a pantalla partida
+#     24 Pantalla partida     44 Remote Play Together      49/36/37 uno contra otro
+#     2  Un jugador   <-- si NO esta, ese juego SOLO se puede jugar de dos
+#
+# Y LO QUE MAS IMPORTA EN ESTA CONSOLA ES EL 39 Y EL 24. braya tiene UNA pantalla y un sitio:
+# "a pantalla partida aqui mismo" y "hace falta otro aparato" no son la misma respuesta, y un
+# modelo generalista contesta "si, es cooperativo" a las dos.
+#
+# SE PREGUNTA UNA VEZ POR JUEGO Y PARA SIEMPRE. Un juego no deja de ser cooperativo: la ficha
+# se guarda en memoria\juegos-dos.json y no se vuelve a pedir. El relleno va de UNO EN UNO
+# desde Watch-Entorno (cada 30 s): doce juegos son seis minutos de fondo, cero espera cuando
+# braya pregunta, y nunca una rafaga de peticiones a Steam.
+# la ruta se calcula al usarla: $MemoriaDir se define mas abajo en el fichero, y
+# resolverla aqui arriba dejaba la ruta vacia (el json acabaria en el directorio actual).
+function Get-RutaJuegosDos { return (Join-Path $MemoriaDir 'juegos-dos.json') }
+$script:juegosDosCache = $null
+$script:juegosDosFallos = 0
+
+function Get-JuegosDos {
+    if ($null -ne $script:juegosDosCache) { return $script:juegosDosCache }
+    $t = @{}
+    try {
+        $rd = Get-RutaJuegosDos
+        if (Test-Path -LiteralPath $rd) {
+            $j = Get-Content -LiteralPath $rd -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($pr in $j.PSObject.Properties) {
+                $v = @{}
+                foreach ($q in $pr.Value.PSObject.Properties) { $v[$q.Name] = $q.Value }
+                $t[$pr.Name] = $v
+            }
+        }
+    } catch { $t = @{} }
+    $script:juegosDosCache = $t
+    return $t
+}
+
+function Save-JuegosDos($t) {
+    try {
+        $script:juegosDosCache = $t
+        $rd = Get-RutaJuegosDos
+        $tmp = "$rd.tmp"
+        ($t | ConvertTo-Json -Depth 4) | Set-Content -LiteralPath $tmp -Encoding UTF8
+        Move-Item -LiteralPath $tmp -Destination $rd -Force
+    } catch { Log ("juegos-dos: " + $_.Exception.Message) }
+}
+
+# La ficha de un juego de Steam, traducida a lo que se dice hablando.
+function Get-FichaDosSteam([string]$id, [string]$nombre) {
+    try {
+        $r = Invoke-RestMethod -Uri "https://store.steampowered.com/api/appdetails?appids=$id&l=spanish" -TimeoutSec 5
+        $d = $r.$id
+        if (-not $d -or -not $d.success) { return $null }
+        $cats = @()
+        foreach ($c in @($d.data.categories)) { $cats += [int]$c.id }
+        return @{
+            nombre  = $(if ($d.data.name) { [string]$d.data.name } else { $nombre })
+            solo    = ($cats -contains 2)                                  # se puede solo
+            dos     = (($cats -contains 9) -or ($cats -contains 1))        # cooperativo o multi
+            coop    = ($cats -contains 9)
+            partida = (($cats -contains 39) -or ($cats -contains 24))      # la misma pantalla
+            online  = ($cats -contains 38)
+            remote  = ($cats -contains 44)                                 # Remote Play Together
+            contra  = (($cats -contains 49) -or ($cats -contains 36) -or ($cats -contains 37))
+            fuente  = 'steam'
+        }
+    } catch {
+        return $null
+    }
+}
+
+# UNO POR VUELTA, y solo si no hay un juego delante: esto es de fondo y no puede
+# quitarle ni red ni un parpadeo a una partida. Devuelve $true si hizo algo.
+function Update-JuegosDosUno {
+    if ($script:juegosDosFallos -ge 3) { return $false }      # sin red, no se insiste
+    $t = Get-JuegosDos
+    $pend = @($script:Juegos | Where-Object {
+        $_.id -match '^\d+$' -and -not $t.ContainsKey([string]$_.id) })
+    if ($pend.Count -eq 0) { return $false }
+    $j = $pend[0]
+    $f = Get-FichaDosSteam ([string]$j.id) ([string]$j.nombre)
+    if (-not $f) { $script:juegosDosFallos++; return $false }
+    $script:juegosDosFallos = 0
+    $t[[string]$j.id] = $f
+    Save-JuegosDos $t
+    Log ("juegos-dos: " + $f.nombre + " -> " + $(if ($f.dos) { 'de dos' } else { 'de uno' }))
+    return $true
+}
+
+# LO QUE BRAYA APUNTA A MANO. Roblox y Minecraft no estan en Steam y no hay ficha que
+# pedir; It Takes Two tampoco esta instalado ahora mismo. Se guardan por su nombre en
+# plano, no por id, que es lo unico que tienen.
+function Set-JuegoDos([string]$nombre, [bool]$si) {
+    $t = Get-JuegosDos
+    $k = 'n:' + (ConvertTo-Juego $nombre)
+    $t[$k] = @{ nombre = $nombre; solo = $true; dos = $si; coop = $si; partida = $false
+                online = $si; remote = $false; contra = $false; fuente = 'braya' }
+    Save-JuegosDos $t
+}
+
+function Get-FichaDos($j) {
+    $t = Get-JuegosDos
+    if ($j.id -and $t.ContainsKey([string]$j.id)) { return $t[[string]$j.id] }
+    $k = 'n:' + (ConvertTo-Juego ([string]$j.nombre))
+    if ($t.ContainsKey($k)) { return $t[$k] }
+    return $null
+}
+
+# "¿A QUE PODEMOS JUGAR LOS DOS?"
+# Primero los de la misma pantalla, que es lo que se puede hacer AHORA MISMO en el sofa;
+# despues los de en linea. Y aparte los que SOLO se pueden jugar de dos, porque eso no lo
+# sabe nadie de memoria y cambia el plan de la tarde.
+function Get-ParaDos([string]$cual = '') {
+    [void](Update-Juegos)
+    $lista = @($script:Juegos | Where-Object { $_.nombre })
+    if ($cual) {
+        $j = Find-Juego $cual
+        if (-not $j) { return "no tengo ningun juego que se llame asi" }
+        $f = Get-FichaDos $j
+        # LA FRASE QUE SE LE DICE TIENE QUE FUNCIONAR. "X es de dos" a secas es la PREGUNTA,
+        # no la respuesta -hablando son la misma frase-, asi que para apuntarlo hace falta
+        # el "apunta que". Decirle la otra le mandaria a un callejon sin salida.
+        if (-not $f) { return ("de " + $j.nombre + " todavia no lo se; dimelo tu: apunta que " + $j.nombre + " es de dos") }
+        if (-not $f.dos) { return ($j.nombre + " es de un jugador, tu solo") }
+        $comos = @()
+        if ($f.partida) { $comos += 'a pantalla partida aqui mismo' }
+        if ($f.online)  { $comos += 'en linea' }
+        if ($f.remote -and -not $f.partida) { $comos += 'o invitandola con Remote Play Together' }
+        $txt = $j.nombre + ' si es de dos'
+        if ($comos.Count) { $txt += ', ' + ($comos -join ' y ') }
+        if (-not $f.solo) { $txt += '. Y solo de dos: no se puede jugar tu solo' }
+        elseif ($f.contra -and -not $f.coop) { $txt += ', pero uno contra otro, no a la vez' }
+        return $txt
+    }
+    # JUNTOS Y UNO CONTRA OTRO NO SON LO MISMO, y para lo que preguntan aqui importa: 5D
+    # Chess se juega a pantalla partida, si, pero uno contra otro. Meterlo en el mismo saco
+    # que A Way Out seria contestar mal a "¿a que podemos jugar los dos?".
+    $mismos = @(); $enlinea = @(); $contras = @(); $soloDos = @(); $faltan = @()
+    foreach ($j in $lista) {
+        $f = Get-FichaDos $j
+        if (-not $f) { $faltan += [string]$j.nombre; continue }
+        if (-not $f.dos) { continue }
+        if (-not $f.coop) { $contras += [string]$f.nombre; continue }
+        if ($f.partida) { $mismos += [string]$f.nombre } elseif ($f.online -or $f.remote) { $enlinea += [string]$f.nombre }
+        if (-not $f.solo) { $soloDos += [string]$f.nombre }
+    }
+    if ($mismos.Count -eq 0 -and $enlinea.Count -eq 0 -and $contras.Count -eq 0) {
+        if ($faltan.Count) { return 'todavia estoy mirando cuales son de dos, dame un par de minutos' }
+        return 'de lo que tienes instalado no veo nada para dos'
+    }
+    $partes = @()
+    if ($mismos.Count)  { $partes += ('en la misma pantalla, ' + (Join-Con $mismos)) }
+    if ($enlinea.Count) { $partes += ('en linea, ' + (Join-Con $enlinea)) }
+    $txt = 'Para dos tienes ' + ($partes -join '; y ')
+    if ($contras.Count) { $txt += '. Y uno contra otro, ' + (Join-Con $contras) }
+    if ($soloDos.Count) { $txt += '. ' + (Join-Con $soloDos) + ' ' + $(if ($soloDos.Count -eq 1) { 'no se puede jugar' } else { 'no se pueden jugar' }) + ' de otra manera' }
+    if ($faltan.Count) { $txt += '. De ' + (Join-Con $faltan) + ' no lo se: dime "apunta que ' + $faltan[0] + ' es de dos" y lo guardo' }
+    return $txt
+}
+
+# "a, b y c" -- que es como se dice hablando, y no "a, b, c"
+function Join-Con([string[]]$xs) {
+    if ($xs.Count -eq 0) { return '' }
+    if ($xs.Count -eq 1) { return $xs[0] }
+    return (($xs[0..($xs.Count - 2)] -join ', ') + ' y ' + $xs[-1])
+}
+
 # CUANTA RAM, Y DE QUIEN (21/09). Jugando a Roblox con su novia, braya pregunto
 # 'cuanta RAM esta ocupando Roblox y Nova, o sea, tu al mismo tiempo' (20/09 23:20:10).
 # Nova tardo 14 s, gasto DOS llamadas a la API -traducir de 4306 caracteres y plan de
@@ -4023,6 +4200,38 @@ function Resolve-Fragment([string]$f) {
         $f -match '^(?:como|que tal)\s+(?:va|vamos\s+con)\s+la\s+meta$' -or
         $f -match '^(?:cuantas\s+(?:veces\s+)?(?:me\s+|te\s+)?(?:has\s+)?(?:acertado|fallado|equivocado)|como\s+vas\s+de\s+aciertos|que\s+porcentaje\s+llevas)(?:\s+hoy)?$') {
         return @(@{ kind = 'comoTeEntendi'; desc = 'como te he entendido hoy' })
+    }
+    # A QUE PODEMOS JUGAR LOS DOS (23/09, funcion 9). Va ANTES que las descargas porque
+    # "a que podemos jugar" empieza por "a" y el patron de "cuanto le queda a X" es glotón
+    # con el resto de la frase.
+    if ($f -match '^(?:a\s+)?(?:que|cual(?:es)?)\s+(?:juego|juegos)?\s*(?:podemos|puedo|se\s+puede|podriamos|hay\s+para)\s+jugar\s+(?:los\s+)?(?:dos|2|juntos|en\s+pareja|con\s+mi\s+novia|con\s+ella|con\s+alguien|a\s+medias)(?:\s+.*)?$' -or
+        $f -match '^(?:que|cuales)\s+(?:juegos?\s+)?(?:tengo|tienes|hay|teneis)\s+(?:para|de)\s+(?:dos|2|jugar\s+(?:los\s+)?dos|jugar\s+juntos|dos\s+jugadores|cooperativo|coop)(?:\s+.*)?$' -or
+        $f -match '^(?:que|algo)\s+podemos\s+jugar(?:\s+(?:los\s+)?(?:dos|juntos))?$' -or
+        $f -match '^(?:tenemos|tengo)\s+(?:algun|algo|algun\s+juego)\s*(?:juego\s+)?(?:para|de)\s+(?:dos|jugar\s+juntos)$' -or
+        $f -match '^(?:juegos?\s+)?(?:para|de)\s+(?:dos|2)\s+jugadores$') {
+        return @(@{ kind = 'paraDos'; cual = ''; desc = 'a que podeis jugar los dos' })
+    }
+    # y por un juego concreto: "¿elden ring es de dos?"
+    if ($f -match '^(?:el\s+|la\s+)?(.+?)\s+(?:es|seria)\s+(?:de\s+)?(?:dos|2|para\s+dos|cooperativo|coop|multijugador|de\s+dos\s+jugadores)\??$' -and
+        $f -notmatch '^(?:esto|eso|aquello|el\s+juego|este\s+juego)\s') {
+        $jd1 = [string]$Matches[1]
+        if ((Find-Juego $jd1)) { return @(@{ kind = 'paraDos'; cual = $jd1; desc = ("si $jd1 es de dos") }) }
+    }
+    if ($f -match '^(?:se\s+puede\s+jugar|podemos\s+jugar|puedo\s+jugar)\s+(?:a\s+)?(.+?)\s+(?:los\s+)?(?:dos|juntos|en\s+pareja|con\s+mi\s+novia)\??$') {
+        $jd2 = [string]$Matches[1]
+        if ((Find-Juego $jd2)) { return @(@{ kind = 'paraDos'; cual = $jd2; desc = ("si se puede jugar $jd2 los dos") }) }
+    }
+    # LO QUE BRAYA APUNTA A MANO: Roblox y Minecraft no tienen ficha de Steam que pedir.
+    # "X es de dos" NO vale para apuntar: hablando es la misma frase que la pregunta, y la
+    # pregunta es mil veces mas probable. Para apuntar hace falta el "si" o el "apunta que".
+    if ($f -match '^(.+?)\s+si\s+es\s+(?:de\s+dos|para\s+dos|cooperativo)$' -or
+        $f -match '^apunta(?:me)?\s+que\s+(.+?)\s+es\s+(?:de|para)\s+dos$') {
+        $jd3 = [string]$Matches[1]
+        if ((Find-Juego $jd3)) { return @(@{ kind = 'apuntaDos'; cual = $jd3; si = $true; desc = ("que $jd3 es de dos") }) }
+    }
+    if ($f -match '^(.+?)\s+no\s+es\s+(?:de\s+dos|para\s+dos|cooperativo)$') {
+        $jd4 = [string]$Matches[1]
+        if ((Find-Juego $jd4)) { return @(@{ kind = 'apuntaDos'; cual = $jd4; si = $false; desc = ("que $jd4 no es de dos") }) }
     }
     # DESCARGAS DE STEAM (F5): cuanto le queda a un juego, que se esta bajando, y
     # abrir la pagina de descargas (pausar desde fuera no se puede)
@@ -8481,6 +8690,13 @@ function Watch-Entorno([int]$botones = 0) {
         $script:entornoUnidades = $letras
     } catch {}
 
+    # UNA FICHA DE JUEGO POR VUELTA (23/09, funcion 9). Doce juegos son seis minutos de
+    # fondo y cero espera cuando pregunta. No se hace con un juego delante: 300 ms de red
+    # no rompen nada, pero tampoco hacen falta justo ahi.
+    try {
+        if (-not (Get-JuegoEnPrimerPlano)) { [void](Update-JuegosDosUno) }
+    } catch {}
+
     # la lupa se quita sola al vencer el plazo (12 s), como la tarjeta
     if ($script:lupaForm -and $script:lupaUntil -gt 0 -and $sw.ElapsedMilliseconds -ge $script:lupaUntil) { Close-Lupa }
 
@@ -11307,6 +11523,15 @@ function Invoke-FastCommand([string]$text) {
                     }
                 }
                 'clipJuego' { $a.desc = Invoke-ClipJuego }
+                'paraDos' { $a.desc = (Get-ParaDos ([string]$a.cual)) }
+                'apuntaDos' {
+                    $jA = Find-Juego ([string]$a.cual)
+                    if ($jA) {
+                        Set-JuegoDos ([string]$jA.nombre) ([bool]$a.si)
+                        $a.desc = if ($a.si) { "apuntado: " + $jA.nombre + " es de dos" }
+                                  else { "apuntado: " + $jA.nombre + " no es de dos" }
+                    } else { $a.desc = 'no tengo ningun juego que se llame asi' }
+                }
                 'descargaJuego' { $a.desc = [string]$a.texto }
                 'descargasAbrir' {
                     try {

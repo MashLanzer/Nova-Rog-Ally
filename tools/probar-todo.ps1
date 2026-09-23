@@ -429,6 +429,17 @@ Titulo "2n65. Una orden mal oida no envenena el vocabulario"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-alias-vacio.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no envenena el vocabulario)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n105. A que podemos jugar los dos"
+# Funcion 9. De sus doce juegos instalados SIETE son de dos, y tres -A Way Out, The Past
+# Within y Content Warning- NO SE PUEDEN JUGAR SOLO. Ademas juega a Roblox con su novia. El
+# dato sale de la ficha publica de la tienda de Steam (sin clave), se guarda y no se vuelve a
+# pedir; el relleno va de una en una desde Watch-Entorno. Lo que se vigila: que no se mezcle
+# "juntos" con "uno contra otro", que se diga si es a pantalla partida AQUI (una sola
+# pantalla) o hace falta otro aparato, y que la frase que Nova ensena para apuntar un juego
+# que no esta en Steam case de verdad con el patron de apuntar y no con el de preguntar.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-juegos-dos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:de donde lo ha sacado)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n104. La lupa: ensenar el trozo en vez de recitarlo"
 # Funcion 8. En 7 pulgadas a 1080p la letra de un menu mide un milimetro, y lo que habia para
 # eso era el OCR: la unica lectura de pantalla de JUEGO de todo el registro devolvio cinco
