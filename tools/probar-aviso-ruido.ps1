@@ -27,7 +27,11 @@ function Comp($etiqueta, $ok, $detalle = '') {
 # REGLA DEL BANCO (van trece): toda funcion que se llame aqui TIENE que estar en esta lista,
 # o la prueba corre contra el vacio y sale verde con el codigo roto. La seccion 7 de
 # probar-todo.ps1 lo caza, pero mejor no darle trabajo.
-foreach ($fn in @('Get-OidoConRuido')) {
+# Test-EstadoFresco entra el 22/09: desde ese dia Get-OidoConRuido la llama por dentro para
+# no contestar con la medicion del worker ANTERIOR (escucha-estado.txt no lo borra nadie, y
+# tras un arranque tarda 16 s de mediana en refrescarse). Sin traerla, este banco muere a la
+# primera con CommandNotFoundException, que es exactamente como lo cazo la bateria.
+foreach ($fn in @('Test-EstadoFresco', 'Get-OidoConRuido')) {
     $m = [regex]::Match($fuente, ('(?ms)^function {0}[ ({{].*?^\}}' -f [regex]::Escape($fn)))
     if (-not $m.Success) { Write-Host ('  MAL  no encuentro {0} en assistant.ps1' -f $fn); exit 1 }
     . ([scriptblock]::Create($m.Value))
@@ -37,12 +41,26 @@ $base = Join-Path ([System.IO.Path]::GetTempPath()) ('ruido-' + [System.Guid]::N
 $null = New-Item -ItemType Directory -Path $base -Force
 $RutaEstado = Join-Path $base 'escucha-estado.txt'
 
+# El liston de frescura sale del fichero real, no escrito aqui: si algun dia cambia, este
+# banco lo sigue solo.
+$mMax = [regex]::Match($fuente, "(?m)^\`$EstadoMaxSegundos = (\d+)")
+$EstadoMaxSegundos = if ($mMax.Success) { [int]$mMax.Groups[1].Value } else { 45 }
+
 function Pon([string]$linea) { [System.IO.File]::WriteAllText($RutaEstado, $linea) }
 
 Write-Host ''
 Write-Host '-- el quinto campo dice si lo que entra es ruido --'
 Pon '2.6|0.1323|0.000|60|1'
 Comp 'con ruido constante, lo sabe' (Get-OidoConRuido) 'la linea que habria escrito a las 01:50'
+# Y NO CON LA MEDICION DEL WORKER MUERTO (22/09). escucha-estado.txt no lo borra nadie, asi
+# que tras reiniciar la escucha lo que hay ahi es del worker anterior hasta que el nuevo
+# escribe su primer pulso: 16 s de mediana, 46 s en el p90, y el 14 % tarda mas de 30 s.
+# Este aviso no ejecuta ninguna orden, pero le haria decir a Nova que le esta entrando un
+# ruido que se fue con el proceso de antes.
+(Get-Item $RutaEstado).LastWriteTime = (Get-Date).AddSeconds(-($EstadoMaxSegundos + 15))
+Comp 'pero con el estado rancio se calla' (-not (Get-OidoConRuido)) "mas de $EstadoMaxSegundos s"
+(Get-Item $RutaEstado).LastWriteTime = (Get-Date).AddSeconds(-($EstadoMaxSegundos - 10))
+Comp 'y uno de hace un momento sigue valiendo' (Get-OidoConRuido) 'no se tiran los buenos'
 Pon '15.5|0.0210|0.000|6|0'
 Comp 'hablando de verdad, no se queja' (-not (Get-OidoConRuido)) 'la de las 01:17, cuando le oia bien'
 

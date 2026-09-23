@@ -14216,8 +14216,14 @@ function Get-ParrafoDecisiones($stats, [datetime]$ini, [datetime]$fin) {
         # SEMANAL- salia vacio siempre. Se sigue mirando "recientes" si la lista nueva esta
         # vacia, que es lo que pasa con un estadisticas.json de antes de hoy: asi el primer
         # resumen despues del cambio no se queda sin lo que ya habia.
-        $deDonde = @($stats.decisiones)
-        if ($deDonde.Count -eq 0) { $deDonde = @($stats.recientes) }
+        # EL Where-Object NO SOBRA, y me costo ocho rojos de un banco que ya existia: si
+        # $stats no trae la clave 'decisiones' -un objeto de antes de hoy-, $stats.decisiones
+        # es $null, y en PowerShell @($null).Count es UNO, no cero. O sea que el respaldo no
+        # entraba nunca y el foreach corria sobre un $null: el parrafo seguia saliendo vacio,
+        # que es justo lo que se venia a arreglar. Filtrando, una lista ausente y una vacia
+        # se parecen por fin.
+        $deDonde = @($stats.decisiones | Where-Object { $_ })
+        if ($deDonde.Count -eq 0) { $deDonde = @($stats.recientes | Where-Object { $_ }) }
         foreach ($r in $deDonde) {
             if ($r -notmatch '^(\d{4}-\d{2}-\d{2})\s+\S+\s+\[([a-z-]+)\]\s+(.*)$') { continue }
             $f = $null
