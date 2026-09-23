@@ -8122,6 +8122,12 @@ function Test-AvisarRuido([bool]$hayRuido, [long]$ahoraMs, [int]$rearmeMs) {
 #   2. UNA VEZ POR PARTIDA. Se rearma al cambiar de juego, no por reloj: si braya sigue
 #      llamandola por costumbre, la segunda vez ya sabe por que no le contesta.
 #   3. Y NO ejecuta nada. Riesgo de orden equivocada: ninguno.
+# Y LA PREGUNTA DE FONDO, CONTESTADA POR BRAYA (22/09 por la noche): se le enseño el
+# dato -44 llamadas ignoradas ese dia, de 20:28 a 22:05, incluidas 'ey nova nova' y
+# 'ey nova escucha', que es alguien insistiendo porque cree que no le oyen- y se le dio
+# a elegir entre dejarlo, quitar soloBotonEnJuego, o aceptar solo el nombre largo
+# jugando. Eligio DEJARLO COMO ESTA. Asi que el modo solo-boton no se toca: lo unico
+# que cambia es que ahora lo dice. No reabrir esto sin un dato nuevo y sin preguntarle.
 $script:llamadaJuegoDicha = ''      # en que juego se enseño ya (vacio = en ninguno)
 function Test-LlamadaEnJuego([string]$marca, [string]$juego) {
     if (-not (Test-Path -LiteralPath $marca)) { return $false }

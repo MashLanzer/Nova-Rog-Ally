@@ -137,6 +137,9 @@ y las dos están arregladas en el mismo commit:
   insistiendo porque cree que no le oyen. Ahora se ve en la cápsula, **una vez por partida**,
   sin voz (jugando no se interrumpe, y la llamada pudo ser un falso positivo) y sin ejecutar
   nada. Verificado en vivo un segundo después del reinicio.
+  **Y la pregunta de fondo la contestó braya**: con el dato de las 44 llamadas delante,
+  eligió **dejar el modo solo-botón como está**. No se toca; lo único que cambia es que
+  ahora lo dice.
 - **Dijo «me callo» y no se calló.** A las 21:48:54: *«No, no me hablas por 10 minutos»*.
   Ninguna forma de **hablar** estaba en los patrones, así que fue a la charla y la charla
   contestó «Vale, entendido, me callo»… y siguió escuchando. La última sordina de verdad del
