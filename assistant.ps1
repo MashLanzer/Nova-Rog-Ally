@@ -21192,7 +21192,24 @@ while ($true) {
                         $gbLibres = [Math]::Round($di.AvailableFreeSpace / 1073741824.0, 1)
                         Invoke-Reglas 'disco' ([string]$gbLibres)
                         # idea 25: con menos de 15 gigas, un juego ya no cabe
-                        if ($gbLibres -lt 15) {
+                        # Y CON MENOS DE DOS, YA NO CABE NI WINDOWS (22/09 por la noche, con
+                        # el dato delante). Este aviso es de nivel 'medio' y con plazo de 720
+                        # minutos, y eso, que esta bien para "te quedan 11 gigas", fue un
+                        # desastre para lo de hoy: el ultimo salio a las 08:33 diciendo 11,1
+                        # gigas y a las 22:50 quedaban 0,81 -el 0,18 % del disco- sin que
+                        # hubiera dicho ni una palabra en catorce horas. Doce son el plazo y
+                        # dos y media el silencio del modo juego; y a las 23:00 entraba el
+                        # silencio de la noche, asi que no habria hablado hasta las 08:00 de
+                        # la mañana, con el disco a cero.
+                        # Por debajo del liston critico pasa a 'alto', que es el unico nivel
+                        # que se salta el juego, la noche y el tope por hora -el mismo trato
+                        # que la bateria al 15 %-, y con plazo corto: cuando quedan minutos
+                        # de escritura, repetirlo cada hora no es pesado, es lo unico util.
+                        # Los dos numeros son de config, que braya los pueda tocar.
+                        $discoCritico = [double](Get-Cfg 'entorno' 'discoCriticoGb' 2)
+                        if ($gbLibres -lt $discoCritico) {
+                            [void](Send-AvisoEntorno 'disco-critico' "Quedan $gbLibres gigas en el disco, casi nada. Voy a empezar a fallar: borra algo o dime que ocupa mas." 'alto' 60)
+                        } elseif ($gbLibres -lt 15) {
                             [void](Send-AvisoEntorno 'disco-poco' "Te quedan $gbLibres gigas en el disco. Preguntame que ocupa mas." 'medio' 720)
                         }
                     }

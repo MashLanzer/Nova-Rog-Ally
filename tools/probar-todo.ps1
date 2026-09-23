@@ -429,6 +429,16 @@ Titulo "2n65. Una orden mal oida no envenena el vocabulario"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-alias-vacio.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no envenena el vocabulario)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n84. Que el disco lleno se diga a tiempo, y se salte la noche"
+# 22/09 por la noche: el ultimo aviso de disco fue a las 08:33 ("te quedan 11.1 gigas") y a
+# las 22:50 quedaban 0,81 GB de 475 -el 0,18 %- sin una palabra en medio. Catorce horas: doce
+# del plazo de 720 min y dos y media del silencio del modo juego. Y a las 23:00 entraba el
+# silencio de la noche: con nivel 'medio' no habria hablado hasta las 08:00, con el disco a
+# cero. Por debajo del liston critico pasa a 'alto', que es el unico nivel que se salta el
+# juego, la noche y el tope por hora.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-disco-critico.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se salta la noche)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n83. Callarse cuando se lo dices, y volver cuando la llamas"
 # 22/09 por la noche, y sale de una frase suya del log: a las 21:48:54, jugando, braya dijo
 # "No, no me hablas por 10 minutos". Ninguna forma de HABLAR estaba en los patrones -habia

@@ -132,6 +132,7 @@
   "entorno": {
     "avisos": true,
     "porHora": 4,
+    "discoCriticoGb": 2,
     "nocheDesde": 23,
     "nocheHasta": 8,
     "gmailLleno": true
