@@ -109,7 +109,15 @@ Comp 'y queda contado para poder medirlo' ($cuerpo -match "Add-Estadistica 'llam
 Write-Host ''
 Write-Host '-- y el worker deja la marca donde toca --'
 Comp 'la escucha escribe la marca al ignorar por juego' ($oido -match 'MARCA_LLAMADA_JUEGO\)') ''
-Comp 'y solo cuando de verdad ignora por el juego' ($oido -match "(?s)ignorado: estas jugando.{0,400}escribir\(MARCA_LLAMADA_JUEGO")
+# POR LINEAS, NO POR CARACTERES. Esto media 400 caracteres entre el aviso y la escritura de
+# la marca, y con 40 espacios de sangrado por linea eso son seis lineas escasas: un
+# comentario nuevo en medio lo puso en rojo con el codigo bien. Lo que importa es que la
+# marca se escriba DENTRO de esa rama, no a cuantos caracteres.
+$lineasOido = @($oido -split "`r?`n")
+$iIgn = -1
+for ($q = 0; $q -lt $lineasOido.Count; $q++) { if ($lineasOido[$q] -match 'ignorado: estas jugando') { $iIgn = $q; break } }
+$traIgn = if ($iIgn -ge 0) { ($lineasOido[$iIgn..([Math]::Min($iIgn + 12, $lineasOido.Count - 1))]) -join "`n" } else { '' }
+Comp 'y solo cuando de verdad ignora por el juego' ($traIgn -match 'escribir\(MARCA_LLAMADA_JUEGO') 'dentro de esa misma rama'
 Comp 'el nombre del fichero cuadra en los dos lados' (($oido -match 'llamada-en-juego\.txt') -and ($fuente -match 'llamada-en-juego\.txt')) 'si no, nadie lee lo que el otro escribe'
 
 Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue

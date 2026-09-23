@@ -114,9 +114,14 @@ Write-Host ''
 Write-Host '-- 4. la sordina ya no deja la marca en modo voz --'
 Comp 'la marca mira si hay sordina' ($fuente -match '\$voz -and \$InterrumpirOn -and \$script:sordinaHasta -le \$sw\.ElapsedMilliseconds')
 # y que la cuenta salga bien en los dos casos, con la linea TAL CUAL del archivo
-$mM = [regex]::Match($fuente, '(?m)^\s*\$marcaTxt = if \(.*$')
+# LAS TRES LINEAS DEL if, no solo la primera. Cuando se puso la sordina-por-nombre (22/09)
+# el if paso a tener un elseif, y este banco seguia cogiendo UNA linea: ejecutaba un if sin
+# su elseif, la marca salia vacia y el caso de la sordina se ponia rojo con el codigo bien.
+$mM = [regex]::Match($fuente, '(?ms)^\s*\$marcaTxt = if \(.*?^\s*else \{[^
+]*\}')
 if (-not $mM.Success) { Comp 'encuentro la linea de la marca' $false } else {
     $linea = [scriptblock]::Create($mM.Value.Trim())
+    $EscuchaNombre = 'nova'
     $sw = [System.Diagnostics.Stopwatch]::StartNew(); Start-Sleep -Milliseconds 30
     $InterrumpirOn = $true
     $voz = 'me callo media hora'
@@ -125,7 +130,10 @@ if (-not $mM.Success) { Comp 'encuentro la linea de la marca' $false } else {
     Comp 'sin sordina, la marca lleva la voz (se puede interrumpir)' ($marcaTxt -like 'voz:*') "'$marcaTxt'"
     $script:sordinaHasta = $sw.ElapsedMilliseconds + 1800000
     . $linea
-    Comp 'en sordina, la marca es "x" (el worker no escucha nada)' ($marcaTxt -eq 'x') "'$marcaTxt'"
+    # EN SORDINA, EL NOMBRE (22/09, funcion 4): el worker deja de escuchar ordenes pero
+    # sigue esperando 'nova', que es como se sale de la sordina hablando. Antes era 'x' -no
+    # escuchaba nada- y entonces la unica salida era el boton.
+    Comp 'en sordina, la marca es el nombre (la unica puerta para volver)' ($marcaTxt -like 'nombre:*') "'$marcaTxt'"
     # el caso de la carga: la variable todavia no existe
     Remove-Variable sordinaHasta -Scope Script -ErrorAction SilentlyContinue
     . $linea

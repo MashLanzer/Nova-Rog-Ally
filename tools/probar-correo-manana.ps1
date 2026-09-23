@@ -24,6 +24,10 @@ $txtRecibe = Traer 'Receive-CorreoManana'
 Invoke-Expression $txtStart
 Invoke-Expression $txtRecibe
 Invoke-Expression (Traer 'Format-Correos')
+# Y LA CORTA, que es la que usa el aviso de la manana desde el 23/09. Sin traerla, el banco
+# reventaba con 'Format-CorreosCorto no se reconoce' y la seccion 7 de la bateria -la que
+# caza justo esto- lo dijo con su nombre.
+Invoke-Expression (Traer 'Format-CorreosCorto')
 
 # --- el mundo de mentira ---
 $TmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ('nova-correo-manana-' + [System.Guid]::NewGuid().ToString('N').Substring(0, 8))
