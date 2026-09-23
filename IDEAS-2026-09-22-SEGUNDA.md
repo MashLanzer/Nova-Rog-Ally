@@ -267,3 +267,45 @@ sonando. Ahora el campo que alimenta el aviso solo se enciende con lo que **no**
 ni su voz ni sus altavoces; la calibracion de la ganancia no se toca, que esa si trata los
 dos casos igual a proposito y esta medida. El pulso, ademas, deja escrito el nivel de
 salida: hoy habia 2.853 pulsos de ruido y ni uno decia si sonaba algo.
+
+---
+
+## DOS COSAS MAS QUE SALIERON DEL LOG, MEDIDAS Y NO HECHAS (22/09 noche)
+
+Se dejan escritas con su numero porque las dos tienen **riesgo de orden equivocada**, que es
+el filtro que no pasaron las otras.
+
+### «Si es X» y «Sierra X» son «cierra X»
+
+En todo el log hay **13 ordenes** en las que el oido convierte «cierra» en otra cosa:
+`Sierra, steam`, `Sierra Paint`, `Sierra and the Ring`, `Si es el navegador`,
+`Si es la Administrador`... La mitad de esa familia **ya esta arreglada**: `sierra` esta en
+`$VERBOS_OIDOS` (assistant.ps1:323) y se convierte en `cierra` antes de resolver.
+
+La que falta es **«si es X»**, porque `$VERBOS_OIDOS` solo mira la PRIMERA palabra y esto
+son dos. Y ahi el dato **no gana claro**: de las 6 veces que aparece, 4 eran «cierra X» y
+**2 no** -una era `Si es Steam` respondiendo «si» a una confirmacion (convertirla en «cierra
+steam» habria CERRADO lo que braya acababa de mandar abrir) y otra era `abre ajustes`-.
+
+Cuatro aciertos y dos cierres equivocados no es un cambio que se mete a ciegas. Si se hace
+algun dia, tiene que ser con las dos condiciones que hacen el caso seguro: que **no** haya
+una confirmacion esperando, y que lo que quede detras resuelva a algo **que este abierto
+ahora mismo**. Mientras tanto el oido fino ya lo resuelve (2 de 2 en el log): lo que se paga
+son segundos, no la orden.
+
+### El «si» que rebota entre la charla y las ordenes
+
+**01:13:53**, Nova pregunta «¿Quieres que lo haga ahora?». braya contesta que si y el oido
+escribe **`Sí, ají`**. Lo que pasa despues, en once segundos:
+
+1. la capa local: «no reconozco `si aji`» -> a opencode;
+2. la charla: «no era charla sino una orden»;
+3. el camino de la orden: «NO era una orden: descartado».
+
+Nadie le contesto, y braya tuvo que repetirlo entero: **«Dije que sí, que lo hagas ahora»**.
+El rebote esta previsto en el codigo (`EL REBOTE CHARLA <-> TRADUCIR`) y corto bien la
+cadena; lo que falta es que, **justo despues de que Nova pregunte**, un texto que empieza
+por «si» se lea como la respuesta a esa pregunta y no como una orden nueva. Pasa **7 veces**
+en el log («no te entendi en un seguimiento»). No se toca hoy porque quien clasifica ahi es
+el worker de charla y el cambio no es de una linea.
+
