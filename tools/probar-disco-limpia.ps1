@@ -80,6 +80,36 @@ Comp 'y dice QUE va a borrar y cuanto' ($fuente -match 'voy a borrar') ''
 Comp 'solo borra si braya confirma' ($fuente -match "(?s)'discoLimpia'.{0,900}if \(-not \`$script:confirmado\)") ''
 
 Write-Host ''
+Write-Host '-- Y BORRA EXACTAMENTE LO QUE CONTO (revision del 23/09) --'
+# Get-TamanoMB cuenta FICHEROS, recursivamente, y por la fecha DEL FICHERO. Clear-CachesDisco
+# listaba solo el PRIMER NIVEL, miraba la fecha de la ENTRADA -carpetas incluidas- y borraba
+# con -Recurse. Medido en su %TEMP%: se anunciaban 193 ficheros viejos = 12,3 MB y se
+# borraban 22 entradas = 0,44 MB, o sea 28 veces menos de lo que pidio permiso para hacer.
+# Y ademas una carpeta con fecha vieja se llevaba por delante los ficheros de ayer de dentro.
+$cuenta = ((Traer 'Get-TamanoMB') -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+$borra = ((Traer 'Clear-CachesDisco') -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+Comp 'contar recorre ficheros, recursivo' (($cuenta -match '-Recurse') -and ($cuenta -match '-File'))
+Comp 'y borrar tambien' (($borra -match 'Get-ChildItem -LiteralPath \$c\.ruta -Recurse -File -Force'))
+Comp 'los dos filtran por LastWriteTime del fichero' (($cuenta -match 'LastWriteTime -lt \$corte') -and ($borra -match 'LastWriteTime -lt \$corte'))
+Comp 'y no se borra una carpeta entera por su fecha' ($borra -notmatch 'Remove-Item -LiteralPath \$it\.FullName -Recurse') 'dentro puede haber algo de hoy'
+Comp 'las carpetas vacias se podan despues' (($borra -match '-Recurse -Directory') -and ($borra -match 'if \(-not \(Get-ChildItem'))
+# y una prueba de verdad, en una carpeta de mentira
+$tmpD = Join-Path ([System.IO.Path]::GetTempPath()) ('disco-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+$dirV = Join-Path $tmpD 'vieja'
+$null = New-Item -ItemType Directory -Path $dirV -Force
+$fViejo = Join-Path $dirV 'antiguo.txt'
+$fHoy = Join-Path $dirV 'de-hoy.txt'
+('x' * 1000) | Set-Content -LiteralPath $fViejo
+('y' * 1000) | Set-Content -LiteralPath $fHoy
+(Get-Item -LiteralPath $fViejo).LastWriteTime = (Get-Date).AddDays(-30)
+(Get-Item -LiteralPath $dirV).LastWriteTime = (Get-Date).AddDays(-30)
+Invoke-Expression (Traer 'Clear-CachesDisco')   # la de verdad, del fichero
+$CachesLimpiables = @(@{ nombre = 'prueba'; ruta = $tmpD; dias = 7 })
+[void](Clear-CachesDisco)
+Comp 'el fichero viejo se va' (-not (Test-Path -LiteralPath $fViejo))
+Comp 'y el de hoy se queda, aunque su carpeta sea vieja' (Test-Path -LiteralPath $fHoy) 'esto es lo que podia hacer dano'
+Remove-Item -LiteralPath $tmpD -Recurse -Force -ErrorAction SilentlyContinue
+Write-Host ''
 if ($fallos -gt 0) { Write-Host "  $fallos caso(s) MAL"; exit 1 }
 Write-Host '  te dice que ocupa y suelta solo lo que se regenera'
 exit 0

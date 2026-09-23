@@ -1,12 +1,12 @@
 # LIMPIAR LO QUE CREE SABER DE BRAYA (23/09, funcion 5 de la tanda de funciones nuevas).
 #
-# perfil.md tiene 59 datos y el tope son 60: esta lleno, asi que cada dato nuevo expulsa a
-# otro. Y solo las 15 ultimas lineas viajan en cada prompt de la charla, o sea que la basura
-# le vuelve hablada. Hoy nueve de esos huecos se los comen dos nombres MAL OIDOS: tres lineas
-# de un juego llamado "Amino" ("se llama Amino", "usa Amino", "juega en Amino") y dos de un
-# "Meramiau" que acabo inventando un gato que no existe. Y el caso que lo prueba: el 20/09 a
-# las 23:09-23:11 sus DOS correcciones seguidas del nombre del juego se guardaron como dos
-# datos NUEVOS encima del malo.
+# perfil.md tiene 59 datos y el tope son 60: esta a un dato de llenarse, y a partir de ahi
+# cada dato nuevo expulsa a otro. Y solo las 15 ultimas lineas viajan en cada prompt de la
+# charla, o sea que la basura le vuelve hablada. Hoy OCHO de esos 59 se los comen dos nombres
+# MAL OIDOS: cuatro lineas de un juego llamado "Amin"/"Amino" (las 16, 18, 19 y 20) y cuatro
+# de un "Meramiau"/"Mira mio"/"Meramian" (24, 25, 27 y 34) que acabo inventando un gato que
+# no existe. Y el caso que lo prueba: el 20/09 a las 23:09-23:11 sus DOS correcciones seguidas
+# del nombre del juego se guardaron como dos datos NUEVOS encima del malo.
 #
 # LO QUE NO SE HACE: borrar por su cuenta. Lo que hay en su perfil es suyo. Se busca el par
 # que mas se parece y se le PREGUNTA con las dos frases delante.
@@ -65,13 +65,48 @@ $script:datosFalsos = @('braya juega Elden Ring', 'braya tiene pareja')
 Comp 'con dos datos, no hay nada que limpiar' ($null -eq (Get-ParParecidoPerfil))
 
 Write-Host ''
-Write-Host '-- y no borra: pregunta --'
-Comp 'arma una confirmacion' ($fuente -match "tipo = 'perfilPar'") ''
-# sin el signo de apertura: el .ps1 se lee sin BOM y ese caracter no sobrevive
-Comp 'con las dos frases delante' ($fuente -match 'Me quedo con la primera o con la segunda') ''
-Comp 'y solo borra si braya elige' ($fuente -match "(?s)'perfilPar'.{0,900}Save-DatosPerfil") ''
-Comp 'si no entiende, deja las dos' ($fuente -match 'No te he entendido; las dejo las dos') 'lo que hay en su perfil es suyo'
-Comp 'y puede decir que no' ($fuente -match 'Vale, las dejo las dos') ''
+Write-Host '-- y no borra: PREGUNTA, y la pregunta se puede contestar --'
+# ESTO SE EJECUTA, no se lee. Antes se comprobaba con -match sobre el fuente que existiera
+# una rama 'perfilPar' en Complete-Confirmacion... y esa rama era INALCANZABLE: el canal de
+# confirmacion solo transporta si/no -confirmacion.txt esta filtrado a ^(si|no)$, el oido
+# entra en gramatica cerrada de si/no y el mando manda si/no-, asi que "la primera" no
+# llegaba nunca y toda respuesta acababa en "no te he entendido". El banco estaba verde y
+# la funcion no se podia completar. Ahora va por el selector de listas cerradas y aqui se
+# ejecuta de verdad.
+$script:guardado = $null
+function Save-DatosPerfil($d) { $script:guardado = @($d) }
+function Log($m) {}
+function Add-Estadistica($a, $b) {}
+$sw = [pscustomobject]@{}
+$script:reloj = 0
+$sw | Add-Member -MemberType ScriptProperty -Name ElapsedMilliseconds -Value { $script:reloj }
+Invoke-Expression (Traer 'Resolve-PerfilPar')
+
+$script:datosFalsos = @('se llama Amino', 'usa Amino', 'braya tiene pareja')
+$script:perfilPar = @{ a = 'se llama Amino'; b = 'usa Amino'; hasta = 60000 }
+$d1 = Resolve-PerfilPar 1
+Comp 'con la primera, se va la segunda' ($script:guardado -contains 'se llama Amino' -and -not ($script:guardado -contains 'usa Amino')) $d1
+
+$script:guardado = $null
+$script:perfilPar = @{ a = 'se llama Amino'; b = 'usa Amino'; hasta = 60000 }
+$d2 = Resolve-PerfilPar 2
+Comp 'con la segunda, se va la primera' ($script:guardado -contains 'usa Amino' -and -not ($script:guardado -contains 'se llama Amino')) $d2
+
+$script:guardado = $null
+$script:perfilPar = @{ a = 'se llama Amino'; b = 'usa Amino'; hasta = 60000 }
+$d3 = Resolve-PerfilPar 0
+Comp 'y si dice que las deje, no se toca nada' ($null -eq $script:guardado) $d3
+
+$script:guardado = $null
+$script:perfilPar = $null
+$d4 = Resolve-PerfilPar 1
+Comp 'sin pregunta abierta no borra nada' ($null -eq $script:guardado) $d4
+
+# y las dos vias llegan aqui: la voz y el mando
+Comp 'la voz tiene su patron' ($fuente -match "kind = 'perfilElige'; cual = 1") 'la primera / la segunda / las dos'
+Comp 'y caduca al minuto' ($fuente -match 'perfilPar.hasta') 'la pregunta se contesta en el momento'
+Comp 'el mando tambien' ($fuente -match "'perfil' \{ Say \(Resolve-PerfilPar") 'el selector de listas cerradas'
+Comp 'y ya no usa el canal de si/no' ($fuente -notmatch "tipo = 'perfilPar'") 'ese canal solo transporta si y no'
 
 Write-Host ''
 if ($fallos -gt 0) { Write-Host "  $fallos caso(s) MAL"; exit 1 }

@@ -4241,6 +4241,16 @@ function Resolve-Fragment([string]$f) {
         $f -match '^(?:cuantas\s+(?:veces\s+)?(?:me\s+|te\s+)?(?:has\s+)?(?:acertado|fallado|equivocado)|como\s+vas\s+de\s+aciertos|que\s+porcentaje\s+llevas)(?:\s+hoy)?$') {
         return @(@{ kind = 'comoTeEntendi'; desc = 'como te he entendido hoy' })
     }
+    # CONTESTANDO A "¿ME QUEDO CON LA PRIMERA O CON LA SEGUNDA?" (funcion 5). Mismo patron
+    # que el ajedrez: solo vale mientras la pregunta esta viva, porque "dos" a secas es una
+    # palabra cualquiera. Y va DESPUES del ajedrez, que se resuelve antes en Process-Texto:
+    # si alguna vez coinciden las dos preguntas, manda la partida.
+    if ($script:perfilPar -and $sw.ElapsedMilliseconds -ge $script:perfilPar.hasta) { $script:perfilPar = $null }
+    if ($script:perfilPar) {
+        if ($f -match '^(?:la\s+)?(?:primera|primero|uno|la de arriba)$') { return @(@{ kind = 'perfilElige'; cual = 1; desc = 'me quedo con la primera' }) }
+        if ($f -match '^(?:la\s+)?(?:segunda|segundo|dos|la de abajo)$') { return @(@{ kind = 'perfilElige'; cual = 2; desc = 'me quedo con la segunda' }) }
+        if ($f -match '^(?:las dos|ninguna|ni una|dejalo|dejalas|deja las dos|no)$') { return @(@{ kind = 'perfilElige'; cual = 0; desc = 'las dejo las dos' }) }
+    }
     # A QUE PODEMOS JUGAR LOS DOS (23/09, funcion 9). Va ANTES que las descargas porque
     # "a que podemos jugar" empieza por "a" y el patron de "cuanto le queda a X" es glotón
     # con el resto de la frase.
@@ -12238,14 +12248,22 @@ function Invoke-FastCommand([string]$text) {
                     if (-not $par) {
                         $a.desc = 'no veo nada repetido en lo que se de ti'
                     } else {
-                        # se PREGUNTA, no se decide: lo que hay en su perfil es suyo.
-                        $script:pendiente = @{ tipo = 'perfilPar'; texto = 'limpiar perfil'
-                                               a = $par.a; b = $par.b; vence = 0 }
+                        # SE PREGUNTA, NO SE DECIDE: lo que hay en su perfil es suyo.
+                        # Y NO POR EL CANAL DE SI/NO (revision del 23/09): ese canal solo
+                        # transporta si o no -confirmacion.txt esta filtrado a ^(si|no)$, el
+                        # oido entra en gramatica cerrada de si/no, y el mando manda si/no-,
+                        # asi que "la primera" no llegaba NUNCA y toda respuesta acababa en
+                        # "no te he entendido, las dejo las dos". La funcion no se podia
+                        # completar. Esto es una lista cerrada de dos: va por donde van las
+                        # listas cerradas.
+                        $script:perfilPar = @{ a = $par.a; b = $par.b
+                                               hasta = $sw.ElapsedMilliseconds + 60000 }
+                        [void](Open-Eleccion @($par.a, $par.b) 'perfil')
                         $a.desc = 'tengo dos cosas parecidas: ' + $par.a + '; y ' + $par.b +
                                   '. ¿Me quedo con la primera o con la segunda?'
-                        Start-Confirmacion
                     }
                 }
+                'perfilElige' { $a.desc = (Resolve-PerfilPar ([int]$a.cual)) }
                 'recordar' {
                     # va al worker de la charla, que es quien tiene los vectores. Si no
                     # contesta o no encuentra nada, se dice y punto: nada de inventar.
@@ -13172,7 +13190,14 @@ function Clear-CachesDisco {
     foreach ($c in $CachesLimpiables) {
         if (-not $c.ruta -or -not (Test-Path -LiteralPath $c.ruta)) { continue }
         try {
-            $items = Get-ChildItem -LiteralPath $c.ruta -Force -ErrorAction SilentlyContinue
+            # SE BORRA EXACTAMENTE LO QUE SE CONTO (revision del 23/09). Get-TamanoMB cuenta
+            # FICHEROS, recursivamente, y por la fecha DEL FICHERO; esto listaba solo el
+            # primer nivel, miraba la fecha de la ENTRADA -carpetas incluidas- y borraba con
+            # -Recurse. Medido en su %TEMP%: se anunciaban 193 ficheros viejos = 12,3 MB y se
+            # borraban 22 entradas = 0,44 MB. Pedir permiso para doce megas y soltar medio es
+            # exactamente lo que la casa no tolera. Y de paso se iba la punta peligrosa: una
+            # carpeta vieja se llevaba por delante los ficheros de ayer que tuviera dentro.
+            $items = Get-ChildItem -LiteralPath $c.ruta -Recurse -File -Force -ErrorAction SilentlyContinue
             if ([int]$c.dias -gt 0) {
                 $corte = (Get-Date).AddDays(-[int]$c.dias)
                 $items = @($items | Where-Object { $_.LastWriteTime -lt $corte })
@@ -13180,7 +13205,19 @@ function Clear-CachesDisco {
             foreach ($it in $items) {
                 # y NUNCA la carpeta de Nova: ahi viven sus propias copias y medidas
                 if ($it.FullName -like "*voice-ctrl*" -or $it.FullName -like "*claude*") { continue }
-                try { Remove-Item -LiteralPath $it.FullName -Recurse -Force -ErrorAction SilentlyContinue; $tocadas++ } catch {}
+                try { Remove-Item -LiteralPath $it.FullName -Force -ErrorAction SilentlyContinue; $tocadas++ } catch {}
+            }
+            # y despues, las carpetas que se hayan quedado vacias. De dentro hacia fuera, y
+            # solo si no queda NADA: una carpeta con un fichero de hoy no se toca.
+            $dirs = @(Get-ChildItem -LiteralPath $c.ruta -Recurse -Directory -Force -ErrorAction SilentlyContinue |
+                      Sort-Object -Property { $_.FullName.Length } -Descending)
+            foreach ($dd in $dirs) {
+                if ($dd.FullName -like "*voice-ctrl*" -or $dd.FullName -like "*claude*") { continue }
+                try {
+                    if (-not (Get-ChildItem -LiteralPath $dd.FullName -Force -ErrorAction SilentlyContinue)) {
+                        Remove-Item -LiteralPath $dd.FullName -Force -ErrorAction SilentlyContinue
+                    }
+                } catch {}
             }
         } catch {}
     }
@@ -13190,11 +13227,13 @@ function Clear-CachesDisco {
 }
 
 # LIMPIAR LO QUE CREE SABER DE BRAYA (23/09, funcion 5 de la tanda de funciones nuevas).
-# perfil.md tiene EXACTAMENTE 60 datos y el tope son 60: esta lleno, asi que cada dato nuevo
-# expulsa a otro. Y solo las 15 ultimas lineas viajan en cada prompt de la charla, o sea que
-# lo que este ahi arriba le vuelve hablado. Hoy, nueve de esos 60 huecos se los comen dos
-# nombres MAL OIDOS: cuatro lineas de "Meramiau"/"Mira mio"/"Meramian" -que acabaron
-# inventando un gato que no existe- y cinco de un juego llamado "Amin"/"Amino".
+# perfil.md tiene 59 datos y el tope son 60: esta a un dato de llenarse, y a partir de ahi
+# cada dato nuevo expulsa a otro. Y solo las 15 ultimas lineas viajan en cada prompt de la
+# charla, o sea que lo que este ahi arriba le vuelve hablado. Hoy, OCHO de esos 59 se los
+# comen dos nombres MAL OIDOS: cuatro lineas de "Meramiau"/"Mira mio"/"Meramian" -que
+# acabaron inventando un gato que no existe- y cuatro de un juego llamado "Amin"/"Amino".
+# (Contado hoy sobre el fichero: 59 lineas que empiezan por "- "; Amino en las 16, 18, 19 y
+#  20, y los Meramiau en las 24, 25, 27 y 34.)
 # El caso que lo prueba es del 20/09 a las 23:09-23:11: sus DOS correcciones seguidas del
 # nombre del juego se guardaron como dos datos NUEVOS encima del malo, en vez de corregirlo.
 #
@@ -13202,6 +13241,22 @@ function Clear-CachesDisco {
 # entre si -los que casi seguro son el mismo con dos redacciones- y se le PREGUNTA con las dos
 # opciones delante. Una pregunta, dos opciones, y el que sobra se va. Nada de borrar a ciegas
 # lo que el escribio.
+$script:perfilPar = $null
+# Resuelve el par: 1 = me quedo con la primera, 2 = con la segunda, 0 = las dejo las dos.
+# La usan las DOS vias -la voz y el mando-, asi que el borrado esta escrito una sola vez.
+function Resolve-PerfilPar([int]$cual) {
+    $p = $script:perfilPar
+    $script:perfilPar = $null
+    if (-not $p) { return 'ya no tengo esa pregunta abierta' }
+    if ($cual -ne 1 -and $cual -ne 2) { return 'vale, las dejo las dos' }
+    $fuera = if ($cual -eq 1) { [string]$p.b } else { [string]$p.a }
+    $dp = @(Get-DatosPerfil)
+    Save-DatosPerfil (@($dp | Where-Object { $_ -ne $fuera }))
+    Log "PERFIL: braya eligio la $cual; fuera '$fuera'"
+    Add-Estadistica 'perfil-limpia' $fuera
+    return 'hecho, me quedo con la otra'
+}
+
 function Get-ParParecidoPerfil {
     $datos = @(Get-DatosPerfil)
     if ($datos.Count -lt 8) { return $null }
@@ -13261,11 +13316,23 @@ function Get-ParParecidoPerfil {
             if ($pb.Count -lt 1) { continue }
             $comunes = @($pa | Where-Object { $pb -contains $_ })
             # el caso del nombre propio: dos frases cortas que hablan de lo mismo
-            $raras = @($comunes | Where-Object { $propios[$_] -and [int]$cuenta[$_] -ge 2 -and [int]$cuenta[$_] -le 4 })
+            # EL TOPE ES 6 Y NO 4 (revision del 23/09): su perfil tiene CUATRO lineas de
+            # "Amino", asi que con "-le 4" entraba por los pelos y una quinta -que llega
+            # sola, porque el oido sigue inventandoselo- sacaba del rango justo el caso que
+            # se viene a cazar.
+            $raras = @($comunes | Where-Object { $propios[$_] -and [int]$cuenta[$_] -ge 2 -and [int]$cuenta[$_] -le 6 })
             $cortaA = (@($datos[$i] -split '\s+').Count -le 8)
             $cortaB = (@($datos[$j] -split '\s+').Count -le 8)
             if ($raras.Count -gt 0 -and $cortaA -and $cortaB) {
-                if (0.9 -gt $mejorP) { $mejorP = 0.9; $mejorA = $datos[$i]; $mejorB = $datos[$j] }
+                # GANA EL NOMBRE QUE MAS LINEAS ENSUCIA (revision del 23/09). Antes se fijaba
+                # un 0,9 plano y se comparaba con "-gt" estricto, asi que ganaba el PRIMER par
+                # de 0,9 que apareciera y todos los empates posteriores se tiraban. Medido
+                # sobre su perfil de verdad: salia el par "tiene 14 juegos instalados en
+                # Steam" / "Braya usa Steam" -que son dos datos DISTINTOS, o sea que Nova
+                # proponia borrar informacion buena- y las cuatro lineas de "Amino" no se
+                # ofrecian jamas. Con la cuenta, "Amino" (4 lineas) gana a "Steam" (2).
+                $sc = 0.9 + 0.001 * [int]$cuenta[$raras[0]]
+                if ($sc -gt $mejorP) { $mejorP = $sc; $mejorA = $datos[$i]; $mejorB = $datos[$j] }
                 continue
             }
             if ($comunes.Count -lt 2) { continue }
@@ -13275,7 +13342,7 @@ function Get-ParParecidoPerfil {
     }
     # 0,6 es el mismo liston con el que Add-DatoPerfil decide que dos frases son el mismo tema
     if ($mejorP -lt 0.6) { return $null }
-    return @{ a = $mejorA; b = $mejorB; parecido = [Math]::Round($mejorP, 2) }
+    return @{ a = $mejorA; b = $mejorB; parecido = [Math]::Round([Math]::Min(1.0, $mejorP), 2) }
 }
 
 # MONTAJES CON NOMBRE (23/09, funcion 3 de la tanda de funciones nuevas).
@@ -18951,28 +19018,10 @@ function Complete-Confirmacion([string]$respuesta) {
     }
     # EL DATO DUDOSO DE UNA RECETA (M7): si, se hace; no, se pide otra vez SIN
     # castigar a la receta (lo que fallo fue el oido, no ella)
-    # LIMPIAR EL PERFIL (23/09, funcion 5). Aqui no vale un si/no: se le dio a elegir entre
-    # dos frases suyas, asi que se contesta "la primera" o "la segunda". Cualquier otra cosa
-    # deja el perfil como estaba, que es lo seguro: lo que hay ahi es suyo.
-    if ($p.tipo -eq 'perfilPar') {
-        $plR = ConvertTo-Plain $respuesta
-        $fuera = ''
-        if ($plR -match '^(?:la )?(?:primera|primero|uno|la de arriba)$') { $fuera = [string]$p.b }
-        elseif ($plR -match '^(?:la )?(?:segunda|segundo|dos|la de abajo)$') { $fuera = [string]$p.a }
-        elseif ($plR -eq 'no' -or $plR -match '^(?:las dos|ninguna|dejalo|deja)$') {
-            Say 'Vale, las dejo las dos.'
-            Set-UI 'reposo'
-            return
-        }
-        if (-not $fuera) { Say 'No te he entendido; las dejo las dos.'; Set-UI 'reposo'; return }
-        $dp = @(Get-DatosPerfil)
-        Save-DatosPerfil (@($dp | Where-Object { $_ -ne $fuera }))
-        Log "PERFIL: braya eligio; fuera '$fuera'"
-        Add-Estadistica 'perfil-limpia' $fuera
-        Say 'Hecho, me quedo con la otra.'
-        Set-UI 'reposo'
-        return
-    }
+    # LIMPIAR EL PERFIL YA NO PASA POR AQUI (revision del 23/09). Estuvo aqui un dia, y era
+    # una rama inalcanzable: este canal solo transporta si/no, asi que "la primera" no llegaba
+    # nunca y toda respuesta caia en "no te he entendido". Ahora va por el selector de listas
+    # cerradas (ver 'perfilLimpia' y Resolve-PerfilPar).
     if ($p.tipo -eq 'recetaDato') {
         $gD = Get-Recetas
         $objD = @($gD | Where-Object { $_.id -eq $p.id })
@@ -21251,6 +21300,7 @@ function Complete-Eleccion([int]$n) {
             $r = Invoke-AjedrezPy @('--elegir', [string]$n)
             if ($r -and $r.decir) { Say ([string]$r.decir) } else { Set-UI 'reposo' }
         }
+        'perfil' { Say (Resolve-PerfilPar $n) }
         default { Set-UI 'reposo' }
     }
 }
