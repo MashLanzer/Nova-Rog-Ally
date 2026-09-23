@@ -2763,8 +2763,12 @@ def decir_estado(ref=0.0):
     todos los bloques pasan la puerta, y el sonido que sale por los altavoces -musica, un
     video, un juego, o la propia voz de Nova- entra por el microfono y los pasa igual que
     un ventilador. La rama de ruido va ANTES que la de los altavoces en el bucle, asi que
-    se lo quedaba ella: visto en vivo a las 20:32:52, un pulso de "ruido de fondo" mientras
-    el nivel de salida estaba en 0,151. Contado como ruido, Nova le dice a braya "hay un
+    se lo quedaba ella. LO QUE SE MIDIO, dicho con precision: a las 20:57-20:59, con musica
+    sonando a 0,23-0,58 de nivel de salida, entraban 41 a 56 bloques de 60 por la puerta; el
+    liston del ruido son 55 de 60. O sea que la musica llega sola a un pelo de marcarse como
+    ruido de fondo, y basta con que suba un poco para pasarlo. No se puede senalar un pulso
+    concreto de hoy porque esta linea NO escribia el nivel de salida -por eso ahora lo
+    escribe-. Contado como ruido, Nova le dice a braya "hay un
     ruido de fondo, quitalo o acercame el microfono" por el sonido que ha puesto el a
     proposito, y que ella ya sabe que esta sonando (de esa medida cuelgan otras cuatro
     protecciones). Aqui se separan las dos cosas: el aviso solo habla de lo que NO es ni su

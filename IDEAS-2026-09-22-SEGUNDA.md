@@ -255,10 +255,15 @@ Corrido contra las 12 horas de ruido de hoy: **1 aviso, no 25**.
 **Y un segundo fallo que se vio tirando del mismo hilo:** el detector de ruido mira si casi
 todos los bloques pasan la puerta, y **el sonido de los altavoces los pasa igual que un
 ventilador** -musica, un video, un juego, o la propia voz de Nova-. La rama del ruido va
-ANTES que la de los altavoces en el bucle de la escucha, asi que se lo quedaba ella: visto
-en vivo a las 20:32:52, un pulso de «ruido de fondo» con el nivel de salida en 0,151. Contado
-asi, Nova le dice a braya que quite un ruido que ha puesto el, y que ella ya sabia que
-estaba sonando. Ahora el campo que alimenta el aviso solo se enciende con lo que **no** es
+ANTES que la de los altavoces en el bucle de la escucha, asi que se lo quedaba ella.
+
+El dato, dicho con precision: a las **20:57-20:59**, con musica sonando a 0,23-0,58 de nivel
+de salida, entraban **41 a 56 bloques de 60** por la puerta, y el liston del ruido son 55.
+La musica llega sola a un pelo de marcarse como ruido de fondo. **No se puede senalar un
+pulso concreto de hoy** -escribi antes que el de las 20:32:52 lo era, y no me consta: esa
+linea no guardaba el nivel de salida, que es justo por lo que ahora lo guarda-. Contado asi,
+Nova le dice a braya que quite un ruido que ha puesto el, y que ella ya sabia que estaba
+sonando. Ahora el campo que alimenta el aviso solo se enciende con lo que **no** es
 ni su voz ni sus altavoces; la calibracion de la ganancia no se toca, que esa si trata los
 dos casos igual a proposito y esta medida. El pulso, ademas, deja escrito el nivel de
 salida: hoy habia 2.853 pulsos de ruido y ni uno decia si sonaba algo.

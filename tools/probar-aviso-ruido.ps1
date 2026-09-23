@@ -94,9 +94,10 @@ Comp 'el worker arma el estado en un solo sitio' ($oido -match 'def decir_estado
 Comp 'y el quinto campo es el del ruido' ($oido -match 'ruido_de_fuera = pulsos_ruidosos >= RUIDO_PULSOS')
 # LO QUE SONABA POR LOS ALTAVOCES NO ES RUIDO QUE BRAYA TENGA QUE QUITAR (22/09 noche). El
 # detector solo mira si casi todos los bloques pasan la puerta, y la musica, un video, un
-# juego o la propia voz de Nova los pasan igual que un ventilador. Visto en vivo a las
-# 20:32:52: pulso de 'ruido de fondo' con el nivel de salida en 0,151. Si esto se cae, Nova
-# vuelve a decirle que quite un ruido que ha puesto el.
+# juego o la propia voz de Nova los pasan igual que un ventilador. Medido el 22/09 a las
+# 20:57-20:59: con musica a 0,23-0,58 de nivel de salida entraban 41-56 bloques de 60, y el
+# liston del ruido son 55. Si esto se cae, Nova vuelve a decirle que quite un ruido que ha
+# puesto el.
 Comp 'y los altavoces no cuentan como ruido' ($oido -match 'ruido_de_fuera = pulsos_ruidosos >= RUIDO_PULSOS and salida <= UMBRAL_ALTAVOZ') 'la musica no es un ventilador'
 # decir_estado escribe el campo de los altavoces Y decide el del ruido con el mismo numero:
 # si se midiera dos veces, podrian contradecirse dentro de la misma linea.
