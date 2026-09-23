@@ -19962,16 +19962,42 @@ while ($true) {
             Add-Estadistica 'sordina-nombre' ''
             Say 'Aqui estoy.'
         } elseif ($sw.ElapsedMilliseconds -lt $script:pausaHasta -and -not $script:armed) {
-            Log "INTERRUMPIDA: '$palabraCorte' mientras hablaba"
+            $esNombreC = ((ConvertTo-Plain $palabraCorte) -eq (ConvertTo-Plain $EscuchaNombre))
+            Log ("INTERRUMPIDA: '$palabraCorte' mientras hablaba -> " + $(if ($esNombreC) { 'me callo y te escucho' } else { 'me callo, y no abro el microfono' }))
             try { if ($script:reproductor) { $script:reproductor.Stop() } } catch {}
             try { if ($script:vozPlayer) { $script:vozPlayer.Stop() } } catch {}
             try { Stop-Charla } catch {}
             $script:vozFinReal = 0
             Send-UIEvento 'gesto:paciencia'
-            # y te escucha, sin decir "nova"
-            $script:seguimientoPendiente = $true
-            $script:seguimientoFactor = 1.0
-            $script:ventanaCharla = (($sw.ElapsedMilliseconds - $script:charlaUltima) -lt 60000)
+            # DECIR TU NOMBRE Y MANDARLA CALLAR NO SON LO MISMO (22/09 por la noche).
+            # Por esta rama entran las dos cosas: el nombre -que significa "voy a hablar",
+            # asi que reabrir el microfono es lo correcto- y las seis palabras de parada
+            # ("para", "calla", "basta"...), que significan justo lo contrario. Las tres
+            # lineas de abajo estaban puestas para el primer caso y se aplicaban a los seis.
+            # LO QUE PASO DE VERDAD, y es el unico caso del log de una frase que no era para
+            # Nova colandose entera: el 21/09 a las 00:07:53 braya dijo "para" (confianza
+            # 0,96), Nova paro, reabrio el microfono, y diez segundos despues cogio
+            # "¿Botoncito atras y el boton abajo?" -braya explicandole los mandos a quien
+            # juega con el-. Eso fue a Parakeet, a Whisper, a Gemini y a la API de Claude, y
+            # VEINTIUN SEGUNDOS despues de mandarla callar volvio a hablar: "No te entiendo
+            # bien, ¿que quieres hacer?". En total, 78 segundos de microfono abierto despues
+            # de siete ordenes de callarse.
+            # pausaHasta se queda FUERA a proposito, en los dos caminos: es lo que hace
+            # vencer la pausa y dispara Reanudar-Escucha. Metido aqui dentro, al decirle
+            # "callate" se quedaria sorda hasta que venciera la frase que acabas de cortar.
+            # Callarse si; quedarse sorda no.
+            # Y al callarse no dice nada: el gesto de la capsula ya lo cuenta sin hablar.
+            if ((ConvertTo-Plain $palabraCorte) -eq (ConvertTo-Plain $EscuchaNombre)) {
+                # tu nombre: te escucha, sin que tengas que repetirlo
+                $script:seguimientoPendiente = $true
+                $script:seguimientoFactor = 1.0
+                $script:ventanaCharla = (($sw.ElapsedMilliseconds - $script:charlaUltima) -lt 60000)
+            } else {
+                # una palabra de parada: se calla y NO abre nada
+                $script:seguimientoPendiente = $false
+                $script:ventanaCharla = $false
+                Add-Estadistica 'corte-callar' $palabraCorte
+            }
             $script:pausaHasta = $sw.ElapsedMilliseconds + 150
         }
     }

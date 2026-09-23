@@ -429,6 +429,24 @@ Titulo "2n65. Una orden mal oida no envenena el vocabulario"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-alias-vacio.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no envenena el vocabulario)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n86. Jugando, tu nombre pasa por las mismas guardas que siempre"
+# Idea 1 de la tercera tanda. La rama que ignora el nombre con un juego delante era la
+# PRIMERA de la cadena: medido, 359 de 360 hipotesis entraban sin que nadie mirara altavoces,
+# rafaga ni confianza, mientras que sin juego esas guardas tiran el 29 %. Daba igual mientras
+# solo escribia una linea; desde que el asistente contesta con tarjeta y vibracion, cada
+# falso positivo del juego era un toque en el mando que braya no pidio.
+python (Join-Path $PSScriptRoot 'probar-guardas-juego.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:las mismas guardas que siempre)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n85. Que mandarla callar no le abra el microfono"
+# Idea 4 de la tercera tanda, y es lo que braya pidio anoche. Por la rama del corte entran el
+# nombre -que significa "voy a hablar"- y las seis palabras de parada, que significan lo
+# contrario; las tres lineas que reabren la escucha estaban escritas para el primero. El
+# 21/09 a las 00:07:53 dijo "para", Nova paro, reabrio el micro, cogio una frase que no era
+# para ella, la mando a Gemini y a la API, y volvio a hablar 21 segundos despues.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-corte-callar.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no abre el microfono)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n84. Que el disco lleno se diga a tiempo, y se salte la noche"
 # 22/09 por la noche: el ultimo aviso de disco fue a las 08:33 ("te quedan 11.1 gigas") y a
 # las 22:50 quedaban 0,81 GB de 475 -el 0,18 %- sin una palabra en medio. Catorce horas: doce

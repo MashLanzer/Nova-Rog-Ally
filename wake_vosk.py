@@ -2959,6 +2959,13 @@ ultimo_miro_micro = time.time()   # ver MIRAR_MICRO_CADA
 recortes = 0
 ultimo_aviso_recorte = 0.0
 ultimo_aviso_solo_boton = 0.0
+# Y EL DEL JUEGO, APARTE (22/09 por la noche). Los dos avisos compartian este reloj, y
+# mientras la rama del juego iba la PRIMERA de la cadena daba igual: la de los altavoces
+# nunca se alcanzaba jugando. Al bajarla detras de las guardas, si se alcanza, y entonces los
+# altavoces del juego estarian reseteando la ventana de 60 s todo el rato: la llamada buena
+# de braya dentro de ese minuto no escribiria la marca y volveria a quedarse ignorado en
+# silencio, que es justo lo que se arreglo anoche.
+ultimo_aviso_juego = 0.0
 pausado = False
 arrastre = 0
 dictando = False
@@ -3536,17 +3543,7 @@ try:
                                 for p in resultado.get("result", []):
                                     if sin_tildes(p.get("word", "")) == NOMBRE_PLANO:
                                         conf = max(conf, float(p.get("conf", 0.0)))
-                                if solo_boton:
-                                    if ahora - ultimo_aviso_solo_boton > 60:
-                                        ultimo_aviso_solo_boton = ahora
-                                        anota("'%s' ignorado: estas jugando, aqui solo vale el boton" % texto)
-                                        # y que el asistente pueda DECIRLO (ver MARCA_LLAMADA_JUEGO)
-                                        if MARCA_LLAMADA_JUEGO:
-                                            try:
-                                                escribir(MARCA_LLAMADA_JUEGO, "%.0f" % ahora)
-                                            except Exception:  # noqa: BLE001
-                                                pass
-                                elif salida > UMBRAL_ALTAVOZ_FUERTE:
+                                if salida > UMBRAL_ALTAVOZ_FUERTE:
                                     if ahora - ultimo_aviso_solo_boton > 60:
                                         ultimo_aviso_solo_boton = ahora
                                         anota("'%s' ignorado: los altavoces suenan fuerte (%.3f), la palabra no es de fiar"
@@ -3583,6 +3580,33 @@ try:
                                           % (texto, conf, umbral_confianza(plano), _porque))
                                 elif not juez_deja_pasar(texto):
                                     pass   # el juez ya lo apunto en el log con las dos versiones
+                                elif solo_boton:
+                                    # JUGANDO, LAS MISMAS GUARDAS QUE SIN JUEGO (22/09 por la
+                                    # noche). Esta rama era la PRIMERA de la cadena, asi que con
+                                    # un juego delante cualquier cosa que Vosk fabricara con la
+                                    # palabra dentro contaba como que braya la habia llamado:
+                                    # medido, 359 de 360 hipotesis entraban aqui sin que nadie
+                                    # mirara los altavoces, la rafaga ni la confianza. Fuera del
+                                    # juego esas mismas guardas tiran 156 de 540 (el 29 %). Y se
+                                    # nota en el ritmo: 21,5 hipotesis por hora con juego contra
+                                    # 4,1 sin juego, cinco veces mas.
+                                    # Desde que el asistente contesta a esto -tarjeta la primera
+                                    # vez y un toque en el mando cada vez-, cada falso positivo
+                                    # del juego era una vibracion que braya no habia pedido.
+                                    # Ahora llega aqui solo lo que ya paso por todo lo demas.
+                                    # Y con los numeros en la linea: sin ellos, las 358 del log
+                                    # no se pueden repartir entre braya y It Takes Two.
+                                    if ahora - ultimo_aviso_juego > 60:
+                                        ultimo_aviso_juego = ahora
+                                        anota("'%s' ignorado: estas jugando, aqui solo vale el boton"
+                                              " (confianza %.2f, rafaga %.4f, altavoces %.3f)"
+                                              % (texto, conf, pico_rafaga, salida))
+                                        # y que el asistente pueda DECIRLO (ver MARCA_LLAMADA_JUEGO)
+                                        if MARCA_LLAMADA_JUEGO:
+                                            try:
+                                                escribir(MARCA_LLAMADA_JUEGO, "%.0f" % ahora)
+                                            except Exception:  # noqa: BLE001
+                                                pass
                                 elif ahora - ultima_marca > 2.0:
                                     # antirebote: no disparar dos veces por lo mismo
                                     ultima_marca = ahora
