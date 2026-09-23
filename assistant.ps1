@@ -16458,8 +16458,11 @@ function Show-Lupa([string]$png, [int]$ms = 12000) {
     Close-Lupa
     try {
         # AMPLIAR DE VERDAD, AUNQUE HAYA QUE RECORTAR. Antes se escalaba "lo que cupiera"
-        # en el 70 % de la pantalla, y con el centro de una ventana de 1920x1080 eso daba
-        # x1,17: en una pantalla de 7 pulgadas x1,17 no se lee mejor, es la misma letra.
+        # en el 70 % de la pantalla, y eso daba x1,17 SIEMPRE: el centro es el 60 % de la
+        # ventana y el techo era el 70 % de la pantalla, o sea 0,70/0,60, se ponga la
+        # resolucion que se ponga. Y x1,17 aqui no es nada: medido hoy en esta consola, el
+        # escritorio va a 1280x720 sobre un panel de 15 x 9 cm, o sea 0,117 mm por pixel.
+        # Una letra de 12 px mide 1,4 mm; a x1,17, 1,6 mm. A x2, 2,8 mm, que ya se lee.
         # Asi que el aumento manda (x2) y lo que no cabe se recorta por el centro, que es
         # lo que hace una lupa de verdad.
         $bytes = [System.IO.File]::ReadAllBytes($png)   # por MemoryStream: cargando por

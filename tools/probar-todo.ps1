@@ -452,7 +452,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'pr
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
 Titulo "2n104. La lupa: ensenar el trozo en vez de recitarlo"
-# Funcion 8. En 7 pulgadas a 1080p la letra de un menu mide un milimetro, y lo que habia para
+# Funcion 8. Su pantalla son 15 x 9 cm con el escritorio a 1280x720: 0,117 mm por pixel, o sea
 # eso era el OCR: la unica lectura de pantalla de JUEGO de todo el registro devolvio cinco
 # trozos y dos eran basura ("O", "Kit"). Ademas el 20/09 lo pidio el: "no describas lo que ves
 # en la pantalla literalmente". La lupa no lee nada, ensena. Lo que se vigila: que amplie de

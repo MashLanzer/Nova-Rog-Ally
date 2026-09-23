@@ -13,8 +13,10 @@
 #      frase normal no llegaba a ningun sitio.
 #   2. Que no se pise con leer. Las dos ordenes se diferencian SOLO en el verbo.
 #   3. Que amplie de verdad. El primer intento escalaba "lo que cupiera en el 70 % de la
-#      pantalla", y con el centro de una ventana 1920x1080 eso daba x1,17: en 7 pulgadas
-#      x1,17 es la misma letra. Una lupa que no amplia no es una lupa.
+#      pantalla", y eso daba x1,17 con cualquier resolucion (el centro es el 60 % de la
+#      ventana y el techo era el 70 % de la pantalla: 0,70/0,60). Medido hoy en esta
+#      consola: escritorio 1280x720 sobre un panel de 15 x 9 cm = 0,117 mm por pixel, o
+#      sea que una letra de 12 px mide 1,4 mm. A x1,17 sigue siendo la misma letra.
 #   4. Que no robe el foco ni se quede puesta. braya esta jugando con el mando en las manos.
 $ErrorActionPreference = 'Stop'
 $raiz = Split-Path -Parent $PSScriptRoot
@@ -150,11 +152,11 @@ Write-Host '-- AMPLIA DE VERDAD (esto es lo que fallaba) --'
 $sl = Traer 'Show-Lupa'
 Comp 'el aumento es fijo, no "lo que quepa"' ($sl -match '\$esc = 2\.0') 'x2'
 Comp 'y lo que no cabe se recorta, no se encoge' ($sl -match 'GraphicsUnit\]::Pixel') 'DrawImage con rectangulo de origen'
-# la cuenta, con los numeros de esta consola: centro de una ventana 1920x1080
-$origW = [int](1920 * 0.6); $origH = [int](1080 * 0.6)      # lo que da Get-ZonaRect al centro
-$vMaxW = [int](1920 * 0.70); $vMaxH = [int](1080 * 0.70)   # el techo de la version vieja
+# la cuenta, con LOS NUMEROS DE ESTA CONSOLA (medidos hoy): el escritorio va a 1280x720
+$origW = [int](1280 * 0.6); $origH = [int](720 * 0.6)      # lo que da Get-ZonaRect al centro
+$vMaxW = [int](1280 * 0.70); $vMaxH = [int](720 * 0.70)    # el techo de la version vieja
 $antes = [Math]::Min($vMaxW / [double]$origW, $vMaxH / [double]$origH)
-Comp 'la cuenta vieja no ampliaba' ($antes -lt 1.25) ("x{0:N2} con el centro de 1920x1080" -f $antes)
+Comp 'la cuenta vieja no ampliaba' ($antes -lt 1.25) ("x{0:N2} con el centro de la pantalla" -f $antes)
 Comp 'la nueva si' ($true) 'x2, mas del doble'
 Comp 'la letra pequena no se emborrona' ($sl -match 'NearestNeighbor') 'nada de bilineal'
 
