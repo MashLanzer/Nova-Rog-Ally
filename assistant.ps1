@@ -8245,6 +8245,16 @@ function Watch-Entorno([int]$botones = 0) {
     # de llamarla. Por eso se enseña, y por eso se enseña SIN VOZ.
     try {
         $llamJ = Get-LlamadaEnJuego (Join-Path $TmpDir 'llamada-en-juego.txt') ([string]$script:juegoActivo)
+        # PERO NO SI LE HAS MANDADO CALLAR (22/09, media hora despues de poner la vibracion).
+        # La marca la escribe el worker cada vez que oye algo parecido a 'nova' con un juego
+        # delante, y jugando eso entra sin pasar por las guardas de altavoces, rafaga y
+        # confianza: lo que suena es It Takes Two tanto como braya. Vibrarle el mando por eso
+        # mientras esta en sordina seria exactamente lo que acaba de pedir que no pase.
+        # La marca se consume igual (Get-LlamadaEnJuego ya la borro): una llamada de cuando
+        # estaba muda no vale para despues.
+        if ($llamJ -and $script:sordinaHasta -gt $sw.ElapsedMilliseconds) {
+            $llamJ = ''
+        }
         if ($llamJ) {
             # EL TOQUE EN EL MANDO ES LO QUE DE VERDAD LLEGA: con el juego a pantalla completa
             # la capsula no se ve. Dos pulsos cortos y flojos, que no se confundan con los

@@ -76,6 +76,8 @@ Write-Host '-- y no habla, ni ejecuta, ni enciende ningun modo --'
 # El bloque entero del enganche, contando llaves y no caracteres (ver la leccion de
 # tools\probar-confirmaciones.ps1: una ventana de N caracteres alcanza el bloque de al lado
 # y el banco pasa en verde con el codigo roto).
+$ini2 = $fuente.IndexOf('$llamJ = Get-LlamadaEnJuego')
+$cuerpo2 = if ($ini2 -ge 0) { $fuente.Substring($ini2, [Math]::Min(1400, $fuente.Length - $ini2)) } else { '' }
 $ini = $fuente.IndexOf('if ($llamJ) {')
 $cuerpo = ''
 if ($ini -ge 0) {
@@ -94,6 +96,10 @@ Comp 'y SIEMPRE contesta con el mando' ($cuerpo -match 'Start-Vibracion') 'a pan
 # COMILLAS SIMPLES: entre dobles, PowerShell se come el $ de $llamJ antes de que llegue al
 # regex, y el patron buscaba "if ( -eq 'primera')". Salia rojo con el codigo bien.
 Comp 'la vibracion va fuera del "una vez por partida"' ($cuerpo -match '(?s)Start-Vibracion.*?\$llamJ -eq .primera.') 'cada llamada merece respuesta'
+# Y SI LE HAS MANDADO CALLAR, NI EL MANDO (22/09). La marca la escribe el worker cada vez
+# que oye algo parecido a 'nova' jugando, y ahi entra sin pasar guardas: lo que suena es el
+# juego tanto como braya. Vibrarle mientras esta en sordina seria justo lo que pidio evitar.
+Comp 'en sordina no vibra ni ensena nada' ($cuerpo2 -match 'sordinaHasta -gt \$sw.ElapsedMilliseconds') 'le mandaste callar'
 Comp 'y es corta y floja, que no tape el juego' ($cuerpo -match 'Start-Vibracion @\(70, 90, 70\) 16000')
 Comp 'y NO se dice en voz alta' (-not ($cuerpo -match '(?m)\bSay\b')) 'jugando no se interrumpe'
 # 'Start-' a secas casaba con Start-Vibracion, que no ejecuta nada: se nombran las de verdad.
