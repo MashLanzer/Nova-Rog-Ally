@@ -2,7 +2,7 @@
 # (23/09, lo pidio braya).
 #
 # Lo que se prueba aqui es la TRIPLE LLAVE de Invoke-Ajedrez, que es lo unico que puede
-# hacerle daño: (a) sin partida abierta no se mira nada, (b) la frase tiene que tener FORMA de
+# hacerle dano: (a) sin partida abierta no se mira nada, (b) la frase tiene que tener FORMA de
 # jugada con el patron anclado, y (c) python-chess la valida contra las legales. Si falla
 # cualquiera, la frase sigue su camino de siempre.
 #
@@ -33,6 +33,13 @@ function Log($m) { }
 Invoke-Expression (Traer 'ConvertTo-Plain')
 Invoke-Expression (Traer 'Test-AjedrezAbierta')
 Invoke-Expression (Traer 'Invoke-Ajedrez')
+# El selector del mando (funcion 10) se trae DE VERDAD, no se finge: contestar "la primera"
+# tiene que cerrarlo, y si algun dia deja de existir esa llamada aqui se vera. Esto lo canto
+# el propio banco: al engancharlo, 'la primera' reventaba con "Close-Eleccion no se reconoce".
+Invoke-Expression (Traer 'Close-Eleccion')
+$script:eleccion = $null
+$script:confirmaFin = 0; $script:confirmaTotal = 0
+function Set-UI([string]$e, [string]$t = '', [int]$ms = 0) { }
 # el puente se sustituye para no arrancar Python en cada caso: lo que interesa aqui es QUE
 # argumentos se le mandan, no lo que contesta (eso ya se prueba en probar-ajedrez.py).
 $script:llamadas = @()
@@ -107,6 +114,55 @@ Comp 'va en Process-Texto, antes del camino local' ($fuente -match '(?s)\$aj = I
 Comp 'y NO dentro de Invoke-FastCommand' (-not ($fuente -match '(?s)function Invoke-FastCommand.{0,4000}Invoke-Ajedrez')) 'a esa la llaman reglas y perfiles, no braya'
 Comp 'se puede apagar desde config' ($fuente -match "Get-Cfg 'juego' 'ajedrez'")
 Comp 'y el turno se lanza por proceso, no residente' ($fuente -match '& \$PyExe \$AjedrezPy')
+
+
+Write-Host ''
+Write-Host '-- EL DOCUMENTO NO PUEDE MENTIR --'
+# AJEDREZ-COMO-JUGAR.md se escribio porque braya dijo que no entendia como jugar. Un manual
+# que promete una frase que Nova no entiende es peor que no tener manual: le manda a decir
+# algo que no funciona y a pensar que se ha roto el ajedrez. Asi que aqui se sacan LAS FRASES
+# DEL PROPIO DOCUMENTO y se meten por el puente de verdad.
+# Se cogen solo las de las listas y las tablas -que son las que le dicen que diga- y se dejan
+# fuera las de Nova, que en este documento van siempre en cursiva (entre asteriscos) o
+# citadas con >.
+$doc = Join-Path $raiz 'AJEDREZ-COMO-JUGAR.md'
+Comp 'el documento esta' (Test-Path -LiteralPath $doc) 'AJEDREZ-COMO-JUGAR.md'
+$frases = @()
+# CON LA CODIFICACION DICHA A MANO: el .md no lleva BOM, y ReadAllLines a secas lo lee
+# como ANSI en PowerShell 5.1. Las comillas angulares dejaban de reconocerse y el banco
+# sacaba 0 frases del documento, en verde de milagro.
+foreach ($ln in [System.IO.File]::ReadAllLines($doc, [System.Text.Encoding]::UTF8)) {
+    $t = $ln.Trim()
+    if ($t.StartsWith('>')) { continue }
+    if (-not ($t.StartsWith('-') -or $t.StartsWith('|'))) { continue }
+    # LAS COMILLAS ANGULARES VAN ESCAPADAS, no puestas a pelo: este .ps1 no lleva BOM y
+    # PowerShell 5.1 lo lee como ANSI, asi que un caracter no ASCII escrito tal cual llega
+    # partido en dos. En un comentario da igual; dentro de un [^...] cambia lo que casa, y
+    # el banco sacaba 0 frases del documento estando todo bien.
+    foreach ($m in [regex]::Matches($ln, '(\*{0,2})\u00AB([^\u00BB]+)\u00BB(\*{0,2})')) {
+        # UNA cursiva es Nova hablando; DOS asteriscos es negrita, y eso lo dice braya. Con
+        # un solo asterisco en el patron los dos casos salian iguales y se colaban por Nova
+        # trece de las frases que el tiene que decir: el banco decia 17 de 17 mirando la
+        # mitad del documento.
+        if ($m.Groups[1].Value -eq '*' -and $m.Groups[3].Value -eq '*') { continue }
+        $f = ($m.Groups[2].Value -replace '\*\*', '').Trim()
+        if ($f.Length -lt 3) { continue }
+        if ($f.StartsWith([string][char]0x00BF)) { continue }
+        $frases += $f
+    }
+}
+Comp 'y promete frases' ($frases.Count -ge 25) "$($frases.Count) frases del documento"
+$entran = 0
+foreach ($f in $frases) {
+    # "nova," es la palabra de activacion: se la quita el oido antes de llegar aqui
+    $limpia = ($f -replace '(?i)^nova\s*,?\s*', '')
+    $script:ajedrezActiva = $true
+    $r = Pide $limpia
+    $ok = ($null -ne $r) -and ($script:llamadas.Count -ge 1)
+    if ($ok) { $entran++ }
+    else { Write-Host ("       no  " + $f) }
+}
+Comp 'y Nova entiende todas las que promete' ($entran -eq $frases.Count) "$entran de $($frases.Count)"
 
 Remove-Item -LiteralPath $MemoriaDir -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ''

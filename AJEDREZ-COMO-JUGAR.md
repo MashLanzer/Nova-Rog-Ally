@@ -91,7 +91,16 @@ Eso pasa cuando lo que oyó encaja con **dos jugadas legales a la vez**. No est�
 propósito: **seis** y **siete** son las dos palabras que más se confunden de todo el
 vocabulario (se parecen un 70 %), y si se equivoca movería una pieza donde tú no dijiste.
 
-Contestas con **«la primera»** o **«la segunda»**. También vale «uno» / «dos».
+Tienes **dos maneras de contestar**, y las dos valen siempre:
+
+| | |
+|---|---|
+| **Con el mando** | La cápsula te enseña `‹ torre alfa seis ›  1/2  A`. La **cruceta** cambia de una a otra, **A** elige la que se ve, **B** cancela. Con un juego delante, la cruceta le llega también al juego, así que dura 15 segundos y se quita sola. |
+| **Hablando** | «la primera» o «la segunda». También «uno» / «dos». |
+
+**El mando es la buena aquí**, y por un motivo concreto: si Nova pregunta es porque las dos
+opciones se parecen un 70 % **al oído**. Contestar hablando es pedirle al oído justo lo que
+acaba de demostrar que no sabe hacer. Con la cruceta no hay nada que entender.
 
 ---
 
