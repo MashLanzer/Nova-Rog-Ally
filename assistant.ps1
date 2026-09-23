@@ -4573,6 +4573,18 @@ function Resolve-Fragment([string]$f) {
     # pausa, ni nada. Decir que haces algo y no hacerlo es lo peor de esta lista.
     # Se aceptan las dos formas del verbo -'hables' y 'hablas', que es como sale del oido- y
     # un 'no' suelto delante, porque la frase de verdad empezo por 'No, no me hablas...'.
+    # EL DISCO (23/09, funcion 6). "que ocupa mas" es lo que Nova lleva cuatro avisos
+    # prometiendo y no existia.
+    if ($f -match '^(?:que ocupa mas|que es lo que mas ocupa|que ocupa espacio|en que se (?:me )?va el disco|por que no tengo espacio|que puedo borrar)$') {
+        return @(@{ kind = 'discoFactura'; desc = 'lo que mas ocupa' })
+    }
+    if ($f -match '^(?:limpia|libera|suelta)\s+(?:el |mi )?(?:disco|espacio|basura|las caches?)$') {
+        return @(@{ kind = 'discoLimpia'; desc = 'suelto lo que se pueda' })
+    }
+    # LIMPIAR EL PERFIL (23/09, funcion 5): una pregunta, dos opciones, y el que sobra fuera.
+    if ($f -match '^(?:limpia|repasa|revisa)\s+(?:tu |el |mi )?(?:perfil|memoria de mi|lo que sabes de mi)$') {
+        return @(@{ kind = 'perfilLimpia'; desc = 'reviso lo que se de ti' })
+    }
     # BUSCAR EN LO QUE LE HA CONTADO (23/09, funcion 4). Hasta hoy "¿que te dije de X?" se
     # iba a opencode -el agente con acceso total- tardando de 25 a 60 s, con la respuesta
     # esperando en su propia memoria. Medido contra sus 110 recuerdos: los cinco temas que
@@ -8437,6 +8449,14 @@ function Watch-Entorno([int]$botones = 0) {
         $script:entornoUnidades = $letras
     } catch {}
 
+    # Y EL VOLUMEN DEL JUEGO SE DEVUELVE SIEMPRE (ver HACERSE SITIO PARA HABLAR). Aqui y no
+    # pegado al final de la frase: si Nova muere, si la cortan, o si la voz falla a medias, el
+    # juego tiene que recuperar su volumen igual. Con techo duro de 20 s.
+    if ($script:juegoVolAntes -ge 0) {
+        $callada = ($sw.ElapsedMilliseconds -ge $script:vozFinReal -and $sw.ElapsedMilliseconds -ge $script:pausaHasta)
+        if ($callada -or $sw.ElapsedMilliseconds -ge $script:juegoBajadoHasta) { Pop-VolumenJuego }
+    }
+
     # TE HE OIDO, PERO ESTAS JUGANDO (ver Test-LlamadaEnJuego). No pasa por
     # Send-AvisoEntorno a proposito: ese calla entero con un juego delante -y hace bien-,
     # pero esto no es un aviso que se le ocurra a Nova, es la respuesta a que braya acaba
@@ -11874,6 +11894,52 @@ function Invoke-FastCommand([string]$text) {
                         $a.desc = ($partes -join ', ')
                     }
                 }
+                'discoFactura' {
+                    $fac = @(Get-FacturaDisco)
+                    $libreF = 0.0
+                    try { $libreF = [Math]::Round((New-Object System.IO.DriveInfo('C')).AvailableFreeSpace / 1GB, 1) } catch {}
+                    if ($fac.Count -eq 0) {
+                        $a.desc = "te quedan $libreF gigas y no veo caches que soltar"
+                    } else {
+                        $trozos = @($fac | Select-Object -First 3 | ForEach-Object { "$($_.nombre), $($_.mb) megas" })
+                        $totalF = [Math]::Round((@($fac | ForEach-Object { $_.mb }) | Measure-Object -Sum).Sum, 0)
+                        $a.desc = "te quedan $libreF gigas. Lo que puedo soltar: " + ($trozos -join '; ') +
+                                  ". En total unos $totalF megas. Di: limpia el disco"
+                    }
+                }
+                'discoLimpia' {
+                    # SE PREGUNTA ANTES, como todo lo que borra (ver $AccionesQueTocan): esto
+                    # no deshace nada. Y lo que se borra es solo lo que el sistema regenera.
+                    if (-not $script:confirmado) {
+                        $facC = @(Get-FacturaDisco)
+                        $totC = [Math]::Round((@($facC | ForEach-Object { $_.mb }) | Measure-Object -Sum).Sum, 0)
+                        if ($facC.Count -eq 0) { $a.desc = 'no hay caches que soltar'; break }
+                        $script:pendiente = @{ texto = 'limpia el disco'; vence = 0; tipo = 'peligrosa' }
+                        $a.desc = "voy a borrar " + ($facC.nombre -join ', ') + ", unos $totC megas. ¿Lo hago?"
+                    } else {
+                        $res = Clear-CachesDisco
+                        Log "DISCO: limpiado; $($res.antes) -> $($res.despues) GB ($($res.tocadas) elementos)"
+                        Add-Estadistica 'disco-limpia' ([string]$res.soltado)
+                        $a.desc = if ($res.soltado -ge 0.1) {
+                            "te he soltado " + $res.soltado + " gigas; ahora tienes " + $res.despues
+                        } else {
+                            "no he podido soltar casi nada; sigues con " + $res.despues + " gigas"
+                        }
+                    }
+                }
+                'perfilLimpia' {
+                    $par = Get-ParParecidoPerfil
+                    if (-not $par) {
+                        $a.desc = 'no veo nada repetido en lo que se de ti'
+                    } else {
+                        # se PREGUNTA, no se decide: lo que hay en su perfil es suyo.
+                        $script:pendiente = @{ tipo = 'perfilPar'; texto = 'limpiar perfil'
+                                               a = $par.a; b = $par.b; vence = 0 }
+                        $a.desc = 'tengo dos cosas parecidas: ' + $par.a + '; y ' + $par.b +
+                                  '. ¿Me quedo con la primera o con la segunda?'
+                        Start-Confirmacion
+                    }
+                }
                 'recordar' {
                     # va al worker de la charla, que es quien tiene los vectores. Si no
                     # contesta o no encuentra nada, se dice y punto: nada de inventar.
@@ -12311,6 +12377,10 @@ $script:preVozMd5 = $null
 
 function Play-Audio([string]$ruta) {
     if (-not (Test-Path -LiteralPath $ruta)) { return $false }
+    # AQUI y no en Say (ver HACERSE SITIO PARA HABLAR): Say tiene cinco salidas antes de que
+    # suene nada -la llamada entrante, la voz en linea, la tardia, Piper y el "no hay voz
+    # disponible"-, y bajando arriba del todo una llamada dejaria el juego bajado entera.
+    Push-VolumenJuego
     try {
         if (-not $script:reproductor) {
             Add-Type -AssemblyName PresentationCore -ErrorAction Stop
@@ -12683,6 +12753,204 @@ function Await-Voz($op, $tipo) {
 # Las tildes se ponen con codigos de caracter: este archivo no lleva BOM y PS 5.1
 # leeria mal una tilde escrita tal cual.
 $script:TildesVoz = $null
+# HACERSE SITIO PARA HABLAR (23/09, funcion 7 de la tanda de funciones nuevas).
+# braya le habla mientras juega -toda la tanda del 22/09 de 21:43 a 21:48 es con una partida
+# delante- y Nova habla ENCIMA del audio del juego, a volumen fijo. En catorce dias habla 41
+# veces con un juego en primer plano, con los altavoces medidos entre 0,10 y 1,000. Que se
+# oiga a la primera ahorra la repeticion entera, que son dos intervenciones habladas menos.
+# No cambia lo que dice: cambia que llegue.
+#
+# NO SE PONE 50: SE MULTIPLICA. PonerVolumenApp es absoluto de 0 a 100, asi que si braya tiene
+# el juego al 30 %, poner 50 se lo SUBE. Se lee antes con LeerVolumenApp -devuelve -1 si no
+# hay sesion de audio- y se baja en proporcion; y si ya esta por debajo de 20, no se toca:
+# bajarlo mas no ayuda a oir y se nota al devolverlo.
+# RELOJ PROPIO, nunca pausaHasta: esa se alarga con la sordina y con el dictado, y el juego se
+# quedaria bajado. Techo duro de 20 s, y el bucle lo devuelve SIEMPRE, aunque no haya sonado.
+$JuegoBajarAlHablar = [bool](Get-Cfg 'juego' 'bajarAlHablar' $true)
+$JuegoBajarPct = [int](Get-Cfg 'juego' 'bajarAlHablarPct' 35)   # a que % del suyo se baja
+$script:juegoVolAntes = -1
+$script:juegoVolPid = 0
+$script:juegoBajadoHasta = 0
+function Push-VolumenJuego {
+    if (-not $JuegoBajarAlHablar -or $script:juegoVolAntes -ge 0) { return }
+    $pidJ = [int]$script:juegoPid
+    if ($pidJ -le 0 -or -not $script:juegoActivo) { return }
+    $v = -1
+    try { $v = [int][AX]::LeerVolumenApp($pidJ) } catch { return }
+    if ($v -lt 20) { return }            # ya lo tiene bajo: no se toca
+    $destino = [int][Math]::Max(5, [Math]::Round($v * ($JuegoBajarPct / 100.0)))
+    try {
+        if ([AX]::PonerVolumenApp($pidJ, $destino)) {
+            $script:juegoVolAntes = $v
+            $script:juegoVolPid = $pidJ
+            $script:juegoBajadoHasta = $sw.ElapsedMilliseconds + 20000
+        }
+    } catch {}
+}
+function Pop-VolumenJuego {
+    if ($script:juegoVolAntes -lt 0) { return }
+    try { [void][AX]::PonerVolumenApp($script:juegoVolPid, $script:juegoVolAntes) } catch {}
+    $script:juegoVolAntes = -1
+    $script:juegoVolPid = 0
+    $script:juegoBajadoHasta = 0
+}
+
+# SOLTAR SITIO EN EL DISCO (23/09, funcion 6 de la tanda de funciones nuevas).
+# Nova ya le avisa pero no sabe actuar, y encima promete algo que no tiene: cuatro veces le ha
+# dicho "te quedan X gigas, preguntame que ocupa mas" -20/09 con 14,5 GB, 21/09 con 14,9,
+# 22/09 con 11,1, 23/09 con 13,8- y "que ocupa mas" NO EXISTE: el unico parser de tamaño es
+# "cuanto ocupa {juego}", y el "lo que mas ocupa" de mas arriba mide RAM, no disco. El 18/09
+# le quedaban 115 GB; hoy 13,7 de 475.
+#
+# LISTA CERRADA Y ESCRITA AQUI, nunca una ruta dicha por voz. Y solo se borra lo que el
+# sistema REGENERA solo: caches de video y ficheros temporales viejos. Nada de Descargas,
+# nada de Documentos, nada que braya haya puesto. Medido hoy en su consola: TEMP 2.494 MB,
+# Packages 606, AMD 37, D3DSCache 2,4.
+#
+# Y SE BORRA DE VERDAD (Remove-Item), no a la papelera: mandarlo a la papelera lo mueve pero
+# NO libera el disco, asi que Nova diria "te he soltado 900 MB" y DriveInfo seguiria marcando
+# lo mismo. Eso es mentir con un numero delante, que es peor que no hacer nada.
+$CachesLimpiables = @(
+    @{ nombre = 'la cache de video de AMD'; ruta = "$env:LOCALAPPDATA\AMD\DxCache" }
+    @{ nombre = 'la cache de shaders';      ruta = "$env:LOCALAPPDATA\D3DSCache" }
+    @{ nombre = 'la cache de AMD GL';       ruta = "$env:LOCALAPPDATA\AMD\GLCache" }
+    @{ nombre = 'los temporales viejos';    ruta = $env:TEMP; dias = 7 }
+)
+function Get-TamanoMB([string]$ruta, [int]$dias = 0) {
+    if (-not $ruta -or -not (Test-Path -LiteralPath $ruta)) { return 0.0 }
+    try {
+        $fich = Get-ChildItem -LiteralPath $ruta -Recurse -File -Force -ErrorAction SilentlyContinue
+        if ($dias -gt 0) {
+            $corte = (Get-Date).AddDays(-$dias)
+            $fich = @($fich | Where-Object { $_.LastWriteTime -lt $corte })
+        }
+        $b = ($fich | Measure-Object -Property Length -Sum).Sum
+        return [Math]::Round(([double]$b) / 1MB, 1)
+    } catch { return 0.0 }
+}
+function Get-FacturaDisco {
+    $filas = @()
+    foreach ($c in $CachesLimpiables) {
+        $mb = Get-TamanoMB $c.ruta ([int]$c.dias)
+        if ($mb -ge 1) { $filas += @{ nombre = $c.nombre; mb = $mb; ruta = $c.ruta; dias = [int]$c.dias } }
+    }
+    return @($filas | Sort-Object -Property { -$_.mb })
+}
+# LO QUE SE SOLTO DE VERDAD SE MIDE CON EL DISCO, no sumando lo que se borro: un fichero
+# bloqueado no se va, y el numero tiene que ser el que ve Windows.
+function Clear-CachesDisco {
+    $antes = 0.0
+    try { $antes = [Math]::Round((New-Object System.IO.DriveInfo('C')).AvailableFreeSpace / 1GB, 2) } catch {}
+    $tocadas = 0
+    foreach ($c in $CachesLimpiables) {
+        if (-not $c.ruta -or -not (Test-Path -LiteralPath $c.ruta)) { continue }
+        try {
+            $items = Get-ChildItem -LiteralPath $c.ruta -Force -ErrorAction SilentlyContinue
+            if ([int]$c.dias -gt 0) {
+                $corte = (Get-Date).AddDays(-[int]$c.dias)
+                $items = @($items | Where-Object { $_.LastWriteTime -lt $corte })
+            }
+            foreach ($it in $items) {
+                # y NUNCA la carpeta de Nova: ahi viven sus propias copias y medidas
+                if ($it.FullName -like "*voice-ctrl*" -or $it.FullName -like "*claude*") { continue }
+                try { Remove-Item -LiteralPath $it.FullName -Recurse -Force -ErrorAction SilentlyContinue; $tocadas++ } catch {}
+            }
+        } catch {}
+    }
+    $despues = $antes
+    try { $despues = [Math]::Round((New-Object System.IO.DriveInfo('C')).AvailableFreeSpace / 1GB, 2) } catch {}
+    return @{ antes = $antes; despues = $despues; soltado = [Math]::Round($despues - $antes, 2); tocadas = $tocadas }
+}
+
+# LIMPIAR LO QUE CREE SABER DE BRAYA (23/09, funcion 5 de la tanda de funciones nuevas).
+# perfil.md tiene EXACTAMENTE 60 datos y el tope son 60: esta lleno, asi que cada dato nuevo
+# expulsa a otro. Y solo las 15 ultimas lineas viajan en cada prompt de la charla, o sea que
+# lo que este ahi arriba le vuelve hablado. Hoy, nueve de esos 60 huecos se los comen dos
+# nombres MAL OIDOS: cuatro lineas de "Meramiau"/"Mira mio"/"Meramian" -que acabaron
+# inventando un gato que no existe- y cinco de un juego llamado "Amin"/"Amino".
+# El caso que lo prueba es del 20/09 a las 23:09-23:11: sus DOS correcciones seguidas del
+# nombre del juego se guardaron como dos datos NUEVOS encima del malo, en vez de corregirlo.
+#
+# COMO SE LIMPIA SIN INVENTAR: no se decide solo. Se buscan los dos datos que mas se parecen
+# entre si -los que casi seguro son el mismo con dos redacciones- y se le PREGUNTA con las dos
+# opciones delante. Una pregunta, dos opciones, y el que sobra se va. Nada de borrar a ciegas
+# lo que el escribio.
+function Get-ParParecidoPerfil {
+    $datos = @(Get-DatosPerfil)
+    if ($datos.Count -lt 8) { return $null }
+    # las palabras que salen en medio perfil no distinguen nada (ver Add-DatoPerfil): el mismo
+    # calculo, para no medir el parecido por "braya" y "tiene".
+    $cuenta = @{}
+    foreach ($y in $datos) {
+        $cy = (((ConvertTo-Suave $y) -replace '[^a-z0-9 ]', ' ') -replace '\s+', ' ').Trim()
+        foreach ($w in @($cy -split '\s+' | Where-Object { $_.Length -ge 4 } | Select-Object -Unique)) {
+            $cuenta[$w] = [int]$cuenta[$w] + 1
+        }
+    }
+    # MAS ESTRICTO QUE EN Add-DatoPerfil, y a proposito: alli se compara un dato NUEVO
+    # contra los viejos, y aqui se comparan los 59 ENTRE SI. Con el liston de un tercio,
+    # "tiene" (15 de 59) no contaba como vacia y emparejaba "tiene dificultad con
+    # Meramiau" con "braya tiene algo que se le acaba", que no tienen nada que ver.
+    $topeV = [Math]::Max(3, [int][Math]::Ceiling($datos.Count / 6.0))
+    # UN NOMBRE PROPIO NUNCA ES UNA PALABRA VACIA, por pocas lineas que haya. Con diez datos
+    # el tope sale 3, y "Amino" -que esta en tres lineas- se marcaba como comun y desaparecia
+    # justo el caso que se venia a cazar. Los nombres propios se calculan abajo, asi que aqui
+    # se dejan fuera del filtro por su forma: empiezan por mayuscula dentro de la frase.
+    $conMayus = @{}
+    foreach ($y in $datos) {
+        $pal0 = @($y -split '\s+')
+        for ($k0 = 1; $k0 -lt $pal0.Count; $k0++) {
+            $w0 = $pal0[$k0] -replace '[^\wáéíóúñÁÉÍÓÚÑ]', ''
+            if ($w0.Length -ge 4 -and $w0.Substring(0, 1) -cmatch '[A-ZÁÉÍÓÚÑ]') { $conMayus[(ConvertTo-Suave $w0)] = $true }
+        }
+    }
+    $vacias = @($cuenta.Keys | Where-Object { $cuenta[$_] -ge $topeV -and -not $conMayus[$_] })
+    # Y LOS NOMBRES PROPIOS, que es donde esta la basura de verdad. Su perfil tiene hoy tres
+    # lineas de un juego llamado "Amino" -"se llama Amino", "usa Amino", "juega en Amino"- y
+    # dos de un "Meramiau" que el oido se invento. Son frases de dos o tres palabras: por
+    # proporcion no se emparejan nunca, porque casi no tienen palabras que comparar.
+    # La señal es otra: comparten un nombre PROPIO (con mayuscula y no al principio de la
+    # linea) que sale en pocas lineas, y las dos frases son cortas. Medido sobre sus 59 datos,
+    # eso encuentra las tres de "Amino" y el "Steam" repetido, y ni un falso: los verbos
+    # comunes -"prefiere", "quiere"- se caen solos porque van en minuscula.
+    $propios = @{}
+    foreach ($y in $datos) {
+        $pal = @($y -split '\s+')
+        for ($k = 1; $k -lt $pal.Count; $k++) {
+            $w = $pal[$k] -replace '[^\wáéíóúñÁÉÍÓÚÑ]', ''
+            if ($w.Length -ge 4 -and $w.Substring(0, 1) -cmatch '[A-ZÁÉÍÓÚÑ]') {
+                $propios[(ConvertTo-Suave $w)] = $true
+            }
+        }
+    }
+    $mejorA = ''; $mejorB = ''; $mejorP = 0.0
+    for ($i = 0; $i -lt $datos.Count; $i++) {
+        $pa = @(((((ConvertTo-Suave $datos[$i]) -replace '[^a-z0-9 ]', ' ') -replace '\s+', ' ').Trim() -split '\s+') |
+                Where-Object { $_.Length -ge 4 -and $vacias -notcontains $_ } | Select-Object -Unique)
+        if ($pa.Count -lt 1) { continue }
+        for ($j = $i + 1; $j -lt $datos.Count; $j++) {
+            $pb = @(((((ConvertTo-Suave $datos[$j]) -replace '[^a-z0-9 ]', ' ') -replace '\s+', ' ').Trim() -split '\s+') |
+                    Where-Object { $_.Length -ge 4 -and $vacias -notcontains $_ } | Select-Object -Unique)
+            if ($pb.Count -lt 1) { continue }
+            $comunes = @($pa | Where-Object { $pb -contains $_ })
+            # el caso del nombre propio: dos frases cortas que hablan de lo mismo
+            $raras = @($comunes | Where-Object { $propios[$_] -and [int]$cuenta[$_] -ge 2 -and [int]$cuenta[$_] -le 4 })
+            $cortaA = (@($datos[$i] -split '\s+').Count -le 8)
+            $cortaB = (@($datos[$j] -split '\s+').Count -le 8)
+            if ($raras.Count -gt 0 -and $cortaA -and $cortaB) {
+                if (0.9 -gt $mejorP) { $mejorP = 0.9; $mejorA = $datos[$i]; $mejorB = $datos[$j] }
+                continue
+            }
+            if ($comunes.Count -lt 2) { continue }
+            $p = [Math]::Max($comunes.Count / [double]$pa.Count, $comunes.Count / [double]$pb.Count)
+            if ($p -gt $mejorP) { $mejorP = $p; $mejorA = $datos[$i]; $mejorB = $datos[$j] }
+        }
+    }
+    # 0,6 es el mismo liston con el que Add-DatoPerfil decide que dos frases son el mismo tema
+    if ($mejorP -lt 0.6) { return $null }
+    return @{ a = $mejorA; b = $mejorB; parecido = [Math]::Round($mejorP, 2) }
+}
+
 # MONTAJES CON NOMBRE (23/09, funcion 3 de la tanda de funciones nuevas).
 # Es lo que mas ha pedido braya y lo unico que nunca consiguio: el propio codigo lo tiene
 # contado -en catorce dias la pantalla dividida no se ejecuto bien ni una vez por voz, cero de
@@ -18228,6 +18496,28 @@ function Complete-Confirmacion([string]$respuesta) {
     }
     # EL DATO DUDOSO DE UNA RECETA (M7): si, se hace; no, se pide otra vez SIN
     # castigar a la receta (lo que fallo fue el oido, no ella)
+    # LIMPIAR EL PERFIL (23/09, funcion 5). Aqui no vale un si/no: se le dio a elegir entre
+    # dos frases suyas, asi que se contesta "la primera" o "la segunda". Cualquier otra cosa
+    # deja el perfil como estaba, que es lo seguro: lo que hay ahi es suyo.
+    if ($p.tipo -eq 'perfilPar') {
+        $plR = ConvertTo-Plain $respuesta
+        $fuera = ''
+        if ($plR -match '^(?:la )?(?:primera|primero|uno|la de arriba)$') { $fuera = [string]$p.b }
+        elseif ($plR -match '^(?:la )?(?:segunda|segundo|dos|la de abajo)$') { $fuera = [string]$p.a }
+        elseif ($plR -eq 'no' -or $plR -match '^(?:las dos|ninguna|dejalo|deja)$') {
+            Say 'Vale, las dejo las dos.'
+            Set-UI 'reposo'
+            return
+        }
+        if (-not $fuera) { Say 'No te he entendido; las dejo las dos.'; Set-UI 'reposo'; return }
+        $dp = @(Get-DatosPerfil)
+        Save-DatosPerfil (@($dp | Where-Object { $_ -ne $fuera }))
+        Log "PERFIL: braya eligio; fuera '$fuera'"
+        Add-Estadistica 'perfil-limpia' $fuera
+        Say 'Hecho, me quedo con la otra.'
+        Set-UI 'reposo'
+        return
+    }
     if ($p.tipo -eq 'recetaDato') {
         $gD = Get-Recetas
         $objD = @($gD | Where-Object { $_.id -eq $p.id })

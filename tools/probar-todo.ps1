@@ -429,6 +429,30 @@ Titulo "2n65. Una orden mal oida no envenena el vocabulario"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-alias-vacio.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no envenena el vocabulario)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n103. Bajarle el juego para hablarle, y devolverselo"
+# Funcion 7. Le habla mientras juega -toda la tanda del 22/09 de 21:43 a 21:48- y hablaba
+# ENCIMA del audio del juego. Lo que se vigila: que NO le suba el volumen sin querer
+# (PonerVolumenApp es absoluto: poner 50 con el juego al 30 lo sube) y que se lo devuelva
+# siempre, aunque Nova muera o la corten.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-volumen-juego.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:te lo devuelve)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n102. El disco: que ocupa y soltar lo regenerable"
+# Funcion 6. Nova prometio CUATRO veces "preguntame que ocupa mas" y esa orden no existia.
+# Es la funcion que borra, asi que se vigila: lista cerrada escrita en el codigo, nada suyo
+# dentro, se pregunta antes, y el numero que dice sale de medir el disco -no de sumar lo que
+# creia haber borrado-.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-disco-limpia.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:solo lo que se regenera)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n101. Limpiar lo que cree saber de braya"
+# Funcion 5. Su perfil esta lleno (59 de 60) y solo las 15 ultimas lineas viajan en cada
+# charla, asi que la basura le vuelve hablada: tres lineas de un juego mal oido ("Amino") y
+# dos de un "Meramiau" que acabo inventando un gato. No se borra solo: se busca el par que
+# mas se parece y se le PREGUNTA con las dos frases delante.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-perfil-limpia.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:te deja elegir a ti)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n100. Acordarse de lo que le contaste"
 # Funcion 4. "¿que te dije del juego que era caro?" se iba a opencode -el agente con acceso
 # total- tardando de 25 a 60 s, con la respuesta esperando en su propia memoria. El liston
