@@ -1323,6 +1323,10 @@ $script:descargaCheck = -120000
 # Si estaba cargando la ultima vez que se miro. $null = todavia no se sabe,
 # para no disparar una regla en el primer chequeo tras arrancar.
 $script:cargandoAntes = $null
+# Y SI ESTABA LLENA. Mismo trato y por el mismo motivo: $null = todavia no se sabe, para
+# que el primer chequeo tras arrancar con la consola ya al 100 % no dispare nada. El 22/09
+# hubo ocho arranques; sin esto serian ocho disparos de la regla 'cuando termine de cargar'.
+$script:llenaAntes = $null
 $script:bateriaMin = 0
 $script:reglasDisparadas = 0
 
@@ -4533,7 +4537,14 @@ function Resolve-Fragment([string]$f) {
     # vez de pelearse con el ruido, se calla. NO es un modo que se quede puesto:
     # siempre lleva plazo, el boton (mantener ≡) sigue funcionando mientras
     # tanto, y al volver te avisa en voz alta.
-    if ($f -match '^(?:no me escuches|no escuches|deja de escuchar|dejate de escuchar|duermete|vete a dormir|a dormir|descansa|apaga el oido|no me oigas|ignorame|no te actives|no te despiertes|no me interrumpas|no me molestes)(?:\s+(?:durante|por|en|un|una)?\s*(?:(\d+)\s*(minuto|minutos|hora|horas)|(una hora|un rato|media hora|un momento|rato)))?$') {
+    # 'NO ME HABLAS POR 10 MINUTOS' (22/09, y es LITERAL: lo dijo a las 21:48:54 mientras
+    # jugaba). No entraba por ningun lado: las formas eran todas de oir ('no me escuches') o
+    # de activarse ('no te actives'), y la de HABLAR no estaba. Asi que se fue a la charla, y
+    # la charla contesto 'Vale, entendido, me callo'... y no se callo nadie: ni sordina, ni
+    # pausa, ni nada. Decir que haces algo y no hacerlo es lo peor de esta lista.
+    # Se aceptan las dos formas del verbo -'hables' y 'hablas', que es como sale del oido- y
+    # un 'no' suelto delante, porque la frase de verdad empezo por 'No, no me hablas...'.
+    if ($f -match '^(?:no,?\s+)?(?:no me escuches|no escuches|deja de escuchar|dejate de escuchar|duermete|vete a dormir|a dormir|descansa|apaga el oido|no me oigas|ignorame|no te actives|no te despiertes|no me interrumpas|no me molestes|no (?:me )?habl[ae]s|no digas nada|deja de hablar|callate)(?:\s+(?:durante|por|en|un|una)?\s*(?:(\d+)\s*(minuto|minutos|hora|horas)|(una hora|un rato|media hora|un momento|rato)))?$') {
         # OJO: hay que copiar los grupos ANTES de usar -match otra vez, porque
         # cada -match reescribe $Matches entero. Con el numero y la unidad
         # leidos de $Matches despues de comprobar la unidad, decia 'me callo 2'
@@ -8093,6 +8104,45 @@ function Test-AvisarRuido([bool]$hayRuido, [long]$ahoraMs, [int]$rearmeMs) {
     return $false
 }
 
+# EL FLANCO DE LA BATERIA LLENA (22/09). Aparte y pura para que el banco pueda correrle un
+# dia entero de lecturas en un milisegundo: recibe como esta AHORA, devuelve si eso es un
+# cruce, y se acuerda para la proxima. Lo de acordarse va aqui dentro a proposito: si lo
+# hiciera el que llama, cualquier 'return' o 'continue' de por medio dejaria la memoria a
+# medias y el cruce se contaria dos veces.
+# TE HE OIDO, PERO ESTAS JUGANDO (22/09 por la noche, con el dato de esta misma tarde).
+# Con un juego delante la palabra de activacion se ignora y solo vale el boton -eso viene
+# del 11/09, cuando Nova se activaba sola jugando y abria cosas, y NO se toca-. Lo que si
+# era un fallo es que se ignoraba EN SILENCIO: a las 21:00-21:06 braya dijo 'nova' cinco
+# veces mientras jugaba a It Takes Two y no recibio nada. Desde fuera, eso es identico a
+# estar rota; es la misma leccion del aviso del ruido, con otra ropa.
+# TRES DECISIONES, Y LAS TRES IMPORTAN:
+#   1. NO SE HABLA. Jugando no se interrumpe, y ademas la llamada pudo ser un falso
+#      positivo del detector -que es justo por lo que existe el modo solo-boton-. Se
+#      enseña en la capsula, que ya esta en pantalla: si era ruido, no ha pasado nada.
+#   2. UNA VEZ POR PARTIDA. Se rearma al cambiar de juego, no por reloj: si braya sigue
+#      llamandola por costumbre, la segunda vez ya sabe por que no le contesta.
+#   3. Y NO ejecuta nada. Riesgo de orden equivocada: ninguno.
+$script:llamadaJuegoDicha = ''      # en que juego se enseño ya (vacio = en ninguno)
+function Test-LlamadaEnJuego([string]$marca, [string]$juego) {
+    if (-not (Test-Path -LiteralPath $marca)) { return $false }
+    # LA MARCA SE CONSUME SIEMPRE, aunque no se vaya a enseñar nada. Lo canto el banco al
+    # escribirlo: si se sale antes de borrarla -porque ya no hay juego delante, o porque ya
+    # se explico en esta partida-, esa marca se queda en tmp y dispara SOLA en la siguiente
+    # partida, por una llamada de hace horas. Un aviso que aparece sin que braya haya dicho
+    # nada es peor que no avisar.
+    try { Remove-Item -LiteralPath $marca -Force -ErrorAction SilentlyContinue } catch {}
+    if (-not $juego) { return $false }                      # sin juego delante no hay nada que explicar
+    if ($script:llamadaJuegoDicha -eq $juego) { return $false }
+    $script:llamadaJuegoDicha = $juego
+    return $true
+}
+
+function Test-BateriaLlenaFlanco([bool]$llenaAhora) {
+    $dispara = ($null -ne $script:llenaAntes -and $llenaAhora -and -not $script:llenaAntes)
+    $script:llenaAntes = $llenaAhora
+    return $dispara
+}
+
 function Watch-Entorno([int]$botones = 0) {
     if (-not $EntornoOn) { return }
     # IDEA 6: COGES LA CONSOLA. El bucle ya lee los cuatro mandos; si aparecen botones
@@ -8170,6 +8220,18 @@ function Watch-Entorno([int]$botones = 0) {
             }
         }
         $script:entornoUnidades = $letras
+    } catch {}
+
+    # TE HE OIDO, PERO ESTAS JUGANDO (ver Test-LlamadaEnJuego). No pasa por
+    # Send-AvisoEntorno a proposito: ese calla entero con un juego delante -y hace bien-,
+    # pero esto no es un aviso que se le ocurra a Nova, es la respuesta a que braya acaba
+    # de llamarla. Por eso se enseña, y por eso se enseña SIN VOZ.
+    try {
+        if (Test-LlamadaEnJuego (Join-Path $TmpDir 'llamada-en-juego.txt') ([string]$script:juegoActivo)) {
+            Log "llamada en juego: te he oido, pero con $($script:juegoActivo) delante solo vale el boton"
+            Add-Estadistica 'llamada-en-juego' ([string]$script:juegoActivo)
+            Show-Popup 'Te he oido, pero jugando solo te escucho con el boton.' 'escuchando'
+        }
     } catch {}
 
     # NO TE ESTOY OYENDO, Y TE LO DIGO (ver Get-OidoConRuido)
@@ -8260,23 +8322,36 @@ function Get-AvisoHoraDormir([datetime]$ahora = (Get-Date)) {
 
 # IDEA 29: HOY ME ESTOY EQUIVOCANDO MAS DE LO NORMAL. Comparado con SU media de la
 # semana, no con un numero inventado (la misma regla que la bateria de los juegos).
+# CONTABA UNA COSA Y DECIA OTRA (22/09 por la noche). Este aviso dice "hoy te estoy
+# entendiendo peor de lo normal" y miraba el contador 'error', que sube en tres sitios
+# exactos y solo UNO tiene que ver con entender: dictado vacio (19319), la orden que
+# CANCELA BRAYA (19787) y el timeout de opencode (20391). O sea que un dia en que braya
+# cancelara cuatro veces y opencode se atascara dos, Nova le habria dicho que no le
+# entiende. El contador de "no te entendi" es 'descarte', que sube en los cuatro sitios
+# donde de verdad se tira lo que dijo, y las magnitudes no se parecen en nada: el 15/09
+# fueron 10 errores contra 30 descartes; el 11/09, 13 contra 52.
+# Se cambia el contador, NO el liston. Simulado sobre memoria\estadisticas.json dia a dia:
+# con 'error' y el liston de hoy no habria saltado nunca en 11 dias (con factor 1,5 una vez,
+# el 18/09); con 'descarte' tampoco salta ninguna. Eso esta bien y es lo que se busca: es un
+# aviso para un dia MALO de verdad, no para un dia flojo. Bajarlo ahora seria estrenar de
+# verdad -y hablando- un aviso que llevaba siete dias midiendo lo que no era.
 function Get-AvisoFallos([datetime]$ahora = (Get-Date)) {
     $stE = Get-Estadisticas
     $hoyE = $ahora.ToString('yyyy-MM-dd')
     if (-not $stE.dias.ContainsKey($hoyE)) { return '' }
-    $malHoy = [int]$stE.dias[$hoyE]['error']
+    $malHoy = [int]$stE.dias[$hoyE]['descarte']
     if ($malHoy -lt 5) { return '' }        # con menos, cualquier dia pareceria malo
     $sumaE = 0; $nDiasE = 0
     for ($i = 1; $i -le 7; $i++) {
         $kE = $ahora.AddDays(-$i).ToString('yyyy-MM-dd')
         if (-not $stE.dias.ContainsKey($kE)) { continue }
-        $sumaE += [int]$stE.dias[$kE]['error']
+        $sumaE += [int]$stE.dias[$kE]['descarte']
         $nDiasE++
     }
     if ($nDiasE -lt 3) { return '' }        # sin con que comparar, mejor callarse
     $mediaE = $sumaE / [double]$nDiasE
     if ($mediaE -le 0 -or $malHoy -le ($mediaE * 2)) { return '' }
-    return "Hoy te estoy entendiendo peor de lo normal: $malHoy ordenes que no supe hacer. Si alguna se repite, dime: aprende que cuando diga..."
+    return "Hoy te estoy entendiendo peor de lo normal: $malHoy veces que no supe que me decias. Si alguna se repite, dime: aprende que cuando diga..."
 }
 
 # NADIE ME HABLA Y NADIE SE ENTERA (19/09, H2m2). Desde el 15/09 aqui no se decide nada
@@ -11423,8 +11498,12 @@ function Invoke-FastCommand([string]$text) {
                 }
                 'esconder' { $script:uiRetirada = 'nombre'; Set-UI 'retirada' }
                 'sordina' {
-                    Pausar-Escucha $a.ms
+                    # EL ORDEN IMPORTA (22/09): sordinaHasta se sella ANTES de pausar, porque
+                    # Pausar-Escucha mira esa variable para decidir que marca escribe. Al
+                    # reves, la primera marca salia 'x' -sorda del todo- y el nombre no la
+                    # despertaba hasta la siguiente pausa.
                     $script:sordinaHasta = $sw.ElapsedMilliseconds + $a.ms
+                    Pausar-Escucha $a.ms
                     # el aviso de vuelta va por la via de los temporizadores, que
                     # ya sabe hablar sola cuando vence
                     [void]$script:temporizadores.Add(@{ vence = ($sw.ElapsedMilliseconds + $a.ms + 1500)
@@ -12697,7 +12776,15 @@ function Pausar-Escucha([int]$ms, [string]$voz = '') {
         # NO pasara al decir 'no me escuches media hora'.
         # Lo unico que se pierde es cortar con la voz la frase 'me callo media hora', que
         # dura dos segundos y para la que esta el boton.
-        $marcaTxt = if ($voz -and $InterrumpirOn -and $script:sordinaHasta -le $sw.ElapsedMilliseconds) { 'voz:' + (ConvertTo-Plain $voz) } else { 'x' }
+        # Y EN SORDINA, 'nombre:' (22/09). La marca decia 'x', que en el worker significa
+        # "no escuches nada": ni siquiera su nombre la sacaba de ahi, solo el boton. braya
+        # pidio lo contrario -"hasta que la vuelva a llamar"-, asi que mientras esta callada
+        # la marca lleva su nombre y el worker corre un reconocedor que SOLO conoce esa
+        # palabra. Las de corte ('para', 'calla') siguen fuera: son para interrumpirla
+        # mientras habla, no para despertarla.
+        $marcaTxt = if ($voz -and $InterrumpirOn -and $script:sordinaHasta -le $sw.ElapsedMilliseconds) { 'voz:' + (ConvertTo-Plain $voz) }
+                    elseif ($script:sordinaHasta -gt $sw.ElapsedMilliseconds) { 'nombre:' + (ConvertTo-Plain $EscuchaNombre) }
+                    else { 'x' }
         [System.IO.File]::WriteAllText($MarcaPausa, $marcaTxt)
         $fin = $sw.ElapsedMilliseconds + $ms
         if ($fin -gt $script:pausaHasta) { $script:pausaHasta = $fin }
@@ -19823,7 +19910,24 @@ while ($true) {
         $palabraCorte = ''
         try { $palabraCorte = ([System.IO.File]::ReadAllText($rutaCorte)).Trim() } catch {}
         Remove-Item -LiteralPath $rutaCorte -Force -ErrorAction SilentlyContinue
-        if ($sw.ElapsedMilliseconds -lt $script:pausaHasta -and -not $script:armed) {
+        # ME HAS LLAMADO ESTANDO CALLADA: vuelvo entera (22/09, ver SALIR DE LA SORDINA en
+        # wake_vosk.py). Va DELANTE del corte de toda la vida porque en sordina el worker
+        # solo escucha el nombre, y "interrumpir a Nova" no tiene sentido si no esta
+        # hablando. Se deshace por el mismo camino que 'despertarEscucha' dicho a mano: la
+        # hora a cero, el aviso de vuelta retirado y la escucha reanudada. De una pieza, que
+        # es justo lo que fallo el 21/09.
+        if ($script:sordinaHasta -gt $sw.ElapsedMilliseconds -and
+            (ConvertTo-Plain $palabraCorte) -eq (ConvertTo-Plain $EscuchaNombre)) {
+            Log "SORDINA: me has llamado por mi nombre, vuelvo entera"
+            $script:sordinaHasta = 0
+            for ($i = $script:temporizadores.Count - 1; $i -ge 0; $i--) {
+                if ($script:temporizadores[$i].tipo -eq 'sordina') { $script:temporizadores.RemoveAt($i) }
+            }
+            $script:pausaHasta = 0
+            Reanudar-Escucha -Forzar
+            Add-Estadistica 'sordina-nombre' ''
+            Say 'Aqui estoy.'
+        } elseif ($sw.ElapsedMilliseconds -lt $script:pausaHasta -and -not $script:armed) {
             Log "INTERRUMPIDA: '$palabraCorte' mientras hablaba"
             try { if ($script:reproductor) { $script:reproductor.Stop() } } catch {}
             try { if ($script:vozPlayer) { $script:vozPlayer.Stop() } } catch {}
@@ -20983,8 +21087,28 @@ while ($true) {
                         [void](Send-AvisoEntorno 'cargador-quita' $txtB 'medio' 20)
                     }
                 }
-                # idea 15: la dejaste cargando toda la noche y ya esta llena
-                if ($cargando -and $pc -ge 100) {
+                # idea 15: la dejaste cargando toda la noche y ya esta llena.
+                # POR FLANCO, COMO EL CARGADOR DE VEINTE LINEAS MAS ARRIBA (22/09 noche).
+                # Estaba por ESTADO, dentro de un bloque que corre cada minuto: mientras la
+                # consola siguiera enchufada al 100 %, esto era cierto el dia entero. Lo
+                # unico que frenaba el aviso era su propio plazo de 240 min, y el resultado
+                # medido son 19 avisos identicos en el log, cuatro al dia desde el 19/09
+                # (08:00, 12:00, 16:00, 20:02) -el segundo aviso mas repetido despues del
+                # ventilador-, y el ultimo 'cargador: desenchufado' es del 19/09 a las 09:24:
+                # o sea que los quince ultimos salieron sin un solo cambio de estado.
+                # Y EL AVISO ERA LO DE MENOS. La linea de al lado, Invoke-Reglas
+                # 'bateriaLlena', NO tiene plazo ninguno -el 240 vive dentro de
+                # Send-AvisoEntorno- y su rama del despacho es estado pelado
+                # ('bateriaLlena' { $dispara = ($dato -eq 'llena') }), sin el $r.ultima que
+                # si tienen 'bateria' y 'disco'. Hoy no se nota porque reglas.json esta
+                # vacio, pero el dia que braya diga "cuando termine de cargar, pon el modo
+                # trabajo" -una frase que el propio codigo sabe entender-, esa accion se
+                # ejecutaria CADA SESENTA SEGUNDOS mientras no desenchufara. Eso ya no es un
+                # aviso pesado: es una orden que nadie dio, repetida toda la tarde.
+                # Se pierde a proposito: si Nova reinicia justo mientras cruza el 100 %, ese
+                # episodio no avisa. Es el mismo trato que ya aceptan cargador-pone y
+                # cargador-quita.
+                if (Test-BateriaLlenaFlanco ($cargando -and $pc -ge 100)) {
                     Invoke-Reglas 'bateriaLlena' 'llena'
                     [void](Send-AvisoEntorno 'bateria-llena' 'Ya esta cargada del todo, puedes desenchufarla.' 'bajo' 240)
                 }

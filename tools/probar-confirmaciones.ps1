@@ -31,12 +31,35 @@ Comp 'y la rama va ANTES de la cola generica' `
 Comp 'reentra por Invoke-Correo, sin copiar el envio aqui' ($fuente -match '\$dC = \[string\]\(Invoke-Correo \$aC\)')
 Comp 'con $script:confirmado puesto, o volveria a preguntar' `
     ($fuente -match "(?s)if \(\`$p\.correo\) \{.{0,400}\`$script:confirmado = \`$true")
+# EL BLOQUE, CONTANDO LLAVES, NO 900 CARACTERES (22/09 noche). Esta comprobacion decia
+# "if (\$p.correo) { .{0,900} finally { \$script:confirmado = \$false }" y pasaba en verde
+# aunque el finally del correo NO existiera: medido desde el final del ancla, el finally
+# PROPIO esta a 483 y el de la cola generica de mas abajo a 787, o sea DENTRO de la ventana.
+# Se podia borrar entero el finally de esta rama y el banco seguia contento. Y bajar el
+# numero no arregla nada: 400 daria un rojo falso y cualquier valor entre 484 y 786 vuelve a
+# mentir en cuanto alguien meta dos lineas de comentario ahi dentro, que aqui es lo normal.
+# Lo que protege este finally no es poca cosa: \$script:confirmado apaga TODAS las
+# confirmaciones mientras esta puesto, y si se queda a \$true por una salida por return,
+# la siguiente orden peligrosa se ejecutaria sin preguntar.
+$iniC = $fuente.IndexOf('if ($p.correo) {')
+$cuerpoC = ''
+if ($iniC -ge 0) {
+    $jC = $fuente.IndexOf('{', $iniC); $profC = 0
+    for ($kC = $jC; $kC -lt $fuente.Length; $kC++) {
+        if ($fuente[$kC] -eq '{') { $profC++ }
+        elseif ($fuente[$kC] -eq '}') { $profC--; if ($profC -eq 0) { $cuerpoC = $fuente.Substring($jC, $kC - $jC + 1); break } }
+    }
+}
+Comp 'el bloque del correo se delimita contando llaves' ($cuerpoC.Length -gt 0) "$($cuerpoC.Length) caracteres"
+# la guarda del delimitador: si algun dia se pasa de largo y se come la cola generica, esto
+# canta. 'Process-Texto' solo aparece en esa cola, nunca dentro de la rama del correo.
+Comp 'y no se cuela en la cola generica de abajo' (-not ($cuerpoC -match 'Process-Texto')) 'o volveriamos a medir el bloque de al lado'
 Comp 'y lo devuelve a $false pase lo que pase' `
-    ($fuente -match "(?s)if \(\`$p\.correo\) \{.{0,900}finally \{ \`$script:confirmado = \`$false \}")
+    ($cuerpoC -match "finally \{ \`$script:confirmado = \`$false \}")
 # el texto viaja GUARDADO: volver a pedirselo al modelo podria redactar otra cosa distinta
 # de la que se leyo en voz alta antes del "si"
 Comp 'el texto sale del pendiente, no se vuelve a pedir' ($fuente -match "texto = \[string\]\`$p\.correo\.texto")
-Comp 'y dice en voz alta como quedo' ($fuente -match "(?s)if \(\`$p\.correo\) \{.{0,900}Say \`$dC")
+Comp 'y dice en voz alta como quedo' ($cuerpoC -match "Say \`$dC")
 
 Write-Host ''
 Write-Host '-- y que responda al correo que se leyo, no al ultimo que haya --'

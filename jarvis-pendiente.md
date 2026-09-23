@@ -254,7 +254,12 @@ decía *«Braya activó a Nova sin intención mientras hablaba con su pareja»*.
 había anotado, y nadie lo leyó.
 **Queda descartado por escrito:** «que escuche la conversación para tener contexto», «que se entere de
 lo que pasa en la habitación», «que grabe por si acaso». Y **ninguna idea que dependa de oír más entra**
-hasta que (a) el juez del nombre pase de `"mirar"` a `"sí"` con sus cifras delante, (b) el juez y
+hasta que (a) el juez del nombre pase de `"mirar"` a `"sí"` con sus cifras delante **—medido el
+22/09 y NO PUEDE: habría descartado 49 de 52 activaciones reales de braya, el 94 %, incluidas
+llamadas con confianza 0,98. No falla el listón, falla el modelo: el Vosk pequeño sin gramática no
+escribe «nova» cuando braya dice «nova». El juez queda apagado (`"no"`) y esta condición solo la
+podrá abrir OTRO mecanismo, no un número más alto aquí. Ver el bloque EL JUEZ DEL NOMBRE en
+wake_vosk.py—**, (b) el juez y
 `rafagaMinima` cubran **también la ventana de seguimiento**, que es donde 5 se hicieron 14, (c) exista
 purga con fecha de `pruebas\audio\uso` (hoy son **313 clips que viven para siempre**) y «borra lo de la
 última media hora» como orden hablada que barra las nueve huellas de una vez, y (d) el envío a Gemini

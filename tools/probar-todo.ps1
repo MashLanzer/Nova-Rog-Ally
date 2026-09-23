@@ -429,6 +429,37 @@ Titulo "2n65. Una orden mal oida no envenena el vocabulario"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-alias-vacio.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no envenena el vocabulario)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n83. Callarse cuando se lo dices, y volver cuando la llamas"
+# 22/09 por la noche, y sale de una frase suya del log: a las 21:48:54, jugando, braya dijo
+# "No, no me hablas por 10 minutos". Ninguna forma de HABLAR estaba en los patrones -habia
+# de oir ("no me escuches") y de activarse ("no te actives")-, asi que se fue a la charla,
+# que contesto "Vale, entendido, me callo"... y no se callo nadie. Ahora se calla de verdad,
+# y sale llamandola por su nombre, que es lo que pidio. Ojo con el historial: el 21/09 esto
+# mismo se rompio al reves (se despertaba a medias, con la sordina todavia en disco).
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-sordina-nombre.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:vuelves cuando te llama)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n82. Que jugando te ignore, pero NO en silencio"
+# 22/09 por la noche, visto en el log mientras braya jugaba: dijo 'nova' cinco veces en diez
+# minutos con It Takes Two delante y no recibio NADA. Con un juego en primer plano solo vale
+# el boton -eso viene del 11/09 y no se toca-, pero ignorarle en silencio es, desde fuera,
+# identico a estar rota: la misma leccion del aviso del ruido doce horas antes. Ahora se ve
+# en la capsula una vez por partida. Sin voz (jugando no se interrumpe, y la llamada pudo
+# ser un falso positivo) y sin ejecutar nada.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-llamada-en-juego.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya no en silencio)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n81. Que la bateria llena se diga una vez por carga, no cuatro al dia"
+# 22/09 por la noche. El aviso 'ya esta cargada del todo' colgaba de un ESTADO dentro de un
+# bloque que corre cada minuto: con la consola enchufada eso es cierto el dia entero, y lo
+# unico que lo frenaba era su plazo de 240 min. Resultado medido: 19 avisos identicos, cuatro
+# al dia desde el 19/09, y el ultimo 'cargador: desenchufado' es del 19/09 a las 09:24. Y el
+# aviso era lo de menos: la linea de al lado, Invoke-Reglas 'bateriaLlena', no tiene plazo
+# NINGUNO y su rama del despacho es estado pelado, sin rearme; el dia que braya diga "cuando
+# termine de cargar, pon el modo trabajo", esa accion se ejecutaria cada sesenta segundos.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-bateria-llena.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:una vez por carga)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n64. Y que lo DIGA cuando el ruido le tapa la voz (idea 5)"
 # La otra mitad de 2n63. Lo peor de la madrugada del 22 no fue quedarse sorda: fue que no lo
 # dijo. 34 minutos sin oir y sin una palabra, que desde fuera es identico a funcionar bien.

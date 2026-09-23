@@ -199,13 +199,21 @@ $EntornoNocheHasta = ($hAhoraP + 3) % 24
 Write-Host "  -- cuando me equivoco mas de lo normal --"
 $hoyF = (Get-Date).ToString('yyyy-MM-dd')
 $script:statsFalsas.dias = @{}
-$script:statsFalsas.dias[$hoyF] = @{ error = 12 }
-foreach ($d in 1..4) { $script:statsFalsas.dias[(Get-Date).AddDays(-$d).ToString('yyyy-MM-dd')] = @{ error = 2 } }
-Comp '12 fallos con una media de 2: lo dice' ((Get-AvisoFallos) -ne '') "$(Get-AvisoFallos)"
-$script:statsFalsas.dias[$hoyF] = @{ error = 3 }
-Comp 'tres fallos sueltos: ni una palabra' ((Get-AvisoFallos) -eq '') ''
-$script:statsFalsas.dias = @{ $hoyF = @{ error = 12 } }
+# MIDE LOS DESCARTES, NO LOS 'error' (22/09). 'error' sube cuando braya CANCELA una orden y
+# cuando opencode da timeout: con ese contador, el aviso podia decirle "no te entiendo" un
+# dia en que le hubiera entendido todo. Los descartes son las veces que de verdad se tiro lo
+# que dijo.
+$script:statsFalsas.dias[$hoyF] = @{ descarte = 12 }
+foreach ($d in 1..4) { $script:statsFalsas.dias[(Get-Date).AddDays(-$d).ToString('yyyy-MM-dd')] = @{ descarte = 2 } }
+Comp '12 descartes con una media de 2: lo dice' ((Get-AvisoFallos) -ne '') "$(Get-AvisoFallos)"
+$script:statsFalsas.dias[$hoyF] = @{ descarte = 3 }
+Comp 'tres descartes sueltos: ni una palabra' ((Get-AvisoFallos) -eq '') ''
+$script:statsFalsas.dias = @{ $hoyF = @{ descarte = 12 } }
 Comp 'sin semana con que comparar, callado' ((Get-AvisoFallos) -eq '') ''
+# EL CASO QUE LO CAZA: un dia de cancelaciones y timeouts NO es un dia de no entender.
+$script:statsFalsas.dias = @{ $hoyF = @{ error = 12; descarte = 1 } }
+foreach ($d in 1..4) { $script:statsFalsas.dias[(Get-Date).AddDays(-$d).ToString('yyyy-MM-dd')] = @{ error = 2; descarte = 1 } }
+Comp 'doce cancelaciones no son doce malentendidos' ((Get-AvisoFallos) -eq '') 'mide descarte, no error'
 
 Write-Host "  -- con un invitado delante, nada --"
 Reset

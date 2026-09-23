@@ -1634,6 +1634,36 @@ def reconocedor_si_no():
 # EN DUDA, SE DESPIERTA. El juez solo tumba cuando ha oido algo y ese algo no se parece al
 # nombre. Sin veredicto -apagado, sin RAM, error, juego delante o silencio- se despierta como
 # antes: mas vale despertar de mas que no acudir cuando la llaman.
+#
+# ================ EL VEREDICTO, CON DOS DIAS DE DATOS (22/09/2026) ================
+# El juez corrio en modo "mirar" el 20 y el 21 de septiembre, y lo que apunto lo tumba a el:
+#
+#     habria descartado 24 de las 25 activaciones del 20/09, y 25 de las 27 del 21/09.
+#     49 de 52. El 94 %.
+#
+# Y no eran activaciones dudosas: las tres primeras del log son llamadas de braya con
+# confianza 0,91, 0,98 y 0,94. O sea que encenderlo ("juezNombre": "si") habria dejado a Nova
+# sorda a casi todas las veces que la llaman. Lo que falla no es el liston: es que el
+# reconocedor LIBRE de Vosk pequeño no escribe "nova" cuando braya dice "nova" -escribe tres
+# o cinco palabras que no se le parecen-, asi que la etapa 2 no puede confirmar nada. El
+# razonamiento de Alexa de aqui arriba sigue siendo bueno; lo que no da la talla es el modelo
+# con el que se hizo la etapa 2.
+#
+# POR ESO SE APAGA (config.json -> escucha.juezNombre = "no"). Apagarlo NO cambia ni una
+# activacion: en modo "mirar" siempre dejaba pasar. Lo que se ahorra es un reconocedor Vosk
+# extra vivo y una decodificacion en CADA rafaga de voz que pasa la puerta, en una consola
+# que se queda en 420 MB libres cuando aprieta -tanto, que el 22/09 el juez ni llego a
+# arrancar: 0 lineas con 7 activaciones-.
+#
+# LO QUE ESTO ROMPE, Y HAY QUE SABERLO: jarvis-pendiente.md:257 pone como condicion (a) para
+# desbloquear las ideas que "escuchan mas" que el juez pase de "mirar" a "si" con sus cifras
+# delante. Las cifras ya estan delante y dicen que no puede pasar. Esa puerta se queda
+# cerrada hasta que haya OTRO mecanismo (un modelo mejor para la etapa 2, o openWakeWord con
+# su propio umbral), no hasta que alguien suba un numero aqui.
+# Si algun dia se quiere volver a medir: "mirar" otra vez, y esta vez con contador propio
+# (Add-Estadistica), porque estas 49 lineas no dejaron ni un numero en estadisticas.json y
+# la revision propia de Nova no pudo verlas nunca.
+# ==================================================================================
 RAM_MIN_JUEZ = 150.0
 # Tolerante a proposito: acepta el nombre partido ("no va", que es lo que Vosk suele escribir
 # cuando lo oye suelto) y con algo pegado detras ("novato"). El \b del principio sigue
@@ -1682,7 +1712,19 @@ _ambiente = []             # [(cuando, texto)], en RAM y solo en RAM
 
 
 def ambiente_activo():
-    return AMBIENTE_ON == "si"
+    # Y AVISA SI SE ENCIENDE SIN EL JUEZ (22/09 por la noche). El ambiente no tiene oido
+    # propio: se alimenta de lo que oyo el reconocedor LIBRE del juez del nombre, justo
+    # antes de que se reinicie (ver juez_empieza). Con juezNombre="no" ese reconocedor no
+    # se crea nunca, asi que encender el ambiente daria una lista siempre vacia y ni un
+    # error. Callarse ahi seria el mismo fallo que se arreglo hoy tres veces: desde fuera,
+    # un ambiente que no guarda nada es identico a uno al que no le pasa nada.
+    on = AMBIENTE_ON == "si"
+    if on and JUEZ_NOMBRE == "no" and not _juez.get("avisado_sin_juez"):
+        _juez["avisado_sin_juez"] = True
+        anota("WARN: el ambiente esta encendido pero el juez del nombre esta en 'no', y el"
+              " ambiente oye POR el juez: no va a guardar nada. Pon escucha.juezNombre en"
+              " 'mirar' si quieres ambiente; ver EL JUEZ DEL NOMBRE")
+    return on
 
 
 def ambiente_apunta(texto):
@@ -2305,6 +2347,13 @@ def _reconocedor_corte():
     return r
 
 
+def _reconocedor_nombre():
+    """Solo el nombre. Es el unico que saca de la sordina (ver SALIR DE LA SORDINA)."""
+    r = KaldiRecognizer(modelo, TASA, json.dumps([NOMBRE, "[unk]"]))
+    r.SetWords(True)
+    return r
+
+
 def vigilar_corte(datos):
     if not PAUSA or not NIVEL or datos is None:
         return
@@ -2316,10 +2365,25 @@ def vigilar_corte(datos):
                 marca = f.read()
         except Exception:
             marca = ""
-        if not marca.startswith("voz:"):
+        # SALIR DE LA SORDINA LLAMANDOLA (22/09 por la noche, lo pidio braya con estas
+        # palabras: "si le digo que no hable en x tiempo, tiene que desactivarse la escucha
+        # hasta que la vuelva a llamar"). Mientras esta callada, la marca de pausa lleva
+        # "nombre:" y aqui se escucha SOLO su nombre: ni "para" ni "calla", que son las de
+        # interrumpirla cuando habla y no pintan nada estando muda. Al oirlo se escribe
+        # corte.flag como siempre y el asistente, viendo que hay sordina y que la palabra es
+        # el nombre, sale de la sordina ENTERA.
+        # LA DIFERENCIA CON EL FALLO DEL 21/09, que es lo que hace esto seguro: aquel dejaba
+        # la marca en "voz:" y Nova se despertaba A MEDIAS -microfono abierto, tic sonando y
+        # la sordina todavia puesta en disco-. Aqui el reconocedor solo conoce el nombre, y
+        # quien deshace la sordina es el asistente, de una pieza y por el mismo camino que
+        # "despierta" dicho a mano.
+        if marca.startswith("nombre:"):
+            if marca != _corte["marca"]:
+                _corte.update(marca=marca, texto=set(), rec=_reconocedor_nombre(), audio=[], base=0)
+        elif not marca.startswith("voz:"):
             _corte.update(rec=None, marca=None)
             return
-        if marca != _corte["marca"]:
+        elif marca != _corte["marca"]:
             _corte.update(marca=marca, texto=set(marca[4:].split()), rec=_reconocedor_corte(), audio=[], base=0)
     if _corte["rec"] is None:
         return
@@ -2783,6 +2847,15 @@ def decir_estado(ref=0.0):
 # boton. La crea el asistente cuando hay un juego en primer plano. El dictado
 # y la confirmacion siguen funcionando con normalidad.
 MARCA_SOLO_BOTON = os.path.join(os.path.dirname(NIVEL), "solo-boton.flag") if NIVEL else ""
+# TE HE OIDO, PERO ESTAS JUGANDO (22/09 por la noche). Con un juego delante el nombre se
+# ignora y hasta hoy eso pasaba EN SILENCIO: el 22/09, en diez minutos, braya dijo "nova"
+# cinco veces mientras jugaba a It Takes Two y no obtuvo nada -ni una palabra, ni un
+# parpadeo de la capsula-. Desde fuera, no saber si te ignora o si esta rota es la misma
+# leccion del aviso del ruido: callarse es lo peor que puede hacer.
+# El worker solo deja la marca; quien decide si se enseña y cuantas veces es el asistente
+# (una vez por partida, y SIN VOZ: jugando no se habla, y ademas la llamada podria ser un
+# falso positivo, que es justo por lo que existe el modo solo-boton).
+MARCA_LLAMADA_JUEGO = os.path.join(os.path.dirname(NIVEL), "llamada-en-juego.txt") if NIVEL else ""
 LOTENGO = os.path.join(os.path.dirname(NIVEL), "lotengo.txt") if NIVEL else ""
 # LA ONDA VERDE MENTIA (22/09). Cuando braya deja de hablar, el microfono ya esta
 # cerrado y el trabajo empieza aqui dentro: Parakeet, el repaso de ingles, Whisper.
@@ -3467,6 +3540,12 @@ try:
                                     if ahora - ultimo_aviso_solo_boton > 60:
                                         ultimo_aviso_solo_boton = ahora
                                         anota("'%s' ignorado: estas jugando, aqui solo vale el boton" % texto)
+                                        # y que el asistente pueda DECIRLO (ver MARCA_LLAMADA_JUEGO)
+                                        if MARCA_LLAMADA_JUEGO:
+                                            try:
+                                                escribir(MARCA_LLAMADA_JUEGO, "%.0f" % ahora)
+                                            except Exception:  # noqa: BLE001
+                                                pass
                                 elif salida > UMBRAL_ALTAVOZ_FUERTE:
                                     if ahora - ultimo_aviso_solo_boton > 60:
                                         ultimo_aviso_solo_boton = ahora

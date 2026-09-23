@@ -273,12 +273,23 @@ $rReal = Test-RevisionPropia $hoy
 # LO QUE PASA HOY: dos dias contados, y el freno de repartidos pide tres
 Comp 'con solo dos dias contados, NO la apaga todavia' (-not $rReal) ''
 Comp 'y la nube sigue puesta' ($NubeOir -eq 'gemini') "NubeOir='$NubeOir'"
-# EN CUANTO HAYA UN TERCER DIA desde el corte, se apaga. Esto es lo que va a pasar en
-# cuanto braya use Nova hoy: mismos numeros, un dia mas.
+# EL TERCER DIA NO BASTA, Y ESTE BANCO LO DABA POR HECHO (22/09 por la noche). Aqui se
+# escribian 20 intentos para el tercer dia y se comprobaba que con eso la apaga. Suena
+# razonable y es una cifra inventada: el freno de verdad no cuenta DIAS, cuenta REPARTO
+# (Test-DatosRepartidos, topeDia 0,70), y con los numeros reales de braya -20/09: 92,
+# 21/09: 27, 22/09: 6- el dia gordo pesa 92/125 = 73,6 %, o sea que NO se apaga. Con los
+# 20 inventados salia 66,2 % y pasaba. Por eso IDEAS-2026-09-22.md daba la idea 1 por
+# "cerrada": la daba por cerrada este banco, no el codigo.
+# Se prueban LAS DOS caras, y la primera es la de verdad.
+$script:stats.dias[$hoy.ToString('yyyy-MM-dd')] = @{ 'nube-intento' = 6; 'nube-sirvio' = 0 }
+$script:revisionPropiaDia = ''
+$rPocos = Test-RevisionPropia $hoy
+Comp 'un tercer dia flojo NO basta: manda el reparto' (-not $rPocos) '92 de 125 en un solo dia es el 73,6 %'
+# y cuando el reparto se arregle -otro dia de uso normal-, entonces si
 $script:stats.dias[$hoy.ToString('yyyy-MM-dd')] = @{ 'nube-intento' = 20; 'nube-sirvio' = 0 }
 $script:revisionPropiaDia = ''
 $rTres = Test-RevisionPropia $hoy
-Comp 'con el tercer dia, la apaga' $rTres ''
+Comp 'con el reparto repartido, la apaga' $rTres 'tres dias Y ningun dia por encima del 70 %'
 Comp 'y lo dice con su numero' (@($script:avisos).Count -eq 1 -and $script:avisos[0] -match '139') ($script:avisos -join ' ')
 # LO QUE NO PUEDE PASAR: que la apague jugando o con un invitado, o sin poder decirtelo.
 # Decidir en silencio es lo unico que esta funcion tiene prohibido.
