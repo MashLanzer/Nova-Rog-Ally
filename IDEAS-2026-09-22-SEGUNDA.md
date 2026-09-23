@@ -225,3 +225,40 @@ Ocho propuestas no pasaron el filtro. Los motivos, por si vuelven a aparecer:
 - **El parte de la mañana a una hora que no sea fija** — la función que iba a usar no sabe si
   estás o no.
 - Y tres más por números que no aguantaron el recuento.
+
+---
+
+## APENDICE (22/09, de noche): el primer dia del aviso de ruido, contado
+
+La idea 5 de la tanda de la manana -«avisar cuando no oye»- se estreno hoy. Al mirar su
+primer dia entero salio esto:
+
+**25 avisos identicos, de 08:00 a 20:20.** Son **25 de los 37** avisos de entorno de dos
+dias enteros, y de nivel 'medio', o sea que se DICEN en voz alta. El reposo estaba en 30
+minutos, y el comentario que hay tres lineas mas arriba en el codigo decia exactamente lo
+contrario de lo que hacia el numero: «un ventilador puede estar sonando toda la tarde y eso
+no son ganas de que te lo repitan».
+
+**Y era un ventilador.** braya lo dijo al ver el dato: «estaba delante del ventilador, debe
+de ser por eso». O sea que el aviso acerto en el fondo -habia ruido constante de verdad,
+suelo de 0,0863 contra los 0,0046 de una habitacion callada- y fallo en lo unico que le
+quedaba: **cuantas veces**. Si el ruido es algo que estas usando a proposito, la primera vez
+es informacion y las veinticuatro siguientes son una molestia.
+
+**El arreglo no es bajar el numero, es cambiar de limite.** El reloj deja de mandar y manda
+el estado: se dice **una vez por episodio** y no se vuelve a decir hasta que el oido este
+limpio un buen rato (15 min, `entorno.ruidoRearmeMinutos`) y el ruido vuelva. El reloj se
+queda de red de seguridad y pasa de 30 a 120 minutos. Es la misma guarda de idempotencia
+que la idea 10 de esta tanda, en otro aviso que se rearmaba solo.
+Corrido contra las 12 horas de ruido de hoy: **1 aviso, no 25**.
+
+**Y un segundo fallo que se vio tirando del mismo hilo:** el detector de ruido mira si casi
+todos los bloques pasan la puerta, y **el sonido de los altavoces los pasa igual que un
+ventilador** -musica, un video, un juego, o la propia voz de Nova-. La rama del ruido va
+ANTES que la de los altavoces en el bucle de la escucha, asi que se lo quedaba ella: visto
+en vivo a las 20:32:52, un pulso de «ruido de fondo» con el nivel de salida en 0,151. Contado
+asi, Nova le dice a braya que quite un ruido que ha puesto el, y que ella ya sabia que
+estaba sonando. Ahora el campo que alimenta el aviso solo se enciende con lo que **no** es
+ni su voz ni sus altavoces; la calibracion de la ganancia no se toca, que esa si trata los
+dos casos igual a proposito y esta medida. El pulso, ademas, deja escrito el nivel de
+salida: hoy habia 2.853 pulsos de ruido y ni uno decia si sonaba algo.

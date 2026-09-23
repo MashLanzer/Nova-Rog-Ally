@@ -31,11 +31,17 @@ function Comp($etiqueta, $ok, $detalle = '') {
 # no contestar con la medicion del worker ANTERIOR (escucha-estado.txt no lo borra nadie, y
 # tras un arranque tarda 16 s de mediana en refrescarse). Sin traerla, este banco muere a la
 # primera con CommandNotFoundException, que es exactamente como lo cazo la bateria.
-foreach ($fn in @('Test-EstadoFresco', 'Get-OidoConRuido')) {
+foreach ($fn in @('Test-EstadoFresco', 'Get-OidoConRuido', 'Test-AvisarRuido')) {
     $m = [regex]::Match($fuente, ('(?ms)^function {0}[ ({{].*?^\}}' -f [regex]::Escape($fn)))
     if (-not $m.Success) { Write-Host ('  MAL  no encuentro {0} en assistant.ps1' -f $fn); exit 1 }
     . ([scriptblock]::Create($m.Value))
 }
+
+# Test-AvisarRuido llama a Log cuando se rearma (solo escribe una linea en assistant.log, no
+# decide nada). Se pone un sustituto que la guarda, para poder comprobar que ese rearme queda
+# dicho: sin log, un aviso que se rearma solo es invisible desde fuera.
+$script:dicho = New-Object System.Collections.ArrayList
+function Log([string]$m) { [void]$script:dicho.Add($m) }
 
 $base = Join-Path ([System.IO.Path]::GetTempPath()) ('ruido-' + [System.Guid]::NewGuid().ToString('N').Substring(0, 8))
 $null = New-Item -ItemType Directory -Path $base -Force
@@ -85,7 +91,20 @@ Comp 'sin fichero, no hay ruido que avisar' (-not (Get-OidoConRuido))
 Write-Host ''
 Write-Host '-- el worker escribe ese campo, o lo de arriba no sirve de nada --'
 Comp 'el worker arma el estado en un solo sitio' ($oido -match 'def decir_estado\(') ''
-Comp 'y el quinto campo es el del ruido' ($oido -match 'if pulsos_ruidosos >= RUIDO_PULSOS else 0')
+Comp 'y el quinto campo es el del ruido' ($oido -match 'ruido_de_fuera = pulsos_ruidosos >= RUIDO_PULSOS')
+# LO QUE SONABA POR LOS ALTAVOCES NO ES RUIDO QUE BRAYA TENGA QUE QUITAR (22/09 noche). El
+# detector solo mira si casi todos los bloques pasan la puerta, y la musica, un video, un
+# juego o la propia voz de Nova los pasan igual que un ventilador. Visto en vivo a las
+# 20:32:52: pulso de 'ruido de fondo' con el nivel de salida en 0,151. Si esto se cae, Nova
+# vuelve a decirle que quite un ruido que ha puesto el.
+Comp 'y los altavoces no cuentan como ruido' ($oido -match 'ruido_de_fuera = pulsos_ruidosos >= RUIDO_PULSOS and salida <= UMBRAL_ALTAVOZ') 'la musica no es un ventilador'
+# decir_estado escribe el campo de los altavoces Y decide el del ruido con el mismo numero:
+# si se midiera dos veces, podrian contradecirse dentro de la misma linea.
+$dEstado = [regex]::Match($oido, '(?ms)^def decir_estado\(.*?
+(?=\S)').Value
+Comp 'el nivel de salida se mide una vez por linea' (([regex]::Matches($dEstado, 'nivel_salida\(\)')).Count -eq 1)
+# Y EL PULSO LO DEJA ESCRITO, o manana no se puede contar cuantos eran altavoces.
+Comp 'el pulso de ruido apunta los altavoces' ($oido -match 'seguidos, altavoces %\.3f')
 Comp 'nadie lo escribe ya a mano' (-not ($oido -match 'escribir\(RUTA_ESTADO, "%'))
 # el orden importa: los campos 0 a 3 tienen que seguir donde estaban
 Comp 'la ganancia sigue siendo el campo 0' ($oido -match 'return "%\.1f\|%s\|%\.3f\|%d\|%d"')
@@ -95,14 +114,59 @@ Write-Host '-- el aviso respeta las reglas de braya --'
 # Send-AvisoEntorno es quien aplica el limite por hora, el silencio de la noche (de 23:00 a
 # 8:00 solo pasa lo 'alto') y el modo juego. Si el aviso dejara de ir por ahi, sonaria de
 # madrugada, que es exactamente cuando paso esto.
-$m = [regex]::Match($fuente, "(?ms)if \(Get-OidoConRuido\) \{.*?\}")
+# El bloque entero del aviso, desde que lee el rearme hasta el catch. Antes se anclaba en
+# "if (Get-OidoConRuido) {", que dejo de existir al meter la guarda de episodio.
+$m = [regex]::Match($fuente, '(?ms)\$rearmeR = .*?\} catch \{\}')
 Comp 'el aviso existe y va por Send-AvisoEntorno' ($m.Success -and $m.Value -match 'Send-AvisoEntorno') ''
 Comp "con nivel 'medio', que de noche NO pasa" ($m.Value -match "'medio'") 'asi no te despierta'
 $cada = [regex]::Match($m.Value, "'medio'\s+(\d+)")
-Comp 'y como mucho una vez cada media hora' ($cada.Success -and [int]$cada.Groups[1].Value -ge 30) ("cada $($cada.Groups[1].Value) min")
+Comp 'el reloj, de red de seguridad y ancho' ($cada.Success -and [int]$cada.Groups[1].Value -ge 60) ("cada $($cada.Groups[1].Value) min")
+# LO QUE FALLO EL PRIMER DIA (22/09): con 30 minutos de reposo salieron 25 avisos identicos
+# entre las 08:00 y las 20:20. El limite de verdad tiene que ser el episodio, no el reloj.
+Comp 'y el que manda es el episodio, no el reloj' ($m.Value -match 'Test-AvisarRuido') 'la guarda de idempotencia'
+Comp "el 'ya lo dije' solo se apunta si el aviso salio" ($m.Value -match '(?s)if \(Send-AvisoEntorno.*?\$script:ruidoAvisado = \$true') 'si lo para la noche, se reintenta'
 Comp 'dice que hacer, no solo que pasa' ($m.Value -match 'quitalo o acercame')
 # NO es un modo que se queda activo: braya los rechaza. Solo avisa.
 Comp 'no enciende ningun modo ni cambia nada' (-not ($m.Value -match 'Set-|\$script:modo|config'))
+
+Write-Host ''
+Write-Host '-- una vez por episodio: el dia del 22/09, en un milisegundo --'
+# El bucle de entorno mira esto cada 30 s. Aqui se corren 12 horas de ruido constante -las
+# mismas que produjeron los 25 avisos- y se cuenta cuantas veces habria hablado.
+$MIN = 60000
+$REARME = 15 * $MIN
+$script:ruidoAvisado = $false; $script:ruidoLimpioDesde = 0
+$veces = 0
+for ($t = 0; $t -le (12 * 60 * $MIN); $t += 30000) {
+    if (Test-AvisarRuido $true $t $REARME) { $veces++; $script:ruidoAvisado = $true }
+}
+Comp '12 h de ruido seguido: lo dice una vez' ($veces -eq 1) "$veces aviso(s), antes 25"
+
+# Y EL REARME. Si el ruido se va y vuelve, es otro episodio y hay que decirlo otra vez: el
+# aviso no puede quedarse mudo para siempre, que seria el fallo contrario.
+$script:ruidoAvisado = $false; $script:ruidoLimpioDesde = 0
+$t = 0
+$primera = Test-AvisarRuido $true $t $REARME
+if ($primera) { $script:ruidoAvisado = $true }
+$t += 30000
+# el ruido para, pero solo diez minutos: todavia es el mismo episodio
+$corto = $false
+for ($i = 0; $i -lt 20; $i++) { $t += 30000; [void](Test-AvisarRuido $false $t $REARME) }
+$corto = Test-AvisarRuido $true $t $REARME
+Comp 'diez minutos de calma no son un episodio nuevo' (-not $corto) 'sigue callada'
+# ahora si: veinte minutos limpios
+$script:ruidoLimpioDesde = 0
+for ($i = 0; $i -lt 40; $i++) { $t += 30000; [void](Test-AvisarRuido $false $t $REARME) }
+Comp 'y el rearme queda dicho en el log' (@($script:dicho | Where-Object { $_ -match 'se rearma' }).Count -eq 1)
+$vuelve = Test-AvisarRuido $true $t $REARME
+Comp 'pero veinte si: el ruido que vuelve se dice' $vuelve 'otro episodio'
+
+# LA MITAD QUE SE ME OLVIDABA: si el aviso NO sale (de noche, o jugando), Send-AvisoEntorno
+# devuelve falso y nadie apunta el 'ya lo dije'. Tiene que seguir pidiendolo.
+$script:ruidoAvisado = $false; $script:ruidoLimpioDesde = 0
+$pide = 0
+for ($i = 0; $i -lt 10; $i++) { if (Test-AvisarRuido $true ($i * 30000) $REARME) { $pide++ } }
+Comp 'si la noche lo bloquea, lo sigue pidiendo' ($pide -eq 10) 'el que calla es Send-AvisoEntorno'
 
 Write-Host ''
 Write-Host '-- y si le preguntas como te oye, tambien lo dice --'

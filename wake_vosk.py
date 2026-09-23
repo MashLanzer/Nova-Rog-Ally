@@ -2757,10 +2757,24 @@ def decir_estado(ref=0.0):
     mismo aunque el worker sea el nuevo, que es lo que pasa justo despues de actualizar.
     El quinto vale 1 cuando lo que entra por el microfono es ruido de fondo constante y no
     voz (ver RUIDO_CONSTANTE): es lo que permite a Nova DECIR que no esta oyendo, en vez de
-    callarse como la madrugada del 22."""
+    callarse como la madrugada del 22.
+
+    Y NO CUENTAN LOS ALTAVOCES (22/09 por la noche). El detector de ruido mira si casi
+    todos los bloques pasan la puerta, y el sonido que sale por los altavoces -musica, un
+    video, un juego, o la propia voz de Nova- entra por el microfono y los pasa igual que
+    un ventilador. La rama de ruido va ANTES que la de los altavoces en el bucle, asi que
+    se lo quedaba ella: visto en vivo a las 20:32:52, un pulso de "ruido de fondo" mientras
+    el nivel de salida estaba en 0,151. Contado como ruido, Nova le dice a braya "hay un
+    ruido de fondo, quitalo o acercame el microfono" por el sonido que ha puesto el a
+    proposito, y que ella ya sabe que esta sonando (de esa medida cuelgan otras cuatro
+    protecciones). Aqui se separan las dos cosas: el aviso solo habla de lo que NO es ni su
+    voz ni sus altavoces. La calibracion de la ganancia no se toca: esa sigue tratando los
+    dos casos igual, que es lo medido."""
+    salida = nivel_salida()
+    ruido_de_fuera = pulsos_ruidosos >= RUIDO_PULSOS and salida <= UMBRAL_ALTAVOZ
     return "%.1f|%s|%.3f|%d|%d" % (
         ganancia, ("%.4f" % ref) if ref else "0",
-        nivel_salida(), bloques_voz, 1 if pulsos_ruidosos >= RUIDO_PULSOS else 0)
+        salida, bloques_voz, 1 if ruido_de_fuera else 0)
 # Mientras exista esta marca no se evalua la palabra de activacion: solo el
 # boton. La crea el asistente cuando hay un juego en primer plano. El dictado
 # y la confirmacion siguen funcionando con normalidad.
@@ -3603,9 +3617,13 @@ try:
                         # OCHO son la misma racha de 07:47:58 a 07:50:59: justo la repeticion
                         # que se viene a quitar. La novena, a las 13:05:53, sigue saliendo
                         # porque su texto no se parece al del latido de antes.
+                        # CON EL NIVEL DE LOS ALTAVOCES DELANTE (22/09 noche). Sin el, esta
+                        # linea no permitia contar cuantos de estos pulsos eran en realidad
+                        # el sonido que braya estaba escuchando: 2.853 pulsos hoy y ni uno
+                        # decia si sonaba algo. Ahora se puede contar manana.
                         anota_pulso("pulso: esto no es voz, es ruido de fondo (%d de %d bloques, %d pulsos"
-                                    " seguidos); dejo la ganancia en x%.1f y la puerta en %.4f%s"
-                                    % (bloques_voz, bloques_ventana, pulsos_ruidosos, ganancia,
+                                    " seguidos, altavoces %.3f); dejo la ganancia en x%.1f y la puerta en %.4f%s"
+                                    % (bloques_voz, bloques_ventana, pulsos_ruidosos, nivel_salida(), ganancia,
                                        umbral_actividad(), vuelta), ahora)
                         escribir(RUTA_ESTADO, decir_estado())
                     elif automatica and altavoces_altos and bloques_voz >= MIN_BLOQUES_VOZ:

@@ -8060,6 +8060,39 @@ function Get-OidoConRuido {
     } catch { return $false }
 }
 
+# UNA VEZ POR EPISODIO, NO CADA MEDIA HORA (22/09 por la noche, con el dato del primer dia).
+# El aviso de ruido se estreno esta manana con un reposo de 30 minutos y el resultado fue
+# 25 avisos IDENTICOS en un dia, de 08:00 a 20:20: 25 de los 37 avisos de entorno de dos
+# dias enteros. Nivel 'medio', o sea que se DICEN en voz alta. El comentario de arriba ya
+# decia lo correcto -"un ventilador puede estar sonando toda la tarde y eso no son ganas de
+# que te lo repitan"- y el numero de debajo decia otra cosa.
+# Repetirlo no aporta nada: o braya puede quitar el ruido y lo quita a la primera, o no
+# puede y entonces cada repeticion es solo una interrupcion mas.
+# Asi que el limite deja de ser el reloj y pasa a ser EL ESTADO: se dice una vez cuando
+# empieza el ruido y no se vuelve a decir hasta que el oido este limpio un buen rato y el
+# ruido vuelva. O sea, un episodio nuevo de verdad. El reloj se queda solo de red de
+# seguridad (dos horas), por si el ruido va y viene.
+# Es la misma guarda de idempotencia que Test-ParteManana, aplicada a un aviso que se
+# rearmaba solo.
+$script:ruidoAvisado = $false     # ya se dijo en el episodio de ruido en curso
+$script:ruidoLimpioDesde = 0      # desde cuando el oido esta limpio (0 = ahora mismo no lo esta)
+# Pura a proposito: recibe el estado y el reloj y no toca nada mas, para que el banco pueda
+# correr un dia entero de ruido en un milisegundo.
+function Test-AvisarRuido([bool]$hayRuido, [long]$ahoraMs, [int]$rearmeMs) {
+    if ($hayRuido) {
+        $script:ruidoLimpioDesde = 0
+        return (-not $script:ruidoAvisado)
+    }
+    if ($script:ruidoLimpioDesde -eq 0) {
+        $script:ruidoLimpioDesde = $ahoraMs
+    } elseif ($script:ruidoAvisado -and ($ahoraMs - $script:ruidoLimpioDesde) -ge $rearmeMs) {
+        # el ruido se fue y lleva rato sin volver: lo siguiente que suene es otro episodio
+        $script:ruidoAvisado = $false
+        Log 'oido-ruido: el oido lleva rato limpio, el aviso se rearma'
+    }
+    return $false
+}
+
 function Watch-Entorno([int]$botones = 0) {
     if (-not $EntornoOn) { return }
     # IDEA 6: COGES LA CONSOLA. El bucle ya lee los cuatro mandos; si aparecen botones
@@ -8141,9 +8174,14 @@ function Watch-Entorno([int]$botones = 0) {
 
     # NO TE ESTOY OYENDO, Y TE LO DIGO (ver Get-OidoConRuido)
     try {
-        if (Get-OidoConRuido) {
-            [void](Send-AvisoEntorno 'oido-ruido' `
-                'Hay un ruido de fondo constante y asi no te voy a oir bien. Si puedes, quitalo o acercame el microfono.' 'medio' 30)
+        $rearmeR = [int](Get-Cfg 'entorno' 'ruidoRearmeMinutos' 15) * 60000
+        if (Test-AvisarRuido (Get-OidoConRuido) $ahoraW $rearmeR) {
+            # el 'true' solo se apunta si el aviso SALIO: si lo para la noche o el modo juego,
+            # se vuelve a intentar despues, que es cuando braya puede oirlo.
+            if (Send-AvisoEntorno 'oido-ruido' `
+                'Hay un ruido de fondo constante y asi no te voy a oir bien. Si puedes, quitalo o acercame el microfono.' 'medio' 120) {
+                $script:ruidoAvisado = $true
+            }
         }
     } catch {}
 
