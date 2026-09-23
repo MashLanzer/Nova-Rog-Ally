@@ -116,8 +116,14 @@ Comp 'se guarda en el json' ($fuente -match 'NotePropertyName decisiones')
 Comp 'se carga del json' ($fuente -match '\$script:stats\.decisiones = @\(\$j\.decisiones')
 Comp 'y el olvido por dia la barre igual' ($fuente -match "@\('descartes', 'recientes', 'decisiones'\)")
 $mPar = Traer 'Get-ParrafoDecisiones'
-Comp 'el parrafo lee la lista nueva' ($mPar -match '\$deDonde = @\(\$stats\.decisiones\)')
-Comp 'y cae a recientes si aun esta vacia' ($mPar -match 'if \(\$deDonde\.Count -eq 0\) \{ \$deDonde = @\(\$stats\.recientes\) \}')
+Comp 'el parrafo lee la lista nueva' ($mPar -match '\$deDonde = @\(\$stats\.decisiones')
+Comp 'y cae a recientes si aun esta vacia' ($mPar -match '\$deDonde\.Count -eq 0.*\$stats\.recientes')
+# Y FILTRANDO LOS NULOS, que es donde estaba el fallo: si $stats no trae la clave
+# 'decisiones' -un objeto de antes de hoy, o sea justo el caso del respaldo-,
+# $stats.decisiones es $null y en PowerShell @($null).Count es UNO, no cero. El respaldo no
+# entraba nunca. Esto se comprueba de verdad tres lineas mas abajo, con un hashtable SIN la
+# clave, que es la unica forma de que no vuelva a colarse.
+Comp 'y filtra los nulos (@($null).Count es 1)' ($mPar -match 'Where-Object \{ \$_ \}')
 
 # Y SE EJECUTA, que es lo unico que lo demuestra. El caso de verdad: 40 avisos tapando las
 # decisiones, que es lo que hay hoy en el fichero.
@@ -136,6 +142,15 @@ Comp 'y con 40 avisos delante salia VACIO' (-not $r2) 'el fallo, reproducido'
 $viejo = @{ decisiones = @(); recientes = @("$hoy 10:00  [auto-ajuste]  algo de antes") }
 $r3 = Get-ParrafoDecisiones $viejo $ini $fin
 Comp 'el respaldo del fichero viejo funciona' ([bool]$r3)
+# EL CASO QUE SE ME ESCAPO, y que es el de verdad: un objeto SIN la clave 'decisiones'.
+# Asi es como llega un estadisticas.json de antes de hoy, y asi es como fallaba: $null no
+# es una lista vacia, @($null).Count da 1, y el respaldo no entraba. Ocho comprobaciones de
+# probar-parte-semanal.ps1 lo cazaron; aqui se queda para que no vuelva.
+$sinClave = @{ recientes = @("$hoy 10:00  [auto-ajuste]  algo de antes") }
+Comp 'y tambien si la clave NI SIQUIERA EXISTE' ([bool](Get-ParrafoDecisiones $sinClave $ini $fin)) `
+    'un estadisticas.json de antes de hoy'
+$sinNada = @{ }
+Comp 'con un objeto vacio del todo, no revienta' (-not (Get-ParrafoDecisiones $sinNada $ini $fin))
 # y que no se invente nada cuando no hay decisiones
 $nada = @{ decisiones = @(); recientes = @("$hoy 10:00  [charla]  hola") }
 Comp 'sin decisiones no dice nada' (-not (Get-ParrafoDecisiones $nada $ini $fin))
