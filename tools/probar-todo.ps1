@@ -429,6 +429,22 @@ Titulo "2n65. Una orden mal oida no envenena el vocabulario"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-alias-vacio.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no envenena el vocabulario)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n100. Acordarse de lo que le contaste"
+# Funcion 4. "¿que te dije del juego que era caro?" se iba a opencode -el agente con acceso
+# total- tardando de 25 a 60 s, con la respuesta esperando en su propia memoria. El liston
+# (0,28) se midio contra sus 110 recuerdos: los cinco temas que SI estan puntuan 0,315-0,534 y
+# los cuatro que no, 0,205-0,241. El analisis proponia 0,45, que habria tirado cuatro de cinco.
+python (Join-Path $PSScriptRoot 'probar-recordar.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:dice que no cuando no lo sabe)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n99. Montajes de ventanas con nombre"
+# Funcion 3. En catorce dias la pantalla dividida no se ejecuto bien ni una vez por voz: cero
+# de once intentos, y el 18/09 se quejo por voz ("solo abriste Pinterest, nunca abriste
+# YouTube"). Con un nombre no hay nada que adivinar. El montaje se guarda de los destinos YA
+# RESUELTOS, y al montarlo se reusa la ventana abierta en vez de abrir otra.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-montajes.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la vuelves a montar)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n98. Las palabras que braya no aguanta"
 # Funcion 2. Se lo pidio TRES veces ("deja de decirme man", "deja de llamarme tio", "deja de
 # decir tio, no me gusta esa palabra") y seguia pasando. Y lo peor: de la queja aprendio

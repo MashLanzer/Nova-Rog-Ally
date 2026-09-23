@@ -4573,6 +4573,32 @@ function Resolve-Fragment([string]$f) {
     # pausa, ni nada. Decir que haces algo y no hacerlo es lo peor de esta lista.
     # Se aceptan las dos formas del verbo -'hables' y 'hablas', que es como sale del oido- y
     # un 'no' suelto delante, porque la frase de verdad empezo por 'No, no me hablas...'.
+    # BUSCAR EN LO QUE LE HA CONTADO (23/09, funcion 4). Hasta hoy "¿que te dije de X?" se
+    # iba a opencode -el agente con acceso total- tardando de 25 a 60 s, con la respuesta
+    # esperando en su propia memoria. Medido contra sus 110 recuerdos: los cinco temas que
+    # SI estan se encuentran, y los cuatro que no, no.
+    if ($f -match '^(?:que (?:te )?(?:dije|conte|comente|habia dicho)|de que (?:hablamos|hablabamos)|que (?:me )?dijiste|que sabes|que recuerdas|te acuerdas)\s+(?:de|del|sobre|acerca de)\s+(.{3,60})$') {
+        return @(@{ kind = 'recordar'; tema = ([string]$Matches[1]).Trim(); desc = 'lo que recuerdo de eso' })
+    }
+    # MONTAJES CON NOMBRE (23/09, funcion 3). "guarda esto como el tablero" / "pon el
+    # tablero". El nombre lo pone braya y puede ser cualquier cosa; lo unico que se le pide
+    # es que no sea una orden que ya existe, para no taparla.
+    if ($f -match '^(?:guarda|guardame|apunta)\s+(?:esto|esta pantalla|este escritorio|esta colocacion|el escritorio)\s+como\s+(?:el |la |mi )?(.{2,30})$') {
+        return @(@{ kind = 'montajeGuarda'; nombre = (ConvertTo-Plain $Matches[1]); desc = ('guardo esta colocacion como ' + $Matches[1]) })
+    }
+    if ($f -match '^(?:pon|monta|abre|ponme|recupera)\s+(?:el |la |mi )?montaje\s+(?:de\s+)?(.{2,30})$' -or
+        $f -match '^(?:pon|monta|recupera)\s+(?:el |la |mi )?(.{2,30})$' -and (Get-Montajes).ContainsKey((ConvertTo-Plain $Matches[1]))) {
+        $nomM = ConvertTo-Plain $Matches[1]
+        if ((Get-Montajes).ContainsKey($nomM)) {
+            return @(@{ kind = 'montajePon'; nombre = $nomM; desc = ('monto ' + $nomM) })
+        }
+    }
+    if ($f -match '^(?:que montajes tengo|que colocaciones tengo|cuales son mis montajes|que escritorios tengo)$') {
+        return @(@{ kind = 'montajesLista'; desc = 'los montajes que tienes' })
+    }
+    if ($f -match '^(?:borra|olvida|quita)\s+(?:el |la |mi )?montaje\s+(?:de\s+)?(.{2,30})$') {
+        return @(@{ kind = 'montajeBorra'; nombre = (ConvertTo-Plain $Matches[1]); desc = ('borro el montaje ' + $Matches[1]) })
+    }
     # "NO DIGAS TIO" (23/09, funcion 2). VA DELANTE de la sordina a proposito: si fuera
     # detras no se llegaria nunca, porque "no digas nada" la captura antes. Y por eso mismo
     # aqui se excluyen "nada", "mas" y las de relleno: si no, "no digas nada" vetaria la
@@ -11613,6 +11639,15 @@ function Invoke-FastCommand([string]$text) {
                         }
                     }
                     if ($colocadas -lt 2) { $a.desc = "$($a.desc); una de las dos no llego a colocarse" }
+                    else {
+                        # y se recuerda, por si braya dice luego "guarda esto como el tablero"
+                        # (ver MONTAJES CON NOMBRE). Se guarda lo RESUELTO, no lo que se oyo.
+                        $script:ultimoDividir = @{
+                            izq = [string]$(if ($a.izq.kind -eq 'url') { $a.izq.url } else { $a.izq.target })
+                            der = [string]$(if ($a.der.kind -eq 'url') { $a.der.url } else { $a.der.target })
+                            izqTipo = [string]$a.izq.kind; derTipo = [string]$a.der.kind
+                        }
+                    }
                 }
                 'dividirUna' {
                     # PANTALLA DIVIDIDA CON UNA SOLA APP (19/09). Igual que 'dividir', pero
@@ -11838,6 +11873,81 @@ function Invoke-FastCommand([string]$text) {
                         } catch {}
                         $a.desc = ($partes -join ', ')
                     }
+                }
+                'recordar' {
+                    # va al worker de la charla, que es quien tiene los vectores. Si no
+                    # contesta o no encuentra nada, se dice y punto: nada de inventar.
+                    if (-not $ConversacionOn) { $a.desc = 'no tengo la memoria encendida' }
+                    else {
+                        $script:recuerdoPide = $a.tema
+                        $okR = $false
+                        try { $okR = [bool](Send-CharlaPedido @{ op = 'recordar'; id = 0; texto = $a.tema } $false) } catch {}
+                        if ($okR) {
+                            $a.desc = ''      # contesta el evento 'recuerdo' cuando llegue
+                            $script:respuestaSinTarjeta = $true
+                        } else { $a.desc = 'ahora mismo no puedo mirar mi memoria' }
+                    }
+                }
+                'montajeGuarda' {
+                    if (-not $script:ultimoDividir) {
+                        $a.desc = 'primero divide la pantalla y luego te lo guardo'
+                    } else {
+                        $mm = Get-Montajes
+                        $mm[$a.nombre] = @{
+                            izq = $script:ultimoDividir.izq; der = $script:ultimoDividir.der
+                            izqTipo = $script:ultimoDividir.izqTipo; derTipo = $script:ultimoDividir.derTipo
+                            cuando = (Get-Date).ToString('s')
+                        }
+                        Save-Montajes
+                        Log "MONTAJE guardado: '$($a.nombre)' = $($mm[$a.nombre].izq) | $($mm[$a.nombre].der)"
+                        Add-Estadistica 'montaje-guarda' $a.nombre
+                        Set-AcabaDeAprender
+                        $a.desc = 'guardado. Dime "pon ' + $a.nombre + '" cuando lo quieras'
+                    }
+                }
+                'montajePon' {
+                    $mo = (Get-Montajes)[$a.nombre]
+                    if (-not $mo) {
+                        $a.desc = 'no tengo ningun montaje con ese nombre'
+                    } else {
+                        $antesM = [AX]::GetForegroundWindow()
+                        $puestas = 0
+                        foreach ($lado in @(@{ q = $mo.izq; t = $mo.izqTipo; vk = 0x25 },
+                                            @{ q = $mo.der; t = $mo.derTipo; vk = 0x27 })) {
+                            if (-not (Show-OAbrir $lado.t $lado.q)) { continue }
+                            $t0M = $sw.ElapsedMilliseconds
+                            $vino = $false
+                            while (($sw.ElapsedMilliseconds - $t0M) -lt 4000) {
+                                Start-Sleep -Milliseconds 200
+                                $hM = [AX]::GetForegroundWindow()
+                                if ($hM -ne [IntPtr]::Zero -and $hM -ne $antesM) { $vino = $true; break }
+                            }
+                            if ($vino) {
+                                Start-Sleep -Milliseconds 350
+                                Send-WinKey $lado.vk
+                                $puestas++
+                                Start-Sleep -Milliseconds 400
+                                $antesM = [AX]::GetForegroundWindow()
+                            }
+                        }
+                        Log "MONTAJE puesto: '$($a.nombre)' ($puestas de 2)"
+                        Add-Estadistica 'montaje-pon' $a.nombre
+                        $a.desc = if ($puestas -eq 2) { 'montado' } else { "monte $puestas de las dos; la otra no llego" }
+                    }
+                }
+                'montajesLista' {
+                    $lm = @((Get-Montajes).Keys)
+                    $a.desc = if ($lm.Count -eq 0) { 'no tienes ningun montaje guardado' }
+                              elseif ($lm.Count -eq 1) { 'solo uno: ' + $lm[0] }
+                              else { 'tienes ' + $lm.Count + ': ' + ($lm -join ', ') }
+                }
+                'montajeBorra' {
+                    $mb = Get-Montajes
+                    if ($mb.ContainsKey($a.nombre)) {
+                        $mb.Remove($a.nombre); Save-Montajes
+                        Log "MONTAJE borrado: '$($a.nombre)'"
+                        $a.desc = 'borrado'
+                    } else { $a.desc = 'no tengo ningun montaje con ese nombre' }
                 }
                 'palabraNo' {
                     # LA LISTA ES CORTA A PROPOSITO (23/09, funcion 2). Con el oido al 70,4 %,
@@ -12573,6 +12683,66 @@ function Await-Voz($op, $tipo) {
 # Las tildes se ponen con codigos de caracter: este archivo no lleva BOM y PS 5.1
 # leeria mal una tilde escrita tal cual.
 $script:TildesVoz = $null
+# MONTAJES CON NOMBRE (23/09, funcion 3 de la tanda de funciones nuevas).
+# Es lo que mas ha pedido braya y lo unico que nunca consiguio: el propio codigo lo tiene
+# contado -en catorce dias la pantalla dividida no se ejecuto bien ni una vez por voz, cero de
+# once intentos-. Y no es un capricho suelto: YouTube en una mitad y Pinterest en la otra sale
+# en ocho momentos distintos, y el 18/09 a las 20:04 se quejo por voz ("solo abriste Pinterest,
+# nunca abriste YouTube ni dividiste la pantalla"). Su perfil dice para que le sirve: quiere
+# recrear una foto con su pareja -las referencias en Pinterest, el tutorial en YouTube-.
+# Hoy hay cinco patrones peleandose por adivinar como lo dice. Con un nombre no hay nada que
+# adivinar: "guarda esto como el tablero" y luego "pon el tablero".
+#
+# EL MONTAJE NO SE SACA DE MIRAR LA PANTALLA: se guarda de los destinos YA RESUELTOS de un
+# "dividir" que Nova acaba de ejecutar bien. Asi guarda "https://www.pinterest.com a la
+# izquierda" y no "dos ventanas de Edge", y no le hace falta saber leer la barra del navegador.
+$MontajesPath = Join-Path $MemoriaDir 'montajes.json'
+$script:montajes = $null
+function Get-Montajes {
+    if ($null -ne $script:montajes) { return $script:montajes }
+    $script:montajes = @{}
+    try {
+        if (Test-Path -LiteralPath $MontajesPath) {
+            $crudoM = Get-Content -LiteralPath $MontajesPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($pm in $crudoM.PSObject.Properties) {
+                $script:montajes[$pm.Name] = @{
+                    izq = [string]$pm.Value.izq; der = [string]$pm.Value.der
+                    izqTipo = [string]$pm.Value.izqTipo; derTipo = [string]$pm.Value.derTipo
+                    cuando = [string]$pm.Value.cuando
+                }
+            }
+        }
+    } catch { Log ('montajes: no pude leerlos: ' + $_.Exception.Message) }
+    return $script:montajes
+}
+function Save-Montajes {
+    try {
+        [System.IO.File]::WriteAllText($MontajesPath, (ConvertTo-Json -InputObject (Get-Montajes) -Depth 4),
+                                       (New-Object System.Text.UTF8Encoding($false)))
+    } catch { Log ('montajes: no pude guardarlos: ' + $_.Exception.Message) }
+}
+# ABRIR O ENFOCAR, que no es lo mismo: 'dividir' siempre hace Start-Process, asi que si el
+# navegador ya estaba abierto te abre OTRO. Aqui se mira primero si ya hay una ventana suya.
+function Show-OAbrir([string]$tipo, [string]$destino) {
+    if ($tipo -ne 'url') {
+        $nom = [System.IO.Path]::GetFileNameWithoutExtension($destino)
+        $pv = $null
+        try { $pv = @(Get-Process -Name $nom -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 })[0] } catch {}
+        if ($pv) {
+            try {
+                [void][AX]::ShowWindow($pv.MainWindowHandle, 9)
+                [void][AX]::ForceForeground($pv.MainWindowHandle)
+                return $true
+            } catch {}
+        }
+    }
+    try {
+        if ($tipo -eq 'url') { Start-Process $destino -ErrorAction Stop }
+        else { $null = Start-Process $destino -PassThru -ErrorAction Stop }
+        return $true
+    } catch { Log ("montaje: no pude abrir $destino"); return $false }
+}
+
 # AJEDREZ A CIEGAS (23/09, lo pidio braya). Las reglas las lleva python-chess y juega
 # Stockfish: aqui solo esta el puente. Un turno = un proceso que arranca y se muere (medido:
 # 1,2 s, de los que 0,15 son pensar); un worker vivo ahorraria medio segundo y le quitaria
@@ -12587,6 +12757,8 @@ $script:TildesVoz = $null
 # perfiles de juego y las traducciones, y ninguna es braya hablando.
 # Se puede apagar entero desde config.json (juego.ajedrez = false), como todo lo demas.
 $AjedrezOn = [bool](Get-Cfg 'juego' 'ajedrez' $true)
+$script:recuerdoPide = ''        # de que se le pidio acordarse (ver funcion 4)
+$script:ultimoDividir = $null     # el ultimo 'dividir' que salio bien, para poder guardarlo
 $script:ajedrezActiva = $null      # $null = aun no se ha mirado el disco en este arranque
 $AjedrezPy = Join-Path $LogDir 'ajedrez_turno.py'
 function Test-AjedrezAbierta {
@@ -17050,6 +17222,29 @@ function Receive-Charla {
             continue
         }
         if ([int]$ev.id -ne $script:charlaId) { continue }   # de una respuesta ya cortada
+        if ($ev.ev -eq 'recuerdo') {
+            # LO QUE ENCONTRO EN SU MEMORIA (23/09, funcion 4). Si no llega al liston medido,
+            # lo dice: "no me suena" es una respuesta honesta y "creo que dijiste algo de..."
+            # es el principio de inventarse las cosas.
+            $txtR = [string]$ev.texto
+            if ($txtR) {
+                Log "RECUERDO: '$($script:recuerdoPide)' -> $txtR (parecido $($ev.parecido))"
+                Add-Estadistica 'recuerdo-si' ([string]$script:recuerdoPide)
+                $script:ultimaRespuesta = $txtR
+                Show-Popup $txtR
+                Say $txtR
+            } else {
+                Log "RECUERDO: '$($script:recuerdoPide)' -> nada (parecido $($ev.parecido))"
+                Add-Estadistica 'recuerdo-no' ([string]$script:recuerdoPide)
+                Show-Popup 'No me suena que hablaramos de eso'
+                Say 'No me suena que hablaramos de eso'
+            }
+            $script:recuerdoPide = ''
+            $script:seguimientoPendiente = $true
+            $script:seguimientoFactor = 1.0
+            Set-UI 'reposo'
+            continue
+        }
         if ($ev.ev -eq 'frase') {
             $script:charlaFrases.Enqueue(@{ t = [string]$ev.texto; o = [string]$ev.origen })
             # la primera suena ya; las que vienen detras se preparan (ver VOZ PREPARADA)

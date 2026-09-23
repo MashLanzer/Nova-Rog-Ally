@@ -150,6 +150,8 @@ ultima_charla = 0.0
 bloqueo_salida = threading.Lock()
 cerebro = None                  # se crea en principal(); las pruebas ponen el suyo
 _perfil = {"mtime": None, "lineas": []}
+# el liston de "me acuerdo de eso", medido contra su memoria real (ver op recordar)
+LISTON_RECUERDO = 0.28
 trivia = {"r": None, "hasta": 0.0, "hechas": []}     # la pregunta de trivia que espera respuesta
 # LO ULTIMO QUE NOVA DIJO DE VERDAD (21/09), para que "eso no es verdad" rechace ESO.
 # No vale cerebro.ultimo_id: lo escribe tambien el hilo del revisor, de fondo y entre
@@ -1068,6 +1070,53 @@ def atender(p):
                 salida("info", texto="memoria: no pude aprender (%s)" % e)
     elif op == "apunta":
         apuntar_hilo(p.get("texto") or "", p.get("hecho") or "")
+    elif op == "recordar":
+        # BUSCAR EN LO QUE BRAYA LE HA CONTADO, POR SIGNIFICADO (23/09, funcion 4).
+        # Hasta hoy una pregunta como "¿que te dije del juego que era caro?" se la comia el
+        # camino de siempre y acababa en opencode -el agente con acceso total- tardando de 25
+        # a 60 s, mientras la memoria tenia la respuesta al lado. Medido contra sus vectores
+        # reales: 5 preguntas de 5 sacaron el recuerdo bueno EL PRIMERO sin compartir ni una
+        # palabra ("del juego que era caro" -> "cada zombi cuesta ocho dolares", 0,576).
+        #
+        # PRIMERO LO GRATIS: buscar() sin vector es instantaneo y ya cubre lo que comparte
+        # palabras. Solo si eso no llega se embebe la pregunta (3,3 s en frio, 0,03 en
+        # caliente), y ni se intenta si el modelo de significado no esta.
+        # Y EL LISTON ES ABSOLUTO, NO RELATIVO, Y SALE DE MEDIRLO CONTRA SU MEMORIA DE VERDAD
+        # (23/09, 110 recuerdos y 106 vectores suyos):
+        #   con respuesta en su memoria: 0,315  0,330  0,383  0,479  0,534   (los cinco aciertan)
+        #   temas que nunca ha hablado:  0,205  0,220  0,226  0,241          (los cuatro, nada)
+        # Hay hueco limpio entre 0,241 y 0,315, asi que el liston va en 0,28: pasa el peor
+        # acierto con 0,035 de margen y frena el peor falso con 0,039.
+        # OJO: la propuesta original decia 0,45 "medido". Con estos datos, 0,45 habria tirado
+        # CUATRO de los cinco aciertos. El numero sale de medir aqui, no de copiarlo.
+        texto_r = (p.get("texto") or "").strip()
+        idr = p.get("id") or 0
+        if cerebro is None or not texto_r:
+            salida("recuerdo", idr, texto="", nada=True)
+        else:
+            try:
+                hits = cerebro.buscar(texto_r, k=3)
+                mejor = hits[0] if hits else None
+                if not mejor or mejor["comb"] < LISTON_RECUERDO:
+                    # el vector lo da el propio Cerebro (devuelve None si no hay modelo o si
+                    # fallo hace poco, asi que no hace falta comprobar nada mas)
+                    try:
+                        qv = cerebro.vector(texto_r)
+                        if qv is not None:
+                            hits = cerebro.buscar(texto_r, k=3, qvec=qv)
+                            mejor = hits[0] if hits else None
+                    except Exception:   # noqa: BLE001
+                        pass
+                if mejor and mejor["comb"] >= LISTON_RECUERDO:
+                    r = mejor["r"]
+                    dicho = r.get("respuesta") or r.get("texto") or ""
+                    salida("recuerdo", idr, texto=dicho, id_recuerdo=r.get("id"),
+                           parecido=round(float(mejor["comb"]), 3))
+                else:
+                    salida("recuerdo", idr, texto="", nada=True,
+                           parecido=round(float(mejor["comb"]), 3) if mejor else 0.0)
+            except Exception as e:      # noqa: BLE001
+                salida("recuerdo", idr, texto="", nada=True, error=str(e)[:120])
     elif op in ("hablar", "trivia", "resumir"):
         # si vuelve a hablar, el juego ya no manda: el revisor se reanuda. Sin esto se
         # quedaria dormido hasta que muriera el worker, y en vez de ahorrar CPU jugando
