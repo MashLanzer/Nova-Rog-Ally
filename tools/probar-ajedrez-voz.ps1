@@ -38,6 +38,11 @@ Invoke-Expression (Traer 'Invoke-Ajedrez')
 # el propio banco: al engancharlo, 'la primera' reventaba con "Close-Eleccion no se reconoce".
 Invoke-Expression (Traer 'Close-Eleccion')
 $script:eleccion = $null
+$script:ajedrezPreguntaHasta = 0
+# un reloj de mentira: Invoke-Ajedrez mira $sw para caducar la pregunta
+$script:relojAj = 0
+$sw = [pscustomobject]@{}
+$sw | Add-Member -MemberType ScriptProperty -Name ElapsedMilliseconds -Value { $script:relojAj }
 $script:confirmaFin = 0; $script:confirmaTotal = 0
 function Set-UI([string]$e, [string]$t = '', [int]$ms = 0) { }
 # el puente se sustituye para no arrancar Python en cada caso: lo que interesa aqui es QUE
@@ -105,8 +110,27 @@ Comp 'y al cerrar, la partida deja de estar abierta' (-not $script:ajedrezActiva
 Write-Host ''
 Write-Host '-- contestar a la pregunta de las dos parecidas --'
 $script:ajedrezActiva = $true
+$script:ajedrezPreguntaHasta = 60000
 [void](Pide 'la primera'); Comp "'la primera' elige la 1" ($script:llamadas[0] -eq '--elegir 1')
+$script:ajedrezPreguntaHasta = 60000
 [void](Pide 'el segundo'); Comp "'el segundo' elige la 2" ($script:llamadas[0] -eq '--elegir 2')
+
+Write-Host ''
+Write-Host '-- pero SIN pregunta viva, un numero suelto no mueve nada --'
+# La partida vive dias entre los diecisiete arranques diarios, y la pregunta se
+# guardaba en disco sin caducar: un "dos" suelto tres dias despues hacia la jugada que
+# quedo pendiente. Y cada intento arrancaba Python (~1,2 s con el bucle parado) aunque
+# no hubiera nada que elegir.
+$script:ajedrezPreguntaHasta = 0
+foreach ($f in @('la primera', 'la segunda', 'uno', 'dos', 'el segundo')) {
+    $r = Pide $f
+    Comp "'$f' no elige nada" (($null -eq $r) -and ($script:llamadas.Count -eq 0)) 'ni arranca Python'
+}
+# y caduca sola al minuto
+$script:ajedrezPreguntaHasta = 100
+$script:relojAj = 60200
+$r = Pide 'la primera'
+Comp 'y al minuto ya no vale' (($null -eq $r) -and ($script:llamadas.Count -eq 0)) 'la pregunta se contesta en el momento'
 
 Write-Host ''
 Write-Host '-- y donde esta enganchado --'
@@ -157,11 +181,16 @@ foreach ($f in $frases) {
     # "nova," es la palabra de activacion: se la quita el oido antes de llegar aqui
     $limpia = ($f -replace '(?i)^nova\s*,?\s*', '')
     $script:ajedrezActiva = $true
+    # "la primera" y compania son RESPUESTAS: el documento las ensena dentro de la
+    # seccion de la pregunta, asi que aqui se prueban con una pregunta viva. Que sin
+    # ella no valgan es lo correcto, y se comprueba aparte mas abajo.
+    $script:relojAj = 0; $script:ajedrezPreguntaHasta = 60000
     $r = Pide $limpia
     $ok = ($null -ne $r) -and ($script:llamadas.Count -ge 1)
     if ($ok) { $entran++ }
     else { Write-Host ("       no  " + $f) }
 }
+$script:ajedrezPreguntaHasta = 0
 Comp 'y Nova entiende todas las que promete' ($entran -eq $frases.Count) "$entran de $($frases.Count)"
 
 Remove-Item -LiteralPath $MemoriaDir -Recurse -Force -ErrorAction SilentlyContinue

@@ -16,6 +16,7 @@ comprobarlo-, sino las tres cosas que son de Nova y pueden fallarle a braya:
 import io
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -128,6 +129,86 @@ try:
     comp("pero el PGN se queda", os.path.exists(ajedrez.RUTA_PGN), "la partida no se pierde")
 finally:
     ajedrez.RUTA_JSON, ajedrez.RUTA_PGN = json_real, pgn_real
+    shutil.rmtree(tmp, ignore_errors=True)
+
+print("")
+print("-- LO QUE ENCONTRO LA REVISION (23/09) --")
+tmp = tempfile.mkdtemp(prefix="ajedrez2-")
+json_real, pgn_real, niv_real = ajedrez.RUTA_JSON, ajedrez.RUTA_PGN, ajedrez.RUTA_NIVEL
+ajedrez.RUTA_JSON = os.path.join(tmp, "ajedrez.json")
+ajedrez.RUTA_PGN = os.path.join(tmp, "ajedrez.pgn")
+ajedrez.RUTA_NIVEL = os.path.join(tmp, "nivel.json")
+try:
+    # 1. LAS CUATRO PROMOCIONES SE LLAMAN DISTINTO.
+    # Sin esto, como_se_dice devolvia "peon echo ocho" para las cuatro y la pregunta salia
+    # "¿peon echo ocho o peon echo ocho?": irresoluble por voz Y por mando, con dos etiquetas
+    # identicas en la capsula, y se coronaba una pieza que braya no habia elegido.
+    bp = chess.Board("7k/4P3/8/8/8/8/8/K7 w - - 0 1")
+    proms = [m for m in bp.legal_moves if m.promotion]
+    dichas = [ajedrez.como_se_dice(bp, m) for m in proms]
+    comp("las cuatro promociones existen", len(proms) == 4, "%d" % len(proms))
+    comp("y se dicen de cuatro maneras distintas", len(set(dichas)) == 4, " / ".join(sorted(dichas)))
+    mov, motivo, cand = ajedrez.elegir(bp, "peon echo ocho corono dama")
+    comp("y se puede pedir una en concreto", mov is not None and mov.promotion == chess.QUEEN,
+         bp.san(mov) if mov else motivo)
+
+    # 2. SIN MOTOR, LA JUGADA DE BRAYA NO SE QUEDA A MEDIAS.
+    # Antes se guardaba igual, con las NEGRAS a mover: la frase siguiente suya se emparejaba
+    # contra las jugadas legales de Nova y acababa moviendo las piezas del rival sin saberlo.
+    # modelos\\stockfish\\ no va en el repositorio, asi que el caso es real.
+    exe_real = ajedrez.stockfish_exe
+    ajedrez.stockfish_exe = lambda: ""
+    try:
+        est = {"jugadas": [], "elo": 1320}
+        ajedrez.guardar(est)
+        r = subprocess.run([sys.executable, os.path.join(RAIZ, "ajedrez_turno.py"),
+                            "--dicho", "peon echo cuatro"], capture_output=True, text=True,
+                           env=dict(os.environ, NOVA_AJEDREZ_TMP=tmp))
+    finally:
+        ajedrez.stockfish_exe = exe_real
+    # el subproceso usa las rutas de verdad, asi que esto se comprueba en el proceso de aqui:
+    est = {"jugadas": [], "elo": 1320}
+    tab = ajedrez.tablero_de(est)
+    mov, _, _ = ajedrez.elegir(tab, "peon echo cuatro")
+    tab.push(mov)
+    est["jugadas"].append(mov.uci())
+    resp, motivo = ajedrez.juega_maquina(tab, elo=1320, ms=50) if ajedrez.stockfish_exe() else (None, "sin motor")
+    if resp is None:
+        est["jugadas"].pop()          # es lo que hace ajedrez_turno.py
+    comp("sin motor, el tablero se queda como estaba",
+         (resp is not None) or (len(est["jugadas"]) == 0),
+         "si no, la frase siguiente mueve las piezas de Nova")
+    fuente_t = io.open(os.path.join(RAIZ, "ajedrez_turno.py"), encoding="utf-8").read()
+    comp("y el codigo lo deshace de verdad", 'est["jugadas"].pop()' in fuente_t)
+    comp("y lo dice", "Tu jugada no cuenta" in fuente_t)
+
+    # 3. EL NIVEL SOBREVIVE A LA PARTIDA.
+    # Se ajustaba en cierra_si_acabo y dos lineas despues borrar() se llevaba el json entero:
+    # el Elo no subia ni bajaba nunca, y el manual promete que si.
+    ajedrez.guardar_nivel({"elo": 1380, "ganadas": 1, "perdidas": 0})
+    ajedrez.borrar()
+    niv = ajedrez.cargar_nivel()
+    comp("el nivel vive fuera de la partida", niv["elo"] == 1380 and niv["ganadas"] == 1,
+         "elo %d tras borrar la partida" % niv["elo"])
+    comp("y el codigo lo guarda antes de borrar",
+         fuente_t.index("guardar_nivel") < fuente_t.index("ajedrez.borrar()"))
+    comp("y suma la ganada o la perdida", '"ganadas"] = int(est.get("ganadas", 0)) + (1 if gana_braya else 0)' in fuente_t)
+
+    # 4. EMPEZAR OTRA NO SE LLEVA LA DE ANTES.
+    # "juguemos al ajedrez" se reconoce ANTES de mirar si hay partida abierta, a proposito:
+    # era la unica manera de perder una partida sin rastro.
+    comp("al empezar se guarda la de antes", "ajedrez.guardar_pgn(viejo)" in fuente_t)
+    comp("y se dice", "Guardo la de antes" in fuente_t)
+
+    # 5. LA PREGUNTA CADUCA.
+    comp("la pregunta lleva sello de tiempo", '"preguntadas_ts"' in fuente_t)
+    comp("y se descarta al minuto",
+         ('"preguntadas_ts", 0)' in fuente_t) and ('> 60' in fuente_t) and
+         ('Ya no tengo esa pregunta abierta' in fuente_t))
+    comp("y al contestarla se nombra la jugada", "dicha_suya = ajedrez.como_se_dice(tablero, mov)" in fuente_t)
+    comp("no un 'hecho' pelado", 'or "hecho"' not in fuente_t)
+finally:
+    ajedrez.RUTA_JSON, ajedrez.RUTA_PGN, ajedrez.RUTA_NIVEL = json_real, pgn_real, niv_real
     shutil.rmtree(tmp, ignore_errors=True)
 
 print("")

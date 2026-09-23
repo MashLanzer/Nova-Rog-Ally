@@ -34,6 +34,11 @@ import chess.pgn      # noqa: E402
 REPO = os.path.dirname(os.path.abspath(__file__))
 RUTA_JSON = os.path.join(REPO, "memoria", "ajedrez.json")
 RUTA_PGN = os.path.join(REPO, "memoria", "ajedrez.pgn")
+# EL NIVEL VIVE APARTE DE LA PARTIDA (revision del 23/09). Estaba dentro de ajedrez.json, que
+# se BORRA al acabar: el Elo se calculaba y se tiraba a la basura en la misma funcion, asi que
+# no subia ni bajaba nunca y el manual prometia que si. Y no vale con dejar ajedrez.json vivo:
+# Test-AjedrezAbierta lo lee como "hay partida" y el puente se quedaria armado para siempre.
+RUTA_NIVEL = os.path.join(REPO, "memoria", "ajedrez-nivel.json")
 
 # --- como se dice cada cosa -------------------------------------------------
 PIEZAS = {"K": ["rey"], "Q": ["dama", "reina"], "R": ["torre"], "B": ["alfil"], "N": ["caballo"]}
@@ -102,9 +107,26 @@ def elegir(board, dicho):
         pass                                  # el enroque no lleva casilla
     elif not ((hay_pieza or hay_col) and hay_fila):
         return None, "no tiene forma de jugada", []
+    # SI DICE A QUE CORONA, ESO MANDA (revision del 23/09). Las cuatro promociones van a la
+    # misma casilla, asi que sus formas habladas se diferencian en UNA palabra al final y el
+    # parecido entre ellas es altisimo: "peon echo ocho corono dama" salia como "dos
+    # parecidas" contra la torre. Aqui no hace falta adivinar: la pieza esta dicha.
+    corona_pedida = None
+    for _letra, _noms in PIEZAS.items():
+        for _n in _noms:
+            if ("corono " + _n) in d or ("corona " + _n) in d:
+                corona_pedida = chess.Piece.from_symbol(_letra).piece_type
+                break
+        if corona_pedida:
+            break
+    legales = list(board.legal_moves)
+    if corona_pedida:
+        filtradas = [m for m in legales if m.promotion == corona_pedida]
+        if filtradas:
+            legales = filtradas
     clave = clave_fon(d)
     puntuadas = []
-    for mov in board.legal_moves:
+    for mov in legales:
         mejor = 0.0
         for f in formas_de(board, mov):
             p = max(jw(clave, clave_fon(f)), jw(d, plano(f)))
@@ -144,7 +166,14 @@ def como_se_dice(board, mov):
     pieza = board.piece_at(mov.from_square)
     letra = pieza.symbol().upper() if pieza else "P"
     nom = PIEZAS.get(letra, ["peon"])[0]
-    return "%s %s %s" % (nom, ICAO[destino[0]], NUM[destino[1]])
+    # Y LA CORONACION SE DICE (revision del 23/09). Sin esto, las CUATRO promociones se
+    # llamaban igual -"peon echo ocho"- y la pregunta salia "¿peon echo ocho o peon echo
+    # ocho?": irresoluble por voz y por mando, con dos etiquetas identicas en la capsula, y
+    # contestara lo que contestara se coronaba una pieza que no habia elegido.
+    corona = ""
+    if mov.promotion:
+        corona = " corono " + PIEZAS.get(chess.piece_symbol(mov.promotion).upper(), ["dama"])[0]
+    return "%s %s %s%s" % (nom, ICAO[destino[0]], NUM[destino[1]], corona)
 
 
 # --- la partida, en disco ---------------------------------------------------
@@ -193,6 +222,25 @@ def guardar_pgn(estado):
         juego.headers["Result"] = b.result()
         with io.open(RUTA_PGN, "a", encoding="utf-8") as f:
             print(juego, file=f, end="\n\n")
+    except Exception:       # noqa: BLE001
+        pass
+
+
+def cargar_nivel():
+    try:
+        with io.open(RUTA_NIVEL, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:       # noqa: BLE001
+        return {"elo": 1320, "ganadas": 0, "perdidas": 0}
+
+
+def guardar_nivel(nivel):
+    try:
+        os.makedirs(os.path.dirname(RUTA_NIVEL), exist_ok=True)
+        tmp = RUTA_NIVEL + ".tmp"
+        with io.open(tmp, "w", encoding="utf-8") as f:
+            json.dump(nivel, f, ensure_ascii=False)
+        os.replace(tmp, RUTA_NIVEL)
     except Exception:       # noqa: BLE001
         pass
 

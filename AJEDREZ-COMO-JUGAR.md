@@ -47,6 +47,9 @@ Te contesta: *«Vale, partida a ciegas. Llevas blancas: empiezas tú.»*
 
 **Tú siempre llevas blancas y empiezas.**
 
+Si ya había una partida a medias, no se pierde: te dice *«Guardo la de antes y empezamos
+otra»* y la anterior queda escrita en el PGN.
+
 ---
 
 ## Mover
@@ -69,6 +72,9 @@ Y hay formas sueltas que entiende igual:
 - «caballo **a** foxtrot tres» (con el «a» en medio)
 - «alfil **come en** delta cinco» (para capturar; da igual, con decir dónde va basta)
 - **«enroque corto»** y **«enroque largo»**
+- **«peón echo ocho corono dama»** — cuando tu peón llega al final. Puedes coronar dama,
+  torre, alfil o caballo, y **hay que decirlo**: las cuatro jugadas van a la misma casilla,
+  así que sin la palabra Nova no sabe cuál de las cuatro es.
 
 **Nova te contesta repitiendo tu jugada y diciendo la suya:**
 
@@ -101,6 +107,10 @@ Tienes **dos maneras de contestar**, y las dos valen siempre:
 **El mando es la buena aquí**, y por un motivo concreto: si Nova pregunta es porque las dos
 opciones se parecen un 70 % **al oído**. Contestar hablando es pedirle al oído justo lo que
 acaba de demostrar que no sabe hacer. Con la cruceta no hay nada que entender.
+
+> **La pregunta dura un minuto.** Pasado ese rato, «la segunda» vuelve a ser una frase
+> cualquiera. Es a propósito: la partida vive días, y sin eso un «dos» suelto tres días
+> después habría hecho la jugada que quedó pendiente.
 
 ---
 
@@ -179,9 +189,11 @@ Al volver, di «nova, por dónde vamos» y te lo cuenta.
 
 ## Si algo va mal
 
-**«No me funciona el motor»** — falta el programa que juega (Stockfish). Está en
-`modelos\stockfish\`; son 98 MB y no van en el repositorio. Si se borró, se vuelve a bajar de
-`github.com/official-stockfish/Stockfish` (release, Windows x86-64).
+**«No me funciona el motor… tu jugada no cuenta»** — falta el programa que juega
+(Stockfish). Está en `modelos\stockfish\`; son 98 MB y no van en el repositorio. Si se
+borró, se vuelve a bajar de `github.com/official-stockfish/Stockfish` (release, Windows
+x86-64). **Tu jugada se deshace**, así que el tablero se queda como estaba y te sigue
+tocando a ti: si no, la frase siguiente movería las piezas de Nova.
 
 **Dice una jugada que no era la tuya** — «retira esa», y dilo otra vez más despacio. Si se
 repite con la misma casilla, prueba la forma larga: «caballo **a** foxtrot tres».

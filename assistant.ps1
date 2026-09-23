@@ -13355,6 +13355,7 @@ $AjedrezOn = [bool](Get-Cfg 'juego' 'ajedrez' $true)
 $script:recuerdoPide = ''        # de que se le pidio acordarse (ver funcion 4)
 $script:ultimoDividir = $null     # el ultimo 'dividir' que salio bien, para poder guardarlo
 $script:ajedrezActiva = $null      # $null = aun no se ha mirado el disco en este arranque
+$script:ajedrezPreguntaHasta = 0   # hasta cuando vale contestar "la primera" / "la segunda"
 $AjedrezPy = Join-Path $LogDir 'ajedrez_turno.py'
 function Test-AjedrezAbierta {
     if ($null -eq $script:ajedrezActiva) {
@@ -13398,16 +13399,27 @@ function Invoke-Ajedrez([string]$texto) {
     }
     # CONTESTANDO A "¿foxtrot tres o charlie tres?" -- con la voz de siempre. El mando
     # (funcion 10) es la OTRA manera, no la unica: aqui se cierra el selector si estaba.
-    if ($pl -match '^(?:la\s+)?(?:primera|primero|el\s+primero|uno)$') { Close-Eleccion $false; $r = Invoke-AjedrezPy @('--elegir', '1'); return $(if ($r) { [string]$r.decir } else { $null }) }
-    if ($pl -match '^(?:la\s+)?(?:segunda|segundo|el\s+segundo|dos)$')  { Close-Eleccion $false; $r = Invoke-AjedrezPy @('--elegir', '2'); return $(if ($r) { [string]$r.decir } else { $null }) }
+    #
+    # SOLO SI HAY UNA PREGUNTA VIVA (revision del 23/09). Antes bastaba con que hubiera
+    # partida abierta, y la partida vive DIAS: un "dos" suelto tres dias despues hacia la
+    # jugada que quedo pendiente. Ademas cada una de estas dos lineas arranca Python (~1,2 s
+    # con el bucle parado) aunque no hubiera nada que elegir. El lado de Python tiene su
+    # propia caducidad de 60 s; esta es la de aca, y ahorra el arranque.
+    if ($script:ajedrezPreguntaHasta -gt 0 -and $sw.ElapsedMilliseconds -ge $script:ajedrezPreguntaHasta) { $script:ajedrezPreguntaHasta = 0 }
+    if ($script:ajedrezPreguntaHasta -gt 0 -and $pl -match '^(?:la\s+)?(?:primera|primero|el\s+primero|uno)$') { $script:ajedrezPreguntaHasta = 0; Close-Eleccion $false; $r = Invoke-AjedrezPy @('--elegir', '1'); return $(if ($r) { [string]$r.decir } else { $null }) }
+    if ($script:ajedrezPreguntaHasta -gt 0 -and $pl -match '^(?:la\s+)?(?:segunda|segundo|el\s+segundo|dos)$')  { $script:ajedrezPreguntaHasta = 0; Close-Eleccion $false; $r = Invoke-AjedrezPy @('--elegir', '2'); return $(if ($r) { [string]$r.decir } else { $null }) }
     # UNA JUGADA. El patron es la llave (b): pieza o columna, y una fila. Anclado en ^...$ y
     # escrito contra lo que LLEGA (ConvertTo-Plain ya lo paso a minusculas y quito la coma).
     $piezas = 'rey|dama|reina|torre|alfil|caballo|peon'
     $cols = 'alfa|bravo|charlie|delta|echo|foxtrot|golf|hotel|be|ce|de|efe|ge|hache'
     $filas = 'uno|dos|tres|cuatro|cinco|seis|siete|ocho|[1-8]'
+    # Y LA CORONACION (revision del 23/09). formas_de() ya generaba " corono dama" desde el
+    # principio, pero el patron de aqui estaba anclado justo detras de la fila, asi que
+    # "peon echo ocho corono dama" no llegaba nunca: era codigo muerto desde este lado.
+    $corona = '(?:\s+corono\s+(?:dama|reina|torre|alfil|caballo))?'
     if ($pl -match '^(?:enroque|enroco)\b' -or
-        $pl -match ("^(?:$piezas)\s+(?:a\s+|come\s+en\s+)?(?:$cols|[a-h])\s+(?:$filas)$") -or
-        $pl -match ("^(?:$cols)\s+(?:$filas)$")) {
+        $pl -match ("^(?:$piezas)\s+(?:a\s+|come\s+en\s+)?(?:$cols|[a-h])\s+(?:$filas)$corona$") -or
+        $pl -match ("^(?:$cols)\s+(?:$filas)$corona$")) {
         $r = Invoke-AjedrezPy @('--dicho', $texto)
         if ($r -and $r.decir) {
             # SI PREGUNTA ENTRE DOS, EL MANDO LAS RESUELVE (23/09, funcion 10). Es el caso
@@ -13415,6 +13427,7 @@ function Invoke-Ajedrez([string]$texto) {
             # se pregunta-, asi que contestar hablando es pedirle al oido justo lo que no
             # sabe hacer. Con la cruceta no hay nada que entender.
             if ($r.opciones -and @($r.opciones).Count -ge 2) {
+                $script:ajedrezPreguntaHasta = $sw.ElapsedMilliseconds + 60000
                 [void](Open-Eleccion @($r.opciones) 'ajedrez')
             }
             return [string]$r.decir
@@ -21185,7 +21198,10 @@ function Show-Eleccion {
     $e = $script:eleccion
     $op = [string]$e.opciones[$e.i]
     if ($op.Length -gt 26) { $op = $op.Substring(0, 25) + [string][char]0x2026 }
-    $etq = [string][char]0x2039 + " $op " + [char]0x203A + "  $($e.i + 1)/$($e.opciones.Count)  A"
+    # el mismo prefijo que la pista: con un juego delante A a secas no vale, y decir "A"
+    # a pelo seria ensenar el atajo que justo no funciona ahi
+    $preE = if ($script:juegoActivo) { [string][char]0x2261 + '+' } else { '' }
+    $etq = [string][char]0x2039 + " $op " + [char]0x203A + "  $($e.i + 1)/$($e.opciones.Count)  ${preE}A"
     # EL ANILLO TIENE QUE CONTAR ESTE PLAZO, no el de la pregunta anterior. Sin esto la
     # capsula dibuja 'confirmando' con un confirmaFin viejo: o el anillo sale lleno para
     # siempre o sale vacio de entrada, y en las dos parece que ya se acabo el tiempo.

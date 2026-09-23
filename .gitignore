@@ -63,6 +63,7 @@ memoria/juegos-dos.json
 # tus partidas de ajedrez a ciegas
 memoria/ajedrez.json
 memoria/ajedrez.pgn
+memoria/ajedrez-nivel.json
 # tus costumbres (que ordenes das y a que hora), para proponerte automatizarlas
 memoria/habitos.json
 # tus contactos importantes (nombres de personas)
