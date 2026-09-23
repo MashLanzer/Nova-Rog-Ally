@@ -68,13 +68,41 @@ function Uno([string]$frase) {
 }
 
 Write-Host ''
-Write-Host '-- las tres veces que lo dijo asi --'
-$a = Uno 'abre YouTube en la mitad y en la otra mitad abre Pinterest'
-Comp 'la del 22/09, que costo 68 segundos' ($a -match 'dividir pantalla youtube con pinterest') $a
-$b = Uno 'pon Steam en la mitad y en la otra mitad el navegador'
-Comp 'sin verbo en la segunda parte' ($b -match 'dividir pantalla steam con el navegador') $b
-$c = Uno 'abre el navegador a la mitad y a la otra mitad pon Spotify'
-Comp 'con "a la" en vez de "en la"' ($c -match 'dividir pantalla el navegador con spotify') $c
+Write-Host '-- TUS FRASES, las once del log, no frases inventadas --'
+# LA LECCION, Y ME LA COMI YO ANOCHE: la primera version de este banco probaba frases que yo
+# habia escrito ("abre YouTube en la mitad y en la otra mitad abre Pinterest"), salio verde
+# entera, y el patron cogia CERO de las once peticiones reales de braya. Sus frases dicen "la
+# mitad DE LA PANTALLA y en la otra mitad", con el hueco en medio, y el patron pedia "mitad y"
+# pegado. Un banco que prueba lo que escribio quien hizo el arreglo no prueba nada.
+# Estas salen de assistant.log (09/09-23/09) tal y como las oyo Nova, con sus erratas.
+$mias = @(
+    'sobre youtube en la mitad de la pantalla y en la otra mitad abre painterest',
+    'abre youtube a la mitad de la pantalla y en la otra mitad abre painterest',
+    'no no es buscarlo en google es poner la mitad de una pantalla en pinterest y la otra mitad en youtube',
+    'si pero abre youtube en la pantalla izquierda y pinterest en la pantalla derecha',
+    'mira ponme un temporizador de 5 minutos abre el navegador y a pantalla dividida abre steam'
+)
+$cogidas = 0
+foreach ($f in $mias) {
+    $r = Uno $f
+    $ok = $r -match 'dividir pantalla'
+    if ($ok) { $cogidas++ }
+    $corto = if ($f.Length -gt 44) { $f.Substring(0, 41) + '...' } else { $f }
+    Write-Host ("       {0} {1,-44} -> {2}" -f $(if ($ok) { 'SI ' } else { 'no ' }), $corto, $r)
+}
+Comp 'de las cinco alcanzables, se cogen las cinco' ($cogidas -eq 5) "$cogidas de 5"
+$r1 = Uno 'sobre youtube en la mitad de la pantalla y en la otra mitad abre painterest'
+Comp 'la del 18/09 20:03, con el hueco en medio' ($r1 -match 'dividir pantalla youtube con painterest') $r1
+$r2 = Uno 'abre youtube a la mitad de la pantalla y en la otra mitad abre painterest'
+Comp 'la del 20/09 18:55, con "a la"' ($r2 -match 'dividir pantalla youtube con painterest') $r2
+$r3 = Uno 'no no es buscarlo en google es poner la mitad de una pantalla en pinterest y la otra mitad en youtube'
+Comp 'la del 18/09 19:03, al reves y con ruido delante' ($r3 -match 'dividir pantalla pinterest con youtube') $r3
+# Y LA QUE SIGUE SIN COGERSE, dicha por su nombre para que nadie la de por hecha: el 22/09 a
+# la 01:10 dijo "abre navegador en la mitad de la pantalla izquierda con painteress y en la
+# otra mitad derecha abren navegador tambien con youtube". Lleva dos destinos pegados con
+# "con" y un verbo en plural: sacarla de ahi pide otra regla, no este patron.
+$r4 = Uno 'abre navegador en la mitad de la pantalla izquierda con painteress y en la otra mitad derecha abren navegador tambien con youtube'
+Comp 'la del 22/09 01:10 NO se coge, y se dice' (-not ($r4 -match 'dividir pantalla navegador con')) 'pide otra regla; no se tapa'
 
 Write-Host ''
 Write-Host '-- el volumen y el brillo siguen siendo el volumen y el brillo --'

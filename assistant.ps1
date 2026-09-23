@@ -485,12 +485,12 @@ function Split-Ordenes([string]$texto) {
     # PANTALLA DIVIDIDA CON DOS COSAS (18/09). "abre youtube a la izquierda y pinterest a la
     # derecha" se partia por la "y" en dos ordenes y la segunda se iba a buscar a Google.
     # braya lo pidio cuatro veces seguidas. Se reescribe a una sola orden sin separadores.
-    if ($planoS -match '^(?:abre|abreme|pon|ponme|coloca|abrir|poner)\s+(.+?)\s+(?:a|en)\s+la\s+(?:pantalla\s+|mitad\s+|parte\s+)?(izquierda|derecha)\s+y\s+(?:(?:abre|pon|coloca)\s+)?(.+?)\s+(?:a|en)\s+la\s+(?:pantalla\s+|mitad\s+|parte\s+)?(izquierda|derecha)$') {
+    if ($planoS -match '^(?:(?:si|no|vale|bueno|mira|oye)[, ]+(?:pero[, ]+)?)?(?:abre|abreme|pon|ponme|coloca|abrir|poner)\s+(.+?)\s+(?:a|en)\s+la\s+(?:pantalla\s+|mitad\s+|parte\s+)?(izquierda|derecha)\s+y\s+(?:(?:abre|pon|coloca)\s+)?(.+?)\s+(?:a|en)\s+la\s+(?:pantalla\s+|mitad\s+|parte\s+)?(izquierda|derecha)$') {
         $ladoA = $Matches[2]; $ladoB = $Matches[4]
         $izqD = if ($ladoA -eq 'izquierda') { $Matches[1] } else { $Matches[3] }
         $derD = if ($ladoA -eq 'izquierda') { $Matches[3] } else { $Matches[1] }
         if ($ladoA -ne $ladoB) { $planoS = "dividir pantalla $izqD con $derD" }
-    } elseif ($planoS -match '^(?:abre|abreme|pon|ponme|coloca|abrir|poner)?\s*(.+?)\s+(?:a|en)\s+la\s+mitad\s+y\s+(?:a|en)\s+la\s+otra\s+mitad\s+(?:(?:abre|abreme|pon|ponme|coloca|abrir|poner)\s+)?([^|]+?)\s*$') {
+    } elseif ($planoS -match '^(?:abre|abreme|pon|ponme|coloca|abrir|poner|sobre)?\s*(.+?)\s+(?:a|en)\s+la\s+mitad(?:\s+de\s+(?:la|una)\s+pantalla)?(?:\s+(?:izquierda|derecha))?\s+y\s+(?:a|en)\s+la\s+otra\s+mitad(?:\s+de\s+(?:la|una)\s+pantalla)?(?:\s+(?:izquierda|derecha))?\s+(?:(?:abre|abreme|pon|ponme|coloca|abrir|poner)\s+)?([^|]+?)\s*$') {
         # "X EN LA MITAD Y EN LA OTRA MITAD Y" (22/09 por la noche, idea 9). Es la forma que
         # braya usa de verdad y no la cogia ninguno de los cuatro patrones de aqui arriba: la
         # dijo tres veces en tres dias distintos (18/09 20:03, 20/09 18:55 y 22/09 01:10) y
@@ -510,6 +510,13 @@ function Split-Ordenes([string]$texto) {
         if ($unoM -notmatch '^(?:el\s+|la\s+)?(?:volumen|sonido|brillo|musica|cancion)\b' -and $unoM -and $dosM) {
             $planoS = "dividir pantalla $unoM con $dosM"
         }
+    } elseif ($planoS -match '^(?:.*?)la\s+mitad\s+de\s+(?:la|una)\s+pantalla\s+en\s+([^|]+?)\s+y\s+la\s+otra\s+mitad\s+en\s+([^|]+?)\s*$') {
+        # LA FORMA AL REVES, que tambien la dijo (18/09 19:03:47): 'poner la mitad de una
+        # pantalla EN Pinterest y la otra mitad EN YouTube'. Aqui el destino va detras del
+        # 'en', no delante, y lo que hay antes es cualquier cosa -esa frase empezaba por
+        # 'no, no es buscarlo en Google, es poner...'-.
+        $unoI = ([string]$Matches[1]).Trim(); $dosI = ([string]$Matches[2]).Trim()
+        if ($unoI -and $dosI) { $planoS = "dividir pantalla $unoI con $dosI" }
     } elseif ($planoS -match '^(?:abre|abreme|pon|ponme|coloca|abrir|poner)\s+(.+?)\s+y\s+(.+?)\s+(?:en|a)\s+(?:pantalla\s+dividida|media\s+pantalla(?:\s+cada\s+uno)?|split(?:\s+screen)?|lado\s+a\s+lado)$') {
         $planoS = "dividir pantalla $($Matches[1]) con $($Matches[2])"
     } elseif ($planoS -match '^(?:abre|abreme|pon|ponme|coloca|abrir|poner)\s+(.+?)\s+(?:a|en)\s+(?:la\s+)?(?:pantalla\s+dividida|media\s+pantalla(?:\s+cada\s+uno)?|split(?:\s+screen)?|lado\s+a\s+lado)$') {
