@@ -12504,6 +12504,80 @@ function Await-Voz($op, $tipo) {
 # Las tildes se ponen con codigos de caracter: este archivo no lleva BOM y PS 5.1
 # leeria mal una tilde escrita tal cual.
 $script:TildesVoz = $null
+# AJEDREZ A CIEGAS (23/09, lo pidio braya). Las reglas las lleva python-chess y juega
+# Stockfish: aqui solo esta el puente. Un turno = un proceso que arranca y se muere (medido:
+# 1,2 s, de los que 0,15 son pensar); un worker vivo ahorraria medio segundo y le quitaria
+# memoria al juego durante horas, que es justo lo que no se quiere.
+#
+# LA TRIPLE LLAVE para que una frase cuente como jugada, y las tres hacen falta:
+#   (a) hay partida abierta -si no, ni se mira-;
+#   (b) la frase tiene FORMA de jugada, con patron anclado en ^...$, no un -match suelto;
+#   (c) y python-chess la valida contra las jugadas legales de ESE tablero.
+# Si falla cualquiera, la frase sigue su camino de siempre y aqui no ha pasado nada. Por eso
+# esto va en Process-Texto y NO dentro de Invoke-FastCommand: a esa la llaman las reglas, los
+# perfiles de juego y las traducciones, y ninguna es braya hablando.
+# Se puede apagar entero desde config.json (juego.ajedrez = false), como todo lo demas.
+$AjedrezOn = [bool](Get-Cfg 'juego' 'ajedrez' $true)
+$script:ajedrezActiva = $null      # $null = aun no se ha mirado el disco en este arranque
+$AjedrezPy = Join-Path $LogDir 'ajedrez_turno.py'
+function Test-AjedrezAbierta {
+    if ($null -eq $script:ajedrezActiva) {
+        $script:ajedrezActiva = Test-Path -LiteralPath (Join-Path $MemoriaDir 'ajedrez.json')
+    }
+    return [bool]$script:ajedrezActiva
+}
+function Invoke-AjedrezPy([string[]]$args2) {
+    try {
+        $salida = & $PyExe $AjedrezPy @args2 2>$null
+        if (-not $salida) { return $null }
+        return ([string]($salida -join '')) | ConvertFrom-Json
+    } catch { Log ("ajedrez: " + $_.Exception.Message); return $null }
+}
+function Invoke-Ajedrez([string]$texto) {
+    if (-not $AjedrezOn) { return $null }
+    $pl = ConvertTo-Plain $texto
+    if (-not $pl) { return $null }
+    # EMPEZAR. Se reconoce siempre, haya partida o no.
+    if ($pl -match '^(?:(?:juguemos|jugamos|juega|jugar|echamos|echemos)\s+(?:una\s+partida\s+de\s+|al\s+|a\s+)?ajedrez(?:\s+conmigo)?|(?:una\s+)?partida\s+de\s+ajedrez|ajedrez\s+(?:a\s+ciegas|mental))$') {
+        $r = Invoke-AjedrezPy @('--empezar')
+        if ($r) { $script:ajedrezActiva = $true; return [string]$r.decir }
+        return 'No puedo con el ajedrez ahora mismo.'
+    }
+    if (-not (Test-AjedrezAbierta)) { return $null }
+    # SALIR. Siempre con salida clara: braya rechaza los modos de los que no se sabe salir.
+    if ($pl -match '^(?:dejamos?\s+(?:la\s+)?partida|deja\s+(?:el\s+)?ajedrez|abandono|me\s+rindo|borra\s+la\s+partida|cierra\s+la\s+partida|ya\s+no\s+juego)$') {
+        $r = Invoke-AjedrezPy @('--cerrar')
+        $script:ajedrezActiva = $false
+        return $(if ($r) { [string]$r.decir } else { 'Partida cerrada.' })
+    }
+    if ($pl -match '^(?:por\s+donde\s+(?:vamos|ibamos)|como\s+va\s+la\s+partida|a\s+quien\s+le\s+toca|que\s+jugada\s+vamos)$') {
+        $r = Invoke-AjedrezPy @('--estado')
+        return $(if ($r) { [string]$r.decir } else { $null })
+    }
+    # DESHACER, que es la salvaguarda de esto: no se confirma con un "si" -al 70,4 % de oido,
+    # un si mal oido no es una confirmacion-, se deshace.
+    if ($pl -match '^(?:retira\s+esa|retira\s+la\s+jugada|deshaz(?:\s+eso)?|no\s+era\s+esa|vuelve\s+atras)$') {
+        $r = Invoke-AjedrezPy @('--deshacer')
+        return $(if ($r) { [string]$r.decir } else { $null })
+    }
+    # CONTESTANDO A "¿foxtrot tres o charlie tres?"
+    if ($pl -match '^(?:la\s+)?(?:primera|primero|el\s+primero|uno)$') { $r = Invoke-AjedrezPy @('--elegir', '1'); return $(if ($r) { [string]$r.decir } else { $null }) }
+    if ($pl -match '^(?:la\s+)?(?:segunda|segundo|el\s+segundo|dos)$')  { $r = Invoke-AjedrezPy @('--elegir', '2'); return $(if ($r) { [string]$r.decir } else { $null }) }
+    # UNA JUGADA. El patron es la llave (b): pieza o columna, y una fila. Anclado en ^...$ y
+    # escrito contra lo que LLEGA (ConvertTo-Plain ya lo paso a minusculas y quito la coma).
+    $piezas = 'rey|dama|reina|torre|alfil|caballo|peon'
+    $cols = 'alfa|bravo|charlie|delta|echo|foxtrot|golf|hotel|be|ce|de|efe|ge|hache'
+    $filas = 'uno|dos|tres|cuatro|cinco|seis|siete|ocho|[1-8]'
+    if ($pl -match '^(?:enroque|enroco)\b' -or
+        $pl -match ("^(?:$piezas)\s+(?:a\s+|come\s+en\s+)?(?:$cols|[a-h])\s+(?:$filas)$") -or
+        $pl -match ("^(?:$cols)\s+(?:$filas)$")) {
+        $r = Invoke-AjedrezPy @('--dicho', $texto)
+        if ($r -and $r.decir) { return [string]$r.decir }
+        return $null      # tenia forma pero no era legal: que siga su camino
+    }
+    return $null
+}
+
 # LO QUE DICE AL HACER UNA ORDEN, CONJUGADO (23/09, idea 1 de la cuarta tanda, y lo pidio
 # braya: "que lo diga conjugado en todas las frases que se pueda").
 # Invoke-FastCommand devuelve el nombre interno de la accion -"abrir steam", "cerrar
@@ -19421,6 +19495,24 @@ function Process-Texto([string]$text) {
                 Log "CORRECCION: de '$text' sale '$corr', que no se hacer; sigue su camino"
             }
         }
+
+        # 0) AJEDREZ A CIEGAS (23/09). Va DELANTE del camino local y solo contesta si hay
+        # partida abierta y la frase tiene forma de jugada; si no, devuelve $null y aqui no
+        # ha pasado nada. Ver Invoke-Ajedrez.
+        try {
+            $aj = Invoke-Ajedrez $text
+            if ($aj) {
+                Log "AJEDREZ: '$text' -> $aj"
+                Add-Estadistica 'ajedrez' $text
+                $script:ultimaRespuesta = $aj
+                Send-UIEvento 'hecho'
+                Show-Popup $aj
+                Say $aj
+                $script:seguimientoPendiente = $true
+                $script:seguimientoFactor = 1.0
+                return
+            }
+        } catch { Log ("ajedrez: " + $_.Exception.Message) }
 
         # 1) local instantaneo
         $fast = $null

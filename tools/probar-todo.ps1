@@ -429,6 +429,22 @@ Titulo "2n65. Una orden mal oida no envenena el vocabulario"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-alias-vacio.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no envenena el vocabulario)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n96. Ajedrez a ciegas: el puente, y que una orden siga siendo una orden"
+# Lo pidio braya. Lo que se vigila aqui no es el ajedrez -eso lo lleva python-chess- sino la
+# triple llave: sin partida abierta no se mira nada, la frase tiene que tener FORMA de jugada
+# con el patron anclado, y python-chess la valida contra las legales de ESE tablero. Con
+# partida abierta, "sube el volumen" tiene que seguir subiendo el volumen.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-ajedrez-voz.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la orden sigue siendo una orden)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n95. Ajedrez a ciegas: la partida, el oido y el motor"
+# En 1.127 transcripciones no hay NI UN par letra+cifra tipo "e4": dictar notacion no funciona
+# y no va a funcionar. Por eso al oido no se le enseña ajedrez: python-chess da las jugadas
+# legales y el oido solo ELIGE de esa lista cerrada. El par mas flojo del alfabeto hablado son
+# las filas seis/siete (0,705), y una fila equivocada suele ser legal: ahi se pregunta siempre.
+python (Join-Path $PSScriptRoot 'probar-ajedrez.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:una orden no se convierte en jugada)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n94. El brillo que vuelve a ser el tuyo, y el disco que deja rastro"
 # Ideas 2 y 5 de la cuarta tanda. El brillo de antes del juego vivia solo en RAM: 33 perfiles
 # aplicados contra 21 restauraciones, y de las 16 desde que su brillo es 70, las 12 con la

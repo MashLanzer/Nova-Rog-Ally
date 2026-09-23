@@ -94,6 +94,7 @@
     "bateriaPct": 15
   },
   "juego": {
+    "ajedrez": true,
     "perfilAlEntrar": "juego",
     "restaurarAlSalir": true,
     "avisoMinutos": 120
