@@ -1110,6 +1110,12 @@ def principal():
         b = cerebro.balance()
         salida("info", texto="memoria: %d respuestas firmes, %d provisionales, %d recuerdos, %d pendientes (significado: %s)" % (
             b["respuestas"], b["provisionales"], b["contado"] + b["episodios"], b["pendientes"], MODELO_EMBED or "no"))
+        # EL REPASO DEL ESTILO (22/09, idea 5): cuantas preferencias guardadas se
+        # contradecian entre ellas y se han ido al cargar. Si no se dice, un repaso que
+        # borra cosas del cerebro no lo ve nadie.
+        if getattr(cerebro, "estilo_fuera", 0):
+            salida("info", texto="memoria: %d preferencia(s) de estilo que se contradecian, fuera"
+                                 % cerebro.estilo_fuera)
     except Exception as e:  # noqa: BLE001
         cerebro = None
         salida("info", texto="memoria desactivada: %s" % e)

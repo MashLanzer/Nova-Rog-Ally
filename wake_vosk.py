@@ -165,6 +165,27 @@ REPASO_MAX_BASE = 12.0
 
 # se da por terminada la frase tras este silencio
 SILENCIO_FIN = 1.5
+# Y EL SILENCIO QUE CUENTA CUANDO SUENAN LOS ALTAVOCES (22/09 por la noche, idea 2).
+# La ventana de dictado se cierra cuando pasa SILENCIO_FIN sin que el PICO DE ENERGIA pase el
+# umbral. Con un juego sonando eso no llega nunca: las explosiones pasan el umbral igual que
+# una voz, rearman ultima_voz, y la ventana solo cierra por el tope duro de DICTADO_MAX.
+# Medido la noche del 22: cinco seguimientos seguidos llegaron a los 30 s (21:44:46, 21:45:27,
+# 21:46:21, 21:47:12, 21:47:57), cada uno recortado luego a 15 s para transcribir; de abrir el
+# microfono a tener texto pasaron 34, 33, 37, 32 y 40 segundos. 176 segundos para cinco
+# frases, y lo que salio fue 'me necesito ayudas a internazando': a Whisper le llegaban ~4 s
+# de braya y ~11 del juego, con dialogo en español dentro.
+# Y OJO CON EL DIAGNOSTICO FACIL: no es culpa del techo de la puerta. Esa noche la puerta
+# valia 0,0123-0,0164, que es el suelo por SUELO_FACTOR (1,15), y el techo estaba en ~0,034,
+# muy por encima: no llego a aplicarse. Lo que deja pasar el juego es que la puerta va solo un
+# 15 % por encima de un suelo medido CON el juego sonando.
+# Asi que con los altavoces sonando se mira otra cosa: cuanto hace que el reconocedor no saca
+# una palabra NUEVA. El ruido del juego no escribe palabras; braya si. Sin altavoces no cambia
+# nada: manda la regla de energia de siempre.
+# 3,2 s es provisional y razonado, no medido: la pausa mas larga MEDIDA dentro de una orden
+# suya es de 1,44 s, y esto deja mas del doble de margen. Cuando haya medicion propia -los
+# huecos entre palabras decodificadas en las ordenes de uso real- sale de ahi, como salio
+# SILENCIO_FIN.
+SILENCIO_SIN_PALABRA = 3.2
 # LA FRASE DE EJEMPLO PARA WHISPER (14/09). Antes se le daba la lista de apps y juegos
 # como hotwords. Con las 100 grabaciones de braya, eso lo arrastraba al ingles y a
 # recitar nombres ("Everything", "King is a Hollow Knight", "Outlast 3, Goose Duck").
@@ -1437,8 +1458,24 @@ def atender_reintento(ultimo_audio):
                 pass
             vaciar_cola(pedido)
             return True
+        # LA DURACION Y EL TOPE, ANTES DE ELEGIR MODELO (22/09 por la noche, de propina con la
+        # idea 2). Estaban despues, asi que Nova cargaba el modelo y acto seguido decia que el
+        # audio era demasiado largo para repasarlo: a las 21:45:31 cargo small durante 3,7
+        # segundos para no usarlo. Con el tope delante, si no se va a repasar no se carga nada.
+        duracion = sum(len(b) for b in ultimo_audio) / float(TASA) if ultimo_audio else 0.0
+        # cada uno con el suyo (ver REPASO_MAX_BASE): base es el que mas se usa y no tenia ninguno
+        tope_repaso = REPASO_MAX_BASE if base else REPASO_MAX
         global _preciso_uso, _ultimo_uso
-        if ultimo:
+        # NI return NI break: solo se deja de CARGAR. Todo lo que hay al final de esta
+        # funcion -escribir el texto del repaso, borrar la marca REINTENTO y vaciar la cola-
+        # tiene que seguir pasando igual, o el asistente se queda esperando un repaso que no
+        # va a llegar y la marca sin borrar. Con m en None, el bloque de transcribir no entra
+        # y el resto sigue exactamente como antes.
+        if duracion > tope_repaso:
+            anota("%s: %.1f s de audio es demasiado para repasar (tope %.0f s)"
+                  % ("whisper tras parakeet" if base else "oido fino", duracion, tope_repaso))
+            m = None
+        elif ultimo:
             m = modelo_ultimo()
             _ultimo_uso = time.time()
         elif base:
@@ -1447,17 +1484,10 @@ def atender_reintento(ultimo_audio):
         else:
             m = modelo_preciso()
             _preciso_uso = time.time()
-        duracion = sum(len(b) for b in ultimo_audio) / float(TASA) if ultimo_audio else 0.0
-        # cada uno con el suyo (ver REPASO_MAX_BASE): base es el que mas se usa y no
-        # tenia ninguno
-        tope_repaso = REPASO_MAX_BASE if base else REPASO_MAX
-        if m is not None and duracion > tope_repaso:
-            # El 12/09 small tardo 24 y 35 s con audios largos, con el plazo del
-            # asistente en 15 s y este hilo sordo todo ese rato. Una orden que
-            # dura mas de esto es conversacion o ruido: no merece el repaso.
-            anota("%s: %.1f s de audio es demasiado para repasar (tope %.0f s)"
-                  % ("whisper tras parakeet" if base else "oido fino", duracion, tope_repaso))
-        elif m is not None and ultimo_audio:
+        # (el tope ya se miro arriba, antes de cargar ningun modelo: el 12/09 small tardo 24 y
+        # 35 s con audios largos, con el plazo del asistente en 15 s y este hilo sordo todo
+        # ese rato. Una orden que dura mas de esto es conversacion o ruido, no merece repaso.)
+        if m is not None and ultimo_audio:
             t0 = time.time()
             # si el asistente se rinde (quita la marca), se deja de transcribir
             # en el siguiente segmento en vez de seguir sordo para nada
@@ -2977,6 +3007,8 @@ confirmando = False
 conf_inicio = 0.0
 dicta_inicio = 0.0
 ultima_voz = 0.0
+ultima_palabra = 0.0      # cuando el reconocedor saco una palabra nueva (ver SILENCIO_SIN_PALABRA)
+visto_dictado = ""        # lo que llevaba dicho en el bloque anterior, para saber si crecio
 prebuffer = collections.deque(maxlen=PREBUFFER)
 bloques_totales = 0         # OJO: es el cubo ABIERTO, no el total del proceso
 bloques_decodificados = 0
@@ -3102,6 +3134,8 @@ try:
                     audio_dictado = []
                     dicta_inicio = ahora
                     ultima_voz = ahora
+                    ultima_palabra = ahora
+                    visto_dictado = ""
                     escribir(PARCIAL, "")
                     anota("dictado: escuchando la orden")
                 elif dictando and not quiere_dictar:
@@ -3346,6 +3380,17 @@ try:
                         if pico > umbral_actividad():
                             ultima_voz = ahora
                             hubo_voz += 1
+                        # ¿SIGUE SALIENDO TEXTO NUEVO? (ver SILENCIO_SIN_PALABRA). Solo con los
+                        # altavoces sonando: es el unico caso en que la energia miente, y asi no se
+                        # paga un PartialResult por bloque el resto del tiempo.
+                        if nivel_salida() > UMBRAL_ALTAVOZ:
+                            try:
+                                _visto = " ".join(dictado) + " " + json.loads(rec.PartialResult()).get("partial", "")
+                            except Exception:   # noqa: BLE001
+                                _visto = visto_dictado
+                            if len(_visto.strip()) > len(visto_dictado.strip()):
+                                visto_dictado = _visto
+                                ultima_palabra = ahora
                         # EL RITMO DE BRAYA (13/09): cuanto tarda en empezar a hablar en
                         # una ventana de seguimiento. El asistente ajusta la ventana con esto
                         if espera_voz > 0 and voz_seguimiento_en is None and NIVEL and (
@@ -3397,8 +3442,19 @@ try:
                                 fin_silencio = silencio_para_cerrar(tengo, " ".join(dictado) + " " + json.loads(rec.PartialResult()).get("partial", ""))
                             except Exception:
                                 pass
+                        # EL CIERRE QUE FALTABA: con los altavoces sonando manda que no salga una
+                        # palabra nueva (ver SILENCIO_SIN_PALABRA). Es una condicion MAS, no sustituye
+                        # a ninguna: sin altavoces no entra nunca.
+                        _corta_juego = (hay_algo and nivel_salida() > UMBRAL_ALTAVOZ and
+                                        (ahora - ultima_palabra) >= SILENCIO_SIN_PALABRA and
+                                        (ahora - ultima_voz) < fin_silencio)
                         if ((ahora - ultima_voz) >= fin_silencio and hay_algo) or mudo or \
+                           _corta_juego or \
                            ((ahora - dicta_inicio) >= DICTADO_MAX):
+                            if _corta_juego:
+                                anota("cerrado a %.1f s: los altavoces sonaban (%.3f) pero no salia"
+                                      " ni una palabra nueva desde hace %.1f s"
+                                      % (ahora - dicta_inicio, nivel_salida(), ahora - ultima_palabra))
                             resto = json.loads(rec.FinalResult()).get("text", "")
                             if resto:
                                 dictado.append(resto)

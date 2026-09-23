@@ -429,6 +429,24 @@ Titulo "2n65. Una orden mal oida no envenena el vocabulario"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-alias-vacio.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no envenena el vocabulario)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n88. Que lo que te corrige valga tambien para lo ya guardado"
+# Idea 5 de la tercera tanda. braya pidio TRES veces que no le llamara "tio" ni "man", Nova
+# prometio dos veces que no, y dos dias despues: "No te sigo, tio". En cerebro.json habia 12
+# entradas de estilo y dos decian lo contrario de lo que el pidio; las 12 viajan juntas en el
+# prompt de todas sus charlas. La regla que lo arregla vivia en _estilo, que solo corre con lo
+# que llega NUEVO: lo ya guardado no lo repasaba nadie. En su cerebro real se van 5 de 12.
+python (Join-Path $PSScriptRoot 'probar-estilo-repasado.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya estaba guardado)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n87. Que la ventana cierre cuando dejas de hablar, no a los 30 s"
+# Idea 2 de la tercera tanda. Con un juego sonando, las explosiones pasan el umbral de energia
+# igual que una voz y rearman ultima_voz, asi que la ventana solo cerraba por el tope duro de
+# 30 s. La noche del 22: cinco seguimientos seguidos al tope, 176 segundos para cinco frases,
+# y a Whisper le llegaban ~4 s de braya y ~11 del juego. Ahora, con los altavoces sonando,
+# manda que no salga una palabra NUEVA; sin altavoces no cambia nada.
+python (Join-Path $PSScriptRoot 'probar-cierre-con-juego.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:cierra cuando dejas de hablar)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n86. Jugando, tu nombre pasa por las mismas guardas que siempre"
 # Idea 1 de la tercera tanda. La rama que ignora el nombre con un juego delante era la
 # PRIMERA de la cadena: medido, 359 de 360 hipotesis entraban sin que nadie mirara altavoces,

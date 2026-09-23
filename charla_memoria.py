@@ -202,6 +202,8 @@ class Cerebro:
     def _vacio():
         return {"version": 1, "siguiente": 1, "recuerdos": [], "estilo": [], "temas": {}, "pendientes": []}
 
+    estilo_fuera = 0      # cuantas entradas de estilo tiro el repaso al cargar
+
     def cargar(self):
         with self.lock:
             self.datos = self._vacio()
@@ -217,6 +219,15 @@ class Cerebro:
                     except OSError:
                         pass
                     self.datos = self._vacio()
+            # Y LO GUARDADO PASA POR LA REGLA (ver repasar_estilo): si no, una correccion
+            # suya -"deja de llamarme tio"- solo se aplica a lo que llegue despues, y lo que
+            # ya estaba contradiciendola sigue viajando en el prompt de todas las charlas.
+            # el numero se guarda y lo dice el worker al arrancar: esta clase no tiene
+            # canal de log propio, y un repaso que no se ve no se puede comprobar.
+            try:
+                self.estilo_fuera = self.repasar_estilo()
+            except Exception:  # noqa: BLE001
+                self.estilo_fuera = 0
             self.vec = {}
             if np is not None and self.embedder is not None and os.path.exists(self.ruta_vec):
                 try:
@@ -637,6 +648,36 @@ class Cerebro:
         est.append(e)
         while len(est) > MAX_ESTILO:
             est.pop(0)
+
+    def repasar_estilo(self):
+        """Pasa la regla de _estilo por lo que YA estaba guardado, no solo por lo que llega.
+
+        EL CASO DE VERDAD (22/09 por la noche, idea 5). braya le pidio TRES veces que dejara
+        de llamarle "tio" y "man" (20/09 23:05:26, 20/09 23:19:17, 21/09 00:02:56), y Nova
+        prometio dos veces que no lo haria. Dos dias despues, el 22/09 a las 21:48:35: "No te
+        sigo, tio". En cerebro.json habia 12 entradas de estilo, y DOS de ellas decian lo
+        contrario de lo que el habia pedido -"prefiere tono casual y desenfadado (tuteo,
+        'man')" y "tono informal y de confianza ('tio')"-. Las 12 viajan juntas en el prompt
+        de todas sus charlas, asi que la contradiccion iba dentro en cada peticion.
+
+        La regla que lo resuelve -la ultima palabra sobre una palabra gana- se escribio ese
+        mismo dia, pero vive dentro de _estilo, y _estilo solo corre cuando llega una entrada
+        NUEVA. Lo que ya estaba en disco no lo repasaba nadie: cargar() hace json.load y
+        update, y nada mas. Una regla que solo mira lo que entra deja armado para siempre lo
+        que entro antes de escribirla.
+
+        Se reutiliza _estilo entera a proposito, en vez de copiar su logica: asi la regla vive
+        en un solo sitio y el dia que cambie, cambia para los dos caminos. De paso pasa tambien
+        el filtro de datos sensibles y el de "no guardes lo que habla de mi", que las entradas
+        viejas tampoco habian visto nunca.
+        """
+        viejas = list(self.datos.get("estilo", []))
+        if not viejas:
+            return 0
+        self.datos["estilo"] = []
+        for e in viejas:
+            self._estilo(e)
+        return len(viejas) - len(self.datos.get("estilo", []))
 
     def _tema(self, t):
         t = plano(t)[:30]
