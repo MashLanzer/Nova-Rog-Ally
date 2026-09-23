@@ -431,8 +431,8 @@ if ($LASTEXITCODE -ne 0) { $fallos++ }
 
 Titulo "2n106. Elegir con el mando"
 # Funcion 10, y el numero que la pide es redondo: en catorce dias el mando se uso para
-# contestar una pregunta CERO veces. No por falta de preguntas (unas cuarenta confirmaciones,
-# seis muertas por plazo) ni por falta de mando (es una consola de mano; XInput lo ve en el
+# contestar una pregunta CERO veces. No por falta de preguntas (veinte, cinco muertas por
+# plazo: una de cada cuatro) ni por falta de mando (es una consola de mano; XInput lo ve en el
 # puerto 0 y leerlo cuesta 0,197 ms). Era invisible: Nova preguntaba y no decia en ningun
 # sitio que valia un boton. Ahora lo dice, y ademas vale para listas cerradas, no solo para
 # si/no. Lo que se vigila: que sin mando no cambie NADA (la voz es el camino), que A siga sin
@@ -441,7 +441,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'pr
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
 Titulo "2n105. A que podemos jugar los dos"
-# Funcion 9. De sus doce juegos instalados SIETE son de dos, y tres -A Way Out, The Past
+# Funcion 9. De sus doce juegos instalados OCHO son de dos, y tres -A Way Out, The Past
 # Within y Content Warning- NO SE PUEDEN JUGAR SOLO. Ademas juega a Roblox con su novia. El
 # dato sale de la ficha publica de la tienda de Steam (sin clave), se guarda y no se vuelve a
 # pedir; el relleno va de una en una desde Watch-Entorno. Lo que se vigila: que no se mezcle

@@ -92,6 +92,20 @@ Comp 'y con reloj propio, no pausaHasta' ($fuente -match 'juegoBajadoHasta') 'pa
 Comp 'se puede apagar desde config' ($fuente -match "Get-Cfg 'juego' 'bajarAlHablar'") ''
 
 Write-Host ''
+Write-Host '-- Y SE LO DEVUELVE EN CUANTO CALLA, NO CUANDO TOQUE (revision del 23/09) --'
+# Nacio dentro de Watch-Entorno, que sale de su cuerpo con un 'si no han pasado 30 s,
+# vuelve'. O sea que 'el bucle lo devuelve SIEMPRE' -lo que dice su propio comentario- era
+# en realidad 'entre 0 y 30 s despues de callar', con el juego sonando al 35 % mientras
+# tanto. Y el techo duro de 20 s tampoco salvaba nada: se miraba en la misma linea, detras
+# del mismo freno. Es justo lo contrario de lo que esta funcion venia a hacer.
+$sinComent = ($fuente -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+$iPop = $sinComent.IndexOf('Pop-VolumenJuego }')
+$iWatch = $sinComent.IndexOf('function Watch-Entorno')
+$iPopup = $sinComent.IndexOf('$script:popupUntil -gt 0')
+Comp 'la devolucion se encuentra' ($iPop -gt 0)
+Comp 'y NO esta dentro de Watch-Entorno' ($iPop -gt $iWatch + 60000) 'esa funcion sale sola cada 30 s'
+Comp 'sino en el bucle, con el cierre de la tarjeta' ([Math]::Abs($iPop - $iPopup) -lt 3000) 'el bucle duerme 30 ms'
+Write-Host ''
 if ($fallos -gt 0) { Write-Host "  $fallos caso(s) MAL"; exit 1 }
 Write-Host '  te baja el juego para hablarte y te lo devuelve'
 exit 0

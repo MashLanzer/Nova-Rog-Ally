@@ -1,9 +1,10 @@
 # A QUE PODEMOS JUGAR LOS DOS (23/09, funcion 9 de la tanda de funciones nuevas).
 #
-# De donde sale: de su propia biblioteca. De los doce juegos que tiene instalados SIETE son de
-# dos, y tres -A Way Out, The Past Within y Content Warning- NO SE PUEDEN JUGAR SOLO. Ademas
-# juega a Roblox con su novia y tiene It Takes Two en su memoria de juegos. Nova tenia todo eso
-# delante y no sabia decir cual es cual.
+# De donde sale: de su propia biblioteca. Contado de sus doce fichas: OCHO de sus juegos son de
+# dos -siete cooperativos y uno, 5D Chess, uno contra otro-, cuatro se juegan a pantalla
+# partida y TRES -A Way Out, The Past Within y Content Warning- NO SE PUEDEN JUGAR SOLO.
+# Ademas juega a Roblox con su novia y tiene It Takes Two en su memoria de juegos. Nova tenia
+# todo eso delante y no sabia decir cual es cual.
 #
 # Lo que se prueba aqui:
 #   1. Que el dato NO se lo invente nadie: sale de la ficha de la tienda de Steam, que es
@@ -82,9 +83,25 @@ function SacaPatrones([string]$txt) {
     return $res
 }
 $patsBloque = @(SacaPatrones $bloque)
-# y los de APUNTAR por separado: de "LO QUE BRAYA APUNTA A MANO" hasta el final del bloque
-$k1 = $bloque.IndexOf('# LO QUE BRAYA APUNTA A MANO')
-$patsApunta = @(if ($k1 -ge 0) { SacaPatrones ($bloque.Substring($k1)) })
+# LOS IF ENTEROS, DEL ARBOL Y EN SU ORDEN. Esto es lo que faltaba: antes se probaban los
+# patrones uno a uno a ver si ALGUNO casaba, y asi no se ve que el de la pregunta se coma
+# las frases de apuntar. Resolve-Fragment se para en el PRIMERO que casa, y eso es lo que
+# hay que reproducir.
+$ifsDos = @()
+foreach ($x in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.IfStatementAst] }, $true)) {
+    $t = $x.Extent.Text
+    if ($t -match "kind = 'paraDos'" -or $t -match "kind = 'apuntaDos'") { $ifsDos += $t }
+}
+# lo que haria Resolve-Fragment con esta frase: el primer if que devuelva algo
+function Resuelve([string]$frase) {
+    foreach ($bloqueIf in $ifsDos) {
+        # con @(): el if devuelve un array de uno y PowerShell lo aplana a hashtable,
+        # y entonces [0] es 'la clave 0', que no existe
+        $acc = @(& { $f = $frase; Invoke-Expression $bloqueIf })
+        if ($acc -and $acc[0]) { return $acc[0] }
+    }
+    return $null
+}
 
 Write-Host ''
 Write-Host '-- los patrones estan y se leen del fichero --'
@@ -105,13 +122,15 @@ $preguntas = @(
     'elden ring es de dos',
     'a way out es cooperativo'
 )
+[void](Update-Juegos)      # Find-Juego mira la biblioteca de verdad
 $cogidas = 0
 foreach ($f in $preguntas) {
-    $ok = @($patsBloque | Where-Object { $f -match $_ }).Count -gt 0
+    $a = Resuelve $f
+    $ok = ($null -ne $a) -and ([string]$a.kind -eq 'paraDos')
     if ($ok) { $cogidas++ }
-    Write-Host ("       {0} {1}" -f $(if ($ok) { 'SI ' } else { 'no ' }), $f)
+    Write-Host ("       {0} {1,-52} {2}" -f $(if ($ok) { 'SI ' } else { 'no ' }), $f, $(if ($a) { [string]$a.kind } else { '(nada)' }))
 }
-Comp 'las coge todas' ($cogidas -eq $preguntas.Count) "$cogidas de $($preguntas.Count)"
+Comp 'las coge todas, y como PREGUNTA' ($cogidas -eq $preguntas.Count) "$cogidas de $($preguntas.Count)"
 
 Write-Host ''
 Write-Host '-- y una orden normal no se convierte en esto --'
@@ -134,6 +153,20 @@ Comp 'se guarda para no repetir la peticion' ($blofun -match 'juegos-dos\.json')
 Comp 'con escritura atomica' ($blofun -match 'Move-Item -LiteralPath \$tmp')
 $fichero = Join-Path $MemoriaDir 'juegos-dos.json'
 Comp 'y el fichero ya esta lleno' (Test-Path -LiteralPath $fichero) $fichero
+# Y LOS NUMEROS DEL COMENTARIO SE CUENTAN DEL FICHERO. La cabecera decia siete de dos y
+# dos que solo se pueden de dos; contando las fichas de verdad son ocho y tres. Un numero
+# citado que no se puede reproducir es lo que la casa no tolera, asi que se comprueba.
+if (Test-Path -LiteralPath $fichero) {
+    $jj = Get-Content -LiteralPath $fichero -Raw -Encoding UTF8 | ConvertFrom-Json
+    $todas = @($jj.PSObject.Properties | ForEach-Object { $_.Value })
+    $nDos = @($todas | Where-Object { $_.dos }).Count
+    $nSolo = @($todas | Where-Object { $_.dos -and -not $_.solo }).Count
+    $nPart = @($todas | Where-Object { $_.dos -and $_.partida }).Count
+    $cab = ([System.IO.File]::ReadAllText($ruta)).Substring($j1, 1200)
+    Comp 'el comentario dice cuantos son de dos, y cuadra' ($cab -match 'OCHO' -and $nDos -eq 8) "$nDos de dos"
+    Comp 'y cuantos SOLO de dos' ($cab -match 'TRES' -and $nSolo -eq 3) "$nSolo solo de dos"
+    Comp 'y cuantos a pantalla partida' ($cab -match 'Cuatro se juegan a pantalla partida' -and $nPart -eq 4) "$nPart a pantalla partida"
+}
 
 Write-Host ''
 Write-Host '-- una ficha inventada, para ver que la traduce bien --'
@@ -174,11 +207,13 @@ try {
     $ensenada = ''
     if ($r -match 'dime "([^"]+)"') { $ensenada = $Matches[1] }
     Comp 'ensena una frase para apuntarlo' ($ensenada.Length -gt 10) $ensenada
-    # Y TIENE QUE CASAR CON EL PATRON DE APUNTAR, no con cualquiera. Se comprobo rompiendolo:
-    # cambiando la frase ensenada por "Minecraft es de dos" el banco seguia verde, porque esa
-    # frase casa... con la PREGUNTA. Nova le habria ensenado a preguntar otra vez lo mismo.
-    $casa = @($patsApunta | Where-Object { $ensenada -match $_ }).Count
-    Comp 'y esa frase apunta de verdad, no pregunta' ($casa -gt 0) 'si no, es un callejon sin salida'
+    # Y TIENE QUE LLEGAR A APUNTAR, no a preguntar. Se comprobo rompiendolo dos veces:
+    # (a) cambiando la frase ensenada por "Minecraft es de dos", que casa con la PREGUNTA;
+    # (b) dejando los patrones en el orden en que nacieron -pregunta primero-, con el que
+    #     "apunta que Minecraft es de dos" tambien caia en la pregunta, con el juego
+    #     llamandose "apunta que Minecraft". La rama de apuntar era codigo muerto entero.
+    $aE = Resuelve $ensenada
+    Comp 'y esa frase apunta de verdad, no pregunta' (($null -ne $aE) -and ([string]$aE.kind -eq 'apuntaDos')) $(if ($aE) { [string]$aE.kind } else { '(nada)' })
 
     # y preguntar NO es apuntar
     $rUno = Get-ParaDos 'a way out'
@@ -186,6 +221,14 @@ try {
     Comp 'y avisa de que no se puede jugar solo' ($rUno -match 'solo de dos')
     $rSolo = Get-ParaDos 'black myth wukong'
     Comp 'y de uno dice que es de uno' ($rSolo -match 'es de un jugador')
+
+    # LA CONJUNCION NO SE DOBLA. Los trozos se unen con ' y ', asi que un trozo que
+    # empiece por 'o' daba "en linea y o invitandola con Remote Play Together".
+    $t2 = Get-JuegosDos
+    foreach ($kk in @($t2.Keys)) { if ($t2[$kk].nombre -match '(?i)^content warning') { $t2[$kk].remote = $true; $t2[$kk].partida = $false } }
+    $script:juegosDosCache = $t2
+    $rRP = Get-ParaDos 'content warning'
+    Comp 'la frase no dobla la conjuncion' ($rRP -notmatch ' y o ') $rRP
 
     # apuntar a mano un juego que no esta en Steam
     Set-JuegoDos 'Roblox' $true
@@ -199,15 +242,52 @@ try {
 }
 
 Write-Host ''
+Write-Host '-- apuntar y preguntar no se pisan --'
+foreach ($par in @(
+    @('apunta que roblox es de dos',     'apuntaDos'),
+    @('apuntame que roblox es de dos',   'apuntaDos'),
+    @('roblox si es de dos',             'apuntaDos'),
+    @('roblox no es de dos',             'apuntaDos'),
+    @('roblox es de dos',                'paraDos'),
+    @('elden ring es de dos',            'paraDos'),
+    @('se puede jugar elden ring los dos', 'paraDos'))) {
+    $a = Resuelve $par[0]
+    $kk = if ($a) { [string]$a.kind } else { '(nada)' }
+    Comp ("'" + $par[0] + "'") ($kk -eq $par[1]) "$kk (se esperaba $($par[1]))"
+}
+Write-Host ''
 Write-Host '-- el relleno es de fondo, y no molesta a la partida --'
-$uno = Traer 'Update-JuegosDosUno'
+$uno = ((Traer 'Update-JuegosDosUno') -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
 Comp 'una ficha por vuelta, no una rafaga' ($uno -match '\$pend\[0\]') 'doce juegos = seis minutos de fondo'
-Comp 'no insiste si no hay red' ($uno -match 'juegosDosFallos -ge 3') 'tres fallos y para'
-$codigoBucle = ($fuente -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
-Comp 'no se rellena con un juego delante' ($codigoBucle -match 'if \(-not \(Get-JuegoEnPrimerPlano\)\) \{ \[void\]\(Update-JuegosDosUno\)')
-Comp 'y si falla no tumba el bucle' ($fuente -match '\} catch \{\}\r?\n\r?\n    # la lupa se quita sola')
-$ficha = Traer 'Get-FichaDosSteam'
-Comp 'la peticion tiene tope de tiempo' ($ficha -match 'TimeoutSec 5') 'no se cuelga esperando a Steam'
+Comp 'no insiste si no hay red' ($uno -match 'juegosDosFallos -ge 3') 'tres fichas sin respuesta'
+Comp 'pero el candado se cura solo' ($uno -match 'juegosDosPausaHasta = \$sw\.ElapsedMilliseconds \+ 600000') 'diez minutos, no toda la sesion'
+# Y LA PUERTA DE ENTRADA TIENE QUE SER LA DEL RELOJ. Con la vieja ('-ge 3 y vuelve') el
+# candado se echaba para toda la sesion, y la linea de arriba seguia existiendo mas
+# abajo sin servir para nada: el banco salia verde con el fallo puesto.
+$primeraU = (($uno -split "`n") | Where-Object { $_ -match 'return \$false' } | Select-Object -First 1)
+Comp 'y la puerta de entrada mira el reloj' ($primeraU -match 'juegosDosPausaHasta') $primeraU.Trim()
+Comp 'y un appid raro no bloquea la cola' ($uno -match "fuente = 'sin-ficha'") 'el 228980, instalado aqui, devuelve success=False'
+# EL TROZO DEL BUCLE, ENTERO Y SIN COMENTARIOS. Estas dos comprobaciones nacieron
+# ancladas a una linea suelta y a lo que habia DEBAJO de ella; al mover la lupa al bucle
+# se cayeron solas con el codigo bien. Ahora se mira el bloque completo.
+$b1 = $fuente.IndexOf('    # UNA FICHA DE JUEGO POR VUELTA')
+# ACOTADO POR LINEAS, no por el primer '} catch {}': quitando el try/catch de aqui, el
+# IndexOf se iba a buscar el del bloque siguiente y el trozo seguia teniendo uno. Salia
+# verde justo cuando la guarda que se comprueba ya no existia.
+$lineasRell = @(($fuente -split "`r?`n"))
+$nb = 0; for ($q = 0; $q -lt $lineasRell.Count; $q++) { if ($lineasRell[$q] -match 'UNA FICHA DE JUEGO POR VUELTA') { $nb = $q; break } }
+$trozoRelleno = if ($nb -gt 0) { (($lineasRell[$nb..([Math]::Min($nb + 16, $lineasRell.Count - 1))]) | Where-Object { $_ -notmatch '^\s*#' }) -join "`n" } else { '' }
+Comp 'el bloque del relleno se encuentra' ($trozoRelleno.Length -gt 60) "$($trozoRelleno.Length) caracteres de codigo"
+Comp 'no se rellena con un juego delante' ($trozoRelleno -match '-not \(Get-JuegoEnPrimerPlano\)')
+Comp 'ni con una pregunta esperando' ($trozoRelleno -match '-not \$script:pendiente')
+Comp 'ni mientras Nova esta ocupada' (($trozoRelleno -match '-not \$script:busy') -and ($trozoRelleno -match '-not \$script:armed'))
+Comp 'ni mientras habla' ($trozoRelleno -match 'ElapsedMilliseconds -ge \$script:pausaHasta') 'es una llamada de red SINCRONA dentro del bucle'
+Comp 'y si falla no tumba el bucle' (($trozoRelleno -match 'try \{') -and ($trozoRelleno -match '\} catch \{\}')) 'una excepcion de red no puede apagar a Nova'
+# SIN LOS COMENTARIOS: al quitar filters=categories de la URL este banco seguia verde,
+# porque la palabra estaba en el comentario de encima explicando por que se pone.
+$ficha = ((Traer 'Get-FichaDosSteam') -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+Comp 'la peticion tiene tope de tiempo' ($ficha -match 'TimeoutSec 3') 'corre en el bucle: 3 s de techo'
+Comp 'y pide solo las categorias' ($ficha -match 'filters=categories') 'medido: 606-808 bytes en vez de 14.725-29.108'
 Comp 'y si Steam no contesta, devuelve nada' ($ficha -match 'return \$null')
 
 Write-Host ''

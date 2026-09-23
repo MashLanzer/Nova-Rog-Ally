@@ -30,12 +30,28 @@ function Comp($etiqueta, $ok, $detalle = '') {
     Write-Host ("  {0}  {1,-56} {2}" -f $(if ($ok) { 'OK ' } else { 'MAL' }), $etiqueta, $detalle)
     if (-not $ok) { $script:fallos++ }
 }
+# SIN COMENTARIOS, SIEMPRE. Este banco salia verde con la linea de NearestNeighbor
+# BORRADA, porque la palabra seguia estando en el comentario de encima. Un banco que
+# lee comentarios no prueba nada: prueba que alguien escribio la palabra.
+function SinComentarios([string]$txt) {
+    return (($txt -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n")
+}
 function Traer([string]$nombre) {
     $fn = $ast.Find({ param($n)
         $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $nombre }, $true)
     if (-not $fn) { Write-Host "  MAL  no encuentro $nombre"; exit 1 }
     return $fn.Extent.Text
 }
+function TraerCodigo([string]$nombre) { return (SinComentarios (Traer $nombre)) }
+function TraerVarTxt([string]$nombre) {
+    $a = $ast.Find({ param($n)
+        $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+        $n.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and
+        $n.Left.VariablePath.UserPath -eq $nombre }, $true)
+    if (-not $a) { Write-Host "  MAL  no encuentro `$$nombre"; exit 1 }
+    return $a.Extent.Text
+}
+$codigoTodo = SinComentarios $fuente
 # EL PATRON SE LEE DE SU LINEA, NO SE COPIA AQUI. Copiarlo seria probar la copia: ya paso
 # tres veces en este repo, y la ultima el banco estaba verde mientras el patron real cogia 0
 # de 11 frases suyas.
@@ -65,6 +81,15 @@ Comp 'los cuatro se leen enteros' (@($pats | Where-Object { $_.Length -gt 40 }).
 
 Write-Host ''
 Write-Host '-- la frase que se dice de verdad, en el orden en que se dice --'
+# EL IF ENTERO SE SACA DEL ARBOL Y SE EJECUTA: patron Y cuerpo. Antes se leia el patron
+# del fichero (bien) y luego el banco reconstruia la zona por su cuenta (mal): cambiando
+# $lzV1 por $lzH1 en el codigo, 'la esquina de arriba a la derecha' ampliaria abajo a la
+# izquierda y este banco seguia diciendo 13 de 13.
+$ifs = @()
+foreach ($x in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.IfStatementAst] }, $true)) {
+    if ($x.Clauses[0].Item1.Extent.Text -match 'ampliame') { $ifs += $x.Extent.Text }
+}
+Comp 'los cuatro ifs se sacan del arbol' ($ifs.Count -eq 4) "$($ifs.Count) bloques"
 # La esquina en espanol va "de arriba a la derecha". El orden al reves ("la derecha de
 # arriba") tambien vale, pero no es el que sale de la boca.
 $suyas = @(
@@ -84,38 +109,22 @@ $suyas = @(
 )
 $cogidas = 0
 foreach ($par in $suyas) {
-    $f = $par[0]; $esperada = $par[1]
+    $frase = $par[0]; $esperada = $par[1]
     $cual = ''
-    foreach ($p in $pats) {
-        if ($f -match $p) {
-            # la zona se reconstruye igual que en el codigo, con los grupos que saco el patron
-            if ($Matches.Count -eq 3) {
-                $g1 = [string]$Matches[1]; $g2 = [string]$Matches[2]
-                $esVert = ($g1 -match '^(arriba|abajo|superior|inferior)$')
-                $vert = if ($esVert) { $g1 } else { $g2 }
-                $hor  = if ($esVert) { $g2 } else { $g1 }
-                $v = if ($vert -eq 'arriba' -or $vert -eq 'superior') { 'arriba' } else { 'abajo' }
-                $h = if ($hor -eq 'izquierda' -or $hor -eq 'izquierdo') { 'izquierda' } else { 'derecha' }
-                $cual = "$v-$h"
-            } elseif ($Matches.Count -eq 2) {
-                $g = [string]$Matches[1]
-                $cual = switch -regex ($g) {
-                    '^(arriba|superior)$'      { 'arriba' }
-                    '^(abajo|inferior)$'       { 'abajo' }
-                    '^(izquierda|izquierdo)$'  { 'izquierda' }
-                    default                    { 'derecha' }
-                }
-            } else { $cual = 'centro' }
-            break
-        }
+    foreach ($bloque in $ifs) {
+        # se ejecuta el if de verdad, con $f puesta: si casa, su cuerpo devuelve la accion
+        # CON @() DELANTE: el if devuelve un array de UN elemento y PowerShell lo aplana a
+        # hashtable; entonces $acc[0] es 'la clave 0' de esa tabla, que no existe, y salia
+        # vacio con el codigo bien. Trece 'no la coge' por un parentesis.
+        $acc = @(& { $f = $frase; Invoke-Expression $bloque })
+        if ($acc) { $cual = [string]$acc[0].zona; break }
     }
     $ok = ($cual -eq $esperada)
     if ($ok) { $cogidas++ }
-    Write-Host ("       {0} {1,-46} {2}" -f $(if ($ok) { 'SI ' } else { 'no ' }), $f, $(if ($cual) { $cual } else { '(no la coge)' }))
+    Write-Host ("       {0} {1,-46} {2}" -f $(if ($ok) { 'SI ' } else { 'no ' }), $frase, $(if ($cual) { $cual } else { '(no la coge)' }))
 }
 Comp 'las coge todas y en la zona que toca' ($cogidas -eq $suyas.Count) "$cogidas de $($suyas.Count)"
 
-Write-Host ''
 Write-Host '-- ampliar y leer no se pisan: solo las separa el verbo --'
 Comp 'la lupa va DELANTE de leer' ($nLupa[0] -lt $nLee[0]) "lupa en $($nLupa[0]), leer en $($nLee[0])"
 $patsLee = @($nLee | ForEach-Object { PatronDe $_ })
@@ -149,7 +158,7 @@ foreach ($z in @('arriba', 'abajo', 'izquierda', 'derecha', 'centro',
 
 Write-Host ''
 Write-Host '-- AMPLIA DE VERDAD (esto es lo que fallaba) --'
-$sl = Traer 'Show-Lupa'
+$sl = TraerCodigo 'Show-Lupa'
 Comp 'el aumento es fijo, no "lo que quepa"' ($sl -match '\$esc = 2\.0') 'x2'
 Comp 'y lo que no cabe se recorta, no se encoge' ($sl -match 'GraphicsUnit\]::Pixel') 'DrawImage con rectangulo de origen'
 # la cuenta, con LOS NUMEROS DE ESTA CONSOLA (medidos hoy): el escritorio va a 1280x720
@@ -169,14 +178,43 @@ Comp 'ni sale en la barra de tareas' ($sl -match 'ShowInTaskbar = \$false')
 
 Write-Host ''
 Write-Host '-- y se quita sola, por las tres puertas --'
-$cl = Traer 'Close-Lupa'
+$cl = TraerCodigo 'Close-Lupa'
 Comp 'el plazo se apunta al ensenarla' ($sl -match 'lupaUntil = \$sw\.ElapsedMilliseconds')
-Comp 'el bucle la quita al vencer' ($fuente -match 'lupaUntil -gt 0 -and \$sw\.ElapsedMilliseconds -ge \$script:lupaUntil') 'sin tocar nada'
-Comp '"quita la lupa" la quita' ($fuente -match "kind = 'lupaQuita'")
-Comp 'y "quitala" tambien' ($fuente -match '\$habia = \(\$script:popupForm -or \$script:lupaForm\)') 'la misma palabra que para la tarjeta'
+Comp 'el bucle la quita al vencer' ($codigoTodo -match 'lupaUntil -gt 0 -and \$sw\.ElapsedMilliseconds -ge \$script:lupaUntil') 'sin tocar nada'
+Comp '"quita la lupa" la quita' ($codigoTodo -match "kind = 'lupaQuita'")
+Comp 'y "quitala" tambien' ($codigoTodo -match '\$habia = \(\$script:popupForm -or \$script:lupaForm\)') 'la misma palabra que para la tarjeta'
 Comp 'al cerrarla suelta el Bitmap' ($cl -match '\$script:lupaImg\.Dispose\(\)') '~3 MB por lupa en un proceso de meses'
 Comp 'y el Form' ($cl -match '\$script:lupaForm\.Dispose\(\)')
 
+Write-Host ''
+Write-Host '-- el plazo de 12 s son 12 s (esto no lo era) --'
+# Nacio dentro de Watch-Entorno, que sale de su cuerpo con un "si no han pasado 30 s,
+# vuelve": los 12 s prometidos eran hasta 42, con una ventana que tapa el 92 % de la
+# pantalla. Ahora vive en el bucle, que duerme 30 ms, junto al cierre de la tarjeta.
+$iL = $codigoTodo.IndexOf('$script:lupaUntil) { Close-Lupa }')
+$iW = $codigoTodo.IndexOf('function Watch-Entorno')
+$iF = $codigoTodo.IndexOf('$script:popupUntil -gt 0')
+Comp 'el cierre por plazo se encuentra' ($iL -gt 0)
+Comp 'y NO esta dentro de Watch-Entorno' ($iL -gt $iW + 60000) 'esa funcion sale sola cada 30 s'
+Comp 'sino pegado al cierre de la tarjeta' ([Math]::Abs($iL - $iF) -lt 2500) 'el bucle duerme 30 ms'
+
+Write-Host '-- y la captura no se saca una foto de la lupa --'
+# CopyFromScreen copia lo que hay encima, y la lupa es una ventana siempre encima: con la
+# lupa puesta el OCR leia el trozo YA ampliado y la vision describia la lupa.
+$sc = TraerCodigo 'Save-Captura'
+Comp 'Save-Captura la esconde antes' ($sc -match 'ShowWindow\(\$lupaTapa, 0\)') 'SW_HIDE'
+Comp 'y la vuelve a poner en un finally' (($sc -match 'finally') -and ($sc -match 'ShowWindow\(\$lupaTapa, 8\)')) 'braya la estaba mirando'
+
+Write-Host '-- y sus verbos trocean una frase de dos ordenes --'
+# Sin esto, medido con el parser real: 'sube el volumen y quita la lupa' subia el volumen
+# Y NADA MAS, en silencio. Y la frase la ensena la propia Nova.
+$verbos = TraerVarTxt 'VERBOS'
+foreach ($v in @('ampliame', 'amplialo', 'acercame', 'agrandame', 'quitala', 'quita')) {
+    Comp "'$v' esta en los verbos que cortan" ($verbos -match ('\|' + $v + '[\|\)]'))
+}
+Comp 'y las formas largas van antes que las cortas' `
+    ($verbos.IndexOf('|quitale') -lt $verbos.IndexOf('|quita)') -or $verbos -match '\|quitale\|') `
+    'con quita delante se perdia "quitale el siempre encima"'
 Write-Host ''
 Write-Host '-- y NO recita lo que ve (que es el motivo de existir) --'
 $ejec = ''

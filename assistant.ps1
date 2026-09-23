@@ -202,7 +202,19 @@ function Send-WinH {
 # Formas de habla latinoamericana incluidas a proposito: subele/bajale/ponme/
 # metete/anda/prende, ademas del imperativo peninsular. Todo va sin tildes
 # porque el texto se normaliza antes de comparar.
-$VERBOS = '(?:abre|abreme|abrele|abrir|abri|abrime|ejecuta|ejecutame|inicia|iniciame|lanza|lanzame|arranca|arrancame|prende|prendeme|pon|ponme|poneme|ponele|pone|mete|metete|entra|entrate|anda|andate|ve|vete|llevame|muestrame|muestra|ensename|busca|buscame|buscar|busque|googlea|googleame|investiga|sube|subele|subir|aumenta|baja|bajale|bajar|reduce|silencia|silenciar|mutea|pausa|pausar|reproduce|reproducir|play|siguiente|anterior|bloquea|bloquear|cierra|cierrame|cierrate|apaga|escribe|escribeme|teclea|pulsa|presiona|aprieta|dale a|cambia|cambiate|pasate|copia|pega|selecciona|guarda|minimiza|maximiza|enfoca|manda|envia|mueve|restaura|restaurar)'
+#
+# LOS VERBOS DE LA LUPA ENTRARON AQUI EL 23/09, y no por gusto: esta lista es por donde
+# Split-Ordenes corta una frase de dos ordenes. Sin 'ampliame' y sin 'quita', medido con el
+# parser de verdad:
+#     'sube el volumen y quita la lupa'        ->  subir volumen  Y NADA MAS
+#     'pon el modo juego y ampliame el centro' ->  se iba al modelo, 1 s largo
+# O sea: braya pedia dos cosas, pasaba una, y en silencio. Y la frase la ensena la propia
+# Nova ("di quita la lupa cuando acabes"), asi que el agujero estaba justo en el camino
+# que ella misma recomienda.
+# Y LAS FORMAS LARGAS VAN PRIMERO. La alternancia se queda con la primera que casa, asi que
+# con 'quita' delante de 'quitale' se perdia "quitale el siempre encima", que SI estaba en
+# pruebas\casos-nuevos.txt y funcionaba. Medido: 435 -> 434 -> 435 otra vez.
+$VERBOS = '(?:abre|abreme|abrele|abrir|abri|abrime|ejecuta|ejecutame|inicia|iniciame|lanza|lanzame|arranca|arrancame|prende|prendeme|pon|ponme|poneme|ponele|pone|mete|metete|entra|entrate|anda|andate|ve|vete|llevame|muestrame|muestra|ensename|busca|buscame|buscar|busque|googlea|googleame|investiga|sube|subele|subir|aumenta|baja|bajale|bajar|reduce|silencia|silenciar|mutea|pausa|pausar|reproduce|reproducir|play|siguiente|anterior|bloquea|bloquear|cierra|cierrame|cierrate|apaga|escribe|escribeme|teclea|pulsa|presiona|aprieta|dale a|cambia|cambiate|pasate|copia|pega|selecciona|guarda|minimiza|maximiza|enfoca|manda|envia|mueve|restaura|restaurar|ampliame|amplialo|amplia|acercame|agrandame|agranda|quitale|quitame|quitala|quita)'
 
 # Muletillas y cortesias que el dictado captura pero que NO son parte de la
 # orden. "busca tambien en el navegador X" fallaba justo por esto.
@@ -1112,11 +1124,12 @@ function Update-Juegos {
 
 
 # ===================== A QUE PODEMOS JUGAR LOS DOS (23/09, funcion 9) =====================
-# De donde sale: de su propia biblioteca. De los doce juegos que tiene instalados, SIETE son
-# de dos, y dos de ellos -A Way Out y The Past Within- NO SE PUEDEN JUGAR SOLO: no traen la
-# categoria "Un jugador". Ademas juega a Roblox con su novia y tiene It Takes Two apuntado en
-# su memoria de juegos, que tambien es solo de dos. Nova tenia todo eso delante y no sabia
-# decir cual es cual: "abre A Way Out" lo abria igual que cualquier otro.
+# De donde sale: de su propia biblioteca. Contado de sus doce fichas: OCHO de sus juegos son
+# de dos -siete cooperativos y 5D Chess, que es uno contra otro- y TRES de ellos, A Way Out,
+# The Past Within y Content Warning, NO SE PUEDEN JUGAR SOLO: no traen la categoria "Un
+# jugador". Cuatro se juegan a pantalla partida. Ademas juega a Roblox con su novia y tiene
+# It Takes Two apuntado en su memoria de juegos, que tambien es solo de dos. Nova tenia todo
+# eso delante y no sabia decir cual es cual: "abre A Way Out" lo abria igual que otro.
 #
 # EL DATO NO SE INVENTA NI SE LE PREGUNTA A UN MODELO: lo da Steam. La ficha de la tienda
 # (store.steampowered.com/api/appdetails) trae las categorias del juego, sin clave, gratis y
@@ -1170,7 +1183,11 @@ function Save-JuegosDos($t) {
 # La ficha de un juego de Steam, traducida a lo que se dice hablando.
 function Get-FichaDosSteam([string]$id, [string]$nombre) {
     try {
-        $r = Invoke-RestMethod -Uri "https://store.steampowered.com/api/appdetails?appids=$id&l=spanish" -TimeoutSec 5
+        # CON filters=categories: de esa ficha solo se miran las categorias, y pedirla entera
+        # trae la descripcion, los precios, las capturas y los videos. Medido hoy con tres de
+        # sus juegos: 606-808 bytes en vez de 14.725-29.108 (24 a 45 veces menos) y ~166 ms en
+        # vez de ~320. Y el tope baja a 3 s: esto corre en el bucle.
+        $r = Invoke-RestMethod -Uri "https://store.steampowered.com/api/appdetails?appids=$id&l=spanish&filters=categories" -TimeoutSec 3
         $d = $r.$id
         if (-not $d -or -not $d.success) { return $null }
         $cats = @()
@@ -1193,15 +1210,36 @@ function Get-FichaDosSteam([string]$id, [string]$nombre) {
 
 # UNO POR VUELTA, y solo si no hay un juego delante: esto es de fondo y no puede
 # quitarle ni red ni un parpadeo a una partida. Devuelve $true si hizo algo.
+$script:juegosDosPausaHasta = 0
 function Update-JuegosDosUno {
-    if ($script:juegosDosFallos -ge 3) { return $false }      # sin red, no se insiste
+    # EL CANDADO SE CURA SOLO (revision del 23/09). Antes eran tres fallos y se apagaba para
+    # TODA la sesion, sin reintento y sin decirlo: un rato sin wifi y ya no volvia hasta el
+    # siguiente arranque. Ahora son diez minutos de espera y a intentarlo otra vez.
+    if ($sw.ElapsedMilliseconds -lt $script:juegosDosPausaHasta) { return $false }
     $t = Get-JuegosDos
     $pend = @($script:Juegos | Where-Object {
         $_.id -match '^\d+$' -and -not $t.ContainsKey([string]$_.id) })
     if ($pend.Count -eq 0) { return $false }
     $j = $pend[0]
     $f = Get-FichaDosSteam ([string]$j.id) ([string]$j.nombre)
-    if (-not $f) { $script:juegosDosFallos++; return $false }
+    if (-not $f) {
+        # Y LA COLA AVANZA IGUAL. Antes, un solo appid que Steam no reconociera la bloqueaba
+        # entera: no se apuntaba nada, asi que la vuelta siguiente volvia a tocarle a el, y a
+        # la siguiente tambien. Comprobado que pasa de verdad: el appid 228980 -instalado en
+        # esta consola- devuelve success=False. Se apunta como 'sin ficha' con la fecha, para
+        # que deje pasar a los demas y se pueda reintentar dentro de unos dias.
+        $script:juegosDosFallos++
+        $t[[string]$j.id] = @{ nombre = [string]$j.nombre; dos = $false; solo = $true; coop = $false
+                               partida = $false; online = $false; remote = $false; contra = $false
+                               fuente = 'sin-ficha'; cuando = (Get-Date).ToString('yyyy-MM-dd') }
+        Save-JuegosDos $t
+        if ($script:juegosDosFallos -ge 3) {
+            $script:juegosDosPausaHasta = $sw.ElapsedMilliseconds + 600000
+            $script:juegosDosFallos = 0
+            Log "juegos-dos: tres fichas seguidas sin respuesta; lo dejo diez minutos"
+        }
+        return $false
+    }
     $script:juegosDosFallos = 0
     $t[[string]$j.id] = $f
     Save-JuegosDos $t
@@ -1247,7 +1285,9 @@ function Get-ParaDos([string]$cual = '') {
         $comos = @()
         if ($f.partida) { $comos += 'a pantalla partida aqui mismo' }
         if ($f.online)  { $comos += 'en linea' }
-        if ($f.remote -and -not $f.partida) { $comos += 'o invitandola con Remote Play Together' }
+        # sin el "o" delante: los trozos se unen con " y ", asi que salia "en linea y o
+        # invitandola con Remote Play Together"
+        if ($f.remote -and -not $f.partida) { $comos += 'invitandola con Remote Play Together' }
         $txt = $j.nombre + ' si es de dos'
         if ($comos.Count) { $txt += ', ' + ($comos -join ' y ') }
         if (-not $f.solo) { $txt += '. Y solo de dos: no se puede jugar tu solo' }
@@ -4211,16 +4251,12 @@ function Resolve-Fragment([string]$f) {
         $f -match '^(?:juegos?\s+)?(?:para|de)\s+(?:dos|2)\s+jugadores$') {
         return @(@{ kind = 'paraDos'; cual = ''; desc = 'a que podeis jugar los dos' })
     }
-    # y por un juego concreto: "¿elden ring es de dos?"
-    if ($f -match '^(?:el\s+|la\s+)?(.+?)\s+(?:es|seria)\s+(?:de\s+)?(?:dos|2|para\s+dos|cooperativo|coop|multijugador|de\s+dos\s+jugadores)\??$' -and
-        $f -notmatch '^(?:esto|eso|aquello|el\s+juego|este\s+juego)\s') {
-        $jd1 = [string]$Matches[1]
-        if ((Find-Juego $jd1)) { return @(@{ kind = 'paraDos'; cual = $jd1; desc = ("si $jd1 es de dos") }) }
-    }
-    if ($f -match '^(?:se\s+puede\s+jugar|podemos\s+jugar|puedo\s+jugar)\s+(?:a\s+)?(.+?)\s+(?:los\s+)?(?:dos|juntos|en\s+pareja|con\s+mi\s+novia)\??$') {
-        $jd2 = [string]$Matches[1]
-        if ((Find-Juego $jd2)) { return @(@{ kind = 'paraDos'; cual = $jd2; desc = ("si se puede jugar $jd2 los dos") }) }
-    }
+    # APUNTAR VA DELANTE DE PREGUNTAR (revision del 23/09). Nacio al reves y la rama de
+    # apuntar era codigo muerto: el patron de la pregunta es '(.+?) es de dos' con la captura
+    # perezosa, asi que "apunta que Roblox es de dos" casaba con el, con $jd1 = "apunta que
+    # Roblox". Y esa es LA FRASE QUE NOVA ENSENA cuando no sabe de un juego: le mandaba a un
+    # callejon sin salida. Los de apuntar son mas especificos -piden el "si" o el "apunta
+    # que"-, asi que no le roban nada a la pregunta.
     # LO QUE BRAYA APUNTA A MANO: Roblox y Minecraft no tienen ficha de Steam que pedir.
     # "X es de dos" NO vale para apuntar: hablando es la misma frase que la pregunta, y la
     # pregunta es mil veces mas probable. Para apuntar hace falta el "si" o el "apunta que".
@@ -4232,6 +4268,16 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(.+?)\s+no\s+es\s+(?:de\s+dos|para\s+dos|cooperativo)$') {
         $jd4 = [string]$Matches[1]
         if ((Find-Juego $jd4)) { return @(@{ kind = 'apuntaDos'; cual = $jd4; si = $false; desc = ("que $jd4 no es de dos") }) }
+    }
+    # y por un juego concreto: "¿elden ring es de dos?"
+    if ($f -match '^(?:el\s+|la\s+)?(.+?)\s+(?:es|seria)\s+(?:de\s+)?(?:dos|2|para\s+dos|cooperativo|coop|multijugador|de\s+dos\s+jugadores)\??$' -and
+        $f -notmatch '^(?:esto|eso|aquello|el\s+juego|este\s+juego)\s') {
+        $jd1 = [string]$Matches[1]
+        if ((Find-Juego $jd1)) { return @(@{ kind = 'paraDos'; cual = $jd1; desc = ("si $jd1 es de dos") }) }
+    }
+    if ($f -match '^(?:se\s+puede\s+jugar|podemos\s+jugar|puedo\s+jugar)\s+(?:a\s+)?(.+?)\s+(?:los\s+)?(?:dos|juntos|en\s+pareja|con\s+mi\s+novia)\??$') {
+        $jd2 = [string]$Matches[1]
+        if ((Find-Juego $jd2)) { return @(@{ kind = 'paraDos'; cual = $jd2; desc = ("si se puede jugar $jd2 los dos") }) }
     }
     # DESCARGAS DE STEAM (F5): cuanto le queda a un juego, que se esta bajando, y
     # abrir la pagina de descargas (pausar desde fuera no se puede)
@@ -8691,22 +8737,18 @@ function Watch-Entorno([int]$botones = 0) {
     } catch {}
 
     # UNA FICHA DE JUEGO POR VUELTA (23/09, funcion 9). Doce juegos son seis minutos de
-    # fondo y cero espera cuando pregunta. No se hace con un juego delante: 300 ms de red
-    # no rompen nada, pero tampoco hacen falta justo ahi.
+    # fondo y cero espera cuando pregunta.
+    # Y SOLO CON NOVA EN REPOSO (revision del 23/09): esto es una llamada de red SINCRONA
+    # dentro del bucle, o sea que mientras dura no se lee el mando ni se atiende nada. Con el
+    # tope en 3 s eso es un boton que no responde. Medido, la llamada tarda ~166 ms y el caso
+    # normal es que no haya nada que pedir (devuelve $false sin tocar la red), pero el peor
+    # caso tiene que caer donde no molesta: sin juego delante, sin pregunta esperando, sin
+    # nada en marcha y con el oido libre.
     try {
-        if (-not (Get-JuegoEnPrimerPlano)) { [void](Update-JuegosDosUno) }
+        if (-not (Get-JuegoEnPrimerPlano) -and -not $script:busy -and -not $script:pendiente -and
+            -not $script:armed -and -not $script:panel -and -not $script:eleccion -and
+            $sw.ElapsedMilliseconds -ge $script:pausaHasta) { [void](Update-JuegosDosUno) }
     } catch {}
-
-    # la lupa se quita sola al vencer el plazo (12 s), como la tarjeta
-    if ($script:lupaForm -and $script:lupaUntil -gt 0 -and $sw.ElapsedMilliseconds -ge $script:lupaUntil) { Close-Lupa }
-
-    # Y EL VOLUMEN DEL JUEGO SE DEVUELVE SIEMPRE (ver HACERSE SITIO PARA HABLAR). Aqui y no
-    # pegado al final de la frase: si Nova muere, si la cortan, o si la voz falla a medias, el
-    # juego tiene que recuperar su volumen igual. Con techo duro de 20 s.
-    if ($script:juegoVolAntes -ge 0) {
-        $callada = ($sw.ElapsedMilliseconds -ge $script:vozFinReal -and $sw.ElapsedMilliseconds -ge $script:pausaHasta)
-        if ($callada -or $sw.ElapsedMilliseconds -ge $script:juegoBajadoHasta) { Pop-VolumenJuego }
-    }
 
     # TE HE OIDO, PERO ESTAS JUGANDO (ver Test-LlamadaEnJuego). No pasa por
     # Send-AvisoEntorno a proposito: ese calla entero con un juego delante -y hace bien-,
@@ -15905,29 +15947,41 @@ function Get-ZonaRect([int]$x, [int]$y, [int]$w, [int]$h, [string]$zona) {
 # leer la pantalla entera, y no al revés.
 function Save-Captura([string]$ruta, [string]$zona = '') {
     if ($UiNuevaOn) { Send-UIEvento 'oculta'; Start-Sleep -Milliseconds 180 }
-    $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-    $x = $b.Left; $y = $b.Top; $w = $b.Width; $h = $b.Height
-    try {
-        $hw = [AX]::GetForegroundWindow()
-        if ($hw -ne [IntPtr]::Zero -and $hw -ne $capture.Handle) {
-            $r = New-Object AX+RECT
-            if ([AX]::GetWindowRect($hw, [ref]$r) -and ($r.Right - $r.Left) -gt 80 -and ($r.Bottom - $r.Top) -gt 60) {
-                $x = [Math]::Max($b.Left, $r.Left); $y = [Math]::Max($b.Top, $r.Top)
-                $w = [Math]::Min($b.Right, $r.Right) - $x; $h = [Math]::Min($b.Bottom, $r.Bottom) - $y
-            }
-        }
-    } catch {}
-    if ($zona) {
-        $zR = Get-ZonaRect $x $y $w $h $zona
-        $x = $zR.x; $y = $zR.y; $w = $zR.w; $h = $zR.h
+    # Y LA LUPA TAMBIEN SE APARTA (revision del 23/09). La lupa es una ventana siempre
+    # encima, y CopyFromScreen copia lo que hay encima: con la lupa puesta, el OCR leia el
+    # trozo YA ampliado y la vision de la nube describia la lupa en vez de la pantalla. Se
+    # esconde y se vuelve a poner -no se cierra- porque braya la estaba mirando.
+    $lupaTapa = $null
+    if ($script:lupaForm) {
+        try { $lupaTapa = $script:lupaForm.Handle; [void][AX]::ShowWindow($lupaTapa, 0); Start-Sleep -Milliseconds 60 } catch { $lupaTapa = $null }
     }
-    $bmp = New-Object System.Drawing.Bitmap($w, $h)
-    $g = [System.Drawing.Graphics]::FromImage($bmp)
     try {
-        $g.CopyFromScreen($x, $y, 0, 0, (New-Object System.Drawing.Size($w, $h)))
-        $bmp.Save($ruta, [System.Drawing.Imaging.ImageFormat]::Png)
-    } finally { $g.Dispose(); $bmp.Dispose() }
-    return $ruta
+        $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+        $x = $b.Left; $y = $b.Top; $w = $b.Width; $h = $b.Height
+        try {
+            $hw = [AX]::GetForegroundWindow()
+            if ($hw -ne [IntPtr]::Zero -and $hw -ne $capture.Handle) {
+                $r = New-Object AX+RECT
+                if ([AX]::GetWindowRect($hw, [ref]$r) -and ($r.Right - $r.Left) -gt 80 -and ($r.Bottom - $r.Top) -gt 60) {
+                    $x = [Math]::Max($b.Left, $r.Left); $y = [Math]::Max($b.Top, $r.Top)
+                    $w = [Math]::Min($b.Right, $r.Right) - $x; $h = [Math]::Min($b.Bottom, $r.Bottom) - $y
+                }
+            }
+        } catch {}
+        if ($zona) {
+            $zR = Get-ZonaRect $x $y $w $h $zona
+            $x = $zR.x; $y = $zR.y; $w = $zR.w; $h = $zR.h
+        }
+        $bmp = New-Object System.Drawing.Bitmap($w, $h)
+        $g = [System.Drawing.Graphics]::FromImage($bmp)
+        try {
+            $g.CopyFromScreen($x, $y, 0, 0, (New-Object System.Drawing.Size($w, $h)))
+            $bmp.Save($ruta, [System.Drawing.Imaging.ImageFormat]::Png)
+        } finally { $g.Dispose(); $bmp.Dispose() }
+        return $ruta
+    } finally {
+        if ($lupaTapa) { try { [void][AX]::ShowWindow($lupaTapa, 8) } catch {} }   # SW_SHOWNA
+    }
 }
 
 # Un trozo de texto para decir en voz alta, desde $desde. Se corta en un PUNTO
@@ -21099,10 +21153,13 @@ function Invoke-PanelRapido([int]$pul) {
 
 # =============== ELEGIR CON EL MANDO (23/09, funcion 10) ================================
 # EL DATO QUE LO PIDE: en catorce dias el mando se uso para contestar una pregunta CERO
-# veces. Cero. Y no es que no haya preguntas: hubo unas cuarenta confirmaciones, y SEIS
-# murieron por plazo -"CONFIRMAR: no se ejecuta '...' (plazo)"-, o sea que braya no contesto
-# o Nova no le oyo. Una de ellas era "abre Hollow Knight en steam", que es exactamente la
-# clase de orden que ya venia de un oido dudoso.
+# veces. Cero. Y no es que no haya preguntas: hubo VEINTE, y CINCO murieron por plazo
+# -"CONFIRMAR: no se ejecuta '...' (plazo)"-, o sea que braya no contesto o Nova no le oyo.
+# Eso es una de cada cuatro. Una de ellas era "abre Hollow Knight en steam", que es
+# exactamente la clase de orden que ya venia de un oido dudoso.
+# (El log escribe DOS lineas por pregunta -la pregunta y el desenlace-, asi que las 40
+#  lineas con "CONFIRMAR" son 20 preguntas: 12 normales + 8 de traduccion. Desenlaces:
+#  7 si, 5 no, 5 muertas por plazo, 2 ejecutadas al vencer y 1 cancelada. Suman 20.)
 #
 # Y NO ES QUE EL MANDO NO ESTE: esta siempre, es una consola de mano. Medido hoy, XInput lo
 # ve en el puerto 0 y leerlo cuesta 0,197 ms. Lo que pasa es que NADIE LO SABE: Nova pregunta
@@ -21156,8 +21213,11 @@ function Open-Eleccion([string[]]$opciones, [string]$origen) {
 function Close-Eleccion([bool]$tocarUI = $true) {
     if (-not $script:eleccion) { return }
     $script:eleccion = $null
-    $script:confirmaFin = 0; $script:confirmaTotal = 0
-    if ($tocarUI) { Set-UI 'reposo' }
+    # EL ANILLO SOLO SE APAGA SI NO HAY OTRA PREGUNTA VIVA. Se cerraba a ciegas, y el
+    # camino normal es justo ese: llega una pregunta de si/no -> el bucle cierra el selector
+    # -> y de paso le borraba el anillo a la pregunta que acababa de nacer.
+    if (-not $script:pendiente) { $script:confirmaFin = 0; $script:confirmaTotal = 0 }
+    if ($tocarUI -and -not $script:pendiente) { Set-UI 'reposo' }
 }
 
 # Elegida la numero $n (1..N). Cada origen sabe que hacer con su numero; lo que se diga
@@ -21166,7 +21226,7 @@ function Complete-Eleccion([int]$n) {
     if (-not $script:eleccion) { return }
     $e = $script:eleccion
     $script:eleccion = $null
-    $script:confirmaFin = 0; $script:confirmaTotal = 0
+    if (-not $script:pendiente) { $script:confirmaFin = 0; $script:confirmaTotal = 0 }
     if ($n -lt 1 -or $n -gt $e.opciones.Count) { Set-UI 'reposo'; return }
     Log ("ELEGIR ($($e.origen)): la $n, " + [string]$e.opciones[$n - 1])
     Start-Vibracion @(70) 14000
@@ -21302,6 +21362,14 @@ while ($true) {
     # ELIGIENDO DE UNA LISTA (23/09, funcion 10): la cruceta mueve, A elige, B cancela.
     # Igual que el panel rapido, y por lo mismo: XInput no es exclusivo, asi que con un
     # juego delante la cruceta le llega tambien al juego. Por eso dura 15 s y no mas.
+    #
+    # Y POR ESO MANDA $mandoVale, LA MISMA DE LA PREGUNTA DE SI/NO (revision del 23/09).
+    # Nacio sin ella y era el fallo mas grave de la tanda: con un juego delante, A es el
+    # boton que mas se pulsa -saltar-, asi que saltando en Hollow Knight se hacia una jugada
+    # de ajedrez que braya no habia elegido. Eso es exactamente la regla de la casa que no se
+    # negocia. $mandoVale exige ≡ apretado si hay juego, y ademas que Nova haya terminado de
+    # hablar, que es la otra mitad: un boton pulsado MIENTRAS suena la pregunta tampoco vale
+    # como respuesta.
     if ($script:eleccion) {
         try {
             if ($script:pendiente -or $script:busy -or $script:panel) {
@@ -21309,13 +21377,23 @@ while ($true) {
             } elseif ($sw.ElapsedMilliseconds -ge $script:eleccion.hasta) {
                 Log "ELEGIR: se acabo el plazo"
                 Close-Eleccion
-            } elseif ($pulsados -ne 0) {
-                $n = $script:eleccion.opciones.Count
-                $script:eleccion.hasta = $sw.ElapsedMilliseconds + $EleccionMs
-                if ($pulsados -band $XINPUT_B) { Log "ELEGIR: cancelado con B"; Close-Eleccion }
-                elseif ($pulsados -band $XINPUT_A) { Complete-Eleccion ($script:eleccion.i + 1) }
-                elseif ($pulsados -band ($XINPUT_IZQ -bor $XINPUT_ARR)) { $script:eleccion.i = ($script:eleccion.i + $n - 1) % $n; Show-Eleccion }
-                elseif ($pulsados -band ($XINPUT_DER -bor $XINPUT_ABA)) { $script:eleccion.i = ($script:eleccion.i + 1) % $n; Show-Eleccion }
+            } else {
+                # LA CAPSULA SE REDIBUJA AQUI, y no solo al abrirla. Open-Eleccion pinta la
+                # lista y un instante despues Say la pisa con 'hablando' (es la voz leyendo la
+                # pregunta): el selector se quedaba abierto 15 s SIN NADA EN PANTALLA, y el
+                # manual promete que se ve. Mismo remedio que el bloque de si/no: en cuanto
+                # acaba la voz, se vuelve a pintar.
+                if ($script:uiEstado -ne 'confirmando' -and -not $script:busy -and $script:uiHasta -le $sw.ElapsedMilliseconds) { Show-Eleccion }
+                if ($pulsados -ne 0 -and $mandoVale) {
+                    $n = $script:eleccion.opciones.Count
+                    # EL PLAZO SE RENUEVA SOLO CON LO QUE EL SELECTOR CONSUME. Estaba en el if
+                    # de fuera, asi que jugando -donde llueven botones- el plazo no vencia
+                    # nunca y la lista se quedaba puesta para siempre.
+                    if ($pulsados -band $XINPUT_B) { Log "ELEGIR: cancelado con B"; Close-Eleccion }
+                    elseif ($pulsados -band $XINPUT_A) { Complete-Eleccion ($script:eleccion.i + 1) }
+                    elseif ($pulsados -band ($XINPUT_IZQ -bor $XINPUT_ARR)) { $script:eleccion.i = ($script:eleccion.i + $n - 1) % $n; $script:eleccion.hasta = $sw.ElapsedMilliseconds + $EleccionMs; Show-Eleccion }
+                    elseif ($pulsados -band ($XINPUT_DER -bor $XINPUT_ABA)) { $script:eleccion.i = ($script:eleccion.i + 1) % $n; $script:eleccion.hasta = $sw.ElapsedMilliseconds + $EleccionMs; Show-Eleccion }
+                }
             }
         } catch { Log ("elegir: " + $_.Exception.Message); $script:eleccion = $null }
     }
@@ -22822,6 +22900,25 @@ while ($true) {
     if ($script:popupUntil -gt 0 -and $sw.ElapsedMilliseconds -ge $script:popupUntil -and
         $sw.ElapsedMilliseconds -ge ($script:pausaHasta + 5000) -and -not $script:armed) {
         Close-Popup
+    }
+
+    # LA LUPA SE QUITA SOLA A LOS 12 s, Y AQUI SON 12 DE VERDAD (revision del 23/09). Nacio
+    # dentro de Watch-Entorno, que sale de su cuerpo con un "si no han pasado 30 s, vuelve":
+    # los 12 s prometidos eran 12 mas lo que faltara para la siguiente vuelta buena, o sea
+    # hasta 42, con una ventana que tapa el 92 % de la pantalla. Su propio comentario decia
+    # "como la tarjeta", y la tarjeta se cierra justo aqui.
+    if ($script:lupaForm -and $script:lupaUntil -gt 0 -and $sw.ElapsedMilliseconds -ge $script:lupaUntil) { Close-Lupa }
+
+    # Y EL VOLUMEN DEL JUEGO SE DEVUELVE SIEMPRE (ver HACERSE SITIO PARA HABLAR). Aqui y no
+    # pegado al final de la frase: si Nova muere, si la cortan, o si la voz falla a medias, el
+    # juego tiene que recuperar su volumen igual. Con techo duro de 20 s.
+    # AQUI Y NO EN Watch-Entorno (revision del 23/09): estaba debajo del mismo freno de 30 s,
+    # asi que "se lo devuelvo en cuanto callo" era en realidad "entre 0 y 30 s despues de
+    # callar", con el juego sonando al 35 % mientras tanto. El techo duro de 20 s tampoco
+    # salvaba nada, porque se miraba en la misma linea, detras del mismo freno.
+    if ($script:juegoVolAntes -ge 0) {
+        $callada = ($sw.ElapsedMilliseconds -ge $script:vozFinReal -and $sw.ElapsedMilliseconds -ge $script:pausaHasta)
+        if ($callada -or $sw.ElapsedMilliseconds -ge $script:juegoBajadoHasta) { Pop-VolumenJuego }
     }
 
     # el tiempo vuelve a ser la carita al vencer su plazo
