@@ -1355,6 +1355,8 @@ $script:cargandoAntes = $null
 # hubo ocho arranques; sin esto serian ocho disparos de la regla 'cuando termine de cargar'.
 $script:llenaAntes = $null
 $script:bateriaMin = 0
+# el ultimo suelo de gigas apuntado (ver DISCO). $null = aun no se ha mirado en este arranque
+$script:discoUltimoGb = $null
 $script:reglasDisparadas = 0
 
 # ¿El repaso del oido fino tiene algo que ver con lo que se oyo primero?
@@ -12502,6 +12504,84 @@ function Await-Voz($op, $tipo) {
 # Las tildes se ponen con codigos de caracter: este archivo no lleva BOM y PS 5.1
 # leeria mal una tilde escrita tal cual.
 $script:TildesVoz = $null
+# LO QUE DICE AL HACER UNA ORDEN, CONJUGADO (23/09, idea 1 de la cuarta tanda, y lo pidio
+# braya: "que lo diga conjugado en todas las frases que se pueda").
+# Invoke-FastCommand devuelve el nombre interno de la accion -"abrir steam", "cerrar
+# navegador", "volumen al 50 por ciento"- y esa misma cadena se decia en voz alta. Medido en
+# assistant.log: 139 respuestas locales en infinitivo, 77 formas distintas, y "abrir steam" es
+# la frase mas repetida de toda Nova (23 veces). Sonaba a fichero de log.
+#
+# TRES REGLAS, y las tres importan:
+#  1. LISTA CERRADA y anclada al principio. Lo que no reconoce se devuelve TAL CUAL: mas vale
+#     un infinitivo suelto que una frase inventada. Aqui no hay modelo ni adivinanza.
+#  2. NO se toca el dato interno. $a.desc sigue siendo "abrir steam" en el log, en la memoria
+#     de la charla y en los bancos: lo que cambia es solo lo que sale por el altavoz y por la
+#     capsula. Si se tocara el dato, se romperian 22 comprobaciones que lo afirman, la
+#     respuesta de "repite" y lo que la charla recuerda de la ultima orden.
+#  3. NI la rama de confirmacion. La pregunta "¿Abro SILENT BREATH?" ya esta conjugada por su
+#     lado, y deformarla seria tocar justo la frase con la que braya dice si o no.
+# Los planes se dicen ENTEROS, cambiando el ';' por ' y ': la capsula no conserva la lista
+# -Show-Popup escribe y Say la pisa milisegundos despues-, asi que recortar ahi quitaria los
+# pasos de la voz Y de la pantalla.
+function Get-FraseAccion([string]$txt) {
+    if (-not $txt) { return $txt }
+    $trozos = @()
+    foreach ($t in ($txt -split ';')) {
+        $u = $t.Trim()
+        if (-not $u) { continue }
+        # el orden importa: lo mas especifico primero, y todo anclado en ^
+        $v = switch -Regex ($u) {
+            '^abrir\s+(?:la\s+carpeta\s+)?(.+)$'            { "Abro $($Matches[1])"; break }
+            '^cerrar\s+todo$'                               { 'Cierro todo'; break }
+            '^cerrar\s+(.+)$'                               { "Cierro $($Matches[1])"; break }
+            '^mostrar\s+el\s+escritorio$'                   { 'Muestro el escritorio'; break }
+            '^mostrar\s+(.+)$'                              { "Muestro $($Matches[1])"; break }
+            '^volumen\s+al\s+(.+)$'                         { "Pongo el volumen al $($Matches[1])"; break }
+            '^brillo\s+al\s+(.+)$'                          { "Pongo el brillo al $($Matches[1])"; break }
+            '^subir\s+(?:el\s+)?(volumen|brillo)(.*)$'      { "Subo el $($Matches[1])$($Matches[2])"; break }
+            '^bajar\s+(?:el\s+)?(volumen|brillo)(.*)$'      { "Bajo el $($Matches[1])$($Matches[2])"; break }
+            "^buscar\s+'(.+)'\s+en\s+(.+)$"                 { "Busco $($Matches[1]) en $($Matches[2])"; break }
+            "^escribir\s+'(.+)'$"                           { "Escribo $($Matches[1])"; break }
+            '^dividir\s+pantalla\s+con\s+(.+)$'             { "Divido la pantalla con $($Matches[1])"; break }
+            '^dividir\s+pantalla\s+(.+?)\s+con\s+(.+)$'     { "Divido la pantalla entre $($Matches[1]) y $($Matches[2])"; break }
+            '^reproducir\s+(.+)$'                           { "Reproduzco $($Matches[1])"; break }
+            '^silenciar$'                                   { 'Silencio el sonido'; break }
+            '^pausar$'                                      { 'Pauso'; break }
+            '^bloquear$'                                    { 'Bloqueo la consola'; break }
+            '^minimizar\s*(.*)$'                            { "Minimizo $($Matches[1])".Trim(); break }
+            '^maximizar\s*(.*)$'                            { "Maximizo $($Matches[1])".Trim(); break }
+            '^apagar\s+(.+)$'                               { "Apago $($Matches[1])"; break }
+            '^encender\s+(.+)$'                             { "Enciendo $($Matches[1])"; break }
+            '^activar\s+(.+)$'                              { "Activo $($Matches[1])"; break }
+            '^desactivar\s+(.+)$'                           { "Desactivo $($Matches[1])"; break }
+            '^enfocar\s+(.+)$'                              { "Voy a $($Matches[1])"; break }
+            '^copiar$'                                      { 'Copio'; break }
+            '^pegar$'                                       { 'Pego'; break }
+            '^poner\s+(.+)$'                                { "Pongo $($Matches[1])"; break }
+            '^crear\s+(.+)$'                                { "Creo $($Matches[1])"; break }
+            '^borrar\s+(.+)$'                               { "Borro $($Matches[1])"; break }
+            '^mover\s+(.+)$'                                { "Muevo $($Matches[1])"; break }
+            '^instalar\s+(.+)$'                             { "Instalo $($Matches[1])"; break }
+            '^leer\s+(.+)$'                                 { "Leo $($Matches[1])"; break }
+            '^enviar\s+(.+)$'                               { "Envio $($Matches[1])"; break }
+            '^grabar\s*(.*)$'                               { "Grabo $($Matches[1])".Trim(); break }
+            default                                          { $u }
+        }
+        $trozos += [string]$v
+    }
+    if ($trozos.Count -eq 0) { return $txt }
+    # el primero con mayuscula; los demas pegados con ' y ' y en minuscula, que es como se
+    # dice una lista hablada ("Abro Steam y pongo el volumen al 50 por ciento")
+    $out = [string]$trozos[0]
+    if ($out.Length -gt 1) { $out = $out.Substring(0, 1).ToUpper() + $out.Substring(1) }
+    for ($i = 1; $i -lt $trozos.Count; $i++) {
+        $sig = [string]$trozos[$i]
+        if ($sig.Length -gt 1) { $sig = $sig.Substring(0, 1).ToLower() + $sig.Substring(1) }
+        $out += ' y ' + $sig
+    }
+    return $out
+}
+
 function Add-TildesVoz([string]$s) {
     if (-not $s) { return $s }
     if (-not $script:TildesVoz) {
@@ -14648,7 +14728,50 @@ function Enter-Juego([string]$nombre) {
     Invoke-Reglas 'juegoAbre' $nombre
     if (-not $JuegoPerfilEntrar) { return }
     if (-not (Test-Prop $cmds.perfiles $JuegoPerfilEntrar)) { return }
-    try { $script:juegoBrilloAntes = (Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness -ErrorAction Stop).CurrentBrightness } catch {}
+    # EL BRILLO DE ANTES SOBREVIVE A UN REINICIO DE NOVA (23/09, idea 2 de la cuarta tanda).
+    # Este numero vivia solo en RAM. Si Nova muere con el juego delante -y muere mucho: 235
+    # arranques en 14 dias-, la instancia nueva vuelve a aplicar el perfil y lee como "brillo
+    # de antes" el 100 que dejo puesto la muerta; al salir del juego escribe "brillo
+    # restaurado a 100" y no restaura nada. Medido: 33 perfiles aplicados contra 21
+    # restauraciones, 12 sin deshacer, y de las 16 restauraciones desde que su brillo es 70,
+    # las 12 con la cadena limpia devolvieron 70 y las 4 con un reinicio en medio devolvieron
+    # 100. Cuatro de cuatro: el fallo es exactamente ese y no otro.
+    # DOS LLAVES para que el fichero no se use rancio: el MISMO juego tiene que seguir vivo
+    # (Test-JuegoVivo, con PID y ruta) y no puede pasar de doce horas. Sin eso, el caso real
+    # del 20/09 -It Takes Two a las 15:44, Nova reinicia a las 18:53, y a las 18:59 entra
+    # ELDEN RING- le habria movido la pantalla sola a un numero de otro juego.
+    $brilloGuardado = Join-Path $TmpDir 'juego-brillo.json'
+    $script:juegoBrilloAntes = $null
+    try {
+        if (Test-Path -LiteralPath $brilloGuardado) {
+            $gB = $null
+            try { $gB = Get-Content -LiteralPath $brilloGuardado -Raw -Encoding UTF8 | ConvertFrom-Json } catch {}
+            $frescoB = $false
+            if ($gB -and $gB.cuando) {
+                $cB = [datetime]::MinValue
+                if ([datetime]::TryParse([string]$gB.cuando, [ref]$cB)) { $frescoB = ((Get-Date) - $cB).TotalHours -lt 12 }
+            }
+            if ($gB -and $frescoB -and (Test-JuegoVivo $gB)) {
+                $script:juegoBrilloAntes = [int]$gB.brillo
+                Log "JUEGO: recupero el brillo de antes ($($gB.brillo)) del disco; Nova reinicio con el juego delante"
+            } else {
+                Remove-Item -LiteralPath $brilloGuardado -Force -ErrorAction SilentlyContinue
+            }
+        }
+    } catch {}
+    if ($null -eq $script:juegoBrilloAntes) {
+        try { $script:juegoBrilloAntes = (Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness -ErrorAction Stop).CurrentBrightness } catch {}
+        # y se guarda UNA vez por partida, no en cada alt-tab: Enter-Juego se dispara cada vez
+        # que el juego vuelve al primer plano (diez veces la noche del 22).
+        if ($null -ne $script:juegoBrilloAntes) {
+            try {
+                $oB = [ordered]@{ brillo = [int]$script:juegoBrilloAntes; proc = [int]$script:juegoPid
+                                  exe = [string]$script:juegoExe; juego = [string]$nombre
+                                  cuando = (Get-Date).ToString('s') }
+                [System.IO.File]::WriteAllText($brilloGuardado, (ConvertTo-Json -InputObject $oB -Depth 3), (New-Object System.Text.UTF8Encoding($false)))
+            } catch {}
+        }
+    }
     # NO se abren apps del perfil al entrar solo en un juego (abrir Discord
     # encima de un juego recien lanzado seria un estorbo): solo niveles
     $ordenes = @($cmds.perfiles.$JuegoPerfilEntrar) | Where-Object { (ConvertTo-Plain $_) -notmatch '^(?:abre|abrir|lanza|ejecuta)\b' }
@@ -14716,6 +14839,8 @@ function Exit-Juego([string]$nombre) {
     try {
         Set-Brillo ([int]$script:juegoBrilloAntes)
         Log "JUEGO: brillo restaurado a $($script:juegoBrilloAntes) al salir de $nombre"
+        # restaurado: el respaldo ya no vale para nada y no debe sobrevivir a la partida
+        try { Remove-Item -LiteralPath (Join-Path $TmpDir 'juego-brillo.json') -Force -ErrorAction SilentlyContinue } catch {}
     } catch {}
     $script:juegoBrilloAntes = $null
 }
@@ -16808,7 +16933,7 @@ function Receive-Charla {
                 Add-Estadistica 'local' $ordenC
                 Set-UltimaOrden $ordenC ([string]$fastC)
                 Send-UIEvento 'hecho'
-                Say $fastC
+                Say (Get-FraseAccion ([string]$fastC))
             } elseif ($TraducirOn) { Submit-Command $ordenC 'traducir' } else { Submit-Command $ordenC }
         } elseif ($ev.ev -eq 'delegar') {
             # SIN API, UN DATO CONCRETO (14/09): el modelo local se lo inventaria
@@ -17062,7 +17187,8 @@ function Invoke-PlanLocal($ordenes, [string]$original) {
                 Log "PLAN: '$oP' no se pudo hacer; el resto va al agente"
             }
             Add-Estadistica 'plan-a-medias' $oP
-            if ($hechasP.Count -gt 0) { Say (($hechasP -join ', ') + '. Lo demas lo miro.') }
+            # conjugado tambien aqui: es el mismo eco, con el plan a medias (idea 1)
+            if ($hechasP.Count -gt 0) { Say ((Get-FraseAccion ($hechasP -join '; ')) + '. Lo demas lo miro.') }
             # LO QUE QUEDA, NO LA PETICION ENTERA (18/09). Antes se reenviaba $original
             # completo -incluido lo que se ACABA de hacer-, asi que el agente repetia los
             # pasos ya ejecutados. Esta orden entra en lo que queda: no llego a hacerse.
@@ -17072,8 +17198,9 @@ function Invoke-PlanLocal($ordenes, [string]$original) {
         }
         $hechasP += $rP
     }
+    # el dato interno (Set-UltimaOrden) se queda como estaba: lo lee la charla y los bancos
     Set-UltimaOrden $original (($hechasP -join ', '))
-    $script:ultimaRespuesta = ($hechasP -join ', ')
+    $script:ultimaRespuesta = Get-FraseAccion ($hechasP -join '; ')
     Send-UIEvento 'hecho'
     Show-Popup $script:ultimaRespuesta
     Say $script:ultimaRespuesta
@@ -19322,11 +19449,13 @@ function Process-Texto([string]$text) {
                 # fuente limpia que hay, y la que evita que el ruido acabe
                 # pasando por dueno de la casa.
                 Update-MiVoz $script:ultimaF0
-                $script:ultimaRespuesta = $fast
+                # CONJUGADO PARA DECIRLO, el nombre interno para todo lo demas (23/09, idea 1)
+                $fraseF = Get-FraseAccion $fast
+                $script:ultimaRespuesta = $fraseF
                 Add-Turno $text $fast
                 Send-UIEvento 'hecho'
-                Show-Popup $fast
-                Say $fast
+                Show-Popup $fraseF
+                Say $fraseF
                 # la parte de charla de una frase mixta: se contesta detras (ver LAS DOS COSAS A LA VEZ)
                 if ($script:charlaResto) {
                     $restoC = $script:charlaResto
@@ -21390,6 +21519,24 @@ while ($true) {
                     $di = New-Object System.IO.DriveInfo('C')
                     if ($di.IsReady) {
                         $gbLibres = [Math]::Round($di.AvailableFreeSpace / 1073741824.0, 1)
+                        # UNA LINEA POR GIGA PERDIDO (23/09, idea 5 de la cuarta tanda). El
+                        # 22/09, entre el ultimo aviso de disco (08:33, 11,1 GB) y las 22:50
+                        # (0,81 GB), el disco se miro unas 831 veces y se escribieron CERO
+                        # lineas: el 0,81 no aparece en el log ni una vez. En 14 dias hay tres
+                        # cifras de disco en todo el registro, las tres de avisos que salieron.
+                        # Asi, "no salio" y "no hacia falta" se escriben igual: nada. Con esto,
+                        # el aviso de disco critico que se puso anoche se puede comprobar la
+                        # proxima vez que baje, en vez de esperar semanas.
+                        # SOLO AL BAJAR y por gigas enteros: un juego descargando que oscila
+                        # entre 13,9 y 14,0 escribiria una linea por minuto. Y la primera de
+                        # cada arranque se apunta siempre, que sirve de marca.
+                        $suelo = [int][Math]::Floor($gbLibres)
+                        if ($null -eq $script:discoUltimoGb -or $suelo -lt [int]$script:discoUltimoGb) {
+                            Log "DISCO: $gbLibres GB libres"
+                            $script:discoUltimoGb = $suelo
+                        } elseif ($suelo -gt [int]$script:discoUltimoGb) {
+                            $script:discoUltimoGb = $suelo    # subio (borraste algo): se reengancha sin escribir
+                        }
                         Invoke-Reglas 'disco' ([string]$gbLibres)
                         # idea 25: con menos de 15 gigas, un juego ya no cabe
                         # Y CON MENOS DE DOS, YA NO CABE NI WINDOWS (22/09 por la noche, con

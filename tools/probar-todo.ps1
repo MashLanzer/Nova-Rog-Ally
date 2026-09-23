@@ -429,6 +429,22 @@ Titulo "2n65. Una orden mal oida no envenena el vocabulario"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-alias-vacio.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no envenena el vocabulario)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n94. El brillo que vuelve a ser el tuyo, y el disco que deja rastro"
+# Ideas 2 y 5 de la cuarta tanda. El brillo de antes del juego vivia solo en RAM: 33 perfiles
+# aplicados contra 21 restauraciones, y de las 16 desde que su brillo es 70, las 12 con la
+# cadena limpia devolvieron 70 y las 4 con un reinicio en medio devolvieron 100. Y el disco:
+# el 22/09 cayo de 11,1 a 0,81 GB en catorce horas sin escribir UNA sola linea.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-brillo-y-disco.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el disco deja rastro)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n93. Que lo que hace lo diga conjugado"
+# Idea 1 de la cuarta tanda, y lo pidio braya. Invoke-FastCommand devuelve el nombre interno
+# de la accion y esa cadena se decia en voz alta: 139 respuestas en infinitivo, 77 formas, y
+# "abrir steam" es la frase mas repetida de toda Nova (23 veces). Ahora se dice "Abro steam",
+# pero el dato interno -log, memoria de la charla, bancos- sigue siendo "abrir steam".
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-frase-accion.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:lo dice conjugado)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n92. La pantalla dividida, como la dice braya"
 # Idea 9. En catorce dias la pantalla dividida no se ejecuto bien ni una vez por voz: cero de
 # once intentos. La forma "X en la mitad y en la otra mitad Y" la dijo tres veces en tres

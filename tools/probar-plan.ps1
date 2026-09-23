@@ -64,6 +64,10 @@ Invoke-Expression (Traer 'Invoke-PlanLocal')
 # en probar-costumbres.ps1. REGLA: si se anade una funcion que llamen las que este banco
 # extrae, hay que traerla tambien, o el banco prueba media funcion.
 Invoke-Expression (Traer 'Set-UltimaOrden')
+# Get-FraseAccion entra el 23/09: desde ese dia el plan se DICE conjugado ("abro steam" en vez
+# de "abrir steam"), aunque por dentro siga siendo el nombre de la accion. Sin traerla, esto
+# muere con CommandNotFoundException.
+Invoke-Expression (Traer 'Get-FraseAccion')
 function ResetP {
     $script:pendiente = $null; $script:dicho = @(); $script:alAgente = @()
     $script:eventos = @(); $script:rota = ''; $script:ultimaRespuesta = ''
@@ -96,7 +100,12 @@ Comp 'si no devuelve nada' ((@(Split-Plan '')).Count -eq 0 -and (@(Split-Plan "`
 Write-Host "  -- y ahora EJECUTARLO, que es donde estaba el agujero --"
 ResetP
 $r1 = Invoke-PlanLocal @('abre steam', 'sube el brillo') 'abre steam y sube el brillo'
-Comp 'un plan entero se hace entero' ($r1 -and $script:ultimaRespuesta -eq 'abrir steam, subir brillo') $script:ultimaRespuesta
+# LA RESPUESTA SE DICE CONJUGADA desde el 23/09 ("Abro steam y subo el brillo"), aunque lo
+# que se guarda por dentro -Set-UltimaOrden, el log y la memoria de la charla- siga siendo
+# "abrir steam, subir brillo". Aqui se comprueban las dos cosas por separado, que es justo lo
+# que hay que no romper.
+Comp 'un plan entero se hace entero' ($r1 -and $script:ultimaRespuesta -eq 'Abro steam y subo el brillo') $script:ultimaRespuesta
+Comp 'y por dentro sigue siendo el nombre de la accion' ($script:ultimaOrden -and $script:ultimaOrden.desc -eq 'abrir steam, subir brillo') ([string]$script:ultimaOrden.desc)
 Comp 'y no molesta al agente' ($script:alAgente.Count -eq 0) ($script:alAgente -join ' | ')
 
 ResetP
@@ -111,7 +120,7 @@ Write-Host "  -- una orden que pide confirmacion corta el plan (18/09) --"
 ResetP
 $r3 = Invoke-PlanLocal @('abre steam', 'cierra todos los programas', 'pon el modo juego') 'abre steam, cierra todo y pon el modo juego'
 Comp 'el plan se abandona' (-not $r3) ''
-Comp 'la pregunta NO cuenta como hecha' ($script:dicho.Count -eq 1 -and $script:dicho[0] -eq 'abrir steam. Lo demas lo miro.') ($script:dicho -join ' | ')
+Comp 'la pregunta NO cuenta como hecha' ($script:dicho.Count -eq 1 -and $script:dicho[0] -eq 'Abro steam. Lo demas lo miro.') ($script:dicho -join ' | ')
 Comp 'y no se queda una confirmacion colgando' ($null -eq $script:pendiente) ''
 Comp 'al agente va lo que QUEDA, no lo ya hecho' ($script:alAgente -contains 'cierra todos los programas y pon el modo juego') ($script:alAgente -join ' | ')
 # los parentesis importan: sin ellos el -not se come el -join y se compara $false, que
@@ -127,7 +136,7 @@ Write-Host "  -- y si una falla a mitad, solo se reenvia lo que falta --"
 ResetP
 $script:rota = 'sube el brillo'
 $r5 = Invoke-PlanLocal @('abre steam', 'sube el brillo', 'pon el modo juego') 'abre steam, sube el brillo y pon el modo juego'
-Comp 'se cuenta lo que si se hizo' ((-not $r5) -and $script:dicho[0] -eq 'abrir steam. Lo demas lo miro.') ($script:dicho -join ' | ')
+Comp 'se cuenta lo que si se hizo' ((-not $r5) -and $script:dicho[0] -eq 'Abro steam. Lo demas lo miro.') ($script:dicho -join ' | ')
 Comp 'y al agente solo lo que queda' ($script:alAgente -contains 'sube el brillo y pon el modo juego') ($script:alAgente -join ' | ')
 
 Write-Host ""
