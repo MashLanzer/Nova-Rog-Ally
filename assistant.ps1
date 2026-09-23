@@ -4328,6 +4328,38 @@ function Resolve-Fragment([string]$f) {
     # sacan una sola función del archivo con el AST, y una variable de fuera valdría
     # '' y el patrón pasaría a casar con CUALQUIER frase.
     # La esquina diciendo primero el arriba/abajo: "lee la esquina de arriba a la derecha".
+    # LA LUPA (23/09, funcion 8): lo mismo que "lee la esquina", pero ENSEÑANDOLO ampliado en
+    # vez de recitarlo. Va DELANTE de los patrones de leer, que si no "ampliame el centro"
+    # no llega: el verbo es lo unico que las distingue.
+    # PRIMERO EL ORDEN NORMAL: "ampliame la esquina de arriba a la derecha". Es como se
+    # dice en español y como ya estaba escrito el patron de leer; sin esto solo entraba el
+    # orden raro ("la derecha de arriba") y la frase natural no llegaba a ningun sitio.
+    if ($f -match '^(?:ampliame|amplia|amplialo|ensename|enseñame|muestrame|acercame|hazme zoom en|zoom en|agranda|agrandame)\s+(?:(?:la|el|lo|los|las)\s+)?(?:(?:esquina|esquinita|mitad|parte|zona|franja|lado|banda|barra|linea|texto|letras|cartel)\s+)?(?:(?:de|del)\s+)?(?:(?:la|el)\s+)?(arriba|abajo|superior|inferior)\s+(?:a\s+la\s+|a\s+mano\s+|de\s+la\s+|a\s+|la\s+)?(izquierda|derecha|izquierdo|derecho)(?:\s+(?:de|en)\s+(?:la\s+)?pantalla)?$') {
+        $lzV1 = [string]$Matches[1]; $lzH1 = [string]$Matches[2]
+        $lv = if ($lzV1 -eq 'arriba' -or $lzV1 -eq 'superior') { 'arriba' } else { 'abajo' }
+        $lh = if ($lzH1 -eq 'izquierda' -or $lzH1 -eq 'izquierdo') { 'izquierda' } else { 'derecha' }
+        return @(@{ kind = 'lupa'; zona = "$lv-$lh"; zonaTxt = "la esquina de $lv a la $lh"; desc = "te amplio la esquina de $lv a la $lh" })
+    }
+    if ($f -match '^(?:ampliame|amplia|amplialo|ensename|enseñame|muestrame|acercame|hazme zoom en|zoom en|agranda|agrandame)\s+(?:(?:la|el|lo|los|las)\s+)?(?:(?:esquina|esquinita|mitad|parte|zona|franja|lado|banda|barra|linea|texto|letras|cartel)\s+)?(?:(?:de|del)\s+)?(?:(?:la|el)\s+)?(izquierda|derecha|izquierdo|derecho)\s+(?:de\s+)?(?:la\s+)?(arriba|abajo|superior|inferior)$') {
+        $lzH = [string]$Matches[1]; $lzV = [string]$Matches[2]
+        $lv = if ($lzV -eq 'arriba' -or $lzV -eq 'superior') { 'arriba' } else { 'abajo' }
+        $lh = if ($lzH -eq 'izquierda' -or $lzH -eq 'izquierdo') { 'izquierda' } else { 'derecha' }
+        return @(@{ kind = 'lupa'; zona = "$lv-$lh"; zonaTxt = "la esquina de $lv a la $lh"; desc = "te amplio la esquina de $lv a la $lh" })
+    }
+    if ($f -match '^(?:ampliame|amplia|amplialo|ensename|enseñame|muestrame|acercame|hazme zoom en|zoom en|agranda|agrandame)\s+(?:(?:la|el|lo|los|las)\s+)?(?:(?:esquina|esquinita|mitad|parte|zona|franja|lado|banda|barra|linea|texto|letras|cartel)\s+)?(?:(?:de|del)\s+)?(?:(?:la|el)\s+)?(arriba|abajo|superior|inferior|izquierda|derecha|izquierdo|derecho)$') {
+        $lz = [string]$Matches[1]
+        $lzo = 'derecha'; $lzt = 'la derecha'
+        if     ($lz -eq 'arriba' -or $lz -eq 'superior')     { $lzo = 'arriba';    $lzt = 'la parte de arriba' }
+        elseif ($lz -eq 'abajo' -or $lz -eq 'inferior')      { $lzo = 'abajo';     $lzt = 'la parte de abajo' }
+        elseif ($lz -eq 'izquierda' -or $lz -eq 'izquierdo') { $lzo = 'izquierda'; $lzt = 'la izquierda' }
+        return @(@{ kind = 'lupa'; zona = $lzo; zonaTxt = $lzt; desc = ('te amplio ' + $lzt) })
+    }
+    if ($f -match '^(?:ampliame|amplia|amplialo|ensename|enseñame|muestrame|acercame|hazme zoom en|zoom en|agranda|agrandame)\s+(?:(?:la|el|lo|los|las)\s+)?(?:(?:esquina|esquinita|mitad|parte|zona|franja|lado|banda|barra|linea|texto|letras|cartel)\s+)?(?:(?:de|del)\s+)?(?:(?:la|el)\s+)?(?:centro|medio|central)$') {
+        return @(@{ kind = 'lupa'; zona = 'centro'; zonaTxt = 'el centro'; desc = 'te amplio el centro' })
+    }
+    if ($f -match '^(?:quita|cierra)\s+la\s+lupa$') {
+        return @(@{ kind = 'lupaQuita'; desc = 'quito la lupa' })
+    }
     if ($f -match '^(?:lee|leeme|leemelo|leer|leelo|que dice|que pone|que hay escrito|dime que dice|dime que pone)\s+(?:lo que (?:hay|dice|pone)\s+)?(?:(?:en|de)\s+)?(?:(?:la|el|lo|los|las)\s+)?(?:(?:esquina|esquinita|mitad|parte|zona|franja|lado|banda|barra|linea|texto|letras|cartel)\s+)?(?:(?:de|del)\s+)?(?:(?:la|el)\s+)?(arriba|abajo|superior|inferior)\s+(?:a\s+la\s+|a\s+mano\s+|de\s+la\s+|a\s+|la\s+)?(izquierda|derecha|izquierdo|derecho)(?:\s+(?:de|en)\s+(?:la\s+)?pantalla)?$') {
         # los dos grupos, a variables YA: el -eq de abajo no pisa $Matches, pero un
         # -match sí lo haría, y esa trampa ya costó un fallo en este archivo.
@@ -8449,6 +8481,9 @@ function Watch-Entorno([int]$botones = 0) {
         $script:entornoUnidades = $letras
     } catch {}
 
+    # la lupa se quita sola al vencer el plazo (12 s), como la tarjeta
+    if ($script:lupaForm -and $script:lupaUntil -gt 0 -and $sw.ElapsedMilliseconds -ge $script:lupaUntil) { Close-Lupa }
+
     # Y EL VOLUMEN DEL JUEGO SE DEVUELVE SIEMPRE (ver HACERSE SITIO PARA HABLAR). Aqui y no
     # pegado al final de la frase: si Nova muere, si la cortan, o si la voz falla a medias, el
     # juego tiene que recuperar su volumen igual. Con techo duro de 20 s.
@@ -10905,8 +10940,12 @@ function Invoke-FastCommand([string]$text) {
                     }
                 }
                 'quitarTarjeta' {
-                    $a.desc = if ($script:popupForm) { 'quitada' } else { 'no habia ninguna tarjeta' }
+                    # "quitala" tambien se lleva la lupa: si no, braya la quita y le sigue
+                    # tapando media pantalla mientras Nova dice que no habia ninguna tarjeta.
+                    $habia = ($script:popupForm -or $script:lupaForm)
+                    $a.desc = if ($habia) { 'quitada' } else { 'no habia ninguna tarjeta' }
                     Close-Popup
+                    Close-Lupa
                 }
                 'verPerfil' {
                     $dp = @(Get-DatosPerfil)
@@ -12183,6 +12222,27 @@ function Invoke-FastCommand([string]$text) {
                 'enfocarJuego' {
                     $pr = Get-Process | Where-Object { try { $_.Path -eq $script:juegoExe -and $_.MainWindowHandle -ne 0 } catch { $false } } | Select-Object -First 1
                     if ($pr) { [AX]::ShowWindow($pr.MainWindowHandle, 9) | Out-Null; [void][AX]::ForceForeground($pr.MainWindowHandle) }
+                }
+                'lupa' {
+                    # ENSEÑAR EN VEZ DE RECITAR (23/09, funcion 8). Mismo recorte que 'ocr',
+                    # pero sin pasar por el OCR: el texto lo lee braya. Nova no dice ni una
+                    # palabra de lo que pone, asi que no puede equivocarse al decirlo.
+                    $dondeL = if ($a.zonaTxt) { [string]$a.zonaTxt } else { 'la pantalla' }
+                    Set-UI 'pensando' "ampliando $dondeL"
+                    $pngL = Join-Path $TmpDir 'lupa.png'
+                    Close-Lupa      # si no, la segunda lupa saldria con la primera dentro
+                    Save-Captura $pngL ([string]$a.zona) | Out-Null
+                    if (Show-Lupa $pngL) {
+                        Log "LUPA: $dondeL"
+                        Add-Estadistica 'lupa' ([string]$a.zona)
+                        $a.desc = "ahi lo tienes, di quita la lupa cuando acabes"
+                    } else {
+                        $a.desc = 'no he podido hacer la captura'
+                    }
+                }
+                'lupaQuita' {
+                    $a.desc = if ($script:lupaForm) { 'quitada' } else { 'no habia ninguna lupa' }
+                    Close-Lupa
                 }
                 'ocr' {
                     # Sin zona, la pantalla entera de siempre. Con zona (C15, 20/09) se
@@ -16130,6 +16190,96 @@ function Wait-DictationText {
 $script:popupForm = $null
 $script:popupFont = $null
 $script:popupUntil = 0
+
+# LA LUPA (23/09, funcion 8 de la tanda de funciones nuevas).
+# La familia "lee la esquina de arriba a la derecha" existe porque en una consola de 7
+# pulgadas la letra pequeña no se lee. Pero hoy la respuesta es un recitado del OCR, y ahi es
+# donde sus fallos se convierten en palabras equivocadas DICHAS EN VOZ ALTA: el unico OCR de
+# juego del registro devolvio cinco fragmentos y dos eran basura ("O", "Kit"). El 20/09 braya
+# se lo dijo: "no describas lo que ves en la pantalla literalmente".
+# Ampliando el recorte no hay OCR que falle: lo lee el, en medio segundo, y Nova no dice ni
+# una palabra. El recorte por zonas ya existe (Get-ZonaRect + Save-Captura); lo unico que
+# faltaba era enseñarlo.
+#
+# NearestNeighbor y no el suavizado bueno: el filtro suave emborrona el texto justo cuando lo
+# amplias, que es lo contrario de lo que se quiere. Y va sobre AXTarjeta, la ventana que NO
+# roba el foco: con una Form corriente, Show() saca a braya de la partida.
+$script:lupaForm = $null
+$script:lupaImg = $null
+$script:lupaUntil = 0
+function Close-Lupa {
+    if ($script:lupaForm) {
+        try { $script:lupaForm.Close(); $script:lupaForm.Dispose() } catch {}
+        $script:lupaForm = $null
+    }
+    if ($script:lupaImg) {
+        try { $script:lupaImg.Dispose() } catch {}
+        $script:lupaImg = $null
+    }
+    $script:lupaUntil = 0
+}
+function Show-Lupa([string]$png, [int]$ms = 12000) {
+    if (-not $png -or -not (Test-Path -LiteralPath $png)) { return $false }
+    Close-Lupa
+    try {
+        # AMPLIAR DE VERDAD, AUNQUE HAYA QUE RECORTAR. Antes se escalaba "lo que cupiera"
+        # en el 70 % de la pantalla, y con el centro de una ventana de 1920x1080 eso daba
+        # x1,17: en una pantalla de 7 pulgadas x1,17 no se lee mejor, es la misma letra.
+        # Asi que el aumento manda (x2) y lo que no cabe se recorta por el centro, que es
+        # lo que hace una lupa de verdad.
+        $bytes = [System.IO.File]::ReadAllBytes($png)   # por MemoryStream: cargando por
+        $ms2 = New-Object System.IO.MemoryStream(,$bytes)   # ruta el PNG queda bloqueado
+        $orig = [System.Drawing.Image]::FromStream($ms2)
+        $pantalla = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+        $maxW = [int]($pantalla.Width * 0.92); $maxH = [int]($pantalla.Height * 0.92)
+        $esc = 2.0
+        $nw = [int][Math]::Min(($orig.Width * $esc), $maxW)
+        $nh = [int][Math]::Min(($orig.Height * $esc), $maxH)
+        if ($nw -lt 40) { $nw = 40 }
+        if ($nh -lt 40) { $nh = 40 }
+        # el trozo del original que se ve, centrado
+        $sw2 = [int][Math]::Min($orig.Width, [Math]::Ceiling($nw / $esc))
+        $sh2 = [int][Math]::Min($orig.Height, [Math]::Ceiling($nh / $esc))
+        $sx = [int](($orig.Width - $sw2) / 2); $sy = [int](($orig.Height - $sh2) / 2)
+        $img = New-Object System.Drawing.Bitmap($nw, $nh)
+        $g = [System.Drawing.Graphics]::FromImage($img)
+        # NearestNeighbor y no bilineal: el bilineal emborrona la letra pequena, que es
+        # justo lo que se quiere leer. Aqui se prefiere el borde duro.
+        $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::NearestNeighbor
+        $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::Half
+        $g.DrawImage($orig, (New-Object System.Drawing.Rectangle(0, 0, $nw, $nh)),
+                     $sx, $sy, $sw2, $sh2, [System.Drawing.GraphicsUnit]::Pixel)
+        $g.Dispose(); $orig.Dispose(); $ms2.Dispose()
+
+        $f = New-Object AXTarjeta
+        $f.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
+        $f.ShowInTaskbar = $false
+        $f.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
+        $f.BackColor = [System.Drawing.Color]::FromArgb(13, 17, 25)
+        $f.ClientSize = New-Object System.Drawing.Size(($nw + 8), ($nh + 8))
+        $pb = New-Object System.Windows.Forms.PictureBox
+        $pb.Image = $img
+        $pb.SizeMode = [System.Windows.Forms.PictureBoxSizeMode]::Normal
+        $pb.Location = New-Object System.Drawing.Point(4, 4)
+        $pb.Size = New-Object System.Drawing.Size($nw, $nh)
+        $f.Controls.Add($pb)
+        $f.Location = New-Object System.Drawing.Point(
+            ($pantalla.Left + [int](($pantalla.Width - $f.Width) / 2)),
+            ($pantalla.Top + [int](($pantalla.Height - $f.Height) / 2)))
+        $null = $f.Handle
+        try { [void][AX]::ShowWindow($f.Handle, 8) } catch {}    # SW_SHOWNA: sin activar
+        $script:lupaForm = $f
+        # el Bitmap se guarda aparte: PictureBox.Dispose NO suelta una Image que le
+        # asignaron a mano, y son ~3 MB por lupa en un proceso que vive meses.
+        $script:lupaImg = $img
+        $script:lupaUntil = $sw.ElapsedMilliseconds + $ms
+        return $true
+    } catch {
+        Log ('lupa: ' + $_.Exception.Message)
+        Close-Lupa
+        return $false
+    }
+}
 
 # Cierra y LIBERA el popup. Sin este Dispose, cada respuesta filtraba un Font
 # y un Form; en un proceso que vive meses desde el login agota los handles GDI.

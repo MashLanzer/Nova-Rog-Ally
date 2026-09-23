@@ -429,6 +429,16 @@ Titulo "2n65. Una orden mal oida no envenena el vocabulario"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-alias-vacio.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no envenena el vocabulario)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n104. La lupa: ensenar el trozo en vez de recitarlo"
+# Funcion 8. En 7 pulgadas a 1080p la letra de un menu mide un milimetro, y lo que habia para
+# eso era el OCR: la unica lectura de pantalla de JUEGO de todo el registro devolvio cinco
+# trozos y dos eran basura ("O", "Kit"). Ademas el 20/09 lo pidio el: "no describas lo que ves
+# en la pantalla literalmente". La lupa no lee nada, ensena. Lo que se vigila: que amplie de
+# verdad (x2 recortando, no "lo que quepa" = x1,17), que no robe el foco con el mando en las
+# manos, y que se quite sola.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-lupa.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no le quita el mando)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n103. Bajarle el juego para hablarle, y devolverselo"
 # Funcion 7. Le habla mientras juega -toda la tanda del 22/09 de 21:43 a 21:48- y hablaba
 # ENCIMA del audio del juego. Lo que se vigila: que NO le suba el volumen sin querer
