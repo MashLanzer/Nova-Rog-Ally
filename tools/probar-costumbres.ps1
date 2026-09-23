@@ -148,7 +148,15 @@ Comp 'por la tarde no hay parte' ($script:resumenPendiente -eq '')
 $script:recFalsos = @([pscustomobject]@{ cuando = '2026-09-20T18:00:00'; texto = 'llamar a mama' }, [pscustomobject]@{ cuando = '2026-09-21T09:00:00'; texto = 'otro dia' })
 Test-ParteManana (Get-Date '2026-09-20 08:30')
 Comp 'a primera hora: tiempo y lo de hoy (no lo de manana)' ($script:resumenPendiente -match '^Buenos dias . X 18.' -and $script:resumenPendiente -match 'hoy: llamar a mama$') $script:resumenPendiente
+# QUE LA CAPSULA LO ENSENE SON DOS COSAS, no una (revision del 23/09). El bucle vacia
+# $script:resumenPendiente Y borra habitos.parteTexto; haciendo solo la primera, la
+# funcion hacia bien su trabajo -reponerlo, porque para ella ese parte no habia llegado
+# a decirse- y el banco lo contaba como tres fallos. Y de paso no probaba lo unico que
+# importa aqui: que SI se reponga cuando Nova reinicia antes de decirlo.
 $script:resumenPendiente = ''
+(Get-Habitos).parteTexto = ''; Save-Habitos   # las dos cosas que hace el bucle al
+# ensenarlo: vaciar la variable y borrarlo DEL DISCO. Sin el Save, al releer el fichero
+# vuelve a estar y la funcion lo repone, que es justo lo que tiene que hacer.
 Test-ParteManana (Get-Date '2026-09-20 09:30')
 Comp 'una vez al dia' ($script:resumenPendiente -eq '')
 $script:habitos = $null
@@ -158,6 +166,19 @@ $script:invitado = $true
 Test-ParteManana (Get-Date '2026-09-21 08:00')
 Comp 'nada en modo invitado' ($script:resumenPendiente -eq '')
 $script:invitado = $false
+
+# PERO SI NOVA REINICIO ANTES DE DECIRLO, EL PARTE VUELVE. Es para lo que se escribio:
+# arranca 17 veces al dia, y sin esto un reinicio entre la preparacion y la voz gastaba
+# el dia entero sin que braya oyera nada.
+$script:habitos = $null
+$script:resumenPendiente = ''
+$hbP = Get-Habitos
+$hbP.parteVisto = '2026-09-20'
+$hbP.parteTexto = 'Buenos dias, esto no llego a decirse'
+Test-ParteManana (Get-Date '2026-09-20 11:00')
+Comp 'si Nova reinicio sin decirlo, vuelve' ($script:resumenPendiente -eq 'Buenos dias, esto no llego a decirse') $script:resumenPendiente
+$hbP.parteTexto = ''
+$script:resumenPendiente = ''
 
 # LA DECISION QUE ESPERA DATOS SALE POR AQUI (20/09, P5). Antes iba por un aviso suelto de
 # nivel 'medio' que se calla de noche: sono UNA vez (18/09 19:59) y no podia repetir hasta

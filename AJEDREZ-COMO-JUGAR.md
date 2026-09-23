@@ -5,6 +5,30 @@ en la cabeza y tú también. Puedes estar jugando a otra cosa, con el mando en l
 
 ---
 
+## Empieza aquí: cópialo tal cual
+
+Estas cinco frases son una partida. Dilas una detrás de otra y ya sabes jugar; el resto del
+documento es para cuando quieras algo más.
+
+| tú dices | Nova contesta |
+|---|---|
+| **«nova, juguemos al ajedrez»** | *Vale, partida a ciegas. Llevas blancas: empiezas tú.* |
+| **«nova, peón echo cuatro»** | *peón echo cuatro; yo, peón charlie cinco.* |
+| **«nova, caballo foxtrot tres»** | *caballo foxtrot tres; yo, peón delta seis.* |
+| **«nova, por dónde vamos»** | *Vamos por la jugada 3. Lo último, peón delta seis. Te toca.* |
+| **«nova, dejamos la partida»** | *Dejamos la partida. La guardo por si quieres verla.* |
+
+Lo único que hay que aprender es **cómo se dice una casilla**, que es lo siguiente. Todo lo
+demás sale solo.
+
+**Las tres frases de emergencia**, por si algo se tuerce:
+
+- **«nova, retira esa»** — deshace la última jugada. Es la red de seguridad de todo esto.
+- **«nova, por dónde vamos»** — te recuerda por dónde ibais.
+- **«nova, dejamos la partida»** — se cierra y se guarda.
+
+---
+
 ## Lo primero: cómo se dice una casilla
 
 Esto es lo único que hay que aprender, y son treinta segundos.

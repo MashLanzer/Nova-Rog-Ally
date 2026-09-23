@@ -16,12 +16,30 @@ function Comp($etiqueta, $ok, $detalle) {
     if (-not $ok) { $script:fallos++ }
 }
 
+# EL JUEGO INSTALADO SE SACA DE LA BIBLIOTECA, no se escribe a mano (revision del 23/09).
+# Aqui ponia "it takes two" con el comentario "SI esta instalado en esta maquina"; braya lo
+# desinstalo y el banco se puso rojo con el codigo bien. Lo que se prueba es la REGLA -si lo
+# tienes, te lo dice-, y para eso da igual cual sea.
+$ast0 = [System.Management.Automation.Language.Parser]::ParseFile($ruta, [ref]$null, [ref]$null)
+function Traer0([string]$n) {
+    $fn = $ast0.Find({ param($x) $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq $n }, $true)
+    if (-not $fn) { Write-Host "  MAL  no encuentro $n"; exit 1 }
+    return $fn.Extent.Text
+}
+$LogDir = $raiz
+function Log([string]$m) { }
+foreach ($fn0 in @('ConvertTo-Plain', 'ConvertTo-Juego', 'Get-JuegosSteam')) { Invoke-Expression (Traer0 $fn0) }
+$miosInst = @(Get-JuegosSteam | Where-Object { $_.nombre -and $_.nombre -notmatch '(?i)redistrib|wallpaper' } |
+              Sort-Object -Property { $_.nombre.Length })
+if ($miosInst.Count -eq 0) { Write-Host '  (sin biblioteca de Steam: me salto el caso del juego instalado)' }
+$tengo = if ($miosInst.Count) { ($miosInst[0].nombre).ToLowerInvariant() } else { '' }
+
 $tmp = Join-Path $env:TEMP ('inst-' + [guid]::NewGuid().ToString('N') + '.txt')
 @('instala en steam un juego que no tengo',
   'descarga cyberpunk 2077',
   'instala hollow knight silksong',
   'instala outlast trials',
-  'instala it takes two en steam',
+  $(if ($tengo) { "instala $tengo en steam" } else { 'abre steam' }),
   'abre steam',
   'instala eso') | Set-Content -LiteralPath $tmp -Encoding UTF8
 $salida = (& powershell -NoProfile -ExecutionPolicy Bypass -File $ruta -Probar $tmp 2>&1 | Out-String)
@@ -34,8 +52,11 @@ Comp '"descarga X" igual' ($salida -match 'descarga cyberpunk 2077\s+->\s+abrir 
 # juegos: tienen que ir a la tienda.
 Comp 'Silksong no es Hollow Knight: a la tienda' ($salida -match 'instala hollow knight silksong\s+->\s+abrir hollow knight silksong en la tienda') ''
 Comp 'Outlast Trials no es Outlast: a la tienda' ($salida -match 'instala outlast trials\s+->\s+abrir outlast trials en la tienda') ''
-# It Takes Two SI esta instalado en esta maquina: no debe mandarte a la tienda
-Comp 'uno que ya tienes: te lo dice, no te manda a la tienda' ($salida -match 'instala it takes two en steam\s+->\s+.*ya lo tienes instalado') ''
+# uno que SI esta instalado ahora mismo: no debe mandarte a la tienda
+if ($tengo) {
+    $pat = 'instala ' + [regex]::Escape($tengo) + ' en steam\s+->\s+.*ya lo tienes instalado'
+    Comp 'uno que ya tienes: te lo dice, no te manda a la tienda' ($salida -match $pat) $tengo
+}
 Comp 'abrir Steam sigue siendo abrir Steam' ($salida -match 'abre steam\s+->\s+abrir steam') ''
 Comp '"instala eso" no manda nada a la tienda' ($salida -notmatch 'instala eso\s+->\s+abrir') ''
 

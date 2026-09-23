@@ -27,7 +27,7 @@ Contando sus **1.631 frases distintas** por temas:
 | YouTube / pantalla partida | 56 | resuelto el 23/09 con los montajes |
 | ficheros y carpetas | 41 | parcial |
 | «esto», «este», «lo que estoy…» | **41** | Nova no sabe a qué señala |
-| instalar y descargar | **27** | solo sabe mirar, no hacer |
+| instalar y descargar | **27** | te lleva a la ficha; falta avisar al acabar |
 | calendario y agenda | 8 | **no existe** |
 | trivia y curiosidades | 8 | va a la nube, tarda |
 | recordatorios repetidos | 7 | solo de una vez |
@@ -74,17 +74,19 @@ este» sigue preguntando.
 
 ---
 
-## 3. Instalar un juego por voz
+## 3. Avisar cuando termine la descarga que acaba de empezar
 
-**El dato.** 27 frases sobre descargas, y las suyas son de hacer, no de mirar: *«Instala en
-Steam, It Takes Two»*, *«avísame cuando la descarga de Steam terminó»*. Nova sabe decir cuánto
-le queda a una descarga, pero no empezar una.
+**El dato.** 27 frases sobre descargas. **«Instala X» ya existe** desde el 16/09 y te lleva a
+su ficha de la tienda —lo comprueba `tools/probar-instalar.ps1`—, así que esta idea nació
+equivocada y la corrigió la batería, no yo. Lo que sigue faltando es la otra mitad, y también
+la pidió: *«avísame cuando la descarga de Steam terminó»*.
 
-**Qué es.** «Nova, instala It Takes Two» abre `steam://install/<appid>`, que es la URL oficial
-y hace que sea **Steam** quien pida la confirmación, no Nova. Y avisa al terminar.
+**Qué es.** Después de mandarte a la ficha, «avísame cuando acabe» deja el aviso puesto. Nova
+ya sabe leer el progreso de cada descarga del `appmanifest` (es lo que contesta a «¿cuánto le
+queda?»), así que solo hay que mirarlo cada minuto y avisar una vez al llegar al final.
 
-**Por qué es segura.** Nova no descarga nada: abre la página de instalación y el botón lo
-pulsa braya. El appid sale de la búsqueda de la tienda, no de un modelo.
+**Por qué es segura.** Es un aviso, una vez, y con un juego delante sin voz. Nova no descarga
+ni instala nada: el botón lo sigue pulsando braya.
 
 ---
 

@@ -13378,6 +13378,9 @@ function Get-Montajes {
     return $script:montajes
 }
 function Save-Montajes {
+    # MODO INVITADO: lo que diga otro no se queda (17/09). Un invitado puede MONTAR los que
+    # ya hay -eso no escribe nada-, pero no crear ni borrar montajes en la consola de braya.
+    if ($script:invitado) { Log 'montajes: modo invitado, no guardo nada'; return }
     try {
         [System.IO.File]::WriteAllText($MontajesPath, (ConvertTo-Json -InputObject (Get-Montajes) -Depth 4),
                                        (New-Object System.Text.UTF8Encoding($false)))
@@ -13650,6 +13653,9 @@ function Get-PalabrasNo {
     return $script:palabrasNo
 }
 function Save-PalabrasNo([string[]]$lista) {
+    # MODO INVITADO: lo que diga otro no se queda (17/09). Esta lista son SUS palabras, las
+    # que a el le molestan; un invitado no se las cambia.
+    if ($script:invitado) { Log 'palabras-no: modo invitado, no guardo nada'; return }
     $script:palabrasNo = @($lista | Where-Object { $_ } | Select-Object -Unique)
     try {
         [System.IO.File]::WriteAllText($PalabrasNoPath, (ConvertTo-Json -InputObject @($script:palabrasNo) -Depth 2),
