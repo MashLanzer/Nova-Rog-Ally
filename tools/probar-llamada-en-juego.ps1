@@ -36,7 +36,7 @@ function Traer([string]$nombre) {
     if (-not $fn) { Write-Host "  MAL  no encuentro $nombre en assistant.ps1"; exit 1 }
     return $fn.Extent.Text
 }
-Invoke-Expression (Traer 'Test-LlamadaEnJuego')
+Invoke-Expression (Traer 'Get-LlamadaEnJuego')
 
 $base = Join-Path ([System.IO.Path]::GetTempPath()) ('llamada-' + [System.Guid]::NewGuid().ToString('N').Substring(0, 8))
 $null = New-Item -ItemType Directory -Path $base -Force
@@ -49,7 +49,7 @@ $script:llamadaJuegoDicha = ''
 $mostradas = 0
 for ($i = 0; $i -lt 5; $i++) {
     Llama
-    if (Test-LlamadaEnJuego $marca 'It Takes Two') { $mostradas++ }
+    if ((Get-LlamadaEnJuego $marca 'It Takes Two') -eq 'primera') { $mostradas++ }
 }
 Comp 'cinco llamadas jugando: se explica UNA vez' ($mostradas -eq 1) "$mostradas de 5"
 Comp 'y la marca queda consumida' (-not (Test-Path -LiteralPath $marca)) 'o dispararia luego sola'
@@ -57,26 +57,26 @@ Comp 'y la marca queda consumida' (-not (Test-Path -LiteralPath $marca)) 'o disp
 Write-Host ''
 Write-Host '-- y las partidas siguientes --'
 Llama
-Comp 'en la misma partida, ya no insiste' (-not (Test-LlamadaEnJuego $marca 'It Takes Two'))
+Comp 'en la misma partida, ya no insiste' ((Get-LlamadaEnJuego $marca 'It Takes Two') -eq 'otra') 'pero SI vibra: te contesta'
 Llama
-Comp 'al cambiar de juego, vuelve a explicarse' (Test-LlamadaEnJuego $marca 'Hades') 'otra partida, otra vez'
+Comp 'al cambiar de juego, vuelve a explicarse' ((Get-LlamadaEnJuego $marca 'Hades') -eq 'primera') 'otra partida, otra vez'
 Llama
-Comp 'y en esa tampoco insiste' (-not (Test-LlamadaEnJuego $marca 'Hades'))
+Comp 'y en esa tampoco insiste' ((Get-LlamadaEnJuego $marca 'Hades') -eq 'otra')
 
 Write-Host ''
 Write-Host '-- sin juego delante no tiene nada que explicar --'
 $script:llamadaJuegoDicha = ''
 Llama
-Comp 'sin juego, callada' (-not (Test-LlamadaEnJuego $marca '')) 'ahi la palabra SI vale'
+Comp 'sin juego, callada' ((Get-LlamadaEnJuego $marca '') -eq '') 'ahi la palabra SI vale'
 Comp 'pero consume la marca igual' (-not (Test-Path -LiteralPath $marca)) 'una llamada vieja no vale para luego'
-Comp 'sin marca no dice nada' (-not (Test-LlamadaEnJuego $marca 'It Takes Two')) 'no se lo inventa'
+Comp 'sin marca no dice nada' ((Get-LlamadaEnJuego $marca 'It Takes Two') -eq '') 'no se lo inventa'
 
 Write-Host ''
 Write-Host '-- y no habla, ni ejecuta, ni enciende ningun modo --'
 # El bloque entero del enganche, contando llaves y no caracteres (ver la leccion de
 # tools\probar-confirmaciones.ps1: una ventana de N caracteres alcanza el bloque de al lado
 # y el banco pasa en verde con el codigo roto).
-$ini = $fuente.IndexOf('if (Test-LlamadaEnJuego')
+$ini = $fuente.IndexOf('if ($llamJ) {')
 $cuerpo = ''
 if ($ini -ge 0) {
     $j = $fuente.IndexOf('{', $ini); $prof = 0
@@ -87,8 +87,17 @@ if ($ini -ge 0) {
 }
 Comp 'el enganche existe y se delimita' ($cuerpo.Length -gt 0) "$($cuerpo.Length) caracteres"
 Comp 'se VE en la capsula' ($cuerpo -match 'Show-Popup')
+# LO QUE DE VERDAD LLEGA JUGANDO (22/09, visto en vivo media hora despues de estrenarlo):
+# braya siguio llamandola SIETE veces despues de la tarjeta -22:18, 22:19, 22:25, 22:26,
+# 22:32 'nova nova', 22:33-. A pantalla completa la capsula no se ve. El mando si.
+Comp 'y SIEMPRE contesta con el mando' ($cuerpo -match 'Start-Vibracion') 'a pantalla completa es lo unico que llega'
+# COMILLAS SIMPLES: entre dobles, PowerShell se come el $ de $llamJ antes de que llegue al
+# regex, y el patron buscaba "if ( -eq 'primera')". Salia rojo con el codigo bien.
+Comp 'la vibracion va fuera del "una vez por partida"' ($cuerpo -match '(?s)Start-Vibracion.*?\$llamJ -eq .primera.') 'cada llamada merece respuesta'
+Comp 'y es corta y floja, que no tape el juego' ($cuerpo -match 'Start-Vibracion @\(70, 90, 70\) 16000')
 Comp 'y NO se dice en voz alta' (-not ($cuerpo -match '(?m)\bSay\b')) 'jugando no se interrumpe'
-Comp 'no ejecuta ninguna orden' (-not ($cuerpo -match 'Invoke-FastCommand|Process-Texto|Invoke-Reglas|Start-'))
+# 'Start-' a secas casaba con Start-Vibracion, que no ejecuta nada: se nombran las de verdad.
+Comp 'no ejecuta ninguna orden' (-not ($cuerpo -match 'Invoke-FastCommand|Process-Texto|Invoke-Reglas|Start-Receta|Start-Process|Invoke-Correo|Start-Confirmacion'))
 Comp 'y queda contado para poder medirlo' ($cuerpo -match "Add-Estadistica 'llamada-en-juego'")
 
 Write-Host ''

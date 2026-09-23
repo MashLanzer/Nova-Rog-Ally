@@ -8129,18 +8129,29 @@ function Test-AvisarRuido([bool]$hayRuido, [long]$ahoraMs, [int]$rearmeMs) {
 # jugando. Eligio DEJARLO COMO ESTA. Asi que el modo solo-boton no se toca: lo unico
 # que cambia es que ahora lo dice. No reabrir esto sin un dato nuevo y sin preguntarle.
 $script:llamadaJuegoDicha = ''      # en que juego se enseño ya (vacio = en ninguno)
-function Test-LlamadaEnJuego([string]$marca, [string]$juego) {
-    if (-not (Test-Path -LiteralPath $marca)) { return $false }
+# DEVUELVE TRES COSAS, NO DOS (22/09, media hora despues de estrenarlo). La primera version
+# enseñaba una tarjeta en la capsula una vez por partida. Se vio en vivo que no bastaba:
+# braya siguio llamandola SIETE veces mas despues de esa tarjeta (22:18, 22:19, 22:25, 22:26,
+# 22:32 'nova nova', 22:33). Con un juego a pantalla completa la capsula no se ve, asi que
+# el aviso existia y no llegaba, que es otra forma de callarse.
+# Lo unico que se nota con el mando en las manos es la VIBRACION, y ya esta escrita. Asi que:
+#   - cada llamada (como mucho una por minuto, que es lo que deja pasar el worker) -> un
+#     toque corto en el mando. Es un acuse de recibo, no un aviso: contesta a algo que acaba
+#     de hacer braya, y por eso no cae en lo de "hablar de mas".
+#   - la primera de cada partida -> ademas la tarjeta, el log y el contador.
+# '' = no ha llamado. 'otra' = si, y ya se le explico en esta partida. 'primera' = explicasela.
+function Get-LlamadaEnJuego([string]$marca, [string]$juego) {
+    if (-not (Test-Path -LiteralPath $marca)) { return '' }
     # LA MARCA SE CONSUME SIEMPRE, aunque no se vaya a enseñar nada. Lo canto el banco al
     # escribirlo: si se sale antes de borrarla -porque ya no hay juego delante, o porque ya
     # se explico en esta partida-, esa marca se queda en tmp y dispara SOLA en la siguiente
     # partida, por una llamada de hace horas. Un aviso que aparece sin que braya haya dicho
     # nada es peor que no avisar.
     try { Remove-Item -LiteralPath $marca -Force -ErrorAction SilentlyContinue } catch {}
-    if (-not $juego) { return $false }                      # sin juego delante no hay nada que explicar
-    if ($script:llamadaJuegoDicha -eq $juego) { return $false }
+    if (-not $juego) { return '' }                          # sin juego delante no hay nada que explicar
+    if ($script:llamadaJuegoDicha -eq $juego) { return 'otra' }
     $script:llamadaJuegoDicha = $juego
-    return $true
+    return 'primera'
 }
 
 function Test-BateriaLlenaFlanco([bool]$llenaAhora) {
@@ -8233,10 +8244,17 @@ function Watch-Entorno([int]$botones = 0) {
     # pero esto no es un aviso que se le ocurra a Nova, es la respuesta a que braya acaba
     # de llamarla. Por eso se enseña, y por eso se enseña SIN VOZ.
     try {
-        if (Test-LlamadaEnJuego (Join-Path $TmpDir 'llamada-en-juego.txt') ([string]$script:juegoActivo)) {
-            Log "llamada en juego: te he oido, pero con $($script:juegoActivo) delante solo vale el boton"
-            Add-Estadistica 'llamada-en-juego' ([string]$script:juegoActivo)
-            Show-Popup 'Te he oido, pero jugando solo te escucho con el boton.' 'escuchando'
+        $llamJ = Get-LlamadaEnJuego (Join-Path $TmpDir 'llamada-en-juego.txt') ([string]$script:juegoActivo)
+        if ($llamJ) {
+            # EL TOQUE EN EL MANDO ES LO QUE DE VERDAD LLEGA: con el juego a pantalla completa
+            # la capsula no se ve. Dos pulsos cortos y flojos, que no se confundan con los
+            # gestos de la carita ni tapen nada del juego.
+            Start-Vibracion @(70, 90, 70) 16000
+            if ($llamJ -eq 'primera') {
+                Log "llamada en juego: te he oido, pero con $($script:juegoActivo) delante solo vale el boton"
+                Add-Estadistica 'llamada-en-juego' ([string]$script:juegoActivo)
+                Show-Popup 'Te he oido, pero jugando solo te escucho con el boton.' 'escuchando'
+            }
         }
     } catch {}
 
