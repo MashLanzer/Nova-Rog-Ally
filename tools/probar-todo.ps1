@@ -429,6 +429,22 @@ Titulo "2n65. Una orden mal oida no envenena el vocabulario"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-alias-vacio.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no envenena el vocabulario)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n98. Las palabras que braya no aguanta"
+# Funcion 2. Se lo pidio TRES veces ("deja de decirme man", "deja de llamarme tio", "deja de
+# decir tio, no me gusta esa palabra") y seguia pasando. Y lo peor: de la queja aprendio
+# "braya habla con acento español (usa 'tio')" -el dato del reves- y esa linea viajaba en el
+# prompt de todas sus charlas, realimentando justo lo que molestaba.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-palabras-no.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no lo aprende del reves)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n97. Mirar la pantalla cuando se lo pide"
+# Funcion 1, y es la queja mas dura de todo el registro: "miralo tu mismo y dime que ves",
+# "me dijiste cualquier cosa menos lo que viste", "deja de decir que no ves nada, literalmente
+# tienes un OCR", "estas alucinando". De sus 40 turnos sobre la pantalla, ocho caian en la
+# charla, que es ciega. Y el OCR vacio no es "no veo nada": es que no hay LETRAS que leer.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-ver-pantalla.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la mira)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n96. Ajedrez a ciegas: el puente, y que una orden siga siendo una orden"
 # Lo pidio braya. Lo que se vigila aqui no es el ajedrez -eso lo lleva python-chess- sino la
 # triple llave: sin partida abierta no se mira nada, la frase tiene que tener FORMA de jugada

@@ -4573,6 +4573,27 @@ function Resolve-Fragment([string]$f) {
     # pausa, ni nada. Decir que haces algo y no hacerlo es lo peor de esta lista.
     # Se aceptan las dos formas del verbo -'hables' y 'hablas', que es como sale del oido- y
     # un 'no' suelto delante, porque la frase de verdad empezo por 'No, no me hablas...'.
+    # "NO DIGAS TIO" (23/09, funcion 2). VA DELANTE de la sordina a proposito: si fuera
+    # detras no se llegaria nunca, porque "no digas nada" la captura antes. Y por eso mismo
+    # aqui se excluyen "nada", "mas" y las de relleno: si no, "no digas nada" vetaria la
+    # palabra "nada" en vez de callarla un rato.
+    # Sin comillas en el patron: el oido no transcribe comillas, y meterlas aqui solo sirve
+    # para romper el parser de PowerShell.
+    if ($f -match '^(?:no (?:me )?(?:digas|llames)|deja de (?:decir|decirme|llamarme))\s+(?:mas\s+)?([a-z]{2,20})$') {
+        $palNo = ConvertTo-Plain $Matches[1]
+        if (@('nada', 'mas', 'eso', 'esto', 'no', 'si', 'ni', 'una', 'palabra', 'mentiras', 'tonterias') -notcontains $palNo) {
+            return @(@{ kind = 'palabraNo'; palabra = $palNo; desc = ('no te digo mas ' + $palNo) })
+        }
+    }
+    if ($f -match '^(?:ya )?(?:puedes )?(?:volver a |vuelve a )?(?:decir|decirme|llamarme)\s+([a-z]{2,20})(?:\s+otra vez)?$') {
+        $palSi = ConvertTo-Plain $Matches[1]
+        if (@(Get-PalabrasNo) -contains $palSi) {
+            return @(@{ kind = 'palabraSi'; palabra = $palSi; desc = ('vuelvo a decir ' + $palSi) })
+        }
+    }
+    if ($f -match '^(?:que palabras no (?:puedes|debes|te deje) decir|que palabras no dices|que palabras tienes prohibidas|cuales son las palabras prohibidas)$') {
+        return @(@{ kind = 'palabrasLista'; desc = 'las palabras que no digo' })
+    }
     if ($f -match '^(?:no,?\s+)?(?:no me escuches|no escuches|deja de escuchar|dejate de escuchar|duermete|vete a dormir|a dormir|descansa|apaga el oido|no me oigas|ignorame|no te actives|no te despiertes|no me interrumpas|no me molestes|no (?:me )?habl[ae]s|no digas nada|deja de hablar|callate)(?:\s+(?:durante|por|en|un|una)?\s*(?:(\d+)\s*(minuto|minutos|hora|horas)|(una hora|un rato|media hora|un momento|rato)))?$') {
         # OJO: hay que copiar los grupos ANTES de usar -match otra vez, porque
         # cada -match reescribe $Matches entero. Con el numero y la unidad
@@ -7004,6 +7025,20 @@ function Add-DatoPerfil([string]$dato, [string]$fuente = '') {
     # para siempre Y VIAJA CON CADA PETICION al modelo. Lo que se guarda sigue siendo $d
     # con sus tildes: lo que se mira sin ellas es solo la comprobacion.
     if ((ConvertTo-Plain $d) -match $RE_DATO_SENSIBLE) { Log "PERFIL: no guardo un dato sensible"; return $null }
+    # NI UN DATO QUE HABLE DE UNA PALABRA QUE BRAYA PROHIBIO (23/09, funcion 2). Asi entro el
+    # peor de todos: braya pidio tres veces que no le llamara "tio", y de la queja se aprendio
+    # "braya habla con acento español (usa 'tio')" -el dato del reves, porque la muletilla es
+    # de ella-. Y ese dato viaja en el prompt de TODAS sus charlas, o sea que la queja
+    # realimentaba justo lo que molestaba. Se borro a mano y aqui se cierra la puerta.
+    try {
+        $plD2 = ConvertTo-Plain $d
+        foreach ($pv in @(Get-PalabrasNo)) {
+            if ($pv -and $plD2 -match ('\b' + [regex]::Escape($pv) + '\b')) {
+                Log "PERFIL: no guardo un dato que habla de '$pv', que me pediste no decir"
+                return $null
+            }
+        }
+    } catch {}
     # NI SOBRE NOVA NI DE UNA QUEJA (16/09). El 15/09 acabaron en el perfil, para
     # siempre y viajando con cada peticion: "Braya considera que Nova se equivoca
     # frecuentemente" y "Braya siente que Nova no entiende bien lo que dice".
@@ -11804,6 +11839,36 @@ function Invoke-FastCommand([string]$text) {
                         $a.desc = ($partes -join ', ')
                     }
                 }
+                'palabraNo' {
+                    # LA LISTA ES CORTA A PROPOSITO (23/09, funcion 2). Con el oido al 70,4 %,
+                    # un "no digas X" mal entendido podria vetar una palabra corriente y dejar
+                    # a Nova muda a medias. Tope de cinco, y solo palabras que ELLA haya dicho
+                    # alguna vez: si no la ha dicho nunca, lo mas probable es que el oido se
+                    # haya inventado el nombre.
+                    $listaPN = @(Get-PalabrasNo)
+                    if ($listaPN -contains $a.palabra) {
+                        $a.desc = 'esa ya no la digo'
+                    } elseif ($listaPN.Count -ge 5) {
+                        $a.desc = 'ya tengo cinco palabras prohibidas; quitame alguna antes'
+                    } else {
+                        Save-PalabrasNo (@($listaPN) + @($a.palabra))
+                        Log "PALABRA PROHIBIDA: '$($a.palabra)' (van $(@(Get-PalabrasNo).Count))"
+                        Add-Estadistica 'palabra-no' $a.palabra
+                        Set-AcabaDeAprender
+                        $a.desc = 'vale, no te lo digo mas'
+                    }
+                }
+                'palabraSi' {
+                    Save-PalabrasNo (@(Get-PalabrasNo) | Where-Object { $_ -ne $a.palabra })
+                    Log "PALABRA DEVUELTA: '$($a.palabra)'"
+                    $a.desc = 'te la devuelvo'
+                }
+                'palabrasLista' {
+                    $lp = @(Get-PalabrasNo)
+                    $a.desc = if ($lp.Count -eq 0) { 'no tengo ninguna palabra prohibida' }
+                              elseif ($lp.Count -eq 1) { 'solo una: ' + $lp[0] }
+                              else { 'no digo ' + $lp.Count + ': ' + ($lp -join ', ') }
+                }
                 'despertarEscucha' {
                     Reanudar-Escucha
                     $script:sordinaHasta = 0
@@ -12005,7 +12070,11 @@ function Invoke-FastCommand([string]$text) {
                     Save-Captura $png | Out-Null
                     $texto = Invoke-OCR $png
                     if (-not $texto) {
-                        $a.desc = 'No veo texto en la pantalla'
+                        # ver EL OCR VACIO NO ES "NO VEO NADA": aqui tambien, con la captura
+                        # ya hecha, se manda la imagen antes de decir que no se ve nada.
+                        $script:respuestaSinTarjeta = $true
+                        Submit-Command ("Mira esta captura de lo que tengo delante y contesta a lo que te pido en una o dos frases cortas y naturales, porque se leera en voz alta. Lo que te pido: " + $text) 'pregunta' $png
+                        return $null
                     } else {
                         $script:ultimaLectura = $texto
                         $script:lecturaPos = 0        # texto nuevo, lectura nueva (21/09)
@@ -12693,8 +12762,66 @@ function Add-TildesVoz([string]$s) {
 # El texto TAL CUAL llega a la voz: espacios, tildes y el corte a 300 letras. Aparte
 # porque la voz preparada (Send-PrepVoz) tiene que pedir exactamente el mismo, o no
 # acierta en la cache.
+# LAS PALABRAS QUE BRAYA NO AGUANTA (23/09, funcion 2 de la tanda de funciones nuevas).
+# Se lo ha pedido TRES veces y seguia pasando: 20/09 23:05 "deja de decirme man, no me digas
+# asi", 20/09 23:19 "deja de llamarme tio", 21/09 00:03 "deja de decir tio, no me gusta esa
+# palabra, guardalo en memoria". Nova prometio dos veces que no, y el 22/09 a las 21:48:35:
+# "No te sigo, tio".
+# Y lo peor no es que siguiera diciendolo: es lo que APRENDIO de la queja. En memoria\perfil.md
+# quedo escrito "braya habla con acento español (usa 'tio')" -el dato del reves: la muletilla
+# es de ella, no de el- y esa linea viaja en el prompt de todas sus charlas, o sea que la
+# queja realimentaba justo lo que molestaba.
+#
+# EL FILTRO VA AQUI DENTRO, NO EN Say, Y ESO IMPORTA: la charla pre-sintetiza la voz con
+# Get-TextoVoz y la cachea por md5 del texto. Filtrando despues, en Say, el md5 no cuadraria y
+# cada frase tocada perderia la voz ya preparada: casi un segundo por frase. Aqui, los tres
+# caminos de la voz comparten el mismo texto y la capsula enseña lo mismo que se oye.
+# Y SOLO LO QUE NOVA REDACTA. El correo, el OCR, los nombres de juegos o lo que ella repite de
+# un dictado no se tocan: censurar un correo que dice "man" no es obedecerle, es mentirle
+# sobre lo que pone en la pantalla.
+$PalabrasNoPath = Join-Path $MemoriaDir 'palabras-no.json'
+$script:palabrasNo = $null
+function Get-PalabrasNo {
+    if ($null -ne $script:palabrasNo) { return $script:palabrasNo }
+    $script:palabrasNo = @()
+    try {
+        if (Test-Path -LiteralPath $PalabrasNoPath) {
+            $script:palabrasNo = @((Get-Content -LiteralPath $PalabrasNoPath -Raw -Encoding UTF8 | ConvertFrom-Json) |
+                                   Where-Object { $_ } | ForEach-Object { [string]$_ })
+        }
+    } catch { Log ('palabras-no: no pude leerlas: ' + $_.Exception.Message) }
+    return $script:palabrasNo
+}
+function Save-PalabrasNo([string[]]$lista) {
+    $script:palabrasNo = @($lista | Where-Object { $_ } | Select-Object -Unique)
+    try {
+        [System.IO.File]::WriteAllText($PalabrasNoPath, (ConvertTo-Json -InputObject @($script:palabrasNo) -Depth 2),
+                                       (New-Object System.Text.UTF8Encoding($false)))
+    } catch { Log ('palabras-no: no pude guardarlas: ' + $_.Exception.Message) }
+}
+function Remove-PalabrasNo([string]$texto) {
+    $lista = @(Get-PalabrasNo)
+    if ($lista.Count -eq 0 -or -not $texto) { return $texto }
+    $t = $texto
+    foreach ($p in $lista) {
+        $pl = [regex]::Escape((ConvertTo-Plain $p))
+        if (-not $pl) { continue }
+        # PALABRA ENTERA Y SIN TILDES: "man" a secas se come mando, manda, semana y comando
+        # -y Nova le lee los cuatro mandos-; y "tio" con tilde no caza el "tio" que escupe el
+        # modelo la mitad de las veces. Ademas se lleva la coma del vocativo, para que
+        # "No te sigo, tio." no quede como "No te sigo, .".
+        $t = [regex]::Replace($t, '(?i)\s*,\s*' + $pl + '(?=[\s.,;!?]|$)', '')
+        $t = [regex]::Replace($t, '(?i)\b' + $pl + '\b[\s]*', ' ')
+    }
+    # y la coma huerfana que queda cuando el vocativo iba al PRINCIPIO ("Tio, eso no lo se"
+    # se quedaba en ", eso no lo se")
+    $t = ($t -replace '\s+', ' ') -replace '\s+([.,;!?])', '$1'
+    $t = $t -replace '^[\s,;:]+', ''
+    if ($t.Length -gt 1) { $t = $t.Substring(0, 1).ToUpper() + $t.Substring(1) }
+    return $t.Trim()
+}
 function Get-TextoVoz([string]$texto) {
-    $t = Add-TildesVoz (($texto -replace '\s+', ' ').Trim())
+    $t = Add-TildesVoz (Remove-PalabrasNo (($texto -replace '\s+', ' ').Trim()))
     # RESPUESTAS LARGAS ENTERAS (15/09): con el tope en 300 letras la voz se callaba a
     # mitad de una respuesta del agente ("se corta y deja de hablar") mientras la tarjeta
     # ensenaba el resto. Ahora el tope es 1.200 letras, y la voz tiene mas plazo.
@@ -19343,9 +19470,23 @@ function Process-Texto([string]$text) {
             $visR = ''
             try { $visR = Invoke-OCR (Save-Captura (Join-Path $TmpDir 'pantalla.png')) } catch { Log ("leer pantalla: " + $_.Exception.Message) }
             if (-not $visR) {
-                Log "LEER PANTALLA: el OCR no encontro texto"
-                Show-Popup 'No veo texto en la pantalla'
-                Say 'No veo texto en la pantalla'
+                # EL OCR VACIO NO ES "NO VEO NADA" (23/09, funcion 1). Es lo que mas le ha
+                # dolido a braya de todo el registro: el 20/09 de 23:04 a 00:00 le dijo
+                # "mira la pantalla y dime que ves", "me dijiste cualquier cosa menos lo que
+                # viste" y "deja de decir que no ves nada, literalmente tienes un OCR con el
+                # que puedes ver mi pantalla". Y tenia razon a medias: el OCR lee LETRAS, y
+                # en un juego no hay letras que leer. Pero la captura si esta hecha, y la API
+                # si sabe mirar una imagen. Antes de rendirse, se manda la imagen.
+                Log "LEER PANTALLA: el OCR no encontro texto; mando la imagen a la API"
+                $capO = ''
+                try { $capO = Save-Captura (Join-Path $TmpDir 'pantalla.png') } catch {}
+                if ($capO) {
+                    $script:respuestaSinTarjeta = $true
+                    Submit-Command ("Mira esta captura de lo que tengo delante y contesta a lo que te pido en una o dos frases cortas y naturales, porque se leera en voz alta. Lo que te pido: " + $text) 'pregunta' $capO
+                    return
+                }
+                Show-Popup 'No he podido mirar la pantalla'
+                Say 'No he podido mirar la pantalla'
                 return
             }
             if ($visR.Length -gt 2500) { $visR = $visR.Substring(0, 2500) }
@@ -19369,9 +19510,19 @@ function Process-Texto([string]$text) {
             $visT = ''
             try { $visT = Invoke-OCR (Save-Captura (Join-Path $TmpDir 'pantalla.png')) } catch { Log ("traducir pantalla: " + $_.Exception.Message) }
             if (-not $visT) {
-                Log "TRADUCIR PANTALLA: el OCR no encontro texto"
-                Show-Popup 'No veo texto en la pantalla'
-                Say 'No veo texto en la pantalla'
+                # ver EL OCR VACIO NO ES "NO VEO NADA" (23/09). Aqui braya esta pidiendo que
+                # le TRADUZCA lo que ve, asi que si no hay letras que leer, la imagen va a la
+                # API igual: un cartel de un juego puede estar dibujado y no escrito.
+                Log "TRADUCIR PANTALLA: el OCR no encontro texto; mando la imagen a la API"
+                $capT = ''
+                try { $capT = Save-Captura (Join-Path $TmpDir 'pantalla.png') } catch {}
+                if ($capT) {
+                    $script:respuestaSinTarjeta = $true
+                    Submit-Command ("Mira esta captura y dime en español, en una o dos frases cortas y naturales, que dice o que significa lo que sale. Se leera en voz alta.") 'pregunta' $capT
+                    return
+                }
+                Show-Popup 'No he podido mirar la pantalla'
+                Say 'No he podido mirar la pantalla'
                 return
             }
             if ($visT.Length -gt 1500) { $visT = $visT.Substring(0, 1500) }
@@ -19388,7 +19539,7 @@ function Process-Texto([string]$text) {
         # ...pero no si es una orden: "abre el juego que tengo en pantalla" acababa aqui y la API
         # contestaba NO, sin hacer nada (15/09). Eso lo resuelve EL JUEGO QUE SALE EN PANTALLA.
         if ($plano -notmatch '\b(?:abre|abras|abrir|abrelo|inicia|inicies|iniciar|arranca|lanza|juega|cierra|cierres|pon|ponme)\b' -and
-            $plano -match '\b(?:que (?:ves?|hay|sale|aparece|tengo) en (?:mi |la |esta )?pantalla|que es lo que ves|lo que (?:ves|hay) en (?:mi |la |esta )?pantalla|describe(?:me)? (?:mi |la |esta |el )?(?:fondo de )?pantalla|(?:mi|el) fondo de pantalla|mira (?:mi |la |esta )?pantalla)\b') {
+            $plano -match '\b(?:que (?:ves?|hay|sale|aparece|tengo) en (?:mi |la |esta )?pantalla|que es lo que ves|lo que (?:ves|hay) en (?:mi |la |esta )?pantalla|describe(?:me)? (?:mi |la |esta |el )?(?:fondo de )?pantalla|(?:mi|el) fondo de pantalla|mira(?:r|lo|la)? (?:a ver )?(?:en )?(?:mi |la |esta )?pantalla|mira(?:lo)? tu mismo|puedes (?:mirar|ver) (?:mi |la )?pantalla|dime que ves|ves (?:algo |nada )?en (?:mi |la )?pantalla|tienes (?:un )?ocr)\b') {
             Set-UI 'pensando' 'mirando la pantalla'
             $capV = ''
             try { $capV = Save-Captura (Join-Path $TmpDir 'pantalla.png') } catch { Log ("ver pantalla: " + $_.Exception.Message) }
