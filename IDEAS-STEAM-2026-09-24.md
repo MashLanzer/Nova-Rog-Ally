@@ -191,7 +191,7 @@ no cuadren, Nova puede decirlo en vez de fiarse de la suya.
 | 2 de 4 | Grand Theft Auto V |
 
 No para que te lo compres —eso es lo que hace la tienda y ya cansa—, sino para la pregunta que
-sí importa: cuando ****la amiga A**** esté conectada y tú preguntes *"¿a qué jugamos?"*, que la
+sí importa: cuando **la amiga A** esté conectada y tú preguntes *"¿a qué jugamos?"*, que la
 respuesta salga de los **16 juegos que tenéis los dos** y no de una lista genérica. Y si no
 tenéis ninguno libre, ahí sí vale decir cuál os falta a los dos y cuánto cuesta.
 
