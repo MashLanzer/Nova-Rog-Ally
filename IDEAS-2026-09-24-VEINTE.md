@@ -58,10 +58,12 @@ mientras ella hablaba. Ese dato **está** en `pruebas\audio\uso`, con marca de t
 O sea: casi 700 saturaciones y 472 ratos en los que Nova decide no fiarse de lo que oye porque
 suenan sus propios altavoces. Eso es justo cuando tú le hablas encima de lo que ella dice.
 
-### 4. Parakeet cae a Whisper el 84 % de las veces
+### 4. Lo que oye el motor rápido hay que repasarlo el 84 % de las veces
 
-**338 rebotes** (`parakeet-a-whisper`) frente a **64 aciertos** (`parakeet`). O el motor rápido
-sirve para algo, o sobra: hoy se paga el arranque de los dos.
+`PARAKEET: 'X' no es una orden que entienda; lo repasa <otro>` sale **338 veces**, frente a
+**64** en las que lo que oyó Parakeet ya era una orden buena. O sea que **cinco de cada seis
+frases pasan por un segundo motor**, con lo que eso cuesta en tiempo. Hay que medir si el
+rápido está compensando el arranque que paga.
 
 ### 5. 1.116 trozos de audio tirados por llegar tarde
 
@@ -71,8 +73,9 @@ con **374 en un solo día** (15/09) y 208 el 20/09. Es audio que ya estaba graba
 
 ### 6. El oído fino: uno de cada tres no cambia nada
 
-**45 de 145 pasadas** devuelven **exactamente el mismo texto** (31 %) y **7 se inventan algo**
-(`fino-invento`). Merece la pena medir cuándo aporta de verdad y saltárselo cuando no.
+De **145 repasos**, **45 (31 %) no mejoran nada** —`OIDO FINO: el repaso no mejora 'X'; la hago
+tal cual`— y **7 se inventan algo** que no se parece al audio (`fino-invento`). Frente a eso,
+**37 sí sirvieron**. Merece la pena medir cuándo aporta de verdad y saltárselo cuando no.
 
 ---
 
@@ -91,14 +94,15 @@ están preparadas suenan al instante: hay que saber por qué las otras no lo est
 
 ### 9. Traducir una orden le cuesta 105 llamadas a la API
 
-**246 traducciones** en 15 días, de las que **105 salen a la API** (`TRABAJO modo=traducir
-motor=api`) y solo **38** acaban en una orden traducida que sirve. Es el camino más caro y el
-que menos veces acierta.
+**246 frases** se mandaron por el camino de traducir en 15 días; de ellas **105 salieron a la
+API** (`TRABAJO modo=traducir motor=api`) y solo **38** acabaron en una orden traducida que
+sirve. Es el camino más caro y uno de los que menos veces acierta.
 
-### 10. El plan de órdenes locales: 26 intentos, 4 sirvieron
+### 10. El plan de órdenes locales: 15 intentos, 4 sirvieron
 
-`plan` 15, `plan-no` 11, `plan-sirvio` **4**. Uno de cada seis. O se mide por qué falla o se
-quita: cada intento es tiempo antes de contestarte.
+`plan-sirvio` **4** frente a `plan-no` **11**: de **15 intentos, 4 salieron con órdenes que
+Nova sabe hacer** y los otros 11 acabaron en el agente igualmente. Uno de cada cuatro. Cada
+intento es tiempo antes de contestarte.
 
 ### 11. El turbo: 27 de 29 sin resultado
 
