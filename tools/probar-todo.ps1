@@ -451,6 +451,18 @@ Titulo "2n105. A que podemos jugar los dos"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-juegos-dos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:de donde lo ha sacado)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n120. La musica: poner lo que es, y no repetir lo que no le gusta"
+# Ideas 1-A y 1-B. 52 intentos con frases distintas y ninguno acabo bien. El fallo de raiz,
+# medido contra youtube.com con cuatro busquedas suyas: el regex viejo devolvia 45, 71, 45 y
+# 28 ids mientras los resultados DE VERDAD -los bloques videoRenderer- eran 19, 16, 19 y 28,
+# y en "musica electronica" no coincidia NI EL PRIMERO: el id que se abria salia de una
+# estanteria de playlist. O sea que "el tercero" nunca fue el tercero. Ahora se leen los
+# bloques de verdad CON SU TITULO, se dice el titulo antes de abrir nada, "la siguiente"
+# cuesta cero red, y lo que dice que no le gusta no vuelve a salir. Eso NO va al perfil: el
+# perfil esta a 59 de 60 y ya rechazo diez preferencias suyas.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-musica-no.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la musica ya pone lo que es)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n119. Lo que le corriges una vez, ya no se le olvida"
 # Idea 18. Cuando braya contesta "no" a "ELDEN RING?", hoy Nova solo dice "vale, lo dejo" y
 # NO APRENDE NADA: el mismo titulo mal oido vuelve a fallar manana. Y Add-Traduccion guarda

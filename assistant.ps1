@@ -5359,12 +5359,21 @@ function Resolve-Fragment([string]$f) {
     # me everything de pitbull", "con la cancion de X" (la forma de un seguimiento). Se exige
     # "cancion/musica/tema" o un "de <artista>" para no tragarse "pon el modo noche" y compañia,
     # que ademas se resuelven mas arriba.
+    # "MUSICA <ALGO>", SIN EL "DE" (23/09, idea 1-A). Medido con -Probar: "reproduce musica
+    # electronica" se iba al modelo porque esta alternancia exige "musica DE algo", mientras
+    # que "ponme algo de musica relajante" si entraba. Se pide \w+ detras, asi que "pon
+    # musica" a secas no se toca: eso es otra cosa y la resuelve quien la resolvia.
     if ($f -match '^(?:pon|ponme|reproduce|reproduceme|toca|tocame|escuchar|quiero escuchar|con)\s+(?:la\s+cancion\s+(?:de\s+)?|una\s+cancion\s+(?:de\s+)?|la\s+musica\s+de\s+|musica\s+de\s+|el\s+tema\s+(?:de\s+)?|algo\s+de\s+)(.+?)$' -and $f -notmatch '\s+en\s+(?:youtube|spotify)$') {
         $qM = $Matches[1].Trim()
         if ($qM -and $qM -notmatch '^(?:el|la|los|las|un|una)$') {
             if ($MusicaSitio -eq 'spotify') { return @(@{ kind = 'url'; url = ('spotify:search:' + [Uri]::EscapeDataString($qM)); desc = "buscar '$qM' en Spotify" }) }
             return @(@{ kind = 'url'; url = ('https://www.youtube.com/results?search_query=' + [Uri]::EscapeDataString($qM)); youtube = $qM; desc = "poner '$qM' en YouTube" })
         }
+    }
+    if ($f -match '^(?:pon|ponme|reproduce|reproduceme|quiero escuchar|toca)\s+(musica\s+\w+(?:\s+\w+)?)$') {
+        $qMG = $Matches[1].Trim()
+        if ($MusicaSitio -eq 'spotify') { return @(@{ kind = 'url'; url = ('spotify:search:' + [Uri]::EscapeDataString($qMG)); desc = "buscar '$qMG' en Spotify" }) }
+        return @(@{ kind = 'url'; url = ('https://www.youtube.com/results?search_query=' + [Uri]::EscapeDataString($qMG)); youtube = $qMG; desc = "poner '$qMG' en YouTube" })
     }
     # musica y video: "pon bad bunny en spotify", "reproduce lofi en youtube"
     if ($f -match '^(?:pon|ponme|reproduce|reproduceme|escuchar|quiero escuchar|toca|tocame)\s+(.+?)\s+en\s+spotify$') {
@@ -5403,6 +5412,51 @@ function Resolve-Fragment([string]$f) {
         if (-not $quienYT) { return @(@{ kind = 'decir'; desc = 'Dime primero que quieres que ponga' }) }
         return @(@{ kind = 'url'; url = ('https://www.youtube.com/results?search_query=' + [Uri]::EscapeDataString($quienYT))
                     youtube = $quienYT; videoN = $nYT2; desc = "poner el numero $nYT2 de '$quienYT'" })
+    }
+    # --- "NO, LA SIGUIENTE" (23/09, idea 1-A) ---
+    # Va DETRAS de los ordinales, que tienen que seguir ganando, y DELANTE del "pon X en
+    # youtube" de abajo, que es glotona con su (.+?).
+    # TODO EL BLOQUE DENTRO DE UNA VENTANA VIVA: sin una busqueda reciente, "la siguiente" no
+    # es de aqui y sigue su camino. Cinco minutos, y la ventana se limpia sola al vencer.
+    if ($script:ytHasta -gt 0 -and $sw.ElapsedMilliseconds -ge $script:ytHasta) { $script:ytLista = @(); $script:ytHasta = 0 }
+    if ($script:ytHasta -gt 0 -and @($script:ytLista).Count -gt 0) {
+        if ($f -match '^no\s+la\s+siguiente$' -or
+            $f -match '^(?:no\s+)?(?:esa|ese|esta|este)\s+no(?:\s+(?:era|es))?$' -or
+            $f -match '^(?:pon|ponme|dame|prueba|quiero)\s+(?:con\s+)?la\s+siguiente(?:\s+(?:cancion|version|entonces))?$' -or
+            $f -match '^la\s+siguiente$') {
+            return @(@{ kind = 'ytSiguiente'; paso = 1; desc = 'la siguiente' })
+        }
+        if ($f -match '^(?:no\s+)?(?:pon\s+)?la\s+anterior(?:\s+entonces)?$') {
+            return @(@{ kind = 'ytSiguiente'; paso = -1; desc = 'la anterior' })
+        }
+    }
+    # --- "ESTO NO ME GUSTA" (23/09, idea 1-B) ---
+    # SU FRASE COMPUESTA VA LA PRIMERA, entera, porque Split-Ordenes NO la parte: "recuerda"
+    # no esta en $VERBOS, asi que la cola se repega al fragmento de delante y hoy se va
+    # entera al modelo (medido con -Probar).
+    # Y DEVUELVE DOS ACCIONES EN ESTE ORDEN: primero el veto y despues poner lo nuevo, porque
+    # su "que pusiste ahora" se refiere a LO ANTERIOR. Al reves se vetaria justo lo que quiere
+    # oir.
+    if ($f -match '^(?:pon|ponme|reproduce|reproduceme|toca)\s+(.+?)\s+y\s+(?:ademas\s+)?(?:recuerda|apunta|anota)\s+que\s+(?:ese|este|esa|esta)\s+tipo\s+de\s+musica\s+.*?no\s+me\s+gusta$') {
+        $qNM = $Matches[1].Trim()
+        $accNM = @(@{ kind = 'musicaNo'; que = ''; desc = 'apuntar que eso no te gusta' })
+        $accNM += @{ kind = 'url'; url = ('https://www.youtube.com/results?search_query=' + [Uri]::EscapeDataString($qNM)); youtube = $qNM; desc = "poner '$qNM' en YouTube" }
+        return $accNM
+    }
+    if ($f -match '^(?:esto|eso|esta|esa|este|ese)\s+(?:tipo\s+de\s+musica\s+|musica\s+|cancion\s+)?no\s+me\s+gusta(?:\s+nada)?$' -or
+        $f -match '^(?:no\s+me\s+gusta|odio)\s+(?:esto|eso|esta\s+cancion|esta\s+musica|este\s+tipo\s+de\s+musica|lo\s+que\s+(?:has\s+)?puesto|lo\s+que\s+pusiste)$' -or
+        $f -match '^(?:recuerda|acuerdate|apunta|anota)\s+que\s+(?:ese|este|esa|esta)\s+tipo\s+de\s+musica\s+(?:que\s+(?:pusiste|has\s+puesto|sono)(?:\s+ahora)?\s+)?no\s+me\s+gusta$') {
+        return @(@{ kind = 'musicaNo'; que = ''; desc = 'apuntar que eso no te gusta' })
+    }
+    # NOMBRANDO: lista abierta, asi que el ejecutor repite SIEMPRE en voz alta lo que apunto
+    if ($f -match '^(?:no\s+me\s+gusta|odio|no\s+quiero|no\s+me\s+pongas)\s+(?:la\s+|el\s+)?(?:musica\s+|canciones\s+)?(?:de\s+)?(.{3,40})$') {
+        return @(@{ kind = 'musicaNo'; que = $Matches[1].Trim(); desc = "apuntar que no te gusta $($Matches[1].Trim())" })
+    }
+    if ($f -match '^(?:si\s+me\s+gusta|vuelve\s+a\s+ponerme|quita\s+de\s+lo\s+que\s+no\s+me\s+gusta)\s+(?:la\s+|el\s+)?(?:musica\s+)?(?:de\s+)?(.{3,40})$') {
+        return @(@{ kind = 'musicaSi'; que = $Matches[1].Trim(); desc = "quitar $($Matches[1].Trim()) de lo que no te gusta" })
+    }
+    if ($f -match '^(?:que\s+musica\s+no\s+me\s+gusta|que\s+tengo\s+vetado|que\s+musica\s+he\s+vetado)$') {
+        return @(@{ kind = 'musicaNoLista'; desc = 'lo que no te gusta' })
     }
     if ($f -match '^(?:pon|ponme|reproduce|reproduceme|quiero ver|ver|toca)\s+(.+?)\s+en\s+youtube$') {
         $q = $Matches[1].Trim()
@@ -11396,25 +11450,167 @@ function Get-ResumenCarpeta([string]$ruta, [bool]$conTamano = $false, [int]$tope
 # "reproduce la segunda cancion de el" se fueron al agente cuatro veces (hasta 88 s) y
 # ni asi. Es la misma pagina de resultados: basta con coger la coincidencia numero N,
 # quitando repetidos (YouTube repite el mismo videoId varias veces en el HTML).
-function Get-PrimerVideoYouTube([string]$q, [int]$n = 1) {
-    if (-not $q) { return '' }
-    if ($n -lt 1) { $n = 1 }
+# LO QUE NO LE GUSTA (23/09, idea 1-B). Fichero propio, no el perfil: el perfil esta a 59 de
+# 60, tiro un dato cuatro veces el 22/09 y su filtro ya rechazo diez preferencias suyas. Un
+# gusto musical ahi entra directo en la cola de expulsion.
+# El tope de 60 es el MISMO del perfil, no un numero nuevo.
+function Get-MusicaNoPath { return (Join-Path $MemoriaDir 'musica-no.json') }
+$MusicaNoMax = 60
+$script:musicaNo = $null
+function Get-MusicaNo {
+    # LA COMA, TAMBIEN AQUI: esta es la salida que se usa el 99 % de las veces -la de abajo
+    # solo la primera- y sin ella la lista vacia volvia a llegar como $null.
+    if ($null -ne $script:musicaNo) { return ,$script:musicaNo }
+    $script:musicaNo = New-Object System.Collections.ArrayList
+    try {
+        if (Test-Path -LiteralPath (Get-MusicaNoPath)) {
+            $j = Get-Content -LiteralPath (Get-MusicaNoPath) -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($x in $j) {
+                if ($null -eq $x) { continue }
+                [void]$script:musicaNo.Add(@{ q = [string]$x.q; t = [string]$x.t; id = [string]$x.id; f = [string]$x.f })
+            }
+        }
+    } catch { Save-Corrupto (Get-MusicaNoPath) 'musica-no' }
+    # LA COMA NO ES UN ADORNO: sin ella, PowerShell desenrolla la lista y una lista VACIA se
+    # convierte en $null, asi que el primer "no me gusta" reventaba al anadir. Es el mismo
+    # bicho que ya documentan Get-Recordatorios y Get-Reglas.
+    return ,$script:musicaNo
+}
+function Save-MusicaNo {
+    try {
+        $lista = @()
+        foreach ($x in $script:musicaNo) {
+            $o = New-Object PSObject
+            foreach ($k in 'q', 't', 'id', 'f') { $o | Add-Member -NotePropertyName $k -NotePropertyValue $x[$k] }
+            $lista += $o
+        }
+        $json = if ($lista.Count -eq 0) { '[]' } else { ConvertTo-Json -InputObject @($lista) -Depth 3 }
+        Write-Atomico (Get-MusicaNoPath) $json
+    } catch {}
+}
+# DEVUELVE LO QUE TUVO QUE SOLTAR, para poder decirlo en voz alta: una lista que se poda en
+# silencio es una lista en la que dejas de confiar.
+function Add-MusicaNo([string]$que, [string]$titulo, [string]$id) {
+    if ($script:invitado) { return '' }
+    $q = (ConvertTo-Plain $que).Trim()
+    if (-not $q -and -not $id) { return '' }
+    $l = Get-MusicaNo
+    foreach ($x in @($l)) {
+        if ((ConvertTo-Plain ([string]$x.q)) -eq $q -and $q) { return '' }   # ya estaba
+    }
+    [void]$l.Add(@{ q = $que; t = $titulo; id = $id; f = (Get-Date).ToString('s') })
+    $soltado = ''
+    while ($l.Count -gt $MusicaNoMax) { $soltado = [string]$l[0].q; $l.RemoveAt(0) }
+    Save-MusicaNo
+    Log "MUSICA NO: '$que'$(if ($titulo) { " ($titulo)" } else { '' })"
+    return $soltado
+}
+function Remove-MusicaNo([string]$que) {
+    $q = (ConvertTo-Plain $que).Trim()
+    if (-not $q) { return $false }
+    $l = Get-MusicaNo
+    $fuera = @($l | Where-Object { (ConvertTo-Plain ([string]$_.q)).Contains($q) })
+    if ($fuera.Count -eq 0) { return $false }
+    foreach ($x in $fuera) { [void]$l.Remove($x) }
+    Save-MusicaNo
+    Log "MUSICA NO: quitado '$que'"
+    return $true
+}
+# EL MINIMO DE CUATRO LETRAS no es de adorno: es el mismo criterio que ya usan las demas
+# comparaciones por palabra. Con menos, un veto de dos letras tacharia media lista.
+function Test-MusicaVetada([string]$titulo, [string]$id) {
+    $l = Get-MusicaNo
+    if ($l.Count -eq 0) { return $false }
+    $t = ConvertTo-Plain ([string]$titulo)
+    foreach ($x in @($l)) {
+        if ($id -and [string]$x.id -eq $id) { return $true }
+        $q = (ConvertTo-Plain ([string]$x.q)).Trim()
+        if ($q.Length -ge 4 -and $t -and $t.Contains($q)) { return $true }
+    }
+    return $false
+}
+
+# LOS RESULTADOS DE VERDAD, CON SU TITULO (23/09, idea 1-A). PURA: se le da el HTML y
+# devuelve la lista, asi que un banco puede probarla sin tocar la red.
+# EL REGEX ESTA VALIDADO HOY contra las cuatro paginas reales de sus busquedas: da 19, 16, 19
+# y 28 bloques, el 100 % con titulo. El de antes -'"videoId":"..."' a secas- daba 45, 71, 45
+# y 28, o sea que mezclaba los videos de verdad con los de las estanterias y las playlists, y
+# por eso "el tercero" nunca era el tercero.
+# El {0,4000} acota al perezoso para que no salte al bloque siguiente.
+function Get-VideosDeHtml([string]$html) {
+    $out = @()
+    if (-not $html) { return $out }
+    $vistos = @{}
+    foreach ($m in [regex]::Matches($html, '"videoRenderer":\{"videoId":"([A-Za-z0-9_-]{11})"[\s\S]{0,4000}?"title":\{"runs":\[\{"text":"(.*?)"\}\]')) {
+        $id = $m.Groups[1].Value
+        if ($vistos.ContainsKey($id)) { continue }
+        $vistos[$id] = $true
+        $t = $m.Groups[2].Value
+        # el titulo viene escapado como en JSON
+        $t = [regex]::Replace($t, '\\u([0-9a-fA-F]{4})', { param($x) [string][char][Convert]::ToInt32($x.Groups[1].Value, 16) })
+        $t = $t -replace '\\"', '"' -replace '\\/', '/' -replace '\\\\', '\'
+        $out += @{ id = $id; titulo = $t.Trim() }
+        # los ordinales llegan al decimo; doce sobra
+        if ($out.Count -ge 12) { break }
+    }
+    return $out
+}
+
+# LA PETICION, que es lo unico que toca la red. Si la pagina no trae ni un bloque, se cae al
+# regex viejo para no quedar PEOR que hoy: sin titulo, pero con algo.
+$script:ytLista = @()
+$script:ytN = 0
+$script:ytPuesto = $null
+$script:ytHasta = 0
+$YtSiguienteMs = 300000
+function Get-VideosYouTube([string]$q) {
+    if (-not $q) { return @() }
+    $lista = @()
     try {
         $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 6 -Headers @{ 'Accept-Language' = 'es-ES,es;q=0.9' } `
             -Uri ('https://www.youtube.com/results?search_query=' + [Uri]::EscapeDataString($q))
-        $ids = @([regex]::Matches([string]$r.Content, '"videoId":"([A-Za-z0-9_-]{11})"') |
-                 ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
-        if ($ids.Count -ge $n) {
-            Log "YOUTUBE: '$q' -> $($ids[$n - 1])$(if ($n -gt 1) { " (el numero $n de $($ids.Count))" })"
-            return 'https://www.youtube.com/watch?v=' + $ids[$n - 1]
+        $lista = @(Get-VideosDeHtml ([string]$r.Content))
+        if ($lista.Count -eq 0) {
+            $ids = @([regex]::Matches([string]$r.Content, '"videoId":"([A-Za-z0-9_-]{11})"') |
+                     ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
+            foreach ($id in @($ids | Select-Object -First 12)) { $lista += @{ id = $id; titulo = '' } }
+            if ($lista.Count -gt 0) { Log "YOUTUBE: la pagina no trae bloques de resultado; tiro del metodo viejo" }
         }
-        if ($ids.Count -gt 0) {
-            Log "YOUTUBE: '$q' solo tiene $($ids.Count) videos; pongo el ultimo"
-            return 'https://www.youtube.com/watch?v=' + $ids[$ids.Count - 1]
-        }
-        Log "YOUTUBE: '$q' sin videos en la pagina; abro la busqueda"
-    } catch { Log ("YOUTUBE: no pude sacar el video (" + $_.Exception.Message + "); abro la busqueda") }
-    return ''
+    } catch { Log ("YOUTUBE: no pude sacar los videos (" + $_.Exception.Message + "); abro la busqueda") }
+    $script:ytLista = @($lista)
+    $script:ytUltimaBusqueda = $q
+    return $script:ytLista
+}
+
+# Y EL NUMERO N, SIN VOLVER A LA RED si es la misma busqueda: "no, la siguiente" cuesta una
+# frase y cero red, que es el remedio de verdad a que el primero no sea el bueno.
+function Select-VideoYouTube([string]$q, [int]$n = 1) {
+    if ($n -lt 1) { $n = 1 }
+    $lista = @($script:ytLista)
+    if ($q -ne [string]$script:ytUltimaBusqueda -or $lista.Count -eq 0) { $lista = @(Get-VideosYouTube $q) }
+    if ($lista.Count -eq 0) { return $null }
+    # los vetados se saltan (idea 1-B): lo que dijo que no le gusta no vuelve a salir
+    $buenos = @()
+    foreach ($v in $lista) {
+        if (Test-MusicaVetada ([string]$v.titulo) ([string]$v.id)) { continue }
+        $buenos += $v
+    }
+    if ($buenos.Count -eq 0) { $buenos = $lista }
+    if ($n -gt $buenos.Count) { $n = $buenos.Count }
+    $v = $buenos[$n - 1]
+    return @{ id = [string]$v.id; titulo = [string]$v.titulo
+              url = ('https://www.youtube.com/watch?v=' + [string]$v.id); n = $n; total = $buenos.Count }
+}
+
+function Get-PrimerVideoYouTube([string]$q, [int]$n = 1) {
+    if (-not $q) { return '' }
+    if ($n -lt 1) { $n = 1 }
+    # POR DENTRO YA ES Select-VideoYouTube (23/09, idea 1-A): la firma y lo que devuelve no
+    # cambian, asi que los cuatro patrones de ordinal y su banco siguen igual.
+    $v = Select-VideoYouTube $q $n
+    if (-not $v) { Log "YOUTUBE: '$q' sin videos en la pagina; abro la busqueda"; return '' }
+    Log "YOUTUBE: '$q' -> $($v.id)$(if ($v.n -gt 1) { " (el numero $($v.n) de $($v.total))" })$(if ($v.titulo) { ' | ' + $v.titulo } else { '' })"
+    return $v.url
 }
 
 # LO ULTIMO QUE SE PUSO EN YOUTUBE, para poder decir "pon el segundo" despues
@@ -11879,8 +12075,24 @@ function Invoke-FastCommand([string]$text) {
                     $urlA = $a.url
                     if ($a.youtube) {
                         $nV = if ($a.videoN) { [int]$a.videoN } else { 1 }
-                        $primerV = Get-PrimerVideoYouTube ([string]$a.youtube) $nV
-                        if ($primerV) { $urlA = $primerV }
+                        $vY = Select-VideoYouTube ([string]$a.youtube) $nV
+                        if ($vY) {
+                            $urlA = [string]$vY.url
+                            # EL TITULO, ANTES DE ABRIR NADA (23/09, idea 1-A). La capsula se
+                            # pinta aqui, antes del Start-Process; la voz sale unas decimas
+                            # despues, porque este ejecutor no habla (no hay ni un Say en sus
+                            # 2.200 lineas) y meter voz aqui bloquearia el bucle.
+                            if ($vY.titulo) {
+                                $tiY = [string]$vY.titulo
+                                if ($tiY.Length -gt 45) { $tiY = $tiY.Substring(0, 44) + [string][char]0x2026 }
+                                Set-UI 'hablando' ([string][char]0x266A + ' ' + $tiY) 4000
+                                $a.desc = 'pongo ' + $vY.titulo
+                            }
+                            $script:ytPuesto = @{ id = [string]$vY.id; titulo = [string]$vY.titulo; q = [string]$a.youtube }
+                            $script:ytN = [int]$vY.n
+                            # la ventana de "la siguiente": cinco minutos y se cierra sola
+                            $script:ytHasta = $sw.ElapsedMilliseconds + $YtSiguienteMs
+                        }
                         $script:ytUltimaBusqueda = [string]$a.youtube   # para "pon el segundo"
                     }
                     if ($a.carpeta) { Start-Process -FilePath 'explorer.exe' -ArgumentList ('"' + $urlA + '"') -ErrorAction Stop }
@@ -12152,6 +12364,50 @@ function Invoke-FastCommand([string]$text) {
                         Send-Key 0xB3
                         $a.desc = if ($a.sonar) { 'la pongo' } else { 'pausada' }
                     }
+                }
+                'ytSiguiente' {
+                    # SIN VOLVER A LA RED: la lista ya esta en memoria, asi que pasar de
+                    # cancion cuesta una frase y cero espera. Ese es el remedio de verdad a
+                    # que el primero no sea el bueno.
+                    $qS = [string]$script:ytUltimaBusqueda
+                    $nS = [int]$script:ytN + [int]$a.paso
+                    if ($nS -lt 1) { $a.desc = 'esa ya era la primera'; break }
+                    $vS = Select-VideoYouTube $qS $nS
+                    if (-not $vS) { $a.desc = 'no me queda ninguna mas'; break }
+                    if ([int]$vS.n -eq [int]$script:ytN) { $a.desc = 'esa ya era la ultima'; break }
+                    $script:ytN = [int]$vS.n
+                    $script:ytPuesto = @{ id = [string]$vS.id; titulo = [string]$vS.titulo; q = $qS }
+                    $script:ytHasta = $sw.ElapsedMilliseconds + $YtSiguienteMs
+                    try { Start-Process ([string]$vS.url) -ErrorAction Stop } catch { $a.desc = 'no pude abrirlo'; break }
+                    $a.desc = if ($vS.titulo) { 'pongo ' + $vS.titulo } else { "pongo el numero $($vS.n)" }
+                }
+                'musicaNo' {
+                    # SIN NOMBRAR NADA: se veta lo que acaba de sonar, que es como lo dice el
+                    $queN = [string]$a.que
+                    $tituloN = ''
+                    $idN = ''
+                    if (-not $queN) {
+                        if (-not $script:ytPuesto) { $a.desc = 'no se que estaba sonando'; break }
+                        $queN = [string]$script:ytPuesto.q
+                        $tituloN = [string]$script:ytPuesto.titulo
+                        $idN = [string]$script:ytPuesto.id
+                    }
+                    $soltado = Add-MusicaNo $queN $tituloN $idN
+                    # SE REPITE SIEMPRE EN VOZ ALTA lo que apunto: con una lista abierta, si
+                    # no se dice, braya no sabe que se guardo.
+                    $a.desc = "apuntado: no te pongo mas $queN"
+                    if ($soltado) { $a.desc += ". Como ya eran $MusicaNoMax, he soltado lo de $soltado" }
+                }
+                'musicaSi' {
+                    if (Remove-MusicaNo ([string]$a.que)) { $a.desc = "vale, vuelvo a ponerte $($a.que)" }
+                    else { $a.desc = "no tenia $($a.que) en esa lista" }
+                }
+                'musicaNoLista' {
+                    $lN = @(Get-MusicaNo)
+                    if ($lN.Count -eq 0) { $a.desc = 'no tengo nada apuntado que no te guste'; break }
+                    $ultN = @($lN | Select-Object -Last 5 | ForEach-Object { [string]$_.q })
+                    $a.desc = "tengo $($lN.Count): " + ($ultN -join ', ')
+                    if ($lN.Count -gt $ultN.Count) { $a.desc += ' y mas' }
                 }
                 'musicaQue' {
                     $mu = Get-MusicaActual
