@@ -9722,7 +9722,52 @@ function Test-PuedoAvisar([string]$clave, [string]$nivel = 'medio', [int]$cadaMi
     $hace1h = $ahoraE - 3600000
     while ($script:entornoAvisos.Count -gt 0 -and [double]$script:entornoAvisos[0] -lt $hace1h) { $script:entornoAvisos.RemoveAt(0) }
     if ($script:entornoAvisos.Count -ge $EntornoPorHora -and $nivel -ne 'alto') { return $false }
+    # Y EL PRESUPUESTO DEL DIA (24/09, idea 4): no hablar por su cuenta mas veces de las que
+    # la llaman. Ver Test-CabeOtroAviso. El de por hora no bastaba: 4 por hora son hasta 64 al
+    # dia, y el 22/09 salieron 31.
+    if (-not (Test-CabeOtroAviso (Get-CuentaHoy 'aviso-entorno') (Get-CuentaHoy 'activacion') $EntornoPorHora $nivel)) {
+        Log "ENTORNO: hoy ya he hablado por mi cuenta $(Get-CuentaHoy 'aviso-entorno') veces y me has llamado $(Get-CuentaHoy 'activacion'); me callo lo que no sea importante"
+        Add-Estadistica 'aviso-de-mas' $clave
+        return $false
+    }
     return $true
+}
+
+# NO HABLAR POR SU CUENTA MAS QUE CUANDO LA LLAMAN (24/09, idea 4 de la tanda nueva).
+#
+# Medido sobre memoria\estadisticas.json: del 19 al 24/09 hay 69 avisos por su cuenta contra
+# 80 veces que braya la llamo. Antes del 16/09 -que es cuando nacieron- eran 0 contra 119. En
+# una semana han pasado de no existir a casi igualar lo que el pide.
+#
+# Cada aviso por separado esta justificado; el problema es la suma, y nadie la miraba: el tope
+# de $EntornoPorHora son 4 POR HORA, que en un dia despierto dan hasta 64.
+#
+# EL LISTON NO ES UN NUMERO NUEVO, es una proporcion. Probada sobre los trece dias reales,
+# corta 26 de 79 avisos (el 33 %) y los 26 caen en los DOS dias en que sobraban -24 del 22/09,
+# que fue el dia de los 25 avisos identicos, y 2 del 23/09-. Ni uno de los dias buenos se toca.
+#
+# Y EL SUELO TAMPOCO ES NUEVO: es el mismo $EntornoPorHora. Hasta llegar a el la proporcion ni
+# se mira, o un dia en que braya todavia no ha dicho nada Nova no podria avisar de que se esta
+# quedando sin disco.
+#
+# Pura y con todo por parametro para que el banco pueda correrle los trece dias en un
+# milisegundo.
+function Test-CabeOtroAviso([int]$avisosHoy, [int]$llamadasHoy, [int]$suelo, [string]$nivel) {
+    # lo critico no se frena nunca, igual que ya se salta el tope por hora
+    if ($nivel -eq 'alto') { return $true }
+    if ($avisosHoy -lt $suelo) { return $true }
+    return ($avisosHoy -lt $llamadasHoy)
+}
+
+# Lo que lleva dicho y lo que le han pedido HOY, de las estadisticas que ya se guardan.
+function Get-CuentaHoy([string]$ruta) {
+    try {
+        $sEst = Get-Estadisticas
+        $diaH = Get-Date -Format 'yyyy-MM-dd'
+        if (-not $sEst.dias.ContainsKey($diaH)) { return 0 }
+        if (-not $sEst.dias[$diaH].ContainsKey($ruta)) { return 0 }
+        return [int]$sEst.dias[$diaH][$ruta]
+    } catch { return 0 }
 }
 
 # IDEA 23: DOS AVISOS SEGUIDOS SE DICEN EN UNA SOLA FRASE. Pasa de verdad: sacas el

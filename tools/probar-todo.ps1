@@ -621,6 +621,20 @@ Titulo "2n132. Un recordatorio con la fecha rota ya no se borra solo"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-recordatorio-vivo.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:un recordatorio con la fecha rota)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n133. No hablar por su cuenta mas que cuando la llaman"
+# Idea 4 de la tanda nueva del 24/09. Del 19 al 24/09 hay 69 avisos por su cuenta contra 80
+# veces que braya la llamo; antes del 16/09 -cuando nacieron- eran 0 contra 119. En una semana
+# pasaron de no existir a casi igualar lo que el pide. Cada aviso por separado esta
+# justificado; el problema es la suma, y nadie la miraba: el tope que habia son 4 POR HORA,
+# que en un dia despierto dan hasta 64.
+# El liston no es un numero nuevo, es una proporcion, y el suelo es el mismo $EntornoPorHora.
+# Probado sobre los trece dias reales: corta 26 de 79 avisos y los 26 caen en los DOS dias en
+# que sobraban (24 del 22/09 y 2 del 23/09). Ni uno de los seis dias buenos se toca.
+# Lo que mas se vigila: justo eso, que los dias buenos no pierdan un solo aviso, y que lo de
+# nivel 'alto' siga pasando siempre.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-aviso-de-mas.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya no habla por su cuenta mas)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n120. La musica: poner lo que es, y no repetir lo que no le gusta"
 # Ideas 1-A y 1-B. 52 intentos con frases distintas y ninguno acabo bien. El fallo de raiz,
 # medido contra youtube.com con cuatro busquedas suyas: el regex viejo devolvia 45, 71, 45 y
