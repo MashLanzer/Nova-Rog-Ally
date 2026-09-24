@@ -18440,6 +18440,10 @@ function Remove-RecordatorioTexto([string]$q) {
     return @{ estado = 'uno'; borrado = $hit[0] }
 }
 
+# Los que ya se apuntaron como ilegibles en ESTE arranque, para no repetir la linea en cada
+# vuelta del bucle. En memoria y no en disco a proposito: si al reiniciar sigue rota, merece
+# una linea nueva -es informacion de que el problema no se ha arreglado solo-.
+$script:recordatorioIlegible = New-Object System.Collections.ArrayList
 function Test-Recordatorios {
     $lista = @(Get-Recordatorios)
     if ($lista.Count -eq 0) { return }
@@ -18447,7 +18451,22 @@ function Test-Recordatorios {
     $quedan = @()
     foreach ($r in $lista) {
         $c = $null
-        try { $c = [DateTime]$r.cuando } catch { continue }
+        try { $c = [DateTime]$r.cuando } catch {
+            # UNA FECHA ILEGIBLE NO BORRA EL RECORDATORIO (24/09). Aqui habia un 'continue'
+            # que saltaba el 'else { $quedan += $r }' de abajo, y el Save de dos lineas mas
+            # alla guardaba la lista SIN esta entrada: la fecha rota no aplazaba nada, borraba
+            # el recordatorio del disco y sin escribir una linea.
+            # Se apunta UNA vez por arranque y no en cada vuelta: el bucle pasa por aqui
+            # constantemente, y repetirlo seria el fallo de los 25 avisos identicos del 22/09.
+            # Y no se adivina la fecha: se conserva para que braya pueda preguntar por el.
+            if (-not $script:recordatorioIlegible.Contains([string]$r.texto)) {
+                [void]$script:recordatorioIlegible.Add([string]$r.texto)
+                Log "RECORDATORIO con fecha ilegible ('$($r.cuando)'): lo dejo donde esta, no lo borro"
+                Add-Estadistica 'recordatorio-ilegible' ([string]$r.texto)
+            }
+            $quedan += $r
+            continue
+        }
         if ($c -le $ahora) {
             # el despertador no es un aviso: suena (ver DESPERTADOR)
             if ($r.texto -eq 'despertador') { try { Invoke-Despertador } catch { Log ("despertador: " + $_.Exception.Message) }; continue }
@@ -26251,7 +26270,11 @@ while ($true) {
     if ($minutoAhora -ne $script:minutoVisto) {
         $script:minutoVisto = $minutoAhora
         try { Invoke-Reglas 'hora' $minutoAhora; Invoke-Reglas 'cada' } catch {}
-        try { Test-Recordatorios } catch {}
+        # Y SI REVIENTA, SE DICE (24/09). Este catch estaba vacio, asi que un fallo dentro de
+        # Test-Recordatorios -leer el fichero, una entrada rara- desaparecia sin dejar nada. Es la
+        # unica funcion de Nova que promete algo a futuro, y llevaba quince dias sin sonar ni una
+        # vez sin que nadie pudiera saber por que.
+        try { Test-Recordatorios } catch { Log ("recordatorios: " + $_.Exception.Message) }
         try { Update-BrilloAuto } catch {}   # ver BRILLO AUTOMATICO
         try { Test-FinSilencio } catch {}    # ver Set-AvisosEntorno: el silencio caduca al dia
         try { Test-FinInvitado } catch {}    # ver MODO INVITADO

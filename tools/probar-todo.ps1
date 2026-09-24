@@ -607,6 +607,20 @@ Titulo "2n131. Una regla que revienta ya no se pierde callando"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-regla-rota.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:una regla que revienta)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n132. Un recordatorio con la fecha rota ya no se borra solo"
+# Idea 1 de la tanda nueva del 24/09. CERO lineas "RECORDATORIO vence" en las 54.428 del
+# registro, con 295 recordatorios creados: ninguno ha sonado nunca. Y el del 12/09 16:59:48
+# vencia el 13/09 a las 10:00:00 con Nova VIVA a esa hora exacta.
+# El agujero estaba en una linea: 'try { $c = [DateTime]$r.cuando } catch { continue }'. Ese
+# continue saltaba el 'else { $quedan += $r }' de abajo, y el Save-Recordatorios de dos lineas
+# mas alla guardaba la lista SIN esa entrada. Una fecha ilegible no aplazaba el recordatorio:
+# LO BORRABA DEL DISCO, sin escribir una linea. Y el llamador remataba con un catch vacio.
+# Lo que mas se vigila: que no se borre, que la linea NO se repita en cada vuelta -el bucle
+# pasa por aqui constantemente y eso es el fallo de los 25 avisos identicos del 22/09- y que
+# un recordatorio bueno DETRAS de uno roto siga sonando.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-recordatorio-vivo.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:un recordatorio con la fecha rota)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n120. La musica: poner lo que es, y no repetir lo que no le gusta"
 # Ideas 1-A y 1-B. 52 intentos con frases distintas y ninguno acabo bien. El fallo de raiz,
 # medido contra youtube.com con cuatro busquedas suyas: el regex viejo devolvia 45, 71, 45 y
