@@ -101,6 +101,24 @@ mientras ella hablaba. Ese dato **está** en `pruebas\audio\uso`, con marca de t
 O sea: casi 700 saturaciones y 472 ratos en los que Nova decide no fiarse de lo que oye porque
 suenan sus propios altavoces. Eso es justo cuando tú le hablas encima de lo que ella dice.
 
+> **MEDIDA el 24/09: cierta a medias.** Las cifras son 405, 262 y 473 (eran 404 y 472). Y hay
+> una parte que sí cuesta órdenes y otra que no:
+>
+> | | falla |
+> |---|---|
+> | dictados **con** un recorte en los 20 s previos (83) | **42,2 %** |
+> | dictados sin recorte (803) | 25,7 % |
+>
+> Es **1,64 veces peor**, y no es casualidad (z≈3,3, p<0,001). Pero tampoco condena: **30 de
+> esos 83 salieron bien**. Y **32 de los 35 fallos** acabaron en `LOCAL descarta → opencode`.
+>
+> El *recorte con los altavoces sonando* es **falso como problema**: de sus 262 casos solo
+> **9** fueron seguidos de una orden, y 93 pasaron jugando, donde solo vale el botón. No
+> cuesta órdenes porque ahí no le estás hablando.
+>
+> Lo que queda por hacer: al detectar recorte, marcar esa toma como dudosa y **pedir que lo
+> repitas** en vez de escalar a un agente con manos.
+
 ### 4. Lo que oye el motor rápido hay que repasarlo el 84 % de las veces
 
 `PARAKEET: 'X' no es una orden que entienda; lo repasa <otro>` sale **338 veces**, frente a
@@ -108,11 +126,44 @@ suenan sus propios altavoces. Eso es justo cuando tú le hablas encima de lo que
 frases pasan por un segundo motor**, con lo que eso cuesta en tiempo. Hay que medir si el
 rápido está compensando el arranque que paga.
 
+> **MEDIDA el 24/09: falsa en la cifra y falsa en la conclusión.** Son **332 repasos frente a
+> 93 sin repaso = 78,1 %**, no el 84 % (ese salía de contar 64 "sin repaso" cuando son 93).
+>
+> Y el problema no es que se repase mucho. El repaso **sí** cambia la respuesta: **272 de 316
+> pares (86,1 %)** Whisper dijo algo distinto de Parakeet. El problema es lo de después:
+>
+> | | |
+> |---|---|
+> | repasos cuyo resultado se **tira** | **210 de 316 (66,5 %)** |
+> | repasos cuyo resultado se usa | 106 |
+> | de esos, los que acaban en una orden reconocida | **15** |
+>
+> O sea que el repaso **rescata unas 15 órdenes de 316 (4,7 %)** — pocas, pero reales:
+> `Add` → *abre Steam*, `How is Spotify` → *Abre Spotify*, `Abre Sting` → *abre Steam*.
+>
+> Así que no hay que quitarlo, hay que **decidir antes de pedirlo**. Y el filtro que hace eso
+> ya existe desde el 22/09 (`repasoMaxPalabras` = 8). Medido en su ventana de verdad —desde
+> que existe—: **14 repasos pedidos, 5 tirados y 4 ahorrados**. Está funcionando.
+
 ### 5. 1.116 trozos de audio tirados por llegar tarde
 
 `descartados N s de audio atrasado`: **604** en la transcripción y **478** en el oído fino,
 con **374 en un solo día** (15/09) y 208 el 20/09. Es audio que ya estaba grabado y se tira
 **sin mirarlo**.
+
+> **MEDIDA el 24/09: correcta, y NO es un fallo — pero no tenía ni una prueba.** Son
+> **6.563,6 s (casi dos horas)** de micrófono tirado en once días: media 5,88 s, mediana 2,5 s,
+> el peor **238,8 s**. Reparto: transcripción 604, oído fino 478, corte a mano 14, canary 10,
+> fin de pausa 7, omni 3.
+>
+> Lo que decide que esté bien hecho: de las **478 parejas** *"el modelo tardó X"* → *"descartados
+> Y"*, la mediana de Y/X es **0,96** y **423 de 478 (el 88 %)** caen a menos de un segundo. Lo
+> que se tira es **exactamente la ventana en la que el hilo estuvo sordo**, no audio vivo. Si
+> descartara de menos, vuelven las activaciones fantasma, que es la regla 1 al revés.
+>
+> Lo que sí era un agujero: **1.116 sucesos y cero comprobaciones** en toda la batería. Ahora
+> hay banco (2n130) que ejecuta el vaciado con 0, 1, 2, 3, 10 y 955 bloques —el mínimo, la
+> mediana y el máximo reales— y el reintento por sus ocho caminos. 14 roturas, 14 en rojo.
 
 ### 6. El oído fino: uno de cada tres no cambia nada
 
@@ -177,11 +228,36 @@ no tienen las otras.
 API** (`TRABAJO modo=traducir motor=api`) y solo **38** acabaron en una orden traducida que
 sirve. Es el camino más caro y uno de los que menos veces acierta.
 
+> **MEDIDA el 24/09: FALSA.** La cifra es correcta pero mide **una salida de cinco**. Las 255
+> frases que fueron por ahí acabaron: 55 en charla, 45 en "no era una orden", 88 en tarea, 54
+> en una orden propuesta, 7 ilegibles. **Con el código de hoy** (desde el 16/09): de 110
+> entradas, 55 charla + 15 plan + 34 propuesta + 6 "no te entendí". **Se pierden 7 de cada
+> 100, no 168 de 246.**
+>
+> Coste: **1,9 s de mediana**, 6,0 s el peor, 222 s en total.
+>
+> Y quitarlo sería peor: sin traducir, `Submit-Command` cae a `accion`, que es el agente con
+> manos, y eso son **20,4 s de mediana**. Las 95 de cada 110 que no son tarea irían ahí.
+
 ### 10. El plan de órdenes locales: 15 intentos, 4 sirvieron
 
 `plan-sirvio` **4** frente a `plan-no` **11**: de **15 intentos, 4 salieron con órdenes que
 Nova sabe hacer** y los otros 11 acabaron en el agente igualmente. Uno de cada cuatro. Cada
 intento es tiempo antes de contestarte.
+
+> **MEDIDA el 24/09: cierta pero menor, y rentable.** Verificado exacto: 4 sirvieron, 11 no,
+> y **0 a medias** (los 4 se hicieron enteros).
+>
+> Lo que decide: **los 11 que no sirvieron acabaron bien igualmente por el agente, `exit=0`
+> los 11.** No se perdió ni una orden, solo tiempo.
+>
+> | | |
+> |---|---|
+> | los 11 fallos cuestan | ~22 s en total (2 s cada uno) |
+> | los 4 aciertos ahorran | ~82 s (4 viajes al agente de 20,4 s) |
+>
+> **Sale a favor casi 4 a 1.** La idea era mía y estaba mal planteada: contaba los fallos sin
+> mirar lo que ahorran los aciertos.
 
 ### 11. El turbo: 27 de 29 sin resultado
 
@@ -190,6 +266,20 @@ intento es tiempo antes de contestarte.
 ---
 
 ## C. Aprende cosas que luego tira
+
+> **MEDIDA el 24/09: FALSA por dos motivos distintos.**
+>
+> **Uno:** `turbo-nada` tiene dos ramas y solo **1 de las 27** murió de verdad. Las otras 26
+> siguieron su camino, y en **14** el turbo impuso su transcripción porque era mejor:
+> *"Instala en Sting it takes to"* → *"Instala en Steam, It takes two"*; *"Coladojara y abre
+> Steam"* → *"Calculadora, y abre Steam"*. El rendimiento real es **15 de 29 (52 %)**, no 2 %.
+>
+> **Dos, y es el que manda:** las 29 peticiones son **todas del 15/09**. El commit 446acb1 lo
+> apagó ese día (`whisperModeloUltimo: ""`). **Lleva nueve días muerto.**
+>
+> Eso sí, el coste que tenía era real y conviene dejarlo escrito: **25 s de mediana, 61 s el
+> peor, 12 minutos en 29 frases**, más 17 cargas del modelo grande de las que **15 se
+> soltaron sin usarse**, con la VRAM a 4 GB.
 
 ### 12. El perfil está lleno y se tira lo que entra
 
@@ -230,6 +320,24 @@ existe. Antes de añadirle nada, hay que averiguar cuál de las dos.
 ---
 
 ## D. Gasta cuando no hace falta
+
+> **HECHA a medias el 24/09, y la causa no era la que yo decía.** Verificado: `reglas.json`
+> está **vacío**, en quince días creaste **dos** —una por voz el 11/09 que borraste 31
+> segundos después, y otra escrita el 14/09— y **ninguna ha disparado jamás**. Las 1.094
+> líneas `REGLA N guardada` del registro son el banco de arranque, no tú: 996 son del 12/09.
+>
+> **No es que no sepas que existen:** Nova te lo ofreció cuatro veces. Es que **te fallaron a
+> la cara.** El 13/09 a las 16:22:01 dijiste *"cada 2 horas di que estire la espalda"* y el
+> motor de reglas reventó; dos segundos después preguntaste *"qué reglas hay"* y te contestó
+> *"no tienes reglas"*. Pasó tres veces (11/09 01:13, 11/09 01:16, 13/09 16:22).
+>
+> Y **el orden de evaluación que yo suponía estaba mal**: `Invoke-ReglaVoz` no va la cuarta,
+> va **dentro** de `Invoke-FastCommand` y se mira antes que el catálogo y que los fragmentos.
+> Nada se las come.
+>
+> Hecho: el `catch` ya no deja caer la frase en silencio. **Lo que falta** —y es lo de verdad—
+> es que una regla, una vez creada, llegue a dispararse alguna vez. Eso todavía no ha pasado
+> nunca y no se puede arreglar sin una regla viva que observar.
 
 ### 15. ~~Casi nueve horas seguidas analizando ruido~~ — **FALSA, y lo bueno es por qué**
 
