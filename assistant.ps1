@@ -11292,7 +11292,7 @@ function Set-HabloAhora {
 }
 function Test-ResumenAlVolver {
     $ahoraU = $sw.ElapsedMilliseconds
-    $ausente = ($true -and ($ahoraU - $script:ultimoHabloEn) -ge 7200000)
+    $ausente = ($script:ultimoHabloEn -gt 0 -and ($ahoraU - $script:ultimoHabloEn) -ge 7200000)
     if (-not $ausente) { return }
     $partes = @()
     $nN = @($script:notifPendientes).Count
