@@ -33,51 +33,58 @@ function Comp($etiqueta, $ok, $detalle = '') {
     if (-not $ok) { $script:fallos++ }
 }
 
-# el bloque del corte, contando llaves desde el elseif (nunca por distancia en caracteres)
-$ini = $fuente.IndexOf("Log (`"INTERRUMPIDA:")
-$cuerpo = ''
-if ($ini -ge 0) {
-    $fin = $fuente.IndexOf('# --- CONVERSACION', $ini)
-    if ($fin -gt $ini) { $cuerpo = $fuente.Substring($ini, $fin - $ini) }
+# AHORA SE EJECUTA, NO SE LEE (24/09). Este banco miraba el texto de assistant.ps1 con
+# IndexOf y contaba llaves para delimitar las dos ramas del if. Funcionaba... hasta que la
+# idea 2 saco la decision a una funcion pura, y entonces se puso rojo con el codigo MEJOR de
+# lo que estaba. Es justo lo que dice el commit e1ab4dc: el banco miraba la forma del codigo,
+# no lo que hace.
+$ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $raiz 'assistant.ps1'), [ref]$null, [ref]$null)
+function Traer([string]$n) {
+    $fn = $ast.Find({ param($x)
+        $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq $n }, $true)
+    if (-not $fn) { Write-Host "  MAL  no encuentro la funcion $n"; exit 1 }
+    return $fn.Extent.Text
 }
+foreach ($f in @('ConvertTo-Plain', 'Resolve-Corte')) { Invoke-Expression (Traer $f) }
+$cuerpo = $fuente
 
 Write-Host ''
 Write-Host '-- el corte distingue quien es --'
-Comp 'el bloque existe y se delimita' ($cuerpo.Length -gt 0) "$($cuerpo.Length) caracteres"
-Comp 'compara la palabra con el nombre' ($cuerpo -match 'ConvertTo-Plain \$palabraCorte.{0,60}ConvertTo-Plain \$EscuchaNombre') ''
+Comp 'con tu nombre, abre el microfono' ((Resolve-Corte 'nova' 'nova' $false $true $false).abreMicro) ''
+Comp 'con "para", NO' (-not (Resolve-Corte 'para' 'nova' $false $true $false).abreMicro) 'esto es lo que dejaba el micro abierto'
 Comp 'y el log dice cual de las dos fue' (($cuerpo -match 'me callo y te escucho') -and ($cuerpo -match 'no abro el microfono')) 'o en una semana no se sabe si sirvio'
 
 Write-Host ''
-Write-Host '-- con tu nombre, te escucha --'
-$ramaNombre = [regex]::Match($cuerpo, '(?s)if \(\(ConvertTo-Plain \$palabraCorte\).{0,80}\{(.*?)\} else \{').Groups[1].Value
-Comp 'arma el seguimiento' ($ramaNombre -match '\$script:seguimientoPendiente = \$true') ''
-Comp 'con su factor' ($ramaNombre -match '\$script:seguimientoFactor = 1\.0')
-Comp 'y la ventana de charla si venias hablando' ($ramaNombre -match '\$script:ventanaCharla = \(')
+Write-Host '-- EL CASO DEL 21/09 00:07:53, palabra por palabra --'
+# braya dijo "para" con confianza 0,96. Nova paro, reabrio el microfono, y a los diez
+# segundos cogio "Botoncito atras y el boton abajo?" -braya explicandole los mandos a quien
+# jugaba con el-. Eso fue a Parakeet, a Whisper, a Gemini y a la API de Claude.
+foreach ($pal in @('espera', 'para', 'calla', 'callate', 'basta', 'silencio')) {
+    $r = Resolve-Corte $pal 'nova' $false $true $false
+    Comp ("'$pal' se calla y no abre nada") ((-not $r.abreMicro) -and ([string]$r.accion -eq 'corta-y-calla')) "$([string]$r.accion)"
+}
+Comp 'y el nombre sigue abriendo' ((Resolve-Corte 'nova' 'nova' $false $true $false).accion -eq 'corta-y-escucha') ''
 
 Write-Host ''
 Write-Host '-- con "para" o "callate", se calla y ya --'
-# la rama del else, contando llaves: con un regex no-greedy se corta en la primera llave que
-# aparezca y se mide media rama, que es como salian rojas tres comprobaciones con el codigo
-# bien.
-# ANCLADO AL if DE VERDAD: el primer '} else {' del bloque es el del propio mensaje de log
-# ("me callo y te escucho" / "me callo, y no abro el microfono"), que dice lo mismo con
-# otras palabras. Sin anclar, esto media 38 caracteres de un texto y salia rojo tres veces
-# con el codigo bien. Es la trampa del dia, van cuatro.
-$anclaIf = $cuerpo.IndexOf('if ((ConvertTo-Plain $palabraCorte)')
-$iniE = if ($anclaIf -ge 0) { $cuerpo.IndexOf('} else {', $anclaIf) } else { -1 }
-$ramaCalla = ''
-if ($iniE -ge 0) {
-    $jE = $cuerpo.IndexOf('{', $iniE); $profE = 0
-    for ($kE = $jE; $kE -lt $cuerpo.Length; $kE++) {
-        if ($cuerpo[$kE] -eq '{') { $profE++ }
-        elseif ($cuerpo[$kE] -eq '}') { $profE--; if ($profE -eq 0) { $ramaCalla = $cuerpo.Substring($jE, $kE - $jE + 1); break } }
-    }
-}
-Comp 'la rama de callarse se delimita' ($ramaCalla.Length -gt 0) "$($ramaCalla.Length) caracteres"
-Comp 'NO arma el seguimiento' ($ramaCalla -match '\$script:seguimientoPendiente = \$false') 'esto es lo que dejaba el micro abierto'
-Comp 'ni la ventana de charla' ($ramaCalla -match '\$script:ventanaCharla = \$false') 'si no, la siguiente frase entra igual'
-Comp 'y queda contado, para poder medirlo' ($ramaCalla -match "Add-Estadistica 'corte-callar'")
-Comp 'y no dice ni una palabra' (-not ($ramaCalla -match '(?m)\bSay\b')) 'el gesto de la capsula ya lo cuenta'
+$lineas = @($fuente -split "`r?`n")
+# DELIMITADO POR SUS DOS MARCAS, no por un numero de lineas: 60 se quedaba corto y tres
+# comprobaciones salian rojas con el codigo bien. Es la misma trampa que ya costo cuatro.
+$iC = ($lineas | Select-String -SimpleMatch 'Resolve-Corte $palabraCorte' | Select-Object -First 1).LineNumber
+$iFin = ($lineas | Select-String -SimpleMatch '# --- CONVERSACION' | Select-Object -First 1).LineNumber
+if (-not $iC -or -not $iFin -or $iFin -le $iC) { Write-Host '  MAL  no se delimitar el bloque del corte'; exit 1 }
+$bloque = (($lineas[($iC - 1)..($iFin - 2)] | Where-Object { $_ -notmatch '^\s*#' }) -join "`n")
+Comp 'el bloque del bucle existe' ($null -ne $iC) ''
+Comp 'NO arma el seguimiento al callarse' ($bloque -match '\$script:seguimientoPendiente = \$false') 'esto es lo que dejaba el micro abierto'
+Comp 'ni la ventana de charla' ($bloque -match '\$script:ventanaCharla = \$false') 'si no, la siguiente frase entra igual'
+Comp 'y queda contado, para poder medirlo' ($bloque -match "Add-Estadistica 'corte-callar'")
+# SOLO LA RAMA DEL CORTE: volver de la sordina SI habla ("Aqui estoy"), y eso es correcto.
+# Lo que no puede hablar es callarse.
+$iCorta = $bloque.IndexOf('$esNombreC = $dCorte.abreMicro')
+$ramaCorte = if ($iCorta -ge 0) { $bloque.Substring($iCorta) } else { '' }
+Comp 'la rama del corte se delimita' ($ramaCorte.Length -gt 0) "$($ramaCorte.Length) caracteres"
+Comp 'y al callarse no dice ni una palabra' (-not ($ramaCorte -match '(?m)\bSay\b')) 'el gesto de la capsula ya lo cuenta'
+Comp 'pero volver de la sordina SI habla' ($bloque -match "Say 'Aqui estoy") 'eso es lo correcto'
 
 Write-Host ''
 Write-Host '-- y no se queda sorda, que seria el fallo contrario --'
