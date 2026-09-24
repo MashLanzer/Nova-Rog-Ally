@@ -7559,6 +7559,19 @@ function Remove-DatoPerfil([string]$sobre) {
     $palabras = @(((ConvertTo-Suave $sobre) -replace '[^a-z0-9 ]', ' ') -split '\s+' | Where-Object { $_.Length -ge 4 } | Select-Object -Unique)
     if ($palabras.Count -eq 0) { return $null }
     $datos = @(Get-DatosPerfil)
+    # UNA PALABRA SUELTA NO PUEDE SER UNA PALABRA COMUN (23/09). El umbral de abajo es "al
+    # menos la mitad de las palabras dichas", y la mitad de UNA es UNA: bastaba con decir
+    # "braya, borralo" para que se fuera un dato al azar. Medido en su perfil de 60 datos:
+    # "braya" sale en 28 (47 %), "juego" en 21, "tiene" en 15. Con una sola palabra, esa
+    # palabra tiene que senalar a POCOS datos o no se borra nada: si senala a muchos, no se
+    # sabe a cual se refiere, y lo que hay en su perfil es suyo.
+    # El tope es el mismo criterio que usa Get-ParParecidoPerfil para las palabras vacias:
+    # una sexta parte de los datos. Con 60, son 10; "amino" (3) y "steam" (2) pasan.
+    if ($palabras.Count -eq 1) {
+        $cuantosP = @($datos | Where-Object { (ConvertTo-Suave $_).Contains($palabras[0]) }).Count
+        $topeP = [Math]::Max(2, [int][Math]::Ceiling($datos.Count / 6.0))
+        if ($cuantosP -ge $topeP) { return $null }
+    }
     $mejor = $null; $mejorN = 0
     foreach ($x in $datos) {
         $cx = ConvertTo-Suave $x

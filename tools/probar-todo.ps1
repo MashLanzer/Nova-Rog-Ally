@@ -451,6 +451,16 @@ Titulo "2n105. A que podemos jugar los dos"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-juegos-dos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:de donde lo ha sacado)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n108. Las cinco funciones que no probaba nadie"
+# Mapeando el repo para la tanda de veinte salieron cinco funciones sin ningun banco, y las
+# cinco son la base de cuatro de las ideas que vienen: Get-MusicaActual, Get-PrimerVideoYouTube,
+# Test-Recordatorios, Remove-DatoPerfil y Get-AmigosSteam. Escribiendo el banco aparecio un
+# fallo de verdad: Remove-DatoPerfil borraba un dato al azar si le decias UNA palabra comun
+# ("braya" sale en 28 de sus 60 datos). Y lo que se vigila sobre todo: que la clave de la API
+# de Steam no salga NUNCA en el log.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-huerfanas.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya tienen quien las mire)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n107. Mandar callar: que no diga que si y siga escuchando"
 # 23/09 21:16, y es la segunda vez con la misma familia. braya dijo "no me hablas en diez
 # minutos" (con ruido delante), Nova lo mando a la charla, el modelo contesto que vale y la
