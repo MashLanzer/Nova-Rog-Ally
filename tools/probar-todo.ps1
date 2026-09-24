@@ -451,6 +451,18 @@ Titulo "2n105. A que podemos jugar los dos"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-juegos-dos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:de donde lo ha sacado)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n121. De que va este juego (y que hacer aqui, que es otra cosa)"
+# Idea 6, partida en dos porque son dos preguntas y solo una tiene respuesta en una
+# enciclopedia. Su frase y su fallo estan fechados en el propio codigo, 15/09: jugando a It
+# Takes Two, "busca informacion sobre el juego que esta en pantalla" buscaba esa frase tal
+# cual en Google y abria el navegador ENCIMA de la partida, y esa ventana dura HORAS (5 h 38
+# el 15/09). Lo que mas se vigila: que no se invente de que va un juego. Comprobado contra la
+# Wikipedia, buscar "It Takes Two" a secas devuelve la PELICULA de 1995 y el titulo coincide
+# EXACTO, asi que la comprobacion de titulo sola no la caza: por eso se busca "<juego>
+# videojuego" y ademas se exige que el articulo hable de un juego.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-guia.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya te dice de que va)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n120. La musica: poner lo que es, y no repetir lo que no le gusta"
 # Ideas 1-A y 1-B. 52 intentos con frases distintas y ninguno acabo bien. El fallo de raiz,
 # medido contra youtube.com con cuatro busquedas suyas: el regex viejo devolvia 45, 71, 45 y

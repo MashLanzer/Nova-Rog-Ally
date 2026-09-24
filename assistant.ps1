@@ -5773,6 +5773,28 @@ function Resolve-Fragment([string]$f) {
         # a secas o con lo que se bloquea: "bloquea a ese tio en discord" bloqueaba la sesion
         '^(?:bloquea|bloquear)(?:\s+(?:la\s+)?(?:pantalla|sesion|el\s+(?:pc|ordenador|equipo|computador|computadora)))?$' { return @(@{ kind = 'lock'; desc = 'bloquear sesion' }) }
     }
+    # --- DE QUE VA ESTE JUEGO (23/09, idea 6) ---
+    # VAN DELANTE DE LAS BUSQUEDAS a proposito: "busca informacion sobre..." cae ahi abajo y
+    # sale como kind 'url', o sea el navegador ENCIMA de la partida. Esta fechado en el
+    # propio codigo, 15/09: jugando a It Takes Two, "busca informacion sobre el juego que
+    # esta en pantalla" buscaba esa frase tal cual en Google.
+    # EL SUJETO NO SE RESUELVE AQUI: si lo capturado es "el juego" o "esto" se guarda el
+    # marcador '*juego*' y lo resuelve el ejecutor, que es el unico sitio donde el camino de
+    # la capsula y el del banco dicen lo mismo.
+    if ($f -match '^(?:busca|buscame|investiga|dime|cuentame|explicame)?\s*(?:informacion|info)\s+(?:sobre|de|del|acerca de)\s+(.+?)(\s+y\s+dime\s+que\s+hacer\s+en\s+esta\s+parte|\s+en\s+esta\s+parte)?$' -or
+        $f -match '^(?:guia|una guia|la guia)\s+(?:de|sobre|para)\s+(.+?)(\s+en\s+esta\s+parte)?$') {
+        $queG = $Matches[1].Trim()
+        $parteG = [bool]$Matches[2]
+        if ($queG -match '^(?:el\s+juego(?:\s+que\s+estoy\s+jugando)?|este\s+juego|el\s+juego\s+que\s+esta\s+en\s+pantalla|esto|eso)$') { $queG = '*juego*' }
+        return @(@{ kind = 'guiaJuego'; juego = $queG; parte = $parteG; desc = 'mirar de que va' })
+    }
+    if ($f -match '^(?:de que (?:va|trata)|que es)\s+(?:el juego|este juego|esto)$') {
+        return @(@{ kind = 'guiaJuego'; juego = '*juego*'; parte = $false; desc = 'de que va el juego' })
+    }
+    # LA PARTE NO ESTA EN NINGUNA ENCICLOPEDIA: esta va al camino de la captura y el cerebro.
+    if ($f -match '^(?:dime\s+|explicame\s+|cuentame\s+)?(?:que\s+(?:hago|hacer|tengo que hacer|hay que hacer|se hace|toca(?:\s+hacer)?))\s+(?:aqui|en esta parte|en este punto|en esta zona)$') {
+        return @(@{ kind = 'guiaJuego'; juego = '*juego*'; parte = $true; desc = 'que hacer en esta parte' })
+    }
     # --- busquedas ---
     if ($f -match '^(?:busca|buscame|buscar|busque|googlea|googleame|investiga)\s+(.+)$') {
         $q = $Matches[1].Trim()
@@ -9429,6 +9451,9 @@ function Watch-Entorno([int]$botones = 0) {
     # CUANTO TARDO EL OIDO (23/09, idea 12): un Test-Path, y solo hasta que apunta.
     try { Add-ArranqueOido } catch {}
 
+    # LA GUIA, SI YA LLEGO (23/09, idea 6): un HasExited, cero red.
+    try { Receive-Guia } catch { Log ("guia: " + $_.Exception.Message) }
+
     # SE REVISA A SI MISMA: una vez al dia mira sus numeros y apaga lo que no le sirve.
     # VA DELANTE DEL PARTE DE LA MANANA (20/09, P5), no detras: es quien deja apuntado el
     # "tengo una decision esperando", y el parte solo sale UNA vez al dia. Detras, lo que
@@ -11537,6 +11562,112 @@ function Test-MusicaVetada([string]$titulo, [string]$id) {
 # y 28, o sea que mezclaba los videos de verdad con los de las estanterias y las playlists, y
 # por eso "el tercero" nunca era el tercero.
 # El {0,4000} acota al perezoso para que no salte al bloque siguiente.
+# LA GUIA DEL JUEGO, FUERA DEL BUCLE (23/09, idea 6). Se lanza tools\guia-web.ps1 en otro
+# proceso y se recoge cuando llegue, igual que ya se hace con el ayudante de la API. El bucle
+# no espera a nadie: braya juega mientras habla.
+$script:guiaProc = $null
+$script:guiaOut = ''
+$script:guiaDesde = 0
+$script:guiaJuego = ''
+function Get-GuiaTiemposPath { return (Join-Path $MemoriaDir 'guia-tiempos.json') }
+function Get-GuiaTiempos {
+    $out = @()
+    try {
+        if (-not (Test-Path -LiteralPath (Get-GuiaTiemposPath))) { return $out }
+        $j = Get-Content -LiteralPath (Get-GuiaTiemposPath) -Raw -Encoding UTF8 | ConvertFrom-Json
+        foreach ($x in $j) { $out += [int]$x }
+    } catch { return @() }
+    return $out
+}
+function Add-GuiaTiempo([int]$ms) {
+    if ($ms -le 0) { return }
+    $l = @(Get-GuiaTiempos) + $ms
+    if ($l.Count -gt 200) { $l = @($l | Select-Object -Last 200) }
+    try { Write-Atomico (Get-GuiaTiemposPath) (ConvertTo-Json -InputObject @($l) -Depth 2) } catch {}
+}
+# EL PLAZO SE PONE CON DATOS O NO SE PONE. Con pocas medidas, 8 s: los 6 s que ya lleva de
+# tope la busqueda de YouTube mas 2 s de arrancar powershell.exe. A partir de ahi, el p90 de
+# lo medido por vez y media, entre 4 y 15 s.
+function Get-GuiaPlazoMs {
+    $l = @(Get-GuiaTiempos)
+    if ($l.Count -lt $DecisionMinIntentos) { return 8000 }
+    $orden = @($l | Sort-Object)
+    $p90 = [int]$orden[[int][Math]::Floor(($orden.Count - 1) * 0.9)]
+    return [Math]::Max(4000, [Math]::Min(15000, [int]($p90 * 1.5)))
+}
+
+function Stop-Guia {
+    if (-not $script:guiaProc) { return }
+    try { if (-not $script:guiaProc.HasExited) { Start-Process -FilePath 'taskkill.exe' -ArgumentList @('/PID', $script:guiaProc.Id, '/T', '/F') -WindowStyle Hidden -Wait } } catch {}
+    try { if ($script:guiaOut) { Remove-Item -LiteralPath $script:guiaOut -Force -ErrorAction SilentlyContinue } } catch {}
+    $script:guiaProc = $null
+    $script:guiaOut = ''
+}
+
+function Start-GuiaJuego([string]$juego) {
+    Stop-Guia   # una guia a la vez: la anterior se cancela
+    try {
+        $script:guiaOut = Join-Path $TmpDir ('guia-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.json')
+        $script:guiaProc = Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden -PassThru `
+            -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $GuiaScript,
+                            '-Juego', ('"' + $juego + '"'), '-SalidaArchivo', ('"' + $script:guiaOut + '"'))
+        $null = $script:guiaProc.Handle
+        $script:guiaDesde = $sw.ElapsedMilliseconds
+        return $true
+    } catch { Log ("guia: no pude lanzarla: " + $_.Exception.Message); $script:guiaProc = $null; return $false }
+}
+
+# LO QUE SE DICE EN VOZ ALTA: una frase si esta jugando, dos si no. Es el mismo criterio que
+# ya se impone en la charla -jugando, corto- y no un numero nuevo.
+function Get-GuiaFrases([string]$texto, [int]$n) {
+    if (-not $texto) { return '' }
+    $t = ($texto -replace '\s+', ' ').Trim()
+    $frases = @([regex]::Split($t, '(?<=[.!?])\s+') | Where-Object { $_.Trim() })
+    if ($frases.Count -eq 0) { return $t }
+    return (($frases | Select-Object -First $n) -join ' ').Trim()
+}
+
+# UNA VUELTA DEL BUCLE = UN HasExited. Cero red aqui.
+function Receive-Guia {
+    if (-not $script:guiaProc) { return }
+    $vivo = $true
+    try { $vivo = -not $script:guiaProc.HasExited } catch { $vivo = $false }
+    $plazo = Get-GuiaPlazoMs
+    if ($vivo) {
+        if (($sw.ElapsedMilliseconds - $script:guiaDesde) -lt $plazo) { return }
+        Log "GUIA: $($script:guiaJuego) tardo mas de $plazo ms; la corto"
+        Stop-Guia
+        Say 'No he podido mirarlo.'
+        return
+    }
+    $txt = ''
+    try { if ($script:guiaOut -and (Test-Path -LiteralPath $script:guiaOut)) { $txt = Get-Content -LiteralPath $script:guiaOut -Raw -Encoding UTF8 } } catch {}
+    $salida = $script:guiaOut
+    $script:guiaProc = $null
+    $script:guiaOut = ''
+    try { if ($salida) { Remove-Item -LiteralPath $salida -Force -ErrorAction SilentlyContinue } } catch {}
+    if (-not $txt) { Say ('No he podido mirar lo de ' + $script:guiaJuego + '.'); return }
+    $j = $null
+    try { $j = $txt | ConvertFrom-Json } catch { $j = $null }
+    if (-not $j) { Say ('No he podido mirar lo de ' + $script:guiaJuego + '.'); return }
+    try { Add-GuiaTiempo ([int]$j.ms) } catch {}
+    if (-not $j.ok) {
+        Log "GUIA: $($script:guiaJuego) sin articulo ($($j.motivo))"
+        Say ('No he encontrado nada de ' + $script:guiaJuego + ' en la Wikipedia.')
+        return
+    }
+    $nFr = if ($script:juegoActivo) { 1 } else { 2 }
+    $frase = Get-GuiaFrases ([string]$j.texto) $nFr
+    $deDonde = if ([string]$j.fuente -eq 'en.wikipedia') { ' Lo he sacado de la Wikipedia en ingles.' } else { ' Es de la Wikipedia.' }
+    Log "GUIA: $($script:guiaJuego) -> $($j.titulo) ($($j.fuente), $($j.ms) ms)"
+    Add-Estadistica 'guia-juego' ([string]$script:guiaJuego)
+    # SE DICE CON Say, NO CON Send-Aviso: un aviso con el juego delante se queda MUDO, y aqui
+    # el juego delante es justo el caso. Esto es la respuesta a una orden suya, no un aviso.
+    $script:ultimaRespuesta = $frase + $deDonde
+    Show-Popup ($frase + $deDonde)
+    Say ($frase + $deDonde)
+}
+
 function Get-VideosDeHtml([string]$html) {
     $out = @()
     if (-not $html) { return $out }
@@ -12408,6 +12539,31 @@ function Invoke-FastCommand([string]$text) {
                     $ultN = @($lN | Select-Object -Last 5 | ForEach-Object { [string]$_.q })
                     $a.desc = "tengo $($lN.Count): " + ($ultN -join ', ')
                     if ($lN.Count -gt $ultN.Count) { $a.desc += ' y mas' }
+                }
+                'guiaJuego' {
+                    $jg = if ([string]$a.juego -eq '*juego*') { Get-JuegoDeReferencia } else { [string]$a.juego }
+                    if (-not $jg) { $a.desc = 'no se a que juego te refieres'; break }
+                    if ([bool]$a.parte) {
+                        # LO QUE HACER AQUI NO ESTA EN LA WIKIPEDIA: va por el camino que ya
+                        # existe -captura, OCR y cerebro-, que es el unico que puede mirar la
+                        # escena. Leerle el resumen del juego seria contestar a otra cosa.
+                        $capG = ''
+                        try { $capG = Save-Captura (Join-Path $TmpDir 'pantalla.png') } catch {}
+                        $pregG = "Estoy jugando a $jg. Dime en UNA frase que hacer en esta parte. Si no reconoces la escena, dilo; no te lo inventes."
+                        if ($capG) {
+                            try {
+                                $oG = Invoke-OCR $capG
+                                if ($oG) { $pregG += ' [Texto visible: ' + $oG.Substring(0, [Math]::Min(1500, $oG.Length)) + ']' }
+                            } catch {}
+                        }
+                        Submit-Command $pregG 'charla' $capG
+                        $a.desc = ''   # contesta el cerebro por su camino
+                        break
+                    }
+                    $script:guiaJuego = $jg
+                    if (-not (Start-GuiaJuego $jg)) { $a.desc = 'ahora mismo no puedo mirarlo'; break }
+                    Set-UI 'pensando' 'mirando la Wikipedia'
+                    $a.desc = ''   # se habla cuando llegue, en Receive-Guia
                 }
                 'musicaQue' {
                     $mu = Get-MusicaActual
@@ -18618,6 +18774,7 @@ $ClaudeOn = [bool](Get-Cfg 'modelo' 'usarClaude' $true)
 $ClaudeModeloRapido = [string](Get-Cfg 'modelo' 'rapido' 'claude-haiku-4-5')
 $ClaudeModeloBueno = [string](Get-Cfg 'modelo' 'bueno' 'claude-opus-5')
 $ClaudeScript = Join-Path $LogDir "tools\claude-api.ps1"
+$GuiaScript = Join-Path $LogDir "tools\guia-web.ps1"   # de que va este juego (idea 6)
 
 # =====================================================================
 # EL CEREBRO: CLAUDE CODE (13/09)
