@@ -6278,6 +6278,10 @@ function Set-Cfg([string]$seccion, [string]$clave, $valor) {
 }
 
 function Add-Perfil([string]$nombre, [string[]]$ordenes) {
+    # MODO INVITADO: lo que diga otro no se queda (23/09, verificando la idea 17). Esta era la
+    # unica funcion que escribe memoria a la que le faltaba, y commands.json es el fichero de
+    # ordenes de braya: Save-Montajes y Save-PalabrasNo llevan esta misma linea desde el 17/09.
+    if ($script:invitado) { Log 'modos: modo invitado, no guardo nada'; return $false }
     $nombre = (ConvertTo-Plain $nombre).Trim()
     if (-not $nombre -or $ordenes.Count -eq 0) { return $false }
     try {
@@ -11313,7 +11317,9 @@ function Test-FastCommand([string]$text) {
     if ($text -match '(?i)^\s*(?:(?:el|lo|la|los|las)\s+(?:de|del|de la|de los)\s+)?(.+?)\s*[,.]?\s*(?:elim[ií]nalo|b[oó]rralo|qu[ií]talo|olv[ií]dalo)\s*[.!]?$' -or
         $text -match '(?i)^\s*(?:elimina|quita|borra|olvida)\s+(?:el\s+dato\s+(?:de|del|sobre)|lo\s+(?:de|del)|(?:el|la|los|las)\s+(?:de|del))\s+(.+)$') { return $true }
     # el MISMO patron que el ejecutor, o el banco no ve que crear un modo es local
-    if ($text -match '(?i)^\s*(?:crea|crear|haz|hazme|define|guardame)\s+(?:el\s+|un\s+)?modo\s+([^\s:,]{2,20})\s*(?::|,|\s+que\s+|\s+con\s+|\s+)\s*(.+)$') { return $true }
+    # NOMBRES DE DOS PALABRAS (23/09, verificando la idea 17): ver Invoke-FastCommand
+    if ($text -match '(?i)^\s*(?:crea|crear|haz|hazme|define|guardame)\s+(?:el\s+|un\s+)?modo\s+([^:,]{2,20})\s*[:,]\s*(.+)$' -or
+        $text -match '(?i)^\s*(?:crea|crear|haz|hazme|define|guardame)\s+(?:el\s+|un\s+)?modo\s+([^\s:,]{2,20})\s*(?::|,|\s+que\s+|\s+con\s+|\s+)\s*(.+)$') { return $true }
     $pl = ConvertTo-Plain $text
     if ($pl -match '^(?:recuerdame|avisame|recordatorio)\s+(?!que\b)(?:hoy|manana|pasado manana|el (?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)|el \d{1,2} de |a las? )') { return $true }   # recordatorio con fecha
     # ojo: los mismos lookaheads que el ejecutor. Con el patron corto, este
@@ -11908,7 +11914,16 @@ function Invoke-FastCommand([string]$text) {
     # "crea el modo streaming: cierra discord Y pon el volumen al 30" se parte
     # por esa "y" unas lineas mas abajo, y entonces ningun patron volveria a ver
     # el nombre del modo junto a sus ordenes.
-    if ($text -match '(?i)^\s*(?:crea|crear|haz|hazme|define|guardame)\s+(?:el\s+|un\s+)?modo\s+([^\s:,]{2,20})\s*(?::|,|\s+que\s+|\s+con\s+|\s+)\s*(.+)$') {
+    # UN MODO DE DOS PALABRAS SE PODIA PONER PERO NO CREAR (23/09, verificando la idea 17).
+    # El patron de ponerlo -"modo X"- termina en (.+)$ y se traga "modo estamos dos" sin
+    # pestanear, y la propuesta de secuencia YA crea modos de dos palabras ("rutina 2"). Este
+    # cogia el nombre con [^\s:,], sin espacios: "crea el modo estamos dos: abre it takes two"
+    # guardaba un modo llamado "estamos" con la orden "dos: abre it takes two". La alternativa
+    # de delante solo entra cuando hay dos puntos o coma, que es donde el nombre acaba sin
+    # ninguna duda; sin separador explicito manda el de siempre, porque ahi adivinar donde
+    # acaba el nombre seria inventarselo.
+    if ($text -match '(?i)^\s*(?:crea|crear|haz|hazme|define|guardame)\s+(?:el\s+|un\s+)?modo\s+([^:,]{2,20})\s*[:,]\s*(.+)$' -or
+        $text -match '(?i)^\s*(?:crea|crear|haz|hazme|define|guardame)\s+(?:el\s+|un\s+)?modo\s+([^\s:,]{2,20})\s*(?::|,|\s+que\s+|\s+con\s+|\s+)\s*(.+)$') {
         $nom = $Matches[1].Trim(); $cuerpo = $Matches[2].Trim()
         # Se COMPRUEBA que cada trozo se entienda ANTES de guardar nada: un modo
         # con una linea que no se reconoce es un modo que un dia hace la mitad de
@@ -11919,6 +11934,9 @@ function Invoke-FastCommand([string]$text) {
             if (Resolve-Fragment $fr) { $lineas += $fr } else { $malas += $fr }
         }
         if ($lineas.Count -eq 0) { return "No entendi ninguna de esas ordenes, asi que no he creado nada." }
+        # el porque, no un "no pude": Add-Perfil ya se niega en modo invitado, pero devolver
+        # $false a secas deja a quien habla sin saber que paso ni como arreglarlo
+        if ($script:invitado) { return "Estoy en modo invitado y no guardo nada. Di: sal del modo invitado, y te lo creo." }
         if (-not (Add-Perfil $nom $lineas)) { return "No pude guardar el modo." }
         $r = "Modo $nom creado, con $($lineas.Count) " + $(if ($lineas.Count -eq 1) { 'orden' } else { 'ordenes' }) + '.'
         if ($malas.Count -gt 0) { $r += " Esto no lo entendi y lo he dejado fuera: " + ($malas -join '; ') + '.' }

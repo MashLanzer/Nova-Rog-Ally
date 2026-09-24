@@ -474,6 +474,19 @@ Titulo "2n122. La trivia, con preguntas de verdad, el mando y un marcador"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-trivia.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya pregunta de verdad)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n123. El modo de dos jugadores: ya existe, y la frase que lo pone"
+# Idea 17, que era "NO se hace": un modo propio para las sesiones de dos seria un cuarto sitio
+# donde se guardan listas de ordenes con nombre, teniendo ya perfiles, montajes y recetas. Lo
+# que le falta a braya no es codigo, es la frase. Pero verificarlo encontro dos cosas de
+# verdad: Add-Perfil era LA UNICA funcion que escribe memoria sin la guarda del modo invitado
+# -y el invitado se propone justo cuando Nova no reconoce la voz, o sea, cuando la novia esta
+# delante-, y un modo de DOS palabras se podia poner pero no crear ("crea el modo estamos dos:
+# ..." guardaba un modo llamado "estamos"). Lo que mas se vigila: la salida. Ocho de sus doce
+# juegos son de dos y la sesion mas larga medida son 6 h 14, asi que este es el candidato
+# perfecto a quedarse puesto.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-modo-dos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el modo de dos ya existe)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n120. La musica: poner lo que es, y no repetir lo que no le gusta"
 # Ideas 1-A y 1-B. 52 intentos con frases distintas y ninguno acabo bien. El fallo de raiz,
 # medido contra youtube.com con cuatro busquedas suyas: el regex viejo devolvia 45, 71, 45 y
