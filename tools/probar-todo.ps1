@@ -17,6 +17,21 @@ $fallos = 0
 # ejecutado. Saltar no es fallar, asi que se apuntan aparte de $fallos, pero se
 # dicen por su nombre al final para que nadie lea un verde que no es entero.
 $secSaltadas = @()
+# LA VENTANA EN LA QUE EL CODIGO EXISTIA (24/09). Es la trampa que tumbo CUATRO conclusiones
+# en un solo dia, y ninguna de las cuatro era un fallo de verdad:
+#   - "el resumen al volver es un widget el 62 % de las veces": las 1.249 lineas caen enteras
+#     en dos dias, 19 y 21/09, y desde el arreglo del 22/09 no hay ni una;
+#   - "se muere catorce veces al dia": la linea "VoiceAssistant cerrado" no existia antes del
+#     18/09 19:59, asi que nueve dias contaban arranques contra algo que no se escribia;
+#   - "Nova avisa del ruido 31 veces": los 31 son del 22/09, el dia que se arreglo; despues, 6
+#     y luego 0;
+#   - "el filtro del repaso solo salto 4 veces mientras 120 candidatos pasaban": el filtro es
+#     del 22/09 y los 120 son de antes; en SU ventana son 14 repasos, 5 tirados y 4 ahorrados.
+# La regla, entonces: antes de decir que algo esta roto, mirar DESDE CUANDO existe el codigo
+# -git log -S, o la fecha del comentario- y contar solo desde ahi. Si el fallo dejo de salir
+# hace dias, la respuesta no es "esta roto": es "ya se arreglo". Un contador que cruza la
+# fecha de su propio arreglo miente en la direccion mas cara, que es hacer trabajo de mas
+# sobre algo que ya estaba bien.
 # AVISOS EN AMARILLO (19/09, H2m3): ni verde ni rojo. Son cosas que el banco NO puede
 # comprobar por si mismo -como que el codigo nuevo se haya usado de verdad- y que si se
 # dijeran en rojo molestarian en pleno desarrollo. Se juntan aqui para que el veredicto
