@@ -451,6 +451,15 @@ Titulo "2n105. A que podemos jugar los dos"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-juegos-dos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:de donde lo ha sacado)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n107. Mandar callar: que no diga que si y siga escuchando"
+# 23/09 21:16, y es la segunda vez con la misma familia. braya dijo "no me hablas en diez
+# minutos" (con ruido delante), Nova lo mando a la charla, el modelo contesto que vale y la
+# sordina no se activo: siguio escuchando. Decir que si y no hacerlo es el peor fallo que
+# puede tener. Medido: de trece formas naturales de pedirlo, el patron cogia TRES -los
+# numeros hablados llegaban hasta CINCO, asi que "diez minutos" no existia-.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-mandar-callar.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:cuando le mandas callar se calla)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n104. La lupa: ensenar el trozo en vez de recitarlo"
 # Funcion 8. Su pantalla son 15 x 9 cm con el escritorio a 1280x720: 0,117 mm por pixel, o sea
 # eso era el OCR: la unica lectura de pantalla de JUEGO de todo el registro devolvio cinco

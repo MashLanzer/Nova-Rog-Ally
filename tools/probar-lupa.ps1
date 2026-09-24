@@ -159,15 +159,19 @@ foreach ($z in @('arriba', 'abajo', 'izquierda', 'derecha', 'centro',
 Write-Host ''
 Write-Host '-- AMPLIA DE VERDAD (esto es lo que fallaba) --'
 $sl = TraerCodigo 'Show-Lupa'
-Comp 'el aumento es fijo, no "lo que quepa"' ($sl -match '\$esc = 2\.0') 'x2'
-Comp 'y lo que no cabe se recorta, no se encoge' ($sl -match 'GraphicsUnit\]::Pixel') 'DrawImage con rectangulo de origen'
+# EL ESCALADO VIVE EN Draw-Lupa DESDE LA IDEA 15: Show-Lupa monta la ventana y Draw-Lupa
+# pinta la imagen. Estas tres comprobaciones miraban Show-Lupa y se pusieron rojas solas al
+# partir la funcion, con el codigo bien.
+$sd = TraerCodigo 'Draw-Lupa'
+Comp 'el aumento arranca en x2' ($sd -match 'lupaEsc = 2\.0' -or $sl -match 'lupaEsc = 2\.0') 'y sube a x3 y x4 con el hombro'
+Comp 'y lo que no cabe se recorta, no se encoge' ($sd -match 'GraphicsUnit\]::Pixel') 'DrawImage con rectangulo de origen'
 # la cuenta, con LOS NUMEROS DE ESTA CONSOLA (medidos hoy): el escritorio va a 1280x720
 $origW = [int](1280 * 0.6); $origH = [int](720 * 0.6)      # lo que da Get-ZonaRect al centro
 $vMaxW = [int](1280 * 0.70); $vMaxH = [int](720 * 0.70)    # el techo de la version vieja
 $antes = [Math]::Min($vMaxW / [double]$origW, $vMaxH / [double]$origH)
 Comp 'la cuenta vieja no ampliaba' ($antes -lt 1.25) ("x{0:N2} con el centro de la pantalla" -f $antes)
 Comp 'la nueva si' ($true) 'x2, mas del doble'
-Comp 'la letra pequena no se emborrona' ($sl -match 'NearestNeighbor') 'nada de bilineal'
+Comp 'la letra pequena no se emborrona' ($sd -match 'NearestNeighbor') 'nada de bilineal'
 
 Write-Host ''
 Write-Host '-- no roba el foco, que braya esta jugando --'
@@ -215,6 +219,117 @@ foreach ($v in @('ampliame', 'amplialo', 'acercame', 'agrandame', 'quitala', 'qu
 Comp 'y las formas largas van antes que las cortas' `
     ($verbos.IndexOf('|quitale') -lt $verbos.IndexOf('|quita)') -or $verbos -match '\|quitale\|') `
     'con quita delante se perdia "quitale el siempre encima"'
+Write-Host ''
+Write-Host '-- Y SE PUEDE MOVER, que la captura ya esta hecha (idea 15) --'
+# La lupa amplia x2 un trozo FIJO. Si lo que braya quiere leer esta al lado, antes habia
+# que pedir otra zona entera y capturar de nuevo. La captura ya esta en el disco: moverse
+# por ella es un DrawImage, no una foto.
+# EL TROZO DEL BUCLE SE SACA DEL FICHERO Y SE EJECUTA, igual que en probar-elegir-mando:
+# no es una funcion, vive dentro del while.
+$m1 = $fuente.IndexOf('    # MOVIENDO LA LUPA (23/09, idea 15)')
+$m2 = $fuente.IndexOf('    # ELIGIENDO DE UNA LISTA', $m1)
+$trozoLupa = if ($m1 -ge 0 -and $m2 -gt $m1) { $fuente.Substring($m1, $m2 - $m1) } else { '' }
+Comp 'el bloque de mover se encuentra' ($trozoLupa.Length -gt 300) "$($trozoLupa.Length) caracteres"
+
+# el andamio: lo minimo para que ese trozo viva
+$script:logs = @()
+function Log([string]$m) { $script:logs += $m }
+$script:relojL = 0
+$swL = [pscustomobject]@{}
+$swL | Add-Member -MemberType ScriptProperty -Name ElapsedMilliseconds -Value { $script:relojL }
+$sw = $swL
+$script:dibujos = 0
+function Update-Lupa { $script:dibujos++; return $true }
+function Close-Lupa { $script:lupaForm = $null }
+$script:eleccion = $null; $script:panel = $null; $script:pendiente = $null
+$script:juegoActivo = $false; $script:pausaHasta = 0
+$script:lupaForm = 'una ventana'; $script:lupaNW = 900; $script:lupaNH = 600
+$script:lupaDx = 0; $script:lupaDy = 0; $script:lupaEsc = 2.0
+foreach ($v in @('LupaMs', 'LupaEscalas', 'XINPUT_ARR', 'XINPUT_ABA', 'XINPUT_IZQ',
+                 'XINPUT_DER', 'XINPUT_A', 'XINPUT_B', 'XINPUT_LB', 'XINPUT_RB',
+                 'XINPUT_START', 'TRIGGER')) { Invoke-Expression (TraerVarTxt $v) }
+$txtConMenuL = TraerVarTxt 'conMenu'
+$txtMandoValeL = TraerVarTxt 'mandoVale'
+function VueltaL([int]$pulsados = 0, [int]$avanzaMs = 0, [int]$botones = -1) {
+    $script:relojL += $avanzaMs
+    if ($botones -lt 0) { $botones = $pulsados }
+    Invoke-Expression $txtConMenuL
+    Invoke-Expression $txtMandoValeL
+    Invoke-Expression $trozoLupa
+}
+
+VueltaL $XINPUT_DER
+Comp 'la cruceta a la derecha corre el trozo' ($script:lupaDx -gt 0) "dx=$($script:lupaDx)"
+$antesDx = $script:lupaDx
+VueltaL $XINPUT_IZQ
+Comp 'y a la izquierda vuelve' ($script:lupaDx -lt $antesDx) "dx=$($script:lupaDx)"
+VueltaL $XINPUT_ABA
+Comp 'abajo tambien' ($script:lupaDy -gt 0) "dy=$($script:lupaDy)"
+VueltaL $XINPUT_ARR
+Comp 'y arriba' ($script:lupaDy -le 0) "dy=$($script:lupaDy)"
+Comp 'y cada movimiento redibuja' ($script:dibujos -eq 4) "$($script:dibujos) dibujos"
+
+$script:lupaEsc = 2.0
+VueltaL $XINPUT_RB
+Comp 'el hombro derecho amplia mas' ($script:lupaEsc -eq 3.0) "x$($script:lupaEsc)"
+VueltaL $XINPUT_RB
+Comp 'y otra vez' ($script:lupaEsc -eq 4.0) "x$($script:lupaEsc)"
+VueltaL $XINPUT_RB
+Comp 'pero no pasa de x4' ($script:lupaEsc -eq 4.0) 'mas aumento que eso no cabe nada'
+VueltaL $XINPUT_LB
+Comp 'y el izquierdo amplia menos' ($script:lupaEsc -eq 3.0) "x$($script:lupaEsc)"
+$script:lupaEsc = 2.0
+VueltaL $XINPUT_LB
+Comp 'y no baja de x2' ($script:lupaEsc -eq 2.0) 'por debajo no se lee'
+
+Write-Host ''
+Write-Host '-- pero la cruceta es de tres: la lupa va la ultima --'
+# La lupa, el selector y el panel rapido usan la MISMA cruceta. Si estan abiertos a la vez
+# tiene que mandar uno solo, y la lupa es la que menos: las otras dos esperan respuesta.
+$script:lupaDx = 0; $script:dibujos = 0
+$script:eleccion = @{ opciones = @('a', 'b'); i = 0 }
+VueltaL $XINPUT_DER
+Comp 'con una lista abierta, la lupa no se mueve' (($script:lupaDx -eq 0) -and ($script:dibujos -eq 0))
+$script:eleccion = $null
+$script:panel = @{ i = 0 }
+VueltaL $XINPUT_DER
+Comp 'con el panel abierto tampoco' ($script:lupaDx -eq 0)
+$script:panel = $null
+$script:pendiente = @{ tipo = '' }
+VueltaL $XINPUT_DER
+Comp 'ni con una pregunta esperando' ($script:lupaDx -eq 0)
+$script:pendiente = $null
+
+Write-Host ''
+Write-Host '-- y con un juego delante hace falta el menu --'
+# La cruceta con un juego delante es del juego: moverla no puede mover la lupa sola.
+$script:juegoActivo = 'Hollow Knight'
+$script:lupaDx = 0
+VueltaL $XINPUT_DER
+Comp 'la cruceta a pelo no mueve nada' ($script:lupaDx -eq 0)
+VueltaL ($XINPUT_DER -bor $TRIGGER) 0 ($XINPUT_DER -bor $TRIGGER)
+Comp 'con el menu apretado si' ($script:lupaDx -gt 0) "dx=$($script:lupaDx)"
+$script:juegoActivo = $false
+
+Write-Host ''
+Write-Host '-- y el plazo solo lo renueva lo que la lupa consume --'
+$script:relojL = 0; $script:lupaUntil = $LupaMs
+VueltaL $XINPUT_A 5000          # A no es suya
+Comp 'un boton que no es suyo no renueva el plazo' ($script:lupaUntil -eq $LupaMs) "$($script:lupaUntil)"
+VueltaL $XINPUT_DER 0
+Comp 'pero moverla si' ($script:lupaUntil -gt $LupaMs) "$($script:lupaUntil)"
+VueltaL $XINPUT_B 0
+Comp 'y B la quita' ($null -eq $script:lupaForm) 'la tercera salida, con las manos en el mando'
+
+Write-Host ''
+Write-Host '-- y moverse NO vuelve a fotografiar la pantalla --'
+$dl = TraerCodigo 'Draw-Lupa'
+$ul = TraerCodigo 'Update-Lupa'
+Comp 'Draw-Lupa no captura' ($dl -notmatch 'Save-Captura|CopyFromScreen') 'la captura ya esta en el disco'
+Comp 'Update-Lupa tampoco' ($ul -notmatch 'Save-Captura|CopyFromScreen')
+Comp 'y no crea una ventana nueva por pulsacion' ($ul -notmatch 'New-Object AXTarjeta') 'solo le cambia la foto'
+Comp 'soltando el Bitmap viejo' ($ul -match '\$viejo\.Dispose\(\)') '~3 MB cada uno'
+Comp 'y la lupa no se sale de la captura' ($dl -match '\[Math\]::Max\(0, \[Math\]::Min\(\$sx') 'fuera solo hay negro'
 Write-Host ''
 Write-Host '-- y NO recita lo que ve (que es el motivo de existir) --'
 $ejec = ''

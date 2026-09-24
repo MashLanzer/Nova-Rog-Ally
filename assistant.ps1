@@ -4929,27 +4929,26 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(?:que palabras no (?:puedes|debes|te deje) decir|que palabras no dices|que palabras tienes prohibidas|cuales son las palabras prohibidas)$') {
         return @(@{ kind = 'palabrasLista'; desc = 'las palabras que no digo' })
     }
-    if ($f -match '^(?:no,?\s+)?(?:no me escuches|no escuches|deja de escuchar|dejate de escuchar|duermete|vete a dormir|a dormir|descansa|apaga el oido|no me oigas|ignorame|no te actives|no te despiertes|no me interrumpas|no me molestes|no (?:me )?habl[ae]s|no digas nada|deja de hablar|callate)(?:\s+(?:durante|por|en|un|una)?\s*(?:(\d+)\s*(minuto|minutos|hora|horas)|(una hora|un rato|media hora|un momento|rato)))?$') {
+    # MANDAR CALLAR, EN TODAS SUS FORMAS (ampliado el 23/09 a las 21:16, con su caso).
+    # Lo que dijo braya: "Si, esto en una llamada, No me hablas en diez minutos". Nova lo
+    # mando a la charla, el modelo contesto que vale y NO se callo: siguio escuchando. Decir
+    # que si y no hacerlo es el peor fallo que puede tener.
+    # Se midio pasando trece formas naturales por el patron de entonces: cogia TRES. Lo que
+    # faltaba: los numeros hablados ("diez" no estaba en Get-MinutosDichos, que llegaba hasta
+    # cinco), el indicativo que suelta el oido ("no me hablAs" por "no me hablEs"), y los
+    # enlaces "durante" y "por".
+    if ($f -match '^(?:no,?\s+)?(?:no me escuches|no escuches|deja de escuchar|dejate de escuchar|duermete|vete a dormir|a dormir|descansa|apaga el oido|no me oigas|ignorame|no te actives|no te despiertes|no me interrumpas|no me molestes|no (?:me )?habl[aeé]s?|no me digas nada|no digas nada|deja de hablar|callate|calla|dejame en paz|dejame tranquilo|guarda silencio)(?:\s+(?:durante|por|en|un|una|unos)?\s*(?:(\d{1,3}|una|un|media|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|quince|veinte|veinticinco|treinta|cuarenta y cinco|cuarenta|cincuenta|sesenta|noventa)\s*(minutos?|horas?|hora y media)|(un rato|un momento|rato|un poco)))?$') {
         # OJO: hay que copiar los grupos ANTES de usar -match otra vez, porque
         # cada -match reescribe $Matches entero. Con el numero y la unidad
         # leidos de $Matches despues de comprobar la unidad, decia 'me callo 2'
         # y se comia el 'horas'.
         $num = $Matches[1]; $unidad = $Matches[2]; $expr = $Matches[3]
-        $ms = 15 * 60000
-        $comoLoDigo = 'un cuarto de hora'
-        if ($num) {
-            $n = [int]$num
-            if ($unidad -match '^hora') { $ms = $n * 3600000 } else { $ms = $n * 60000 }
-            $comoLoDigo = "$n $unidad"
-        } elseif ($expr -eq 'una hora') {
-            # "no me escuches una hora" se iba a la IA (auditoria del 13/09)
-            $ms = 3600000
-            $comoLoDigo = 'una hora'
-        } elseif ($expr -eq 'media hora') {
-            $ms = 30 * 60000
-            $comoLoDigo = 'media hora'
-        }
-        if ($ms -le 0) { return $null }
+        $minS = 15
+        if ($num) { $minS = Get-MinutosDichos $num $unidad }
+        elseif ($expr) { $minS = 15 }        # "un rato" son quince minutos, como siempre
+        if ($minS -le 0) { return $null }
+        $ms = $minS * 60000
+        $comoLoDigo = Format-MinutosDichos $minS
         return @(@{ kind = 'sordina'; ms = $ms; desc = "me callo $comoLoDigo; si me necesitas antes, manten el boton" })
     }
     # DICHO AL FINAL DE LO QUE ESTABA PENSANDO EN VOZ ALTA (21/09). Asi salio de
@@ -4960,16 +4959,21 @@ function Resolve-Fragment([string]$f) {
     # las 23:48:31 estaba activa otra vez y a las 23:48:39 cogio 'Vamos comentar'.
     # SOLO CON PLAZO EXPLICITO, que es lo que lo hace inofensivo: un 'no te actives'
     # suelto al final de una frase larga sigue siendo charla.
-    if ($f -match '\bno te actives\s+(?:durante|por|en)\s+(?:(\d+)\s*(minuto|minutos|hora|horas)|(una hora|media hora))$') {
-        $num2 = $Matches[1]; $unidad2 = $Matches[2]; $expr2 = $Matches[3]
-        $ms2 = 15 * 60000; $comoLoDigo2 = 'un cuarto de hora'
-        if ($num2) {
-            $n2 = [int]$num2
-            if ($unidad2 -match '^hora') { $ms2 = $n2 * 3600000 } else { $ms2 = $n2 * 60000 }
-            $comoLoDigo2 = "$n2 $unidad2"
-        } elseif ($expr2 -eq 'una hora') { $ms2 = 3600000; $comoLoDigo2 = 'una hora' }
-        elseif ($expr2 -eq 'media hora') { $ms2 = 30 * 60000; $comoLoDigo2 = 'media hora' }
-        return @(@{ kind = 'sordina'; ms = $ms2; desc = "me callo $comoLoDigo2; si me necesitas antes, manten el boton" })
+    # Y LA FAMILIA ENTERA, no solo "no te actives" (ampliado el 23/09 con el segundo caso).
+    # El 21/09 esto se escribio para "Solo estoy pensando en Mojarta, no te actives por diez
+    # minutos"; el 23/09 a las 21:16 volvio a pasar con otra frase de la misma familia -"Si,
+    # esto en una llamada, No me hablas en diez minutos"- y como solo cubria "no te actives",
+    # se fue a la charla otra vez. Misma solucion, mas ancha.
+    #
+    # SOLO CON PLAZO EXPLICITO, que es lo que lo hace inofensivo, y no se toca: un "callate"
+    # suelto al final de una frase larga sigue siendo charla. Decirle a Nova que se calle
+    # DIEZ MINUTOS no es algo que salga por casualidad en mitad de una frase.
+    if ($f -match '\b(?:no te actives|no me hables|no me hablas|no me hable|no hables|no me molestes|no me interrumpas|no me escuches|no me digas nada|callate|dejame en paz|dejame tranquilo)\s+(?:durante|por|en)\s+(?:(\d{1,3}|una|un|media|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|quince|veinte|veinticinco|treinta|cuarenta y cinco|cuarenta|cincuenta|sesenta|noventa)\s*(minutos?|horas?|hora y media))$') {
+        $num2 = $Matches[1]; $unidad2 = $Matches[2]
+        $min2 = Get-MinutosDichos $num2 $unidad2
+        if ($min2 -le 0) { return $null }
+        return @(@{ kind = 'sordina'; ms = ($min2 * 60000)
+                    desc = "me callo " + (Format-MinutosDichos $min2) + "; si me necesitas antes, manten el boton" })
     }
     # Diagnostico hablado: hasta ahora, para saber por que no te oia habia que
     # abrir assistant.log y leer las lineas del pulso. Esto cuenta lo mismo en
@@ -8133,6 +8137,10 @@ $script:invitadoPropuesta = $false
 $script:invitadoPropuestoEn = -9999999
 
 # "dos horas", "media hora", "una hora y media", "45 minutos" -> minutos
+# LOS NUMEROS HABLADOS LLEGABAN HASTA CINCO (arreglado el 23/09). "no me hables en diez
+# minutos" no entraba por eso: el patron pedia digitos o un numero de esta lista, y "diez"
+# no estaba. Se cuentan los que se dicen de verdad al pedir un rato: hasta treinta de uno
+# en uno no hace falta, pero si los redondos.
 function Get-MinutosDichos([string]$cant, [string]$unidad) {
     $n = switch -regex ($cant) {
         '^\d+$' { [double]$cant; break }
@@ -8142,6 +8150,22 @@ function Get-MinutosDichos([string]$cant, [string]$unidad) {
         '^tres$' { 3; break }
         '^cuatro$' { 4; break }
         '^cinco$' { 5; break }
+        '^seis$' { 6; break }
+        '^siete$' { 7; break }
+        '^ocho$' { 8; break }
+        '^nueve$' { 9; break }
+        '^diez$' { 10; break }
+        '^once$' { 11; break }
+        '^doce$' { 12; break }
+        '^quince$' { 15; break }
+        '^veinte$' { 20; break }
+        '^veinticinco$' { 25; break }
+        '^treinta$' { 30; break }
+        '^cuarenta$' { 40; break }
+        '^cuarenta y cinco$' { 45; break }
+        '^cincuenta$' { 50; break }
+        '^sesenta$' { 60; break }
+        '^noventa$' { 90; break }
         default { 0 }
     }
     if ($unidad -match 'hora y media') { return [int](($n + 0.5) * 60) }
@@ -16581,44 +16605,66 @@ $script:popupUntil = 0
 # roba el foco: con una Form corriente, Show() saca a braya de la partida.
 $script:lupaForm = $null
 $script:lupaImg = $null
+$script:lupaImgNueva = $null
+$script:lupaNW = 0
+$script:lupaNH = 0
 $script:lupaUntil = 0
 function Close-Lupa {
     if ($script:lupaForm) {
         try { $script:lupaForm.Close(); $script:lupaForm.Dispose() } catch {}
         $script:lupaForm = $null
     }
+    $script:lupaPng = ''; $script:lupaDx = 0; $script:lupaDy = 0; $script:lupaEsc = 2.0
     if ($script:lupaImg) {
         try { $script:lupaImg.Dispose() } catch {}
         $script:lupaImg = $null
     }
     $script:lupaUntil = 0
 }
-function Show-Lupa([string]$png, [int]$ms = 12000) {
-    if (-not $png -or -not (Test-Path -LiteralPath $png)) { return $false }
-    Close-Lupa
+# MOVERSE POR LA CAPTURA (23/09, idea 15). La captura ya esta en el disco, asi que cambiar
+# de trozo o de aumento no cuesta una captura: cuesta un DrawImage. Se guarda lo que hace
+# falta para redibujar -la ruta, el desplazamiento y el aumento- y el bucle lo mueve con la
+# cruceta. La ventana se monta UNA vez; despues solo cambia la imagen de dentro.
+$script:lupaPng = ''
+$script:lupaDx = 0      # desplazamiento en pixeles de la captura, desde el centro
+$script:lupaDy = 0
+$script:lupaEsc = 2.0
+$LupaEscalas = @(2.0, 3.0, 4.0)
+
+# Redibuja la imagen de la lupa con el desplazamiento y el aumento de ahora. Devuelve $false
+# si no se pudo. NO toca la ventana: si ya existe, solo le cambia la foto.
+function Draw-Lupa {
+    if (-not $script:lupaPng -or -not (Test-Path -LiteralPath $script:lupaPng)) { return $false }
     try {
-        # AMPLIAR DE VERDAD, AUNQUE HAYA QUE RECORTAR. Antes se escalaba "lo que cupiera"
-        # en el 70 % de la pantalla, y eso daba x1,17 SIEMPRE: el centro es el 60 % de la
-        # ventana y el techo era el 70 % de la pantalla, o sea 0,70/0,60, se ponga la
-        # resolucion que se ponga. Y x1,17 aqui no es nada: medido hoy en esta consola, el
-        # escritorio va a 1280x720 sobre un panel de 15 x 9 cm, o sea 0,117 mm por pixel.
-        # Una letra de 12 px mide 1,4 mm; a x1,17, 1,6 mm. A x2, 2,8 mm, que ya se lee.
-        # Asi que el aumento manda (x2) y lo que no cabe se recorta por el centro, que es
-        # lo que hace una lupa de verdad.
-        $bytes = [System.IO.File]::ReadAllBytes($png)   # por MemoryStream: cargando por
-        $ms2 = New-Object System.IO.MemoryStream(,$bytes)   # ruta el PNG queda bloqueado
+        $bytes = [System.IO.File]::ReadAllBytes($script:lupaPng)   # por MemoryStream: cargando
+        $ms2 = New-Object System.IO.MemoryStream(,$bytes)          # por ruta el PNG se bloquea
         $orig = [System.Drawing.Image]::FromStream($ms2)
         $pantalla = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
         $maxW = [int]($pantalla.Width * 0.92); $maxH = [int]($pantalla.Height * 0.92)
-        $esc = 2.0
+        # AMPLIAR DE VERDAD, AUNQUE HAYA QUE RECORTAR. La primera version escalaba "lo que
+        # cupiera" en el 70 % de la pantalla, y eso daba x1,17 SIEMPRE: el centro es el 60 %
+        # de la ventana y el techo era el 70 % de la pantalla, o sea 0,70/0,60, se ponga la
+        # resolucion que se ponga. Y x1,17 aqui no es nada: medido en esta consola, el
+        # escritorio va a 1280x720 sobre un panel de 15 x 9 cm, o sea 0,117 mm por pixel.
+        # Una letra de 12 px mide 1,4 mm; a x1,17, 1,6 mm. A x2, 2,8 mm, que ya se lee.
+        $esc = [double]$script:lupaEsc
+        if ($esc -lt 1.5) { $esc = 2.0 }
         $nw = [int][Math]::Min(($orig.Width * $esc), $maxW)
         $nh = [int][Math]::Min(($orig.Height * $esc), $maxH)
         if ($nw -lt 40) { $nw = 40 }
         if ($nh -lt 40) { $nh = 40 }
-        # el trozo del original que se ve, centrado
+        # el trozo del original que se ve, centrado y corrido por $lupaDx/$lupaDy
         $sw2 = [int][Math]::Min($orig.Width, [Math]::Ceiling($nw / $esc))
         $sh2 = [int][Math]::Min($orig.Height, [Math]::Ceiling($nh / $esc))
-        $sx = [int](($orig.Width - $sw2) / 2); $sy = [int](($orig.Height - $sh2) / 2)
+        $sx = [int](($orig.Width - $sw2) / 2) + [int]$script:lupaDx
+        $sy = [int](($orig.Height - $sh2) / 2) + [int]$script:lupaDy
+        # SE PEGA A LOS BORDES, no se sale: fuera de la captura no hay nada que ensenar, y
+        # DrawImage con un origen fuera pinta negro. Ademas asi el propio tope dice cuando
+        # ya no queda mas hacia ese lado.
+        $sx = [Math]::Max(0, [Math]::Min($sx, $orig.Width - $sw2))
+        $sy = [Math]::Max(0, [Math]::Min($sy, $orig.Height - $sh2))
+        $script:lupaDx = $sx - [int](($orig.Width - $sw2) / 2)
+        $script:lupaDy = $sy - [int](($orig.Height - $sh2) / 2)
         $img = New-Object System.Drawing.Bitmap($nw, $nh)
         $g = [System.Drawing.Graphics]::FromImage($img)
         # NearestNeighbor y no bilineal: el bilineal emborrona la letra pequena, que es
@@ -16628,7 +16674,49 @@ function Show-Lupa([string]$png, [int]$ms = 12000) {
         $g.DrawImage($orig, (New-Object System.Drawing.Rectangle(0, 0, $nw, $nh)),
                      $sx, $sy, $sw2, $sh2, [System.Drawing.GraphicsUnit]::Pixel)
         $g.Dispose(); $orig.Dispose(); $ms2.Dispose()
+        $script:lupaNW = $nw; $script:lupaNH = $nh
+        $script:lupaImgNueva = $img
+        return $true
+    } catch {
+        Log ('lupa: ' + $_.Exception.Message)
+        return $false
+    }
+}
 
+# Cambia la foto de la ventana que ya esta puesta. El Bitmap viejo se suelta a mano:
+# PictureBox no suelta una Image que le asignaron, y son ~3 MB cada una.
+function Update-Lupa {
+    if (-not $script:lupaForm) { return $false }
+    if (-not (Draw-Lupa)) { return $false }
+    try {
+        $pb = $script:lupaForm.Controls[0]
+        $viejo = $script:lupaImg
+        $pb.Image = $script:lupaImgNueva
+        $pb.Size = New-Object System.Drawing.Size($script:lupaNW, $script:lupaNH)
+        $script:lupaForm.ClientSize = New-Object System.Drawing.Size(($script:lupaNW + 8), ($script:lupaNH + 8))
+        $pantalla = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+        $script:lupaForm.Location = New-Object System.Drawing.Point(
+            ($pantalla.Left + [int](($pantalla.Width - $script:lupaForm.Width) / 2)),
+            ($pantalla.Top + [int](($pantalla.Height - $script:lupaForm.Height) / 2)))
+        $script:lupaImg = $script:lupaImgNueva
+        if ($viejo) { try { $viejo.Dispose() } catch {} }
+        return $true
+    } catch {
+        Log ('lupa: ' + $_.Exception.Message)
+        return $false
+    }
+}
+
+$LupaMs = 12000
+function Show-Lupa([string]$png, [int]$ms = $LupaMs) {
+    if (-not $png -or -not (Test-Path -LiteralPath $png)) { return $false }
+    Close-Lupa
+    $script:lupaPng = $png
+    $script:lupaDx = 0; $script:lupaDy = 0; $script:lupaEsc = 2.0
+    if (-not (Draw-Lupa)) { return $false }
+    try {
+        $pantalla = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+        $nw = $script:lupaNW; $nh = $script:lupaNH
         $f = New-Object AXTarjeta
         $f.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
         $f.ShowInTaskbar = $false
@@ -16636,7 +16724,7 @@ function Show-Lupa([string]$png, [int]$ms = 12000) {
         $f.BackColor = [System.Drawing.Color]::FromArgb(13, 17, 25)
         $f.ClientSize = New-Object System.Drawing.Size(($nw + 8), ($nh + 8))
         $pb = New-Object System.Windows.Forms.PictureBox
-        $pb.Image = $img
+        $pb.Image = $script:lupaImgNueva
         $pb.SizeMode = [System.Windows.Forms.PictureBoxSizeMode]::Normal
         $pb.Location = New-Object System.Drawing.Point(4, 4)
         $pb.Size = New-Object System.Drawing.Size($nw, $nh)
@@ -16649,7 +16737,7 @@ function Show-Lupa([string]$png, [int]$ms = 12000) {
         $script:lupaForm = $f
         # el Bitmap se guarda aparte: PictureBox.Dispose NO suelta una Image que le
         # asignaron a mano, y son ~3 MB por lupa en un proceso que vive meses.
-        $script:lupaImg = $img
+        $script:lupaImg = $script:lupaImgNueva
         $script:lupaUntil = $sw.ElapsedMilliseconds + $ms
         return $true
     } catch {
@@ -21122,6 +21210,8 @@ $script:jobTextoOriginal = ''
 # su propio indicador ya lo enseña); el brillo si se lee y se dice.
 # OJO: XInput no es exclusivo. Con un juego delante, la cruceta le llega
 # tambien al juego mientras el panel esta abierto.
+$XINPUT_LB = 0x0100        # los hombros: solo los usa la lupa (idea 15)
+$XINPUT_RB = 0x0200
 $XINPUT_ARR = 0x0001
 $XINPUT_ABA = 0x0002
 $XINPUT_IZQ = 0x0004
@@ -21429,6 +21519,46 @@ while ($true) {
                 elseif ($pulsados -band ($XINPUT_ARR -bor $XINPUT_ABA -bor $XINPUT_A)) { Invoke-PanelRapido $pulsados; Show-PanelRapido }
             }
         } catch { Log ("panel rapido: " + $_.Exception.Message); $script:panel = $null }
+    }
+
+    # MOVIENDO LA LUPA (23/09, idea 15): con la lupa puesta, la cruceta corre el trozo que se
+    # ve y los hombros cambian el aumento (x2, x3, x4). La captura ya esta hecha, asi que esto
+    # no vuelve a fotografiar nada: es un DrawImage sobre la misma imagen.
+    #
+    # VA DESPUES DEL SELECTOR Y DEL PANEL, y solo si ninguno de los dos esta abierto: los tres
+    # se pelean por la misma cruceta. Y manda $mandoVale, como todo lo que lee botones aqui:
+    # con un juego delante hace falta ≡, porque ahi la cruceta es del juego.
+    if ($script:lupaForm -and -not $script:eleccion -and -not $script:panel -and -not $script:pendiente) {
+        try {
+            if ($pulsados -ne 0 -and $mandoVale) {
+                $movida = $false
+                # el paso es un tercio de lo que se ve, para que siempre quede solapado y no
+                # se pierda el hilo de lo que se estaba leyendo
+                $paso = [Math]::Max(20, [int]($script:lupaNW / (3.0 * $script:lupaEsc)))
+                $pasoV = [Math]::Max(20, [int]($script:lupaNH / (3.0 * $script:lupaEsc)))
+                if ($pulsados -band $XINPUT_IZQ) { $script:lupaDx -= $paso; $movida = $true }
+                elseif ($pulsados -band $XINPUT_DER) { $script:lupaDx += $paso; $movida = $true }
+                elseif ($pulsados -band $XINPUT_ARR) { $script:lupaDy -= $pasoV; $movida = $true }
+                elseif ($pulsados -band $XINPUT_ABA) { $script:lupaDy += $pasoV; $movida = $true }
+                elseif ($pulsados -band $XINPUT_RB) {
+                    $i = [array]::IndexOf($LupaEscalas, [double]$script:lupaEsc)
+                    if ($i -lt 0) { $i = 0 }
+                    if ($i -lt $LupaEscalas.Count - 1) { $script:lupaEsc = $LupaEscalas[$i + 1]; $movida = $true }
+                }
+                elseif ($pulsados -band $XINPUT_LB) {
+                    $i = [array]::IndexOf($LupaEscalas, [double]$script:lupaEsc)
+                    if ($i -lt 0) { $i = 0 }
+                    if ($i -gt 0) { $script:lupaEsc = $LupaEscalas[$i - 1]; $movida = $true }
+                }
+                elseif ($pulsados -band $XINPUT_B) { Log 'LUPA: quitada con B'; Close-Lupa }
+                if ($movida) {
+                    # EL PLAZO SE RENUEVA SOLO CON LO QUE LA LUPA CONSUME (misma leccion que
+                    # el selector): si se renovara con cualquier boton, jugando no venceria.
+                    $script:lupaUntil = $sw.ElapsedMilliseconds + $LupaMs
+                    [void](Update-Lupa)
+                }
+            }
+        } catch { Log ('lupa: ' + $_.Exception.Message); Close-Lupa }
     }
 
     # ELIGIENDO DE UNA LISTA (23/09, funcion 10): la cruceta mueve, A elige, B cancela.
