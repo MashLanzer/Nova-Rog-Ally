@@ -3905,10 +3905,43 @@ function Resolve-Fragment([string]$f) {
         $tipoR = if ($radioR -eq 'bluetooth') { 'bluetooth' } else { 'wifi' }
         return @(@{ kind = 'radio'; tipo = $tipoR; encender = $encR; desc = "$(if ($encR) { 'encender' } else { 'apagar' }) el $tipoR" })
     }
+    # AVISAME CADA RATO, Y EL SILENCIO DE HOY (23/09, idea 11-B). VAN AQUI ARRIBA porque hay
+    # tres patrones mas generales que se los comen si van detras, y se vio probandolos con el
+    # parser de verdad: "avisame cada hora" caia en el de "di/dime <algo>" y en la regla
+    # generica 'cada', y "quita el aviso de cada hora" caia en el de cancelar temporizadores.
+    # Un patron detras de uno que ya se lleva la frase es codigo muerto, como paso esta
+    # manana con "apunta que X es de dos".
+    # Los minutos salen de Get-MinutosDichos, que es una lista cerrada de numeros dichos: el
+    # oido no tiene que entender ninguna palabra libre.
+    if ($f -match '^(?:avisame|dime|recuerdame)\s+cada\s+(hora|media hora|\d{1,3}|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|quince|veinte|treinta|cuarenta y cinco|sesenta|noventa)\s*(horas?|minutos?|hora y media)?(?:\s+(?:que\s+)?(?:llevo\s+)?(?:jugando|de juego|del juego|con el juego))?$') {
+        $cantC = [string]$Matches[1]; $uniC = [string]$Matches[2]
+        if ($cantC -eq 'hora') { $cantC = 'una'; $uniC = 'hora' }
+        elseif ($cantC -eq 'media hora') { $cantC = 'media'; $uniC = 'hora' }
+        if (-not $uniC) { $uniC = 'minutos' }
+        $minC = Get-MinutosDichos $cantC $uniC
+        if ($minC -gt 0) { return @(@{ kind = 'avisoJuegoCada'; minutos = $minC; desc = "avisarte cada $minC minutos" }) }
+    }
+    if ($f -match '^(?:quita|cancela|olvida|para|ya no)\s+(?:el\s+|los\s+)?(?:aviso|avisos)\s+(?:de\s+)?(?:cada\s+)?(?:hora|rato|tiempo|tiempo de juego|juego)$') {
+        return @(@{ kind = 'avisoJuegoCada'; minutos = 0; desc = 'quitar el aviso de cada rato' })
+    }
+    if ($f -match '^(?:hoy\s+)?no\s+me\s+avises\s+(?:hoy\s+)?(?:de\s+|del\s+)?(?:tiempo|tiempo de juego|juego|las horas|lo que llevo|lo que juego)$') {
+        return @(@{ kind = 'avisoJuegoHoy'; avisar = $false; desc = 'hoy no avisarte del tiempo de juego' })
+    }
+    if ($f -match '^(?:vuelve a avisarme|avisame otra vez|si avisame)\s+(?:de\s+|del\s+)?(?:tiempo|tiempo de juego|juego)$') {
+        return @(@{ kind = 'avisoJuegoHoy'; avisar = $true; desc = 'volver a avisarte del tiempo de juego' })
+    }
     # --- tiempo de juego (ver TIEMPO DE JUEGO DE LA SEMANA) ---
-    if ($f -match '^(?:cuanto|cuanto tiempo|a que)\s+he\s+jugado(?:\s+(esta semana|hoy|este mes|estos dias))?$') {
+    # SE AMPLIA EL QUE YA ESTA, no se anade otro (23/09): dos patrones peleando por la misma
+    # frase es como se pierden las ordenes. Lo que faltaba: el pasado simple ("cuanto JUGUE
+    # esta semana", que no casa con "he jugado") y "cuanto llevo". Y sin periodo, si hay un
+    # juego delante, se contesta lo de HOY con ese juego, que es lo que se quiere decir
+    # cuando se pregunta jugando.
+    if ($f -match '^(?:cuanto|cuanto tiempo|que tanto)\s+(?:he\s+jugado|jugue|juge|llevo\s+jugando|llevo)(?:\s+(esta semana|hoy|este mes|estos dias|la semana|el mes))?$') {
         $perJ = [string]$Matches[1]
-        $diasJ = if ($perJ -eq 'hoy') { 1 } elseif ($perJ -eq 'este mes') { 30 } else { 7 }
+        if (-not $perJ -and $script:juegoActivo) {
+            return @(@{ kind = 'tiempoHoy'; desc = 'tiempo de juego de hoy' })
+        }
+        $diasJ = if ($perJ -eq 'hoy') { 1 } elseif ($perJ -eq 'este mes' -or $perJ -eq 'el mes') { 30 } else { 7 }
         return @(@{ kind = 'tiempoSemana'; dias = $diasJ; periodo = $(if ($perJ) { $perJ } else { 'esta semana' }); desc = 'tiempo de juego' })
     }
     # --- salida de sonido (ver SALIDA DE SONIDO POR VOZ) ---
@@ -4560,7 +4593,10 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(?:cuanto (?:ocupa|pesa|mide))\s+(.+)$') {
         return @(@{ kind = 'ocupa'; que = $Matches[1].Trim(); desc = 'tamano en disco' })
     }
-    if ($f -match '^(?:cuanto llevo jugando|cuanto tiempo llevo jugando|hace cuanto juego)\b') {
+    # ANCLADO EN $ Y NO EN \b (23/09): con \b se tragaba "cuanto llevo jugando hoy" y
+    # contestaba el tramo desde el ultimo alt-tab. Ahora esa frase cae en el patron de
+    # arriba, que si mira el dia.
+    if ($f -match '^(?:cuanto llevo jugando|cuanto tiempo llevo jugando|hace cuanto juego)$') {
         return @(@{ kind = 'tiempoJuego'; desc = 'tiempo de juego' })
     }
     if ($f -match '^(?:a que estoy jugando|que estoy jugando|que juego es este)\b') {
@@ -8444,6 +8480,10 @@ function Save-EntornoVistos {
     } catch {}
 }
 $script:entornoCallado = $false                                    # "no me avises de nada"
+# Y EL DIA EN QUE SE CALLO (23/09). Sin esto, "no me avises de nada" se quedaba puesto hasta
+# que braya se acordara de decir lo contrario: el unico modo de Nova del que solo se sale
+# recordandolo. Ahora se cae solo al cambiar el dia, como el modo invitado.
+$script:entornoCalladoDia = ''
 
 # ¿se puede avisar de esto AHORA? nivel: 'bajo' (solo capsula), 'medio', 'alto' (critico)
 function Test-PuedoAvisar([string]$clave, [string]$nivel = 'medio', [int]$cadaMin = 60) {
@@ -9575,8 +9615,21 @@ function Receive-CorreoManana {
 # "no me avises de nada" / "vuelve a avisarme"
 function Set-AvisosEntorno([bool]$encendido) {
     $script:entornoCallado = -not $encendido
+    $script:entornoCalladoDia = if ($encendido) { '' } else { Get-DiaJuego }
     if ($encendido) { return 'Vale, vuelvo a avisarte de las cosas.' }
-    return 'Hecho, no te aviso de nada hasta que me digas lo contrario.'
+    # SE DICE EL PLAZO. Un modo del que no se sabe salir es el peor fallo de esta casa, y
+    # decir "hasta que me digas lo contrario" era pedirle que se acordara el solo.
+    return 'Hecho, no te aviso de nada. Se me pasa manana, o dime: vuelve a avisarme.'
+}
+
+# y se rearma solo al cambiar de dia. Va en el bloque del minuto del bucle, con Test-FinInvitado.
+function Test-FinSilencio {
+    if (-not $script:entornoCallado -or -not $script:entornoCalladoDia) { return }
+    if ((Get-DiaJuego) -ne $script:entornoCalladoDia) {
+        $script:entornoCallado = $false
+        $script:entornoCalladoDia = ''
+        Log 'AVISOS: vuelvo a avisar (se acabo el dia del silencio)'
+    }
 }
 
 # DOCK Y CASCOS (F8): cada 15 s, cuantas pantallas hay y si suena por unos cascos.
@@ -10227,6 +10280,40 @@ function Get-MinutosJuegoHoy([string]$juego = '') {
         if ($vivo -gt 0 -and $vivo -le 120) { $seg += $vivo }
     }
     return [int][Math]::Floor($seg / 60)
+}
+
+# LA FRASE DE "CUANTO LLEVO" (23/09). Lo de hoy primero, que es lo que se pregunta, y la
+# sentada actual solo como anadido. La guarda $tramo -lt $min es lo que impide decir una
+# tonteria despues de un reinicio de Nova: ahi el tramo se reinicia y el dia no, asi que un
+# tramo mayor que el dia significa que el tramo esta mal, no que se haya jugado mas.
+function Get-FraseTiempoHoy([string]$juego = '') {
+    $min = Get-MinutosJuegoHoy $juego
+    if ($min -lt 1) { return 'hoy todavia no llevas nada' }
+    $txt = if ($juego) { "hoy llevas $(Format-Minutos $min) con $juego" } else { "hoy llevas $(Format-Minutos $min) de juego" }
+    if ($juego -and $script:juegoDesde -gt 0) {
+        $tramo = [int][Math]::Floor(($sw.ElapsedMilliseconds - $script:juegoDesde) / 60000)
+        if ($tramo -ge 5 -and $tramo -lt $min) { $txt += "; en esta sentada, $(Format-Minutos $tramo)" }
+    }
+    return $txt
+}
+
+# EL AVISO CADA RATO, Y EL SILENCIO DE HOY (23/09). Los dos viven en habitos.json con
+# Save-AvisoJuego, asi que sobreviven a los 16 reinicios diarios.
+function Set-AvisoJuego([int]$cada) {
+    $script:juegoAvisoCada = [Math]::Max(0, $cada)
+    # SE PONE AL DIA AL ENCENDERLO: decir "avisame cada hora" a las tres horas de partida
+    # soltaria tres avisos atrasados de golpe, que es justo lo que te hace apagarlo.
+    $script:juegoAvisoDia = Get-DiaJuego
+    $script:juegoAvisoUlt = Get-MinutosJuegoHoy
+    Save-AvisoJuego
+    if ($cada -le 0) { return 'quitado. Sigo con el aviso de las dos horas' }
+    return 'vale, te aviso cada ' + (Format-MinutosDichos $cada) + '. Se quita diciendo: quita el aviso de cada hora'
+}
+function Set-AvisoJuegoHoy([bool]$avisar) {
+    $script:juegoAvisoNo = if ($avisar) { '' } else { Get-DiaJuego }
+    Save-AvisoJuego
+    if ($avisar) { return 'vale, vuelvo a avisarte del tiempo de juego' }
+    return 'vale, hoy no te digo nada del tiempo de juego. Manana vuelvo'
 }
 
 # VELOCIDAD DE LA VOZ (13/09): "habla mas rapido / mas despacio / normal", en
@@ -11056,13 +11143,28 @@ function Invoke-FastCommand([string]$text) {
                     [void]$script:temporizadores.Add(@{ vence = $vence; texto = $txt; total = $a.ms })
                     $a.desc = "listo, te aviso en $($a.n) $($a.unidad)"
                 }
+                # LO DE HOY, NO EL TRAMO (23/09). Antes contestaba ($sw - $juegoDesde)/60000,
+                # que es el tiempo desde el ultimo alt-tab o desde el ultimo arranque de
+                # Nova; con 244 arranques en 15 dias ese numero no dice nada.
                 'tiempoJuego' {
-                    if ($script:juegoActivo) {
-                        $mins = [int](($sw.ElapsedMilliseconds - $script:juegoDesde) / 60000)
-                        $a.desc = "llevas $mins minutos con $($script:juegoActivo)"
-                    } else {
-                        $a.desc = "ahora mismo no detecto ningun juego abierto"
+                    if ($script:juegoActivo) { $a.desc = Get-FraseTiempoHoy $script:juegoActivo }
+                    else {
+                        $todoH = Get-MinutosJuegoHoy
+                        $a.desc = if ($todoH -ge 1) { Get-FraseTiempoHoy '' } else { 'hoy no te he visto jugar a nada' }
                     }
+                }
+                'tiempoHoy' { $a.desc = Get-FraseTiempoHoy $script:juegoActivo }
+                'avisoJuegoCada' {
+                    # EL SUELO DE QUINCE MINUTOS no es un numero nuevo: es el cadaMin que ya
+                    # se le pasa a Test-PuedoAvisar en el aviso de juego. Por debajo de ahi
+                    # deja de ser un aviso y es ruido.
+                    $minA = [int]$a.minutos
+                    if ($minA -gt 0 -and $minA -lt 15) { $a.desc = 'cada cuanto? Menos de quince minutos es mucho ruido' }
+                    else { Log "AVISO DE JUEGO: cada $minA min"; $a.desc = (Set-AvisoJuego $minA) }
+                }
+                'avisoJuegoHoy' {
+                    Log ("AVISO DE JUEGO: " + $(if ($a.avisar) { 'vuelve' } else { 'callado por hoy' }))
+                    $a.desc = (Set-AvisoJuegoHoy ([bool]$a.avisar))
                 }
                 'balanceAprendizaje' { $a.desc = (Get-BalanceAprendizaje) }
                 'configuracion' { $a.desc = (Get-Configuracion) }
@@ -22928,6 +23030,7 @@ while ($true) {
         try { Invoke-Reglas 'hora' $minutoAhora; Invoke-Reglas 'cada' } catch {}
         try { Test-Recordatorios } catch {}
         try { Update-BrilloAuto } catch {}   # ver BRILLO AUTOMATICO
+        try { Test-FinSilencio } catch {}    # ver Set-AvisosEntorno: el silencio caduca al dia
         try { Test-FinInvitado } catch {}    # ver MODO INVITADO
         try { Test-LimiteJuego } catch {}    # ver LIMITE DE JUEGO PROPIO
         # jugando, el modelo de charla sale de la RAM (si no se esta hablando con el)

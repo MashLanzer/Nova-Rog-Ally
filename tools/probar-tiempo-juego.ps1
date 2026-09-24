@@ -174,6 +174,113 @@ Comp 'y el bucle la llama al avisar' ($codigo -match '\$script:juegoAvisoUlt = \
 Comp 'y tambien al cambiar de dia' ($codigo -match '\$script:juegoAvisoUlt = 0; Save-AvisoJuego')
 Comp 'y el bucle mira el "hoy no me avises"' ($codigo -match '\$script:juegoAvisoNo -ne \$diaAv') 'si no, el silencio de hoy no vale para nada'
 
+Write-Host ''
+Write-Host "-- 9. 'cuanto llevo' contesta el DIA, no el tramo (idea 11-B) --"
+# Antes contestaba ($sw - $juegoDesde)/60000: el tiempo desde el ultimo alt-tab o desde el
+# ultimo arranque de Nova. Con 244 arranques en 15 dias, ese numero no dice nada.
+Invoke-Expression (Traer 'Get-FraseTiempoHoy')
+$script:juegosMem = @{ 'It Takes Two' = @{ dias = @{ (Get-DiaJuego) = 9000 } } }   # 150 min
+$script:tiempoJuegoPend = @{}
+$script:juegoActivo = 'It Takes Two'
+$script:ahoraMs = 1000000
+$script:tiempoJuegoVisto = 0
+$script:juegoDesde = 1000000 - (12 * 60000)      # doce minutos en esta sentada
+$fr = Get-FraseTiempoHoy 'It Takes Two'
+Comp 'dice lo de hoy' ($fr -match 'hoy llevas') $fr
+Comp 'y son las dos horas y media de hoy' ($fr -match '2 horas y 30 minutos') $fr
+Comp 'y anade la sentada de ahora' ($fr -match 'en esta sentada') $fr
+# EL CASO DEL REINICIO: el tramo se reinicia y el dia no, asi que un tramo MAYOR que el dia
+# significa que el tramo esta mal, no que se haya jugado mas.
+# EL RELOJ TIENE QUE IR HACIA ADELANTE: con $juegoDesde negativo no entra ni en el if
+# ($juegoDesde -gt 0) y la rotura no cantaba. Se adelanta el reloj en vez de retrasar el
+# arranque, que es lo que pasa de verdad.
+$script:ahoraMs = 13000000
+$script:juegoDesde = 1000000                     # doscientos minutos de tramo
+$fr2 = Get-FraseTiempoHoy 'It Takes Two'
+Comp 'pero un tramo mayor que el dia no se dice' ($fr2 -notmatch 'en esta sentada') $fr2
+$script:ahoraMs = 1000000
+# y una sentada de menos de cinco minutos tampoco: es ruido
+$script:juegoDesde = 1000000 - (2 * 60000)
+Comp 'ni una sentada de dos minutos' ((Get-FraseTiempoHoy 'It Takes Two') -notmatch 'en esta sentada')
+$script:juegosMem = @{}
+$script:tiempoJuegoPend = @{}
+Comp 'y sin nada jugado, lo dice' ((Get-FraseTiempoHoy '') -match 'todavia no llevas nada')
+
+Write-Host ''
+Write-Host '-- 10. el aviso cada rato, y que no suelte los atrasados de golpe --'
+Invoke-Expression (Traer 'Save-AvisoJuego')
+Invoke-Expression (Traer 'Format-MinutosDichos')
+Invoke-Expression (Traer 'Set-AvisoJuego')
+Invoke-Expression (Traer 'Set-AvisoJuegoHoy')
+$script:habitos = $null
+function Get-Habitos { if (-not $script:habitos) { $script:habitos = @{ avisoJuego = @{} } }; return $script:habitos }
+function Save-Habitos { }
+$script:juegosMem = @{ 'It Takes Two' = @{ dias = @{ (Get-DiaJuego) = 10800 } } }   # tres horas
+$script:juegoActivo = ''
+$r10 = Set-AvisoJuego 60
+Comp 'se enciende y lo dice' ($r10 -match 'cada una hora') $r10
+Comp 'y se pone al dia al encenderse' ($script:juegoAvisoUlt -eq 180) "$($script:juegoAvisoUlt) min"
+# la condicion del bucle, con el aviso recien puesto a las tres horas
+$pasoB = $script:juegoAvisoCada
+Comp 'no suelta tres avisos atrasados de golpe' (-not ((Get-MinutosJuegoHoy) -ge ($script:juegoAvisoUlt + $pasoB))) 'seria lo que te hace apagarlo'
+# y a los 240 minutos, si
+$script:juegosMem = @{ 'It Takes Two' = @{ dias = @{ (Get-DiaJuego) = 14400 } } }
+Comp 'pero a la hora siguiente avisa' ((Get-MinutosJuegoHoy) -ge ($script:juegoAvisoUlt + $pasoB))
+$r10b = Set-AvisoJuego 0
+Comp 'y se quita' (($script:juegoAvisoCada -eq 0) -and ($r10b -match 'quitado')) $r10b
+
+Write-Host ''
+Write-Host '-- 11. y los dos silencios se caen SOLOS (regla de los modos) --'
+$rs = Set-AvisoJuegoHoy $false
+Comp 'hoy no me avises calla' (($script:juegoAvisoNo -eq (Get-DiaJuego)) -and ($rs -match 'Manana vuelvo')) $rs
+Comp 'y la frase dice cuando vuelve' ($rs -match 'Manana') 'un modo que no dice como se sale, no vale'
+Comp 'y se quita diciendolo' ((Set-AvisoJuegoHoy $true) -match 'vuelvo a avisarte') ''
+# el silencio GENERAL, que era el unico modo de Nova sin plazo
+Invoke-Expression (Traer 'Set-AvisosEntorno')
+Invoke-Expression (Traer 'Test-FinSilencio')
+$rg = Set-AvisosEntorno $false
+Comp 'no me avises de nada calla' ($script:entornoCallado) ''
+Comp 'y DICE que se le pasa manana' ($rg -match 'manana') $rg
+Comp 'y apunta el dia' ($script:entornoCalladoDia -eq (Get-DiaJuego)) $script:entornoCalladoDia
+Test-FinSilencio
+Comp 'el mismo dia sigue callado' ($script:entornoCallado) 'no se cae antes de tiempo'
+$script:entornoCalladoDia = '2026-01-01'
+Test-FinSilencio
+Comp 'y al dia siguiente vuelve SOLO' (-not $script:entornoCallado) 'esto era un modo del que solo se salia acordandose'
+
+Write-Host ''
+Write-Host '-- y el codigo dice lo que tiene que decir --'
+$codB = ($fuente -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+Comp "el patron de 'cuanto llevo jugando' esta anclado en $" ($codB -match 'hace cuanto juego\)\$') 'con  se tragaba "...jugando hoy"'
+Comp 'el ejecutor contesta el dia, no el tramo' ($codB -match "'tiempoJuego' \{[\s\S]{0,200}Get-FraseTiempoHoy")
+Comp 'y ya no hay una resta de juegoDesde ahi' ($codB -notmatch "'tiempoJuego' \{[\s\S]{0,200}ElapsedMilliseconds - \\$script:juegoDesde")
+Comp 'el suelo de quince minutos sigue puesto' ($codB -match '\$minA -gt 0 -and \$minA -lt 15') 'por debajo es ruido, no aviso'
+Comp 'y el bucle mira si el silencio caduco' ($codB -match 'try \{ Test-FinSilencio \} catch') 'si no, el modo sin salida vuelve'
+
+Write-Host '-- 12. y las frases llegan a donde tienen que llegar --'
+# ESTO SE EJECUTA CON EL PARSER DE VERDAD. Los patrones nacieron en Process-Texto y eran
+# CODIGO MUERTO: 'avisame cada hora' lo cogia antes el patron de 'di/dime <algo>' y la regla
+# generica 'cada', y 'quita el aviso de cada hora' caia en el de cancelar temporizadores.
+# Moverlos a Invoke-FastCommand tampoco bastaba. Solo se vio pasandolos por -Probar.
+$tmpF = Join-Path ([System.IO.Path]::GetTempPath()) ('fr-' + [guid]::NewGuid().ToString('N').Substring(0,8) + '.txt')
+@('cuanto llevo hoy', 'cuanto jugue esta semana', 'cuanto llevo jugando hoy',
+  'avisame cada hora', 'avisame cada media hora', 'quita el aviso de cada hora',
+  'hoy no me avises del tiempo', 'vuelve a avisarme del juego',
+  'cuanto ocupa hollow knight', 'a que he jugado hoy') | Set-Content -LiteralPath $tmpF -Encoding UTF8
+$sal = (& powershell -NoProfile -ExecutionPolicy Bypass -File $ruta -Probar $tmpF 2>&1 | Out-String)
+Remove-Item -LiteralPath $tmpF -Force -ErrorAction SilentlyContinue
+Comp "'cuanto llevo hoy' se reconoce" ($sal -match 'cuanto llevo hoy\s+->\s+tiempo de juego')
+Comp "'cuanto jugue esta semana' tambien" ($sal -match 'cuanto jugue esta semana\s+->\s+tiempo de juego') 'el pasado simple no casaba con "he jugado"'
+Comp "'cuanto llevo jugando hoy' NO cae en el tramo" ($sal -match 'cuanto llevo jugando hoy\s+->\s+tiempo de juego') 'el  del patron viejo se lo tragaba'
+Comp "'avisame cada hora' son 60 minutos" ($sal -match 'avisame cada hora\s+->\s+avisarte cada 60 minutos') 'antes creaba una regla generica'
+Comp "'avisame cada media hora' son 30" ($sal -match 'avisame cada media hora\s+->\s+avisarte cada 30 minutos')
+Comp "'quita el aviso de cada hora' lo quita" ($sal -match 'quita el aviso de cada hora\s+->\s+quitar el aviso') 'antes cancelaba un temporizador'
+Comp "'hoy no me avises del tiempo' llega" ($sal -match 'hoy no me avises del tiempo\s+->\s+hoy no avisarte')
+Comp "'vuelve a avisarme del juego' llega" ($sal -match 'vuelve a avisarme del juego\s+->\s+volver a avisarte')
+# y lo que NO puede cambiar
+Comp "'cuanto ocupa hollow knight' sigue siendo el tamano" ($sal -match 'cuanto ocupa hollow knight\s+->\s+tamano en disco')
+Comp "'a que he jugado hoy' sigue siendo lo jugado" ($sal -match 'a que he jugado hoy\s+->\s+lo jugado')
+
 Remove-Item -LiteralPath $MemoriaDir -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ''
 if ($fallos) { Write-Host "  $fallos caso(s) MAL"; exit 1 }
