@@ -175,6 +175,16 @@ tal cual`— y **7 se inventan algo** que no se parece al audio (`fino-invento`)
 
 ## B. Te contesta tarde, o no contesta
 
+> **MEDIDA el 24/09: el oído fino no era el problema; lo que no tenía prueba era el escalón de
+> abajo.** Actuó **145 veces en 9 días** (37 `fino-sirvio`, 45 `fino-igual`, 7 `fino-invento`,
+> 6 `fino-ahorrado`), y `Test-MismoAudio` y `Test-MereceRepaso` ya tenían banco.
+>
+> Lo que **nadie miraba** es `Request-UltimoRecurso`, el escalón que baja al modelo grande: 57
+> líneas en el registro y cero comprobaciones. Ahora tiene 14, ejecutándola, con el caso real
+> de las **3 peticiones para la misma frase** del 15/09 (11:23:23, 11:23:49 y 11:24:17 — 54
+> segundos). De paso: el comentario del código decía *"cuatro veces seguidas"* y en el
+> registro son **tres**. El banco cita lo que hay.
+
 ### 7. La nube no contesta, o llega cuando ya no hace falta
 
 De **201 intentos**: en **90 (45 %)** lo que trajo **tampoco era una orden que Nova supiera
@@ -306,6 +316,21 @@ cada dato nuevo empuja a otro fuera **en silencio**.
 
 `receta-aprendida` 11, `receta` 7, `receta-no` 6, `receta-variante` 3. Son casi tantas
 rechazadas como usadas. Hay que ver qué distingue a una receta que sirve de una que estorba.
+
+> **HECHA el 24/09, y el fallo estaba en una sola línea.** El motivo que acompaña a un
+> `RECETA: NO` es lo único que dice **qué** habría que mejorar. Desde que existe (18/09) ha
+> habido **seis** `RECETA: NO`: **cinco "sin motivo" y uno con motivo "no"**. Cero útiles de
+> seis. Las dos causas, las dos en el mismo regex:
+>
+> 1. **La clase de caracteres no llevaba el salto de línea** —espacio, tabulador, dos puntos,
+>    coma y guion, pero no el salto—, y la instrucción pide los motivos **en lista**, o sea en
+>    líneas aparte. Es la explicación más probable de los cinco vacíos. *Probable, no segura:*
+>    el texto crudo de esos cinco no se guarda en ningún sitio.
+> 2. **Cogía la palabra que viniera detrás, fuera la que fuera.** *"NO, no era una tarea"* daba
+>    motivo `no`, que es el caso real del 20/09 a las 18:57:36.
+>
+> Ahora es una **lista cerrada** con los seis, mirando las dos primeras líneas. Y no se
+> adivina: si no viene ninguno, se sigue apuntando "sin motivo", que es la verdad.
 
 ### 14. Las reglas no se usan **nada**
 
