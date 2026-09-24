@@ -72,7 +72,7 @@
     "soloYo": true,
     "soloYoMargenHz": 42,
     "soloYoMinimo": 12,
-    "nubeOir": "gemini",
+    "nubeOir": "",
     "nubeTopeMs": 7000,
     "guardarUsoDias": 30,
     "ambiente": "no",
@@ -128,7 +128,8 @@
     "confirmarVeces": 2
   },
   "auto": {
-    "datosDesde": "2026-09-20"
+    "datosDesde": "2026-09-20",
+    "ultimaDecision": "escucha|nubeOir|gemini|la segunda opinion de la nube"
   },
   "entorno": {
     "avisos": true,

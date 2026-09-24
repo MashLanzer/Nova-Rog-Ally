@@ -10600,8 +10600,12 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     $stR = $null
     try {
         $stR = Get-Estadisticas
+        # 'nube-invento' entra aqui desde el 24/09 (idea 7): sin estar en esta lista se cuenta
+        # cero siempre, y la salvedad de mas abajo -que UN invento basta para apagarla- seria
+        # codigo muerto. Es el mismo fallo que ya se pago con los tres contadores de desenlace
+        # y ninguno de intento.
         foreach ($cR in @('turbo', 'turbo-sirvio', 'nube-intento', 'nube-sirvio',
-                          'fino', 'fino-sirvio', 'fino-invento')) { $numR[$cR] = 0 }
+                          'nube-invento', 'fino', 'fino-sirvio', 'fino-invento')) { $numR[$cR] = 0 }
         for ($i = 0; $i -lt 14; $i++) {
             $kR = $ahora.AddDays(-$i).ToString('yyyy-MM-dd')
             # EL CORTE TAMBIEN AQUI (19/09, idea 61): si solo lo respetara el reparto, el
@@ -10622,11 +10626,18 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     # primero esta funcion saldria por el "ya esta apagado" sin llegar nunca aqui.
     # SI BRAYA ME LA DEVOLVIO, NO SE TOCA (23/09, idea 13): ver Test-DecisionDevuelta. Cada
     # decision tiene su llave, asi que devolver la nube no frena las otras tres.
+    # UN INVENTO NO ES UNA TARDE MALA (24/09, idea 7 de la tanda nueva). Test-DatosRepartidos
+    # existe para que un solo dia raro no cambie la configuracion, y para el caso normal esta
+    # bien puesta. Pero si la nube ha llegado a devolver una orden que braya no dijo -y el
+    # 18/09 lo hizo dos veces, cerrando Steam y el navegador-, eso no es un dia raro: es la
+    # regla 1, la primera de la casa, y no espera a que los datos esten repartidos.
+    # 'nube-invento' lo cuenta Test-NubeSirve desde hoy.
+    $inventosN = [int]$numR['nube-invento']
     if ($NubeOir -and -not (Test-DecisionDevuelta 'escucha' 'nubeOir' $ahora) -and
         $numR['nube-intento'] -ge $DecisionMinIntentos -and
         $numR['nube-sirvio'] -lt (Get-DecisionMinimo $numR['nube-intento']) -and
         (Test-DecisionSolida ([int]$numR['nube-sirvio']) ([int]$numR['nube-intento'])) -and
-        (Test-DatosRepartidos $stR 'nube-intento' $ahora)) {
+        ((Test-DatosRepartidos $stR 'nube-intento' $ahora) -or $inventosN -ge 1)) {
         $antesN = [string]$NubeOir
         $script:NubeOir = ''
         # SI NO SE PUEDE GUARDAR, NO SE HA DECIDIDO NADA (17/09): al reiniciar volveria a
@@ -10638,7 +10649,7 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
             return $false
         }
         $apuntadaN = Save-DecisionPropia 'escucha' 'nubeOir' $antesN 'la segunda opinion de la nube'
-        Log "REVISION PROPIA: apago la segunda opinion de la nube ($($numR['nube-sirvio']) de $($numR['nube-intento']) utiles en 14 dias)"
+        Log "REVISION PROPIA: apago la segunda opinion de la nube ($($numR['nube-sirvio']) de $($numR['nube-intento']) utiles en 14 dias$(if ($inventosN -ge 1) { ", y $inventosN invento(s)" }))"
         Add-Estadistica 'auto-ajuste' "nube off: $($numR['nube-sirvio']) de $($numR['nube-intento'])"
         [void](Send-AvisoEntorno 'auto-nube' ("He apagado la segunda opinion de la nube: $(Get-DesdeCuentaTexto) la pedi $($numR['nube-intento']) veces y solo me sirvio $($numR['nube-sirvio']). Si la quieres de vuelta, dime: deshaz lo que has cambiado." + $(if (-not $apuntadaN) { ' Aunque no he podido apuntarlo: si me reinicias, vuelve sola.' } else { '' })) 'medio' 43200)
         return $true
@@ -21931,6 +21942,52 @@ $script:nubeVence = 0
 
 # ¿Vale lo que oyo la nube en vez de lo que oyo el oido local? El booleano viene de
 # fuera (Test-FastCommand) para poder probar esta decision sin arrastrar medio archivo.
+# LO QUE TRAE LA NUBE TIENE QUE PARECERSE A LO QUE SONO (24/09, idea 7 de la tanda nueva).
+#
+# Esta guarda no estaba, y su ausencia se pago con lo peor que puede pasar en esta casa: el
+# 18/09 a las 20:06:24, sobre "Quiero que se hace el diario", Gemini devolvio "Quiero que
+# cierre Steam." y Steam se cerro; once segundos despues, sobre "Tambien se hace una vez",
+# devolvio "Tambien cierre el navegador." y el navegador se cerro. Las dos frases pasaron
+# todas las guardas de Test-NubeSirve -son cortas, no son una frase de ejemplo y no llevan un
+# nombre inventado- y despues Invoke-FastCommand hizo su trabajo perfectamente sobre una
+# frase falsa.
+#
+# LO QUE LAS SEPARA DE UNA CORRECCION DE VERDAD es que no comparten ni una palabra con lo que
+# se oyo. Una correccion buena se parece: "sierra este steam" -> "cierra steam". Un invento no.
+# Se piden palabras de CUATRO letras o mas a proposito: con tres, "que" y "cierre" estan en las
+# dos frases del 18/09 y el invento habria pasado igual.
+function Test-NubeEncaja([string]$nube, [string]$local, [string]$parakeet) {
+    $pn = @((ConvertTo-Plain $nube) -split '[^a-z0-9]+' | Where-Object { $_.Length -ge 4 })
+    if ($pn.Count -eq 0) { return $true }   # sin palabras largas no hay nada que comparar
+    $po = @()
+    foreach ($src in @($local, $parakeet)) {
+        $po += @((ConvertTo-Plain $src) -split '[^a-z0-9]+' | Where-Object { $_.Length -ge 4 })
+    }
+    if ($po.Count -eq 0) { return $true }   # no se oyo nada largo: la nube es lo unico que hay
+    # NO BASTA CON QUE COINCIDA UNA: TIENEN QUE COINCIDIR LA MITAD. Se probo con "alguna" y
+    # los dos inventos del 18/09 pasaban igual, porque compartian la muletilla de delante:
+    # "Quiero que se hace el diario" -> "Quiero que cierre Steam." comparte "quiero", y
+    # "Tambien se hace una vez" -> "Tambien cierre el navegador." comparte "tambien". Lo que
+    # NO comparten es justo la palabra que ejecuta.
+    # LOS CUATRO CASOS MEDIDOS, y separan limpio por la mitad:
+    #   invento 18/09 20:06:24   1 de 3   33 %
+    #   invento 18/09 20:06:35   1 de 3   33 %
+    #   correccion buena         2 de 2  100 %   ('sierra este steam' -> 'cierra steam')
+    #   correccion buena         3 de 4   75 %   ('abre hollow knight' -> '... Silksong')
+    $casan = 0
+    foreach ($a in $pn) {
+        foreach ($b in $po) {
+            if ($a -eq $b -or ([Math]::Abs($a.Length - $b.Length) -le 2 -and (Get-Distancia $a $b) -le 1)) { $casan++; break }
+        }
+    }
+    return (($casan * 2) -ge $pn.Count)
+}
+
+# LO QUE EL BUCLE PUEDE ESPERAR A LA NUBE: CERO (24/09, idea 7). Es una funcion y no un cero a
+# secas para que el banco pueda EJECUTAR la decision en vez de mirar si queda un Start-Sleep
+# en el fichero. De las 12 esperas que hubo, ninguna acabo en un 'nube-sirvio'.
+function Get-EsperaNubeMs([bool]$localOk, [bool]$hayTexto, [int]$msRestantes) { return 0 }
+
 function Test-NubeSirve([string]$nube, [string]$local, [bool]$esOrden) {
     if (-not $nube) { return $false }
     $t = $nube.Trim()
@@ -21939,6 +21996,15 @@ function Test-NubeSirve([string]$nube, [string]$local, [bool]$esOrden) {
     # los mismos dos vicios que ya se cortan en el oido local y en la traduccion
     if (Test-EsFraseEjemplo $t) { return $false }
     if (Test-NombreInventado $local $t) { return $false }
+    # LA CUARTA GUARDA (24/09, idea 7): que lo que trajo se parezca a lo que sono. Ver
+    # Test-NubeEncaja; sin ella se cerraron Steam y el navegador el 18/09 sin que nadie lo
+    # pidiera. El parakeet se pasa vacio aqui porque quien llama solo tiene el texto local;
+    # comparar con uno ya basta para tumbar los dos casos reales.
+    if (-not (Test-NubeEncaja $t $local '')) {
+        Log ("NUBE descartada: '$t' no se parece a nada de lo que sono")
+        Add-Estadistica 'nube-invento' "$local -> $t"
+        return $false
+    }
     return $esOrden
 }
 
@@ -25283,16 +25349,17 @@ while ($true) {
                 # bien. Si el oido local no saco orden, se espera lo que le quede de plazo: la
                 # alternativa a esperar no es responder rapido, es no entender. Si el oido local
                 # SI saco algo, no se espera ni un milisegundo.
+                # EL BUCLE YA NO ESPERA A LA NUBE (24/09, idea 7). Aqui habia un while con
+                # Start-Sleep que llegaba a 7,8 s con un juego delante, y el argumento que lo
+                # sostenia -"la alternativa a esperar no es responder rapido, es no entender"-
+                # se cae con los datos: de las 12 esperas, CERO acabaron en 'nube-sirvio'.
+                # Se mira una vez, sin dormir. Si ya llego, se usa; si no, se sigue.
                 if (-not $nubeTxt -and -not $localOk -and $script:nubeOut) {
-                    $esperoDesde = $sw.ElapsedMilliseconds
-                    while (-not $nubeTxt -and $script:nubeOut -and $sw.ElapsedMilliseconds -lt $script:nubeVence) {
+                    if ((Get-EsperaNubeMs $localOk ([bool]$nubeTxt) ([int]($script:nubeVence - $sw.ElapsedMilliseconds))) -gt 0) {
                         Start-Sleep -Milliseconds 120
-                        $nubeTxt = Receive-NubeOir
                     }
-                    if ($nubeTxt) {
-                        Log ('NUBE: contesto ' + [Math]::Round(($sw.ElapsedMilliseconds - $esperoDesde) / 1000.0, 1) + ' s despues del oido local')
-                        Add-Estadistica 'nube-esperada' ''
-                    }
+                    $nubeTxt = Receive-NubeOir
+                    if ($nubeTxt) { Add-Estadistica 'nube-esperada' '' }
                 }
                 if ($nubeTxt -and -not $localOk) {
                     $esOrdenN = $false

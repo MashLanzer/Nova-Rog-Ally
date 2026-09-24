@@ -27,6 +27,10 @@ Invoke-Expression (Traer 'Get-FrasesEjemplo')
 Invoke-Expression (Traer 'Test-EsFraseEjemplo')
 Invoke-Expression (Traer 'Test-NombreInventado')
 Invoke-Expression (Traer 'Test-NubeSirve')
+Invoke-Expression (Traer 'Test-NubeEncaja')
+Invoke-Expression (Traer 'Get-EsperaNubeMs')
+function Log([string]$m) { }
+function Add-Estadistica($a, $b) { }
 
 $fallos = 0
 function Comp($etiqueta, $ok, $detalle) {
@@ -46,6 +50,39 @@ Comp 'un juego que no habias nombrado' (-not (Test-NubeSirve 'abre Hollow Knight
 Comp 'un parrafo entero: eso no es una orden' (-not (Test-NubeSirve ('palabra ' * 40) 'cierra steam' $true)) ''
 Comp 'el juego que SI nombraste, vale' (Test-NubeSirve 'abre Hollow Knight Silksong' 'abre hollow knight' $true) ''
 
+
+Write-Host ""
+Write-Host "-- LO QUE TRAE LA NUBE TIENE QUE PARECERSE A LO QUE SONO (24/09, idea 7) --"
+# LOS DOS CASOS REALES, Y SON LO PEOR QUE HA PASADO AQUI. El 18/09 a las 20:06:24 se oyo
+# "Quiero que se hace el diario" y Gemini devolvio "Quiero que cierre Steam.": Steam se cerro.
+# Once segundos despues, sobre "Tambien se hace una vez", devolvio "Tambien cierre el
+# navegador." y el navegador se cerro. Las dos pasaron todas las guardas que habia.
+Comp 'el invento del 18/09 20:06:24 no pasa' (-not (Test-NubeEncaja 'Quiero que cierre Steam.' 'Quiero que se hace el diario' 'Quiero que si es el')) 'se cerro Steam sin que nadie lo pidiera'
+Comp 'el del 20:06:35 tampoco' (-not (Test-NubeEncaja 'Tambien cierre el navegador.' 'Tambien se hace una vez' "I'm gonna know")) 'y el navegador'
+# Y ENGANCHADA DE VERDAD, no solo definida: el fallo clasico es que la guarda exista y
+# nadie la llame.
+Comp 'y la guarda esta enganchada en Test-NubeSirve' (-not (Test-NubeSirve 'Quiero que cierre Steam.' 'Quiero que se hace el diario' $true)) ''
+# PERO UNA CORRECCION DE VERDAD SIGUE VALIENDO. Sin esto la guarda seria solo un "no".
+Comp 'corregir "sierra este steam" -> "cierra steam" SI vale' (Test-NubeEncaja 'cierra steam' 'sierra este steam' 'sierra esteam') ''
+Comp 'y el juego que si nombraste, tambien' (Test-NubeEncaja 'abre Hollow Knight Silksong' 'abre hollow knight' '') ''
+Comp 'y sigue pasando por Test-NubeSirve entera' (Test-NubeSirve 'abre Hollow Knight Silksong' 'abre hollow knight' $true) ''
+# CUATRO LETRAS, NO TRES: con tres, "que" y "cierre" estan en las dos frases del 18/09 y el
+# invento habria pasado igual.
+Comp 'con palabras de tres letras el invento colaria' ('quiero que cierre steam' -match 'que') 'por eso el minimo es cuatro'
+
+Write-Host ""
+Write-Host "-- Y EL BUCLE YA NO LA ESPERA --"
+# Habia un while con Start-Sleep que llegaba a 7,8 s con un juego delante. De las 12 esperas
+# que hubo, CERO acabaron en un 'nube-sirvio'.
+$sumaE = 0
+foreach ($ms in @(1, 120, 500, 1000, 3000, 5800, 7800)) {
+    foreach ($a in @($true, $false)) {
+        foreach ($b in @($true, $false)) { $sumaE += (Get-EsperaNubeMs $a $b $ms) }
+    }
+}
+Comp 'la espera es cero en las 28 combinaciones' ($sumaE -eq 0) "$sumaE ms en total"
+$cuerpoB = (Traer 'Get-EsperaNubeMs')
+Comp 'y no duerme por su cuenta' ($cuerpoB -notmatch 'Start-Sleep') ''
 Write-Host ""
 if ($fallos -gt 0) { Write-Host "$fallos MAL" -ForegroundColor Red; exit 1 }
 Write-Host "todo correcto" -ForegroundColor Green

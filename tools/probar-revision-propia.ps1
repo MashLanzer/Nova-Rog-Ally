@@ -253,6 +253,27 @@ function PonerNube([int]$intentos, [int]$utiles) {
 }
 
 Write-Host ''
+Write-Host '  -- UN INVENTO NO ES UNA TARDE MALA (24/09, idea 7 de la tanda nueva) --'
+# Test-DatosRepartidos existe para que un solo dia raro no cambie la configuracion, y para el
+# caso normal esta bien puesta. Pero el 18/09 a las 20:06 la nube devolvio una orden que braya
+# NO dijo y se ejecuto -se cerro Steam, y once segundos despues el navegador-. Eso es la regla
+# 1, la primera de la casa, y no espera a que los datos esten repartidos.
+PonerNube 150 0
+# todo en UN solo dia: el freno de datos repartidos lo para
+$script:stats = @{ dias = @{} }
+$script:stats.dias[$hoy.AddDays(-1).ToString('yyyy-MM-dd')] = @{ 'nube-intento' = 150; 'nube-sirvio' = 0 }
+[void](Test-RevisionPropia $hoy)
+Comp 'con 150 intentos de UN dia y cero inventos, no la apaga' ($script:NubeOir -eq 'gemini') 'el freno de datos repartidos hace su trabajo'
+# el mismo dia, pero con un invento: ahi si
+PonerNube 150 0
+$script:stats = @{ dias = @{} }
+$script:stats.dias[$hoy.AddDays(-1).ToString('yyyy-MM-dd')] = @{ 'nube-intento' = 150; 'nube-sirvio' = 0; 'nube-invento' = 1 }
+[void](Test-RevisionPropia $hoy)
+Comp 'con UN invento, la apaga aunque sea de un solo dia' ($script:NubeOir -eq '') 'una orden que nadie pidio no es una tarde mala'
+Comp 'y lo dice en voz alta' (@($script:avisos | Where-Object { $_ -match 'nube' }).Count -ge 1) ''
+Comp 'y deja la vuelta atras apuntada' ($null -ne $script:autoDecision) "para el 'deshaz lo que has cambiado'"
+
+Write-Host ''
 Write-Host '  -- LOS NUMEROS DE VERDAD, a 22/09 --'
 # CUIDADO CON ESTE CASO, que la primera version lo conto mal: el fichero tiene 194
 # intentos repartidos en TRES dias (18/09: 75 y 2 utiles; 20/09: 92 y 0; 21/09: 27 y 0),
