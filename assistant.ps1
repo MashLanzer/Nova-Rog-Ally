@@ -1039,6 +1039,7 @@ function Save-JuegoOido([string]$oido, [string]$juego) {
 
 # SIN FORMA DE DESHACERLO NO SE APRENDE NADA (regla 2).
 function Remove-JuegoOido([string]$oido) {
+    if ($script:invitado) { return $false }   # MODO INVITADO: lo que borre otro tampoco se queda (24/09)
     $sinArtO = ([string]$oido -replace '^(?:el|la|los|las|un|una|lo)\s+', '').Trim()
     if (-not $sinArtO) { $sinArtO = [string]$oido }
     $k = Get-ClaveSonido $sinArtO $false
@@ -6306,7 +6307,10 @@ function Set-Cfg([string]$seccion, [string]$clave, $valor) {
         $j.$seccion | Add-Member -NotePropertyName $clave -NotePropertyValue $valor -Force
         # SIN BOM: lo leen tambien los workers de Python, en crudo
         Write-Atomico $ruta ($j | ConvertTo-Json -Depth 8)
-        Log "config: $seccion.$clave = $valor"
+        # UN SECRETO NO SE ESCRIBE EN EL REGISTRO (24/09, repaso): si alguna vez se pone una clave
+    # por esta via, el valor iria literal al log, que es justo lo que se acaba de evitar.
+    $valorLog = if ($clave -match '(?i)apikey|api_key|\bkey\b|token|secret|password|contrasena') { '***' } else { $valor }
+    Log "config: $seccion.$clave = $valorLog"
         return $true
     } catch { Log ("no pude guardar la configuracion: " + $_.Exception.Message); return $false }
 }
@@ -7989,6 +7993,9 @@ function Add-DatoPerfil([string]$dato, [string]$fuente = '') {
 # favorito..."). Hace falta que coincidan al menos la mitad de las palabras con
 # contenido, para no borrar otra cosa por una palabra suelta.
 function Remove-DatoPerfil([string]$sobre) {
+    # Add-DatoPerfil la lleva desde el 17/09 y esta no: un invitado no podia ensenarle nada,
+    # pero si borrarle un dato del perfil para siempre.
+    if ($script:invitado) { return $null }   # MODO INVITADO: lo que borre otro tampoco se queda (24/09)
     # POR RAICES Y CON ANCLA DE PALABRA (23/09). Antes se comparaba con Contains() a pelo,
     # sin ancla, y eso borraba lo que no era: comprobado ejecutandolo, "la captura de la
     # pantalla, eliminalo" se llevaba "Braya guarda las capturas en D:\Capturas" -porque
@@ -8975,7 +8982,34 @@ $AmigoPlazoMs = 21600000
 $AmigoRedMs = 10000        # lo que se le deja a una peticion antes de cortarla
 $AmigoEligeMs = 90000      # lo que se espera a que diga cual de la lista
 
-function Get-ClaveSteam { return [string](Get-Cfg 'steam' 'apiKey' '') }
+# LA CLAVE NO VA EN config.json (24/09, repaso): ese fichero ESTA VERSIONADO, y hasta hoy
+# Nova le decia a braya que pusiera ahi la clave de la API de Steam. El dia que la pusiera
+# entraba en el siguiente commit. Vive en memoria\claves.json, que si esta ignorado, y se
+# sigue leyendo config.json de respaldo por si ya la habia puesto ahi: en ese caso se avisa
+# en el registro -sin decir la clave, claro- para que la mueva.
+$ClavesPath = Join-Path $MemoriaDir 'claves.json'
+function Get-ClaveSteam {
+    $k = ''
+    try {
+        if (Test-Path -LiteralPath $ClavesPath) {
+            $jk = Get-Content -LiteralPath $ClavesPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            $k = [string]$jk.steam
+        }
+    } catch { Save-Corrupto $ClavesPath 'claves' }
+    if ($k) { return $k.Trim() }
+    $vieja = [string](Get-Cfg 'steam' 'apiKey' '')
+    if ($vieja) { Log 'STEAM: la clave esta en config.json, que se versiona; conviene moverla a memoria\claves.json' }
+    return $vieja.Trim()
+}
+
+# Deja el hueco preparado para que braya solo tenga que pegar la clave dentro.
+function New-ClavesVacio {
+    try {
+        if (Test-Path -LiteralPath $ClavesPath) { return $false }
+        Write-Atomico $ClavesPath '{ "steam": "" }'
+        return $true
+    } catch { return $false }
+}
 function Get-YoSteam {
     $cuentaS = [int64]0
     try { $cuentaS = [int64](Get-ItemProperty 'HKCU:\Software\Valve\Steam\ActiveProcess' -ErrorAction Stop).ActiveUser } catch {}
@@ -9026,7 +9060,11 @@ function Complete-SteamAsync {
 # desde el bucle. Devuelve @{ error = '<lo que se le dice>'; lista = @(@{id;nombre;online;jugando}) }.
 function Get-AmigosLista {
     $claveS = Get-ClaveSteam
-    if (-not $claveS) { return @{ error = 'para eso necesito una clave de la API de Steam: pidela en steamcommunity.com barra dev barra apikey y ponla en la configuracion, en steam, apiKey'; lista = @() } }
+    if (-not $claveS) {
+        # se le crea el hueco al decirselo: asi solo tiene que abrir el archivo y pegar
+        [void](New-ClavesVacio)
+        return @{ error = 'para eso necesito una clave de la API de Steam: pidela en steamcommunity.com barra dev barra apikey, y pegala en el archivo memoria barra claves punto json, que ya te he dejado preparado'; lista = @() }
+    }
     $yoS = Get-YoSteam
     if (-not $yoS) { return @{ error = 'Steam no tiene la sesion iniciada'; lista = @() } }
     try {
@@ -9115,8 +9153,10 @@ function Watch-AmigoConecta {
             # 09:24: los quince ultimos salieron sin que pasara nada. Aqui no.
             if ($script:amigoOnline.ContainsKey($idA)) {
                 if ($onA -and -not [bool]$script:amigoOnline[$idA]) {
-                    Log "AMIGO conectado: $idA"
-                    try { Invoke-Reglas 'amigoConecta' $idA } catch { Log ("regla de amigo: " + $_.Exception.Message) }
+                    # solo los cuatro ultimos: un steamid64 entero es una cuenta identificable,
+                    # y para leer el registro basta con distinguir a uno de otro
+                    Log ("AMIGO conectado: ..." + $idA.Substring([Math]::Max(0, $idA.Length - 4)))
+                    try { Invoke-Reglas 'amigoConecta' $idA } catch { Log ("regla de amigo: " + ($_.Exception.Message -replace 'key=[^&\s]+', 'key=***')) }
                 }
             }
             $script:amigoOnline[$idA] = $onA
@@ -9163,6 +9203,9 @@ function Start-AmigoVigila {
 function Complete-AmigoElige([int]$n) {
     $eV = $script:amigoEligiendo
     if (-not $eV) { return $null }
+    # deja en reglas.json una vigilancia de seis horas con el nombre y el steamid de una
+    # persona: eso no lo arma quien no es braya
+    if ($script:invitado) { $script:amigoEligiendo = $null; return 'ahora mismo no dejo avisos puestos' }
     $lV = @($eV.lista)
     if ($n -lt 1 -or $n -gt $lV.Count) { return "No tengo un $n en esa lista." }
     $script:amigoEligiendo = $null
@@ -11375,6 +11418,8 @@ function Get-FraseTiempoHoy([string]$juego = '') {
 # EL AVISO CADA RATO, Y EL SILENCIO DE HOY (23/09). Los dos viven en habitos.json con
 # Save-AvisoJuego, asi que sobreviven a los 16 reinicios diarios.
 function Set-AvisoJuego([int]$cada) {
+    # esto acaba en habitos.json, que son las costumbres de braya, no las de quien este delante.
+    if ($script:invitado) { return 'ahora mismo no guardo ajustes' }   # MODO INVITADO: lo que borre otro tampoco se queda (24/09)
     $script:juegoAvisoCada = [Math]::Max(0, $cada)
     # SE PONE AL DIA AL ENCENDERLO: decir "avisame cada hora" a las tres horas de partida
     # soltaria tres avisos atrasados de golpe, que es justo lo que te hace apagarlo.
@@ -11385,6 +11430,7 @@ function Set-AvisoJuego([int]$cada) {
     return 'vale, te aviso cada ' + (Format-MinutosDichos $cada) + '. Se quita diciendo: quita el aviso de cada hora'
 }
 function Set-AvisoJuegoHoy([bool]$avisar) {
+    if ($script:invitado) { return 'ahora mismo no guardo ajustes' }   # MODO INVITADO: lo que borre otro tampoco se queda (24/09)
     $script:juegoAvisoNo = if ($avisar) { '' } else { Get-DiaJuego }
     Save-AvisoJuego
     if ($avisar) { return 'vale, vuelvo a avisarte del tiempo de juego' }
@@ -11809,6 +11855,10 @@ function Add-MusicaNo([string]$que, [string]$titulo, [string]$id) {
     return $soltado
 }
 function Remove-MusicaNo([string]$que) {
+    # MODO INVITADO: lo que diga otro no se queda (24/09, repaso). Add-MusicaNo ya lo miraba
+    # y esta no: quitar un veto tambien cambia la lista de braya para siempre, asi que la
+    # pareja no puede deshacer un "esa no me gusta" suyo diciendo "vuelve a ponerla".
+    if ($script:invitado) { return $false }
     $q = (ConvertTo-Plain $que).Trim()
     if (-not $q) { return $false }
     $l = Get-MusicaNo
@@ -12157,13 +12207,18 @@ function Invoke-FastCommand([string]$text) {
     # Cinco minutos: el hueco entre lo que dice Nova y la correccion de braya en el registro
     # esta siempre por debajo de dos segundos.
     if ($text -match '(?i)^\s*(?:no\s*[,.]?\s*)?(?:vuelve\s+a\s+ponerlo|ponlo\s+(?:otra\s+vez|de\s+nuevo)|devu[eé]lvelo|deshaz\s+eso|no\s+lo\s+borres|era\s+verdad)\s*[.!]?$') {
+        # ESTA RAMA LLAMA A Save-DatosPerfil A PELO (24/09, repaso), saltandose la guarda que
+        # si lleva Add-DatoPerfil: sin esto, un invitado deshace un borrado del perfil de braya.
+        if ($script:invitado) { return 'ahora mismo no toco tu perfil' }
         if ($script:perfilQuitado -and $sw.ElapsedMilliseconds -lt [long]$script:perfilQuitado.hasta) {
             $vuelve = [string]$script:perfilQuitado.dato
             $script:perfilQuitado = $null
             $dts = @(Get-DatosPerfil)
             if ($dts -notcontains $vuelve) { Save-DatosPerfil @($dts + $vuelve) }
             $script:ultimoDatoPerfil = $vuelve
-            Log "PERFIL: devuelto: $vuelve"
+            # el dato NO va entero al registro: es lo mismo que Add-DatoPerfil ya decidio no
+            # loguear, y aqui se habia colado por la puerta de atras
+            Log ("PERFIL: devuelto un dato de " + $vuelve.Length + " caracteres")
             return "Lo dejo como estaba: " + ($vuelve -replace '^Dicho por braya:\s*', '') + "."
         }
         return "No he borrado nada hace poco."
@@ -16634,6 +16689,7 @@ $script:juegoBrilloAntes = $null
 $script:juegoAvisoDia = ''     # el dia del ultimo aviso
 $script:juegoAvisoUlt = 0      # minutos de hoy cuando se aviso
 $script:juegoAvisoCada = 0     # 0 = una vez al dia; >0 = cada N minutos
+$script:ultimaRegla = $null    # la ultima regla creada, para que 'siempre' sepa cual es
 $script:juegoAvisoNo = ''      # el dia en que dijo hoy no me avises
 
 $script:juegoHoras = 0
@@ -16935,6 +16991,25 @@ function Invoke-ReglaVoz([string]$text) {
         $condR = $Matches[1]
         $p = ($p -replace '\s+(?:y\s+)?(?:solo\s+)?(?:(?:sea|es|este|estemos)\s+)?(?:de|por la|en la)\s+(?:noche|dia)\b', '').Trim()
     }
+    # "SIEMPRE", QUE NOVA OFRECIA Y NO EXISTIA (24/09, repaso). Al crear una regla 'cada' Nova
+    # dice literalmente "Di 'siempre' si quieres que se quede", y NO habia ni un patron que
+    # entendiera esa palabra: la frase se iba al modelo y la regla se moria a medianoche
+    # creyendo braya que la habia dejado fija. Anunciar una salida que no existe es peor que
+    # no anunciarla.
+    # La ventana es la misma que la de las otras respuestas cortas de la casa: si no se dice
+    # en dos minutos, "siempre" vuelve a ser una palabra cualquiera.
+    if ($p -match '^(?:siempre|que se quede|dejala|dejalo|todos los dias|cada dia|para siempre)$' -and
+        $script:ultimaRegla -and ($sw.ElapsedMilliseconds - [double]$script:ultimaRegla.en) -lt 120000) {
+        $idS = [int]$script:ultimaRegla.id
+        $script:ultimaRegla = $null
+        $qS = @(); foreach ($xS in @($g)) { if ($xS.id -eq $idS) { $qS += $xS } }
+        if ($qS.Count -eq 0) { return "Esa regla ya no esta." }
+        if (-not $qS[0].hasta) { return "La regla $idS ya se queda puesta." }
+        $qS[0].hasta = ''
+        Save-Reglas
+        Log "REGLA ${idS}: se queda sin plazo (lo pediste diciendo 'siempre')"
+        return ("Vale, la regla $idS se queda. Di 'borra la regla $idS' cuando te canse.")
+    }
     if ($p -match '^(?:borra|elimina|quita|olvida)\s+(?:todas\s+)?(?:las\s+)?reglas$') {
         $g.Clear(); Save-Reglas; return "Listo, sin reglas."
     }
@@ -17235,6 +17310,8 @@ function Invoke-ReglaVoz([string]$text) {
     }
     $r = @{ id = $id; tipo = $tipo; valor = $valor; accion = $accion; ultima = ''; cond = $condR; hasta = $hastaR }
     [void]$g.Add($r); Save-Reglas
+    # LA QUE ACABA DE NACER, para que "siempre" sepa a cual se refiere (24/09, repaso)
+    $script:ultimaRegla = @{ id = $id; en = $sw.ElapsedMilliseconds }
     Log ("REGLA $id guardada: " + (Describe-Regla $r))
     Add-Estadistica 'local' "regla: $text"
     # LAS DOS SALIDAS SE DICEN EN VOZ ALTA, que es lo unico que las hace salidas de verdad.
@@ -17690,6 +17767,8 @@ function Get-AgendaDe([datetime]$desde, [datetime]$hasta) {
 # CON MAS DE UNA COINCIDENCIA NO BORRA NINGUNA: borrar la que no era es la regla 1 al reves,
 # y encima sobre algo que no se puede recuperar. Se leen numeradas y decide el.
 function Remove-RecordatorioTexto([string]$q) {
+    # borrar un recordatorio de braya no tiene vuelta atras.
+    if ($script:invitado) { return $null }   # MODO INVITADO: lo que borre otro tampoco se queda (24/09)
     $todos = @(Get-Recordatorios)
     $qs = ConvertTo-Plain ([string]$q).Trim()
     # SUELO DE TRES LETRAS (regla 7, oido al 70,4 %). Con menos, un trozo mal oido borra lo
@@ -22375,6 +22454,12 @@ function Process-Texto([string]$text) {
              ($sw.ElapsedMilliseconds - [Math]::Max([double]$script:vozFinReal, [double]$script:finVoz)) -lt 6000)) {
             try { Stop-Charla } catch {}
             $script:seguimientoPendiente = $false
+            # Y SI ESTABA EN LA TRIVIA, SE SALE DE LA TRIVIA (24/09, repaso). "para" y "basta"
+            # son dos de las salidas que la trivia anuncia, pero este bloque esta 84 lineas
+            # antes y se las comia: la callaba y el modo seguia vivo cinco minutos, con la
+            # pregunta puesta y "la primera" contestandola. Mandar callar a Nova en mitad de un
+            # juego es querer salir del juego, no solo bajarle el volumen.
+            if ($script:triviaModoHasta -gt $sw.ElapsedMilliseconds) { try { Stop-Trivia 'corte' } catch {} }
             Log "CORTE: '$text' mientras hablaba o nada mas acabar; la callo en vez de silenciar el PC"
             Set-UI 'reposo'
             return
@@ -22512,7 +22597,20 @@ function Process-Texto([string]$text) {
         }
         if ($ConversacionOn -and $plano -match '^(?:olvida|olvidate\s+de)\s+(?:todo\s+)?lo\s+(?:de|que sabes de|sobre)\s+(?:la\s+|el\s+|los\s+|las\s+)?(.+)$') {
             $temaO = $Matches[1]
-            if (Send-CharlaPedido @{ op = 'olvidar_tema'; texto = $temaO }) {
+            # "OLVIDA LO DE MI NOVIA" ES UNA SALIDA, NO UN TEMA (24/09, repaso). Este patron
+            # esta en Process-Texto y el de la vigilancia en Resolve-Fragment, que se mira
+            # cuatro funciones despues: se la comia entera y Nova contestaba "Vale, olvido lo
+            # de mi novia" con la vigilancia todavia puesta seis horas. Una salida que
+            # contesta que si y no hace nada es peor que no tenerla.
+            # Solo se aparta cuando HAY una vigilancia armada: sin ella, "olvida lo de mi
+            # novia" vuelve a ser lo que siempre fue, olvidar lo que aprendio de ella.
+            if ((ConvertTo-Plain $temaO) -match '^(?:mi\s+)?(?:novia|chica|amiga|amigo|novio)$') {
+                $hayVig = $false
+                try { $gO = Get-Reglas; foreach ($xO in @($gO)) { if ([string]$xO.tipo -eq 'amigoConecta') { $hayVig = $true } } } catch {}
+                if ($hayVig) { $temaO = '' }
+            }
+            if (-not $temaO) { $script:seguimientoPendiente = $false }
+            if ($temaO -and (Send-CharlaPedido @{ op = 'olvidar_tema'; texto = $temaO })) {
                 $script:seguimientoPendiente = $false
                 Log "CEREBRO: olvidar lo de '$temaO'"
                 Say "Vale, olvido lo de $temaO."
@@ -25192,7 +25290,10 @@ while ($true) {
     # misma clase de sensor y la misma cadencia -120 s, la que lleva catorce dias ahi sin dar
     # un problema-. Lo primero que hace la funcion es irse si no hay ninguna vigilancia
     # armada, asi que sin regla puesta esto no gasta ni una peticion ni un objeto.
-    try { Watch-AmigoConecta } catch { Log ("amigos: " + $_.Exception.Message) }
+    # LA CLAVE VIAJA DENTRO DE LA URL, asi que cualquier excepcion que se escape de aqui la
+    # arrastra entera al registro. El mismo -replace que llevan Start-SteamAsync y
+    # Get-AmigosLista, tambien en la red de fuera.
+    try { Watch-AmigoConecta } catch { Log ("amigos: " + ($_.Exception.Message -replace 'key=[^&\s]+', 'key=***')) }
 
     # --- juegos colgados: avisar, NUNCA cerrar por su cuenta ---
     # Solo avisa (y una vez por proceso): cerrar un juego a la fuerza pierde lo

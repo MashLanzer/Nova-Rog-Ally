@@ -101,6 +101,8 @@ function Open-Eleccion([string[]]$ops, [string]$origen) { $script:abierto += , @
 function Close-Eleccion([bool]$u = $true) { $script:cerrado++ }
 function Get-Cfg($a, $b, $c) { if ($a -eq 'steam' -and $b -eq 'apiKey') { return $script:claveFalsa }; return $c }
 function Get-ClaveSteam { return $script:claveFalsa }
+$script:huecoCreado = 0
+function New-ClavesVacio { $script:huecoCreado++; return $true }
 # LA RED, FALSEADA ENTERA: aqui no se prueba que Steam conteste -eso no se puede fijar en un
 # banco-, se prueba lo que es de Nova.
 # A PROPOSITO SIN GUARDA: si este falso llevara el 'ya hay una en vuelo' del de verdad, la
@@ -157,7 +159,11 @@ $AmigoCadaMs = if ($fuente -match '(?m)^\$AmigoCadaMs = (\d+)') { [int]$Matches[
 $AmigoPlazoMs = if ($fuente -match '(?m)^\$AmigoPlazoMs = (\d+)') { [int]$Matches[1] } else { -1 }
 $AmigoEligeMs = if ($fuente -match '(?m)^\$AmigoEligeMs = (\d+)') { [int]$Matches[1] } else { -1 }
 # el mismo $VERBOS del codigo: los patrones vecinos lo llevan dentro
-$VERBOS = if ($fuente -match "(?m)^\\$VERBOS = '([^']+)'") { $Matches[1] } else { 'abre|pon|cierra|di' }
+# COMILLAS SIMPLES: con dobles, PowerShell interpolaba $VERBOS -que aun no existe- y el
+# patron quedaba en un munon que no casaba nunca, asi que Casa evaluaba los patrones vecinos
+# con cuatro verbos en vez de los sesenta de verdad.
+$VERBOS = if ($fuente -match '(?m)^\$VERBOS = ''([^'']+)''') { $Matches[1] } else { '' }
+if (-not $VERBOS) { Write-Host '  MAL  no encuentro $VERBOS en el codigo'; exit 1 }
 $script:steamTask = $null
 $script:amigoCheck = -120000
 $script:amigoOnline = @{}
@@ -360,7 +366,8 @@ Write-Host '-- 10. SIN CLAVE NO SE ARMA NADA (y no sale una peticion) --'
 Limpia
 $script:claveFalsa = ''
 $f10 = Start-AmigoVigila
-Comp 'lo dice, y dice donde pedirla' ($f10 -match 'clave' -and $f10 -match 'apikey') "$f10"
+Comp 'lo dice, y dice donde pedirla' ($f10 -eq $mSinClave) "$f10"
+Comp 'y le deja el hueco preparado para pegarla' ($script:huecoCreado -ge 1) 'asi solo tiene que abrir el archivo'
 Comp 'y no arma nada' (@(Reglas).Count -eq 0) ''
 Comp 'ni abre el selector para elegir a nadie' (@($script:abierto).Count -eq 0) ''
 Comp 'ni sale una peticion' ($script:llamadas -eq 0) ''
@@ -387,7 +394,11 @@ Comp 'ni espera a un Task' ($wa -notmatch '\.Wait\(|\.Result\b') 'braya juega mi
 $sa = Traer 'Start-AmigoVigila'
 Comp 'armarla NO guarda nada todavia' ($sa -notmatch 'Save-Reglas') 'primero hay que saber a quien'
 $ca = Traer 'Complete-AmigoElige'
-Comp 'y elegir no deja dos vigilancias de la misma persona' ($ca -match 'Remove') ''
+Limpia
+Armar 2
+Armar 2
+Comp 'y elegir no deja dos vigilancias de la misma persona' (@(Reglas).Count -eq 1) "$(@(Reglas).Count) reglas"
+Limpia
 Comp 'el nombre no va al perfil' ($ca -notmatch 'Add-DatoPerfil') '8 de sus 59 datos son nombres mal oidos'
 Comp 'el sensor se llama en el bucle de verdad' ($fuente -match '(?m)^\s+try \{ Watch-AmigoConecta \} catch') ''
 

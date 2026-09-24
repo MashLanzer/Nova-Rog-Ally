@@ -138,7 +138,16 @@ Comp 'y al minuto ya no vale' (($null -eq $r) -and ($script:llamadas.Count -eq 0
 
 Write-Host ''
 Write-Host '-- y donde esta enganchado --'
-Comp 'va en Process-Texto, antes del camino local' ($fuente -match '(?s)\$aj = Invoke-Ajedrez \$text.{0,700}# 1\) local instantaneo') ''
+# EL ORDEN, NO LA DISTANCIA (24/09). Esto medía que entre las dos marcas hubiera menos de
+# 700 caracteres, asi que cualquier codigo nuevo que se metiera en medio -sin mover nada de
+# sitio- ponia el banco rojo. Lo que importa es que el ajedrez se mire ANTES que el camino
+# local, y que no haya nada entre medias que se quede la frase.
+$iAj = $fuente.IndexOf('$aj = Invoke-Ajedrez $text')
+$iLo = $fuente.IndexOf('# 1) local instantaneo')
+Comp 'va en Process-Texto, antes del camino local' ($iAj -gt 0 -and $iLo -gt $iAj) "ajedrez en $iAj, local en $iLo"
+# y entre los dos no puede haber ningun 'return' que se lleve la frase antes
+$entreAj = $fuente.Substring($iAj, [Math]::Max(0, $iLo - $iAj))
+Comp 'y nada se lleva la frase por el camino' (@([regex]::Matches($entreAj, '(?m)^\s*return')).Count -le 2) "$(@([regex]::Matches($entreAj, '(?m)^\s*return')).Count) returns en medio"
 Comp 'y NO dentro de Invoke-FastCommand' (-not ($fuente -match '(?s)function Invoke-FastCommand.{0,4000}Invoke-Ajedrez')) 'a esa la llaman reglas y perfiles, no braya'
 Comp 'se puede apagar desde config' ($fuente -match "Get-Cfg 'juego' 'ajedrez'")
 Comp 'y el turno se lanza por proceso, no residente' ($fuente -match '& \$PyExe \$AjedrezPy')

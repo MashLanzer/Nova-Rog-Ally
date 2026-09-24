@@ -188,6 +188,15 @@ if (-not $iB) { Write-Host '  MAL  no encuentro la rama de la B'; exit 1 }
 $trozoB = ($lineasB[($iB - 4)..($iB + 3)] -join "`n")
 Comp '3) la B del mando SALE del modo, no solo cierra la lista' ($trozoB -match "Stop-Trivia 'boton B'") ''
 Comp '   y solo cuando lo que hay abierto es la trivia' ($trozoB -match "origen -eq 'trivia'") ''
+# 4) mandar callar. "para" y "basta" son dos de las salidas que la trivia anuncia, y hasta el
+# 24/09 se las comia el CORTE -que esta 84 lineas antes-: la callaba y el modo seguia vivo
+# cinco minutos con la pregunta puesta.
+$lineasC = @($fuente -split "`r?`n")
+$iC = ($lineasC | Select-String -SimpleMatch 'CORTE:' | Select-Object -First 1).LineNumber
+if (-not $iC) { Write-Host '  MAL  no encuentro el bloque del CORTE'; exit 1 }
+$trozoC = ($lineasC[($iC - 9)..($iC + 1)] -join "`n")
+Comp '4) mandar callar tambien sale de la trivia' ($trozoC -match "Stop-Trivia 'corte'") 'antes la callaba y el modo seguia vivo'
+Comp '   y solo si estaba en la trivia' ($trozoC -match 'triviaModoHasta -gt \$sw\.ElapsedMilliseconds') ''
 # el plazo, llamado en el bucle
 Comp 'Test-TriviaPlazo se llama en el bucle de verdad' ($fuente -match '(?m)^\s+try \{ Test-TriviaPlazo \} catch \{\}') ''
 $st = SinComentarios (Traer 'Stop-Trivia')
@@ -197,11 +206,17 @@ Write-Host ''
 Write-Host '-- 6. las ordenes del modo viven DENTRO del modo --'
 # "siguiente" fuera de la trivia es la tecla multimedia y no se toca: por eso todo el bloque
 # va bajo la guarda. Se comprueba con el arbol, no leyendo lineas sueltas.
-$guarda = $ast.FindAll({ param($x)
+# ESA CONDICION SALE DOS VECES desde el 24/09: la guarda del bloque de ordenes y la del
+# CORTE, que hace que "para" y "basta" salgan del modo. Se coge por lo que hay DENTRO, no por
+# el orden, que si no el banco mira la que no es.
+$guarda = @($ast.FindAll({ param($x)
     $x -is [System.Management.Automation.Language.IfStatementAst] -and
-    $x.Clauses[0].Item1.Extent.Text -eq '$script:triviaModoHasta -gt $sw.ElapsedMilliseconds' }, $true)
-Comp 'hay una guarda del modo' (@($guarda).Count -ge 1) "$(@($guarda).Count)"
-$dentro = if (@($guarda).Count -ge 1) { @($guarda)[0].Extent.Text } else { '' }
+    $x.Clauses[0].Item1.Extent.Text -eq '$script:triviaModoHasta -gt $sw.ElapsedMilliseconds' -and
+    $x.Extent.Text -like '*Complete-Trivia 1*' }, $true))
+Comp 'hay una guarda del modo' ($guarda.Count -eq 1) "$($guarda.Count)"
+# SIN COMENTARIOS: si no, "siguiente" casaba con el comentario que explica por que esta
+# "siguiente", y borrar el codigo dejando el comentario seguia dando verde.
+$dentro = if ($guarda.Count -ge 1) { SinComentarios $guarda[0].Extent.Text } else { '' }
 Comp 'la salida esta dentro' ($dentro -match "Stop-Trivia 'voz'") ''
 Comp 'el marcador esta dentro' ($dentro -match 'Get-MarcadorTrivia') ''
 Comp '"la primera" esta dentro' ($dentro -match 'Complete-Trivia 1') ''
@@ -301,8 +316,8 @@ Write-Host ''
 Write-Host '-- 12. el filtro del worker es el mismo que el de aqui --'
 # Si el worker dejara pasar lo que PowerShell tira, el banco diria veinte y tendria doce.
 $w = [System.IO.File]::ReadAllText((Join-Path $raiz 'charla_worker.py'))
-Comp 'el worker exige tres opciones' ($w -match 'len\(ops\) != 3') ''
-Comp 'el worker exige buena en 1..3' ($w -match 'if b < 1 or b > 3') ''
+Comp 'el worker exige tres opciones' ($w -match 'len\(ops\) != 3:') ''
+Comp 'el worker exige buena en 1..3' ($w -match 'if b < 1 or b > 3:') ''
 Comp 'el worker corta en 26 igual que el selector' ($w -match 'len\(o\) > 26 for o in ops') 'con el 26 suelto, un 2600 colaba'
 Comp 'el worker no adivina la carpeta' ($w -match 'ruta = \(p\.get\("ruta"\) or ""\)') ''
 Comp 'y genera en su hilo, sin pisar una charla' ($w -match 'if not ocupado\.is_set\(\):') ''

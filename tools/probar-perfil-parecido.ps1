@@ -61,6 +61,9 @@ $script:invitado = $false
 $script:ultimoDatoPerfil = ''
 Invoke-Expression (Traer 'ConvertTo-Plain')
 Invoke-Expression (Traer 'ConvertTo-Suave')
+# Test-DatoTrato la trajo la idea 7 y Add-DatoPerfil la llama: sin ella el banco moria
+# a mitad, y hasta que se le puso el trap salia con codigo 0 y daba verde.
+Invoke-Expression (Traer 'Test-DatoTrato')
 Invoke-Expression (Traer 'Add-DatoPerfil')
 
 # LA LISTA DE ESA NOCHE, tal cual estaba en su perfil

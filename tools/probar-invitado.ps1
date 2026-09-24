@@ -53,8 +53,21 @@ $EXENTAS = @{
     'Save-Reglas'             = 'una regla se pide a proposito'
     'Save-TiempoJuego'        = 'lo llama Add-TiempoJuego, ya protegido'
     'Save-DatosPerfil'        = 'lo llama Add-DatoPerfil, que ya mira el modo'
-    'Add-Perfil'              = 'crear un modo se pide a proposito y se dice en voz alta'
+    # 23/09: dejo de estar exenta por el motivo viejo -"se pide a proposito"- y lleva la guarda
+    # dentro. El modo invitado se propone justo cuando Nova no reconoce la voz, o sea cuando
+    # hay otra persona delante, y commands.json es el fichero de ordenes de braya.
+    'Add-Perfil'              = 'lleva la guarda dentro desde el 23/09; se queda aqui por si alguien la quita sin querer'
     'Set-UsoAhora'            = 'marca de uso del propio Nova'
+    # LAS SIETE DE LA TANDA DE VEINTE IDEAS (24/09), decididas una a una. La regla que las
+    # separa es la de siempre: el modo invitado esta para que Nova no APRENDA de quien no
+    # eres tu, no para que deje de funcionar la consola mientras hay alguien delante.
+    'Add-DescargaHecha'       = 'que Steam acabara de bajar un juego es del equipo: pasa igual hable quien hable, y nadie lo dice'
+    'Save-DescargasEstado'    = 'el estado de las descargas de Steam, leido del disco; no sale de nadie'
+    'Save-AvisoEspera'        = 'avisos que Nova genero ella sola y no pudo dar; no hay nada de quien hablo'
+    'Add-ArranqueOidoMs'      = 'milisegundos de lo que tarda el oido en arrancar: mide la maquina, igual que Add-NubeTiempo'
+    'Add-GuiaTiempo'          = 'milisegundos de lo que tarda la Wikipedia en contestar; lo mismo'
+    'Save-BancoTrivia'        = 'preguntas de cultura general de la consola, y cuales se han hecho ya; el marcador no se guarda'
+    'Save-MusicaNo'           = 'lo llaman Add-MusicaNo y Remove-MusicaNo, las dos ya protegidas (24/09: a Remove le faltaba)'
     'Add-NubeTiempo'          = 'solo son milisegundos, y con invitado la nube ni se lanza (Start-NubeOir sale en su primera linea)'
     # 22/09: la hermana de la de arriba, pero SOLO por el primer motivo. Comprobado que el
     # segundo NO vale aqui: Start-OpencodeJob no mira el modo invitado, asi que con un

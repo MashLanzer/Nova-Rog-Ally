@@ -104,3 +104,8 @@ memoria/arranque-oido.json
 memoria/musica-no.json
 memoria/guia-tiempos.json
 memoria/trivia.json
+# 24/09, repaso: lo que se ha bajado y lo que esta bajando es suyo, y claves.json es
+# donde va ahora la clave de la API de Steam (config.json SI esta versionado)
+memoria/descargas.json
+memoria/descargas-estado.json
+memoria/claves.json

@@ -62,25 +62,37 @@ Comp 'un modo sin ordenes no se guarda' (-not (Add-Perfil 'vacio' @())) ''
 # --- el patron de crear, el MISMO del archivo real ---
 # se saca del árbol, no a golpe de recortar texto: así es EL patrón, el mismo
 # que corre de verdad, y no una copia que puede quedarse vieja
-$pat = $null
-$cad = $ast.FindAll({ param($x)
-    $x -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
-    $x.Value -like '(?i)^*crea|crear*modo*' }, $true)
-if ($cad -and $cad.Count -gt 0) { $pat = $cad[0].Value }
-if (-not $pat) {
+# LA CONDICION ENTERA, NO LA PRIMERA CADENA QUE APAREZCA (24/09). El patron de crear son
+# ahora DOS alternativas unidas con -or: la de los nombres de dos palabras -que exige dos
+# puntos o coma- y la de siempre. Este banco cogia la primera cadena del arbol, o sea solo la
+# primera mitad, y daba MAL en "crea el modo noche pon el brillo al 10", que la segunda mitad
+# resuelve perfectamente. Peor aun: al no casar, $Matches se quedaba con lo del caso anterior
+# y el banco decia nombre='streaming' en un caso que iba de 'noche'.
+$condCrear = $null
+$ifCrear = $ast.Find({ param($x)
+    $x -is [System.Management.Automation.Language.IfStatementAst] -and
+    $x.Clauses[0].Item1.Extent.Text -like '*guardame*modo*' -and
+    $x.Extent.Text -like '*Add-Perfil*' }, $true)
+if ($ifCrear) { $condCrear = $ifCrear.Clauses[0].Item1.Extent.Text }
+if (-not $condCrear) {
     Comp 'encuentro el patron de crear en el archivo' $false 'no esta'
 } else {
     $casos = @(
         @('crea el modo streaming: cierra discord y pon el volumen al 30', 'streaming', 'cierra discord y pon el volumen al 30'),
         @('crea el modo noche pon el brillo al 10', 'noche', 'pon el brillo al 10'),
-        @('hazme un modo lectura con pon el brillo al 40', 'lectura', 'pon el brillo al 40')
+        @('hazme un modo lectura con pon el brillo al 40', 'lectura', 'pon el brillo al 40'),
+        @('crea el modo estamos dos: abre it takes two y abre discord', 'estamos dos', 'abre it takes two y abre discord')
     )
     foreach ($c in $casos) {
-        $ok = ($c[0] -match $pat) -and ($Matches[1] -eq $c[1]) -and ($Matches[2].Trim() -eq $c[2])
-        Comp ("lo parte bien: " + $c[1]) $ok $(if ($ok) { '' } else { "nombre='$($Matches[1])' cuerpo='$($Matches[2])'" })
+        $text = $c[0]
+        $Matches = $null
+        $casa = [bool](Invoke-Expression $condCrear)
+        $ok = $casa -and ($Matches[1] -eq $c[1]) -and ($Matches[2].Trim() -eq $c[2])
+        Comp ("lo parte bien: " + $c[1]) $ok $(if ($ok) { '' } elseif ($casa) { "nombre='$($Matches[1])' cuerpo='$($Matches[2])'" } else { 'no casa con ninguna de las dos mitades' })
     }
     # y que NO se coma una orden normal
-    Comp 'no se come "modo juego"' (-not ('modo juego' -match $pat)) ''
+    $text = 'modo juego'; $Matches = $null
+    Comp 'no se come "modo juego"' (-not [bool](Invoke-Expression $condCrear)) ''
 }
 
 Remove-Item $tmp -Force -ErrorAction SilentlyContinue

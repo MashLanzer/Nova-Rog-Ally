@@ -29,7 +29,9 @@ $top = $ast.EndBlock.Statements | Where-Object { $_ -is [System.Management.Autom
 foreach ($a in $top) { if (@('RE_RECETA_PROHIBIDO', 'RecetasMax', 'NIVELES_NOVA', 'RE_DATO_SENSIBLE', 'PerfilMax') -contains $a.Left.VariablePath.UserPath) { Invoke-Expression $a.Extent.Text } }
 foreach ($n in 'ConvertTo-Plain', 'ConvertTo-CmdArg', 'ConvertTo-Suave', 'Get-PatronReceta', 'Find-Receta', 'Find-RecetaIncompleta','Test-ScriptProhibido', 'Get-TextoReceta',
     'Add-Receta', 'Invoke-Receta', 'Get-Recetas', 'Save-Recetas', 'Get-VarianteReceta', 'Add-VarianteReceta', 'Build-PromptTraduccion',
-    'Get-DatosPerfil', 'Save-DatosPerfil', 'Add-DatoPerfil', 'Get-SistemaCerebro', 'Get-BalanceAprendizaje', 'Get-Estadisticas',
+    # Test-DatoTrato la trajo la idea 7 el 23/09 y Add-DatoPerfil la llama: sin ella este
+    # banco moria a mitad, y hasta que se le puso el trap salia con codigo 0 y daba verde.
+    'Get-DatosPerfil', 'Save-DatosPerfil', 'Test-DatoTrato', 'Add-DatoPerfil', 'Get-SistemaCerebro', 'Get-BalanceAprendizaje', 'Get-Estadisticas',
     'Send-UIEvento', 'Set-AcabaDeAprender', 'Get-CuentaAprendida', 'Get-Madurez', 'Get-FraseNivel', 'Write-Atomico',
     'Start-PasoScript', 'Complete-PasoScript', 'Start-Receta', 'Step-Receta', 'Watch-Receta', 'Close-Receta', 'Complete-RecetaResultado',
     'Test-ScriptSoloLectura', 'Format-VozInfo') { Invoke-Expression (TraerFn $n) }
