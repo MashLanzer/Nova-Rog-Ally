@@ -3192,16 +3192,25 @@ function Get-QueHeHecho {
     $partes = @()
     $hoy = Get-Date -Format 'yyyy-MM-dd'
 
-    # 1. a que jugaste hoy, segun los manifiestos de Steam
+    # 1. CUANTO jugaste, no solo a que (23/09, idea 19). It Takes Two: 3 h 12 el 22/09, 2 h 45
+    #    el 20/09 y 5 h 38 el 15/09, todo apuntado en juegos.json, y el resumen no lo decia.
+    #    Los manifiestos se quedan de RESPALDO, por si un juego de menos de un minuto no
+    #    llega a salir de la cuenta.
     try {
-        $null = Update-Juegos
-        $hoyIni = [DateTimeOffset]::new((Get-Date).Date, [TimeSpan]::Zero).ToUnixTimeSeconds()
-        $jugados = @($script:Juegos | Where-Object { [long]$_.ultimo -ge $hoyIni } |
-                     Sort-Object -Property ultimo -Descending)
-        if ($jugados.Count -eq 1) { $partes += "jugaste a $($jugados[0].nombre)" }
-        elseif ($jugados.Count -gt 1) {
-            $nombres = @($jugados | Select-Object -First 3 | ForEach-Object { $_.nombre })
-            $partes += "jugaste a " + ($nombres -join ', ')
+        $jugH = @(Get-TiempoJugado 1)
+        if ($jugH.Count -gt 0) {
+            $dosH = @($jugH | Select-Object -First 2 | ForEach-Object { "jugaste $(Format-Minutos ([int]$_.minutos)) a $($_.juego)" })
+            $partes += ($dosH -join ', ')
+        } else {
+            $null = Update-Juegos
+            $hoyIni = [DateTimeOffset]::new((Get-Date).Date, [TimeSpan]::Zero).ToUnixTimeSeconds()
+            $jugados = @($script:Juegos | Where-Object { [long]$_.ultimo -ge $hoyIni } |
+                         Sort-Object -Property ultimo -Descending)
+            if ($jugados.Count -eq 1) { $partes += "jugaste a $($jugados[0].nombre)" }
+            elseif ($jugados.Count -gt 1) {
+                $nombres = @($jugados | Select-Object -First 3 | ForEach-Object { $_.nombre })
+                $partes += "jugaste a " + ($nombres -join ', ')
+            }
         }
     } catch {}
 
@@ -3246,6 +3255,42 @@ function Get-QueHeHecho {
                 $partes += "hoy me desperte $nada veces para nada y no me pediste nada"
             }
         }
+    } catch {}
+
+    # 5. CUANTAS TE ENTENDI (23/09, idea 19). NO se escribe un contador nuevo: se llama al que
+    #    ya comparte $UsoBien/$UsoMal con analizar-uso.py y con probar-meta.ps1. Escribir otro
+    #    es exactamente como se llego a tener un 72 % y un 75 % del mismo dia.
+    try {
+        $mQ = Get-MetaDias 0
+        $hoyQ = (Get-Date).ToString('yyyyMMdd')
+        if ($mQ.ContainsKey($hoyQ)) {
+            $fQ = $mQ[$hoyQ]
+            $denQ = [int]$fQ.bien + [int]$fQ.mal + [int]$fQ.otras
+            if ($denQ -gt 0) { $partes += "te entendi $($fQ.bien) de $denQ" }
+        }
+    } catch {}
+
+    # 6. QUE SE DESCARGO (idea 19). Del historico en disco, que sobrevive a los 16 arranques.
+    try {
+        $dQ = Get-DescargasHechas
+        if ($dQ.ContainsKey($hoy)) {
+            $listaQ = @($dQ[$hoy])
+            if ($listaQ.Count -eq 1) { $partes += "termino de bajarse $($listaQ[0])" }
+            elseif ($listaQ.Count -gt 1) { $partes += "terminaron $($listaQ.Count) descargas" }
+        }
+    } catch {}
+
+    # 7. Y CUANTO DISCO QUEDA. Nova ya lo avisa suelta -cuatro veces en cuatro dias- y no
+    #    salia en el resumen, que es donde se mira todo junto. La unidad, del mismo sitio que
+    #    el parte general: la de Steam si no es C.
+    try {
+        $uQ = 'C'
+        try {
+            $spQ = (Get-ItemProperty 'HKCU:\Software\Valve\Steam' -ErrorAction SilentlyContinue).SteamPath
+            if ($spQ) { $uQ = ($spQ -replace '/', '\').Substring(0, 1).ToUpper() }
+        } catch {}
+        $diQ = New-Object System.IO.DriveInfo($uQ)
+        if ($diQ.IsReady) { $partes += "te quedan $(Format-Gigas $diQ.AvailableFreeSpace) en $uQ" }
     } catch {}
 
     if ($partes.Count -eq 0) { return 'hoy no ha pasado gran cosa todavia' }
@@ -4654,7 +4699,8 @@ function Resolve-Fragment([string]$f) {
         return @(@{ kind = 'quienSoy'; desc = 'que voces conozco' })
     }
     # --- QUE HE HECHO HOY ---
-    if ($f -match '^(?:que he hecho|que hice|que hemos hecho|resumen del dia|como fue el dia|que tal el dia|que paso hoy|cuentame el dia)(?:\s+hoy)?$') {
+    # TRES FORMAS MAS (23/09, idea 19), dentro de la misma alternancia y sin mover el sitio.
+    if ($f -match '^(?:que he hecho|que hice|que hemos hecho|resumen del dia|como fue el dia|como ha ido el dia|como fue mi dia|que tal el dia|que tal ha ido el dia|que tal ha sido el dia|que paso hoy|cuentame el dia|cuentame que tal el dia)(?:\s+hoy)?$') {
         return @(@{ kind = 'queHeHecho'; desc = 'resumen del dia' })
     }
     # --- UN SOLO PARTE, en vez de seis preguntas ---
@@ -8457,6 +8503,42 @@ function Get-DescargaJuego([string]$nombre) {
 #  - instalado, pero le faltaban bytes     -> no habia terminado.
 # El estado 4 no es de memoria: hoy los 13 appmanifest de Steam estan todos en StateFlags 4
 # con BytesDownloaded igual a BytesToDownload, sin una sola excepcion.
+# LO QUE SE BAJO CADA DIA (23/09, idea 19). En disco y no en memoria: el flanco vive en
+# $script:bajandoAntes, que se pierde en cada uno de los 16,3 arranques diarios, asi que una
+# lista en RAM diria "hoy no descargaste nada" casi siempre.
+# TREINTA DIAS: es lo que se puede preguntar ("que descargue esta semana") y no mas.
+$DescargasHechasPath = Join-Path $MemoriaDir 'descargas.json'
+$DescargasHechasDias = 30
+$script:descargasMem = $null
+function Get-DescargasHechas {
+    if ($null -ne $script:descargasMem) { return $script:descargasMem }
+    $script:descargasMem = @{}
+    try {
+        if (Test-Path -LiteralPath $DescargasHechasPath) {
+            $j = Get-Content -LiteralPath $DescargasHechasPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($p in $j.PSObject.Properties) { $script:descargasMem[[string]$p.Name] = @([string[]]$p.Value) }
+        }
+    } catch { Save-Corrupto $DescargasHechasPath 'descargas' }
+    return $script:descargasMem
+}
+function Add-DescargaHecha([string]$nombre) {
+    if (-not $nombre) { return }
+    try {
+        $h = Get-DescargasHechas
+        $dia = (Get-Date).ToString('yyyy-MM-dd')
+        $hoy = @()
+        if ($h.ContainsKey($dia)) { $hoy = @($h[$dia]) }
+        if ($hoy -contains $nombre) { return }
+        $h[$dia] = @($hoy + $nombre)
+        # se poda a 30 dias aqui, que es la unica vez que se escribe
+        $corte = (Get-Date).AddDays(-$DescargasHechasDias).ToString('yyyy-MM-dd')
+        foreach ($k in @($h.Keys)) { if ($k -lt $corte) { $h.Remove($k) } }
+        $o = [ordered]@{}
+        foreach ($k in ($h.Keys | Sort-Object)) { $o[$k] = @($h[$k]) }
+        Write-Atomico $DescargasHechasPath (ConvertTo-Json -InputObject $o -Depth 4)
+    } catch {}
+}
+
 function Test-DescargasFlanco($juegos) {
     $lista = @($juegos)
     # UNA LECTURA VACIA NO ES QUE HAYAN TERMINADO TODAS (regla 1). Si la biblioteca no se
@@ -23919,6 +24001,7 @@ while ($true) {
             $primeraD = $script:descargasArranque
             foreach ($nomD in @(Test-DescargasFlanco $jsD)) {
                 Log "DESCARGA terminada: $nomD"
+                try { Add-DescargaHecha $nomD } catch {}   # para el resumen del dia (idea 19)
                 try { Invoke-Reglas 'descarga' $nomD } catch { Log ("regla de descarga: " + $_.Exception.Message) }
                 # UNA SOLA VOZ POR DESCARGA (21/09): si una regla suya ya lo dijo, este se
                 # calla; si no tenia regla, habla.

@@ -451,6 +451,17 @@ Titulo "2n105. A que podemos jugar los dos"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-juegos-dos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:de donde lo ha sacado)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n118. El resumen del dia cuenta el dia entero"
+# Idea 19. Existia medio, y la mitad que existia estaba bien: el patron y el ejecutor ya
+# estaban, y NO se dispara solo. Le faltaban cuatro cosas, las cuatro medidas: CUANTO jugo
+# (It Takes Two 3 h 12 el 22/09 y 2 h 45 el 20/09, todo en juegos.json y sin decirse),
+# cuantas ordenes acerto, que se descargo y cuanto disco queda. Y a Get-QueHeHecho no la
+# miraba NINGUN banco. Lo que mas se vigila: que el acierto salga del MISMO Get-MetaDias que
+# ya comparten analizar-uso.py y probar-meta, y no de un contador nuevo: escribir otro es
+# como se llego a tener un 72 % y un 75 % del mismo dia.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-resumen-dia.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el resumen del dia ya cuenta el dia entero)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n117. Contar, medir y listar sus carpetas (solo lectura)"
 # Idea 9. 41 frases de este tema en catorce dias -"cuenta cuantos archivos hay en mi carpeta
 # de descargas"- y hoy ninguna se entendia en local: todas al agente. Y un fallo activo:

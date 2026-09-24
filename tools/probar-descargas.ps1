@@ -276,9 +276,11 @@ $script:reglasPedidas = @()
 $script:reglasDisparadas = 0
 function Send-Aviso([string]$t, [string]$tipo = '') { $script:avisado += $t }
 function Invoke-Reglas([string]$tipo, [string]$dato = '') { $script:reglasPedidas += "$tipo|$dato" }
-function Add-DescargaHecha([string]$n) { }
+$script:apuntadas = @()
+function Add-DescargaHecha([string]$n) { $script:apuntadas += $n }
 function CorreBucle($juegos) {
     $script:avisado = @(); $script:reglasPedidas = @(); $script:reglasDisparadas = 0
+    $script:apuntadas = @()
     & { $jsD = @($juegos); Invoke-Expression $blqD }
 }
 
@@ -287,6 +289,9 @@ $null = Test-DescargasFlanco @(J '1' 'PEAK' $true 1026 500 1000)
 CorreBucle @(J '1' 'PEAK' $false 4 1000 1000)
 Comp 'el bucle avisa cuando termina de verdad' ($script:avisado.Count -eq 1) ("[" + ($script:avisado -join '|') + "]")
 Comp 'y las reglas comen del MISMO flanco' ($script:reglasPedidas.Count -eq 1 -and $script:reglasPedidas[0] -eq 'descarga|PEAK') ("[" + ($script:reglasPedidas -join '|') + "]")
+# Y SE APUNTA EN EL HISTORICO (idea 19): el resumen del dia lo lee de ahi, porque la variable
+# del flanco se pierde en cada uno de los 16,3 arranques diarios.
+Comp 'y queda apuntado para el resumen del dia' ($script:apuntadas.Count -eq 1 -and $script:apuntadas[0] -eq 'PEAK') ("[" + ($script:apuntadas -join '|') + "]")
 
 ReiniciaD
 $null = Test-DescargasFlanco @(J '1' 'PEAK' $true 1026 500 1000)
