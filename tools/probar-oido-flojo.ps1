@@ -122,8 +122,16 @@ Write-Host ''
 Write-Host '-- 6. el sexto campo va AL FINAL, o rompe al asistente viejo --'
 # assistant.ps1 lee este fichero por INDICE en cuatro sitios y los de antes cogen los campos
 # 0 a 4. Meterlo en medio cambiaria el significado de todos ellos de golpe.
-Comp 'el estado tiene seis campos' ($sinCom -match '"%\.1f\|%s\|%\.3f\|%d\|%d\|%d"') ''
-Comp 'y el nuevo es el ultimo' ($sinCom -match '1 if ruido_de_fuera else 0, recientes\)') ''
+# EL REGEX CERRADO YA HA MORDIDO DOS VECES (24/09). Primero a probar-aviso-ruido, cuando
+# llego el sexto campo; y ahora a este, cuando llego el septimo -los segundos desde el ultimo
+# recorte, idea 12-. La linea CRECE por diseno: decir_estado lo tiene escrito desde el 22/09,
+# "se anade AL FINAL a proposito", justo para que el asistente viejo siga leyendo lo mismo.
+# Asi que se mira el PREFIJO, que es lo que de verdad protege a los lectores por indice, y por
+# separado que cada campo siga en su sitio. Un banco que exige un numero exacto de campos
+# castiga cumplir el diseno.
+Comp 'el estado empieza por sus campos de siempre' ($sinCom -match '"%\.1f\|%s\|%\.3f\|%d\|%d\|%d') ''
+Comp 'y la racha de flojos sigue siendo el SEXTO' ($sinCom -match '1 if ruido_de_fuera else 0, recientes') 'el tipo %d no distingue un campo de otro'
+
 $gf = SinComentarios (Traer 'Get-OidoFlojos')
 Comp 'el asistente lee el indice 5' ($gf -match '\$st\[5\]') ''
 Comp 'y con un worker viejo devuelve cero' ($gf -match '\$st\.Count -lt 6') 'no adivina'

@@ -8719,7 +8719,7 @@ function Watch-Musica($mu) {
 $script:habitos = $null
 function Get-Habitos {
     if ($null -ne $script:habitos) { return $script:habitos }
-    $script:habitos = @{ usos = (New-Object System.Collections.ArrayList); rechazadas = (New-Object System.Collections.ArrayList); ultimaPropuesta = ''; fin = @{}; cargaAvisada = ''; nivelVisto = 0; brilloAuto = $false; parteVisto = ''; parteTexto = ''; sinDatosVisto = ''; sinDatosTexto = ''; ritmo = (New-Object System.Collections.ArrayList); charlaHoras = @{}; minutosJuego = @{}; presencia = @{}; avisoJuego = @{ dia = ''; ult = 0; cada = 0; no = '' } }
+    $script:habitos = @{ usos = (New-Object System.Collections.ArrayList); rechazadas = (New-Object System.Collections.ArrayList); ultimaPropuesta = ''; fin = @{}; cargaAvisada = ''; nivelVisto = 0; brilloAuto = $false; parteVisto = ''; parteTexto = ''; sinDatosVisto = ''; sinDatosTexto = ''; correoVisto = ''; correoNum = -1; ritmo = (New-Object System.Collections.ArrayList); charlaHoras = @{}; minutosJuego = @{}; presencia = @{}; avisoJuego = @{ dia = ''; ult = 0; cada = 0; no = '' } }
     $rutaH = Join-Path $MemoriaDir 'habitos.json'
     if (Test-Path -LiteralPath $rutaH) {
         try {
@@ -8739,6 +8739,10 @@ function Get-Habitos {
             $script:habitos.nivelVisto = [int]$crudoH.nivelVisto
             $script:habitos.brilloAuto = [bool]$crudoH.brilloAuto
             $script:habitos.parteVisto = [string]$crudoH.parteVisto
+            # el dia en que ya se miro el correo (24/09, idea 6): sin esto, cada reinicio
+            # de Nova rearmaba la mirada, y arranca unas doce veces al dia.
+            $script:habitos.correoVisto = [string]$crudoH.correoVisto
+            try { $script:habitos.correoNum = [int]$crudoH.correoNum } catch { $script:habitos.correoNum = -1 }
             # EL TEXTO DEL PARTE, TAMBIEN EN DISCO (22/09 noche, idea 8). Ver Test-ParteManana:
             # se preparaba a las 05:00 y vivia solo en una variable de sesion; Nova reinicia
             # varias veces por manana, asi que el dia quedaba gastado en el disco y el mensaje
@@ -8786,7 +8790,7 @@ function Get-Habitos {
 function Save-Habitos {
     try {
         $hb = Get-Habitos
-        $o = [ordered]@{ usos = @($hb.usos); rechazadas = @($hb.rechazadas); ultimaPropuesta = $hb.ultimaPropuesta; fin = $hb.fin; cargaAvisada = $hb.cargaAvisada; nivelVisto = $hb.nivelVisto; brilloAuto = [bool]$hb.brilloAuto; parteVisto = [string]$hb.parteVisto; parteTexto = [string]$hb.parteTexto; sinDatosVisto = [string]$hb.sinDatosVisto; sinDatosTexto = [string]$hb.sinDatosTexto; ritmo = @($hb.ritmo); charlaHoras = $hb.charlaHoras; minutosJuego = $hb.minutosJuego; presencia = $hb.presencia; avisoJuego = $hb.avisoJuego }
+        $o = [ordered]@{ usos = @($hb.usos); rechazadas = @($hb.rechazadas); ultimaPropuesta = $hb.ultimaPropuesta; fin = $hb.fin; cargaAvisada = $hb.cargaAvisada; nivelVisto = $hb.nivelVisto; brilloAuto = [bool]$hb.brilloAuto; parteVisto = [string]$hb.parteVisto; parteTexto = [string]$hb.parteTexto; correoVisto = [string]$hb.correoVisto; correoNum = [int]$hb.correoNum; sinDatosVisto = [string]$hb.sinDatosVisto; sinDatosTexto = [string]$hb.sinDatosTexto; ritmo = @($hb.ritmo); charlaHoras = $hb.charlaHoras; minutosJuego = $hb.minutosJuego; presencia = $hb.presencia; avisoJuego = $hb.avisoJuego }
         $rutaH = Join-Path $MemoriaDir 'habitos.json'
         [System.IO.File]::WriteAllText($rutaH + '.tmp', (ConvertTo-Json -InputObject $o -Depth 4), (New-Object System.Text.UTF8Encoding($false)))
         Move-Item -LiteralPath ($rutaH + '.tmp') -Destination $rutaH -Force
@@ -10109,6 +10113,31 @@ function Get-OidoMudoDesde {
 # El worker deja en el SEXTO campo cuantos "suena demasiado flojo" ha tirado en los ultimos
 # dos minutos CON LOS ALTAVOCES CALLADOS. Si el worker es viejo no hay sexto campo y no se
 # sabe nada, que es lo mismo que cero.
+# LA TOMA VENIA SATURADA (24/09, idea 12 de la tanda nueva).
+#
+# El oido deja en el SEPTIMO campo los segundos desde el ultimo recorte (-1 si no ha habido).
+# Medido sobre 886 dictados: los 83 que traian un recorte en los 20 s previos fallaron el
+# 42,2 %, frente al 25,7 % de los otros 803. Es 1,64 veces peor, z~3,3, p<0,001. Y 32 de esos
+# 35 fallos acabaron en "la orden entera va a opencode", o sea que una toma que Nova ya sabia
+# mala se mandaba a un agente con manos a ver si adivinaba.
+#
+# La ventana de 20 s es la de esa misma medicion, no un numero nuevo.
+$RecorteVentanaSeg = 20
+function Get-SegDesdeRecorte {
+    if (-not (Test-Path -LiteralPath $RutaEstado)) { return -1 }
+    if (-not (Test-EstadoFresco)) { return -1 }
+    try {
+        $st = ([System.IO.File]::ReadAllText($RutaEstado).Trim()) -split '\|'
+        if ($st.Count -lt 7) { return -1 }
+        return [int]$st[6].Trim()
+    } catch { return -1 }
+}
+# Pura, para que el banco pueda correrle los 886 dictados en un milisegundo.
+function Test-TomaSaturada([int]$segDesdeRecorte, [int]$ventanaSeg) {
+    if ($segDesdeRecorte -lt 0) { return $false }
+    return ($segDesdeRecorte -le $ventanaSeg)
+}
+
 function Get-OidoFlojos {
     if (-not (Test-Path -LiteralPath $RutaEstado)) { return 0 }
     if (-not (Test-EstadoFresco)) { return 0 }
@@ -10508,8 +10537,18 @@ function Watch-Entorno([int]$botones = 0) {
         Receive-CorreoManana
         $hC = (Get-Date).Hour
         $diaC = (Get-Date).ToString('yyyy-MM-dd')
-        if (-not $script:invitado -and $hC -ge 7 -and $hC -lt 12 -and -not $script:correoOut -and $script:correoMananaDia -ne $diaC) {
+        # EL DIA SE APUNTA EN DISCO (24/09, idea 6 de la tanda nueva). $script:correoMananaDia
+        # vive en memoria, asi que cada reinicio de Nova rearmaba la mirada... y Nova arranca
+        # unas doce veces al dia. Medido: 13 pares de lineas -26 conexiones IMAP- para tres
+        # avisos, y el 22/09 se conecto CUATRO veces esa misma manana (07:00, 07:45, 08:34 y
+        # 09:50) y tres el 23/09. Es el mismo fallo que el parte de la manana tenia resuelto
+        # desde el 13/09 con parteVisto en habitos.json, y aqui faltaba.
+        $hbC = Get-Habitos
+        $yaMireHoy = ($script:correoMananaDia -eq $diaC -or [string]$hbC.correoVisto -eq $diaC)
+        if (-not $script:invitado -and $hC -ge 7 -and $hC -lt 12 -and -not $script:correoOut -and -not $yaMireHoy) {
             $script:correoMananaDia = $diaC
+            $hbC.correoVisto = $diaC
+            Save-Habitos
             [void](Start-CorreoManana)
         }
     } catch {}
@@ -11250,7 +11289,18 @@ function Receive-CorreoManana {
         if ($rC -and $rC.ok -and [int]$rC.cuantos -gt 0) {
             # en el log SOLO cuantos habia: ni remitentes ni asuntos
             Log "CORREO: $($rC.cuantos) sin leer (el de la manana)"
-            [void](Send-AvisoEntorno 'correo-manana' (Format-CorreosCorto $rC.correos) 'medio' 720)
+            # Y SI SON LOS MISMOS DE AYER, NO SE DICE (24/09, idea 6). Son los mismos 5 sin
+            # leer desde el 19/09: la frase que oye braya es identica cada vez. Que sigan sin
+            # leerse no es una novedad, y repetirla es justo lo que cansa.
+            $nC = @($rC.correos).Count
+            $hbC2 = Get-Habitos
+            if ([int]$hbC2.correoNum -eq $nC) {
+                Log "CORREO: siguen siendo los mismos $nC sin leer; no lo repito"
+            } else {
+                $hbC2.correoNum = $nC
+                Save-Habitos
+                [void](Send-AvisoEntorno 'correo-manana' (Format-CorreosCorto $rC.correos) 'medio' 720)
+            }
         }
         return
     }
@@ -13068,6 +13118,27 @@ function Invoke-FastCommand([string]$text) {
             if ($ConversacionOn -and ((Test-Charla $f) -or ((ConvertTo-Plain $f) -match $RE_PREGUNTA))) {
                 $restoCharla += $f
                 continue
+            }
+            # SI LA TOMA VENIA SATURADA, MEJOR PEDIR QUE LO REPITA (24/09, idea 12).
+            #
+            # Medido sobre 886 dictados: los 83 que traian un recorte en los 20 s previos
+            # fallaron el 42,2 %, frente al 25,7 % de los otros 803 -1,64 veces peor, z~3,3,
+            # p<0,001-. Y 32 de esos 35 fallos acabaron aqui mismo, escalando a un agente con
+            # manos a ver si adivinaba lo que Nova ya sabia que habia oido mal.
+            #
+            # No es que el recorte estropee la orden: 30 de los 83 salieron bien. Es que
+            # cuando ADEMAS no se entiende, la explicacion mas probable ya no es que falte
+            # vocabulario, es que la toma era mala. Y ahi repetir sale mucho mas barato que
+            # mandarselo a un agente que puede hacer cualquier cosa.
+            #
+            # Cuesta unas 83 peticiones de repetir en quince dias, y solo en las que ADEMAS no
+            # se entendieron: 35. Dos al dia.
+            $segRec = Get-SegDesdeRecorte
+            if (Test-TomaSaturada $segRec $RecorteVentanaSeg) {
+                Log "LOCAL descarta: no reconozco '$f', y la toma venia saturada (recorte hace $segRec s); pido que lo repita en vez de escalarlo"
+                Add-Estadistica 'toma-saturada' $f
+                $script:ultimoDescarte = ''
+                return 'Te he oido con la voz saturada y no me ha quedado claro. ¿Me lo repites, o lo dices con el boton?'
             }
             # dejar constancia del trozo exacto: es lo que dice que anadir a
             # commands.json en vez de tener que adivinarlo despues

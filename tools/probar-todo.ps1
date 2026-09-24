@@ -663,6 +663,19 @@ Titulo "2n135. El microfono ya no espera a que cargue el dictado"
 python tools\probar-arranque-oido.py 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el microfono ya no espera)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n136. Una toma saturada no se manda al agente a ver si adivina"
+# Idea 12 de la tanda nueva del 24/09. Medido sobre los 886 dictados con texto: los 83 que
+# traian un recorte en los 20 s previos fallaron el 42,2 % frente al 25,7 % de los otros 803.
+# Es 1,64 veces peor, z~3,3, p<0,001. Pero no condena: 30 de esos 83 salieron BIEN, asi que el
+# recorte no estropea la orden, la hace mas dificil.
+# Lo que si era un fallo: 32 de los 35 acabaron escalando a opencode, o sea que una toma que
+# Nova ya sabia mala se mandaba a un agente con manos a ver si adivinaba.
+# Lo que mas se vigila: que esto NO se dispare cuando la orden SI se entiende. El recorte solo
+# se mira en el camino de "no reconozco"; mirandolo antes serian 83 interrupciones en vez de
+# 35, y la mayoria sin motivo.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-toma-saturada.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:una toma saturada ya no se manda)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n120. La musica: poner lo que es, y no repetir lo que no le gusta"
 # Ideas 1-A y 1-B. 52 intentos con frases distintas y ninguno acabo bien. El fallo de raiz,
 # medido contra youtube.com con cuatro busquedas suyas: el regex viejo devolvia 45, 71, 45 y

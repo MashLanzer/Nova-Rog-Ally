@@ -2975,9 +2975,16 @@ def decir_estado(ref=0.0):
     ahora_f = time.time()
     del flojos_callados[:max(0, len(flojos_callados) - 20)]
     recientes = sum(1 for t in flojos_callados if ahora_f - t <= FLOJO_VENTANA)
-    return "%.1f|%s|%.3f|%d|%d|%d" % (
+    # EL SEPTIMO CAMPO (24/09, idea 12): segundos desde el ultimo recorte, o -1 si no ha
+    # habido ninguno en esta sesion. Medido: los dictados con un recorte en los 20 s previos
+    # fallan el 42,2 % frente al 25,7 % de los demas -1,64 veces peor, p<0,001-, y 32 de esos
+    # 35 fallos acabaron escalando a un agente con manos. Con este dato, el asistente puede
+    # pedir que se lo repitan en vez de mandarselo al agente.
+    # Va al final por el mismo motivo que el quinto y el sexto: se lee por indice.
+    desde_recorte = -1 if ultimo_recorte <= 0 else int(ahora_f - ultimo_recorte)
+    return "%.1f|%s|%.3f|%d|%d|%d|%d" % (
         ganancia, ("%.4f" % ref) if ref else "0",
-        salida, bloques_voz, 1 if ruido_de_fuera else 0, recientes)
+        salida, bloques_voz, 1 if ruido_de_fuera else 0, recientes, desde_recorte)
 # Mientras exista esta marca no se evalua la palabra de activacion: solo el
 # boton. La crea el asistente cuando hay un juego en primer plano. El dictado
 # y la confirmacion siguen funcionando con normalidad.
