@@ -252,6 +252,39 @@ Comp 'y salen en cuanto cabe' ($n2 -eq 2) "$n2"
 Comp 'y ya no queda ninguno' (@(Get-AvisoEspera).Count -eq 0) ''
 
 Write-Host ''
+Write-Host '-- y no escribe una linea cada 30 s mientras dura la ausencia --'
+# LO QUE PASO EL 24/09: Watch-Entorno repasa cada 30 s, y con la consola sola los mismos tres
+# avisos volvian a aparcarse en cada vuelta escribiendo cada uno su linea Y guardando el
+# fichero. 2.848 de las 3.448 lineas del registro de ese dia -el 82,6 %- eran eso: 300 por
+# hora, unas 7.200 al dia sin que nadie tocara la consola. El banco estaba verde: la cola
+# nunca crecio de tamano, que era lo unico que miraba.
+Limpia
+$primera = Add-AvisoEspera 'disco-poco' 'te quedan 12 gigas' 'medio' 60
+Comp 'la primera vez dice que es nueva' ($primera -eq $true) "$primera"
+$rep = 0
+for ($i = 1; $i -le 120; $i++) { if (Add-AvisoEspera 'disco-poco' 'te quedan 12 gigas' 'medio' 60) { $rep++ } }
+Comp 'y las 120 vueltas siguientes, ninguna' ($rep -eq 0) "$rep de 120 habrian escrito una linea"
+Comp 'y la cola sigue con uno solo' (@(Get-AvisoEspera).Count -eq 1) "$(@(Get-AvisoEspera).Count)"
+
+# PERO SI CAMBIA EL TEXTO, SI: son el mismo aviso y no dicen lo mismo. Que el disco pase de
+# 12 a 4 gigas mientras no hay nadie es justo lo que hay que poder leer luego en el registro.
+$cambio = Add-AvisoEspera 'disco-poco' 'te quedan 4 gigas' 'medio' 60
+Comp 'si cambia el texto, vuelve a decir que es nueva' ($cambio -eq $true) "$cambio"
+Comp 'y la cola se queda con el texto nuevo' ((@(Get-AvisoEspera))[0].texto -eq 'te quedan 4 gigas') "$((@(Get-AvisoEspera))[0].texto)"
+$subeNivel = Add-AvisoEspera 'disco-poco' 'te quedan 4 gigas' 'alto' 60
+Comp 'y si sube de nivel, tambien' ($subeNivel -eq $true) "$subeNivel"
+
+# Y EL PLAZO SE REFRESCA AUNQUE NO SE APUNTE: el aviso sigue siendo verdad ahora mismo, asi
+# que no puede caducar por llevar rato repitiendose. Si esto se rompiera, el aviso se tiraria
+# solo a los $AvisoEsperaCaducaMin minutos justo cuando mas seguro es que sigue pasando.
+Limpia
+$hace = (Get-Date).AddMinutes(-($AvisoEsperaCaducaMin - 1))
+[void](Add-AvisoEspera 'oido-ruido' 'hay mucho ruido' 'medio' 60 $hace)
+[void](Add-AvisoEspera 'oido-ruido' 'hay mucho ruido' 'medio' 60 (Get-Date))
+$v = [datetime]((@(Get-AvisoEspera))[0].vence)
+Comp 'el plazo se refresca aunque la linea no se repita' ($v -gt (Get-Date).AddMinutes($AvisoEsperaCaducaMin - 2)) "vence $($v.ToString('HH:mm'))"
+
+Write-Host ''
 if ($fallos -gt 0) { Write-Host "  $fallos mal"; exit 1 }
 Write-Host '  ya no le habla a una habitacion vacia'
 exit 0

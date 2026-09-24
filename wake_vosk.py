@@ -321,6 +321,14 @@ MIN_BLOQUES_VOZ = 4
 RUIDO_CONSTANTE = 0.92
 RUIDO_PULSOS = 2
 pulsos_ruidosos = 0
+# LAS RAFAGAS EN LAS QUE TE LLAMASTE Y NO TE OI (24/09, idea 1). Aqui solo se apuntan; quien
+# decide si se dice algo es el asistente, y lo unico que hace es DECIRLO. No se toca ningun
+# liston: medidos los 83 descartes por flojo del registro, 45 tienen los altavoces sonando
+# (de 0,10 a 0,38) y 38 estan en silencio total. Subir la sensibilidad a ciegas seria
+# amplificar justo el juego, que es la receta de que Nova haga algo que nadie pidio.
+# Por eso solo cuentan los que pasan con los altavoces CALLADOS (<= UMBRAL_ALTAVOZ).
+FLOJO_VENTANA = 120.0
+flojos_callados = []
 # Y LA GANANCIA BUENA SE GUARDA APARTE (22/09, por la mañana, estrenandolo).
 # Al arrancar el worker con el codigo nuevo se vio el caso que faltaba: la deteccion de ruido
 # funcionaba -'esto no es voz, es ruido de fondo (60 de 60 bloques)'- pero congelaba la
@@ -2870,9 +2878,15 @@ def decir_estado(ref=0.0):
     dos casos igual, que es lo medido."""
     salida = nivel_salida()
     ruido_de_fuera = pulsos_ruidosos >= RUIDO_PULSOS and salida <= UMBRAL_ALTAVOZ
-    return "%.1f|%s|%.3f|%d|%d" % (
+    # EL SEXTO CAMPO (24/09, idea 1): cuantas veces te has llamado en los ultimos dos minutos
+    # y se ha tirado por flojo CON LOS ALTAVOCES CALLADOS. Va al final por el mismo motivo
+    # que el quinto: assistant.ps1 lee por indice y la version vieja sigue leyendo lo mismo.
+    ahora_f = time.time()
+    del flojos_callados[:max(0, len(flojos_callados) - 20)]
+    recientes = sum(1 for t in flojos_callados if ahora_f - t <= FLOJO_VENTANA)
+    return "%.1f|%s|%.3f|%d|%d|%d" % (
         ganancia, ("%.4f" % ref) if ref else "0",
-        salida, bloques_voz, 1 if ruido_de_fuera else 0)
+        salida, bloques_voz, 1 if ruido_de_fuera else 0, recientes)
 # Mientras exista esta marca no se evalua la palabra de activacion: solo el
 # boton. La crea el asistente cuando hay un juego en primer plano. El dictado
 # y la confirmacion siguen funcionando con normalidad.
@@ -3611,6 +3625,13 @@ try:
                                     # nada que reconocer.
                                     anota("descartado '%s': suena demasiado flojo para ser una llamada (rafaga %.4f < %.3f); ver LA RAFAGA QUE DE VERDAD TE DELATA"
                                           % (texto, pico_rafaga, umbral_rafaga()))
+                                    # Y SE APUNTA SI FUE EN SILENCIO (24/09, idea 1): ver
+                                    # flojos_callados. Con los altavoces sonando no cuenta,
+                                    # porque entonces lo mas probable es que el que dijo algo
+                                    # parecido a "nova" fuera el juego.
+                                    if salida <= UMBRAL_ALTAVOZ:
+                                        flojos_callados.append(ahora)
+                                        del flojos_callados[:-20]
                                 elif conf < umbral_confianza(plano):
                                     # Y POR QUE SE SUBIO EL LISTON (22/09). Hasta hoy esta
                                     # linea decia contra que numero se comparaba, pero no

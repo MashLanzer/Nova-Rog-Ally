@@ -537,6 +537,20 @@ Titulo "2n127. Lo que dura un rato no es un dato, y la poda deja lapida"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-poda-perfil.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el perfil ya no tira lo que braya repite)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n128. Te llamaste tres veces y no te oi"
+# Idea 1 de la tanda del 24/09. 83 descartes por "suena demasiado flojo" en el registro, 57
+# de ellos dentro de 19 rachas de dos o mas en 120 s. Mirado que paso DESPUES de las 19, con
+# 15 minutos de ventana: CERO acabaron en la orden que pidio, 17 se quedaron en nada y DOS
+# ejecutaron algo que no habia pedido -el del 22/09 a la 01:12 esta con sus propias palabras
+# en el registro: "no tenias que leer la pantalla, no te pedi eso"-. O sea que no se recupera.
+# Lo que mas se vigila, y es lo contrario de lo que parece: que esto NO toque ningun liston.
+# De los 83 descartes, 45 pasan con los altavoces sonando (0,10 a 0,38) y una linea JUEGO al
+# lado: no es braya hablando bajo, es el juego diciendo algo parecido a "nova". Subir la
+# sensibilidad seria amplificar justo eso, la regla 1 al reves. Asi que solo HABLA, solo
+# cuenta las rachas en silencio, y el liston de tres deja 5 avisos en 3 dias en vez de 11.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-oido-flojo.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya no se queda callada cuando la llamas)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n120. La musica: poner lo que es, y no repetir lo que no le gusta"
 # Ideas 1-A y 1-B. 52 intentos con frases distintas y ninguno acabo bien. El fallo de raiz,
 # medido contra youtube.com con cuatro busquedas suyas: el regex viejo devolvia 45, 71, 45 y

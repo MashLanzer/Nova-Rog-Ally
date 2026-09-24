@@ -111,8 +111,15 @@ Comp 'el nivel de salida se mide una vez por linea' (([regex]::Matches($dEstado,
 # Y EL PULSO LO DEJA ESCRITO, o manana no se puede contar cuantos eran altavoces.
 Comp 'el pulso de ruido apunta los altavoces' ($oido -match 'seguidos, altavoces %\.3f')
 Comp 'nadie lo escribe ya a mano' (-not ($oido -match 'escribir\(RUTA_ESTADO, "%'))
-# el orden importa: los campos 0 a 3 tienen que seguir donde estaban
-Comp 'la ganancia sigue siendo el campo 0' ($oido -match 'return "%\.1f\|%s\|%\.3f\|%d\|%d"')
+# el orden importa: los campos 0 a 3 tienen que seguir donde estaban.
+# EL REGEX ERA CERRADO Y LA LINEA PUEDE CRECER (24/09): decir_estado dice en su propio
+# comentario que los campos nuevos se anaden AL FINAL para que el asistente viejo siga
+# leyendo lo mismo, y el 24/09 llego el sexto (la racha de descartes por flojo). Con la
+# comilla final pegada al quinto, cumplir ese diseno ponia este banco rojo. Ahora se mira
+# el PREFIJO -que es lo que de verdad protege a los lectores por indice- y ademas que el
+# quinto siga siendo el del ruido, que es lo unico que el tipo %d no distingue por si solo.
+Comp 'la ganancia sigue siendo el campo 0' ($oido -match 'return "%\.1f\|%s\|%\.3f\|%d\|%d')
+Comp 'y el ruido sigue siendo el quinto' ($oido -match 'bloques_voz, 1 if ruido_de_fuera else 0') 'los dos son %d: el tipo no los separa'
 
 Write-Host ''
 Write-Host '-- el aviso respeta las reglas de braya --'

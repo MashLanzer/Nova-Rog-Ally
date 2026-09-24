@@ -9717,13 +9717,29 @@ function Save-AvisoEspera {
 
 # NADA DE DOS AVISOS DE LA MISMA COSA: si la clave ya esta aparcada, se sustituye por el
 # texto nuevo. Volver y oir tres veces lo del ruido seria peor que no oirlo.
+# DEVUELVE SI ERA NUEVO (24/09). Watch-Entorno pasa por aqui cada 30 s con los mismos tres
+# avisos mientras no hay nadie, y hasta hoy cada vuelta escribia una linea Y guardaba el
+# fichero. Medido sobre el registro del 24/09: 2.848 de sus 3.448 lineas -el 82,6 %, y el
+# 69,9 % de los bytes- eran "ENTORNO aparcado", 300 lineas por hora, ~7.200 al dia con la
+# consola SOLA; mas que un dia entero de uso de verdad (la media historica son 378 KB/dia).
+# Lo escribi yo el 23/09 con la idea 20 de la tanda anterior, y no existia antes: en los
+# quince dias del log viejo salen 34 lineas en total.
+#
+# Es el mismo patron que $script:resumenFirma del 22/09: se guarda lo que ya se apunto y no
+# se repite. Y el texto va en la firma a proposito: "el disco lleva 12 GB" y "el disco lleva
+# 4 GB" son el mismo aviso pero no dicen lo mismo, y el segundo si merece una linea.
 function Add-AvisoEspera([string]$clave, [string]$texto, [string]$nivel, [int]$cada, [datetime]$ahora = (Get-Date)) {
     [void](Get-AvisoEspera)
     $viejos = @($script:avisoEspera | Where-Object { [string]$_.clave -eq $clave })
+    $igual = ($viejos.Count -eq 1 -and [string]$viejos[0].texto -eq $texto -and [string]$viejos[0].nivel -eq $nivel)
     foreach ($v in $viejos) { [void]$script:avisoEspera.Remove($v) }
     [void]$script:avisoEspera.Add(@{ clave = $clave; texto = $texto; nivel = $nivel; cada = $cada
                                      vence = $ahora.AddMinutes($AvisoEsperaCaducaMin).ToString('s') })
+    # EL PLAZO SI SE REFRESCA aunque el aviso sea el mismo -arriba se pone $ahora-, porque el
+    # aviso sigue siendo verdad ahora mismo; lo que no se repite es la linea y el guardado.
+    if ($igual) { return $false }
     Save-AvisoEspera
+    return $true
 }
 
 # SUELTA LA COLA. Los vencidos se tiran con una linea en el log: la cola tiene plazo, o seria
@@ -9773,8 +9789,11 @@ function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'med
     # dias- y desde fuera seria igual que si no se hubiera enterado de nada. Es el mismo
     # fallo que tuvo Test-ParteManana el 21/09, con otra ropa.
     if (-not $yaEsperado -and (Test-AvisoAplazable $clave $nivel)) {
-        Add-AvisoEspera $clave $texto $nivel $cadaMin
-        Log "ENTORNO aparcado (no hay nadie desde hace $(Get-AusenciaMin) min): $clave"
+        # Solo se apunta la PRIMERA vez y cuando cambia el texto (24/09): ver el comentario
+        # de Add-AvisoEspera. Antes escribia una linea cada 30 s mientras durase la ausencia.
+        if (Add-AvisoEspera $clave $texto $nivel $cadaMin) {
+            Log "ENTORNO aparcado (no hay nadie desde hace $(Get-AusenciaMin) min): $clave"
+        }
         return $false
     }
     if (-not (Test-PuedoAvisar $clave $nivel $cadaMin)) { return $false }
@@ -9876,6 +9895,20 @@ function Get-OidoMudoDesde {
     } catch { return 0 }
 }
 
+# TE LLAMASTE Y NO TE OI, VARIAS VECES SEGUIDAS (24/09, idea 1 de la tanda nueva).
+# El worker deja en el SEXTO campo cuantos "suena demasiado flojo" ha tirado en los ultimos
+# dos minutos CON LOS ALTAVOCES CALLADOS. Si el worker es viejo no hay sexto campo y no se
+# sabe nada, que es lo mismo que cero.
+function Get-OidoFlojos {
+    if (-not (Test-Path -LiteralPath $RutaEstado)) { return 0 }
+    if (-not (Test-EstadoFresco)) { return 0 }
+    try {
+        $st = ([System.IO.File]::ReadAllText($RutaEstado).Trim()) -split '\|'
+        if ($st.Count -lt 6) { return 0 }
+        return [int]$st[5].Trim()
+    } catch { return 0 }
+}
+
 function Get-OidoConRuido {
     # $true si el oido lleva rato oyendo ruido de fondo constante en vez de voz.
     if (-not (Test-Path -LiteralPath $RutaEstado)) { return $false }
@@ -9948,6 +9981,51 @@ function Test-AvisarMudo([int]$segMudo, [bool]$workerVivo, [long]$ahoraMs) {
     }
     if ($script:mudoDesdeMs -eq 0) { $script:mudoDesdeMs = $ahoraMs }
     if ($script:mudoAvisado) { return $false }
+    return $true
+}
+
+# TE LLAMASTE TRES VECES Y NO TE OI (24/09, idea 1 de la tanda nueva).
+#
+# LA MEDICION: 83 descartes por "suena demasiado flojo" en el registro, 57 de ellos dentro de
+# 19 rachas de dos o mas en 120 s. Se miro que paso DESPUES de cada una de las 19, con una
+# ventana generosa de 15 minutos:
+#   - acabo ejecutando la orden que pidio:  0 de 19
+#   - se quedo en nada:                    17 de 19
+#   - ejecuto algo que NO pidio:            2 de 19
+# El segundo de esos dos esta contado con sus palabras: el 22/09 a la 01:12, tras una racha,
+# Nova por fin le oyo y abrio los ajustes Y ademas leyo la pantalla; el dicto "no tenias que
+# leer la pantalla, no te pedi eso". O sea que NO se recupera sola.
+#
+# Y POR QUE ESTO SOLO HABLA, Y NO TOCA NINGUN LISTON. De los 83 descartes, 45 pasan con los
+# altavoces sonando de 0,10 a 0,38 y una linea JUEGO al lado: esos no son braya hablando
+# bajo, es el juego diciendo algo que suena a "nova". Subir la sensibilidad en una racha
+# seria amplificar justo eso, que es la regla 1 al reves. Por eso el worker solo cuenta los
+# que pasan en SILENCIO, y por eso aqui no se cambia nada: se dice y ya.
+#
+# EL LISTON DE TRES, medido sobre esas mismas 19 rachas:
+#   con 2 -> avisaria en 11 rachas (3,7 al dia): demasiado, es el fallo de los 25 avisos
+#   con 3 -> avisaria en  5 rachas (1,7 al dia) y deja fuera las 2 que eran del juego
+#   con 4 -> avisaria en  3, y se pierde la del 21/09 a las 16:28 que era de verdad
+# Y va con la vuelta de la regla 7: lo que dice es "usa el boton", que es la segunda via.
+$FlojoRachaMinima = [int](Get-Cfg 'escucha' 'flojoRachaMinima' 3)
+$script:flojoAvisado = $false     # ya se dijo en esta racha
+# Pura igual que Test-AvisarRuido y Test-AvisarMudo: recibe la cuenta y devuelve si toca
+# hablar, para que el banco pueda correr un dia entero de rachas en un milisegundo.
+function Test-AvisarFlojo([int]$cuantos, [bool]$enPausa, [bool]$enSordina) {
+    # MIENTRAS HABLA NO CUENTA: su propia voz entrando por el microfono ya genera descartes,
+    # y avisar ahi seria contestarse a si misma. Lo mismo con la sordina, que es justo el
+    # modo en el que braya pidio que no le hablara.
+    if ($enPausa -or $enSordina) { return $false }
+    if ($cuantos -lt $FlojoRachaMinima) {
+        # la racha se cerro (el worker ya solo cuenta los ultimos dos minutos): lo siguiente
+        # que pase sera otra racha y se podra volver a decir
+        if ($script:flojoAvisado -and $cuantos -eq 0) {
+            $script:flojoAvisado = $false
+            Log 'oido-flojo: la racha se cerro, el aviso se rearma'
+        }
+        return $false
+    }
+    if ($script:flojoAvisado) { return $false }
     return $true
 }
 
@@ -10166,6 +10244,21 @@ function Watch-Entorno([int]$botones = 0) {
             if (Send-AvisoEntorno 'oido-ruido' `
                 'Hay un ruido de fondo constante y asi no te voy a oir bien. Si puedes, quitalo o acercame el microfono.' 'medio' 120) {
                 $script:ruidoAvisado = $true
+            }
+        }
+    } catch {}
+
+    # TE LLAMASTE Y NO TE OI (24/09, idea 1). VA DETRAS de los dos de arriba: si a la vez
+    # esta sorda o hay un ruido constante, eso es lo que hay que decir, y esto seria una
+    # interrupcion de mas. Nivel 'alto' por el mismo motivo que el de estar sorda: jugando,
+    # el boton es la unica via que le queda, y callarse es lo peor que puede hacer.
+    try {
+        $enPausaF = ($script:pausaHasta -gt $ahoraW)
+        $enSordinaF = ($script:sordinaHasta -gt $ahoraW)
+        if (Test-AvisarFlojo (Get-OidoFlojos) $enPausaF $enSordinaF) {
+            if (Send-AvisoEntorno 'oido-flojo' `
+                'Te he oido llamarme varias veces pero llegas muy flojo. Acercate un poco, o usame con el boton.' 'alto' 10) {
+                $script:flojoAvisado = $true
             }
         }
     } catch {}

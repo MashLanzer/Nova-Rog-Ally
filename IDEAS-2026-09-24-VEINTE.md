@@ -145,37 +145,71 @@ existe. Antes de añadirle nada, hay que averiguar cuál de las dos.
 
 ## D. Gasta cuando no hace falta
 
-### 15. Casi nueve horas seguidas analizando ruido
+### 15. ~~Casi nueve horas seguidas analizando ruido~~ — **FALSA, y lo bueno es por qué**
 
-*(Corregido: el contador de "pulsos seguidos" avanza unas cuatro veces por minuto, no una.
-Medido de reloj, el dato es este.)*
+> **Comprobada el 24/09 y retirada.** Lo de las horas sin voz es cierto: 8 h 42 min seguidos
+> del 23/09, y 38 de las 324 horas del registro. Lo que **no** es cierto es la conclusión —
+> "todo ese tiempo el oído está decodificando al 100 %"—. Medidos los **15.957** pulsos del
+> registro que traen `decodificado=N%`:
+>
+> | | |
+> |---|---|
+> | al 100 % | **32 pulsos, el 0,2 %** |
+> | al 0 % | **9.636 pulsos, el 60,4 %** |
+> | mediana | **0 %** |
+> | media | **9,5 %** |
+>
+> O sea: el oído ya se salta el decodificador seis de cada diez veces. Lo pone el propio
+> `wake_vosk.py` en su línea 3300 —*"ni se toca el decodificador. Es donde está el ahorro
+> real"*—, y los números dicen que funciona. El núcleo que la idea quería rescatar **ya está
+> libre**.
 
-El rato más largo **sin una sola voz** son **8 horas y 42 minutos seguidos** —del 23/09 a la
-01:50 hasta las 10:30—, y le siguen 7,1 h el 22/09 y 5,1 h esta misma madrugada. Hay **seis
-ratos de más de dos horas** y, en total, **38 de las 324 horas** que cubre el registro son
-ruido de fondo y nada más.
+### 16. ~~El resumen al volver es un widget el 62 % de las veces~~ — **FALSA: arreglado el 22/09**
 
-Todo ese tiempo el oído está decodificando al 100 % —`decodificado=100%`— para no encontrar
-nada. Es un núcleo de los cuatro trabajando para nada, y el núcleo hace falta cuando juegas.
+> **Comprobada el 24/09 y retirada.** Los 774 de 1.249 son reales, pero no son 774 avisos: son
+> **la misma notificación repetida**. Y caen **enteros en dos días**:
+>
+> | día | líneas `RESUMEN AL VOLVER` |
+> |---|---|
+> | 19/09 | 123 |
+> | 21/09 | 1.126 (774 de ellas, el mismo widget, de 03:18 a 09:45) |
+> | 22/09 en adelante | **0** |
+>
+> El 22/09 se puso `$script:resumenFirma` justo para eso, y desde entonces no hay ni una. Yo
+> conté un fallo ya arreglado y lo presenté como abierto.
+>
+> Y la lista negra que proponía **ya se descartó a conciencia**, con su motivo escrito encima
+> de la función: *"20 de las 36 de esos días son de Discord, o sea personas escribiendo"*, y
+> una lista a mano choca con que todo se ajuste hablando.
 
-### 16. El resumen al volver es un widget el 62 % de las veces
+### 17. ~~No se reinicia: se MUERE, catorce veces al día~~ — **FALSA por construcción**
 
-**774 de los 1.249** dicen exactamente `Mientras no estabas: 1 mensaje de XBOX Game Bar
-Widgets`. Solo **123** son de Discord, que es donde están tus personas, y **352** ni siquiera
-dicen de quién. Una lista negra de remitentes que no son personas convertiría un aviso que ya
-no escuchas en uno que sí.
-
-### 17. No se reinicia: se MUERE, catorce veces al día
-
-**246 arranques en 15 días** (`VoiceAssistant iniciado`) y solo **35 cierres limpios**
-(`VoiceAssistant cerrado`). O sea que **211 de esos arranques vinieron de una muerte**, no de
-que alguien la parara: se cae, o la matan, unas **catorce veces al día**.
-
-Cada una tira el estado que vive en memoria —esta tanda ya tuvo que salvar dos cosas que se
-perdían ahí— y paga el arranque entero del oído. Y nadie ha mirado nunca **por qué**.
-
-*Esta es, con diferencia, la más importante de las veinte:* mientras Nova se muera catorce
-veces al día, cualquier cosa que se le añada se va a perder catorce veces al día.
+> **Comprobada el 24/09 y retirada.** Los 246 arranques son reales; las "211 muertes", no. La
+> resta era imposible: **`VoiceAssistant cerrado` no existía antes del 18/09 19:59** —es la
+> primera vez que aparece en todo el registro—, así que los 9 días anteriores contaban
+> arranques contra una línea que el código todavía no escribía.
+>
+> Con los dos lados midiendo lo mismo, del 18/09 en adelante:
+>
+> | | |
+> |---|---|
+> | arranques | **60** |
+> | cierres limpios | **35** |
+> | muertes de verdad | **25 en 5,5 días → 4,5 al día** |
+>
+> Y la causa está a la vista. Cruzados los 246 arranques con los **331 commits que tocan
+> `assistant.ps1`**:
+>
+> | arranques a menos de… | |
+> |---|---|
+> | 10 min de un commit | 166 (**67 %**) |
+> | 30 min de un commit | 207 (**84 %**) |
+> | 60 min de un commit | 222 (**90 %**) |
+>
+> Los días gordos son los de desarrollo —10/09: 50 arranques; 12/09: 39— y los últimos días
+> están en 4-14. **No se muere: la reinicio yo cada vez que la edito.** El "cualquier cosa que
+> se le añada se va a perder catorce veces al día" era la conclusión más alarmante de las
+> veinte, y era mía, no suya.
 
 ### 18. El micrófono se muere
 
