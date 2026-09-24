@@ -118,23 +118,36 @@ Comp 'y al entrar, la hora se sella ANTES de pausar' ($posSella -ge 0 -and $posP
 
 Write-Host ''
 Write-Host '-- y "no hables en diez minutos" se entiende --'
-# La linea del patron, entera, y se prueba CONTRA ELLA: asi esto mide lo que de verdad
-# entiende Nova y no si alguien escribio unas palabras en el fichero.
-$lineaS = @($fuente -split "`r?`n" | Where-Object { $_ -match 'no \(\?:me \)\?habl\[ae\]s' })[0]
-Comp 'la linea del patron existe' ($null -ne $lineaS -and $lineaS.Length -gt 0) ''
-$patS = ''
-if ($lineaS) {
-    $mS = [regex]::Match($lineaS, "-match '(.+)'\)")
-    if ($mS.Success) { $patS = $mS.Groups[1].Value }
+# SE EJECUTAN LOS IF DE VERDAD, sacados del arbol (23/09). Antes esto buscaba la LINEA del
+# patron por su texto -'no (?:me )?habl[ae]s'- y sacaba el patron con un regex sobre ella:
+# al ampliar el patron el 23/09 para que entendiera 'diez minutos', la linea dejo de casar
+# y salieron cinco rojos con el codigo mejor que antes. Lo que importa no es como esta
+# escrito el patron, sino si la frase de braya calla a Nova.
+$ifsS = @()
+foreach ($x in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.IfStatementAst] }, $true)) {
+    if ($x.Extent.Text -match "kind = 'sordina'") { $ifsS += $x.Extent.Text }
 }
-Comp 'y se puede leer el patron' ($patS.Length -gt 0) "$($patS.Length) caracteres"
+Invoke-Expression (Traer 'Get-MinutosDichos')
+Invoke-Expression (Traer 'Format-MinutosDichos')
+function CallaCon([string]$frase) {
+    foreach ($b in $ifsS) {
+        $r = @(& { $f = $frase; Invoke-Expression $b })
+        if ($r -and $r[0]) { return $r[0] }
+    }
+    return $null
+}
+Comp 'los ifs de la sordina se encuentran' ($ifsS.Count -ge 1) "$($ifsS.Count)"
 # LA FRASE DE VERDAD, la que dijo braya a las 21:48:54 del 22/09 jugando a It Takes Two.
-Comp 'su frase literal entra' ('no no me hablas por 10 minutos' -match $patS) "'No, no me hablas por 10 minutos'"
-Comp 'y trae su plazo' ($Matches[1] -eq '10' -and $Matches[2] -eq 'minutos') "$($Matches[1]) $($Matches[2])"
-Comp 'las otras formas tambien' (('no me hables' -match $patS) -and ('no digas nada en 5 minutos' -match $patS))
+$a22 = CallaCon 'no no me hablas por 10 minutos'
+Comp 'su frase literal entra' ($null -ne $a22) "'No, no me hablas por 10 minutos'"
+Comp 'y trae su plazo' ($a22 -and ([int]$a22.ms -eq 600000)) $(if ($a22) { "$([int]$a22.ms / 60000) min" } else { '' })
+# Y LA DEL 23/09, que es la misma pero con el numero dicho en palabra: volvio a fallar.
+$a23 = CallaCon 'si esto en una llamada no me hablas en diez minutos'
+Comp 'y la del dia siguiente, con diez en palabra' ($a23 -and ([int]$a23.ms -eq 600000)) $(if ($a23) { "$([int]$a23.ms / 60000) min" } else { 'SE FUE A LA CHARLA' })
+Comp 'las otras formas tambien' (($null -ne (CallaCon 'no me hables')) -and ($null -ne (CallaCon 'no digas nada en 5 minutos')))
 # Y LO QUE NO PUEDE COLARSE: quejarse de que no le habla NO es mandarla callar.
-Comp 'una queja no la calla' (-not ('por que no me hablas nunca' -match $patS)) 'se queda en charla'
-Comp 'ni pedirle que hable mas alto' (-not ('no hables mas alto' -match $patS))
+Comp 'una queja no la calla' ($null -eq (CallaCon 'por que no me hablas nunca')) 'se queda en charla'
+Comp 'ni pedirle que hable mas alto' ($null -eq (CallaCon 'no hables mas alto'))
 
 Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ''
