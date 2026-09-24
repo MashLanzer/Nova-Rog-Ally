@@ -451,6 +451,19 @@ Titulo "2n105. A que podemos jugar los dos"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-juegos-dos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:de donde lo ha sacado)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n110. Corregir hablando lo que Nova cree saber de ti"
+# Idea 7. Tres fallos medidos ejecutando el codigo: (a) el filtro "no guardo lo que habla de
+# mi" se comia las correcciones de trato -de 10 rechazos en catorce dias, OCHO lo eran, y dos
+# son POSTERIORES al arreglo del 21/09, que pedia "prefiere que no" pegado cuando las frases
+# reales dicen "prefiere que NOVA no"-; (b) Remove-DatoPerfil comparaba con Contains() sin
+# ancla, asi que "la captura de la pantalla, eliminalo" se llevaba "guarda las capturas en
+# D:\Capturas" y "el recordatorio del dentista, eliminalo" se llevaba la cita del dentista:
+# Nova borrando lo que braya no pidio, que es la regla 1; (c) "eso es falso, eliminalo" no
+# apuntaba a nada despues de un arranque, y Nova arranca 16,3 veces al dia. Y ahora se puede
+# deshacer un borrado hablando, con cinco minutos de ventana.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-perfil-corrige.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ahora se puede corregir hablando)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n109. El aviso de las dos horas, contado por el dia"
 # Idea 11. Con juego.avisoMinutos=120 el aviso debio saltar TRES dias (It Takes Two el 15/09
 # con 5 h 38, el 20/09 con 2 h 45 y el 22/09 con 3 h 12) y "JUEGO: aviso de tiempo" sale UNA

@@ -7351,6 +7351,7 @@ function Complete-RecetaResultado($enc, [string]$text, $res, [string]$variante =
 # Un archivo Markdown, una linea por dato: se lee y se corrige a mano.
 # =====================================================================
 $PerfilPath = Join-Path $MemoriaDir 'perfil.md'
+$script:perfilQuitado = $null   # el ultimo borrado, para poder deshacerlo (5 min)
 $script:ultimoDatoPerfil = ''      # lo ultimo que se aprendio de braya en esta sesion, por si es falso
 $PerfilMax = 60
 # LA MISMA LISTA QUE LA CHARLA (21/09). charla_memoria.py:82 tiene su propio RE_SENSIBLE
@@ -7386,6 +7387,24 @@ function Save-DatosPerfil([string[]]$datos) {
                 'Lo va llenando sola: lo que descubre el cerebro y lo que le dices con "aprende que mi...".',
                 'Se puede editar a mano: una linea por dato, empezando por "- ".', '') + @($datos | ForEach-Object { "- $_" })
     [System.IO.File]::WriteAllLines($PerfilPath, [string[]]$lineas, (New-Object System.Text.UTF8Encoding($false)))
+}
+
+# ES UNA CORRECCION DE TRATO, O UNA OPINION SOBRE NOVA (23/09). Las dos hablan de Nova, y el
+# filtro de autorreferencia las tiraba a las dos. Pero no son lo mismo: "Nova se equivoca
+# mucho" es una opinion y no pinta nada en el perfil; "no me llames tio" es una INSTRUCCION
+# sobre como tratarle, y tirarla es tirar justo lo que braya repite.
+# Medido: de los 10 rechazos de "no guardo lo que habla de mi" en catorce dias, OCHO eran
+# correcciones de trato, y DOS son posteriores al arreglo del 21/09 -que pedia "prefiere que
+# no" pegado, y las frases reales dicen "prefiere que NOVA no"-.
+# La lista de verbos es CERRADA a proposito: decir como quieres que te hablen se hace con un
+# puñado de verbos, y una lista abierta dejaria entrar cualquier opinion.
+function Test-DatoTrato([string]$dato) {
+    $p = ConvertTo-Suave $dato
+    # una opinion sobre Nova no es una instruccion, por mucho que lleve un verbo de trato
+    if ($p -match '\b(?:considera|siente|cree|piensa|opina|le parece)\b') { return $false }
+    $rige = $p -match '(?:no (?:le |lo |me )?(?:gusta|gustan|quiere|quieras)|(?:le gusta|prefiere|quiere|pide|pidio|ha pedido|dijo)\s+que|deja de|deje de|dejes de|no vuelvas a)'
+    $trato = $p -match '\b(?:diga|digas|dice|decir|llame|llames|llamar|use|uses|usar|trate|trates|tratar|hable|hables|hablar|lea|leas|leer|pregunte|preguntes|preguntar|describa|describas|describir|avise|avises|avisar|interrumpa|interrumpas|interrumpir|responda|respondas|conteste|contestes|repita|salude|mencione|explique|resuma|ponga|pongas|abra|abras)\b'
+    return ($rige -and $trato)
 }
 
 function Add-DatoPerfil([string]$dato, [string]$fuente = '') {
@@ -7445,9 +7464,13 @@ function Add-DatoPerfil([string]$dato, [string]$fuente = '') {
     # a ella a quien se lo dice.
     $esInstruccion = $plD -match '\b(?:siempre|nunca|cada vez que)\b'
     if (-not $esInstruccion) {
-        $rechazaD = $plD -match '(?:no (?:le |lo |me )?(?:gusta|quiere|quieras)|deja de|deje de|dejes de|prefiere que no|no vuelvas a|pidio que[^.]{0,30}deje)'
-        $tratoD = $plD -match '(?:diga|digas|dice|decir|llame|llames|llamar|use|uses|usar|trate|trates|tratar)'
-        $esInstruccion = ($rechazaD -and $tratoD)
+        # LA PRUEBA DE TRATO SE MUDO A SU PROPIA FUNCION (23/09), y de paso se arreglo: la de
+        # aqui pedia 'prefiere que no' PEGADO, y las frases reales dicen 'prefiere que NOVA
+        # no'. Por eso el 22/09 se siguieron tirando "Braya prefiere que Nova no lea la
+        # pantalla sin ser pedido" (01:13:49) y "braya prefiere que Nova no le hable durante
+        # ciertos periodos" (21:49:05), las dos POSTERIORES al arreglo del 21/09. Y le
+        # faltaban los verbos 'lea' y 'hable', que son justo los de esas dos.
+        $esInstruccion = Test-DatoTrato $d
         if ($esInstruccion) { Log 'PERFIL: es una instruccion de como hablarte, no una queja' }
     }
     if (-not $esInstruccion -and $plD -match '\b(?:nova|asistente|la ia|el modelo)\b') { Log "PERFIL: no guardo lo que habla de mi: $d"; return $null }
@@ -7570,7 +7593,7 @@ function Add-DatoPerfil([string]$dato, [string]$fuente = '') {
     while ($datos.Count -gt $PerfilMax) {
         $iTira = -1
         for ($i = 0; $i -lt $datos.Count; $i++) {
-            if ($datos[$i] -notmatch '^\s*Dicho por braya\s*:') { $iTira = $i; break }
+            if ($datos[$i] -notmatch '^\s*Dicho por braya\s*:' -and -not (Test-DatoTrato $datos[$i])) { $iTira = $i; break }
         }
         if ($iTira -lt 0) { $iTira = 0 }   # todo es suyo: cae el mas viejo, como antes
         Log "PERFIL: lleno ($PerfilMax); tiro lo que lleva mas sin repetirse: $($datos[$iTira])"
@@ -7592,32 +7615,63 @@ function Add-DatoPerfil([string]$dato, [string]$fuente = '') {
 # favorito..."). Hace falta que coincidan al menos la mitad de las palabras con
 # contenido, para no borrar otra cosa por una palabra suelta.
 function Remove-DatoPerfil([string]$sobre) {
+    # POR RAICES Y CON ANCLA DE PALABRA (23/09). Antes se comparaba con Contains() a pelo,
+    # sin ancla, y eso borraba lo que no era: comprobado ejecutandolo, "la captura de la
+    # pantalla, eliminalo" se llevaba "Braya guarda las capturas en D:\Capturas" -porque
+    # "captura" esta DENTRO de "capturas"- y "el recordatorio del dentista, eliminalo" se
+    # llevaba "Braya tiene cita con el dentista el jueves", cuando ninguna de las dos frases
+    # pedia borrar nada del perfil. Y al reves: "mi juego favorito es It Takes Two" no
+    # borraba el suyo, porque "favorito" no aparece en el dato.
+    # Con raices de cuatro letras, "captura" y "capturas" si se emparejan cuando TOCA, y el
+    # ancla de palabra impide que una palabra corta se cuele dentro de otra.
     $palabras = @(((ConvertTo-Suave $sobre) -replace '[^a-z0-9 ]', ' ') -split '\s+' | Where-Object { $_.Length -ge 4 } | Select-Object -Unique)
     if ($palabras.Count -eq 0) { return $null }
+    $raices = @($palabras | ForEach-Object { $_.Substring(0, 4) } | Select-Object -Unique)
     $datos = @(Get-DatosPerfil)
-    # UNA PALABRA SUELTA NO PUEDE SER UNA PALABRA COMUN (23/09). El umbral de abajo es "al
-    # menos la mitad de las palabras dichas", y la mitad de UNA es UNA: bastaba con decir
-    # "braya, borralo" para que se fuera un dato al azar. Medido en su perfil de 60 datos:
-    # "braya" sale en 28 (47 %), "juego" en 21, "tiene" en 15. Con una sola palabra, esa
-    # palabra tiene que senalar a POCOS datos o no se borra nada: si senala a muchos, no se
-    # sabe a cual se refiere, y lo que hay en su perfil es suyo.
-    # El tope es el mismo criterio que usa Get-ParParecidoPerfil para las palabras vacias:
-    # una sexta parte de los datos. Con 60, son 10; "amino" (3) y "steam" (2) pasan.
-    if ($palabras.Count -eq 1) {
-        $cuantosP = @($datos | Where-Object { (ConvertTo-Suave $_).Contains($palabras[0]) }).Count
+    # UNA PALABRA SUELTA NO PUEDE SER UNA PALABRA COMUN (23/09). El piso de abajo es "la mitad
+    # de las raices", y la mitad de UNA es UNA: bastaba con decir "braya, borralo" para que se
+    # fuera un dato al azar. Medido en su perfil de 60 datos: "braya" sale en 28 (47 %),
+    # "juego" en 21, "tiene" en 15. El tope es el mismo criterio de palabras vacias que usa
+    # Get-ParParecidoPerfil: una sexta parte de los datos.
+    if ($raices.Count -eq 1) {
+        $cuantosP = @($datos | Where-Object { (ConvertTo-Suave $_) -match ('(?:^| )' + [regex]::Escape($raices[0])) }).Count
         $topeP = [Math]::Max(2, [int][Math]::Ceiling($datos.Count / 6.0))
         if ($cuantosP -ge $topeP) { return $null }
     }
     $mejor = $null; $mejorN = 0
     foreach ($x in $datos) {
-        $cx = ConvertTo-Suave $x
-        $n = @($palabras | Where-Object { $cx.Contains($_) }).Count
+        $cx = ((ConvertTo-Suave $x) -replace '[^a-z0-9 ]', ' ')
+        $n = @($raices | Where-Object { $cx -match ('(?:^| )' + [regex]::Escape($_)) }).Count
         if ($n -gt $mejorN) { $mejor = $x; $mejorN = $n }
     }
-    if (-not $mejor -or $mejorN -lt [Math]::Max(1, [Math]::Ceiling($palabras.Count / 2))) { return $null }
+    # EL PISO ES DOS cuando hay de donde elegir: con una sola coincidencia de varias palabras
+    # dichas, cualquier frase larga acabada en "eliminalo" se llevaba un dato por delante.
+    $piso = if ($raices.Count -ge 2) { [Math]::Max(2, [int][Math]::Ceiling($raices.Count / 2)) } else { 1 }
+    if (-not $mejor -or $mejorN -lt $piso) { return $null }
     Save-DatosPerfil @($datos | Where-Object { $_ -ne $mejor })
+    # PARA PODER DESHACERLO. Cinco minutos: el hueco entre lo que dice Nova y la correccion de
+    # braya en el registro esta siempre por debajo de dos segundos, asi que cinco minutos es
+    # de sobra y no deja la puerta abierta.
+    $script:perfilQuitado = @{ dato = $mejor; hasta = $sw.ElapsedMilliseconds + 300000 }
     Log "PERFIL: olvidado: $mejor"
     return $mejor
+}
+
+# EL ULTIMO DATO SOBREVIVE AL ARRANQUE (23/09). $script:ultimoDatoPerfil es de sesion, y Nova
+# arranca 16,3 veces al dia: "eso es falso, eliminalo" despues de un arranque no apuntaba a
+# nada y la frase se caia al cerebro en silencio. Save-DatosPerfil escribe siempre al final, y
+# renovar un dato tambien lo mueve al final, asi que la ultima linea ES lo ultimo aprendido.
+# Solo se mira el disco si la variable esta vacia, y solo si el fichero es reciente.
+function Get-UltimoDatoPerfil {
+    if ($script:ultimoDatoPerfil) { return $script:ultimoDatoPerfil }
+    try {
+        if (-not (Test-Path -LiteralPath $PerfilPath)) { return '' }
+        $edad = ((Get-Date) - (Get-Item -LiteralPath $PerfilPath).LastWriteTime).TotalMinutes
+        if ($edad -gt 20) { return '' }
+        $ult = @(Get-DatosPerfil)
+        if ($ult.Count -eq 0) { return '' }
+        return [string]$ult[$ult.Count - 1]
+    } catch { return '' }
 }
 
 # El prompt de sistema de cada peticion: quien es Nova + lo que sabe de ti.
@@ -10508,6 +10562,9 @@ function Test-FastCommand([string]$text) {
     # viejo "olvida que X": el banco decia "IA" para todos aunque en produccion si se ejecutaban.
     if ($text -match '(?i)^\s*(?:olvida|olv[ií]date de|borra)\s+(?:que|lo de)\s+(.+)$') { return $true }
     if ($text -match '(?i)^\s*(?:eso\s+(?:es\s+)?(?:un\s+dato\s+)?(?:falso|mentira|incorrecto|no\s+es\s+(?:verdad|cierto|asi))\s*[,.]?\s*)?(?:elim[ií]nalo|b[oó]rralo|qu[ií]talo|olv[ií]dalo|olvida\s+eso|borra\s+eso|elimina\s+eso)\s*[.!]?$') { return $true }
+    # el MISMO patron que el ejecutor del deshacer (23/09): sin espejo aqui, el banco diria
+    # "IA" para "vuelve a ponerlo" cuando en produccion se resuelve en local.
+    if ($text -match '(?i)^\s*(?:no\s*[,.]?\s*)?(?:vuelve\s+a\s+ponerlo|ponlo\s+(?:otra\s+vez|de\s+nuevo)|devu[eé]lvelo|deshaz\s+eso|no\s+lo\s+borres|era\s+verdad)\s*[.!]?$') { return $true }
     if ($text -match '(?i)^\s*(?:(?:el|lo|la|los|las)\s+(?:de|del|de la|de los)\s+)?(.+?)\s*[,.]?\s*(?:elim[ií]nalo|b[oó]rralo|qu[ií]talo|olv[ií]dalo)\s*[.!]?$' -or
         $text -match '(?i)^\s*(?:elimina|quita|borra|olvida)\s+(?:el\s+dato\s+(?:de|del|sobre)|lo\s+(?:de|del)|(?:el|la|los|las)\s+(?:de|del))\s+(.+)$') { return $true }
     # el MISMO patron que el ejecutor, o el banco no ve que crear un modo es local
@@ -10732,11 +10789,31 @@ function Invoke-FastCommand([string]$text) {
     # "ESO ES UN DATO FALSO, ELIMINALO" (18/09): lo ULTIMO que aprendio de ti, fuera. braya lo
     # dijo asi dos veces y Nova contesto "?de donde sacas que lo tengo?"; podia aprender datos
     # falsos y no habia forma de borrarlos hablando.
-    if ($text -match '(?i)^\s*(?:eso\s+(?:es\s+)?(?:un\s+dato\s+)?(?:falso|mentira|incorrecto|no\s+es\s+(?:verdad|cierto|asi))\s*[,.]?\s*)?(?:elim[ií]nalo|b[oó]rralo|qu[ií]talo|olv[ií]dalo|olvida\s+eso|borra\s+eso|elimina\s+eso)\s*[.!]?$' -and $script:ultimoDatoPerfil) {
-        $quitado = Remove-DatoPerfil $script:ultimoDatoPerfil
+    if ($text -match '(?i)^\s*(?:eso\s+(?:es\s+)?(?:un\s+dato\s+)?(?:falso|mentira|incorrecto|no\s+es\s+(?:verdad|cierto|asi))\s*[,.]?\s*)?(?:elim[ií]nalo|b[oó]rralo|qu[ií]talo|olv[ií]dalo|olvida\s+eso|borra\s+eso|elimina\s+eso)\s*[.!]?$' -and (Get-UltimoDatoPerfil)) {
+        # POR DISCO SI LA SESION ES NUEVA (23/09): ver Get-UltimoDatoPerfil. Nova arranca 16,3
+        # veces al dia, y antes esta frase no apuntaba a nada despues de cada arranque.
+        $quitado = Remove-DatoPerfil (Get-UltimoDatoPerfil)
         $script:ultimoDatoPerfil = ''
         if ($quitado) { return "Vale, lo quito: " + ($quitado -replace '^Dicho por braya:\s*', '') + "." }
         return "Eso ya no lo tenia apuntado."
+    }
+    # DESHACER UN BORRADO (23/09, idea 7). Es la otra mitad de la regla 1: si Nova se lleva un
+    # dato que braya no queria perder, tiene que poder devolverlo hablando, sin abrir el
+    # fichero. VA DELANTE del cajon de sastre de abajo, que se come cualquier frase acabada
+    # en "ponlo" solo si lleva "eliminalo" -no es el caso-, pero tambien delante del cerebro.
+    # Cinco minutos: el hueco entre lo que dice Nova y la correccion de braya en el registro
+    # esta siempre por debajo de dos segundos.
+    if ($text -match '(?i)^\s*(?:no\s*[,.]?\s*)?(?:vuelve\s+a\s+ponerlo|ponlo\s+(?:otra\s+vez|de\s+nuevo)|devu[eé]lvelo|deshaz\s+eso|no\s+lo\s+borres|era\s+verdad)\s*[.!]?$') {
+        if ($script:perfilQuitado -and $sw.ElapsedMilliseconds -lt [long]$script:perfilQuitado.hasta) {
+            $vuelve = [string]$script:perfilQuitado.dato
+            $script:perfilQuitado = $null
+            $dts = @(Get-DatosPerfil)
+            if ($dts -notcontains $vuelve) { Save-DatosPerfil @($dts + $vuelve) }
+            $script:ultimoDatoPerfil = $vuelve
+            Log "PERFIL: devuelto: $vuelve"
+            return "Lo dejo como estaba: " + ($vuelve -replace '^Dicho por braya:\s*', '') + "."
+        }
+        return "No he borrado nada hace poco."
     }
     # "EL DEL OSO POLAR, ELIMINALO" / "elimina lo del oso polar" (18/09): el tema delante o
     # detras, y con elimina/quita/borra ademas de olvida
