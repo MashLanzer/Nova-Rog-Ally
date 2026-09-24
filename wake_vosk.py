@@ -910,6 +910,34 @@ _carga_parakeet = threading.Lock()   # ver modelo_parakeet
 PRECARGA_ESPERA = 6.0
 
 
+# ESPERAR A WHISPER EN VEZ DE DEGRADAR (24/09, ideas 14 y 15). Desde hoy Whisper carga en un
+# hilo, asi que "whisper vale None" ya no significa "no se pudo" sino, a veces, "todavia no".
+# Antes, un None mandaba el dictado a Vosk EN SILENCIO -peor comprension, y sin decirlo-, y eso
+# choca de frente con la meta del 100 %.
+#
+# EL PLAZO ES EL MAXIMO MEDIDO Y NO UN NUMERO NUEVO: la carga mas lenta de las 217 del registro
+# fueron 117,9 s. Se redondea a 120. Si ni con eso ha cargado, es que fallo de verdad, y ahi si
+# toca Vosk: mejor entender a medias que no entender nada.
+#
+# Y NO SE ESPERA SI NO HAY NADA QUE ESPERAR: con el motor puesto en otra cosa, el evento ya
+# esta marcado desde el arranque y esto vuelve al instante.
+WHISPER_ESPERA_MAX = 120.0
+
+
+def esperar_whisper():
+    """True si Whisper esta listo para dictar. Espera lo que haga falta, con tope."""
+    if whisper_listo.is_set():
+        return whisper is not None
+    t0 = time.time()
+    listo = whisper_listo.wait(WHISPER_ESPERA_MAX)
+    espera = time.time() - t0
+    if espera >= 0.5:
+        anota("dictado: esperados %.1f s a que Whisper terminara de cargar" % espera)
+    if not listo:
+        anota("WARN: Whisper lleva %.0f s cargando; dicto con lo que haya" % WHISPER_ESPERA_MAX)
+    return whisper is not None
+
+
 def precargar_parakeet():
     """En un hilo aparte al arrancar: que la primera orden llegue con el oido ya puesto."""
     try:
@@ -1484,7 +1512,7 @@ def atender_reintento(ultimo_audio):
         except Exception:
             pass
         ultimo = pedido == "ultimo" and bool(MODELO_ULTIMO)
-        base = pedido == "base" and whisper is not None
+        base = pedido == "base" and esperar_whisper()
         # CANARY (21/09): el repaso mas rapido y el que mas acierta. Va aparte de los tres
         # de Whisper porque no es un modelo de Whisper: es sherpa-onnx, con su propia
         # llamada. Si no esta descargado, modelo_canary() devuelve None y el asistente lo
@@ -2793,42 +2821,66 @@ if MARCA_CARGANDO:
     except Exception:   # noqa: BLE001
         pass
 
+# WHISPER SE CARGABA BLOQUEANDO EL MICROFONO (24/09, ideas 14 y 15 de la tanda nueva).
+#
+# Esto va ANTES de abrir el stream de audio, asi que el microfono estaba cerrado 4,2 s de
+# mediana -y hasta 117,9 s, medido- esperando a un modelo que solo hace falta al DICTAR.
+# Vosk, que es quien oye "nova", ya esta cargado veinte lineas mas arriba.
+#
+# Suma medida en quince dias: 1.427 s de las 217 cargas. En un hilo demonio -el mismo patron
+# que precargar_parakeet- eso deja de ser tiempo sordo. No queda nada residente de mas: el
+# mismo modelo, la misma RAM, y el proceso ya corre en prioridad baja.
+#
+# Y EL DICTADO ESPERA, NO DEGRADA: ver donde se usa whisper_listo. Hoy, con whisper a None, el
+# dictado cae a Vosk EN SILENCIO, y eso choca con la meta del 100 % de comprension.
 whisper = None
+whisper_listo = threading.Event()
 if MOTOR_DICTADO.startswith("whisper"):
     nombre_modelo = MOTOR_DICTADO.split(":", 1)[1] if ":" in MOTOR_DICTADO else "small"
-    try:
-        t0 = time.time()
-        from faster_whisper import WhisperModel
-        # int8 en CPU: ~500 MB con "small". 8 hilos, como el oido fino: medido el
-        # 14/09 con las 20 grabaciones, base pasa de 2,0 a 1,7 s por orden con los
-        # mismos aciertos. No le quita CPU al juego: este proceso corre con
-        # prioridad baja y solo trabaja a rachas, al dictar.
-        whisper = WhisperModel(nombre_modelo or "small", device="cpu", compute_type="int8", cpu_threads=HILOS_PRECISO)
-        # AQUI HABIA UN CALENTAMIENTO, Y NO CALENTABA NADA (22/09). Se le pasaba 1 s de
-        # CEROS con el motivo "la primera transcripcion tarda 3 s; mejor ahora que en la
-        # primera orden". Medido con seis grabaciones de braya, un proceso limpio por
-        # medida -que es lo unico que vale, porque dentro del mismo proceso la segunda
-        # transcripcion ya es rapida se caliente o no-, la primera transcripcion REAL:
-        #     audio    en frio   calentado
-        #     03.wav    3,36 s     4,18 s
-        #     05.wav    3,20 s     3,66 s
-        #     07.wav    2,69 s     3,19 s
-        #     11.wav    3,96 s     4,27 s
-        #     14.wav    1,36 s     1,50 s
-        # En frio gano las cinco veces. Tiene sentido: un segundo de ceros no le da trabajo
-        # al decodificador, solo al codificador, asi que no calienta la parte que luego
-        # tarda. O sea que se pagaban 0,82 s de mediana en CADA arranque por llegar despues
-        # un poco mas lento.
-        # Y esos 0,82 s eran de los caros: el microfono no se abre hasta 212 lineas mas
-        # abajo (el sd.RawInputStream), asi que Nova estaba sorda mientras tanto. En el log
-        # hay 196 cargas de Whisper, 195 de ellas con "worker Vosk en marcha" en el MISMO
-        # segundo, o sea que esto retrasaba el momento de poder oir en todas.
-        # Peor caso al quitarlo: la primera orden que llegue al tercer escalon de la
-        # cascada tras reiniciar paga el arranque frio. Medido arriba: no paga nada.
-        anota("whisper '%s' cargado en %.1f s" % (nombre_modelo, time.time() - t0))
-    except Exception as e:
-        whisper = None
-        anota("WARN: no se pudo cargar Whisper (%s); el dictado usara Vosk" % e)
+
+    def cargar_whisper():
+        global whisper
+        try:
+            t0 = time.time()
+            from faster_whisper import WhisperModel
+            # int8 en CPU: ~500 MB con "small". 8 hilos, como el oido fino: medido el
+            # 14/09 con las 20 grabaciones, base pasa de 2,0 a 1,7 s por orden con los
+            # mismos aciertos. No le quita CPU al juego: este proceso corre con
+            # prioridad baja y solo trabaja a rachas, al dictar.
+            whisper = WhisperModel(nombre_modelo or "small", device="cpu", compute_type="int8", cpu_threads=HILOS_PRECISO)
+            # AQUI HABIA UN CALENTAMIENTO, Y NO CALENTABA NADA (22/09). Se le pasaba 1 s de
+            # CEROS con el motivo "la primera transcripcion tarda 3 s; mejor ahora que en la
+            # primera orden". Medido con seis grabaciones de braya, un proceso limpio por
+            # medida -que es lo unico que vale, porque dentro del mismo proceso la segunda
+            # transcripcion ya es rapida se caliente o no-, la primera transcripcion REAL:
+            #     audio    en frio   calentado
+            #     03.wav    3,36 s     4,18 s
+            #     05.wav    3,20 s     3,66 s
+            #     07.wav    2,69 s     3,19 s
+            #     11.wav    3,96 s     4,27 s
+            #     14.wav    1,36 s     1,50 s
+            # En frio gano las cinco veces. Tiene sentido: un segundo de ceros no le da trabajo
+            # al decodificador, solo al codificador, asi que no calienta la parte que luego
+            # tarda. O sea que se pagaban 0,82 s de mediana en CADA arranque por llegar despues
+            # un poco mas lento.
+            # Y esos 0,82 s eran de los caros: el microfono no se abre hasta 212 lineas mas
+            # abajo (el sd.RawInputStream), asi que Nova estaba sorda mientras tanto. En el log
+            # hay 196 cargas de Whisper, 195 de ellas con "worker Vosk en marcha" en el MISMO
+            # segundo, o sea que esto retrasaba el momento de poder oir en todas.
+            # Peor caso al quitarlo: la primera orden que llegue al tercer escalon de la
+            # cascada tras reiniciar paga el arranque frio. Medido arriba: no paga nada.
+            anota("whisper '%s' cargado en %.1f s" % (nombre_modelo, time.time() - t0))
+        except Exception as e:
+            whisper = None
+            anota("WARN: no se pudo cargar Whisper (%s); el dictado usara Vosk" % e)
+        finally:
+            # se avisa PASE LO QUE PASE: si se marcara solo al cargar bien, un fallo dejaria
+            # al dictado esperando para siempre, que es peor que el problema que se arregla.
+            whisper_listo.set()
+
+    threading.Thread(target=cargar_whisper, daemon=True).start()
+else:
+    whisper_listo.set()
 
 cola = queue.Queue()
 
@@ -3215,7 +3267,7 @@ try:
                     elif mejor:
                         texto_final = mejor
                         vaciar_cola("corte a mano")
-                    elif whisper is not None:
+                    elif esperar_whisper():
                         mejor = transcribir_whisper(audio_dictado)
                         if mejor:
                             texto_final = mejor
@@ -3560,7 +3612,7 @@ try:
                                 # y sin marcar_parakeet, que el asistente lo trate como Whisper
                                 texto_final = mejor
                                 vaciar_cola("transcripcion")
-                            elif whisper is not None and not callado and not ajena:
+                            elif (not callado and not ajena) and esperar_whisper():
                                 escribir(PARCIAL, texto_vosk)
                                 mejor = transcribir_whisper(audio_dictado)
                                 if mejor:

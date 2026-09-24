@@ -648,6 +648,21 @@ Titulo "2n134. Un anuncio de YouTube no es una cancion"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-musica-anuncios.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:un anuncio de YouTube ya no entra)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n135. El microfono ya no espera a que cargue el dictado"
+# Ideas 14 y 15 de la tanda nueva del 24/09. Whisper se cargaba EN SERIE Y BLOQUEANDO, antes
+# de abrir el stream de audio, y Vosk -que es quien oye "nova"- ya estaba cargado veinte
+# lineas antes: el microfono esperaba 4,2 s de mediana, y hasta 117,9 s, a un modelo que solo
+# hace falta al DICTAR. Suma de las 217 cargas del registro: 1.427 s.
+# Los ocho arranques que pasaron de 30 s se miraron uno a uno: SEIS son un reinicio de
+# desarrollo cayendo encima de un worker que aun cargaba, cinco de ellos el 16/09 entre las
+# 20:13 y las 21:48, los minutos exactos de cinco commits. Y le costaron UN dictado: en los
+# ocho huecos hay cero pulsaciones de boton, y el boton si se registra.
+# Lo que mas se vigila: que el dictado ESPERE y no degrade. Con la carga en un hilo, "whisper
+# vale None" pasa a significar a veces "todavia no", y caer a Vosk en silencio seria perder
+# comprension justo en la meta del 100 %.
+python tools\probar-arranque-oido.py 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el microfono ya no espera)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n120. La musica: poner lo que es, y no repetir lo que no le gusta"
 # Ideas 1-A y 1-B. 52 intentos con frases distintas y ninguno acabo bien. El fallo de raiz,
 # medido contra youtube.com con cuatro busquedas suyas: el regex viejo devolvia 45, 71, 45 y
