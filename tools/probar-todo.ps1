@@ -567,6 +567,31 @@ Titulo "2n129. El plazo de la voz sale de lo que tarda de verdad"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-voz-plazo.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el plazo de la voz ya sale de lo que tarda)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n130. El audio atrasado que se tira, y que nadie miraba"
+# El oido tira audio viejo 1.116 veces en el registro -6.563,6 s, casi dos horas de microfono
+# a la basura- y hasta hoy no habia UNA sola comprobacion de eso. Reparto: transcripcion 604,
+# oido fino 478, corte a mano 14, canary 10, fin de pausa 7, omni 3.
+# Lo que decide que esto este bien: de 478 parejas "el modelo tardo X" -> "descartados Y",
+# la mediana de Y/X es 0,96 y 423 de 478 (el 88 %) caen a menos de un segundo. O sea que lo
+# que se tira es EXACTAMENTE la ventana en la que el hilo estuvo sordo, no audio vivo.
+# Si descartara de menos, vuelven las activaciones fantasma, que es la regla 1 al reves.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-audio-atrasado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el audio de hace medio minuto)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n131. Una regla que revienta ya no se pierde callando"
+# Idea 14 de la tanda del 24/09. El 13/09 a las 16:22:01 braya dijo "cada 2 horas di que
+# estire la espalda" -una regla valida- y el motor de reglas reviento; la frase siguio su
+# camino como si no fuera una regla y dos segundos despues el pregunto "que reglas hay" y
+# Nova le contesto "no tienes reglas". Creia haberla creado. Paso tres veces.
+# EL NULL DE ENTONCES YA NO ESTA, y eso tambien se midio: cargadas las 528 funciones del
+# archivo y pasadas las siete frases de regla del registro, ninguna lanza. Lo que se arregla
+# es que el catch se tragaba cualquier fallo FUTURO y la frase se perdia en silencio.
+# Lo que mas se vigila: que no se invente la regla, y que la forma de frase sea LA MISMA que
+# usa la guarda de voz extrana doce lineas mas arriba; dos listas que dicen lo mismo en dos
+# sitios acaban separandose.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-regla-rota.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:una regla que revienta)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n120. La musica: poner lo que es, y no repetir lo que no le gusta"
 # Ideas 1-A y 1-B. 52 intentos con frases distintas y ninguno acabo bien. El fallo de raiz,
 # medido contra youtube.com con cuatro busquedas suyas: el regex viejo devolvia 45, 71, 45 y

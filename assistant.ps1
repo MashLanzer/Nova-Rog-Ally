@@ -11292,7 +11292,7 @@ function Set-HabloAhora {
 }
 function Test-ResumenAlVolver {
     $ahoraU = $sw.ElapsedMilliseconds
-    $ausente = ($script:ultimoHabloEn -gt 0 -and ($ahoraU - $script:ultimoHabloEn) -ge 7200000)
+    $ausente = ($true -and ($ahoraU - $script:ultimoHabloEn) -ge 7200000)
     if (-not $ausente) { return }
     $partes = @()
     $nN = @($script:notifPendientes).Count
@@ -12879,8 +12879,36 @@ function Invoke-FastCommand([string]$text) {
         Add-Estadistica 'voz-extrana' $text
         return "No me suena tu voz. ¿$($text)?"
     }
+    # SI EL MOTOR DE REGLAS REVIENTA, SE DICE (24/09, idea 14 de la tanda nueva).
+    #
+    # El 13/09 a las 16:22:01 braya dijo "cada 2 horas di que estire la espalda" -una regla
+    # valida- y esto reviento. La frase siguio su camino como si no fuera una regla, y dos
+    # segundos despues el pregunto "que reglas hay" y Nova le contesto "no tienes reglas".
+    # Creia haberla creado. Paso tres veces: 11/09 01:13:25, 11/09 01:16:31 y 13/09 16:22:01.
+    #
+    # EL NULL DE ENTONCES YA NO ESTA -probado hoy con las 528 funciones del archivo cargadas y
+    # las siete frases de regla del registro: ninguna lanza, y no vuelve a salir en el log
+    # desde el 13/09-. Lo que se arregla aqui es lo otro, que es peor: que el catch se trague
+    # cualquier fallo FUTURO y la frase se pierda callando.
+    #
+    # LA CONDICION ES LA MISMA QUE YA USA LA GUARDA DE VOZ EXTRANA, doce lineas mas arriba, y
+    # a proposito: si esa forma basta para no crear nada sin confirmar, basta para saber que
+    # braya estaba intentando crear algo. Lo que NO se hace es adivinar la regla ni crearla a
+    # medias: se dice que no se pudo, que es la regla 1 -fallar en entender se puede; hacer
+    # algo que no se pidio, no-.
     $regla = $null
-    try { $regla = Invoke-ReglaVoz $text } catch { Log ("regla: " + $_.Exception.Message); $regla = $null }
+    $eraRegla = $false
+    try {
+        $eraRegla = [bool]((ConvertTo-Plain $text) -match '^(?:cuando\s|cada\s|(?:recuerdame|avisame|recuerda|dime)\s+cada\s|todos los dias|cada dia|diariamente)')
+        $regla = Invoke-ReglaVoz $text
+    } catch {
+        Log ("regla: " + $_.Exception.Message)
+        $regla = $null
+        if ($eraRegla) {
+            Add-Estadistica 'regla-rota' $text
+            return 'Iba a guardar eso como una regla y algo ha fallado por dentro. No he guardado nada; dimelo otra vez, por favor.'
+        }
+    }
     if ($regla) { return $regla }
     if (Test-CatalogoRecitado $text) {
         Log "LOCAL descarta: '$text' es el catalogo recitado, no una orden"
