@@ -83,14 +83,19 @@ tal cual`— y **7 se inventan algo** que no se parece al audio (`fino-invento`)
 
 ### 7. La nube no contesta, o llega cuando ya no hace falta
 
-De **201 intentos**: **90 no devuelven nada** (45 %), **35 no contestan a tiempo** y **12
-contestan después** de que el oído local ya hubiera resuelto — uno de ellos **2,1 s tarde**.
+De **201 intentos**: en **90 (45 %)** lo que trajo **tampoco era una orden que Nova supiera
+hacer** (`NUBE: 'X' tampoco es una orden que sepa hacer; sigo con el oido local`), en **35** no
+contestó a tiempo, y **12** llegaron **después** de que el oído local ya hubiera resuelto —uno
+de ellos 2,1 s tarde—. Queda menos de un tercio de intentos que aportan algo.
 
 ### 8. La mitad de sus frases se fabrican en el momento
 
-`voz: frase ya preparada` **330** veces frente a `voz: frase sintetizada al momento` **311**.
-Casi la mitad de lo que te dice paga la síntesis entera antes de empezar a sonar. Las que ya
-están preparadas suenan al instante: hay que saber por qué las otras no lo están.
+**330** frases suenan en menos de 250 ms (`voz: frase ya preparada`) y **311** tardan más
+(`sintetizada al momento`). Y no es poco: de esas 311, la **mediana es 903 ms**, el **p90
+1.247 ms** y la peor **3,6 segundos** callada antes de empezar a hablar.
+
+Casi la mitad de lo que te dice paga la síntesis entera. Hay que saber qué tienen las 330 que
+no tienen las otras.
 
 ### 9. Traducir una orden le cuesta 105 llamadas a la API
 
