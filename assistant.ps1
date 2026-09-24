@@ -15927,17 +15927,44 @@ function Invoke-RecordatorioVoz([string]$text) {
     # acabo contestando. Aqui se contesta en local, filtrando por dia si lo dice. Lo que
     # empieza por recuerdame/avisame/pon es CREAR uno y sigue su camino.
     if ($p -notmatch '^(?:recuerdame|avisame|recordatorio|ponme|pon)\b' -and
-        ($p -match '\b(?:calendario|agenda)\b' -or $p -match '^(?:que\s+)?tengo\s+algo\s+(?:apuntado|anotado|programado|pendiente)\b' -or $p -match '^que\s+tengo\s+(?:apuntado|anotado|programado)\b') -and
+        # SU FRASE NO ENTRABA (23/09). El dijo "dime si tengo algo anotado para manana" y el
+        # patron del tema exige que la frase EMPIECE por "tengo algo anotado": la suya empieza
+        # por "dime si". La otra mitad de la condicion -la del verbo de cabeza- si la aceptaba,
+        # asi que faltaba media puerta. La alternativa sin ancla pide las DOS palabras juntas
+        # ('tengo algo anotado'), que no aparecen por casualidad en otra orden.
+        ($p -match '\b(?:calendario|agenda)\b' -or $p -match '\btengo\s+algo\s+(?:apuntado|anotado|programado|pendiente)\b' -or $p -match '^que\s+tengo\s+(?:apuntado|anotado|programado)\b') -and
         $p -match '^(?:(?:puedes?\s+|podrias\s+)?(?:revisa|revisar|mira|mirar|consulta|consultar|dime|decirme|ver|que)\b.*|(?:que\s+)?tengo\s+algo\b.*)$') {
+        # EL RANGO, Y EL ORDEN IMPORTA (23/09, idea 5): 'pasado manana' antes que 'manana', y
+        # 'fin de semana' antes que 'semana', porque "este fin de semana" lleva 'semana'
+        # dentro y se lo comeria.
         $hoyC = (Get-Date).Date
-        $diaC = $null
-        if ($p -match '\bpasado\s+manana\b') { $diaC = $hoyC.AddDays(2) } elseif ($p -match '\bmanana\b') { $diaC = $hoyC.AddDays(1) } elseif ($p -match '\bhoy\b') { $diaC = $hoyC }
-        $rsC = @(Get-Recordatorios | Sort-Object cuando)
-        if ($diaC) { $rsC = @($rsC | Where-Object { $c = $null; try { $c = [DateTime]$_.cuando } catch {}; $c -and $c.Date -eq $diaC }) }
-        $cuandoC = if (-not $diaC) { '' } elseif ($diaC -eq $hoyC) { ' para hoy' } elseif ($diaC -eq $hoyC.AddDays(1)) { ' para manana' } else { ' para pasado manana' }
+        $desdeC = $hoyC; $hastaC = $hoyC.AddDays(30); $cuandoC = ''
+        if ($p -match '\bpasado\s+manana\b') { $desdeC = $hoyC.AddDays(2); $hastaC = $desdeC; $cuandoC = ' para pasado manana' }
+        elseif ($p -match '\bmanana\b') { $desdeC = $hoyC.AddDays(1); $hastaC = $desdeC; $cuandoC = ' para manana' }
+        elseif ($p -match '\bhoy\b') { $hastaC = $hoyC; $cuandoC = ' para hoy' }
+        # 'el fin de LA semana' tambien se dice, y ESA si choca con la rama de abajo: lleva
+        # 'la semana' dentro. Por eso esta va primero. (Con solo 'fin de semana' el orden no
+        # cambiaba nada: se probo cambiandolas de sitio y el banco seguia en verde.)
+        elseif ($p -match '\b(?:este\s+|el\s+)?fin\s+de\s+(?:la\s+)?semana\b') {
+            $aSab = (6 - [int]$hoyC.DayOfWeek + 7) % 7
+            $desdeC = $hoyC.AddDays($aSab); $hastaC = $desdeC.AddDays(1); $cuandoC = ' para el fin de semana'
+        }
+        elseif ($p -match '\b(?:esta|la)\s+semana\b') { $hastaC = $hoyC.AddDays(6); $cuandoC = ' de hoy a siete dias' }
+        elseif ($p -match '\bel\s+(lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b') {
+            # el mismo calculo que al crear un recordatorio: "el viernes" dicho un viernes es
+            # el que viene, no hoy
+            $dC = $DIAS_SEMANA[$Matches[1]]
+            $deltaC = ($dC - [int]$hoyC.DayOfWeek + 7) % 7
+            if ($deltaC -eq 0) { $deltaC = 7 }
+            $desdeC = $hoyC.AddDays($deltaC); $hastaC = $desdeC; $cuandoC = " para el $($Matches[1])"
+        }
+        $rsC = @(Get-AgendaDe $desdeC $hastaC)
         if ($rsC.Count -eq 0) { return "No tienes nada apuntado$cuandoC. Si quieres, di: recuerdame manana a las diez que llame al medico." }
         $culC = New-Object System.Globalization.CultureInfo('es-MX')
-        $listaC = @($rsC | ForEach-Object { ([DateTime]$_.cuando).ToString('dddd d "a las" H:mm', $culC) + ', ' + $_.texto })
+        $listaC = @($rsC | ForEach-Object {
+            if ($_.origen -eq 'fecha') { ([datetime]$_.cuando).ToString('dddd d', $culC) + ', ' + $_.texto }
+            else { ([datetime]$_.cuando).ToString('dddd d "a las" H:mm', $culC) + ', ' + $_.texto }
+        })
         return ("Tienes " + $(if ($rsC.Count -eq 1) { 'una cosa' } else { "$($rsC.Count) cosas" }) + "$cuandoC`: " + ($listaC -join '. ') + '.')
     }
     if ($p -match '^(?:que recordatorios (?:tengo|hay)|mis recordatorios|que tengo pendiente|que me tienes que recordar)$') {
@@ -15947,6 +15974,36 @@ function Invoke-RecordatorioVoz([string]$text) {
         return ("Tienes " + $rs.Count + ": " + (($rs | ForEach-Object { ([DateTime]$_.cuando).ToString('dddd d "a las" H:mm', $cul) + ", " + $_.texto }) -join '. '))
     }
     if ($p -match '^(?:borra|elimina|quita|olvida)\s+(?:todos\s+)?(?:los\s+)?recordatorios$') { Save-Recordatorios @(); return "Listo, sin recordatorios." }
+    # BORRAR UNA CITA HABLANDO (23/09, idea 5). Va DETRAS del 'todos', que es mas especifico y
+    # sigue ganando, y EXIGE el sustantivo delante ('recordatorio', 'aviso' o 'cita'): sin eso
+    # se comeria "borra la carpeta descargas", que es otra cosa y ademas destructiva de verdad.
+    if ($p -match '^(?:borra|elimina|quita|olvida|cancela)\s+(?:el\s+|la\s+|mi\s+)?(?:recordatorio|aviso|cita)\s*(?:de\s+|del\s+|sobre\s+|que\s+)?(.+)$') {
+        $qR = [string]$Matches[1]
+        # LA SEGUNDA VIA, POR NUMERO (regla 7, oido al 70,4 %): Nova acaba de leer la lista
+        # numerada, asi que "borra el recordatorio dos" es una lista cerrada de una palabra.
+        $nR = switch -Regex ($qR.Trim()) { '^(?:uno|1)$' { 1 } '^(?:dos|2)$' { 2 } '^(?:tres|3)$' { 3 } '^(?:cuatro|4)$' { 4 } '^(?:cinco|5)$' { 5 } default { 0 } }
+        if ($nR -gt 0) {
+            $todosR = @(Get-Recordatorios | Sort-Object cuando)
+            if ($nR -gt $todosR.Count) { return "Solo tienes $($todosR.Count)." }
+            $elR = $todosR[$nR - 1]
+            # SE FILTRA LA LISTA QUE YA SE LEYO, no otra lectura: leer dos veces crea objetos
+            # nuevos y "-ne" compara por referencia, asi que no se iba ninguno y Nova decia
+            # "Listo, quitado" sin quitar nada.
+            $quedanR = @()
+            for ($iR = 0; $iR -lt $todosR.Count; $iR++) { if ($iR -ne ($nR - 1)) { $quedanR += $todosR[$iR] } }
+            Save-Recordatorios $quedanR
+            Log "RECORDATORIO borrado por numero: $($elR.texto)"
+            return "Listo, quitado: $($elR.texto)."
+        }
+        $rq = Remove-RecordatorioTexto $qR
+        if ($rq.estado -eq 'ninguno') { return "No tengo nada apuntado de eso." }
+        if ($rq.estado -eq 'varios') {
+            $nn = 0
+            $lR = @($rq.lista | ForEach-Object { $nn++; "$nn, $($_.texto)" })
+            return ("Tengo " + $rq.lista.Count + " que hablan de eso: " + ($lR -join '. ') + ". Cual borro? Di: borra el recordatorio uno.")
+        }
+        return "Listo, quitado: $($rq.borrado.texto)."
+    }
     if ($p -notmatch '^(?:recuerdame|avisame|recordatorio|ponme un recordatorio|pon un recordatorio)\s+(?!que\b)(.+)$') { return $null }
     $resto = $Matches[1]
     $hoy = (Get-Date).Date
@@ -16060,6 +16117,80 @@ function Invoke-RecordatorioVoz([string]$text) {
     Log "RECORDATORIO ($cuando): $texto"
     Add-Estadistica 'local' "recordatorio: $text"
     return "Listo, te lo recuerdo $dicho$antesDicho."
+}
+
+# LA AGENDA MIRA LOS TRES SITIOS (23/09, idea 5). Nova apunta cosas con fecha en TRES sitios
+# y el alias del calendario solo leia uno:
+#   - recordatorios.json, con fecha y hora exactas;
+#   - fechas.json, lo anual ("el 15 de septiembre es el cumple de Ana"), que hoy tiene una
+#     entrada de verdad en el disco y que Test-FechasHoy solo mira EL MISMO DIA;
+#   - las reglas de tipo 'hora', que es donde vive "todos los dias a las ocho di que me tome
+#     la pastilla".
+# NO se crea un cuarto fichero: eso es exactamente la leccion que ya esta escrita en el
+# codigo ("dos listas distintas acabarian separandose"). Cero migracion, cero formato nuevo.
+# De las reglas solo entran las que HABLAN ('di ...'): un modo nocturno no es una cita.
+function Get-AgendaDe([datetime]$desde, [datetime]$hasta) {
+    $out = @()
+    foreach ($r in @(Get-Recordatorios)) {
+        $c = $null
+        try { $c = [datetime]$r.cuando } catch { $c = $null }
+        if ($c -and $c.Date -ge $desde.Date -and $c.Date -le $hasta.Date) {
+            $out += @{ cuando = $c; texto = [string]$r.texto; origen = 'recordatorio' }
+        }
+    }
+    $fechas = @(Get-Fechas)
+    # SE ASIGNA PRIMERO Y LUEGO foreach, que es como lo hace Invoke-Reglas, y no por tuberia.
+    # Get-Reglas devuelve ",$script:reglas" para que una lista vacia no se vuelva $null, y eso
+    # hace que @(Get-Reglas) sea un array de UN elemento que ES la lista. Con Where-Object
+    # pasaba lo peor: $_.tipo sobre una coleccion devuelve la lista de tipos, comparada con
+    # 'hora' da algo no vacio -o sea verdadero- y la lista ENTERA se colaba como si fuera una
+    # regla; despues [string]$g.valor salia "08:00 23:00" y se descartaba sola, en silencio.
+    # Con una sola regla el fallo no se ve: hacen falta dos para que aparezca.
+    $reglas = @()
+    try {
+        $todasR = Get-Reglas
+        foreach ($rr in @($todasR)) {
+            if ([string]$rr.tipo -eq 'hora' -and (ConvertTo-Plain ([string]$rr.accion)) -match '^di\s') { $reglas += $rr }
+        }
+    } catch { $reglas = @() }
+    if ($fechas.Count -gt 0 -or $reglas.Count -gt 0) {
+        for ($d = $desde.Date; $d -le $hasta.Date; $d = $d.AddDays(1)) {
+            $md = $d.ToString('MM-dd')
+            foreach ($f in $fechas) {
+                # UN CUMPLEANOS NO TIENE HORA: se le pone una para poder ordenar, y al leerlo
+                # se dice sin ella.
+                if ([string]$f.md -eq $md) { $out += @{ cuando = $d.AddHours(9); texto = [string]$f.texto; origen = 'fecha' } }
+            }
+            foreach ($g in $reglas) {
+                $hh = 0; $mm = 0
+                if ([string]$g.valor -match '^(\d{1,2}):(\d{2})$') { $hh = [int]$Matches[1]; $mm = [int]$Matches[2] } else { continue }
+                $out += @{ cuando = $d.AddHours($hh).AddMinutes($mm)
+                           texto = (([string]$g.accion) -replace '(?i)^\s*di\s+', '')
+                           origen = 'regla' }
+            }
+        }
+    }
+    return @($out | Sort-Object { $_.cuando })
+}
+
+# BORRAR UNA CITA HABLANDO (23/09, idea 5). Antes solo existia "borra todos los
+# recordatorios", que es todo o nada.
+# CON MAS DE UNA COINCIDENCIA NO BORRA NINGUNA: borrar la que no era es la regla 1 al reves,
+# y encima sobre algo que no se puede recuperar. Se leen numeradas y decide el.
+function Remove-RecordatorioTexto([string]$q) {
+    $todos = @(Get-Recordatorios)
+    $qs = ConvertTo-Plain ([string]$q).Trim()
+    # SUELO DE TRES LETRAS (regla 7, oido al 70,4 %). Con menos, un trozo mal oido borra lo
+    # que pille: "borra el recordatorio de la" se llevaba "sacar la basura" porque 'la' esta
+    # dentro, y un recordatorio borrado no se recupera. Tres letras es lo mismo que ya pide
+    # Remove-DatoPerfil para no emparejar por una palabra vacia.
+    if ($qs.Length -lt 3) { return @{ estado = 'ninguno' } }
+    $hit = @($todos | Where-Object { (ConvertTo-Plain ([string]$_.texto)).Contains($qs) })
+    if ($hit.Count -eq 0) { return @{ estado = 'ninguno' } }
+    if ($hit.Count -gt 1) { return @{ estado = 'varios'; lista = $hit } }
+    Save-Recordatorios @($todos | Where-Object { $_ -ne $hit[0] })
+    Log "RECORDATORIO borrado a mano: $($hit[0].texto)"
+    return @{ estado = 'uno'; borrado = $hit[0] }
 }
 
 function Test-Recordatorios {

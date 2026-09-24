@@ -451,6 +451,19 @@ Titulo "2n105. A que podemos jugar los dos"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-juegos-dos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:de donde lo ha sacado)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n113. La agenda mira los tres sitios, no uno"
+# Idea 5. NO se hace un calendario nuevo: seria un CUARTO sitio con cosas con fecha al lado
+# de los tres que ya hay. El alias existe desde el 18/09 -braya lo pidio tres veces y acabo
+# en el agente (23 s) o en la charla- y lo que fallaba era su cobertura: leia solo
+# recordatorios.json. Con el cumple de Ana guardado en fechas.json para manana, "dime si
+# tengo algo anotado para manana" contestaba "No tienes nada apuntado para manana": Nova
+# mintiendo con datos que ella misma guardo, en silencio y con una frase que suena bien.
+# Ahora junta recordatorios, fechas anuales y las reglas de hora que HABLAN (un modo nocturno
+# no es una cita), y se puede borrar una cita hablando, con dos salidas y sin borrar nunca si
+# hay mas de una candidata.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-calendario.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la agenda mira ya los tres sitios)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n112. Lo que se repite: cada dos horas, di que estire la espalda"
 # Idea 4. NO se amplia recordatorios.json -seria una segunda lista de cosas periodicas al
 # lado de reglas.json, y el codigo ya tiene escrita esa leccion-. Se arregla la regla 'cada',
