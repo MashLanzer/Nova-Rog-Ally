@@ -451,6 +451,17 @@ Titulo "2n105. A que podemos jugar los dos"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-juegos-dos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:de donde lo ha sacado)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n117. Contar, medir y listar sus carpetas (solo lectura)"
+# Idea 9. 41 frases de este tema en catorce dias -"cuenta cuantos archivos hay en mi carpeta
+# de descargas"- y hoy ninguna se entendia en local: todas al agente. Y un fallo activo:
+# "cuanto ocupa mi carpeta de descargas" caia en el patron de "cuanto ocupa <juego>" y Nova
+# contestaba "no tengo ese juego en la biblioteca", que no es no entender sino contestar otra
+# cosa. Lo que mas se vigila: que medir una carpeta grande NO deje el juego tirando (tope de
+# tiempo y de ficheros, y si se corta lo dice), y que sin decir "carpeta" solo valgan las
+# siete de siempre, que con el oido al 70,4 % un nombre libre es un nombre mal oido.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-carpetas.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya cuenta y mide sus carpetas)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n116. Que dice, y contesta que ahora voy"
 # Idea 16. 31 eventos de notificacion en catorce dias y 45 mensajes; Discord es 24 eventos
 # (77 %) y 38 mensajes (84 %): lo que le llega son PERSONAS. Y hoy Nova dice "tienes 3 de

@@ -4452,6 +4452,27 @@ function Resolve-Fragment([string]$f) {
         if ($itemsD.Count -gt $nomsD.Count) { $textoD += " y $($itemsD.Count - $nomsD.Count) mas" }
         return @(@{ kind = 'decir'; desc = $textoD })
     }
+    # --- CONTAR, MEDIR Y LISTAR UNA CARPETA (23/09, idea 9) ---
+    # 41 frases suyas de este tema en catorce dias, y hoy TODAS se van al agente. Y peor:
+    # "cuanto ocupa mi carpeta de descargas" cae 200 lineas mas abajo, en el patron de
+    # "cuanto ocupa <juego>", y Nova contesta "no tengo ese juego en la biblioteca". Eso no es
+    # no entender, es contestar otra cosa. Por eso este bloque va AQUI: pegado al hermano del
+    # escritorio y muy por delante de aquel.
+    # LA LISTA CERRADA ES PARA CUANDO NO DICE "CARPETA" (regla 7, el oido al 70,4 %): sin esa
+    # palabra, el nombre podria ser cualquier cosa mal oida, asi que solo valen las siete que
+    # Find-CarpetaPorNombre conoce de serie.
+    if ($f -match '^(?:que\s+(?:hay|tengo)|dime\s+que\s+(?:hay|tengo)|ensename|muestrame|lista(?:me)?)\s+(?:lo\s+que\s+(?:hay|tengo)\s+)?(?:en|de)\s+(?:mi\s+|la\s+|el\s+)?carpeta\s+(?:de\s+(?:mis\s+)?|del\s+)?(.+)$') {
+        return @(@{ kind = 'carpetaInfo'; que = 'lista'; nombre = $Matches[1].Trim(); desc = 'ver lo que hay en esa carpeta' })
+    }
+    if ($f -match '^(?:cuenta(?:me)?\s+)?(?:cuantos|cuantas)\s+(?:archivos|ficheros|documentos|fotos|imagenes|videos|canciones|cosas|elementos)\s+(?:hay|tengo|me\s+quedan)?\s*(?:en|dentro\s+de)\s+(?:mi\s+|mis\s+|la\s+|el\s+)?carpeta\s+(?:de\s+(?:mis\s+)?|del\s+)?(.+)$' -or
+        $f -match ('^(?:cuenta(?:me)?\s+)?(?:cuantos|cuantas)\s+(?:archivos|ficheros|documentos|fotos|imagenes|videos|canciones|cosas|elementos)\s+(?:hay|tengo|me\s+quedan)?\s*(?:en|dentro\s+de)\s+(?:mi\s+|mis\s+|la\s+|el\s+)?(' + $CARPETAS_FIJAS + ')$') -or
+        $f -match '^cuenta(?:me)?\s+(?:los\s+|las\s+)?(?:archivos|ficheros|documentos|fotos|imagenes|videos|cosas)\s+(?:que\s+hay\s+)?(?:de|en)\s+(?:mi\s+|la\s+|el\s+)?carpeta\s+(?:de\s+(?:mis\s+)?|del\s+)?(.+)$') {
+        return @(@{ kind = 'carpetaInfo'; que = 'cuenta'; nombre = $Matches[1].Trim(); desc = 'contar lo que hay en esa carpeta' })
+    }
+    if ($f -match '^cuanto\s+(?:ocupa|pesa|mide)\s+(?:mi\s+|la\s+|el\s+)?carpeta\s+(?:de\s+(?:mis\s+)?|del\s+)?(.+)$' -or
+        $f -match ('^cuanto\s+(?:ocupa|pesa|mide)\s+(?:mi\s+|la\s+|el\s+)?(' + $CARPETAS_FIJAS + ')$')) {
+        return @(@{ kind = 'carpetaInfo'; que = 'mide'; nombre = $Matches[1].Trim(); desc = 'medir esa carpeta' })
+    }
     # --- espacio en disco: "¿cabe la siguiente?" ---
     # "que espacio tengo disponible" y "cuanto espacio libre me queda en la consola" (15/09)
     if ($f -match '^(?:cuanto\s+)?(?:espacio|disco|sitio)\s*(?:me\s+)?(?:queda|libre|hay|tengo)?$' -or
@@ -11021,6 +11042,9 @@ $AccionesQueTocan = @('app', 'url', 'key', 'atajo', 'escribir', 'winkey', 'altf4
 # entendia; la API lo tradujo a "abre explorador" y ademas se aprendio. Primero los nombres
 # de siempre (descargas, documentos...); si no, una carpeta con ese nombre en el escritorio,
 # documentos, descargas, la carpeta personal, imagenes, videos o musica.
+# LAS SIETE DE SIEMPRE, escritas una vez y usadas en los dos sitios: aqui y en los patrones
+# de contar y medir, donde hacen de lista cerrada para cuando braya no dice "carpeta".
+$CARPETAS_FIJAS = 'descargas|documentos|escritorio|imagenes|fotos|musica|videos'
 function Find-CarpetaPorNombre([string]$nombre) {
     $pl = ConvertTo-Plain $nombre
     if (-not $pl) { return '' }
@@ -11043,6 +11067,44 @@ function Find-CarpetaPorNombre([string]$nombre) {
         }
     }
     return $parecida
+}
+
+# LO QUE HAY DENTRO DE UNA CARPETA (23/09, idea 9). Va pegada a Find-CarpetaPorNombre porque
+# son pareja: una resuelve el nombre y la otra mira dentro, y asi un banco puede sacar las dos
+# con el mismo parser.
+# CON TOPE DE TIEMPO Y DE FICHEROS, y eso es lo que la hace distinta de Get-TamanoMB, que no
+# tiene ninguno: un Get-ChildItem -Recurse sobre Descargas dentro del bucle deja el juego
+# tirando, y aqui braya esta jugando casi siempre. Al pasarse, se corta y se DICE que el
+# numero va por lo menos: media respuesta dicha como media respuesta, no como entera.
+function Get-ResumenCarpeta([string]$ruta, [bool]$conTamano = $false, [int]$topeMs = 1200, [int]$topeFich = 20000) {
+    if (-not $ruta -or -not (Test-Path -LiteralPath $ruta)) { return @{ ok = $false } }
+    $r = @{ ok = $true; ficheros = 0; carpetas = 0; nombres = @(); bytes = 0; parcial = $false }
+    try {
+        $hijos = @(Get-ChildItem -LiteralPath $ruta -Force -ErrorAction SilentlyContinue)
+        # 'desktop.ini' lo pone Windows y no es de braya: el mismo filtro que ya usa la frase
+        # del escritorio
+        $hijos = @($hijos | Where-Object { $_.Name -ne 'desktop.ini' })
+        $r.ficheros = @($hijos | Where-Object { -not $_.PSIsContainer }).Count
+        $r.carpetas = @($hijos | Where-Object { $_.PSIsContainer }).Count
+        $r.nombres = @($hijos | Sort-Object Name | Select-Object -First 12 | ForEach-Object {
+            if ($_.PSIsContainer) { $_.Name } else { ($_.Name -replace '\.(lnk|url)$', '') } })
+    } catch { return @{ ok = $false } }
+    if ($conTamano) {
+        $cron = [System.Diagnostics.Stopwatch]::StartNew()
+        $n = 0
+        try {
+            foreach ($f in [System.IO.Directory]::EnumerateFiles($ruta, '*', [System.IO.SearchOption]::AllDirectories)) {
+                try { $r.bytes += (New-Object System.IO.FileInfo($f)).Length } catch {}
+                $n++
+                # EL RELOJ se mira cada 200, no en cada fichero: preguntar la hora 20.000 veces
+                # cuesta mas que sumar 20.000 tamanos. El CONTADOR, en cambio, se mira
+                # siempre: comparar dos enteros es gratis, y mirandolo cada 200 una carpeta
+                # de diez ficheros no podia cortarse nunca, o sea que ese tope no existia.
+                if ($n -gt $topeFich -or (($n % 200) -eq 0 -and $cron.ElapsedMilliseconds -gt $topeMs)) { $r.parcial = $true; break }
+            }
+        } catch { $r.parcial = $true }
+    }
+    return $r
 }
 
 # EL VIDEO NUMERO N (16/09). El 15/09, "reproduce el segundo video de YouTube" y
@@ -12516,6 +12578,36 @@ function Invoke-FastCommand([string]$text) {
                     # se lee AL EJECUTAR, no al reconocer: un banco que solo resuelve
                     # no tiene por que ir a mirar los procesos (igual que 'disco')
                     $a.desc = Get-RamResumen ([string]$a.que)
+                }
+                'carpetaInfo' {
+                    # SOLO LECTURA: cuenta, mide y lista. Aqui no se borra ni se mueve nada.
+                    $nomC = [string]$a.nombre
+                    $rutaC = ''
+                    try { $rutaC = Find-CarpetaPorNombre $nomC } catch { $rutaC = '' }
+                    if (-not $rutaC) { $a.desc = "No encuentro ninguna carpeta que se llame $nomC"; break }
+                    $comoC = Split-Path -Leaf $rutaC
+                    $rC = Get-ResumenCarpeta $rutaC ([bool]($a.que -eq 'mide'))
+                    if (-not $rC.ok) { $a.desc = "No pude mirar dentro de $comoC"; break }
+                    switch ([string]$a.que) {
+                        'cuenta' {
+                            $pC = @()
+                            $pC += "$($rC.ficheros) $(if ($rC.ficheros -eq 1) { 'archivo' } else { 'archivos' })"
+                            if ($rC.carpetas -gt 0) { $pC += "$($rC.carpetas) $(if ($rC.carpetas -eq 1) { 'carpeta' } else { 'carpetas' })" }
+                            $a.desc = "En $comoC tienes " + ($pC -join ' y ')
+                        }
+                        'mide' {
+                            # SI SE CORTO, SE DICE: media respuesta dicha como media respuesta.
+                            $a.desc = "$comoC ocupa $(if ($rC.parcial) { 'por lo menos ' } else { '' })$(Format-Gigas $rC.bytes)"
+                        }
+                        default {
+                            $totC = $rC.ficheros + $rC.carpetas
+                            if ($totC -eq 0) { $a.desc = "No hay nada en $comoC"; break }
+                            # dicho en voz alta, "tienes 3:" suena a medias (probado el 16/09)
+                            $tC = "En $comoC tienes $totC $(if ($totC -eq 1) { 'cosa' } else { 'cosas' }): " + (@($rC.nombres) -join ', ')
+                            if ($totC -gt @($rC.nombres).Count) { $tC += " y $($totC - @($rC.nombres).Count) mas" }
+                            $a.desc = $tC
+                        }
+                    }
                 }
                 'disco' {
                     # la unidad donde estan los juegos, no siempre C:
