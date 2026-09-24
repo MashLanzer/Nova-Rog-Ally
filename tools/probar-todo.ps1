@@ -451,6 +451,17 @@ Titulo "2n105. A que podemos jugar los dos"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-juegos-dos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:de donde lo ha sacado)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n116. Que dice, y contesta que ahora voy"
+# Idea 16. 31 eventos de notificacion en catorce dias y 45 mensajes; Discord es 24 eventos
+# (77 %) y 38 mensajes (84 %): lo que le llega son PERSONAS. Y hoy Nova dice "tienes 3 de
+# Discord" sin decir lo que ponen, o te lee cinco del tiron Y VACIA la cola. Ahora "que dice"
+# dice el ultimo -remitente y primera linea- sin vaciar nada, y "contesta que ahora voy"
+# funciona sin el pronombre pegado. Lo que mas se vigila: que preguntar no borre lo que
+# quedaba por leer, y que el patron de contestar NO se trague "dile a maria que la llamo",
+# porque escribiria en la ventana de otra persona. Y sigue sin enviar: ni un Enter.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-notif-quedice.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya te dice quien es y que pone)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n115. La voz, en el menu del mando"
 # Idea 14, replanteada. La pedida -un boton para "repite eso"- se cae con dato: en 1.804
 # frases distintas suyas braya NO ha pedido que repita NI UNA VEZ, y ese menu solo tiene

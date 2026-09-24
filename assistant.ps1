@@ -4139,6 +4139,16 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(?:que me han escrito|quien me ha escrito|(?:me )?ha escrito alguien|(?:me )?escribio alguien|tengo (?:mensajes|notificaciones)(?: nuevos| nuevas)?|que (?:mensajes|notificaciones) tengo|hay mensajes(?: nuevos)?|alguna notificacion|algun mensaje)$') {
         return @(@{ kind = 'notifResumen'; desc = 'tus mensajes' })
     }
+    # "¿QUE DICE?" (23/09, idea 16). El orden natural hablando es resumen -> que dice ->
+    # leemelos, y por eso va aqui en medio: "leemelos" sigue siendo lo que vacia la cola.
+    # LA GUARDA VA EN LA MISMA CONDICION, y es lo que hace segura una frase de dos palabras:
+    # sin una notificacion de los ultimos diez minutos NO resuelve, y la frase sigue su
+    # camino. Es el mismo miedo que ya esta escrito aqui abajo para "que me dicen": leer
+    # mensajes privados en voz alta por un falso positivo seria el peor fallo posible.
+    if ($f -match '^(?:que dice|que dicen|que pone|que dice el mensaje|que ha dicho|quien es|quien fue|de quien es|leemelo|lee el ultimo|el ultimo mensaje)$' -and
+        $script:ultimaNotif -and ($sw.ElapsedMilliseconds - $script:ultimaNotifEn) -lt $NotifVentanaMs) {
+        return @(@{ kind = 'notifQueDice'; desc = 'lo ultimo que te ha llegado' })
+    }
     # sin "que me dicen": es demasiado corriente y leeria tus mensajes en voz alta
     # si alguien lo dice cerca (revision del 13/09)
     if ($f -match '^(?:leemelos|leemelas|lee(?:me)? (?:los mensajes|las notificaciones)|leeme lo que me han escrito)$') {
@@ -7975,6 +7985,12 @@ function Get-Notificaciones {
 # silencio. memoria\contactos.json, fuera de git.
 $script:contactos = $null
 $script:ultimaNotif = $null
+# CUANDO LLEGO LA ULTIMA (23/09, idea 16). Es lo que hace segura una frase tan corriente como
+# "que dice": sin notificacion reciente, el patron no resuelve y la frase sigue su camino.
+$script:ultimaNotifEn = 0
+# DIEZ MINUTOS. Con 31 eventos en catorce dias -2,2 al dia- la ventana esta cerrada casi
+# siempre, asi que la guarda no cuesta nada y tapa el unico riesgo de verdad.
+$NotifVentanaMs = 600000
 function Get-Contactos {
     if ($null -ne $script:contactos) { return ,$script:contactos }
     $script:contactos = New-Object System.Collections.ArrayList
@@ -8002,6 +8018,7 @@ function Watch-Notificaciones([object[]]$todas) {
     if ($nuevas.Count -eq 0) { return 0 }
     foreach ($n in $nuevas) { [void]$script:notifPendientes.Add($n) }
     $script:ultimaNotif = $nuevas[$nuevas.Count - 1]   # a quien contestar (ver CONTESTAR UN MENSAJE)
+    $script:ultimaNotifEn = $sw.ElapsedMilliseconds
     while ($script:notifPendientes.Count -gt 30) { $script:notifPendientes.RemoveAt(0) }
     Log ("NOTIFICACIONES: {0} nueva(s) de {1}" -f $nuevas.Count, ((@($nuevas | ForEach-Object { $_.app }) | Select-Object -Unique) -join ', '))
     $importantes = @(Get-Contactos)
@@ -8039,6 +8056,36 @@ function Get-LecturaNotificaciones([int]$max = 5) {
     }
     $script:notifPendientes.Clear()
     return ($partes -join '. ')
+}
+
+# SOLO EL ULTIMO, Y SIN VACIAR LA COLA (23/09, idea 16). Con la partida abierta lo unico
+# util es "¿que dice?": el remitente y la primera linea. "Leemelos" lee cinco y ademas VACIA
+# $script:notifPendientes, asi que preguntar "que dice" por ese camino borraria todo lo que
+# quedaba por leer; con 31 eventos en catorce dias, cada mensaje perdido es el 3 % de lo que
+# le llega y no hay forma de recuperarlo. Por eso esta funcion NO llama a la de leer.
+function Get-UltimaNotificacion([bool]$consumir = $false) {
+    $pend = @($script:notifPendientes)
+    $n = $null
+    if ($pend.Count -gt 0) { $n = $pend[$pend.Count - 1] } elseif ($script:ultimaNotif) { $n = $script:ultimaNotif }
+    if (-not $n) { return 'no tengo nada nuevo' }
+    $quien = if ($n.titulo) { "$($n.app), $($n.titulo)" } else { [string]$n.app }
+    $linea = ''
+    if ($n.texto) {
+        $linea = (([string]$n.texto) -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 1)
+        $linea = ([string]$linea).Trim()
+        # 140 caracteres, y CORTANDO EN PALABRA: dejar una frase a mitad de palabra suena a
+        # error, no a resumen.
+        if ($linea.Length -gt 140) {
+            $corte = $linea.Substring(0, 140)
+            $esp = $corte.LastIndexOf(' ')
+            if ($esp -gt 40) { $corte = $corte.Substring(0, $esp) }
+            $linea = $corte.TrimEnd() + '...'
+        }
+    }
+    if ($consumir -and $pend.Count -gt 0) { $script:notifPendientes.RemoveAt($script:notifPendientes.Count - 1) }
+    # sin texto, NO se deja un ": " colgando
+    if ($linea) { return "$quien`: $linea" }
+    return $quien
 }
 
 # LA MUSICA EN LA CAPSULA: lo que suena en Windows (Spotify, el navegador...),
@@ -11081,10 +11128,17 @@ function Invoke-FastCommand([string]$text) {
     # la app del ultimo mensaje que llego (Discord, WhatsApp...), SIN ENVIAR: Nova
     # no sabe si la conversacion abierta es la de quien te escribio, asi que lo
     # deja escrito y te pide que lo revises. Se lee del texto ORIGINAL (tildes).
-    if ($text -match '(?i)^\s*(?:cont[eé]stale|resp[oó]ndele|escr[ií]bele)\s+(?:que\s+)?(.{2,300}?)[\s.]*$') {
+    # SIN EL PRONOMBRE PEGADO TAMBIEN (23/09, idea 16): "contesta que ahora voy" es como lo
+    # dice el, y hasta hoy no casaba y se iba al modelo. El (?!a\s) NO sobra: sin el, "dile a
+    # maria que la llamo" caeria aqui y escribiria en la ventana de quien te escribio el
+    # ultimo mensaje, que puede no ser maria.
+    if ($text -match '(?i)^\s*(?:cont[eé]stale|cont[eé]sta|resp[oó]ndele|resp[oó]nde|escr[ií]bele|dile)\s+(?!a\s)(?:que\s+)?(.{2,300}?)[\s.]*$') {
         $respM = $Matches[1].Trim()
         $nM = $script:ultimaNotif
         if (-not $nM) { return "No tengo ningun mensaje reciente al que contestar." }
+        # Y LA MISMA VENTANA DE DIEZ MINUTOS que para "¿que dice?": contestar a un mensaje de
+        # ayer es escribirle a quien no toca.
+        if (($sw.ElapsedMilliseconds - $script:ultimaNotifEn) -ge $NotifVentanaMs) { return "El ultimo mensaje que tengo ya es viejo; abre la conversacion tu." }
         $procM = Resolve-Proceso ([string]$nM.app)
         $ventM = if ($procM) { Get-Process -Name $procM.proceso -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1 } else { $null }
         if (-not $ventM) { return "No encuentro $($nM.app) abierto para escribirle." }
@@ -11786,6 +11840,15 @@ function Invoke-FastCommand([string]$text) {
                     if ($script:invitado) { $a.desc = 'en modo invitado no miro los mensajes'; break }
                     try { [void](Watch-Notificaciones @(Get-Notificaciones)) } catch {}
                     $a.desc = Get-ResumenNotificaciones
+                }
+                'notifQueDice' {
+                    if ($script:invitado) { $a.desc = 'en modo invitado no leo los mensajes'; break }
+                    try { [void](Watch-Notificaciones @(Get-Notificaciones)) } catch {}
+                    # $false: NO se consume. Preguntar "que dice" no puede borrar lo que
+                    # "leemelos" iba a leer despues.
+                    $a.desc = Get-UltimaNotificacion $false
+                    $script:sinTarjeta = $true   # para oirlo, no para una tarjeta
+                    $script:sinTarjetaEn = $sw.ElapsedMilliseconds
                 }
                 'notifLeer' {
                     if ($script:invitado) { $a.desc = 'en modo invitado no leo los mensajes'; break }
