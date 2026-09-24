@@ -116,15 +116,36 @@ for ($i = 0; $i -lt 60; $i++) {
 Save-TiempoJuego
 $minAlt = Get-MinutosJuegoHoy 'It Takes Two'
 Comp 'con 60 alt-tabs, siguen siendo 120 minutos' ($minAlt -eq 120) "$minAlt min"
-# y la condicion del aviso, sacada del bucle de verdad
+# EL BLOQUE DEL AVISO, SACADO DEL BUCLE Y EJECUTADO (24/09, repaso). Antes esto era una COPIA
+# de la condicion escrita aqui a mano -con $JuegoAvisoMin = 120 puesto tambien a mano-, asi
+# que las secciones 3, 5 y 6 no ejecutaban ni una linea de assistant.ps1: reescribir la
+# condicion del bucle con la variable equivocada, o cambiar el valor por defecto, seguia
+# dando verde. Y habia una comprobacion que comparaba un valor consigo mismo.
+$JuegoAvisoMin = if ($fuente -match "(?m)^\`$JuegoAvisoMin = \[int\]\(Get-Cfg 'juego' 'avisoMinutos' (\d+)\)") { [int]$Matches[1] } else { -1 }
+Comp 'el liston sale del codigo, no de aqui' ($JuegoAvisoMin -eq 120) "$JuegoAvisoMin min"
+$ifAviso = $ast.Find({ param($x)
+    $x -is [System.Management.Automation.Language.IfStatementAst] -and
+    $x.Clauses[0].Item1.Extent.Text -like '*juegoAvisoNo -ne $diaAv*' }, $true)
+if (-not $ifAviso) { Write-Host '  MAL  no encuentro el bloque del aviso en el bucle'; exit 1 }
+$script:avisos = @()
+function Send-Aviso([string]$t, [string]$c = '') { $script:avisos += $t }
+function Test-PuedoAvisar([string]$c, [string]$n = 'medio', [int]$m = 60) { return $true }
+function Save-AvisoJuego { $script:guardados++ }
+$script:guardados = 0
+Invoke-Expression ("function Avisa([string]`$j) {`n" +
+                   "    `$diaAv = Get-DiaJuego`n" +
+                   "    if (`$script:juegoAvisoDia -ne `$diaAv) { `$script:juegoAvisoDia = `$diaAv; `$script:juegoAvisoUlt = 0; Save-AvisoJuego }`n" +
+                   "    `$pasoAv = if (`$script:juegoAvisoCada -gt 0) { `$script:juegoAvisoCada } else { `$JuegoAvisoMin }`n" +
+                   $ifAviso.Extent.Text + "`n}")
+
 $script:juegoAvisoDia = Get-DiaJuego
 $script:juegoAvisoUlt = 0
 $script:juegoAvisoCada = 0
 $script:juegoAvisoNo = ''
-$JuegoAvisoMin = 120
-$pasoAv = if ($script:juegoAvisoCada -gt 0) { $script:juegoAvisoCada } else { $JuegoAvisoMin }
-$dispara = ($minAlt -ge ($script:juegoAvisoUlt + $pasoAv))
-Comp 'y el aviso dispara' $dispara 'con la cuenta vieja no disparaba NUNCA'
+$script:avisos = @()
+Avisa 'It Takes Two'
+Comp 'y el aviso dispara' (@($script:avisos).Count -eq 1) "con la cuenta vieja no disparaba NUNCA"
+Comp 'y dice los minutos de HOY' (@($script:avisos)[0] -match '2 horas') "$(@($script:avisos) -join ' / ')"
 
 Write-Host ''
 Write-Host '-- 4. EL REINICIO: 16,3 arranques al dia no pueden borrar la cuenta --'
@@ -134,23 +155,30 @@ Comp 'tras reiniciar Nova, siguen siendo 120' ($minTrasReinicio -eq 120) "$minTr
 
 Write-Host ''
 Write-Host '-- 5. pero no avisa dos veces del mismo dia --'
-$script:juegoAvisoUlt = 120
-$dispara2 = ($minTrasReinicio -ge ($script:juegoAvisoUlt + $pasoAv))
-Comp 'con el aviso ya dado, no repite' (-not $dispara2) 'si no, avisaria 16 veces al dia'
-Comp 'y con avisoCada=0 solo una vez al dia' (($script:juegoAvisoCada -eq 0) -and ($script:juegoAvisoUlt -gt 0))
+$script:avisos = @()
+for ($iAv = 0; $iAv -lt 10; $iAv++) { Avisa 'It Takes Two' }
+Comp 'con el aviso ya dado, no repite en 10 vueltas' (@($script:avisos).Count -eq 0) "$(@($script:avisos).Count) avisos"
 # al cambiar el dia, vuelve a estar armado
 $script:juegoAvisoDia = '2026-01-01'
-$rearma = ($script:juegoAvisoDia -ne (Get-DiaJuego))
-Comp 'al cambiar de dia se rearma solo' $rearma
+$script:avisos = @()
+Avisa 'It Takes Two'
+Comp 'al cambiar de dia se rearma solo' (@($script:avisos).Count -eq 1) "$(@($script:avisos).Count)"
 
 Write-Host ''
 Write-Host '-- 6. y "hoy no me avises" calla, pero solo hoy --'
+$script:juegoAvisoDia = Get-DiaJuego; $script:juegoAvisoUlt = 0
 $script:juegoAvisoNo = Get-DiaJuego
-Comp 'hoy no avisa' ($script:juegoAvisoNo -eq (Get-DiaJuego)) 'la guarda del bucle mira esto'
-Comp 'y manana ya no vale' ((Get-DiaJuego ([datetime]::Now.AddDays(1))) -ne $script:juegoAvisoNo) 'se cae solo, no es un modo sin salida'
+$script:avisos = @()
+Avisa 'It Takes Two'
+Comp 'hoy no avisa' (@($script:avisos).Count -eq 0) "$(@($script:avisos).Count) avisos"
+# manana: se mueve el dia del silencio al de ayer, que es lo que pasa al cambiar la fecha
+$script:juegoAvisoNo = (Get-DiaJuego ([datetime]::Now.AddDays(-1)))
+$script:juegoAvisoUlt = 0
+$script:avisos = @()
+Avisa 'It Takes Two'
+Comp 'y manana vuelve a avisar solo' (@($script:avisos).Count -eq 1) 'se cae solo, no es un modo sin salida'
 $script:juegoAvisoNo = ''
 
-Write-Host ''
 Write-Host '-- 7. y ya no quedan dos cuentas peleandose --'
 $codigo = ($fuente -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
 Comp 'la variable vieja del aviso ya no existe' ($codigo -notmatch 'juegoAvisado') 'era lo que se rearmaba en cada alt-tab'
@@ -255,7 +283,16 @@ Comp 'y al dia siguiente vuelve SOLO' (-not $script:entornoCallado) 'esto era un
 Write-Host ''
 Write-Host '-- y el codigo dice lo que tiene que decir --'
 $codB = ($fuente -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
-Comp "el patron de 'cuanto llevo jugando' esta anclado en $" ($codB -match 'hace cuanto juego\)\$') 'con \b se tragaba "...jugando hoy"'
+# EL ANCLAJE, PROBADO CON LA FRASE (24/09, repaso). Antes miraba como estaba ESCRITO el
+# patron, asi que reordenar sus tres formas lo ponia rojo sin que el comportamiento
+# hubiera cambiado en nada.
+$patTramo = ''
+foreach ($lT in @($fuente -split "`r?`n")) {
+    if ($lT -match 'hace cuanto juego') { $mT = [regex]::Match($lT, "'(\^[^']+)'"); if ($mT.Success) { $patTramo = $mT.Groups[1].Value } }
+}
+Comp 'encuentro el patron del tramo' ($patTramo -ne '') ''
+Comp "'cuanto llevo jugando hoy' NO cae en el del tramo" (-not ('cuanto llevo jugando hoy' -match $patTramo)) 'antes se lo tragaba'
+Comp "'cuanto llevo jugando' tampoco: contesta el dia" (-not ('cuanto llevo jugando' -match $patTramo)) 'era codigo muerto escrito como si viniera'
 Comp 'el ejecutor contesta el dia, no el tramo' ($codB -match "'tiempoJuego' \{[\s\S]{0,200}Get-FraseTiempoHoy")
 Comp 'y ya no hay una resta de juegoDesde ahi' ($codB -notmatch "'tiempoJuego' \{[\s\S]{0,200}ElapsedMilliseconds - \\$script:juegoDesde")
 Comp 'el suelo de quince minutos sigue puesto' ($codB -match '\$minA -gt 0 -and \$minA -lt 15') 'por debajo es ruido, no aviso'

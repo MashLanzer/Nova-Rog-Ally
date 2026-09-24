@@ -3852,7 +3852,10 @@ function Resolve-Fragment([string]$f) {
         $qModo = if ($dModo.quitar) { "quitar '$($dModo.orden)' del modo $($dModo.modo)" } else { "anadir '$($dModo.orden)' al modo $($dModo.modo)" }
         return @(@{ kind = 'modoEditar'; datos = $dModo; desc = $qModo })
     }
-    if ($f -match '^(?:recuerda|recuerdame|acuerdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!(?:en|dentro de)\s+(?:\d+|un|una|uno|medi[ao]|(?:un\s+)?cuarto\s+de|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis\S+|veinte|veinti\S+|treinta|cuarenta|cincuenta|sesenta|noventa)(?:\s+y\s+\S+)?\s+(?:segundos?|minutos?|horas?)\b)(?!(?:\d+|un|una|medi[ao]|(?:un\s+)?cuarto\s+de|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis\S+|veinte|veinti\S+|treinta|cuarenta|cincuenta|sesenta|noventa)(?:\s+y\s+\S+)?\s+(?:minutos?|horas?)(?:\s+y\s+media)?\s+antes\b)(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?!(?:cual|cuales|que es|que fue|si|donde|cuando|quien|como|cuanto)\b)(?:que\s+|de\s+que\s+)?(.+)$') {
+    # Y NO ES UNA NOTA SI ES UN VETO DE MUSICA (24/09, repaso): "apunta que ese tipo de
+    # musica no me gusta" caia aqui -1.640 lineas antes que el suyo- y se guardaba en el
+    # diario contestando "Anotado.", sin vetar nada.
+    if ($f -match '^(?:recuerda|recuerdame|acuerdate|anota|apunta|guarda(?=\s+(?:que|de\s+que)\b)|memoriza)\s+(?!.*\btipo\s+de\s+musica\b.*\bno\s+me\s+gusta\b)(?!.*\s(?:en|a)\s+(?:la\s+|mi\s+)?lista(?:\s+de\s+.+)?$)(?!(?:en|dentro de)\s+(?:\d+|un|una|uno|medi[ao]|(?:un\s+)?cuarto\s+de|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis\S+|veinte|veinti\S+|treinta|cuarenta|cincuenta|sesenta|noventa)(?:\s+y\s+\S+)?\s+(?:segundos?|minutos?|horas?)\b)(?!(?:\d+|un|una|medi[ao]|(?:un\s+)?cuarto\s+de|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|diecis\S+|veinte|veinti\S+|treinta|cuarenta|cincuenta|sesenta|noventa)(?:\s+y\s+\S+)?\s+(?:minutos?|horas?)(?:\s+y\s+media)?\s+antes\b)(?!(?:esto|eso|esta pantalla|lo de la pantalla|lo que dice la pantalla|lo que pone|este codigo|el codigo|la clave|la combinacion|esta clave|este numero)$)(?!(?:cual|cuales|que es|que fue|si|donde|cuando|quien|como|cuanto)\b)(?:que\s+|de\s+que\s+)?(.+)$') {
         return @(@{ kind = 'memoria'; texto = $Matches[1].Trim(); desc = "anotar en la memoria" })
     }
     # El lugar puede preceder al verbo ("en el navegador busca X"). Se separa
@@ -4105,7 +4108,12 @@ function Resolve-Fragment([string]$f) {
     # 'del' tambien (23/09): "quita el aviso DEL tiempo" no lo cogia nadie, ni aqui ni en la
     # salida por texto de los recordatorios, y se iba al modelo. La lista de palabras es la
     # MISMA en los dos sitios a proposito.
-    if ($f -match '^(?:quita|cancela|olvida|para|ya no)\s+(?:el\s+|los\s+)?(?:aviso|avisos)\s+(?:de\s+|del\s+)?(?:cada\s+)?(?:hora|rato|tiempo|tiempo de juego|juego)$') {
+    # LA MISMA LISTA QUE LAS OTRAS DOS, DE VERDAD (24/09, repaso). El comentario de arriba
+    # decia "la lista de palabras es la MISMA en los dos sitios" y no lo era: alli se admitia
+    # borra|elimina y el posesivo "mi", y aqui no. Resultado medido: "borra el aviso de cada
+    # hora" no lo cogia NADIE y se iba al modelo, y "quita el aviso de la hora" -con 'la' en
+    # vez de 'cada'- se iba a borrar un recordatorio y contestaba "no tengo ninguno de eso".
+    if ($f -match '^(?:quita|cancela|olvida|para|ya no|borra|elimina)\s+(?:el\s+|los\s+|mi\s+|mis\s+|la\s+)?(?:aviso|avisos)\s+(?:de\s+|del\s+|de\s+la\s+)?(?:cada\s+)?(?:hora|rato|tiempo|tiempo de juego|juego)$') {
         return @(@{ kind = 'avisoJuegoCada'; minutos = 0; desc = 'quitar el aviso de cada rato' })
     }
     if ($f -match '^(?:hoy\s+)?no\s+me\s+avises\s+(?:hoy\s+)?(?:de\s+|del\s+)?(?:tiempo|tiempo de juego|juego|las horas|lo que llevo|lo que juego)$') {
@@ -4129,7 +4137,13 @@ function Resolve-Fragment([string]$f) {
     # cuando se pregunta jugando.
     if ($f -match '^(?:cuanto|cuanto tiempo|que tanto)\s+(?:he\s+jugado|jugue|juge|llevo\s+jugando|llevo)(?:\s+(esta semana|hoy|este mes|estos dias|la semana|el mes))?$') {
         $perJ = [string]$Matches[1]
-        if (-not $perJ -and $script:juegoActivo) {
+        $llevaJ = ($f -match '\bllevo\b')
+        # "CUANTO LLEVO" ES HOY, AUNQUE NO HAYA JUEGO DELANTE (24/09, repaso). Sin juego
+        # delante esto contestaba la SEMANA, que no es lo que se pregunta: "cuanto llevo" es
+        # presente y "cuanto he jugado" es el balance. Y de paso destapo que el patron de
+        # "cuanto llevo jugando" que hay 700 lineas mas abajo era codigo muerto en dos de sus
+        # tres formas, porque este se las come.
+        if (-not $perJ -and ($script:juegoActivo -or $llevaJ)) {
             return @(@{ kind = 'tiempoHoy'; desc = 'tiempo de juego de hoy' })
         }
         $diasJ = if ($perJ -eq 'hoy') { 1 } elseif ($perJ -eq 'este mes' -or $perJ -eq 'el mes') { 30 } else { 7 }
@@ -4845,7 +4859,11 @@ function Resolve-Fragment([string]$f) {
     # ANCLADO EN $ Y NO EN \b (23/09): con \b se tragaba "cuanto llevo jugando hoy" y
     # contestaba el tramo desde el ultimo alt-tab. Ahora esa frase cae en el patron de
     # arriba, que si mira el dia.
-    if ($f -match '^(?:cuanto llevo jugando|cuanto tiempo llevo jugando|hace cuanto juego)$') {
+    # SOLO "HACE CUANTO JUEGO" LLEGA AQUI (24/09, repaso). Las otras dos formas se las queda
+    # el patron de 700 lineas mas arriba, que contesta el dia -que es lo que se quiere saber-.
+    # Estaban escritas aqui como si vinieran, y no venian: eso es codigo muerto que engana a
+    # quien lo lea.
+    if ($f -match '^(?:hace cuanto juego|desde cuando juego|hace cuanto que juego)$') {
         return @(@{ kind = 'tiempoJuego'; desc = 'tiempo de juego' })
     }
     if ($f -match '^(?:a que estoy jugando|que estoy jugando|que juego es este)\b') {
@@ -5364,7 +5382,11 @@ function Resolve-Fragment([string]$f) {
     # electronica" se iba al modelo porque esta alternancia exige "musica DE algo", mientras
     # que "ponme algo de musica relajante" si entraba. Se pide \w+ detras, asi que "pon
     # musica" a secas no se toca: eso es otra cosa y la resuelve quien la resolvia.
-    if ($f -match '^(?:pon|ponme|reproduce|reproduceme|toca|tocame|escuchar|quiero escuchar|con)\s+(?:la\s+cancion\s+(?:de\s+)?|una\s+cancion\s+(?:de\s+)?|la\s+musica\s+de\s+|musica\s+de\s+|el\s+tema\s+(?:de\s+)?|algo\s+de\s+)(.+?)$' -and $f -notmatch '\s+en\s+(?:youtube|spotify)$') {
+    # LA COLA DEL VETO NO ES PARTE DE LA BUSQUEDA (24/09, repaso): "pon algo de rosalia y
+    # recuerda que ese tipo de musica no me gusta" buscaba en YouTube esa frase entera, con el
+    # "y recuerda que..." dentro, y el veto no se apuntaba. Su patron esta 110 lineas mas
+    # abajo y no llegaba a verla nunca.
+    if ($f -match '^(?:pon|ponme|reproduce|reproduceme|toca|tocame|escuchar|quiero escuchar|con)\s+(?!.*\btipo\s+de\s+musica\b.*\bno\s+me\s+gusta\b)(?:la\s+cancion\s+(?:de\s+)?|una\s+cancion\s+(?:de\s+)?|la\s+musica\s+de\s+|musica\s+de\s+|el\s+tema\s+(?:de\s+)?|algo\s+de\s+)(.+?)$' -and $f -notmatch '\s+en\s+(?:youtube|spotify)$') {
         $qM = $Matches[1].Trim()
         if ($qM -and $qM -notmatch '^(?:el|la|los|las|un|una)$') {
             if ($MusicaSitio -eq 'spotify') { return @(@{ kind = 'url'; url = ('spotify:search:' + [Uri]::EscapeDataString($qM)); desc = "buscar '$qM' en Spotify" }) }
@@ -11871,14 +11893,43 @@ function Remove-MusicaNo([string]$que) {
 }
 # EL MINIMO DE CUATRO LETRAS no es de adorno: es el mismo criterio que ya usan las demas
 # comparaciones por palabra. Con menos, un veto de dos letras tacharia media lista.
+# LO QUE DE VERDAD VETA UNA FRASE (24/09, repaso). De "pon algo de musica rock" lo que veta
+# es "rock", no "musica" ni "algo": las palabras de relleno estan aqui a proposito, porque son
+# las que hacen que un veto tache media biblioteca. Y se piden al menos cuatro letras a la que
+# quede, que es lo que separa un genero de un "de" mal oido.
+$MusicaNoRelleno = @('musica', 'cancion', 'canciones', 'tema', 'temas', 'video', 'videos',
+                     'pon', 'ponme', 'algo', 'de', 'del', 'la', 'el', 'los', 'las', 'un',
+                     'una', 'y', 'en', 'tipo', 'tipos', 'esa', 'ese', 'esta', 'este', 'eso')
+function Get-MusicaNoClaves([string]$q) {
+    $out = @()
+    foreach ($w in @((ConvertTo-Plain ([string]$q)) -split '[^a-z0-9]+')) {
+        if (-not $w) { continue }
+        if ($MusicaNoRelleno -contains $w) { continue }
+        if ($w.Length -lt 4) { continue }
+        $out += $w
+    }
+    return @($out)
+}
+
+# POR PALABRAS ENTERAS, NO POR TROZOS (24/09, repaso). Antes era Contains() a pelo con cuatro
+# letras: "no me gusta nada" dejaba q = "nada" y tachaba "enamorada" para siempre, y el video
+# desaparecia en silencio. Ahora hacen falta TODAS las palabras con contenido del veto, y cada
+# una como palabra entera.
 function Test-MusicaVetada([string]$titulo, [string]$id) {
     $l = Get-MusicaNo
     if ($l.Count -eq 0) { return $false }
     $t = ConvertTo-Plain ([string]$titulo)
     foreach ($x in @($l)) {
+        # EL ID ES EXACTO Y NO FALLA NUNCA: esa cancion concreta no vuelve a salir.
         if ($id -and [string]$x.id -eq $id) { return $true }
-        $q = (ConvertTo-Plain ([string]$x.q)).Trim()
-        if ($q.Length -ge 4 -and $t -and $t.Contains($q)) { return $true }
+        if (-not $t) { continue }
+        $claves = @(Get-MusicaNoClaves ([string]$x.q))
+        if ($claves.Count -eq 0) { continue }
+        $todas = $true
+        foreach ($k in $claves) {
+            if ($t -notmatch ('(?<![a-z0-9])' + [regex]::Escape($k) + '(?![a-z0-9])')) { $todas = $false; break }
+        }
+        if ($todas) { return $true }
     }
     return $false
 }
@@ -12019,6 +12070,7 @@ function Get-VideosDeHtml([string]$html) {
 # regex viejo para no quedar PEOR que hoy: sin titulo, pero con algo.
 $script:ytLista = @()
 $script:ytN = 0
+$script:ytVetados = 0          # cuantos tacho el veto en la ultima busqueda
 $script:ytPuesto = $null
 $script:ytHasta = 0
 $YtSiguienteMs = 300000
@@ -12054,7 +12106,16 @@ function Select-VideoYouTube([string]$q, [int]$n = 1) {
         if (Test-MusicaVetada ([string]$v.titulo) ([string]$v.id)) { continue }
         $buenos += $v
     }
-    if ($buenos.Count -eq 0) { $buenos = $lista }
+    # SI LOS TACHA TODOS, SE DICE. Antes se ponia el primero igualmente y braya no se enteraba
+    # de que su veto habia tachado la busqueda entera; ahora queda en el registro y quien
+    # llama puede contarlo.
+    $script:ytVetados = $lista.Count - $buenos.Count
+    if ($buenos.Count -eq 0) {
+        Log "MUSICA: lo que no te gusta tacha los $($lista.Count) resultados de '$q'; pongo el primero igual"
+        $buenos = $lista
+    } elseif ($script:ytVetados -gt 0) {
+        Log "MUSICA: $($script:ytVetados) de $($lista.Count) tachados por lo que no te gusta"
+    }
     if ($n -gt $buenos.Count) { $n = $buenos.Count }
     $v = $buenos[$n - 1]
     return @{ id = [string]$v.id; titulo = [string]$v.titulo
@@ -12872,9 +12933,19 @@ function Invoke-FastCommand([string]$text) {
                         $idN = [string]$script:ytPuesto.id
                     }
                     $soltado = Add-MusicaNo $queN $tituloN $idN
-                    # SE REPITE SIEMPRE EN VOZ ALTA lo que apunto: con una lista abierta, si
-                    # no se dice, braya no sabe que se guardo.
-                    $a.desc = "apuntado: no te pongo mas $queN"
+                    # SE DICE LO QUE DE VERDAD SE HACE (24/09, repaso). Antes contestaba
+                    # "no te pongo mas musica rock" vetando la BUSQUEDA entera, que no aparece
+                    # en ningun titulo: prometia un genero y cumplia una cadena literal.
+                    # Ahora se dicen las palabras que van a tachar de verdad, y si no queda
+                    # ninguna se dice eso, que es lo honesto.
+                    $clavesN = @(Get-MusicaNoClaves $queN)
+                    if ($idN) {
+                        $a.desc = if ($clavesN.Count -gt 0) { "apuntado: esa no te la vuelvo a poner, y evito lo que suene a " + ($clavesN -join ' ') }
+                                  else { 'apuntado: esa cancion no te la vuelvo a poner' }
+                    } else {
+                        $a.desc = if ($clavesN.Count -gt 0) { "apuntado: no te pongo mas " + ($clavesN -join ' ') }
+                                  else { "apuntado, pero de '$queN' no saco ninguna palabra con la que filtrar; dime el estilo" }
+                    }
                     if ($soltado) { $a.desc += ". Como ya eran $MusicaNoMax, he soltado lo de $soltado" }
                 }
                 'musicaSi' {
@@ -17232,6 +17303,13 @@ function Invoke-ReglaVoz([string]$text) {
     # frase ACABE ahi ("avisame cada hora"): este pide una accion detras.
     # 'media', 'un' y 'una' se admiten a mano porque ConvertTo-Digitos los deja fuera a
     # proposito -son articulos muchas mas veces que numeros-.
+    # EL AVISO DEL TIEMPO DE JUEGO NO ES UN RECORDATORIO (24/09, repaso). "avisame cada 2 horas
+    # que llevo jugando" caia aqui -esta funcion se mira antes que Resolve-Fragment- y creaba
+    # una regla cuya accion era "di llevo jugando": Nova decia literalmente eso cada dos horas.
+    # La cola es la MISMA lista que la del patron de alla, y por eso esta escrita igual.
+    elseif ($pCada -match '^(?:recuerdame|avisame|recuerda|dime)\s+cada\s+(?:\d{1,4}|media|un|una)\s*(?:minutos?|horas?)\b\s*(?:que\s+)?(?:llevo\s+)?(?:jugando|de juego|del juego|con el juego)$') {
+        return $null
+    }
     elseif ($pCada -match '^(?:recuerdame|avisame|recuerda|dime)\s+cada\s+(\d{1,4}|media|un|una)\s*(minutos?|horas?)\b\s*(?:,\s*)?(?:que\s+|de\s+que\s+)?(.+)$') {
         $nR = [string]$Matches[1]; $unidadR = [string]$Matches[2]; $accionR = [string]$Matches[3]
         $n = if ($nR -eq 'media') { 1 } elseif ($nR -in @('un', 'una')) { 1 } else { [int]$nR }

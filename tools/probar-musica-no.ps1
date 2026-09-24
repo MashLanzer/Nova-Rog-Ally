@@ -38,10 +38,13 @@ $script:musicaNo = $null
 $script:ytLista = @()
 $script:ytUltimaBusqueda = ''
 $MusicaNoMax = if ($fuente -match '(?m)^\$MusicaNoMax = (\d+)') { [int]$Matches[1] } else { 60 }
+# la lista de relleno se lee del codigo: es la que decide que palabra veta de verdad
+$topM = $ast.FindAll({ param($x) $x -is [System.Management.Automation.Language.AssignmentStatementAst] }, $false)
+foreach ($aM in $topM) { if ($aM.Left.VariablePath.UserPath -eq 'MusicaNoRelleno') { Invoke-Expression $aM.Extent.Text } }
 function Log([string]$m) { }
 function Save-Corrupto($a, $b) { }
 function Write-Atomico([string]$r, [string]$t) { [System.IO.File]::WriteAllText($r, $t, (New-Object System.Text.UTF8Encoding($false))) }
-foreach ($f in @('ConvertTo-Plain', 'Get-MusicaNoPath', 'Get-MusicaNo', 'Save-MusicaNo',
+foreach ($f in @('ConvertTo-Plain', 'Get-MusicaNoPath', 'Get-MusicaNo', 'Save-MusicaNo', 'Get-MusicaNoClaves',
                  'Add-MusicaNo', 'Remove-MusicaNo', 'Test-MusicaVetada',
                  'Get-VideosDeHtml', 'Select-VideoYouTube')) { Invoke-Expression (Traer $f) }
 # Get-VideosYouTube toca la red: aqui se sustituye por la lista que le demos
@@ -136,7 +139,21 @@ $script:musicaNo = $null
 # 'ac' esta DENTRO de "un track de baile": con menos de cuatro letras, un veto tacharia media
 # lista sin que braya lo haya pedido.
 Comp 'un veto de dos letras no tacha media lista' (-not (Test-MusicaVetada 'un track de baile' 'QQQQQQQQQQQ')) 'con menos de cuatro, casaria con todo'
-Comp 'pero uno de cuatro si' ($true) ''
+# ANTES AQUI PONIA ($true) A SECAS (24/09): no podia ponerse roja nunca, y justo es la
+# comprobacion que vigila el minimo de cuatro letras.
+Add-MusicaNo 'trac' '' ''
+Comp 'pero uno de cuatro si' (Test-MusicaVetada 'un trac de baile' 'ZZZZZZZZZZZ') 'cuatro letras ya vetan'
+Comp 'y no tacha una palabra que lo lleve dentro' (-not (Test-MusicaVetada 'contract de baile' 'ZZZZZZZZZZZ')) 'por palabras enteras, no por trozos'
+[void](Remove-MusicaNo 'trac')
+# EL CASO QUE LO DESTAPO: "no me gusta nada" dejaba q = 'nada', y con Contains() eso tachaba
+# "enamorada" -que lo lleva dentro- para siempre y sin decir nada.
+Add-MusicaNo 'nada' '' ''
+Comp '"nada" NO tacha "enamorada"' (-not (Test-MusicaVetada 'Enamorada de ti' 'ZZZZZZZZZZZ')) 'era un veto que tachaba media biblioteca'
+Comp 'pero si tacha un titulo que diga nada' (Test-MusicaVetada 'No queda nada' 'ZZZZZZZZZZZ') ''
+[void](Remove-MusicaNo 'nada')
+# Y LAS PALABRAS DE RELLENO NO VETAN SOLAS: de "pon algo de musica rock" lo que veta es rock
+Comp 'de "algo de musica rock" saca solo rock' ((@(Get-MusicaNoClaves 'algo de musica rock') -join ',') -eq 'rock') "$(@(Get-MusicaNoClaves 'algo de musica rock') -join ',')"
+Comp 'y de "musica" sola no saca nada' (@(Get-MusicaNoClaves 'musica').Count -eq 0) 'si no, vetaria todo'
 
 Write-Host ''
 Write-Host '-- 6. la lista se puede ver, deshacer y no crece sin fin --'
@@ -175,6 +192,23 @@ Comp 'su frase compuesta entra entera' ('reproduce musica electronica y ademas r
 $iC = $fuente.IndexOf($lineaC)
 $trozoC = $fuente.Substring($iC, 600)
 Comp 'y el veto va DELANTE de poner lo nuevo' ($trozoC.IndexOf("kind = 'musicaNo'") -lt $trozoC.IndexOf("kind = 'url'")) 'al reves se vetaria lo que quiere oir'
+
+# Y QUE LLEGUEN A VERSE (24/09, repaso). Los dos patrones de esta idea eran codigo muerto:
+# "apunta que ese tipo de musica no me gusta" se la quedaba el de MEMORIA -1.640 lineas
+# antes- y se guardaba en el diario contestando "Anotado."; y la frase compuesta se la
+# quedaba el de poner musica, que buscaba en YouTube el "y recuerda que..." incluido.
+function PatDe([string]$pista) {
+    foreach ($l in @($fuente -split "`r?`n")) {
+        if ($l -match [regex]::Escape($pista)) { $m = [regex]::Match($l, "'(\^[^']+)'"); if ($m.Success) { return $m.Groups[1].Value } }
+    }
+    Write-Host "  MAL  no encuentro el patron de '$pista'"; exit 1
+}
+$pMem = PatDe 'acuerdate|anota|apunta|guarda'
+$pPon = PatDe 'la\s+musica\s+de\s+|musica\s+de\s+'
+Comp 'el de notas ya no se queda el veto' (-not ('apunta que ese tipo de musica no me gusta' -match $pMem)) 'se guardaba en el diario y contestaba Anotado'
+Comp 'el de poner musica ya no se queda la cola' (-not ('pon algo de rosalia y recuerda que ese tipo de musica no me gusta' -match $pPon)) 'buscaba la frase entera en YouTube'
+Comp 'y una nota normal sigue siendo una nota' ('apunta que el martes hay junta' -match $pMem) ''
+Comp 'y poner musica sigue poniendo musica' ('pon algo de rosalia' -match $pPon) ''
 
 Write-Host ''
 Write-Host '-- 9. lo que NO puede pasar --'
