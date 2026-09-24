@@ -40,16 +40,16 @@ el "nova" jugando, que hoy se descarta **en silencio** y tú no te enteras de qu
 
 ### 2. Interrumpirla funciona, pero se ha usado 10 veces en 15 días
 
-`pausa: el asistente habla o dicta, se ignora el microfono` sale **1.132 veces**: son los ratos
+`pausa: el asistente habla o dicta, se ignora el microfono` sale **1.133 veces**: son los ratos
 en los que Nova está hablando. Cortarla mientras habla **sí existe** —`INTERRUMPIDA: 'X'
 mientras hablaba -> me callo y te escucho`— pero solo ha saltado **10 veces en 15 días**: tres
 el 14/09, tres el 22/09, y días enteros con ninguna.
 
-O sea: 1.132 ocasiones y 10 cortes. O cuesta mucho acertar, o no sabes que se puede. Con las
+O sea: 1.133 ocasiones y 10 cortes. O cuesta mucho acertar, o no sabes que se puede. Con las
 respuestas largas (la guía de un juego, el resumen del día, una lista de amigos) son varios
 segundos hablándole encima sin que pase nada.
 
-*Lo que hay que medir antes de tocar:* cuántas de esas 1.132 veces le hablaste de verdad
+*Lo que hay que medir antes de tocar:* cuántas de esas 1.133 veces le hablaste de verdad
 mientras ella hablaba. Ese dato **está** en `pruebas\audio\uso`, con marca de tiempo.
 
 ### 3. El micrófono satura, y encima desconfía de sí mismo
@@ -165,11 +165,17 @@ Widgets`. Solo **123** son de Discord, que es donde están tus personas, y **352
 dicen de quién. Una lista negra de remitentes que no son personas convertiría un aviso que ya
 no escuchas en uno que sí.
 
-### 17. Se reinicia 16 veces al día
+### 17. No se reinicia: se MUERE, catorce veces al día
 
-**245 arranques en 15 días**: 14 el 20/09, 13 ayer. Cada uno tira el estado que vive en memoria
-—y esta tanda ya tuvo que salvar dos cosas que se perdían ahí— y paga el arranque del oído
-entero. Nadie ha mirado **por qué** se reinicia tanto.
+**246 arranques en 15 días** (`VoiceAssistant iniciado`) y solo **35 cierres limpios**
+(`VoiceAssistant cerrado`). O sea que **211 de esos arranques vinieron de una muerte**, no de
+que alguien la parara: se cae, o la matan, unas **catorce veces al día**.
+
+Cada una tira el estado que vive en memoria —esta tanda ya tuvo que salvar dos cosas que se
+perdían ahí— y paga el arranque entero del oído. Y nadie ha mirado nunca **por qué**.
+
+*Esta es, con diferencia, la más importante de las veinte:* mientras Nova se muera catorce
+veces al día, cualquier cosa que se le añada se va a perder catorce veces al día.
 
 ### 18. El micrófono se muere
 
@@ -183,7 +189,7 @@ te enteras.
 
 ### 19. El registro es 68 % ruido del oído
 
-**34.525 de las 50.451 líneas** son `[escucha]` (pulsos, ganancia, recortes). Buscar un fallo
+**34.602 de las 50.580 líneas** son `[escucha]` (pulsos, ganancia, recortes). Buscar un fallo
 de verdad ahí dentro es imposible sin un `grep -v`, y este repaso ha perdido un buen rato en
 eso. Separar el pulso del oído a su propio fichero deja el registro legible de un vistazo.
 
