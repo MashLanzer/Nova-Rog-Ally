@@ -81,6 +81,19 @@ $DecisionDatosDesde = ''
 # sin ejecutar los casos siguientes (y encima salia con exit 0, que es lo peor de todo).
 Invoke-Expression (Traer 'Get-AvisoSinDatos')
 Invoke-Expression (Traer 'Set-AvisoSinDatos')
+# LA VUELTA ATRAS QUE DURA MAS DE UNA SESION (23/09, idea 13). Test-RevisionPropia ya las
+# llama, asi que sin traerlas este banco muere a mitad con CommandNotFoundException.
+$script:decisionDevueltas = @{}
+$DecisionDevueltaDias = if ($txtFuente -match '\$DecisionDevueltaDias = ([0-9]+)') { [int]$Matches[1] } else { 14 }
+Invoke-Expression (Traer 'Set-DecisionDevuelta')
+Invoke-Expression (Traer 'Test-DecisionDevuelta')
+# auto.datosDesde de verdad: sin esto el aviso diria "desde que llevo la cuenta" y la
+# comprobacion de abajo pasaria sin mirar la fecha, que es justo lo que se quiere ver.
+function Get-Cfg($sec, $clave, $def = '') {
+    if ($sec -eq 'auto' -and $clave -eq 'datosDesde') { return '2026-09-20' }
+    return $def
+}
+Invoke-Expression (Traer 'Get-DesdeCuentaTexto')
 Invoke-Expression (Traer 'Test-RevisionPropia')
 
 $hoy = Get-Date
@@ -247,7 +260,13 @@ Write-Host '  -- LOS NUMEROS DE VERDAD, a 22/09 --'
 # apagado a proposito, para que los casos inventados no dependan de la fecha de hoy-. Si
 # se mete el caso real sin volver a poner el corte, PASA POR LA RAZON EQUIVOCADA: cuenta
 # el 18/09, ve tres dias y decide. Por eso aqui se pone el corte de verdad.
-$DecisionDatosDesde = '2026-09-20'
+# EL CORTE, RELATIVO A HOY (24/09). Estaba escrito '2026-09-20' con los dias puestos con
+# AddDays sobre hoy: mientras hoy fue el 22 o el 23, el dia -4 caia antes del corte y no
+# contaba, que es lo que el caso quiere. Al amanecer el 24, el dia -4 paso a ser el mismisimo
+# 20 y se metio dentro: la nube se apagaba, y tres comprobaciones se pusieron rojas sin que
+# nadie tocara una linea del codigo. El corte va donde tiene que ir: justo despues del dia
+# viejo, se ejecute el dia que se ejecute.
+$DecisionDatosDesde = $hoy.AddDays(-3).ToString('yyyy-MM-dd')
 # Esto no es un caso inventado: son las cifras que hay en memoria\estadisticas.json el
 # 22/09 (18/09: 75 intentos y 2 utiles; 20/09: 92 y 0; 21/09: 27 y 0). La decision NO se
 # habia tomado todavia porque Test-RevisionPropia no decide nada que no pueda contarte, y
@@ -581,6 +600,86 @@ Comp 'y el generico se la habria comido (por eso el orden)' ('deshaz lo que has 
 # lo que NO debe llevarse: "deshaz" a secas sigue siendo el de siempre
 Comp "'deshaz' a secas NO es el de ella" (-not ('deshaz' -match $patNuevo)) ''
 Comp "'deshaz lo de los ultimos 5 minutos' tampoco" (-not ('deshaz lo de los ultimos 5 minutos' -match $patNuevo)) ''
+
+Write-Host ''
+Write-Host '-- LA VUELTA ATRAS TIENE QUE DURAR MAS QUE LA SESION (idea 13) --'
+# EL FALLO: la guarda de Undo-DecisionPropia es $script:revisionPropiaDia, que es DE SESION.
+# Nova arranca 244 veces en 15 dias -16,3 al dia, mediana de sesion 5,8 minutos-, asi que a
+# los pocos minutos volvia a correr con los mismos numeros, la apagaba otra vez y lo
+# anunciaba otra vez. braya diria "deshaz", se la apagaria, diria "deshaz"... y de ahi no se
+# sale, que es justo lo que prohibe la regla 2.
+# SUS NUMEROS DE VERDAD, de estadisticas.json desde el 20/09: 126 intentos y 0 utiles,
+# repartidos 92/27/6/1. Aqui se reparten al 40 % para que pasen el freno del reparto y se
+# pueda ver lo que viene DESPUES de apagarla, que es lo que se arregla.
+function PonerNube([int]$a, [int]$b, [int]$c) {
+    $script:stats = @{ dias = @{} }
+    $script:stats.dias[$hoy.AddDays(-1).ToString('yyyy-MM-dd')] = @{ 'nube-intento' = $a; 'nube-sirvio' = 0 }
+    $script:stats.dias[$hoy.AddDays(-2).ToString('yyyy-MM-dd')] = @{ 'nube-intento' = $b; 'nube-sirvio' = 0 }
+    $script:stats.dias[$hoy.AddDays(-3).ToString('yyyy-MM-dd')] = @{ 'nube-intento' = $c; 'nube-sirvio' = 0 }
+    $script:cfgPuesta = @(); $script:avisos = @(); $script:apuntes = @()
+    $script:revisionPropiaDia = ''
+    $script:WhisperUltimo = ''
+    $script:NubeOir = 'gemini'
+    $script:WhisperPreciso = ''
+    $script:autoDecision = $null
+    # y todo lo que los casos de arriba dejan puesto: sin esto, este bloque pasaria o
+    # fallaria por lo que hizo otro caso y no por lo suyo
+    $script:puedoAvisar = $true
+    $script:cfgFalla = $false
+    $script:invitado = $false
+    $script:juegoActivo = $null
+    $script:decisionDevueltas = @{}
+}
+
+PonerNube 50 40 36
+$apago = Test-RevisionPropia
+Comp 'con 126 intentos y 0 utiles, apaga la nube' ($apago -and $script:NubeOir -eq '') "NubeOir='$($script:NubeOir)'"
+Comp 'y lo cuenta, no lo hace en silencio' (@($script:avisos | Where-Object { $_ -match 'segunda opinion de la nube' }).Count -eq 1) "$($script:avisos.Count) avisos"
+Comp 'diciendo DESDE CUANDO lleva la cuenta' (@($script:avisos | Where-Object { $_ -match 'desde el ' }).Count -eq 1) "$($script:avisos -join ' / ')"
+
+# y ahora braya se la devuelve
+$dicho = Undo-DecisionPropia
+Comp 'al devolverla, vuelve a estar encendida' ($script:NubeOir -eq 'gemini') "NubeOir='$($script:NubeOir)'"
+Comp 'y Nova dice el plazo en voz alta' ($dicho -match 'dos semanas') "$dicho"
+Comp 'la marca queda apuntada con la fecha de hoy' ($script:decisionDevueltas['escucha.nubeOir'] -eq (Get-Date).ToString('yyyy-MM-dd')) "$($script:decisionDevueltas['escucha.nubeOir'])"
+Comp 'y se guarda en el disco, no solo en memoria' (@($script:cfgPuesta | Where-Object { $_ -match '^auto.devueltas=' }).Count -ge 1) "$($script:cfgPuesta -join ' | ')"
+
+# EL CASO QUE TIENE QUE CANTAR: un reinicio, que es lo que pasa 16 veces al dia
+$script:revisionPropiaDia = ''
+$script:cfgPuesta = @(); $script:avisos = @()
+$otra = Test-RevisionPropia
+Comp 'tras un reinicio NO se la vuelve a apagar' ((-not $otra) -and $script:NubeOir -eq 'gemini') "NubeOir='$($script:NubeOir)'"
+Comp 'y no suelta otro aviso' (@($script:avisos | Where-Object { $_ -match 'He apagado la segunda opinion' }).Count -eq 0) "$($script:avisos.Count) avisos"
+
+# PERO EL PLAZO EXISTE: a los quince dias vuelve a poder decidir
+$script:decisionDevueltas['escucha.nubeOir'] = (Get-Date).AddDays(-15).ToString('yyyy-MM-dd')
+$script:revisionPropiaDia = ''
+$script:NubeOir = 'gemini'
+$script:autoDecision = $null
+$tarde = Test-RevisionPropia
+Comp 'a los quince dias si la vuelve a apagar' ($tarde -and $script:NubeOir -eq '') "NubeOir='$($script:NubeOir)'"
+Comp 'o sea que no es un "para siempre" al reves' ($DecisionDevueltaDias -eq 14) "$DecisionDevueltaDias dias"
+
+# Y CADA DECISION TIENE SU LLAVE: devolver la nube no frena las otras
+$script:decisionDevueltas = @{ 'escucha.nubeOir' = (Get-Date).ToString('yyyy-MM-dd') }
+Comp 'la marca de la nube no vale para el oido fino' (-not (Test-DecisionDevuelta 'input' 'whisperModeloPreciso')) ''
+Comp 'ni para el ultimo recurso' (-not (Test-DecisionDevuelta 'input' 'whisperModeloUltimo')) ''
+Comp 'pero si para la nube' (Test-DecisionDevuelta 'escucha' 'nubeOir') ''
+
+Write-Host ''
+Write-Host '-- y se puede decir hablando, corto (regla 7) --'
+# "deshaz lo que has cambiado" son cinco palabras seguidas con el oido al 70,4 %.
+$patNube = [regex]::Match($txtFuente, "(?m)^\s*'(\^\(\?:vuelve a usar\|usa otra vez.+?)' \{").Groups[1].Value
+$patApaga = [regex]::Match($txtFuente, "(?m)^\s*'(\^\(\?:apaga\|quita\|desactiva\|deja de usar.+?)' \{").Groups[1].Value
+if (-not $patNube -or -not $patApaga) { Write-Host '  MAL  no encuentro los patrones de la nube'; exit 1 }
+Comp "'vuelve a usar la nube' entra" ('vuelve a usar la nube' -match $patNube) ''
+Comp "'enciende la segunda opinion' entra" ('enciende la segunda opinion' -match $patNube) ''
+Comp "'apaga la nube' entra por el otro" ('apaga la nube' -match $patApaga) ''
+Comp "'desactiva la segunda opinion' tambien" ('desactiva la segunda opinion' -match $patApaga) ''
+# y lo que NO puede llevarse: la pregunta, que va delante
+$patCuanto = [regex]::Match($txtFuente, "(?m)^\s*'(\^\(\?:cuanto tarda la nube.+?)' \{").Groups[1].Value
+Comp "'cuanto tarda la nube' sigue siendo la pregunta" (('cuanto tarda la nube' -match $patCuanto) -and ('cuanto tarda la nube' -notmatch $patApaga)) ''
+Comp "'como va la nube' tampoco la apaga" ('como va la nube' -notmatch $patApaga) ''
 
 Write-Host ''
 if ($mal -gt 0) { Write-Host "$mal casos MAL" -ForegroundColor Red; exit 1 }

@@ -3813,6 +3813,17 @@ function Resolve-Fragment([string]$f) {
         '^(?:cuanto tarda la nube|cuanto tarda gemini|que tal (?:va |anda )?la nube|como va la nube|cuanto tarda la segunda opinion)\b' {
             return @(@{ kind = 'decir'; desc = (Get-FraseNubeTiempo) })
         }
+        # LA NUBE, ENCENDIDA Y APAGADA HABLANDO (23/09, idea 13). "deshaz lo que has
+        # cambiado" son cinco palabras seguidas y el oido va al 70,4 %: hace falta una via
+        # corta. Van DETRAS de la pregunta de arriba, que tiene que seguir ganando -"cuanto
+        # tarda la nube" no puede acabar apagandola-, y DELANTE del deshacer generico.
+        # Los verbos son una lista cerrada; nada abierto.
+        '^(?:vuelve a usar|usa otra vez|enciende|activa|pon otra vez|devuelveme)\s+(?:la\s+)?(?:nube|segunda opinion)(?:\s+de\s+la\s+nube)?$' {
+            return @(@{ kind = 'nubeOir'; encendida = $true; desc = 'volver a usar la segunda opinion de la nube' })
+        }
+        '^(?:apaga|quita|desactiva|deja de usar)\s+(?:la\s+)?(?:nube|segunda opinion)(?:\s+de\s+la\s+nube)?$' {
+            return @(@{ kind = 'nubeOir'; encendida = $false; desc = 'apagar la segunda opinion de la nube' })
+        }
         '^(?:cuantos juegos|que juegos tengo|que juegos hay|mis juegos|los juegos de steam|los juegos que tengo)\b' {
             [void](Update-Juegos)   # se frena sola a los 60 s; sin esto el numero es el que hubiera
             $nJ = @($script:Juegos).Count
@@ -9187,6 +9198,15 @@ function Get-AvisoSinUso([string]$ruta = '', [datetime]$ahora = (Get-Date), [int
 # tomada la decision, preguntarle a Get-Cfg devolveria vacio, que es justo cuando mas se
 # pide deshacerla.
 $script:autoDecision = $null
+# CUANDO BRAYA LA DEVUELVE, NO SE VUELVE A TOCAR EN DOS SEMANAS (23/09, idea 13).
+# La guarda de Undo-DecisionPropia es $script:revisionPropiaDia, y esa es DE SESION: con 244
+# arranques en 15 dias -16,3 al dia, mediana de sesion 5,8 minutos- a los pocos minutos
+# Test-RevisionPropia vuelve a correr con los mismos numeros, la apaga otra vez y lo anuncia
+# otra vez. braya diria "deshaz", se la apagaria, diria "deshaz"... y de ahi no se sale.
+# Los 14 dias no son un numero nuevo: son la MISMA ventana con la que Test-RevisionPropia
+# cuenta sus estadisticas.
+$script:decisionDevueltas = @{}
+$DecisionDevueltaDias = 14
 function Save-DecisionPropia([string]$seccion, [string]$clave, [string]$antes, [string]$que) {
     $script:autoDecision = @{ seccion = $seccion; clave = $clave; antes = $antes; que = $que }
     # DEVUELVE SI PUDO GUARDARLO (17/09). Si esto falla, el "deshaz lo que has cambiado"
@@ -9224,8 +9244,26 @@ function Undo-DecisionPropia {
     # y hoy no vuelve a decidir: si acabas de devolverselo, revisarse otra vez esta tarde y
     # volver a apagarlo seria ponerse a discutir contigo.
     $script:revisionPropiaDia = (Get-Date).ToString('yyyy-MM-dd')
-    if ($enVivoD) { return "Hecho: vuelvo a usar $($d.que)" }
-    return "Hecho: vuelvo a usar $($d.que) en cuanto me reinicies"
+    # ...pero esa variable es de sesion y Nova arranca 16,3 veces al dia, asi que se apunta
+    # TAMBIEN en el disco, con fecha (ver $script:decisionDevueltas).
+    Set-DecisionDevuelta $d.seccion $d.clave
+    if ($enVivoD) { return "Hecho: vuelvo a usar $($d.que). No la vuelvo a tocar en dos semanas." }
+    return "Hecho: vuelvo a usar $($d.que) en cuanto me reinicies. No la vuelvo a tocar en dos semanas."
+}
+
+# LA MARCA, Y SU PLAZO. Sin plazo esto seria el modo contrario: Nova sin poder decidir nunca
+# mas sobre eso. Catorce dias es la ventana con la que ya cuenta sus numeros.
+function Set-DecisionDevuelta([string]$seccion, [string]$clave, [datetime]$ahora = (Get-Date)) {
+    $script:decisionDevueltas["$seccion.$clave"] = $ahora.ToString('yyyy-MM-dd')
+    $pares = @()
+    foreach ($k in @($script:decisionDevueltas.Keys)) { $pares += ($k + '=' + $script:decisionDevueltas[$k]) }
+    [void](Set-Cfg 'auto' 'devueltas' ($pares -join ';'))
+}
+
+function Test-DecisionDevuelta([string]$seccion, [string]$clave, [datetime]$ahora = (Get-Date)) {
+    $f = [string]$script:decisionDevueltas["$seccion.$clave"]
+    if (-not $f) { return $false }
+    try { return (($ahora.Date - ([datetime]::ParseExact($f, 'yyyy-MM-dd', $null)).Date).TotalDays -lt $DecisionDevueltaDias) } catch { return $false }
 }
 
 # UN SOLO DIA NO ES UNA COSTUMBRE (17/09). Al ir a decidir el umbral de la palabra salio
@@ -9444,6 +9482,19 @@ function Get-AvisoSinDatos($stats, $num, [datetime]$ahora = (Get-Date)) {
     return ''
 }
 
+# DESDE CUANDO CUENTA (23/09, idea 13). El aviso decia "la pedi 126 veces y solo me sirvio
+# 0", y eso es medio numero: las dos unicas veces que la nube sirvio en toda su vida son del
+# 18/09, antes del corte de Test-DiaCuenta. Decir el numero sin decir desde cuando es contar
+# la mitad. Sale de auto.datosDesde, que es el mismo corte que ya usa la cuenta.
+function Get-DesdeCuentaTexto {
+    $d = [string](Get-Cfg 'auto' 'datosDesde' '')
+    if (-not $d) { return 'desde que llevo la cuenta' }
+    try {
+        $cul = New-Object System.Globalization.CultureInfo('es-MX')
+        return ('desde el ' + ([datetime]::ParseExact($d, 'yyyy-MM-dd', $null)).ToString('d "de" MMMM', $cul))
+    } catch { return 'desde que llevo la cuenta' }
+}
+
 function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     if ($script:invitado -or $script:juegoActivo) { return $false }
     $hoyR = $ahora.ToString('yyyy-MM-dd')
@@ -9483,7 +9534,10 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     # --- caso 2: la segunda opinion de la nube (idea 1) ---
     # Se mira ANTES que el turbo a proposito: el turbo ya suele estar apagado, y si se mirara
     # primero esta funcion saldria por el "ya esta apagado" sin llegar nunca aqui.
-    if ($NubeOir -and $numR['nube-intento'] -ge $DecisionMinIntentos -and
+    # SI BRAYA ME LA DEVOLVIO, NO SE TOCA (23/09, idea 13): ver Test-DecisionDevuelta. Cada
+    # decision tiene su llave, asi que devolver la nube no frena las otras tres.
+    if ($NubeOir -and -not (Test-DecisionDevuelta 'escucha' 'nubeOir' $ahora) -and
+        $numR['nube-intento'] -ge $DecisionMinIntentos -and
         $numR['nube-sirvio'] -lt (Get-DecisionMinimo $numR['nube-intento']) -and
         (Test-DecisionSolida ([int]$numR['nube-sirvio']) ([int]$numR['nube-intento'])) -and
         (Test-DatosRepartidos $stR 'nube-intento' $ahora)) {
@@ -9500,7 +9554,7 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
         $apuntadaN = Save-DecisionPropia 'escucha' 'nubeOir' $antesN 'la segunda opinion de la nube'
         Log "REVISION PROPIA: apago la segunda opinion de la nube ($($numR['nube-sirvio']) de $($numR['nube-intento']) utiles en 14 dias)"
         Add-Estadistica 'auto-ajuste' "nube off: $($numR['nube-sirvio']) de $($numR['nube-intento'])"
-        [void](Send-AvisoEntorno 'auto-nube' ("He apagado la segunda opinion de la nube: la pedi $($numR['nube-intento']) veces y solo me sirvio $($numR['nube-sirvio']). Si la quieres de vuelta, dime: deshaz lo que has cambiado." + $(if (-not $apuntadaN) { ' Aunque no he podido apuntarlo: si me reinicias, vuelve sola.' } else { '' })) 'medio' 43200)
+        [void](Send-AvisoEntorno 'auto-nube' ("He apagado la segunda opinion de la nube: $(Get-DesdeCuentaTexto) la pedi $($numR['nube-intento']) veces y solo me sirvio $($numR['nube-sirvio']). Si la quieres de vuelta, dime: deshaz lo que has cambiado." + $(if (-not $apuntadaN) { ' Aunque no he podido apuntarlo: si me reinicias, vuelve sola.' } else { '' })) 'medio' 43200)
         return $true
     }
 
@@ -11130,6 +11184,34 @@ function Invoke-FastCommand([string]$text) {
                     }
                 }
                 'deshacerAuto' { $a.desc = (Undo-DecisionPropia) }
+                'nubeOir' {
+                    if ([bool]$a.encendida) {
+                        if ($script:NubeOir) { $a.desc = 'Ya la tengo encendida' }
+                        elseif (-not (Set-Cfg 'escucha' 'nubeOir' 'gemini')) { $a.desc = 'No he podido guardarlo; lo dejo como estaba' }
+                        else {
+                            $script:NubeOir = 'gemini'
+                            # la misma marca que deja el "deshaz": si braya la enciende a
+                            # mano, Nova no se la puede volver a apagar esta tarde.
+                            Set-DecisionDevuelta 'escucha' 'nubeOir'
+                            Add-Estadistica 'auto-ajuste' 'nube on: a mano'
+                            $a.desc = 'Vale, vuelvo a preguntarle a la nube. No la toco en dos semanas.'
+                        }
+                    } else {
+                        if (-not $script:NubeOir) { $a.desc = 'Ya la tengo apagada' }
+                        else {
+                            $antesNU = [string]$script:NubeOir
+                            if (-not (Set-Cfg 'escucha' 'nubeOir' '')) { $a.desc = 'No he podido guardarlo; lo dejo como estaba' }
+                            else {
+                                $script:NubeOir = ''
+                                # se apunta como decision para que "deshaz lo que has
+                                # cambiado" tambien valga aqui: dos salidas, no una.
+                                [void](Save-DecisionPropia 'escucha' 'nubeOir' $antesNU 'la segunda opinion de la nube')
+                                Add-Estadistica 'auto-ajuste' 'nube off: a mano'
+                                $a.desc = 'Hecho, se acabo la nube. Si la quieres de vuelta, dime: vuelve a usar la nube.'
+                            }
+                        }
+                    }
+                }
                 'deshacerDesde' { $a.desc = (Invoke-DeshacerDesde ([int]$a.minutos)) }
                 'app' {
                     # ABRIR UN JUEGO MIENTRAS JUEGAS A OTRA COSA casi nunca es lo
@@ -14317,6 +14399,15 @@ try {
     if ($dGuardada) {
         $pD = $dGuardada -split '\|', 4
         if ($pD.Count -eq 4) { $script:autoDecision = @{ seccion = $pD[0]; clave = $pD[1]; antes = $pD[2]; que = $pD[3] } }
+    }
+    # Y LO QUE BRAYA LE DEVOLVIO (23/09, idea 13). Sin esto, el "deshaz" duraba lo que durara
+    # la sesion, o sea 5,8 minutos de mediana, y al siguiente arranque Nova lo volvia a apagar.
+    $devG = [string](Get-Cfg 'auto' 'devueltas' '')
+    if ($devG) {
+        foreach ($parG in ($devG -split ';')) {
+            $kvG = $parG -split '=', 2
+            if ($kvG.Count -eq 2 -and $kvG[0]) { $script:decisionDevueltas[$kvG[0]] = $kvG[1] }
+        }
     }
 } catch {}
 $MarcaDictar = Join-Path $TmpDir "dictar.flag"
