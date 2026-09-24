@@ -16661,6 +16661,21 @@ $WhisperModelo = [string](Get-Cfg 'input' 'whisperModelo' 'small')
 $WhisperPreciso = [string](Get-Cfg 'input' 'whisperModeloPreciso' '')
 # ULTIMO RECURSO (15/09): si ni el rapido ni el preciso entienden la orden, se repasa con
 # este (~12 s). Vacio = desactivado. Ver Request-UltimoRecurso.
+# EL TURBO, APAGADO DESDE EL 15/09 Y CON SU CUENTA AL LADO (24/09, idea 17 de la tanda nueva).
+#
+# El commit 446acb1 lo apago poniendo whisperModeloUltimo a vacio, y lleva nueve dias sin
+# usarse. NO se borra el codigo: esta apagado por CONFIG, asi que braya puede volver a
+# encenderlo hablando, y borrarlo le quitaria esa opcion.
+#
+# PERO SI SE DEJA AQUI LO QUE CUESTA, porque el que lo encienda dentro de un mes no va a ir a
+# buscarlo al registro. Las 29 peticiones que hubo, todas del 15/09:
+#     de que entra a que sale:  25 s de mediana, 61 s el peor, 721 s (12 min) en 29 frases
+#     cargas del modelo grande: 17, de las que QUINCE se soltaron sin usarse, con la VRAM a 4 GB
+#
+# Y la otra cara, que tambien conviene que este: no era "1 de 29". De los 27 'turbo-nada',
+# solo UNO murio de verdad; en CATORCE el turbo impuso su transcripcion porque era mejor
+# ("Coladojara y abre Steam" -> "Calculadora, y abre Steam"). O sea 15 de 29 (52 %).
+# Es caro, no inutil.
 $WhisperUltimo = [string](Get-Cfg 'input' 'whisperModeloUltimo' 'large-v3-turbo')
 # OJO (15/09): vacio se le pasa a la escucha como '-'. Con un argumento vacio Start-Process
 # falla y la escucha NO arranca (paso al apagar turbo en uso real).
@@ -22547,6 +22562,12 @@ function Test-OidoDudoso([string]$t) {
 # SEGUNDA OPINION EN LA NUBE (16/09). Ver el comentario de arriba del archivo de
 # parche: se lanza junto al repaso de Whisper y solo vale si contesta a tiempo.
 # La clave vive en GEMINI_API_KEY (entorno del usuario), nunca en el repositorio.
+# LA SEGUNDA OPINION DE LA NUBE, CON SU CUENTA AL LADO (24/09, idea 18 de la tanda nueva).
+#
+# Esta apagada, y aqui queda por que, para que el que la encienda lo vea antes y no despues:
+#     nube-intento 201 · nube-sirvio 2 (el 1,0 %) · nube-nada 90 · nube-tarde 35
+#     y DESDE EL 20/09: cero aciertos en 126 intentos.
+# El texto de 'nube-nada' se descarta entero, asi que esos 126 no aportaron ni una correccion.
 $NubeOir = [string](Get-Cfg 'escucha' 'nubeOir' '')
 $NubeTopeMs = [int](Get-Cfg 'escucha' 'nubeTopeMs' 2500)
 $NubeScript = Join-Path $LogDir 'tools\gemini-oir.py'

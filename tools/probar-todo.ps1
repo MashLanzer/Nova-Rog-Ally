@@ -676,6 +676,19 @@ Titulo "2n136. Una toma saturada no se manda al agente a ver si adivina"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-toma-saturada.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:una toma saturada ya no se manda)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n137. Una regla, de punta a punta"
+# Idea 3 de la tanda nueva del 24/09, y es de las cosas mas raras del registro: reglas.json
+# esta VACIO, en quince dias braya creo DOS -una por voz el 11/09 que borro 31 segundos
+# despues, y otra escrita el 14/09- y NINGUNA ha disparado jamas. Cero lineas de una regla
+# ejecutandose en 54.428.
+# No es que no sepa que existen -Nova se lo ofrecio cuatro veces-: es que le fallaron a la
+# cara. Cada pieza del camino tenia su prueba; el camino COMPLETO, ninguna.
+# Esto lo recorre entero: crear la regla por voz, guardarla, releerla del disco, dispararla
+# cuando toca y -lo que mas importa- NO dispararla cuando no toca, que es la regla 1 rota de
+# la peor manera posible porque braya ni siquiera ha hablado.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-regla-entera.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:una regla se crea, se guarda)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n120. La musica: poner lo que es, y no repetir lo que no le gusta"
 # Ideas 1-A y 1-B. 52 intentos con frases distintas y ninguno acabo bien. El fallo de raiz,
 # medido contra youtube.com con cuatro busquedas suyas: el regex viejo devolvia 45, 71, 45 y
