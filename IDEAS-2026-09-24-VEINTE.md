@@ -142,12 +142,18 @@ existe. Antes de añadirle nada, hay que averiguar cuál de las dos.
 
 ## D. Gasta cuando no hace falta
 
-### 15. Treinta y cuatro horas seguidas analizando ruido
+### 15. Casi nueve horas seguidas analizando ruido
 
-La racha más larga son **2.074 pulsos seguidos** de `esto no es voz, es ruido de fondo`, uno
-por minuto: **34 horas y media** sin una sola voz, terminando el 23/09 a las 10:30. Y hay
-**1.864 momentos** con más de 600 pulsos seguidos. De madrugada eso es un núcleo trabajando
-para nada, y el núcleo hace falta cuando juegas.
+*(Corregido: el contador de "pulsos seguidos" avanza unas cuatro veces por minuto, no una.
+Medido de reloj, el dato es este.)*
+
+El rato más largo **sin una sola voz** son **8 horas y 42 minutos seguidos** —del 23/09 a la
+01:50 hasta las 10:30—, y le siguen 7,1 h el 22/09 y 5,1 h esta misma madrugada. Hay **seis
+ratos de más de dos horas** y, en total, **38 de las 324 horas** que cubre el registro son
+ruido de fondo y nada más.
+
+Todo ese tiempo el oído está decodificando al 100 % —`decodificado=100%`— para no encontrar
+nada. Es un núcleo de los cuatro trabajando para nada, y el núcleo hace falta cuando juegas.
 
 ### 16. El resumen al volver es un widget el 62 % de las veces
 
