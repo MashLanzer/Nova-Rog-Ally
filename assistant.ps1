@@ -2334,6 +2334,83 @@ function Invoke-Olvido([int]$minutos) {
 $NubeTiemposJson = Join-Path $MemoriaDir 'nube-tiempos.json'
 $NubeTiemposMax = 200          # los ultimos 200; de sobra para un p90 con sentido
 
+# LO QUE TARDA LA VOZ, MEDIDO DE VERDAD (24/09, idea 8 de la tanda nueva).
+#
+# Hasta hoy esto solo se apuntaba SI habia charla -la linea "voz: frase sintetizada al
+# momento" vive dentro de un if de tres condiciones-, asi que de la mitad de las frases de
+# Nova no habia ni un dato. Y del plazo que decide cuando darla por perdida cuelgan tres
+# plantones de 8 s que valen el 7,9 % de todo el tiempo que la voz ha bloqueado el bucle.
+#
+# NO ES UNA LINEA POR FRASE: eso es justo lo que se acaba de quitar del registro con la idea
+# 19. Son dos numeros por frase en un json de 200, igual que nube-tiempos.json, y de ahi
+# sale el plazo. Se guardan los MILISEGUNDOS Y LAS LETRAS porque el plazo escala con lo
+# larga que sea la frase, y sin las letras no se puede separar "tarda mucho" de "era larga".
+$VozTiemposJson = Join-Path $MemoriaDir 'voz-tiempos.json'
+$VozTiemposMax = 200
+function Get-VozTiempos {
+    # Sin cache, por el mismo motivo escrito en Get-NubeTiempos: con cache el banco no
+    # puede probarla, porque cada funcion sacada del archivo tiene su propio ambito.
+    $l = New-Object System.Collections.ArrayList
+    if (Test-Path -LiteralPath $VozTiemposJson) {
+        try {
+            $j = Get-Content -LiteralPath $VozTiemposJson -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($v in @($j.porLetra)) {
+                $d = 0.0
+                if ([double]::TryParse([string]$v, [ref]$d) -and $d -gt 0) { [void]$l.Add($d) }
+            }
+        } catch {}
+    }
+    return , $l
+}
+# Guarda MS POR LETRA, no los ms sueltos: es lo unico que se puede comparar entre una frase
+# de diez letras y una de trescientas, y es lo que hace falta para calcular un plazo.
+function Add-VozTiempo([int]$ms, [int]$letras) {
+    if ($ms -le 0 -or $letras -le 0) { return $false }
+    if ($script:invitado) { return $false }
+    try {
+        $l = Get-VozTiempos
+        [void]$l.Add([Math]::Round($ms / [double]$letras, 4))
+        while ($l.Count -gt $VozTiemposMax) { $l.RemoveAt(0) }
+        $o = [ordered]@{ porLetra = @($l); hasta = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') }
+        [System.IO.File]::WriteAllText($VozTiemposJson, ($o | ConvertTo-Json -Depth 4 -Compress), (New-Object System.Text.UTF8Encoding $false))
+        return $true
+    } catch { return $false }
+}
+
+# EL PLAZO, QUE YA NO ES UN NUMERO A FUEGO. Pura y con todo por parametro para que el banco
+# pueda correrle doscientas frases en un milisegundo.
+#   - sin $DecisionMinIntentos muestras devuelve EL DE SIEMPRE, que es el mismo liston que
+#     el resto de decisiones propias de la casa: con poco historial no se juzga nada;
+#   - con datos, el plazo es el p99 de ms-por-letra por las letras de ESTA frase, por tres.
+#     El tres no es un gusto: con lo medido -p99 2.792 ms y maximo 3.636- un margen de dos
+#     ya dejaria fuera el peor caso visto, y de tres deja sitio a uno peor sin llegar a los
+#     8 s de hoy;
+#   - y con suelo y techo. El suelo son 2,5 s, por debajo del maximo medido no se baja
+#     nunca; el techo se queda en los 30 s de siempre.
+$VozPlazoSueloMs = 2500
+function Get-VozPlazoMs([int]$letras, $muestras, [int]$minIntentos, [int]$sueloMs, [int]$techoMs) {
+    if ($letras -le 0) { $letras = 1 }
+    $v = @($muestras)
+    # EL DE SIEMPRE mientras no haya con que decidir: 8000 + letras * 15, tal cual estaba.
+    if ($v.Count -lt $minIntentos) { return [int][Math]::Min($techoMs, 8000 + $letras * 15) }
+    $ord = @($v | Sort-Object)
+    $i = [int][Math]::Ceiling(0.99 * $ord.Count) - 1
+    if ($i -lt 0) { $i = 0 }
+    if ($i -ge $ord.Count) { $i = $ord.Count - 1 }
+    $ms = [int]([double]$ord[$i] * $letras * 3)
+    # EL DATO SOLO PUEDE BAJAR EL PLAZO, NUNCA SUBIRLO. Los ms por letra no son una recta:
+    # sintetizar tiene una parte fija -arrancar, cargar la voz- y otra que crece con el
+    # texto, asi que dividir por las letras sobreestima las frases largas. Mientras no haya
+    # una medida que diga cuanto vale cada parte -y para eso hacen falta las letras
+    # guardadas, que empiezan hoy-, subir el plazo seria inventarse un numero. Bajarlo no:
+    # ahi el peor caso es que una frase se pierda y caiga a Piper, que es lo que ya pasa.
+    $deSiempre = [int][Math]::Min($techoMs, 8000 + $letras * 15)
+    if ($ms -gt $deSiempre) { $ms = $deSiempre }
+    if ($ms -lt $sueloMs) { $ms = $sueloMs }
+    if ($ms -gt $techoMs) { $ms = $techoMs }
+    return $ms
+}
+
 function Get-NubeTiempos {
     # SIN CACHE A PROPOSITO (20/09). La primera version guardaba la lista en
     # $script:nubeMs para no releer el fichero... y eso la hacia imposible de probar: las
@@ -15253,7 +15330,10 @@ function Say-Online([string]$texto, [string]$emo = '') {
         }
         $tarea = $script:ttsLectura
         # una respuesta larga tarda mas en sintetizarse: plazo segun lo largo (ver RESPUESTAS LARGAS ENTERAS)
-        $plazoVoz = [int][Math]::Min(30000, 8000 + $texto.Length * 15)
+        # Y DESDE EL 24/09 EL PLAZO SALE DE LO QUE TARDA DE VERDAD (idea 8): ver
+        # Get-VozPlazoMs. Con menos de $DecisionMinIntentos muestras devuelve este mismo
+        # 8000 + letras * 15, que es lo que habia; con datos, el p99 real por tres.
+        $plazoVoz = Get-VozPlazoMs $texto.Length (Get-VozTiempos) $DecisionMinIntentos $VozPlazoSueloMs 30000
         # AL VENCER EL PLAZO, LA TUBERIA YA NO ES DE FIAR (21/09). Antes se hacia return
         # dejando la lectura APUNTADA, y el arreglo del 17/09 -descartar la linea tardia-
         # solo cubre UNA frase, no el atasco. El worker contesta SIEMPRE una linea por cada
@@ -15285,6 +15365,10 @@ function Say-Online([string]$texto, [string]$emo = '') {
             Log "voz online: la respuesta que llego era de la frase anterior; la descarto"
             return $false
         }
+        # Y AHORA SE MIDEN TODAS (24/09, idea 8). La linea de abajo solo sale con charla
+        # -si no, el registro se llenaria-, y por eso de la mitad de las frases de Nova no
+        # habia ni un dato. Esto no escribe ninguna linea: son dos numeros en un json de 200.
+        [void](Add-VozTiempo ($sw.ElapsedMilliseconds - $t0Voz) $texto.Length)
         # lo que ESPERO el bucle a la voz (ver VOZ PREPARADA): una frase ya hecha tarda
         # ms; una nueva, ~1 s. Solo se apunta en charla, o el log se llenaria de esto
         if ($script:charlaEsperando -or $script:charlaFrases.Count -gt 0 -or $script:prepVozProc) {

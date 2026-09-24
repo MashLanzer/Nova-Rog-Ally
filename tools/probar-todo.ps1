@@ -551,6 +551,22 @@ Titulo "2n128. Te llamaste tres veces y no te oi"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-oido-flojo.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya no se queda callada cuando la llamas)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n129. El plazo de la voz sale de lo que tarda de verdad"
+# Idea 8 de la tanda del 24/09, que cambio de forma al medirla. Decia que Say-Online bloquea
+# el bucle con un Wait sincrono: son 303,2 s en quince dias, 20 s al dia, y se miraron las
+# 311 ventanas de espera buscando DENTRO sucesos que significaran "el bucle tenia algo que
+# hacer" -dictados, activaciones, cortes, recordatorios, descartes-: cayeron CERO de los
+# 7.391 del log, porque Say llama a Pausar-Escucha ANTES que a Say-Online. Asi que la
+# reescritura asincrona se descarta: su fallo tipico -"dice una frase y suena otra"- ya
+# costo tres arreglos (17/09, 19/09, 21/09).
+# Lo que si era un fallo: de esos 304 s, VEINTICUATRO son tres plantones de 8 s, o sea que
+# tres sucesos valen el 7,9 %. Y el plazo que los produce eran dos numeros a fuego.
+# Lo que mas se vigila: que el dato solo pueda BAJAR el plazo. Los ms por letra no son una
+# recta -sintetizar tiene parte fija y parte variable-, asi que subirlo seria inventarse un
+# numero; bajarlo no, porque ahi el peor caso es que la frase caiga a Piper, que ya pasa.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-voz-plazo.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el plazo de la voz ya sale de lo que tarda)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n120. La musica: poner lo que es, y no repetir lo que no le gusta"
 # Ideas 1-A y 1-B. 52 intentos con frases distintas y ninguno acabo bien. El fallo de raiz,
 # medido contra youtube.com con cuatro busquedas suyas: el regex viejo devolvia 45, 71, 45 y
