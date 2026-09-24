@@ -147,6 +147,17 @@ Comp 'Get-UltimaNotificacion no llama a la de leer' ($gu -notmatch 'Get-LecturaN
 Comp 'ni vacia la cola por su cuenta' ($gu -notmatch '\.Clear\(\)') ''
 
 Write-Host ''
+Write-Host '-- y el mensaje NO acaba en el registro --'
+# El registro es un fichero que braya puede ensenar, y Add-DatoPerfil ya decidio hace dias no
+# escribir en el lo que aprende. Esta linea -"LOCAL: <lo que dijiste> -> <lo que contesto>"-
+# escribe la RESPUESTA YA COMPUESTA, o sea el remitente y los primeros 140 caracteres de un
+# mensaje privado de Discord, literal.
+$lQD = @($fuente -split "`r?`n" | Where-Object { $_ -match "Log \(""LOCAL: \`$text" -or $_ -match 'Log "LOCAL: \$text' })
+Comp 'la linea de LOCAL mira si la respuesta es de alguien' (@($lQD | Where-Object { $_ -match 'respuestaPrivada' }).Count -ge 1) 'antes la escribia entera'
+$iQ = $fuente.IndexOf("'notifQueDice' {")
+Comp 'y el de los mensajes la marca' ($iQ -gt 0 -and $fuente.Substring($iQ, 200) -match 'respuestaPrivada = \$true') ''
+
+Write-Host ''
 if ($fallos -gt 0) { Write-Host "  $fallos mal"; exit 1 }
 Write-Host '  ya te dice quien es y que pone, sin borrar el resto'
 exit 0

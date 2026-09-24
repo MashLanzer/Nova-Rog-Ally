@@ -9044,6 +9044,13 @@ $script:amigoCheck = -120000
 # lo que se vio la vuelta anterior, por steamid. UNA CLAVE QUE NO ESTA es "aun no se sabe", y
 # esa diferencia es toda la idea: ver a alguien conectado la primera vez NO es que se acabe de
 # conectar. Mismo trato que $script:bajandoAntes y $script:llenaAntes.
+#
+# Y NO SE GUARDA EN DISCO A PROPOSITO (24/09, repaso, con la cuenta hecha). Lo de las
+# descargas si se guarda, y con razon: una descarga termina una vez y si Nova no estaba, se
+# perdio el aviso para siempre. Aqui no. La vigilancia dura 6 h, hay 16,3 arranques al dia
+# -uno cada hora y media- y cada arranque solo ciega los 120 s del primer chequeo: son unos 8
+# minutos ciegos de 360, un 2 %. A cambio habria un fichero mas, con su formato, su caducidad
+# y su banco. No compensa, y por eso esta escrito aqui en vez de parecer un olvido.
 $script:amigoOnline = @{}
 $script:amigoEligiendo = $null
 # 120 s: exactamente la cadencia del chequeo de descargas, que lleva 14 dias en ese bucle sin
@@ -9636,11 +9643,19 @@ function Send-AvisoEsperaSuelta([datetime]$ahora = (Get-Date), [bool]$soloCaduca
         Save-AvisoEspera
         return 0
     }
-    Save-AvisoEspera
+    # EL QUE NO SALE VUELVE A LA COLA (24/09, repaso). Antes la cola se vaciaba y se guardaba
+    # ANTES de intentar soltarlos, asi que el que Test-PuedoAvisar rechazara por el tope de
+    # cuatro por hora se perdia del todo: ni se decia ni volvia. Y estos avisos existen
+    # justamente porque Nova prometio decirlos cuando braya volviera.
     $n = 0
+    $quedan = @()
     foreach ($v in $vivos) {
         if (Send-AvisoEntorno ([string]$v.clave) ([string]$v.texto) ([string]$v.nivel) ([int]$v.cada) $true) { $n++ }
+        else { $quedan += $v }
     }
+    foreach ($q in $quedan) { [void]$script:avisoEspera.Add($q) }
+    Save-AvisoEspera
+    if ($quedan.Count -gt 0) { Log "ENTORNO: $($quedan.Count) aviso(s) no cabian ahora; siguen esperando" }
     return $n
 }
 
@@ -12189,6 +12204,8 @@ function Get-VideosDeHtml([string]$html) {
 # regex viejo para no quedar PEOR que hoy: sin titulo, pero con algo.
 $script:ytLista = @()
 $script:ytN = 0
+# LO QUE SE CONTESTA ES DE ALGUIEN: no va entero al registro (24/09, repaso)
+$script:respuestaPrivada = $false
 $script:ytVetados = 0          # cuantos tacho el veto en la ultima busqueda
 $script:ytPuesto = $null
 $script:ytHasta = 0
@@ -13146,6 +13163,7 @@ function Invoke-FastCommand([string]$text) {
                     $a.desc = Get-ResumenNotificaciones
                 }
                 'notifQueDice' {
+                    $script:respuestaPrivada = $true   # el remitente y el texto de un mensaje privado
                     if ($script:invitado) { $a.desc = 'en modo invitado no leo los mensajes'; break }
                     try { [void](Watch-Notificaciones @(Get-Notificaciones)) } catch {}
                     # $false: NO se consume. Preguntar "que dice" no puede borrar lo que
@@ -13627,12 +13645,13 @@ function Invoke-FastCommand([string]$text) {
                     } catch { $a.desc = 'no pude abrir Steam' }
                 }
                 'amigosSteam' {
+                    $script:respuestaPrivada = $true   # los nicks de sus amigos y a que juegan
                     # TAMBIEN ASINCRONO (24/09, repaso): eran dos Invoke-RestMethod con
                     # -TimeoutSec 6 dentro del bucle, hasta 12 s de consola congelada.
                     $eA = Start-AmigoPregunta 'decir'
                     $a.desc = if ($eA) { $eA } else { 'un momento, que le pregunto a Steam' }
                 }
-                'amigoVigila' { $a.desc = Start-AmigoVigila }
+                'amigoVigila' { $script:respuestaPrivada = $true; $a.desc = Start-AmigoVigila }
                 'amigoElige' {
                     $rE = Complete-AmigoElige ([int]$a.n)
                     # sin lista viva no se contesta nada: el numero no era para esto
@@ -13861,6 +13880,7 @@ function Invoke-FastCommand([string]$text) {
                     $a.desc = Get-RamResumen ([string]$a.que)
                 }
                 'carpetaInfo' {
+                    $script:respuestaPrivada = $true   # los nombres de sus ficheros
                     # SOLO LECTURA: cuenta, mide y lista. Aqui no se borra ni se mueve nada.
                     $nomC = [string]$a.nombre
                     $rutaC = ''
@@ -17751,6 +17771,9 @@ function Invoke-RecordatorioVoz([string]$text) {
             if ($deltaC -eq 0) { $deltaC = 7 }
             $desdeC = $hoyC.AddDays($deltaC); $hastaC = $desdeC; $cuandoC = " para el $($Matches[1])"
         }
+        # SUS CITAS NO VAN AL REGISTRO (24/09, repaso): esta funcion devuelve la frase ya
+        # montada, y la linea de "LOCAL: ... -> ..." la escribia entera.
+        $script:respuestaPrivada = $true
         $rsC = @(Get-AgendaDe $desdeC $hastaC)
         if ($rsC.Count -eq 0) { return "No tienes nada apuntado$cuandoC. Si quieres, di: recuerdame manana a las diez que llame al medico." }
         $culC = New-Object System.Globalization.CultureInfo('es-MX')
@@ -17790,7 +17813,7 @@ function Invoke-RecordatorioVoz([string]$text) {
             $quedanR = @()
             for ($iR = 0; $iR -lt $todosR.Count; $iR++) { if ($iR -ne ($nR - 1)) { $quedanR += $todosR[$iR] } }
             Save-Recordatorios $quedanR
-            Log "RECORDATORIO borrado por numero: $($elR.texto)"
+            Log ("RECORDATORIO borrado por numero: " + ([string]$elR.texto).Length + " caracteres")
             return "Listo, quitado: $($elR.texto)."
         }
         $rq = Remove-RecordatorioTexto $qR
@@ -17989,7 +18012,7 @@ function Remove-RecordatorioTexto([string]$q) {
     if ($hit.Count -eq 0) { return @{ estado = 'ninguno' } }
     if ($hit.Count -gt 1) { return @{ estado = 'varios'; lista = $hit } }
     Save-Recordatorios @($todos | Where-Object { $_ -ne $hit[0] })
-    Log "RECORDATORIO borrado a mano: $($hit[0].texto)"
+    Log ("RECORDATORIO borrado a mano: " + ([string]$hit[0].texto).Length + " caracteres")
     return @{ estado = 'uno'; borrado = $hit[0] }
 }
 
@@ -23328,7 +23351,9 @@ function Process-Texto([string]$text) {
                 $tituloD = if ($vD) { [string]$vD.titulo } else { $nomD }
                 if (-not $tituloD) { $tituloD = $nomD }
                 $conNota = $text + " [lo que tengo delante: $tituloD]"
-                Log "DEICTICO: anoto la ventana ('$tituloD') para '$text'"
+                # EL NOMBRE DE LA APP, NO EL TITULO ENTERO (24/09, repaso): el titulo lleva
+                # la pestana del navegador o el nombre de la conversacion de Discord abierta.
+                Log ("DEICTICO: anoto la ventana (" + (Get-NombreDeTitulo $tituloD) + ") para '$text'")
                 Add-Estadistica 'deictico-anotado' $text
                 if (-not (Send-Charla $conNota)) { Submit-Command $conNota 'pregunta' }
                 return
@@ -23357,7 +23382,14 @@ function Process-Texto([string]$text) {
                 Set-UI 'escuchando' $fast
                 Start-Confirmacion
             } else {
-                Log "LOCAL: $text -> $fast"
+                # LO QUE CONTESTA, SIN EL CONTENIDO SI ES DE ALGUIEN (24/09, repaso). Los
+                # kind que devuelven cosas de personas -un mensaje privado, los nicks de sus
+                # amigos, los nombres de sus ficheros, sus citas- dejan aqui la respuesta
+                # entera. Se sigue registrando que se contesto y cuanto, que es lo que sirve
+                # para seguir un fallo.
+                if ($script:respuestaPrivada) { Log ("LOCAL: $text -> (" + ([string]$fast).Length + " caracteres, no los escribo)") }
+                else { Log "LOCAL: $text -> $fast" }
+                $script:respuestaPrivada = $false
                 Set-UltimaOrden $text ([string]$fast)
                 $script:noEntendiSeguidos = 0
                 Add-Estadistica 'local' $text

@@ -76,7 +76,15 @@ function Send-AvisoCola([bool]$yaMismo = $false) {
     Say (($piezas -join '. ') + '.')
 }
 $script:puedoAvisar = $true
-function Test-PuedoAvisar([string]$clave, [string]$nivel = 'medio', [int]$cadaMin = 60) { return $script:puedoAvisar }
+# EL FRENO, CON TOPE: asi se puede probar lo que pasa cuando el quinto aviso de la hora no
+# cabe, que es donde se perdian.
+$script:tope = 99
+$script:soltados = 0
+function Test-PuedoAvisar([string]$clave, [string]$nivel = 'medio', [int]$cadaMin = 60) {
+    if (-not $script:puedoAvisar) { return $false }
+    $script:soltados++
+    return ($script:soltados -le $script:tope)
+}
 foreach ($v in @('AvisoEsperaMin', 'AvisoEsperaCaducaMin')) { Invoke-Expression ('$' + $v + ' = ' + (TraerVar $v)) }
 # $AvisoSiempre ocupa DOS lineas en el fuente, asi que TraerVar se quedaba con media lista y
 # la otra media llegaba aqui como un parentesis sin cerrar.
@@ -226,6 +234,23 @@ Comp 'y las diez formas de pedirlo entran' ($bienP -eq 10) "$bienP de 10"
 Comp 'pero "vuelve a avisarme del juego" sigue siendo del juego' ('vuelve a avisarme del juego' -notmatch $pat) 'el interruptor general gana'
 
 try { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+Write-Host ''
+Write-Host '-- y el que no cabe ahora NO se pierde --'
+# Estos avisos existen justamente porque Nova prometio decirlos cuando braya volviera. La cola
+# se vaciaba y se guardaba ANTES de intentar soltarlos, asi que el que el freno de mano
+# rechazara por el tope de cuatro por hora se perdia del todo: ni se decia ni volvia.
+Limpia
+for ($i = 1; $i -le 6; $i++) { [void](Add-AvisoEspera "clave$i" "aviso numero $i" 'medio' 60) }
+Comp 'seis avisos esperando' (@(Get-AvisoEspera).Count -eq 6) "$(@(Get-AvisoEspera).Count)"
+$script:tope = 4; $script:soltados = 0    # el freno deja pasar cuatro y para
+$n = Send-AvisoEsperaSuelta
+Comp 'salen cuatro' ($n -eq 4) "$n"
+Comp 'y los otros dos siguen esperando' (@(Get-AvisoEspera).Count -eq 2) "$(@(Get-AvisoEspera).Count)"
+$script:tope = 99; $script:soltados = 0
+$n2 = Send-AvisoEsperaSuelta
+Comp 'y salen en cuanto cabe' ($n2 -eq 2) "$n2"
+Comp 'y ya no queda ninguno' (@(Get-AvisoEspera).Count -eq 0) ''
+
 Write-Host ''
 if ($fallos -gt 0) { Write-Host "  $fallos mal"; exit 1 }
 Write-Host '  ya no le habla a una habitacion vacia'
