@@ -499,6 +499,18 @@ Titulo "2n124. Avisar cuando se conecte alguien en Steam"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-amigos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:avisa una vez, por flanco)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n125. Decir que esta sorda, en vez de anunciar que escucha"
+# Idea 18 de la tanda del 24/09. Medido sobre los 235 arranques del oido del registro: de
+# "escucha continua ACTIVA ... di 'nova'" a "worker Vosk en marcha" -que es cuando vuelve a oir
+# de verdad- pasan 6 s de mediana y 12 s en el p90, pero el p99 son 303 s y el maximo 1.716 s:
+# veintiocho minutos y medio diciendo que escucha sin oir nada. Y tras las seis muertes del
+# microfono los huecos fueron 19 s, 45 s, 5 min 49, 12 min 42 y 35 min 14.
+# Lo que mas se vigila: que NO avise en un arranque normal. Son unos 16 arranques del oido al
+# dia; con el liston mas bajo, Nova diria dieciseis veces al dia que esta sorda cuando solo
+# estaba arrancando, que es el fallo de los 25 avisos identicos del 22/09 con otra ropa.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-oido-mudo.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya no dice que escucha mientras esta sorda)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n120. La musica: poner lo que es, y no repetir lo que no le gusta"
 # Ideas 1-A y 1-B. 52 intentos con frases distintas y ninguno acabo bien. El fallo de raiz,
 # medido contra youtube.com con cuatro busquedas suyas: el regex viejo devolvia 45, 71, 45 y

@@ -9764,6 +9764,18 @@ function Test-EstadoFresco {
     } catch { return $false }
 }
 
+# CUANTO LLEVA SIN DECIR NI PIO (24/09, idea 18 de la tanda nueva). Mismo fichero y misma
+# lectura que Test-EstadoFresco -su LastWriteTime, que ya lo pone Windows-, pero devolviendo
+# los segundos en vez de un si/no, que es lo que hace falta para decidir si esto ya es raro.
+# Devuelve 0 -o sea "no se sabe, y por tanto no se avisa"- si el fichero no esta: eso pasa en
+# el primer arranque de la vida y no es una averia.
+function Get-OidoMudoDesde {
+    try {
+        $f = Get-Item -LiteralPath $RutaEstado -ErrorAction Stop
+        return [int](((Get-Date) - $f.LastWriteTime).TotalSeconds)
+    } catch { return 0 }
+}
+
 function Get-OidoConRuido {
     # $true si el oido lleva rato oyendo ruido de fondo constante en vez de voz.
     if (-not (Test-Path -LiteralPath $RutaEstado)) { return $false }
@@ -9808,6 +9820,35 @@ function Test-AvisarRuido([bool]$hayRuido, [long]$ahoraMs, [int]$rearmeMs) {
         Log 'oido-ruido: el oido lleva rato limpio, el aviso se rearma'
     }
     return $false
+}
+
+# ESTOY SORDA Y TE LO DIGO (24/09, idea 18 de la tanda nueva).
+#
+# EL LISTON SALE DE DOS MEDICIONES QUE YA ESTABAN HECHAS, no de una corazonada:
+#   - el estado se refresca cada 15 s de mediana, 29 s en el p99 y 72 s de maximo (n=2.665,
+#     el mismo dato que sostiene los 45 s de $EstadoMaxSegundos, doce lineas mas arriba);
+#   - y arrancar el oido tarda 6 s de mediana y 12 s en el p90 (n=235 arranques del registro).
+# Con 90 s no se avisa en NINGUN arranque normal -ni siquiera en el p90 por doce- y si en los
+# ocho que pasaron de 60 s, incluido el de 28 minutos y medio.
+$OidoMudoSegundos = 90
+$script:mudoAvisado = $false      # ya se dijo en este episodio de sordera
+$script:mudoDesdeMs = 0           # cuando empezo el episodio (0 = ahora mismo oye)
+# Pura a proposito, igual que Test-AvisarRuido: recibe los segundos y el reloj y no toca nada
+# mas, para que el banco pueda correrle una hora de sordera en un milisegundo.
+function Test-AvisarMudo([int]$segMudo, [bool]$workerVivo, [long]$ahoraMs) {
+    # CON EL WORKER MUERTO, NO. De eso ya habla la vigilancia que lo relanza, y dos avisos por
+    # lo mismo es exactamente el fallo de los 25 avisos identicos del 22/09.
+    if (-not $workerVivo) { $script:mudoDesdeMs = 0; $script:mudoAvisado = $false; return $false }
+    if ($segMudo -lt $OidoMudoSegundos) {
+        # volvio el pulso: se cierra el episodio y lo siguiente que pase sera otro
+        if ($script:mudoDesdeMs -ne 0) { Log "oido-mudo: volvio el pulso ($segMudo s)" }
+        $script:mudoDesdeMs = 0
+        $script:mudoAvisado = $false
+        return $false
+    }
+    if ($script:mudoDesdeMs -eq 0) { $script:mudoDesdeMs = $ahoraMs }
+    if ($script:mudoAvisado) { return $false }
+    return $true
 }
 
 # EL FLANCO DE LA BATERIA LLENA (22/09). Aparte y pura para que el banco pueda correrle un
@@ -9996,6 +10037,22 @@ function Watch-Entorno([int]$botones = 0) {
                 Log "llamada en juego: te he oido, pero con $($script:juegoActivo) delante solo vale el boton"
                 Add-Estadistica 'llamada-en-juego' ([string]$script:juegoActivo)
                 Show-Popup 'Te he oido, pero jugando solo te escucho con el boton.' 'escuchando'
+            }
+        }
+    } catch {}
+
+    # ESTOY SORDA (24/09, idea 18). VA ANTES QUE EL DEL RUIDO a proposito: oir ruido es un
+    # problema, pero no oir NADA manda sobre eso, y si los dos saltaran a la vez el segundo
+    # seria una interrupcion de mas.
+    # NIVEL 'alto', y no 'medio' como el del ruido: 'medio' se calla de noche y con un juego
+    # delante, y estar sorda es justo lo que hay que decir mientras juega -porque jugando el
+    # boton es la unica via que le queda-.
+    try {
+        $vivoM = ($script:wakeProc -and -not $script:wakeProc.HasExited)
+        if (Test-AvisarMudo (Get-OidoMudoDesde) $vivoM $ahoraW) {
+            if (Send-AvisoEntorno 'oido-mudo' `
+                'Llevo un rato sin oir nada por el microfono. Estoy volviendo a abrirlo; mientras tanto usame con el boton.' 'alto' 10) {
+                $script:mudoAvisado = $true
             }
         }
     } catch {}
