@@ -635,6 +635,19 @@ Titulo "2n133. No hablar por su cuenta mas que cuando la llaman"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-aviso-de-mas.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya no habla por su cuenta mas)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n134. Un anuncio de YouTube no es una cancion"
+# Idea 10 de la tanda nueva del 24/09. 5 de las 12 entradas de memoria\musica.json -el 41,7 %-
+# son anuncios: Base44, Tripo AI, Firebase Brand Video, Copilot in Outlook e Introducing Grok
+# Bot. El patron esta en el registro: 15/09 15:00:32 se abre YouTube, 15:00:39 suena "Copilot
+# in Outlook", 15:00:49 la de Pitbull de verdad. Diez segundos de pre-roll.
+# EL LISTON SE ELIGE SOLO: de las 13 lineas "MUSICA:" del registro, los cinco anuncios duraron
+# 5 o 10 segundos y la cancion mas corta que sobrevivio duro 55. Entre 10 y 55 no hay NADA.
+# Se puso 20, el doble del anuncio mas largo y menos de la mitad de la cancion mas corta.
+# Lo que mas se vigila: que no se pierda una cancion de verdad. Tirar un anuncio no cuesta
+# nada; tirar una cancion rompe "como se llamaba esa cancion", que es para lo que existe esto.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-musica-anuncios.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:un anuncio de YouTube ya no entra)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n120. La musica: poner lo que es, y no repetir lo que no le gusta"
 # Ideas 1-A y 1-B. 52 intentos con frases distintas y ninguno acabo bien. El fallo de raiz,
 # medido contra youtube.com con cuatro busquedas suyas: el regex viejo devolvia 45, 71, 45 y

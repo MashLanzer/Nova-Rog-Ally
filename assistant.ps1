@@ -8667,10 +8667,20 @@ function Watch-Musica($mu) {
     $flag = if ($sonando) { 1 } else { 0 }
     $repintar = $false
     if ($flag -ne $script:uiMusica) { $script:uiMusica = $flag; $repintar = $true }
+    # AL HISTORIAL SOLO LO QUE SE ASIENTA (24/09, idea 10): ver Test-MusicaAsentada. Esto se
+    # mira en cada vuelta, no solo al cambiar el titulo, porque el que decide es el reloj.
+    if ($sonando -and $mu.titulo) {
+        if (Test-MusicaAsentada $mu.titulo $mu.artista $sw.ElapsedMilliseconds $MusicaEsperaSeg) {
+            try { Add-HistorialMusica $mu.titulo $mu.artista } catch {}   # ver HISTORIAL DE MUSICA
+        }
+    } elseif (-not $sonando) {
+        $script:musicaCandidato = $null
+    }
     if ($sonando -and $mu.titulo -and $mu.titulo -ne $script:musicaTitulo) {
         $script:musicaTitulo = $mu.titulo
+        # LA LINEA DEL REGISTRO SI VA AL INSTANTE: de aqui salen los numeros con los que se
+        # decidio el liston de arriba, y no cuesta nada.
         Log "MUSICA: $($mu.titulo) - $($mu.artista)"
-        try { Add-HistorialMusica $mu.titulo $mu.artista } catch {}   # ver HISTORIAL DE MUSICA
         if (-not $script:juegoActivo -and $script:uiEstado -eq 'reposo' -and -not $script:busy -and -not $script:pendiente) {
             $tM = [string][char]0x266A + ' ' + $mu.titulo + $(if ($mu.artista) { ' · ' + $mu.artista } else { '' })
             if ($tM.Length -gt 48) { $tM = $tM.Substring(0, 45) + '...' }
@@ -9565,6 +9575,37 @@ function Get-HistorialMusica {
     }
     return ,$script:musicaHist
 }
+# UN ANUNCIO DE YOUTUBE NO ES UNA CANCION (24/09, idea 10 de la tanda nueva).
+#
+# 5 de las 12 entradas de memoria\musica.json -el 41,7 %- son anuncios: Base44, Tripo AI,
+# Firebase Brand Video, Copilot in Outlook e Introducing Grok Bot. El patron esta en el
+# registro: 15/09 15:00:32 se abre YouTube, 15:00:39 suena "Copilot in Outlook", 15:00:49 la
+# de Pitbull de verdad. Diez segundos de pre-roll.
+#
+# EL LISTON SE ELIGE SOLO, porque los datos dejan un hueco limpio. De las 13 lineas "MUSICA:"
+# del registro, los CINCO anuncios duraron 5 o 10 segundos y la cancion mas corta que
+# sobrevivio duro 55. Entre 10 y 55 no hay nada. Se pone en 20: el doble del anuncio mas largo
+# y menos de la mitad de la cancion mas corta.
+#
+# LO QUE CUESTA HOY: "como se llamaba esa cancion" puede contestar un anuncio, y "esa no me
+# gusta" vetaria el anuncio en vez de la cancion.
+$MusicaEsperaSeg = [int](Get-Cfg 'musica' 'segundosParaApuntar' 20)
+$script:musicaCandidato = $null
+# Pura a proposito, igual que Test-AvisarRuido: recibe lo que suena y el reloj y dice si toca
+# apuntarlo, para que el banco pueda correrle una tarde entera en un milisegundo.
+function Test-MusicaAsentada([string]$titulo, [string]$artista, [long]$ahoraMs, [int]$esperaSeg) {
+    if (-not $titulo) { $script:musicaCandidato = $null; return $false }
+    if (-not $script:musicaCandidato -or [string]$script:musicaCandidato.t -ne $titulo) {
+        # titulo nuevo: empieza a contar. No se apunta todavia.
+        $script:musicaCandidato = @{ t = $titulo; a = $artista; desde = $ahoraMs; puesto = $false }
+        return $false
+    }
+    if ($script:musicaCandidato.puesto) { return $false }   # ya se apunto este
+    if (($ahoraMs - [long]$script:musicaCandidato.desde) -lt ($esperaSeg * 1000)) { return $false }
+    $script:musicaCandidato.puesto = $true
+    return $true
+}
+
 function Add-HistorialMusica([string]$titulo, [string]$artista, [datetime]$cuando = (Get-Date)) {
     if (-not $titulo -or $script:invitado) { return }
     $h = Get-HistorialMusica
