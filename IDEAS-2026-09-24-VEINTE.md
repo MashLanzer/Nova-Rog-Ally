@@ -1,7 +1,10 @@
 # Veinte ideas nuevas para Nova — 24/09/2026
 
-Todas salen de **medir cómo se comporta Nova de verdad**: 50.451 líneas de `assistant.log`
-(15 días), `memoria\estadisticas.json` y las 514 frases reales de `pruebas\audio\uso`.
+Todas salen de **medir cómo se comporta Nova de verdad**: 50.581 líneas de registro (15 días,
+324 horas), `memoria\estadisticas.json` y las 514 frases reales de `pruebas\audio\uso`.
+
+**Dónde reproducir los números:** al reiniciar Nova esta mañana el registro rotó, así que esas
+50.581 líneas están ahora en **`assistant.log.1`**, no en `assistant.log`.
 
 **Una advertencia que me hice a mí mismo escribiendo esto:** la primera versión de esta lista
 salía de las frases que Nova descartó, y la tiré entera. De las que había apuntado, *crear una
