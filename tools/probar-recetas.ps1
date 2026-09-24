@@ -459,6 +459,39 @@ Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
 # de informacion -las que comprueban que un script SOLO PUEDA LEER, ni borrar ni lanzar
 # procesos- pero se imprimia y nunca se sumaba a $mal, asi que el banco daba exito con esas
 # guardas rotas. Son 16 comprobaciones que no podian suspender.
+Write-Host ''
+Write-Host "--- UNA RECETA QUE ESCRIBE Y NO TIENE HUECOS (24/09, idea 2) ---"
+# Tres de las ocho recetas del disco eran asi: creaban siempre Desktop\Hola.txt,
+# Desktop\prueba y Desktop\Prueba dos, sin un solo {hueco}. Una receta que escribe y no
+# tiene huecos solo puede hacer siempre lo mismo, y eso no es una receta: es un boton
+# escondido que se dispara al decir una frase.
+#
+# LA ID 7 NO SALIO DE UNA FRASE MAL OIDA, y conviene que conste: el registro (18:57:52 ->
+# 18:58:22) dice que Parakeet oyo bien 'El nombre ponle prueba y la carpeta en el
+# escritorio', que era braya contestando a 'donde y con que nombre la quieres'. Lo que
+# fallo fue el aprendiz, que metio 'prueba' en el script en vez de hacer un hueco.
+#
+# LO QUE MAS SE VIGILA: que las LEGITIMAS sigan entrando. El criterio se probo contra las
+# ocho recetas reales y separa esas tres sin un solo falso positivo; los otros candidatos
+# fallaban: 'sin hueco' a secas coge cinco de mas -las de leer una carpeta no llevan hueco
+# y son de serie-, y 'escribe en disco' coge la id 1, que es la unica que se usa.
+$bloqueAdd = (TraerFn 'Add-Receta')
+$addSin = (($bloqueAdd -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n")
+Comp 'la guardia existe' ($addSin -match '\$escribe -and \$huecos\.Count -eq 0') ''
+Comp 'y mira los pasos que ESCRIBEN' ($addSin -match [regex]::Escape('$escribe = @($pasos | Where-Object { $_.tipo -eq ''powershell'' }).Count -gt 0')) 'el texto suelto sale tambien en la validacion de arriba'
+Comp 'y deja dicho por que descarta' ($addSin -match 'escribe y no tiene ningun hueco') ''
+Comp 'y lo cuenta para poder vigilarlo' ($addSin -match "Add-Estadistica 'receta-no' 'sin-hueco'") ''
+# VA DESPUES de validar los pasos: antes no se sabe todavia si alguno escribe.
+$iPasos = $addSin.IndexOf('$pasos.Count -lt 1')
+$iGuard = $addSin.IndexOf('$escribe -and $huecos.Count -eq 0')
+Comp 'y va despues de validar los pasos' (($iPasos -ge 0) -and ($iGuard -gt $iPasos)) 'antes no se sabe si escribe'
+# Y LAS CINCO QUE SOBREVIVEN siguen en el disco, que es la prueba de que el criterio no se
+# lleva por delante lo bueno.
+$rr = Get-Content -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'memoria\recetas.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+$idsR = @($rr | ForEach-Object { [int]$_.id })
+Comp 'las tres de efecto fijo ya no estan' ((@($idsR | Where-Object { $_ -in @(5, 7, 8) })).Count -eq 0) ("ids: " + ($idsR -join ','))
+Comp 'y la unica que se usa sigue ahi' ($idsR -contains 1) 'la id 1, con 2 usos'
+Comp 'y las tres de serie tambien' ((@($idsR | Where-Object { $_ -in @(2, 3, 4) })).Count -eq 3) 'leer carpetas no pide permiso'
 $mal += $falloInfo
 if ($mal -gt 0) { Write-Host "$mal casos MAL"; exit 1 }
 Write-Host "todo correcto"

@@ -376,12 +376,24 @@ class Cerebro:
         r = h["r"]
         if r.get("estado") != "firme" or interrogativo(texto) != r.get("interrogativo", ""):
             return None
-        sem = h["sem"]
-        if sem is None:
-            igual = h["lex"] >= 0.8
-        else:
-            igual = h["lex"] >= 0.999 or sem >= 0.95 or (sem >= 0.90 and h["lex"] >= 0.3)
-        if not igual:
+        # LA RAMA SEMANTICA NO PODIA DISPARAR NUNCA (24/09, idea 11 de la tanda nueva).
+        #
+        # Reproducidas las 328 preguntas reales del registro contra este mismo cerebro: UNA
+        # pasa el liston por palabras (lex >= 0.8), y es exactamente el unico "memoria: lo se"
+        # que hay en quince dias. O sea que el liston por palabras no fallo ni una vez.
+        #
+        # La rama de significado, en cambio, mide contra el pozo de respuestas firmes, y ese
+        # pozo tiene DOS entradas. Embebidas 25 frases suyas de verdad, el parecido maximo
+        # contra esas dos es 0,350 y la mediana 0,235, frente a un liston de 0,90/0,95. No es
+        # que el liston este alto: es que no hay nada que encontrar. Bajarlo a 0,35 haria que
+        # contestara "Escribir es plasmar palabras..." a cualquier cosa.
+        #
+        # Y era el UNICO sitio donde el modelo de significado se carga en un turno de charla:
+        # 2,87 s, siempre en frio, para comparar contra dos vectores.
+        #
+        # El liston por palabras se queda igual. La otra funcion que usa el modelo -la de
+        # "te acuerdas de..."- tampoco se toca: su liston (0,28) SI esta medido, del 23/09.
+        if h["lex"] < 0.8:
             return None
         with self.lock:
             r["usos"] = int(r.get("usos", 0)) + 1

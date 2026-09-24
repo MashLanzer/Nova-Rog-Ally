@@ -7487,6 +7487,26 @@ function Add-Receta([string]$original, [string]$bloque) {
         [void]$pasos.Add(@{ tipo = $tipo; texto = $cuerpo })
     }
     if ($pasos.Count -lt 1 -or $pasos.Count -gt 6) { Log "RECETA descartada: sin pasos o con demasiados"; return $null }
+    # UNA RECETA QUE ESCRIBE Y NO TIENE HUECOS ES UN BOTON ESCONDIDO (24/09, idea 2 de la
+    # tanda nueva). Tres de las ocho recetas del disco son asi: crean siempre Desktop\Hola.txt,
+    # Desktop\prueba y Desktop\Prueba dos, sin un solo {hueco}. La id 7 no salio de una frase
+    # mal oida -Parakeet oyo bien "El nombre ponle prueba y la carpeta en el escritorio", que
+    # era braya contestando a "donde y con que nombre la quieres"-: lo que fallo fue este
+    # aprendiz, que metio "prueba" en el script en vez de convertirlo en hueco.
+    #
+    # EL CRITERIO ESTA PROBADO CONTRA LAS OCHO y separa esas tres sin un solo falso positivo.
+    # Los otros que se miraron fallan: "sin hueco" a secas coge cinco de mas -las de leer una
+    # carpeta no llevan hueco y son de serie-; "usos=0 y confirmadas=0" coge la 6, que es
+    # legitima; y "escribe en disco" coge la 1, que es la unica que se usa.
+    #
+    # VA AL APRENDER Y NO COMO PODA: una poda por desuso entraria en bucle con
+    # Add-RecetasInfoBase, que repone las de serie en cada arranque. Y aqui se ataca la causa.
+    $escribe = @($pasos | Where-Object { $_.tipo -eq 'powershell' }).Count -gt 0
+    if ($escribe -and $huecos.Count -eq 0) {
+        Log "RECETA descartada: '$frase' escribe y no tiene ningun hueco, asi que solo podria hacer siempre lo mismo"
+        Add-Estadistica 'receta-no' 'sin-hueco'
+        return $null
+    }
     # la frase que dijo el usuario TIENE que encajar en su propia plantilla
     $prov = @{ id = 0; frase = $frase; pasos = $pasos }
     $enc = Find-Receta $original @($prov)
@@ -8802,7 +8822,24 @@ function Add-Habito([string]$texto, [datetime]$cuando = (Get-Date)) {
 #      tambien bloquearia el parte justo en el momento en que braya acaba de hablar.
 #   2. El texto se guarda en habitos.json, y si Nova reinicia antes de decirlo, lo recupera.
 function Test-ParteManana([datetime]$ahora = (Get-Date), [switch]$DesdeBucle) {
-    if ($script:invitado -or $ahora.Hour -lt 5 -or $ahora.Hour -ge 12) { return }
+    # LA VENTANA DEJA DE SER UNA HORA (24/09, idea 5 de la tanda nueva).
+    #
+    # Era 05:00-11:59, y braya no aparece por la manana casi la mitad de los dias: mirando la
+    # primera senal suya de cada uno de los quince del registro, OCHO caen dentro y SIETE
+    # fuera (09/09 21:43, 12/09 13:57, 18/09 18:44, 20/09 12:52, 21/09 16:31, 23/09 21:08 y
+    # 24/09 15:56). Esos siete dias el parte no salia, y con el se quedaba sin decir lo que
+    # Nova habia decidido sola: la decision se aparco 24 veces -"SIN DATOS: lo dejo para el
+    # parte"- y se dijo UNA vez en total, el 18/09, cuando el contador iba por "0 de 43". Hoy
+    # va por 126.
+    #
+    # Lo que importa no es que sean las diez de la manana: es que sea lo PRIMERO que se dice
+    # ese dia. Las dos guardas que ya habia siguen enteras -parteVisto no deja repetirlo, y
+    # $DesdeBucle exige que se haya dejado ver en los ultimos 30 minutos-, y sale por la
+    # capsula y no por la voz, asi que jugando no interrumpe.
+    #
+    # Las cinco de la manana siguen siendo el principio del dia: es el mismo corte que
+    # Get-DiaJuego, y moverlo partiria el dia en mitad de una partida de madrugada.
+    if ($script:invitado -or $ahora.Hour -lt 5) { return }
     $hbM = Get-Habitos
     $hoyM = $ahora.ToString('yyyy-MM-dd')
     if ($hbM.parteVisto -eq $hoyM) {
@@ -8870,7 +8907,9 @@ function Test-ParteManana([datetime]$ahora = (Get-Date), [switch]$DesdeBucle) {
         $hbM.sinDatosVisto = $ahora.ToString('yyyy-MM-dd')
         Save-Habitos
     }
-    $lineaM = 'Buenos dias · ' + ($partes -join ' · ')
+    # EL SALUDO, SOLO SI ES POR LA MANANA (24/09): desde hoy el parte puede salir a
+    # cualquier hora, y "buenos dias" a las nueve de la noche no.
+    $lineaM = $(if ($ahora.Hour -lt 12) { 'Buenos dias · ' } else { 'Por cierto · ' }) + ($partes -join ' · ')
     Log "PARTE DE LA MANANA: $lineaM"
     $script:resumenPendiente = if ($script:resumenPendiente) { "$($script:resumenPendiente) · $lineaM" } else { $lineaM }
     # y en disco, por si Nova reinicia antes de decirlo (ver arriba)

@@ -89,6 +89,31 @@ Comp 'y se borra del disco al decirlo' ($fuente -match "if \(\`$hbR\.parteTexto\
 Comp 'viaja en habitos.json' (($fuente -match "parteTexto = \[string\]\`$hb\.parteTexto") -and ($fuente -match "PSObject.Properties\['parteTexto'\]"))
 
 Write-Host ''
+Write-Host '-- LA VENTANA DEJO DE SER UNA HORA (24/09, idea 5 de la tanda nueva) --'
+# El parte es el UNICO canal por el que Nova cuenta lo que ha decidido sola: su decision se
+# aparco VEINTICUATRO veces ('SIN DATOS: lo dejo para el parte') y se dijo UNA vez en total,
+# el 18/09, cuando el contador iba por '0 de 43'. Hoy va por 126.
+#
+# LA CAUSA: la ventana era 05:00-11:59 y braya no aparece por la manana casi la mitad de
+# los dias. Primera senal suya de cada uno de los quince del registro: OCHO dentro y SIETE
+# fuera (09/09 21:43, 12/09 13:57, 18/09 18:44, 20/09 12:52, 21/09 16:31, 23/09 21:08 y
+# 24/09 15:56). Esos siete dias el parte no salia.
+#
+# LO QUE MAS SE VIGILA: que las DOS guardas que ya habia sigan enteras. Sin ellas, abrir la
+# ventana convierte el parte en un aviso que sale a cualquier hora y a una casa vacia.
+$tpm = (Traer 'Test-ParteManana')
+$tpmSin = (($tpm -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n")
+Comp 'ya no se corta a las doce' ($tpmSin -notmatch 'ahora\.Hour -ge 12') 'siete de quince dias se quedaban sin parte'
+Comp 'pero sigue sin salir antes de las cinco' ($tpmSin -match 'ahora\.Hour -lt 5') 'el dia empieza a las 5, como en Get-DiaJuego'
+# GUARDA 1: una vez al dia y no mas.
+Comp 'sigue saliendo una sola vez al dia' ($tpmSin -match 'parteVisto -eq \$hoyM') ''
+# GUARDA 2: si braya no se ha dejado ver, el parte espera; no se gasta el dia.
+Comp 'y espera a que braya este delante' ($tpmSin -match 'TotalMinutes -gt 30') 'no se gasta el dia con la casa vacia'
+Comp 'y sale por la capsula, no por la voz' ($tpmSin -match '\$script:resumenPendiente') 'jugando no interrumpe'
+# Y EL SALUDO SE ADAPTA: 'buenos dias' a las nueve de la noche es una tonteria.
+Comp 'el saludo mira la hora' ($tpmSin -match "if \(\`$ahora\.Hour -lt 12\) \{ 'Buenos dias") ''
+Comp 'y hay otra formula para el resto del dia' ($tpmSin -match "'Por cierto") ''
+Write-Host ''
 if ($fallos -gt 0) { Write-Host "  $fallos caso(s) MAL"; exit 1 }
 Write-Host '  el parte espera a que estes, y la hora de dormir es la tuya'
 exit 0
