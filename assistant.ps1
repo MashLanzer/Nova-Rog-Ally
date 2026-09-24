@@ -22257,7 +22257,9 @@ $XINPUT_ARR = 0x0001
 $XINPUT_ABA = 0x0002
 $XINPUT_IZQ = 0x0004
 $XINPUT_DER = 0x0008
-$PanelItems = @('volumen', 'brillo', 'musica', 'energia', 'salida')
+# 'voz' va DETRAS de 'volumen' (23/09, idea 14) porque es lo mismo que busca quien esta
+# jugando y Nova le habla encima: o le baja el volumen, o le cambia como habla.
+$PanelItems = @('volumen', 'voz', 'brillo', 'musica', 'energia', 'salida')
 $script:panelEnergia = ''
 $script:panelSalida = $null
 $script:panel = $null
@@ -22283,6 +22285,9 @@ function Show-PanelRapido {
     $item = $PanelItems[$script:panel.i]
     $etq = switch ($item) {
         'volumen' { 'Volumen' }
+        # la etiqueta se lee de la variable, sin preguntarle nada al sistema (a diferencia de
+        # 'brillo', que hace una consulta WMI)
+        'voz' { if ($script:vozVelocidad -eq 0) { 'Voz normal' } else { 'Voz ' + $(if ($script:vozVelocidad -gt 0) { '+' } else { '' }) + [string]$script:vozVelocidad } }
         'brillo' { if ($script:panelBrillo -ge 0) { "Brillo $($script:panelBrillo)%" } else { 'Brillo' } }
         'musica' { if ($script:uiMusica -and $script:musicaTitulo) { $tt = $script:musicaTitulo; if ($tt.Length -gt 18) { $tt = $tt.Substring(0, 17) + '…' }; [string][char]0x266A + " $tt" } else { 'Musica' } }
         # ENERGIA Y SONIDO EN EL PANEL (13/09): se leen al llegar a ellos, no al abrir
@@ -22308,6 +22313,18 @@ function Invoke-PanelRapido([int]$pul) {
         'volumen' {
             if ($boton) { Send-Key 0xAD; $script:panel.nota = 'silencio' }
             else { $vk = if ($arriba) { 0xAF } else { 0xAE }; Send-Key $vk; Send-Key $vk; $script:panel.nota = $(if ($arriba) { [string][char]0x25B2 } else { [string][char]0x25BC }) }
+        }
+        'voz' {
+            # EL PASO DE 15 Y EL RANGO NO SON NUEVOS: son los mismos de la orden hablada
+            # ("habla mas rapido", paso 15) y de Set-VozVelocidad, que recorta a -30..+45.
+            # Aqui no se repite el recorte: lo hace ella.
+            if ($arriba) { Set-VozVelocidad ($script:vozVelocidad + 15) }
+            elseif ($abajo) { Set-VozVelocidad ($script:vozVelocidad - 15) }
+            elseif ($boton) { Set-VozVelocidad 0 }
+            # SOLO SI CAMBIO, la misma linea que el ejecutor hablado: config.json se reescribe
+            # entero, y manteniendo arriba serian varias escrituras por segundo dentro del bucle.
+            if ([int](Get-Cfg 'voz' 'velocidad' 0) -ne $script:vozVelocidad) { [void](Set-Cfg 'voz' 'velocidad' $script:vozVelocidad) }
+            $script:panel.nota = ''
         }
         'brillo' {
             if ($arriba -or $abajo) {

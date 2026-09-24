@@ -451,6 +451,18 @@ Titulo "2n105. A que podemos jugar los dos"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-juegos-dos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:de donde lo ha sacado)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n115. La voz, en el menu del mando"
+# Idea 14, replanteada. La pedida -un boton para "repite eso"- se cae con dato: en 1.804
+# frases distintas suyas braya NO ha pedido que repita NI UNA VEZ, y ese menu solo tiene
+# sitio para lo que se usa. Lo que SI esta respaldado son las dos unicas cosas que pidio
+# sobre como suena Nova -"habla mas rapido" y "que suene todo un poco mas bajito", las dos
+# del 13/09-, que solo se pueden pedir HABLANDO, y hablando falla el 29,6 % de las veces. Y
+# hay un rato en que hablar no sirve: "el oido aun carga" sale 39 veces en 244 arranques, 12
+# de 12 el 22/09 y 12 de 12 el 23/09. Lo que mas se vigila aqui: que apretar cambie la voz de
+# VERDAD, y no solo la etiqueta de la capsula.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-panel-voz.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la voz ya se cambia sin hablar)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n114. No hablarle a una habitacion vacia"
 # Idea 20. Medido: 77 avisos de entorno en catorce dias y solo 17 (22 %) tuvieron una orden
 # suya en los cinco minutos siguientes. El peor es oido-ruido, 31 avisos y 2 atendidos, que
