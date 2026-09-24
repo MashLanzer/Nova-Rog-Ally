@@ -19922,6 +19922,14 @@ function Receive-Charla {
         try { $ev = $linea | ConvertFrom-Json } catch { $ev = $null }
         if (-not $ev) { continue }
         if ($ev.ev -eq 'info') { Log "charla: $($ev.texto)"; continue }
+        # EL BANCO DE TRIVIA YA ESTA (23/09, idea 8). NO toca la voz ni lo que Nova estuviera
+        # diciendo: solo apunta que llego y tira la cache para releerlo.
+        if ($ev.ev -eq 'banco') {
+            $script:triviaGenerando = $false
+            $script:triviaBanco = $null
+            Log "TRIVIA: el modelo dejo $([int]$ev.n) preguntas"
+            continue
+        }
         # el cerebro confirmo algo nuevo: un destello en la capsula (D1)
         if ($ev.ev -eq 'aprendido') { Log "charla: aprendido '$($ev.texto)'"; Send-UIEvento 'destello'; continue }
         # lo hablado un dia, resumido: al diario de ese dia (M10)
@@ -22118,14 +22126,44 @@ function Process-Texto([string]$text) {
             }
         }
 
+        # DENTRO DEL MODO DE TRIVIA (23/09, idea 8). Todo este bloque va bajo la guarda del
+        # modo y DELANTE del de F7, que si no se lleva "la primera" a la charla como respuesta
+        # libre. Y va bajo la guarda porque "siguiente" y "otra" solo significan esto AQUI:
+        # fuera, "siguiente" es la tecla multimedia y no se toca.
+        if ($script:triviaModoHasta -gt $sw.ElapsedMilliseconds) {
+            # LA SALIDA, LA PRIMERA DE TODAS: una salida nunca puede quedar detras de nada.
+            if ($plano -match '^(?:deja(?:lo|la)?(?:\s+la\s+trivia)?|para(?:\s+la\s+trivia)?|ya\s+no\s+juego|basta|se\s+acabo|salir\s+de\s+la\s+trivia|corta)$') {
+                Stop-Trivia 'voz'
+                return
+            }
+            # el marcador NO gasta la pregunta viva: "como voy" no es una respuesta
+            if ($plano -match '^(?:como\s+voy|cuanto\s+voy|como\s+vamos|(?:el\s+)?marcador)$') {
+                Say ('Ahora mismo ' + (Get-MarcadorTrivia) + '.')
+                return
+            }
+            if ($script:triviaActual) {
+                # las tres lineas calcadas de las del ajedrez: el mismo problema, ya resuelto
+                if ($plano -match '^(?:la\s+)?(?:primera|primero|uno|1)$') { Close-Eleccion; Complete-Trivia 1; return }
+                if ($plano -match '^(?:la\s+)?(?:segunda|segundo|dos|2)$') { Close-Eleccion; Complete-Trivia 2; return }
+                if ($plano -match '^(?:la\s+)?(?:tercera|tercero|tres|3)$') { Close-Eleccion; Complete-Trivia 3; return }
+                # rendirse va el ultimo, que es el mas ancho
+                if ($plano -match '^(?:no\s+(?:lo\s+)?se|ni\s+idea|me\s+rindo|paso|dimelo|siguiente|otra|otra\s+mas)$') { Close-Eleccion; Complete-Trivia 0; return }
+            }
+        }
         # TRIVIA (F7): lo que digas tras la pregunta de Nova es tu respuesta, sea lo
         # que sea ("Leonardo" a secas, que el filtro de ruido tiraria)
         if ($script:triviaHasta -gt $sw.ElapsedMilliseconds) {
             $script:triviaHasta = 0
             if (Send-Charla $text) { return }
         }
-        if ($plano -match '^(?:hazme una pregunta|preguntame algo|ponme a prueba|juguemos a (?:la )?trivia|jugamos a (?:la )?trivia|trivia)$') {
+        # LA ENTRADA, AMPLIADA (23/09, idea 8): las cuatro de "curioso" son nuevas y salen de
+        # su registro -las dijo dos veces, 12894 y 12967, y las dos acabaron en "Es curioso!
+        # Y que te parece?"-. Una trivia, no dos: se amplia la que ya habia.
+        if ($plano -match '^(?:hazme una pregunta|preguntame algo|ponme a prueba|juguemos a (?:la )?trivia|jugamos a (?:la )?trivia|trivia|cuentame algo curioso|dime algo curioso|(?:dame )?un dato curioso|algo curioso)$') {
             $script:seguimientoPendiente = $false
+            # con banco, se juega de verdad; sin el, lo de siempre y se pide para la proxima
+            if (Start-Trivia) { return }
+            [void](Request-BancoTrivia)
             if (Send-Charla 'trivia' $false 'trivia') { return }
             Say 'Para jugar necesito el modelo de charla.'
             return
@@ -23286,6 +23324,148 @@ $EleccionMs = 15000
 $script:eleccion = $null
 $script:mandoHay = $false
 
+# LA TRIVIA, CON PREGUNTAS DE VERDAD (23/09, idea 8).
+# Vive aqui, pegada al selector del mando, porque es su principal via de respuesta: el mando
+# se uso para contestar CERO veces en catorce dias, y con el oido al 70,4 % una trivia se
+# contesta con nombres propios, que es lo peor que le puede llegar.
+function Get-TriviaPath { return (Join-Path $MemoriaDir 'trivia.json') }
+$TriviaMinBanco = 8        # por debajo de esto se piden mas, no antes
+$TriviaModoMs = 300000     # cinco minutos: el plazo del MODO (el del selector son 15 s)
+$script:triviaBanco = $null
+$script:triviaActual = $null
+$script:triviaModoHasta = 0
+$script:triviaGenerando = $false
+$script:triviaBien = 0
+$script:triviaTotal = 0
+
+# SE VALIDA AL LEER, y se tira lo que no cuadre: una opcion de mas de 26 caracteres la corta
+# el selector al pintarla, y una opcion cortada es una opcion que no se puede elegir a ciegas.
+function Get-BancoTrivia {
+    if ($null -ne $script:triviaBanco) { return $script:triviaBanco }
+    $script:triviaBanco = @{ preguntas = @(); hechas = @() }
+    try {
+        if (Test-Path -LiteralPath (Get-TriviaPath)) {
+            $j = Get-Content -LiteralPath (Get-TriviaPath) -Raw -Encoding UTF8 | ConvertFrom-Json
+            $buenas = @()
+            foreach ($q in @($j.preguntas)) {
+                if ($null -eq $q -or -not [string]$q.pregunta) { continue }
+                $ops = @($q.opciones | ForEach-Object { [string]$_ })
+                if ($ops.Count -ne 3) { continue }
+                if (@($ops | Where-Object { $_.Length -gt 26 -or -not $_.Trim() }).Count -gt 0) { continue }
+                $b = [int]$q.buena
+                if ($b -lt 1 -or $b -gt 3) { continue }
+                $buenas += @{ id = [string]$q.id; pregunta = [string]$q.pregunta; opciones = $ops; buena = $b }
+            }
+            $script:triviaBanco.preguntas = $buenas
+            $script:triviaBanco.hechas = @($j.hechas | ForEach-Object { [string]$_ })
+        }
+    } catch { Save-Corrupto (Get-TriviaPath) 'trivia' }
+    return $script:triviaBanco
+}
+
+function Save-BancoTrivia {
+    if ($null -eq $script:triviaBanco) { return }
+    try {
+        $o = [ordered]@{ preguntas = @(); hechas = @($script:triviaBanco.hechas) }
+        foreach ($q in @($script:triviaBanco.preguntas)) {
+            $o.preguntas += New-Object PSObject -Property @{ id = $q.id; pregunta = $q.pregunta; opciones = @($q.opciones); buena = $q.buena }
+        }
+        Write-Atomico (Get-TriviaPath) (ConvertTo-Json -InputObject $o -Depth 5)
+    } catch {}
+}
+
+# SE PIDEN AL MODELO LOCAL, UNA VEZ, y nunca jugando: generar veinte preguntas es una llamada
+# de la misma clase que la que ya contesta "cuantas patas tiene una arana" -13,1 s la primera,
+# por el arranque en frio-, y despues cuesta cero. Con un juego delante, ni eso.
+function Request-BancoTrivia {
+    if ($script:juegoActivo) { Log 'TRIVIA: no pido preguntas con un juego delante'; return $false }
+    if ($script:triviaGenerando) { return $false }
+    if (-not $ConversacionOn) { return $false }
+    try { if (-not (Test-RamParaCharla)) { Log 'TRIVIA: no hay RAM para pedir preguntas'; return $false } } catch {}
+    $script:charlaId++
+    # NO se usa Send-Charla: esa pone la capsula a esperar y limpia la cola de frases, y esto
+    # no habla. Solo se pide el banco y se sigue con lo que se estuviera haciendo.
+    if (-not (Send-CharlaPedido @{ op = 'triviabanco'; id = $script:charlaId; ruta = (Get-TriviaPath); cuantas = 20 } (-not $script:juegoActivo))) { return $false }
+    $script:triviaGenerando = $true
+    Log 'TRIVIA: pedidas 20 preguntas al modelo local'
+    return $true
+}
+
+function Get-MarcadorTrivia {
+    if ($script:triviaTotal -le 0) { return 'aun no llevamos ninguna' }
+    return "llevas $($script:triviaBien) de $($script:triviaTotal)"
+}
+
+function Show-PreguntaTrivia {
+    $b = Get-BancoTrivia
+    $cand = @($b.preguntas | Where-Object { @($b.hechas) -notcontains [string]$_.id })
+    if ($cand.Count -eq 0) {
+        # dadas todas la vuelta: se empieza otra ronda en vez de quedarse sin preguntas
+        $b.hechas = @()
+        $cand = @($b.preguntas)
+    }
+    if ($cand.Count -eq 0) { return $false }
+    $q = $cand[(Get-Random -Minimum 0 -Maximum $cand.Count)]
+    # SE BARAJAN AQUI, SIEMPRE: un modelo pequeno pone la buena la primera casi siempre, y
+    # entonces "la primera" acierta sin saber nada.
+    $idx = @(0, 1, 2) | Sort-Object { Get-Random }
+    $ops = @($idx | ForEach-Object { [string]$q.opciones[$_] })
+    $buena = ([array]::IndexOf($idx, ($q.buena - 1))) + 1
+    $script:triviaActual = @{ id = [string]$q.id; pregunta = [string]$q.pregunta; opciones = $ops; buena = $buena }
+    $script:triviaModoHasta = $sw.ElapsedMilliseconds + $TriviaModoMs
+    $texto = [string]$q.pregunta + ' Uno, ' + $ops[0] + '. Dos, ' + $ops[1] + '. Tres, ' + $ops[2] + '.'
+    Show-Popup $texto
+    Say $texto
+    [void](Open-Eleccion $ops 'trivia')
+    return $true
+}
+
+function Start-Trivia {
+    $b = Get-BancoTrivia
+    if (@($b.preguntas).Count -lt $TriviaMinBanco) { [void](Request-BancoTrivia) }
+    if (@($b.preguntas).Count -eq 0) { return $false }
+    $script:triviaBien = 0
+    $script:triviaTotal = 0
+    Log 'TRIVIA: empieza la tanda'
+    return (Show-PreguntaTrivia)
+}
+
+function Complete-Trivia([int]$n) {
+    $q = $script:triviaActual
+    if (-not $q) { return }
+    $script:triviaActual = $null
+    $b = Get-BancoTrivia
+    if (@($b.hechas) -notcontains [string]$q.id) { $b.hechas = @(@($b.hechas) + [string]$q.id) }
+    $script:triviaTotal++
+    if ($n -eq [int]$q.buena) {
+        $script:triviaBien++
+        Say ('Bien. ' + (Get-MarcadorTrivia) + '.')
+    } elseif ($n -le 0) {
+        Say ('Era ' + [string]$q.opciones[[int]$q.buena - 1] + '. ' + (Get-MarcadorTrivia) + '.')
+    } else {
+        Say ('No, era ' + [string]$q.opciones[[int]$q.buena - 1] + '. ' + (Get-MarcadorTrivia) + '.')
+    }
+    Save-BancoTrivia
+    [void](Show-PreguntaTrivia)
+}
+
+# TRES SALIDAS, como pide la casa: decirlo, el boton B del selector, y el plazo.
+function Stop-Trivia([string]$motivo = '') {
+    if ($script:triviaModoHasta -le 0) { return }
+    try { Close-Eleccion } catch {}
+    $script:triviaModoHasta = 0
+    $script:triviaActual = $null
+    Save-BancoTrivia
+    Log "TRIVIA: se acabo ($motivo)"
+    if ($script:triviaTotal -gt 0) { Say ('Lo dejamos. ' + (Get-MarcadorTrivia) + '.') } else { Say 'Vale, lo dejamos.' }
+    $script:triviaBien = 0
+    $script:triviaTotal = 0
+}
+
+function Test-TriviaPlazo {
+    if ($script:triviaModoHasta -gt 0 -and $sw.ElapsedMilliseconds -ge $script:triviaModoHasta) { Stop-Trivia 'plazo' }
+}
+
 function Show-Eleccion {
     if (-not $script:eleccion) { return }
     $e = $script:eleccion
@@ -23344,6 +23524,7 @@ function Complete-Eleccion([int]$n) {
             $r = Invoke-AjedrezPy @('--elegir', [string]$n)
             if ($r -and $r.decir) { Say ([string]$r.decir) } else { Set-UI 'reposo' }
         }
+        'trivia' { Complete-Trivia $n }
         'perfil' { Say (Resolve-PerfilPar $n) }
         default { Set-UI 'reposo' }
     }
@@ -23509,6 +23690,10 @@ while ($true) {
         } catch { Log ('lupa: ' + $_.Exception.Message); Close-Lupa }
     }
 
+    # EL PLAZO DEL MODO DE TRIVIA (23/09, idea 8), en el mismo sitio que el del selector:
+    # cinco minutos sin contestar y se cierra solo. Es una comparacion de enteros.
+    try { Test-TriviaPlazo } catch {}
+
     # ELIGIENDO DE UNA LISTA (23/09, funcion 10): la cruceta mueve, A elige, B cancela.
     # Igual que el panel rapido, y por lo mismo: XInput no es exclusivo, asi que con un
     # juego delante la cruceta le llega tambien al juego. Por eso dura 15 s y no mas.
@@ -23539,7 +23724,16 @@ while ($true) {
                     # EL PLAZO SE RENUEVA SOLO CON LO QUE EL SELECTOR CONSUME. Estaba en el if
                     # de fuera, asi que jugando -donde llueven botones- el plazo no vencia
                     # nunca y la lista se quedaba puesta para siempre.
-                    if ($pulsados -band $XINPUT_B) { Log "ELEGIR: cancelado con B"; Close-Eleccion }
+                    # LA B SALE DEL MODO, no solo de la lista (23/09, idea 8). Close-Eleccion
+                    # borra el selector y ya esta: la trivia se quedaba viva cinco minutos con
+                    # la pregunta puesta y sin nada en pantalla. Con el oido al 70,4 % el mando
+                    # es la via fiable, asi que aqui tiene que salir de verdad.
+                    if ($pulsados -band $XINPUT_B) {
+                        $eraTrivia = ([string]$script:eleccion.origen -eq 'trivia')
+                        Log "ELEGIR: cancelado con B"
+                        Close-Eleccion
+                        if ($eraTrivia) { Stop-Trivia 'boton B' }
+                    }
                     elseif ($pulsados -band $XINPUT_A) { Complete-Eleccion ($script:eleccion.i + 1) }
                     elseif ($pulsados -band ($XINPUT_IZQ -bor $XINPUT_ARR)) { $script:eleccion.i = ($script:eleccion.i + $n - 1) % $n; $script:eleccion.hasta = $sw.ElapsedMilliseconds + $EleccionMs; Show-Eleccion }
                     elseif ($pulsados -band ($XINPUT_DER -bor $XINPUT_ABA)) { $script:eleccion.i = ($script:eleccion.i + 1) % $n; $script:eleccion.hasta = $sw.ElapsedMilliseconds + $EleccionMs; Show-Eleccion }

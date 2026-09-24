@@ -1046,6 +1046,113 @@ def apuntar_hilo(texto, hecho):
     historial.append({"role": "assistant", "content": ((hecho or "").strip() or "hecho")[:300]})
     recortar()
 
+PROMPT_BANCO = (
+    "Genera preguntas de cultura general en espanol, variadas (geografia, ciencia, historia, "
+    "cine, deporte, naturaleza). Devuelve SOLO un array JSON, sin texto alrededor. Cada "
+    "elemento: {\"pregunta\": \"...\", \"opciones\": [\"a\",\"b\",\"c\"], \"buena\": 1}. "
+    "Exactamente TRES opciones. 'buena' es 1, 2 o 3 y es la posicion de la correcta. "
+    "Cada opcion, como mucho 26 caracteres. La pregunta, como mucho 120. "
+    "Nada de preguntas sobre el usuario ni sobre esta conversacion."
+)
+
+
+def generar_banco(p):
+    """LAS PREGUNTAS DE LA TRIVIA (23/09, idea 8).
+
+    UNA sola llamada al modelo local, y nunca jugando: PowerShell ya lo frena antes de
+    pedirlo. Despues cuesta cero, porque queda en disco.
+    LA RUTA LA MANDA POWERSHELL, no se adivina aqui: es la leccion que ya esta escrita
+    arriba en este mismo fichero -adivinar la carpeta metio recuerdos falsos en el diario-.
+    """
+    ruta = (p.get("ruta") or "").strip()
+    idp = p.get("id") or 0
+    if not ruta:
+        salida("info", idp, texto="trivia: no me han dicho donde guardar el banco; no lo escribo")
+        return
+    cuantas = int(p.get("cuantas") or 20)
+    crudo = ""
+    try:
+        r = httpx.post(OLLAMA + "/api/chat", timeout=180, json={
+            "model": MODELO_LOCAL,
+            "messages": [{"role": "system", "content": PROMPT_BANCO},
+                         {"role": "user", "content": "Dame %d preguntas." % cuantas}],
+            "stream": False,
+            "keep_alive": "2m",
+            # 0.8: aqui SI se quiere variedad, al reves que al contestar. Y num_predict alto
+            # porque son veinte preguntas de una vez.
+            "options": {"num_predict": 2000, "temperature": 0.8, "num_ctx": 2048},
+        })
+        if r.status_code != 200:
+            salida("info", idp, texto="trivia: ollama respondio %d" % r.status_code)
+            return
+        crudo = (r.json().get("message") or {}).get("content") or ""
+    except Exception as e:  # noqa: BLE001
+        salida("info", idp, texto="trivia: no pude pedir las preguntas (%s)" % e)
+        return
+    # el modelo suele envolver el array en texto o en ```json: se coge lo que hay entre
+    # el primer [ y el ultimo ]
+    i, j = crudo.find("["), crudo.rfind("]")
+    if i < 0 or j <= i:
+        salida("info", idp, texto="trivia: el modelo no devolvio una lista")
+        return
+    try:
+        lista = json.loads(crudo[i:j + 1])
+    except ValueError:
+        salida("info", idp, texto="trivia: el modelo devolvio algo que no es JSON")
+        return
+    # EL MISMO FILTRO QUE POWERSHELL, a proposito: si aqui entrara algo que alli se tira,
+    # el banco diria que tiene veinte y tendria doce.
+    buenas = []
+    for q in lista if isinstance(lista, list) else []:
+        if not isinstance(q, dict):
+            continue
+        preg = str(q.get("pregunta") or "").strip()
+        ops = q.get("opciones")
+        if not preg or len(preg) > 120 or not isinstance(ops, list) or len(ops) != 3:
+            continue
+        ops = [str(o).strip() for o in ops]
+        if any((not o) or len(o) > 26 for o in ops):
+            continue
+        try:
+            b = int(q.get("buena"))
+        except (TypeError, ValueError):
+            continue
+        if b < 1 or b > 3:
+            continue
+        buenas.append({"pregunta": preg, "opciones": ops, "buena": b})
+    if not buenas:
+        salida("info", idp, texto="trivia: ninguna de las preguntas paso el filtro")
+        return
+    # se funde con lo que ya hubiera, sin repetir la misma pregunta
+    banco = {"preguntas": [], "hechas": []}
+    try:
+        if os.path.exists(ruta):
+            with open(ruta, encoding="utf-8") as f:
+                viejo = json.load(f)
+            banco["preguntas"] = list(viejo.get("preguntas") or [])
+            banco["hechas"] = list(viejo.get("hechas") or [])
+    except Exception:  # noqa: BLE001
+        banco = {"preguntas": [], "hechas": []}
+    ya = set((q.get("pregunta") or "").strip().lower() for q in banco["preguntas"])
+    nuevas = 0
+    for q in buenas:
+        if q["pregunta"].lower() in ya:
+            continue
+        ya.add(q["pregunta"].lower())
+        q["id"] = "%d-%d" % (int(time.time()), len(banco["preguntas"]) + nuevas)
+        banco["preguntas"].append(q)
+        nuevas += 1
+    try:
+        tmp = ruta + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(banco, f, ensure_ascii=False)
+        os.replace(tmp, ruta)
+    except Exception as e:  # noqa: BLE001
+        salida("info", idp, texto="trivia: no pude guardar el banco (%s)" % e)
+        return
+    salida("banco", idp, n=nuevas)
+
+
 def atender(p):
     op = p.get("op")
     if op == "olvidar":
@@ -1060,6 +1167,14 @@ def atender(p):
         descargar()
     elif op == "calentar":
         threading.Thread(target=calentar, daemon=True).start()
+    elif op == "triviabanco":
+        # EN SU PROPIO HILO Y SOLO SI NO ESTA OCUPADO: generar el banco NO puede ponerse
+        # delante de una charla ni cortar lo que Nova este diciendo. Por eso tampoco esta en
+        # la lista de ops que hacen parar.set().
+        if not ocupado.is_set():
+            threading.Thread(target=generar_banco, args=(p,), daemon=True).start()
+        else:
+            salida("info", p.get("id") or 0, texto="trivia: estoy ocupada; el banco, mas tarde")
     elif op == "aprender":
         # lo que contesto OTRO cerebro (Claude Code, M4): se aprende como de la API
         if cerebro is not None and not p.get("invitado"):

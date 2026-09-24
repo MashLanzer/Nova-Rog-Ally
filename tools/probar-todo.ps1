@@ -463,6 +463,17 @@ Titulo "2n121. De que va este juego (y que hacer aqui, que es otra cosa)"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-guia.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya te dice de que va)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n122. La trivia, con preguntas de verdad, el mando y un marcador"
+# Idea 8. El dato que manda esta en el registro: el 13/09 a las 20:46:00 braya pregunto "que
+# es un volcan" y a las 20:48:52 -DOS MINUTOS Y 52 SEGUNDOS despues- la trivia le pregunto a
+# EL "que es un volcan"; contesto "no se, me rindo". Y "CHARLA (trivia)" sale UNA vez en las
+# 49.492 lineas del registro: ese dia, y nunca mas. El mando se uso para contestar CERO veces
+# en catorce dias. Lo que mas se vigila: que las tres opciones se barajen -un modelo de 3B
+# pone la buena la primera casi siempre, y entonces "la primera" acierta sin saber nada- y que
+# del modo se pueda salir por las tres puertas, la B del mando incluida.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-trivia.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya pregunta de verdad)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n120. La musica: poner lo que es, y no repetir lo que no le gusta"
 # Ideas 1-A y 1-B. 52 intentos con frases distintas y ninguno acabo bien. El fallo de raiz,
 # medido contra youtube.com con cuatro busquedas suyas: el regex viejo devolvia 45, 71, 45 y
