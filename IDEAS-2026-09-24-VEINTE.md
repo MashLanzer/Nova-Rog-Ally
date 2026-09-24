@@ -1,189 +1,188 @@
 # Veinte ideas nuevas para Nova — 24/09/2026
 
-Todas salen de **tu registro de catorce días** (50.340 líneas de `assistant.log`), de
-`memoria\estadisticas.json` y de las 514 frases reales guardadas en `pruebas\audio\uso`.
-Ninguna es una ocurrencia: cada una lleva el número que la sostiene y el día en que pasó.
+Todas salen de **medir cómo se comporta Nova de verdad**: 50.451 líneas de `assistant.log`
+(15 días), `memoria\estadisticas.json` y las 514 frases reales de `pruebas\audio\uso`.
 
-Van ordenadas por lo que más te cuesta hoy, no por lo que sea más bonito de hacer.
+**Una advertencia que me hice a mí mismo escribiendo esto:** la primera versión de esta lista
+salía de las frases que Nova descartó, y la tiré entera. De las que había apuntado, *crear una
+carpeta*, *revisar mi correo*, *mira la pantalla y dime qué ves*, *pon un temporizador para 2
+horas* y *pon la novena canción* **ya funcionan todas**: los descartes eran de antes de que
+existieran esas funciones (crear carpetas llegó el 22/09 y los descartes son del 13 al 20).
+Lo dice tu propia memoria del 23/09: *de las 357 frases que no reconoció en catorce días, 330
+ya se entienden hoy*. Así que estas veinte no miran lo que no entiende, sino **lo que hace mal
+entendiéndolo**.
+
+Van ordenadas por lo que más te cuesta hoy.
 
 ---
 
-## A. Lo que te rompe el uso diario
+## A. Te oye mal, y se puede medir cuánto
 
-### 1. Que decir "nova" sirva de algo
+### 1. Llamarla por su nombre falla 6 de cada 10 veces
 
 De las **917 veces** que dijiste su nombre, solo pasaron **392 (43 %)**:
 
 - **83** se tiraron por sonar flojo — `descartado 'nova': suena demasiado flojo para ser una
-  llamada`, **29 en un solo día** (21/09), y **13 anoche entre las 00:14 y la 01:23**.
+  llamada` —, **29 en un solo día** (21/09) y **13 anoche entre las 00:14 y la 01:23**.
 - **442** se ignoraron por estar jugando — `'nova' ignorado: estas jugando, aqui solo vale el
-  botón`, **166 en un solo día** (15/09) y 43 anteayer. Y no son solo "nova" a secas: ahí
-  están *"oye nova"*, *"ey nova"*, *"nova por favor"*, *"nova escucha"*, *"nova nova nova"*.
+  botón` —, **166 en un solo día** (15/09). Y no es solo "nova" a secas: ahí están *"oye
+  nova"*, *"ey nova"*, *"nova por favor"*, *"nova escucha"*, *"nova nova nova"*.
 
-Y el umbral no es fijo: se mueve solo entre **0,017 y 0,030** según el ruido, y **21 de esos
-83 descartes estaban a menos de un 20 % del umbral del momento**. O sea que casi seis de cada
-diez veces que la llamas por su nombre no pasa nada — y una parte es por un pelo.
+El umbral no es fijo: se mueve solo entre **0,017 y 0,030** según el ruido, y **21 de esos 83
+descartes estaban a menos de un 20 % del umbral del momento**. Una parte se pierde por un pelo.
 
-*Lo delicado:* subir el umbral a lo bruto hace que la tele la despierte. Lo que hay que mirar
-es si el rechazo por volumen puede pedir una segunda opinión en vez de tirar la frase, y qué
-hacer con el "nova" jugando, que hoy se descarta **en silencio**.
+*Lo delicado:* subirlo a lo bruto hace que la tele la despierte. Lo que hay que mirar es si un
+rechazo por volumen puede pedir una segunda opinión en vez de tirar la frase, y qué hacer con
+el "nova" jugando, que hoy se descarta **en silencio** y tú no te enteras de que te oyó.
 
-### 2. Que no se crea lo que oye en una llamada
+### 2. Mientras habla, no te oye: 1.132 veces
 
-El **23/09 de 21:10 a 22:19**, jugando a Unravel Two y A Way Out, con la llamada detectada
-(`llamada en juego: te he oido, pero con Unravel Two delante solo vale el boton`), Nova mandó
-a la charla lo que se oía del otro lado y del propio juego:
+`pausa: el asistente habla o dicta, se ignora el microfono` sale **1.132 veces**. Mientras Nova
+habla, el micrófono está apagado: **no se la puede interrumpir**. Lo único que existe es el
+corte *después* de que acabe, y solo durante 6 s.
 
-> `[charla] Estuvo visto con ser seguida con un jugador llamado Menamión, En las notas de De
-> Nueva ...`
+Con las respuestas largas (la guía de un juego, el resumen del día, una lista de amigos) eso
+son varios segundos en los que le hablas y no hay nadie escuchando.
 
-Y a las **21:16** guardó en tu perfil **"está en una llamada"**, que no es un dato tuyo: es un
-estado de diez minutos que se queda ahí para siempre.
+### 3. El micrófono satura, y encima desconfía de sí mismo
 
-*Lo delicado:* con la llamada detectada, lo que se oye no es necesariamente para Nova. Hay que
-decidir qué hacer con la charla y con el perfil mientras dura, sin dejarla muda si de verdad
-le hablas.
+- `recorte detectado: bajando ganancia` — **404 veces**.
+- `recorte con los altavoces sonando` — **262 veces** más, y ahí la ganancia se queda quieta.
+- `medidor de altavoces activo: se desconfia del microfono` — **472 veces**.
 
-### 3. Que el resumen al volver no sea un widget
+O sea: casi 700 saturaciones y 472 ratos en los que Nova decide no fiarse de lo que oye porque
+suenan sus propios altavoces. Eso es justo cuando tú le hablas encima de lo que ella dice.
 
-**774 de los 1.249 resúmenes** (el **62 %**) dicen exactamente esto:
+### 4. Parakeet cae a Whisper el 84 % de las veces
 
-> `RESUMEN AL VOLVER: Mientras no estabas: 1 mensaje de XBOX Game Bar Widgets`
+**338 rebotes** (`parakeet-a-whisper`) frente a **64 aciertos** (`parakeet`). O el motor rápido
+sirve para algo, o sobra: hoy se paga el arranque de los dos.
 
-Solo **123** son de Discord, que es donde están tus personas. El resto (**352**) ni siquiera
-dicen de quién. Una lista negra de remitentes que no son personas convertiría un aviso que ya
-no escuchas en uno que sí.
+### 5. 1.116 trozos de audio tirados por llegar tarde
 
-### 4. Mirar tu pantalla cuando se lo pides
+`descartados N s de audio atrasado`: **604** en la transcripción y **478** en el oído fino,
+con **374 en un solo día** (15/09) y 208 el 20/09. Es audio que ya estaba grabado y se tira
+**sin mirarlo**.
 
-**21 descartes** hablan de tu pantalla. Uno de ellos eres tú, con todas las letras:
+### 6. El oído fino: uno de cada tres no cambia nada
 
-> `deja de decir que no ves nada en mi pantalla literalmente tienes un ocr con el que ver mi
-> pantalla`
-
-Y también: *"mira la pantalla y dime que ves"*, *"míralo tú mismo en la pantalla y dime que
-ves"*, *"mira mi pantalla y encuentra otra solución para llegar a la plataforma"*, *"te ves en
-mi pantalla"* (dos veces). El OCR existe y la captura también; lo que falta es que esas frases
-lleguen a él.
-
-### 5. Crear carpetas y archivos
-
-**22 descartes en tres días**: *"crea una carpeta llamada prueba dos en el escritorio"* (dos
-veces, y otra vez como *"Crea una carpeta llamada Prueba 2..."*), *"puede crear una cappeta en
-mi queridor"*, *"crea un archivo de texto en C:\Users\braya\AppData\Local\Temp\nova-prueba.txt
-que diga hola desde nova"*. Es lo único que pediste repetidamente que **no existe**.
-
-*Lo delicado:* crear es fácil, pero abre la puerta a escribir donde no toca. Lista cerrada de
-carpetas (las siete de siempre) y nada de rutas dictadas a ciegas.
-
-### 6. La muletilla "mira", sin romper el verbo "mira"
-
-**16 descartes empiezan por "mira"**, y son dos cosas distintas:
-
-- **Relleno**: *"mira ponme un temporizador de 5 minutos"*, *"mira recuérdame mañana
-  instalarme el juego"*, *"mira por qué no me dices cuánto espacio libre me queda"*.
-- **El verbo de verdad**: *"mira la pantalla y dime que ves"*, *"mira mi pantalla y mira si tú
-  encuentras otra solución"*.
-
-Quitarla a lo bruto rompe la mitad de los casos. Hay que quitarla **solo cuando lo que queda
-detrás ya se entiende solo**.
-
-### 7. El correo en infinitivo y en cortés
-
-**Nueve descartes** de algo que ya existe y funciona: *"revisar mi correo"* (4), *"revisa mi
-correo"* (2), *"puede revisar mi correo y ver si tengo algo nuevo"* (3).
-
-### 8. Los dos descartes más repetidos, que siguen ahí
-
-- *"estado es cargando en steam"* — **20 veces**
-- *"hay alguna actualización de este"* — **16 veces**
-
-La idea 2 de la tanda anterior tocó el deíctico, pero estas dos siguen cayéndose. Son, con
-diferencia, las dos frases que más veces has repetido sin que Nova hiciera nada.
+**45 de 145 pasadas** devuelven **exactamente el mismo texto** (31 %) y **7 se inventan algo**
+(`fino-invento`). Merece la pena medir cuándo aporta de verdad y saltárselo cuando no.
 
 ---
 
-## B. Lo que gasta y no compra nada
+## B. Te contesta tarde, o no contesta
 
-### 9. Parakeet cae a Whisper el 84 % de las veces
+### 7. La nube no contesta, o llega cuando ya no hace falta
 
-**338 rebotes** (`parakeet-a-whisper`) frente a **64 aciertos** (`parakeet`). O el motor
-rápido sirve para algo, o sobra: hoy se paga el arranque de los dos.
+De **201 intentos**: **90 no devuelven nada** (45 %), **35 no contestan a tiempo** y **12
+contestan después** de que el oído local ya hubiera resuelto — uno de ellos **2,1 s tarde**.
 
-### 10. La nube no contesta, o llega tarde
+### 8. La mitad de sus frases se fabrican en el momento
 
-De **201 intentos**: **90 no devuelven nada** (45 %), **35 no contestan a tiempo**
-(`NUBE: no contesto a tiempo; sigo con el oido de siempre`) y **12 contestan después** de que
-el oído local ya hubiera resuelto.
+`voz: frase ya preparada` **330** veces frente a `voz: frase sintetizada al momento` **311**.
+Casi la mitad de lo que te dice paga la síntesis entera antes de empezar a sonar. Las que ya
+están preparadas suenan al instante: hay que saber por qué las otras no lo están.
 
-### 11. El oído fino que no cambia nada
+### 9. Traducir una orden le cuesta 105 llamadas a la API
 
-**45 de 145 pasadas** devuelven **exactamente el mismo texto** (31 %) y **7 se inventan algo**
-(`fino-invento`). Merece la pena medir cuándo aporta y saltárselo cuando no.
+**246 traducciones** en 15 días, de las que **105 salen a la API** (`TRABAJO modo=traducir
+motor=api`) y solo **38** acaban en una orden traducida que sirve. Es el camino más caro y el
+que menos veces acierta.
 
-### 12. 1.116 trozos de audio tirados por llegar tarde
+### 10. El plan de órdenes locales: 26 intentos, 4 sirvieron
 
-`descartados N s de audio atrasado`: **1.116 en total** —604 en la transcripción y 478 en el
-oído fino—, con **374 en un solo día** (15/09) y 208 el 20/09. Es audio que ya se había
-grabado y se tira sin mirarlo.
+`plan` 15, `plan-no` 11, `plan-sirvio` **4**. Uno de cada seis. O se mide por qué falla o se
+quita: cada intento es tiempo antes de contestarte.
 
-### 13. Treinta y cuatro horas seguidas analizando nada
+### 11. El turbo: 27 de 29 sin resultado
+
+`turbo` 29, `turbo-nada` **27**. Dos de cada cien.
+
+---
+
+## C. Aprende cosas que luego tira
+
+### 12. El perfil está lleno y se tira lo que entra
+
+`perfil.md` tiene **60 datos, que es exactamente el tope**, y en 15 días ha aprendido **97**.
+O sea que **37 se han caído** por el camino y nadie sabe cuáles ni por qué. Con el tope puesto,
+cada dato nuevo empuja a otro fuera **en silencio**.
+
+### 13. Las recetas: 11 aprendidas, 7 usadas, 6 rechazadas
+
+`receta-aprendida` 11, `receta` 7, `receta-no` 6, `receta-variante` 3. Son casi tantas
+rechazadas como usadas. Hay que ver qué distingue a una receta que sirve de una que estorba.
+
+### 14. Las reglas no se usan **nada**
+
+`reglas.json` está **vacío** y `recordatorios.json` también. En catorce días hay **una sola
+regla creada de verdad** (14/09); las otras 1.093 que salen en el registro son de las pruebas
+del 11 y el 12/09.
+
+Con todo el aparato construido —los patrones, `Describe-Regla`, el switch de disparo, el sensor
+del bucle, cuatro salidas— no tienes **ni una** puesta. O no te sirve como está, o no sabes que
+existe. Antes de añadirle nada, hay que averiguar cuál de las dos.
+
+---
+
+## D. Gasta cuando no hace falta
+
+### 15. Treinta y cuatro horas seguidas analizando ruido
 
 La racha más larga son **2.074 pulsos seguidos** de `esto no es voz, es ruido de fondo`, uno
 por minuto: **34 horas y media** sin una sola voz, terminando el 23/09 a las 10:30. Y hay
 **1.864 momentos** con más de 600 pulsos seguidos. De madrugada eso es un núcleo trabajando
 para nada, y el núcleo hace falta cuando juegas.
 
-### 14. El turbo que casi nunca acierta
+### 16. El resumen al volver es un widget el 62 % de las veces
 
-**29 intentos, 27 sin resultado** (`turbo` / `turbo-nada`). Dos de cada cien. O se arregla o se
-quita.
+**774 de los 1.249** dicen exactamente `Mientras no estabas: 1 mensaje de XBOX Game Bar
+Widgets`. Solo **123** son de Discord, que es donde están tus personas, y **352** ni siquiera
+dicen de quién. Una lista negra de remitentes que no son personas convertiría un aviso que ya
+no escuchas en uno que sí.
 
----
+### 17. Se reinicia 16 veces al día
 
-## C. Lo que ya existe y no se alcanza
+**245 arranques en 15 días**: 14 el 20/09, 13 ayer. Cada uno tira el estado que vive en memoria
+—y esta tanda ya tuvo que salvar dos cosas que se perdían ahí— y paga el arranque del oído
+entero. Nadie ha mirado **por qué** se reinicia tanto.
 
-### 15. "pon la novena canción"
+### 18. El micrófono se muere
 
-**16 descartes** son de música. Los ordinales llegan hasta el décimo en una tabla, pero el
-patrón de la canción se queda antes, así que *"pon la novena canción"* se va al modelo.
-
-### 16. "pon un temporizador PARA 2 horas"
-
-**Tres descartes**, y la única diferencia con la que sí funciona es **"para" en vez de "de"**.
-
-### 17. La pantalla partida
-
-**44 líneas** del registro hablan de *"la mitad de la pantalla"*: *"abre navegador en la mitad
-de la pantalla izquierda con painteress y en la otra mitad de..."*, *"abre youtube a la mitad
-de la pantalla y en la otra mitad"*. Los montajes existen, pero solo colocan **dos ventanas de
-escritorio**, y la frase se descarta.
-
-### 18. Un "sí", un "no" o un "ok" sin nada pendiente
-
-**20 descartes** de *"si"*, *"no"*, *"ok"*, *"no no no no"*. Hoy se tiran en silencio. Podrían
-al menos decirte a qué creía Nova que le estabas contestando.
+**Seis veces**: `ERROR: el microfono lleva N s sin entregar audio; salgo para que me relancen`.
+Se relanza solo, pero cada una es un hueco en el que Nova **no oye absolutamente nada** y tú no
+te enteras.
 
 ---
 
-## D. Lo que hay que mirar antes de tocar nada
+## E. Y dos que no son de Nova, sino de poder arreglarla
 
-### 19. Las reglas no se usan
+### 19. El registro es 68 % ruido del oído
 
-`reglas.json` está **vacío** y `recordatorios.json` también. En catorce días hay **una sola
-regla creada de verdad** (14/09); las otras 1.093 que salen en el registro son de las pruebas
-del 11 y el 12/09.
+**34.525 de las 50.451 líneas** son `[escucha]` (pulsos, ganancia, recortes). Buscar un fallo
+de verdad ahí dentro es imposible sin un `grep -v`, y este repaso ha perdido un buen rato en
+eso. Separar el pulso del oído a su propio fichero deja el registro legible de un vistazo.
 
-Con todo el aparato construido —los patrones, `Describe-Regla`, el switch de disparo, el
-sensor del bucle, cuatro salidas— **no hay ni una regla puesta**. O no te sirve como está, o no
-sabes que existe. Antes de añadirle nada más, hay que averiguar cuál de las dos.
+### 20. Que lo que se oye en una llamada no acabe en su cabeza
 
-### 20. El micrófono se muere
+El **23/09 de 21:10 a 22:19**, jugando a Unravel Two y A Way Out con la llamada detectada
+(`llamada en juego: te he oido, pero con Unravel Two delante solo vale el boton`), Nova mandó
+a la charla lo que se oía del otro lado y del juego:
 
-**Seis veces**: `ERROR: el microfono lleva N s sin entregar audio; salgo para que me
-relancen`. Se relanza solo, pero cada una es un hueco en el que Nova **no oye absolutamente
-nada** y tú no te enteras.
+> `[charla] Estuvo visto con ser seguida con un jugador llamado Menamión, En las notas de De
+> Nueva ...`
+
+Y a las **21:16** guardó en tu perfil **"está en una llamada"**, que no es un dato tuyo: es un
+estado de diez minutos que se queda ahí para siempre — y ocupando uno de los 60 huecos de la
+idea 12.
+
+*Lo delicado:* con la llamada detectada, lo que se oye no es necesariamente para Nova. Hay que
+decidir qué hacer con la charla y con el perfil mientras dura, **sin dejarla muda** si de
+verdad le hablas.
 
 ---
 
-*Escrito el 24/09/2026, después de terminar las veinte ideas anteriores y su repaso.*
+*Escrito el 24/09/2026, después de terminar las veinte ideas anteriores y su repaso. Cada
+número de aquí se puede reproducir con un `grep` sobre `assistant.log` o leyendo
+`memoria\estadisticas.json`.*

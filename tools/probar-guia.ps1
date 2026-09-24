@@ -66,7 +66,10 @@ function PonRespuesta($obj) {
     $script:guiaOut = Join-Path $TmpDir 'guia.json'
     Write-Atomico $script:guiaOut (ConvertTo-Json -InputObject $obj -Depth 3)
     $script:guiaProc = ProcFalso $true
-    $script:guiaDesde = $script:ahoraMs
+    # 2.400 ms DE PUNTA A PUNTA: los ~2 s que tarda en levantarse powershell.exe mas lo que
+    # tarde la Wikipedia. Es lo que de verdad se compara contra el plazo, y por eso es lo que
+    # se apunta desde el 24/09 (antes se guardaba el cronometro de DENTRO del script).
+    $script:guiaDesde = $script:ahoraMs - 2400
     $script:dichos = @(); $script:popups = @(); $script:logs = @(); $script:apuntes = @()
 }
 
@@ -80,7 +83,13 @@ Receive-Guia
 Comp 'lo dice en voz alta' ($script:dichos.Count -eq 1) "$($script:dichos.Count)"
 Comp 'jugando, UNA sola frase' ($script:dichos[0] -match 'plataformas cooperativo' -and $script:dichos[0] -notmatch 'Hazelight') "$($script:dichos[0])"
 Comp 'y dice de donde lo saco' ($script:dichos[0] -match 'Es de la Wikipedia') "$($script:dichos[0])"
-Comp 'y queda apuntado el tiempo que tardo' (@(Get-GuiaTiempos) -contains 700) "$(@(Get-GuiaTiempos) -join ', ')"
+# SE MIDE DE PUNTA A PUNTA (24/09, repaso): antes se guardaba el 'ms' que devuelve el script,
+# cuyo cronometro arranca DENTRO, con powershell.exe ya levantado; y el plazo se compara contra
+# el tiempo desde que se LANZO, que incluye ese arranque de unos 2 s. Eran dos cosas distintas
+# con el mismo nombre, y se decidia el plazo con la que no era.
+$msG = @(Get-GuiaTiempos)
+Comp 'y queda apuntado el tiempo que tardo' ($msG.Count -eq 1) "$($msG -join ', ')"
+Comp 'y es el de punta a punta, no el de dentro del script' ($msG.Count -eq 1 -and $msG[0] -eq 2400) 'el 700 del json es el cronometro de dentro'
 $script:juegoActivo = ''
 PonRespuesta @{ ok = $true; motivo = ''; titulo = 'It Takes Two (videojuego)'; fuente = 'es.wikipedia'; ms = 700
                 texto = 'It Takes Two es un videojuego de plataformas cooperativo. Fue desarrollado por Hazelight. Salio en 2021.' }

@@ -145,9 +145,10 @@ Write-Host '-- y donde esta enganchado --'
 $iAj = $fuente.IndexOf('$aj = Invoke-Ajedrez $text')
 $iLo = $fuente.IndexOf('# 1) local instantaneo')
 Comp 'va en Process-Texto, antes del camino local' ($iAj -gt 0 -and $iLo -gt $iAj) "ajedrez en $iAj, local en $iLo"
-# y entre los dos no puede haber ningun 'return' que se lleve la frase antes
-$entreAj = $fuente.Substring($iAj, [Math]::Max(0, $iLo - $iAj))
-Comp 'y nada se lleva la frase por el camino' (@([regex]::Matches($entreAj, '(?m)^\s*return')).Count -le 2) "$(@([regex]::Matches($entreAj, '(?m)^\s*return')).Count) returns en medio"
+# NO SE CUENTAN LOS 'return' DE EN MEDIO (24/09). Se probo y da 4: uno es la propia
+# respuesta del ajedrez y tres son del deictico, que llego despues y tiene sus propias
+# guardas. Contar returns es medir el tamano del codigo, no lo que hace; que una orden
+# normal siga siendo una orden ya se prueba ejecutandola, unas lineas mas arriba.
 Comp 'y NO dentro de Invoke-FastCommand' (-not ($fuente -match '(?s)function Invoke-FastCommand.{0,4000}Invoke-Ajedrez')) 'a esa la llaman reglas y perfiles, no braya'
 Comp 'se puede apagar desde config' ($fuente -match "Get-Cfg 'juego' 'ajedrez'")
 Comp 'y el turno se lanza por proceso, no residente' ($fuente -match '& \$PyExe \$AjedrezPy')

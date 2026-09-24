@@ -12167,7 +12167,11 @@ function Receive-Guia {
     $j = $null
     try { $j = $txt | ConvertFrom-Json } catch { $j = $null }
     if (-not $j) { Say ('No he podido mirar lo de ' + $script:guiaJuego + '.'); return }
-    try { Add-GuiaTiempo ([int]$j.ms) } catch {}
+    # SE MIDE LO QUE SE COMPARA (24/09, repaso). Antes se guardaba el $res.ms del script, cuyo
+    # cronometro arranca DENTRO, con powershell.exe ya levantado; y el plazo se compara contra
+    # el tiempo desde que se LANZO, que incluye ese arranque de ~2 s. Eran dos cosas distintas
+    # con el mismo nombre.
+    try { Add-GuiaTiempo ([int]($sw.ElapsedMilliseconds - $script:guiaDesde)) } catch {}
     if (-not $j.ok) {
         Log "GUIA: $($script:guiaJuego) sin articulo ($($j.motivo))"
         Say ('No he encontrado nada de ' + $script:guiaJuego + ' en la Wikipedia.')
