@@ -3934,6 +3934,11 @@ function Resolve-Fragment([string]$f) {
         # Y QUE SE PUEDA PREGUNTAR (20/09). El dato de cuanto tarda la nube no sirve de
         # nada guardado si nadie lo mira: asi braya puede pedirlo en voz alta antes de
         # que C9 lo use para decidir el tope solo.
+        # CUANTO TARDA EN ABRIR EL OIDO (23/09, idea 12). Va en la familia de "cuentame tus
+        # numeros", DETRAS de la de la nube porque comparten el arranque "cuanto tarda".
+        '^(?:cuanto tardas en (?:arrancar|despertar|estar lista)|cuanto tarda (?:tu oido|el oido) en (?:cargar|arrancar|estar listo))$' {
+            return @(@{ kind = 'decir'; desc = (Get-FraseArranqueOido) })
+        }
         '^(?:cuanto tarda la nube|cuanto tarda gemini|que tal (?:va |anda )?la nube|como va la nube|cuanto tarda la segunda opinion)\b' {
             return @(@{ kind = 'decir'; desc = (Get-FraseNubeTiempo) })
         }
@@ -9367,6 +9372,9 @@ function Watch-Entorno([int]$botones = 0) {
     if (($ahoraW - $script:entornoCheck) -lt 30000) { return }
     $script:entornoCheck = $ahoraW
 
+    # CUANTO TARDO EL OIDO (23/09, idea 12): un Test-Path, y solo hasta que apunta.
+    try { Add-ArranqueOido } catch {}
+
     # SE REVISA A SI MISMA: una vez al dia mira sus numeros y apaga lo que no le sirve.
     # VA DELANTE DEL PARTE DE LA MANANA (20/09, P5), no detras: es quien deja apuntado el
     # "tengo una decision esperando", y el parte solo sale UNA vez al dia. Detras, lo que
@@ -10447,6 +10455,84 @@ function Set-PresenciaAhora([datetime]$cuando = (Get-Date)) {
         Save-Habitos
     } catch {}
 }
+# Y QUE SE PUEDA PREGUNTAR: un numero guardado que nadie mira no sirve de nada. Lee el mismo
+# JSON de estadisticas que ya leen las demas respuestas; cero red y cero espera.
+# LOS MILISEGUNDOS, uno por arranque. Las estadisticas cuentan CUANTAS veces pasa algo, no
+# cuanto tarda, asi que la mediana necesita su propia lista. Tope de 200, igual que la de los
+# tiempos de la nube.
+function Get-ArranqueOidoPath { return (Join-Path $MemoriaDir 'arranque-oido.json') }
+$ArranqueOidoMax = 200
+function Get-ArranqueOidoMs {
+    $out = @()
+    try {
+        if (-not (Test-Path -LiteralPath (Get-ArranqueOidoPath))) { return $out }
+        # SE RECORRE, NO SE ENVUELVE: @(... | ConvertFrom-Json) sobre una lista deja un array
+        # DENTRO de otro y el primer elemento sale siendo Object[] en vez del numero. Es el
+        # mismo cuidado que ya tienen Get-Recordatorios y Get-Fechas.
+        $j = Get-Content -LiteralPath (Get-ArranqueOidoPath) -Raw -Encoding UTF8 | ConvertFrom-Json
+        foreach ($x in $j) { $out += [int]$x }
+    } catch { return @() }
+    return $out
+}
+function Add-ArranqueOidoMs([int]$ms) {
+    if ($ms -le 0) { return }
+    $l = @(Get-ArranqueOidoMs) + $ms
+    if ($l.Count -gt $ArranqueOidoMax) { $l = @($l | Select-Object -Last $ArranqueOidoMax) }
+    try { Write-Atomico (Get-ArranqueOidoPath) (ConvertTo-Json -InputObject @($l) -Depth 2) } catch {}
+}
+
+function Get-FraseArranqueOido {
+    $ms = @()
+    $pronto = 0
+    $arranques = 0
+    try {
+        $stA = Get-Estadisticas
+        for ($i = 0; $i -lt 14; $i++) {
+            $kA = (Get-Date).AddDays(-$i).ToString('yyyy-MM-dd')
+            if (-not (Test-DiaCuenta $kA)) { continue }
+            if (-not $stA.dias.ContainsKey($kA)) { continue }
+            $dA = $stA.dias[$kA]
+            $nA = [int]$dA['arranque-oido']
+            if ($nA -gt 0) { $arranques += $nA }
+            $pronto += [int]$dA['arranque-pronto']
+        }
+        $ms = @(Get-ArranqueOidoMs)
+    } catch { return 'aun no lo he medido bastantes veces' }
+    if ($ms.Count -lt 5) { return 'aun no lo he medido bastantes veces' }
+    $orden = @($ms | Sort-Object)
+    $med = [double]$orden[[int][Math]::Floor($orden.Count / 2)]
+    $seg = [Math]::Round($med / 1000.0, 1)
+    $t = "Tardo unos $seg segundos en abrir el oido"
+    if ($arranques -gt 0) { $t += ", y en los ultimos catorce dias me has hablado dentro de esos segundos $pronto veces de $arranques arranques" }
+    return $t
+}
+
+# CUANTO TARDO EN ABRIR EL OIDO (23/09, idea 12). Se apunta UNA sola vez por arranque: con
+# 244 arranques en 15 dias, un contador que se apunte dos veces inventaria la mediana con la
+# que luego se decidiria.
+# Es un Test-Path cada 30 s, y solo hasta que apunta: ni red, ni hilo, ni nada residente.
+function Add-ArranqueOido {
+    if ($script:oidoApuntado -or $script:oidoMarcaPuesta -le 0) { return }
+    if (Test-Path -LiteralPath (Join-Path $TmpDir 'oido-cargando.txt')) { return }
+    $script:oidoApuntado = $true
+    $script:oidoListoEn = $sw.ElapsedMilliseconds
+    $ms = [int]($sw.ElapsedMilliseconds - $script:oidoMarcaPuesta)
+    Add-Estadistica 'arranque-oido' ([string]$ms)
+    # y el numero, a su propia lista, que las estadisticas solo guardan cuantas veces
+    try { Add-ArranqueOidoMs $ms } catch {}
+    Log "ARRANQUE: el oido tardo $([Math]::Round($ms / 1000.0, 1)) s en abrirse"
+}
+
+# Y EL NUMERO QUE DECIDE: cuantas veces le habla a Nova JUSTO cuando acaba de oir. Hoy vale
+# el 0,4 % (una de 234 arranques). Por encima del 15 % tendria sentido mover la carga de
+# Whisper a un hilo; por debajo del 5 %, no se toca y se deja el contador puesto.
+function Add-ArranquePronto {
+    if ($script:oidoProntoDicho -or $script:oidoListoEn -le 0) { return }
+    if (($sw.ElapsedMilliseconds - $script:oidoListoEn) -ge 3000) { return }
+    $script:oidoProntoDicho = $true
+    Add-Estadistica 'arranque-pronto' '1'
+}
+
 # Cuanto llevas fuera, en minutos. El "+60 s del arranque" no es un adorno: de los 55 huecos
 # de 20 min o mas del registro, 30 tienen un arranque de Nova dentro, y en esos ya saludo al
 # arrancar (142 veces). Sin esta mitad, Nova diria hola dos veces en pocos segundos.
@@ -15251,6 +15337,12 @@ function Initialize-Escucha {
         # el juego en primer plano.
         try { $script:wakeProc.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal } catch {}
         $script:wakeDesde = $sw.ElapsedMilliseconds
+        # PARA MEDIR CUANTO TARDA EN OIR (23/09, idea 12): sin esto no hay forma de saber si
+        # mover la carga a un hilo arreglaria algo o pagaria la primera orden por nada.
+        $script:oidoMarcaPuesta = $sw.ElapsedMilliseconds
+        $script:oidoApuntado = $false
+        $script:oidoListoEn = 0
+        $script:oidoProntoDicho = $false
         # LA MARCA LA PONE QUIEN LLEGA PRIMERO (20/09, H5m4). La escribia el worker justo
         # antes de cargar Whisper, y en el arranque de las 13:28 llego DOS SEGUNDOS tarde:
         # el saludo ya habia salido. Aqui no hay carrera posible, porque esto pasa antes
@@ -21506,6 +21598,10 @@ function Process-Texto([string]$text) {
             try { Set-HabloAhora } catch {}
             # hablarle cuenta como estar delante, pero solo para SELLAR: si el saludo saliera
             # aqui, sonaria encima de la respuesta a la orden que acabas de dar (18/09)
+            # SI LE HABLA JUSTO AL ABRIRSE EL OIDO (23/09, idea 12). Este es el unico
+            # numero que justificaria mover la carga de Whisper a un hilo, y hoy vale el
+            # 0,4 %: una orden de 234 arranques en los tres segundos siguientes.
+            try { Add-ArranquePronto } catch {}
             try { Set-PresenciaAhora } catch {}
         }
         $plano = ConvertTo-Plain $text
@@ -22455,7 +22551,17 @@ if ($SaludoOn) {
         # "Listo" y quedarse sordo es el fallo que mas confunde al arrancar. No se
         # retrasa el saludo a proposito: mas vale saludar en su momento y avisar, que
         # dejar a Nova muda cuatro segundos.
-        if (Test-Path -LiteralPath (Join-Path $TmpDir 'oido-cargando.txt')) {
+        # ...PERO SOLO SI DE VERDAD ESTA TARDANDO (23/09, idea 12). Esta coletilla salio 0
+        # veces del 10 al 19/09 y 6 de 14, 9 de 10, 12 de 12 y 13 de 13 del 20 al 23. Y NO es
+        # que el oido empeorara: la mediana de carga sigue clavada en 4,10 s. Lo que cambio
+        # el 20/09 es que la marca pasa a escribirla el asistente ANTES de lanzar nada, asi
+        # que cuando el saludo la mira SIEMPRE esta puesta. Una certeza disfrazada de aviso
+        # no informa de nada: si sale siempre, deja de querer decir algo.
+        # El segundo y medio es el hueco sordo que braya puede ver de verdad: el saludo dura
+        # 3,6 s hablando y Say deja el microfono mudo mientras tanto, asi que de los 5 s de
+        # mediana hasta que el oido abre, solo ~1,4 s caen despues de que Nova calle.
+        if ((Test-Path -LiteralPath (Join-Path $TmpDir 'oido-cargando.txt')) -and
+            $script:oidoMarcaPuesta -gt 0 -and ($sw.ElapsedMilliseconds - $script:oidoMarcaPuesta) -ge 1500) {
             $saludo = ($saludo.TrimEnd('.') + ', aunque todavia estoy abriendo el oido: dame un par de segundos.')
             Log 'ARRANQUE: el oido aun carga, lo aviso en el saludo'
         }

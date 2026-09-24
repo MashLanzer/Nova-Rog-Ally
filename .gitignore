@@ -100,3 +100,4 @@ assistant-*tmp*.ps1
 modelos/stockfish/
 memoria/ajedrez.json
 memoria/juegos-oidos.json
+memoria/arranque-oido.json

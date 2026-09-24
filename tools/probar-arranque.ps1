@@ -79,5 +79,108 @@ Comp 'y el saludo lo dice' ($txt -match 'arranque a medias') ''
 Comp 'y queda en las estadisticas' ($txt -match "Add-Estadistica 'arranque-medias'") ''
 
 Write-Host ''
+Write-Host '-- CUANTO TARDA EN ABRIR EL OIDO (23/09, idea 12) --'
+# LA IDEA PEDIDA -mover la carga de Whisper a un hilo- NO SE HACE, y los numeros dicen por
+# que: del "oido ya listo" a la primera orden, sobre 234 arranques, CERO en 2 s, UNA en 3 s
+# (el 0,4 %) y mediana 41 s. Si braya le estuviera hablando a una Nova sorda, al levantarse
+# el oido habria un monton de ordenes pegadas al cero. No hay ni una. Asi que lo que se anade
+# es la MEDICION, que es lo unico que justificaria tocar la carga algun dia.
+#
+# Y LO QUE SI ESTABA ROTO: la coletilla "todavia estoy abriendo el oido" salia en el 100 % de
+# los arranques -0 veces del 10 al 19/09, y 6/14, 9/10, 12/12 y 13/13 del 20 al 23-. Y no es
+# que el oido empeorara: la mediana de carga sigue clavada en 4,10 s. Lo que cambio el 20/09
+# es que la marca pasa a escribirla el asistente ANTES de lanzar nada, asi que cuando el
+# saludo la mira SIEMPRE esta puesta. Una certeza disfrazada de aviso no informa de nada.
+$TmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ('arr-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+$null = New-Item -ItemType Directory -Path $TmpDir -Force
+$MemoriaDir = $TmpDir
+$script:ahoraMs = 0
+$sw = [pscustomobject]@{}
+$sw | Add-Member -MemberType ScriptProperty -Name ElapsedMilliseconds -Value { $script:ahoraMs }
+$script:oidoMarcaPuesta = 0
+$script:oidoApuntado = $false
+$script:oidoListoEn = 0
+$script:oidoProntoDicho = $false
+$script:apuntes = @()
+$script:logs = @()
+function Log([string]$m) { $script:logs += $m }
+function Add-Estadistica($a, $b) { $script:apuntes += "$a" }
+function Write-Atomico([string]$r, [string]$t) { [System.IO.File]::WriteAllText($r, $t, (New-Object System.Text.UTF8Encoding($false))) }
+# EL TOPE SALE DEL FUENTE: sin el, $ArranqueOidoMax llega como $null y "Count -gt $null" es
+# cierto para cualquier lista, asi que el recorte se disparaba en el primer apunte y encima
+# reventaba. Es el mismo cuidado de siempre: nada de copiar numeros a mano.
+$srcA = [System.IO.File]::ReadAllText($rutaA)
+$ArranqueOidoMax = if ($srcA -match '(?m)^\$ArranqueOidoMax = (\d+)') { [int]$Matches[1] } else { 200 }
+foreach ($fn in @('Get-ArranqueOidoPath', 'Get-ArranqueOidoMs', 'Add-ArranqueOidoMs',
+                  'Add-ArranqueOido', 'Add-ArranquePronto')) { Invoke-Expression (Traer $fn) }
+$marcaO = Join-Path $TmpDir 'oido-cargando.txt'
+function Arranca([int]$en = 0) {
+    $script:ahoraMs = $en
+    $script:oidoMarcaPuesta = $en
+    $script:oidoApuntado = $false
+    $script:oidoListoEn = 0
+    $script:oidoProntoDicho = $false
+    $script:apuntes = @(); $script:logs = @()
+    [System.IO.File]::WriteAllText($marcaO, 'x')
+    try { Remove-Item -LiteralPath (Get-ArranqueOidoPath) -Force -ErrorAction SilentlyContinue } catch {}
+}
+
+Arranca 1000
+$script:ahoraMs = 3000
+Add-ArranqueOido
+Comp 'con la marca puesta, no apunta nada' ($script:apuntes.Count -eq 0) "$($script:apuntes.Count)"
+Remove-Item -LiteralPath $marcaO -Force
+$script:ahoraMs = 5100
+Add-ArranqueOido
+Comp 'al desaparecer la marca, apunta' (@($script:apuntes | Where-Object { $_ -eq 'arranque-oido' }).Count -eq 1) "$($script:apuntes -join ', ')"
+Comp 'y el numero es contra CUANDO se puso la marca' (@(Get-ArranqueOidoMs)[0] -eq 4100) "$(@(Get-ArranqueOidoMs)[0]) ms"
+Add-ArranqueOido
+Add-ArranqueOido
+Add-ArranqueOido
+Comp 'y se apunta UNA sola vez, aunque se llame cinco' (@($script:apuntes | Where-Object { $_ -eq 'arranque-oido' }).Count -eq 1) "$($script:apuntes -join ', ')"
+
+# el numero que DECIDE: le habla justo al abrirse el oido
+$script:ahoraMs = 7000
+Add-ArranquePronto
+Comp 'hablarle a los 1,9 s de abrirse cuenta' (@($script:apuntes | Where-Object { $_ -eq 'arranque-pronto' }).Count -eq 1) "$($script:apuntes -join ', ')"
+Add-ArranquePronto
+Comp 'pero solo una vez por arranque' (@($script:apuntes | Where-Object { $_ -eq 'arranque-pronto' }).Count -eq 1) "$($script:apuntes -join ', ')"
+Arranca 1000
+Remove-Item -LiteralPath $marcaO -Force
+$script:ahoraMs = 5100
+Add-ArranqueOido
+$script:ahoraMs = 5100 + 4000
+Add-ArranquePronto
+Comp 'y a los 4 s ya no cuenta' (@($script:apuntes | Where-Object { $_ -eq 'arranque-pronto' }).Count -eq 0) "$($script:apuntes -join ', ')"
+
+# la lista tiene tope
+Arranca 0
+Remove-Item -LiteralPath $marcaO -Force
+1..210 | ForEach-Object { Add-ArranqueOidoMs $_ }
+Comp 'la lista de tiempos no crece sin fin' (@(Get-ArranqueOidoMs).Count -le 200) "$(@(Get-ArranqueOidoMs).Count)"
+
+Write-Host ''
+Write-Host '-- y la coletilla del saludo ya no sale SIEMPRE --'
+$txtS = [System.IO.File]::ReadAllText($rutaA)
+# el if del saludo tiene que mirar el RELOJ, no solo la marca
+$iSal = $txtS.IndexOf("oido-cargando.txt')) -and")
+Comp 'la coletilla mira cuanto lleva la marca puesta' ($iSal -ge 0 -and $txtS.Substring($iSal, 220) -match 'oidoMarcaPuesta') 'antes salia el 100 % de las veces'
+Comp 'y el umbral esta escrito con su porque' ($txtS -match 'una certeza disfrazada de aviso') ''
+Comp 'la marca la sigue poniendo el asistente' ($txtS -match "WriteAllText\(\(Join-Path \`$TmpDir 'oido-cargando\.txt'\)") ''
+
+Write-Host ''
+Write-Host '-- y se puede preguntar --'
+$patA = ''
+foreach ($l in ($txtS -split "`r?`n")) {
+    if ($l -match "'(\^\(\?:cuanto tardas en [^']+)'") { $patA = $Matches[1]; break }
+}
+if (-not $patA) { throw 'no encuentro el patron de cuanto tardas en arrancar' }
+Comp '"cuanto tardas en arrancar" entra' ('cuanto tardas en arrancar' -match $patA) ''
+Comp 'y "cuanto tarda tu oido en cargar" tambien' ('cuanto tarda tu oido en cargar' -match $patA) ''
+Comp 'pero "cuanto tarda la nube" NO' ('cuanto tarda la nube' -notmatch $patA) 'esa es otra pregunta y va delante'
+
+try { Remove-Item -LiteralPath $TmpDir -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+
+Write-Host ''
 if ($mal -gt 0) { Write-Host "$mal casos MAL" -ForegroundColor Red; exit 1 }
 Write-Host 'todo correcto' -ForegroundColor Green
