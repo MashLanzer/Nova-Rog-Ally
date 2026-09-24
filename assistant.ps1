@@ -1002,6 +1002,7 @@ function Find-JuegoPorSonido([string]$resto, [string]$frase, [double]$umbral = 0
 # LA RUTA SE CALCULA AL USARLA: aqui arriba $MemoriaDir todavia no existe, y una ruta
 # vacia no da error, solo escribe donde no toca. Es el mismo arreglo que hubo que hacer
 # con la lista de juegos de dos.
+$JuegosOidosMax = 200   # ver el tope en Save-JuegoOido
 function Get-JuegosOidosPath { return (Join-Path $MemoriaDir 'juegos-oidos.json') }
 $script:juegosOidos = $null
 $script:sonidoAprendido = $false
@@ -1028,6 +1029,23 @@ function Save-JuegoOido([string]$oido, [string]$juego) {
     if (@($script:Juegos | Where-Object { [string]$_.nombre -eq $juego }).Count -eq 0) { return $false }
     $t = Get-JuegosOidos
     $t[$k] = [string]$juego
+    # UN TOPE, COMO LOS OTROS CUATRO (24/09, repaso). Este era el unico fichero nuevo sin
+    # freno: musica-no tiene 60, guia-tiempos 200, arranque-oido el suyo y descargas 30 dias.
+    # 200 formas mal oidas es mucho mas de lo que hay: el propio comentario de
+    # Find-JuegoPorSonido dice que las dos tandas dirigidas dieron 34 titulos mal oidos en
+    # total. Si se llegara, se tira lo que apunte a un juego que ya no esta instalado; y si
+    # aun asi sobra, la primera por orden, que es lo unico estable que hay aqui.
+    if ($t.Count -gt $JuegosOidosMax) {
+        foreach ($kk in @($t.Keys)) {
+            if ($t.Count -le $JuegosOidosMax) { break }
+            if (@($script:Juegos | Where-Object { [string]$_.nombre -eq [string]$t[$kk] }).Count -eq 0) { $t.Remove($kk) }
+        }
+        foreach ($kk in @($t.Keys | Sort-Object)) {
+            if ($t.Count -le $JuegosOidosMax) { break }
+            if ($kk -ne $k) { $t.Remove($kk) }
+        }
+        Log "JUEGOS OIDOS: pasaba de $JuegosOidosMax, he soltado los mas viejos"
+    }
     try {
         $o = [ordered]@{}
         foreach ($kk in ($t.Keys | Sort-Object)) { $o[$kk] = [string]$t[$kk] }
@@ -8522,6 +8540,14 @@ function Get-Habitos {
                 $script:juegoAvisoUlt = [int]$script:habitos.avisoJuego['ult']
                 $script:juegoAvisoCada = [int]$script:habitos.avisoJuego['cada']
                 $script:juegoAvisoNo = [string]$script:habitos.avisoJuego['no']
+                # el silencio de todos los avisos, y solo si es de HOY: uno de anteayer no
+                # tiene por que callar nada
+                $calDia = [string]$script:habitos.avisoJuego['calladoDia']
+                if ($calDia -and $calDia -eq (Get-DiaJuego)) {
+                    $script:entornoCallado = $true
+                    $script:entornoCalladoDia = $calDia
+                    Log "AVISOS: sigo callada de antes del arranque (hasta que cambie el dia)"
+                }
             }
             # CUANDO TE VI POR ULTIMA VEZ (18/09). Va en hora de RELOJ, no del cronometro del
             # proceso: con 187 arranques en 9 dias, un reloj de proceso no junta nunca una
@@ -8668,10 +8694,37 @@ function Test-ParteManana([datetime]$ahora = (Get-Date), [switch]$DesdeBucle) {
 # un objeto.
 $script:invitado = $false
 $script:invitadoUltimo = 0
+# EL MODO INVITADO, EN DISCO (24/09, repaso). Sin esto, braya lo pone, le deja la consola a
+# alguien, Nova se relanza -211 arranques en 14 dias, 16 al dia- y el modo se ha ido solo: a
+# partir de ahi todo lo que diga esa persona se guarda, por muchas guardas que lleve cada
+# funcion. Va en tmp, que ya esta fuera del repositorio, porque no es memoria de nadie: es el
+# estado de esta media hora.
+$InvitadoPath = Join-Path $TmpDir 'invitado.json'
+function Save-Invitado {
+    try {
+        if ($script:invitado) { Write-Atomico $InvitadoPath ('{ "desde": "' + (Get-Date).ToString('o') + '" }') }
+        elseif (Test-Path -LiteralPath $InvitadoPath) { Remove-Item -LiteralPath $InvitadoPath -Force -ErrorAction SilentlyContinue }
+    } catch {}
+}
+function Restore-Invitado {
+    try {
+        if (-not (Test-Path -LiteralPath $InvitadoPath)) { return }
+        $jI = Get-Content -LiteralPath $InvitadoPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $desdeI = [datetime]::ParseExact([string]$jI.desde, 'o', [Globalization.CultureInfo]::InvariantCulture)
+        # LOS MISMOS 30 MINUTOS DE Test-FinInvitado, contados con el reloj de pared: el
+        # cronometro del proceso vuelve a cero en cada arranque, que es justo el fallo que
+        # ya se pago con las reglas 'cada'.
+        if (((Get-Date) - $desdeI).TotalMinutes -ge 30) { Remove-Item -LiteralPath $InvitadoPath -Force -ErrorAction SilentlyContinue; return }
+        $script:invitado = $true
+        $script:invitadoUltimo = $sw.ElapsedMilliseconds
+        Log ("MODO INVITADO: sigo en invitado de antes del arranque (" + [int]((Get-Date) - $desdeI).TotalMinutes + " min)")
+    } catch { try { Remove-Item -LiteralPath $InvitadoPath -Force -ErrorAction SilentlyContinue } catch {} }
+}
 function Test-FinInvitado {
     if (-not $script:invitado) { return }
     if (($sw.ElapsedMilliseconds - $script:invitadoUltimo) -lt 1800000) { return }
     $script:invitado = $false
+    Save-Invitado
     Log "MODO INVITADO: fuera (30 min sin ordenes)"
 }
 # =====================================================================
@@ -9001,8 +9054,16 @@ $AmigoCadaMs = 120000
 # 6 h. La unica sesion continua medible de braya es 15/09 18:31 -> 16/09 00:45, 6 h 14 min.
 # Una vigilancia que dura mas que su partida mas larga es una vigilancia que ya se le olvido.
 $AmigoPlazoMs = 21600000
-$AmigoRedMs = 10000        # lo que se le deja a una peticion antes de cortarla
-$AmigoEligeMs = 90000      # lo que se espera a que diga cual de la lista
+# DIEZ SEGUNDOS: menos que los doce de la version sincrona que esta reemplaza (dos
+# Invoke-RestMethod con -TimeoutSec 6), y mas que cualquier respuesta buena de la API de
+# Steam. Pasado eso, la peticion se corta: una colgada dejaria la vigilancia muda para
+# siempre, que es peor que perder una lectura de las treinta que hay cada hora.
+$AmigoRedMs = 10000
+# NOVENTA SEGUNDOS para elegir de la lista. NO HAY MEDICION -esto se estreno ayer- y se dice:
+# sale de que Nova lee hasta diez nombres en voz alta, que a su velocidad son unos 20 s, mas el
+# tiempo de mirar. El selector del mando dura 15 s porque ahi la lista se VE; aqui hay que
+# oirla entera antes de poder contestar, asi que no se puede copiar ese numero.
+$AmigoEligeMs = 90000
 
 # LA CLAVE NO VA EN config.json (24/09, repaso): ese fichero ESTA VERSIONADO, y hasta hoy
 # Nova le decia a braya que pusiera ahi la clave de la API de Steam. El dia que la pusiera
@@ -10163,8 +10224,18 @@ function Undo-DecisionPropia {
 # mas sobre eso. Catorce dias es la ventana con la que ya cuenta sus numeros.
 function Set-DecisionDevuelta([string]$seccion, [string]$clave, [datetime]$ahora = (Get-Date)) {
     $script:decisionDevueltas["$seccion.$clave"] = $ahora.ToString('yyyy-MM-dd')
+    # SE PODA AL ESCRIBIR (24/09, repaso). Test-DecisionDevuelta ya caducaba la entrada a los
+    # $DecisionDevueltaDias dias, pero la linea seguia en config.json para siempre; y ese
+    # fichero esta versionado, asi que cada decision devuelta ensuciaba el arbol de trabajo
+    # con basura que ya no significaba nada.
     $pares = @()
-    foreach ($k in @($script:decisionDevueltas.Keys)) { $pares += ($k + '=' + $script:decisionDevueltas[$k]) }
+    foreach ($k in @($script:decisionDevueltas.Keys)) {
+        $fk = [string]$script:decisionDevueltas[$k]
+        $viva = $false
+        try { $viva = ((($ahora.Date) - ([datetime]::ParseExact($fk, 'yyyy-MM-dd', $null)).Date).TotalDays -lt $DecisionDevueltaDias) } catch { $viva = $false }
+        if (-not $viva) { $script:decisionDevueltas.Remove($k); continue }
+        $pares += ($k + '=' + $fk)
+    }
     [void](Set-Cfg 'auto' 'devueltas' ($pares -join ';'))
 }
 
@@ -10675,6 +10746,9 @@ function Receive-CorreoManana {
 function Set-AvisosEntorno([bool]$encendido) {
     $script:entornoCallado = -not $encendido
     $script:entornoCalladoDia = if ($encendido) { '' } else { Get-DiaJuego }
+    # Y AL DISCO (24/09, repaso): si no, "se me pasa manana" es mentira, se le pasa en el
+    # siguiente de los 16 arranques del dia.
+    try { Save-AvisoJuego } catch {}
     if ($encendido) { return 'Vale, vuelvo a avisarte de las cosas.' }
     # SE DICE EL PLAZO. Un modo del que no se sabe salir es el peor fallo de esta casa, y
     # decir "hasta que me digas lo contrario" era pedirle que se acordara el solo.
@@ -10687,6 +10761,7 @@ function Test-FinSilencio {
     if ((Get-DiaJuego) -ne $script:entornoCalladoDia) {
         $script:entornoCallado = $false
         $script:entornoCalladoDia = ''
+        try { Save-AvisoJuego } catch {}
         Log 'AVISOS: vuelvo a avisar (se acabo el dia del silencio)'
     }
 }
@@ -11392,6 +11467,10 @@ function Save-AvisoJuego {
         $hbA.avisoJuego['ult'] = [int]$script:juegoAvisoUlt
         $hbA.avisoJuego['cada'] = [int]$script:juegoAvisoCada
         $hbA.avisoJuego['no'] = [string]$script:juegoAvisoNo
+        # EL OTRO SILENCIO, EL DE TODOS LOS AVISOS (24/09, repaso). Nova dice "se me pasa
+        # manana" y hasta hoy solo vivia en RAM: con 16 arranques al dia se le pasaba en el
+        # siguiente, no manana. Va aqui al lado de su gemelo, que ya se guardaba.
+        $hbA.avisoJuego['calladoDia'] = [string]$script:entornoCalladoDia
         Save-Habitos
     } catch { Log ("aviso de juego: " + $_.Exception.Message) }
 }
@@ -11783,6 +11862,13 @@ function Find-CarpetaPorNombre([string]$nombre) {
 # tiene ninguno: un Get-ChildItem -Recurse sobre Descargas dentro del bucle deja el juego
 # tirando, y aqui braya esta jugando casi siempre. Al pasarse, se corta y se DICE que el
 # numero va por lo menos: media respuesta dicha como media respuesta, no como entera.
+# DE DONDE SALEN 1200 Y 20000 (24/09, repaso: el comentario explicaba por que hay tope, no de
+# donde salia el numero). 1.200 ms es el hueco que ya se considera aceptable en esta casa para
+# una orden hablada: es el mismo orden que el arranque de powershell.exe que paga la guia
+# (~2 s) y menos de la mitad del tope de red de 6 s que llevan las llamadas sincronas. Y 20.000
+# ficheros es cuatro veces lo que tiene su carpeta mas gorda; se cuentan para no depender solo
+# del reloj, que en una lectura de microSD puede irse de golpe.
+# LOS DOS SE PUEDEN AJUSTAR CON DATOS: cada corte queda apuntado como 'parcial' en la respuesta.
 function Get-ResumenCarpeta([string]$ruta, [bool]$conTamano = $false, [int]$topeMs = 1200, [int]$topeFich = 20000) {
     if (-not $ruta -or -not (Test-Path -LiteralPath $ruta)) { return @{ ok = $false } }
     $r = @{ ok = $true; ficheros = 0; carpetas = 0; nombres = @(); bytes = 0; parcial = $false }
@@ -12075,6 +12161,13 @@ $script:ytN = 0
 $script:ytVetados = 0          # cuantos tacho el veto en la ultima busqueda
 $script:ytPuesto = $null
 $script:ytHasta = 0
+# CUANTO SIGUE VALIENDO "la siguiente" (24/09, repaso: este numero estaba suelto, sin una
+# sola linea que dijera de donde salia).
+# NO HAY MEDICION Y SE DICE: los 52 intentos de musica del registro acabaron todos mal -"el
+# segundo video" se pidio cuatro veces el 15/09 y las cuatro se fueron al agente-, asi que no
+# hay ni un hueco medible entre poner una cancion y pedir la siguiente. Se copian los cinco
+# minutos de la sordina, que es el otro plazo de la casa pensado para "lo que dura una cosa
+# que acabas de pedir". En cuanto haya diez casos de verdad en el registro, se ajusta.
 $YtSiguienteMs = 300000
 function Get-VideosYouTube([string]$q) {
     if (-not $q) { return @() }
@@ -21324,6 +21417,7 @@ function Complete-Confirmacion([string]$respuesta) {
         if ($respuesta -eq 'si') {
             $script:invitado = $true
             $script:invitadoUltimo = $sw.ElapsedMilliseconds
+            Save-Invitado
             Log "MODO INVITADO: dentro (propuesto por voz ajena)"
             Send-UIEvento 'hecho'
             Say 'Modo invitado puesto. Se quita solo en media hora sin ordenes.'
@@ -22789,6 +22883,7 @@ function Process-Texto([string]$text) {
         if ($plano -match '^(?:activa|pon|ponme|entra en)\s+(?:el\s+)?modo\s+invitado$' -or $plano -match '^modo\s+invitado$') {
             $script:invitado = $true
             $script:invitadoUltimo = $sw.ElapsedMilliseconds
+            Save-Invitado
             $script:seguimientoPendiente = $false
             Log "MODO INVITADO: dentro"
             Send-UIEvento 'hecho'
@@ -22799,6 +22894,7 @@ function Process-Texto([string]$text) {
             $script:seguimientoPendiente = $false
             if (-not $script:invitado) { Say 'No estaba puesto.'; return }
             $script:invitado = $false
+            Save-Invitado
             Log "MODO INVITADO: fuera (pedido)"
             Send-UIEvento 'hecho'
             Say 'Modo invitado quitado.'
@@ -23832,8 +23928,17 @@ $script:mandoHay = $false
 # se uso para contestar CERO veces en catorce dias, y con el oido al 70,4 % una trivia se
 # contesta con nombres propios, que es lo peor que le puede llegar.
 function Get-TriviaPath { return (Join-Path $MemoriaDir 'trivia.json') }
-$TriviaMinBanco = 8        # por debajo de esto se piden mas, no antes
-$TriviaModoMs = 300000     # cinco minutos: el plazo del MODO (el del selector son 15 s)
+# OCHO, Y NO ES UN NUMERO REDONDO PORQUE SI: por debajo de ocho, una tanda seguida se come
+# el banco entero y Show-PreguntaTrivia empieza a dar la vuelta -a repetir- dentro de la misma
+# sentada, que es exactamente lo que mato a la trivia el 13/09 (le devolvio su propia pregunta
+# de hacia tres minutos). Por encima, pedir mas antes de tiempo es gastar el modelo local para
+# nada.
+$TriviaMinBanco = 8
+# NO HAY MEDICION, Y ES QUE NO PUEDE HABERLA: la trivia se uso UNA vez en catorce dias, el
+# 13/09 a las 20:48:52, y braya contesto "no se, me rindo". Cinco minutos es lo que dan unas
+# diez preguntas al ritmo de una pregunta leida en voz alta mas su respuesta, y es el mismo
+# numero que la sordina. Se ajusta con la primera tanda de verdad que juegue.
+$TriviaModoMs = 300000
 $script:triviaBanco = $null
 $script:triviaActual = $null
 $script:triviaModoHasta = 0
@@ -24060,6 +24165,10 @@ $XINPUT_A = 0x1000
 $XINPUT_B = 0x2000
 $script:botonesPrev = 0
 $script:mandoRespondioEn = -100000
+
+# EL MODO INVITADO, SI VENIA DE ANTES (24/09, repaso). Va aqui, justo antes del bucle, para
+# que ni una sola vuelta corra creyendo que el que habla es braya.
+try { Restore-Invitado } catch {}
 
 $script:erroresBucle = 0
 while ($true) {

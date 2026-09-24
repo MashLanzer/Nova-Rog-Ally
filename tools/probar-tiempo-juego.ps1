@@ -279,6 +279,16 @@ Comp 'el mismo dia sigue callado' ($script:entornoCallado) 'no se cae antes de t
 $script:entornoCalladoDia = '2026-01-01'
 Test-FinSilencio
 Comp 'y al dia siguiente vuelve SOLO' (-not $script:entornoCallado) 'esto era un modo del que solo se salia acordandose'
+# Y QUE DURE HASTA MANANA DE VERDAD (24/09, repaso). Nova dice "se me pasa manana" y el
+# estado solo vivia en RAM: con 16,3 arranques al dia se le pasaba en el siguiente, no
+# manana. Su gemelo, juegoAvisoNo, si se guardaba desde la idea 11-B.
+$codS = ($ast.Find({ param($x)
+    $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq 'Set-AvisosEntorno' }, $true)).Extent.Text
+Comp 'callar los avisos se guarda en disco' ($codS -match 'Save-AvisoJuego') 'si no, "se me pasa manana" es mentira'
+$codG = ($ast.Find({ param($x)
+    $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq 'Save-AvisoJuego' }, $true)).Extent.Text
+Comp 'y lo que se guarda es el DIA, no un si o un no' ($codG -match "calladoDia") 'asi caduca solo al cambiar el dia'
+Comp 'al arrancar se relee, y solo si es de hoy' ($fuente -match '\$calDia -eq \(Get-DiaJuego\)') 'un silencio de anteayer no calla nada' 
 
 Write-Host ''
 Write-Host '-- y el codigo dice lo que tiene que decir --'

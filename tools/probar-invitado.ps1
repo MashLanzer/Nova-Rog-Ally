@@ -139,5 +139,34 @@ Comp 'Add-Rechazo devuelve false, no se traga el resultado' ($r -eq $false) ("->
 $script:invitado = $false
 
 Write-Host ''
+Write-Host '  -- y que sobreviva a un arranque (16,3 al dia) --'
+# Sin esto, braya pone el modo invitado, le deja la consola a alguien, Nova se relanza y el
+# modo se ha ido solo: a partir de ahi se guarda todo lo que diga esa persona, por muchas
+# guardas que lleve cada funcion.
+$TmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ('inv-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+$null = New-Item -ItemType Directory -Path $TmpDir -Force
+$sw = [System.Diagnostics.Stopwatch]::StartNew()
+function Write-Atomico([string]$r, [string]$t, [bool]$b = $false) { [System.IO.File]::WriteAllText($r, $t, (New-Object System.Text.UTF8Encoding($false))) }
+$InvitadoPath = Join-Path $TmpDir 'invitado.json'
+Invoke-Expression (Traer 'Save-Invitado')
+Invoke-Expression (Traer 'Restore-Invitado')
+$script:invitado = $true
+Save-Invitado
+Comp 'el modo invitado queda apuntado' (Test-Path -LiteralPath $InvitadoPath) ''
+$script:invitado = $false                      # esto es lo que pasa al reiniciar Nova
+Restore-Invitado
+Comp 'y tras reiniciar, sigue puesto' ($script:invitado) 'antes se iba solo 16 veces al dia'
+# y caduca a los 30 minutos, como Test-FinInvitado
+[System.IO.File]::WriteAllText($InvitadoPath, ('{ "desde": "' + (Get-Date).AddMinutes(-31).ToString('o') + '" }'), (New-Object System.Text.UTF8Encoding($false)))
+$script:invitado = $false
+Restore-Invitado
+Comp 'pero uno de hace media hora ya no' (-not $script:invitado) 'los mismos 30 min de Test-FinInvitado'
+Comp 'y se borra el rastro' (-not (Test-Path -LiteralPath $InvitadoPath)) ''
+$script:invitado = $true; Save-Invitado
+$script:invitado = $false; Save-Invitado
+Comp 'al salir del modo, el fichero se va' (-not (Test-Path -LiteralPath $InvitadoPath)) ''
+try { Remove-Item -LiteralPath $TmpDir -Recurse -Force -ErrorAction SilentlyContinue } catch {}
+
+Write-Host ''
 if ($mal -gt 0) { Write-Host "$mal casos MAL" -ForegroundColor Red; exit 1 }
 Write-Host 'todo correcto' -ForegroundColor Green
