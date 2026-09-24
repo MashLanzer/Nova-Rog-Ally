@@ -5,10 +5,12 @@
 # tocarlas sin red seria justo lo que la casa no hace:
 #
 #   Get-MusicaActual       (idea 1: poner musica y decir que se pone)
-#   Get-PrimerVideoYouTube (idea 1: el video N, "no, la siguiente")
+#   Get-VideosYouTube      (idea 1: el video N, "no, la siguiente"; se llamaba
+#                           Get-PrimerVideoYouTube hasta el 23/09)
 #   Test-Recordatorios     (idea 4: recordatorios que se repiten)
 #   Remove-DatoPerfil      (idea 7: "eso es falso, eliminalo")
-#   Get-AmigosSteam        (idea 10: avisar cuando se conecte alguien)
+#   Get-AmigosLista        (idea 10: avisar cuando se conecte alguien; era la mitad
+#                           de Get-AmigosSteam hasta el 24/09)
 #
 # Aqui no se prueba que Windows tenga musica ni que Steam conteste: eso no se puede fijar en
 # un banco. Se prueba LO QUE ES DE NOVA y le puede fallar a braya: que no reviente cuando el
@@ -158,16 +160,20 @@ Comp 'pero una palabra rara si borra el suyo' ($raro -match 'astronomia') "'$rar
 Comp 'y solo ese' ($script:datos.Count -eq ($antesN - 1))
 
 Write-Host ''
-Write-Host '-- 3. Get-PrimerVideoYouTube: el numero N, y si no hay, lo dice --'
-$yt = TraerCodigo 'Get-PrimerVideoYouTube'
-Comp 'sin busqueda, devuelve vacio' ($yt -match "if \(-not \`$q\) \{ return '' \}") 'nada de inventarse una url'
+Write-Host '-- 3. Get-VideosYouTube: el tope de tiempo y la red de debajo --'
+# LA FUNCION CAMBIO DE NOMBRE (24/09). Get-PrimerVideoYouTube ya no existe: la idea 1-A la
+# partio en Get-VideosYouTube (la red) y Select-VideoYouTube (el numero N), y este banco
+# seguia llamando a la vieja. Con -File, PowerShell 5.1 salia con codigo 0 aunque el script
+# muriera ahi mismo, asi que estuvo rojo sin que nadie lo viera hasta que se le puso el trap.
+# Lo que se prueba aqui es SOLO lo que no mira probar-musica-no.ps1: el tope de tiempo, que
+# no reviente si YouTube falla, y la red de debajo -el metodo viejo- que salta cuando la
+# pagina no trae bloques de resultado.
+$yt = TraerCodigo 'Get-VideosYouTube'
+Comp 'sin busqueda, devuelve vacio' ($yt -match 'if \(-not \$q\) \{ return @\(\) \}') 'nada de inventarse una url'
 Comp 'tiene tope de tiempo' ($yt -match 'TimeoutSec 6') 'no se cuelga esperando a YouTube'
-Comp 'saca los ids con un patron de 11 caracteres' ($yt -match 'videoId.*A-Za-z0-9_-\]\{11\}') 'el largo exacto de un id'
+Comp 'y si YouTube falla, no revienta ni inventa' (($yt -match 'catch') -and ($yt -match 'abro la busqueda')) ''
+Comp 'la red de debajo saca ids de 11 caracteres' ($yt -match 'A-Za-z0-9_-\]\{11\}') 'el largo exacto de un id'
 Comp 'y quita los repetidos' ($yt -match 'Select-Object -Unique') 'YouTube repite el mismo video en la pagina'
-Comp 'si pide el 5 y solo hay 3, da el ultimo' ($yt -match 'pongo el ultimo') 'y lo dice en el log'
-Comp 'si no hay ninguno, devuelve vacio' ($yt -match "sin videos en la pagina") 'y quien llama abre la busqueda'
-Comp 'y si YouTube falla, tampoco inventa' (($yt -match 'catch') -and ($yt -match "return ''"))
-# la parte de sacar ids se puede probar SIN red, con una pagina de mentira
 # LA LINEA QUE SACA LOS IDS SE TRAE DE LA FUNCION, no se copia: copiandola, este banco
 # seguia verde con el -Unique quitado del codigo de verdad. Se vio rompiendolo.
 $lineasYt = @($yt -split "`n")
@@ -184,7 +190,6 @@ $ids = @($ids)
 Comp 'con una pagina de mentira saca tres distintos' ($ids.Count -eq 3) ($ids -join ', ')
 Comp 'y el segundo es el segundo' ($ids[1] -eq 'bbbbbbbbbbb')
 
-Write-Host ''
 Write-Host '-- 4. Get-MusicaActual: lo que suena, sin colgarse ni inventar --'
 $mu = TraerCodigo 'Get-MusicaActual'
 Comp 'se rinde tras tres fallos seguidos' ($mu -match 'mediaFallos -ge 3') 'sin sesion de medios, no se insiste'
@@ -195,14 +200,27 @@ Comp 'y la pregunta tiene tope de 1,5 s' ($mu -match 'TryGetMediaPropertiesAsync
 Comp 'si revienta, lo apunta y devuelve nada' (($mu -match 'catch') -and ($mu -match "Log \(""musica: "))
 
 Write-Host ''
-Write-Host '-- 5. Get-AmigosSteam: y sobre todo, que la clave no salga en el log --'
-$am = TraerCodigo 'Get-AmigosSteam'
-Comp 'sin clave lo dice y no llama' ($am -match 'necesito una clave de su API') 'y dice donde pedirla'
+Write-Host '-- 5. Los amigos de Steam: y sobre todo, que la clave no salga en el log --'
+# LA FUNCION SE PARTIO EN DOS (24/09, idea 10). Get-AmigosSteam era una sola cosa que pedia y
+# redactaba la frase; ahora Get-AmigosLista pide y devuelve la lista, y Get-AmigosSteam solo
+# redacta. Lo delicado -la clave, los topes de tiempo, el tope de amigos- se fue con la que
+# pide, asi que es ahi donde hay que mirar. El banco apuntaba a la vieja y se habria quedado
+# verde mirando una funcion que ya no toca la red.
+$am = TraerCodigo 'Get-AmigosLista'
+Comp 'sin clave lo dice y no llama' ($am -match 'necesito una clave de la API de Steam') 'y dice donde pedirla'
 Comp 'sin sesion de Steam, tambien lo dice' ($am -match 'no tiene la sesion iniciada')
 Comp 'LA CLAVE SE TAPA EN EL LOG' ($am -match "key=\*\*\*") 'un log con la clave dentro es un log que no se puede ensenar'
 Comp 'las dos llamadas llevan tope de tiempo' (@([regex]::Matches($am, 'TimeoutSec 6')).Count -eq 2)
 Comp 'y no pide mas de cien amigos' ($am -match 'Select-Object -First 100')
 Comp 'si Steam falla, lo dice y no revienta' ($am -match 'no pude preguntarle a Steam')
+Comp 'la que redacta no vuelve a salir a la red' ((TraerCodigo 'Get-AmigosSteam') -notmatch 'Invoke-RestMethod') 'una sola puerta a Steam'
+# LA OTRA PUERTA, la del bucle: tambien lleva la clave en la URL
+$as = TraerCodigo 'Start-SteamAsync'
+Comp 'la peticion del bucle tambien tapa la clave' ($as -match "key=\*\*\*") 'es la misma clave en la misma URL'
+Comp 'y no lanza dos peticiones a la vez' ($as -match 'if \(\$script:steamTask\) \{ return \$false \}') ''
+$ac = TraerCodigo 'Complete-SteamAsync'
+Comp 'recogerla NUNCA espera' (($ac -match 'IsCompleted') -and ($ac -notmatch '\.Wait\(|\.GetAwaiter\(')) 'el bucle no se para: braya juega mientras habla'
+Comp 'y una peticion colgada se corta' ($ac -match 'CancelAsync') 'si no, la vigilancia se queda muda para siempre'
 # y la comprobacion de verdad: que el enmascarado FUNCIONA
 $mensajeConClave = "steam amigos: error de https://api.steampowered.com/x?key=ABCD1234SECRETO&steamid=1 timeout"
 $tapado = $mensajeConClave -replace 'key=[^&\s]+', 'key=***'

@@ -487,6 +487,18 @@ Titulo "2n123. El modo de dos jugadores: ya existe, y la frase que lo pone"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-modo-dos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el modo de dos ya existe)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n124. Avisar cuando se conecte alguien en Steam"
+# Idea 10. Lo primero, y no se puede tapar: config.json NO tiene steam.apiKey, y en 14 dias
+# Get-AmigosSteam no ha devuelto un solo amigo -braya lo pidio el 14/09 a las 00:15:50, Nova
+# le contesto que necesitaba la clave, y sigue sin ponerla-. Por eso la comprobacion 10 es que
+# SIN CLAVE no se arma nada y no sale una sola peticion. Lo que mas se vigila: que sin nada
+# que vigilar no se llame a Steam -eso seria red en el bucle mientras juega-, que el aviso vaya
+# por FLANCO y no por ESTADO -el de bateria llena se hizo por estado y dejo 19 avisos
+# identicos, cuatro al dia, los quince ultimos sin que pasara nada-, y que el plazo sobreviva
+# al reinicio, que son 211 arranques en 14 dias.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-amigos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:avisa una vez, por flanco)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n120. La musica: poner lo que es, y no repetir lo que no le gusta"
 # Ideas 1-A y 1-B. 52 intentos con frases distintas y ninguno acabo bien. El fallo de raiz,
 # medido contra youtube.com con cuatro busquedas suyas: el regex viejo devolvia 45, 71, 45 y

@@ -5395,6 +5395,40 @@ function Resolve-Fragment([string]$f) {
                         youtube = $script:ytUltimaBusqueda; videoN = $nV2; desc = "poner el numero $nV2 de '$($script:ytUltimaBusqueda)'" })
         }
     }
+    # AVISAR CUANDO SE CONECTE ALGUIEN (23/09, idea 10). Vive aqui, pegado a los ordinales de
+    # YouTube, porque es el MISMO mecanismo: Nova lee una lista numerada y braya elige el
+    # numero. Es lo unico que aguanta el 70,4 % del oido con nombres de Steam -su perfil
+    # guarda un mismo nick como Meramiau, Mira mio y Meramion-.
+    #
+    # EL SUJETO ES UNA LISTA CERRADA DE CINCO PALABRAS y nunca un nombre: asi no hay nada
+    # que oir mal. Y no le quita la frase a nadie: "cuando conecte el disco de los juegos"
+    # empieza por "cuando", no por "avisame", y el patron de descargas pide termine/acabe/
+    # complete/descargue/baje/instale, ninguno de los cuales es "conecte".
+    if ($f -match '^(?:avisa|avisame|avisas|dime|me dices|me avisas)\s+(?:cuando|en cuanto)\s+(?:se\s+)?(?:conecte|conecta|entre|se\s+meta|este\s+en\s+linea)\s+(?:mi\s+)?(?:novia|chica|amiga|amigo|novio)$') {
+        return @(@{ kind = 'amigoVigila'; desc = 'vigilar quien se conecta en Steam' })
+    }
+    # EL NUMERO, y SOLO mientras hay una lista viva: fuera de esos noventa segundos "el dos"
+    # no significa nada aqui y sigue su camino. Sin esta guarda, un "dos" suelto en mitad de
+    # una charla acabaria armando una vigilancia que nadie pidio, que es la regla 1.
+    if ($script:amigoEligiendo -and ($sw.ElapsedMilliseconds - [double]$script:amigoEligiendo.en) -lt $AmigoEligeMs -and
+        $f -match '^(?:el\s+|la\s+|el\s+numero\s+|la\s+numero\s+)?(\w+)$' -and
+        ($CARDINALES.ContainsKey([string]$Matches[1]) -or $ORDINALES_YT.ContainsKey([string]$Matches[1]) -or
+         (([string]$Matches[1]).Length -le 2 -and ($Matches[1] -as [int]) -gt 0))) {
+        $ordA = [string]$Matches[1]
+        # LOS DOS, cardinal y ordinal: Nova acaba de decir "dime el numero", asi que lo que va
+        # a salir es "el dos" mucho antes que "el segundo". $ORDINALES_YT no tiene 'dos' -es
+        # de "la segunda cancion"- y sin esto la frase se iba al modelo justo despues de que
+        # Nova le pidiera un numero.
+        $nA = if ($CARDINALES.ContainsKey($ordA)) { [int]$CARDINALES[$ordA] }
+              elseif ($ORDINALES_YT.ContainsKey($ordA)) { [int]$ORDINALES_YT[$ordA] }
+              else { [int]$ordA }
+        return @(@{ kind = 'amigoElige'; n = $nA; desc = "el numero $nA de la lista de amigos" })
+    }
+    # LA SALIDA POR VOZ. Una vigilancia que solo se quita por el plazo de seis horas es un
+    # modo sin salida, y eso aqui no pasa.
+    if ($f -match '^(?:olvida|olvidate\s+de|quita|borra|cancela|deja)\s+(?:lo\s+de\s+|el\s+aviso\s+de\s+|de\s+vigilar\s+a\s+|de\s+avisarme\s+de\s+)?(?:mi\s+)?(?:novia|chica|amiga|amigo|novio)$') {
+        return @(@{ kind = 'amigoOlvida'; desc = 'dejar de vigilar quien se conecta' })
+    }
     if ($f -match '^(?:pon|ponme|reproduce|reproduceme|quiero ver|ver|toca|dale a)\s+(?:el|la)\s+(\w+)\s*(?:video|vídeo|cancion|resultado|tema)?\s*(?:de\s+(?:youtube|la\s+lista|la\s+busqueda))?$' -and
         ($ORDINALES_YT.ContainsKey([string]$Matches[1]) -or (([string]$Matches[1]).Length -le 2 -and ($Matches[1] -as [int]) -gt 0))) {
         $ordTxt = [string]$Matches[1]
@@ -8897,33 +8931,271 @@ function Invoke-RutinaDormir {
 # AMIGOS CONECTADOS (F9): Steam, con su API web (hace falta una clave gratuita de
 # steamcommunity.com/dev/apikey en config: steam, apiKey). Discord no deja verlo
 # sin un bot: no se puede.
-function Get-AmigosSteam {
-    $claveS = [string](Get-Cfg 'steam' 'apiKey' '')
-    if (-not $claveS) { return 'para ver quien esta conectado en Steam necesito una clave de su API: pidela en steamcommunity.com barra dev barra apikey y ponla en la configuracion, en steam, apiKey' }
+# AVISAR CUANDO SE CONECTE ALGUIEN EN STEAM (23/09, idea 10).
+#
+# LO PRIMERO, LO QUE NO SE PUEDE OCULTAR: config.json no tiene steam.apiKey, y en 14 dias
+# Get-AmigosSteam NO HA DEVUELTO UN SOLO AMIGO. braya lo pidio una vez -14/09 00:15:50- y
+# Nova le contesto que necesitaba la clave; nueve dias despues sigue sin ponerla. Sin clave
+# aqui NO se arma nada y NO sale una sola peticion: el sensor del bucle ni entra.
+#
+# Y LO SEGUNDO, igual de honesto: sus personas estan en Discord, no en Steam. De 31 eventos de
+# notificacion reales, 24 son de Discord (77 %), y Discord no se puede mirar sin un bot. Esto
+# solo sirve si ella usa Steam. A favor: el 23/09 de 00:32 a 00:50 se bajo Unravel Two y A Way
+# Out, los dos de dos jugadores obligatorios, y el 15/09 jugo 5 h 38 a It Takes Two. Los
+# juegos de pareja son de Steam, asi que merece la pena.
+#
+# REGLA 4 (el bucle no se para): Get-AmigosSteam tal cual NO puede entrar en el bucle, son dos
+# Invoke-RestMethod con -TimeoutSec 6, o sea hasta 12 s de consola congelada con un juego
+# delante. Por eso la del bucle es asincrona: se lanza y se recoge cuando esta, y si tarda mas
+# de diez segundos se corta. La sincrona solo se usa al CREAR la vigilancia, que es cuando
+# braya esta hablando con Nova, no jugando.
+# REGLA 5 (nada residente): ni proceso, ni runspace, ni hilo. El Task vive lo que dura la
+# peticion. Sin regla armada, ni eso.
+# REGLA 7 (el oido acierta el 70,4 %): en ningun sitio se transcribe el nombre de Steam de
+# nadie. Nova lee la lista NUMERADA y braya elige por ordinal o con el mando, igual que con
+# los resultados de YouTube. Su perfil lo respalda: 8 de sus 59 datos son dos nombres mal
+# oidos, y uno salio como Meramiau / Mira mio / Meramion, tres formas del mismo nick.
+$script:steamTask = $null
+$script:steamTaskWC = $null
+$script:steamTaskMs = 0
+$script:amigoCheck = -120000
+# lo que se vio la vuelta anterior, por steamid. UNA CLAVE QUE NO ESTA es "aun no se sabe", y
+# esa diferencia es toda la idea: ver a alguien conectado la primera vez NO es que se acabe de
+# conectar. Mismo trato que $script:bajandoAntes y $script:llenaAntes.
+$script:amigoOnline = @{}
+$script:amigoEligiendo = $null
+# 120 s: exactamente la cadencia del chequeo de descargas, que lleva 14 dias en ese bucle sin
+# dar un problema. Son 30 peticiones a la hora, y CERO cuando no hay nada que vigilar. Menos
+# de dos minutos no compra nada -el aviso es para ir a jugar, no para contestar un mensaje- y
+# mas de cinco llega tarde a una partida.
+$AmigoCadaMs = 120000
+# 6 h. La unica sesion continua medible de braya es 15/09 18:31 -> 16/09 00:45, 6 h 14 min.
+# Una vigilancia que dura mas que su partida mas larga es una vigilancia que ya se le olvido.
+$AmigoPlazoMs = 21600000
+$AmigoRedMs = 10000        # lo que se le deja a una peticion antes de cortarla
+$AmigoEligeMs = 90000      # lo que se espera a que diga cual de la lista
+
+function Get-ClaveSteam { return [string](Get-Cfg 'steam' 'apiKey' '') }
+function Get-YoSteam {
     $cuentaS = [int64]0
     try { $cuentaS = [int64](Get-ItemProperty 'HKCU:\Software\Valve\Steam\ActiveProcess' -ErrorAction Stop).ActiveUser } catch {}
-    if ($cuentaS -le 0) { return 'Steam no tiene la sesion iniciada' }
-    $yoS = [string]([int64]76561197960265728 + $cuentaS)
+    if ($cuentaS -le 0) { return '' }
+    return [string]([int64]76561197960265728 + $cuentaS)
+}
+
+# LA PETICION QUE NO PARA EL BUCLE. Devuelve $false si ya hay una en vuelo: dos a la vez no
+# compran nada y la segunda se comeria la respuesta de la primera.
+function Start-SteamAsync([string]$url) {
+    if ($script:steamTask) { return $false }
     try {
-        $fl = Invoke-RestMethod "https://api.steampowered.com/ISteamUser/GetFriendList/v1/?key=$claveS&steamid=$yoS&relationship=friend" -TimeoutSec 6
-        $idsS = @($fl.friendslist.friends | ForEach-Object { $_.steamid } | Select-Object -First 100)
-        if ($idsS.Count -eq 0) { return 'no veo a ningun amigo en tu lista de Steam' }
-        $psS = Invoke-RestMethod ("https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key=$claveS&steamids=" + ($idsS -join ',')) -TimeoutSec 6
-        $onS = @($psS.response.players | Where-Object { [int]$_.personastate -gt 0 })
-        if ($onS.Count -eq 0) { return 'ahora mismo no hay nadie conectado en Steam' }
-        $jugandoS = @($onS | Where-Object { $_.gameextrainfo } | ForEach-Object { "$($_.personaname) jugando a $($_.gameextrainfo)" })
-        $soloS = @($onS | Where-Object { -not $_.gameextrainfo } | ForEach-Object { $_.personaname })
-        $partesS = @()
-        if ($jugandoS.Count) { $partesS += ($jugandoS -join ', ') }
-        if ($soloS.Count) { $partesS += ('conectados: ' + ($soloS -join ', ')) }
-        return "en Steam hay $($onS.Count): " + ($partesS -join '; ')
+        $wcS = New-Object System.Net.WebClient
+        $script:steamTaskWC = $wcS
+        $script:steamTask = $wcS.DownloadStringTaskAsync($url)
+        $script:steamTaskMs = $sw.ElapsedMilliseconds
+        return $true
     } catch {
-        Log ("steam amigos: " + ($_.Exception.Message -replace 'key=[^&\s]+', 'key=***'))
-        return 'no pude preguntarle a Steam'
+        Log ("steam async: " + ($_.Exception.Message -replace 'key=[^&\s]+', 'key=***'))
+        $script:steamTask = $null; $script:steamTaskWC = $null
+        return $false
     }
 }
 
-# HISTORIAL DE MUSICA (F10): lo que ha sonado, con fecha (memoria\musica.json,
+# Se llama cada vuelta y NUNCA espera: o esta, o no esta. Si lleva mas de diez segundos se
+# corta y se tira, que una peticion colgada dejaria la vigilancia muda para siempre.
+function Complete-SteamAsync {
+    if (-not $script:steamTask) { return $null }
+    $tS = $script:steamTask
+    if ($tS.IsCompleted) {
+        $txtS = $null
+        try { if (-not $tS.IsFaulted -and -not $tS.IsCanceled) { $txtS = [string]$tS.Result } } catch { $txtS = $null }
+        if ($null -eq $txtS) { Log 'STEAM: la peticion no trajo nada' }
+        try { $script:steamTaskWC.Dispose() } catch {}
+        $script:steamTask = $null; $script:steamTaskWC = $null
+        return $txtS
+    }
+    if (($sw.ElapsedMilliseconds - $script:steamTaskMs) -gt $AmigoRedMs) {
+        try { $script:steamTaskWC.CancelAsync() } catch {}
+        try { $script:steamTaskWC.Dispose() } catch {}
+        $script:steamTask = $null; $script:steamTaskWC = $null
+        Log 'STEAM: la peticion tardo mas de la cuenta, la corto'
+    }
+    return $null
+}
+
+# LA LISTA, SINCRONA Y A PROPOSITO: esto solo se llama cuando braya acaba de hablar, nunca
+# desde el bucle. Devuelve @{ error = '<lo que se le dice>'; lista = @(@{id;nombre;online;jugando}) }.
+function Get-AmigosLista {
+    $claveS = Get-ClaveSteam
+    if (-not $claveS) { return @{ error = 'para eso necesito una clave de la API de Steam: pidela en steamcommunity.com barra dev barra apikey y ponla en la configuracion, en steam, apiKey'; lista = @() } }
+    $yoS = Get-YoSteam
+    if (-not $yoS) { return @{ error = 'Steam no tiene la sesion iniciada'; lista = @() } }
+    try {
+        $flS = Invoke-RestMethod "https://api.steampowered.com/ISteamUser/GetFriendList/v1/?key=$claveS&steamid=$yoS&relationship=friend" -TimeoutSec 6
+        $idsS = @($flS.friendslist.friends | ForEach-Object { [string]$_.steamid } | Select-Object -First 100)
+        if ($idsS.Count -eq 0) { return @{ error = 'no veo a ningun amigo en tu lista de Steam'; lista = @() } }
+        $psS = Invoke-RestMethod ("https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key=$claveS&steamids=" + ($idsS -join ',')) -TimeoutSec 6
+        $outS = @()
+        foreach ($pS in @($psS.response.players)) {
+            $outS += @{ id = [string]$pS.steamid; nombre = [string]$pS.personaname
+                        online = ([int]$pS.personastate -gt 0)
+                        # SIN personastate NO HAY VIGILANCIA POSIBLE: con el perfil en privado
+                        # la API no lo devuelve y esto no se enteraria nunca de nada. Se detecta
+                        # aqui, al crearla, y se dice en el momento; callarse y no avisar jamas
+                        # seria lo peor que puede hacer.
+                        visible = ($null -ne $pS.personastate)
+                        jugando = [string]$pS.gameextrainfo }
+        }
+        return @{ error = ''; lista = $outS }
+    } catch {
+        # LA CLAVE NUNCA VA AL REGISTRO: viaja en la propia URL y el mensaje de error la
+        # arrastra entera.
+        Log ("steam amigos: " + ($_.Exception.Message -replace 'key=[^&\s]+', 'key=***'))
+        return @{ error = 'no pude preguntarle a Steam'; lista = @() }
+    }
+}
+
+function Get-AmigosSteam {
+    $rS = Get-AmigosLista
+    if ($rS.error) { return $rS.error }
+    $onS = @($rS.lista | Where-Object { $_.online })
+    if ($onS.Count -eq 0) { return 'ahora mismo no hay nadie conectado en Steam' }
+    $jugandoS = @($onS | Where-Object { $_.jugando } | ForEach-Object { "$($_.nombre) jugando a $($_.jugando)" })
+    $soloS = @($onS | Where-Object { -not $_.jugando } | ForEach-Object { $_.nombre })
+    $partesS = @()
+    if ($jugandoS.Count) { $partesS += ($jugandoS -join ', ') }
+    if ($soloS.Count) { $partesS += ('conectados: ' + ($soloS -join ', ')) }
+    return "en Steam hay $($onS.Count): " + ($partesS -join '; ')
+}
+
+# EL SENSOR. Se llama desde el bucle y lo primero que hace es irse si no hay nada que vigilar.
+function Watch-AmigoConecta {
+    $gA = Get-Reglas
+    $vigA = @()
+    foreach ($rA in @($gA)) { if ([string]$rA.tipo -eq 'amigoConecta') { $vigA += $rA } }
+    if ($vigA.Count -eq 0) {
+        # NADA ARMADO, NADA CORRIENDO: ni una peticion, ni un objeto vivo. Si quedaba algo en
+        # vuelo de antes de borrar la regla, se recoge aqui y se tira.
+        if ($script:steamTask) { [void](Complete-SteamAsync) }
+        if ($script:amigoOnline.Count -gt 0) { $script:amigoOnline = @{} }
+        return
+    }
+    # EL PLAZO, ANTES QUE LA RED: una vigilancia vencida no gasta ni una peticion mas.
+    $ahoraA = Get-Date
+    $fueraA = 0
+    foreach ($rA in @($vigA)) {
+        $trA = ([string]$rA.valor).Split('|')
+        $hastaA = $null
+        if ($trA.Count -ge 3) {
+            try { $hastaA = [datetime]::ParseExact($trA[2], 'o', [Globalization.CultureInfo]::InvariantCulture) } catch { $hastaA = $null }
+        }
+        # SIN PLAZO LEGIBLE, FUERA. Una regla que habla sola y no sabe cuando acaba es
+        # justo lo que la regla 2 de la casa no permite.
+        if ($null -eq $hastaA -or $ahoraA -gt $hastaA) {
+            Log ("VIGILANCIA vencida: " + $(if ($trA.Count -ge 2) { $trA[1] } else { $rA.valor }))
+            [void]$gA.Remove($rA); $fueraA++
+        }
+    }
+    if ($fueraA -gt 0) {
+        Save-Reglas
+        $vigA = @()
+        foreach ($rA in @($gA)) { if ([string]$rA.tipo -eq 'amigoConecta') { $vigA += $rA } }
+        if ($vigA.Count -eq 0) { $script:amigoOnline = @{}; return }
+    }
+    # lo que haya llegado de la vuelta anterior
+    $jsonA = Complete-SteamAsync
+    if ($jsonA) {
+        $psA = $null
+        try { $psA = $jsonA | ConvertFrom-Json } catch { $psA = $null }
+        foreach ($pA in @($psA.response.players)) {
+            $idA = [string]$pA.steamid
+            if (-not $idA) { continue }
+            $onA = ([int]$pA.personastate -gt 0)
+            # FLANCO, NO ESTADO. El aviso de bateria llena se hizo por estado y dejo 19 avisos
+            # identicos, cuatro al dia desde el 19/09, con el ultimo cambio real el 19/09 a las
+            # 09:24: los quince ultimos salieron sin que pasara nada. Aqui no.
+            if ($script:amigoOnline.ContainsKey($idA)) {
+                if ($onA -and -not [bool]$script:amigoOnline[$idA]) {
+                    Log "AMIGO conectado: $idA"
+                    try { Invoke-Reglas 'amigoConecta' $idA } catch { Log ("regla de amigo: " + $_.Exception.Message) }
+                }
+            }
+            $script:amigoOnline[$idA] = $onA
+        }
+    }
+    if (-not $script:steamTask -and ($sw.ElapsedMilliseconds - $script:amigoCheck) -ge $AmigoCadaMs) {
+        $script:amigoCheck = $sw.ElapsedMilliseconds
+        $claveA = Get-ClaveSteam
+        if ($claveA) {
+            $idsA = @()
+            foreach ($rA in $vigA) { $idsA += ([string]$rA.valor).Split('|')[0] }
+            $idsA = @($idsA | Where-Object { $_ } | Select-Object -Unique)
+            if ($idsA.Count -gt 0) {
+                [void](Start-SteamAsync ("https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key=$claveA&steamids=" + ($idsA -join ',')))
+            }
+        }
+    }
+}
+
+# ARMARLA: se lee la lista, se numera y se pregunta. NO se guarda nada todavia, porque
+# todavia no se sabe a quien. Devuelve la frase que hay que decir.
+function Start-AmigoVigila {
+    $rV = Get-AmigosLista
+    if ($rV.error) { return $rV.error }
+    # POR NOMBRE Y SOLO POR NOMBRE: la lista tiene que salir IGUAL cada vez. Ordenarla por
+    # quien esta conectado la reordena sola entre una vez y la siguiente, y entonces "el dos"
+    # de hoy no es "el dos" de manana. Aqui se elige a ciegas, de oido: el orden es la mitad
+    # de la seguridad.
+    $lV = @($rV.lista | Sort-Object { [string]$_.nombre })
+    if ($lV.Count -eq 0) { return 'no veo a ningun amigo en tu lista de Steam' }
+    # DIEZ COMO MUCHO: mas de diez leidos en voz alta no se recuerdan, y los ordinales de la
+    # casa llegan hasta el decimo.
+    if ($lV.Count -gt 10) { $lV = @($lV[0..9]) }
+    $script:amigoEligiendo = @{ lista = $lV; en = $sw.ElapsedMilliseconds }
+    $nombresV = @()
+    for ($iV = 0; $iV -lt $lV.Count; $iV++) { $nombresV += ("$($iV + 1), $($lV[$iV].nombre)") }
+    # LA SEGUNDA VIA, la del mando: con el oido al 70,4 % un nick no se puede oir. La lista
+    # cerrada por ordinal y la cruceta hacen que no haga falta.
+    [void](Open-Eleccion (@($lV | ForEach-Object { [string]$_.nombre })) 'amigo')
+    return ('A quien? ' + ($nombresV -join '; ') + '. Dime el numero.')
+}
+
+# ELEGIDO EL NUMERO N: aqui si se guarda la regla.
+function Complete-AmigoElige([int]$n) {
+    $eV = $script:amigoEligiendo
+    if (-not $eV) { return $null }
+    $lV = @($eV.lista)
+    if ($n -lt 1 -or $n -gt $lV.Count) { return "No tengo un $n en esa lista." }
+    $script:amigoEligiendo = $null
+    $quienV = $lV[$n - 1]
+    if (-not $quienV.visible) {
+        return "$($quienV.nombre) tiene el perfil en privado: Steam no me dice si esta conectado, asi que no puedo avisarte. Lo dejo."
+    }
+    $gV = Get-Reglas
+    # una sola vigilancia por persona: repetir la orden no deja dos reglas hablando
+    foreach ($xV in @($gV)) {
+        if ([string]$xV.tipo -eq 'amigoConecta' -and ([string]$xV.valor).Split('|')[0] -eq [string]$quienV.id) { [void]$gV.Remove($xV) }
+    }
+    $idV = 1; foreach ($xV in $gV) { if ($xV.id -ge $idV) { $idV = $xV.id + 1 } }
+    # TODO EN 'valor', a proposito: "<steamid64>|<nombre>|<plazo en ISO>". El campo 'hasta' de
+    # las reglas es por DIAS ('yyyy-MM-dd') y aqui el plazo son seis horas, que casi siempre
+    # cruzan la medianoche -su sesion mas larga empezo a las 18:31 y acabo a las 00:45-.
+    $hastaV = (Get-Date).AddMilliseconds($AmigoPlazoMs).ToString('o')
+    $rV = @{ id = $idV; tipo = 'amigoConecta'
+             valor = ([string]$quienV.id + '|' + [string]$quienV.nombre + '|' + $hastaV)
+             accion = ("di " + $quienV.nombre + " se ha conectado")
+             ultima = 'unavez'; cond = ''; hasta = '' }
+    [void]$gV.Add($rV); Save-Reglas
+    Log ("VIGILANCIA puesta: $($quienV.nombre) hasta $hastaV")
+    Add-Estadistica 'local' 'vigilar amigo'
+    # SI YA ESTA CONECTADA SE DICE AHORA: si no, el flanco no dispara hasta que se desconecte
+    # y vuelva, y braya se quedaria esperando un aviso de algo que ya habia pasado.
+    # SIN GENERO: "mi novia" es lo que dice braya, pero el de la lista puede ser cualquiera y
+    # Nova no tiene por que saber como se refiere a esa persona.
+    $yaV = if ($quienV.online) { ' Por cierto, ahora mismo ya aparece en linea.' } else { '' }
+    return ("Vale, te aviso cuando se conecte $($quienV.nombre). Se me olvida en seis horas, o dime 'olvida lo de mi novia'." + $yaV)
+}
+
+# # HISTORIAL DE MUSICA (F10): lo que ha sonado, con fecha (memoria\musica.json,
 # fuera del repositorio; las 300 ultimas). "¿Como se llamaba esa cancion?" y
 # "pon la que sonaba ayer por la noche" (la busca en Spotify).
 $script:musicaHist = $null
@@ -11758,6 +12030,9 @@ $ORDINALES_YT = @{ 'primer' = 1; 'primero' = 1; 'primera' = 1; 'segundo' = 2; 's
                    # hasta el decimo (18/09): "con la novena cancion" se descarto
                    'sexto' = 6; 'sexta' = 6; 'septimo' = 7; 'septima' = 7; 'octavo' = 8; 'octava' = 8
                    'noveno' = 9; 'novena' = 9; 'decimo' = 10; 'decima' = 10 }
+# "el dos", "el tres": cuando Nova pide UN NUMERO, lo que contesta la gente es un cardinal.
+$CARDINALES = @{ 'uno' = 1; 'una' = 1; 'dos' = 2; 'tres' = 3; 'cuatro' = 4; 'cinco' = 5
+                 'seis' = 6; 'siete' = 7; 'ocho' = 8; 'nueve' = 9; 'diez' = 10 }
 # EL SITIO DE LA MUSICA, UNA PREFERENCIA DE VERDAD (18/09). braya pidio "siempre en YouTube",
 # la charla dijo "anotado" y no anoto nada. Ahora vive en config.json (musica.sitio) y se
 # cambia hablando (ver "cuando te diga que pongas una cancion").
@@ -13100,6 +13375,27 @@ function Invoke-FastCommand([string]$text) {
                     } catch { $a.desc = 'no pude abrir Steam' }
                 }
                 'amigosSteam' { $a.desc = Get-AmigosSteam }
+                'amigoVigila' { $a.desc = Start-AmigoVigila }
+                'amigoElige' {
+                    $rE = Complete-AmigoElige ([int]$a.n)
+                    # sin lista viva no se contesta nada: el numero no era para esto
+                    if ($rE) { try { Close-Eleccion } catch {}; $a.desc = $rE } else { $a.desc = '' }
+                }
+                'amigoOlvida' {
+                    $gE = Get-Reglas
+                    $fueraE = @()
+                    foreach ($xE in @($gE)) {
+                        if ([string]$xE.tipo -eq 'amigoConecta') { $fueraE += ([string]$xE.valor).Split('|')[1]; [void]$gE.Remove($xE) }
+                    }
+                    $script:amigoEligiendo = $null
+                    if ($fueraE.Count -eq 0) { $a.desc = 'no estaba vigilando a nadie' }
+                    else {
+                        Save-Reglas
+                        $script:amigoOnline = @{}
+                        Log ("VIGILANCIA quitada: " + ($fueraE -join ', '))
+                        $a.desc = 'vale, ya no te aviso de ' + ($fueraE -join ' ni de ')
+                    }
+                }
                 'amigosDiscord' { $a.desc = 'en Discord no puedo verlo: no deja mirarlo sin un bot' }
                 'musicaAnterior' {
                     $cA = Get-CancionAnterior
@@ -16579,6 +16875,8 @@ function Describe-Regla($r) {
         'bateriaLlena' { 'cuando termine de cargar' }
         'discoJuegos' { if ($r.valor -eq 'quita') { 'cuando quites el disco de los juegos' } else { 'cuando conectes el disco de los juegos' } }
         'mandoCoge' { 'cuando cojas el mando' }
+        # el nombre, no el steamid: la regla se lee en voz alta y un 76561198... no se entiende
+        'amigoConecta' { $nomD = ([string]$r.valor).Split('|'); if ($nomD.Count -ge 2 -and $nomD[1]) { "cuando se conecte $($nomD[1])" } else { 'cuando se conecte' } }
         'disco' { "cuando queden menos de $($r.valor) gigas" }
         'descarga' { if ($r.valor) { "cuando termine de descargarse $($r.valor)" } else { 'cuando termine una descarga' } }
         'hora' { "todos los dias a las $($r.valor)" }
@@ -16978,6 +17276,9 @@ function Invoke-Reglas([string]$tipo, [string]$dato = '') {
             # sin valor vale cualquiera de las dos, por si alguien dice solo "el disco"
             'discoJuegos' { $dispara = (-not $r.valor -or $r.valor -eq $dato) }
             'mandoCoge' { $dispara = ($dato -eq 'coge') }
+            # el dato que llega es el steamid, que es lo unico que no cambia: el nick se puede
+            # cambiar en Steam en cualquier momento
+            'amigoConecta' { $dispara = (([string]$r.valor).Split('|')[0] -eq $dato) }
             'disco' {
                 # igual que la bateria: solo al cruzar el umbral, y se rearma
                 # cuando vuelve a haber holgura (5 gigas de margen)
@@ -17026,7 +17327,10 @@ function Invoke-Reglas([string]$tipo, [string]$dato = '') {
         $script:confirmado = $true
         $res = $null
         try { $res = Invoke-FastCommand $r.accion } catch { $res = $null } finally { $script:confirmado = $false }
-        $unaVez = ($r.ultima -eq 'unavez' -and $tipo -in @('appAbre', 'juegoAbre', 'dockPone', 'cascosPone'))
+        # 'amigoConecta' entra aqui (23/09, idea 10): la vigilancia se borra sola en cuanto
+        # avisa una vez. Es la primera de sus tres salidas y no cuesta una linea de codigo
+        # nueva, solo estar en esta lista.
+        $unaVez = ($r.ultima -eq 'unavez' -and $tipo -in @('appAbre', 'juegoAbre', 'dockPone', 'cascosPone', 'amigoConecta'))
         if ($res) { Send-UIEvento 'hecho'; Say ($(if ($unaVez) { 'Recuerda' } else { "Regla $($r.id)" }) + ": $res") } else { Log "REGLA $($r.id): la accion no se pudo ejecutar" }
         # un recordatorio de un solo uso se borra al cumplirse (ver Invoke-ReglaVoz)
         if ($unaVez) { [void]$g.Remove($r); Save-Reglas; Log "REGLA $($r.id): era de un solo uso, borrada" }
@@ -23543,6 +23847,10 @@ function Complete-Eleccion([int]$n) {
             if ($r -and $r.decir) { Say ([string]$r.decir) } else { Set-UI 'reposo' }
         }
         'trivia' { Complete-Trivia $n }
+        'amigo' {
+            $rA = Complete-AmigoElige $n
+            if ($rA) { Say $rA } else { Set-UI 'reposo' }
+        }
         'perfil' { Say (Resolve-PerfilPar $n) }
         default { Set-UI 'reposo' }
     }
@@ -24879,6 +25187,12 @@ while ($true) {
             }
         } catch { Log ("descargas: " + $_.Exception.Message) }
     }
+
+    # QUIEN SE CONECTA EN STEAM (23/09, idea 10). Justo detras de las descargas porque es la
+    # misma clase de sensor y la misma cadencia -120 s, la que lleva catorce dias ahi sin dar
+    # un problema-. Lo primero que hace la funcion es irse si no hay ninguna vigilancia
+    # armada, asi que sin regla puesta esto no gasta ni una peticion ni un objeto.
+    try { Watch-AmigoConecta } catch { Log ("amigos: " + $_.Exception.Message) }
 
     # --- juegos colgados: avisar, NUNCA cerrar por su cuenta ---
     # Solo avisa (y una vez por proceso): cerrar un juego a la fuerza pierde lo
