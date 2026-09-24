@@ -174,7 +174,10 @@ $lineaAp = @($fuente -split "`r?`n" | Where-Object { $_ -match 'se llama\|se dic
 if (-not $lineaAp) { Write-Host '  MAL  no encuentro el patron de aprender'; exit 1 }
 $iAp = $fuente.IndexOf($lineaAp)
 $trozoAp = $fuente.Substring($iAp, 900)
-Comp 'la guarda de los 60 s va en la misma condicion' ($trozoAp -match 'ultimoSonidoDudoso -and' -and $trozoAp -match '60000') ''
+# '60000' CASA DENTRO DE '600000' (24/09, repaso): cambiar la ventana de 60 s a 600 s dejaba
+# esto verde. Se lee el numero y se compara.
+$mVent = [regex]::Match($trozoAp, '-lt\s+(\d+)\)')
+Comp 'la guarda de los 60 s va en la misma condicion' ($trozoAp -match 'ultimoSonidoDudoso -and' -and $mVent.Success -and [int]$mVent.Groups[1].Value -eq 60000) "$(if ($mVent.Success) { $mVent.Groups[1].Value } else { 'no la encuentro' })"
 Comp 'y el juego se busca POR ESCRITO' ($trozoAp -match 'Find-Juego \$nomJA') 'aprender de un sonido con otro sonido es aprender de una suposicion'
 Comp 'nunca por sonido' ($trozoAp -notmatch 'Find-JuegoPorSonido \$nomJA') ''
 

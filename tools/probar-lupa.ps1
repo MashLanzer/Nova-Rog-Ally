@@ -174,7 +174,16 @@ $origW = [int](1280 * 0.6); $origH = [int](720 * 0.6)      # lo que da Get-ZonaR
 $vMaxW = [int](1280 * 0.70); $vMaxH = [int](720 * 0.70)    # el techo de la version vieja
 $antes = [Math]::Min($vMaxW / [double]$origW, $vMaxH / [double]$origH)
 Comp 'la cuenta vieja no ampliaba' ($antes -lt 1.25) ("x{0:N2} con el centro de la pantalla" -f $antes)
-Comp 'la nueva si' ($true) 'x2, mas del doble'
+# ANTES AQUI PONIA ($true) A SECAS (24/09, repaso): no podia ponerse roja nunca, y es justo la
+# que vigila que la lupa amplie de verdad. Ahora se hace la cuenta NUEVA con los numeros del
+# codigo: la ventana crece x$esc y el trozo del original que se ve se divide por $esc, asi que
+# el aumento en pantalla es exactamente $esc. Si alguien lo pone a 1, esto canta.
+$mEsc = [regex]::Match($sd + $sl, 'lupaEsc = ([0-9.]+)')
+$esc = if ($mEsc.Success) { [double]$mEsc.Groups[1].Value } else { 0 }
+$nw = [Math]::Min(($origW * $esc), $vMaxW)
+$sw2 = [Math]::Min($origW, [Math]::Ceiling($nw / [Math]::Max(1, $esc)))
+$ahora = if ($sw2 -gt 0) { $nw / $sw2 } else { 0 }
+Comp 'la nueva si' ($ahora -ge 2) ("x{0:N2} con el trozo recortado" -f $ahora)
 Comp 'la letra pequena no se emborrona' ($sd -match 'NearestNeighbor') 'nada de bilineal'
 
 Write-Host ''

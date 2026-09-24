@@ -9,8 +9,8 @@
 #                           Get-PrimerVideoYouTube hasta el 23/09)
 #   Test-Recordatorios     (idea 4: recordatorios que se repiten)
 #   Remove-DatoPerfil      (idea 7: "eso es falso, eliminalo")
-#   Get-AmigosLista        (idea 10: avisar cuando se conecte alguien; era la mitad
-#                           de Get-AmigosSteam hasta el 24/09)
+#   Start-AmigoPregunta    (idea 10: avisar cuando se conecte alguien; era Get-AmigosSteam
+#                           hasta el 24/09, cuando se paso a asincrona)
 #
 # Aqui no se prueba que Windows tenga musica ni que Steam conteste: eso no se puede fijar en
 # un banco. Se prueba LO QUE ES DE NOVA y le puede fallar a braya: que no reviente cuando el
@@ -200,27 +200,28 @@ Comp 'y la pregunta tiene tope de 1,5 s' ($mu -match 'TryGetMediaPropertiesAsync
 Comp 'si revienta, lo apunta y devuelve nada' (($mu -match 'catch') -and ($mu -match "Log \(""musica: "))
 
 Write-Host ''
-Write-Host '-- 5. Los amigos de Steam: y sobre todo, que la clave no salga en el log --'
-# LA FUNCION SE PARTIO EN DOS (24/09, idea 10). Get-AmigosSteam era una sola cosa que pedia y
-# redactaba la frase; ahora Get-AmigosLista pide y devuelve la lista, y Get-AmigosSteam solo
-# redacta. Lo delicado -la clave, los topes de tiempo, el tope de amigos- se fue con la que
-# pide, asi que es ahi donde hay que mirar. El banco apuntaba a la vieja y se habria quedado
-# verde mirando una funcion que ya no toca la red.
-$am = TraerCodigo 'Get-AmigosLista'
-Comp 'sin clave lo dice y no llama' ($am -match 'necesito una clave de la API de Steam') 'y dice donde pedirla'
-Comp 'sin sesion de Steam, tambien lo dice' ($am -match 'no tiene la sesion iniciada')
-Comp 'LA CLAVE SE TAPA EN EL LOG' ($am -match "key=\*\*\*") 'un log con la clave dentro es un log que no se puede ensenar'
-Comp 'las dos llamadas llevan tope de tiempo' (@([regex]::Matches($am, 'TimeoutSec 6')).Count -eq 2)
-Comp 'y no pide mas de cien amigos' ($am -match 'Select-Object -First 100')
-Comp 'si Steam falla, lo dice y no revienta' ($am -match 'no pude preguntarle a Steam')
-Comp 'la que redacta no vuelve a salir a la red' ((TraerCodigo 'Get-AmigosSteam') -notmatch 'Invoke-RestMethod') 'una sola puerta a Steam'
-# LA OTRA PUERTA, la del bucle: tambien lleva la clave en la URL
+Write-Host '-- 5. Los amigos de Steam: sin parar el bucle, y sin cantar la clave --'
+# LAS DOS SINCRONAS SE FUERON (24/09, repaso). Get-AmigosLista y Get-AmigosSteam eran dos
+# Invoke-RestMethod con -TimeoutSec 6 dentro del bucle -hasta 12 s de consola congelada con un
+# juego delante-, y al pasar los dos caminos hablados a la maquina asincrona se quedaron sin
+# que nadie las llamara. Ahora lo que hay que mirar es esa maquina.
+$ap = TraerCodigo 'Start-AmigoPregunta'
+$rp = TraerCodigo 'Receive-AmigoPregunta'
+Comp 'pedir la lista NO sale a la red sincrona' ($ap -notmatch 'Invoke-RestMethod') 'eso son 12 s de consola congelada'
+Comp 'recogerla tampoco' ($rp -notmatch 'Invoke-RestMethod') ''
+Comp 'y recogerla NUNCA espera' (($rp -notmatch '\.Wait\(') -and ($rp -notmatch '\.Result\b')) 'braya juega mientras habla'
+Comp 'sin clave lo dice y no llama' ($ap -match 'mensajeSinClave') 'y le deja el hueco preparado'
+Comp 'el mensaje de la clave esta escrito UNA vez' (@([regex]::Matches($fuente, "pidela en steamcommunity")).Count -eq 1) 'dos copias de una frase acaban separandose'
+Comp 'sin sesion de Steam, tambien lo dice' ($ap -match 'no tiene la sesion iniciada')
+Comp 'y no se lanzan dos preguntas a la vez' ($ap -match '\$script:amigoPide') ''
+Comp 'la pregunta entera tiene plazo' ($rp -match 'AmigoRedMs \* 2') 'si no, se queda esperando para siempre'
+Comp 'y son DOS pasos, como la API de Steam' (($rp -match 'GetPlayerSummaries') -and ($rp -match "paso -eq 'lista'")) ''
 $as = TraerCodigo 'Start-SteamAsync'
-Comp 'la peticion del bucle tambien tapa la clave' ($as -match "key=\*\*\*") 'es la misma clave en la misma URL'
-Comp 'y no lanza dos peticiones a la vez' ($as -match 'if \(\$script:steamTask\) \{ return \$false \}') ''
+Comp 'LA CLAVE SE TAPA EN EL LOG' ($as -match "key=\*\*\*") 'un log con la clave dentro es un log que no se puede ensenar'
+Comp 'y no lanza dos peticiones a la vez' ($as -match 'if \(\$script:steamTask\) \{ return \$false \}') 'la segunda se comeria la respuesta de la primera'
 $ac = TraerCodigo 'Complete-SteamAsync'
-Comp 'recogerla NUNCA espera' (($ac -match 'IsCompleted') -and ($ac -notmatch '\.Wait\(|\.GetAwaiter\(')) 'el bucle no se para: braya juega mientras habla'
-Comp 'y una peticion colgada se corta' ($ac -match 'CancelAsync') 'si no, la vigilancia se queda muda para siempre'
+Comp 'una peticion colgada se corta' ($ac -match 'CancelAsync') 'si no, la vigilancia se queda muda para siempre'
+Comp 'la clave no vive en config.json, que se versiona' ((TraerCodigo 'Get-ClaveSteam') -match 'ClavesPath') 'ahi acabaria en el siguiente commit'
 # y la comprobacion de verdad: que el enmascarado FUNCIONA
 $mensajeConClave = "steam amigos: error de https://api.steampowered.com/x?key=ABCD1234SECRETO&steamid=1 timeout"
 $tapado = $mensajeConClave -replace 'key=[^&\s]+', 'key=***'

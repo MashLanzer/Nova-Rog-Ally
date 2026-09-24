@@ -9071,6 +9071,9 @@ $AmigoEligeMs = 90000
 # sigue leyendo config.json de respaldo por si ya la habia puesto ahi: en ese caso se avisa
 # en el registro -sin decir la clave, claro- para que la mueva.
 $ClavesPath = Join-Path $MemoriaDir 'claves.json'
+# ESCRITO UNA SOLA VEZ: lo dicen los dos caminos -la pregunta y la vigilancia- y dos copias de
+# una frase acaban separandose, que es la leccion que ya esta escrita tres veces en este fichero.
+$mensajeSinClave = 'para eso necesito una clave de la API de Steam: pidela en steamcommunity.com barra dev barra apikey, y pegala en el archivo memoria barra claves punto json, que ya te he dejado preparado'
 function Get-ClaveSteam {
     $k = ''
     try {
@@ -9139,53 +9142,75 @@ function Complete-SteamAsync {
     return $null
 }
 
-# LA LISTA, SINCRONA Y A PROPOSITO: esto solo se llama cuando braya acaba de hablar, nunca
-# desde el bucle. Devuelve @{ error = '<lo que se le dice>'; lista = @(@{id;nombre;online;jugando}) }.
-function Get-AmigosLista {
-    $claveS = Get-ClaveSteam
-    if (-not $claveS) {
-        # se le crea el hueco al decirselo: asi solo tiene que abrir el archivo y pegar
+# PREGUNTARLE A STEAM SIN PARAR EL BUCLE (24/09, repaso). La API son DOS llamadas -la lista de
+# amigos y despues quienes son-, asi que esto es una maquina de dos pasos que avanza una vuelta
+# del bucle cada vez y nunca espera a nada. $fin dice como acaba: 'decir' es "quien esta
+# conectado en Steam" y 'vigilar' es "avisame cuando se conecte mi novia".
+$script:amigoPide = $null
+function Start-AmigoPregunta([string]$fin) {
+    if ($script:amigoPide) { return 'ya estoy preguntandoselo a Steam, dame un segundo' }
+    $claveP = Get-ClaveSteam
+    if (-not $claveP) {
         [void](New-ClavesVacio)
-        return @{ error = 'para eso necesito una clave de la API de Steam: pidela en steamcommunity.com barra dev barra apikey, y pegala en el archivo memoria barra claves punto json, que ya te he dejado preparado'; lista = @() }
+        return $mensajeSinClave
     }
-    $yoS = Get-YoSteam
-    if (-not $yoS) { return @{ error = 'Steam no tiene la sesion iniciada'; lista = @() } }
-    try {
-        $flS = Invoke-RestMethod "https://api.steampowered.com/ISteamUser/GetFriendList/v1/?key=$claveS&steamid=$yoS&relationship=friend" -TimeoutSec 6
-        $idsS = @($flS.friendslist.friends | ForEach-Object { [string]$_.steamid } | Select-Object -First 100)
-        if ($idsS.Count -eq 0) { return @{ error = 'no veo a ningun amigo en tu lista de Steam'; lista = @() } }
-        $psS = Invoke-RestMethod ("https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key=$claveS&steamids=" + ($idsS -join ',')) -TimeoutSec 6
-        $outS = @()
-        foreach ($pS in @($psS.response.players)) {
-            $outS += @{ id = [string]$pS.steamid; nombre = [string]$pS.personaname
-                        online = ([int]$pS.personastate -gt 0)
-                        # SIN personastate NO HAY VIGILANCIA POSIBLE: con el perfil en privado
-                        # la API no lo devuelve y esto no se enteraria nunca de nada. Se detecta
-                        # aqui, al crearla, y se dice en el momento; callarse y no avisar jamas
-                        # seria lo peor que puede hacer.
-                        visible = ($null -ne $pS.personastate)
-                        jugando = [string]$pS.gameextrainfo }
-        }
-        return @{ error = ''; lista = $outS }
-    } catch {
-        # LA CLAVE NUNCA VA AL REGISTRO: viaja en la propia URL y el mensaje de error la
-        # arrastra entera.
-        Log ("steam amigos: " + ($_.Exception.Message -replace 'key=[^&\s]+', 'key=***'))
-        return @{ error = 'no pude preguntarle a Steam'; lista = @() }
+    $yoP = Get-YoSteam
+    if (-not $yoP) { return 'Steam no tiene la sesion iniciada' }
+    if (-not (Start-SteamAsync "https://api.steampowered.com/ISteamUser/GetFriendList/v1/?key=$claveP&steamid=$yoP&relationship=friend")) {
+        return 'ahora mismo no puedo preguntarle a Steam'
     }
+    $script:amigoPide = @{ fin = $fin; paso = 'lista'; en = $sw.ElapsedMilliseconds }
+    return ''
 }
 
-function Get-AmigosSteam {
-    $rS = Get-AmigosLista
-    if ($rS.error) { return $rS.error }
-    $onS = @($rS.lista | Where-Object { $_.online })
-    if ($onS.Count -eq 0) { return 'ahora mismo no hay nadie conectado en Steam' }
+# Una vuelta del bucle = un IsCompleted. Cero espera.
+function Receive-AmigoPregunta {
+    if (-not $script:amigoPide) { return }
+    # el plazo cuenta las DOS llamadas, que es lo que de verdad dura la pregunta
+    if (($sw.ElapsedMilliseconds - [double]$script:amigoPide.en) -gt ($AmigoRedMs * 2)) {
+        $script:amigoPide = $null
+        try { [void](Complete-SteamAsync) } catch {}
+        Say 'No pude preguntarle a Steam.'
+        return
+    }
+    $jsonP = Complete-SteamAsync
+    if (-not $jsonP) { return }
+    $oP = $null
+    try { $oP = $jsonP | ConvertFrom-Json } catch { $oP = $null }
+    if ($script:amigoPide.paso -eq 'lista') {
+        $idsP = @()
+        try { $idsP = @($oP.friendslist.friends | ForEach-Object { [string]$_.steamid } | Select-Object -First 100) } catch {}
+        if ($idsP.Count -eq 0) { $script:amigoPide = $null; Say 'No veo a ningun amigo en tu lista de Steam.'; return }
+        $claveP = Get-ClaveSteam
+        if (-not $claveP -or -not (Start-SteamAsync ("https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key=$claveP&steamids=" + ($idsP -join ',')))) {
+            $script:amigoPide = $null; Say 'No pude preguntarle a Steam.'; return
+        }
+        $script:amigoPide.paso = 'gente'
+        return
+    }
+    $finP = [string]$script:amigoPide.fin
+    $script:amigoPide = $null
+    $listaP = @()
+    foreach ($pP in @($oP.response.players)) {
+        $listaP += @{ id = [string]$pP.steamid; nombre = [string]$pP.personaname
+                      online = ([int]$pP.personastate -gt 0)
+                      visible = ($null -ne $pP.personastate)
+                      jugando = [string]$pP.gameextrainfo }
+    }
+    if ($listaP.Count -eq 0) { Say 'No veo a ningun amigo en tu lista de Steam.'; return }
+    if ($finP -eq 'decir') { Say (Format-AmigosSteam $listaP); return }
+    Say (Open-AmigoEleccion $listaP)
+}
+
+function Format-AmigosSteam($lista) {
+    $onS = @($lista | Where-Object { $_.online })
+    if ($onS.Count -eq 0) { return 'Ahora mismo no hay nadie conectado en Steam.' }
     $jugandoS = @($onS | Where-Object { $_.jugando } | ForEach-Object { "$($_.nombre) jugando a $($_.jugando)" })
     $soloS = @($onS | Where-Object { -not $_.jugando } | ForEach-Object { $_.nombre })
     $partesS = @()
     if ($jugandoS.Count) { $partesS += ($jugandoS -join ', ') }
     if ($soloS.Count) { $partesS += ('conectados: ' + ($soloS -join ', ')) }
-    return "en Steam hay $($onS.Count): " + ($partesS -join '; ')
+    return "En Steam hay $($onS.Count): " + ($partesS -join '; ') + '.'
 }
 
 # EL SENSOR. Se llama desde el bucle y lo primero que hace es irse si no hay nada que vigilar.
@@ -9259,17 +9284,23 @@ function Watch-AmigoConecta {
     }
 }
 
-# ARMARLA: se lee la lista, se numera y se pregunta. NO se guarda nada todavia, porque
-# todavia no se sabe a quien. Devuelve la frase que hay que decir.
+# ARMARLA: se PIDE la lista y se contesta cuando llegue. Nada de red sincrona aqui: esta
+# funcion corre dentro de Invoke-FastCommand, o sea dentro del bucle, y es justo la de quedar
+# a jugar con alguien -o sea, la que mas probablemente se dice CON un juego delante-.
 function Start-AmigoVigila {
-    $rV = Get-AmigosLista
-    if ($rV.error) { return $rV.error }
+    $eP = Start-AmigoPregunta 'vigilar'
+    if ($eP) { return $eP }
+    return 'Un momento, que le pregunto a Steam.'
+}
+
+# Y LA LISTA, cuando ya se tiene: se numera, se lee y se abre el selector del mando.
+function Open-AmigoEleccion($lista) {
     # POR NOMBRE Y SOLO POR NOMBRE: la lista tiene que salir IGUAL cada vez. Ordenarla por
     # quien esta conectado la reordena sola entre una vez y la siguiente, y entonces "el dos"
     # de hoy no es "el dos" de manana. Aqui se elige a ciegas, de oido: el orden es la mitad
     # de la seguridad.
-    $lV = @($rV.lista | Sort-Object { [string]$_.nombre })
-    if ($lV.Count -eq 0) { return 'no veo a ningun amigo en tu lista de Steam' }
+    $lV = @($lista | Sort-Object { [string]$_.nombre })
+    if ($lV.Count -eq 0) { return 'No veo a ningun amigo en tu lista de Steam.' }
     # DIEZ COMO MUCHO: mas de diez leidos en voz alta no se recuerdan, y los ordinales de la
     # casa llegan hasta el decimo.
     if ($lV.Count -gt 10) { $lV = @($lV[0..9]) }
@@ -13595,7 +13626,12 @@ function Invoke-FastCommand([string]$text) {
                         $a.desc = if ($a.pausar) { 'te abro las descargas de Steam; desde ahi se pausan' } else { 'abriendo las descargas de Steam' }
                     } catch { $a.desc = 'no pude abrir Steam' }
                 }
-                'amigosSteam' { $a.desc = Get-AmigosSteam }
+                'amigosSteam' {
+                    # TAMBIEN ASINCRONO (24/09, repaso): eran dos Invoke-RestMethod con
+                    # -TimeoutSec 6 dentro del bucle, hasta 12 s de consola congelada.
+                    $eA = Start-AmigoPregunta 'decir'
+                    $a.desc = if ($eA) { $eA } else { 'un momento, que le pregunto a Steam' }
+                }
                 'amigoVigila' { $a.desc = Start-AmigoVigila }
                 'amigoElige' {
                     $rE = Complete-AmigoElige ([int]$a.n)
@@ -25502,6 +25538,10 @@ while ($true) {
     # LA CLAVE VIAJA DENTRO DE LA URL, asi que cualquier excepcion que se escape de aqui la
     # arrastra entera al registro. El mismo -replace que llevan Start-SteamAsync y
     # Get-AmigosLista, tambien en la red de fuera.
+    # LA RESPUESTA DE STEAM, SI YA LLEGO: un IsCompleted, cero espera. Va fuera de
+    # Watch-AmigoConecta a proposito, porque esa se va en su primera linea cuando no hay
+    # ninguna vigilancia armada, y esto pasa justo ANTES de que haya una.
+    try { Receive-AmigoPregunta } catch { Log ("amigos: " + ($_.Exception.Message -replace 'key=[^&\s]+', 'key=***')) }
     try { Watch-AmigoConecta } catch { Log ("amigos: " + ($_.Exception.Message -replace 'key=[^&\s]+', 'key=***')) }
 
     # --- juegos colgados: avisar, NUNCA cerrar por su cuenta ---

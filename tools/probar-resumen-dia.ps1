@@ -96,7 +96,7 @@ $script:meta = @{ $hoyM = @{ bien = 18; mal = 2; otras = 1; neutras = 0 } }
 $r2 = Get-QueHeHecho
 Comp 'dice el acierto del dia' ($r2 -match 'te entendi 18 de 21') "$r2"
 $gq = SinComentarios (Traer 'Get-QueHeHecho')
-Comp 'y sale de Get-MetaDias, no de un contador nuevo' ($gq -match 'Get-MetaDias 0') 'un contador propio da 72 % donde otro da 75 %'
+Comp 'y sale de Get-MetaDias, no de un contador nuevo' ($gq -match 'Get-MetaDias 0(?![0-9])') 'un contador propio da 72 % donde otro da 75 %'
 
 Write-Host ''
 Write-Host '-- 3. que se descargo, de lo apuntado en disco --'

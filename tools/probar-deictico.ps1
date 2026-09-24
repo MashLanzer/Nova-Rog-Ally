@@ -156,10 +156,16 @@ function Say([string]$t, [string]$e = '') { }
 function Set-UI([string]$e, [string]$t = '', [int]$ms = 0) { }
 function Start-Confirmacion { }
 function Open-EscuchaTrasNoEntendi { }
-function Send-Charla([string]$t, [bool]$d = $false, [string]$o = 'hablar', $x = $null, [bool]$e = $false) { $script:dicho = $t; return $true }
-function Submit-Command([string]$t, [string]$m = 'accion', [string]$a = '') { $script:dicho = $t }
+# CADA CAMINO CON SU VARIABLE (24/09, repaso): los dos escribian en $script:dicho, asi que la
+# comprobacion "y NO acaba en el agente" no podia distinguirlos y era verdad siempre.
+function Send-Charla([string]$t, [bool]$d = $false, [string]$o = 'hablar', $x = $null, [bool]$e = $false) { $script:dicho = $t; $script:aCharla = $t; return $true }
+function Submit-Command([string]$t, [string]$m = 'accion', [string]$a = '') { $script:dicho = $t; $script:alAgente = $t }
 function Get-VentanaDelante { $script:vecesVentana++; return $script:ventanaFalsa }
-function Test-SoloPregunta([string]$f) { return ($f -notmatch '^(?:abre|cierra|borra|desinstala|busca)\b') }
+# LA DE VERDAD, NO UNA COPIA (24/09, repaso). Aqui habia un Test-SoloPregunta de mentira, y
+# la de verdad no se cargaba hasta 110 lineas mas abajo: todas las comprobaciones de la red
+# de atras corrian contra el muñon, asi que si la de verdad devolviera siempre $true -o sea,
+# con la red desactivada- este banco seguia verde igual.
+Invoke-Expression (Traer 'Test-SoloPregunta')
 # LO QUE HOY RESUELVE EL CAMINO LOCAL, medido con "assistant.ps1 -Probar" el 23/09 y copiado
 # aqui tal cual. Son las frases del banco que YA tienen dueno: el paso del deictico no puede
 # robarselas, porque hoy contestan bien y al instante.
@@ -180,6 +186,8 @@ function Enruta([string]$frase, $ventana, [string]$juego = '') {
     $script:vecesVentana = 0
     $script:paso = ''
     $script:dicho = ''
+    $script:aCharla = ''
+    $script:alAgente = ''
     $script:pendiente = $null
     $script:deicticoNota = 'sucio'
     $seguido = $true
@@ -209,7 +217,7 @@ Comp 'sin dejar nada pendiente' ($null -eq $r2.pendiente)
 $r3 = Enruta 'esto es un error de red' $vSteam
 Comp 'lo que nadie sabe hacer se anota' ($r3.paso -eq 'deictico-anotado') "paso=$($r3.paso)"
 Comp 'y va a la charla con el titulo pegado' ($r3.dicho -match '\[lo que tengo delante: Steam\]') "$($r3.dicho)"
-Comp 'y NO acaba en el agente' ($r3.dicho -ne '') 'el agente tiene acceso total'
+Comp 'y NO acaba en el agente' ($script:alAgente -eq '') 'el agente tiene acceso total'
 
 $r4 = Enruta 'abre este' $null
 Comp 'sin ventana, "abre este" no abre nada' ($r4.paso -eq 'deictico-sin-ventana') "paso=$($r4.paso)"

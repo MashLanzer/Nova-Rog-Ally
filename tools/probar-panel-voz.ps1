@@ -105,7 +105,8 @@ $script:vozVelocidad = -30
 Invoke-PanelRapido $XINPUT_ABA
 Comp 'y por abajo en -30' ($script:vozVelocidad -eq -30) "$script:vozVelocidad"
 $sv = SinComentarios (Traer 'Set-VozVelocidad')
-Comp 'el recorte vive en Set-VozVelocidad, no aqui' ($sv -match '-30' -and $sv -match '45' -and $ip -notmatch '\[Math\]::Max\(-30') 'un solo sitio'
+# '45' A SECAS CASA DENTRO DE 450 y de 1450: se ancla al tope de verdad
+Comp 'el recorte vive en Set-VozVelocidad, no aqui' ($sv -match '-30' -and $sv -match '(?<![0-9])45(?![0-9])' -and $ip -notmatch '\[Math\]::Max\(-30') 'un solo sitio'
 
 Write-Host ''
 Write-Host '-- 4. el boton A vuelve a lo normal --'
@@ -151,14 +152,26 @@ Comp 'ni tocar arriba estando en el tope' ($script:cfgEscrituras -eq 0) "$script
 
 Write-Host ''
 Write-Host '-- 7. con seis items, los indices siguen dando la vuelta --'
+# EJECUTADO, NO CALCULADO (24/09, repaso). Esto era ($i+1) %% $n comparado consigo mismo:
+# aritmetica del banco, cero codigo de produccion, verde pase lo que pase. Ahora se pulsa
+# abajo n+1 veces de verdad y se mira donde acaba el cursor.
+# EL CURSOR NO LO MUEVE Invoke-PanelRapido -esa actua sobre el item de debajo-, lo mueve el
+# bloque del mando en el bucle, con izquierda y derecha. Se saca ese trozo del codigo y se
+# ejecuta, que es lo unico que prueba la vuelta de verdad.
 $n = $PanelItems.Count
-$bien = $true
-for ($i = 0; $i -lt $n; $i++) {
-    $sig = ($i + 1) % $n
-    $ant = ($i - 1 + $n) % $n
-    if ($sig -lt 0 -or $sig -ge $n -or $ant -lt 0 -or $ant -ge $n) { $bien = $false }
-}
-Comp 'ni el siguiente ni el anterior se salen' $bien "$n items"
+$lIzq = @($fuente -split "`r?`n" | Where-Object { $_ -match 'XINPUT_IZQ\) \{ \$script:panel\.i' })[0]
+$lDer = @($fuente -split "`r?`n" | Where-Object { $_ -match 'XINPUT_DER\) \{ \$script:panel\.i' })[0]
+if (-not $lIzq -or -not $lDer) { Write-Host '  MAL  no encuentro el movimiento del cursor del panel'; exit 1 }
+$movIzq = ($lIzq -replace '^\s*elseif \([^)]*\) \{', '') -replace '\}\s*$', ''
+$movDer = ($lDer -replace '^\s*elseif \([^)]*\) \{', '') -replace '\}\s*$', ''
+function Show-PanelRapido { }
+Pon 'voz'
+$script:panel.i = 0
+for ($i = 0; $i -lt ($n + 1); $i++) { Invoke-Expression $movDer }
+Comp 'yendo a la derecha n+1 veces se vuelve al segundo' ($script:panel.i -eq 1) "i=$($script:panel.i) con $n items"
+$script:panel.i = 0
+Invoke-Expression $movIzq
+Comp 'y a la izquierda desde el primero se va al ultimo' ($script:panel.i -eq ($n - 1)) "i=$($script:panel.i)"
 Comp 'y el bucle usa el modulo, no un numero fijo' ($fuente -match '\$script:panel\.i \+ 1\) % \$PanelItems\.Count') ''
 
 Write-Host ''

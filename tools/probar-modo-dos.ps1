@@ -155,15 +155,24 @@ Comp 'con sus dos ordenes' (@($script:cmds.perfiles.'estamos dos').Count -eq 2) 
 Write-Host ''
 Write-Host '-- 2. "modo estamos dos" lo pone (y el filtro de modos de sistema no se lo come) --'
 $cmds = $script:cmds
-$acc = @(Resolve-Modo 'modo estamos dos')
-Comp 'la frase se resuelve aqui, no se va al modelo' ($acc.Count -gt 0) "$($acc.Count) acciones"
+# SIN @() (24/09, repaso): Resolve-Modo acaba en 'return $null', y en PowerShell @(f) sobre
+# un $null da un array de UN elemento, asi que '.Count -gt 0' era verdad SIEMPRE, tambien
+# cuando la rama dejaba de resolver perfiles. Se compara con $null y despues se cuenta.
+$accR = Resolve-Modo 'modo estamos dos'
+Comp 'la frase se resuelve aqui, no se va al modelo' ($null -ne $accR) 'antes esto no podia ponerse rojo'
+$acc = @($accR)
+Comp 'y devuelve acciones' ($acc.Count -gt 0) "$($acc.Count) acciones"
 Comp 'lo primero es apuntar como estaba' ([string]$acc[0].kind -eq 'modoEntra') "$([string]$acc[0].kind)"
 Comp 'y detras van sus dos ordenes' ($acc.Count -eq 3) "$($acc.Count)"
 # el filtro de 'modo X' excluye foco/ahorro/rendimiento/normal... y eso NO puede tragarse
 # un nombre suyo
+# LO MISMO AQUI, y ademas se crea el perfil antes: preguntar "se lo come el filtro?" por un
+# modo que no existe no prueba nada, porque la respuesta es $null en los dos casos.
 foreach ($n in @('estamos dos', 'dos', 'pareja', 'cooperativo')) {
-    $r = @(Resolve-Modo "modo $n")
-    Comp ("el filtro no se come `"$n`"") ($null -ne $r -and ($r.Count -gt 0 -or -not (Test-Prop $cmds.perfiles $n))) ''
+    [void](Add-Perfil $n @('pon el brillo al 50'))
+    $cmds = $script:cmds
+    $r = Resolve-Modo "modo $n"
+    Comp ("el filtro no se come `"$n`"") ($null -ne $r) 'si el filtro se lo comiera, esto seria $null'
 }
 foreach ($n in @('normal', 'ahorro', 'foco')) {
     Comp ("y si sigue sin tocar el modo de sistema `"$n`"") ($null -eq (Resolve-Modo "modo $n")) 'ese lo lleva otro sitio'

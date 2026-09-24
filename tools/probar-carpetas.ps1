@@ -116,7 +116,9 @@ if (-not $lineaFija) { Write-Host '  MAL  no encuentro el patron de la lista cer
 $mFija = [regex]::Match($lineaFija, "\('(\^[^']+)' \+ \`$CARPETAS_FIJAS \+ '([^']*)'\)")
 if (-not $mFija.Success) { Write-Host '  MAL  no se leer el patron de la lista cerrada'; exit 1 }
 $reFijo = $mFija.Groups[1].Value + $CARPETAS_FIJAS + $mFija.Groups[2].Value
-Comp 'el patron sin "carpeta" usa la lista cerrada' ($null -ne $lineaFija) 'nada de nombres libres mal oidos'
+# ARRIBA YA SE SALE CON exit 1 SI NO ESTA (24/09, repaso), asi que esto era verdad siempre.
+# Lo que de verdad importa es que el patron lleve DENTRO la lista cerrada y no un nombre libre.
+Comp 'el patron sin "carpeta" usa la lista cerrada' ($lineaFija -match '\$CARPETAS_FIJAS' -and $lineaFija -notmatch '\(\.\+\)') 'nada de nombres libres mal oidos'
 Comp '"cuantos archivos hay en descargas" entra' ('cuantos archivos hay en descargas' -match $reFijo) ''
 Comp 'pero "cuantos archivos hay en la nave" NO' ('cuantos archivos hay en la nave' -notmatch $reFijo) 'sin la palabra carpeta, solo las siete'
 

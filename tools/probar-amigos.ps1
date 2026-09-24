@@ -101,8 +101,6 @@ function Open-Eleccion([string[]]$ops, [string]$origen) { $script:abierto += , @
 function Close-Eleccion([bool]$u = $true) { $script:cerrado++ }
 function Get-Cfg($a, $b, $c) { if ($a -eq 'steam' -and $b -eq 'apiKey') { return $script:claveFalsa }; return $c }
 function Get-ClaveSteam { return $script:claveFalsa }
-$script:huecoCreado = 0
-function New-ClavesVacio { $script:huecoCreado++; return $true }
 # LA RED, FALSEADA ENTERA: aqui no se prueba que Steam conteste -eso no se puede fijar en un
 # banco-, se prueba lo que es de Nova.
 # A PROPOSITO SIN GUARDA: si este falso llevara el 'ya hay una en vuelo' del de verdad, la
@@ -111,6 +109,8 @@ function New-ClavesVacio { $script:huecoCreado++; return $true }
 function Start-SteamAsync([string]$url) {
     $script:llamadas++; $script:urls += $url
     $script:steamTask = 'en vuelo'
+    # si quien pregunta es la maquina de dos pasos, se le deja preparada su respuesta
+    if ($url -match 'GetFriendList' -or -not $script:jsonPendiente) { $script:jsonPendiente = RespuestaFalsa $url }
     return $true
 }
 function Complete-SteamAsync {
@@ -122,24 +122,23 @@ function Complete-SteamAsync {
 # EL MENSAJE DE "NO HAY CLAVE" SE LEE DEL CODIGO. Copiandolo aqui, el banco daria verde
 # aunque alguien lo dejara en "no puedo": es justo lo unico que braya va a oir el dia que
 # pruebe esto, porque config.json sigue sin steam.apiKey.
-$mSinClave = if ($fuente -match "error = '(para eso necesito una clave[^']+)'") { $Matches[1] } else { '' }
-if (-not $mSinClave) { Write-Host '  MAL  no encuentro el mensaje de la clave que falta'; exit 1 }
-# LA RED, FALSEADA POR DEBAJO. Antes aqui habia una Get-AmigosLista de mentira, y eso hacia
-# que el banco probara MI COPIA: se vio rompiendo el codigo de verdad -quitandole la salida de
-# "no hay clave"- y el banco seguia verde. Ahora se usa la funcion de verdad y lo que se
-# falsea es Invoke-RestMethod, que es la unica linea que toca la red.
-$script:rest = 0
+# LA RED, FALSEADA POR DEBAJO Y POR PASOS (24/09, repaso). Desde que los dos caminos hablados
+# son asincronos, preguntarle a Steam son DOS peticiones -la lista de amigos y despues quienes
+# son-, asi que aqui se falsea Start-SteamAsync/Complete-SteamAsync y se le da a cada una la
+# respuesta que le toca segun la URL.
 $script:amigosFalsos = $null
 function Get-YoSteam { return '76561198000000000' }
-function Invoke-RestMethod {
-    param([Parameter(Position = 0)][string]$Uri, [int]$TimeoutSec = 0)
-    $script:rest++
-    $lista = if ($null -ne $script:amigosFalsos) { @($script:amigosFalsos) } else { @(
+function AmigosDeMentira {
+    if ($null -ne $script:amigosFalsos) { return @($script:amigosFalsos) }
+    return @(
         @{ id = '111'; nombre = 'Ana'; online = $false; visible = $true; jugando = '' },
         @{ id = '222'; nombre = 'Meramiau'; online = $false; visible = $true; jugando = '' },
-        @{ id = '333'; nombre = 'Kevin'; online = $true; visible = $true; jugando = 'It Takes Two' }) }
-    if ($Uri -match 'GetFriendList') {
-        return (ConvertTo-Json -Depth 5 -InputObject @{ friendslist = @{ friends = @($lista | ForEach-Object { @{ steamid = $_.id } }) } } | ConvertFrom-Json)
+        @{ id = '333'; nombre = 'Kevin'; online = $true; visible = $true; jugando = 'It Takes Two' })
+}
+function RespuestaFalsa([string]$url) {
+    $lista = AmigosDeMentira
+    if ($url -match 'GetFriendList') {
+        return (ConvertTo-Json -Depth 5 -Compress -InputObject @{ friendslist = @{ friends = @($lista | ForEach-Object { @{ steamid = $_.id } }) } })
     }
     $jug = @()
     foreach ($a in $lista) {
@@ -148,7 +147,7 @@ function Invoke-RestMethod {
         if ($a.visible) { $o.personastate = $(if ($a.online) { 1 } else { 0 }) }
         $jug += $o
     }
-    return (ConvertTo-Json -Depth 5 -InputObject @{ response = @{ players = @($jug) } } | ConvertFrom-Json)
+    return (ConvertTo-Json -Depth 5 -Compress -InputObject @{ response = @{ players = @($jug) } })
 }
 
 $CARDINALES = @{ 'uno' = 1; 'una' = 1; 'dos' = 2; 'tres' = 3; 'cuatro' = 4; 'cinco' = 5
@@ -158,6 +157,10 @@ $ORDINALES_YT = @{ 'primer' = 1; 'primero' = 1; 'primera' = 1; 'segundo' = 2; 's
 $AmigoCadaMs = if ($fuente -match '(?m)^\$AmigoCadaMs = (\d+)') { [int]$Matches[1] } else { -1 }
 $AmigoPlazoMs = if ($fuente -match '(?m)^\$AmigoPlazoMs = (\d+)') { [int]$Matches[1] } else { -1 }
 $AmigoEligeMs = if ($fuente -match '(?m)^\$AmigoEligeMs = (\d+)') { [int]$Matches[1] } else { -1 }
+# EL PLAZO DE LA PREGUNTA: sin esto valia 0 y la maquina se daba por vencida en la primera
+# vuelta, que es exactamente lo que le pasaria a Nova si alguien borrara la variable.
+$AmigoRedMs = if ($fuente -match '(?m)^\$AmigoRedMs = (\d+)') { [int]$Matches[1] } else { -1 }
+if ($AmigoRedMs -le 0) { Write-Host '  MAL  no encuentro $AmigoRedMs en el codigo'; exit 1 }
 # el mismo $VERBOS del codigo: los patrones vecinos lo llevan dentro
 # COMILLAS SIMPLES: con dobles, PowerShell interpolaba $VERBOS -que aun no existe- y el
 # patron quedaba en un munon que no casaba nunca, asi que Casa evaluaba los patrones vecinos
@@ -170,7 +173,15 @@ $script:amigoOnline = @{}
 $script:amigoEligiendo = $null
 
 foreach ($f in @('ConvertTo-Plain', 'Get-Reglas', 'Save-Reglas', 'Describe-Regla', 'Invoke-Reglas',
-                 'Get-AmigosLista', 'Watch-AmigoConecta', 'Start-AmigoVigila', 'Complete-AmigoElige')) { Invoke-Expression (Traer $f) }
+                 'Start-AmigoPregunta', 'Receive-AmigoPregunta', 'Format-AmigosSteam',
+                 'Open-AmigoEleccion', 'Watch-AmigoConecta', 'Start-AmigoVigila',
+                 'Complete-AmigoElige')) { Invoke-Expression (Traer $f) }
+# el mensaje de la clave que falta, leido del codigo (lo usan las dos puertas)
+$mensajeSinClave = if ($fuente -match "(?m)^\`$mensajeSinClave = '([^']+)'") { $Matches[1] } else { '' }
+if (-not $mensajeSinClave) { Write-Host '  MAL  no encuentro el mensaje de la clave que falta'; exit 1 }
+$script:amigoPide = $null
+function New-ClavesVacio { $script:huecoCreado++; return $true }
+$script:huecoCreado = 0
 # las tres frases, sacadas del arbol y con un marco: son ramas de Resolve-Fragment, que
 # depende de medio fichero
 Invoke-Expression ("function Di([string]`$f) {`n" + (TraerRama 'conecte|conecta|entre') + "`n" +
@@ -211,6 +222,8 @@ function Armar([int]$n = 2) {
     $k = @(Di 'avisame cuando se conecte mi novia')
     if ($k.Count -eq 0 -or $k[0].kind -ne 'amigoVigila') { Write-Host '  MAL  la frase de armar ya no entra'; exit 1 }
     [void](Start-AmigoVigila)
+    Receive-AmigoPregunta      # llega la lista de amigos -> se pide quienes son
+    Receive-AmigoPregunta      # llegan, y se lee la lista numerada
     $palabras = @{ 1 = 'uno'; 2 = 'dos'; 3 = 'tres' }
     $k2 = @(Di ('el ' + $palabras[$n]))
     if ($k2.Count -eq 0 -or $k2[0].kind -ne 'amigoElige') { Write-Host '  MAL  el numero ya no entra'; exit 1 }
@@ -223,6 +236,31 @@ Limpia
 $r1 = @(Di 'avisame cuando se conecte mi novia')
 Comp 'la frase se entiende aqui, no se va al modelo' ($r1.Count -gt 0 -and $r1[0].kind -eq 'amigoVigila') "$($r1[0].kind)"
 $f1 = Start-AmigoVigila
+# NO CONTESTA LA LISTA EN EL ACTO, Y ESO ES LO BUENO (24/09, repaso): preguntarselo a Steam
+# son dos llamadas con tope de 6 s cada una, y esto corre dentro del bucle. Antes se esperaba
+# aqui, hasta 12 s de consola congelada con un juego delante.
+Comp 'contesta al momento, sin salir a la red' ($f1 -match 'momento') "$f1"
+Comp 'y sale UNA peticion, no dos' ($script:llamadas -eq 1) "$($script:llamadas)"
+Receive-AmigoPregunta      # llega la lista de amigos -> se piden quienes son
+Comp 'con la lista, pide quienes son' ($script:llamadas -eq 2) "$($script:llamadas)"
+# Y LA PREGUNTA TIENE PLAZO: si Steam no contesta, esto se quedaria esperando para siempre y
+# "el dos" de dentro de una hora armaria una vigilancia que nadie pidio.
+$guarda1 = $script:amigoPide
+$script:amigoPide.en = $sw.ElapsedMilliseconds - ($AmigoRedMs * 2) - 1
+$script:dicho = @()
+Receive-AmigoPregunta
+Comp 'si Steam no contesta, se rinde y lo dice' (@($script:dicho).Count -eq 1 -and @($script:dicho)[0] -match 'No pude') "$(@($script:dicho) -join ' / ')"
+Comp 'y no deja la pregunta colgada' ($null -eq $script:amigoPide) ''
+# se vuelve a dejar la pregunta como estaba: al rendirse se ha llevado por delante la
+# respuesta que habia en vuelo, que es justo lo que tiene que hacer
+$script:amigoPide = $guarda1
+$script:amigoPide.en = $sw.ElapsedMilliseconds
+$script:steamTask = 'en vuelo'
+$script:jsonPendiente = RespuestaFalsa 'GetPlayerSummaries'
+$script:dicho = @()
+Comp 'y aun no ha dicho nada' (@($script:dicho).Count -eq 0) "$(@($script:dicho) -join ' / ')"
+Receive-AmigoPregunta      # llegan, y se lee la lista numerada
+$f1 = [string]@($script:dicho)[-1]
 Comp 'lee la lista numerada' ($f1 -match '1, ' -and $f1 -match '2, ' -and $f1 -match '3, ') "$f1"
 Comp 'y SIEMPRE en el mismo orden, por nombre' ($f1 -match '1, Ana; 2, Kevin; 3, Meramiau') 'se elige de oido: el orden es la mitad de la seguridad'
 Comp 'y abre el selector del mando (la otra via)' (@($script:abierto).Count -eq 1 -and $script:abierto[0].origen -eq 'amigo') "$(@($script:abierto).Count)"
@@ -301,7 +339,8 @@ Comp 'pasados los dos minutos: 1 llamada' ($script:llamadas -eq 1) "$($script:ll
 Watch-AmigoConecta
 Comp 'y no se lanza otra con una en vuelo' ($script:llamadas -eq 1) "$($script:llamadas)"
 Comp 'los dos minutos son los del chequeo de descargas' ($AmigoCadaMs -eq 120000) "$AmigoCadaMs ms"
-Comp 'la url lleva el steamid vigilado' (@($script:urls)[0] -match 'steamids=333') ''
+# la ULTIMA, que es la del sensor: la primera es la de armar la vigilancia
+Comp 'la url lleva el steamid vigilado' (@($script:urls)[-1] -match 'steamids=333') "$(@($script:urls)[-1])"
 
 Write-Host ''
 Write-Host '-- 6. el plazo: vencida se borra ANTES de gastar red --'
@@ -366,7 +405,7 @@ Write-Host '-- 10. SIN CLAVE NO SE ARMA NADA (y no sale una peticion) --'
 Limpia
 $script:claveFalsa = ''
 $f10 = Start-AmigoVigila
-Comp 'lo dice, y dice donde pedirla' ($f10 -eq $mSinClave) "$f10"
+Comp 'lo dice, y dice donde pedirla' ($f10 -eq $mensajeSinClave) "$f10"
 Comp 'y le deja el hueco preparado para pegarla' ($script:huecoCreado -ge 1) 'asi solo tiene que abrir el archivo'
 Comp 'y no arma nada' (@(Reglas).Count -eq 0) ''
 Comp 'ni abre el selector para elegir a nadie' (@($script:abierto).Count -eq 0) ''
@@ -379,6 +418,8 @@ Limpia
 $script:amigosFalsos = @(@{ id = '444'; nombre = 'Privada'; online = $false; visible = $false; jugando = '' },
                          @{ id = '555'; nombre = 'Abierta'; online = $false; visible = $true; jugando = '' })
 [void](Start-AmigoVigila)
+Receive-AmigoPregunta      # la lista
+Receive-AmigoPregunta      # y quienes son
 # alfabetica: 1 Abierta, 2 Privada
 $f11 = Complete-AmigoElige 2
 Comp 'avisa de que Steam no lo dice' ($f11 -match 'privado') "$f11"
