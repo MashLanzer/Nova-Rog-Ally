@@ -15,6 +15,10 @@
 # CUARTO sitio con cosas con fecha al lado de los otros tres, que es la leccion que ya esta
 # escrita en el codigo: dos listas distintas acaban separandose.
 $ErrorActionPreference = 'Stop'
+# UN BANCO QUE REVIENTA SE PONE ROJO (24/09). PowerShell 5.1 con -File sale con codigo 0
+# aunque el script muera a mitad, asi que un banco que llama a una funcion que ya no existe
+# se daba por bueno. Paso dos veces el 23/09. Con esto, morir es un fallo.
+trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
 $raiz = Split-Path -Parent $PSScriptRoot
 $ruta = Join-Path $raiz 'assistant.ps1'
 $fuente = [System.IO.File]::ReadAllText($ruta)
@@ -175,7 +179,7 @@ Comp 'un trozo de dos letras no borra nada' (@(Get-Recordatorios).Count -eq 1) "
 
 Write-Host ''
 Write-Host '-- 7. y lo que NO puede tragarse --'
-$reBorra = [regex]::Match($fuente, "(?m)^\s*if \(\`$p -match '(\^\(\?:borra\|elimina\|quita\|olvida\|cancela\).+?)'\) \{").Groups[1].Value
+$reBorra = [regex]::Match($fuente, "(?m)^\s*if \(\`$p -match '(\^\(\?!.+?\)\(\?:borra\|elimina\|quita\|olvida\|cancela\).+?)'\) \{").Groups[1].Value
 if (-not $reBorra) { Write-Host '  MAL  no encuentro el patron de borrar una cita'; exit 1 }
 Comp '"borra la carpeta descargas" no entra' ('borra la carpeta descargas' -notmatch $reBorra) 'eso si es destructivo de verdad'
 Comp '"borra todos los recordatorios" tampoco' ('borra todos los recordatorios' -notmatch $reBorra) 'ese va delante y es mas especifico'

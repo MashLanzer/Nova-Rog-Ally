@@ -1,10 +1,14 @@
-﻿# LA SEGUNDA OPINION DE LA NUBE (16/09): cuando SI vale lo que oye Gemini y cuando no.
+# LA SEGUNDA OPINION DE LA NUBE (16/09): cuando SI vale lo que oye Gemini y cuando no.
 #
 # Medido con las 344 grabaciones (214 leidas + 130 de uso real): gemini-3.5-flash-lite
 # entiende mas ordenes que el camino local, pero tiene dos vicios propios que aqui se
 # cortan: recita los nombres que lleve el prompt y a veces mete un juego que no dijiste.
 # Y siempre, siempre, con tope de espera: 5 de cada 20 peticiones pasan de 3 s.
 $ErrorActionPreference = 'Stop'
+# UN BANCO QUE REVIENTA SE PONE ROJO (24/09). PowerShell 5.1 con -File sale con codigo 0
+# aunque el script muera a mitad, asi que un banco que llama a una funcion que ya no existe
+# se daba por bueno. Paso dos veces el 23/09. Con esto, morir es un fallo.
+trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
 $raiz = Split-Path -Parent $PSScriptRoot
 $ruta = Join-Path $raiz 'assistant.ps1'
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($ruta, [ref]$null, [ref]$null)

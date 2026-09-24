@@ -451,6 +451,18 @@ Titulo "2n105. A que podemos jugar los dos"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-juegos-dos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:de donde lo ha sacado)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n114. No hablarle a una habitacion vacia"
+# Idea 20. Medido: 77 avisos de entorno en catorce dias y solo 17 (22 %) tuvieron una orden
+# suya en los cinco minutos siguientes. El peor es oido-ruido, 31 avisos y 2 atendidos, que
+# es el 40 % de todo lo que Nova dice por su cuenta. Quitando los flancos fisicos -cargador,
+# cascos, dock: cosas que acaba de hacer con las manos, o sea presencia probada- quedan 46
+# avisos con 7 atendidos: 39 frases dichas a nadie. Ahora los de nivel medio se aparcan si
+# lleva mas de 30 minutos sin dar senales -el mismo umbral del parte de la manana- y salen
+# cuando vuelve, por el mando o diciendo "que me he perdido". Lo que mas se vigila: que un
+# aviso aparcado NO se marque como dicho (gmail-lleno tiene plazo de una semana).
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-avisos-espera.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya no le habla a una habitacion vacia)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n113. La agenda mira los tres sitios, no uno"
 # Idea 5. NO se hace un calendario nuevo: seria un CUARTO sitio con cosas con fecha al lado
 # de los tres que ya hay. El alias existe desde el 18/09 -braya lo pidio tres veces y acabo

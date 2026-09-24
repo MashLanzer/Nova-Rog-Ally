@@ -1,4 +1,4 @@
-# RECOMPILAR assistant-dx.dll DESDE assistant-dx.cs, y dejar el hash al dia.
+﻿# RECOMPILAR assistant-dx.dll DESDE assistant-dx.cs, y dejar el hash al dia.
 #
 # Por que hace falta un script: el DLL se carga con Add-Type -Path, asi que mientras Nova
 # este en marcha el archivo esta BLOQUEADO y no se puede sobrescribir. Y si se recompila y

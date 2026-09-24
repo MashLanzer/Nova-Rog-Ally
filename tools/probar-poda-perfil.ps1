@@ -1,4 +1,4 @@
-# EL PERFIL PODABA LO MAS VIEJO, NO LO QUE MENOS VALE (22/09).
+﻿# EL PERFIL PODABA LO MAS VIEJO, NO LO QUE MENOS VALE (22/09).
 #
 # memoria\perfil.md es lo que Nova sabe de braya. Caben 60, y al llegar al tope se iba "el
 # primero", o sea el mas antiguo, sin mirar que era.
@@ -32,6 +32,10 @@
 # y aqui se evita de entrada. Log es la unica que se sustituye, porque escribiria en el
 # log de verdad: aqui se queda con lo que dice, que ademas hace falta para comprobarlo.
 $ErrorActionPreference = 'Stop'
+# UN BANCO QUE REVIENTA SE PONE ROJO (24/09). PowerShell 5.1 con -File sale con codigo 0
+# aunque el script muera a mitad, asi que un banco que llama a una funcion que ya no existe
+# se daba por bueno. Paso dos veces el 23/09. Con esto, morir es un fallo.
+trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
 $raiz = Split-Path -Parent $PSScriptRoot
 $fuente = [System.IO.File]::ReadAllText((Join-Path $raiz 'assistant.ps1'))
 
@@ -41,7 +45,9 @@ function Comp($etiqueta, $ok, $detalle = '') {
     if (-not $ok) { $script:fallos++ }
 }
 
-foreach ($fn in @('ConvertTo-Plain', 'ConvertTo-Suave', 'Get-DatosPerfil', 'Save-DatosPerfil', 'Add-DatoPerfil')) {
+# Test-DatoTrato la trajo la idea 7 el 23/09 y este banco no se entero: moria a mitad, y
+# encima salia con codigo 0. Lo vio la trampa nueva, no una persona.
+foreach ($fn in @('ConvertTo-Plain', 'ConvertTo-Suave', 'Get-DatosPerfil', 'Save-DatosPerfil', 'Test-DatoTrato', 'Add-DatoPerfil')) {
     $m = [regex]::Match($fuente, ('(?ms)^function {0}[ (\[].*?^\}}' -f [regex]::Escape($fn)))
     if (-not $m.Success) { Write-Host ('  MAL  no encuentro {0} en assistant.ps1' -f $fn); exit 1 }
     . ([scriptblock]::Create($m.Value))

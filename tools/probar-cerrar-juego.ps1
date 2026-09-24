@@ -1,4 +1,4 @@
-# "CIERRA EL RING" MATABA ELDEN RING SIN PREGUNTAR (21/09), de la tanda de agentes.
+﻿# "CIERRA EL RING" MATABA ELDEN RING SIN PREGUNTAR (21/09), de la tanda de agentes.
 #
 # Find-JuegoPorSonido compara como SUENA lo que se ha dicho con los titulos de la
 # biblioteca, para rescatar "abre elden ring" cuando Whisper oye "abre el ring". Su propio
@@ -11,6 +11,10 @@
 #
 # Lo que se prueba aqui no es que reconozca bien: es que PREGUNTE. Lo primero ya funciona.
 $ErrorActionPreference = 'Stop'
+# UN BANCO QUE REVIENTA SE PONE ROJO (24/09). PowerShell 5.1 con -File sale con codigo 0
+# aunque el script muera a mitad, asi que un banco que llama a una funcion que ya no existe
+# se daba por bueno. Paso dos veces el 23/09. Con esto, morir es un fallo.
+trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
 $raiz = Split-Path -Parent $PSScriptRoot
 $fuente = [System.IO.File]::ReadAllText((Join-Path $raiz 'assistant.ps1'))
 

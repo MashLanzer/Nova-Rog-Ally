@@ -1,4 +1,4 @@
-# HAS VUELTO A LA CONSOLA (18/09): que te salude al volver, y sobre todo QUE SEPA CALLARSE.
+﻿# HAS VUELTO A LA CONSOLA (18/09): que te salude al volver, y sobre todo QUE SEPA CALLARSE.
 #
 # Lo que pidio braya: "cuando nova este encendida, y pasa un tiempo sola, al tomar la consola
 # en mis manos lo detecte y me salude de alguna forma, no siempre igual porque se vuelve
@@ -12,6 +12,10 @@
 # puede ser la de verdad (23-8) y el banco da lo mismo a las 3 de la tarde que a las 3 de la
 # madrugada.
 $ErrorActionPreference = 'Stop'
+# UN BANCO QUE REVIENTA SE PONE ROJO (24/09). PowerShell 5.1 con -File sale con codigo 0
+# aunque el script muera a mitad, asi que un banco que llama a una funcion que ya no existe
+# se daba por bueno. Paso dos veces el 23/09. Con esto, morir es un fallo.
+trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
 $raiz = Split-Path -Parent $PSScriptRoot
 $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $raiz 'assistant.ps1'), [ref]$null, [ref]$null)
 function Traer([string]$n) {

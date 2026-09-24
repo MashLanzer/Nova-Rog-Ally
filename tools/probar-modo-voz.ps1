@@ -1,4 +1,4 @@
-﻿# CAMBIAR UN MODO HABLANDO (16/09).
+# CAMBIAR UN MODO HABLANDO (16/09).
 #
 # El 15/09 a las 11:40, braya dijo "recuerda que al poner modo juego abras Steam y
 # Discord no lo abras" y Nova lo guardo como una NOTA en el diario: el modo juego
@@ -8,6 +8,10 @@
 # puede pasar: que una frase cualquiera meta basura dentro de un modo, que se quede un
 # modo vacio, o que se toque un modo que no existe.
 $ErrorActionPreference = 'Stop'
+# UN BANCO QUE REVIENTA SE PONE ROJO (24/09). PowerShell 5.1 con -File sale con codigo 0
+# aunque el script muera a mitad, asi que un banco que llama a una funcion que ya no existe
+# se daba por bueno. Paso dos veces el 23/09. Con esto, morir es un fallo.
+trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
 $raiz = Split-Path -Parent $PSScriptRoot
 $ruta = Join-Path $raiz 'assistant.ps1'
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($ruta, [ref]$null, [ref]$null)

@@ -3981,6 +3981,13 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(?:hoy\s+)?no\s+me\s+avises\s+(?:hoy\s+)?(?:de\s+|del\s+)?(?:tiempo|tiempo de juego|juego|las horas|lo que llevo|lo que juego)$') {
         return @(@{ kind = 'avisoJuegoHoy'; avisar = $false; desc = 'hoy no avisarte del tiempo de juego' })
     }
+    # "¿QUE ME HE PERDIDO?" (23/09, idea 20). La otra salida de la cola, la que se dice. Va
+    # DETRAS del interruptor general de los avisos, que tiene que seguir ganando. Lista
+    # cerrada de diez frases, sin comodines: por la regla 7, la via que no depende del oido
+    # es el mando, que ya suelta la cola sin decir una palabra.
+    if ($f -match '^(?:que me he perdido|me he perdido algo|que ha pasado mientras no estaba|tenias algo que decirme|que tenias que decirme|algo nuevo|sueltalo|suelta lo que tengas|dime lo que tengas|cuentame lo que tengas)$') {
+        return @(@{ kind = 'avisosEspera'; desc = 'soltar lo que me guarde' })
+    }
     if ($f -match '^(?:vuelve a avisarme|avisame otra vez|si avisame)\s+(?:de\s+|del\s+)?(?:tiempo|tiempo de juego|juego)$') {
         return @(@{ kind = 'avisoJuegoHoy'; avisar = $true; desc = 'volver a avisarte del tiempo de juego' })
     }
@@ -8587,6 +8594,28 @@ function Save-EntornoVistos {
         Write-Atomico $EntornoVistosPath (ConvertTo-Json -InputObject $o -Depth 3)
     } catch {}
 }
+# LO QUE NO SE DIJO PORQUE NO HABIA NADIE (23/09, idea 20). Medido: 77 avisos de entorno en
+# catorce dias y solo 17 (22 %) con una orden suya en los cinco minutos siguientes; quitando
+# los flancos fisicos, 46 avisos y 7 atendidos. No es que Nova hable de mas: es que habla
+# cuando no hay nadie.
+# VA A DISCO a proposito: con una mediana de sesion de 5,8 minutos, una cola en memoria se la
+# come el siguiente reinicio, que es exactamente el fallo que hubo que arreglar el 22/09 con
+# el texto del "tengo una decision esperando".
+$script:avisoEspera = New-Object System.Collections.ArrayList
+$AvisoEsperaPath = Join-Path $TmpDir 'avisos-esperando.json'
+# LOS TREINTA MINUTOS NO SON NUEVOS: son los mismos que ya usa Test-ParteManana para decidir
+# que no hay nadie delante ("sin nadie delante no se gasta el dia"). Dos umbrales distintos
+# para lo mismo acabarian separandose.
+$AvisoEsperaMin = 30
+# Y LOS 120 SALEN DE LA MEDICION: el 56 % de las esperas medidas caben ahi. Mas alla la
+# noticia esta rancia, y soltarle a las tres horas la bateria de antes es peor que callarse.
+$AvisoEsperaCaducaMin = 120
+# LAS QUE NO SE APLAZAN NUNCA. Lista CERRADA y a la vista: las ocho son el flanco de algo que
+# braya acaba de hacer CON LAS MANOS -enchufar, ponerse los cascos, cerrar el juego-, asi que
+# ahi la presencia no hay que suponerla, esta probada.
+$AvisoSiempre = @('cargador-pone', 'cargador-quita', 'cascos-pone', 'cascos-quita',
+                  'dock-pone', 'dock-quita', 'disco-juegos', 'juego-cierra')
+
 $script:entornoCallado = $false                                    # "no me avises de nada"
 # Y EL DIA EN QUE SE CALLO (23/09). Sin esto, "no me avises de nada" se quedaba puesto hasta
 # que braya se acordara de decir lo contrario: el unico modo de Nova del que solo se sale
@@ -8667,9 +8696,102 @@ function Send-AvisoCola([bool]$yaMismo = $false) {
     Say $junto
 }
 
+# ¿ESTE AVISO PUEDE ESPERAR? Solo los de nivel 'medio', que son los 46 de la medicion.
+#  - 'alto' no espera nunca: hoy son bateria-baja y disco-critico, y callar eso es el fallo
+#    que esta idea NO puede introducir.
+#  - 'noche' tampoco: 'hora-dormir' aplazada a la manana siguiente seria una mentira.
+#  - 'bajo' no se dice, solo se ve en la capsula: aplazar algo que no suena no ahorra nada.
+#  - jugando SI esta delante, asi que no se aplaza; de callarse mientras juega ya se encarga
+#    Test-PuedoAvisar.
+function Test-AvisoAplazable([string]$clave, [string]$nivel = 'medio', [datetime]$ahora = (Get-Date)) {
+    if ($nivel -ne 'medio') { return $false }
+    if ($AvisoSiempre -contains $clave) { return $false }
+    if ($script:juegoActivo) { return $false }
+    return ((Get-AusenciaMin $ahora) -ge $AvisoEsperaMin)
+}
+
+function Get-AvisoEspera {
+    if ($script:avisoEspera.Count -gt 0) { return $script:avisoEspera }
+    try {
+        if (Test-Path -LiteralPath $AvisoEsperaPath) {
+            $j = Get-Content -LiteralPath $AvisoEsperaPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($x in $j) {
+                if ($null -eq $x -or -not [string]$x.clave) { continue }
+                [void]$script:avisoEspera.Add(@{ clave = [string]$x.clave; texto = [string]$x.texto
+                                                 nivel = [string]$x.nivel; cada = [int]$x.cada; vence = [string]$x.vence })
+            }
+        }
+    } catch {}
+    return $script:avisoEspera
+}
+
+function Save-AvisoEspera {
+    try {
+        $lista = @()
+        foreach ($x in $script:avisoEspera) {
+            $o = New-Object PSObject
+            foreach ($k in 'clave', 'texto', 'nivel', 'cada', 'vence') { $o | Add-Member -NotePropertyName $k -NotePropertyValue $x[$k] }
+            $lista += $o
+        }
+        $json = if ($lista.Count -eq 0) { '[]' } else { ConvertTo-Json -InputObject @($lista) -Depth 3 }
+        Write-Atomico $AvisoEsperaPath $json
+    } catch {}
+}
+
+# NADA DE DOS AVISOS DE LA MISMA COSA: si la clave ya esta aparcada, se sustituye por el
+# texto nuevo. Volver y oir tres veces lo del ruido seria peor que no oirlo.
+function Add-AvisoEspera([string]$clave, [string]$texto, [string]$nivel, [int]$cada, [datetime]$ahora = (Get-Date)) {
+    [void](Get-AvisoEspera)
+    $viejos = @($script:avisoEspera | Where-Object { [string]$_.clave -eq $clave })
+    foreach ($v in $viejos) { [void]$script:avisoEspera.Remove($v) }
+    [void]$script:avisoEspera.Add(@{ clave = $clave; texto = $texto; nivel = $nivel; cada = $cada
+                                     vence = $ahora.AddMinutes($AvisoEsperaCaducaMin).ToString('s') })
+    Save-AvisoEspera
+}
+
+# SUELTA LA COLA. Los vencidos se tiran con una linea en el log: la cola tiene plazo, o seria
+# un modo del que no se sale. Los vivos vuelven a pasar por Send-AvisoEntorno, o sea por el
+# tope por hora y por Send-AvisoCola, que los junta en UNA sola frase.
+function Send-AvisoEsperaSuelta([datetime]$ahora = (Get-Date), [bool]$soloCaducar = $false) {
+    [void](Get-AvisoEspera)
+    if ($script:avisoEspera.Count -eq 0) { return 0 }
+    $vivos = @()
+    foreach ($x in @($script:avisoEspera)) {
+        $vence = [datetime]::MaxValue
+        try { $vence = [datetime]$x.vence } catch {}
+        if ($ahora -gt $vence) {
+            Log "ENTORNO caducado sin decirse: $($x.clave)"
+            Add-Estadistica 'aviso-caducado' ([string]$x.clave)
+        } else { $vivos += $x }
+    }
+    $script:avisoEspera.Clear()
+    if ($soloCaducar) {
+        foreach ($v in $vivos) { [void]$script:avisoEspera.Add($v) }
+        Save-AvisoEspera
+        return 0
+    }
+    Save-AvisoEspera
+    $n = 0
+    foreach ($v in $vivos) {
+        if (Send-AvisoEntorno ([string]$v.clave) ([string]$v.texto) ([string]$v.nivel) ([int]$v.cada) $true) { $n++ }
+    }
+    return $n
+}
+
 # Avisa de algo. Devuelve $true si el aviso pasa el filtro (los normales se dicen unos
 # segundos despues, ver la idea 23 aqui arriba).
-function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'medio', [int]$cadaMin = 60) {
+function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'medio', [int]$cadaMin = 60, [bool]$yaEsperado = $false) {
+    # SI NO HAY NADIE, SE GUARDA PARA CUANDO VUELVA (23/09, idea 20). Y va ARRIBA DEL TODO,
+    # delante de Test-PuedoAvisar, a proposito: aqui NO se marca $script:entornoVistos ni se
+    # gasta una plaza del tope por hora. Si se marcara, Nova se callaria el aviso Y ademas lo
+    # daria por dicho -gmail-lleno tiene plazo de una semana, o sea que se perderia siete
+    # dias- y desde fuera seria igual que si no se hubiera enterado de nada. Es el mismo
+    # fallo que tuvo Test-ParteManana el 21/09, con otra ropa.
+    if (-not $yaEsperado -and (Test-AvisoAplazable $clave $nivel)) {
+        Add-AvisoEspera $clave $texto $nivel $cadaMin
+        Log "ENTORNO aparcado (no hay nadie desde hace $(Get-AusenciaMin) min): $clave"
+        return $false
+    }
     if (-not (Test-PuedoAvisar $clave $nivel $cadaMin)) { return $false }
     $script:entornoVistos[$clave] = (Get-Date).ToString('s')
     Save-EntornoVistos
@@ -8881,6 +9003,11 @@ function Watch-Entorno([int]$botones = 0) {
         # ropa). Y la presencia lleva su propio reloj: $quietoMin alimenta tambien a
         # 'mandoCoge', que no tiene rearme, y tocarlo dispararia esa regla en cada pulsacion.
         try { [void](Test-VueltaSaludo) } catch { Log ("vuelta: " + $_.Exception.Message) }
+        # LO QUE SE CALLO MIENTRAS NO ESTABA (23/09, idea 20). Este es el instante exacto en
+        # que se sabe que ha vuelto, y es la salida que no cuesta decir una palabra: coger la
+        # consola. Va DESPUES de Test-VueltaSaludo para que el hola vaya delante, y ANTES de
+        # Set-PresenciaAhora porque lo que decide es la ausencia de justo antes.
+        try { [void](Send-AvisoEsperaSuelta) } catch { Log ("avisos en espera: " + $_.Exception.Message) }
         try { Set-PresenciaAhora } catch {}
     }
     $script:entornoBotonesAntes = $botones
@@ -8892,6 +9019,10 @@ function Watch-Entorno([int]$botones = 0) {
     # VA DELANTE DEL PARTE DE LA MANANA (20/09, P5), no detras: es quien deja apuntado el
     # "tengo una decision esperando", y el parte solo sale UNA vez al dia. Detras, lo que
     # apuntara hoy no se leeria hasta el parte de manana.
+    # LOS APARCADOS CADUCAN AUNQUE NO VUELVA (23/09, idea 20): si no, la cola se queda ahi
+    # para siempre y al volver tres horas despues Nova le suelta la bateria de antes.
+    try { [void](Send-AvisoEsperaSuelta (Get-Date) $true) } catch {}
+
     try { [void](Test-RevisionPropia) } catch { Log ("revision propia: " + $_.Exception.Message) }
 
     # IDEAS 1 y 17: el parte de la manana y el resumen al volver EXISTIAN, pero solo
@@ -11397,6 +11528,13 @@ function Invoke-FastCommand([string]$text) {
                     $minA = [int]$a.minutos
                     if ($minA -gt 0 -and $minA -lt 15) { $a.desc = 'cada cuanto? Menos de quince minutos es mucho ruido' }
                     else { Log "AVISO DE JUEGO: cada $minA min"; $a.desc = (Set-AvisoJuego $minA) }
+                }
+                'avisosEspera' {
+                    # los vivos vuelven a pasar por Send-AvisoEntorno, que los junta en UNA
+                    # frase con Send-AvisoCola: por eso aqui no se habla dos veces encima.
+                    $nEsp = 0
+                    try { $nEsp = [int](Send-AvisoEsperaSuelta) } catch { $nEsp = 0 }
+                    if ($nEsp -eq 0) { $a.desc = 'Nada, no tenia nada guardado.' } else { $a.desc = '' }
                 }
                 'avisoJuegoHoy' {
                     Log ("AVISO DE JUEGO: " + $(if ($a.avisar) { 'vuelve' } else { 'callado por hoy' }))
@@ -16068,7 +16206,12 @@ function Invoke-RecordatorioVoz([string]$text) {
     # BORRAR UNA CITA HABLANDO (23/09, idea 5). Va DETRAS del 'todos', que es mas especifico y
     # sigue ganando, y EXIGE el sustantivo delante ('recordatorio', 'aviso' o 'cita'): sin eso
     # se comeria "borra la carpeta descargas", que es otra cosa y ademas destructiva de verdad.
-    if ($p -match '^(?:borra|elimina|quita|olvida|cancela)\s+(?:el\s+|la\s+|mi\s+)?(?:recordatorio|aviso|cita)\s*(?:de\s+|del\s+|sobre\s+|que\s+)?(.+)$') {
+    # EL AVISO DEL TIEMPO DE JUEGO NO ES UNA CITA. Es la tercera vez hoy con la misma
+    # familia de frases: "quita el aviso de cada hora" es de Resolve-Fragment, y esta
+    # funcion se mira ANTES, asi que sin la salvedad aquel patron se queda en codigo
+    # muerto. La lista de palabras es la MISMA que alli y que en los recordatorios
+    # repetidos: tres sitios, una lista.
+    if ($p -match '^(?!(?:borra|elimina|quita|olvida|cancela)\s+(?:el\s+|la\s+|mi\s+)?(?:aviso|avisos)\s+(?:de\s+|del\s+)?(?:cada\s+)?(?:hora|rato|tiempo|tiempo de juego|juego)$)(?:borra|elimina|quita|olvida|cancela)\s+(?:el\s+|la\s+|mi\s+)?(?:recordatorio|aviso|cita)\s*(?:de\s+|del\s+|sobre\s+|que\s+)?(.+)$') {
         $qR = [string]$Matches[1]
         # LA SEGUNDA VIA, POR NUMERO (regla 7, oido al 70,4 %): Nova acaba de leer la lista
         # numerada, asi que "borra el recordatorio dos" es una lista cerrada de una palabra.

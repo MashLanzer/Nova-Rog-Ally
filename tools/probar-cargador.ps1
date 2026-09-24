@@ -1,4 +1,4 @@
-﻿# A QUE PORCENTAJE ENCHUFA BRAYA EL CARGADOR (18/09).
+# A QUE PORCENTAJE ENCHUFA BRAYA EL CARGADOR (18/09).
 #
 # bateriaPct (15) es el nivel al que Nova avisa de que queda poca bateria. Para saber si ese
 # numero es el bueno haria falta saber a que % enchufa el de verdad, y eso NO SE APUNTABA: el
@@ -8,6 +8,10 @@
 # 2 dias, o sea que ni siquiera pasa el freno de datos repartidos) y niveles casi siempre al
 # 100 %. Por eso esto NO cambia el 15: instala el medidor que faltaba.
 $ErrorActionPreference = 'Stop'
+# UN BANCO QUE REVIENTA SE PONE ROJO (24/09). PowerShell 5.1 con -File sale con codigo 0
+# aunque el script muera a mitad, asi que un banco que llama a una funcion que ya no existe
+# se daba por bueno. Paso dos veces el 23/09. Con esto, morir es un fallo.
+trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
 $raiz = Split-Path -Parent $PSScriptRoot
 $rutaA = Join-Path $raiz 'assistant.ps1'
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($rutaA, [ref]$null, [ref]$null)

@@ -1,4 +1,4 @@
-# QUE "CALLATE" NO TE ABRA EL MICROFONO (22/09 por la noche, idea 4 de la tercera tanda).
+﻿# QUE "CALLATE" NO TE ABRA EL MICROFONO (22/09 por la noche, idea 4 de la tercera tanda).
 #
 # Por la rama del corte entran DOS cosas que significan lo contrario: tu nombre -que quiere
 # decir "voy a hablar", asi que reabrir el microfono es lo correcto- y las seis palabras de
@@ -19,6 +19,10 @@
 #     dentro del if dejaria a Nova sorda hasta que venciera la frase cortada;
 #   - y que al callarse no diga ni una palabra.
 $ErrorActionPreference = 'Stop'
+# UN BANCO QUE REVIENTA SE PONE ROJO (24/09). PowerShell 5.1 con -File sale con codigo 0
+# aunque el script muera a mitad, asi que un banco que llama a una funcion que ya no existe
+# se daba por bueno. Paso dos veces el 23/09. Con esto, morir es un fallo.
+trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
 $raiz = Split-Path -Parent $PSScriptRoot
 $fuente = [System.IO.File]::ReadAllText((Join-Path $raiz 'assistant.ps1'))
 $oido = [System.IO.File]::ReadAllText((Join-Path $raiz 'wake_vosk.py'))

@@ -11,6 +11,10 @@
 # LO QUE NO SE HACE: borrar por su cuenta. Lo que hay en su perfil es suyo. Se busca el par
 # que mas se parece y se le PREGUNTA con las dos frases delante.
 $ErrorActionPreference = 'Stop'
+# UN BANCO QUE REVIENTA SE PONE ROJO (24/09). PowerShell 5.1 con -File sale con codigo 0
+# aunque el script muera a mitad, asi que un banco que llama a una funcion que ya no existe
+# se daba por bueno. Paso dos veces el 23/09. Con esto, morir es un fallo.
+trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
 $raiz = Split-Path -Parent $PSScriptRoot
 $ruta = Join-Path $raiz 'assistant.ps1'
 $fuente = [System.IO.File]::ReadAllText($ruta)
@@ -26,6 +30,9 @@ function Traer([string]$n) {
     if (-not $fn) { Write-Host "  MAL  no encuentro $n"; exit 1 }
     return $fn.Extent.Text
 }
+# LA TRAJO OTRA IDEA Y ESTE BANCO NO SE ENTERO (24/09): sin ella moria a mitad, y
+# encima salia con codigo 0. Lo vio la trampa nueva, no una persona.
+Invoke-Expression (Traer 'Test-DatoTrato')
 Invoke-Expression (Traer 'ConvertTo-Suave')
 Invoke-Expression (Traer 'Get-ParParecidoPerfil')
 $script:datosFalsos = @()

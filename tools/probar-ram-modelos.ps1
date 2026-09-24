@@ -1,4 +1,4 @@
-﻿# QUE UN MODELO NO SE CARGUE SI NO CABE (17/09).
+# QUE UN MODELO NO SE CARGUE SI NO CABE (17/09).
 #
 # El 15/09 paso de verdad: con Parakeet, base y small cargados a la vez quedaron 0,3 GB
 # libres de 7,7 y Whisper tardo de 4,5 a 12,9 s por orden en vez de ~1 s. Ya habia guarda
@@ -8,6 +8,10 @@
 # Esto no ejecuta wake_vosk.py (abre el microfono al importarlo): comprueba sobre el FUENTE
 # que las guardas siguen puestas y bien puestas, que es lo que se puede estropear sin querer.
 $ErrorActionPreference = 'Stop'
+# UN BANCO QUE REVIENTA SE PONE ROJO (24/09). PowerShell 5.1 con -File sale con codigo 0
+# aunque el script muera a mitad, asi que un banco que llama a una funcion que ya no existe
+# se daba por bueno. Paso dos veces el 23/09. Con esto, morir es un fallo.
+trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
 $raiz = Split-Path -Parent $PSScriptRoot
 $fuente = [System.IO.File]::ReadAllText((Join-Path $raiz 'wake_vosk.py'), [System.Text.Encoding]::UTF8)
 

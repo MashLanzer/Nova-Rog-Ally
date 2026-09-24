@@ -6,6 +6,11 @@
 # Trabaja en una carpeta temporal propia (nunca en memoria\) y la borra al acabar.
 #
 #   powershell -NoProfile -File tools\probar-recetas.ps1
+# UN BANCO QUE REVIENTA SE PONE ROJO (24/09). PowerShell 5.1 con -File sale con codigo 0
+# aunque el script muera a mitad, asi que un banco que llama a una funcion que ya no existe
+# se daba por bueno. Paso dos veces el 23/09. Con esto, morir es un fallo.
+$ErrorActionPreference = 'Stop'
+trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
 $ErrorActionPreference = 'Continue'
 $ruta = Join-Path (Split-Path -Parent $PSScriptRoot) 'assistant.ps1'
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($ruta, [ref]$null, [ref]$null)

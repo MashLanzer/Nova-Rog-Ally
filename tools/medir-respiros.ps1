@@ -1,4 +1,4 @@
-# ¿Cuanto se ahorra con la mejora 2? Se saca del archivo real la lista RESPIRO y
+﻿# ¿Cuanto se ahorra con la mejora 2? Se saca del archivo real la lista RESPIRO y
 # se cuentan los respiros antes y despues para ordenes tipicas.
 # POR DONDE ESTE EL BANCO, NO POR UNA RUTA ESCRITA A MANO (22/09). Aqui habia la ruta
 # completa a fuego: en una copia del repo en otra carpeta este banco seguiria midiendo el

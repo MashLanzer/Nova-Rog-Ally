@@ -1,4 +1,4 @@
-﻿# LO QUE NO PUEDE DECIDIR, TAMBIEN SE CUENTA (18/09).
+# LO QUE NO PUEDE DECIDIR, TAMBIEN SE CUENTA (18/09).
 #
 # Hasta hoy Nova solo hablaba cuando decidia algo. Pero puede pasar -y pasa ahora mismo- que los
 # numeros canten y el freno de datos repartidos la pare: el ultimo recurso lleva 1 acierto de 29
@@ -8,6 +8,10 @@
 # El freno esta bien. Lo que estaba mal era callarselo: desde fuera no se distingue de "no hay
 # nada que revisar". Aqui se comprueba que lo cuenta SOLO cuando toca.
 $ErrorActionPreference = 'Stop'
+# UN BANCO QUE REVIENTA SE PONE ROJO (24/09). PowerShell 5.1 con -File sale con codigo 0
+# aunque el script muera a mitad, asi que un banco que llama a una funcion que ya no existe
+# se daba por bueno. Paso dos veces el 23/09. Con esto, morir es un fallo.
+trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
 $raiz = Split-Path -Parent $PSScriptRoot
 $rutaA = Join-Path $raiz 'assistant.ps1'
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($rutaA, [ref]$null, [ref]$null)

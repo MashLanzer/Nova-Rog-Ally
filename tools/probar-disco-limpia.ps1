@@ -1,4 +1,4 @@
-# SOLTAR SITIO EN EL DISCO (23/09, funcion 6 de la tanda de funciones nuevas).
+﻿# SOLTAR SITIO EN EL DISCO (23/09, funcion 6 de la tanda de funciones nuevas).
 #
 # Nova ya avisaba pero no sabia actuar, y encima prometia algo que no tenia: CUATRO veces le
 # ha dicho a braya "te quedan X gigas, preguntame que ocupa mas" -20/09 con 14,5 GB, 21/09 con
@@ -10,6 +10,10 @@
 # el sistema regenera solo, que pregunte antes, y que el numero que dice salga de medir el
 # disco y no de sumar lo que creia haber borrado.
 $ErrorActionPreference = 'Stop'
+# UN BANCO QUE REVIENTA SE PONE ROJO (24/09). PowerShell 5.1 con -File sale con codigo 0
+# aunque el script muera a mitad, asi que un banco que llama a una funcion que ya no existe
+# se daba por bueno. Paso dos veces el 23/09. Con esto, morir es un fallo.
+trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
 $raiz = Split-Path -Parent $PSScriptRoot
 $ruta = Join-Path $raiz 'assistant.ps1'
 $fuente = [System.IO.File]::ReadAllText($ruta)

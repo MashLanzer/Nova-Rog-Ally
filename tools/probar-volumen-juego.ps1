@@ -1,4 +1,4 @@
-# HACERSE SITIO PARA HABLAR (23/09, funcion 7 de la tanda de funciones nuevas).
+﻿# HACERSE SITIO PARA HABLAR (23/09, funcion 7 de la tanda de funciones nuevas).
 #
 # braya le habla mientras juega -toda la tanda del 22/09 de 21:43 a 21:48 es con una partida
 # delante- y Nova hablaba ENCIMA del audio del juego, a volumen fijo. En catorce dias habla 41
@@ -7,6 +7,10 @@
 # LO QUE SE VIGILA AQUI, y es lo unico que puede hacerle daño: que no le SUBA el volumen sin
 # querer, y que se lo devuelva siempre.
 $ErrorActionPreference = 'Stop'
+# UN BANCO QUE REVIENTA SE PONE ROJO (24/09). PowerShell 5.1 con -File sale con codigo 0
+# aunque el script muera a mitad, asi que un banco que llama a una funcion que ya no existe
+# se daba por bueno. Paso dos veces el 23/09. Con esto, morir es un fallo.
+trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
 $raiz = Split-Path -Parent $PSScriptRoot
 $ruta = Join-Path $raiz 'assistant.ps1'
 $fuente = [System.IO.File]::ReadAllText($ruta)

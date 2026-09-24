@@ -1,4 +1,4 @@
-﻿# Convierte los descartes del log en vocabulario nuevo.
+# Convierte los descartes del log en vocabulario nuevo.
 #
 # El asistente ya registra cada frase que la capa local NO entendio:
 #   LOCAL descarta: no reconozco '<trozo>'

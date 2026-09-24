@@ -1,9 +1,13 @@
-﻿# NOVA SE ENTERA DE LO QUE PASA (16/09): el freno de mano de los avisos.
+# NOVA SE ENTERA DE LO QUE PASA (16/09): el freno de mano de los avisos.
 #
 # braya quiere 30 comportamientos que reaccionen a su entorno. Lo que se comprueba aqui
 # NO es que avise, sino que SEPA CALLARSE: un asistente que habla solo se vuelve
 # insoportable en dos dias, y el odia especialmente los modos que se quedan puestos.
 $ErrorActionPreference = 'Stop'
+# UN BANCO QUE REVIENTA SE PONE ROJO (24/09). PowerShell 5.1 con -File sale con codigo 0
+# aunque el script muera a mitad, asi que un banco que llama a una funcion que ya no existe
+# se daba por bueno. Paso dos veces el 23/09. Con esto, morir es un fallo.
+trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
 $raiz = Split-Path -Parent $PSScriptRoot
 $ruta = Join-Path $raiz 'assistant.ps1'
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($ruta, [ref]$null, [ref]$null)
@@ -59,6 +63,28 @@ Invoke-Expression (Traer 'Get-HoraFinHabitual')
 Invoke-Expression (Traer 'Get-AvisoHoraDormir')
 Invoke-Expression (Traer 'Get-AvisoFallos')
 Invoke-Expression (Traer 'Send-AvisoCola')
+# LA COLA DE LOS QUE NO SE DICEN PORQUE NO HAY NADIE (23/09, idea 20). Send-AvisoEntorno ya
+# las llama, asi que sin esto este banco moria a mitad... y salia con exit 0, que es peor.
+# Aqui la ausencia se deja en CERO: lo que se prueba en este fichero es el filtro de siempre,
+# con braya delante. El aplazado tiene su propio banco (probar-avisos-espera.ps1).
+$fuenteE = [System.IO.File]::ReadAllText($ruta)
+$script:avisoEspera = New-Object System.Collections.ArrayList
+$AvisoEsperaPath = Join-Path $env:TEMP ('entorno-espera-' + [guid]::NewGuid().ToString('N').Substring(0, 6) + '.json')
+$mS = [regex]::Match($fuenteE, '(?ms)^\$AvisoSiempre = (@\(.*?\))\s*$')
+if (-not $mS.Success) { throw 'no encuentro $AvisoSiempre' }
+$AvisoSiempre = Invoke-Expression $mS.Groups[1].Value
+$AvisoEsperaMin = if ($fuenteE -match '(?m)^\$AvisoEsperaMin = (\d+)') { [int]$Matches[1] } else { 30 }
+$AvisoEsperaCaducaMin = if ($fuenteE -match '(?m)^\$AvisoEsperaCaducaMin = (\d+)') { [int]$Matches[1] } else { 120 }
+$script:ausenciaFalsa = 0
+function Get-AusenciaMin([datetime]$ahora = (Get-Date)) { return $script:ausenciaFalsa }
+function Write-Atomico([string]$r, [string]$t) { [System.IO.File]::WriteAllText($r, $t, (New-Object System.Text.UTF8Encoding($false))) }
+# Set-AvisosEntorno llama a Get-DiaJuego desde la idea 11: otra que faltaba y que mataba
+# este banco a mitad, tambien en silencio.
+Invoke-Expression (Traer 'Get-DiaJuego')
+Invoke-Expression (Traer 'Test-AvisoAplazable')
+Invoke-Expression (Traer 'Get-AvisoEspera')
+Invoke-Expression (Traer 'Save-AvisoEspera')
+Invoke-Expression (Traer 'Add-AvisoEspera')
 Invoke-Expression (Traer 'Send-AvisoEntorno')
 Invoke-Expression (Traer 'Set-AvisosEntorno')
 

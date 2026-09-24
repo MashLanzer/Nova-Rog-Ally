@@ -1,4 +1,4 @@
-# EL MP3 ABIERTO ANTES DE HABLAR (22/09).
+﻿# EL MP3 ABIERTO ANTES DE HABLAR (22/09).
 #
 # Play-Audio hacia Open() y Play() pegados, y desde el Open hasta que sale sonido pasan
 # 464 ms de media (120 medidas en esta maquina; el rango 453-547 ya estaba apuntado dentro
@@ -19,6 +19,10 @@
 # Si cualquiera de las dos cambia y la otra no, esto se pone rojo. Que es justo lo que
 # tiene que pasar: el dia que se separen, el adelanto deja de acertar en silencio.
 $ErrorActionPreference = 'Stop'
+# UN BANCO QUE REVIENTA SE PONE ROJO (24/09). PowerShell 5.1 con -File sale con codigo 0
+# aunque el script muera a mitad, asi que un banco que llama a una funcion que ya no existe
+# se daba por bueno. Paso dos veces el 23/09. Con esto, morir es un fallo.
+trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
 $raiz = Split-Path -Parent $PSScriptRoot
 $fuente = [System.IO.File]::ReadAllText((Join-Path $raiz 'assistant.ps1'))
 $worker = [System.IO.File]::ReadAllText((Join-Path $raiz 'tts_worker.py'))

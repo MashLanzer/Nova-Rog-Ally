@@ -1,10 +1,15 @@
-﻿# Avisos sin voz: CUANDO se habla y cuando basta con que se vea.
+# Avisos sin voz: CUANDO se habla y cuando basta con que se vea.
 # Test-AvisoSinVoz se saca del archivo real, como en las demas pruebas. Lo que
 # se mide es la decision, no el pulso de la capsula (eso se ve mirandola).
 # POR DONDE ESTE EL BANCO, NO POR UNA RUTA ESCRITA A MANO (22/09). Aqui habia la ruta
 # completa a fuego: en una copia del repo en otra carpeta este banco seguiria midiendo el
 # assistant.ps1 de SIEMPRE -verde sobre codigo que no es el que se acaba de tocar- y si la
 # carpeta se renombrara se caeria entero por algo que no tiene que ver con lo que prueba.
+# UN BANCO QUE REVIENTA SE PONE ROJO (24/09). PowerShell 5.1 con -File sale con codigo 0
+# aunque el script muera a mitad, asi que un banco que llama a una funcion que ya no existe
+# se daba por bueno. Paso dos veces el 23/09. Con esto, morir es un fallo.
+$ErrorActionPreference = 'Stop'
+trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
 $ruta = Join-Path (Split-Path -Parent $PSScriptRoot) 'assistant.ps1'
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($ruta, [ref]$null, [ref]$null)
 $fn = $ast.Find({ param($x) $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq 'Test-AvisoSinVoz' }, $true)

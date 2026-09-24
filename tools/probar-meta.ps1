@@ -1,4 +1,4 @@
-﻿# EL CONTADOR DE LA META, PROBADO SIN MICROFONO (19/09, idea 3 de MEJORAS.md).
+# EL CONTADOR DE LA META, PROBADO SIN MICROFONO (19/09, idea 3 de MEJORAS.md).
 #
 # Get-ComoTeEntendi es el unico numero que mide la meta de braya -que Nova le entienda
 # siempre-, asi que lo peor que puede hacer es dar un porcentaje bonito y falso. Aqui se le
@@ -6,6 +6,11 @@
 # comprueba lo que DICE, no que la funcion exista.
 #
 #   powershell -NoProfile -File tools\probar-meta.ps1
+# UN BANCO QUE REVIENTA SE PONE ROJO (24/09). PowerShell 5.1 con -File sale con codigo 0
+# aunque el script muera a mitad, asi que un banco que llama a una funcion que ya no existe
+# se daba por bueno. Paso dos veces el 23/09. Con esto, morir es un fallo.
+$ErrorActionPreference = 'Stop'
+trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
 $ErrorActionPreference = 'Stop'
 $raiz = Split-Path -Parent $PSScriptRoot
 $rutaA = Join-Path $raiz 'assistant.ps1'

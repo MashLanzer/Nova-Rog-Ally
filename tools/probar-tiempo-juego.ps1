@@ -20,6 +20,10 @@
 # el 16/09, y el 20/09 apunta 2 minutos donde juegos.json apunta 2 h 45. Encima cada fichero
 # usaba un "dia" distinto. Se queda UNA fuente de verdad.
 $ErrorActionPreference = 'Stop'
+# UN BANCO QUE REVIENTA SE PONE ROJO (24/09). PowerShell 5.1 con -File sale con codigo 0
+# aunque el script muera a mitad, asi que un banco que llama a una funcion que ya no existe
+# se daba por bueno. Paso dos veces el 23/09. Con esto, morir es un fallo.
+trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
 $raiz = Split-Path -Parent $PSScriptRoot
 $ruta = Join-Path $raiz 'assistant.ps1'
 $fuente = [System.IO.File]::ReadAllText($ruta)
@@ -251,7 +255,7 @@ Comp 'y al dia siguiente vuelve SOLO' (-not $script:entornoCallado) 'esto era un
 Write-Host ''
 Write-Host '-- y el codigo dice lo que tiene que decir --'
 $codB = ($fuente -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
-Comp "el patron de 'cuanto llevo jugando' esta anclado en $" ($codB -match 'hace cuanto juego\)\$') 'con  se tragaba "...jugando hoy"'
+Comp "el patron de 'cuanto llevo jugando' esta anclado en $" ($codB -match 'hace cuanto juego\)\$') 'con \b se tragaba "...jugando hoy"'
 Comp 'el ejecutor contesta el dia, no el tramo' ($codB -match "'tiempoJuego' \{[\s\S]{0,200}Get-FraseTiempoHoy")
 Comp 'y ya no hay una resta de juegoDesde ahi' ($codB -notmatch "'tiempoJuego' \{[\s\S]{0,200}ElapsedMilliseconds - \\$script:juegoDesde")
 Comp 'el suelo de quince minutos sigue puesto' ($codB -match '\$minA -gt 0 -and \$minA -lt 15') 'por debajo es ruido, no aviso'
@@ -271,7 +275,7 @@ $sal = (& powershell -NoProfile -ExecutionPolicy Bypass -File $ruta -Probar $tmp
 Remove-Item -LiteralPath $tmpF -Force -ErrorAction SilentlyContinue
 Comp "'cuanto llevo hoy' se reconoce" ($sal -match 'cuanto llevo hoy\s+->\s+tiempo de juego')
 Comp "'cuanto jugue esta semana' tambien" ($sal -match 'cuanto jugue esta semana\s+->\s+tiempo de juego') 'el pasado simple no casaba con "he jugado"'
-Comp "'cuanto llevo jugando hoy' NO cae en el tramo" ($sal -match 'cuanto llevo jugando hoy\s+->\s+tiempo de juego') 'el  del patron viejo se lo tragaba'
+Comp "'cuanto llevo jugando hoy' NO cae en el tramo" ($sal -match 'cuanto llevo jugando hoy\s+->\s+tiempo de juego') 'el \b del patron viejo se lo tragaba'
 Comp "'avisame cada hora' son 60 minutos" ($sal -match 'avisame cada hora\s+->\s+avisarte cada 60 minutos') 'antes creaba una regla generica'
 Comp "'avisame cada media hora' son 30" ($sal -match 'avisame cada media hora\s+->\s+avisarte cada 30 minutos')
 Comp "'quita el aviso de cada hora' lo quita" ($sal -match 'quita el aviso de cada hora\s+->\s+quitar el aviso') 'antes cancelaba un temporizador'

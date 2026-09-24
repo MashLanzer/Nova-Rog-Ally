@@ -1,4 +1,4 @@
-﻿# CUANDO BRAYA DICE QUE ESTUVO MAL (17/09).
+# CUANDO BRAYA DICE QUE ESTUVO MAL (17/09).
 #
 # El destino apuntado dice lo que Nova CREYO hacer, y eso no basta: "abrir Outlast"
 # cuenta como acierto aunque el quisiera Outlast 2. Solo braya lo sabe, asi que cuando
@@ -11,6 +11,10 @@
 # daba MAL con el codigo funcionando -comprobado cinco veces por separado-, y depurar la
 # prueba costo mas que escribir la funcion. Si hay que elegir, que la prueba sea boba.
 $ErrorActionPreference = 'Stop'
+# UN BANCO QUE REVIENTA SE PONE ROJO (24/09). PowerShell 5.1 con -File sale con codigo 0
+# aunque el script muera a mitad, asi que un banco que llama a una funcion que ya no existe
+# se daba por bueno. Paso dos veces el 23/09. Con esto, morir es un fallo.
+trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
 $raiz = Split-Path -Parent $PSScriptRoot
 $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $raiz 'assistant.ps1'), [ref]$null, [ref]$null)
 function Traer([string]$n) {

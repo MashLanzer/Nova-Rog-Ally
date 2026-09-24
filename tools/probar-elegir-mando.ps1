@@ -1,4 +1,4 @@
-# ELEGIR CON EL MANDO (23/09, funcion 10 de la tanda de funciones nuevas).
+﻿# ELEGIR CON EL MANDO (23/09, funcion 10 de la tanda de funciones nuevas).
 #
 # EL DATO QUE LO PIDE: en catorce dias el mando se uso para contestar una pregunta CERO veces.
 # Y no es que no haya preguntas -hubo VEINTE- ni que no haya mando: es una consola de mano,
@@ -20,6 +20,10 @@
 #   4. Que la cruceta de la vuelta de verdad, y que no se pise con el panel rapido ni con una
 #      pregunta de si/no.
 $ErrorActionPreference = 'Stop'
+# UN BANCO QUE REVIENTA SE PONE ROJO (24/09). PowerShell 5.1 con -File sale con codigo 0
+# aunque el script muera a mitad, asi que un banco que llama a una funcion que ya no existe
+# se daba por bueno. Paso dos veces el 23/09. Con esto, morir es un fallo.
+trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
 $raiz = Split-Path -Parent $PSScriptRoot
 $ruta = Join-Path $raiz 'assistant.ps1'
 $fuente = [System.IO.File]::ReadAllText($ruta)

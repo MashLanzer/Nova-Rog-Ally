@@ -1,4 +1,4 @@
-# QUE LO DIGA CONJUGADO (23/09, idea 1 de la cuarta tanda; lo pidio braya con estas palabras:
+﻿# QUE LO DIGA CONJUGADO (23/09, idea 1 de la cuarta tanda; lo pidio braya con estas palabras:
 # "que lo diga conjugado en todas las frases que se pueda").
 #
 # Invoke-FastCommand devuelve el nombre interno de la accion -"abrir steam", "cerrar
@@ -10,6 +10,10 @@
 # log con su cuenta. La leccion es de anoche misma: el banco de la pantalla dividida salio
 # verde con cinco frases que habia escrito yo, y el patron cogia cero de las once reales.
 $ErrorActionPreference = 'Stop'
+# UN BANCO QUE REVIENTA SE PONE ROJO (24/09). PowerShell 5.1 con -File sale con codigo 0
+# aunque el script muera a mitad, asi que un banco que llama a una funcion que ya no existe
+# se daba por bueno. Paso dos veces el 23/09. Con esto, morir es un fallo.
+trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
 $raiz = Split-Path -Parent $PSScriptRoot
 $ruta = Join-Path $raiz 'assistant.ps1'
 $fuente = [System.IO.File]::ReadAllText($ruta)

@@ -1,4 +1,4 @@
-﻿# EL PERFIL SOLO GUARDA LO QUE BRAYA DICE DE SI MISMO (16/09).
+# EL PERFIL SOLO GUARDA LO QUE BRAYA DICE DE SI MISMO (16/09).
 #
 # El 15/09 su perfil acabo con 16 lineas, y SIETE eran la misma cosa mal entendida y
 # contradiciendose ("no le gusta la musica electronica" / "le gusta musica electronica"
@@ -7,6 +7,10 @@
 # Todo eso viaja con CADA peticion al cerebro, asi que una frase inventada envenena
 # todas las respuestas siguientes.
 $ErrorActionPreference = 'Stop'
+# UN BANCO QUE REVIENTA SE PONE ROJO (24/09). PowerShell 5.1 con -File sale con codigo 0
+# aunque el script muera a mitad, asi que un banco que llama a una funcion que ya no existe
+# se daba por bueno. Paso dos veces el 23/09. Con esto, morir es un fallo.
+trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
 $raiz = Split-Path -Parent $PSScriptRoot
 $ruta = Join-Path $raiz 'assistant.ps1'
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($ruta, [ref]$null, [ref]$null)
@@ -22,6 +26,9 @@ $PerfilMax = 60
 # SIN TILDES antes de compararlo con el patron de lo sensible, que esta escrito sin
 # ellas ('diagnostic' no casa con "diagnostico" jamas). Sin traerla, este banco reventaba
 # por dentro y la seccion 7 lo cantaba.
+# LA TRAJO OTRA IDEA Y ESTE BANCO NO SE ENTERO (24/09): sin ella moria a mitad, y
+# encima salia con codigo 0. Lo vio la trampa nueva, no una persona.
+Invoke-Expression (Traer 'Test-DatoTrato')
 Invoke-Expression (Traer 'ConvertTo-Plain')
 Invoke-Expression (Traer 'ConvertTo-Suave')
 Invoke-Expression (Traer 'Add-DatoPerfil')
