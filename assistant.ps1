@@ -16324,6 +16324,33 @@ function Pausar-Escucha([int]$ms, [string]$voz = '') {
     } catch {}
 }
 
+# QUE SIGNIFICA UN CORTE (24/09, idea 2 de la tanda nueva). Pura y aparte para que el
+# banco pueda recorrer las seis combinaciones en un milisegundo, y sobre todo para que
+# NINGUNA se quede sin rama: el fallo de los quince dias fue justo que habia dos ramas y
+# tres situaciones posibles.
+# LAS CINCO SALIDAS Y NINGUNA MAS:
+#   en sordina + su nombre        -> vuelve entera (lo de siempre)
+#   en sordina + otra palabra     -> tarde: en sordina no esta hablando
+#   dictado abierto               -> se cancela el dictado   <- LO QUE FALTABA
+#   hablando + su nombre          -> se calla y abre el microfono
+#   hablando + otra palabra       -> se calla y NO abre el microfono
+#   ni hablando ni dictando       -> tarde
+function Resolve-Corte([string]$palabra, [string]$nombre, [bool]$armado, [bool]$enPausa, [bool]$enSordina) {
+    $esNombre = ((ConvertTo-Plain $palabra) -eq (ConvertTo-Plain $nombre))
+    if ($enSordina) {
+        if ($esNombre) { return @{ accion = 'sordina-vuelve'; abreMicro = $true; estadistica = 'sordina-nombre' } }
+        return @{ accion = 'tarde'; abreMicro = $false; estadistica = 'corte-tarde' }
+    }
+    # EL DICTADO MANDA SOBRE LA PAUSA: si hay uno abierto, lo que se pide es cancelarlo,
+    # y da igual que ademas estuviera hablando.
+    if ($armado) { return @{ accion = 'cancela-dictado'; abreMicro = $false; estadistica = 'corte-dictado' } }
+    if ($enPausa) {
+        if ($esNombre) { return @{ accion = 'corta-y-escucha'; abreMicro = $true; estadistica = 'corte-nombre' } }
+        return @{ accion = 'corta-y-calla'; abreMicro = $false; estadistica = 'corte-callar' }
+    }
+    return @{ accion = 'tarde'; abreMicro = $false; estadistica = 'corte-tarde' }
+}
+
 function Reanudar-Escucha([switch]$Forzar) {
     # CON LA SORDINA PUESTA NO SE REANUDA (auditoria del 13/09): "no me escuches
     # media hora" se levantaba en cuanto Nova terminaba de decir "vale". Solo la
@@ -24718,8 +24745,29 @@ while ($true) {
         # hablando. Se deshace por el mismo camino que 'despertarEscucha' dicho a mano: la
         # hora a cero, el aviso de vuelta retirado y la escucha reanudada. De una pieza, que
         # es justo lo que fallo el 21/09.
-        if ($script:sordinaHasta -gt $sw.ElapsedMilliseconds -and
-            (ConvertTo-Plain $palabraCorte) -eq (ConvertTo-Plain $EscuchaNombre)) {
+        # LA DECISION, ANTES DE NADA (24/09, idea 2). Aqui habia dos ramas para tres
+        # situaciones: con un dictado abierto no entraba ninguna y el corte se perdia en
+        # silencio. Cuatro de las cinco perdidas de quince dias son ese caso.
+        $dCorte = Resolve-Corte $palabraCorte $EscuchaNombre $script:armed `
+                                ($sw.ElapsedMilliseconds -lt $script:pausaHasta) `
+                                ($script:sordinaHasta -gt $sw.ElapsedMilliseconds)
+        if ($dCorte.accion -eq 'cancela-dictado') {
+            # LO QUE FALTABA. El 20/09 a las 12:54 y a las 13:34 hubo dos dictados colgados
+            # de 48 segundos con "para", "nova" y "basta" dichos dentro, y no pasaba nada.
+            # Un modo abierto 48 s con dos ordenes de parar dentro es un modo sin salida.
+            Log "CORTE: '$palabraCorte' con un dictado abierto; lo cancelo"
+            $script:armed = $false
+            $script:seguimientoPendiente = $false
+            Remove-Item -LiteralPath $MarcaDictar -Force -ErrorAction SilentlyContinue
+            Send-UIEvento 'gesto:paciencia'
+            Set-UI 'reposo'
+            Add-Estadistica 'corte-dictado' $palabraCorte
+        } elseif ($dCorte.accion -eq 'tarde') {
+            # Y LA QUINTA: llego cuando ya no hablaba. Es correcto no hacer nada, pero hasta
+            # hoy tampoco dejaba rastro, y por eso el agujero tardo quince dias en verse.
+            Log "CORTE: '$palabraCorte' llego cuando ya no hablaba; no hago nada"
+            Add-Estadistica 'corte-tarde' $palabraCorte
+        } elseif ($dCorte.accion -eq 'sordina-vuelve') {
             Log "SORDINA: me has llamado por mi nombre, vuelvo entera"
             $script:sordinaHasta = 0
             for ($i = $script:temporizadores.Count - 1; $i -ge 0; $i--) {
@@ -24729,8 +24777,8 @@ while ($true) {
             Reanudar-Escucha -Forzar
             Add-Estadistica 'sordina-nombre' ''
             Say 'Aqui estoy.'
-        } elseif ($sw.ElapsedMilliseconds -lt $script:pausaHasta -and -not $script:armed) {
-            $esNombreC = ((ConvertTo-Plain $palabraCorte) -eq (ConvertTo-Plain $EscuchaNombre))
+        } else {
+            $esNombreC = $dCorte.abreMicro
             Log ("INTERRUMPIDA: '$palabraCorte' mientras hablaba -> " + $(if ($esNombreC) { 'me callo y te escucho' } else { 'me callo, y no abro el microfono' }))
             try { if ($script:reproductor) { $script:reproductor.Stop() } } catch {}
             try { if ($script:vozPlayer) { $script:vozPlayer.Stop() } } catch {}
@@ -24755,7 +24803,10 @@ while ($true) {
             # "callate" se quedaria sorda hasta que venciera la frase que acabas de cortar.
             # Callarse si; quedarse sorda no.
             # Y al callarse no dice nada: el gesto de la capsula ya lo cuenta sin hablar.
-            if ((ConvertTo-Plain $palabraCorte) -eq (ConvertTo-Plain $EscuchaNombre)) {
+            # QUIEN DECIDE ES Resolve-Corte, no un segundo -eq repetido aqui (24/09): dos
+            # sitios que comparan lo mismo acaban separandose, y este es el bloque donde ya
+            # paso una vez.
+            if ($dCorte.abreMicro) {
                 # tu nombre: te escucha, sin que tengas que repetirlo
                 $script:seguimientoPendiente = $true
                 $script:seguimientoFactor = 1.0

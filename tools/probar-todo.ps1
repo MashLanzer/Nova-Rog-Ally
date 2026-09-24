@@ -511,6 +511,17 @@ Titulo "2n125. Decir que esta sorda, en vez de anunciar que escucha"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-oido-mudo.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya no dice que escucha mientras esta sorda)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n126. Las interrupciones que se tiraban dentro de casa"
+# Idea 2 de la tanda del 24/09. El oido escribio 15 corte.flag en quince dias y el asistente
+# atendio 10. Las otras cinco NO se perdieron por el oido -acerto las quince- sino en el
+# bloque del bucle: cuatro con un dictado abierto (el 20/09 hubo dos dictados colgados de 48
+# segundos con "para", "nova" y "basta" dichos DENTRO, y el bloque tenia dos ramas para tres
+# situaciones) y una por pausa vencida. Ninguna dejo una sola linea en el registro, y por eso
+# tardo quince dias en verse.
+# Lo que mas se vigila: que las SEIS situaciones tengan rama, y que cada una deje un contador.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-corte-perdido.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya no se tira una interrupcion)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n120. La musica: poner lo que es, y no repetir lo que no le gusta"
 # Ideas 1-A y 1-B. 52 intentos con frases distintas y ninguno acabo bien. El fallo de raiz,
 # medido contra youtube.com con cuatro busquedas suyas: el regex viejo devolvia 45, 71, 45 y
