@@ -451,6 +451,21 @@ Titulo "2n105. A que podemos jugar los dos"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-juegos-dos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:de donde lo ha sacado)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n112. Lo que se repite: cada dos horas, di que estire la espalda"
+# Idea 4. NO se amplia recordatorios.json -seria una segunda lista de cosas periodicas al
+# lado de reglas.json, y el codigo ya tiene escrita esa leccion-. Se arregla la regla 'cada',
+# que existia y para su frase no funcionaba, con tres fallos comprobados en el fuente:
+#  1. no entraba la frase: el patron pide digitos y nadie llamaba a ConvertTo-Digitos, asi
+#     que "cada DOS horas di que estire la espalda" se iba al modelo;
+#  2. el reloj era el cronometro DEL PROCESO y se persistia: al reiniciar, $sw vuelve a cero
+#     y la resta sale negativa, o sea que la regla no volvia a hablar NUNCA. Con 16,3
+#     arranques al dia eso pasa el primer dia, y es un fallo mudo;
+#  3. y la cuenta empezaba de cero en cada arranque, asi que "cada dos horas" casi nunca
+#     llegaba a las dos horas.
+# Ahora reloj de pared, plazo de hoy salvo "siempre", y dos salidas: por numero y por texto.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-repetidos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:lo que se repite, ya se repite de verdad)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n111. \"Esto\", \"este\", \"eso\": la ventana que tienes delante"
 # Idea 2. De las 41 frases suyas con un deictico sin referente, 16 son "hay alguna
 # actualizacion de este" y 20 son "este estado es cargando en steam". Y midiendolo salio lo

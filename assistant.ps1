@@ -3961,7 +3961,10 @@ function Resolve-Fragment([string]$f) {
         $minC = Get-MinutosDichos $cantC $uniC
         if ($minC -gt 0) { return @(@{ kind = 'avisoJuegoCada'; minutos = $minC; desc = "avisarte cada $minC minutos" }) }
     }
-    if ($f -match '^(?:quita|cancela|olvida|para|ya no)\s+(?:el\s+|los\s+)?(?:aviso|avisos)\s+(?:de\s+)?(?:cada\s+)?(?:hora|rato|tiempo|tiempo de juego|juego)$') {
+    # 'del' tambien (23/09): "quita el aviso DEL tiempo" no lo cogia nadie, ni aqui ni en la
+    # salida por texto de los recordatorios, y se iba al modelo. La lista de palabras es la
+    # MISMA en los dos sitios a proposito.
+    if ($f -match '^(?:quita|cancela|olvida|para|ya no)\s+(?:el\s+|los\s+)?(?:aviso|avisos)\s+(?:de\s+|del\s+)?(?:cada\s+)?(?:hora|rato|tiempo|tiempo de juego|juego)$') {
         return @(@{ kind = 'avisoJuegoCada'; minutos = 0; desc = 'quitar el aviso de cada rato' })
     }
     if ($f -match '^(?:hoy\s+)?no\s+me\s+avises\s+(?:hoy\s+)?(?:de\s+|del\s+)?(?:tiempo|tiempo de juego|juego|las horas|lo que llevo|lo que juego)$') {
@@ -10633,7 +10636,13 @@ function Test-FastCommand([string]$text) {
     #     'a la mitad'                       -> el volumen a la mitad
     # Con la hora detras, 'a las tres apaga el wifi' sigue entrando -que para eso esta-
     # y 'a la una' tambien, que es la unica hora que va en singular.
-    if ($pl -match '^(?:cuando\s+(?:se\s+)?(?:abra|abras|inicie|inicies|arranque|empiece|entre|cierre|cierres|termine|acabe|complete|salga|la bateria|la pila|quite|quites|enchufe|enchufes|ponga|pongas|conecte|desconecte)|cada\s+\d+\s*(?:minuto|hora)|todos los dias|a las?\s+(?:\d{1,2}\b|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|medianoche|mediodia))') {
+    # LAS PALABRAS TAMBIEN CUENTAN, Y EN LAS DOS PUERTAS (23/09, idea 4). Invoke-ReglaVoz pasa
+    # ahora la frase por ConvertTo-Digitos, asi que "cada DOS horas di que estire la espalda"
+    # SI crea la regla. Si esta puerta no hiciera lo mismo, la regla se crearia y la capsula
+    # no asentiria, y el banco -Probar la daria por no reconocida: verde en un sitio, rojo en
+    # la realidad. Es la misma leccion del commit e1ab4dc, dos listas que se separan.
+    $plD4 = ConvertTo-Digitos $pl
+    if ($plD4 -match '^(?:cuando\s+(?:se\s+)?(?:abra|abras|inicie|inicies|arranque|empiece|entre|cierre|cierres|termine|acabe|complete|salga|la bateria|la pila|quite|quites|enchufe|enchufes|ponga|pongas|conecte|desconecte)|(?:recuerdame|avisame|recuerda|dime)\s+cada\s+(?:\d+|media|un|una)\s*(?:minuto|hora)|cada\s+(?:\d+|media|un|una)\s*(?:minuto|hora)|todos los dias|a las?\s+(?:\d{1,2}\b|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|medianoche|mediodia))') {
         return [bool]($pl -match ('(?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame|abrelo|abrela|ejecutalo|lanzalo|inicialo|arrancalo|juegalo)\b'))
     }
     # el mismo corte que en Invoke-FastCommand: este es el camino que usan la
@@ -10957,7 +10966,10 @@ function Invoke-FastCommand([string]$text) {
     # aqui el regex largo de Test-FastCommand seria peor, porque los dos se separarian
     # con el tiempo. Y Test-VozExtrana ya se calla sola con el boton y en seguimiento
     # (ahi quien habla es braya), asi que esto solo muerde con la voz tras el nombre.
-    if (-not $script:confirmado -and (ConvertTo-Plain $text) -match '^(?:cuando\s|cada\s|todos los dias|cada dia|diariamente|a las?\s)' -and (Test-VozExtrana)) {
+    # 'recuerdame cada' y 'avisame cada' TAMBIEN (23/09, idea 4): son la forma en que braya lo
+    # dice de verdad, y dejan puesta una regla que habla sola cada dos horas. Sin esto, la voz
+    # de un video de fondo podia crearla sin que nadie confirmara nada.
+    if (-not $script:confirmado -and (ConvertTo-Plain $text) -match '^(?:cuando\s|cada\s|(?:recuerdame|avisame|recuerda|dime)\s+cada\s|todos los dias|cada dia|diariamente|a las?\s)' -and (Test-VozExtrana)) {
         $script:pendiente = @{ texto = $text; vence = 0; tipo = 'peligrosa' }
         Log ("VOZ EXTRANA: no creo nada con '$text' sin confirmar ($([int]$script:ultimaF0) Hz frente a $([int](Get-VozDuena)) Hz)")
         Add-Estadistica 'voz-extrana' $text
@@ -15284,7 +15296,9 @@ function Get-Reglas {
             $crudoReglas = Get-Content -LiteralPath $ReglasPath -Raw -Encoding UTF8 | ConvertFrom-Json
             foreach ($r in $crudoReglas) {
                 if ($null -eq $r -or -not [string]$r.tipo) { continue }
-                [void]$script:reglas.Add(@{ id = [int]$r.id; tipo = [string]$r.tipo; valor = [string]$r.valor; accion = [string]$r.accion; ultima = [string]$r.ultima; cond = [string]$r.cond })
+                # 'hasta' (23/09, idea 4): dia en que caduca la regla, 'yyyy-MM-dd'. Vacio = sin
+                # plazo, que es como se leen las reglas de antes: se portan igual que siempre.
+                [void]$script:reglas.Add(@{ id = [int]$r.id; tipo = [string]$r.tipo; valor = [string]$r.valor; accion = [string]$r.accion; ultima = [string]$r.ultima; cond = [string]$r.cond; hasta = [string]$r.hasta })
             }
         } catch { Save-Corrupto $ReglasPath 'reglas' }
     }
@@ -15300,7 +15314,7 @@ function Save-Reglas {
         $lista = @()
         foreach ($x in $g) {
             $o = New-Object PSObject
-            foreach ($k in 'id', 'tipo', 'valor', 'accion', 'ultima', 'cond') { $o | Add-Member -NotePropertyName $k -NotePropertyValue $x[$k] }
+            foreach ($k in 'id', 'tipo', 'valor', 'accion', 'ultima', 'cond', 'hasta') { $o | Add-Member -NotePropertyName $k -NotePropertyValue $x[$k] }
             $lista += $o
         }
         $json = if ($lista.Count -eq 0) { '[]' } else { ConvertTo-Json -InputObject @($lista) -Depth 4 }
@@ -15368,7 +15382,43 @@ function Describe-Regla($r) {
         'cada' { "cada $($r.valor) minutos" }
         default { $r.tipo }
     }
-    return "$cuando" + $(if ($r.cond -eq 'noche') { ' y sea de noche' } elseif ($r.cond -eq 'dia') { ' y sea de dia' } else { '' }) + ", $($r.accion)" + $(if ($r.ultima -eq 'unavez') { ' (una sola vez)' } else { '' })
+    return "$cuando" + $(if ($r.cond -eq 'noche') { ' y sea de noche' } elseif ($r.cond -eq 'dia') { ' y sea de dia' } else { '' }) + ", $($r.accion)" + $(if ($r.ultima -eq 'unavez') { ' (una sola vez)' } else { '' }) + $(if ($r.hasta) { ' (solo por hoy)' } else { '' })
+}
+
+# CADA CUANTO TOCA, CONTADO CON EL RELOJ DE PARED (23/09, idea 4).
+# Antes esto se contaba con $sw.ElapsedMilliseconds, que es el cronometro DEL PROCESO, y se
+# persistia en reglas.json. Dos fallos en uno:
+#  - al reiniciar, $sw vuelve a cero y $r.ultima sigue valiendo, por ejemplo, 7200000: la
+#    resta sale NEGATIVA y la regla no vuelve a hablar NUNCA. Con 244 arranques en 15 dias
+#    -16,3 al dia- eso le pasa el primer dia;
+#  - y aunque estuviera a cero, la cuenta empezaba de cero en cada arranque, asi que "cada
+#    dos horas" casi nunca llegaba a las dos horas: la sesion media no llega a hora y media.
+# El $ahora es parametro para que una prueba pueda mover el reloj en vez de esperar dos horas.
+# NADA DE AVISOS ATRASADOS (regla 1): tras nueve horas apagado con periodo de dos, se dispara
+# UNA vez y se rearma; no se sueltan de golpe las cuatro que "tocaban".
+function Test-CadaDispara($r, [datetime]$ahora = (Get-Date)) {
+    $per = [int]$r.valor
+    if ($per -lt 1) { return $false }
+    # MIGRACION DEL FORMATO VIEJO, sin fichero nuevo ni una linea de mas: un 'ultima' que son
+    # TODO digitos son los milisegundos del cronometro de otra sesion, y un [datetime] de
+    # "7200000" NUNCA parsea (comprobado, tambien con "20260923" y "1200"). Asi que el catch
+    # ya hace la migracion entera: lo viejo se lee como "no ha disparado nunca" y la cuenta
+    # arranca hoy. Se probo poner ademas un -notmatch de digitos y no cambiaba nada: rompiendo
+    # esa linea a proposito, el banco seguia en verde.
+    $ult = $null
+    if ($r.ultima) { try { $ult = [datetime]$r.ultima } catch { $ult = $null } }
+    if (-not $ult) { $r.ultima = $ahora.ToString('s'); return $false }
+    if (($ahora - $ult).TotalMinutes -lt $per) { return $false }
+    $r.ultima = $ahora.ToString('s')
+    return $true
+}
+
+# SE ACABO EL PLAZO? (23/09, idea 4). Una regla que habla sola cada dos horas y sobrevive
+# semanas es justo la fabrica de las 101 frases (de 232) que Nova arranco sola y cayeron en
+# el vacio. Por eso una regla 'cada' nace con plazo de hoy, salvo que braya diga 'siempre'.
+function Test-ReglaCaducada($r, [datetime]$ahora = (Get-Date)) {
+    if (-not $r.hasta) { return $false }
+    try { return ($ahora.Date -gt [datetime]::ParseExact([string]$r.hasta, 'yyyy-MM-dd', $null)) } catch { return $false }
 }
 
 # Intenta interpretar la frase como regla. Devuelve la respuesta hablada, o
@@ -15393,6 +15443,29 @@ function Invoke-ReglaVoz([string]$text) {
         if ($q.Count -eq 0) { return "No hay ninguna regla $id" }
         foreach ($x in $q) { $g.Remove($x) }
         Save-Reglas; return "Regla $id borrada."
+    }
+    # LA SEGUNDA SALIDA, POR TEXTO (23/09, idea 4). La de numero -"borra la regla 3"- es lista
+    # cerrada y aguanta el 70,4 % del oido, pero exige acordarse del numero que Nova canto
+    # hace horas. Las dos NO SE PISAN, y no por el orden: esta exige la palabra "recordatorio",
+    # "aviso" o "recordarme", que la de numero no lleva. Se probo cambiandolas de sitio a
+    # proposito y no pasaba nada, asi que el orden aqui no es lo que las separa.
+    # SI HAY MAS DE UNA QUE ENCAJE NO SE BORRA NINGUNA: se leen con su numero y se pregunta.
+    # Borrar la que no era es exactamente la regla 1 al reves.
+    # EL AVISO DEL TIEMPO DE JUEGO NO ES UN RECORDATORIO (23/09). "quita el aviso de cada
+    # hora" es de Resolve-Fragment, y esta funcion se mira ANTES, asi que sin esta salvedad
+    # aquel patron se quedaba en codigo muerto. Lo canto probar-tiempo-juego, que es justo
+    # para lo que esta. La lista es cerrada y es LA MISMA que la de alli.
+    if ($p -match '^(?:deja\s+de\s+(?:recordarme|avisarme|decirme)|quita(?:me)?\s+(?:el\s+)?(?:recordatorio|aviso)|borra\s+(?:el\s+)?(?:recordatorio|aviso))\s+(?!(?:de\s+|del\s+)?(?:cada\s+)?(?:hora|rato|tiempo|tiempo de juego|juego)$)(?:lo\s+)?(?:de\s+|del\s+|que\s+|sobre\s+)?(.+)$') {
+        $busca = (ConvertTo-Suave ($Matches[1].Trim()))
+        $cand = @($g | Where-Object { $_.tipo -in @('cada', 'hora') -and (ConvertTo-Suave ([string]$_.accion)).Contains($busca) })
+        if ($cand.Count -eq 0) { return "No tengo ningun recordatorio de eso." }
+        if ($cand.Count -gt 1) {
+            return ("Tengo " + $cand.Count + " que encajan: " + (($cand | ForEach-Object { "regla $($_.id), " + (Describe-Regla $_) }) -join '. ') + ". Dime cual borro.")
+        }
+        $qR = $cand[0]
+        [void]$g.Remove($qR); Save-Reglas
+        Log ("REGLA $($qR.id) borrada por texto: " + (Describe-Regla $qR))
+        return "Listo, ya no te lo recuerdo. Era la regla $($qR.id)."
     }
     if ($p -match '^(?:que reglas hay|que reglas tengo|mis reglas|cuales son las reglas|lista las reglas|dime las reglas)$') {
         if ($g.Count -eq 0) { return "No tienes reglas. Puedes decir: cuando abra un juego, pon modo juego." }
@@ -15430,6 +15503,12 @@ function Invoke-ReglaVoz([string]$text) {
         return "Vale, te lo recuerdo cuando abras $($sujR.nombre)."
     }
     $tipo = $null; $valor = ''; $accion = ''
+    # LAS PALABRAS TAMBIEN SON NUMEROS (23/09, idea 4). El patron de 'cada' pide digitos y
+    # ConvertTo-Plain no los convierte, asi que "cada DOS horas di que estire la espalda" no
+    # casaba con nada y se iba al modelo. ConvertTo-Digitos ya existia y no la llamaba nadie
+    # desde aqui. Se guarda APARTE y solo la usan los dos patrones de 'cada': los doce de
+    # arriba dependen de las palabras tal cual ("cuando abra hades" tiene que seguir entrando).
+    $pCada = ConvertTo-Digitos $p
     if ($p -match '^cuando\s+(?:se\s+)?(?:abra|abras|abro|inicie|arranque|empiece|entre a|entre en)\s+(?:el\s+|un\s+|cualquier\s+)?(.+?)\s*,?\s*(?:entonces\s+)?((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
         $tipo = 'juegoAbre'; $obj = $Matches[1].Trim(); $accion = $Matches[2].Trim()
         if ($obj -notmatch '^(?:juego|videojuego|algo|cualquier cosa)$') {
@@ -15571,11 +15650,33 @@ function Invoke-ReglaVoz([string]$text) {
         if ($franja -match 'noche|madrugada|am' -and $h -eq 12) { $h = 0 }
         $tipo = 'hora'; $valor = ('{0:00}:{1:00}' -f $h, $m); $accion = $g4.Trim()
     }
-    elseif ($p -match '^cada\s+(\d+)\s*(minutos?|horas?)\s*,?\s*((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
+    # COMO LO DICE EL DE VERDAD (23/09, idea 4): "recuerdame cada dos horas que estire la
+    # espalda". Va DELANTE del de '^cada' de abajo, que ancla al principio de la frase, asi
+    # que no le quita ni una. Y no le roba nada al aviso del tiempo de juego, que exige que la
+    # frase ACABE ahi ("avisame cada hora"): este pide una accion detras.
+    # 'media', 'un' y 'una' se admiten a mano porque ConvertTo-Digitos los deja fuera a
+    # proposito -son articulos muchas mas veces que numeros-.
+    elseif ($pCada -match '^(?:recuerdame|avisame|recuerda|dime)\s+cada\s+(\d{1,4}|media|un|una)\s*(minutos?|horas?)\b\s*(?:,\s*)?(?:que\s+|de\s+que\s+)?(.+)$') {
+        $nR = [string]$Matches[1]; $unidadR = [string]$Matches[2]; $accionR = [string]$Matches[3]
+        $n = if ($nR -eq 'media') { 1 } elseif ($nR -in @('un', 'una')) { 1 } else { [int]$nR }
+        if ($unidadR -match '^hora') { $n *= 60 }
+        if ($nR -eq 'media') { $n = [int]($n / 2) }
+        if ($n -lt 1) { return "Cada cuanto tiempo? Necesito al menos un minuto." }
+        $tipo = 'cada'; $valor = [string]$n
+        # "recuerdame cada dos horas que estire la espalda" -> la accion es hablar
+        $accion = $accionR.Trim()
+        if ($accion -notmatch '(?i)^(?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b') { $accion = 'di ' + $accion }
+    }
+    # 'media', 'un' y 'una' entran aqui tambien (23/09, idea 4): ConvertTo-Digitos los deja
+    # fuera a proposito -son articulos muchas mas veces que numeros- y sin esto "cada media
+    # hora avisame" se iba al modelo.
+    elseif ($pCada -match '^cada\s+(\d+|media|un|una)\s*(minutos?|horas?)\b\s*,?\s*((?:' + $VERBOS + '|modo|activa|desactiva|bloquea|di|avisa|avisame)\b.*)$') {
         # los grupos se copian ANTES del -match de la unidad, que pisa $Matches:
         # con "horas" la accion salia $null y la regla no se creaba (auditoria 13/09)
-        $n = [int]$Matches[1]; $unidadC = [string]$Matches[2]; $accionC = [string]$Matches[3]
+        $crudoC = [string]$Matches[1]; $unidadC = [string]$Matches[2]; $accionC = [string]$Matches[3]
+        $n = if ($crudoC -match '^\d+$') { [int]$crudoC } else { 1 }
         if ($unidadC -match '^hora') { $n *= 60 }
+        if ($crudoC -eq 'media') { $n = [int]($n / 2) }
         if ($n -lt 1) { return "Cada cuanto tiempo? Necesito al menos un minuto." }
         $tipo = 'cada'; $valor = [string]$n; $accion = $accionC.Trim()
     }
@@ -15621,11 +15722,23 @@ function Invoke-ReglaVoz([string]$text) {
         return "Eso prefiero que me lo pidas tu en el momento: no lo dejo en una regla que se dispara sola."
     }
     $id = 1; foreach ($x in $g) { if ($x.id -ge $id) { $id = $x.id + 1 } }
-    $r = @{ id = $id; tipo = $tipo; valor = $valor; accion = $accion; ultima = ''; cond = $condR }
+    # TODA REGLA QUE HABLA SOLA NACE CON PLAZO (23/09, idea 4; regla 2: ningun modo sin
+    # salida). De 232 frases que Nova arranco sola, 101 -el 43,5 %- cayeron en el vacio: una
+    # regla que habla cada dos horas y sobrevive semanas es la fabrica de esas 101. Asi que
+    # una 'cada' dura hasta el final del dia salvo que braya diga 'siempre' o 'todos los
+    # dias'. Solo las 'cada': las demas cuelgan de un suceso suyo -abrir un juego, quitar el
+    # cargador- y no hablan por su cuenta.
+    $hastaR = ''
+    if ($tipo -eq 'cada' -and $p -notmatch '\b(?:siempre|todos los dias|cada dia|para siempre)\b') {
+        $hastaR = (Get-Date).ToString('yyyy-MM-dd')
+    }
+    $r = @{ id = $id; tipo = $tipo; valor = $valor; accion = $accion; ultima = ''; cond = $condR; hasta = $hastaR }
     [void]$g.Add($r); Save-Reglas
     Log ("REGLA $id guardada: " + (Describe-Regla $r))
     Add-Estadistica 'local' "regla: $text"
-    return ("Regla $id guardada: " + (Describe-Regla $r) + ".")
+    # LAS DOS SALIDAS SE DICEN EN VOZ ALTA, que es lo unico que las hace salidas de verdad.
+    $colaR = if ($hastaR) { " Di 'siempre' si quieres que se quede, o 'borra la regla $id'." } else { " Di 'borra la regla $id' cuando te canse." }
+    return ("Regla $id guardada: " + (Describe-Regla $r) + "." + $colaR)
 }
 
 # Ejecuta las reglas de un tipo cuyo valor encaje.
@@ -15635,6 +15748,7 @@ function Invoke-Reglas([string]$tipo, [string]$dato = '') {
     # cosa que devuelva se colaria en la salida de la funcion que la llama. Con un
     # $script: lo lee quien lo necesite y nadie mas se entera.
     $script:reglasDisparadas = 0
+    $script:reglasCaducadas = 0
     $g = Get-Reglas
     if ($g.Count -eq 0) { return }
     $hoy = Get-Date -Format 'yyyy-MM-dd'
@@ -15671,8 +15785,17 @@ function Invoke-Reglas([string]$tipo, [string]$dato = '') {
             'descarga' { $dispara = (-not $r.valor -or $r.valor -eq $dato) }
             'hora' { if ($dato -eq $r.valor -and $r.ultima -ne $hoy) { $dispara = $true; $r.ultima = $hoy } }
             'cada' {
-                $ult = 0; if ($r.ultima) { [double]::TryParse($r.ultima, [ref]$ult) | Out-Null }
-                if (($sw.ElapsedMilliseconds - $ult) -ge ([int]$r.valor * 60000)) { $dispara = $true; $r.ultima = [string]$sw.ElapsedMilliseconds }
+                # ver Test-CadaDispara: el reloj de pared, no el cronometro del proceso
+                # NI 'continue' NI 'break' AQUI DENTRO: dentro de un switch los dos salen del
+                # switch, no del foreach, y eso se lee como si saltara la regla cuando en
+                # realidad hace otra cosa. Se apaga $dispara y lo recoge el if de abajo.
+                if (Test-ReglaCaducada $r) {
+                    Log "REGLA $($r.id): se acabo el plazo de hoy, la quito"
+                    [void]$g.Remove($r); $script:reglasCaducadas++
+                    $dispara = $false
+                } else {
+                    $dispara = Test-CadaDispara $r
+                }
             }
         }
         if (-not $dispara) { continue }
@@ -15705,7 +15828,7 @@ function Invoke-Reglas([string]$tipo, [string]$dato = '') {
         # un recordatorio de un solo uso se borra al cumplirse (ver Invoke-ReglaVoz)
         if ($unaVez) { [void]$g.Remove($r); Save-Reglas; Log "REGLA $($r.id): era de un solo uso, borrada" }
     }
-    if ($tipo -in @('bateria', 'hora', 'cada', 'disco')) { Save-Reglas }
+    if ($tipo -in @('bateria', 'hora', 'cada', 'disco') -or $script:reglasCaducadas -gt 0) { Save-Reglas }
 }
 
 # =====================================================================
