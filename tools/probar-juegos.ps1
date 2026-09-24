@@ -12,7 +12,7 @@ function TraerFn($n) {
 }
 foreach ($n in 'Get-JuegosMem', 'Save-JuegosMem', 'Get-JuegoDeReferencia', 'Set-NotaJuego', 'Get-HaceCuanto', 'Update-BateriaJuego',
     'Get-DuracionBateriaJuego', 'Format-Minutos', 'Show-RecuerdoJuego', 'Add-TiempoJuego', 'Get-DiasJuego', 'Save-TiempoJuego',
-    'Get-TiempoJugado') { Invoke-Expression (TraerFn $n) }
+    'Get-TiempoJugado', 'Get-DiaJuego', 'Get-MinutosJuegoHoy') { Invoke-Expression (TraerFn $n) }
 
 $MemoriaDir = Join-Path $env:TEMP ('nova-juegos-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $MemoriaDir | Out-Null

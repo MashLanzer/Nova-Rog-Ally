@@ -451,6 +451,15 @@ Titulo "2n105. A que podemos jugar los dos"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-juegos-dos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:de donde lo ha sacado)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n109. El aviso de las dos horas, contado por el dia"
+# Idea 11. Con juego.avisoMinutos=120 el aviso debio saltar TRES dias (It Takes Two el 15/09
+# con 5 h 38, el 20/09 con 2 h 45 y el 22/09 con 3 h 12) y "JUEGO: aviso de tiempo" sale UNA
+# SOLA VEZ en catorce dias. Pedia 120 minutos de primer plano SIN UN CORTE, y $juegoDesde se
+# pone a cero en cuanto miras Discord; encima cada reinicio lo reiniciaba (16,3 al dia). Y
+# habitos.json llevaba una cuenta paralela que se perdia en cada reinicio y usaba otro "dia".
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-tiempo-juego.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya no lo mata un alt-tab)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n108. Las cinco funciones que no probaba nadie"
 # Mapeando el repo para la tanda de veinte salieron cinco funciones sin ningun banco, y las
 # cinco son la base de cuatro de las ideas que vienen: Get-MusicaActual, Get-PrimerVideoYouTube,

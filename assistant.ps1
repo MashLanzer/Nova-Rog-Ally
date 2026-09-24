@@ -7952,7 +7952,7 @@ function Watch-Musica($mu) {
 $script:habitos = $null
 function Get-Habitos {
     if ($null -ne $script:habitos) { return $script:habitos }
-    $script:habitos = @{ usos = (New-Object System.Collections.ArrayList); rechazadas = (New-Object System.Collections.ArrayList); ultimaPropuesta = ''; fin = @{}; cargaAvisada = ''; nivelVisto = 0; brilloAuto = $false; parteVisto = ''; parteTexto = ''; sinDatosVisto = ''; sinDatosTexto = ''; ritmo = (New-Object System.Collections.ArrayList); charlaHoras = @{}; minutosJuego = @{}; presencia = @{} }
+    $script:habitos = @{ usos = (New-Object System.Collections.ArrayList); rechazadas = (New-Object System.Collections.ArrayList); ultimaPropuesta = ''; fin = @{}; cargaAvisada = ''; nivelVisto = 0; brilloAuto = $false; parteVisto = ''; parteTexto = ''; sinDatosVisto = ''; sinDatosTexto = ''; ritmo = (New-Object System.Collections.ArrayList); charlaHoras = @{}; minutosJuego = @{}; presencia = @{}; avisoJuego = @{ dia = ''; ult = 0; cada = 0; no = '' } }
     $rutaH = Join-Path $MemoriaDir 'habitos.json'
     if (Test-Path -LiteralPath $rutaH) {
         try {
@@ -7986,6 +7986,13 @@ function Get-Habitos {
             }
             $script:habitos.sinDatosVisto = [string]$crudoH.sinDatosVisto
             if ($crudoH.minutosJuego) { foreach ($pM in $crudoH.minutosJuego.PSObject.Properties) { $script:habitos.minutosJuego[$pM.Name] = [int]$pM.Value } }
+            if ($crudoH.PSObject.Properties['avisoJuego'] -and $crudoH.avisoJuego) {
+                foreach ($pA in $crudoH.avisoJuego.PSObject.Properties) { $script:habitos.avisoJuego[$pA.Name] = $pA.Value }
+                $script:juegoAvisoDia = [string]$script:habitos.avisoJuego['dia']
+                $script:juegoAvisoUlt = [int]$script:habitos.avisoJuego['ult']
+                $script:juegoAvisoCada = [int]$script:habitos.avisoJuego['cada']
+                $script:juegoAvisoNo = [string]$script:habitos.avisoJuego['no']
+            }
             # CUANDO TE VI POR ULTIMA VEZ (18/09). Va en hora de RELOJ, no del cronometro del
             # proceso: con 187 arranques en 9 dias, un reloj de proceso no junta nunca una
             # ausencia larga. Y las frases dichas viven aqui para que la variedad sobreviva
@@ -8004,7 +8011,7 @@ function Get-Habitos {
 function Save-Habitos {
     try {
         $hb = Get-Habitos
-        $o = [ordered]@{ usos = @($hb.usos); rechazadas = @($hb.rechazadas); ultimaPropuesta = $hb.ultimaPropuesta; fin = $hb.fin; cargaAvisada = $hb.cargaAvisada; nivelVisto = $hb.nivelVisto; brilloAuto = [bool]$hb.brilloAuto; parteVisto = [string]$hb.parteVisto; parteTexto = [string]$hb.parteTexto; sinDatosVisto = [string]$hb.sinDatosVisto; sinDatosTexto = [string]$hb.sinDatosTexto; ritmo = @($hb.ritmo); charlaHoras = $hb.charlaHoras; minutosJuego = $hb.minutosJuego; presencia = $hb.presencia }
+        $o = [ordered]@{ usos = @($hb.usos); rechazadas = @($hb.rechazadas); ultimaPropuesta = $hb.ultimaPropuesta; fin = $hb.fin; cargaAvisada = $hb.cargaAvisada; nivelVisto = $hb.nivelVisto; brilloAuto = [bool]$hb.brilloAuto; parteVisto = [string]$hb.parteVisto; parteTexto = [string]$hb.parteTexto; sinDatosVisto = [string]$hb.sinDatosVisto; sinDatosTexto = [string]$hb.sinDatosTexto; ritmo = @($hb.ritmo); charlaHoras = $hb.charlaHoras; minutosJuego = $hb.minutosJuego; presencia = $hb.presencia; avisoJuego = $hb.avisoJuego }
         $rutaH = Join-Path $MemoriaDir 'habitos.json'
         [System.IO.File]::WriteAllText($rutaH + '.tmp', (ConvertTo-Json -InputObject $o -Depth 4), (New-Object System.Text.UTF8Encoding($false)))
         Move-Item -LiteralPath ($rutaH + '.tmp') -Destination $rutaH -Force
@@ -10144,11 +10151,19 @@ function Get-DiasJuego($dias) {
     elseif ($dias) { foreach ($p in $dias.PSObject.Properties) { $h[$p.Name] = [int]$p.Value } }
     return $h
 }
+# EL DIA DE JUGAR EMPIEZA A LAS CINCO DE LA MANANA (23/09). Antes habia DOS cuentas del
+# mismo dia a cinco lineas una de otra: habitos.json restaba cinco horas y juegos.json usaba
+# el dia natural, asi que no podian cuadrar jamas. Y el dia natural parte justo donde no
+# debe: la unica sesion continua medible del registro va del 15/09 a las 18:31 al 16/09 a
+# las 00:45, seis horas y cuarto, y con el corte a medianoche el contador se pone a cero en
+# mitad de la partida -que es justo la parte de la noche en la que el aviso hace falta-.
+function Get-DiaJuego([datetime]$t = (Get-Date)) { return $t.AddHours(-5).ToString('yyyy-MM-dd') }
+
 function Save-TiempoJuego([datetime]$hoy = (Get-Date)) {
     if ($script:tiempoJuegoPend.Count -eq 0) { return }
     $m = Get-JuegosMem
-    $diaT = $hoy.ToString('yyyy-MM-dd')
-    $limiteT = $hoy.AddDays(-60).ToString('yyyy-MM-dd')
+    $diaT = Get-DiaJuego $hoy
+    $limiteT = Get-DiaJuego $hoy.AddDays(-60)
     foreach ($k in @($script:tiempoJuegoPend.Keys)) {
         if (-not $m.ContainsKey($k)) { $m[$k] = @{} }
         $h = Get-DiasJuego $m[$k]['dias']
@@ -10163,13 +10178,55 @@ function Save-TiempoJuego([datetime]$hoy = (Get-Date)) {
 function Get-TiempoJugado([int]$dias = 7, [datetime]$hoy = (Get-Date)) {
     Save-TiempoJuego $hoy
     $m = Get-JuegosMem
-    $desde = $hoy.AddDays(-($dias - 1)).ToString('yyyy-MM-dd')
+    $desde = Get-DiaJuego $hoy.AddDays(-($dias - 1))
     $tot = @{}
     foreach ($k in $m.Keys) {
         $h = Get-DiasJuego $m[$k]['dias']
         foreach ($d in $h.Keys) { if ($d -ge $desde) { $tot[$k] = [int]$tot[$k] + [int]$h[$d] } }
     }
     return @($tot.GetEnumerator() | Where-Object { $_.Value -ge 60 } | Sort-Object Value -Descending | ForEach-Object { @{ juego = $_.Key; minutos = [int][Math]::Round($_.Value / 60) } })
+}
+
+# LOS MINUTOS DE HOY, SUMADOS DE VERDAD (23/09). Esta es la cuenta que sustituye al tramo
+# de primer plano: suma lo que ya esta en disco, lo que aun no se ha volcado y el tramo vivo.
+# Asi un alt-tab no borra nada y un reinicio de Nova tampoco.
+# SIN TOCAR EL DISCO, que se llama desde el bucle cada 10 s: $script:juegosMem ya esta
+# cacheado por Get-JuegosMem y $script:tiempoJuegoPend es memoria pura. Son dos sumas sobre
+# tablas pequenas (60 dias por unos pocos juegos).
+# apunta en disco lo que Nova recuerda del aviso, para que sobreviva a los 16 reinicios
+function Save-AvisoJuego {
+    try {
+        $hbA = Get-Habitos
+        if (-not $hbA.avisoJuego) { $hbA.avisoJuego = @{} }
+        $hbA.avisoJuego['dia'] = [string]$script:juegoAvisoDia
+        $hbA.avisoJuego['ult'] = [int]$script:juegoAvisoUlt
+        $hbA.avisoJuego['cada'] = [int]$script:juegoAvisoCada
+        $hbA.avisoJuego['no'] = [string]$script:juegoAvisoNo
+        Save-Habitos
+    } catch { Log ("aviso de juego: " + $_.Exception.Message) }
+}
+
+function Get-MinutosJuegoHoy([string]$juego = '') {
+    $dia = Get-DiaJuego
+    $seg = 0
+    $m = Get-JuegosMem
+    foreach ($k in @($m.Keys)) {
+        if ($juego -and $k -ne $juego) { continue }
+        $h = Get-DiasJuego $m[$k]['dias']
+        $seg += [int]$h[$dia]
+    }
+    foreach ($k in @($script:tiempoJuegoPend.Keys)) {
+        if ($juego -and $k -ne $juego) { continue }
+        $seg += [int]$script:tiempoJuegoPend[$k]
+    }
+    # y el tramo que se esta jugando ahora mismo y todavia no se ha apuntado
+    if ($script:juegoActivo -and (-not $juego -or $juego -eq $script:juegoActivo) -and $script:tiempoJuegoVisto -gt 0) {
+        $vivo = [int](($sw.ElapsedMilliseconds - $script:tiempoJuegoVisto) / 1000)
+        # el tope de 120 s es el mismo de Add-TiempoJuego: si la consola durmio, ese tramo
+        # no es tiempo de juego
+        if ($vivo -gt 0 -and $vivo -le 120) { $seg += $vivo }
+    }
+    return [int][Math]::Floor($seg / 60)
 }
 
 # VELOCIDAD DE LA VOZ (13/09): "habla mas rapido / mas despacio / normal", en
@@ -14762,7 +14819,13 @@ $JuegoAvisoMin = [int](Get-Cfg 'juego' 'avisoMinutos' 120)
 # lio con braya. El nombre nuevo no colisiona con nada.
 $JuegoMinimoPartida = [int](Get-Cfg 'juego' 'sesionMinima' 3)
 $script:juegoBrilloAntes = $null
-$script:juegoAvisado = $false
+# EL ESTADO DEL AVISO VIVE EN habitos.json (23/09), no en memoria. Con 16,3 arranques al
+# dia, un aviso que solo se acuerda en RAM se repetiria en el primer chequeo despues de
+# cada reinicio: dieciseis veces al dia, que es peor que no avisar.
+$script:juegoAvisoDia = ''     # el dia del ultimo aviso
+$script:juegoAvisoUlt = 0      # minutos de hoy cuando se aviso
+$script:juegoAvisoCada = 0     # 0 = una vez al dia; >0 = cada N minutos
+$script:juegoAvisoNo = ''      # el dia en que dijo hoy no me avises
 
 $script:juegoHoras = 0
 
@@ -15817,7 +15880,8 @@ function Enter-Juego([string]$nombre) {
             [void](Send-AvisoEntorno "juego-pendiente-$nombre" "Ojo, $nombre tiene una actualizacion o descarga pendiente en Steam." 'medio' 120)
         }
     } catch {}
-    $script:juegoAvisado = $false
+    # (el aviso de las dos horas ya NO se rearma aqui: era lo que lo mataba en cada
+    #  alt-tab. Ahora se cuenta por dia, en Get-MinutosJuegoHoy.)
     $script:juegoHoras = 0
     # C4 (19/09): los minutos de la partida SIGUEN contando si es el mismo juego al que
     # se acaba de volver (un alt-tab de 10 s parte la sesion en dos, y el log del 18/09
@@ -15907,17 +15971,17 @@ function Exit-Juego([string]$nombre) {
     if ($minsFg -gt 0 -and $minsFg -le 720) { $script:juegoSesionMin += $minsFg }
     # IDEAS 19 y 20: cuanto se juega cada dia. Se apunta AL CERRAR, que es cuando se
     # sabe lo que duro la partida; asi "cuanto llevo hoy" no se lo inventa nadie.
+    # UNA SOLA FUENTE DE VERDAD: juegos.json (23/09). Aqui se escribia ADEMAS en
+    # habitos.json, y esa copia solo se escribia si Nova estaba viva cuando cambiaba la
+    # ventana: si se reiniciaba con el juego delante, esos minutos no se apuntaban NUNCA.
+    # Se nota en el fichero: falta entero el 15/09 (5 h 38), falta el 16/09, y el 20/09
+    # apunta 2 minutos donde juegos.json apunta 2 h 45. Encima los dos usaban un "dia"
+    # distinto -aqui se restaban 5 horas y alli era el dia natural-, asi que no podian
+    # cuadrar jamas. juegos.json sobrevive porque se vuelca cada 300 s desde el bucle.
     try {
-        $minJ = [int](($sw.ElapsedMilliseconds - $script:juegoDesde) / 60000)
+        $minJ = [int][Math]::Floor(($sw.ElapsedMilliseconds - $script:juegoDesde) / 60000)
         if ($minJ -ge 2 -and $minJ -le 720) {
-            $hbJ = Get-Habitos
-            $diaJ = (Get-Date).AddHours(-5).ToString('yyyy-MM-dd')   # la madrugada cuenta como ayer
-            if (-not $hbJ.minutosJuego) { $hbJ.minutosJuego = @{} }
-            $hbJ.minutosJuego[$diaJ] = [int]$hbJ.minutosJuego[$diaJ] + $minJ
-            $limJ = (Get-Date).AddDays(-30).ToString('yyyy-MM-dd')
-            foreach ($k in @($hbJ.minutosJuego.Keys)) { if ($k -lt $limJ) { $hbJ.minutosJuego.Remove($k) } }
-            Save-Habitos
-            $totJ = [int]$hbJ.minutosJuego[$diaJ]
+            $totJ = Get-MinutosJuegoHoy $nombre
             Log "JUEGO: $minJ min con $nombre (hoy van $totJ)"
             # el "hoy llevas N horas" se ha mudado a Test-SalidaJuego (C4, 19/09): aqui
             # nunca llegaba a decirse, porque $script:juegoActivo todavia vale el juego
@@ -16006,9 +16070,7 @@ function Test-SalidaJuego {
     # Exit-Juego; si el ultimo tramo no llego a 2 min, el total del dia sigue valiendo)
     try {
         $hbS = Get-Habitos
-        $diaS = (Get-Date).AddHours(-5).ToString('yyyy-MM-dd')   # la madrugada cuenta como ayer
-        $totS = 0
-        if ($hbS.minutosJuego) { $totS = [int]$hbS.minutosJuego[$diaS] }
+        $totS = Get-MinutosJuegoHoy    # la fuente buena: juegos.json, que sobrevive a los reinicios
         if ($totS -ge 240) {
             [void](Send-AvisoEntorno 'horas-hoy' "Hoy llevas $([Math]::Round($totS / 60.0, 1)) horas de juego." 'bajo' 480)
         }
@@ -22827,17 +22889,34 @@ while ($true) {
             # dia $script:juegoActivo a proposito: con el puesto, Test-PuedoAvisar tiraba
             # los dos avisos del cierre por "esta jugando".
             try { Test-SalidaJuego } catch { Log ("salida de juego: " + $_.Exception.Message) }
-            if ($j -and $JuegoAvisoMin -gt 0 -and -not $script:juegoAvisado -and
-                      (($sw.ElapsedMilliseconds - $script:juegoDesde) -ge ($JuegoAvisoMin * 60000))) {
-                $script:juegoAvisado = $true
-                # IDEA 10: pasa por el freno de mano como todo lo demas. Es 'alto'
-                # porque suena JUGANDO, que es justo cuando hace falta oirlo.
-                [void](Test-PuedoAvisar 'juego-rato' 'alto' 120)
-                $horas = [Math]::Round($JuegoAvisoMin / 60.0, 1)
-                $cuanto = if ($JuegoAvisoMin -ge 60 -and ($JuegoAvisoMin % 60) -eq 0) { "$([int]$horas) horas" } else { "$JuegoAvisoMin minutos" }
-                if ($cuanto -eq '1 horas') { $cuanto = 'una hora' }
-                Log "JUEGO: aviso de tiempo ($cuanto con $j)"
-                Send-Aviso "Oye, ya llevas $cuanto con $j." 'tiempo'
+            # EL AVISO DE LAS DOS HORAS, CONTADO POR EL DIA Y NO POR EL TRAMO (23/09).
+            # Antes pedia 120 minutos de primer plano SIN UN SOLO CORTE: $script:juegoDesde
+            # se pone a cero cada vez que cambia la ventana de delante -Discord, el
+            # navegador, la propia capsula de Nova- y encima cada reinicio lo reiniciaba.
+            # Medido: con avisoMinutos=120 el aviso debio saltar TRES dias (It Takes Two el
+            # 15/09 con 5 h 38, el 20/09 con 2 h 45 y el 22/09 con 3 h 12) y "JUEGO: aviso de
+            # tiempo" sale UNA SOLA VEZ en catorce dias. El unico que salto es el unico tramo
+            # de dos horas sin alt-tab ni reinicio.
+            $diaAv = Get-DiaJuego
+            if ($script:juegoAvisoDia -ne $diaAv) {
+                $script:juegoAvisoDia = $diaAv; $script:juegoAvisoUlt = 0; Save-AvisoJuego
+            }
+            $pasoAv = if ($script:juegoAvisoCada -gt 0) { $script:juegoAvisoCada } else { $JuegoAvisoMin }
+            if ($j -and $pasoAv -gt 0 -and $script:juegoAvisoNo -ne $diaAv -and
+                -not ($script:juegoAvisoCada -eq 0 -and $script:juegoAvisoUlt -gt 0)) {
+                $minHoy = Get-MinutosJuegoHoy $j
+                if ($minHoy -ge ($script:juegoAvisoUlt + $pasoAv)) {
+                    $script:juegoAvisoUlt = [int][Math]::Floor($minHoy / $pasoAv) * $pasoAv
+                    Save-AvisoJuego
+                    # IDEA 10: pasa por el freno de mano como todo lo demas. Es 'alto'
+                    # porque suena JUGANDO, que es justo cuando hace falta oirlo.
+                    [void](Test-PuedoAvisar 'juego-rato' 'alto' $pasoAv)
+                    Log "JUEGO: aviso de tiempo ($minHoy min hoy con $j)"
+                    # "HOY ya llevas", que es lo que de verdad se ha medido. Antes decia "ya
+                    # llevas dos horas" queriendo decir "llevas dos horas sin cambiar de
+                    # ventana", que no es lo mismo ni de lejos.
+                    Send-Aviso ("Oye, hoy ya llevas " + (Format-Minutos $minHoy) + " con $j.") 'tiempo'
+                }
             }
         } catch {}
     }
