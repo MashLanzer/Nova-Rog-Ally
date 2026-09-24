@@ -163,7 +163,7 @@ function Submit-Command([string]$t, [string]$m = 'accion', [string]$a = '') { $s
 function Get-VentanaDelante { $script:vecesVentana++; return $script:ventanaFalsa }
 # LA DE VERDAD, NO UNA COPIA (24/09, repaso). Aqui habia un Test-SoloPregunta de mentira, y
 # la de verdad no se cargaba hasta 110 lineas mas abajo: todas las comprobaciones de la red
-# de atras corrian contra el muñon, asi que si la de verdad devolviera siempre $true -o sea,
+# de atras corrian contra el munon, asi que si la de verdad devolviera siempre $true -o sea,
 # con la red desactivada- este banco seguia verde igual.
 Invoke-Expression (Traer 'Test-SoloPregunta')
 # LO QUE HOY RESUELVE EL CAMINO LOCAL, medido con "assistant.ps1 -Probar" el 23/09 y copiado

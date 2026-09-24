@@ -138,7 +138,7 @@ Comp 'y al minuto ya no vale' (($null -eq $r) -and ($script:llamadas.Count -eq 0
 
 Write-Host ''
 Write-Host '-- y donde esta enganchado --'
-# EL ORDEN, NO LA DISTANCIA (24/09). Esto medía que entre las dos marcas hubiera menos de
+# EL ORDEN, NO LA DISTANCIA (24/09). Esto media que entre las dos marcas hubiera menos de
 # 700 caracteres, asi que cualquier codigo nuevo que se metiera en medio -sin mover nada de
 # sitio- ponia el banco rojo. Lo que importa es que el ajedrez se mire ANTES que el camino
 # local, y que no haya nada entre medias que se quede la frase.
