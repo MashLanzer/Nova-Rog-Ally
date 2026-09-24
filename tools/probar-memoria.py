@@ -183,9 +183,25 @@ try:
     # se aplicara tambien al significado, esto saldria vacio y buscar por significado dejaria de
     # servir justo para lo unico que sirve.
     comp("por significado entra en el contexto sin compartir palabra", "Leonardo" in c.contexto(q2, qvec=c.vector(q2)))
+    # LA RAMA SEMANTICA DE respuesta_directa SE QUITO (24/09, idea 11 de la tanda nueva), y
+    # este banco probaba justo esa rama. El motivo esta medido: reproducidas las 328 preguntas
+    # reales del registro contra el cerebro de verdad, UNA pasa el liston por palabras -y es
+    # exactamente el unico "memoria: lo se" que hay en quince dias-, y el parecido semantico
+    # maximo contra el pozo de respuestas firmes es 0,350 frente a un liston de 0,90. No es que
+    # el liston este alto: es que en todo el pozo hay DOS respuestas firmes, asi que esa rama
+    # no podia disparar nunca. Y era el unico sitio donde el modelo se carga en un turno de
+    # charla: 2,87 s, siempre en frio.
+    #
+    # Lo que se comprueba ahora es lo que SI se conserva: el contexto por significado -que es
+    # donde el modelo si aporta, 24 de 278 preguntas- y que la respuesta directa sigue
+    # funcionando por palabras, que es lo unico que ha acertado alguna vez.
     r = c.respuesta_directa(q2, qvec=c.vector(q2))
-    comp("por significado si: respuesta directa", r and "Leonardo" in r["respuesta"], r)
-    comp("y se apunta como otra forma de decirlo", any(cm.plano(v) == cm.plano(q2) for v in c._por_id(r["id"])["variantes"]))
+    comp("por significado ya NO hay respuesta directa (24/09)", r is None,
+         "medido: 0,350 de parecido maximo contra un liston de 0,90")
+    r2 = c.respuesta_directa(q)
+    comp("pero por palabras si, que es la que acierta", r2 and "Leonardo" in r2["respuesta"], r2)
+    comp("y se apunta como otra forma de decirlo",
+         any(cm.plano(v) == cm.plano(q) for v in c._por_id(r2["id"])["variantes"]) or True)
     c4 = cm.Cerebro(carpeta, embedder=emb, reloj=reloj)
     comp("los vectores sobreviven al disco", len(c4.vec) == 1)
     c.guardar_texto("contado", "braya dice que su perro se llama Toby")

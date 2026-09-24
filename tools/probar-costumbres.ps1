@@ -148,11 +148,21 @@ $script:recFalsos = @()
 function Get-Recordatorios { return $script:recFalsos }
 $script:resumenPendiente = ''
 $script:clima = @{ emoji = 'X'; temp = 18; desc = 'esta despejado' }
+# LA VENTANA DEJO DE SER UNA HORA (24/09, idea 5 de la tanda nueva). Este banco comprobaba
+# que por la tarde NO salia el parte, y desde hoy si sale: era el unico canal por el que Nova
+# cuenta lo que ha decidido sola, la decision se aparco 24 veces y se dijo UNA en total, y la
+# primera senal de braya cae fuera de la ventana de la manana SIETE de quince dias.
+# Lo que se comprueba ahora es lo que de verdad importa: que sale, y que el saludo se adapta.
 Test-ParteManana (Get-Date '2026-09-20 15:00')
-Comp 'por la tarde no hay parte' ($script:resumenPendiente -eq '')
+Comp 'por la tarde SI hay parte, desde el 24/09' ($script:resumenPendiente -ne '') $script:resumenPendiente
+Comp 'y sin "buenos dias" a las tres de la tarde' ($script:resumenPendiente -notmatch 'Buenos dias') ''
+$script:resumenPendiente = ''
+$hbP = Get-Habitos; $hbP.parteVisto = ''   # el dia se gasto al salir: se rearma para el caso de abajo
 $script:recFalsos = @([pscustomobject]@{ cuando = '2026-09-20T18:00:00'; texto = 'llamar a mama' }, [pscustomobject]@{ cuando = '2026-09-21T09:00:00'; texto = 'otro dia' })
 Test-ParteManana (Get-Date '2026-09-20 08:30')
 Comp 'a primera hora: tiempo y lo de hoy (no lo de manana)' ($script:resumenPendiente -match '^Buenos dias . X 18.' -and $script:resumenPendiente -match 'hoy: llamar a mama$') $script:resumenPendiente
+# Y POR LA MANANA EL SALUDO SIGUE SIENDO EL DE SIEMPRE: si esto se cayera, el cambio de la
+# idea 5 se habria llevado por delante el "buenos dias", que es lo unico que nadie pidio.
 # QUE LA CAPSULA LO ENSENE SON DOS COSAS, no una (revision del 23/09). El bucle vacia
 # $script:resumenPendiente Y borra habitos.parteTexto; haciendo solo la primera, la
 # funcion hacia bien su trabajo -reponerlo, porque para ella ese parte no habia llegado
