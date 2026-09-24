@@ -216,7 +216,7 @@ $script:invitado = $true
 Comp 'no saluda a quien no eres tu' (-not (Test-VueltaSaludo $T))
 
 Write-Host '  -- el resumen al volver no se queda repitiendose (22/09) --'
-# 1.126 lineas "RESUMEN AL VOLVER" el 21/09, 97 KB, el 25 % de lo que Nova escribio ese
+# 1.126 lineas "RESUMEN AL VOLVER" el 21/09, 97 KB, el 28 % de lo que Nova escribio ese
 # dia; 774 de ellas la MISMA notificacion repetida cada 30 s durante 6 h 27 min, porque
 # Watch-Entorno llama cada 30 s y esto rearmaba siempre. Lo que se prueba: que una ausencia
 # larga deje UNA sola linea, que una notificacion nueva si vuelva a armarlo, y que si la
@@ -281,6 +281,41 @@ $script:resumenPendiente = ''
 $script:relojMs += 7200000          # y se va otras 2 h, con los mismos mensajes
 Test-ResumenAlVolver
 Comp 'otra ausencia con los mismos mensajes si cuenta' ($script:logLineas.Count -eq ($primeras + 1)) "antes=$primeras ahora=$($script:logLineas.Count)"
+
+Write-Host '  -- el parte de la manana y el resumen comparten el mismo hueco (21/09) --'
+# LOS DOS ESCRIBEN EN $script:resumenPendiente: Test-ParteManana y Test-ResumenAlVolver.
+# Y el 21/09 coincidieron de verdad: la tanda de "1 mensaje de XBOX Game Bar Widgets" fue
+# de 03:18:13 a 09:45:03, y en medio, a las 05:00:19, salio "PARTE DE LA MANANA: Buenos
+# dias ... bateria 100 %". O sea que el resumen estuvo dando vueltas 4 h 44 min con el
+# texto del parte puesto en el hueco.
+# LO QUE NO PUEDE PASAR: que el resumen pise el parte cada 30 s. Mientras la firma no
+# cambie no se rearma, asi que el parte le espera entero: 569 vueltas del bucle (4 h 44
+# min 44 s a 30 s la vuelta) sin tocarlo ni escribir una linea mas.
+# Aqui el parte se pone a mano en vez de llamar a Test-ParteManana -que pide el tiempo,
+# los habitos y el correo, y ya la prueba probar-costumbres.ps1-; lo que importa es que en
+# el hueco haya texto de OTRO, que es lo unico que mira esta funcion.
+Reset
+Set-HabloAhora
+[void]$script:notifPendientes.Add(@{ id = '1'; app = 'XBOX Game Bar Widgets' })
+$script:relojMs += 7200000
+Ausencia 1
+$script:resumenPendiente = 'Buenos dias, esta despejado, 23 grados y la bateria al 100 %'
+$lineasAntes = $script:logLineas.Count
+Ausencia 569
+Comp 'el parte de las 05:00 aguanta 569 vueltas sin que lo pisen' ($script:resumenPendiente -eq 'Buenos dias, esta despejado, 23 grados y la bateria al 100 %') $script:resumenPendiente
+Comp 'y el resumen no escribe ni una linea mas en el log' ($script:logLineas.Count -eq $lineasAntes) "antes=$lineasAntes ahora=$($script:logLineas.Count)"
+
+Write-Host '  -- pero al llegar la notificacion nueva, el hueco pasa a ser del resumen --'
+# A las 09:45:30 llego "NOTIFICACIONES: 1 nueva(s) de Discord" y la cuenta paso de 1 a 2
+# mensajes: cambia la firma y el resumen se rearma UNA vez, encima de lo que hubiera. Asi
+# es hoy, y por eso se deja escrito: si alguien cambia quien gana el hueco, esto se pone
+# rojo y braya lo ve, en vez de enterarse porque un dia no le llego el parte.
+[void]$script:notifPendientes.Add(@{ id = '2'; app = 'Discord' })
+Test-ResumenAlVolver
+Comp 'con la notificacion nueva, se rearma UNA vez' ($script:logLineas.Count -eq ($lineasAntes + 1)) "lineas=$($script:logLineas.Count)"
+Comp 'y lo que queda puesto es el resumen, no el parte' ($script:resumenPendiente -eq 'Mientras no estabas: 2 mensajes') $script:resumenPendiente
+Ausencia 100
+Comp 'y ahi se vuelve a callar otras 100 vueltas' ($script:logLineas.Count -eq ($lineasAntes + 1)) "lineas=$($script:logLineas.Count)"
 
 Write-Host ''
 if ($fallos -gt 0) { Write-Host "$fallos MAL" -ForegroundColor Red; exit 1 }

@@ -305,6 +305,155 @@ Comp 'seis cosas: nivel 2' ((Get-Madurez 6) -eq 2)
 Comp 'cincuenta o mas: el maximo, 5' ((Get-Madurez 50) -eq 5 -and (Get-Madurez 300) -eq 5)
 Comp 'la frase cuenta cuanto falta' ((Get-FraseNivel) -eq 'estoy en el nivel 2 y se 6 cosas; con 6 mas subo al 3') (Get-FraseNivel)
 
+Write-Host "--- las 8 recetas de verdad de braya (memoria\recetas.json) ---"
+# HASTA AHORA ESTE BANCO SOLO PROBABA RECETAS INVENTADAS AQUI MISMO. Estas son las que
+# hay DE VERDAD en memoria\recetas.json el 24/09: 8 recetas, 1 sola con hueco ({texto}) y
+# con una forma mas de decirla, y 7 literales sin ningun hueco. Copiadas del archivo tal
+# cual (frase y ejemplo). Lo que se rompe si esto se cae: no un caso de laboratorio, sino
+# todo lo que Nova ha aprendido a hacer sola; una receta que deja de encajar vuelve a
+# costar los 44 s de agente que costaba antes de aprenderla.
+# La 6 lleva una ene con tilde en el ejemplo real ("manana"), y aqui los ficheros son
+# ASCII: se arma con su codigo para que sea la frase de braya y no una parecida.
+$ejemplo6 = 'Revisa mi calendario y dime si tengo algo anotado para ma' + [char]0xF1 + 'ana'
+$realesRec = @(
+    @{ id = 1; frase = 'crea una nota en el escritorio que diga {texto}'; ejemplo = 'Crea una nota en el escritorio que diga Hola'
+       variantes = @('crea una nota en el escritorio llamada {texto}') },
+    @{ id = 2; frase = 'que hay en mis descargas'; ejemplo = 'que hay en mis descargas'; variantes = @() },
+    @{ id = 3; frase = 'que hay en mis documentos'; ejemplo = 'que hay en mis documentos'; variantes = @() },
+    @{ id = 4; frase = 'cuantos clips tengo'; ejemplo = 'cuantos clips tengo'; variantes = @() },
+    @{ id = 5; frase = 'crear un archivo en el escritorio que se llame hola y dentro tenga hola mundo'
+       ejemplo = 'Puedes crear un archivo en el escritorio que se llame Hola y dentro tenga Hola Mundo'; variantes = @() },
+    @{ id = 6; frase = 'revisa mi calendario y dime si tengo algo anotado para manana'; ejemplo = $ejemplo6; variantes = @() },
+    @{ id = 7; frase = 'pon el nombre prueba y la carpeta en el escritorio'; ejemplo = 'Pon el nombre prueba y la carpeta en el escritorio'; variantes = @() },
+    @{ id = 8; frase = 'crea una carpeta llamada prueba dos en el escritorio'; ejemplo = 'Crea una carpeta llamada Prueba dos en el escritorio'; variantes = @() }
+)
+$script:invitado = $false
+$erradas = 0
+foreach ($rr in $realesRec) {
+    $enc = Find-Receta $rr.ejemplo $realesRec
+    if (-not $enc -or $enc.receta.id -ne $rr.id) { $erradas++; Write-Host ("       la $($rr.id) no encaja con su propio ejemplo") }
+}
+Comp 'las 8 encajan cada una con su propio ejemplo' ($erradas -eq 0) "erradas=$erradas"
+# la unica con hueco: el valor se recorta del ORIGINAL, con sus mayusculas
+$encN = Find-Receta 'Crea una nota en el escritorio que diga Hola' $realesRec
+Comp 'la nota saca el texto tal como lo dijo' ($encN -and $encN.valores.texto -ceq 'Hola') "$($encN.valores.texto)"
+# Y POR LA OTRA FORMA DE DECIRLA, que es la unica variante que hay guardada. La frase es
+# la que dijo braya en el registro ("RECETA 1: 'Crea una nota en el escritorio llamada
+# Hola Uno' -> la hago sin IA"), y sirve ademas para lo que el ejemplo guardado no
+# prueba: que el hueco admita DOS palabras. Con un hueco que solo coja una, 'Hola Uno'
+# deja de encajar y esa orden vuelve a costar una vuelta entera al agente.
+$encV = Find-Receta 'Crea una nota en el escritorio llamada Hola Uno' $realesRec
+Comp 'y por su variante, con un valor de dos palabras' ($encV -and $encV.receta.id -eq 1 -and $encV.valores.texto -ceq 'Hola Uno') "$($encV.valores.texto)"
+# LA NOTA Y LA CARPETA EMPIEZAN IGUAL ("crea una..."): la 8 no puede caer en la 1, que se
+# comeria "carpeta llamada Prueba dos en el escritorio" entero como el texto de una nota.
+$encC = Find-Receta 'Crea una carpeta llamada Prueba dos en el escritorio' $realesRec
+Comp 'la carpeta no cae en la receta de la nota' ($encC -and $encC.receta.id -eq 8) "cayo en la $($encC.receta.id)"
+$incN = Find-RecetaIncompleta 'crea una nota en el escritorio' $realesRec
+Comp 'sin decir que poner, pregunta el texto' ($incN -and $incN.receta.id -eq 1 -and $incN.hueco -eq 'texto') "$($incN.hueco)"
+
+Write-Host "--- la plantilla se ajusta a TU verbo (dos casos reales del registro) ---"
+# LOS DOS QUE ESTABAN EN EL LOG Y NO ESTABAN AQUI. El cerebro escribe la frase con SU
+# verbo ("cuenta...") y braya la dijo con otro ("puedes contar..."), asi que la plantilla
+# no encajaba con lo dicho y la receta se perdia. Paso de verdad el 13/09 a las 16:34:51 y
+# a las 16:35:24 (descargas y documentos: las dos "RECETA descartada ... no encaja en
+# 'cuenta los archivos de mi carpeta de {carpeta}'"), y el arreglo se ve funcionando el
+# 18/09 a las 18:50:50: "RECETA: plantilla ajustada a como lo dijiste". Si esta rama se
+# cae, esas dos recetas vuelven a no aprenderse nunca, y la 5 de memoria\recetas.json
+# -que se guardo por aqui- no existiria.
+$script:recetas = $null
+Remove-Item $RecetasPath -Force -ErrorAction SilentlyContinue
+$script:logs = @()
+$jsonCuenta = '{"frase":"cuenta los archivos de mi carpeta de {carpeta}","resumen":"contar los archivos de {carpeta}","pasos":[{"tipo":"orden","texto":"abre spotify"}],"respuesta":"listo"}'
+$rCuenta = Add-Receta 'Puedes contar los archivos de mi carpeta de descargas' $jsonCuenta
+Comp 'el "puedes contar" del 13/09 ya se aprende' ($null -ne $rCuenta) (UltimoLog)
+Comp 'y se guarda con TU verbo, no con el del cerebro' ($rCuenta -and $rCuenta.frase -eq 'contar los archivos de mi carpeta de {carpeta}') "$($rCuenta.frase)"
+Comp 'y lo deja dicho en el log' ((@($script:logs) -join ' | ') -match 'plantilla ajustada a como lo dijiste') ''
+Comp 'la plantilla ajustada vuelve a encajar' ($null -ne (Find-Receta 'contar los archivos de mi carpeta de documentos')) ''
+# EL SEGUNDO CASO REAL, el que dejo la receta 5 tal como esta hoy en el disco: braya dijo
+# "Puedes crear..." y el cerebro escribio "crea...". La frase que quedo guardada empieza
+# por "crear", y es exactamente la que hay en memoria\recetas.json.
+$script:recetas = $null
+Remove-Item $RecetasPath -Force -ErrorAction SilentlyContinue
+$script:logs = @()
+$jsonHola = '{"frase":"crea un archivo en el escritorio que se llame hola y dentro tenga hola mundo","resumen":"crear el archivo","pasos":[{"tipo":"orden","texto":"abre spotify"}],"respuesta":"listo"}'
+$rHola = Add-Receta 'Puedes crear un archivo en el escritorio que se llame Hola y dentro tenga Hola Mundo' $jsonHola
+Comp 'y el del 18/09 queda igual que en el disco' ($rHola -and $rHola.frase -eq 'crear un archivo en el escritorio que se llame hola y dentro tenga hola mundo') "$($rHola.frase)"
+
+Write-Host "--- el MOTIVO cuando el cerebro dice que NO ---"
+# EL REGEX QUE NADIE MIRABA. Cuando el cerebro contesta "RECETA: NO", detras tiene que
+# venir UNO de los seis motivos que le pide $CcInstruccionReceta (pantalla, contenido,
+# externo, destructivo, inseguro, charla). Ese motivo es lo unico que dice QUE se podria
+# mejorar para que la proxima vez si se aprenda.
+# LO MEDIDO EN EL REGISTRO: desde que existe el motivo (18/09) ha habido 6 "RECETA: NO"
+# -2 el 18/09, 3 el 20/09 y 1 el 22/09, que son exactamente los 6 'receta-no' de
+# estadisticas.json-. De esos 6, CINCO salieron "sin motivo" y el sexto (20/09 a las
+# 18:57:36) saco "no", que no es ninguno de los seis. O sea: 0 motivos utiles de 6.
+# Por eso esto se prueba: para que se vea lo que el regex se traga y lo que se le escapa.
+# El regex y su condicion se sacan del archivo real por el arbol, no copiados: si alguien
+# los cambia, aqui se ve. El cuerpo entero del if se ejecuta con Log y Add-Estadistica de
+# mentira, asi que lo que se mide es lo que se apuntaria de verdad.
+$ifNoRec = $ast.Find({ param($x)
+    $x -is [System.Management.Automation.Language.IfStatementAst] -and
+    $x.Clauses[0].Item1.Extent.Text -match '^\$bloqueRec\s+-match' -and
+    $x.Clauses[0].Item2.Extent.Text -match "Add-Estadistica 'receta-no'" }, $true)
+if (-not $ifNoRec) { Write-Host '  MAL  no encuentro el bloque del NO de la receta'; $mal++ }
+$condNoRec = $ifNoRec.Clauses[0].Item1.Extent.Text
+$cuerpoNoRec = $ifNoRec.Clauses[0].Item2.Extent.Text
+$script:statReceta = ''
+function Add-Estadistica($a, $b) { $script:statReceta = "$a|$b" }
+function MotivoDelNo([string]$bloqueRec) {
+    $script:statReceta = ''
+    if (-not (Invoke-Expression $condNoRec)) { return '(no es un NO)' }
+    Invoke-Expression ('& ' + $cuerpoNoRec)
+    return ($script:statReceta -replace '^receta-no\|', '')
+}
+# los seis motivos no se escriben aqui: se sacan de la instruccion que el cerebro recibe,
+# para que anadir uno nuevo alli no deje este banco mirando una lista vieja
+$txtInstr = ($ast.Find({ param($x)
+    $x -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+    $x.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and
+    $x.Left.VariablePath.UserPath -eq 'CcInstruccionReceta' }, $true)).Extent.Text
+$seis = @([regex]::Matches($txtInstr, '(?m)^-\s*NO\s+([a-z]+)') | ForEach-Object { $_.Groups[1].Value })
+Comp 'la instruccion del cerebro sigue ofreciendo sus motivos' ($seis.Count -ge 5) ("motivos=" + ($seis -join ','))
+$sinLeer = @()
+foreach ($m in $seis) { if ((MotivoDelNo ("NO $m")) -ne $m) { $sinLeer += $m } }
+Comp 'y el regex los lee todos' ($sinLeer.Count -eq 0) ("no lee: " + ($sinLeer -join ','))
+Comp 'con dos puntos delante tambien' ((MotivoDelNo 'NO: externo') -eq 'externo') ''
+Comp 'y con el motivo explicado detras' ((MotivoDelNo 'NO pantalla: tuviste que MIRAR la pantalla') -eq 'pantalla') ''
+Comp 'en minusculas tambien, que el cerebro no siempre grita' ((MotivoDelNo 'No contenido') -eq 'contenido') ''
+# LO QUE NO ES UN NO NO PUEDE ENTRAR AQUI: detras de "RECETA:" suele venir el JSON de una
+# receta buena, y si esto lo tomara por un NO se perderia la receta entera.
+Comp 'el JSON de una receta buena no es un NO' ((MotivoDelNo '{"tipo": "accion", "frase": "abre steam"}') -eq '(no es un NO)') ''
+Comp 'ni una palabra que solo empieza por no' ((MotivoDelNo 'NOPE, ni idea') -eq '(no es un NO)') ''
+# LOS TRES QUE SE TRAGABA MAL, ARREGLADOS EL 24/09 (idea 13). Estas tres comprobaciones
+# nacieron documentando el fallo, y hoy documentan el arreglo: la lista dejo de ser abierta.
+#
+# 1) "NO, no era una tarea" daba motivo "no", que es EXACTAMENTE lo que se apunto el 20/09 a
+#    las 18:57:36 -el unico motivo que el regex viejo saco en toda su vida-. "no" no es
+#    ninguno de los seis, asi que ahora no se apunta nada, que es la verdad.
+Comp 'un "no" de relleno ya NO se cuela (20/09 18:57:36)' ((MotivoDelNo 'NO, no era una tarea') -eq 'sin motivo') 'antes daba "no"'
+# 2) lo mismo con cualquier otra palabra de relleno: el regex viejo cogia la primera que
+#    hubiera, fuera la que fuera.
+Comp 'ni una palabra suelta cualquiera' ((MotivoDelNo 'no se puede repetir sin ti') -eq 'sin motivo') 'antes daba "se"'
+# 3) y el motivo en la LINEA DE ABAJO ya se lee. La clase de caracteres vieja llevaba
+#    espacio, tabulador, dos puntos, coma y guion, pero NO el salto de linea, y la
+#    instruccion se los pide en lista, o sea en lineas aparte: es la explicacion mas
+#    probable de los cinco "sin motivo" medidos. Probable, no segura: el texto crudo de esos
+#    cinco no se guarda en ningun sitio, y eso no se puede saber a toro pasado.
+Comp 'el motivo en la linea de abajo ya se lee' ((MotivoDelNo ("NO" + [char]10 + "inseguro")) -eq 'inseguro') 'antes se perdia'
+Comp 'y con la explicacion debajo, tambien' ((MotivoDelNo ("NO" + [char]10 + "pantalla: tuviste que mirar")) -eq 'pantalla') ''
+# PERO NO SE ADIVINA. Si el cerebro no escribio ninguno de los seis, 'sin motivo' es la
+# respuesta correcta: inventarlo seria peor que no tenerlo, porque este contador es de los
+# que se miran para decidir.
+Comp 'y un NO a secas sigue sin motivo' ((MotivoDelNo 'NO') -eq 'sin motivo') 'no se inventa'
+Comp 'ni un NO con una excusa larga y sin motivo' ((MotivoDelNo 'NO porque esto la verdad no lo tengo claro del todo') -eq 'sin motivo') ''
+# Y NO SE CAZA UNA PALABRA PERDIDA EN MEDIO DE UN PARRAFO: solo cuentan las dos primeras
+# lineas. Si valiera el bloque entero, una explicacion que mencionara "la pantalla" tres
+# parrafos mas abajo se apuntaria como motivo.
+$largo = "NO" + [char]10 + "no estoy seguro" + [char]10 + "ademas habria que mirar la pantalla"
+Comp 'una palabra tres lineas mas abajo no cuenta' ((MotivoDelNo $largo) -eq 'sin motivo') 'solo las dos primeras lineas'
+
+
 Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
 # EL VERDE EN FALSO (18/09, revision del agente). $falloInfo contaba los fallos de las recetas
 # de informacion -las que comprueban que un script SOLO PUEDA LEER, ni borrar ni lanzar

@@ -21723,8 +21723,34 @@ function Report-Reply($out) {
         if ($bloqueRec -match '^(?i)no\b') {
             # el motivo viene detras del NO (pantalla, contenido, externo, destructivo,
             # inseguro, charla): sin el no habia forma de saber que se puede mejorar
+            # LISTA CERRADA, Y CON EL SALTO DE LINEA DENTRO (24/09, idea 13).
+            #
+            # Desde que existe esto (18/09) ha habido SEIS "RECETA: NO": CINCO sin motivo y
+            # UNO con motivo "no" (20/09 18:57:36). Cero utiles de seis, y por dos causas que
+            # estaban en la misma linea:
+            #
+            #  - la clase [ \t:,-] NO lleva el salto de linea, asi que un modelo que conteste
+            #    "RECETA: NO" y el motivo en la linea de abajo -que es como esta escrita la
+            #    lista en el prompt- no dejaba motivo ninguno. Es la explicacion mas probable
+            #    de los cinco vacios; no se puede demostrar, porque el texto crudo no se
+            #    guarda en ningun sitio, y por eso queda dicho aqui y no en un comentario que
+            #    suene mas seguro de lo que es;
+            #  - y cogia la palabra que viniera detras, fuera la que fuera: "NO, no era una
+            #    tarea" daba motivo "no", que es el caso real del 20/09.
+            #
+            # El prompt define SEIS motivos y ninguno mas (ver $CcInstruccionReceta), asi que
+            # aqui va la misma lista cerrada. Es la decision de Test-DatoTrato y de
+            # Test-DatoPasajero por el mismo motivo: una lista abierta se traga basura y la
+            # presenta como dato, y estos contadores son de los que se miran para decidir.
+            #
+            # Y NO SE ADIVINA: si no viene ninguno de los seis se sigue apuntando 'sin
+            # motivo', que es la verdad. Solo se mira el principio del bloque -la primera
+            # linea y la siguiente- para no cazar la palabra suelta de un parrafo entero.
             $motivoRec = ''
-            if ($bloqueRec -match '^(?i)no[ \t:,-]+([a-z]+)') { $motivoRec = $Matches[1].ToLowerInvariant() }
+            $cabezaRec = (($bloqueRec -split "`n") | Select-Object -First 2) -join ' '
+            if ($cabezaRec -match '(?i)\b(pantalla|contenido|externo|destructivo|inseguro|charla)\b') {
+                $motivoRec = $Matches[1].ToLowerInvariant()
+            }
             Log ("RECETA: el cerebro dice que esto no se puede repetir igual" + $(if ($motivoRec) { " (motivo: $motivoRec)" } else { '' }))
             Add-Estadistica 'receta-no' $(if ($motivoRec) { $motivoRec } else { 'sin motivo' })
         } elseif ($RecetasOn -and $script:jobModo -eq 'accion' -and $script:ccConHerramientas -and -not $script:invitado) {

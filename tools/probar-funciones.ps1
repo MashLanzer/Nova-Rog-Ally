@@ -248,5 +248,134 @@ foreach ($c in $casosC) {
     "  {0}  {1} -> {2}" -f $(if ($ok) { 'OK  ' } else { 'MAL ' }), $c[0].Substring(0, [Math]::Min(60, $c[0].Length)), $(if ($r) { 'charla' } else { 'orden' })
 }
 
+Write-Host ""
+Write-Host "--- el oido fino: lo que NO merecio repaso en el registro ---"
+# QUE DECIDE EL OIDO FINO: el modelo rapido (base) dicta, y cuando lo que sale no se
+# entiende -o se entiende pero Whisper dudaba- se repasa EL MISMO audio con small.
+# CUANTO ACTUO, de estadisticas.json (9 dias, del 12 al 23/09): 145 repasos pedidos (60 el
+# 15/09, 23 el 20/09, 21 el 18/09), de los que 37 sirvieron (fino-sirvio), 45 dieron lo
+# mismo (fino-igual) y 7 fueron invento suyo (fino-invento). Y 6 NO se llegaron a pedir
+# (fino-ahorrado), que son justo las seis lineas "OIDO FINO: no lo pido" de
+# assistant.log.1: los dos numeros cuadran, 5 el 15/09 y 1 el 21/09.
+# Esas seis lineas son CINCO frases distintas ("No, no, no" sale dos veces), copiadas del
+# registro tal cual. Son ruido del cuarto y titubeos, no ordenes. Si Test-MereceRepaso
+# dejara de verlas, cada una costaria la espera del repaso -medida en el log en 4,4 /
+# 3,9 / 3,6 s- para tirarla despues igual, porque Test-MismoAudio la rechazaria:
+# ninguna tiene una palabra de 4 letras donde agarrarse.
+# La tercera lleva una i con tilde ("dia"); aqui los ficheros son ASCII y se arma con su
+# codigo, para que sea la frase de braya y no una parecida.
+$noLoPido = @(
+    'Y una vez que eso',
+    'No, no, No, No',
+    ('Ya d' + [char]0xED + 'a es hoy'),
+    'No, no, no, no',
+    'No, no, no'
+)
+$pedidas = @($noLoPido | Where-Object { Test-MereceRepaso $_ })
+if ($pedidas.Count -gt 0) { $mal++ }
+"  {0}  ninguna de las 5 frases del registro pide repaso" -f $(if ($pedidas.Count -eq 0) { 'OK  ' } else { 'MAL ' })
+if ($pedidas.Count -gt 0) { "        piden repaso: " + ($pedidas -join ' / ') }
+# ...y la otra mitad de la guarda: que tirarlas no pierda nada. Con cada invencion tipica
+# del modelo preciso, el repaso de estas cinco se habria descartado igual.
+$colados2 = 0
+foreach ($l in $noLoPido) { foreach ($inv in $inventos) { if (Test-MismoAudio $l $inv) { $colados2++ } } }
+if ($colados2 -ne 0) { $mal++ }
+"  {0}  y ninguna podia aceptar un repaso ({1} combinaciones)" -f $(if ($colados2 -eq 0) { 'OK  ' } else { 'MAL ' }), ($noLoPido.Count * $inventos.Count)
+
+Write-Host ""
+Write-Host "--- el ultimo escalon del oido fino: cuando se pide turbo (del archivo real) ---"
+# EL ESCALON DE ABAJO. Cuando ni base ni small sacan una orden, cuatro ramas del oido fino
+# llaman a Request-UltimoRecurso para que turbo (large-v3-turbo) repase el mismo audio.
+# Turbo tarda ~12 s por frase, asi que lo que decide esta funcion es cuanto te hace
+# esperar. En assistant.log.1 hay 57 lineas "ULTIMO RECURSO": 29 peticiones y 27 finales.
+# NADIE LA PROBABA. Se saca del archivo real con sus dependencias; lo unico de mentira son
+# el cronometro, el worker y las dos rutas de marcas.
+$script:relojMs = 100000
+$sw = New-Object psobject
+$sw | Add-Member -MemberType ScriptProperty -Name ElapsedMilliseconds -Value { $script:relojMs }
+$script:oidosDudosos = @{}
+$script:logsF = @()
+function Log($m) { $script:logsF += $m }
+function Add-Estadistica($a, $b) {}
+function Set-UI($a, $b) {}
+Invoke-Expression (Traer 'Test-PareceCharla')
+Invoke-Expression (Traer 'Add-OidoDudoso')
+Invoke-Expression (TraerVariable 'ReintentoUltimoMs')
+Invoke-Expression (Traer 'Request-UltimoRecurso')
+$dirFino = Join-Path $env:TEMP ('nova-fino-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $dirFino | Out-Null
+$RutaReintento = Join-Path $dirFino 'reintento.txt'
+$MarcaReintento = Join-Path $dirFino 'marca-reintento.txt'
+$WhisperUltimo = 'large-v3-turbo'
+$script:wakeProc = New-Object psobject
+$script:wakeProc | Add-Member -MemberType NoteProperty -Name HasExited -Value $false
+$script:juegoActivo = $null
+$script:reintentoUltimo = $false
+$script:ultimoRecursoPara = ''
+$script:ultimoRecursoEn = 0
+$script:reintentoVence = 0
+function ResetTurbo {
+    $script:reintentoUltimo = $false; $script:ultimoRecursoPara = ''; $script:ultimoRecursoEn = 0
+    $script:juegoActivo = $null; $script:relojMs = 100000; $script:logsF = @()
+}
+function CompF($etq, $ok, $det = '') {
+    if (-not $ok) { $script:mal++ }
+    "  {0}  {1}{2}" -f $(if ($ok) { 'OK  ' } else { 'MAL ' }), $etq, $(if ("$det" -ne '') { "  -> $det" } else { '' })
+}
+# LA FRASE ES LA DEL 15/09, la que se pidio tres veces seguidas. En assistant.log.1 estan
+# las tres: 11:23:23, 11:23:49 y 11:24:17, o sea 3 peticiones de turbo para el mismo audio
+# en 54 segundos, ~12 s de espera cada una. De ahi salio la guarda de los 120 s. Desde que
+# existe no ha vuelto a hacer falta: 0 lineas "ya se pidio para" en todo el registro, que
+# es justamente la senal de que esto funciona.
+$fraseTurbo = 'Quiero que veas que hay en mi pantalla y me digas que es lo que ves'
+ResetTurbo
+CompF 'la primera vez si se pide' (Request-UltimoRecurso $fraseTurbo $false $false 'procesar')
+$script:reintentoUltimo = $false
+$script:relojMs += 26000
+CompF 'la segunda a los 26 s, NO (15/09 11:23:49)' (-not (Request-UltimoRecurso $fraseTurbo $false $false 'procesar')) ($script:logsF[-1])
+$script:reintentoUltimo = $false
+$script:relojMs += 28000
+CompF 'ni la tercera a los 54 s (15/09 11:24:17)' (-not (Request-UltimoRecurso $fraseTurbo $false $false 'procesar'))
+$script:reintentoUltimo = $false
+$script:relojMs += 70000
+CompF 'pasados los 120 s si, que ya es otra vez' (Request-UltimoRecurso $fraseTurbo $false $false 'procesar')
+# JUGANDO NO. Turbo son ~12 s (y ~35 s si hay que cargarlo) y ~1 GB de RAM que ahora mismo
+# es del juego; braya lo dijo asi: "si, pero no jugando".
+ResetTurbo
+$script:juegoActivo = 'It Takes Two'
+CompF 'jugando, nunca' (-not (Request-UltimoRecurso $fraseTurbo $false $false 'procesar'))
+# LO QUE PARECE CHARLA TAMPOCO, si no venia ya reconocida como orden: seria pagar 12 s por
+# una frase que no era para Nova.
+ResetTurbo
+CompF 'lo que parece charla, no' (-not (Request-UltimoRecurso 'estoy jugando y me gusta mucho esto' $false $false 'procesar'))
+ResetTurbo
+CompF 'pero la misma frase ya reconocida, si' (Request-UltimoRecurso 'estoy jugando y me gusta mucho esto' $true $false 'procesar')
+# Y LA MISMA GUARDA DEL OIDO FINO: sin una palabra de 4 letras, Test-MismoAudio tiraria lo
+# que traiga turbo pase lo que pase, asi que esperarlo es regalar los 12 s.
+ResetTurbo
+CompF 'sin una palabra de 4 letras, no se pide' (-not (Request-UltimoRecurso 'No, no, no' $false $false 'procesar'))
+# SIN WORKER NO HAY QUIEN REPASE: si se pidiera, nadie escribiria la respuesta y Nova se
+# quedaria esperando su plazo entero para nada.
+ResetTurbo
+$script:wakeProc.HasExited = $true
+CompF 'con la escucha muerta, no se pide' (-not (Request-UltimoRecurso $fraseTurbo $false $false 'procesar'))
+$script:wakeProc.HasExited = $false
+# Y CON TURBO APAGADO, nada: el 15/09 se apago en uso real.
+ResetTurbo
+$WhisperUltimo = ''
+CompF 'con turbo apagado, no se pide' (-not (Request-UltimoRecurso $fraseTurbo $false $false 'procesar'))
+$WhisperUltimo = 'large-v3-turbo'
+# LO QUE DEJA PUESTO CUANDO SI SE PIDE: la marca para la escucha, el plazo, y la frase
+# apuntada como dudosa para que no se aprenda de ella (ver NO APRENDER DE LO MAL OIDO).
+ResetTurbo
+$script:oidosDudosos = @{}
+[void](Request-UltimoRecurso $fraseTurbo $false $false 'noentendi')
+CompF 'al pedirlo deja la marca para la escucha' (Test-Path -LiteralPath $MarcaReintento)
+CompF 'y se da un plazo, que no se espera bloqueando' ($script:reintentoVence -gt $script:relojMs) "$($script:reintentoVence - $script:relojMs) ms"
+CompF 'y apunta la frase como mal oida, para no aprenderla' ($script:oidosDudosos.Count -eq 1) "$($script:oidosDudosos.Count)"
+CompF 'y recuerda que hacer si turbo no contesta' ($script:reintentoAlFallar -eq 'noentendi') "$($script:reintentoAlFallar)"
+Remove-Item -LiteralPath $dirFino -Recurse -Force -ErrorAction SilentlyContinue
+
+
 if ($mal -gt 0) { Write-Host "$mal casos MAL"; exit 1 }
 Write-Host "todo correcto"
