@@ -3512,6 +3512,46 @@ function Resolve-Pronombre([string]$f, [string]$objetivo) {
     return "$verboP $objetivo"
 }
 
+# EL DEICTICO, RESUELTO POR LA VENTANA QUE ESTA DELANTE (23/09, idea 2).
+# Va aqui, al lado de Resolve-Pronombre y aparte, por lo mismo que dice el comentario de esa:
+# para que una prueba pueda EJECUTARLA de verdad en vez de copiarse el regex.
+# DE DONDE SALE EL REPARTO: de sus 41 frases con un deictico sin referente, 16 son "hay
+# alguna actualizacion de este" y 20 son "este estado es cargando en steam". Son 36 de 41 y
+# piden cosas distintas: en la primera el deictico cuelga al final y se puede sustituir; en
+# la segunda "este" lleva sustantivo detras -es oido roto, no un deictico colgando- y ahi
+# inventar un referente seria inventarse la frase. Por eso hay tres modos y no uno.
+# LO QUE NO SE RESUELVE NUNCA SOLO: lo que empieza por un verbo. Con el oido al 70,4 %,
+# adivinar de una ventana QUE abrir o QUE borrar es justo la regla 1 al reves. Se pregunta.
+# LO QUE NO SE TOCA: "abrelo"/"cierrala" siguen siendo de Resolve-Pronombre, que ya los
+# resuelve con $script:ultimoObjetivo; y "este juego" sigue siendo de $reJuegoDelante, que
+# pone el nombre del juego de verdad. Robarselos seria cambiar algo que ya funciona.
+function Resolve-Deictico([string]$plano, [string]$nombre) {
+    $nada = @{ modo = ''; texto = '' }
+    if (-not $plano) { return $nada }
+    # SIN VENTANA UTIL NO SE ADIVINA (regla 1). Tambien vale para la capsula de Nova
+    # delante: quien llama pasa '' y aqui no sale ningun referente.
+    if (-not $nombre) { return $nada }
+    # "este juego va lento" es de $reJuegoDelante, que pone el juego de verdad
+    if ($plano -match '^(?:este|esta|ese|esa)\s+juegos?\b') { return $nada }
+    # 1) VERBO DE CABEZA: se pregunta, pase lo que pase. Es el primero a proposito.
+    if ($plano -match $RE_DEICTICO_ORDEN) {
+        # el nombre se pega APARTE: metido dentro del -replace, un nombre con un $ dentro
+        # se tomaria por una referencia de grupo
+        return @{ modo = 'preguntar'; texto = (($plano -replace '\s+(?:este|esta|esto|ese|esa|eso|aqui|ahi)$', '') + ' ' + $nombre) }
+    }
+    # 2) EL DEICTICO CUELGA AL FINAL, detras de una preposicion: se sustituye...
+    if ($plano -match $RE_DEICTICO_COLGANDO) {
+        $textoD = $Matches[1] + $nombre
+        # ...salvo que la frase empiece por un verbo de los que tocan algo ("busca una guia
+        # de esto"): entonces vuelve a mandar la regla 1 y se pregunta.
+        if ($plano -match $RE_DEICTICO_ACCION) { return @{ modo = 'preguntar'; texto = $textoD } }
+        return @{ modo = 'sustituir'; texto = $textoD }
+    }
+    # 3) DEICTICO CON SUSTANTIVO DETRAS: ni se sustituye ni se ejecuta, solo se anota.
+    if ($plano -match $RE_DEICTICO_SUELTO) { return @{ modo = 'anotar'; texto = $plano } }
+    return $nada
+}
+
 function Resolve-Fragment([string]$f) {
     # Los numeros, a cifras, ANTES de mirar ningun patron. Aqui no llega el
     # texto libre: las notas del diario las coge un atajo anterior con el texto
@@ -10613,6 +10653,31 @@ function Test-FastCommand([string]$text) {
     } finally { $script:dudosa = $dudosaAntes }
 }
 
+# LA RED DE ATRAS DEL DEICTICO (23/09, idea 2). El verbo de cabeza decide A PRIORI, pero el
+# oido va al 70,4 % y una frase puede acabar en una accion sin empezar por un verbo claro.
+# Esto mira la frase YA REESCRITA: si al resolverla sale un kind de $AccionesQueTocan, no es
+# una pregunta y no se ejecuta sola, se pregunta. Dos cierres para lo mismo, a proposito.
+# Guarda y restaura $script:dudosa igual que hace Test-FastCommand, o resolver aqui dejaria
+# una duda encendida que luego pagaria la frase de verdad.
+function Test-SoloPregunta([string]$frase) {
+    if (-not $frase) { return $true }
+    $fragsP = $null
+    try { $fragsP = Split-Ordenes $frase } catch { return $true }
+    if (-not $fragsP -or $fragsP.Count -eq 0) { return $true }
+    $dudosaAntesP = $script:dudosa
+    try {
+        foreach ($fP in $fragsP) {
+            $aP = $null
+            try { $aP = Resolve-Fragment $fP } catch { $aP = $null }
+            if (-not $aP) { continue }          # no lo resuelve nadie: acaba en la charla
+            foreach ($xP in @($aP)) {
+                if ($AccionesQueTocan -contains [string]$xP.kind) { return $false }
+            }
+        }
+        return $true
+    } finally { $script:dudosa = $dudosaAntesP }
+}
+
 # Las acciones que TOCAN el sistema, por oposicion a las que solo miran o
 # cuentan. Sirven para dos cosas distintas y las dos quieren la misma lista: dar
 # un respiro entre ellas, y decidir si una orden merece que se pregunte antes
@@ -14876,6 +14941,60 @@ function Get-ProcesoEnPrimerPlano {
     return $null
 }
 
+# QUE VENTANA TENGO DELANTE, BARATO (23/09, idea 2). Hace falta para resolver "esto", y el
+# coste manda: el comentario de Get-RamResumen, medido el 21/09, dice que leer
+# MainWindowTitle de los 200 y pico procesos cuesta de 500 a 740 ms frente a 20 ms. Por eso
+# aqui NO se usa Get-ProcesoEnPrimerPlano, que recorre todos: se pide el handle de delante,
+# su PID, y UN solo Get-Process -Id.
+# No corre en el bucle: solo cuando llega una frase con deictico. Y cachea 800 ms, que es
+# menos de lo que tarda braya en decir dos frases seguidas.
+$script:ventanaDelante = $null
+$script:ventanaDelanteMs = 0
+function Get-VentanaDelante {
+    if ($script:ventanaDelanteMs -gt 0 -and ($sw.ElapsedMilliseconds - $script:ventanaDelanteMs) -lt 800) {
+        return $script:ventanaDelante
+    }
+    $script:ventanaDelanteMs = $sw.ElapsedMilliseconds
+    $script:ventanaDelante = $null
+    try {
+        $h = [AX]::GetForegroundWindow()
+        if ($h -eq [IntPtr]::Zero) { return $null }
+        $duenoV = Get-PidDeVentana $h
+        if ($duenoV -le 0) { return $null }
+        # MI PROPIA VENTANA NO CUENTA, la misma guarda que Get-JuegoEnPrimerPlano: ni esta
+        # consola ni la capsula. Con la capsula delante no se sabe que hay detras, y
+        # adivinarlo seria inventarse el referente.
+        if ($duenoV -eq $PID) { return $null }
+        if ($script:uiProc -and -not $script:uiProc.HasExited -and $duenoV -eq $script:uiProc.Id) { return $null }
+        $p = Get-Process -Id $duenoV -ErrorAction SilentlyContinue
+        if (-not $p) { return $null }
+        $nomP = [string]$p.ProcessName
+        if ($PROCESOS_INTOCABLES -contains $nomP) { return $null }
+        $tit = ''
+        try { $tit = [string]$p.MainWindowTitle } catch { $tit = '' }
+        $script:ventanaDelante = @{ titulo = $tit; proceso = $nomP; nombre = (Get-NombreDeTitulo $tit $nomP) }
+    } catch { $script:ventanaDelante = $null }
+    return $script:ventanaDelante
+}
+
+# EL NOMBRE QUE SE DICE EN VOZ ALTA, sacado del titulo. Pura: no llama a Windows, asi que una
+# prueba puede ejecutarla con titulos de verdad.
+# El tope de 40 es el mismo criterio que ya usa el listado de "cierra todo": un titulo largo
+# es una frase ("Documento1 - Word - 3 paginas sin guardar"), no un nombre, y decirlo entero
+# en mitad de una pregunta no ayuda a nadie. La lista de contenedores es CERRADA: quitar "lo
+# que va detras del ultimo guion" se llevaria por delante los nombres con guion.
+function Get-NombreDeTitulo([string]$titulo, [string]$proceso) {
+    $t = ([string]$titulo).Trim()
+    if (-not $t) { return $proceso }
+    $t = $t -replace '^\(\d+\)\s*', ''          # el "(3) " de los contadores de mensajes
+    foreach ($suf in @(' - google chrome', ' - mozilla firefox', ' - microsoft edge', ' - brave',
+                       ' - opera', ' - visual studio code', ' - bloc de notas', ' and 1 more page - personal')) {
+        if ($t.ToLowerInvariant().EndsWith($suf)) { $t = $t.Substring(0, $t.Length - $suf.Length).Trim(); break }
+    }
+    if (-not $t -or $t.Length -gt 40) { return $proceso }
+    return $t
+}
+
 # Devuelve el juego de Steam que esta en primer plano, o $null.
 # DE DONDE SALE ESTA LISTA (21/09): la noche del 20 al 21 braya jugo DOS HORAS a
 # Roblox y para Nova no estaba jugando. Aqui solo valia steamapps\\common, asi que
@@ -17823,6 +17942,22 @@ function Expand-Prompt([string]$texto) {
 $PRE_HABLADO = 'Responde SOLO con palabras, breve (una o dos frases), en espanol, sin ejecutar nada en el equipo (si la pregunta necesita datos de hoy, puedes buscar en internet). Si el texto no es una pregunta ni algo dicho a un asistente -es ruido, una frase suelta, el audio de un video o una conversacion ajena- responde exactamente: NO. '
 
 # Preguntas: se contestan hablando, no se ejecutan.
+# LOS TRES DEICTICOS (23/09, idea 2). Van aqui, con los demas, para que el banco de
+# patrones los compile junto al resto. Llegan en minusculas y sin tildes (ConvertTo-Plain).
+# ORDEN: se miran siempre en este orden, y $RE_DEICTICO_ORDEN el primero, porque es el que
+# protege la regla 1.
+# $RE_DEICTICO_ACCION reutiliza $VERBOS en vez de copiar la lista -como ya se hace en
+# Test-FastCommand- y le suma los verbos que borran, que ahi no estan.
+$VERBOS_DEICTICO = '(?:' + $VERBOS + '|borra|borrame|elimina|eliminame|desinstala|formatea|vacia|instala|descarga|comparte|reenvia|responde|contesta|publica)'
+$RE_DEICTICO_ACCION = '^' + $VERBOS_DEICTICO + '\b'
+$RE_DEICTICO_ORDEN = '^' + $VERBOS_DEICTICO + '\s+(?:este|esta|esto|ese|esa|eso|aqui|ahi)$'
+# EXIGE que el deictico sea la ULTIMA palabra y que delante lleve preposicion: asi coge
+# "hay alguna actualizacion de este" (16 veces) y "ahora si algo se esta explicando en este",
+# y no toca "este juego" ni "esta cancion", donde el deictico ya tiene sustantivo detras.
+$RE_DEICTICO_COLGANDO = '^(.+\s(?:de|del|para|en|sobre|con|a|al)\s)(?:este|esta|esto|ese|esa|eso|aqui|ahi)$'
+# Y este coge "este estado es cargando en steam" (20 veces), donde el sustantivo esta en
+# medio: el deictico NO cuelga, asi que solo se anota el titulo de la ventana.
+$RE_DEICTICO_SUELTO = '^(?:este|esta|esto|ese|esa|eso)\s+(?:\S+\s+)?(?:es|esta|son|estan|tiene|significa|quiere decir|dice|pone|va|sirve)\b'
 $RE_PREGUNTA = '^(?:que|cual|cuanto|cuantos|cuando|donde|quien|como|por que|para que|sabes|dime|cuentame|explicame|explica|crees|opinas|hablame|es cierto|de verdad)\b'
 
 # Construye la peticion de traduccion. Se le da el vocabulario REAL para que no
@@ -19191,6 +19326,7 @@ function Report-Reply($out) {
 }
 
 # --- confirmacion por voz ---
+$DeicticoOn = [bool](Get-Cfg 'deictico' 'activada' $true)   # resolver "esto" por la ventana de delante (idea 2)
 $ConfirmacionOn = [bool](Get-Cfg 'confirmacion' 'activada' $true)
 # 6 s y no 3,5 (18/09): tres segundos y medio para decidir un si es poco para una persona,
 # y en el uso real del 18/09 se cancelo por plazo una pregunta a la que si iba a contestar.
@@ -21001,6 +21137,84 @@ function Process-Texto([string]$text) {
                 return
             }
         } catch { Log ("ajedrez: " + $_.Exception.Message) }
+
+        # 0b) EL DEICTICO, POR LA VENTANA DE DELANTE (23/09, idea 2).
+        # POR QUE AQUI Y NO EN Resolve-Fragment: $FILLER_INI lleva "este" en las muletillas de
+        # cabeza, asi que Remove-Filler convierte "este estado es cargando en steam" en
+        # "estado es cargando en steam" ANTES de que Resolve-Fragment vea nada. Un patron de
+        # deictico metido ahi dentro no veria NUNCA ese "este", que son 20 de sus 41 frases.
+        # Aqui se mira $plano, que todavia no ha pasado por Remove-Filler.
+        # Y va detras de LAS QUEJAS REHACEN LA ORDEN, que necesita la frase tal como se dijo,
+        # y delante del enrutado, para que la frase reescrita la vean por igual el camino
+        # local, la memoria, la charla y el agente.
+        # "este juego ..." se queda fuera del paso ENTERO: es de $reJuegoDelante, que pone el
+        # nombre del juego de verdad, y entrar aqui solo serviria para robarselo.
+        if ($DeicticoOn -and -not $script:invitado -and -not $script:pendiente -and
+            $plano -notmatch '^(?:este|esta|ese|esa)\s+juegos?\b' -and
+            ($plano -match $RE_DEICTICO_ORDEN -or $plano -match $RE_DEICTICO_COLGANDO -or $plano -match $RE_DEICTICO_SUELTO)) {
+            # SOLO DOS DE LOS TRES NECESITAN UN REFERENTE. "este estado es cargando en steam"
+            # no lo necesita -solo se anota el titulo-, asi que sin ventana no se le contesta
+            # "no se a que te refieres": se le deja seguir su camino de siempre.
+            $necesitaRefD = ($plano -match $RE_DEICTICO_ORDEN -or $plano -match $RE_DEICTICO_COLGANDO)
+            $vD = $null
+            # SOLO LO QUE HOY NO SABE HACER NADIE (23/09). Pasando las 599 frases de los tres
+            # ficheros de pruebas por los tres patrones entran DOS: "copia esto" y "este
+            # estado es cargando en Steam". Y las dos se resuelven hoy en local -"copiar" y
+            # "estado de las descargas"-, asi que este paso, puesto por delante, no arreglaba
+            # ninguna de las dos y se llevaba por delante dos cosas que funcionan.
+            # Medido ademas: "hay alguna actualizacion de este" resuelve hoy a "estado de las
+            # descargas" en 0 ms, y ya sustituida ("...de it takes two") no la resuelve nadie
+            # y se va al modelo: sustituir ahi cambiaria una respuesta instantanea por una
+            # lenta. Por eso el paso mira primero si la frase ya tiene dueno.
+            $yaTieneDuenoD = $false
+            try { $yaTieneDuenoD = [bool](Test-FastCommand $text) } catch { $yaTieneDuenoD = $false }
+            if (-not $yaTieneDuenoD) { $vD = Get-VentanaDelante }
+            # el juego manda sobre el titulo: con un juego delante, la ventana suele no tener
+            # titulo util (muchos juegos a pantalla completa lo dejan vacio)
+            $nomD = if ($script:juegoActivo) { [string]$script:juegoActivo } elseif ($vD) { [string]$vD.nombre } else { '' }
+            $dD = if ($yaTieneDuenoD) { @{ modo = ''; texto = '' } } else { Resolve-Deictico $plano $nomD }
+            # SIN VENTANA UTIL NO SE ADIVINA NUNCA (regla 1 + regla 7): se pregunta que es,
+            # en vez de suponerlo.
+            if (-not $nomD -and $necesitaRefD -and -not $yaTieneDuenoD) {
+                Log "DEICTICO: sin ventana util para '$text'"
+                Add-Estadistica 'deictico-sin-ventana' $text
+                $qD = 'No se a que te refieres. Dime que es'
+                Show-Popup $qD; Say $qD
+                Open-EscuchaTrasNoEntendi
+                return
+            }
+            # LA RED DE ATRAS: si lo reescrito TOCA algo, se pregunta aunque no empezara por
+            # un verbo de la lista.
+            if ($dD.modo -eq 'sustituir' -and -not (Test-SoloPregunta $dD.texto)) { $dD.modo = 'preguntar' }
+            if ($dD.modo -eq 'preguntar') {
+                # tipo 'peligrosa': solo vale un SI hablado, ni el plazo ni el boton
+                $script:pendiente = @{ texto = $dD.texto; vence = 0; tipo = 'peligrosa' }
+                $qD = "Con $nomD delante. " + $dD.texto + "?"
+                Log "DEICTICO: '$text' es una accion; pregunto antes: $qD"
+                Add-Estadistica 'deictico-preguntado' $text
+                Show-Popup $qD; Say $qD; Set-UI 'escuchando' $qD
+                Start-Confirmacion
+                return
+            }
+            if ($dD.modo -eq 'anotar') {
+                # ni se sustituye ni se ejecuta: se contesta con el titulo como contexto, y NO
+                # pasa por el agente, que tiene acceso total.
+                $tituloD = if ($vD) { [string]$vD.titulo } else { $nomD }
+                if (-not $tituloD) { $tituloD = $nomD }
+                $conNota = $text + " [lo que tengo delante: $tituloD]"
+                Log "DEICTICO: anoto la ventana ('$tituloD') para '$text'"
+                Add-Estadistica 'deictico-anotado' $text
+                if (-not (Send-Charla $conNota)) { Submit-Command $conNota 'pregunta' }
+                return
+            }
+            if ($dD.modo -eq 'sustituir') {
+                Log "DEICTICO: '$text' -> '$($dD.texto)' (ventana: $(if ($vD) { $vD.titulo } else { $nomD }))"
+                Add-Estadistica 'deictico' "$text -> $($dD.texto)"
+                $text = $dD.texto
+                $plano = ConvertTo-Plain $text
+            }
+            # modo '': aqui no ha pasado nada y la frase sigue su camino de siempre
+        }
 
         # 1) local instantaneo
         $fast = $null

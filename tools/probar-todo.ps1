@@ -451,6 +451,18 @@ Titulo "2n105. A que podemos jugar los dos"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-juegos-dos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:de donde lo ha sacado)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n111. \"Esto\", \"este\", \"eso\": la ventana que tienes delante"
+# Idea 2. De las 41 frases suyas con un deictico sin referente, 16 son "hay alguna
+# actualizacion de este" y 20 son "este estado es cargando en steam". Y midiendolo salio lo
+# que cambio el plan: de las 599 frases de los tres ficheros de pruebas SOLO DOS entran en
+# los patrones, y las dos ya se resuelven hoy en local, asi que el paso solo toca lo que hoy
+# no sabe hacer nadie. Lo que vigila el banco, por orden: que nada que empiece por un verbo
+# salga de aqui listo para ejecutarse (hoy "abre este" acaba en el agente, que tiene acceso
+# total); que sin ventana util no se invente ningun referente; y que el paso siga viviendo en
+# Process-Texto, porque $FILLER_INI se come el "este" de cabeza antes de Resolve-Fragment.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-deictico.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:esto ya sabe a que te refieres)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n110. Corregir hablando lo que Nova cree saber de ti"
 # Idea 7. Tres fallos medidos ejecutando el codigo: (a) el filtro "no guardo lo que habla de
 # mi" se comia las correcciones de trato -de 10 rechazos en catorce dias, OCHO lo eran, y dos
