@@ -18,6 +18,8 @@ $ErrorActionPreference = 'Stop'
 trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
 $raiz = Split-Path -Parent $PSScriptRoot
 $fuente = [System.IO.File]::ReadAllText((Join-Path $raiz 'assistant.ps1'))
+# El arbol, para poder sacar funciones enteras en vez de buscarlas con un regex (24/09).
+$ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $raiz 'assistant.ps1'), [ref]$null, [ref]$null)
 
 $fallos = 0
 function Comp($etiqueta, $ok, $detalle = '') {
@@ -115,6 +117,42 @@ $n = Mira 'C:\XboxGames\Roblox\Content\RobloxPlayerBeta.exe' 'RobloxPlayerBeta'
 Comp 'no lleva barras ni punto exe' ($n -notmatch '[\\/.]') "dice [$n]"
 Comp 'y no es el nombre del ejecutable' ($n -ne 'RobloxPlayerBeta') "dice [$n]"
 
+Write-Host ''
+Write-Host '-- Y NO SE QUEDA CIEGA CON EL JUEGO EN PANTALLA COMPLETA (24/09, idea 8) --'
+# LO QUE PASABA, medido contra el registro de Steam -que sobrevive a las muertes de Nova-:
+# el 20/09 ELDEN RING corrio de 18:59:53 a 19:07:57 y Nova lo vio ONCE SEGUNDOS. A las
+# 19:01:22 contesto 'ELDEN RING no esta abierto', y a las 19:02:27 braya le dijo al
+# microfono -esta en el registro-: 'Elden Ring si esta abierto... el juego sigue abierto'.
+# Se quedo ciega 7 min 49 s, unas 47 vueltas del bucle. Lo mismo el 19/09 (13 s de 272) y
+# el 18/09 (11 s de 185).
+# LA CAUSA: Get-ProcesoEnPrimerPlano buscaba un proceso cuyo MainWindowHandle fuera
+# EXACTAMENTE la ventana de delante, y en pantalla completa exclusiva eso no casa.
+$gp = ($ast.Find({ param($x)
+    $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+    $x.Name -eq 'Get-ProcesoEnPrimerPlano' }, $true)).Extent.Text
+$gpSin = (($gp -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n")
+Comp 'resuelve el PID de la ventana de delante' ($gpSin -match 'Get-PidDeVentana \$h') ''
+Comp 'y pide UN solo proceso por ese PID' ($gpSin -match 'Get-Process -Id \$pidFg') 'de 500-740 ms a 20 ms'
+# EL CAMINO NUEVO VA PRIMERO: si fuera el respaldo, seguiria recorriendo los 200 procesos
+# antes y la ceguera no se arreglaria.
+$iPid = $gpSin.IndexOf('Get-PidDeVentana')
+$iBarrido = $gpSin.IndexOf('foreach ($p in (Get-Process')
+Comp 'y ese camino va ANTES del barrido de siempre' (($iPid -ge 0) -and ($iBarrido -ge 0) -and ($iPid -lt $iBarrido)) 'si no, la ceguera sigue igual'
+# PERO EL BARRIDO NO SE QUITA: si el PID no se puede resolver o el proceso muere entre una
+# linea y otra, lo de siempre sigue de respaldo.
+Comp 'el barrido de siempre sigue de respaldo' ($iBarrido -ge 0) 'no se quita, se pospone'
+Comp 'y sin ventana delante sigue devolviendo nada' ($gpSin -match '\[IntPtr\]::Zero.{0,40}return \$null') ''
+# Y LO QUE NO SE TOCA, que es lo que de verdad decide si algo es un juego: esta funcion solo
+# devuelve el PROCESO. Si aqui se colara un filtro, se estaria decidiendo en dos sitios.
+Comp 'no decide si es un juego' (($gpSin -notmatch 'CARPETAS_JUEGO') -and ($gpSin -notmatch 'EXES_JUEGO') -and ($gpSin -notmatch 'CARPETA_NO_JUEGO')) 'eso lo hace Get-JuegoEnPrimerPlano'
+Comp 'ni apunta tiempo de juego' ($gpSin -notmatch 'Add-TiempoJuego') ''
+# y el filtro de verdad sigue entero donde estaba
+$gj = ($ast.Find({ param($x)
+    $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+    $x.Name -eq 'Get-JuegoEnPrimerPlano' }, $true)).Extent.Text
+foreach ($guarda in @('CARPETAS_JUEGO', 'EXES_JUEGO', 'CARPETA_NO_JUEGO')) {
+    Comp ('el filtro sigue mirando ' + $guarda) ($gj -match [regex]::Escape($guarda)) ''
+}
 if ($fallos -gt 0) { Write-Host ''; Write-Host "  $fallos fallo(s)"; exit 1 }
 Write-Host ''
 Write-Host '  Nova ya sabe que Roblox es un juego, y sigue sin inventarse ninguno'

@@ -224,6 +224,39 @@ comp("y de verdad borra dentro del bucle",
      (_mo.group(1).strip()[:58] + "...") if _mo else "no encuentro el bucle")
 
 print("")
+print("-- E. y la serie de la bateria va al mismo fichero (24/09, idea 7) --")
+# EN QUINCE DIAS el registro trae ~21 lecturas de porcentaje y casi todas dicen 100 %, asi
+# que no hay con que decidir nada: la bateria por juego lleva quince dias sin aprender un
+# tramo (0 lineas BATERIA:). Y la causa medida NO es el umbral de 10 minutos: el solape
+# juego-sin-cargador de esos quince dias son CINCO minutos, porque braya juega enchufado.
+# El 23/09 jugo 191 minutos y el unico desenchufe duro 1 minuto, 28 antes de abrir el juego.
+# Lo que falta son datos, y esto los deja. No cambia ninguna decision: permite tomarla.
+comp("el asistente calcula la ruta del latido", "$PulsoPath = " in ASIS)
+# QUE SEA LA MISMA QUE LA DEL OIDO, o habria dos ficheros y el olvido solo barreria uno.
+iRuta = ASIS.find("$PulsoPath = ")
+lineaRuta = ASIS[iRuta:ASIS.find(chr(10), iRuta)] if iRuta >= 0 else ""
+comp("y la saca del nombre del log, igual que el oido",
+     "-pulso.log" in lineaRuta and "$EventLog" in lineaRuta, lineaRuta.strip())
+comp("la serie se escribe ahi y no en el registro", "AppendAllText($PulsoPath" in ASIS)
+# LO QUE LLEVA LA LINEA: sin el cargador y sin el juego, la serie no sirve para lo unico
+# que se quiere saber -cuanto gasta cada juego- y habria que empezar de cero en una semana.
+iB = ASIS.find("$lineaB = ")
+cuerpo = ASIS[iB:iB + 700] if iB >= 0 else ""
+for aguja, que in (("[bateria]", "lleva su etiqueta"),
+                   ("sin cargador", "dice si hay cargador"),
+                   ("$script:juegoActivo", "y a que esta jugando"),
+                   ("$script:bateriaMin", "y lo que calcula Windows")):
+    comp("la linea %s" % que, aguja in cuerpo)
+# Y SOLO CUANDO CAMBIA EL PORCENTAJE: el bloque se mira cada minuto, asi que por estado
+# serian 1.440 lineas al dia en vez de las ~100 de apuntar solo el cambio.
+comp("y solo se escribe cuando cambia el porcentaje",
+     "if ($pc -ne $script:uiBateria) {" in ASIS)
+# NO SE TOCA EL UMBRAL de Update-BateriaJuego: probado con 10, 8, 6, 5, 4 y 3 minutos sobre
+# los seis tramos reales del registro, y el unico candidato -ELDEN RING, cinco minutos-
+# tampoco pasaria el filtro del 2 % de caida. Bajarlo daria un numero sacado de una sola
+# muestra ruidosa, que es mentir con cara de dato.
+comp("el umbral de los 10 minutos sigue igual", "$minT -ge 10" in ASIS)
+print("")
 if fallos:
     print("  %d caso(s) MAL" % fallos)
     sys.exit(1)

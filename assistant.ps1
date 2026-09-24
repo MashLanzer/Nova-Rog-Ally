@@ -16561,6 +16561,10 @@ $script:dictaSordo = $false
 # la orden ya se entiende entera: la escucha cierra la frase antes (ver SILENCIO_FIN_LOTENGO)
 $RutaLoTengo = Join-Path $TmpDir "lotengo.txt"
 $RutaEstado = Join-Path $TmpDir "escucha-estado.txt"
+# EL FICHERO DEL LATIDO (24/09, idea 19): lo escribe el oido con anota_latido, y desde la idea
+# 7 tambien la serie de la bateria. El nombre se calcula igual que alli -el del log con
+# "-pulso" detras- para que los dos escriban en el mismo sitio sin ponerse de acuerdo.
+$PulsoPath = [System.IO.Path]::ChangeExtension($EventLog, $null).TrimEnd('.') + '-pulso.log'
 # --- DICTADO CON EL MOTOR DE WINDOWS (el de Win+H, sin su ventana) ---
 # Convive con Whisper en vez de sustituirlo: los dos oyen la misma orden y
 # se prefiere lo que diga Windows SI dice algo. Esa API escucha el microfono
@@ -17184,13 +17188,41 @@ $script:juegoPidCandidato = 0
 $script:juegoSalida = $null      # salida EN DUDA: @{nombre; exe; proc; desdeMs} (C4, 19/09)
 $script:juegoSesionMin = 0       # minutos de primer plano de la partida de ahora (C4, 19/09)
 
+# EL PID DE LA VENTANA, NO SU MainWindowHandle (24/09, idea 8 de la tanda nueva).
+#
+# Esto recorria los ~200 procesos buscando uno cuyo MainWindowHandle fuera EXACTAMENTE la
+# ventana de delante. Con un juego en pantalla completa exclusiva eso no casa, y devolvia
+# $null: Nova se quedaba ciega con el juego delante.
+#
+# ESTA MEDIDO Y CON SUS PALABRAS. El 20/09 el registro de Steam dice que ELDEN RING corrio de
+# 18:59:53 a 19:07:57; Nova lo vio ONCE SEGUNDOS y a las 19:01:22 contesto "ELDEN RING no esta
+# abierto". A las 19:02:27 braya le dijo al microfono -y esta en el registro-: "Elden Ring si
+# esta abierto... el juego sigue abierto". Se quedo ciega los 7 min 49 s restantes, unas 47
+# vueltas del bucle. Lo mismo el 19/09 (13 s de 272) y el 18/09 (11 s de 185). En total, el
+# 5,5 % de lo que jugo a ese juego con Nova viva.
+#
+# (El otro 90 % de lo que se pierde no es esto: es que Nova no estaba encendida. Eso no se
+# arregla aqui, y no se finge que si.)
+#
+# LA SOLUCION YA ESTABA ESCRITA TREINTA LINEAS MAS ABAJO, en el comentario del 23/09: "se pide
+# el handle de delante, su PID, y UN solo Get-Process -Id", con su medicion -de 500 a 740 ms
+# recorriendo los 200 procesos, frente a 20 ms-. Mas barato y mas certero, y Get-PidDeVentana
+# ya se usa en la primera linea de Get-JuegoEnPrimerPlano.
+#
+# Y NO LA VUELVE PERMISIVA: esto solo devuelve el PROCESO. Quien decide si eso es un juego es
+# Get-JuegoEnPrimerPlano con sus $CARPETAS_JUEGO, $EXES_JUEGO, $CARPETA_NO_JUEGO y el filtro
+# de instaladores, y eso no se toca.
 function Get-ProcesoEnPrimerPlano {
     try {
         $h = [AX]::GetForegroundWindow()
         if ($h -eq [IntPtr]::Zero) { return $null }
-        $hilo = [AX]::GetWindowThreadProcessId($h, [IntPtr]::Zero)
-        if ($hilo -eq 0) { return $null }
-        # el hilo no da el PID directamente: se busca por ventana principal
+        $pidFg = Get-PidDeVentana $h
+        if ($pidFg -gt 0) {
+            $pr = Get-Process -Id $pidFg -ErrorAction SilentlyContinue
+            if ($pr) { return $pr }
+        }
+        # DE RESPALDO, lo de siempre: si el PID no se puede resolver o el proceso ya murio
+        # entre una linea y otra, se busca por ventana principal como hasta hoy.
         foreach ($p in (Get-Process -ErrorAction SilentlyContinue)) {
             if ($p.MainWindowHandle -eq $h) { return $p }
         }
@@ -26415,6 +26447,25 @@ while ($true) {
                 # celebra la carga
                 $cg = if ($cargando) { 1 } else { 0 }
                 if ($pc -ne $script:uiBateria -or $cg -ne $script:uiCargando) {
+                    # Y SE APUNTA LA SERIE (24/09, idea 7 de la tanda nueva). En quince dias el
+                    # registro trae ~21 lecturas de porcentaje y casi todas dicen 100 %, asi que
+                    # no hay con que decidir nada: la bateria por juego lleva quince dias sin
+                    # aprender ni un tramo -0 lineas BATERIA:- y el motivo medido no es el
+                    # umbral de 10 minutos, es que braya juega ENCHUFADO. El 23/09 jugo 191
+                    # minutos y el unico desenchufe duro 1 minuto, 28 antes de abrir el juego.
+                    # El solape juego-sin-cargador de quince dias son CINCO minutos.
+                    # Esto no cambia ninguna decision: solo deja la serie para poder tomarla.
+                    # VA AL FICHERO DEL LATIDO y no al registro: es una linea por punto
+                    # porcentual, del orden de cien al dia, y el registro acaba de adelgazar.
+                    if ($pc -ne $script:uiBateria) {
+                        try {
+                            $lineaB = ((Get-Date).ToString('yyyy-MM-dd HH:mm:ss') + '  [bateria] ' + $pc +
+                                       ' % ' + $(if ($cargando) { 'cargando' } else { 'sin cargador' }) +
+                                       $(if ($script:juegoActivo) { ' jugando a ' + $script:juegoActivo } else { '' }) +
+                                       $(if ($script:bateriaMin -gt 0) { ' (Windows dice ' + $script:bateriaMin + ' min)' } else { '' }))
+                            [System.IO.File]::AppendAllText($PulsoPath, $lineaB + "`r`n", (New-Object System.Text.UTF8Encoding $false))
+                        } catch {}
+                    }
                     $script:uiBateria = $pc; $script:uiCargando = $cg
                     Refresh-UI
                 }

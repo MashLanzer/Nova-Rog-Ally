@@ -47,6 +47,12 @@ $EntornoVistosPath = Join-Path $env:TEMP ('avisos-vistos-' + [guid]::NewGuid().T
 function Write-Atomico($ruta, $texto) { [System.IO.File]::WriteAllText($ruta, $texto, (New-Object System.Text.UTF8Encoding($false))) }
 Invoke-Expression (Traer 'Get-EntornoVistos')
 Invoke-Expression (Traer 'Save-EntornoVistos')
+# EL FRENO DEL DIA (24/09, idea 4 de la tanda nueva): Test-PuedoAvisar llama a estas dos, y
+# sin ellas este banco muere a mitad. Get-CuentaHoy lee las estadisticas, asi que aqui se le
+# pone una lista vacia: este banco prueba el freno POR HORA, no el del dia -ese tiene el suyo,
+# probar-aviso-de-mas.ps1-, y con las cuentas a cero el freno nuevo deja pasar todo.
+Invoke-Expression (Traer 'Test-CabeOtroAviso')
+function Get-CuentaHoy([string]$ruta) { return 0 }
 Invoke-Expression (Traer 'Test-PuedoAvisar')
 # la voz de los avisos normales no sale al momento: espera unos segundos y sale junta
 $AvisoJuntarMs = 4000
