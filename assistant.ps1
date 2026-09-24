@@ -4311,6 +4311,10 @@ function Resolve-Fragment([string]$f) {
         $script:ultimaNotif -and ($sw.ElapsedMilliseconds - $script:ultimaNotifEn) -lt $NotifVentanaMs) {
         return @(@{ kind = 'notifQueDice'; desc = 'lo ultimo que te ha llegado' })
     }
+    # MEDIDO EL 24/09 (repaso): la duda era si "quien es", "quien fue" y "de quien es" son
+    # demasiado corrientes hablandole a un juego, porque lo unico que las separa de leer un
+    # mensaje privado en voz alta es esa ventana de diez minutos. Se conto sobre las 514
+    # frases reales de pruebas\audio\uso\destinos.jsonl: CERO las dicen. No se toca.
     # sin "que me dicen": es demasiado corriente y leeria tus mensajes en voz alta
     # si alguien lo dice cerca (revision del 13/09)
     if ($f -match '^(?:leemelos|leemelas|lee(?:me)? (?:los mensajes|las notificaciones)|leeme lo que me han escrito)$') {
