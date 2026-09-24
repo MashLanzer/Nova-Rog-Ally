@@ -14,6 +14,7 @@ trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -Foregr
 $raiz = Split-Path -Parent $PSScriptRoot
 $ruta = Join-Path $raiz 'assistant.ps1'
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($ruta, [ref]$null, [ref]$null)
+$txtFuenteD = [System.IO.File]::ReadAllText($ruta)
 function Traer([string]$n) {
     $fn = $ast.Find({ param($x) $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq $n }, $true)
     if (-not $fn) { throw "no encuentro $n" }
@@ -138,6 +139,173 @@ Comp 'quitar el disco se guarda como quita' ($rQ.tipo -eq 'discoJuegos' -and $rQ
 $script:ejecutado = @()
 Invoke-Reglas 'discoJuegos' 'pone'
 Comp 'y NO salta al conectarlo' ($script:ejecutado.Count -eq 0) ("[" + ($script:ejecutado -join '|') + "]")
+
+Write-Host ""
+Write-Host "-- EL FLANCO QUE HOY MIENTE (23/09, idea 3) --"
+# HOY la unica condicion es "ya no esta bajando", sin mirar si el juego quedo instalado. Por
+# eso cancelar la descarga, cerrar Steam o quitar la microSD se cantan como final.
+# ESTA EN SU REGISTRO: 15/09 11:26:50 "LOCAL: Cierra la calculadora y cierra Steam" y ONCE
+# SEGUNDOS despues, 11:27:01, "DESCARGA terminada: PEAK", con la pausa del microfono detras,
+# o sea dicho en voz alta. PEAK se anuncia DOS veces y hoy no esta instalado; de los 15
+# avisos del registro, CINCO son de juegos que ya no estan en la biblioteca.
+$tmpD = Join-Path $env:TEMP ('desc-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+$null = New-Item -ItemType Directory -Path $tmpD -Force
+$MemoriaDir = $tmpD
+$DescargasEstadoPath = Join-Path $tmpD 'descargas-estado.json'
+$DescargasEstadoHoras = if ($txtFuenteD -match '(?m)^\$DescargasEstadoHoras = (\d+)') { [int]$Matches[1] } else { 12 }
+$script:bajandoAntes = $null
+$script:descargasArranque = $true
+$script:descargasUltimo = ''
+$script:logsD = @()
+function Write-Atomico([string]$r, [string]$t) { [System.IO.File]::WriteAllText($r, $t, (New-Object System.Text.UTF8Encoding($false))) }
+Invoke-Expression (Traer 'Get-DescargasEstado')
+Invoke-Expression (Traer 'Save-DescargasEstado')
+Invoke-Expression (Traer 'Test-DescargasFlanco')
+
+function J([string]$id, [string]$nom, [bool]$baj, [int]$est, [double]$bd, [double]$bt) {
+    return @{ id = $id; nombre = $nom; bajando = $baj; estado = $est; descargado = $bd; total = $bt }
+}
+function ReiniciaD {
+    $script:bajandoAntes = $null
+    $script:descargasArranque = $true
+    $script:descargasUltimo = ''
+    try { Remove-Item -LiteralPath $DescargasEstadoPath -Force -ErrorAction SilentlyContinue } catch {}
+}
+
+# 1. bajando -> instalado del todo: ese SI termino
+ReiniciaD
+$null = Test-DescargasFlanco @(J '1' 'PEAK' $true 1026 500 1000)
+$fin1 = @(Test-DescargasFlanco @(J '1' 'PEAK' $false 4 1000 1000))
+Comp 'un juego que termina de verdad se anuncia' ($fin1.Count -eq 1 -and $fin1[0] -eq 'PEAK') ("[" + ($fin1 -join '|') + "]")
+$fin1b = @(Test-DescargasFlanco @(J '1' 'PEAK' $false 4 1000 1000))
+Comp 'y no se repite en la vuelta siguiente' ($fin1b.Count -eq 0) ("[" + ($fin1b -join '|') + "]")
+
+# 2. LA ROTURA DE VERDAD: PEAK desaparece de la biblioteca
+ReiniciaD
+$null = Test-DescargasFlanco @(J '1' 'PEAK' $true 1026 500 1000)
+$fin2 = @(Test-DescargasFlanco @((J '9' 'ELDEN RING' $false 4 10 10)))
+Comp 'cancelar la descarga NO es terminarla' ($fin2.Count -eq 0) $(if ($fin2.Count) { "anuncio una descarga que no termino: " + ($fin2 -join '|') } else { 'el caso del 15/09 11:27' })
+
+# 3. sigue en la lista pero dejo de bajar sin instalarse (Steam cerrado)
+ReiniciaD
+$null = Test-DescargasFlanco @(J '1' 'PEAK' $true 1026 500 1000)
+$fin3 = @(Test-DescargasFlanco @(J '1' 'PEAK' $false 1026 500 1000))
+Comp 'cerrar Steam a mitad tampoco' ($fin3.Count -eq 0) ("[" + ($fin3 -join '|') + "]")
+
+# 3b. los bytes completos NO bastan si Steam no lo dejo instalado
+ReiniciaD
+$null = Test-DescargasFlanco @(J '1' 'PEAK' $true 1026 500 1000)
+$fin3b = @(Test-DescargasFlanco @(J '1' 'PEAK' $false 1026 1000 1000))
+Comp 'con los bytes enteros pero sin instalar, tampoco' ($fin3b.Count -eq 0) ("[" + ($fin3b -join '|') + "]")
+
+# 4. instalado, pero le faltaban bytes
+ReiniciaD
+$null = Test-DescargasFlanco @(J '1' 'PEAK' $true 1026 500 1000)
+$fin4 = @(Test-DescargasFlanco @(J '1' 'PEAK' $false 4 900 1000))
+Comp 'ni un manifiesto al que le faltan bytes' ($fin4.Count -eq 0) ("[" + ($fin4 -join '|') + "]")
+
+# 5. una lectura VACIA no borra lo que se sabia
+ReiniciaD
+$null = Test-DescargasFlanco @(J '1' 'PEAK' $true 1026 500 1000)
+$fin5 = @(Test-DescargasFlanco @())
+Comp 'la biblioteca ilegible no anuncia nada' ($fin5.Count -eq 0) ("[" + ($fin5 -join '|') + "]")
+Comp 'y no se lleva por delante lo apuntado' ($script:bajandoAntes -and $script:bajandoAntes.Count -eq 1) "$(if ($script:bajandoAntes) { $script:bajandoAntes.Count } else { 'null' })"
+$fin5b = @(Test-DescargasFlanco @(J '1' 'PEAK' $false 4 1000 1000))
+Comp 'asi que la vuelta siguiente si lo ve' ($fin5b.Count -eq 1) ("[" + ($fin5b -join '|') + "]")
+
+# 6. al arrancar, sin nada apuntado, no se inventa un final
+ReiniciaD
+$fin6 = @(Test-DescargasFlanco @(J '1' 'PEAK' $false 4 1000 1000))
+Comp 'el primer vistazo no anuncia nada' ($fin6.Count -eq 0) ("[" + ($fin6 -join '|') + "]")
+
+# 7. EL AGUJERO B: termino mientras Nova estaba apagada
+ReiniciaD
+Write-Atomico $DescargasEstadoPath (ConvertTo-Json -InputObject @{ cuando = (Get-Date).AddMinutes(-30).ToString('s'); bajando = @{ '1' = 'PEAK' } } -Depth 3)
+$fin7 = @(Test-DescargasFlanco @(J '1' 'PEAK' $false 4 1000 1000))
+Comp 'lo que acabo con Nova apagada, se dice' ($fin7.Count -eq 1 -and $fin7[0] -eq 'PEAK') ("[" + ($fin7 -join '|') + "]")
+
+# 8. pero no lo de anteayer
+ReiniciaD
+Write-Atomico $DescargasEstadoPath (ConvertTo-Json -InputObject @{ cuando = (Get-Date).AddHours(-20).ToString('s'); bajando = @{ '1' = 'PEAK' } } -Depth 3)
+$fin8 = @(Test-DescargasFlanco @(J '1' 'PEAK' $false 4 1000 1000))
+Comp 'una noticia de hace 20 horas ya no es noticia' ($fin8.Count -eq 0) ("tope $DescargasEstadoHoras h")
+
+# 9. y con el apagado, tampoco se inventa el que ya no esta
+ReiniciaD
+Write-Atomico $DescargasEstadoPath (ConvertTo-Json -InputObject @{ cuando = (Get-Date).AddMinutes(-30).ToString('s'); bajando = @{ '1' = 'PEAK' } } -Depth 3)
+$fin9 = @(Test-DescargasFlanco @(J '9' 'ELDEN RING' $false 4 10 10))
+Comp 'ni aunque venga del disco: si no esta, no termino' ($fin9.Count -eq 0) ("[" + ($fin9 -join '|') + "]")
+
+# 10. dos bajando y termina uno
+ReiniciaD
+$null = Test-DescargasFlanco @((J '1' 'PEAK' $true 1026 500 1000), (J '2' 'OUTLAST 2' $true 1026 100 1000))
+$fin10 = @(Test-DescargasFlanco @((J '1' 'PEAK' $false 4 1000 1000), (J '2' 'OUTLAST 2' $true 1026 300 1000)))
+Comp 'de dos que bajan, se anuncia el que acabo' ($fin10.Count -eq 1 -and $fin10[0] -eq 'PEAK') ("[" + ($fin10 -join '|') + "]")
+Comp 'y el otro sigue fichado' ($script:bajandoAntes.ContainsKey('2')) "$($script:bajandoAntes.Count)"
+
+# 11. el fichero se escribe solo cuando cambia el conjunto
+ReiniciaD
+$null = Test-DescargasFlanco @(J '1' 'PEAK' $true 1026 500 1000)
+$cuando1 = (Get-Item -LiteralPath $DescargasEstadoPath).LastWriteTime
+$null = Test-DescargasFlanco @(J '1' 'PEAK' $true 1026 700 1000)
+$cuando2 = (Get-Item -LiteralPath $DescargasEstadoPath).LastWriteTime
+Comp 'avanzar bytes no reescribe el fichero' ($cuando1 -eq $cuando2) 'cada dos minutos, para siempre, no'
+
+Write-Host ""
+Write-Host "-- Y EL BUCLE, SACADO DEL ARBOL Y EJECUTADO --"
+# Las reglas de braya ("cuando termine de descargarse X, abrelo") tenian su PROPIO flanco,
+# con el mismo fallo, y encima disparaban ACCIONES: cerrar Steam a mitad de una descarga podia
+# abrir un juego que nadie pidio. Aqui se comprueba que los dos comen del mismo sitio.
+$astD = [System.Management.Automation.Language.Parser]::ParseFile($ruta, [ref]$null, [ref]$null)
+$blqD = ''
+foreach ($x in $astD.FindAll({ param($n) $n -is [System.Management.Automation.Language.ForEachStatementAst] }, $true)) {
+    if ($x.Extent.Text -match 'Test-DescargasFlanco \$jsD') {
+        # SE COGE TAMBIEN LA LINEA DE ENCIMA: ahi se apunta si esta es la primera vuelta del
+        # arranque, que es lo que decide con QUE palabras se dice. Sin ella, el banco probaba
+        # medio bloque y daba por bueno lo que no habia mirado.
+        $antesD = $txtFuenteD.Substring(0, $x.Extent.StartOffset)
+        $iPri = $antesD.LastIndexOf('$primeraD = ')
+        if ($iPri -lt 0) { throw 'no encuentro donde se apunta la primera vuelta' }
+        $blqD = $txtFuenteD.Substring($iPri, $x.Extent.EndOffset - $iPri)
+        break
+    }
+}
+if (-not $blqD) { throw 'no encuentro el bucle de las descargas' }
+$script:avisado = @()
+$script:reglasPedidas = @()
+$script:reglasDisparadas = 0
+function Send-Aviso([string]$t, [string]$tipo = '') { $script:avisado += $t }
+function Invoke-Reglas([string]$tipo, [string]$dato = '') { $script:reglasPedidas += "$tipo|$dato" }
+function Add-DescargaHecha([string]$n) { }
+function CorreBucle($juegos) {
+    $script:avisado = @(); $script:reglasPedidas = @(); $script:reglasDisparadas = 0
+    & { $jsD = @($juegos); Invoke-Expression $blqD }
+}
+
+ReiniciaD
+$null = Test-DescargasFlanco @(J '1' 'PEAK' $true 1026 500 1000)
+CorreBucle @(J '1' 'PEAK' $false 4 1000 1000)
+Comp 'el bucle avisa cuando termina de verdad' ($script:avisado.Count -eq 1) ("[" + ($script:avisado -join '|') + "]")
+Comp 'y las reglas comen del MISMO flanco' ($script:reglasPedidas.Count -eq 1 -and $script:reglasPedidas[0] -eq 'descarga|PEAK') ("[" + ($script:reglasPedidas -join '|') + "]")
+
+ReiniciaD
+$null = Test-DescargasFlanco @(J '1' 'PEAK' $true 1026 500 1000)
+CorreBucle @(J '9' 'ELDEN RING' $false 4 10 10)
+Comp 'y al cancelar no dispara NINGUNA regla' ($script:reglasPedidas.Count -eq 0) $(if ($script:reglasPedidas.Count) { 'abrio un juego que nadie pidio' } else { 'la regla 1, a salvo' })
+Comp 'ni dice nada' ($script:avisado.Count -eq 0) ("[" + ($script:avisado -join '|') + "]")
+
+# LO QUE ACABO CON NOVA APAGADA se dice con OTRAS palabras: "ya acabo" de algo que termino
+# hace seis horas es inventarse un cuando.
+ReiniciaD
+Write-Atomico $DescargasEstadoPath (ConvertTo-Json -InputObject @{ cuando = (Get-Date).AddMinutes(-30).ToString('s'); bajando = @{ '1' = 'PEAK' } } -Depth 3)
+CorreBucle @(J '1' 'PEAK' $false 4 1000 1000)
+Comp 'lo de mientras no estaba se dice distinto' ($script:avisado.Count -eq 1 -and $script:avisado[0] -match 'mientras no estaba') ("[" + ($script:avisado -join '|') + "]")
+ReiniciaD
+$null = Test-DescargasFlanco @(J '1' 'PEAK' $true 1026 500 1000)
+CorreBucle @(J '1' 'PEAK' $false 4 1000 1000)
+Comp 'y lo de ahora mismo, como siempre' ($script:avisado.Count -eq 1 -and $script:avisado[0] -match 'ya acabo') ("[" + ($script:avisado -join '|') + "]")
+
+try { Remove-Item -LiteralPath $tmpD -Recurse -Force -ErrorAction SilentlyContinue } catch {}
 
 Write-Host ""
 if ($fallos) { Write-Host "$fallos casos MAL"; exit 1 }

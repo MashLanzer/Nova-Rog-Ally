@@ -8380,6 +8380,91 @@ function Get-DescargaJuego([string]$nombre) {
 # LIMITE DE JUEGO PROPIO (F6): "avisame cuando lleve 2 horas". Un aviso al
 # llegar y otro mas firme 15 min despues. Vale para la partida de ahora (o la
 # siguiente, si no hay juego) y se quita al cerrar ese juego.
+# LO QUE TERMINO DE DESCARGARSE DE VERDAD (23/09, idea 3).
+# Pura decision: ni red, ni voz, ni bucle. Por eso se puede meter en un banco, que es lo que
+# hoy no se podia porque el flanco vivia suelto dentro del bucle y nadie lo probaba.
+# TRES RAMAS SILENCIOSAS, y las tres dejan linea en el log en vez de soltar una frase falsa:
+#  - el juego ya no esta en la biblioteca  -> descarga cancelada, o la microSD fuera;
+#  - sigue, pero no quedo instalado        -> Steam cerrado a mitad, o una pausa rara;
+#  - instalado, pero le faltaban bytes     -> no habia terminado.
+# El estado 4 no es de memoria: hoy los 13 appmanifest de Steam estan todos en StateFlags 4
+# con BytesDownloaded igual a BytesToDownload, sin una sola excepcion.
+function Test-DescargasFlanco($juegos) {
+    $lista = @($juegos)
+    # UNA LECTURA VACIA NO ES QUE HAYAN TERMINADO TODAS (regla 1). Si la biblioteca no se
+    # puede leer entera, no se inventa nada NI se machaca el estado bueno: sin esto, el
+    # siguiente arranque anunciaria como terminadas todas las descargas vivas de golpe.
+    if ($lista.Count -eq 0) { return @() }
+    $bajan = @{}
+    $estan = @{}
+    foreach ($j in $lista) {
+        $estan[[string]$j.id] = $j
+        if ($j.bajando) { $bajan[[string]$j.id] = [string]$j.nombre }
+    }
+    $antes = $script:bajandoAntes
+    # AL ARRANCAR, LO QUE QUEDO APUNTADO EN EL DISCO (agujero B). 69 huecos de mas de diez
+    # minutos en catorce dias: si la descarga acaba con Nova apagada, hoy no se avisa jamas.
+    if ($null -eq $antes -and $script:descargasArranque) { $antes = Get-DescargasEstado }
+    $fin = @()
+    if ($null -ne $antes) {
+        foreach ($id in @($antes.Keys)) {
+            if ($bajan.ContainsKey($id)) { continue }
+            $nom = [string]$antes[$id]
+            $j = $estan[[string]$id]
+            if ($null -eq $j) { Log "DESCARGA: $nom ya no esta en la biblioteca; no lo cuento como terminado"; continue }
+            if ([int]$j.estado -ne 4) { Log "DESCARGA: $nom dejo de bajar sin instalarse (estado $($j.estado)); no lo cuento"; continue }
+            if ([double]$j.descargado -lt [double]$j.total) { Log "DESCARGA: a $nom le faltaban bytes; no lo cuento"; continue }
+            $fin += $nom
+        }
+    }
+    $script:bajandoAntes = $bajan
+    $script:descargasArranque = $false
+    Save-DescargasEstado $bajan
+    return @($fin)
+}
+
+# LO QUE ESTABA BAJANDO LA ULTIMA VEZ QUE NOVA ESTUVO VIVA.
+# Se llama descargas-ESTADO.json y no descargas.json a proposito: ese otro nombre es para el
+# historico de lo que YA se bajo, que usa el resumen del dia. Dos cosas distintas, dos
+# ficheros, y ninguno pisa al otro.
+# LAS 12 HORAS SALEN DE SUS HUECOS: 69 de mas de diez minutos en catorce dias, mediana 41
+# minutos, diez por encima de seis horas y el mayor de 23 h 27. Con doce horas se recogen las
+# noches y no se rescata una descarga de anteayer, que ya no es noticia.
+$DescargasEstadoPath = Join-Path $MemoriaDir 'descargas-estado.json'
+$DescargasEstadoHoras = 12
+$script:descargasArranque = $true
+$script:descargasUltimo = ''
+function Get-DescargasEstado {
+    try {
+        if (-not (Test-Path -LiteralPath $DescargasEstadoPath)) { return $null }
+        $j = Get-Content -LiteralPath $DescargasEstadoPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if (-not $j -or -not $j.cuando) { return $null }
+        $c = [datetime]::MinValue
+        if (-not [datetime]::TryParse([string]$j.cuando, [ref]$c)) { return $null }
+        if (((Get-Date) - $c).TotalHours -gt $DescargasEstadoHoras) {
+            Log "DESCARGAS: lo apuntado es de hace mas de $DescargasEstadoHoras h; no lo uso"
+            return $null
+        }
+        $h = @{}
+        if ($j.bajando) { foreach ($p in $j.bajando.PSObject.Properties) { $h[[string]$p.Name] = [string]$p.Value } }
+        return $h
+    } catch { return $null }
+}
+
+# SOLO SE ESCRIBE SI EL CONJUNTO CAMBIO. Esto lo llama el bucle cada dos minutos; reescribir
+# el fichero cada vez seria una escritura cada dos minutos para siempre, y nada que ganar.
+function Save-DescargasEstado($bajando) {
+    try {
+        $ids = @(@($bajando.Keys) | Sort-Object)
+        $firma = ($ids -join ',')
+        if ($firma -eq $script:descargasUltimo) { return }
+        $script:descargasUltimo = $firma
+        $o = [ordered]@{}
+        foreach ($k in $ids) { $o[[string]$k] = [string]$bajando[$k] }
+        Write-Atomico $DescargasEstadoPath (ConvertTo-Json -InputObject @{ cuando = (Get-Date).ToString('s'); bajando = $o } -Depth 3)
+    } catch {}
+}
+
 function Test-LimiteJuego {
     $l = $script:limiteJuego
     if (-not $l) { return }
@@ -23630,7 +23715,8 @@ while ($true) {
             # anillo. Se elige la mas avanzada porque es la que va a terminar
             # antes, que es lo que se quiere saber mirando de reojo.
             $frac = 0.0
-            foreach ($j in @(Get-JuegosSteam)) {
+            $jsD = @(Get-JuegosSteam)
+            foreach ($j in $jsD) {
                 if ($j.bajando) {
                     $ahoraBajan[[string]$j.id] = $j.nombre
                     if ([double]$j.total -gt 0) {
@@ -23644,21 +23730,33 @@ while ($true) {
                 $script:uiDescarga = $frac
                 Refresh-UI
             }
-            # La PRIMERA lectura solo toma nota. Sin esta guarda, $null llegaba
-            # al foreach, @($null.Keys) daba una lista con un $null dentro y
-            # ContainsKey($null) reventaba la vuelta entera: la variable no se
-            # llegaba a guardar nunca y el aviso de "ya se descargo" no salto
-            # una sola vez, solo una excepcion en el log cada dos minutos.
-            if ($null -ne $script:bajandoAntes) {
-                foreach ($id in @($script:bajandoAntes.Keys)) {
-                    if (-not $ahoraBajan.ContainsKey($id)) {
-                        $nom = [string]$script:bajandoAntes[$id]
-                        Log "DESCARGA terminada: $nom"
-                        Send-Aviso "$nom ya acabo de descargarse." 'descarga'
-                    }
+            # QUIEN DECIDE ES Test-DescargasFlanco (23/09, idea 3). Aqui la unica condicion
+            # era "ya no esta bajando", sin mirar si el juego quedo instalado, asi que
+            # cancelar la descarga, cerrar Steam o quitar la microSD se cantaban como final.
+            # Esta en su registro: 15/09 11:26:50 "cierra Steam" y ONCE SEGUNDOS despues
+            # "DESCARGA terminada: PEAK", dicho en voz alta. PEAK hoy no esta instalado, y de
+            # los 15 avisos del registro cinco son de juegos que ya no estan.
+            # La primera lectura sigue sin anunciar nada, y ademas mira lo que quedo apuntado
+            # en el disco del arranque anterior (agujero B).
+            #
+            # Y LAS REGLAS COMEN DE AQUI. Antes habia OTRO flanco, en el bloque del minuto,
+            # con el mismo fallo y encima disparando ACCIONES suyas ("cuando termine de
+            # descargarse X, abrelo"): cerrar Steam a mitad de una descarga podia abrir un
+            # juego que nadie pidio. Los dos no pueden llamar a la funcion, porque el primero
+            # que pase se come el flanco y el otro no ve nada: se hace UNA vez, aqui.
+            $primeraD = $script:descargasArranque
+            foreach ($nomD in @(Test-DescargasFlanco $jsD)) {
+                Log "DESCARGA terminada: $nomD"
+                try { Invoke-Reglas 'descarga' $nomD } catch { Log ("regla de descarga: " + $_.Exception.Message) }
+                # UNA SOLA VOZ POR DESCARGA (21/09): si una regla suya ya lo dijo, este se
+                # calla; si no tenia regla, habla.
+                if ($script:reglasDisparadas -eq 0) {
+                    # PALABRAS DISTINTAS A PROPOSITO: decir "ya acabo" de algo que termino
+                    # hace seis horas es inventarse un cuando.
+                    if ($primeraD) { Send-Aviso "$nomD se descargo mientras no estaba." 'descarga' }
+                    else { Send-Aviso "$nomD ya acabo de descargarse." 'descarga' }
                 }
             }
-            $script:bajandoAntes = $ahoraBajan
         } catch { Log ("descargas: " + $_.Exception.Message) }
     }
 
@@ -23965,40 +24063,11 @@ while ($true) {
                         if (-not $script:busy -and -not $script:pendiente -and $script:uiEstado -eq 'reposo') { Set-UI 'hablando' 'Enchufame antes de dormir' 4000 }
                     }
                 } catch { Log ("recordatorio de carga: " + $_.Exception.Message) }
-                # DESCARGAS DE STEAM: por FLANCO. Lo que dispara es que un juego
-                # DEJE de estar bajando, no que este instalado; si no, cada juego
-                # ya instalado dispararia la regla en cada vuelta. La primera
-                # lectura solo toma nota: al arrancar no se sabe que estaba
-                # bajando antes, y anunciar entonces seria inventarse un final.
-                try {
-                    # antes esto solo se miraba si habia una regla 'descarga' creada a mano;
-                    # con los avisos puestos hay que mirarlo igual (idea 24)
-                    if ($EntornoOn -or @(Get-Reglas | Where-Object { $_.tipo -eq 'descarga' }).Count -gt 0) {
-                        $null = Update-Juegos
-                        $ahoraBajan = @{}
-                        foreach ($jj in @($script:Juegos)) { if ($jj.bajando) { $ahoraBajan[$jj.nombre] = $true } }
-                        if ($null -eq $script:bajandoReglas) {
-                            $script:bajandoReglas = $ahoraBajan
-                        } else {
-                            foreach ($nm in @($script:bajandoReglas.Keys)) {
-                                if (-not $ahoraBajan.ContainsKey($nm)) {
-                                    Log "DESCARGA terminada (regla): $nm"
-                                    Invoke-Reglas 'descarga' $nm
-                                    # UNA SOLA VOZ POR DESCARGA (21/09). Aqui se decia SIEMPRE las dos cosas: la
-                                    # regla suya -'cuando termine de descargarse X, avisame'- suelta 'X ha
-                                    # terminado de descargarse', y tres segundos despues este aviso soltaba 'Ya
-                                    # termino de descargarse X'. La misma noticia, dos frases distintas, seguidas.
-                                    # Si una regla suya ya lo dijo, este se calla; si no tenia regla, habla.
-                                    # idea 24: ya se puede jugar
-                                    if ($script:reglasDisparadas -eq 0) {
-                                        [void](Send-AvisoEntorno "descarga-$nm" "Ya termino de descargarse $nm." 'medio' 180)
-                                    }
-                                }
-                            }
-                            $script:bajandoReglas = $ahoraBajan
-                        }
-                    }
-                } catch {}
+                # DESCARGAS DE STEAM: ya no se miran aqui (23/09, idea 3). Habia un SEGUNDO
+                # flanco, por nombre, con el mismo fallo que el hablado: disparaba las reglas
+                # suyas al dejar de bajar, sin mirar si el juego habia quedado instalado.
+                # Ahora los dos comen del mismo Test-DescargasFlanco, que vive en el bloque
+                # de 120 s de arriba, con las lineas de log de las tres ramas silenciosas.
                 # DISCO: se mira aqui mismo, que ya estamos en el chequeo por minuto
                 try {
                     $di = New-Object System.IO.DriveInfo('C')
