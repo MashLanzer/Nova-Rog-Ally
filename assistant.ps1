@@ -2199,6 +2199,14 @@ function Invoke-Olvido([int]$minutos) {
     # olvidar puede estar entero en una copia que este paso no miraba, y justo cuando mas
     # probable es: una conversacion larga es la que hace rotar el log. Si la rotacion cae
     # entre lo que se quiere olvidar y la orden de olvidarlo, no se borraba NADA de ahi.
+    # Y EL DEL LATIDO (24/09, idea 19): el pulso del oido se fue a su propio fichero, y un
+    # fichero que nadie barre es un sitio donde queda rastro de cuando estuviste delante.
+    # No lleva voz, pero si marcas de presencia minuto a minuto, que es justo lo que "olvida
+    # lo de hoy" viene a quitar. Su rotado es .1 y solo uno, no $KeepLogs: lo rota el propio
+    # worker en anota_latido, no Rotate-Log.
+    foreach ($lp in @('assistant-pulso.log', 'assistant-pulso.log.1')) {
+        & $sumar 'el latido del oido' (Remove-LineasDesde (Join-Path $LogDir $lp) $corte)
+    }
     foreach ($lg in @('assistant.log', 'replies.log')) {
         $comoSeLlama = if ($lg -eq 'assistant.log') { 'el log' } else { 'sus respuestas' }
         & $sumar $comoSeLlama (Remove-LineasDesde (Join-Path $LogDir $lg) $corte)

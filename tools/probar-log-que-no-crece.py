@@ -29,7 +29,11 @@
 #    una en los once dias siguientes.
 import io
 import os
+import os
 import re
+import shutil
+import tempfile
+import time
 import sys
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -146,6 +150,78 @@ for aguja, que in (("def umbral_actividad", "la puerta de actividad sigue"),
 comp("la recuperacion de ganancia sigue escribiendose", "vuelvo a la x" in WAKE)
 # El aviso HABLADO del ruido es otro artefacto y no se ha tocado.
 comp("el aviso hablado del ruido no se toca", "Send-AvisoEntorno" in ASIS)
+
+print("")
+print("-- D. y el latido vive en su propio fichero (24/09, idea 19) --")
+# Contadas las 54.028 lineas de assistant.log + su rotado: "pulso:" son 23.527, el 43,6 % de
+# las lineas y el 51,2 % de los BYTES -que es lo que manda, porque la rotacion mide bytes-.
+# Quitando solo el latido, el registro pasa de 378 KB/dia a 207 y el historico de 54 dias a
+# 99. Y no lo lee nadie: los seis sitios que leen assistant.log buscan otras cosas, y los
+# cuatro scripts que juntan log y pulso lo EXCLUYEN con -notmatch.
+comp("el latido escribe en anota_latido", "def anota_latido(" in WAKE)
+comp("y anota_pulso ya no va al registro de verdad",
+     "    anota_latido(texto)" in WAKE and "\n    anota(texto)" not in WAKE)
+m = re.search(r"LOG_PULSO = .{0,90}", WAKE)
+comp("el fichero cuelga del nombre del log", bool(m and "-pulso.log" in m.group(0)),
+     m.group(0).strip() if m else "")
+# EL TOPE, que es el fallo del 14/09 con otra ropa: un fichero nuevo sin rotacion crece
+# hasta llenar el disco. El latido son 167 KB/dia medidos.
+mt = re.search(r"PULSO_MAX_BYTES = ([^\n]+)", WAKE)
+comp("y tiene tope propio", bool(mt), mt.group(1).strip() if mt else "no lo tiene")
+# Y SE EJECUTA, no se lee. Mirando solo el texto, cambiar la condicion del tope por un
+# "if False" dejaba este banco verde con el fichero creciendo sin freno: probado, y por eso
+# esto de aqui abajo saca la funcion DE VERDAD del fichero y le escribe 400 latidos.
+_fn = re.search(r"(?ms)^def anota_latido\(mensaje\):.*?(?=^\S)", WAKE)
+if not _fn:
+    comp("se puede sacar anota_latido del fichero", False)
+else:
+    _tmp = tempfile.mkdtemp(prefix="latido-")
+    _ns = {"os": os, "time": time,
+           "LOG_PULSO": os.path.join(_tmp, "assistant-pulso.log"),
+           "PULSO_MAX_BYTES": 4096}
+    exec(_fn.group(0), _ns)                                        # noqa: S102
+    for _i in range(400):
+        _ns["anota_latido"]("pulso: sin voz sostenida, latido numero %d de relleno" % _i)
+    _vivo = os.path.join(_tmp, "assistant-pulso.log")
+    _viejo = _vivo + ".1"
+    comp("escribe el latido", os.path.exists(_vivo))
+    comp("y al pasar del tope, rota", os.path.exists(_viejo))
+    comp("y el vivo se queda por debajo del tope", os.path.getsize(_vivo) <= 4096 * 2,
+         "%d B" % os.path.getsize(_vivo))
+    # LO QUE DE VERDAD IMPORTA: que el conjunto no crezca sin fin. Con 400 latidos sin tope
+    # esto pasaria de 30 KB; con el tope se queda en dos ficheros.
+    _total = sum(os.path.getsize(os.path.join(_tmp, f)) for f in os.listdir(_tmp))
+    comp("y entre los dos no pasan del doble del tope", _total <= 4096 * 2 + 200,
+         "%d B en %d ficheros" % (_total, len(os.listdir(_tmp))))
+    comp("y no guarda una tercera copia", not os.path.exists(_viejo + ".1"))
+    # SIN LOG NO INVENTA UN FICHERO en el directorio de trabajo.
+    _ns2 = dict(_ns)
+    _ns2["LOG_PULSO"] = ""
+    exec(_fn.group(0), _ns2)                                       # noqa: S102
+    _antes = set(os.listdir(_tmp))
+    _ns2["anota_latido"]("pulso: esto no deberia escribirse en ningun sitio")
+    comp("sin log, no escribe nada", set(os.listdir(_tmp)) == _antes)
+    shutil.rmtree(_tmp, ignore_errors=True)
+
+# EL p90 SE QUEDA DONDE SE LEE. Esto ya lo protege la seccion A por el lado de quien llama;
+# aqui se mira el otro lado: que anota() -la de siempre- siga escribiendo en LOG y no en el
+# fichero del latido, o el p90 se iria con el pulso sin que nadie lo note.
+manota = re.search(r"def anota\(mensaje\):.{0,320}", WAKE, re.S)
+comp("anota() sigue escribiendo en el registro de verdad",
+     bool(manota) and "open(LOG," in manota.group(0) and "LOG_PULSO" not in manota.group(0))
+
+# Y EL OLVIDO TIENE QUE BARRERLO. No lleva voz, pero si marcas de presencia minuto a minuto,
+# que es justo lo que "olvida lo de hoy" viene a quitar. Un fichero nuevo que el olvido no
+# mira es un sitio donde queda rastro.
+# QUE EL NOMBRE APAREZCA NO ES QUE SE BORRE: probado, dejar el foreach y vaciarle el cuerpo
+# mantenia este banco verde. Asi que se mira el bucle ENTERO, con su llamada dentro.
+_mo = re.search(r"foreach \(\$lp in @\('assistant-pulso\.log'[^)]*\)\) \{(.{0,220}?)\n    \}",
+                ASIS, re.S)
+comp("el olvido recorre el latido y su rotado",
+     bool(_mo) and "assistant-pulso.log.1" in ASIS)
+comp("y de verdad borra dentro del bucle",
+     bool(_mo) and "Remove-LineasDesde" in _mo.group(1) and "$lp" in _mo.group(1),
+     (_mo.group(1).strip()[:58] + "...") if _mo else "no encuentro el bucle")
 
 print("")
 if fallos:

@@ -525,6 +525,45 @@ _pulso_ultimo = ""
 _pulso_ultimo_en = 0.0
 
 
+# EL LATIDO, A SU PROPIO FICHERO (24/09, idea 19). Contadas las 54.028 lineas de
+# assistant.log + su rotado: la familia "pulso:" son 23.527 lineas, el 43,6 % de las lineas
+# y el 51,2 % de los BYTES, que es lo que manda porque la rotacion mide bytes. Quitando solo
+# el latido -sin voz, ruido de fondo y ganancia congelada: 2.472 KB, el 45,2 %- el registro
+# pasa de 378 KB/dia a 207 y el historico de 54 dias a 99: x1,83.
+#
+# Y NO LO LEE NADIE, comprobado uno a uno: los seis sitios que leen assistant.log buscan
+# "LOCAL descarta", "charla dice", "voz: Piper", "INTERRUMPIDA", "corte descartado" y "abrir
+# X en Steam"; los cuatro que juntan log y pulso son scripts de mano y los cuatro lo
+# EXCLUYEN con -notmatch 'pulso:'. Nova tampoco se relee: su sustituto lee escucha-estado.txt.
+#
+# EL p90 NO SE MUEVE, y no es un descuido: lleva escrito desde antes que "esta SI se escribe
+# siempre: es el ajuste de ganancia de verdad, el dato con el que se decide si la escucha
+# esta bien calibrada". No es un latido, es un cambio real, y tiene banco propio
+# (probar-log-que-no-crece.py). Son 2.835 lineas, 303 KB: se quedan donde se leen.
+#
+# Y CON SU PROPIO TOPE, que es el fallo del 14/09 con otra ropa: un fichero nuevo sin
+# rotacion crece hasta llenar el disco. El latido son 167 KB/dia medidos, asi que 2 MB por
+# fichero y una copia dan unos 24 dias, de sobra para diagnosticar el oido de hoy.
+LOG_PULSO = (os.path.splitext(LOG)[0] + "-pulso.log") if LOG else ""
+PULSO_MAX_BYTES = 2 * 1024 * 1024
+
+
+def anota_latido(mensaje):
+    """El latido va aparte del registro de verdad, y rota solo."""
+    if not LOG_PULSO:
+        return
+    try:
+        if os.path.exists(LOG_PULSO) and os.path.getsize(LOG_PULSO) > PULSO_MAX_BYTES:
+            viejo = LOG_PULSO + ".1"
+            if os.path.exists(viejo):
+                os.remove(viejo)
+            os.rename(LOG_PULSO, viejo)
+        with open(LOG_PULSO, "a", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S") + "  [escucha] " + mensaje + chr(10))
+    except Exception:   # noqa: BLE001
+        pass
+
+
 def anota_pulso(texto, ahora):
     """El pulso, sin repetirse: igual que el anterior y hace menos de un minuto, se calla."""
     global _pulso_ultimo, _pulso_ultimo_en
@@ -535,7 +574,7 @@ def anota_pulso(texto, ahora):
         return
     _pulso_ultimo = clave
     _pulso_ultimo_en = ahora
-    anota(texto)
+    anota_latido(texto)
 # DE config.json Y NO DE sys.argv, A PROPOSITO (22/09). Es la misma decision que ya se
 # tomo para escucha.ambiente y por el mismo motivo, que esta contado ahi abajo: los dos
 # ultimos ajustes que se pasaron por argv -rafagaMinima y juezNombre- nacieron con el
