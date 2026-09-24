@@ -451,6 +451,19 @@ Titulo "2n105. A que podemos jugar los dos"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-juegos-dos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:de donde lo ha sacado)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n119. Lo que le corriges una vez, ya no se le olvida"
+# Idea 18. Cuando braya contesta "no" a "ELDEN RING?", hoy Nova solo dice "vale, lo dejo" y
+# NO APRENDE NADA: el mismo titulo mal oido vuelve a fallar manana. Y Add-Traduccion guarda
+# la FRASE entera, asi que aprender "abre gus gus dup" no sirve para "cierra gus gus dup".
+# Lo que se ata es el SONIDO al JUEGO. El oido va al 70,4 % y lo peor son los titulos en
+# ingles: Find-JuegoPorSonido rescata 12 de 34 mal oidos, y quedan 22 que hoy no se
+# recuperan nunca. Lo que mas se vigila: que la clave se guarde SIN ARTICULO -con el, "el
+# warning" se vuelve elguarning, que se parece MAS a eldenring, y lo aprendido abriria ELDEN
+# RING teniendo Content Warning instalado, ya sin preguntar-; y que CERRAR siga preguntando
+# siempre, porque ahi se mata un proceso con la partida abierta.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-juegos-oidos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:lo que le corriges una vez)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n118. El resumen del dia cuenta el dia entero"
 # Idea 19. Existia medio, y la mitad que existia estaba bien: el patron y el ejecutor ya
 # estaban, y NO se dispara solo. Le faltaban cuatro cosas, las cuatro medidas: CUANTO jugo

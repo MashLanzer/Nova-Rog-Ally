@@ -41,8 +41,12 @@ Comp 'y los TRES marcan la orden como dudosa' ($conDudosa -eq $usos.Count) "$con
 
 Write-Host ''
 Write-Host '-- el de cerrar, que es el que mata un proceso --'
+# LA VENTANA, OTRA VEZ (24/09, y van tres). Estaba en 900 y se puso roja al meter tres
+# lineas de comentario entre la llamada y la marca, sin que el codigo cambiara de sentido.
+# Contar caracteres entre dos lineas es fragil por definicion; lo que importa es que la marca
+# ESTE antes del return, asi que la ventana se deja holgada y el orden se sigue exigiendo.
 Comp 'cerrar por sonido marca dudosa antes de devolver' `
-    ($fuente -match "(?s)\`$jC = Find-JuegoPorSonido.{0,900}\`$script:dudosa = \[string\]\`$jC\.nombre.{0,200}kind = 'cerrarJuego'")
+    ($fuente -match "(?s)\`$jC = Find-JuegoPorSonido.{0,2000}\`$script:dudosa = \[string\]\`$jC\.nombre.{0,300}kind = 'cerrarJuego'")
 # y la guarda que lo convierte en pregunta tiene que seguir existiendo
 Comp 'la guarda de la orden dudosa sigue en pie' ($fuente -match '\$ConfirmacionOn -and \$script:dudosa')
 

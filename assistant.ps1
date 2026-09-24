@@ -926,6 +926,22 @@ function Find-JuegoPorSonido([string]$resto, [string]$frase, [double]$umbral = 0
     }
     $variantes = @($variantes | Where-Object { $_.Length -ge 3 } | Select-Object -Unique)
     if ($variantes.Count -eq 0) { return $null }
+    # LO QUE BRAYA YA CORRIGIO GANA, sin umbral ni margen (23/09, idea 18). No es una
+    # suposicion de Nova: es una correccion explicita suya, con el juego NOMBRADO o elegido
+    # con el mando. Va delante de las dos pasadas a proposito.
+    $script:sonidoAprendido = $false
+    try {
+        $tabO = Get-JuegosOidos
+        foreach ($vO in $variantes) {
+            if (-not $tabO.ContainsKey($vO)) { continue }
+            $nomO = [string]$tabO[$vO]
+            $jO = @($script:Juegos | Where-Object { [string]$_.nombre -eq $nomO })
+            # si ya no lo tiene instalado, lo aprendido no vale
+            if ($jO.Count -eq 0) { continue }
+            $script:sonidoAprendido = $true
+            return $jO[0]
+        }
+    } catch {}
     # DOS PASADAS, Y EL APODO ES UN RESCATE, NO UN COMPETIDOR (21/09). Mezclar el titulo
     # entero con sus palabras sueltas en la misma comparacion le daba a cada juego un
     # camino mas para acercarse, y eso ESTRECHA los margenes: "cierra en la ring" pasaba
@@ -974,6 +990,69 @@ function Find-JuegoPorSonido([string]$resto, [string]$frase, [double]$umbral = 0
     # sin un claro ganador (Outlast / Outlast 2) no se adivina
     if ($mejor -and $mejorP -ge $umbral -and ($mejorP - $segundaP) -ge 0.08) { return $mejor }
     return $null
+}
+
+# LO QUE BRAYA YA CORRIGIO UNA VEZ (23/09, idea 18). Clave = la clave de sonido de lo que se
+# OYO, sin articulo; valor = el nombre exacto de la biblioteca.
+# SIN EL ARTICULO, Y ESTO NO ES UN DETALLE: Get-ClaveSonido pega las palabras, asi que "el
+# warning" se vuelve 'elguarning' y eso se parece MAS a 'eldenring' que a 'kontentguarning'.
+# Guardar la clave con articulo resucitaria el fallo medido del 21/09, pero ya sin preguntar:
+# lo aprendido abriria ELDEN RING teniendo Content Warning instalado. Es el peor fallo
+# posible aqui, una orden equivocada aprendida para siempre.
+# LA RUTA SE CALCULA AL USARLA: aqui arriba $MemoriaDir todavia no existe, y una ruta
+# vacia no da error, solo escribe donde no toca. Es el mismo arreglo que hubo que hacer
+# con la lista de juegos de dos.
+function Get-JuegosOidosPath { return (Join-Path $MemoriaDir 'juegos-oidos.json') }
+$script:juegosOidos = $null
+$script:sonidoAprendido = $false
+function Get-JuegosOidos {
+    if ($null -ne $script:juegosOidos) { return $script:juegosOidos }
+    $script:juegosOidos = @{}
+    try {
+        if (Test-Path -LiteralPath (Get-JuegosOidosPath)) {
+            $j = Get-Content -LiteralPath (Get-JuegosOidosPath) -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($p in $j.PSObject.Properties) { $script:juegosOidos[[string]$p.Name] = [string]$p.Value }
+        }
+    } catch { Save-Corrupto (Get-JuegosOidosPath) 'juegos-oidos' }
+    return $script:juegosOidos
+}
+
+function Save-JuegoOido([string]$oido, [string]$juego) {
+    if ($script:invitado) { return $false }   # lo que diga otro no se queda
+    $sinArtO = ([string]$oido -replace '^(?:el|la|los|las|un|una|lo)\s+', '').Trim()
+    if (-not $sinArtO) { $sinArtO = [string]$oido }
+    $k = Get-ClaveSonido $sinArtO $false
+    # UNA CLAVE CORTA CASA CON TODO: con dos letras, lo aprendido arrastraria cualquier orden
+    if (-not $k -or $k.Length -lt 3) { return $false }
+    # y no se aprende un juego que no tiene
+    if (@($script:Juegos | Where-Object { [string]$_.nombre -eq $juego }).Count -eq 0) { return $false }
+    $t = Get-JuegosOidos
+    $t[$k] = [string]$juego
+    try {
+        $o = [ordered]@{}
+        foreach ($kk in ($t.Keys | Sort-Object)) { $o[$kk] = [string]$t[$kk] }
+        Write-Atomico (Get-JuegosOidosPath) (ConvertTo-Json -InputObject $o -Depth 3)
+    } catch { return $false }
+    Log "JUEGO OIDO: '$oido' -> $juego"
+    return $true
+}
+
+# SIN FORMA DE DESHACERLO NO SE APRENDE NADA (regla 2).
+function Remove-JuegoOido([string]$oido) {
+    $sinArtO = ([string]$oido -replace '^(?:el|la|los|las|un|una|lo)\s+', '').Trim()
+    if (-not $sinArtO) { $sinArtO = [string]$oido }
+    $k = Get-ClaveSonido $sinArtO $false
+    $t = Get-JuegosOidos
+    if (-not $t.ContainsKey($k)) { return $false }
+    $quitado = [string]$t[$k]
+    $t.Remove($k)
+    try {
+        $o = [ordered]@{}
+        foreach ($kk in ($t.Keys | Sort-Object)) { $o[$kk] = [string]$t[$kk] }
+        Write-Atomico (Get-JuegosOidosPath) (ConvertTo-Json -InputObject $o -Depth 3)
+    } catch { return $false }
+    Log "JUEGO OIDO olvidado: '$oido' era $quitado"
+    return $true
 }
 
 # Lee la biblioteca de Steam del disco (appmanifest_*.acf). Es la unica forma
@@ -4268,6 +4347,32 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(?:olvida|borra|elimina)\s+(?:esa receta|la ultima receta|la receta|lo ultimo que aprendiste|lo que acab(?:as|o) de aprender)$') {
         return @(@{ kind = 'olvidarReceta'; desc = 'olvidar la receta' })
     }
+    # --- QUE APRENDA A DECIR SUS JUEGOS (23/09, idea 18) ---
+    # Cuando braya contesta "no" a "¿ELDEN RING?", hoy Nova solo dice "vale, lo dejo" y NO
+    # APRENDE NADA: el mismo titulo mal oido vuelve a fallar manana. Y Add-Traduccion guarda
+    # la FRASE entera, asi que aprender "abre gus gus dup" no sirve para "cierra gus gus dup".
+    # Lo que se ata aqui es el SONIDO al JUEGO.
+    # VA DELANTE de "no era eso" porque comparten el arranque "no,", y la ventana de sonido
+    # tiene que mandar mientras este abierta.
+    # LAS TRES CONDICIONES VAN EN LA MISMA LINEA a proposito: sin una notificacion de sonido
+    # reciente, sin los 60 s y sin que el nombre sea un juego de verdad, esto devuelve $null y
+    # la frase sigue su camino. "Es lo mismo" o "era broma" en mitad de una charla no pueden
+    # acabar aqui.
+    if ($f -match '^(?:no[,. ]+)?(?:se llama|se dice|era|es|se llamaba|queria decir|quise decir|me referia a)\s+(?:el\s+|la\s+)?(.{3,40})$' -and
+        $script:ultimoSonidoDudoso -and ($sw.ElapsedMilliseconds - [long]$script:ultimoSonidoDudoso.en) -lt 60000) {
+        $nomJA = $Matches[1].Trim()
+        # POR ESCRITO, NUNCA POR SONIDO: aprender de un sonido con otro sonido es aprender de
+        # una suposicion.
+        $jA = Find-Juego $nomJA
+        if ($jA) { return @(@{ kind = 'juegoSeLlama'; nombre = [string]$jA.nombre; desc = "apuntar que asi se llama $($jA.nombre)" }) }
+    }
+    # Y SIN FORMA DE DESHACERLO NO SE APRENDE NADA (regla 2).
+    if ($f -match '^(?:olvida|olvidate de|borra|quita)\s+que\s+(.{3,40})\s+(?:es|era|sea)\s+(?:el\s+|la\s+)?(.{3,40})$') {
+        return @(@{ kind = 'juegoOlvidaSonido'; oido = $Matches[1].Trim(); desc = 'olvidar como suena ese juego' })
+    }
+    if ($f -match '^(?:olvida|borra)\s+(?:lo que aprendiste de|el nombre de|como suena)\s+(.{3,40})$') {
+        return @(@{ kind = 'juegoOlvidaSonido'; oido = $Matches[1].Trim(); desc = 'olvidar como suena ese juego' })
+    }
     # --- "no era eso": deshacer Y no repetir el error ---
     # "eso estuvo mal" y sus formas entran AQUI (17/09), no en una orden nueva: es la
     # misma queja de siempre, y asi ademas queda apuntada como fallo en el registro de
@@ -5011,6 +5116,10 @@ function Resolve-Fragment([string]$f) {
         # ejecutaban de golpe, con la partida abierta. El propio comentario de
         # Find-JuegoPorSonido dice 'SIEMPRE pregunta antes', y aqui no lo hacia.
         if ($jC) {
+            # CERRAR PREGUNTA SIEMPRE, PASE LO QUE PASE (23/09, idea 18): aqui se MATA un
+            # proceso con la partida abierta, asi que ni siquiera lo ya corregido se ejecuta
+            # solo. Los otros dos sitios si se fian de lo aprendido; este no.
+            $script:ultimoSonidoDudoso = @{ oido = $obj; juego = [string]$jC.nombre; en = $sw.ElapsedMilliseconds }
             $script:dudosa = [string]$jC.nombre
             return @(@{ kind = 'cerrarJuego'; juego = $jC.nombre; desc = "cerrar $($jC.nombre)" })
         }
@@ -5734,7 +5843,12 @@ function Resolve-Fragment([string]$f) {
         $jSonido = Find-JuegoPorSonido $objAbrir $f
         if ($jSonido) {
             $rtAbrir = Resolve-Target ([string]$jSonido.nombre)
-            if ($rtAbrir) { $script:dudosa = [string]$jSonido.nombre; return $rtAbrir }
+            if ($rtAbrir) {
+                $script:ultimoSonidoDudoso = @{ oido = $objAbrir; juego = [string]$jSonido.nombre; en = $sw.ElapsedMilliseconds }
+                # si es algo que braya YA corrigio, no se vuelve a preguntar: lo dijo el
+                if (-not $script:sonidoAprendido) { $script:dudosa = [string]$jSonido.nombre }
+                return $rtAbrir
+            }
         }
         return $null
     }
@@ -5815,7 +5929,10 @@ function Resolve-Fragment([string]$f) {
         $jSv = Find-JuegoPorSonido $f $f 0.85
         if ($jSv) {
             $sv = Resolve-Target ([string]$jSv.nombre)
-            if ($sv) { $script:dudosa = [string]$jSv.nombre }
+            if ($sv) {
+                $script:ultimoSonidoDudoso = @{ oido = $f; juego = [string]$jSv.nombre; en = $sw.ElapsedMilliseconds }
+                if (-not $script:sonidoAprendido) { $script:dudosa = [string]$jSv.nombre }
+            }
         }
     }
     if ($sv) { foreach ($x in $sv) { $x.sinVerbo = $true } }
@@ -12200,6 +12317,19 @@ function Invoke-FastCommand([string]$text) {
                     } else {
                         $a.desc = 'no tengo ninguna receta que olvidar'
                     }
+                }
+                'juegoSeLlama' {
+                    $dSL = $script:ultimoSonidoDudoso
+                    if (-not $dSL) { $a.desc = 'ya no me acuerdo de que estabamos hablando'; break }
+                    if (Save-JuegoOido ([string]$dSL.oido) ([string]$a.nombre)) {
+                        $script:ultimoSonidoDudoso = $null
+                        $script:dudosa = $null
+                        $a.desc = "apuntado: cuando digas $($dSL.oido) me refiero a $($a.nombre)"
+                    } else { $a.desc = "no he podido apuntarlo" }
+                }
+                'juegoOlvidaSonido' {
+                    if (Remove-JuegoOido ([string]$a.oido)) { $a.desc = "olvidado: $($a.oido) vuelve a ser lo que suene" }
+                    else { $a.desc = "no tenia nada aprendido de $($a.oido)" }
                 }
                 'noEraEso' {
                     # 1) deshacer lo que se hiciera
@@ -20147,6 +20277,10 @@ $script:confirmado = $false
 # 'confirmado' = el usuario dijo que si. 'sinDudosa' = no preguntes por
 # parecido, pero lo demas sigue en pie. Confundirlos abria la puerta de atras.
 $script:sinDudosa = $false
+# LO QUE SE OYO Y A QUE JUEGO SE PARECIO (23/09, idea 18). Hoy esto SE PIERDE: los tres
+# sitios que resuelven un juego por sonido guardan el nombre que adivinaron y tiran lo
+# que oyeron, que es justo el dato que hace falta para aprender. @{ oido; juego; en }
+$script:ultimoSonidoDudoso = $null
 $script:dudosa = $null
 
 # Pide al worker que escuche un si/no. La pregunta ya se dijo (Say), y el
