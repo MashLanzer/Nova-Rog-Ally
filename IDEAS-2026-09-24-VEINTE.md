@@ -12,16 +12,17 @@ Van ordenadas por lo que más te cuesta hoy, no por lo que sea más bonito de ha
 
 ### 1. Que decir "nova" sirva de algo
 
-De las **815 veces** que dijiste su nombre, solo pasaron **392 (48 %)**:
+De las **917 veces** que dijiste su nombre, solo pasaron **392 (43 %)**:
 
 - **83** se tiraron por sonar flojo — `descartado 'nova': suena demasiado flojo para ser una
   llamada`, **29 en un solo día** (21/09), y **13 anoche entre las 00:14 y la 01:23**.
-- **340** se ignoraron por estar jugando — `'nova' ignorado: estas jugando, aqui solo vale el
-  botón`, **24 de ellas hoy mismo**.
+- **442** se ignoraron por estar jugando — `'nova' ignorado: estas jugando, aqui solo vale el
+  botón`, **166 en un solo día** (15/09) y 43 anteayer. Y no son solo "nova" a secas: ahí
+  están *"oye nova"*, *"ey nova"*, *"nova por favor"*, *"nova escucha"*, *"nova nova nova"*.
 
 Y el umbral no es fijo: se mueve solo entre **0,017 y 0,030** según el ruido, y **21 de esos
-83 descartes estaban a menos de un 20 % del umbral del momento**. O sea que la mitad de las
-veces que la llamas por su nombre, no te oye — y una parte es por un pelo.
+83 descartes estaban a menos de un 20 % del umbral del momento**. O sea que casi seis de cada
+diez veces que la llamas por su nombre no pasa nada — y una parte es por un pelo.
 
 *Lo delicado:* subir el umbral a lo bruto hace que la tele la despierte. Lo que hay que mirar
 es si el rechazo por volumen puede pedir una segunda opinión en vez de tirar la frase, y qué
@@ -120,15 +121,18 @@ el oído local ya hubiera resuelto.
 **45 de 145 pasadas** devuelven **exactamente el mismo texto** (31 %) y **7 se inventan algo**
 (`fino-invento`). Merece la pena medir cuándo aporta y saltárselo cuando no.
 
-### 12. 1.082 trozos de audio tirados por llegar tarde
+### 12. 1.116 trozos de audio tirados por llegar tarde
 
-`descartados N s de audio atrasado`: **604** en la transcripción y **478** en el oído fino.
-**374 en un solo día** (15/09). Es audio que ya se había grabado y se tira sin mirarlo.
+`descartados N s de audio atrasado`: **1.116 en total** —604 en la transcripción y 478 en el
+oído fino—, con **374 en un solo día** (15/09) y 208 el 20/09. Es audio que ya se había
+grabado y se tira sin mirarlo.
 
-### 13. Once horas y media analizando nada
+### 13. Treinta y cuatro horas seguidas analizando nada
 
-**690 pulsos seguidos** de `esto no es voz, es ruido de fondo`, uno por minuto. De madrugada
-eso es un núcleo trabajando para nada, y el núcleo hace falta cuando juegas.
+La racha más larga son **2.074 pulsos seguidos** de `esto no es voz, es ruido de fondo`, uno
+por minuto: **34 horas y media** sin una sola voz, terminando el 23/09 a las 10:30. Y hay
+**1.864 momentos** con más de 600 pulsos seguidos. De madrugada eso es un núcleo trabajando
+para nada, y el núcleo hace falta cuando juegas.
 
 ### 14. El turbo que casi nunca acierta
 
