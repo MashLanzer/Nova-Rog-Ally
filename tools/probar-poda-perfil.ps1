@@ -40,6 +40,11 @@ $raiz = Split-Path -Parent $PSScriptRoot
 $fuente = [System.IO.File]::ReadAllText((Join-Path $raiz 'assistant.ps1'))
 
 $fallos = 0
+# Add-PerfilCaido escribe con Write-Atomico, que vive en assistant.ps1 y no se trae: aqui basta
+# con un WriteAllText, que es lo que hace por dentro.
+function Write-Atomico([string]$ruta, [string]$texto, [bool]$bom = $false) {
+    [System.IO.File]::WriteAllText($ruta, $texto, (New-Object System.Text.UTF8Encoding($false)))
+}
 function Comp($etiqueta, $ok, $detalle = '') {
     Write-Host ("  {0}  {1,-50} {2}" -f $(if ($ok) { 'OK ' } else { 'MAL' }), $etiqueta, $detalle)
     if (-not $ok) { $script:fallos++ }
@@ -47,7 +52,8 @@ function Comp($etiqueta, $ok, $detalle = '') {
 
 # Test-DatoTrato la trajo la idea 7 el 23/09 y este banco no se entero: moria a mitad, y
 # encima salia con codigo 0. Lo vio la trampa nueva, no una persona.
-foreach ($fn in @('ConvertTo-Plain', 'ConvertTo-Suave', 'Get-DatosPerfil', 'Save-DatosPerfil', 'Test-DatoTrato', 'Add-DatoPerfil')) {
+foreach ($fn in @('ConvertTo-Plain', 'ConvertTo-Suave', 'Get-DatosPerfil', 'Save-DatosPerfil', 'Test-DatoTrato', 'Test-DatoPasajero',
+                     'ConvertTo-Suave', 'Add-PerfilCaido', 'Get-PerfilCaidos', 'Add-DatoPerfil')) {
     $m = [regex]::Match($fuente, ('(?ms)^function {0}[ (\[].*?^\}}' -f [regex]::Escape($fn)))
     if (-not $m.Success) { Write-Host ('  MAL  no encuentro {0} en assistant.ps1' -f $fn); exit 1 }
     . ([scriptblock]::Create($m.Value))
@@ -56,6 +62,14 @@ $mRE = [regex]::Match($fuente, '(?m)^\$RE_DATO_SENSIBLE = .*$')
 if (-not $mRE.Success) { Write-Host '  MAL  no encuentro RE_DATO_SENSIBLE'; exit 1 }
 . ([scriptblock]::Create($mRE.Value))
 # el tope tambien sale del fichero: si algun dia son 80, esto se entera
+# LOS DOS REGEX DEL FILTRO, DEL ARBOL: escritos a mano aqui, este banco probaria mi copia y
+# no lo que corre. Ocupan varias lineas con +, asi que se sacan como asignacion, no por regex.
+$astPP = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $raiz 'assistant.ps1'), [ref]$null, [ref]$null)
+$topPP = $astPP.FindAll({ param($x) $x -is [System.Management.Automation.Language.AssignmentStatementAst] }, $false)
+foreach ($aPP in $topPP) {
+    if ($aPP.Left.VariablePath.UserPath -in @('RE_DATO_ESTADO', 'RE_DATO_RASGO', 'RE_DATO_SENSIBLE')) { Invoke-Expression $aPP.Extent.Text }
+}
+if (-not $RE_DATO_ESTADO) { Write-Host '  MAL  no encuentro $RE_DATO_ESTADO en el codigo'; exit 1 }
 $mMax = [regex]::Match($fuente, '(?m)^\$PerfilMax = (\d+)')
 $PerfilMax = if ($mMax.Success) { [int]$mMax.Groups[1].Value } else { -1 }
 Comp 'el tope sale de assistant.ps1' ($PerfilMax -ge 10) "caben $PerfilMax"
@@ -179,6 +193,105 @@ Comp 'el formato del archivo no cambia' ($crudo -match '(?m)^- este si es un dat
 Comp 'y conserva su cabecera' ($crudo -match 'Lo que Nova sabe de braya')
 
 Remove-Item -LiteralPath $PerfilPath -Force -ErrorAction SilentlyContinue
+
+Write-Host ''
+Write-Host '-- LO QUE DURA UN RATO NO ES UN DATO (24/09, idea 12) --'
+# De los 60 datos que tenia el perfil el 24/09, VEINTITRES no son rasgos de braya: son estados
+# que duraron un rato o nombres mal oidos. Y el perfil VIAJA CON CADA PETICION al modelo, asi
+# que cada uno es ruido en todas las respuestas.
+# LOS CASOS SON LITERALES DEL PERFIL DE ESE DIA, no inventados.
+$estados = @(
+    'esta en una llamada',
+    'braya esta haciendo algo que requiere unirse o conectarse',
+    'esta en su cuarto',
+    'Braya acaba de completar un juego',
+    'braya esta buscando juegos para jugar en grupo',
+    'Braya esta jugando a un videojuego de zombies',
+    'Ha matado alrededor de veinte zombies en menos de veinte minutos',
+    'esta jugando a La ultima parada',
+    'vio una casa con fuego',
+    'ha vendido zombies en el juego',
+    'quiere dejar un zoom configurado',
+    'tiene 8 dolares',
+    'quiere comprar algo en el juego',
+    'braya tiene algo que se le acaba',
+    'braya usa espadas de metal en el juego',
+    'Tiene/tenia una espada en el juego',
+    'braya tiene un bate para combate cuerpo a cuerpo',
+    'braya tiene recursos de comida limitados',
+    'Braya tiene una pantalla visible en su entorno',
+    'Esta ensenando a alguien (probablemente un nino) trucos de juegos',
+    'Usa sistema de coordenadas militares (alfa, bravo, etc.) para comunicarse en el juego'
+)
+$cazados = @($estados | Where-Object { Test-DatoPasajero $_ })
+# SE EXIGE LO QUE DE VERDAD CONSIGUE (20 de 21), no un liston flojo: con "al menos 18" se
+# podian perder dos reglas enteras y esto seguia verde. El que falta es 'esta en su cuarto',
+# que no es de juego ni de llamada y no compensa una regla propia.
+Comp 'caza 20 de los 21 estados reales' ($cazados.Count -ge 20) "$($cazados.Count) de $($estados.Count)"
+Comp 'y el de la llamada del 23/09 21:16 entre ellos' (Test-DatoPasajero 'esta en una llamada') 'el caso literal'
+# ESTA VA POR LA REGLA DE LA LLAMADA Y POR NINGUNA OTRA: 'esta en una llamada' lo caza tambien
+# el 'esta en', asi que sin esta frase la regla de la llamada se podria borrar sin que nadie
+# se enterara.
+Comp 'y la regla de la llamada existe por si sola' (Test-DatoPasajero 'braya sigue en una llamada con su novia') 'sin ella, esta pasaria'
+
+Write-Host ''
+Write-Host '-- y NO se lleva por delante un rasgo de verdad --'
+# Si el filtro se ensancha, esto se pone rojo antes que braya se quede sin perfil.
+$rasgos = @(
+    'braya trabaja en IT', 'Le gustan los videojuegos', 'braya juega Elden Ring',
+    'Braya usa Steam', 'braya juega juegos de terror', 'tiene novia',
+    'Braya es sensible al contacto fisico en espacios con mucha gente',
+    'braya persevera ante dificultades', 'braya tiene sentido del humor',
+    'Prefiere concentracion sin interrupciones durante el juego',
+    'braya siempre esta jugando de noche', 'su juego favorito es Hollow Knight',
+    'su carpeta de capturas es C:\Users\braya\Pictures'
+)
+$falsos = @($rasgos | Where-Object { Test-DatoPasajero $_ })
+Comp 'cero falsos positivos en los rasgos' ($falsos.Count -eq 0) "$(($falsos | Select-Object -First 3) -join ' | ')"
+Comp 'la salvaguarda manda: "siempre" salva la frase' (-not (Test-DatoPasajero 'braya siempre esta jugando de noche')) 'sin ella, esta caeria'
+Comp 'y "favorito" tambien' (-not (Test-DatoPasajero 'su juego favorito es Hollow Knight')) ''
+
+Write-Host ''
+Write-Host '-- y el filtro esta ENGANCHADO en Add-DatoPerfil, no solo definido --'
+$antesLl = @(Get-DatosPerfil).Count
+$rLl = Add-DatoPerfil 'esta en una llamada' 'charla'
+Comp 'un estado no entra en el perfil' ($null -eq $rLl) 'el fallo clasico: la guarda existe y nadie la llama'
+Comp 'y el perfil no crece' (@(Get-DatosPerfil).Count -eq $antesLl) ''
+$rOk = Add-DatoPerfil 'braya juega a Hollow Knight por las noches' 'charla'
+Comp 'pero un rasgo si entra' ($null -ne $rOk) ''
+
+Write-Host ''
+Write-Host '-- LA LAPIDA: cuando el perfil se llena, se sabe QUE se cayo (24/09, idea 12) --'
+# Hasta hoy la poda tiraba en silencio y se llevo por delante los DOS unicos datos que braya
+# enseno a mano con "aprende que...": su juego favorito y su color favorito.
+$MemoriaDir = Split-Path -Parent $PerfilPath
+$PerfilCaidosPath = Join-Path $MemoriaDir ('nova-caidos-' + [System.Guid]::NewGuid().ToString('N').Substring(0, 8) + '.md')
+Remove-Item -LiteralPath $PerfilCaidosPath -Force -ErrorAction SilentlyContinue
+Comp 'sin nada caido, la lista esta vacia' (@(Get-PerfilCaidos 5).Count -eq 0) ''
+# se llena el perfil y se mete uno mas
+$llenoL = @()
+for ($i = 1; $i -le $PerfilMax; $i++) { $llenoL += ("dato numero $i del perfil de prueba") }
+Save-DatosPerfil $llenoL
+$elPrimero = $llenoL[0]
+[void](Add-DatoPerfil 'braya juega a Outlast los fines de semana' 'prueba')
+$ahoraL = @(Get-DatosPerfil)
+Comp "sigue habiendo $PerfilMax" ($ahoraL.Count -eq $PerfilMax) "$($ahoraL.Count)"
+Comp 'y el que se fue ya no esta' ($ahoraL -notcontains $elPrimero) ''
+$caidos = @(Get-PerfilCaidos 5)
+Comp 'pero SI esta en la lapida' (@($caidos | Where-Object { $_ -like "*$elPrimero*" }).Count -eq 1) "$(($caidos | Select-Object -First 1))"
+Comp 'y dice por que se fue' (@($caidos | Where-Object { $_ -match 'no cabia' }).Count -ge 1) ''
+
+Write-Host ''
+Write-Host '-- y la lapida tampoco crece sin fin --'
+for ($i = 1; $i -le ($PerfilMax + 40); $i++) { Add-PerfilCaido ("caido numero $i") 'prueba' }
+$todos = @(Get-PerfilCaidos ($PerfilMax * 3))
+Comp "la lapida se queda en $PerfilMax" ($todos.Count -le $PerfilMax) "$($todos.Count)"
+Comp 'y lo ultimo es lo mas reciente' ($todos[$todos.Count - 1] -like ("caido numero " + ($PerfilMax + 40) + "*")) "$($todos[$todos.Count - 1])"
+# Y PIDIENDO POCOS, LOS POCOS MAS NUEVOS: con la lista entera no se distingue si devuelve del
+# principio o del final, y esa es justo la manera de que esto salga verde estando al reves.
+$tres = @(Get-PerfilCaidos 3)
+Comp 'pidiendo 3, son los 3 ultimos' ($tres.Count -eq 3 -and $tres[2] -like ("caido numero " + ($PerfilMax + 40) + "*")) "$($tres -join ' | ')"
+Comp 'y no los 3 primeros' ($tres[0] -notlike 'caido numero 1 *') ''
 
 Write-Host ''
 if ($fallos -gt 0) {

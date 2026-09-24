@@ -522,6 +522,21 @@ Titulo "2n126. Las interrupciones que se tiraban dentro de casa"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-corte-perdido.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya no se tira una interrupcion)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n127. Lo que dura un rato no es un dato, y la poda deja lapida"
+# Ideas 12 y 20 de la tanda del 24/09. De los 60 datos de memoria\perfil.md, VEINTITRES (el
+# 38 %) no son rasgos de braya sino estados de un rato: "esta en una llamada", "vio una casa
+# con fuego", "tiene 8 dolares", "usa espadas de metal en el juego". Y el perfil VIAJA CON
+# CADA peticion al modelo, asi que cada uno es ruido en todas las respuestas. El peor tiene
+# hora: 23/09 21:16:33, "esta en una llamada", guardado como rasgo; esa misma noche Nova dijo
+# "te dejo tranquilo" y en la hora siguiente metio diez frases mas en la charla.
+# Y la otra mitad: al llenarse (60), la poda tiraba uno SIN DECIR CUAL, y se llevo por delante
+# los DOS unicos datos que braya enseno a mano con "aprende que...".
+# Lo que mas se vigila: los falsos positivos. La lista es CERRADA -igual que Test-DatoTrato- y
+# la salvaguarda manda: si la frase dice "siempre", "suele" o "favorito", es un rasgo aunque
+# hable de algo que pasa. Medido sobre los 60 reales: caza 20 de 21 y ni un falso positivo.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-poda-perfil.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el perfil ya no tira lo que braya repite)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n120. La musica: poner lo que es, y no repetir lo que no le gusta"
 # Ideas 1-A y 1-B. 52 intentos con frases distintas y ninguno acabo bien. El fallo de raiz,
 # medido contra youtube.com con cuatro busquedas suyas: el regex viejo devolvia 45, 71, 45 y

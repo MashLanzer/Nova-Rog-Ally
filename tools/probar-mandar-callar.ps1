@@ -62,7 +62,8 @@ function Callar([string]$frase) {
 
 Write-Host ''
 Write-Host '-- los dos ifs de la sordina se sacan del arbol --'
-Comp 'hay dos: el anclado y el de sufijo' ($ifs.Count -eq 2) "$($ifs.Count)"
+# TRES DESDE EL 24/09 (idea 20): el anclado, el de sufijo, y "estoy en una llamada".
+Comp 'hay tres: el anclado, el de sufijo y el de la llamada' ($ifs.Count -eq 3) "$($ifs.Count)"
 
 Write-Host ''
 Write-Host '-- LA FRASE DE BRAYA, TAL Y COMO LA OYO PARAKEET --'
@@ -176,6 +177,30 @@ $codigo = ($fuente -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join
 Comp 'la sordina se apunta con el reloj' ($codigo -match '\$script:sordinaHasta = \$sw\.ElapsedMilliseconds \+ \$a\.ms')
 Comp 'y se sale con el boton' ($fuente -match 'manten el boton') 'la salida que siempre esta'
 Comp 'y diciendo su nombre' ($codigo -match "nombre:' \+ \(ConvertTo-Plain \`$EscuchaNombre\)") 'la otra puerta, del 22/09'
+
+Write-Host ''
+Write-Host '-- "estoy en una llamada" se calla, y no se va a la charla (24/09, idea 20) --'
+# EL CASO: el 23/09 a las 21:16 braya dijo "estoy compartiendo el telefono", Nova contesto "te
+# dejo tranquilo"... y en la hora siguiente metio diez frases mas en la charla y dijo
+# diecinueve. Cero sordinas ese dia.
+foreach ($fr in @('estoy en una llamada', 'estoy en llamada', 'estoy de reunion',
+                  'ando en una videollamada', 'estoy grabando')) {
+    $r = Callar $fr
+    Comp ("`"$fr`" pone la sordina") ($null -ne $r) ''
+    if ($r) { Comp "   y son diez minutos" ([int]$r.ms -eq 600000) "$([int]$r.ms) ms" }
+}
+# LOS DIEZ MINUTOS NO SON UN NUMERO NUEVO: son los que pidio el mismo esa noche y los mismos
+# de la autosordina por ruido.
+$autoMin = if ($fuente -match "'autoSordinaMinutos' (\d+)") { [int]$Matches[1] } else { 10 }
+$rLl = Callar 'estoy en una llamada'
+Comp 'y son los mismos de la autosordina por ruido' ([int]$rLl.ms -eq ($autoMin * 60000)) "$autoMin min"
+# Y LO QUE NO PUEDE PASAR: que se lleve frases que no lo son
+foreach ($fr in @('estoy aqui', 'estoy jugando', 'estoy bien', 'estoy en casa', 'llamada perdida')) {
+    Comp ("`"$fr`" NO pone la sordina") ($null -eq (Callar $fr)) 'lista cerrada de cuatro palabras'
+}
+# y sigue diciendolo en voz alta: callarse en silencio es identico a estar rota
+Comp 'y lo dice antes de callarse' ([string]$rLl.desc -match 'me callo') "$([string]$rLl.desc)"
+Comp 'y dice como volver' ([string]$rLl.desc -match 'boton') 'la segunda salida, en voz alta'
 
 Write-Host ''
 if ($fallos) { Write-Host "  $fallos caso(s) MAL"; exit 1 }

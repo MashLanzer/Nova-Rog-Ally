@@ -4351,6 +4351,12 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(?:que sabes de mi|que sabes sobre mi|que has aprendido de mi|que sabes de braya|que conoces de mi|que sabes de mi vida|que tienes anotado (?:sobre|de) mi|que tienes apuntado (?:sobre|de) mi|que has anotado (?:sobre|de) mi)$') {
         return @(@{ kind = 'verPerfil'; desc = 'lo que se de ti' })
     }
+    # --- Y LO QUE SE LE HA CAIDO (24/09, idea 12) ---
+    # Va DETRAS del de arriba a proposito: los dos estan anclados ^...$ y ninguno lleva
+    # "olvidado", asi que el ancla los separa aunque manana alguien ensanche el primero.
+    if ($f -match '^(?:que has olvidado(?: de mi)?|que se te ha olvidado|que has tirado|que datos has perdido|que se te ha caido|que ya no sabes de mi)$') {
+        return @(@{ kind = 'perfilCaidos'; desc = 'lo que se me ha caido' })
+    }
     # --- "olvida los ultimos diez minutos" (ver OLVIDAR LO DE HACE UN RATO) ---
     # Va ANTES de "olvida esa receta" y de "olvida que...", y no se pisan: estos dos
     # tienen que acabar en una medida de tiempo o en "un rato", y aquellos no la llevan.
@@ -5303,6 +5309,28 @@ function Resolve-Fragment([string]$f) {
         if ($min2 -le 0) { return $null }
         return @(@{ kind = 'sordina'; ms = ($min2 * 60000)
                     desc = "me callo " + (Format-MinutosDichos $min2) + "; si me necesitas antes, manten el boton" })
+    }
+    # ESTOY EN UNA LLAMADA (24/09, idea 20 de la tanda nueva).
+    #
+    # El 23/09 a las 21:16 braya dijo "estoy compartiendo el telefono", Nova contesto "te dejo
+    # tranquilo"... y en la hora siguiente metio diez frases mas en la charla y dijo
+    # diecinueve. Cero sordinas ese dia. Y guardo "esta en una llamada" en el perfil, que es
+    # un estado de diez minutos, no un rasgo (de eso se encarga Test-DatoPasajero).
+    #
+    # VA AQUI Y NO EN LA CHARLA porque hoy se la lleva Test-PareceCharla: la frase empieza por
+    # "estoy", que no es un verbo de orden, y acaba en la conversacion. Invoke-FastCommand se
+    # mira ANTES que la charla, asi que puesta aqui gana.
+    # Y DETRAS de los dos bloques de sordina, que son mas especificos porque llevan el plazo
+    # dicho ("callate diez minutos").
+    #
+    # DIEZ MINUTOS NO ES UN NUMERO NUEVO: son los que pidio el mismo esa noche -"no me hablas
+    # en diez minutos"- y los mismos de la autosordina por ruido.
+    # No hace falta ejecutor: cae en el 'sordina' de siempre, con sus dos salidas -el boton y
+    # "ya escuchame"- y su aviso de vuelta.
+    # 'grabando' y 'en directo' van por su lado: no llevan el 'en una' delante.
+    if ($f -match '^(?:estoy|ando)\s+(?:(?:en|de)\s+(?:una\s+)?(?:llamada|videollamada|reunion|entrevista)|grabando|en\s+directo|retransmitiendo)$') {
+        return @(@{ kind = 'sordina'; ms = 600000
+                    desc = 'vale, me callo diez minutos; si me necesitas antes, manten el boton' })
     }
     # Diagnostico hablado: hasta ahora, para saber por que no te oia habia que
     # abrir assistant.log y leer las lineas del pulso. Esto cuenta lo mismo en
@@ -7820,6 +7848,66 @@ function Save-DatosPerfil([string[]]$datos) {
 # no" pegado, y las frases reales dicen "prefiere que NOVA no"-.
 # La lista de verbos es CERRADA a proposito: decir como quieres que te hablen se hace con un
 # puñado de verbos, y una lista abierta dejaria entrar cualquier opinion.
+# LO QUE DURA UN RATO NO ES UN DATO (24/09, ideas 12 y 20 de la tanda nueva).
+#
+# De los 60 datos de perfil.md, 23 no son rasgos de braya: son estados. Y el perfil viaja con
+# CADA peticion al modelo, asi que cada uno es ruido en todas las respuestas. El peor tiene
+# fecha: 23/09 21:16:33, "esta en una llamada", guardado como si fuera un rasgo.
+#
+# LISTA CERRADA, igual que Test-DatoTrato y por el mismo motivo: una lista abierta tiraria
+# rasgos de verdad. Y con la salvaguarda al reves: si la frase dice "siempre", "suele",
+# "favorito"... entonces SI es un rasgo, aunque hable de algo que pasa. Asi "braya siempre
+# esta jugando de noche" sobrevive y "esta jugando a La ultima parada" no.
+$RE_DATO_ESTADO = '\b(?:esta(?:ba)?\s+(?:en|jugando|haciendo|buscando|viendo|hablando|intentando|probando|usando|leyendo|mirando|ensenando)\b' +
+                  '|acaba(?:ba)?\s+de\b|esta\s+a\s+punto\s+de\b' +
+                  '|ha\s+(?:matado|vendido|comprado|ganado|perdido|completado|terminado|conseguido)\b' +
+                  '|vio\s+un|quiere\s+(?:comprar|dejar|poner|abrir)\b|le\s+queda\b|se\s+le\s+acaba\b' +
+                  '|tiene\s+\d+\s+(?:dolares|euros|vidas|balas|monedas|gigas|minutos)\b' +
+                  '|en\s+(?:una\s+)?llamada\b|ahora\s+mismo\b|en\s+este\s+momento\b' +
+                  # LO QUE TIENE DENTRO DE UNA PARTIDA TAMPOCO ES SUYO. Siete de los 23:
+                  # 'usa espadas de metal en el juego', 'tiene/tenia una espada en el juego',
+                  # 'tiene un bate para combate cuerpo a cuerpo', 'tiene recursos de comida
+                  # limitados', 'tiene una pantalla visible en su entorno', 'esta ensenando a
+                  # alguien trucos de juegos' y el que salio de la llamada del 23/09,
+                  # 'usa sistema de coordenadas militares ... en el juego'.
+                  '|(?:tiene|tenia|usa|lleva|llevaba)\b[^.]{0,70}\ben\s+el\s+juego\b' +
+                  '|combate\s+cuerpo\s+a\s+cuerpo\b|recursos\s+de\s+comida\b' +
+                  '|pantalla\s+visible\b|trucos\s+de\s+juegos\b)'
+$RE_DATO_RASGO = '\b(?:siempre|nunca|cada\s+vez\s+que|suele|prefiere|le\s+gusta|odia|favorit[oa]|se\s+llama|su\s+carpeta|su\s+correo)\b'
+function Test-DatoPasajero([string]$dato) {
+    $t = ConvertTo-Suave $dato
+    if (-not $t) { return $false }
+    if ($t -match $RE_DATO_RASGO) { return $false }   # la salvaguarda manda
+    return ($t -match $RE_DATO_ESTADO)
+}
+
+# LA LAPIDA (24/09, idea 12). Cuando el perfil se llena, la poda tira uno y hasta hoy nadie
+# sabia cual: se han caido cosas que braya enseno a mano con "aprende que...". No es un
+# fichero mas por capricho -es el unico modo de que "que has olvidado de mi" tenga respuesta-,
+# y tiene el mismo tope que el perfil para no crecer sin fin.
+$PerfilCaidosPath = Join-Path $MemoriaDir 'perfil-caidos.md'
+function Add-PerfilCaido([string]$dato, [string]$por) {
+    if (-not $dato) { return }
+    try {
+        $l = @()
+        if (Test-Path -LiteralPath $PerfilCaidosPath) {
+            $l = @(Get-Content -LiteralPath $PerfilCaidosPath -Encoding UTF8 | Where-Object { $_.Trim() })
+        }
+        $l += ('- ' + $dato + '   (' + $por + ')')
+        if ($l.Count -gt $PerfilMax) { $l = @($l[($l.Count - $PerfilMax)..($l.Count - 1)]) }
+        Write-Atomico $PerfilCaidosPath (($l -join "`r`n") + "`r`n")
+    } catch {}
+}
+function Get-PerfilCaidos([int]$cuantos = 5) {
+    try {
+        if (-not (Test-Path -LiteralPath $PerfilCaidosPath)) { return @() }
+        $l = @(Get-Content -LiteralPath $PerfilCaidosPath -Encoding UTF8 | Where-Object { $_.Trim() })
+        if ($l.Count -eq 0) { return @() }
+        $n = [Math]::Min($cuantos, $l.Count)
+        return @($l[($l.Count - $n)..($l.Count - 1)] | ForEach-Object { ($_ -replace '^\s*-\s*', '') })
+    } catch { return @() }
+}
+
 function Test-DatoTrato([string]$dato) {
     $p = ConvertTo-Suave $dato
     # una opinion sobre Nova no es una instruccion, por mucho que lleve un verbo de trato
@@ -7910,6 +7998,14 @@ function Add-DatoPerfil([string]$dato, [string]$fuente = '') {
     # comentario de arriba dice que se filtra, no estaba en la lista.
     if ($plD -match '\b(?:parece|puede que|podria|posiblemente|probablemente|quiza|quizas|seguramente|supongo|diria|al parecer|por lo visto)\b' -or $plD -match '\(.*(?:la llama|lo llama|porque dijo|segun).*\)') {
         Log "PERFIL: eso es una deduccion, no algo que dijera: $d"; return $null
+    }
+    # LO QUE DURA UN RATO NO ENTRA (24/09, ideas 12 y 20). Va aqui y no antes porque
+    # sensible, prohibida, queja y deduccion son mas graves y deciden primero; y antes del
+    # calculo de parecido, que es lo caro.
+    if (Test-DatoPasajero $d) {
+        Log ("PERFIL: eso es un estado de un rato, no un dato: " + $d)
+        Add-Estadistica 'perfil-pasajero' $d
+        return $null
     }
     $datos = @(Get-DatosPerfil)
     $clave = (((ConvertTo-Suave $d) -replace '[^a-z0-9 ]', ' ') -replace '\s+', ' ').Trim()
@@ -8018,6 +8114,10 @@ function Add-DatoPerfil([string]$dato, [string]$fuente = '') {
             if ($datos[$i] -notmatch '^\s*Dicho por braya\s*:' -and -not (Test-DatoTrato $datos[$i])) { $iTira = $i; break }
         }
         if ($iTira -lt 0) { $iTira = 0 }   # todo es suyo: cae el mas viejo, como antes
+        # Y SE APUNTA CUAL (24/09, idea 12): hasta hoy la poda tiraba en silencio y se
+        # llevo por delante los dos datos que braya enseno a mano.
+        Add-PerfilCaido $datos[$iTira] 'no cabia'
+        Add-Estadistica 'perfil-fuera' $datos[$iTira]
         Log "PERFIL: lleno ($PerfilMax); tiro lo que lleva mas sin repetirse: $($datos[$iTira])"
         $quedan = @()
         for ($i = 0; $i -lt $datos.Count; $i++) { if ($i -ne $iTira) { $quedan += $datos[$i] } }
@@ -13335,6 +13435,14 @@ function Invoke-FastCommand([string]$text) {
                     $dp = @(Get-DatosPerfil)
                     $a.desc = if ($dp.Count -eq 0) { 'todavia no se nada de ti; se ira llenando solo, o dime: aprende que mi...' }
                               else { "se $($dp.Count) cosas de ti: " + ((@($dp | Select-Object -Last 6) | ForEach-Object { $_ -replace '^Dicho por braya:\s*', '' }) -join '; ') }
+                }
+                'perfilCaidos' {
+                    # LA LAPIDA (24/09, idea 12). Sin esto seria un fichero que nadie lee, y
+                    # el punto de la idea es justo que braya pueda enterarse de lo que se cayo.
+                    $script:respuestaPrivada = $true   # son datos suyos: no al registro
+                    $pcV = @(Get-PerfilCaidos 5)
+                    $a.desc = if ($pcV.Count -eq 0) { 'no se me ha caido nada todavia' }
+                              else { "se me han caido $(@(Get-PerfilCaidos $PerfilMax).Count); las ultimas: " + ($pcV -join '; ') }
                 }
                 'verRecetas' {
                     $rsV = Get-Recetas

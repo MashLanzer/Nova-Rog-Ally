@@ -69,6 +69,10 @@ $EXENTAS = @{
     'Save-BancoTrivia'        = 'preguntas de cultura general de la consola, y cuales se han hecho ya; el marcador no se guarda'
     'Save-MusicaNo'           = 'lo llaman Add-MusicaNo y Remove-MusicaNo, las dos ya protegidas (24/09: a Remove le faltaba)'
     'Add-NubeTiempo'          = 'solo son milisegundos, y con invitado la nube ni se lanza (Start-NubeOir sale en su primera linea)'
+    # LA LAPIDA DEL PERFIL (24/09, idea 12). Comprobado con grep: el UNICO sitio que la llama
+    # es la poda de Add-DatoPerfil (linea 8119), y Add-DatoPerfil se va en su primera linea
+    # con el modo invitado puesto. O sea que con alguien delante no se llega ni a la poda.
+    "Add-PerfilCaido"          = 'solo la llama la poda de Add-DatoPerfil, que sale en su primera linea si hay invitado'
     # 22/09: la hermana de la de arriba, pero SOLO por el primer motivo. Comprobado que el
     # segundo NO vale aqui: Start-OpencodeJob no mira el modo invitado, asi que con un
     # invitado delante SI se lanzan trabajos y SI se apuntan sus tiempos. Y aun asi no

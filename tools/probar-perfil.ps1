@@ -31,6 +31,15 @@ $PerfilMax = 60
 Invoke-Expression (Traer 'Test-DatoTrato')
 Invoke-Expression (Traer 'ConvertTo-Plain')
 Invoke-Expression (Traer 'ConvertTo-Suave')
+# EL FILTRO DE LO PASAJERO Y SUS DOS REGEX (24/09, idea 12): Add-DatoPerfil los llama, asi que
+# sin ellos este banco muere a mitad. Los regex ocupan varias lineas con +, asi que se sacan
+# como asignacion del arbol y no con un regex de una linea.
+Invoke-Expression (Traer 'ConvertTo-Suave')
+Invoke-Expression (Traer 'Test-DatoPasajero')
+$astDP = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $raiz 'assistant.ps1'), [ref]$null, [ref]$null)
+foreach ($aDP in $astDP.FindAll({ param($x) $x -is [System.Management.Automation.Language.AssignmentStatementAst] }, $false)) {
+    if ($aDP.Left.VariablePath.UserPath -in @('RE_DATO_ESTADO', 'RE_DATO_RASGO')) { Invoke-Expression $aDP.Extent.Text }
+}
 Invoke-Expression (Traer 'Add-DatoPerfil')
 
 # el mundo de mentira: el perfil en memoria, sin tocar el de verdad

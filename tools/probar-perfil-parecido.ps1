@@ -64,6 +64,15 @@ Invoke-Expression (Traer 'ConvertTo-Suave')
 # Test-DatoTrato la trajo la idea 7 y Add-DatoPerfil la llama: sin ella el banco moria
 # a mitad, y hasta que se le puso el trap salia con codigo 0 y daba verde.
 Invoke-Expression (Traer 'Test-DatoTrato')
+# EL FILTRO DE LO PASAJERO Y SUS DOS REGEX (24/09, idea 12): Add-DatoPerfil los llama, asi que
+# sin ellos este banco muere a mitad. Los regex ocupan varias lineas con +, asi que se sacan
+# como asignacion del arbol y no con un regex de una linea.
+Invoke-Expression (Traer 'ConvertTo-Suave')
+Invoke-Expression (Traer 'Test-DatoPasajero')
+$astDP = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $raiz 'assistant.ps1'), [ref]$null, [ref]$null)
+foreach ($aDP in $astDP.FindAll({ param($x) $x -is [System.Management.Automation.Language.AssignmentStatementAst] }, $false)) {
+    if ($aDP.Left.VariablePath.UserPath -in @('RE_DATO_ESTADO', 'RE_DATO_RASGO')) { Invoke-Expression $aDP.Extent.Text }
+}
 Invoke-Expression (Traer 'Add-DatoPerfil')
 
 # LA LISTA DE ESA NOCHE, tal cual estaba en su perfil

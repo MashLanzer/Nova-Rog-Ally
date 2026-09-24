@@ -31,7 +31,7 @@ foreach ($n in 'ConvertTo-Plain', 'ConvertTo-CmdArg', 'ConvertTo-Suave', 'Get-Pa
     'Add-Receta', 'Invoke-Receta', 'Get-Recetas', 'Save-Recetas', 'Get-VarianteReceta', 'Add-VarianteReceta', 'Build-PromptTraduccion',
     # Test-DatoTrato la trajo la idea 7 el 23/09 y Add-DatoPerfil la llama: sin ella este
     # banco moria a mitad, y hasta que se le puso el trap salia con codigo 0 y daba verde.
-    'Get-DatosPerfil', 'Save-DatosPerfil', 'Test-DatoTrato', 'Add-DatoPerfil', 'Get-SistemaCerebro', 'Get-BalanceAprendizaje', 'Get-Estadisticas',
+    'Get-DatosPerfil', 'Save-DatosPerfil', 'Test-DatoTrato', 'ConvertTo-Suave', 'Test-DatoPasajero', 'Add-DatoPerfil', 'Get-SistemaCerebro', 'Get-BalanceAprendizaje', 'Get-Estadisticas',
     'Send-UIEvento', 'Set-AcabaDeAprender', 'Get-CuentaAprendida', 'Get-Madurez', 'Get-FraseNivel', 'Write-Atomico',
     'Start-PasoScript', 'Complete-PasoScript', 'Start-Receta', 'Step-Receta', 'Watch-Receta', 'Close-Receta', 'Complete-RecetaResultado',
     'Test-ScriptSoloLectura', 'Format-VozInfo') { Invoke-Expression (TraerFn $n) }

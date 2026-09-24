@@ -60,7 +60,7 @@ $script:invitado = $false
 $script:ultimoDatoPerfil = ''
 $script:perfilQuitado = $null
 foreach ($n in @('ConvertTo-Plain', 'ConvertTo-Suave', 'Get-DatosPerfil', 'Save-DatosPerfil',
-                 'Test-DatoTrato', 'Add-DatoPerfil', 'Remove-DatoPerfil', 'Get-UltimoDatoPerfil')) {
+                 'Test-DatoTrato', 'ConvertTo-Suave', 'Test-DatoPasajero', 'Add-DatoPerfil', 'Remove-DatoPerfil', 'Get-UltimoDatoPerfil')) {
     Invoke-Expression (Traer $n)
 }
 $RE_DATO_SENSIBLE = [regex]::Match($fuente, '(?m)^\$RE_DATO_SENSIBLE\s*=\s*(.+)$').Groups[1].Value
