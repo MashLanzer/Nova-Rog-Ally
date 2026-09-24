@@ -35,14 +35,19 @@ descartes estaban a menos de un 20 % del umbral del momento**. Una parte se pier
 rechazo por volumen puede pedir una segunda opinión en vez de tirar la frase, y qué hacer con
 el "nova" jugando, que hoy se descarta **en silencio** y tú no te enteras de que te oyó.
 
-### 2. Mientras habla, no te oye: 1.132 veces
+### 2. Interrumpirla funciona, pero se ha usado 10 veces en 15 días
 
-`pausa: el asistente habla o dicta, se ignora el microfono` sale **1.132 veces**. Mientras Nova
-habla, el micrófono está apagado: **no se la puede interrumpir**. Lo único que existe es el
-corte *después* de que acabe, y solo durante 6 s.
+`pausa: el asistente habla o dicta, se ignora el microfono` sale **1.132 veces**: son los ratos
+en los que Nova está hablando. Cortarla mientras habla **sí existe** —`INTERRUMPIDA: 'X'
+mientras hablaba -> me callo y te escucho`— pero solo ha saltado **10 veces en 15 días**: tres
+el 14/09, tres el 22/09, y días enteros con ninguna.
 
-Con las respuestas largas (la guía de un juego, el resumen del día, una lista de amigos) eso
-son varios segundos en los que le hablas y no hay nadie escuchando.
+O sea: 1.132 ocasiones y 10 cortes. O cuesta mucho acertar, o no sabes que se puede. Con las
+respuestas largas (la guía de un juego, el resumen del día, una lista de amigos) son varios
+segundos hablándole encima sin que pase nada.
+
+*Lo que hay que medir antes de tocar:* cuántas de esas 1.132 veces le hablaste de verdad
+mientras ella hablaba. Ese dato **está** en `pruebas\audio\uso`, con marca de tiempo.
 
 ### 3. El micrófono satura, y encima desconfía de sí mismo
 
