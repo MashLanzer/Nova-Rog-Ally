@@ -177,6 +177,25 @@ Comp 'y sin titulo, fuera' ((Test-ArticuloJuego '' $juego 'it takes two') -eq 's
 Comp 'busca "<juego> videojuego"' ($gw -match '\$Juego \+ \$pista') 'sin eso, "It Takes Two" da la pelicula de 1995'
 Comp 'y nunca rellena con un modelo' ($gw -notmatch 'gemini|claude|ollama|opencode') ''
 
+Write-Host ''
+Write-Host '-- y donde se recoge, que era lo que la hacia tardar medio minuto --'
+# La guia se recogia DENTRO de Watch-Entorno, detras de su puerta de 30 s: el proceso tardaba
+# uno o dos segundos y Nova hablaba entre 0 y 30 s despues, quince de media. Y Watch-Entorno
+# sale en su primera linea si entorno.avisos esta apagado -que es el valor por DEFECTO del
+# codigo-, asi que ahi la respuesta no llegaba nunca y la capsula se quedaba en "pensando".
+$fnEnt = $ast.Find({ param($x)
+    $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq 'Watch-Entorno' }, $true)
+Comp 'Receive-Guia NO vive dentro de Watch-Entorno' ($fnEnt -and $fnEnt.Extent.Text -notmatch 'Receive-Guia') 'ahi solo se miraba cada 30 s, y con los avisos apagados nunca'
+Comp 'y si se llama desde el bucle' ($fuente -match '(?m)^\s+try \{ Receive-Guia \} catch') ''
+$sg = ($ast.Find({ param($x)
+    $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq 'Stop-Guia' }, $true)).Extent.Text
+# SIN COMENTARIOS: el comentario que explica por que ya no hay -Wait contiene "-Wait", y la
+# comprobacion de abajo lo casaba. Es el mismo tropiezo que la palabra "siguiente" en la trivia.
+$sg = (($sg -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n")
+Comp 'matarla no para el bucle' ($sg -notmatch '\-Wait') 'arrancar taskkill.exe y esperarlo son 100-400 ms con un juego delante'
+Comp 'y se suelta el proceso' ($sg -match 'Dispose') ''
+Comp 'y al salir Nova no queda huerfana' ($fuente -match '(?s)try \{ Stop-Guia \} catch \{\}\s*\n\s*foreach \(\$pW in') 'antes se mataban los otros cuatro procesos y este no'
+
 try { Remove-Item -LiteralPath $TmpDir -Recurse -Force -ErrorAction SilentlyContinue } catch {}
 Write-Host ''
 if ($fallos -gt 0) { Write-Host "  $fallos mal"; exit 1 }

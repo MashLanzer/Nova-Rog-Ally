@@ -9792,9 +9792,6 @@ function Watch-Entorno([int]$botones = 0) {
     # CUANTO TARDO EL OIDO (23/09, idea 12): un Test-Path, y solo hasta que apunta.
     try { Add-ArranqueOido } catch {}
 
-    # LA GUIA, SI YA LLEGO (23/09, idea 6): un HasExited, cero red.
-    try { Receive-Guia } catch { Log ("guia: " + $_.Exception.Message) }
-
     # SE REVISA A SI MISMA: una vez al dia mira sus numeros y apaga lo que no le sirve.
     # VA DELANTE DEL PARTE DE LA MANANA (20/09, P5), no detras: es quien deja apuntado el
     # "tengo una decision esperando", y el parte solo sale UNA vez al dia. Detras, lo que
@@ -11977,7 +11974,12 @@ function Get-GuiaPlazoMs {
 
 function Stop-Guia {
     if (-not $script:guiaProc) { return }
-    try { if (-not $script:guiaProc.HasExited) { Start-Process -FilePath 'taskkill.exe' -ArgumentList @('/PID', $script:guiaProc.Id, '/T', '/F') -WindowStyle Hidden -Wait } } catch {}
+    # SIN ESPERAR (24/09, repaso): esto se llama desde el bucle, y arrancar taskkill.exe con
+    # -Wait son 100-400 ms parado en el mismo tick en el que se lee el mando. Kill() no
+    # arranca ningun proceso y vuelve al momento; el /T de taskkill no hacia falta porque el
+    # script de la guia no lanza hijos.
+    try { if (-not $script:guiaProc.HasExited) { $script:guiaProc.Kill() } } catch {}
+    try { $script:guiaProc.Dispose() } catch {}
     try { if ($script:guiaOut) { Remove-Item -LiteralPath $script:guiaOut -Force -ErrorAction SilentlyContinue } } catch {}
     $script:guiaProc = $null
     $script:guiaOut = ''
@@ -20405,8 +20407,11 @@ function Receive-Charla {
         # diciendo: solo apunta que llego y tira la cache para releerlo.
         if ($ev.ev -eq 'banco') {
             $script:triviaGenerando = $false
+$script:triviaGenerandoEn = 0
             $script:triviaBanco = $null
-            Log "TRIVIA: el modelo dejo $([int]$ev.n) preguntas"
+            # n = 0 significa "no salio, pero ya no estoy generando": es lo que desatasca
+            if ([int]$ev.n -gt 0) { Log "TRIVIA: el modelo dejo $([int]$ev.n) preguntas" }
+            else { Log ("TRIVIA: el banco no salio (" + [string]$ev.aviso + ")") }
             continue
         }
         # el cerebro confirmo algo nuevo: un destello en la capsula (D1)
@@ -23877,7 +23882,13 @@ function Save-BancoTrivia {
 # por el arranque en frio-, y despues cuesta cero. Con un juego delante, ni eso.
 function Request-BancoTrivia {
     if ($script:juegoActivo) { Log 'TRIVIA: no pido preguntas con un juego delante'; return $false }
-    if ($script:triviaGenerando) { return $false }
+    # Y CON PLAZO (24/09, repaso): si el aviso del worker no llega -porque se murio, porque
+    # estaba ocupado, o por cualquier camino que no lo emita-, esto se quedaba en $true para
+    # siempre y la trivia no volvia a pedir preguntas hasta reiniciar Nova. Tres minutos es
+    # el doble largo de lo que tarda la llamada mas lenta medida al modelo local (13,1 s en
+    # frio, y aqui son veinte preguntas de una vez con num_predict 2000).
+    if ($script:triviaGenerando -and ($sw.ElapsedMilliseconds - $script:triviaGenerandoEn) -lt 180000) { return $false }
+    if ($script:triviaGenerando) { Log 'TRIVIA: el banco no llego en tres minutos; lo doy por perdido' }
     if (-not $ConversacionOn) { return $false }
     try { if (-not (Test-RamParaCharla)) { Log 'TRIVIA: no hay RAM para pedir preguntas'; return $false } } catch {}
     $script:charlaId++
@@ -23885,6 +23896,7 @@ function Request-BancoTrivia {
     # no habla. Solo se pide el banco y se sigue con lo que se estuviera haciendo.
     if (-not (Send-CharlaPedido @{ op = 'triviabanco'; id = $script:charlaId; ruta = (Get-TriviaPath); cuantas = 20 } (-not $script:juegoActivo))) { return $false }
     $script:triviaGenerando = $true
+    $script:triviaGenerandoEn = $sw.ElapsedMilliseconds
     Log 'TRIVIA: pedidas 20 preguntas al modelo local'
     return $true
 }
@@ -24347,6 +24359,13 @@ while ($true) {
     }
 
     # --- LO QUE PASA SIN QUE DIGAS NADA (fase 2) ---
+    # LA GUIA, SI YA LLEGO (23/09, idea 6; movida aqui el 24/09 en el repaso): un HasExited y
+    # cero red, asi que va en el bucle de verdad y no dentro de Watch-Entorno, que solo mira
+    # cada 30 s y ademas se apaga entero si entorno.avisos esta en false -el valor por defecto
+    # del codigo-. Ahi dentro, braya preguntaba "de que va este juego" y Nova contestaba entre
+    # 0 y 30 s despues, quince de media, o no contestaba nunca. Y el plazo de 4-15 s no podia
+    # dispararse a tiempo mirandose cada medio minuto.
+    try { Receive-Guia } catch { Log ("guia: " + $_.Exception.Message) }
     try { Watch-Entorno $botones } catch { Log ("entorno: " + $_.Exception.Message) }
 
     # --- VIGILANCIA DEL WORKER DE ESCUCHA ---
@@ -24569,6 +24588,9 @@ while ($true) {
         try { Stop-Charla } catch {}
         # piperProc entra aqui desde el 21/09: antes no hacia falta porque no arrancaba
         # nunca; ahora que el respaldo lo levanta de verdad, al parar limpio quedaba vivo.
+        # guiaProc entra aqui desde el 24/09 (repaso): si Nova se cerraba con una guia en
+        # vuelo quedaba un powershell.exe huerfano y su .json en tmp sin borrar.
+        try { Stop-Guia } catch {}
         foreach ($pW in @($script:wakeProc, $script:ttsProc, $script:prepVozProc, $script:piperProc)) {
             try { if ($pW -and -not $pW.HasExited) { $pW.Kill() } } catch {}
         }

@@ -1061,13 +1061,18 @@ def generar_banco(p):
 
     UNA sola llamada al modelo local, y nunca jugando: PowerShell ya lo frena antes de
     pedirlo. Despues cuesta cero, porque queda en disco.
+    SE AVISA SIEMPRE, AUNQUE SEA CON CERO (24/09, repaso). Antes los caminos de fallo salian
+    con un 'info' y PowerShell se quedaba con triviaGenerando puesto para siempre: un solo
+    "el modelo no devolvio una lista" -que con un 3B es lo normal- dejaba la trivia sin poder
+    pedir mas preguntas hasta el siguiente arranque. El 'aviso' va aparte del texto para que
+    el lector de PowerShell no lo confunda con una frase que decir.
     LA RUTA LA MANDA POWERSHELL, no se adivina aqui: es la leccion que ya esta escrita
     arriba en este mismo fichero -adivinar la carpeta metio recuerdos falsos en el diario-.
     """
     ruta = (p.get("ruta") or "").strip()
     idp = p.get("id") or 0
     if not ruta:
-        salida("info", idp, texto="trivia: no me han dicho donde guardar el banco; no lo escribo")
+        salida("banco", idp, n=0, aviso="trivia: no me han dicho donde guardar el banco; no lo escribo")
         return
     cuantas = int(p.get("cuantas") or 20)
     crudo = ""
@@ -1083,22 +1088,22 @@ def generar_banco(p):
             "options": {"num_predict": 2000, "temperature": 0.8, "num_ctx": 2048},
         })
         if r.status_code != 200:
-            salida("info", idp, texto="trivia: ollama respondio %d" % r.status_code)
+            salida("banco", idp, n=0, aviso="trivia: ollama respondio %d" % r.status_code)
             return
         crudo = (r.json().get("message") or {}).get("content") or ""
     except Exception as e:  # noqa: BLE001
-        salida("info", idp, texto="trivia: no pude pedir las preguntas (%s)" % e)
+        salida("banco", idp, n=0, aviso="trivia: no pude pedir las preguntas (%s)" % e)
         return
     # el modelo suele envolver el array en texto o en ```json: se coge lo que hay entre
     # el primer [ y el ultimo ]
     i, j = crudo.find("["), crudo.rfind("]")
     if i < 0 or j <= i:
-        salida("info", idp, texto="trivia: el modelo no devolvio una lista")
+        salida("banco", idp, n=0, aviso="trivia: el modelo no devolvio una lista")
         return
     try:
         lista = json.loads(crudo[i:j + 1])
     except ValueError:
-        salida("info", idp, texto="trivia: el modelo devolvio algo que no es JSON")
+        salida("banco", idp, n=0, aviso="trivia: el modelo devolvio algo que no es JSON")
         return
     # EL MISMO FILTRO QUE POWERSHELL, a proposito: si aqui entrara algo que alli se tira,
     # el banco diria que tiene veinte y tendria doce.
@@ -1121,7 +1126,7 @@ def generar_banco(p):
             continue
         buenas.append({"pregunta": preg, "opciones": ops, "buena": b})
     if not buenas:
-        salida("info", idp, texto="trivia: ninguna de las preguntas paso el filtro")
+        salida("banco", idp, n=0, aviso="trivia: ninguna de las preguntas paso el filtro")
         return
     # se funde con lo que ya hubiera, sin repetir la misma pregunta
     banco = {"preguntas": [], "hechas": []}
@@ -1148,7 +1153,7 @@ def generar_banco(p):
             json.dump(banco, f, ensure_ascii=False)
         os.replace(tmp, ruta)
     except Exception as e:  # noqa: BLE001
-        salida("info", idp, texto="trivia: no pude guardar el banco (%s)" % e)
+        salida("banco", idp, n=0, aviso="trivia: no pude guardar el banco (%s)" % e)
         return
     salida("banco", idp, n=nuevas)
 
@@ -1174,7 +1179,9 @@ def atender(p):
         if not ocupado.is_set():
             threading.Thread(target=generar_banco, args=(p,), daemon=True).start()
         else:
-            salida("info", p.get("id") or 0, texto="trivia: estoy ocupada; el banco, mas tarde")
+            # TAMBIEN AVISA (24/09, repaso): si esto saliera con un 'info', PowerShell se
+            # quedaria con triviaGenerando puesto sin que nadie lo baje nunca.
+            salida("banco", p.get("id") or 0, n=0, aviso="trivia: estoy ocupada; el banco, mas tarde")
     elif op == "aprender":
         # lo que contesto OTRO cerebro (Claude Code, M4): se aprende como de la API
         if cerebro is not None and not p.get("invitado"):

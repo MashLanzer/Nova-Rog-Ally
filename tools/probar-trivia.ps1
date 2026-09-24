@@ -321,6 +321,30 @@ Comp 'el worker exige buena en 1..3' ($w -match 'if b < 1 or b > 3:') ''
 Comp 'el worker corta en 26 igual que el selector' ($w -match 'len\(o\) > 26 for o in ops') 'con el 26 suelto, un 2600 colaba'
 Comp 'el worker no adivina la carpeta' ($w -match 'ruta = \(p\.get\("ruta"\) or ""\)') ''
 Comp 'y genera en su hilo, sin pisar una charla' ($w -match 'if not ocupado\.is_set\(\):') ''
+# EL ESTADO QUE SE QUEDABA PEGADO (24/09, repaso). triviaGenerando solo se bajaba al recibir
+# el evento 'banco', y el worker salia SIN emitirlo por siete caminos: tras un solo fallo -y
+# con un modelo de 3B, "no devolvio una lista" es lo normal- la trivia no volvia a pedir
+# preguntas hasta reiniciar Nova.
+# SOLO DENTRO DE generar_banco: el resto del worker usa 'info' a proposito para contar cosas
+# de la charla, y ahi no hay ningun estado de PowerShell esperando.
+$iG = $w.IndexOf('def generar_banco(p):')
+$jG = $w.IndexOf("`ndef ", $iG + 10)
+if ($iG -lt 0 -or $jG -le $iG) { Write-Host '  MAL  no encuentro generar_banco'; exit 1 }
+$cuerpoG = $w.Substring($iG, $jG - $iG)
+$sinAviso = @($cuerpoG -split "`n" | Where-Object { $_ -match 'salida\("info"' })
+Comp 'el worker avisa SIEMPRE, aunque sea con cero' ($sinAviso.Count -eq 0) "$($sinAviso.Count) salidas mudas"
+$nAvisos = @([regex]::Matches($cuerpoG, 'salida\("banco"')).Count
+Comp 'y son siete caminos, no uno' ($nAvisos -ge 7) "$nAvisos avisos"
+Comp 'y el de estar ocupada tambien' ($w -match 'salida\("banco", p\.get\("id"\) or 0, n=0') ''
+$rq2 = SinComentarios (Traer 'Request-BancoTrivia')
+Comp 'y PowerShell no se fia: le pone plazo' ($rq2 -match 'triviaGenerandoEn') 'si el aviso no llega, se desatasca solo'
+# y se prueba de verdad: generando puesto y el plazo vencido -> vuelve a pedir
+Limpia
+$script:triviaGenerando = $true
+$script:triviaGenerandoEn = $sw.ElapsedMilliseconds
+Comp 'con una peticion viva, no pide otra' ((Request-BancoTrivia) -eq $false) ''
+$script:triviaGenerandoEn = $sw.ElapsedMilliseconds - 180001
+Comp 'pero pasados tres minutos sin respuesta, si' ((Request-BancoTrivia) -eq $true) 'antes se quedaba mudo hasta reiniciar'
 
 try { Remove-Item -LiteralPath $MemoriaDir -Recurse -Force -ErrorAction SilentlyContinue } catch {}
 Write-Host ''
