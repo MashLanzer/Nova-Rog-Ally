@@ -18723,6 +18723,45 @@ function Test-CopiaPendiente {
     return (((Get-Date) - $ultima.LastWriteTime).TotalHours -ge 20)
 }
 
+# TRABAJAR CUANDO NO MOLESTA (25/09, idea 27 de las 50)
+#
+# LO MEDIDO: de 2.166 ordenes en dieciseis dias, CERO caen entre las 02 y las 08. Seis horas
+# muertas cada dia. Y Nova esta despierta en esa franja -6.027 lineas de registro, en nueve
+# noches distintas-: lo unico que hace es escuchar a nadie y aparcar avisos.
+#
+# Mientras tanto, la copia de lo aprendido se ha hecho TRECE veces y las trece entre las 17 y
+# las 22 h, que son justo las horas de mas uso (235 ordenes a las 18h, 198 a las 19h). No es
+# casualidad ni mala suerte: la copia se intenta EN EL PRIMER MINUTO TRAS ARRANCAR, y braya
+# arranca Nova cuando se pone a usarla. O sea que la tarea mas pesada del dia -comprimir 40
+# archivos y copiarlos a OneDrive- cae siempre en el peor momento posible.
+#
+# LO QUE NO SE HACE: mirar el reloj. La franja de 02 a 08 es lo que braya hace HOY, y atarse a
+# eso seria un numero inventado el dia que cambie de horario. Lo que se mira es si esta
+# DELANTE, que es lo que de verdad importa: si una noche esta despierto a las cuatro, tampoco
+# conviene ponerse a comprimir.
+#
+# Y LLEVA PLAZO, que es la regla 2 de la casa: aplazar sin tope convertiria "cuando no moleste"
+# en "nunca". Pasadas TrabajoEsperaMaxHoras se hace igual, estorbe o no. Una copia tarde es un
+# incordio; una copia que no se hace nunca es perder lo aprendido.
+$TrabajoAusenciaMin = 15       # minutos sin nadie delante para considerar que no molesta
+$TrabajoEsperaMaxHoras = 30    # y pasado esto se hace igual, aunque estorbe
+function Test-BuenRatoParaTrabajo([int]$ausenciaMin, [bool]$hayJuego, [double]$horasEsperando) {
+    # EL PLAZO MANDA SOBRE TODO LO DEMAS, incluso sobre el juego: si lleva mas de un dia sin
+    # copia, el riesgo de perderla pesa mas que la molestia de hacerla ahora.
+    if ($horasEsperando -ge $TrabajoEsperaMaxHoras) { return $true }
+    if ($hayJuego) { return $false }
+    return ($ausenciaMin -ge $TrabajoAusenciaMin)
+}
+# Cuanto lleva esperando la copia, en horas. Aparte para poder probar las dos cosas sueltas.
+function Get-CopiaHorasEsperando {
+    try {
+        if (-not (Test-Path -LiteralPath $CopiasDir)) { return 999.0 }
+        $u = Get-ChildItem -LiteralPath $CopiasDir -Filter 'lo-aprendido_*.zip' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if (-not $u) { return 999.0 }
+        return [double]((Get-Date) - $u.LastWriteTime).TotalHours
+    } catch { return 999.0 }
+}
+
 $ReglasPath = Join-Path $LogDir 'reglas.json'
 $script:reglas = $null
 $HORAS_PALABRA = @{ 'una' = 1; 'dos' = 2; 'tres' = 3; 'cuatro' = 4; 'cinco' = 5; 'seis' = 6; 'siete' = 7; 'ocho' = 8; 'nueve' = 9; 'diez' = 10; 'once' = 11; 'doce' = 12 }
@@ -27771,14 +27810,36 @@ while ($true) {
         # alcanza al arrancar y la copia no se hacia nunca (revision del 12/09)
         if (-not $script:copiaMirada) {
             $script:copiaMirada = $true
-            try { if (Test-CopiaPendiente) { [void](New-CopiaSeguridad 'la del dia') } } catch {}
+            # Y EN UN RATO QUE NO MOLESTE (25/09, idea 27). Ver TRABAJAR CUANDO NO MOLESTA:
+            # las trece copias del registro se hicieron entre las 17 y las 22 h, las horas de
+            # mas uso, porque esto corre al arrancar y braya arranca Nova cuando va a usarla.
+            try {
+                if (Test-CopiaPendiente) {
+                    $ausC = 999
+                    try { $ausC = [int](Get-AusenciaMin) } catch {}
+                    if (Test-BuenRatoParaTrabajo $ausC ([bool]$script:juegoActivo) (Get-CopiaHorasEsperando)) {
+                        [void](New-CopiaSeguridad 'la del dia')
+                    }
+                }
+            } catch {}
         }
         $diaAhora = Get-Date -Format 'yyyy-MM-dd'
         if ($diaAhora -ne $script:diaVisto) {
             $script:diaVisto = $diaAhora
             try { Test-FechasHoy } catch {}
             # la copia del dia, en silencio (tambien al arrancar, si toca)
-            try { if (Test-CopiaPendiente) { [void](New-CopiaSeguridad 'la del dia') } } catch {}
+            # Y EN UN RATO QUE NO MOLESTE (25/09, idea 27). Ver TRABAJAR CUANDO NO MOLESTA:
+            # las trece copias del registro se hicieron entre las 17 y las 22 h, las horas de
+            # mas uso, porque esto corre al arrancar y braya arranca Nova cuando va a usarla.
+            try {
+                if (Test-CopiaPendiente) {
+                    $ausC = 999
+                    try { $ausC = [int](Get-AusenciaMin) } catch {}
+                    if (Test-BuenRatoParaTrabajo $ausC ([bool]$script:juegoActivo) (Get-CopiaHorasEsperando)) {
+                        [void](New-CopiaSeguridad 'la del dia')
+                    }
+                }
+            } catch {}
             try { Write-NotaSemanal } catch {}
         }
         # micro-charla: un comentario si viene a cuento, una vez al dia

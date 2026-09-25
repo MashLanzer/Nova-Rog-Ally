@@ -1502,6 +1502,19 @@ Titulo "2n78. Que los bancos midan ESTE repo, en orden y sin etapas mudas"
 python (Join-Path $PSScriptRoot 'probar-bancos-de-verdad.py')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:sin etapas mudas)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n163. Trabajar cuando no molesta (idea 27 de las 50)"
+# LO MEDIDO: de 2.166 ordenes en dieciseis dias, CERO caen entre las 02 y las 08. Seis horas
+# muertas cada dia, y Nova esta DESPIERTA en esa franja -6.027 lineas de registro, en nueve
+# noches distintas-: lo unico que hace es escuchar a nadie y aparcar avisos.
+# Mientras, la copia de lo aprendido se ha hecho TRECE veces y las trece entre las 17 y las
+# 22 h, que son las horas de mas uso (235 ordenes a las 18h). No es mala suerte: la copia se
+# intenta EN EL PRIMER MINUTO TRAS ARRANCAR y braya arranca Nova cuando va a usarla.
+# NO SE MIRA EL RELOJ: la franja de 02 a 08 es lo que hace HOY, y seria un numero inventado el
+# dia que cambie de horario. Se mira si esta DELANTE. Y lleva plazo, que es la regla 2: pasadas
+# 30 horas se hace igual, estorbe o no; una copia que no se hace nunca es perder lo aprendido.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-rato-tranquilo.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:un rato que no moleste)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n162. Las dos frases que si se repiten"
 # LO MEDIDO, y es mucho menos de lo que parecia: de las 1.842 frases que Nova dijo en el
 # registro, las CUATRO mas repetidas son de UN SOLO DIA -el bucle de "Mientras no estabas" del
