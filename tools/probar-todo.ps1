@@ -1502,6 +1502,33 @@ Titulo "2n78. Que los bancos midan ESTE repo, en orden y sin etapas mudas"
 python (Join-Path $PSScriptRoot 'probar-bancos-de-verdad.py')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:sin etapas mudas)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n143. Nova se da cuenta de lo que ha dejado de hacer"
+# EL DIARIO DEL DIA se escribio 10 veces entre el 10 y el 21/09 y NI UNA desde entonces: cuatro
+# dias en blanco sin que saltara nada. Y no era que Nova estuviera apagada -la copia de lo
+# aprendido siguio haciendose los 13 de 13 dias-: era esa costumbre concreta la que se rompio.
+# POR QUE: el resumen vive dentro del worker de la charla y solo corre tras 20 min sin hablar Y
+# con el revisor despierto, que se para en seco con un juego delante. Entre partidas y
+# reinicios esa ventana casi nunca llega.
+# LA IDEA: Nova ya vigila la bateria de braya, su disco y sus descargas; lo que no vigilaba era
+# A SI MISMA. Avisa, no arregla: una costumbre rota puede tener diez causas y ponerse a
+# adivinar es la clase de iniciativa que prohibe la regla 1.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-costumbres-propias.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se da cuenta de lo que ha dejado)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n144. Lo que oyo cada motor llega junto a Claude"
+# LO PIDIO BRAYA el 25/09: "lo que entienden todos los modelos deberia enviarse y una IA como
+# Claude debe armar la frase entera de ser necesario". El caso que lo motivo, esa misma noche:
+# pregunto hace cuanto que un amigo se desconecto, Parakeet lo transcribio PERFECTO y Nova tiro
+# ese texto porque "no cubre la voz" (3,8 letras por segundo contra un liston de 4,0: hablaba
+# algo mas despacio de lo normal). Viajo la de Whisper, que convirtio el nombre en "base", y
+# con eso dentro nadie podia hacer nada.
+# MEDIDO: 29 descartes por cobertura en 514 transcripciones, y de los cuatro ultimos, en TRES
+# la descartada era mejor. Dos de ellos, por DOS DECIMAS.
+# Y SALE GRATIS: cuando el local no entiende, Nova YA llama a Claude para traducir (1,8 s de
+# mediana). Mandarle las candidatas es la MISMA llamada con mas informacion.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-segunda-oreja.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:oyo cada motor llega junto)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n142. Que Nova te diga que se cayo (y cuanto estuvo fuera)"
 # EL CASO QUE LA ORIGINO: el 24/09 a las 21:53 Nova se murio de golpe mientras braya jugaba y
 # estuvo muerta hasta las 23:33 -una hora y cuarenta-. No se entero por ella: se entero porque

@@ -10040,6 +10040,96 @@ function Save-AvisoEspera {
 # existe antes del 18/09 a las 17:06 (commit 79ca9a0). Un arranque anterior a esa fecha no la
 # tiene porque no se escribia, no porque se cayera. Sin esta guarda Nova acusaria una caida
 # por cada sesion de nueve dias, y todas serian falsas.
+# NOVA SE VIGILA A SI MISMA (25/09, idea 3 de las cincuenta).
+#
+# LO MEDIDO: el diario del dia se escribio 10 veces entre el 10 y el 21/09 y NI UNA desde
+# entonces. Cuatro dias en blanco sin que saltara nada. Y no era que Nova estuviera apagada: en
+# esos mismos cuatro dias la copia de lo aprendido siguio haciendose (13 de 13 dias). Era esa
+# costumbre concreta la que se habia roto, y el unico que se entero fui yo mirando carpetas.
+#
+# POR QUE SE ROMPIO: el resumen del diario vive dentro del worker de la charla y solo corre
+# tras 20 minutos sin hablar Y con el revisor despierto, que se para en seco con un juego
+# delante. Entre partidas y reinicios esa ventana casi nunca llega. El material no se ha
+# perdido -quedan 3 ficheros de charla en bruto sin resumir- pero el diario lleva cuatro dias
+# vacio.
+#
+# LA IDEA: Nova ya vigila la bateria de braya, su disco y sus descargas. Lo que no vigilaba era
+# A SI MISMA. Si algo que hacia todos los dias deja de pasar, tiene que notarlo ella.
+#
+# LO QUE NO HACE, Y ES A PROPOSITO: no intenta arreglarlo. Avisa. Una costumbre rota puede
+# tener diez causas -un worker caido, un modelo sin RAM, un permiso- y ponerse a "arreglar" a
+# ciegas es justo la clase de iniciativa que prohibe la regla 1 de la casa.
+#
+# LOS NUMEROS: cadaDias es cada cuanto deberia pasar y graciaDias lo que se le perdona antes de
+# decir nada. El diario es diario y se avisa al cuarto dia (1 + 3): con menos gracia, un fin de
+# semana sin encender la consola daria un aviso falso. La copia igual. El resumen semanal es
+# cada 7 y se avisa a los 10.
+function Get-CostumbresOlvidadas([hashtable[]]$costumbres, [datetime]$hoy = (Get-Date)) {
+    $fuera = @()
+    foreach ($c in $costumbres) {
+        try {
+            if (-not $c.carpeta -or -not (Test-Path -LiteralPath $c.carpeta)) { continue }
+            # LA FECHA SALE DEL NOMBRE DEL FICHERO, NO DEL DISCO. Una copia de seguridad, un
+            # git checkout o un antivirus tocan LastWriteTime de todo a la vez y dejarian la
+            # costumbre por cumplida sin haberse cumplido. Los ficheros de estas carpetas
+            # llevan su fecha en el nombre a proposito.
+            $ult = $null
+            foreach ($f in @(Get-ChildItem -LiteralPath $c.carpeta -File -ErrorAction SilentlyContinue)) {
+                if ($f.Name -match '(\d{4})-(\d{2})-(\d{2})') {
+                    try { $d = [datetime]::new([int]$Matches[1], [int]$Matches[2], [int]$Matches[3]) } catch { continue }
+                    if (-not $ult -or $d -gt $ult) { $ult = $d }
+                } elseif ($f.Name -match '(\d{4})-W(\d{2})') {
+                    # LAS SEMANAS, POR SU FINAL Y NO POR SU PRINCIPIO (25/09, lo cazo el
+                    # banco). Un resumen semanal se escribe cuando la semana ACABA, asi que
+                    # fechar '2026-W38' en su lunes le anade seis dias de vejez de regalo: con
+                    # la gracia de diez dias, la semana en curso salia "olvidada" el jueves
+                    # siguiente sin que pasara nada raro. Se toma el domingo.
+                    try {
+                        $ene = [datetime]::new([int]$Matches[1], 1, 4)
+                        $lunes = $ene.AddDays(7 * ([int]$Matches[2] - 1) - (([int]$ene.DayOfWeek + 6) % 7))
+                        $d = $lunes.AddDays(6)
+                    } catch { continue }
+                    if (-not $ult -or $d -gt $ult) { $ult = $d }
+                }
+            }
+            # SIN UNA PRIMERA VEZ NO HAY COSTUMBRE QUE ROMPER: una carpeta vacia no es un
+            # olvido, es algo que todavia no ha empezado. Avisar de eso seria ruido.
+            if (-not $ult) { continue }
+            $dias = [int]([Math]::Floor(($hoy.Date - $ult.Date).TotalDays))
+            $tope = [int]$c.cadaDias + [int]$c.graciaDias
+            if ($dias -ge $tope) {
+                $fuera += @{ nombre = [string]$c.nombre; dias = $dias; desde = $ult.ToString('dd/MM') }
+            }
+        } catch { }
+    }
+    return $fuera
+}
+# LA LISTA DE VERDAD, aparte de la logica: asi el banco puede probar la logica con carpetas de
+# mentira y comprobar esta por separado.
+function Get-CostumbresPropias {
+    return @(
+        @{ nombre = 'escribir el diario del dia'; carpeta = (Join-Path $MemoriaDir 'diario');  cadaDias = 1; graciaDias = 3 },
+        @{ nombre = 'el resumen de la semana';    carpeta = (Join-Path $MemoriaDir 'semanas'); cadaDias = 7; graciaDias = 3 },
+        @{ nombre = 'la copia de lo aprendido';   carpeta = (Join-Path $LogDir 'copias');      cadaDias = 1; graciaDias = 2 }
+    )
+}
+# UNA VEZ AL DIA COMO MUCHO, y solo si hay algo que decir. Se junta todo en una frase: tres
+# avisos sueltos por tres costumbres rotas serian tres interrupciones por el mismo problema.
+$script:costumbresMiradas = ''
+function Test-CostumbresPropias {
+    $hoyS = (Get-Date).ToString('yyyy-MM-dd')
+    if ($script:costumbresMiradas -eq $hoyS) { return }
+    $script:costumbresMiradas = $hoyS
+    try {
+        $olv = @(Get-CostumbresOlvidadas (Get-CostumbresPropias))
+        if ($olv.Count -eq 0) { return }
+        $trozos = @($olv | ForEach-Object { "$($_.nombre) (desde el $($_.desde))" })
+        $fr = if ($trozos.Count -eq 1) { "He dejado de $($trozos[0])." }
+              else { "He dejado de hacer un par de cosas: " + ($trozos -join '; ') + "." }
+        Log ("COSTUMBRE OLVIDADA: " + (($olv | ForEach-Object { $_.nombre + ' ' + $_.dias + 'd' }) -join ', '))
+        [void](Send-AvisoEntorno 'me-olvide' $fr 'medio' 1440)
+    } catch {}
+}
 $CaidaDesdeQueHayCerrado = [datetime]'2026-09-18 17:06:00'
 # Y UN HUECO CON FECHA DE CADUCIDAD: si la caida fue hace mas de doce horas, la noticia ya no
 # es que se cayo -eso es historia- sino que braya lleva medio dia sin ella, que es otra cosa y
@@ -16938,6 +17028,48 @@ $RutaConfirmacion = Join-Path $TmpDir "confirmacion.txt"
 $RutaVocabulario = Join-Path $TmpDir "vocabulario.txt"
 $RutaDictado = Join-Path $TmpDir "dictado.txt"
 $RutaParcial = Join-Path $TmpDir "dictado-parcial.txt"
+# LO QUE OYO CADA MOTOR DE LA MISMA FRASE (25/09, idea de braya: "lo que entienden todos los
+# modelos deberia enviarse y una IA como Claude debe armar la frase entera de ser necesario").
+#
+# POR QUE SALE CASI GRATIS: cuando el reconocedor local no entiende una orden, Nova YA llama a
+# Claude para traducirla -SUBMIT (traducir), 1,5 s medidos el 25/09-. Hoy le manda UNA frase, y
+# a veces es la peor que tenia. Darle las tres candidatas es la MISMA llamada con mas
+# informacion: ni una peticion mas, ni un segundo mas.
+#
+# EL CASO QUE LO PIDE, del 25/09 a la 01:25: Parakeet oyo bien el nombre de un amigo de braya y
+# la cobertura descarto esa transcripcion por DOS DECIMAS (3,8 letras por segundo contra un
+# liston de 4,0, porque braya hablaba algo mas despacio de lo normal). Viajo la de Whisper, que
+# habia convertido ese nombre en "base". Con "base" dentro, Claude no podia adivinar nada y
+# Nova contesto que no sabia. Con las dos delante, si puede.
+$RutaOidos = Join-Path $TmpDir "dictado-oidos.txt"
+function Get-OtrosOidos([string]$principal, [string]$ruta = $RutaOidos) {
+    if (-not $ruta -or -not (Test-Path -LiteralPath $ruta)) { return '' }
+    $lineas = @()
+    try {
+        $lineas = @(Get-Content -LiteralPath $ruta -Encoding UTF8 | Where-Object { $_.Trim() })
+    } catch { return '' }
+    # SE CONSUME AL LEERLA. Unas candidatas de hace tres ordenes no ayudan: harian que Nova
+    # contestara a lo de antes. El oido las reescribe en cada dictado, pero si por lo que sea
+    # no llegara a hacerlo, aqui se cierra la puerta igual.
+    try { Remove-Item -LiteralPath $ruta -Force -ErrorAction SilentlyContinue } catch {}
+    $plano = (ConvertTo-Plain $principal).ToLower().Trim()
+    $utiles = @()
+    foreach ($l in $lineas) {
+        $t = ($l -replace '^[a-z-]+:\s*', '').Trim()
+        if (-not $t) { continue }
+        # la que ya se probo no es una segunda opinion
+        if ((ConvertTo-Plain $t).ToLower().Trim() -eq $plano) { continue }
+        if ($utiles -contains $l) { continue }
+        $utiles += $l
+    }
+    if ($utiles.Count -eq 0) { return '' }
+    return ("LO QUE OYERON LOS OTROS MOTORES de esa misma frase (el microfono es imperfecto y" +
+            " cada motor se equivoca en cosas distintas):`n" + ($utiles -join "`n") +
+            "`nSi la frase de arriba no tiene sentido y alguna de estas si, o si juntandolas se" +
+            " entiende lo que pedia, usa eso. Son la MISMA frase oida de varias maneras: no las" +
+            " trates como peticiones distintas ni contestes a varias. Si la de arriba ya se" +
+            " entiende sola, IGNORA esta lista entera.")
+}
 # YA NO TE OYE, AUNQUE LA ONDA SIGA MOVIENDOSE (22/09). La escucha crea esta marca en
 # el instante en que cierra el microfono y la borra justo antes de dejar el texto:
 # mientras existe, esta transcribiendo y esta sorda. Sin ella la capsula se quedaba en
@@ -19766,6 +19898,10 @@ try { Initialize-PerfilTodo } catch {}
 # es exactamente cuando sirve. Nivel 'medio': no es una urgencia, pero tampoco algo que deba
 # quedarse solo en la capsula.
 try {
+    # Y SUS PROPIAS COSTUMBRES (25/09, idea 3): una vez al dia, mirar si algo que hacia a
+    # diario ha dejado de pasar. Va aqui, al arrancar, porque es cuando ya estan montadas las
+    # rutas y no cuesta nada; el propio Test-CostumbresPropias se frena a una vez por dia.
+    try { Test-CostumbresPropias } catch {}
     $caida = Get-CaidaAnterior $EventLog $PID
     if ($caida) {
         $fr = Get-FraseCaida $caida
@@ -21797,6 +21933,18 @@ function Submit-Command([string]$text, [string]$modo = 'accion', [string]$adjunt
         if ($ctxT) {
             $prompt = $prompt + "`n`n" + $ctxT
             Log "contexto: $($script:turnos.Count) turno(s) de antes van con la peticion"
+        }
+    }
+    # Y LO QUE OYERON LOS OTROS MOTORES (25/09, idea de braya). Ver Get-OtrosOidos: solo en
+    # 'traducir', que es el camino al que se llega justamente cuando la frase elegida no la
+    # entendio nadie. En 'accion' no: ahi el agente tiene manos y una frase alternativa mal
+    # entendida podria acabar ejecutando otra cosa, que es la regla 1 de la casa.
+    if ($modo -eq 'traducir') {
+        $oid = ''
+        try { $oid = Get-OtrosOidos $text } catch { $oid = '' }
+        if ($oid) {
+            $prompt = $prompt + "`n`n" + $oid
+            Log ("oidos: van " + (@($oid -split "`n") | Where-Object { $_ -match '^[a-z-]+: ' }).Count + " candidata(s) mas con la peticion")
         }
     }
     # 'charla' encadena la sesion anterior: recuerda lo hablado antes

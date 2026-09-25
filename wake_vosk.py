@@ -891,6 +891,8 @@ _canary_uso = 0.0
 _omni = None
 _omni_roto = False
 _omni_uso = 0.0
+# el texto que Parakeet dio y la cobertura aparto (ver RUTA_OIDOS)
+_parakeet_descartado = ""
 _parakeet_uso = 0.0      # cuando se uso por ultima vez (ver PARAKEET NO SE SUELTA DE GOLPE)
 _carga_parakeet = threading.Lock()   # ver modelo_parakeet
 
@@ -1409,6 +1411,15 @@ def oir_parakeet(bloques):
             if c < liston:
                 anota("parakeet: '%s' no cubre la voz (%.1f letras por segundo, mi liston de hoy %.1f); lo oye Whisper"
                       % (texto, c, liston))
+                # EL TEXTO NO SE TIRA, SE APARTA (25/09). Medido sobre el registro: 29
+                # descartes por cobertura en 514 transcripciones, y de los cuatro ultimos, en
+                # TRES la descartada era mejor que la que se uso. Dos de ellos por DOS DECIMAS
+                # (3.8 contra un liston de 4.0), que es lo que pasa cuando braya habla un poco
+                # mas despacio de lo normal. El liston no se toca -esta medido y su trabajo es
+                # desconfiar de una transcripcion que parece corta-; lo que se deja de hacer
+                # es perderla. Va a RUTA_OIDOS con las demas.
+                global _parakeet_descartado
+                _parakeet_descartado = texto
                 return ""
         return texto
     except Exception as e:
@@ -2957,6 +2968,9 @@ RUTA_RAFAGAS = os.path.join(os.path.dirname(NIVEL), "rafagas.txt") if NIVEL else
 # Estado legible para el asistente, escrito en cada pulso. Sirve para que
 # puedas preguntarle "¿como me oyes?" en vez de tener que abrir el log.
 RUTA_ESTADO = os.path.join(os.path.dirname(NIVEL), "escucha-estado.txt") if NIVEL else ""
+# LO QUE OYO CADA MOTOR, para cuando la frase elegida no lleva a ninguna parte (25/09).
+# Ver TODO LO QUE OYO CADA MOTOR VA JUNTO, mas abajo.
+RUTA_OIDOS = os.path.join(os.path.dirname(NIVEL), "dictado-oidos.txt") if NIVEL else ""
 
 
 def decir_estado(ref=0.0):
@@ -3309,6 +3323,15 @@ try:
                         except Exception:
                             pass
                     anota("dictado: cortado a mano -> '%s'" % texto_final)
+                    # EL OTRO CAMINO TAMBIEN LIMPIA (25/09, lo cazo el banco). Hay DOS sitios
+                    # que entregan un dictado: el normal y este, el del boton cortado a mano.
+                    # Si este no tocara dictado-oidos.txt, las candidatas de la orden ANTERIOR
+                    # seguirian ahi y el asistente las mandaria a Claude junto a una frase que
+                    # no tiene nada que ver. Aqui no hay candidatas que ofrecer -se corto a
+                    # mano-, asi que se deja vacio.
+                    if RUTA_OIDOS:
+                        escribir(RUTA_OIDOS, "")
+                    _parakeet_descartado = ""
                     escribir(TEXTO, texto_final)
                     guardar_uso(audio_dictado, origen="boton", parakeet=oido_parakeet, whisper=mejor,
                                 seguridad=_ultima_seguridad, entregado=texto_final)
@@ -3662,6 +3685,28 @@ try:
                                 except Exception:
                                     pass
                             anota("dictado: '%s'" % texto_final)
+                            # TODO LO QUE OYO CADA MOTOR VA JUNTO (25/09, idea de braya). Si la
+                            # frase elegida no lleva a ninguna parte, el asistente ya llama a
+                            # Claude para traducirla; dandole las tres candidatas en vez de una
+                            # puede reconstruir la buena. No cuesta una llamada mas: es la
+                            # misma con mas informacion.
+                            # SE ESCRIBE SIEMPRE, aunque no haya nada que anadir, para borrar
+                            # las de la orden anterior: unas candidatas viejas harian que Nova
+                            # contestara a lo de hace tres ordenes.
+                            # Y VA ANTES QUE EL TEXTO: el asistente arranca en cuanto ve el
+                            # dictado, asi que despues llegaria tarde a su propia orden.
+                            if RUTA_OIDOS:
+                                _cands = []
+                                for _m, _t in (("parakeet", oido_parakeet), ("parakeet-corto", _parakeet_descartado),
+                                               ("whisper", mejor), ("vosk", texto_vosk)):
+                                    _t = (_t or "").strip()
+                                    if not _t or _t == (texto_final or "").strip():
+                                        continue
+                                    if any(_t == _y for _x, _y in _cands):
+                                        continue
+                                    _cands.append((_m, _t))
+                                escribir(RUTA_OIDOS, chr(10).join("%s: %s" % (_m, _t) for _m, _t in _cands))
+                            _parakeet_descartado = ""
                             escribir(TEXTO, texto_final)
                             if not callado:
                                 guardar_uso(audio_dictado, origen="nombre" if origen_nombre else "boton o seguimiento",
