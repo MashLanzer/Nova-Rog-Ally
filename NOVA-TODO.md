@@ -35,7 +35,7 @@ cristal en una esquina.
 | `wake_vosk.py` (el oído) | 4.001 líneas |
 | `charla_worker.py` + `charla_memoria.py` | 1.304 + 934 líneas |
 | `ajedrez.py` | 293 líneas |
-| Bancos de pruebas | **170 ficheros**, 172 secciones en la batería |
+| Bancos de pruebas | **199 bancos** + la batería que los corre, 201 secciones |
 | Órdenes distintas que entiende | **162** |
 | Contadores que lleva de sí misma | 49 |
 | Commits | 515 |
@@ -315,7 +315,18 @@ código, y a qué hora se commiteó, no solo qué día**: un fallo que "no apare
 de registro" puede llevar arreglado desde ayer por la tarde. Está escrita en la cabecera de
 `tools/probar-todo.ps1` para que no se olvide.
 
-Hoy: **173 bancos, 175 secciones**, y cada idea de las cuarenta con su script de roturas.
+**Y la décima manera, que no es salir verde mintiendo sino no salir.** Un banco que **no corre
+nadie** no sale rojo, no sale verde: no sale. El 25/09 había **198 bancos y 199 secciones**, un
+empate que parecía decir que estaban todos —y no lo decía, porque algunas secciones corren dos
+bancos—. Debajo estaba `probar-microfono.py`, escrito el 22/09 —el día del micro USB— y sin
+correr desde entonces: **tres días**. Pasa en verde a la primera cuando por fin se lanza, así
+que lo que se perdió no fueron fallos, fue la vigilancia. Ahora lo mira la **sección 9** de la
+batería, y el propio detector nació con la **manera 2 dentro** —buscaba el nombre en el texto
+entero, comentarios incluidos, así que nombrar un banco en un comentario lo daba por corrido—:
+había **tres** así, los tres que se quedan fuera a propósito, pasando en verde por la razón
+equivocada. Hoy son una excepción declarada y el cuarto sale rojo.
+
+Hoy: **199 bancos, 201 secciones**, y cada idea de las cuarenta con su script de roturas.
 
 ---
 

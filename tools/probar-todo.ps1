@@ -1867,6 +1867,40 @@ Titulo "2n140. Los workers que sobrevivian a Nova (44 vivos, 1,3 GB)"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-huerfanos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya no sobreviven a Nova)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n165. La ganancia es de un microfono, no de la consola"
+# ENTRA EN LA BATERIA EL 25/09, Y LLEVABA TRES DIAS ESCRITO SIN CORRER. El banco es del
+# 22/09 -el dia que braya enchufo un micro USB y dijo "Nova tiene que saber detectar cuando
+# esta y no esta ese micro y reajustar su ganancia sola"- y desde entonces no lo habia
+# lanzado NADIE: ni la bateria, ni otro banco. No salia rojo ni verde, no salia. Lo caza la
+# seccion 9, que nacio hoy justo por esto.
+# Cabe aqui porque NO necesita microfono: la ganancia se hereda o no leyendo el nombre del
+# dispositivo que quedo guardado, y eso es logica sobre texto. Lo que NO se puede probar sin
+# hardware -que al cambiar de micro el worker salga y el asistente lo relance- lo comprueba
+# sobre el codigo de wake_vosk.py, y el propio banco lo dice en su cabecera.
+# Lo que mas vigila: que una ganancia de OTRO micro no se herede. El array de Realtek estaba
+# en x18,3; ese numero en un micro USB satura, y al reves deja a Nova sorda.
+python (Join-Path $PSScriptRoot 'probar-microfono.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la ganancia va con su microfono)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "9. Bancos que no corre nadie (ROJO si los hay)"
+# UN BANCO HUERFANO NO SALE ROJO, NO SALE VERDE, NO SALE (25/09). En la carpeta tools habia
+# 198 bancos y 199 secciones aqui, asi que el recuento parecia decir que estaban todos. No lo
+# decia: algunas secciones corren dos bancos, y debajo de ese empate estaba probar-microfono.py
+# sin correr desde que se escribio. Escribir la prueba y no engancharla cuesta lo mismo que no
+# escribirla, pero da la sensacion contraria.
+# TRES COSAS MIRA, y la tercera existe porque las dos primeras podrian ser decoracion:
+#   - que ningun banco de la carpeta tools se quede fuera de esta bateria (o de otro banco que lo lance);
+#   - que esta bateria no llame a uno que ya no existe (eso si sale rojo, pero con un mensaje
+#     que no dice lo que pasa);
+#   - y que el detector detecte, con un nombre inventado que no puede estar en ningun sitio.
+# EL AGUJERO QUE TENIA AL NACER, y por eso no busca en los comentarios: nombrar un banco en
+# un comentario lo daba por corrido. Hoy hay TRES asi -probar-vivo.ps1, probar-precarga.py y
+# probar-voz-windows.py, los tres que se quedan fuera a proposito y estan explicados arriba-,
+# y los tres pasaban en verde por la razon equivocada. Ahora son una excepcion declarada: si
+# aparece un cuarto banco solo nombrado en un comentario, sale rojo.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-bancos-huerfanos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:todos los bancos se corren)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "7. Bancos que llaman a funciones que no han traido (ROJO si los hay)"
 # No es un detalle de estilo: un banco asi no prueba lo que dice probar. probar-json-ui
 # soltaba 16 de estos por pasada y salia en verde; probar-costumbres estuvo un dia
