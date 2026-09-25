@@ -8962,7 +8962,7 @@ function Watch-Musica($mu) {
 $script:habitos = $null
 function Get-Habitos {
     if ($null -ne $script:habitos) { return $script:habitos }
-    $script:habitos = @{ usos = (New-Object System.Collections.ArrayList); rechazadas = (New-Object System.Collections.ArrayList); ultimaPropuesta = ''; fin = @{}; cargaAvisada = ''; nivelVisto = 0; brilloAuto = $false; parteVisto = ''; parteTexto = ''; sinDatosVisto = ''; sinDatosTexto = ''; correoVisto = ''; correoNum = -1; ritmo = (New-Object System.Collections.ArrayList); charlaHoras = @{}; minutosJuego = @{}; presencia = @{}; avisoJuego = @{ dia = ''; ult = 0; cada = 0; no = '' } }
+    $script:habitos = @{ usos = (New-Object System.Collections.ArrayList); rechazadas = (New-Object System.Collections.ArrayList); ultimaPropuesta = ''; fin = @{}; cargaAvisada = ''; nivelVisto = 0; brilloAuto = $false; parteVisto = ''; parteTexto = ''; sinDatosVisto = ''; sinDatosTexto = ''; correoVisto = ''; correoNum = -1; ritmo = (New-Object System.Collections.ArrayList); charlaHoras = @{}; presencia = @{}; avisoJuego = @{ dia = ''; ult = 0; cada = 0; no = '' } }
     $rutaH = Join-Path $MemoriaDir 'habitos.json'
     if (Test-Path -LiteralPath $rutaH) {
         try {
@@ -8999,7 +8999,6 @@ function Get-Habitos {
                 $script:habitos.sinDatosTexto = [string]$crudoH.sinDatosTexto
             }
             $script:habitos.sinDatosVisto = [string]$crudoH.sinDatosVisto
-            if ($crudoH.minutosJuego) { foreach ($pM in $crudoH.minutosJuego.PSObject.Properties) { $script:habitos.minutosJuego[$pM.Name] = [int]$pM.Value } }
             if ($crudoH.PSObject.Properties['avisoJuego'] -and $crudoH.avisoJuego) {
                 foreach ($pA in $crudoH.avisoJuego.PSObject.Properties) { $script:habitos.avisoJuego[$pA.Name] = $pA.Value }
                 $script:juegoAvisoDia = [string]$script:habitos.avisoJuego['dia']
@@ -9033,7 +9032,7 @@ function Get-Habitos {
 function Save-Habitos {
     try {
         $hb = Get-Habitos
-        $o = [ordered]@{ usos = @($hb.usos); rechazadas = @($hb.rechazadas); ultimaPropuesta = $hb.ultimaPropuesta; fin = $hb.fin; cargaAvisada = $hb.cargaAvisada; nivelVisto = $hb.nivelVisto; brilloAuto = [bool]$hb.brilloAuto; parteVisto = [string]$hb.parteVisto; parteTexto = [string]$hb.parteTexto; correoVisto = [string]$hb.correoVisto; correoNum = [int]$hb.correoNum; sinDatosVisto = [string]$hb.sinDatosVisto; sinDatosTexto = [string]$hb.sinDatosTexto; ritmo = @($hb.ritmo); charlaHoras = $hb.charlaHoras; minutosJuego = $hb.minutosJuego; presencia = $hb.presencia; avisoJuego = $hb.avisoJuego }
+        $o = [ordered]@{ usos = @($hb.usos); rechazadas = @($hb.rechazadas); ultimaPropuesta = $hb.ultimaPropuesta; fin = $hb.fin; cargaAvisada = $hb.cargaAvisada; nivelVisto = $hb.nivelVisto; brilloAuto = [bool]$hb.brilloAuto; parteVisto = [string]$hb.parteVisto; parteTexto = [string]$hb.parteTexto; correoVisto = [string]$hb.correoVisto; correoNum = [int]$hb.correoNum; sinDatosVisto = [string]$hb.sinDatosVisto; sinDatosTexto = [string]$hb.sinDatosTexto; ritmo = @($hb.ritmo); charlaHoras = $hb.charlaHoras; presencia = $hb.presencia; avisoJuego = $hb.avisoJuego }
         $rutaH = Join-Path $MemoriaDir 'habitos.json'
         [System.IO.File]::WriteAllText($rutaH + '.tmp', (ConvertTo-Json -InputObject $o -Depth 4), (New-Object System.Text.UTF8Encoding($false)))
         Move-Item -LiteralPath ($rutaH + '.tmp') -Destination $rutaH -Force
@@ -19682,6 +19681,72 @@ $script:charlaTarde = ''
 $script:logroArchivo = ''
 $script:logroStamp = [DateTime]::MinValue
 $script:logroUltimo = 0
+$script:logroClave = ''     # el appid del juego que se esta vigilando, para la fecha en disco
+
+# LOS LOGROS QUE NADIE VE (25/09)
+#
+# LO MEDIDO: "LOGRO (stats de Steam cambiaron)" sale CINCO veces en dieciseis dias -tres el
+# 15/09, una el 19 y una el 20-, y ninguna desde entonces. Y no es que el mecanismo este roto:
+# los .bin que vigila SIGUEN cambiando, el mas reciente el 24/09 a las 22:41 (A Way Out).
+#
+# POR QUE NO LO VE, y son dos agujeros del mismo sitio:
+#   1. $script:logroStamp vive SOLO EN RAM. Nova se apaga, y la fecha del fichero se olvida:
+#      lo que pasara mientras no estaba no existio. El 24/09 a las 22:41 cambio el .bin y en el
+#      registro no hay ni una linea entre las 21 y las 23 de ese dia. Nova estaba apagada.
+#   2. Cada vez que el juego sale del primer plano se hace "$script:logroArchivo = ''", y al
+#      volver la primera pasada SOLO apunta la fecha y se va con un return. O sea que un logro
+#      conseguido entre salir y volver tampoco se ve. El 23/09 hubo dos alt-tab en 70 segundos.
+#
+# EL ARREGLO es guardar la fecha en disco por juego, que es lo unico que faltaba: al volver -o
+# al arrancar- se compara contra lo GUARDADO en vez de contra lo que se acaba de leer.
+#
+# Y LA PRIMERA VEZ NO CANTA, a proposito: sin nada guardado no se sabe si el fichero cambio
+# ayer o hace un mes, y una medalla por instalar Nova seria justo el falso positivo que
+# quitaria credito a los de verdad. La primera vez se apunta y se calla.
+$LogrosStampPath = Join-Path $MemoriaDir 'logros-stamp.json'
+$script:logrosStamp = $null
+
+function Get-LogrosStamp {
+    if ($null -ne $script:logrosStamp) { return $script:logrosStamp }
+    $script:logrosStamp = @{}
+    if (Test-Path -LiteralPath $LogrosStampPath) {
+        try {
+            $cL = Get-Content -LiteralPath $LogrosStampPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($pL in @($cL.PSObject.Properties)) { $script:logrosStamp[$pL.Name] = [string]$pL.Value }
+        } catch { Log ('logros: no pude leer las fechas guardadas: ' + $_.Exception.Message) }
+    }
+    return $script:logrosStamp
+}
+
+function Save-LogrosStamp {
+    try {
+        $hL = Get-LogrosStamp
+        $oL = [ordered]@{}
+        foreach ($kL in @($hL.Keys | Sort-Object)) { $oL[$kL] = [string]$hL[$kL] }
+        [System.IO.File]::WriteAllText($LogrosStampPath + '.tmp', (ConvertTo-Json -InputObject $oL -Depth 3), (New-Object System.Text.UTF8Encoding($false)))
+        Move-Item -LiteralPath ($LogrosStampPath + '.tmp') -Destination $LogrosStampPath -Force
+    } catch { Log ('logros: no pude guardar las fechas: ' + $_.Exception.Message) }
+}
+
+# SI ESTA FECHA ES UN LOGRO NUEVO. Aparte para poderla probar sin Steam delante.
+# Se compara con -gt y no con -ne (que es lo que hacia antes): si algun dia se restaura una
+# copia de seguridad de Steam, el .bin puede quedarse con una fecha ANTERIOR a la guardada, y
+# eso no es un logro, es un retroceso. Con -ne se cantaria igual.
+function Test-LogroNuevo([string]$guardado, [datetime]$ahora) {
+    if (-not $guardado) { return $false }     # primera vez: se apunta y se calla
+    try {
+        $gL = [datetime]::Parse($guardado, [Globalization.CultureInfo]::InvariantCulture,
+                                [Globalization.DateTimeStyles]::RoundtripKind)
+    } catch {
+        # QUE NO SE CALLE (25/09, lo cazo una rotura). $false es TAMBIEN la respuesta buena
+        # -"esto no es un logro"-, asi que una fecha corrupta en el fichero dejaria de dar
+        # medallas para siempre y por fuera pareceria que braya no consigue ninguna. Es la
+        # manera 10 de que un banco salga verde mintiendo. Con la linea, se ve.
+        Log ("logros: no entiendo la fecha guardada ('" + $guardado + "'): " + $_.Exception.Message)
+        return $false
+    }
+    return ($ahora -gt $gL)
+}
 
 function Watch-LogrosSteam {
     if (-not $script:juegoActivo) { $script:logroArchivo = ''; return }
@@ -19694,12 +19759,34 @@ function Watch-LogrosSteam {
             if (-not $f) { $script:logroArchivo = '-'; return }
             $script:logroArchivo = $f.FullName
             $script:logroStamp = $f.LastWriteTimeUtc
+            $script:logroClave = [string]$j.id
+            # AQUI ESTABA EL AGUJERO: antes se apuntaba la fecha y se volvia con un return, o
+            # sea que lo que hubiera pasado con Nova apagada -o entre dos alt-tab- no se veia
+            # nunca. Ahora se compara contra lo que quedo GUARDADO la ultima vez.
+            $hL = Get-LogrosStamp
+            $antesL = [string]$hL[$script:logroClave]
+            $hL[$script:logroClave] = $script:logroStamp.ToString('o')
+            Save-LogrosStamp
+            if (Test-LogroNuevo $antesL $script:logroStamp) {
+                $script:logroUltimo = $sw.ElapsedMilliseconds
+                Log "LOGRO (stats de Steam cambiaron mientras no miraba) en $($script:juegoActivo)"
+                Send-UIEvento 'logro'
+            }
             return
         }
         if ($script:logroArchivo -eq '-') { return }
         $st = [System.IO.File]::GetLastWriteTimeUtc($script:logroArchivo)
         if ($st -ne $script:logroStamp) {
             $script:logroStamp = $st
+            # Y QUE SOBREVIVA AL PROXIMO APAGON: se guarda en cuanto cambia, no al salir.
+            # Nova no siempre se apaga por las buenas -el 24/09 hay catorce arranques- y una
+            # fecha que solo se escribe al cerrar limpiamente es una fecha que se pierde.
+            try {
+                if ($script:logroClave) {
+                    (Get-LogrosStamp)[$script:logroClave] = $st.ToString('o')
+                    Save-LogrosStamp
+                }
+            } catch {}
             if (($sw.ElapsedMilliseconds - $script:logroUltimo) -ge 120000) {
                 $script:logroUltimo = $sw.ElapsedMilliseconds
                 Log "LOGRO (stats de Steam cambiaron) en $($script:juegoActivo)"

@@ -1502,6 +1502,22 @@ Titulo "2n78. Que los bancos midan ESTE repo, en orden y sin etapas mudas"
 python (Join-Path $PSScriptRoot 'probar-bancos-de-verdad.py')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:sin etapas mudas)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n161. Los logros que nadie ve (y una clave muerta de habitos.json)"
+# LO MEDIDO: "LOGRO (stats de Steam cambiaron)" sale CINCO veces en dieciseis dias y ninguna
+# desde el 20/09. Y NO esta roto: los .bin que vigila siguen cambiando, el mas reciente el
+# 24/09 a las 22:41 (A Way Out). Son dos agujeros del mismo sitio:
+#   1. la fecha del fichero vivia SOLO EN RAM, asi que un apagon la borraba: el 24/09 a las
+#      22:41 Nova estaba apagada -no hay ni una linea entre las 21 y las 23 de ese dia-;
+#   2. cada alt-tab hacia "logroArchivo = ''" y al volver la primera pasada solo apuntaba la
+#      fecha y se iba con un return. El 23/09 hubo dos alt-tab en 70 segundos.
+# Ahora la fecha se guarda en disco por juego y al volver se compara contra lo GUARDADO. La
+# primera vez no canta, a proposito: una medalla por instalar Nova le quitaria credito al resto.
+# Y DE PASO, FUERA habitos.minutosJuego: 89 bytes que se escribian y se leian de disco y que
+# nadie usaba desde el 23/09, cuando la cuenta buena se mudo a juegos.json. Estaba congelada:
+# no tenia entrada del 24/09 aunque ese dia se jugaron 116 minutos.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-logros-steam.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no se pierden mientras no mira)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n160. El escalon de la cascada que no saca ninguna orden"
 # LO MEDIDO: la cascada de repasos es canary -> base. En sus 18 usos REALES, canary NO ha
 # sacado UNA SOLA orden. Y cuesta 3,3 s de mediana solo en cargarse mas 1,2-14,5 s de
