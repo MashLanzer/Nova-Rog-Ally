@@ -1502,6 +1502,17 @@ Titulo "2n78. Que los bancos midan ESTE repo, en orden y sin etapas mudas"
 python (Join-Path $PSScriptRoot 'probar-bancos-de-verdad.py')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:sin etapas mudas)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n162. Las dos frases que si se repiten"
+# LO MEDIDO, y es mucho menos de lo que parecia: de las 1.842 frases que Nova dijo en el
+# registro, las CUATRO mas repetidas son de UN SOLO DIA -el bucle de "Mientras no estabas" del
+# 21/09, 774 veces-. Tanda de pruebas, no uso. Repartiendo por fecha, repetirse de verdad solo
+# se repiten dos: "Hay un ruido de fondo constante..." (33 veces en 4 dias) y "Ya esta cargada
+# del todo..." (20 en 8). Y son justo las que mas cansan, porque salen sin que braya pida nada.
+# NO SE CONSTRUYE UN SISTEMA: el motor existe desde el 18/09 en Get-FraseVuelta -candidatas,
+# filtrar las ultimas, Get-Random-. Solo faltaba sacarlo a una funcion y darles una bolsa.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-frases-variadas.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya no se repiten)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n161. Los logros que nadie ve (y una clave muerta de habitos.json)"
 # LO MEDIDO: "LOGRO (stats de Steam cambiaron)" sale CINCO veces en dieciseis dias y ninguna
 # desde el 20/09. Y NO esta roto: los .bin que vigila siguen cambiando, el mas reciente el

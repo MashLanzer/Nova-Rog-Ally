@@ -2932,6 +2932,30 @@ function Get-FalsasAlarmas([string]$dirUso = '') {
     return $fa
 }
 
+# LA FORMULA DEL ANIMO, EN UN SOLO SITIO. Estaba escrita en dos funciones -la corta y la de
+# un dia- hasta que el banco de la corta lo canto el 25/09: dos copias de una formula se
+# separan el dia que alguien toca una. El 10 del divisor es lo que impide que UN error del
+# primer minuto mande el animo al suelo: hasta que no hay diez cosas hechas, no baja de diez.
+function Get-AnimoDeCuentas([int]$ok, [int]$mal) {
+    return [Math]::Max(-1.0, [Math]::Min(1.0, ($ok - 2.0 * $mal) / [Math]::Max(10.0, $ok + $mal)))
+}
+function Get-AnimoDia($dias, [string]$clave) {
+    # @{ animo; sucesos; ok; mal } de UN dia suelto. Aparte porque lo usan los dos calculos, y
+    # porque 'sucesos' es lo que deja distinguir un dia malo de un dia en que no paso nada.
+    $r = @{ animo = 0.0; sucesos = 0; ok = 0; mal = 0 }
+    try {
+        if ($null -eq $dias -or -not $dias.ContainsKey($clave)) { return $r }
+        $ok = 0; $mal = 0
+        foreach ($x in @('local', 'aprendida', 'memoria', 'traducida')) {
+            if ($dias[$clave].ContainsKey($x)) { $ok += $dias[$clave][$x] }
+        }
+        if ($dias[$clave].ContainsKey('error')) { $mal = $dias[$clave]['error'] }
+        $r.ok = $ok; $r.mal = $mal
+        $r.sucesos = $ok + $mal
+        $r.animo = Get-AnimoDeCuentas $ok $mal
+    } catch {}
+    return $r
+}
 # EL ANIMO CON EL QUE SE DESPIERTA (25/09, idea 15)
 #
 # LO MEDIDO: el animo es un numero de -1 a 1 que sale de los aciertos y los errores de hoy y
@@ -2952,17 +2976,20 @@ function Get-FalsasAlarmas([string]$dirUso = '') {
 function Get-AnimoDeDias($dias, [datetime]$hoy = (Get-Date)) {
     try {
         if ($null -eq $dias) { return 0.0 }
+        # LA CUENTA VIVE EN UN SOLO SITIO (25/09, lo cazo el propio banco de esta funcion).
+        # Al escribir Get-AnimoDia para la ventana larga, la formula quedo DUPLICADA: la misma
+        # linea en dos funciones, que es la manera 4 de salir verde mintiendo aplicada al
+        # codigo. El banco ya comprobaba "la formula aparece una sola vez" y se puso rojo, que
+        # es exactamente para lo que estaba escrita esa comprobacion.
+        # Se suman los dos dias ANTES de dividir -no se hace la media de los dos animos-, que
+        # es lo que hacia la version original: un dia de 40 aciertos y otro de 2 no pesan igual.
         $ok = 0; $mal = 0
         foreach ($k in @($hoy.ToString('yyyy-MM-dd'), $hoy.AddDays(-1).ToString('yyyy-MM-dd'))) {
-            if (-not $dias.ContainsKey($k)) { continue }
-            foreach ($r in @('local', 'aprendida', 'memoria', 'traducida')) {
-                if ($dias[$k].ContainsKey($r)) { $ok += $dias[$k][$r] }
-            }
-            if ($dias[$k].ContainsKey('error')) { $mal += $dias[$k]['error'] }
+            $dd = Get-AnimoDia $dias $k
+            $ok += $dd.ok
+            $mal += $dd.mal
         }
-        # El 10 de abajo es el que impide que UN error del primer minuto mande el animo al
-        # suelo: hasta que no hay diez cosas hechas, el divisor no baja de diez.
-        return [Math]::Max(-1.0, [Math]::Min(1.0, ($ok - 2.0 * $mal) / [Math]::Max(10.0, $ok + $mal)))
+        return (Get-AnimoDeCuentas $ok $mal)
     } catch {
         # EL CATCH QUE NO PUEDE CALLARSE (25/09, lo cazo una rotura de este mismo dia). Este
         # catch devolvia 0.0 a secas, y 0.0 es tambien la respuesta BUENA de un dia neutro:
@@ -8962,7 +8989,7 @@ function Watch-Musica($mu) {
 $script:habitos = $null
 function Get-Habitos {
     if ($null -ne $script:habitos) { return $script:habitos }
-    $script:habitos = @{ usos = (New-Object System.Collections.ArrayList); rechazadas = (New-Object System.Collections.ArrayList); ultimaPropuesta = ''; fin = @{}; cargaAvisada = ''; nivelVisto = 0; brilloAuto = $false; parteVisto = ''; parteTexto = ''; sinDatosVisto = ''; sinDatosTexto = ''; correoVisto = ''; correoNum = -1; ritmo = (New-Object System.Collections.ArrayList); charlaHoras = @{}; presencia = @{}; avisoJuego = @{ dia = ''; ult = 0; cada = 0; no = '' } }
+    $script:habitos = @{ usos = (New-Object System.Collections.ArrayList); rechazadas = (New-Object System.Collections.ArrayList); ultimaPropuesta = ''; fin = @{}; cargaAvisada = ''; nivelVisto = 0; brilloAuto = $false; parteVisto = ''; parteTexto = ''; sinDatosVisto = ''; sinDatosTexto = ''; correoVisto = ''; correoNum = -1; ritmo = (New-Object System.Collections.ArrayList); charlaHoras = @{}; variedad = @{}; presencia = @{}; avisoJuego = @{ dia = ''; ult = 0; cada = 0; no = '' } }
     $rutaH = Join-Path $MemoriaDir 'habitos.json'
     if (Test-Path -LiteralPath $rutaH) {
         try {
@@ -9025,6 +9052,7 @@ function Get-Habitos {
             }
             foreach ($x in @($crudoH.ritmo)) { if ($null -ne $x) { [void]$script:habitos.ritmo.Add([double]$x) } }
             if ($crudoH.charlaHoras) { foreach ($pf in $crudoH.charlaHoras.PSObject.Properties) { $script:habitos.charlaHoras[$pf.Name] = [int]$pf.Value } }
+            if ($crudoH.variedad) { foreach ($pV in $crudoH.variedad.PSObject.Properties) { $script:habitos.variedad[$pV.Name] = @($pV.Value) } }
         } catch { Log ("habitos: no pude leerlos: " + $_.Exception.Message); Save-Corrupto $rutaH 'habitos' }
     }
     return $script:habitos
@@ -9032,7 +9060,7 @@ function Get-Habitos {
 function Save-Habitos {
     try {
         $hb = Get-Habitos
-        $o = [ordered]@{ usos = @($hb.usos); rechazadas = @($hb.rechazadas); ultimaPropuesta = $hb.ultimaPropuesta; fin = $hb.fin; cargaAvisada = $hb.cargaAvisada; nivelVisto = $hb.nivelVisto; brilloAuto = [bool]$hb.brilloAuto; parteVisto = [string]$hb.parteVisto; parteTexto = [string]$hb.parteTexto; correoVisto = [string]$hb.correoVisto; correoNum = [int]$hb.correoNum; sinDatosVisto = [string]$hb.sinDatosVisto; sinDatosTexto = [string]$hb.sinDatosTexto; ritmo = @($hb.ritmo); charlaHoras = $hb.charlaHoras; presencia = $hb.presencia; avisoJuego = $hb.avisoJuego }
+        $o = [ordered]@{ usos = @($hb.usos); rechazadas = @($hb.rechazadas); ultimaPropuesta = $hb.ultimaPropuesta; fin = $hb.fin; cargaAvisada = $hb.cargaAvisada; nivelVisto = $hb.nivelVisto; brilloAuto = [bool]$hb.brilloAuto; parteVisto = [string]$hb.parteVisto; parteTexto = [string]$hb.parteTexto; correoVisto = [string]$hb.correoVisto; correoNum = [int]$hb.correoNum; sinDatosVisto = [string]$hb.sinDatosVisto; sinDatosTexto = [string]$hb.sinDatosTexto; ritmo = @($hb.ritmo); charlaHoras = $hb.charlaHoras; variedad = $hb.variedad; presencia = $hb.presencia; avisoJuego = $hb.avisoJuego }
         $rutaH = Join-Path $MemoriaDir 'habitos.json'
         [System.IO.File]::WriteAllText($rutaH + '.tmp', (ConvertTo-Json -InputObject $o -Depth 4), (New-Object System.Text.UTF8Encoding($false)))
         Move-Item -LiteralPath ($rutaH + '.tmp') -Destination $rutaH -Force
@@ -10202,22 +10230,6 @@ function Test-PuedoAvisar([string]$clave, [string]$nivel = 'medio', [int]$cadaMi
 $AnimoLargoDias = 7
 $AnimoLargoMinSucesos = 10
 $AnimoLargoMinDias = 2
-function Get-AnimoDia($dias, [string]$clave) {
-    # @{ animo; sucesos } de UN dia suelto. Aparte porque lo usan los dos calculos, y porque
-    # 'sucesos' es lo que deja distinguir un dia malo de un dia en que no paso nada.
-    $r = @{ animo = 0.0; sucesos = 0 }
-    try {
-        if ($null -eq $dias -or -not $dias.ContainsKey($clave)) { return $r }
-        $ok = 0; $mal = 0
-        foreach ($x in @('local', 'aprendida', 'memoria', 'traducida')) {
-            if ($dias[$clave].ContainsKey($x)) { $ok += $dias[$clave][$x] }
-        }
-        if ($dias[$clave].ContainsKey('error')) { $mal = $dias[$clave]['error'] }
-        $r.sucesos = $ok + $mal
-        $r.animo = [Math]::Max(-1.0, [Math]::Min(1.0, ($ok - 2.0 * $mal) / [Math]::Max(10.0, $ok + $mal)))
-    } catch {}
-    return $r
-}
 function Get-AnimoLargo($dias, [datetime]$hoy = (Get-Date)) {
     # Devuelve @{ animo; dias } -- 'dias' es cuantos VOTARON, y es lo que dice si el numero
     # tiene base. Con menos de AnimoLargoMinDias no se usa para nada: se cae al corto.
@@ -10281,7 +10293,11 @@ function Get-SueloPorAnimo([int]$suelo) {
         # decision de dia entero, y el animo corto se movia de +0,62 a -0,50 por un solo error
         # en un dia tranquilo. Si la ventana larga tiene base manda ella; si no -los primeros
         # dias, o tras un paron-, se cae al de siempre y esto se comporta como antes.
-        $a = if ($script:animoBase -ge $AnimoLargoMinDias) { [double]$script:animoLargo }
+        # EL [Math]::Max(1, ...) NO SOBRA (25/09). En PowerShell $null se convierte a 0 en una
+        # comparacion numerica, asi que "0 -ge $null" es CIERTO: si algun dia esta constante
+        # no estuviera definida al pasar por aqui, la ventana larga mandaria SIEMPRE, incluso
+        # con cero dias de base y un animo de 0. Con el Max, sin base no manda nunca.
+        $a = if ($script:animoBase -ge [Math]::Max(1, [int]$AnimoLargoMinDias)) { [double]$script:animoLargo }
              else { [double]$script:uiAnimo }
         if ($a -le $AnimoMalo) { return [int][Math]::Max(1, [Math]::Floor($suelo / 2)) }
         if ($a -ge $AnimoBueno) { return [int][Math]::Min($suelo * 2, $suelo + 2) }
@@ -11229,7 +11245,11 @@ function Watch-Entorno([int]$botones = 0) {
             # el 'true' solo se apunta si el aviso SALIO: si lo para la noche o el modo juego,
             # se vuelve a intentar despues, que es cuando braya puede oirlo.
             if (Send-AvisoEntorno 'oido-ruido' `
-                'Hay un ruido de fondo constante y asi no te voy a oir bien. Si puedes, quitalo o acercame el microfono.' 'medio' 120) {
+                (Get-FraseVariada 'oido-ruido' @(
+                    'Hay un ruido de fondo constante y asi no te voy a oir bien. Si puedes, quitalo o acercame el microfono.',
+                    'Se oye un ruido de fondo que me tapa tu voz. Si puedes, quitalo o acercame un poco el microfono.',
+                    'Con este ruido de fondo no te voy a oir bien. A ver si lo puedes bajar.',
+                    'Tengo un zumbido de fondo encima y me cuesta oirte. Acercame el microfono si puedes.')) 'medio' 120) {
                 $script:ruidoAvisado = $true
             }
         }
@@ -12415,6 +12435,51 @@ function Get-AusenciaMin([datetime]$ahora = (Get-Date)) {
 # dias una memoria de proceso se olvida constantemente.
 # Las frases, por debajo de 40 letras: Say deja el microfono mudo len*70+1200 ms, o sea que
 # 40 letras ya son 4 segundos sordo.
+# LAS DOS FRASES QUE SI SE REPITEN (25/09)
+#
+# LO MEDIDO, y es mucho menos de lo que parecia: en assistant.ps1 hay 58 frases habladas fijas
+# y 8 bolsas con variantes. Pero contando lo que Nova DIJO de verdad -1.842 frases del
+# registro, 538 distintas- y repartiendo por fecha, las cuatro mas repetidas resultaron ser de
+# UN SOLO DIA (el bucle de "Mientras no estabas" del 21/09, 774 veces). Tandas de pruebas.
+#
+# Repetirse de verdad, en varios dias, solo se repiten DOS:
+#   - "Hay un ruido de fondo constante..."      33 veces en 4 dias
+#   - "Ya esta cargada del todo..."             20 veces en 8 dias
+# Y son justo las dos que mas cansan, porque salen cuando braya no ha pedido nada.
+#
+# ASI QUE NO SE CONSTRUYE UN SISTEMA DE VARIEDAD: el motor ya existe desde el 18/09 en
+# Get-FraseVuelta -candidatas, filtrar las ultimas, Get-Random-. Lo unico que faltaba era
+# sacarlo a una funcion para no copiarlo tres veces, y darle una bolsa a esas dos frases.
+#
+# LO QUE RECUERDA Y POR QUE SON DOS: con cuatro candidatas, evitar las dos ultimas deja dos
+# libres. Evitar tres dejaria una sola -o sea, orden fijo rotando-, y evitar una deja volver a
+# la anterior enseguida. Dos es lo que hace que no se note el patron sin quedarse sin opciones.
+$VariedadRecuerda = 2
+function Get-FraseVariada([string]$clave, [string[]]$candidatas) {
+    if (-not $candidatas -or $candidatas.Count -eq 0) { return '' }
+    if ($candidatas.Count -eq 1) { return [string]$candidatas[0] }
+    $saleV = ''
+    try {
+        $hbV2 = Get-Habitos
+        if (-not $hbV2.variedad) { $hbV2.variedad = @{} }
+        $ultV = @()
+        if ($hbV2.variedad[$clave]) { $ultV = @($hbV2.variedad[$clave]) }
+        $libresV = @($candidatas | Where-Object { $ultV -notcontains $_ })
+        # CON POCAS CANDIDATAS, ANTES REPETIR QUE CALLAR: el mismo criterio que Get-FraseVuelta
+        # lleva usando desde el 18/09. Una frase repetida molesta; ninguna frase es un fallo.
+        if ($libresV.Count -eq 0) { $libresV = @($candidatas) }
+        $saleV = [string](Get-Random -InputObject $libresV)
+        $hbV2.variedad[$clave] = @(@($saleV) + $ultV | Select-Object -First $VariedadRecuerda)
+        Save-Habitos
+    } catch {
+        # Y SI ALGO FALLA, SE DICE ALGO: quedarse mudo por no poder elegir seria peor que
+        # repetirse. Pero deja linea, que "" tambien seria una respuesta posible.
+        Log ('variedad: no pude elegir frase para ' + $clave + ': ' + $_.Exception.Message)
+        if (-not $saleV) { $saleV = [string]$candidatas[0] }
+    }
+    return $saleV
+}
+
 function Get-FraseVuelta([int]$aus, [datetime]$ahora, $ultimas, [bool]$esNoche = $false) {
     if ($esNoche) { return 'Hola. Que sepas que es tarde.' }
     $cands = @('Anda, ya estás aquí.', 'Mira quién vuelve.', 'Buenas. ¿Retomamos?', 'Por aquí, todo tranquilo.')
@@ -27844,7 +27909,11 @@ while ($true) {
                 # cargador-quita.
                 if (Test-BateriaLlenaFlanco ($cargando -and $pc -ge 100)) {
                     Invoke-Reglas 'bateriaLlena' 'llena'
-                    [void](Send-AvisoEntorno 'bateria-llena' 'Ya esta cargada del todo, puedes desenchufarla.' 'bajo' 240)
+                    [void](Send-AvisoEntorno 'bateria-llena' (Get-FraseVariada 'bateria-llena' @(
+                        'Ya esta cargada del todo, puedes desenchufarla.',
+                        'Bateria al cien. Ya puedes quitar el cargador.',
+                        'Carga completa; el cargador ya no hace falta.',
+                        'Ya esta llena. Desenchufala cuando quieras.')) 'bajo' 240)
                 }
                 # EL RECORDATORIO mientras sigas sin enchufar (idea 14; repartido el 25/09,
                 # ver QUE AVISO DE BATERIA TOCA). Antes decia "$pc -le 15" a pelo y saltaba a la

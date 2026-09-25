@@ -38,6 +38,7 @@ Comp 'se usa en DOS sitios' ($usos -ge 2) "$usos uso(s): el de siempre y el del 
 # aparecer suelta por ahi, es que alguien hizo su propia copia (manera 4 de salir verde).
 $formula = @([regex]::Matches($sinCom, '\$ok\s*-\s*2\.0\s*\*\s*\$mal')).Count
 Comp 'la formula aparece una sola vez' ($formula -eq 1) "$formula vez(ces); dos = hay una copia suelta"
+Comp '  y en su propia funcion' ($sinCom -match 'function Get-AnimoDeCuentas') 'para que las dos ventanas la compartan'
 # Y QUE SE DEFINA ANTES DE USARSE: en PowerShell una funcion no existe hasta que el script
 # pasa por su linea, y Add-Estadistica esta en la 2969. Si Get-AnimoDeDias quedara detras, el
 # catch de alrededor se tragaria el error y el animo se quedaria en 0 sin decir nada.
@@ -50,7 +51,17 @@ Write-Host '-- 2. LA FUNCION, SACADA DEL ARCHIVO Y EJECUTADA --'
 $d = $ast.Find({ param($x)
     $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq 'Get-AnimoDeDias' }, $true)
 if (-not $d) { Comp 'se saca Get-AnimoDeDias del arbol' $false ''; Write-Host ''; Write-Host "  $mal MAL"; exit 1 }
-Invoke-Expression $d.Extent.Text
+# TODAS LAS DEL ANIMO, no una lista escrita a mano (25/09). La primera version nombraba
+# Get-AnimoDeDias y nada mas; el dia que esa funcion paso a apoyarse en Get-AnimoDia y
+# Get-AnimoDeCuentas -para que la formula no estuviera duplicada- siete comprobaciones se
+# pusieron rojas con el codigo perfectamente bien: la funcion reventaba por dentro, su catch
+# devolvia 0.0 y 0.0 es tambien una respuesta legitima. Una lista a mano en un banco caduca el
+# dia que alguien reparte una funcion en dos.
+foreach ($fA in @($ast.FindAll({ param($x)
+    $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -match 'Animo' }, $true))) {
+    Invoke-Expression $fA.Extent.Text
+}
+
 $hoy = [datetime]'2026-09-25'
 $ayer = '2026-09-24'; $hoyS = '2026-09-25'
 
@@ -114,6 +125,18 @@ if ($dS) {
     if ($mA2.Success) { Invoke-Expression ('$AnimoBueno = ' + $mA2.Groups[1].Value.Trim()) }
     # EL ENLACE ENTERO: de las estadisticas de un dia malo al suelo de avisos, sin tocar nada
     # a mano. Esto es lo que demuestra que el arreglo sirve para algo.
+    # SIN BASE LARGA, MANDA EL CORTO (25/09). Desde la idea 34, Get-SueloPorAnimo mira primero la
+    # ventana de siete dias y solo cae al animo del rato si esa no tiene base suficiente. Estos
+    # casos prueban el CORTO, asi que hay que dejar claro que no hay base larga: sin esta linea
+    # $script:animoBase vale $null, "$null -ge 2" es falso... pero "$null -ge $null" seria cierto,
+    # y el banco acabaria probando una variable vacia en vez de lo que dice probar.
+        # Y el liston de base, del archivo: sin el, "$script:animoBase -ge $null" seria cierto -en
+    # PowerShell $null vale 0 en una comparacion- y el banco probaria la ventana larga creyendo
+    # que prueba la corta. Lo enseno este mismo banco el 25/09.
+    $mLD = [regex]::Match($txt, '(?m)^\$AnimoLargoMinDias\s*=\s*(\d+)')
+    $AnimoLargoMinDias = if ($mLD.Success) { [int]$mLD.Groups[1].Value } else { 2 }
+    $script:animoBase = 0
+    $script:animoLargo = 0.0
     $script:uiAnimo = Get-AnimoDeDias $malos $hoy
     $sueloMalo = Get-SueloPorAnimo 4
     $script:uiAnimo = Get-AnimoDeDias $buenos $hoy
@@ -126,7 +149,13 @@ if ($dS) {
 
 Write-Host ''
 Write-Host '-- 4. y el arranque lo pregunta de verdad --'
-Comp 'el arranque calcula el animo' ($sinCom -match '\$script:uiAnimo\s*=\s*Get-AnimoDeDias\s*\(Get-Estadisticas\)') 'leyendo las estadisticas que ya estan en disco'
+# LA COMPROBACION CADUCO Y NADIE SE ENTERO (25/09). Pedia literalmente
+# "uiAnimo = Get-AnimoDeDias (Get-Estadisticas)", y al anadir la ventana larga el arranque paso
+# a guardar los dias en $diasE primero -para no leer el fichero dos veces- y esta linea se puso
+# roja con el codigo mejor que antes. Lo que hay que comprobar es que el arranque LEE las
+# estadisticas del disco y de ahi saca el animo, no como estan escritas las dos lineas.
+Comp 'el arranque lee las estadisticas del disco' ($sinCom -match '\$diasE\s*=\s*\(Get-Estadisticas\)\.dias') ''
+Comp '  y de ahi saca el animo' ($sinCom -match '\$script:uiAnimo\s*=\s*Get-AnimoDeDias\s+\$diasE') ''
 
 Write-Host ''
 if ($mal -gt 0) { Write-Host "  $mal MAL"; exit 1 }

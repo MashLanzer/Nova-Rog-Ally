@@ -81,6 +81,12 @@ Comp '  y se lo guarda' ($sinCom -match '\$script:animoLargo\s*=\s*\$lgA\.animo'
 $dS = $ast.Find({ param($x)
     $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq 'Get-SueloPorAnimo' }, $true)
 Comp 'y Get-SueloPorAnimo lo mira' ($dS -and $dS.Extent.Text -match 'animoLargo') 'si no, seria otro numero decorativo'
+# Y NO SE FIA DE QUE LA CONSTANTE EXISTA (25/09). En PowerShell $null vale 0 en una comparacion
+# numerica, asi que "0 -ge $null" es CIERTO: si $AnimoLargoMinDias no estuviera definida al
+# pasar por ahi, la ventana larga mandaria SIEMPRE, con cero dias de base. Esto no se puede
+# probar ejecutando -haria falta una sesion sin la constante-, asi que se comprueba la guarda.
+Comp '  exigiendo al menos un dia de base pase lo que pase' (
+    $dS -and $dS.Extent.Text -match '\[Math\]::Max\(1, \[int\]\$AnimoLargoMinDias\)') 'porque $null se compara como 0'
 
 Write-Host ''
 Write-Host '-- 2. LAS FUNCIONES, SACADAS DEL ARCHIVO Y EJECUTADAS --'
@@ -88,8 +94,18 @@ foreach ($n in @('Get-AnimoDia', 'Get-AnimoLargo', 'Get-FraseAnimo')) {
     $d = $ast.Find({ param($x)
         $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq $n }, $true)
     if (-not $d) { Comp "se saca $n del arbol" $false ''; Write-Host ''; Write-Host "  $mal MAL"; exit 1 }
-    Invoke-Expression $d.Extent.Text
 }
+# TODAS LAS DEL ANIMO, no una lista escrita a mano (25/09). La primera version nombraba
+# Get-AnimoDeDias y nada mas; el dia que esa funcion paso a apoyarse en Get-AnimoDia y
+# Get-AnimoDeCuentas -para que la formula no estuviera duplicada- siete comprobaciones se
+# pusieron rojas con el codigo perfectamente bien: la funcion reventaba por dentro, su catch
+# devolvia 0.0 y 0.0 es tambien una respuesta legitima. Una lista a mano en un banco caduca el
+# dia que alguien reparte una funcion en dos.
+foreach ($fA in @($ast.FindAll({ param($x)
+    $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -match 'Animo' }, $true))) {
+    Invoke-Expression $fA.Extent.Text
+}
+
 # las constantes, del archivo (manera 6)
 foreach ($cte in @('AnimoLargoDias', 'AnimoLargoMinSucesos', 'AnimoLargoMinDias', 'AnimoSaltoMin')) {
     $m = [regex]::Match($txt, ('(?m)^\$' + $cte + '\s*=\s*(.+)$'))

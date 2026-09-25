@@ -57,6 +57,18 @@ $m2 = [regex]::Match($txt, '(?m)^\$AnimoBueno\s*=\s*(.+)$')
 if ($m2.Success) { Invoke-Expression ('$AnimoBueno = ' + $m2.Groups[1].Value.Trim()) }
 
 $base = 4
+# SIN BASE LARGA, MANDA EL CORTO (25/09). Desde la idea 34, Get-SueloPorAnimo mira primero la
+# ventana de siete dias y solo cae al animo del rato si esa no tiene base suficiente. Estos
+# casos prueban el CORTO, asi que hay que dejar claro que no hay base larga: sin esta linea
+# $script:animoBase vale $null, "$null -ge 2" es falso... pero "$null -ge $null" seria cierto,
+# y el banco acabaria probando una variable vacia en vez de lo que dice probar.
+# Y el liston de base, del archivo: sin el, "$script:animoBase -ge $null" seria cierto -en
+# PowerShell $null vale 0 en una comparacion- y el banco probaria la ventana larga creyendo
+# que prueba la corta. Lo enseno este mismo banco el 25/09.
+$mLD = [regex]::Match($txt, '(?m)^\$AnimoLargoMinDias\s*=\s*(\d+)')
+$AnimoLargoMinDias = if ($mLD.Success) { [int]$mLD.Groups[1].Value } else { 2 }
+$script:animoBase = 0
+$script:animoLargo = 0.0
 $script:uiAnimo = 0.0
 Comp 'un dia normal no cambia nada' ((Get-SueloPorAnimo $base) -eq $base) "suelo $base"
 
