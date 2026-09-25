@@ -183,6 +183,36 @@ Comp 'con invitado, una regla PEDIDA si se crea' (@($gInv).Count -eq 1) 'se pide
 Comp 'y sigue exenta con su motivo escrito' ((Get-Content -LiteralPath (Join-Path $PSScriptRoot 'probar-invitado.ps1') -Raw) -match "'Save-Reglas'\s*=\s*'una regla se pide a proposito'") 'si alguien cambia de idea, que lo cambie ahi'
 $script:invitado = $false
 
+Write-Host ''
+Write-Host '-- 8. Y LA FRASE SALE POR LA PUERTA DE LOS AVISOS, no por Say (24/09) --'
+# Invoke-Reglas llamaba a Say directamente, y Say no pasa por NINGUNA de las cuatro guardas que
+# Nova tiene para no hablar cuando no debe: ni Test-EnLlamada, ni la sordina -que braya puede
+# pedir para media hora-, ni el juego delante (avisos.sinVozEnJuego esta a true en
+# config.json), ni el modo silencio. O sea que una regla que venciera dentro de la sordina que
+# el mismo pidio se la saltaba, y jugando le hablaba encima de la partida.
+#
+# En quince dias no ha disparado NI UNA regla, asi que el dano hasta hoy es cero. Pero el ciclo
+# entero funciona -lo prueban las siete secciones de arriba- y en cuanto haya una regla viva,
+# esto pasa.
+$ir = (Traer 'Invoke-Reglas')
+$irSin = (($ir -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n")
+Comp 'la frase sale por Send-Aviso' ($irSin -match 'Send-Aviso \(\$\(if \(\$unaVez\)') ''
+Comp 'y ya no queda un Say suelto ahi' ($irSin -notmatch '; Say \(') 'Say no mira ni el juego ni la sordina'
+Comp 'y lleva su tipo, para que la capsula sepa que pulso dar' ($irSin -match "Send-Aviso[^
+]*'regla'") ''
+# LAS CUATRO GUARDAS QUE SE GANAN, comprobadas en la puerta a la que ahora se llama.
+$sv = (Traer 'Test-AvisoSinVoz')
+foreach ($g in @('Test-EnLlamada', 'sordinaHasta', 'juegoActivo', "uiPerfil -eq 'silencio'")) {
+    Comp ("y Send-Aviso mira " + $g) ($sv -match [regex]::Escape($g)) ''
+}
+# Y APLAZA SI ESTAS DICTANDO, que es la quinta cosa que Say no hacia: una regla que venciera en
+# mitad de una orden se comia la orden (auditoria del 13/09).
+$sa = (Traer 'Send-Aviso')
+Comp 'y aplaza si estas dictando' ($sa -match '\$script:armed') 'hablar encima de un dictado tira tu audio'
+# LO QUE NO CAMBIA: que la regla se EJECUTE. Lo unico que cambia es por donde sale la frase.
+Comp 'la regla se sigue ejecutando igual' ($irSin -match '\$res = ') ''
+Comp 'y la de un solo uso se sigue borrando' ($irSin -match 'era de un solo uso, borrada') ''
+
 Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ''
 if ($fallos -gt 0) { Write-Host "  $fallos mal"; exit 1 }

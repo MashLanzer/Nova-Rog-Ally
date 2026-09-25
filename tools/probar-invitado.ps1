@@ -69,6 +69,11 @@ $EXENTAS = @{
     'Save-BancoTrivia'        = 'preguntas de cultura general de la consola, y cuales se han hecho ya; el marcador no se guarda'
     'Save-MusicaNo'           = 'lo llaman Add-MusicaNo y Remove-MusicaNo, las dos ya protegidas (24/09: a Remove le faltaba)'
     'Add-NubeTiempo'          = 'solo son milisegundos, y con invitado la nube ni se lanza (Start-NubeOir sale en su primera linea)'
+    # LA QUE APARECIO AL AMPLIAR EL DETECTOR (24/09). Guarda en memoria\juegos-dos.json si cada
+    # juego instalado es de uno o de dos, y eso lo dice la TIENDA de Steam, no quien hable: la
+    # ficha de A Way Out pone "cooperativo" tenga braya un invitado delante o no. Es el mismo
+    # motivo por el que ya estaban exentas Add-DescargaHecha y Save-DescargasEstado.
+    'Save-JuegosDos'          = 'las categorias de la tienda de los juegos instalados: salen de Steam, no de quien hable'
     # LA LAPIDA DEL PERFIL (24/09, idea 12). Comprobado con grep: el UNICO sitio que la llama
     # es la poda de Add-DatoPerfil (linea 8119), y Add-DatoPerfil se va en su primera linea
     # con el modo invitado puesto. O sea que con alguien delante no se llega ni a la poda.
@@ -101,12 +106,45 @@ foreach ($n in $DEBEN) {
 }
 
 Write-Host ''
+Write-Host '  -- el detector conoce TODAS las formas de escribir del archivo --'
+# EL DETECTOR ES EL BANCO, y un detector estrecho deja pasar funciones enteras sin que nadie se
+# entere: hasta el 24/09 solo miraba WriteAllText, AppendAllText y Write-Atomico, y Save-JuegosDos
+# -que guarda con Set-Content- llevaba desde el 11/09 sin estar ni exenta ni con guarda, con el
+# banco diciendo "ninguna sin decidir".
+#
+# Por eso aqui no se comprueba el resultado, se comprueba el DETECTOR: que las formas de
+# escribir que de verdad aparecen en assistant.ps1 esten todas en su lista. Si manana alguien
+# guarda con Out-File o con Export-Clixml, esto se pone rojo antes de que la funcion exista.
+# Este banco no lee el fichero como texto -trabaja con el arbol-, asi que aqui se lee una vez.
+$txtA = [System.IO.File]::ReadAllText($rutaA)
+$detector = 'WriteAllText|AppendAllText|Write-Atomico|Set-Content|Out-File|Export-Clixml|Add-Content'
+$formasQueUsa = @()
+# Add-Content entro el 24/09, y lo caza esta misma comprobacion: el archivo lo usa, aunque hoy
+# ninguna funcion Add/Save/Set escriba SOLO con el. Que no haya victimas hoy no es motivo para
+# dejar el agujero: Save-JuegosDos llevaba trece dias colada por el mismo tipo de hueco.
+foreach ($forma in @('WriteAllText', 'AppendAllText', 'Write-Atomico', 'Set-Content', 'Out-File',
+                     'Export-Clixml', 'Add-Content', 'Export-Csv', 'Save-Text')) {
+    if ($txtA -match [regex]::Escape($forma)) { $formasQueUsa += $forma }
+}
+$fuera = @($formasQueUsa | Where-Object { $detector -notmatch [regex]::Escape($_) })
+Comp 'el detector cubre todo lo que el archivo usa para escribir' ($fuera.Count -eq 0) $(if ($fuera) { "NO mira: $($fuera -join ', ')" } else { "cubre las $($formasQueUsa.Count) formas que usa" })
+# y que sea LITERALMENTE el mismo que usa el bucle de abajo, no una copia que se quede vieja
+$yo = [System.IO.File]::ReadAllText($PSCommandPath)
+Comp 'y es el mismo que usa el bucle de abajo' ($yo -match [regex]::Escape("-notmatch '" + $detector + "'")) 'si se separan, esto deja de proteger nada'
+
+Write-Host ''
 Write-Host '  -- y ninguna nueva se cuela sin decidirlo --'
 $sinDecidir = @()
 foreach ($f in $fns) {
     if ($f.Name -notmatch '^(Add|Save|Set)-') { continue }
     $t = $f.Extent.Text
-    if ($t -notmatch 'WriteAllText|AppendAllText|Write-Atomico') { continue }   # solo las que escriben a disco
+    # TRES FORMAS DE ESCRIBIR NO SON TODAS (24/09). El detector solo miraba WriteAllText,
+    # AppendAllText y Write-Atomico, asi que una funcion que guardara con Set-Content se
+    # colaba entera. Barriendo las 533 del archivo aparecieron DOS: Save-DatosPerfil, que ya
+    # estaba exenta -asi que daba igual-, y Save-JuegosDos, que no estaba ni exenta ni en la
+    # lista de las que deben llevar guarda. O sea que el banco decia "ninguna sin decidir" y
+    # habia una.
+    if ($t -notmatch 'WriteAllText|AppendAllText|Write-Atomico|Set-Content|Out-File|Export-Clixml|Add-Content') { continue }
     if ($DEBEN -contains $f.Name) { continue }
     if ($EXENTAS.ContainsKey($f.Name)) { continue }
     if ($t -match 'script:invitado') { continue }                              # protegida por su cuenta

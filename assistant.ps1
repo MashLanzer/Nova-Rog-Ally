@@ -18321,7 +18321,25 @@ function Invoke-Reglas([string]$tipo, [string]$dato = '') {
         # avisa una vez. Es la primera de sus tres salidas y no cuesta una linea de codigo
         # nueva, solo estar en esta lista.
         $unaVez = ($r.ultima -eq 'unavez' -and $tipo -in @('appAbre', 'juegoAbre', 'dockPone', 'cascosPone', 'amigoConecta'))
-        if ($res) { Send-UIEvento 'hecho'; Say ($(if ($unaVez) { 'Recuerda' } else { "Regla $($r.id)" }) + ": $res") } else { Log "REGLA $($r.id): la accion no se pudo ejecutar" }
+        # POR LA PUERTA DE LOS AVISOS, NO POR Say (24/09). Esto llamaba a Say directamente, y
+        # Say no pasa por NINGUNA de las cuatro guardas que Nova tiene para no hablar cuando
+        # no debe: ni la llamada, ni la sordina -que braya puede pedir para media hora-, ni el
+        # juego delante (avisos.sinVozEnJuego esta a true en config.json), ni el modo silencio.
+        # O sea que una regla que venciera dentro de la sordina que el mismo pidio se la
+        # saltaba, y jugando le hablaba encima de la partida.
+        #
+        # Send-Aviso es la misma puerta que usa el aviso de descarga terminada, cinco lineas
+        # mas arriba en este bucle: jugando deja capsula y pulso y se calla; sin juego lo dice
+        # igual que antes. Y ademas APLAZA si braya esta dictando, que es otra cosa que Say no
+        # hacia: "hablar encima de un dictado pone la pausa y el worker tira tu audio"
+        # (auditoria del 13/09). Una regla que venciera en mitad de una orden se la comia.
+        #
+        # EN QUINCE DIAS NO HA DISPARADO NI UNA REGLA, asi que el dano hasta hoy es cero; pero
+        # el ciclo entero se probo hoy de punta a punta, y en cuanto haya una regla viva pasa.
+        if ($res) {
+            Send-UIEvento 'hecho'
+            Send-Aviso ($(if ($unaVez) { 'Recuerda' } else { "Regla $($r.id)" }) + ": $res") 'regla'
+        } else { Log "REGLA $($r.id): la accion no se pudo ejecutar" }
         # un recordatorio de un solo uso se borra al cumplirse (ver Invoke-ReglaVoz)
         if ($unaVez) { [void]$g.Remove($r); Save-Reglas; Log "REGLA $($r.id): era de un solo uso, borrada" }
     }
