@@ -87,6 +87,10 @@ $script:dichos = @(); $script:logs = @()
 Test-Recordatorios
 Comp 'el despertador suena, no se dice' (($script:dichos.Count -eq 0) -and ($script:logs -contains 'DESPERTADOR SONANDO'))
 
+# DESDE EL 24/09 la fecha ilegible no se borra: se conserva y se apunta una vez por arranque
+# (ver Test-Recordatorios). Eso necesita la lista de los ya apuntados y el contador.
+$script:recordatorioIlegible = New-Object System.Collections.ArrayList
+function Add-Estadistica($a, $b) { }
 # una fecha ilegible no puede tumbar el bucle ni borrar los demas
 $script:recs = @([pscustomobject]@{ cuando = 'esto no es una fecha'; texto = 'raro' },
                  [pscustomobject]@{ cuando = $manana; texto = 'bueno' })

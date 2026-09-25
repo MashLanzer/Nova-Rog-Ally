@@ -82,15 +82,25 @@ Comp "y 'voz:' sigue con las palabras de corte" ($oido -match 'elif marca\.start
 Write-Host ''
 Write-Host '-- y al llamarla, se deshace TODO --'
 # El bloque entero, contando llaves (nunca por distancia en caracteres).
-$ini = $fuente.IndexOf('if ($script:sordinaHasta -gt $sw.ElapsedMilliseconds -and')
+# EL DESPERTAR CAMBIO DE SITIO EL 24/09 (idea 2 de la tanda de la manana). Antes era un 'if'
+# del bucle que comparaba a mano el nombre con ConvertTo-Plain $EscuchaNombre; ahora la
+# decision vive en Resolve-Corte -que devuelve 'sordina-vuelve'- y el bucle solo ejecuta la
+# rama. El motivo esta medido: habia dos ramas para tres situaciones y cinco interrupciones se
+# perdian dentro de casa. Lo que HACE la rama es exactamente lo mismo, asi que el banco sigue
+# comprobandolo, pero buscandolo donde vive.
+$ini = $fuente.IndexOf("`$dCorte.accion -eq 'sordina-vuelve'")
 $cuerpo = ''
 if ($ini -ge 0) {
-    $j = $fuente.IndexOf('{', $fuente.IndexOf('ConvertTo-Plain $EscuchaNombre', $ini)); $prof = 0
+    $j = $fuente.IndexOf('{', $ini); $prof = 0
     for ($k = $j; $k -lt $fuente.Length; $k++) {
         if ($fuente[$k] -eq '{') { $prof++ }
         elseif ($fuente[$k] -eq '}') { $prof--; if ($prof -eq 0) { $cuerpo = $fuente.Substring($j, $k - $j + 1); break } }
     }
 }
+# Y QUE LA DECISION SIGA SIENDO DE Resolve-Corte, no una comparacion suelta en el bucle: si
+# alguien la duplicara, los dos sitios acabarian diciendo cosas distintas.
+$rc = [regex]::Match($fuente, "(?s)function Resolve-Corte.*?`r?`n\}").Value
+Comp 'la decision vive en Resolve-Corte' ($rc -match "accion = 'sordina-vuelve'") 'y no en un -eq suelto del bucle'
 Comp 'el despertar existe y se delimita' ($cuerpo.Length -gt 0) "$($cuerpo.Length) caracteres"
 Comp 'la hora de la sordina se pone a cero' ($cuerpo -match '\$script:sordinaHasta = 0')
 Comp 'se retira el aviso de vuelta' ($cuerpo -match "tipo -eq 'sordina'.*RemoveAt|RemoveAt")

@@ -54,6 +54,15 @@ function Set-AcabaDeAprender { $script:aprendio = $true }
 Invoke-Expression (Traer 'Test-DatoTrato')
 Invoke-Expression (Traer 'ConvertTo-Plain')
 $RE_DATO_SENSIBLE = Invoke-Expression (Sacar 'RE_DATO_SENSIBLE')
+# EL FILTRO DE LO PASAJERO Y SUS DOS REGEX (24/09, idea 12): Add-DatoPerfil los llama, asi que
+# sin ellos este banco muere a mitad. Los regex son de varias lineas, asi que se sacan como
+# asignacion del arbol y no con un regex de una linea.
+Invoke-Expression (Traer 'ConvertTo-Suave')
+Invoke-Expression (Traer 'Test-DatoPasajero')
+$astPA = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path (Split-Path -Parent $PSScriptRoot) 'assistant.ps1'), [ref]$null, [ref]$null)
+foreach ($aPA in $astPA.FindAll({ param($x) $x -is [System.Management.Automation.Language.AssignmentStatementAst] }, $false)) {
+    if ($aPA.Left.VariablePath.UserPath -in @('RE_DATO_ESTADO', 'RE_DATO_RASGO')) { Invoke-Expression $aPA.Extent.Text }
+}
 Invoke-Expression (Traer 'Add-DatoPerfil')
 
 $script:invitado = $false
@@ -101,7 +110,11 @@ Write-Host '-- 3. un aviso que NO se dice no es la ultima respuesta --'
 # aqui no hace falta ejecutar Send-AvisoEntorno entera (arrastra medio archivo): lo que se
 # comprueba es que ultimaRespuesta ya NO esta antes del if, sino dentro de las dos ramas
 # que hablan. Es una comprobacion de forma, y por eso va con el texto exacto.
-$bloque = [regex]::Match($fuente, '(?s)function Send-AvisoEntorno.{0,3000}?\r?\n\}').Value
+# LA FUNCION SE SACA DEL ARBOL, no con un regex de 3.000 caracteres (24/09). Ese regex
+# cortaba en el primer salto seguido de llave, asi que cualquier bloque nuevo dentro de
+# Send-AvisoEntorno -o un comentario largo- la dejaba a medias y el banco se ponia rojo sin
+# que nada estuviera mal. El arbol devuelve la funcion ENTERA, mida lo que mida.
+$bloque = (Traer 'Send-AvisoEntorno')
 Comp 'Send-AvisoEntorno esta donde se espera' ($bloque.Length -gt 200) ("$($bloque.Length) caracteres")
 $antesDelIf = $bloque.Substring(0, [Math]::Max(0, $bloque.IndexOf("if (`$nivel -eq 'alto')")))
 Comp 'ya no se pone para todos los avisos' (-not ($antesDelIf -match '\$script:ultimaRespuesta = \$texto'))

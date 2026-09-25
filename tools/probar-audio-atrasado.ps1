@@ -120,6 +120,14 @@ REPASO_MAX = __REPASO_MAX__
 REPASO_MAX_BASE = __REPASO_MAX_BASE__
 MODELO_ULTIMO = "modelo-turbo"
 whisper = "modelo-base"
+
+
+# DESDE EL 24/09 (ideas 14 y 15) Whisper carga en un hilo y el dictado espera con
+# esperar_whisper() en vez de mirar "whisper is not None". Aqui ya esta cargado, asi que la
+# version de mentira devuelve que si al instante: lo que se prueba en este banco es el vaciado
+# de la cola, no la carga -eso tiene el suyo, probar-arranque-oido.py-.
+def esperar_whisper():
+    return whisper is not None
 _uso = {"id": "", "activo": None}
 _ultima_seguridad = None
 _preciso_uso = 0.0
@@ -412,15 +420,18 @@ sys.stdout.write(json.dumps(salida))
     # Aqui si se mira texto, sin comentarios delante, porque esto vive dentro del bucle
     # grande de wake_vosk.py y no hay forma de correrlo a trozos. Son los sitios donde el
     # hilo se queda sordo: cada uno tiene que vaciar al volver.
+    # LA TERCERA RAMA CAMBIO DE NOMBRE EL 24/09 (ideas 14 y 15): era "elif whisper is not
+    # None" y ahora es "elif esperar_whisper()", porque Whisper carga en un hilo y ese None
+    # puede significar "todavia no". Lo que hace la rama es lo mismo.
     # 604 de los 1.116 descartes son del dictado normal y 14 del boton, y los dos bloques
     # tienen TRES ramas que bloquean el hilo (parakeet, el repaso de ingles, y whisper).
     # La tercera se anadio tarde -el comentario del codigo lo cuenta: "el camino normal ya
     # lo hacia; este, el del boton, no"- y es justo la que se vuelve a olvidar.
     Comp 'el dictado vacia en sus tres ramas' `
-        ($sinCom -match 'if rapido:[\s\S]{0,260}vaciar_cola\("transcripcion"\)[\s\S]{0,260}elif mejor:[\s\S]{0,260}vaciar_cola\("transcripcion"\)[\s\S]{0,400}elif whisper is not None[\s\S]{0,300}vaciar_cola\("transcripcion"\)') `
+        ($sinCom -match 'if rapido:[\s\S]{0,260}vaciar_cola\("transcripcion"\)[\s\S]{0,260}elif mejor:[\s\S]{0,260}vaciar_cola\("transcripcion"\)[\s\S]{0,400}esperar_whisper\(\):[\s\S]{0,300}vaciar_cola\("transcripcion"\)') `
         '604 descartes salen de aqui'
     Comp 'y el corte a mano tambien en las suyas' `
-        ($sinCom -match 'if rapido:[\s\S]{0,260}vaciar_cola\("corte a mano"\)[\s\S]{0,260}elif mejor:[\s\S]{0,260}vaciar_cola\("corte a mano"\)[\s\S]{0,400}elif whisper is not None[\s\S]{0,300}vaciar_cola\("corte a mano"\)') `
+        ($sinCom -match 'if rapido:[\s\S]{0,260}vaciar_cola\("corte a mano"\)[\s\S]{0,260}elif mejor:[\s\S]{0,260}vaciar_cola\("corte a mano"\)[\s\S]{0,400}elif esperar_whisper\(\)[\s\S]{0,300}vaciar_cola\("corte a mano"\)') `
         '14 descartes, y esta rama es la que se anadio tarde'
     # 0 de los 1.116 descartes comparten segundo con otro: las ramas son excluyentes de
     # verdad, no se disparan dos a la vez.

@@ -32,6 +32,12 @@ Invoke-Expression (Traer 'Format-Correos')
 # reventaba con 'Format-CorreosCorto no se reconoce' y la seccion 7 de la bateria -la que
 # caza justo esto- lo dijo con su nombre.
 Invoke-Expression (Traer 'Format-CorreosCorto')
+# EL DIA Y LA CUENTA VIVEN EN habitos.json DESDE EL 24/09 (idea 6): Receive-CorreoManana llama
+# a Get-Habitos y a Save-Habitos, y sin ellas este banco muere a mitad. Se le dan unos habitos
+# de mentira en memoria: lo que se prueba aqui es el correo, no el guardado.
+$script:habFalsos = @{ correoVisto = ''; correoNum = -1 }
+function Get-Habitos { return $script:habFalsos }
+function Save-Habitos { }
 
 # --- el mundo de mentira ---
 $TmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ('nova-correo-manana-' + [System.Guid]::NewGuid().ToString('N').Substring(0, 8))
