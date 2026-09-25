@@ -8489,6 +8489,64 @@ function Get-BalanceAprendizaje {
 $script:juegosMem = $null
 $script:ultimoJuego = $null
 $script:ultimoJuegoEn = 0
+# QUE NOTE A QUE ESTAS JUGANDO (25/09, ideas 17 y 38).
+#
+# memoria\juegos.json lleva los minutos por dia y por juego -ELDEN RING el 18, 19 y 20; Black
+# Myth el 19; Unravel Two el 23- y ese fichero SOLO servia para contestar "cuanto he jugado".
+# No decidia nada, no se comentaba nunca, no cambiaba una sola frase.
+#
+# Nova ya sabe cuando braya abre un juego. Con lo que ya tiene escrito puede decir algo que
+# demuestre que se acuerda -"cuarto dia seguido con esto", "hacia tres semanas que no lo
+# tocabas"- en vez de callarse. Notar un cambio es lo mas parecido a prestar atencion, y no
+# hace falta nada listo: basta con leer lo que ya esta en el disco.
+#
+# LO QUE LO SEPARA DE SER UN PESADO: no se comenta cada vez. Una racha se dice cuando LLEGA a
+# JuegoRachaMin, no todos los dias; una vuelta solo si de verdad hacia mucho; y si ya jugo hoy,
+# nada -si no, lo repetiria en cada arranque de Nova-. Si no hay nada que contar, se calla.
+$JuegoRachaMin = 3
+$JuegoVueltaDias = 10
+function Get-FraseJuegoNotado([string]$nombre, [datetime]$hoy = (Get-Date)) {
+    if (-not $nombre) { return '' }
+    $dias = @(Get-DiasDeJuego $nombre)
+    if ($dias.Count -eq 0) { return '' }
+    $hoyS = $hoy.ToString('yyyy-MM-dd')
+    # SI YA JUGO HOY, NADA: esto se dice una vez al dia, no en cada arranque
+    if ($dias -contains $hoyS) { return '' }
+    $fechas = @()
+    foreach ($d in $dias) {
+        try { $fechas += [datetime]::ParseExact($d, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture) } catch {}
+    }
+    if ($fechas.Count -eq 0) { return '' }
+    $fechas = @($fechas | Sort-Object -Descending)
+    # LA RACHA: dias consecutivos hacia atras desde ayer
+    $racha = 0
+    $esperado = $hoy.Date.AddDays(-1)
+    foreach ($f in $fechas) {
+        if ($f.Date -eq $esperado) { $racha++; $esperado = $esperado.AddDays(-1) }
+        elseif ($f.Date -lt $esperado) { break }
+    }
+    if ($racha -ge ($JuegoRachaMin)) {
+        return "Este es el dia $($racha + 1) seguido con $nombre."
+    }
+    # LA VUELTA: cuanto hacia que no lo tocaba
+    $hueco = [int]($hoy.Date - $fechas[0].Date).TotalDays
+    if ($hueco -ge $JuegoVueltaDias) {
+        return "Hacia $hueco dias que no jugabas a $nombre."
+    }
+    return ''
+}
+# Los dias en que jugo a algo, de la memoria de siempre. Aparte para que el banco pueda darle
+# dias de mentira sin tocar el fichero de braya.
+function Get-DiasDeJuego([string]$nombre) {
+    try {
+        $m = Get-JuegosMem
+        if (-not $m.ContainsKey($nombre)) { return @() }
+        $e = $m[$nombre]
+        if (-not $e.ContainsKey('dias')) { return @() }
+        return @($e['dias'].PSObject.Properties | ForEach-Object { $_.Name })
+    } catch { return @() }
+}
+
 function Get-JuegosMem {
     if ($null -ne $script:juegosMem) { return $script:juegosMem }
     $script:juegosMem = @{}
@@ -27212,6 +27270,13 @@ while ($true) {
                     if ($SoloBotonEnJuego) { Log 'escucha: vuelve la palabra de activacion (fuera del juego)' }
                 }
                 $script:juegoActivo = $j
+                # Y SE NOTA A QUE ESTAS JUGANDO (25/09, ideas 17 y 38): una racha o una vuelta
+                # despues de mucho. Va por Send-AvisoEntorno, asi que con el juego ya delante
+                # se guarda para cuando pueda decirse en vez de interrumpir la partida.
+                try {
+                    $frJ = Get-FraseJuegoNotado $j
+                    if ($frJ) { [void](Send-AvisoEntorno 'juego-notado' $frJ 'bajo' 720) }
+                } catch {}
                 # Y SI ESE JUEGO NOS DEJA CIEGAS (25/09, idea 1): con el modo exclusivo la
                 # capsula no se dibuja, asi que lo que solo va ahi no llega a nadie.
                 try {

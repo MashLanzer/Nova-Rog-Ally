@@ -1502,6 +1502,21 @@ Titulo "2n78. Que los bancos midan ESTE repo, en orden y sin etapas mudas"
 python (Join-Path $PSScriptRoot 'probar-bancos-de-verdad.py')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:sin etapas mudas)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n155. Que note a que estas jugando (ideas 17 y 38)"
+# LO MEDIDO: memoria\juegos.json lleva 6 juegos con sus minutos por dia -ELDEN RING el 18, 19 y
+# 20; Black Myth el 19; Unravel Two el 23- y ese fichero SOLO servia para contestar "cuanto he
+# jugado". No decidia nada, no se comentaba nunca, no cambiaba una sola frase de Nova.
+# Nova ya sabe cuando braya abre un juego, asi que con lo que YA esta en el disco puede decir
+# algo que demuestre que se acuerda: "cuarto dia seguido con esto", "hacia 24 dias que no lo
+# tocabas". Notar un cambio es lo mas parecido a prestar atencion que hay.
+# LO QUE LO SEPARA DE SER UN PESADO: una racha se dice cuando LLEGA al minimo, no todos los
+# dias; una vuelta solo si de verdad hacia mucho; y si ya jugo hoy, nada -si no, lo repetiria
+# en cada arranque-. Va por Send-AvisoEntorno: con el juego delante se guarda, no interrumpe.
+# Y UNA ROTURA ENSENO ALGO: hacer que contara CUALQUIER dia en vez de solo los consecutivos
+# dejaba el banco verde entero, porque ningun caso tenia tres dias repartidos. Ahora lo hay.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-juego-notado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:nota a que estas jugando)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n154. Lo que dura un rato no ocupa una plaza (idea 4)"
 # MEDIDO sobre el perfil real de braya: 21 de sus 57 datos -el 37 %- eran estados pasajeros
 # guardados como si fueran rasgos: "esta en su cuarto", "acaba de completar un juego", "ha
