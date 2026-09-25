@@ -10023,6 +10023,115 @@ function Save-AvisoEspera {
 # Es el mismo patron que $script:resumenFirma del 22/09: se guarda lo que ya se apunto y no
 # se repite. Y el texto va en la firma a proposito: "el disco lleva 12 GB" y "el disco lleva
 # 4 GB" son el mismo aviso pero no dicen lo mismo, y el segundo si merece una linea.
+# "AYER ME CAI A LAS DIEZ MENOS CUARTO" (25/09, idea 29 de las cincuenta).
+#
+# LO QUE PASO: el 24/09 a las 21:53 Nova se murio de golpe mientras braya jugaba y estuvo
+# muerta hasta las 23:33, una hora y cuarenta. braya no se entero por ella sino porque yo lo vi
+# mirando procesos; al volver, ella le saludo como si no hubiera pasado nada. Un asistente que
+# se muere y no lo cuenta obliga a vigilarlo, que es justo lo contrario de para lo que esta.
+#
+# EL RASTRO YA ESTABA ESCRITO, en dos sitios:
+#   1. Un "VoiceAssistant iniciado" sin su "cerrado" detras. El cerrado solo se escribe al
+#      salir por la puerta -un kill no lo escribe-, asi que su AUSENCIA es la que delata.
+#   2. El oido, que si se entera de que su padre murio: "el asistente ya no existe (PID N)".
+#      Esa linea trae la HORA EXACTA, que la otra no tiene.
+#
+# LA VENTANA TEMPORAL, que aqui es la diferencia entre avisar y mentir: la linea "cerrado" no
+# existe antes del 18/09 a las 17:06 (commit 79ca9a0). Un arranque anterior a esa fecha no la
+# tiene porque no se escribia, no porque se cayera. Sin esta guarda Nova acusaria una caida
+# por cada sesion de nueve dias, y todas serian falsas.
+$CaidaDesdeQueHayCerrado = [datetime]'2026-09-18 17:06:00'
+# Y UN HUECO CON FECHA DE CADUCIDAD: si la caida fue hace mas de doce horas, la noticia ya no
+# es que se cayo -eso es historia- sino que braya lleva medio dia sin ella, que es otra cosa y
+# no se arregla con un aviso. Doce horas cubre de sobra el caso real (1 h 40) y deja fuera el
+# "llevaba cuatro dias apagada".
+$CaidaHuecoMaxHoras = 12
+# LO QUE ESCRIBE EL PROPIO ARRANQUE NO CUENTA (25/09, visto en produccion a la primera). Un
+# arranque escribe varias lineas ANTES de su "VoiceAssistant iniciado" -limpiar marcas
+# huerfanas, cargar config- y esas lineas caen en el hueco entre las dos sesiones, asi que se
+# leian como "lo que estaba haciendo cuando murio". La primera prueba real dijo: "hacia: marca
+# huerfana de la sesion anterior", que es justo una de esas. Medido el 25/09 sobre tres
+# arranques (23:52, 01:10 y 01:18): escriben hasta 4, 5 y 19 segundos antes de su linea. Con
+# 30 s caben los tres de sobra.
+$CaidaMargenArranqueSeg = 30
+function Get-CaidaAnterior([string]$rutaLog, [int]$pidActual) {
+    if (-not $rutaLog -or -not (Test-Path -LiteralPath $rutaLog)) { return $null }
+    try { $lineas = @(Get-Content -LiteralPath $rutaLog -Encoding UTF8) } catch { return $null }
+    if ($lineas.Count -eq 0) { return $null }
+    $fecha = {
+        param([string]$l)
+        if ($l -match '^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})') {
+            try { return [datetime]::ParseExact($Matches[1], 'yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture) } catch { return $null }
+        }
+        return $null
+    }
+    # el arranque de AHORA: el ultimo "iniciado" que lleve este PID
+    $iAhora = -1
+    for ($i = $lineas.Count - 1; $i -ge 0; $i--) {
+        if ($lineas[$i] -match 'VoiceAssistant iniciado PID=(\d+)' -and [int]$Matches[1] -eq $pidActual) { $iAhora = $i; break }
+    }
+    if ($iAhora -lt 0) { return $null }
+    # el arranque ANTERIOR
+    $iAntes = -1
+    for ($i = $iAhora - 1; $i -ge 0; $i--) {
+        if ($lineas[$i] -match 'VoiceAssistant iniciado PID=(\d+)') { $iAntes = $i; break }
+    }
+    if ($iAntes -lt 0) { return $null }          # primer arranque de la vida: nada que contar
+    $fAntes = & $fecha $lineas[$iAntes]
+    if (-not $fAntes -or $fAntes -lt $CaidaDesdeQueHayCerrado) { return $null }   # ver arriba
+    # si cerro bien, no hay nada que decir
+    for ($i = $iAntes + 1; $i -lt $iAhora; $i++) {
+        if ($lineas[$i] -match 'VoiceAssistant cerrado') { return $null }
+    }
+    # CUANDO MURIO: lo mejor es la linea del oido; si no esta, la ultima que se escribio.
+    $fMuerte = $null
+    $haciendo = ''
+    for ($i = $iAhora - 1; $i -gt $iAntes; $i--) {
+        if ($lineas[$i] -match 'el asistente ya no existe') { $fMuerte = & $fecha $lineas[$i]; break }
+    }
+    if (-not $fMuerte) {
+        for ($i = $iAhora - 1; $i -gt $iAntes; $i--) {
+            $f = & $fecha $lineas[$i]
+            if ($f) { $fMuerte = $f; break }
+        }
+    }
+    if (-not $fMuerte) { return $null }
+    # LO QUE ESTABA HACIENDO: la ultima linea con contenido antes de morir, saltandose las del
+    # propio oido anunciando la muerte, que no dicen nada de lo que braya estaba haciendo.
+    $fAhora = & $fecha $lineas[$iAhora]
+    if (-not $fAhora) { return $null }
+    for ($i = $iAhora - 1; $i -gt $iAntes; $i--) {
+        if ($lineas[$i] -match 'el asistente ya no existe') { continue }
+        $f = & $fecha $lineas[$i]
+        if (-not $f -or $f -gt $fMuerte) { continue }
+        # ver $CaidaMargenArranqueSeg: lo que se escribio pegado al arranque nuevo es del
+        # arranque nuevo, no de la sesion que murio
+        if (($fAhora - $f).TotalSeconds -le $CaidaMargenArranqueSeg) { continue }
+        $haciendo = ($lineas[$i] -replace '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\s+', '').Trim()
+        break
+    }
+    $fuera = [int]([Math]::Round(($fAhora - $fMuerte).TotalMinutes))
+    if ($fuera -lt 0) { return $null }
+    if ($fuera -gt ($CaidaHuecoMaxHoras * 60)) { return $null }
+    return @{
+        cuando   = $fMuerte.ToString('HH:mm')
+        minutos  = $fuera
+        haciendo = $haciendo
+    }
+}
+# LA FRASE, aparte de la busqueda: asi el banco puede probar los dos trozos por separado y la
+# redaccion se puede cambiar sin tocar la logica.
+function Get-FraseCaida($c) {
+    if (-not $c) { return '' }
+    $cuanto = if ($c.minutos -lt 60) { "$($c.minutos) minutos" }
+              else {
+                  $h = [int][Math]::Floor($c.minutos / 60)
+                  $m = $c.minutos % 60
+                  if ($m -eq 0) { "$h hora$(if ($h -ne 1) { 's' })" } else { "$h h $m min" }
+              }
+    return "Antes me cai a las $($c.cuando) y he estado $cuanto sin enterarme de nada."
+}
+
 function Add-AvisoEspera([string]$clave, [string]$texto, [string]$nivel, [int]$cada, [datetime]$ahora = (Get-Date)) {
     [void](Get-AvisoEspera)
     $viejos = @($script:avisoEspera | Where-Object { [string]$_.clave -eq $clave })
@@ -19652,6 +19761,18 @@ elseif ($cmds) {
 # no existe, lo llena con los datos que el perfil tenga en ese momento. Sin esto naceria vacia
 # y los 60 de hoy solo entrarian segun se fueran repitiendo.
 try { Initialize-PerfilTodo } catch {}
+# Y SI LA VEZ ANTERIOR ACABO MAL, SE DICE (25/09, idea 29). Va por Send-AvisoEntorno y no por
+# Say a proposito: si braya no esta delante, el aviso se guarda y se suelta cuando vuelva, que
+# es exactamente cuando sirve. Nivel 'medio': no es una urgencia, pero tampoco algo que deba
+# quedarse solo en la capsula.
+try {
+    $caida = Get-CaidaAnterior $EventLog $PID
+    if ($caida) {
+        $fr = Get-FraseCaida $caida
+        Log ("CAIDA ANTERIOR: a las " + $caida.cuando + ", " + $caida.minutos + " min fuera; hacia: " + $caida.haciendo)
+        [void](Send-AvisoEntorno 'me-cai' $fr 'medio' 720)
+    }
+} catch {}
 Initialize-Voz
 Initialize-Escucha
 # gestos propios (config.json -> ui.gestos): la capsula los lee de tmp\gestos.txt

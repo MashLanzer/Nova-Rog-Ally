@@ -1502,6 +1502,19 @@ Titulo "2n78. Que los bancos midan ESTE repo, en orden y sin etapas mudas"
 python (Join-Path $PSScriptRoot 'probar-bancos-de-verdad.py')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:sin etapas mudas)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n142. Que Nova te diga que se cayo (y cuanto estuvo fuera)"
+# EL CASO QUE LA ORIGINO: el 24/09 a las 21:53 Nova se murio de golpe mientras braya jugaba y
+# estuvo muerta hasta las 23:33 -una hora y cuarenta-. No se entero por ella: se entero porque
+# yo lo vi mirando procesos, y al volver ella le saludo como si nada. Un asistente que se muere
+# y no lo cuenta obliga a vigilarlo, que es lo contrario de para lo que esta.
+# EL RASTRO YA ESTABA en dos sitios: un "iniciado" sin su "cerrado" detras -el cerrado solo se
+# escribe al salir por la puerta, asi que su AUSENCIA delata-, y la linea del oido, que si se
+# entera: "el asistente ya no existe (PID N)", con la HORA EXACTA que la otra no tiene.
+# LA VENTANA TEMPORAL ES LA CLAVE AQUI: la linea "cerrado" no existe antes del 18/09 17:06, asi
+# que sin esa guarda Nova acusaria una caida por cada sesion de nueve dias, todas falsas.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-caida-anterior.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya te dice cuando se ha caido)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n141. La memoria que no se borra (y que no viaja al cerebro)"
 # LO PIDIO BRAYA el 25/09: "haz una memoria permanente que guarde todo y no se mande al cerebro,
 # y esta de 60 que siga asi, o sea temporal". Y tenia razon por donde no parecia: el perfil de
