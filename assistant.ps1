@@ -26954,10 +26954,21 @@ while ($true) {
                 $plP = ConvertTo-Plain $origP
                 $plW = ConvertTo-Plain $limpioW
                 $largoPW = [Math]::Max($plP.Length, $plW.Length)
+                $parecidoPW = if ($largoPW -gt 0) { 1.0 - (Get-Distancia $plP $plW) / $largoPW } else { 0.0 }
                 if ($largoPW -gt 0 -and @($plP -split '\s+' | Where-Object { $_ }).Count -ge 3 -and
-                    (1.0 - (Get-Distancia $plP $plW) / $largoPW) -ge 0.9) {
+                    $parecidoPW -ge 0.9) {
                     $script:yaReintentado = $true
-                    Log "PARAKEET y WHISPER oyen lo mismo: sin repaso"
+                    # DICE EL PARECIDO, Y NO "LO MISMO" (25/09). La linea decia "oyen lo mismo"
+                    # con un parecido de 0,9, que NO es lo mismo: el 25/09 a las 01:22 Parakeet
+                    # oyo "conectado en el team" y Whisper "conectado en Steam" -la correccion
+                    # que hacia falta- y el log de al lado afirmaba que oian igual. Mirando ese
+                    # par se pierde media hora creyendo que hay un fallo donde no lo hay: los
+                    # 215 pares del log dicen que Parakeet acierta mas ("mi escritorio" contra
+                    # "mi criadorio", "un bate" contra "un bat de pata de la tonosombre"), asi
+                    # que quedarse con Parakeet esta bien. Lo que estaba mal era la linea.
+                    Log ("PARAKEET y WHISPER oyen casi lo mismo (parecido " +
+                         $parecidoPW.ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture) +
+                         "): sin repaso")
                 }
             }
             Process-Texto $sigueCon
