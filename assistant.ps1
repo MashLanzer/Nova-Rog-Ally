@@ -8045,6 +8045,41 @@ function Find-PerfilTodo([string]$que, [int]$tope = 6) {
 # LA SIEMBRA (25/09): la primera vez se llena con lo que ya hay en el perfil, para que no nazca
 # vacia el dia que se estrena. Sin esto, los 60 datos de hoy solo entrarian aqui segun se
 # fueran repitiendo, y los que no se repitan nunca se perderian igual que antes.
+# LO QUE DURA UN RATO NO OCUPA UNA PLAZA (25/09, idea 4).
+#
+# MEDIDO sobre el perfil real: 21 de 57 datos -el 37 %- son estados pasajeros guardados como si
+# fueran rasgos. "esta en su cuarto", "acaba de completar un juego", "ha matado alrededor de
+# veinte zombies en menos de veinte minutos", "usa espadas de metal en el juego". Ocupan 21 de
+# las 60 plazas de un perfil LLENO, expulsan cosas que si valen, y encima viajan al cerebro en
+# cada peticion: tokens pagados en cada consulta por saber que una vez mato veinte zombies.
+#
+# LA GUARDA YA EXISTIA desde el 24/09 (Test-DatoPasajero), pero solo mira lo que ENTRA: los 21
+# que ya estaban dentro se quedaron dentro.
+#
+# POR QUE ESTO PUEDE HACERSE SIN PREGUNTAR: no se borra nada. Los pasajeros salen del perfil
+# -que es el que viaja y tiene 60 plazas- y se quedan en la memoria permanente, que no tiene
+# tope y no viaja. Si algun dia hace falta uno, esta escrito. Si hubiera que borrarlos de
+# verdad, esto iria con pregunta.
+#
+# Y LA SALVAGUARDA MANDA: Test-DatoPasajero lleva dentro una lista de rasgos que gana siempre.
+# Un dato que parezca pasajero pero encaje ahi NO se mueve.
+function Clear-PerfilPasajeros {
+    if ($script:invitado) { return }
+    try {
+        $datos = @(Get-DatosPerfil)
+        if ($datos.Count -eq 0) { return }
+        $quedan = @()
+        $fuera = @()
+        foreach ($d in $datos) {
+            if (Test-DatoPasajero $d) { $fuera += $d } else { $quedan += $d }
+        }
+        if ($fuera.Count -eq 0) { return }
+        foreach ($f in $fuera) { Add-PerfilTodo $f 'era de un rato' }
+        Save-DatosPerfil $quedan
+        Log ("PERFIL: " + $fuera.Count + " dato(s) que eran de un rato salen del perfil que viaja; siguen en la memoria permanente")
+    } catch {}
+}
+
 function Initialize-PerfilTodo {
     if ($script:invitado) { return }
     if (Test-Path -LiteralPath $PerfilTodoPath) { return }
@@ -20162,6 +20197,9 @@ elseif ($cmds) {
 # no existe, lo llena con los datos que el perfil tenga en ese momento. Sin esto naceria vacia
 # y los 60 de hoy solo entrarian segun se fueran repitiendo.
 try { Initialize-PerfilTodo } catch {}
+# Y LOS QUE ERAN DE UN RATO, FUERA DEL QUE VIAJA (25/09, idea 4). Va DESPUES de sembrar la
+# memoria permanente a proposito: asi lo que se saca del perfil ya tiene donde quedarse.
+try { Clear-PerfilPasajeros } catch {}
 # Y SI LA VEZ ANTERIOR ACABO MAL, SE DICE (25/09, idea 29). Va por Send-AvisoEntorno y no por
 # Say a proposito: si braya no esta delante, el aviso se guarda y se suelta cuando vuelva, que
 # es exactamente cuando sirve. Nivel 'medio': no es una urgencia, pero tampoco algo que deba

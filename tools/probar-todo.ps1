@@ -1502,6 +1502,18 @@ Titulo "2n78. Que los bancos midan ESTE repo, en orden y sin etapas mudas"
 python (Join-Path $PSScriptRoot 'probar-bancos-de-verdad.py')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:sin etapas mudas)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n154. Lo que dura un rato no ocupa una plaza (idea 4)"
+# MEDIDO sobre el perfil real de braya: 21 de sus 57 datos -el 37 %- eran estados pasajeros
+# guardados como si fueran rasgos: "esta en su cuarto", "acaba de completar un juego", "ha
+# matado alrededor de veinte zombies en menos de veinte minutos", "usa espadas de metal en el
+# juego". Ocupaban 21 de las 60 plazas de un perfil LLENO, expulsaban cosas que si valen y
+# encima viajaban al cerebro en cada peticion.
+# La guarda existia desde el 24/09 pero solo miraba lo que ENTRA; los que ya estaban dentro se
+# quedaron dentro. Ahora salen del perfil que viaja y se quedan en la memoria permanente, que
+# no tiene tope y no viaja: NO SE BORRA NADA, por eso puede hacerse sin preguntar.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-perfil-pasajeros.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya no ocupa una plaza)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n153. Las expresiones de los bancos que se rompen solas (idea 2)"
 # EL PATRON: "que estas dos cosas esten a menos de 900 caracteres". Parece inofensivo y es una
 # bomba de relojeria: el dia que alguien mete un comentario entre las dos, el banco se pone
