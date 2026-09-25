@@ -1502,6 +1502,20 @@ Titulo "2n78. Que los bancos midan ESTE repo, en orden y sin etapas mudas"
 python (Join-Path $PSScriptRoot 'probar-bancos-de-verdad.py')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:sin etapas mudas)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n160. El escalon de la cascada que no saca ninguna orden"
+# LO MEDIDO: la cascada de repasos es canary -> base. En sus 18 usos REALES, canary NO ha
+# sacado UNA SOLA orden. Y cuesta 3,3 s de mediana solo en cargarse mas 1,2-14,5 s de
+# transcripcion; el peor, el 21/09 a las 23:40, fueron 23 segundos para devolver "Eh, no
+# avisame cuando la descarga de de Sting termine", PEOR que lo que ya habia oido Parakeet.
+# LO QUE NO SE HACE: apagar canary a mano. 18 no son 20, y DecisionMinIntentos son 20. Lo que
+# se hace es poner el CONTADOR QUE FALTABA -la cascada no dejaba ni un numero con el que
+# juzgarla- y meter el caso en la revision propia, que ya sabe apagar la nube y el oido fino
+# con sus cuatro frenos. Nova lo decidira cuando tenga datos, y podra deshacerlo.
+# Y EL ULTIMO ESCALON NO SE TOCA NUNCA: ese saca las ordenes de verdad (325 desenlaces por
+# Whisper); quitarlo la dejaria sin red. Dos guardas distintas lo impiden.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-cascada-repasos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se puede juzgar sola)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n159. Lo que importo no se resume (idea 35 de las 50 / 18 de las 21)"
 # LO MEDIDO: cada intercambio se apunta en bruto y al dia siguiente se resume en 2-5 vinetas y
 # SE BORRA. En catorce dias eso ha convertido 342 turnos de conversacion en 29 vinetas y 2.866

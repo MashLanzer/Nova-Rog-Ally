@@ -11797,6 +11797,11 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
         # y ninguno de intento.
         foreach ($cR in @('turbo', 'turbo-sirvio', 'nube-intento', 'nube-sirvio',
                           'nube-invento', 'fino', 'fino-sirvio', 'fino-invento')) { $numR[$cR] = 0 }
+        # Y UNA PAREJA POR CADA ESCALON DE LA CASCADA (25/09). Salen de la lista de config, no
+        # escritas a mano: si manana braya anade un motor, su contador aparece solo. Escribirlos
+        # a mano es justo lo que dejo 'nube-invento' fuera de esta lista hasta el 24/09,
+        # contando cero siempre y convirtiendo en codigo muerto la regla que dependia de el.
+        foreach ($mC in @($RepasoCascada)) { $numR["repaso:$mC"] = 0; $numR["repaso-sirvio:$mC"] = 0 }
         for ($i = 0; $i -lt 14; $i++) {
             $kR = $ahora.AddDays(-$i).ToString('yyyy-MM-dd')
             # EL CORTE TAMBIEN AQUI (19/09, idea 61): si solo lo respetara el reparto, el
@@ -11871,6 +11876,48 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
         Log "REVISION PROPIA: apago el oido fino ($($numR['fino-sirvio']) aciertos menos $($numR['fino-invento']) inventos de $($numR['fino']) repasos en 14 dias)"
         Add-Estadistica 'auto-ajuste' "oido fino off: neto $netoF de $($numR['fino'])"
         [void](Send-AvisoEntorno 'auto-fino' ("He apagado mi oido fino: en $($numR['fino']) repasos acerto $($numR['fino-sirvio']) veces pero se invento la orden $($numR['fino-invento']), y eso ya no compensa lo que te hace esperar. Si lo quieres de vuelta, dime: deshaz lo que has cambiado." + $(if (-not $apuntadaF) { ' Aunque no he podido apuntarlo: si me reinicias, vuelve solo.' } else { '' })) 'medio' 43200)
+        return $true
+    }
+
+    # --- caso 5: EL ESCALON DE LA CASCADA QUE NO SACA NINGUNA ORDEN (25/09) ---
+    #
+    # LO MEDIDO HOY: la cascada de repasos es canary -> base. En sus 18 usos reales, canary NO
+    # ha sacado UNA SOLA orden: las 18 acaban en "REPASO: base tampoco dio una orden" o se van
+    # a Whisper. Y cuesta: 3,3 s de mediana solo en cargarse, mas entre 1,2 y 14,5 s de
+    # transcripcion. El peor del registro, el 21/09 a las 23:40, fueron 8,8 s de carga mas
+    # 14,5 s de repaso -23 segundos- para devolver "Eh, no avisame cuando la descarga de de
+    # Sting termine", que ademas es PEOR que lo que ya habia oido Parakeet.
+    #
+    # PERO 18 NO SON 20, y DecisionMinIntentos son 20. Asi que hoy NO se puede decidir, y por
+    # eso esto NO apaga nada a mano: pone el contador que faltaba y deja que Nova lo decida
+    # cuando tenga datos, que es como se hacen aqui las cosas. Si resulta que canary si acierta,
+    # se queda, y el contador lo dira. Lo que no podia seguir es que no hubiera numero ninguno.
+    #
+    # Y EL ULTIMO ESCALON NO SE TOCA NUNCA: ese es el que de verdad saca las ordenes (325
+    # desenlaces por Whisper en el registro) y quitarlo dejaria a Nova sin red. Solo se pueden
+    # quitar los de en medio, que son los que cuestan tiempo ANTES de llegar a el. Por eso el
+    # bucle se para en Count-1 y ademas se comprueba que quede al menos uno.
+    foreach ($mtC in @($RepasoCascada | Select-Object -First ([Math]::Max(0, $RepasoCascada.Count - 1)))) {
+        $intC = [int]$numR["repaso:$mtC"]
+        $okC = [int]$numR["repaso-sirvio:$mtC"]
+        if ($intC -lt $DecisionMinIntentos) { continue }
+        if ($okC -ge (Get-DecisionMinimo $intC)) { continue }
+        if (-not (Test-DecisionSolida $okC $intC)) { continue }
+        if (-not (Test-DatosRepartidos $stR "repaso:$mtC" $ahora)) { continue }
+        $antesC = ($RepasoCascada -join ',')
+        $quedaC = @($RepasoCascada | Where-Object { $_ -ne $mtC })
+        if ($quedaC.Count -lt 1) { continue }     # la cascada no se queda vacia jamas
+        $script:RepasoCascada = $quedaC
+        if (-not (Set-Cfg 'escucha' 'repasos' ($quedaC -join ','))) {
+            $script:RepasoCascada = @($antesC -split ',' | Where-Object { $_ })
+            $script:revisionPropiaDia = ''
+            Log 'REVISION PROPIA: no pude guardar el cambio de la cascada; la dejo como estaba'
+            return $false
+        }
+        $apuntadaC = Save-DecisionPropia 'escucha' 'repasos' $antesC "el repaso con $mtC"
+        Log "REVISION PROPIA: quito $mtC de la cascada de repasos ($okC ordenes de $intC repasos)"
+        Add-Estadistica 'auto-ajuste' "cascada sin ${mtC}: $okC de $intC"
+        [void](Send-AvisoEntorno 'auto-cascada' ("He quitado $mtC de mi cascada de repasos: $(Get-DesdeCuentaTexto) lo use $intC veces y no saco ni una orden que yo entendiera, y mientras tanto te hacia esperar. Sigo repasando con lo demas. Si lo quieres de vuelta, dime: deshaz lo que has cambiado." + $(if (-not $apuntadaC) { ' Aunque no he podido apuntarlo: si me reinicias, vuelve solo.' } else { '' })) 'medio' 43200)
         return $true
     }
 
@@ -26951,6 +26998,24 @@ while ($true) {
         # SOLO SE ENCADENA SI EL ESCALON NO DIO ORDEN: si Canary la saca, se hace y ya,
         # que es mas rapido que cualquier otra cosa. Y la nube no se relanza (ver
         # Request-WhisperTras): sigue esperando desde el primer paso.
+        # CADA ESCALON SE APUNTA SI SIRVIO O NO (25/09, ver EL ESCALON QUE NO SACA NADA).
+        # Hasta hoy la cascada no dejaba NI UN numero con el que juzgarla: se sabia cuantas
+        # veces se pedia un repaso, no cual de los motores acababa sacando la orden.
+        # Va AQUI y no mas abajo por una razon concreta: cuando un escalon SI acierta no se
+        # encadena, o sea que no vuelve a pasar por el bloque de abajo, y contarlo alli seria
+        # contar solo los fallos -el mismo fallo de "tres contadores de desenlace y ninguno de
+        # intento" que ya se pago el 24/09-. Dos claves, como el oido fino: el total y los
+        # aciertos, porque el total es lo que necesita el reparto por dias.
+        if ($null -ne $fino -and $script:reintentoBase -and
+            $script:repasoPaso -lt $RepasoCascada.Count) {
+            try {
+                $motorC = [string]$RepasoCascada[$script:repasoPaso]
+                Add-Estadistica "repaso:$motorC" $script:repasoOriginal $true
+                if (Test-FastCommand ([string]$fino).Trim()) {
+                    Add-Estadistica "repaso-sirvio:$motorC" $script:repasoOriginal $true
+                }
+            } catch {}
+        }
         if ($null -ne $fino -and $script:reintentoBase -and
             ($script:repasoPaso + 1) -lt $RepasoCascada.Count -and
             -not (Test-FastCommand ([string]$fino).Trim())) {
