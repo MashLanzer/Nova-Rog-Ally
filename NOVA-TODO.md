@@ -1,4 +1,4 @@
-# Nova, entera — 24 de septiembre de 2026
+# Nova, entera — 25 de septiembre de 2026
 
 *Qué es, qué sabe hacer, cómo está hecha, qué se ha medido de ella y qué queda.
 Escrito para leerlo de una sentada y saber en qué punto está.*
@@ -323,6 +323,11 @@ Hoy: **173 bancos, 175 secciones**, y cada idea de las cuarenta con su script de
 
 **Decisiones que son tuyas, no mías:**
 
+- **Tu apodo.** Nova sabe que tienes uno y **no lo usa nunca**. Hace falta que se lo digas; no
+  hay forma de sacarlo de ningún dato.
+- **Si quieres que tenga opiniones propias.** Las ocho entradas de "estilo" de su cerebro son
+  preferencias **tuyas** —*"respuestas rápidas y directas"*, *"no usar la palabra man"*—, y
+  **ninguna es de ella**. No hay dato que decida esto: es cuestión de si te apetece o no.
 - **El contexto de la charla con significado.** Pasarle el vector a la búsqueda de contexto
   sube los aciertos del 8,6 % al 12,2 %, pero cuesta **2,87 s por turno**. Con "velocidad sobre
   todo", +3,6 puntos no me parece una victoria clara — pero el tiempo es tuyo.
@@ -351,6 +356,37 @@ Hoy: **173 bancos, 175 secciones**, y cada idea de las cuarenta con su script de
 
 ---
 
+## 8 bis. Lo del 25 de septiembre: las listas de ideas, repasadas enteras
+
+Las **21 ideas** y las **50 de autonomía** se repasaron **una a una**. Y el resultado importa
+más por lo que **no** se hizo que por lo que se hizo: **se descartaron más de las que se
+implementaron**, y casi siempre por dos motivos — *el código ya lo hacía* o *no hay datos*.
+
+**El descarte que vale por todos:** la sección entera *"decidir sin preguntar"* (ocho ideas)
+se cayó con un solo número. Nova pregunta **32 veces en dieciséis días, y ninguna desde el
+20/09**. Y las 32 son de tres tipos, los tres correctos: frases mal oídas (*'abre calcladra'*),
+borrados, y plazos vencidos —que no son una pregunta, son que nadie contestó—. **No hay
+preguntas de más que quitar.** La autonomía que le falta no es dejar de preguntar: es hacer
+cosas útiles por su cuenta.
+
+**Lo que sí tenía base, y es lo que se hizo:**
+
+| Qué | Lo que lo justificaba |
+|---|---|
+| El ánimo al arrancar, y **con memoria de siete días** | saltaba de **+0,62 a −0,50** por *un* error en un día vacío |
+| **Lo que importó no se resume** | 342 turnos de charla → **29 viñetas** en catorce días |
+| Los **logros de Steam** | la fecha vivía en RAM: un apagón o un alt-tab los borraba |
+| **Trabajar cuando no molesta** | las **13 copias, las 13 entre las 17h y las 22h** |
+| **Contar lo que hizo** mientras no estabas | el resumen sólo contaba mensajes, nunca lo suyo |
+| Que note **a qué juegas** | `juegos.json` existía y no decidía nada |
+| La **cascada de repasos, medible** | canary: 18 usos, **cero** órdenes sacadas |
+
+Esa última no se apagó a mano: el listón para decidir son 20 intentos y lleva 18. **Nova lo
+decidirá sola**, lo dirá en voz alta y podrás deshacerlo — igual que ya hace con la nube y con
+su oído fino.
+
+Todo el detalle, con la medición de cada descarte, está en **`IDEAS-ESTADO-2026-09-25.md`**.
+
 ---
 
 ## 9. Los demás documentos
@@ -362,6 +398,7 @@ sus mediciones dentro:
 |---|---|
 | `IDEAS-2026-09-25-VEINTE.md` | **Las veinte siguientes**, salidas del repaso de esta madrugada: la cápsula que no sabe si se la ve, las 26 expresiones frágiles que quedan en los bancos, el perfil lleno |
 | `IDEAS-AUTONOMIA-Y-VIDA-50.md` | **Cincuenta** para que decida sola y se sienta viva, con el diagnóstico de por qué: nueve de sus veinte iniciativas están muertas |
+| `IDEAS-ESTADO-2026-09-25.md` | **Qué pasó con cada una de las 71**: hechas, y sobre todo **descartadas con el dato que las tumbó** |
 | `IDEAS-STEAM-2026-09-24.md` | Diez sólo de Steam, con la clave ya funcionando |
 | `IDEAS-2026-09-24-VEINTE.md` y `-NUEVAS-VEINTE.md` | Las cuarenta de ayer, ya cerradas |
 | `NOVA-EN-OTRO-PC.md` | Cómo llevarla a la laptop sin romper la de la consola |
