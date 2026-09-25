@@ -1502,6 +1502,19 @@ Titulo "2n78. Que los bancos midan ESTE repo, en orden y sin etapas mudas"
 python (Join-Path $PSScriptRoot 'probar-bancos-de-verdad.py')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:sin etapas mudas)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n147. Los avisos que no te mueven se dicen menos"
+# MEDIDO sobre los 81 avisos que Nova dijo de verdad en quince dias, mirando si braya le hablo
+# en los cinco minutos siguientes: el ruido del micro son 32 avisos (40 % del total) y solo
+# movio algo 2 veces (6 %); la bateria llena, 20 avisos (25 %) y 3 reacciones (15 %). Mientras,
+# el correo de la manana y el aviso de juego cerrado tienen un 67 % de reaccion y se dicen tres
+# veces cada uno. O sea que Nova gasta el 64 % de su voz en los DOS avisos que menos le mueven.
+# LA SALVEDAD, escrita tambien en el banco: "hablarle despues" no mide todo -si apaga un
+# ventilador sin decir nada, cuenta como que no reacciono-. Por eso NO se calla ningun aviso:
+# se ESPACIA. Y hace falta un minimo de 8 muestras, un tope de 6 h y que lo critico ('alto') no
+# se toque nunca.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-avisos-que-sirven.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:aprende que avisos te mueven)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n145. Transcribir mientras braya calla (los 2,2 s que se perdian)"
 # SU QUEJA, el 25/09: "se demora muchisimo en responderme y eso es desesperante". Y su
 # pregunta: "como hace Alexa para contestar tan rapido".

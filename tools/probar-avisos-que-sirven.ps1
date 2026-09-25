@@ -39,9 +39,22 @@ $sinCom = (($txt -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) 
 
 Write-Host '-- 1. existe, se apunta y se usa --'
 Comp 'existe Get-EsperaAviso' ($sinCom -match 'function Get-EsperaAviso') ''
-Comp 'y se apunta si el aviso movio algo' ($sinCom -match "aviso-reaccion") ''
-Comp 'Test-PuedoAvisar usa la espera aprendida' ($sinCom -match 'Get-EsperaAviso') ''
-Comp 'y lo critico no se espacia nunca' ($sinCom -match "nivel -eq 'alto'") 'un aviso urgente no se aprende a callar'
+# QUE SE ESCRIBAN, NO SOLO QUE APAREZCAN (25/09, lo cazaron dos roturas): "aviso-sirvio:"
+# tambien sale en Get-ReaccionesAviso, que es quien LEE el contador. Buscar la cadena a secas
+# daba verde aunque se borrara el sitio donde se APUNTA, que es justo lo que importa.
+Comp 'y se apunta cuando el aviso SI movio algo' ($sinCom -match 'Add-Estadistica \("aviso-sirvio:') 'braya hablo dentro de la ventana'
+Comp 'y cuando no movio nada' ($sinCom -match 'Add-Estadistica \("aviso-nada:') 'la ventana vencio en silencio'
+Comp 'la ventana mide lo mismo que la medicion que lo justifica' ($sinCom -match '\$AvisoReaccionVentanaMs = 300000') '5 min, como la tabla del registro'
+# LA LLAMADA, NO LA DEFINICION (25/09, lo cazo una rotura): "Get-EsperaAviso" a secas encuentra
+# la propia "function Get-EsperaAviso", asi que borrar su uso dejaba el banco verde con la
+# funcion muerta dentro del archivo.
+$usos = @([regex]::Matches($sinCom, '(?<!function )Get-EsperaAviso')).Count
+Comp 'Test-PuedoAvisar usa la espera aprendida' ($usos -ge 1) "$usos uso(s) ademas de la definicion"
+# Y LA GUARDA DE LO CRITICO, EN SU SITIO (lo cazo otra rotura): "nivel -eq 'alto'" aparece en
+# varios puntos del archivo por otras razones, asi que se mira el bloque que decide la espera.
+$iE = $sinCom.IndexOf('$espera = ')
+$blE = if ($iE -gt 0) { $sinCom.Substring($iE, [Math]::Min(260, $sinCom.Length - $iE)) } else { '' }
+Comp 'y lo critico no se espacia nunca' ($blE -match "nivel -eq 'alto'" -and $blE -match 'Get-EsperaAviso') 'un aviso urgente no se aprende a callar'
 
 Write-Host ''
 Write-Host '-- 2. LA FUNCION, SACADA DEL ARCHIVO Y EJECUTADA --'
@@ -93,10 +106,15 @@ Comp 'uno que sirve no se espacia' ((Get-EsperaAviso 'util' 60) -eq 60) '70 % de
 $script:reacciones['ruido'] = @(@($true) * 9 + @($false) * 3)
 Comp 'y si vuelve a servir, recupera su ritmo' ((Get-EsperaAviso 'ruido' 60) -eq 60) 'lo aprendido se puede desaprender'
 
-# EL TOPE: ni con cero reacciones en cien avisos se va a la eternidad
+# EL TOPE, CON UNA BASE QUE LO ALCANCE (25/09, lo cazo una rotura). Con base 60 el peor caso
+# da 60 x 4 = 240, que ya cabe en el tope de 360: quitar el tope no cambiaba nada y la rotura
+# salia verde. Con una base de 180 el peor caso son 720 y el tope tiene que morder.
 $script:reacciones['nunca'] = @($false) * 100
-$e = Get-EsperaAviso 'nunca' 60
-Comp 'ni con 100 avisos sin reaccion pasa del tope' ($e -le ($AvisoEsperaTope * 60)) "$e min, tope $($AvisoEsperaTope * 60)"
+$e = Get-EsperaAviso 'nunca' 180
+Comp 'el tope muerde de verdad' ($e -le ($AvisoEsperaTope * 60)) "$e min con base 180, tope $($AvisoEsperaTope * 60)"
+Comp '  y sin el se iria a 720' (($AvisoEsperaTope * 60) -lt 720) 'por eso hace falta'
+$e2 = Get-EsperaAviso 'nunca' 60
+Comp 'y con una base normal, cuatro veces mas' ($e2 -eq 240) "$e2 min en vez de 60"
 
 Write-Host ''
 if ($mal -gt 0) { Write-Host "  $mal MAL"; exit 1 }

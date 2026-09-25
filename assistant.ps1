@@ -9851,6 +9851,63 @@ $script:entornoCallado = $false                                    # "no me avis
 $script:entornoCalladoDia = ''
 
 # ¿se puede avisar de esto AHORA? nivel: 'bajo' (solo capsula), 'medio', 'alto' (critico)
+# LOS AVISOS QUE NO TE MUEVEN SE DICEN MENOS (25/09, idea 24 de las cincuenta).
+#
+# LO MEDIDO sobre los 81 avisos que Nova ha dicho de verdad en quince dias, mirando si braya le
+# hablo en los cinco minutos siguientes:
+#   ruido en el micro      32 avisos (40 % del total)  ->  reacciono 2 veces   (6 %)
+#   bateria llena          20 avisos (25 %)            ->  reacciono 3 veces   (15 %)
+#   hora de dormir          7                          ->  3 (43 %)
+#   poco disco              6                          ->  2 (33 %)
+#   el correo de la manana  3                          ->  2 (67 %)
+#   se cerro el juego       3                          ->  2 (67 %)
+# O sea que Nova gasta el 64 % de su voz en los DOS avisos que menos mueven a braya, y los que
+# si le interesan los dice tres veces cada uno. Eso es lo que hay detras de la proporcion del
+# 24/09: hablo 21 veces por su cuenta por UNA que la llamaron.
+#
+# LA SALVEDAD, y va escrita aqui porque cambia lo que se puede concluir: "hablarle despues" no
+# mide todo. Si Nova dice que hay ruido y braya se levanta y apaga un ventilador sin decirle
+# nada, eso cuenta como "no reacciono". Por eso lo que se hace NO es callar un aviso: es
+# ESPACIARLO. Uno que no sirve y se dice cada media hora es ruido; el mismo cada seis horas
+# sigue estando ahi el dia que si importe.
+#
+# Y POR ESO HACE FALTA UN MINIMO: con tres avisos no se sabe nada. Con ocho, el mas repetido
+# (32 en quince dias) ya tiene cuatro tandas y los raros no se tocan.
+# Cuanto se espera una reaccion. Sale de como se midio: la tabla del registro se hizo mirando
+# si braya hablaba en los CINCO minutos siguientes, asi que el codigo mide lo mismo que la
+# medicion que lo justifica.
+$AvisoReaccionVentanaMs = 300000
+$script:avisoMirar = $null
+$AvisoReaccionMin = 8
+# El tope, en horas: ni con cien avisos seguidos sin reaccion se calla del todo.
+$AvisoEsperaTope = 6
+function Get-ReaccionesAviso([string]$clave) {
+    # Lo apuntado hasta hoy para esta clave, como lista de si/no. Sale de las estadisticas de
+    # siempre (dos contadores), no de un fichero nuevo.
+    $si = 0; $no = 0
+    try {
+        $s = Get-Estadisticas
+        foreach ($d in @($s.dias.Keys)) {
+            if ($s.dias[$d].ContainsKey("aviso-sirvio:$clave")) { $si += [int]$s.dias[$d]["aviso-sirvio:$clave"] }
+            if ($s.dias[$d].ContainsKey("aviso-nada:$clave")) { $no += [int]$s.dias[$d]["aviso-nada:$clave"] }
+        }
+    } catch { return @() }
+    $r = @()
+    for ($i = 0; $i -lt $si; $i++) { $r += $true }
+    for ($i = 0; $i -lt $no; $i++) { $r += $false }
+    return $r
+}
+function Get-EsperaAviso([string]$clave, [int]$base) {
+    $r = @(Get-ReaccionesAviso $clave)
+    if ($r.Count -lt $AvisoReaccionMin) { return $base }
+    $si = @($r | Where-Object { $_ }).Count
+    $tasa = $si / [double]$r.Count
+    # UNO DE CADA TRES YA ES SERVIR: con 32 avisos y 2 reacciones (6 %) no hay duda, pero con
+    # un tercio la senal es floja y no se toca nada.
+    if ($tasa -ge 0.30) { return $base }
+    $factor = if ($tasa -lt 0.10) { 4 } else { 2 }
+    return [int][Math]::Min($base * $factor, $AvisoEsperaTope * 60)
+}
 function Test-PuedoAvisar([string]$clave, [string]$nivel = 'medio', [int]$cadaMin = 60) {
     if (-not $EntornoOn -or $script:entornoCallado -or $script:invitado) { return $false }
     $ahoraE = $sw.ElapsedMilliseconds
@@ -9861,7 +9918,11 @@ function Test-PuedoAvisar([string]$clave, [string]$nivel = 'medio', [int]$cadaMi
     if ($vistos.ContainsKey($clave)) {
         $cuando = [datetime]::MinValue
         if ([datetime]::TryParse([string]$vistos[$clave], [ref]$cuando)) {
-            if (((Get-Date) - $cuando).TotalMinutes -lt $cadaMin) { return $false }
+            # LA ESPERA APRENDIDA (25/09, idea 24): un aviso que no mueve a braya se dice
+            # menos veces. Lo critico no se toca nunca -ver el nivel 'alto' mas abajo-, y sin
+            # un minimo de muestras Get-EsperaAviso devuelve el mismo numero de siempre.
+            $espera = if ($nivel -eq 'alto') { $cadaMin } else { Get-EsperaAviso $clave $cadaMin }
+            if (((Get-Date) - $cuando).TotalMinutes -lt $espera) { return $false }
         }
     }
     if ($nivel -ne 'alto') {
@@ -10307,6 +10368,12 @@ function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'med
     [void]$script:entornoAvisos.Add($sw.ElapsedMilliseconds)
     Log "ENTORNO ($clave, $nivel): $texto"
     Add-Estadistica 'aviso-entorno' $clave
+    # Y SE QUEDA EN OBSERVACION (25/09, idea 24): si braya le habla en los proximos minutos,
+    # ese aviso movio algo; si no, no. De ahi sale la espera aprendida (ver Get-EsperaAviso).
+    # Se guarda UNO SOLO: si caen dos avisos seguidos, el segundo pisa al primero y el primero
+    # se queda sin apuntar. Es mejor perder una muestra que atribuirle a un aviso la reaccion
+    # que provoco otro.
+    $script:avisoMirar = @{ clave = $clave; hasta = ($sw.ElapsedMilliseconds + $AvisoReaccionVentanaMs) }
     Show-Popup $texto
     # los de poca monta NO se dicen: se ven y ya. Hablar por todo es lo que cansa.
     # Y POR ESO NO SON LA ULTIMA RESPUESTA (21/09). ultimaRespuesta es lo que contesta
@@ -23380,6 +23447,12 @@ function Add-RuidoRacha {
 
 function Start-Dictado([string]$origen) {
     Log "DICTADO ($origen)"
+    # SI HABIA UN AVISO EN OBSERVACION, ESTE ES SU DESENLACE (25/09, idea 24): braya ha
+    # hablado dentro de la ventana, asi que ese aviso movio algo. Ver Get-EsperaAviso.
+    if ($script:avisoMirar) {
+        Add-Estadistica ("aviso-sirvio:" + $script:avisoMirar.clave)
+        $script:avisoMirar = $null
+    }
     if ($origen -ne 'seguimiento') { $script:noEntendiSeguidos = 0 }
     $script:origenDictado = $origen
     $script:ultimaSeca = $false   # el desenlace de ESTA ventana es el que decide (20/09)
@@ -25703,6 +25776,14 @@ while ($true) {
             Log "accion error: $($_.Exception.Message)"
             $script:armed = $false
         }
+    }
+
+    # --- EL AVISO QUE NO MOVIO NADA (25/09, idea 24) ---
+    # Si la ventana vence sin que braya haya hablado, ese aviso no sirvio. Se apunta y de ahi
+    # sale la espera aprendida. NO se calla el aviso: se espacia (ver Get-EsperaAviso).
+    if ($script:avisoMirar -and $sw.ElapsedMilliseconds -ge $script:avisoMirar.hasta) {
+        Add-Estadistica ("aviso-nada:" + $script:avisoMirar.clave)
+        $script:avisoMirar = $null
     }
 
     # --- VIGILANCIA DEL OIDO DE WINDOWS ---
