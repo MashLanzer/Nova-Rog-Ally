@@ -7992,6 +7992,11 @@ function Test-DatoPasajero([string]$dato) {
 # y tiene el mismo tope que el perfil para no crecer sin fin.
 $PerfilCaidosPath = Join-Path $MemoriaDir 'perfil-caidos.md'
 function Add-PerfilCaido([string]$dato, [string]$por) {
+    # LA GUARDA VA DENTRO (24/09, repaso). Hoy no es explotable -su unico llamador es la poda
+    # de Add-DatoPerfil, que ya sale en su primera linea con un invitado delante-, pero el
+    # principio de la casa es que cada funcion que guarda lleve la suya: repartirlas por los
+    # llamadores es como se cuelan. Cuesta una linea y cierra la puerta para siempre.
+    if ($script:invitado) { return }
     if (-not $dato) { return }
     try {
         $l = @()
@@ -9809,8 +9814,12 @@ function Test-PuedoAvisar([string]$clave, [string]$nivel = 'medio', [int]$cadaMi
     # Y EL PRESUPUESTO DEL DIA (24/09, idea 4): no hablar por su cuenta mas veces de las que
     # la llaman. Ver Test-CabeOtroAviso. El de por hora no bastaba: 4 por hora son hasta 64 al
     # dia, y el 22/09 salieron 31.
-    if (-not (Test-CabeOtroAviso (Get-CuentaHoy 'aviso-entorno') (Get-CuentaHoy 'activacion') $EntornoPorHora $nivel)) {
-        Log "ENTORNO: hoy ya he hablado por mi cuenta $(Get-CuentaHoy 'aviso-entorno') veces y me has llamado $(Get-CuentaHoy 'activacion'); me callo lo que no sea importante"
+    # 'aviso-dicho' Y NO 'aviso-entorno' (24/09, repaso): el segundo cuenta tambien los de
+    # nivel 'bajo', que solo se ven en la capsula y no suenan -22 de los 79 de trece dias-, y
+    # los 'alto', que se saltan este freno pero gastaban su presupuesto igual. La regla es "no
+    # hablar mas de lo que te hablan", asi que hay que contar lo que se HABLA.
+    if (-not (Test-CabeOtroAviso (Get-CuentaHoy 'aviso-dicho') (Get-CuentaHoy 'activacion') $EntornoPorHora $nivel)) {
+        Log "ENTORNO: hoy ya he hablado por mi cuenta $(Get-CuentaHoy 'aviso-dicho') veces y me has llamado $(Get-CuentaHoy 'activacion'); me callo lo que no sea importante"
         Add-Estadistica 'aviso-de-mas' $clave
         return $false
     }
@@ -10025,15 +10034,23 @@ function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'med
     # no habia sonado nunca, tapando ademas la respuesta de verdad. Ahora la ponen las
     # dos ramas que SI hablan, que es lo que hacen los otros diez sitios del archivo:
     # ultimaRespuesta va pegada al Say, no al Show-Popup.
+    # Y SE CUENTA APARTE LO QUE DE VERDAD SUENA (24/09, repaso de la tanda nueva). El freno
+    # del dia -ver Test-CabeOtroAviso- miraba 'aviso-entorno', que se apunta para TODOS los
+    # niveles: de los 79 avisos de trece dias, VEINTIDOS son 'bajo' y esos solo se ven en la
+    # capsula, no se dicen nunca. Un 28 % del presupuesto se iba en cosas que no hablan, justo
+    # al reves de lo que dice la regla ("no hablar mas de lo que te hablan").
+    # 'aviso-entorno' se queda como esta, que mide todos y eso sirve; el freno mira este otro.
     if ($nivel -eq 'alto') {
         # lo critico va delante de lo que estuviera esperando, y sale ya
         $script:ultimaRespuesta = $texto
         $script:avisoCola.Insert(0, $texto)
         Send-AvisoCola $true
+        Add-Estadistica 'aviso-dicho' $clave
     } elseif ($nivel -ne 'bajo') {
         $script:ultimaRespuesta = $texto
         if ($script:avisoCola.Count -eq 0) { $script:avisoColaDesde = $sw.ElapsedMilliseconds }
         [void]$script:avisoCola.Add($texto)
+        Add-Estadistica 'aviso-dicho' $clave
     }
     return $true
 }

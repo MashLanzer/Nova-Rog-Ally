@@ -35,20 +35,44 @@ function SinComentarios([string]$t) { return (($t -split "`r?`n" | Where-Object 
 function Log([string]$m) { }
 function Get-Cfg($a, $b, $c) { return $c }
 
-$FlojoRachaMinima = 3
+# EL LISTON SALE DEL ARCHIVO, NO DE AQUI: escrito a mano, cambiar flojoRachaMinima dejaba
+# este banco verde probando otro numero. Lo cazo el repaso del 24/09.
+$mLis = [regex]::Match($fuente, '(?m)^\$FlojoRachaMinima = \[int\]\(Get-Cfg ''escucha'' ''flojoRachaMinima'' (\d+)\)')
+if (-not $mLis.Success) { Write-Host '  MAL  no encuentro $FlojoRachaMinima'; exit 1 }
+$FlojoRachaMinima = [int]$mLis.Groups[1].Value
+Comp 'el liston sale del archivo' ($FlojoRachaMinima -eq 3) "$FlojoRachaMinima descartes"
 Invoke-Expression (Traer 'Test-AvisarFlojo')
 
 Write-Host ''
 Write-Host '-- 1. EL LISTON DE TRES: las rachas medidas, una a una --'
 # Los tamanos reales de las rachas del registro, y si los altavoces estaban callados. Con
 # altavoces sonando el worker NI LAS CUENTA, asi que aqui llegan como 0.
+# LAS DIECINUEVE RACHAS REALES, sacadas del registro una a una (24/09, corregido en el repaso
+# del mismo dia). La tabla que habia aqui antes era un extracto a mano de once filas, y traia
+# una racha del 23/09 a las 21:47 que NO existe -ese dia solo hay un descarte suelto a las
+# 21:19:39- y fechaba a las 01:00 la del 24/09 que el registro pone a las 00:50.
+# 'callado' es que ninguno de sus descartes tenia los altavoces por encima de 0,02 en los 90 s
+# de alrededor; con altavoces sonando el oido NI LAS CUENTA, asi que aqui llegan como 0.
 $rachas = @(
-    @{ d = '20/09 21:13'; n = 4; callado = $true },  @{ d = '21/09 16:28'; n = 3; callado = $true },
-    @{ d = '21/09 16:37'; n = 6; callado = $true },  @{ d = '21/09 23:42'; n = 5; callado = $true },
+    @{ d = '20/09 20:53'; n = 2; callado = $true },
+    @{ d = '20/09 21:13'; n = 4; callado = $true },
+    @{ d = '20/09 22:43'; n = 2; callado = $true },
+    @{ d = '21/09 00:40'; n = 2; callado = $false },
+    @{ d = '21/09 16:23'; n = 2; callado = $true },
+    @{ d = '21/09 16:28'; n = 3; callado = $true },
+    @{ d = '21/09 16:37'; n = 6; callado = $true },
+    @{ d = '21/09 17:11'; n = 2; callado = $true },
+    @{ d = '21/09 23:42'; n = 5; callado = $true },
+    @{ d = '21/09 23:50'; n = 2; callado = $true },
+    @{ d = '22/09 01:12'; n = 2; callado = $true },
+    @{ d = '23/09 00:23'; n = 2; callado = $false },
+    @{ d = '23/09 23:25'; n = 8; callado = $false },
+    @{ d = '23/09 23:33'; n = 2; callado = $false },
     @{ d = '23/09 23:36'; n = 3; callado = $true },
-    @{ d = '23/09 23:25'; n = 8; callado = $false }, @{ d = '24/09 01:00'; n = 4; callado = $false },
-    @{ d = '20/09 13:32'; n = 2; callado = $true },  @{ d = '21/09 00:11'; n = 2; callado = $true },
-    @{ d = '22/09 01:10'; n = 2; callado = $true },  @{ d = '23/09 21:47'; n = 2; callado = $false }
+    @{ d = '23/09 23:43'; n = 2; callado = $false },
+    @{ d = '23/09 23:55'; n = 2; callado = $false },
+    @{ d = '24/09 00:50'; n = 4; callado = $false },
+    @{ d = '24/09 00:58'; n = 2; callado = $false }
 )
 $avisadas = 0
 foreach ($r in $rachas) {
@@ -61,6 +85,9 @@ foreach ($r in $rachas) {
     $quePasa = $(if ($esperado) { 'avisa' } else { 'calla' })
     Comp ("$($r.d): $($r.n) descartes, altavoces $altav -> $quePasa") ($sale -eq $esperado) "$sale"
 }
+# CON EL LISTON DE TRES Y LOS ALTAVOCES CALLADOS salen CINCO de las diecinueve: 20/09 21:13
+# (4), 21/09 16:28 (3), 21/09 16:37 (6), 21/09 23:42 (5) y 23/09 23:36 (3). Con el liston en
+# 2 serian once, que son 3,7 al dia: el fallo de los 25 avisos identicos con otra ropa.
 Comp 'en total avisa 5 veces, no 11' ($avisadas -eq 5) "$avisadas de $($rachas.Count) rachas"
 
 Write-Host ''

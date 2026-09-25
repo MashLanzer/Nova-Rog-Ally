@@ -72,11 +72,22 @@ print("-- 3. y el DICTADO ESPERA, no degrada --")
 comp("hay una funcion que espera", "def esperar_whisper():" in WAKE)
 m_tope = re.search(r"WHISPER_ESPERA_MAX = ([0-9.]+)", WAKE)
 comp("con un tope", bool(m_tope), (m_tope.group(1) + " s") if m_tope else "sin tope")
-# EL TOPE ES EL MAXIMO MEDIDO Y NO UN NUMERO NUEVO: la carga mas lenta de las 217 del registro
-# fueron 117,9 s, redondeados a 120. Si baja de ahi, empezaria a cortar cargas buenas.
-comp("y el tope cubre la carga mas lenta medida (117,9 s)",
-     bool(m_tope) and float(m_tope.group(1)) >= 117.9,
-     "por debajo cortaria cargas que si terminaban")
+# EL TOPE LO MANDA EL PRESUPUESTO DEL ASISTENTE, no la carga mas lenta. Esta comprobacion
+# nacio exigiendo 117,9 s -la carga mas lenta medida- y era un error: el asistente CANCELA el
+# dictado a los 50 s, asi que una espera larga no da "peor comprension", da NADA. El numero
+# sale de restar dos mediciones que ya estaban: 50 - 30 (lo que dura el dictado) - 13,6 (lo que
+# tarda Whisper en transcribir) = 6,4 s de margen para CARGAR.
+comp("el tope cabe en los 50 s que espera el asistente",
+     bool(m_tope) and float(m_tope.group(1)) <= 6.5,
+     "50 - 30 de dictado - 13,6 de transcribir = 6,4 s")
+comp("y no es cero: la mediana de carga son 4,2 s",
+     bool(m_tope) and float(m_tope.group(1)) >= 4.2,
+     "por debajo cortaria la mitad de las cargas normales")
+# Y QUE EL ASISTENTE SIGA CANCELANDO A LOS 50: si alguien sube ese numero sin tocar este, el
+# calculo de arriba deja de valer y nadie se entera.
+ASIS2 = io.open(os.path.join(RAIZ, "assistant.ps1"), encoding="utf-8-sig").read()
+comp("y el asistente sigue cancelando a los 50 s", "-ge 50000) {" in ASIS2,
+     "si eso cambia, el tope de arriba hay que recalcularlo")
 comp("vuelve al instante si ya esta listo", "if whisper_listo.is_set():" in WAKE)
 comp("y deja dicho cuanto espero", "esperados %.1f s a que Whisper" in WAKE,
      "si no, la espera seria invisible")
@@ -98,6 +109,52 @@ comp("no queda ninguno FUERA de esperar_whisper", fuera == 0,
 comp("el reintento por modelo espera", "base = pedido == \"base\" and esperar_whisper()" in WAKE)
 comp("el dictado del boton espera", "elif esperar_whisper():" in WAKE)
 comp("y el dictado normal tambien", "and esperar_whisper():" in WAKE)
+
+print("")
+print("-- 4b. y esperar_whisper se EJECUTA, no se lee --")
+# El hallazgo del repaso: todas las comprobaciones de este banco miraban el TEXTO, asi que
+# cambiar .wait(WHISPER_ESPERA_MAX) por .wait(WHISPER_ESPERA_MAX/60) lo dejaba verde -la
+# constante seguia escrita-. Aqui se saca la funcion del fichero y se corre de verdad.
+import threading
+import time as _t
+_fn = re.search(r"(?ms)^def esperar_whisper\(\):.*?(?=^def )", WAKE)
+if not _fn:
+    comp("se puede sacar esperar_whisper del fichero", False)
+else:
+    _apuntes = []
+    _ns = {"threading": threading, "time": _t,
+           "whisper_listo": threading.Event(), "whisper": None,
+           "WHISPER_ESPERA_MAX": 0.4,          # 0,4 s para no tardar en el banco
+           "anota": lambda m: _apuntes.append(m)}
+    exec(_fn.group(0), _ns)                                        # noqa: S102
+    # a) sin cargar: espera el tope y avisa
+    _t0 = _t.time()
+    _r = _ns["esperar_whisper"]()
+    _tardo = _t.time() - _t0
+    comp("sin cargar, espera el tope entero", 0.35 <= _tardo <= 1.2, "%.2f s" % _tardo)
+    comp("y devuelve que no hay whisper", _r is False)
+    comp("y lo deja dicho", any("cargando" in a for a in _apuntes),
+         "si se callara, la orden saldria peor entendida sin pista de por que")
+    # b) ya cargado: vuelve al instante
+    _ns["whisper_listo"].set(); _ns["whisper"] = object(); _apuntes.clear()
+    _t0 = _t.time()
+    _r2 = _ns["esperar_whisper"]()
+    _tardo2 = _t.time() - _t0
+    comp("ya cargado, vuelve al instante", _tardo2 < 0.05 and _r2 is True, "%.3f s" % _tardo2)
+    comp("y sin escribir nada", not _apuntes)
+    # c) carga a mitad de la espera: no espera de mas
+    _ns2 = dict(_ns); _ns2["whisper_listo"] = threading.Event(); _ns2["whisper"] = None
+    _ns2["WHISPER_ESPERA_MAX"] = 5.0; _apuntes.clear(); _ns2["anota"] = lambda m: _apuntes.append(m)
+    exec(_fn.group(0), _ns2)                                       # noqa: S102
+    def _carga():
+        _t.sleep(0.3)
+        _ns2["whisper"] = object()
+        _ns2["whisper_listo"].set()
+    threading.Thread(target=_carga, daemon=True).start()
+    _t0 = _t.time()
+    _r3 = _ns2["esperar_whisper"]()
+    _tardo3 = _t.time() - _t0
+    comp("si carga a mitad, no espera el tope entero", _tardo3 < 1.5 and _r3 is True, "%.2f s de 5" % _tardo3)
 
 print("")
 print("-- 5. LO QUE NO SE TOCA --")

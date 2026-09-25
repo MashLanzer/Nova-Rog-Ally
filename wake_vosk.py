@@ -915,13 +915,28 @@ PRECARGA_ESPERA = 6.0
 # Antes, un None mandaba el dictado a Vosk EN SILENCIO -peor comprension, y sin decirlo-, y eso
 # choca de frente con la meta del 100 %.
 #
-# EL PLAZO ES EL MAXIMO MEDIDO Y NO UN NUMERO NUEVO: la carga mas lenta de las 217 del registro
-# fueron 117,9 s. Se redondea a 120. Si ni con eso ha cargado, es que fallo de verdad, y ahi si
-# toca Vosk: mejor entender a medias que no entender nada.
+# EL PLAZO LO MANDA EL PRESUPUESTO DEL ASISTENTE, no la carga mas lenta (24/09, corregido en
+# el repaso del mismo dia). La primera version puso 120 s con el argumento de que la carga mas
+# lenta de las 217 medidas fueron 117,9 s... y eso NO cabe: el asistente cancela el dictado a
+# los 50 s (assistant.ps1: "50 s: el worker corta el dictado a los 30 y Whisper ha llegado a
+# tardar 13,6 s mas"), y cuando el worker escribiera el texto ya no habria nadie leyendolo.
+# O sea que una espera larga no hace lo que promete -"mejor entender a medias que no entender
+# nada"-: hace que braya no reciba NADA.
+#
+# El numero sale de restar dos mediciones que ya estaban:
+#       50 s   el asistente cancela
+#     - 30 s   lo que puede durar el dictado antes de cortarse
+#     - 13,6 s lo que ha llegado a tardar Whisper en TRANSCRIBIR
+#     --------
+#        6,4 s es todo lo que cabe esperar a que CARGUE
+#
+# Con las 217 cargas del registro, 6 s cubren alrededor del 75 %; y desde el 19/09 -cuando se
+# pusieron el barrido de huerfanos y el cerrojo- la mediana son 3,9 s, asi que la espera
+# tipica es de cero. Si se agota, se cae a Vosk: peor comprension, pero algo.
 #
 # Y NO SE ESPERA SI NO HAY NADA QUE ESPERAR: con el motor puesto en otra cosa, el evento ya
 # esta marcado desde el arranque y esto vuelve al instante.
-WHISPER_ESPERA_MAX = 120.0
+WHISPER_ESPERA_MAX = 6.0
 
 
 def esperar_whisper():
@@ -934,7 +949,10 @@ def esperar_whisper():
     if espera >= 0.5:
         anota("dictado: esperados %.1f s a que Whisper terminara de cargar" % espera)
     if not listo:
-        anota("WARN: Whisper lleva %.0f s cargando; dicto con lo que haya" % WHISPER_ESPERA_MAX)
+        # SE DICE, y se dice que se cae a Vosk: si esto se callara, braya veria una orden peor
+        # entendida sin ninguna pista de por que.
+        anota("WARN: Whisper lleva %.0f s cargando y el dictado no puede esperar mas"
+              " (el asistente lo cancela a los 50 s); sigo con Vosk" % WHISPER_ESPERA_MAX)
     return whisper is not None
 
 
@@ -3403,6 +3421,14 @@ try:
                                     # ganancia buena es imposible (ver ULTIMO_RECORTE)
                                     ultimo_recorte = ahora
                                     anota("recorte detectado: bajando ganancia a x%.1f" % ganancia)
+                                    # Y SE DICE YA, no en la vuelta del pulso (24/09, repaso).
+                                    # El septimo campo de escucha-estado.txt lleva los segundos
+                                    # desde el ultimo recorte, y el asistente lo compara contra
+                                    # una ventana de 20 s; si el fichero solo se escribiera cada
+                                    # 15 s -y se aceptara hasta 45 s despues-, ese 20 no
+                                    # significaria nada: un recorte de hace 55 s podria leerse
+                                    # como "hace 10". Escribirlo aqui cuesta una linea.
+                                    escribir(RUTA_ESTADO, decir_estado())
                                     recortes = 0
                                     amplificado = muestras * ganancia
                         muestras = np.clip(amplificado, -32768, 32767)

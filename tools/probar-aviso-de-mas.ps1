@@ -36,7 +36,13 @@ function Traer([string]$n) {
 }
 function SinComentarios([string]$t) { return (($t -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n") }
 Invoke-Expression (Traer 'Test-CabeOtroAviso')
-$suelo = 4     # el mismo $EntornoPorHora de siempre
+# EL SUELO SALE DEL ARCHIVO, NO DE AQUI. Escrito a mano, cambiar $EntornoPorHora en
+# assistant.ps1 dejaba este banco verde probando otro numero: un banco que trae su copia de la
+# constante no prueba la constante. Lo cazo el repaso del 24/09.
+$mSuelo = [regex]::Match($fuente, '(?m)^\$EntornoPorHora = \[int\]\(Get-Cfg ''entorno'' ''porHora'' (\d+)\)')
+if (-not $mSuelo.Success) { Write-Host '  MAL  no encuentro $EntornoPorHora'; exit 1 }
+$suelo = [int]$mSuelo.Groups[1].Value
+Comp 'el suelo sale del archivo' ($suelo -eq 4) "$suelo por hora"
 
 Write-Host ''
 Write-Host '-- 1. LOS TRECE DIAS REALES, uno a uno --'
@@ -51,6 +57,11 @@ $dias = @(
     @{ d = '24/09'; av = 2;  ac = 1  }
 )
 $totDichos = 0; $totReales = 0
+# OJO CON LO QUE SE LE PASA (24/09, repaso): el codigo real pasa Get-CuentaHoy 'activacion',
+# que son las llamadas de HASTA ESE MOMENTO, no las del dia entero. Simular con el total es
+# mas optimista que la realidad, y eso hacia que la afirmacion de la seccion 2 no estuviera
+# probada. Aqui se sigue usando el total en la tabla de arriba -que es la vista de conjunto- y
+# el caso con el orden real va en la seccion 2b, con los datos del 23/09.
 foreach ($x in $dias) {
     # se simula el dia entero: cada aviso pasa por la funcion con la cuenta que llevaba
     $salen = 0
@@ -83,6 +94,45 @@ $s22 = 0; for ($i = 0; $i -lt 31; $i++) { if (Test-CabeOtroAviso $s22 7 $suelo '
 Comp 'el 22/09 pasa de 31 avisos a 7' ($s22 -eq 7) "$s22"
 
 Write-Host ''
+Write-Host '-- 2b. EL 23/09 ENTERO, con las horas de verdad --'
+# Aqui se prueba lo que la tabla de arriba no puede: que el ORDEN importa. El codigo real pasa
+# las llamadas de HASTA ESE MOMENTO, no las del dia entero, y simular con el total es mas
+# optimista que la realidad.
+#
+# Los trece avisos que SONARON el 23/09 con su hora, y las catorce activaciones reales de ese
+# dia sacadas del registro. El dato que lo cambia todo: braya estuvo delante a las 00:28-00:30
+# y NO volvio hasta las 21:08. Todo lo de en medio -de las 08:00 a las 20:41- sono a una
+# habitacion vacia.
+$avisos23 = @('00:26:58', '08:00:19', '08:00:33', '10:32:36', '10:32:51', '12:32:52',
+              '14:33:14', '16:33:21', '20:00:57', '20:37:32', '20:41:58', '21:14:16', '21:36:32')
+$llamadas23 = @('00:28:12', '00:28:13', '00:30:01', '00:30:16', '21:08:48', '21:09:28',
+                '21:15:33', '21:17:22', '21:19:43', '21:21:20', '21:22:01', '22:12:24',
+                '22:12:26', '22:38:23')
+$dichos = 0; $cortados = @()
+foreach ($h in $avisos23) {
+    $llamadasHasta = @($llamadas23 | Where-Object { $_ -le $h }).Count
+    if (Test-CabeOtroAviso $dichos $llamadasHasta $suelo 'medio') { $dichos++ } else { $cortados += $h }
+}
+Comp 'el 23/09 con el orden real: corta los de la casa vacia' ($cortados.Count -ge 1) "$dichos dichos, $($cortados.Count) cortados"
+# Y LOS QUE CORTA SON LOS DE EN MEDIO, no los de cuando el estaba: eso es lo que hace que la
+# regla valga. Si cortara los de las 21:xx -con braya delante- seria un fallo.
+$conEl = @($cortados | Where-Object { $_ -ge '21:08:48' })
+Comp 'y ninguno de los que sonaron con el delante' ($conEl.Count -eq 0) $(if ($conEl) { "corta: $($conEl -join ', ')" } else { 'los cortados son todos de la casa vacia' })
+Comp 'y los primeros cuatro pasan igual, por el suelo' ($dichos -ge $suelo) "$dichos dichos"
+
+Write-Host '-- 2c. y el caso duro: todos los avisos ANTES de la primera llamada --'
+# Es el escenario que el repaso imaginaba. Aqui el freno SI corta, y debe hacerlo: si braya no
+# ha aparecido, lo que Nova tenga que decir no lo esta oyendo nadie. Ademas esos avisos ni
+# llegan aqui -Test-AvisoAplazable los aparca antes-, pero si llegaran, el suelo es la red.
+$dichos2 = 0
+for ($i = 0; $i -lt 10; $i++) { if (Test-CabeOtroAviso $dichos2 0 $suelo 'medio') { $dichos2++ } }
+Comp 'con cero llamadas, pasan los del suelo y ni uno mas' ($dichos2 -eq $suelo) "$dichos2 de 10"
+# y en cuanto braya aparece, se abre otra vez
+$dichos3 = $dichos2
+for ($i = 0; $i -lt 6; $i++) { if (Test-CabeOtroAviso $dichos3 8 $suelo 'medio') { $dichos3++ } }
+Comp 'y en cuanto aparece, vuelven a caber' ($dichos3 -gt $dichos2) "de $dichos2 a $dichos3"
+
+Write-Host ''
 Write-Host '-- 3. lo importante pasa SIEMPRE --'
 # Es la misma decision que ya tenia el tope por hora. Si esto se cayera, el aviso de que el
 # microfono esta muerto se perderia justo el dia en que Nova esta hablando de mas.
@@ -111,7 +161,12 @@ Comp 'ni mira el reloj por su cuenta' ($tc -notmatch 'Get-Date') 'todo por param
 Write-Host ''
 Write-Host '-- 6. y el freno esta enganchado de verdad --'
 $bloque = (($fuente -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n")
-Comp 'Test-PuedoAvisar lo usa' ($bloque -match 'Test-CabeOtroAviso \(Get-CuentaHoy ''aviso-entorno''\) \(Get-CuentaHoy ''activacion''\)') ''
+# Y QUE CUENTE LO QUE SUENA, NO TODO (24/09, repaso). 'aviso-entorno' se apunta tambien para
+# los de nivel 'bajo', que solo se ven en la capsula: 22 de los 77 del registro. Contando esos,
+# un 28 % del presupuesto se iba en cosas que no hablan, justo al reves de la regla.
+Comp 'Test-PuedoAvisar lo usa' ($bloque -match 'Test-CabeOtroAviso \(Get-CuentaHoy ''aviso-dicho''\) \(Get-CuentaHoy ''activacion''\)') 'y cuenta lo DICHO, no lo mostrado'
+Comp 'y el contador de lo dicho solo se apunta al hablar' (([regex]::Matches($bloque, "Add-Estadistica 'aviso-dicho'")).Count -eq 2) 'las dos ramas que llegan a la voz'
+Comp 'y sigue existiendo el de todos, que mide otra cosa' ($bloque -match "Add-Estadistica 'aviso-entorno'") ''
 Comp 'y con el suelo de siempre' ($bloque -match "Test-CabeOtroAviso[^\n]*\`$EntornoPorHora \`$nivel") ''
 Comp 'y deja una linea cuando se calla' ($bloque -match "ENTORNO: hoy ya he hablado por mi cuenta") 'callarse sin decirlo es lo de siempre'
 Comp 'y un contador para vigilarlo' ($bloque -match "Add-Estadistica 'aviso-de-mas'") ''
