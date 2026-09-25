@@ -80,6 +80,13 @@ memoria/nube-tiempos.json
 # cuanto tarda CADA trabajo suyo, por motor y modo: de ahi sale la barra de espera.
 # Numeros, no frases, pero memoria de uso igual que el de arriba.
 memoria/trabajo-tiempos.json
+# ESTADO VIVO QUE SE COLO EN EL REPO (24/09). wake-worker.lock y despierta.flag son el cerrojo
+# del worker y la marca de "te he oido": los escribe la escucha en tmp\, que ya esta ignorada,
+# pero hay dos copias en la RAIZ que se commitearon el 21/09 y que ya nadie lee -el worker usa
+# $TmpDir desde entonces-. Con dos Novas en dos maquinas, cualquier cosa asi choca en cada
+# arranque, y ademas no es codigo: es el PID de un proceso que murio hace tres dias.
+wake-worker.lock
+despierta.flag
 # cuanto tarda la voz en sintetizar cada frase, en ms por letra (24/09, idea 8): de ahi sale
 # el plazo con el que se la da por perdida. Numeros, no frases, pero memoria de uso igual.
 memoria/voz-tiempos.json
