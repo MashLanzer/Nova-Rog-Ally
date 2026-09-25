@@ -1502,6 +1502,18 @@ Titulo "2n78. Que los bancos midan ESTE repo, en orden y sin etapas mudas"
 python (Join-Path $PSScriptRoot 'probar-bancos-de-verdad.py')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:sin etapas mudas)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n164. Contar lo que hizo mientras no estabas (idea 30 de las 50)"
+# LO MEDIDO: el resumen al volver solo cuenta MENSAJES. Todas sus lineas del registro son de
+# la misma forma -"Mientras no estabas: 1 mensaje de Discord", "3 mensajes"- y ni una dice
+# nada de lo que hizo NOVA. Cuenta lo que paso, no lo que ella hizo.
+# Y SI hace cosas: en la franja de 02 a 08 el registro tiene 302 avisos aparcados -118 del
+# ruido, 118 del Gmail lleno, 66 del disco- y desde hoy tambien la copia de lo aprendido.
+# Todo eso pasaba y nadie se enteraba nunca.
+# LO QUE NO ES: un motivo para hablar. Va DESPUES del corte de "no hay nada que contar", asi
+# que si no hay mensajes Nova no saluda solo para presumir de lo que hizo.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-lo-que-hice.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:lo que hizo mientras no estabas)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n163. Trabajar cuando no molesta (idea 27 de las 50)"
 # LO MEDIDO: de 2.166 ordenes en dieciseis dias, CERO caen entre las 02 y las 08. Seis horas
 # muertas cada dia, y Nova esta DESPIERTA en esa franja -6.027 lineas de registro, en nueve

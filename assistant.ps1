@@ -12285,6 +12285,33 @@ $script:resumenFirma = ''
 function Set-HabloAhora {
     $script:ultimoHabloEn = $sw.ElapsedMilliseconds
 }
+# CONTAR LO QUE HIZO MIENTRAS NO ESTABAS (25/09, idea 30 de las 50)
+#
+# LO MEDIDO: el resumen al volver solo cuenta MENSAJES. Todas sus lineas del registro son de
+# la misma forma -"Mientras no estabas: 1 mensaje de Discord", "3 mensajes"- y ni una dice
+# nada de lo que hizo NOVA. O sea que cuenta lo que paso, no lo que ella hizo.
+#
+# Y SI QUE HACE COSAS: de madrugada, con braya durmiendo, el registro tiene 302 avisos
+# aparcados en la franja de 02 a 08 -118 del ruido, 118 del Gmail lleno, 66 del disco- y desde
+# hoy tambien la copia de lo aprendido (ver TRABAJAR CUANDO NO MOLESTA). Todo eso pasa y nadie
+# se entera nunca.
+#
+# LO QUE SE DICE Y LO QUE NO: los avisos que se GUARDO -no los que soltara luego: esos se
+# diran solos- y la copia, si la hizo mientras no estaba. Nada de listas ni de registros: una
+# frase corta al final de la de siempre. Que Nova diga "y me calle tres cosas" es lo que
+# separa una asistente que estuvo ahi de un programa que se acaba de encender.
+#
+# NO INVENTA NADA: los dos numeros salen de sitios que ya existen -la cola de avisos y la
+# fecha de la ultima copia-, y si no hay ninguno de los dos, no se anade nada.
+function Get-LoQueHice([int]$avisosGuardados, [bool]$huboCopia) {
+    $tr = @()
+    if ($avisosGuardados -eq 1) { $tr += 'me calle una cosa' }
+    elseif ($avisosGuardados -gt 1) { $tr += "me calle $avisosGuardados cosas" }
+    if ($huboCopia) { $tr += 'guarde lo aprendido' }
+    if ($tr.Count -eq 0) { return '' }
+    return ('Y ' + ($tr -join ' y ') + '.')
+}
+
 function Test-ResumenAlVolver {
     $ahoraU = $sw.ElapsedMilliseconds
     $ausente = ($script:ultimoHabloEn -gt 0 -and ($ahoraU - $script:ultimoHabloEn) -ge 7200000)
@@ -12295,7 +12322,24 @@ function Test-ResumenAlVolver {
         $apps = @($script:notifPendientes | ForEach-Object { $_.app } | Select-Object -Unique)
         $partes += $(if ($nN -eq 1) { '1 mensaje' } else { "$nN mensajes" }) + $(if ($apps.Count -eq 1) { " de $($apps[0])" } else { '' })
     }
+    # Y LO QUE HIZO ELLA (25/09, idea 30). Ver CONTAR LO QUE HIZO MIENTRAS NO ESTABAS: hasta
+    # hoy este resumen solo contaba mensajes, o sea lo que PASO, nunca lo que hizo Nova.
+    # Va DESPUES del "if partes.Count -eq 0" de abajo a proposito: si no hay nada que contar
+    # del mundo, tampoco se saluda solo para decir lo que hizo ella. Es un anadido, no un
+    # motivo para hablar.
     if ($partes.Count -eq 0) { return }
+    try {
+        $avG = 0
+        try { $avG = @($script:avisoEspera).Count } catch {}
+        # la copia cuenta como suya solo si la hizo DURANTE la ausencia
+        $copiaS = $false
+        try {
+            $ausH = ($ahoraU - $script:ultimoHabloEn) / 3600000.0
+            $copiaS = ((Get-CopiaHorasEsperando) -lt $ausH)
+        } catch {}
+        $frH = Get-LoQueHice $avG $copiaS
+        if ($frH) { $partes += $frH }
+    } catch {}
     # LA FIRMA DEL EPISODIO (ver EL RESUMEN NO SE APAGABA, arriba): la misma ausencia con
     # los mismos mensajes no se rearma mientras siga puesta en la capsula.
     $firmaU = "$($script:ultimoHabloEn)|$nN"
