@@ -1502,6 +1502,22 @@ Titulo "2n78. Que los bancos midan ESTE repo, en orden y sin etapas mudas"
 python (Join-Path $PSScriptRoot 'probar-bancos-de-verdad.py')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:sin etapas mudas)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n149. Ningun worker residente se queda sin red (ideas 19 y 20)"
+# voz_windows.py estuvo TRECE DIAS sin ninguna de las dos protecciones que tienen los demas
+# workers, y nadie se entero hasta que habia 44 vivos comiendo 1,3 GB. No fue mala suerte: fue
+# que NADA lo comprobaba. Ahora se comprueba: todo .py con un bucle que no termina solo tiene
+# que leer por la tuberia (y morir cuando se cierre) o recibir NOVA_PID_PADRE.
+# EL CRITERIO DE "RESIDENTE" COSTO DOS INTENTOS: mirar todo .py nombrado acusaba a
+# ajedrez_turno.py, que se llama con "&" y no puede quedarse huerfano; mirar si el nombre esta
+# cerca de un Start-Process dejaba fuera a casi todos, porque se lanzan por una variable. Lo
+# que de verdad distingue a un residente esta en el propio worker: un bucle que no acaba.
+# IDEA 20: la lista de los que se matan al salir se ampliaba A MANO y habia crecido tres veces
+# en cuatro dias, siempre tarde. Ahora se construye sola con Get-Variable, asi que un worker
+# nuevo entra el dia que se escribe. Probado ademas EN VIVO: con la marca de salida, el cierre
+# limpio mato el oido y la voz y dejo su linea en el registro.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-residentes.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ningun residente se queda sin red)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n148. Cuando la capsula no se ve, no cuenta como salida"
 # LO QUE PASO la noche del 24 con braya jugando: la capsula estaba en z=0 -por delante del
 # juego-, visible, colocada y del tamano correcto, y NO SE PINTABA NI UN PIXEL. A Way Out

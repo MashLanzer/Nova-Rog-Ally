@@ -10130,6 +10130,32 @@ function Save-AvisoEspera {
 # decir nada. El diario es diario y se avisa al cuarto dia (1 + 3): con menos gracia, un fin de
 # semana sin encender la consola daria un aviso falso. La copia igual. El resumen semanal es
 # cada 7 y se avisa a los 10.
+# LA LISTA DE LOS QUE SE MATAN AL SALIR, CONSTRUIDA SOLA (25/09, idea 20).
+#
+# Estaba escrita a mano y habia crecido TRES VECES EN CUATRO DIAS: piperProc el 21/09, guiaProc
+# y vozWinProc el 24/09, y cada vez porque alguien descubrio que faltaba uno. Mientras tanto,
+# el que faltaba se quedaba vivo al cerrar Nova. Una lista que hay que acordarse de ampliar es
+# una lista que algun dia no se amplia.
+#
+# Ahora se recorren las variables de proceso que EXISTAN. Un worker nuevo entra el dia que se
+# escribe, sin que nadie tenga que acordarse de nada. Y se comprueba el tipo: hay variables que
+# acaban en "Proc" y no son procesos.
+#
+# LO QUE ESTO NO SUSTITUYE: que cada worker sepa morirse solo cuando su padre desaparece (ver
+# probar-residentes.ps1). Esto cubre el cierre ORDENADO; un cierre brusco no ejecuta nada de
+# aqui, y ahi lo unico que salva es que el propio worker se entere.
+function Get-ProcesosResidentes {
+    $fuera = @()
+    try {
+        foreach ($v in @(Get-Variable -Scope Script -ErrorAction SilentlyContinue)) {
+            if ($v.Name -notlike '*Proc') { continue }
+            $p = $v.Value
+            if ($p -is [System.Diagnostics.Process]) { $fuera += $p }
+        }
+    } catch {}
+    return $fuera
+}
+
 function Get-CostumbresOlvidadas([hashtable[]]$costumbres, [datetime]$hoy = (Get-Date)) {
     $fuera = @()
     foreach ($c in $costumbres) {
@@ -26158,7 +26184,9 @@ while ($true) {
         try { Stop-Guia } catch {}
         # vozWinProc entra aqui desde el 24/09: era el UNICO residente al que no mataba
         # nadie, ni aqui ni en el barrido del arranque. Por ahi salian los 44.
-        foreach ($pW in @($script:wakeProc, $script:ttsProc, $script:prepVozProc, $script:piperProc, $script:vozWinProc)) {
+        # LA LISTA, CONSTRUIDA SOLA (25/09, idea 20): antes iban los cinco escritos a mano y
+        # esa lista crecio tres veces en cuatro dias, siempre tarde. Ver Get-ProcesosResidentes.
+        foreach ($pW in @(Get-ProcesosResidentes)) {
             try { if ($pW -and -not $pW.HasExited) { $pW.Kill() } } catch {}
         }
         exit 0    # por aqui SI se dispara PowerShell.Exiting y se escribe "cerrado"
