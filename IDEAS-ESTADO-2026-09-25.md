@@ -32,6 +32,8 @@ tumbó. Descartar una idea con un número es tan útil como implementarla, y bas
 | **50.47** | **Las dos frases que sí se repiten** | **33 veces en 4 días y 20 en 8** |
 | 50.50 | El ánimo cambia lo que hace | habló 21 veces por su cuenta por 1 que la llamaron |
 | — | **La cascada de repasos, medible** | **canary: 18 usos, CERO órdenes sacadas** |
+| **50.27** | **Trabajar cuando no molesta** | **las 13 copias, las 13 entre las 17h y las 22h** |
+| **50.30** | **Contar lo que hizo mientras no estabas** | **el resumen sólo contaba mensajes, nunca lo que hizo ella** |
 
 ---
 
@@ -121,6 +123,28 @@ contexto de cada charla (*"Temas de los que suele hablar: …"*), y `:750` los u
 **El dato:** "estado es cargando en steam" x20 y "hay alguna actualización de este" x16 son
 **todas del mismo día (18/09)**. Tanda de pruebas, como los 190 "llame al médico" del 11-12/09.
 El uso real sobre descargas son 2 frases el 15/09, y el mecanismo ya existe.
+
+---
+
+## Las dos últimas, y por qué van juntas
+
+**50.27 — trabajar cuando no molesta.** De 2.166 órdenes en 16 días, **cero** caen entre las
+02 y las 08. Seis horas muertas cada día, y Nova está **despierta** en esa franja (6.027 líneas
+de registro, nueve noches distintas): lo único que hace es escuchar a nadie y aparcar avisos.
+Mientras tanto la copia de lo aprendido se ha hecho **13 veces y las 13 entre las 17h y las
+22h**, las horas de más uso. No es mala suerte: la copia se intenta *en el primer minuto tras
+arrancar*, y tú arrancas Nova cuando vas a usarla.
+
+Y **no se mira el reloj**: esa franja es lo que haces hoy, y atarse a ella sería un número
+inventado el día que cambies de horario. Se mira si estás delante. Con plazo: pasadas 30 horas
+se hace igual, estorbe o no.
+
+**50.30 — contar lo que hizo.** El resumen al volver sólo contaba **mensajes**. Ahora, cuando
+vuelves: *"Mientras no estabas: 2 mensajes de Discord · Y me callé 3 cosas y guardé lo
+aprendido."* Y nunca es un motivo para hablar: si no hay mensajes que contar, no saluda sola
+para presumir.
+
+Van juntas porque la segunda **no tenía nada que contar hasta que existió la primera**.
 
 ---
 
