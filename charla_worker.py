@@ -883,6 +883,90 @@ def ruta_charla(dia):
     return os.path.join(CARPETA_CEREBRO, "charla-%s.jsonl" % dia)
 
 
+# LO QUE IMPORTO NO SE RESUME (25/09, idea 35 de las 50)
+#
+# LO MEDIDO: cada intercambio se apunta en bruto en charla-<dia>.jsonl y, al dia siguiente,
+# resumir_dias_pasados lo pasa por el modelo local, escribe 2-5 vinetas en el diario y BORRA el
+# bruto. En catorce dias eso ha convertido 342 turnos de conversacion en 29 vinetas y 2.866
+# bytes. Y del 13, 19, 24 y 25/09 no hay ni vineta.
+#
+# RESUMIR ESTA BIEN para la mayoria: nadie necesita el bruto de "que hora es". Lo que esta mal
+# es que se resuma TODO POR IGUAL. Contado sobre el log de 14 dias, el 15 % de lo que braya
+# dice son dos cosas que no se pueden reconstruir de un resumen:
+#
+#   1. CUANDO TE CORRIGE. "No dije Discord, dije Steam". "Pero yo no te dije que reprodujeras
+#      eso, yo te dije el segundo video y claramente no era". "Dios, como puede ser posible que
+#      no sepas hacer algo". 41 frases asi. Una vineta que diga "hablaron de Steam" no sirve de
+#      nada; la frase exacta dice COMO habla braya y EN QUE se equivoco Nova.
+#   2. CUANDO NOVA ADMITE UN AGUJERO. "No me has dicho nunca como se llama tu mascota". "No
+#      tengo acceso a esos datos del juego". Son el inventario de lo que le falta, y hoy
+#      desaparecen en el resumen del dia siguiente.
+#
+# LO QUE SE HACE: esos turnos se COPIAN a importante.jsonl segun pasan. El bruto se sigue
+# resumiendo y borrando igual que hoy -no se cambia nada de eso-, pero lo que importo se queda.
+# Sin tope, como la memoria permanente del perfil: son unas decenas de lineas al mes.
+#
+# Y NO SALE DE LA MAQUINA: vive en memoria\cerebro\, que el .gitignore ignora entero.
+RE_CORRIGE = re.compile(
+    r"(?i)\b(?:no dije|no era eso|no es eso|te equivocas|est[aá]s equivocada|"
+    r"no te dije|no quer[ií]a|no ped[ií]|no quise decir|yo te dije|te dije que)\b")
+RE_AGUJERO = re.compile(
+    r"(?i)(?:no me has dicho|no lo s[eé]\b|no tengo acceso|no puedo ver|no dispongo|"
+    r"no tengo ning[uú]n dato|nunca me has)")
+
+
+# Y LA NEGACION LARGA (25/09). Los patrones de arriba cazan 41 frases del log; se conto ademas
+# cuantas EMPIEZAN por "no", y son 66. Mirando las de cinco palabras o mas -56- practicamente
+# todas son correcciones: "No, no te pedi la hora, dije si es Steam", "No, no es buscarlo en
+# Google, es poner la mitad de una pantalla en Pinterest", "No lo estas haciendo bien, estas
+# hablandolo en el mismo navegador", "No, no, tu muevete a la derecha". Las cinco palabras son
+# el liston que las separa del "no" a secas y del "no, gracias", que no corrigen nada.
+# Se cuela alguna ("No, asi esta bien"), y se acepta a proposito: guardar de mas cuesta una
+# linea en un fichero sin tope, y perder una correccion la pierde para siempre.
+RE_NEGACION = re.compile(r"(?i)^\s*no[,.]?\s")
+NEGACION_PALABRAS = 5
+
+
+def por_que_importa(texto, respuesta):
+    """'' si es un turno normal; si no, POR QUE merece guardarse entero.
+
+    Aparte y devolviendo el motivo -no un booleano- para que el fichero diga de que tipo es
+    cada linea: dentro de un mes, saber si algo se guardo por una correccion o por un agujero
+    es justo lo que deja contarlos por separado."""
+    try:
+        if texto and RE_CORRIGE.search(texto):
+            return "correccion"
+        if texto and RE_NEGACION.match(texto) and len(texto.split()) >= NEGACION_PALABRAS:
+            return "correccion"
+        if respuesta and RE_AGUJERO.search(respuesta):
+            return "agujero"
+    except Exception as e:  # noqa: BLE001
+        # QUE NO SE CALLE. Devolver "" es TAMBIEN la respuesta buena -"este turno es normal"-,
+        # asi que un patron roto dejaria de guardar correcciones sin que nadie se enterara:
+        # el fichero simplemente no crece y parece que braya no corrige nunca. Con la linea,
+        # se ve. Es la manera 10 de que un banco salga verde mintiendo, aplicada al reves.
+        try:
+            salida("info", texto="lo importante: no pude decidir si este turno importa (%s)" % e)
+        except Exception:  # noqa: BLE001
+            pass
+    return ""
+
+
+def apuntar_importante(texto, respuesta, motivo):
+    """Copia un turno a importante.jsonl, que NO se poda nunca."""
+    if not motivo:
+        return
+    try:
+        os.makedirs(CARPETA_CEREBRO, exist_ok=True)
+        with open(os.path.join(CARPETA_CEREBRO, "importante.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps({"d": time.strftime("%Y-%m-%d"), "h": time.strftime("%H:%M"),
+                                "por": motivo,
+                                "braya": cm.limpio(texto, 300),
+                                "nova": cm.limpio(respuesta, 300)}, ensure_ascii=False) + "\n")
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def apuntar_charla(texto, respuesta):
     """DIARIO DE CONVERSACIONES (M10, 14/09): cada intercambio del dia, en bruto,
     hasta que se resume (ver resumir_dias_pasados). Nunca de un invitado."""
@@ -894,6 +978,13 @@ def apuntar_charla(texto, respuesta):
             f.write(json.dumps({"h": time.strftime("%H:%M"), "o": origen_linea(),
                                 "braya": cm.limpio(texto, 300),
                                 "nova": cm.limpio(respuesta, 300)}, ensure_ascii=False) + "\n")
+    except Exception:  # noqa: BLE001
+        pass
+    # Y SI ESTE TURNO IMPORTA, UNA COPIA QUE NO SE PODA (ver LO QUE IMPORTO NO SE RESUME).
+    # Va aparte del try de arriba a proposito: que falle el diario en bruto no es razon para
+    # perder ademas la unica copia de una correccion.
+    try:
+        apuntar_importante(texto, respuesta, por_que_importa(texto, respuesta))
     except Exception:  # noqa: BLE001
         pass
 

@@ -1502,6 +1502,20 @@ Titulo "2n78. Que los bancos midan ESTE repo, en orden y sin etapas mudas"
 python (Join-Path $PSScriptRoot 'probar-bancos-de-verdad.py')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:sin etapas mudas)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n159. Lo que importo no se resume (idea 35 de las 50 / 18 de las 21)"
+# LO MEDIDO: cada intercambio se apunta en bruto y al dia siguiente se resume en 2-5 vinetas y
+# SE BORRA. En catorce dias eso ha convertido 342 turnos de conversacion en 29 vinetas y 2.866
+# bytes; del 13, 19, 24 y 25/09 no hay ni vineta.
+# Resumir esta bien para la mayoria -nadie necesita el bruto de "que hora es"-. Lo que esta mal
+# es resumirlo TODO POR IGUAL. El 15 % de lo que dice braya son dos cosas que un resumen no
+# puede reconstruir: cuando TE CORRIGE (41 frases: "No dije Discord, dije Steam") y cuando NOVA
+# ADMITE UN AGUJERO (10: "No me has dicho nunca como se llama tu mascota"). Esos se copian a
+# importante.jsonl, que no se poda. El bruto se sigue resumiendo y borrando igual que antes.
+# La negacion larga se anadio midiendo: de las 66 frases que empiezan por "no", las de cinco
+# palabras o mas son casi todas correcciones de verdad. Cinco es el liston, y esta medido.
+python (Join-Path $PSScriptRoot 'probar-charla-importante.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:sobrevive a la poda)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n158. El animo con memoria larga (idea 34 de las 50)"
 # LO MEDIDO, y es peor de lo que decia la idea: el animo de hoy+ayer SALTA COMO UN YOYO.
 #     23/09  +0,62      24/09  -0,50      25/09  +0,50
