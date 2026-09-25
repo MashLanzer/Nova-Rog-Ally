@@ -8308,7 +8308,12 @@ function Add-DatoPerfil([string]$dato, [string]$fuente = '') {
     $script:ultimoDatoPerfil = $d
     # Y A LA MEMORIA QUE NO SE BORRA (25/09). El de arriba es el que viaja y tiene 60 plazas;
     # este guarda todo lo que ha pasado por ahi, para que la poda deje de ser una perdida.
-    Add-PerfilTodo $d $fuente
+    # EN SU PROPIO try, Y NO ES POR ADORNO: aprender un dato del perfil es lo principal y
+    # guardarlo ademas en la memoria permanente es lo secundario. Si lo secundario falla -un
+    # disco lleno, un permiso- lo principal tiene que seguir funcionando. Se vio al correr la
+    # bateria: tres bancos que traen Add-DatoPerfil del archivo sin traer esta reventaron
+    # enteros, y en produccion habria pasado lo mismo con cualquier fallo aqui dentro.
+    try { Add-PerfilTodo $d $fuente } catch {}
     Log "PERFIL: aprendido ($fuente): $d"
     Add-Estadistica 'perfil' $d
     Set-AcabaDeAprender

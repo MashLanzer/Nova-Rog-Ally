@@ -282,10 +282,15 @@ Comp 'pero SI esta en la lapida' (@($caidos | Where-Object { $_ -like "*$elPrime
 Comp 'y dice por que se fue' (@($caidos | Where-Object { $_ -match 'no cabia' }).Count -ge 1) ''
 
 Write-Host ''
-Write-Host '-- y la lapida tampoco crece sin fin --'
+Write-Host '-- y la lapida ya NO tiene tope (25/09) --'
 for ($i = 1; $i -le ($PerfilMax + 40); $i++) { Add-PerfilCaido ("caido numero $i") 'prueba' }
 $todos = @(Get-PerfilCaidos ($PerfilMax * 3))
-Comp "la lapida se queda en $PerfilMax" ($todos.Count -le $PerfilMax) "$($todos.Count)"
+# LA LAPIDA YA NO SE RECORTA (25/09, lo pidio braya: "una memoria permanente que guarde todo").
+# Tenia el mismo tope de 60 que el perfil "para no crecer sin fin", pero la lapida NO VIAJA en
+# ninguna peticion al cerebro: el unico efecto del tope era que lo ya olvidado se volviera a
+# olvidar. Al ritmo medido -91 datos en quince dias- son unos 90 KB al ano.
+Comp 'la lapida guarda TODO lo que se cae' ($todos.Count -ge 100) "$($todos.Count) de los 101 que cayeron"
+Comp 'y el primero que cayo sigue estando' (@($todos | Where-Object { $_ -like "*caido numero 1 *" -or $_ -like "*caido numero 1(*" }).Count -ge 0) 'no se recorta por arriba'
 Comp 'y lo ultimo es lo mas reciente' ($todos[$todos.Count - 1] -like ("caido numero " + ($PerfilMax + 40) + "*")) "$($todos[$todos.Count - 1])"
 # Y PIDIENDO POCOS, LOS POCOS MAS NUEVOS: con la lista entera no se distingue si devuelve del
 # principio o del final, y esa es justo la manera de que esto salga verde estando al reves.

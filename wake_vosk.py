@@ -1378,6 +1378,83 @@ def repasar_si_ingles(rapido, bloques):
     return "", mejor
 
 
+# TRANSCRIBIR MIENTRAS BRAYA CALLA (25/09, lo pidio el).
+#
+# SU QUEJA: "se demora muchisimo en responderme y eso es desesperante". Y su pregunta, que es
+# la que llevo aqui: "como hace Alexa para contestar tan rapido".
+#
+# LO MEDIDO sobre 746 dictados del registro: de "te escucho" a "ya tengo tu texto" pasan 10,0 s
+# de mediana, de los cuales 5,5 son braya hablando y 2,8 los pone Nova. De esos 2,8, unos 2,2
+# son transcribir, y empiezan a contar CUANDO BRAYA YA HA CALLADO.
+#
+# LO QUE HACE ALEXA es transcribir mientras hablas: cuando callas, el texto ya esta. Aqui se
+# hace la version segura de eso. Nova espera SILENCIO_FIN (1,5 s) de silencio antes de dar la
+# frase por cerrada, y durante ese segundo y medio no hace nada con el audio. Ahora, en cuanto
+# llevas ADELANTO_DESDE_SEG callado, un hilo empieza a transcribir lo que hay. Si al cerrar la
+# frase resulta que lo unico que se anadio fue silencio, el trabajo YA ESTA HECHO.
+#
+# NO CAMBIA NINGUNA DECISION, solo adelanta el calculo: si braya vuelve a hablar, el adelanto
+# se tira y todo sigue igual que siempre. Y no se hace con un juego delante (regla 5: no
+# competir por CPU con la partida).
+ADELANTO_DESDE_SEG = 0.45
+# Cuanto puede crecer el audio despues del adelanto y que este siga valiendo. Tiene que cubrir
+# el silencio de cierre entero (SILENCIO_FIN = 1,5 s) mas el retraso de una vuelta del bucle;
+# por encima de eso, lo anadido ya no es silencio sino braya hablando otra vez.
+ADELANTO_MARGEN_SEG = 2.2
+# El candado: Parakeet no puede decodificar dos audios a la vez, y ademas oir_parakeet escribe
+# en globales (_parakeet_uso, _parakeet_descartado). Con esto, o corre el adelanto o corre el
+# de siempre, nunca los dos.
+_adelanto_lock = threading.Lock()
+_adelanto = {"n": 0, "texto": None, "gen": 0, "hilo": None}
+
+
+def vale_el_adelanto(n_adelanto, n_final, tasa):
+    """Si lo unico que se anadio tras el adelanto fue silencio, ese trabajo sirve."""
+    if not n_adelanto or not n_final:
+        return False
+    falta = n_final - n_adelanto
+    # NO PUEDE ENCOGER: si el audio final es menor que el que se transcribio, algo se reinicio
+    # por el camino y lo barato es rehacerlo, no entregar el texto de un audio que ya no existe.
+    if falta < 0:
+        return False
+    return falta <= int(tasa * ADELANTO_MARGEN_SEG)
+
+
+def lanzar_adelanto(bloques, gen):
+    """Transcribe en otro hilo lo que braya lleva dicho, mientras el silencio corre."""
+    if not bloques:
+        return
+    try:
+        n = sum(len(b) for b in bloques)
+        copia = list(bloques)
+    except Exception:
+        return
+
+    def _trabajo():
+        if not _adelanto_lock.acquire(False):
+            return          # ya hay una transcripcion en marcha: este adelanto se cae solo
+        try:
+            t = oir_parakeet(copia)
+            if _adelanto["gen"] == gen:      # si el dictado cambio, lo de este hilo ya no vale
+                _adelanto["n"] = n
+                _adelanto["texto"] = t
+        except Exception:
+            pass
+        finally:
+            _adelanto_lock.release()
+
+    h = threading.Thread(target=_trabajo, daemon=True)
+    _adelanto["hilo"] = h
+    h.start()
+
+
+def olvidar_adelanto():
+    """Se llama al abrir un dictado nuevo: lo de la orden anterior no vale para esta."""
+    _adelanto["gen"] += 1
+    _adelanto["n"] = 0
+    _adelanto["texto"] = None
+
+
 def oir_parakeet(bloques):
     """Lo que oye Parakeet, o "" (sin modelo, jugando, casi sin audio o sin cubrir la voz)."""
     global _parakeet_uso
@@ -3248,6 +3325,8 @@ try:
                 # avanzara nunca, dictar.flag no se borraba y el asistente se
                 # quedaba esperando hasta agotar su plazo.
                 if quiere_dictar and not dictando and not confirmando:
+                    # lo adelantado de la orden ANTERIOR no vale para esta (25/09)
+                    olvidar_adelanto()
                     dictando = True
                     # SEGUIMIENTO: la marca lleva "seguimiento:<ms>"; si no hay voz
                     # en ese plazo, se cierra en silencio con texto vacio
@@ -3595,6 +3674,18 @@ try:
                         # reconocido nunca se cumple el fin por silencio. Si en
                         # DICTADO_SIN_VOZ no ha salido ni un parcial, no hay orden.
                         mudo = (not hay_algo) and (ahora - dicta_inicio) >= DICTADO_SIN_VOZ
+                        # EL ADELANTO (25/09, ver TRANSCRIBIR MIENTRAS BRAYA CALLA). En cuanto
+                        # lleva ADELANTO_DESDE_SEG sin hablar, otro hilo empieza a transcribir
+                        # lo que hay. El silencio de cierre NO se toca: esto no acorta la
+                        # espera, solo aprovecha el rato en que no se hacia nada con el audio.
+                        # CON UN JUEGO DELANTE, NO: gastar CPU de mas mientras braya juega es
+                        # la regla 5 de la casa. Ni mientras Nova habla (callado), que ahi lo
+                        # que entra por el microfono es ella misma.
+                        if (hay_algo and not callado and not jugando()
+                                and (ahora - ultima_voz) >= ADELANTO_DESDE_SEG
+                                and _adelanto["texto"] is None
+                                and (_adelanto["hilo"] is None or not _adelanto["hilo"].is_alive())):
+                            lanzar_adelanto(audio_dictado, _adelanto["gen"])
                         fin_silencio = SILENCIO_FIN
                         if LOTENGO and hay_algo and (ahora - ultima_voz) >= SILENCIO_FIN_LOTENGO and os.path.exists(LOTENGO):
                             try:
@@ -3653,7 +3744,22 @@ try:
                                     ajena = True
                                     anota("dictado: voz de otra persona (%.0f Hz frente a %.0f Hz) tras el nombre; sin Whisper"
                                           % (f0_dictado, duena))
-                            rapido = oir_parakeet(audio_dictado) if (not callado and not ajena) else ""
+                            # SI EL TEXTO YA ESTABA HECHO, no se vuelve a hacer (25/09).
+                            # vale_el_adelanto comprueba que lo unico anadido despues fuera
+                            # silencio; si braya siguio hablando da False y se transcribe como
+                            # siempre. El candado evita que el hilo del adelanto y este
+                            # decodifiquen a la vez: Parakeet no puede con dos audios y
+                            # oir_parakeet ademas escribe en globales.
+                            _n_fin = sum(len(b) for b in audio_dictado) if audio_dictado else 0
+                            if ((not callado and not ajena) and _adelanto["texto"] is not None
+                                    and vale_el_adelanto(_adelanto["n"], _n_fin, TASA)):
+                                rapido = _adelanto["texto"]
+                                anota("adelanto: el texto ya estaba hecho mientras callabas"
+                                      " (%.1f s de audio, %.1f s de mas)"
+                                      % (_adelanto["n"] / TASA, (_n_fin - _adelanto["n"]) / TASA))
+                            else:
+                                with _adelanto_lock:
+                                    rapido = oir_parakeet(audio_dictado) if (not callado and not ajena) else ""
                             mejor = ""
                             _ultima_seguridad = None
                             # lo que dijo Parakeet se guarda aunque suene a ingles: es el dato

@@ -1502,6 +1502,32 @@ Titulo "2n78. Que los bancos midan ESTE repo, en orden y sin etapas mudas"
 python (Join-Path $PSScriptRoot 'probar-bancos-de-verdad.py')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:sin etapas mudas)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n145. Transcribir mientras braya calla (los 2,2 s que se perdian)"
+# SU QUEJA, el 25/09: "se demora muchisimo en responderme y eso es desesperante". Y su
+# pregunta: "como hace Alexa para contestar tan rapido".
+# MEDIDO sobre 746 dictados: de "te escucho" a "ya tengo tu texto" pasan 10,0 s de mediana, de
+# los que 5,5 son braya hablando y 2,8 los pone Nova. De esos 2,8, unos 2,2 son transcribir, y
+# empiezan a contar CUANDO BRAYA YA CALLO: antes de eso el audio esta ahi, quieto.
+# LO QUE HACE ALEXA es transcribir MIENTRAS hablas. Aqui se hace la version segura: Nova espera
+# 1,5 s de silencio antes de cerrar la frase, y ahora usa ese rato para transcribir lo que ya
+# tiene. Si lo unico que se anade despues es silencio, el trabajo ya esta hecho.
+# NO CAMBIA NINGUNA DECISION, solo adelanta el calculo: si braya vuelve a hablar el adelanto se
+# tira. Y no corre con un juego delante (regla 5) ni mientras Nova habla (se oiria a si misma).
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-adelanto-oido.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:transcribe mientras callas)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n146. El perfil que viaja es el que viene a cuento"
+# EL CASO, de braya esta noche: pregunto como se llama su mascota y Nova contesto "no me has
+# dicho nunca como se llama tu mascota, asi que no lo se". El dato ESTABA en su perfil -la
+# linea 27 de 60- y llevaba dias ahi. No lo vio porque al modelo de la charla solo le llegaban
+# los QUINCE ULTIMOS datos (dp[-15:]), y el 27 de 60 no esta entre los quince ultimos.
+# O sea que Nova sabia la respuesta y dijo que no la sabia: 45 de los 60 datos eran invisibles.
+# Ahora se eligen los que comparten palabras con lo que acaba de preguntar y se rellena hasta
+# quince con los mas recientes. Sin vectores ni nada caro: comparar palabras cuesta
+# microsegundos y resuelve el caso que fallaba, que es preguntar POR algo que esta escrito.
+python (Join-Path $PSScriptRoot 'probar-perfil-relevante.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el perfil que viaja)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n143. Nova se da cuenta de lo que ha dejado de hacer"
 # EL DIARIO DEL DIA se escribio 10 veces entre el 10 y el 21/09 y NI UNA desde entonces: cuatro
 # dias en blanco sin que saltara nada. Y no era que Nova estuviera apagada -la copia de lo

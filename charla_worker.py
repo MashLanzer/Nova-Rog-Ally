@@ -316,6 +316,58 @@ def sistema_con(extra, marcas):
     return s + extra
 
 
+PERFIL_AL_MODELO = 15
+# Palabras que no distinguen nada: si contaran, "como se llama mi mascota" se parece a todo.
+PERFIL_VACIAS = set("""el la los las de del en un una unos unas que y a por con no si me te se lo le al es
+    esta como cual cuales cuando donde cuanto cuanta mi tu su para ya hay o u lo que quien mas menos muy
+    sus mis tus ser soy eres son era fue hace tiene tengo tienes""".split())
+
+
+def _palabras(t):
+    import re as _re
+    t = (t or "").lower()
+    for a, b in (("\u00e1", "a"), ("\u00e9", "e"), ("\u00ed", "i"), ("\u00f3", "o"), ("\u00fa", "u"), ("\u00fc", "u"), ("\u00f1", "n")):
+        t = t.replace(a, b)
+    return set(p for p in _re.split(r"[^a-z0-9]+", t) if len(p) > 2 and p not in PERFIL_VACIAS)
+
+
+def perfil_para(texto, lineas, tope=None):
+    """Los datos del perfil que vienen a cuento de lo que braya acaba de decir.
+
+    HASTA HOY SE MANDABAN LOS QUINCE ULTIMOS, y por eso Nova dijo no saber el nombre de la
+    mascota de braya teniendolo escrito en la linea 27 de 60: el 27 no esta entre los quince
+    ultimos. Ahora los que comparten palabras con la pregunta van primero, y el resto se
+    rellena con los mas recientes, que es lo que se hacia antes.
+
+    No hace falta un modelo de vectores para esto: comparar palabras cuesta microsegundos y
+    resuelve el caso que fallaba, que es preguntar POR algo que esta escrito.
+    """
+    tope = tope or PERFIL_AL_MODELO
+    if not lineas:
+        return []
+    if len(lineas) <= tope:
+        return list(lineas)
+    q = _palabras(texto)
+    if not q:
+        return list(lineas[-tope:])
+    tocan = []
+    for i, l in enumerate(lineas):
+        comunes = len(q & _palabras(l))
+        if comunes:
+            # a igualdad de palabras comunes, el mas reciente primero
+            tocan.append((comunes, i, l))
+    tocan.sort(key=lambda x: (-x[0], -x[1]))
+    fuera = [l for _, _, l in tocan[:tope]]
+    # y se rellena con los ultimos, sin repetir
+    for l in reversed(lineas):
+        if len(fuera) >= tope:
+            break
+        if l not in fuera:
+            fuera.append(l)
+    # se devuelven en el orden del perfil, que es como estaban antes
+    return [l for l in lineas if l in fuera]
+
+
 def datos_perfil():
     """Lo que el perfil de siempre sabe de braya (memoria\\perfil.md), cacheado."""
     if not RUTA_PERFIL or not os.path.exists(RUTA_PERFIL):
@@ -585,7 +637,10 @@ def responder(p):
     if not invitado:
         dp = datos_perfil()
         if dp:
-            extra += "\n\nLo que sabes de braya: " + "; ".join(dp[-15:]) + "."
+            # LOS QUE VIENEN A CUENTO, NO LOS ULTIMOS (25/09). Ver perfil_para: con
+            # dp[-15:], preguntar por la mascota no traia la linea de la mascota si estaba
+            # fuera de las quince ultimas, y Nova contestaba que no lo sabia teniendolo escrito.
+            extra += "\n\nLo que sabes de braya: " + "; ".join(perfil_para(texto, dp)) + "."
 
     usar_api = (necesita_api(texto) or pide_datos(texto) or duda or buscar) and api_disponible()
     # SIN API, UN DATO CONCRETO NO LO CONTESTA EL LOCAL (14/09): medido, se lo inventa
