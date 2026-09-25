@@ -1502,6 +1502,29 @@ Titulo "2n78. Que los bancos midan ESTE repo, en orden y sin etapas mudas"
 python (Join-Path $PSScriptRoot 'probar-bancos-de-verdad.py')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:sin etapas mudas)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n150. Lo que te prometio decir, se dice (idea 5)"
+# MEDIDO: 4 avisos caducaron SIN DECIRSE desde que existe esa linea (24/09 01:38), dos de ellos
+# la madrugada del 25. Y es feo por una razon concreta: esos avisos estan en la cola PORQUE
+# Nova decidio no molestar en su momento y se prometio decirlos al volver. Tirarlos en silencio
+# convierte la promesa en un agujero: ni entonces ni nunca.
+# Ahora se dicen al caducar, JUNTOS en una frase -tres avisos viejos sueltos son tres
+# interrupciones por cosas que ya pasaron- y diciendo que es tarde. Con nivel 'bajo': es algo
+# que ya paso, no una urgencia.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-aviso-caducado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:prometio decir, se dice)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n151. La noche es la tuya, no las once (idea 8)"
+# El silencio nocturno estaba fijo de 23 a 8 mientras en el MISMO archivo existe
+# Get-HoraFinHabitual, que saca de los habitos a que hora apaga braya de verdad y ya se usa
+# para otra decision. Dos criterios para la misma pregunta, y el que callaba a Nova era el
+# inventado. braya juega de noche -anoche le hablaba a las 2-, asi que un silencio que empieza
+# a las 23 le callaba TRES HORAS UTILES.
+# Sin datos suficientes (menos de 4 dias) sigue el numero de config, asi que el primer dia
+# funciona igual que antes. Y se valida lo que ENTRA: 99999 minutos, con el modulo 24, darian
+# "las 10", una hora perfectamente valida y perfectamente inventada.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-noche-tuya.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la noche es la tuya)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n149. Ningun worker residente se queda sin red (ideas 19 y 20)"
 # voz_windows.py estuvo TRECE DIAS sin ninguna de las dos protecciones que tienen los demas
 # workers, y nadie se entero hasta que habia 44 vivos comiendo 1,3 GB. No fue mala suerte: fue

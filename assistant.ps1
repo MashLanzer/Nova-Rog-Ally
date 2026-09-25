@@ -9800,6 +9800,33 @@ $VueltaMin = [int](Get-Cfg 'entorno' 'vueltaMin' 45)          # a partir de aqui
 $VueltaVozMin = [int](Get-Cfg 'entorno' 'vueltaVozMin' 180)   # y a partir de aqui, ademas voz
 $EntornoNocheDesde = [int](Get-Cfg 'entorno' 'nocheDesde' 23)
 $EntornoNocheHasta = [int](Get-Cfg 'entorno' 'nocheHasta' 8)
+# LA NOCHE ES LA TUYA, NO LAS ONCE (25/09, idea 8).
+#
+# Ese 23 estaba a fuego mientras en este MISMO archivo existe Get-HoraFinHabitual, que saca de
+# los habitos a que hora apaga braya de verdad y ya se usa para otra decision. Dos criterios
+# para la misma pregunta, y el que le callaba a Nova era el inventado.
+#
+# POR QUE IMPORTA: braya juega de noche -anoche le hablaba a las 2 de la madrugada-. Un
+# silencio que empieza a las 23 le calla TRES HORAS UTILES, y encima hace que Nova parezca rota
+# justo cuando mas la usa.
+#
+# SIN DATOS, EL DE SIEMPRE: Get-HoraFinHabitual pide 4 dias y devuelve -1 si no llega, asi que
+# el primer dia esto funciona exactamente como antes y a la semana ya es suyo.
+function Get-NocheDesde {
+    try {
+        $m = Get-HoraFinHabitual
+        # SE VALIDA LO QUE ENTRA, NO SOLO LO QUE SALE (25/09): Get-HoraFinHabitual devuelve
+        # minutos entre 0 y 29 horas -la madrugada viene como 24-29 para poder ordenarla-.
+        # Cualquier cosa fuera de ahi es basura, y el modulo 24 la convertiria en una hora
+        # perfectamente valida y perfectamente inventada: 99999 minutos dan "las 10".
+        if ($m -lt 0 -or $m -gt (29 * 60)) { return $EntornoNocheDesde }
+        # viene en minutos desde medianoche, y la madrugada llega como 24-29 h para poder
+        # ordenarla; el modulo la devuelve a su hora de reloj
+        $h = [int][Math]::Floor($m / 60) % 24
+        if ($h -lt 0 -or $h -gt 23) { return $EntornoNocheDesde }
+        return $h
+    } catch { return $EntornoNocheDesde }
+}
 $script:entornoAvisos = New-Object System.Collections.ArrayList   # cuando salio cada uno
 # clave -> cuando salio, en HORA DE RELOJ (no en ms del cronometro, que se reinicia con
 # Nova). Se guarda en disco: si no, cada reinicio vuelve a avisar de todo.
@@ -9929,8 +9956,10 @@ function Test-PuedoAvisar([string]$clave, [string]$nivel = 'medio', [int]$cadaMi
         # JUGANDO, SILENCIO: es cuando mas molesta y cuando menos caso se hace
         if ($script:juegoActivo) { return $false }
         $hE = (Get-Date).Hour
-        $esNocheE = if ($EntornoNocheDesde -gt $EntornoNocheHasta) { ($hE -ge $EntornoNocheDesde -or $hE -lt $EntornoNocheHasta) }
-                    else { ($hE -ge $EntornoNocheDesde -and $hE -lt $EntornoNocheHasta) }
+        # LA HORA DE EMPEZAR SALE DE SUS HABITOS (25/09, idea 8). Ver Get-NocheDesde.
+        $nocheDesde = Get-NocheDesde
+        $esNocheE = if ($nocheDesde -gt $EntornoNocheHasta) { ($hE -ge $nocheDesde -or $hE -lt $EntornoNocheHasta) }
+                    else { ($hE -ge $nocheDesde -and $hE -lt $EntornoNocheHasta) }
         # 'noche' es el aviso que SOLO tiene sentido de noche (la hora de dormir):
         # se salta el silencio nocturno y nada mas. Jugando sigue callado, y cuenta
         # para el tope por hora como cualquier otro.
@@ -10331,17 +10360,46 @@ function Add-AvisoEspera([string]$clave, [string]$texto, [string]$nivel, [int]$c
 # SUELTA LA COLA. Los vencidos se tiran con una linea en el log: la cola tiene plazo, o seria
 # un modo del que no se sale. Los vivos vuelven a pasar por Send-AvisoEntorno, o sea por el
 # tope por hora y por Send-AvisoCola, que los junta en UNA sola frase.
+# LO QUE TE PROMETIO DECIR, SE DICE (25/09, idea 5).
+#
+# LO MEDIDO: 4 avisos caducaron SIN DECIRSE desde que existe esa linea (24/09 01:38), dos de
+# ellos la madrugada del 25 a las 23:52 y 23:53. Y es feo por una razon concreta: esos avisos
+# estan en la cola PRECISAMENTE porque Nova decidio no molestar en su momento y se prometio
+# decirlos al volver. Tirarlos en silencio convierte la promesa en un agujero -ni entonces ni
+# nunca- y desde fuera es igual que si no se hubiera enterado de nada.
+#
+# SE JUNTAN EN UNA FRASE: tres avisos viejos sueltos son tres interrupciones por cosas que ya
+# pasaron. Y se dicen diciendo QUE es tarde, que es lo honesto.
+function Get-FraseCaducados($caducados) {
+    $piezas = @()
+    foreach ($c in @($caducados)) {
+        $t = ([string]$c.texto).Trim().TrimEnd('.')
+        if ($t) { $piezas += $t }
+    }
+    if ($piezas.Count -eq 0) { return '' }
+    return "Se me paso decirte esto a tiempo: " + ($piezas -join '; ') + "."
+}
+
 function Send-AvisoEsperaSuelta([datetime]$ahora = (Get-Date), [bool]$soloCaducar = $false) {
     [void](Get-AvisoEspera)
     if ($script:avisoEspera.Count -eq 0) { return 0 }
     $vivos = @()
+    $caducados = @()
     foreach ($x in @($script:avisoEspera)) {
         $vence = [datetime]::MaxValue
         try { $vence = [datetime]$x.vence } catch {}
         if ($ahora -gt $vence) {
             Log "ENTORNO caducado sin decirse: $($x.clave)"
             Add-Estadistica 'aviso-caducado' ([string]$x.clave)
+            # Y SE DICE, TARDE PERO SE DICE (25/09, idea 5). Ver Get-FraseCaducados.
+            $caducados += $x
         } else { $vivos += $x }
+    }
+    # NIVEL 'bajo' A PROPOSITO: esto ya paso, no es una urgencia. Y cadaMin alto para que no
+    # se repita: se dice UNA vez, al caducar, y se acabo.
+    if ($caducados.Count -gt 0) {
+        $fr = Get-FraseCaducados $caducados
+        if ($fr) { [void](Send-AvisoEntorno 'lo-que-no-dije' $fr 'bajo' 720) }
     }
     $script:avisoEspera.Clear()
     if ($soloCaducar) {
