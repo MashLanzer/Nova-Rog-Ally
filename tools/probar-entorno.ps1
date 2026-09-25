@@ -103,7 +103,7 @@ function Get-CuentaHoy([string]$ruta) { return 0 }
 # CERO -dividir 0 entre 0 da NaN y ningun -ge casaba- y el aviso repetido volvia a pasar. Dos
 # comprobaciones de este banco se pusieron rojas con el codigo perfectamente bien.
 foreach ($cteE in @('AvisoReaccionMin', 'AvisoEsperaTope')) {
-    $mE = [regex]::Match($fuente, ('(?m)^\$' + $cteE + '\s*=\s*(\d+)'))
+    $mE = [regex]::Match([System.IO.File]::ReadAllText($ruta), ('(?m)^\$' + $cteE + '\s*=\s*(\d+)'))
     if ($mE.Success) { Invoke-Expression ('$' + $cteE + ' = ' + $mE.Groups[1].Value) }
     else { Write-Host ("  MAL  no encuentro la constante " + $cteE); $script:fallos++ }
 }

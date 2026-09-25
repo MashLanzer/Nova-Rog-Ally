@@ -89,6 +89,30 @@ son quejas dentro de la misma sesión ("te dije ahora mismo que en YouTube").
 No hay ni un dato que medir, porque no existe la estructura.
 → Esto no es una decisión de datos: es de gusto. **Hace falta que lo decida braya.**
 
+### 50.9 a 50.16 — TODA la sección "decidir sin preguntar"
+**El dato, y descarta las ocho de una vez:** conté **cuántas veces pregunta Nova antes de
+hacer algo**. Son **32 en 16 días, y ninguna desde el 20/09** — cinco días sin una sola
+pregunta. Y las 32 son de tres tipos, los tres correctos:
+
+- **frases mal oídas** (`'abre calcladra'`, 3 veces) → preguntar es exactamente lo que debe hacer;
+- **borrados** (`'vacía la lista'`, `'borra la lista de compra'`) → la regla 1 de la casa;
+- **plazos vencidos** — que no son una pregunta: son que nadie contestó.
+
+→ **No hay preguntas de más que quitar.** La sección entera parte de una premisa falsa: Nova
+ya casi no pregunta. La autonomía que le falta no es *dejar de preguntar*, es **hacer cosas
+útiles por su cuenta**, que es por donde ha ido el trabajo de hoy.
+
+### 50.12 — Que un "no" dure
+**El dato:** el mecanismo **funciona y está documentado**. El 13/09 a las 16:24 apuntó
+`RECHAZO apuntado: 'baja el volumen'` y ocho minutos después, al pedir lo mismo, preguntó:
+*"La última vez me dijiste que no era eso"*. Se ha usado **una vez en 16 días**. Y el diseño
+actual —preguntar, y si dices que sí quitarlo de la lista— lleva escrita su razón: *"así se
+cura sola en vez de quedarse vetada para siempre por una vez que cambiaste de idea"*.
+
+### 50.7 — Los treinta temas que no usa para nada
+**El dato:** **sí los usa.** `charla_memoria.py:431-435` mete los cinco más frecuentes en el
+contexto de cada charla (*"Temas de los que suele hablar: …"*), y `:750` los usa para buscar.
+
 ### Quitar la muletilla del principio ("mira", "oye")
 **El dato:** 19 de 531 frases no reconocidas (4 %), y **la mayoría son falsos positivos**: en
 "mira mi pantalla" *mira* es el verbo, no una muletilla. Quitarla rompería más de lo que arregla.
