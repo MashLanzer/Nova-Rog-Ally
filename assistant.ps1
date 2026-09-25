@@ -10012,10 +10012,38 @@ function Test-PuedoAvisar([string]$clave, [string]$nivel = 'medio', [int]$cadaMi
 #
 # Pura y con todo por parametro para que el banco pueda correrle los trece dias en un
 # milisegundo.
+# QUE EL ANIMO TENGA CONSECUENCIAS, NO SOLO COLOR (25/09, idea 50).
+#
+# Nova calcula un animo de -1 a 1 con sus aciertos y errores de hoy y ayer ($script:uiAnimo).
+# Es un dato REAL, no un adorno... y hasta hoy solo servia para dos cosas, las dos de aspecto:
+# el latido de la capsula se hacia mas lento si estaba desanimada y el color se apagaba.
+#
+# LO QUE FALTABA ERA QUE LE CAMBIARA EL COMPORTAMIENTO. Si Nova lleva un dia malo -o sea, si
+# esta entendiendo mal a braya- lo ultimo que debe hacer es hablar MAS por su cuenta:
+# interrumpir mas justo cuando estas fallando es la peor combinacion. Y al reves, un dia bueno
+# puede permitirse alguna iniciativa mas.
+#
+# EL DATO QUE LO JUSTIFICA: el 24/09 Nova hablo 21 veces por su cuenta por UNA que braya la
+# llamo. El suelo de avisos existe para eso, y el animo es la senal que dice si hoy conviene
+# gastarlo. Los listones son los mismos que ya usa la capsula para apagarse o avivarse, asi que
+# lo que se ve y lo que se hace cuentan la misma historia.
+$AnimoMalo = -0.3
+$AnimoBueno = 0.5
+function Get-SueloPorAnimo([int]$suelo) {
+    try {
+        $a = [double]$script:uiAnimo
+        if ($a -le $AnimoMalo) { return [int][Math]::Max(1, [Math]::Floor($suelo / 2)) }
+        if ($a -ge $AnimoBueno) { return [int][Math]::Min($suelo * 2, $suelo + 2) }
+        return $suelo
+    } catch { return $suelo }
+}
+
 function Test-CabeOtroAviso([int]$avisosHoy, [int]$llamadasHoy, [int]$suelo, [string]$nivel) {
     # lo critico no se frena nunca, igual que ya se salta el tope por hora
     if ($nivel -eq 'alto') { return $true }
-    if ($avisosHoy -lt $suelo) { return $true }
+    # EL SUELO SE MUEVE CON EL ANIMO (25/09, idea 50). Ver Get-SueloPorAnimo: un dia malo habla
+    # menos por su cuenta, uno bueno se permite algo mas. Lo critico ya salio arriba.
+    if ($avisosHoy -lt (Get-SueloPorAnimo $suelo)) { return $true }
     return ($avisosHoy -lt $llamadasHoy)
 }
 

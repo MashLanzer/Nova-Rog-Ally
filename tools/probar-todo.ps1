@@ -1502,6 +1502,18 @@ Titulo "2n78. Que los bancos midan ESTE repo, en orden y sin etapas mudas"
 python (Join-Path $PSScriptRoot 'probar-bancos-de-verdad.py')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:sin etapas mudas)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n152. El animo cambia lo que hace, no solo como se ve (idea 50)"
+# Nova calcula un animo de -1 a 1 con sus aciertos y errores de hoy y ayer. Es un dato REAL...
+# y hasta hoy solo servia para dos cosas de aspecto: el latido de la capsula y el color.
+# LO QUE FALTABA era que le cambiara el COMPORTAMIENTO: si lleva un dia malo -o sea, si esta
+# entendiendo mal a braya- lo ultimo que debe hacer es hablar MAS por su cuenta. Interrumpir
+# mas justo cuando estas fallando es la peor combinacion. El dato que lo justifica: el 24/09
+# hablo 21 veces por su cuenta por UNA que la llamaron.
+# Los listones son los mismos que ya usa la capsula para apagarse o avivarse, asi que lo que se
+# ve y lo que se hace cuentan la misma historia. Y lo critico pasa siempre.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-animo-consecuencias.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:cambia lo que hace)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n150. Lo que te prometio decir, se dice (idea 5)"
 # MEDIDO: 4 avisos caducaron SIN DECIRSE desde que existe esa linea (24/09 01:38), dos de ellos
 # la madrugada del 25. Y es feo por una razon concreta: esos avisos estan en la cola PORQUE
