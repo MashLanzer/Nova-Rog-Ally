@@ -183,10 +183,35 @@ Write-Host '-- mientras transcribe, la capsula ya no dice "te escucho" --'
 # 'escuchando' todo ese rato, con la onda verde animada y los ojos atentos.
 Comp 'la escucha avisa de que ya no oye' `
     ($oido -match 'TRANSCRIBIENDO = os\.path\.join\(os\.path\.dirname\(NIVEL\), "transcribiendo\.flag"\)')
-Comp 'la marca se pone al cerrar el micro, antes de Parakeet' `
-    ($oido -match '(?s)f0_dictado = anotar_voz\(audio_dictado\).{0,600}escribir\(TRANSCRIBIENDO, "1"\).{0,3000}rapido = oir_parakeet\(audio_dictado\) if')
+# POR ORDEN, NO POR DISTANCIA (25/09, idea 2). Estas dos comprobaciones decian "que estas
+# piezas esten a menos de 600 / 3000 / 400 caracteres", y el commit que hizo que Nova
+# transcriba mientras callas metio unas 90 lineas justo dentro de esa ventana: las dos se
+# pusieron rojas con el codigo perfectamente bien. Es la bomba de relojeria que denuncia la
+# idea 2, mordiendo en el banco que la estrena.
+#
+# Lo que hay que comprobar es el ORDEN -que la marca se ponga antes de transcribir y se quite
+# antes de entregar-, y el orden se mira comparando DONDE esta cada pieza, no cuanto se
+# separan. Asi da igual cuanto codigo haya en medio, que es la unica parte que puede crecer.
+function Antes([string]$texto, [string]$a, [string]$b) {
+    $ia = $texto.IndexOf($a)
+    $ib = $texto.IndexOf($b)
+    if ($ia -lt 0 -or $ib -lt 0) { return $false }
+    return ($ia -lt $ib)
+}
+Comp 'la marca se pone al cerrar el micro' `
+    ($oido.Contains('escribir(TRANSCRIBIENDO, "1")')) ''
+# EL BLOQUE, POR SUS LIMITES DE VERDAD. Hay DOS "escribir(TRANSCRIBIENDO, 1)" en el oido -uno
+# por cada camino- y comparar posiciones a secas cogia el primero, que es de otro sitio y esta
+# antes: salia rojo sin que nada estuviera mal. Asi que se recorta el trozo que va de medir la
+# voz a empezar a transcribir, y se comprueba que la marca cae DENTRO. Sin topes de longitud.
+$iA1 = $oido.IndexOf('f0_dictado = anotar_voz(audio_dictado)')
+$iA2 = $oido.IndexOf('rapido = oir_parakeet(audio_dictado) if')
+$trozo = if ($iA1 -ge 0 -and $iA2 -gt $iA1) { $oido.Substring($iA1, $iA2 - $iA1) } else { '' }
+Comp '  entre medir tu voz y ponerse a transcribir' `
+    ($trozo -and $trozo.Contains('escribir(TRANSCRIBIENDO, "1")')) "$($trozo.Length) caracteres de bloque, sin tope"
+
 Comp 'y se quita ANTES de entregar el texto' `
-    ($oido -match '(?s)os\.remove\(TRANSCRIBIENDO\).{0,400}escribir\(TEXTO, texto_final\)')
+    (Antes $oido 'os.remove(TRANSCRIBIENDO)' 'escribir(TEXTO, texto_final)') 'si no, el asistente veria "transcribiendo" con el texto ya puesto'
 Comp 'el corte con el boton tambien la pone y la quita' `
     ((([regex]::Match($oido, '(?s)el asistente lo corto a mano \(boton\).{0,4000}?escribir\(TEXTO, texto_final\)')).Value -match 'escribir\(TRANSCRIBIENDO') -and
      (([regex]::Match($oido, '(?s)el asistente lo corto a mano \(boton\).{0,4000}?escribir\(TEXTO, texto_final\)')).Value -match 'os\.remove\(TRANSCRIBIENDO'))

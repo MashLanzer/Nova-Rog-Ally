@@ -95,14 +95,39 @@ $iFin = if ($iMar -gt 0) { $src.IndexOf('exit 0', $iMar) } else { -1 }
 $blSalida = if ($iMar -gt 0 -and $iFin -gt $iMar) { $src.Substring($iMar, $iFin - $iMar + 6) } else { '' }
 $blSalida = (($blSalida -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n")
 Comp 'el bucle la mira y sale por exit (no por kill)' ($blSalida -match 'exit 0') "$($blSalida.Length) caracteres de bloque"
-foreach ($pieza in @('Stop-Charla', 'wakeProc', 'ttsProc', '.Kill()')) {
+# LOS NOMBRES DE LOS RESIDENTES SALIERON DE AQUI (25/09, idea 20): el bloque de salida ya no
+# los nombra uno a uno, pregunta por Get-ProcesosResidentes. Lo que tiene que seguir estando es
+# que cierre la charla, que mate lo que quede y que no se vaya sin hacerlo.
+foreach ($pieza in @('Stop-Charla', '.Kill()')) {
     Comp "  y en la salida esta $pieza" ($blSalida.Contains($pieza)) ''
 }
-# Y LOS CINCO RESIDENTES, POR NOMBRE (25/09). Contar cuantos hay seria la manera 7: la lista
-# crece a proposito cada vez que se descubre uno que faltaba -piperProc el 21/09, guiaProc y
-# vozWinProc el 24/09-. Se comprueba que cada uno este, no cuantos son.
-foreach ($res in @('wakeProc', 'ttsProc', 'prepVozProc', 'piperProc', 'vozWinProc')) {
-    Comp "  y no se queda vivo $res" ($blSalida.Contains($res)) ''
+# Y LOS RESIDENTES YA NO SE BUSCAN POR NOMBRE AQUI (25/09, idea 20). Esta comprobacion pedia
+# 'wakeProc', 'ttsProc', 'prepVozProc', 'piperProc' y 'vozWinProc' escritos dentro del bloque
+# de salida... y ese mismo dia la lista a mano se cambio por Get-ProcesosResidentes, que barre
+# las variables *Proc del ambito. O sea que el codigo mejoro -ya no hay lista que olvidar
+# actualizar- y cinco comprobaciones se pusieron rojas con el fallo ARREGLADO. El banco se
+# quedo atras, que es lo que pasa cuando se ancla a COMO esta escrito algo en vez de a lo que
+# hace.
+#
+# Lo que se comprueba ahora es mas fuerte que lo de antes: que el bloque pregunte por los
+# residentes, y que la funcion que responde los encuentre DE VERDAD, ejecutandola.
+Comp '  y los residentes salen de Get-ProcesosResidentes' ($blSalida -match 'Get-ProcesosResidentes') 'no de una lista que hay que acordarse de ampliar'
+$dRes = $ast.Find({ param($x)
+    $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq 'Get-ProcesosResidentes' }, $true)
+Comp '  y esa funcion existe' ($null -ne $dRes) ''
+if ($dRes) {
+    Invoke-Expression $dRes.Extent.Text
+    # se le ponen delante variables *Proc con procesos DE VERDAD (este mismo), que es lo unico
+    # que distingue "barre las variables" de "devuelve una lista vacia y nadie se entera"
+    $yo = Get-Process -Id $PID
+    $script:wakeProc = $yo; $script:ttsProc = $yo; $script:prepVozProc = $yo
+    $script:piperProc = $yo; $script:vozWinProc = $yo; $script:guiaProc = $yo
+    $script:noEsProc = 'una cadena, no un proceso'
+    $hallados = @(Get-ProcesosResidentes)
+    Comp '  y los encuentra todos al ejecutarla' ($hallados.Count -ge 6) "$($hallados.Count) de 6"
+    Comp '  sin colar lo que no es un proceso' ((@($hallados | Where-Object { $_ -isnot [System.Diagnostics.Process] }).Count) -eq 0) 'noEsProc no debe entrar'
+    $script:wakeProc = $null; $script:ttsProc = $null; $script:prepVozProc = $null
+    $script:piperProc = $null; $script:vozWinProc = $null; $script:guiaProc = $null
 }
 Comp 'y cierra sus workers antes de salir (charla, escucha, voz)' ($blSalida.Contains('Stop-Charla') -and $blSalida.Contains('.Kill()')) ''
 # Y CIERRA SUS WORKERS ANTES (18/09, noche): el de escucha miraba al padre solo en su pulso, cada

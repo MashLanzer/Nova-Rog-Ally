@@ -10114,7 +10114,12 @@ function Get-ReaccionesAviso([string]$clave) {
 }
 function Get-EsperaAviso([string]$clave, [int]$base) {
     $r = @(Get-ReaccionesAviso $clave)
-    if ($r.Count -lt $AvisoReaccionMin) { return $base }
+    # EL Max(1, ...) NO SOBRA (25/09). Sin el, si esta constante faltara al pasar por aqui,
+    # "$r.Count -lt $null" seria falso con cero reacciones, la tasa saldria de dividir 0 entre
+    # 0 -NaN-, ningun -ge ni -lt casaria, y la espera acabaria siendo Min($base*2, 0) = CERO:
+    # o sea que el aviso se repetiria sin descanso, justo lo contrario de lo que hace esta
+    # funcion. Lo cazo un banco al traer esta funcion sin sus constantes.
+    if ($r.Count -lt [Math]::Max(1, [int]$AvisoReaccionMin)) { return $base }
     $si = @($r | Where-Object { $_ }).Count
     $tasa = $si / [double]$r.Count
     # UNO DE CADA TRES YA ES SERVIR: con 32 avisos y 2 reacciones (6 %) no hay duda, pero con

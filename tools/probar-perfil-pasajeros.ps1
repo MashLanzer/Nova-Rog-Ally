@@ -39,8 +39,17 @@ Write-Host '-- 1. existe la limpieza y corre una sola vez --'
 Comp 'existe Clear-PerfilPasajeros' ($sinCom -match 'function Clear-PerfilPasajeros') ''
 $usos = @([regex]::Matches($sinCom, '(?<!function )Clear-PerfilPasajeros')).Count
 Comp 'y se llama al arrancar' ($usos -ge 1) "$usos uso(s)"
-Comp 'usa la guarda que YA existia' ($sinCom -match 'Clear-PerfilPasajeros[\s\S]{0,1200}Test-DatoPasajero') 'no un criterio nuevo'
-Comp 'y lo que saca va a la memoria permanente' ($sinCom -match 'Clear-PerfilPasajeros[\s\S]{0,1200}Add-PerfilTodo') 'no se pierde nada'
+# DENTRO DE LA FUNCION, NO "a menos de 1200 caracteres" (25/09). Estas dos lineas eran dos de
+# las expresiones fragiles que denuncia la idea 2 -y las dos unicas nuevas del dia, las que
+# subieron el techo de 28 a 30-. Un comentario de mas entre las piezas y se caen solas.
+# Lo que se quiere comprobar es que Clear-PerfilPasajeros use la guarda que ya existia y mande
+# lo sacado a la memoria permanente: eso se mira DENTRO de la funcion, que tiene limites de
+# verdad, y da igual cuanto crezca.
+$dCP = $ast.Find({ param($x)
+    $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq 'Clear-PerfilPasajeros' }, $true)
+$cuerpoCP = if ($dCP) { (($dCP.Extent.Text -split "`n" | Where-Object { $_.TrimStart() -notmatch '^#' }) -join "`n") } else { '' }
+Comp 'usa la guarda que YA existia' ($cuerpoCP -match 'Test-DatoPasajero') 'no un criterio nuevo'
+Comp 'y lo que saca va a la memoria permanente' ($cuerpoCP -match 'Add-PerfilTodo') 'no se pierde nada'
 
 Write-Host ''
 Write-Host '-- 2. LA FUNCION, SACADA DEL ARCHIVO Y EJECUTADA --'

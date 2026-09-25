@@ -29,11 +29,56 @@ function Comp($etiqueta, $ok, $detalle = '') {
     Write-Host ("  {0}  {1,-58} {2}" -f $(if ($ok) { 'OK ' } else { 'MAL' }), $etiqueta, $detalle)
     if (-not $ok) { $script:fallos++ }
 }
-function Traer([string]$n) {
+# TRAER SE LLEVA TAMBIEN DE QUIEN DEPENDE (25/09). Hasta hoy traia UNA funcion, y el dia que
+# esa funcion paso a apoyarse en otra el banco reventaba con "El termino 'X' no se reconoce" y
+# se ponia rojo con el codigo perfectamente bien. Paso tres veces el mismo dia -Get-NocheDesde,
+# Get-FraseCaducados y Get-SueloPorAnimo- porque el codigo mejoro y el banco se quedo atras.
+#
+# SOLO SE ARRASTRAN LAS DE CONSULTA (Get-, Test-, ConvertTo-, Describe-). Nunca Send-, Say,
+# Log, Save-, Set-, Start-, Stop-, Invoke-, Add- ni Update-: esas TIENEN EFECTOS y son justo
+# las que los bancos doblan a proposito. Traerlas de verdad es la manera 9 de salir verde
+# mintiendo -un banco acabo dejando un .wav real en piper\salida por eso-.
+# LO QUE ESTE BANCO DOBLA, SACADO DEL PROPIO BANCO (25/09). La primera version de Traer
+# recursivo arrastraba las funciones de verdad encima de Get-Habitos, Get-Estadisticas y
+# Get-CuentaHoy -que este fichero dobla a proposito para darles datos de mentira- y dos
+# comprobaciones se pusieron rojas al instante: la manera 9 de salir verde mintiendo,
+# provocada por el propio arreglo.
+#
+# Y NO VALE Get-Command: los Invoke-Expression (Traer ...) corren ANTES de que se definan la
+# mitad de los dobles, asi que en ese momento todavia no existen. Tampoco vale una lista a
+# mano, que caducaria el dia que alguien anada un doble. Lo que no caduca es que el banco se
+# lea A SI MISMO: lo que este fichero define, este fichero no lo trae.
+$script:doblesBanco = @{}
+try {
+    foreach ($fD in @(([System.Management.Automation.Language.Parser]::ParseFile(
+                $PSCommandPath, [ref]$null, [ref]$null)).FindAll({ param($x)
+                $x -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true))) {
+        $script:doblesBanco[$fD.Name] = $true
+    }
+} catch {}
+$script:traidas = @{}
+function Traer([string]$n, [bool]$dependencia = $false) {
     $fn = $ast.Find({ param($x)
         $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq $n }, $true)
     if (-not $fn) { Write-Host "  MAL  no encuentro la funcion $n"; exit 1 }
-    return $fn.Extent.Text
+    # LA MEMORIA ES SOLO PARA LAS DEPENDENCIAS (25/09). Si frenara tambien las peticiones
+    # directas, un banco que pide la misma funcion dos veces -primero para leerla y luego para
+    # ejecutarla, que es un patron normal aqui- se quedaria con el doble puesto y probaria el
+    # doble en vez del codigo. Paso en probar-aviso-de-mas con Get-CuentaHoy.
+    if ($dependencia -and $script:traidas.ContainsKey($n)) { return '# ya traida' }
+    $script:traidas[$n] = $true
+    $texto = ''
+    foreach ($cmd in @($fn.FindAll({ param($x) $x -is [System.Management.Automation.Language.CommandAst] }, $true))) {
+        $nom = ''
+        try { $nom = [string]$cmd.GetCommandName() } catch {}
+        if (-not $nom -or $nom -eq $n) { continue }
+        if ($nom -notmatch '^(?:Get|Test|ConvertTo|Describe)-') { continue }
+        if ($script:traidas.ContainsKey($nom)) { continue }
+        if ($script:doblesBanco.ContainsKey($nom)) { continue }   # lo que el banco dobla, no se trae
+        $otra = $ast.Find({ param($x) $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq $nom }, $true)
+        if ($otra) { $texto += (Traer $nom $true) + "`n" }
+    }
+    return ($texto + $fn.Extent.Text)
 }
 function SinComentarios([string]$t) { return (($t -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n") }
 function TraerVar([string]$n) {

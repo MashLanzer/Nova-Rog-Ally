@@ -50,6 +50,9 @@ $txt = [IO.File]::ReadAllText($PS1)
 # borrar la comprobacion del codigo y el banco seguia verde. Es la manera 2 de salir verde
 # mintiendo, y estaba escrita desde el 23/09. Aqui se cae una linea entera si empieza por '#'.
 $sinCom = (($txt -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) -join "`n"
+# el arbol, para sacar funciones enteras y ejecutarlas (y no adivinarlas con un regex)
+$errAst = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($PS1, [ref]$null, [ref]$errAst)
 $fuentePy = [IO.File]::ReadAllText($RutaVoz)
 
 # el barrido del arranque: se saca el bloque de verdad, no todo el fichero
@@ -63,13 +66,34 @@ foreach ($w in @('wake_vosk', 'tts_worker', 'charla_worker')) {
     Comp ("y sigue buscando " + $w) ($barrido -match $w) 'no se pierde ninguno de los de antes'
 }
 
-# el parar limpio: el foreach de los Kill
-$iK = $sinCom.IndexOf('foreach ($pW in @($script:wakeProc')
-Comp 'el parar limpio sigue matando por lista' ($iK -gt 0) ''
-$linKill = if ($iK -gt 0) { $sinCom.Substring($iK, 200).Split("`n")[0] } else { '' }
-Comp 'y vozWinProc esta en esa lista' ($linKill -match 'vozWinProc') 'era el unico residente que no mataba nadie'
-foreach ($w in @('wakeProc', 'ttsProc', 'prepVozProc', 'piperProc')) {
-    Comp ("y sigue matando " + $w) ($linKill -match $w) ''
+# EL PARAR LIMPIO YA NO MATA POR LISTA (25/09, idea 20). Esto pedia literalmente
+# "foreach ($pW in @($script:wakeProc" y luego que en esa linea estuvieran vozWinProc,
+# ttsProc, prepVozProc y piperProc. Ese mismo dia la lista a mano se cambio por
+# Get-ProcesosResidentes -que barre las variables *Proc del ambito, para que no haya lista que
+# olvidar ampliar- y CINCO comprobaciones se pusieron rojas con el fallo arreglado. El banco
+# estaba anclado a como estaba escrito, no a lo que hace.
+#
+# Lo de ahora prueba mas: que el parar limpio pregunte por los residentes, y que la funcion
+# que responde los encuentre de verdad, EJECUTANDOLA con procesos reales delante. Asi un
+# residente nuevo entra solo, que es justo lo que la lista a mano no hacia.
+$iK = $sinCom.IndexOf('foreach ($pW in @(Get-ProcesosResidentes')
+Comp 'el parar limpio pregunta por los residentes' ($iK -gt 0) 'y no por una lista escrita a mano'
+$dRes = $ast.Find({ param($x)
+    $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq 'Get-ProcesosResidentes' }, $true)
+Comp '  existe Get-ProcesosResidentes' ($null -ne $dRes) ''
+if ($dRes) {
+    Invoke-Expression $dRes.Extent.Text
+    $yo = Get-Process -Id $PID
+    # los cinco de siempre MAS el que se descubrio el 24/09: si el barrido dejara de verlos,
+    # volveriamos a los 44 huerfanos de 1,3 GB
+    $script:wakeProc = $yo; $script:ttsProc = $yo; $script:prepVozProc = $yo
+    $script:piperProc = $yo; $script:vozWinProc = $yo; $script:guiaProc = $yo
+    $script:noEsUnProceso = 'una cadena'
+    $hallados = @(Get-ProcesosResidentes)
+    Comp '  y los encuentra a los seis' ($hallados.Count -ge 6) "$($hallados.Count) de 6"
+    Comp '  sin colar lo que no es un proceso' ((@($hallados | Where-Object { $_ -isnot [System.Diagnostics.Process] }).Count) -eq 0) ''
+    $script:wakeProc = $null; $script:ttsProc = $null; $script:prepVozProc = $null
+    $script:piperProc = $null; $script:vozWinProc = $null; $script:guiaProc = $null
 }
 
 # el PID del padre, para los DOS arranques del worker
