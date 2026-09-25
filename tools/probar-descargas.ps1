@@ -34,6 +34,13 @@ function Log($m) { }
 function Add-Estadistica($a, $b) { }
 function Send-UIEvento($e) { }
 function Say($t) { $script:dicho += @($t) }
+# Y EL DOBLE DE Send-Aviso (25/09). Invoke-Reglas se trae de verdad unas lineas mas abajo, y
+# el 24/09 dejo de hablar por Say para hacerlo por Send-Aviso -que si mira la sordina, la
+# llamada y el juego-. Sin este doble, la funcion real reventaba aqui con "Send-Aviso no se
+# reconoce" y el banco se caia entero. Lo caza el trap, que lo cuenta como MAL; se vio al
+# correr la bateria completa despues de aquel cambio.
+$script:avisado = @()
+function Send-Aviso([string]$t, [string]$tipo = '') { $script:avisado += @($t) }
 function Test-FastCommand($t) { return $true }   # aquí se prueba la CONDICIÓN
 function Invoke-FastCommand($t) { $script:ejecutado += @($t); return "ok" }
 $script:juegosDeMentira = @('ELDEN RING', 'OUTLAST 2')

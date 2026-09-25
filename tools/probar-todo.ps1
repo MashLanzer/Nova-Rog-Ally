@@ -32,6 +32,14 @@ $secSaltadas = @()
 # hace dias, la respuesta no es "esta roto": es "ya se arreglo". Un contador que cruza la
 # fecha de su propio arreglo miente en la direccion mas cara, que es hacer trabajo de mas
 # sobre algo que ya estaba bien.
+# UN SCRIPT DE ROTURAS QUE SE INTERRUMPE DEJA EL CODIGO ROTO (25/09). Estos scripts aplican
+# una rotura, corren el banco y RESTAURAN en un finally. Si se mata el proceso a mitad, el
+# finally no llega a correr y la rotura se queda puesta en el archivo. Paso esta madrugada con
+# voz_windows.py: quedo con un "return True" donde va la comprobacion de verdad, y el archivo
+# seguia pareciendo sano -sintaxis correcta, todas las funciones en su sitio, el numero de
+# llamadas exacto-. Solo lo caza correr el banco: por eso se corre SIEMPRE despues, y por eso
+# la primera linea de cada script de roturas comprueba que el banco sale verde de partida.
+# Si un script de roturas se interrumpe, hay que correr su banco antes de tocar nada mas.
 # AVISOS EN AMARILLO (19/09, H2m3): ni verde ni rojo. Son cosas que el banco NO puede
 # comprobar por si mismo -como que el codigo nuevo se haya usado de verdad- y que si se
 # dijeran en rojo molestarian en pleno desarrollo. Se juntan aqui para que el veredicto
@@ -1492,6 +1500,49 @@ if ($LASTEXITCODE -ne 0) { $fallos++ }
 
 Titulo "2n78. Que los bancos midan ESTE repo, en orden y sin etapas mudas"
 python (Join-Path $PSScriptRoot 'probar-bancos-de-verdad.py')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:sin etapas mudas)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n138. Lo que espera no se reintenta siete veces por segundo"
+# MEDIDO CON BRAYA JUGANDO, el 24/09 a las 23:49: 413 lineas identicas en el registro -"ENTORNO:
+# 2 aviso(s) no cabian ahora"- a razon de SEIS Y SIETE POR SEGUNDO, y cada pasada reescribiendo
+# memoria\avisos-espera.json en disco. La llamada estaba suelta dentro del "if (botones -ne 0)"
+# de Watch-Entorno: su comentario dice "cuando braya vuelve", pero ese bloque corre con CADA
+# rafaga del mando, que jugando es continua. Regla 5 rota por I/O en vez de por RAM.
+# Ahora va detras de un antirrebote de un minuto, y la linea de registro solo sale cuando el
+# numero CAMBIA. La pregunta por voz ("que me he perdido") no pasa por el freno y sigue
+# contestando al momento; el banco comprueba las dos cosas por separado.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-aviso-espera-ritmo.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya no se reintenta sin parar)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n139. La capsula no puede robar el foco (sin audio en el juego)"
+# LO CONTO BRAYA JUGANDO, el 24/09 a las 23:33: al reiniciar Nova con A Way Out abierto, el
+# juego se quedo sin audio Y la capsula dejo de verse encima. Dos sintomas y una sola causa,
+# medida con GetForegroundWindow: la ventana de delante era nova_ui, no el juego. Un juego que
+# pierde el foco se silencia, y al recuperarlo se pone delante y tapa la capsula.
+# EL CODIGO NO HABIA CAMBIADO (nova_ui.cs del 22/09 19:38, exe del 22/09 20:56): lo que cambio
+# fue el ORDEN. Nova suele arrancar antes que el juego, y entonces no hay foco que robar.
+# WS_EX_NOACTIVATE si estaba, pero se ponia en Loaded, que corre DESPUES de pintar la ventana.
+# Ahora va tambien en SourceInitialized y, sobre todo, ShowActivated = false.
+# LA COMPROBACION QUE MAS VALE es que el .exe se haya compilado DESPUES del .cs: el binario va
+# versionado, asi que se puede arreglar el codigo y dejar corriendo el de antes.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-capsula-foco.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no roba el foco)|MAL|SALTADA'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n140. Los workers que sobrevivian a Nova (44 vivos, 1,3 GB)"
+# EL PEOR FALLO DEL DIA, y no lo encontro ningun banco sino un aviso de memoria baja de
+# Windows: el 24/09 a las 21:53 Nova murio de golpe mientras braya jugaba a A Way Out, y media
+# hora despues habia 44 procesos voz_windows.py vivos comiendo 1,3 GB. La maquina ve 11,70 GB
+# y el juego usaba 1,9; quedaban 0,70 GB libres. Regla 5 de la casa: nada residente comiendo
+# RAM que le hace falta al juego.
+# TRES AGUJEROS A LA VEZ: el worker no miraba si su padre seguia vivo (wake_vosk.py si lo hace
+# desde el 13/09), el "parar limpio" no lo mataba -era el unico residente al que no mataba
+# nadie- y el barrido del arranque no lo nombraba. En la ventana justa -desde que existe la
+# linea "cerrado", el 18/09 a las 17:06- hay 61 arranques y 35 cierres limpios: 26 cierres
+# sucios en seis dias, y en un cierre sucio PowerShell.Exiting no dispara por definicion.
+# ESTA SECCION TARDA ~40 s A PROPOSITO: arranca un worker de verdad con un padre de mentira,
+# lo mata y mira si el hijo se cierra solo. Mirar el codigo no habria valido: la primera
+# version de este banco daba por muerto un worker vivo porque no cogia el Handle.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-huerfanos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya no sobreviven a Nova)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
 Titulo "7. Bancos que llaman a funciones que no han traido (ROJO si los hay)"

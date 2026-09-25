@@ -82,11 +82,32 @@ Write-Host '  -- la salida limpia, entera --'
 $src = [System.IO.File]::ReadAllText((Join-Path $raiz 'assistant.ps1'), [System.Text.Encoding]::UTF8)
 Comp 'la marca de salida esta definida' ($src -match '\$MarcaSalir = Join-Path \$TmpDir "salir\.flag"') ''
 Comp 'y se limpia al arrancar, con las demas' ($src -match '\$MarcaWake, \$MarcaSalir\)') ''
-Comp 'el bucle la mira y sale por exit (no por kill)' ($src -match 'Test-Path -LiteralPath \$MarcaSalir[\s\S]{0,1200}exit 0') ''
+# EL BLOQUE DE VERDAD, NO UNA DISTANCIA EN CARACTERES (25/09). Esto eran dos regex con
+# cuentas fijas -{0,1200}, {0,900}, {0,500}...- entre una pieza y la siguiente. El 24/09 se
+# anadio vozWinProc a la lista de los que se matan y un comentario que lo explica, la cuenta
+# se paso, y las dos se pusieron rojas con el codigo perfectamente bien. Cualquier regex que
+# dependa de CUANTO ocupa el codigo de al lado se cae sola el dia que alguien comenta algo.
+# Ahora se recorta el bloque entre la marca de salida y su 'exit 0', se le quitan los
+# comentarios y se mira que dentro esten las piezas, en cualquier orden y a cualquier
+# distancia.
+$iMar = $src.IndexOf('Test-Path -LiteralPath $MarcaSalir')
+$iFin = if ($iMar -gt 0) { $src.IndexOf('exit 0', $iMar) } else { -1 }
+$blSalida = if ($iMar -gt 0 -and $iFin -gt $iMar) { $src.Substring($iMar, $iFin - $iMar + 6) } else { '' }
+$blSalida = (($blSalida -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n")
+Comp 'el bucle la mira y sale por exit (no por kill)' ($blSalida -match 'exit 0') "$($blSalida.Length) caracteres de bloque"
+foreach ($pieza in @('Stop-Charla', 'wakeProc', 'ttsProc', '.Kill()')) {
+    Comp "  y en la salida esta $pieza" ($blSalida.Contains($pieza)) ''
+}
+# Y LOS CINCO RESIDENTES, POR NOMBRE (25/09). Contar cuantos hay seria la manera 7: la lista
+# crece a proposito cada vez que se descubre uno que faltaba -piperProc el 21/09, guiaProc y
+# vozWinProc el 24/09-. Se comprueba que cada uno este, no cuantos son.
+foreach ($res in @('wakeProc', 'ttsProc', 'prepVozProc', 'piperProc', 'vozWinProc')) {
+    Comp "  y no se queda vivo $res" ($blSalida.Contains($res)) ''
+}
+Comp 'y cierra sus workers antes de salir (charla, escucha, voz)' ($blSalida.Contains('Stop-Charla') -and $blSalida.Contains('.Kill()')) ''
 # Y CIERRA SUS WORKERS ANTES (18/09, noche): el de escucha miraba al padre solo en su pulso, cada
 # 15 s, y se quedaba vivo hasta que parar-nova.ps1 lo mataba. La charla por Stop-Charla, escucha
 # y voz por Kill, y todo ANTES del exit, que despues ya no hay quien lo haga.
-Comp 'y cierra sus workers antes de salir (charla, escucha, voz)' ($src -match 'Test-Path -LiteralPath \$MarcaSalir[\s\S]{0,900}Stop-Charla[\s\S]{0,500}wakeProc[\s\S]{0,200}ttsProc[\s\S]{0,300}\.Kill\(\)[\s\S]{0,300}exit 0') ''
 Comp 'y el cierre deja su linea en el log' ($src -match 'PowerShell\.Exiting[\s\S]{0,200}VoiceAssistant cerrado') ''
 Comp 'existe tools\parar-nova.ps1' (Test-Path -LiteralPath (Join-Path $raiz 'tools\parar-nova.ps1')) ''
 

@@ -98,8 +98,16 @@ comp("y Say-Piper arranca Piper sola cuando no esta",
                ps, re.S) is not None)
 comp("Initialize-Piper se planta en seco si falta el .exe o el modelo",
      "if (-not (Test-Path -LiteralPath $PiperExe) -or -not (Test-Path -LiteralPath $PiperModelo)) { return $false }" in ps)
-comp("y al parar limpio ya no queda piper.exe vivo",
-     "$script:prepVozProc, $script:piperProc)" in ps)
+# CADA UNO POR SU NOMBRE, NO POR SU SITIO EN LA FILA (25/09). Esto pedia
+# "$script:prepVozProc, $script:piperProc)" con el parentesis pegado, o sea que piperProc fuera
+# el ULTIMO. Esa lista crece a proposito cada vez que aparece un residente que faltaba -piper
+# el 21/09, la guia y el dictado de Windows el 24/09-, asi que atarse al ultimo de la fila se
+# cae solo. Se comprueba que cada uno este, en cualquier orden.
+_kill = ps[ps.index("foreach ($pW in @($script:wakeProc"):] if "foreach ($pW in @($script:wakeProc" in ps else ""
+_kill = _kill[:_kill.index(")) {") + 4] if ")) {" in _kill else _kill
+comp("y al parar limpio ya no queda piper.exe vivo", "$script:piperProc" in _kill)
+for _r in ("wakeProc", "ttsProc", "prepVozProc", "piperProc", "vozWinProc"):
+    comp("  y tampoco %s" % _r, ("$script:" + _r) in _kill)
 
 # que lo que hace falta este de verdad en el disco, o el respaldo sigue sin existir
 for rel in ("piper/piper.exe", "piper/es_MX-claude-high.onnx"):

@@ -473,6 +473,18 @@ public class NovaUI : Window
         AllowsTransparency = !Sin("transp");
         Background = Sin("transp") ? Brushes.Black : Brushes.Transparent;
         ShowInTaskbar = false;
+        // NUNCA ROBAR EL FOCO (24/09). Sin esto, WPF activa la ventana al mostrarla y la
+        // capsula le quita el primer plano a lo que hubiera delante. Con un juego en pantalla
+        // completa eso es grave por partida doble: el juego se queda sin audio -muchos se
+        // silencian al perder el foco- y sale del modo exclusivo, asi que la capsula tampoco
+        // se ve. Le paso a braya las dos cosas a la vez el 24/09 a las 23:33.
+        // POR QUE NO PASABA ANTES: Nova solia estar ya arrancada antes de abrir el juego, y
+        // entonces no hay nada al foco que robar. Paso al reiniciarla con el juego abierto,
+        // que es justo lo que hace la vigilancia cuando la capsula se cae.
+        // Los estilos extendidos (WS_EX_NOACTIVATE) se ponen en Loaded, que corre DESPUES de
+        // que la ventana ya se ha mostrado: para entonces el foco ya estaba robado. Esto lo
+        // impide desde el primer fotograma, y es una propiedad de WPF, no un truco.
+        ShowActivated = false;
         Topmost = true;
         ResizeMode = ResizeMode.NoResize;
         Width = (ANCHO_BARRA + MARGEN * 2) * escalaUI;
@@ -794,6 +806,21 @@ public class NovaUI : Window
             CargarGestosExtra();
         }
         catch { }
+
+        // Y LOS ESTILOS, ANTES DE QUE SE VEA (24/09). SourceInitialized corre cuando el
+        // hwnd ya existe pero la ventana todavia no se ha pintado; Loaded corre despues. Poner
+        // WS_EX_NOACTIVATE solo en Loaded dejaba una rendija de unos milisegundos en la que la
+        // ventana si se podia activar. Se deja TAMBIEN en Loaded: es barato y si alguna vez
+        // SourceInitialized no llegara a correr, la red sigue puesta.
+        SourceInitialized += delegate
+        {
+            var h0 = new WindowInteropHelper(this).Handle;
+            if (h0 != IntPtr.Zero)
+            {
+                int e0 = GetWindowLong(h0, GWL_EXSTYLE);
+                SetWindowLong(h0, GWL_EXSTYLE, e0 | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE);
+            }
+        };
 
         Loaded += delegate
         {
@@ -2872,7 +2899,14 @@ public class NovaUI : Window
 
     void EscalaFoco(bool pequena)
     {
-        double destino = pequena ? (string.IsNullOrEmpty(juegoActual) ? 0.5 : 0.32) : 1.0;
+        // EL 0,32 NUNCA SE HABIA VISTO DE VERDAD (24/09). Este numero es de cuando Nova
+        // estaba CIEGA a los juegos en pantalla completa: Get-ProcesoEnPrimerPlano no los
+        // reconocia, asi que juegoActual llegaba vacio y en la practica siempre se usaba el
+        // 0,5. Hoy se arreglo esa ceguera, la rama del 0,32 se estreno... y braya dijo que no
+        // veia la capsula. 0,32 de un punto de 22 px deja 7 px sobre el HUD de un juego.
+        // Se sube a 0,42: sigue siendo mas discreta con un juego delante que sin el -que es
+        // lo que queria el diseno- pero se ve. Si molesta, este es el numero que hay que bajar.
+        double destino = pequena ? (string.IsNullOrEmpty(juegoActual) ? 0.5 : 0.42) : 1.0;
         var a = new DoubleAnimation(destino, TimeSpan.FromMilliseconds(420));
         a.EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut };
         escalaEnvoltorio.BeginAnimation(ScaleTransform.ScaleXProperty, a);

@@ -91,6 +91,12 @@ function Write-Atomico([string]$r, [string]$t, [bool]$bom = $false) {
     [System.IO.File]::WriteAllText($r, $t, (New-Object System.Text.UTF8Encoding($false)))
 }
 function Say([string]$t, [string]$e = '') { $script:dicho += $t }
+# Y EL DOBLE DE Send-Aviso (25/09). Invoke-Reglas se trae de verdad mas abajo, y el 24/09 dejo
+# de hablar por Say para hacerlo por Send-Aviso, que si mira la sordina, la llamada y el juego.
+# Este banco contaba lo que pasaba por Say, asi que desde aquel cambio veia CERO avisos donde
+# hay uno y daba cinco rojos con el codigo bien. Va a la MISMA lista a proposito: lo que la
+# seccion mide es "Nova avisa", no por que puerta sale la frase.
+function Send-Aviso([string]$t, [string]$tipo = '') { $script:dicho += $t }
 function Send-UIEvento([string]$e) { }
 function Set-UI([string]$e, [string]$t = '', [int]$ms = 0) { }
 function Add-Estadistica($a, $b) { }

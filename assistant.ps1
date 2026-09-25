@@ -9998,7 +9998,13 @@ function Send-AvisoEsperaSuelta([datetime]$ahora = (Get-Date), [bool]$soloCaduca
     }
     foreach ($q in $quedan) { [void]$script:avisoEspera.Add($q) }
     Save-AvisoEspera
-    if ($quedan.Count -gt 0) { Log "ENTORNO: $($quedan.Count) aviso(s) no cabian ahora; siguen esperando" }
+    # SOLO CUANDO CAMBIE (24/09). Decir lo mismo en cada pasada llenaba el registro: 413
+    # lineas identicas en un cuarto de hora. Lo que interesa saber es cuantos quedan cuando
+    # ese numero cambia; repetirlo no anade informacion y tapa lo demas.
+    if ($quedan.Count -ne $script:avisoSueltaDicho) {
+        $script:avisoSueltaDicho = $quedan.Count
+        if ($quedan.Count -gt 0) { Log "ENTORNO: $($quedan.Count) aviso(s) no cabian ahora; siguen esperando" }
+    }
     return $n
 }
 
@@ -10060,6 +10066,11 @@ function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'med
 # jugando, las horas tranquilas y el "no me avises".
 $script:entornoCheck = 0
 $script:entornoUltimaActividad = 0
+# CUANDO SE INTENTO SOLTAR LO GUARDADO POR ULTIMA VEZ (24/09). Ver el antirrebote de
+# Watch-Entorno: sin esto se reintentaba con CADA rafaga de botones del mando.
+$script:avisoSueltaUltimo = -999999
+# y el ultimo numero que se dijo en el registro, para no repetir la misma linea
+$script:avisoSueltaDicho = -1
 $script:entornoBotonesAntes = 0
 $script:entornoUnidades = $null      # las unidades que habia la ultima vez (idea 31)
 # ¿ESTOY OYENDO RUIDO EN VEZ DE A BRAYA? (22/09, idea 5 de IDEAS-2026-09-22.md)
@@ -10367,7 +10378,21 @@ function Watch-Entorno([int]$botones = 0) {
         # que se sabe que ha vuelto, y es la salida que no cuesta decir una palabra: coger la
         # consola. Va DESPUES de Test-VueltaSaludo para que el hola vaya delante, y ANTES de
         # Set-PresenciaAhora porque lo que decide es la ausencia de justo antes.
-        try { [void](Send-AvisoEsperaSuelta) } catch { Log ("avisos en espera: " + $_.Exception.Message) }
+        # UNA VEZ POR MINUTO, NO SIETE POR SEGUNDO (24/09). Esto estaba suelto dentro del
+        # "if botones", asi que no corria "cuando braya vuelve" -que es lo que dice su
+        # comentario- sino CADA VEZ que el mando manda botones. Jugando, eso son rafagas
+        # continuas: medido el 24/09 a las 23:49, 6 y 7 pasadas POR SEGUNDO, y cada una
+        # reescribe memoria\avisos-espera.json en disco y suelta una linea de registro. 413
+        # lineas en un cuarto de hora. Es la regla 5 rota por I/O en vez de por RAM: braya
+        # esta jugando y Nova esta escribiendo en su disco siete veces por segundo.
+        # El minuto no se ha elegido a ojo: estos avisos llevan esperando horas -el mas viejo
+        # de la cola de hoy, desde las 20:00-, asi que llegar un minuto mas tarde no le quita
+        # nada a nadie. La llamada por voz ("que me he perdido") NO pasa por aqui y sigue
+        # contestando al momento.
+        if (($ahoraW - $script:avisoSueltaUltimo) -ge 60000) {
+            $script:avisoSueltaUltimo = $ahoraW
+            try { [void](Send-AvisoEsperaSuelta) } catch { Log ("avisos en espera: " + $_.Exception.Message) }
+        }
         try { Set-PresenciaAhora } catch {}
     }
     $script:entornoBotonesAntes = $botones
@@ -16813,9 +16838,14 @@ if (-not $Probar) {
         # relanzamientos y 31 marcas huerfanas, y cada worker vivo se queda con el
         # microfono y con su RAM en una maquina de 8 GB. Faltaba ademas charla_worker.py,
         # que es el que mas memoria gasta de los tres.
+        # Y FALTABA voz_windows.py (24/09): la lista se escribio el 17/09 a las 16:34 y el
+        # worker del dictado de Windows existe desde el 11/09 a las 23:00, asi que no fue
+        # un desfase sino un olvido. Es una lista cerrada que el diseno amplio: cada vez
+        # que se anada un worker residente hay que anadirlo aqui Y al parar limpio.
         foreach ($wo in @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
                           Where-Object { $_.Name -in @('python.exe', 'pythonw.exe') -and $_.CommandLine -and
-                                         ($_.CommandLine -match 'wake_vosk\.py' -or $_.CommandLine -match 'tts_worker\.py' -or $_.CommandLine -match 'charla_worker\.py') })) {
+                                         ($_.CommandLine -match 'wake_vosk\.py' -or $_.CommandLine -match 'tts_worker\.py' -or
+                                          $_.CommandLine -match 'charla_worker\.py' -or $_.CommandLine -match 'voz_windows\.py') })) {
             if (-not (Get-Process -Id $wo.ProcessId -ErrorAction SilentlyContinue)) { continue }
             if (-not (Get-Process -Id $wo.ParentProcessId -ErrorAction SilentlyContinue)) {
                 Stop-Process -Id $wo.ProcessId -Force -ErrorAction SilentlyContinue
@@ -16983,6 +17013,14 @@ function Initialize-Escucha {
             $wv = Join-Path $LogDir "voz_windows.py"
             if (Test-Path -LiteralPath $wv) {
                 try {
+                    # DE QUIEN ES HIJO (24/09). Sin esto el worker no puede saber que se ha
+                    # quedado solo: el 24/09 Nova murio a las 21:53 y media hora despues habia
+                    # 44 de estos vivos comiendo 1,3 GB mientras braya jugaba.
+                    # SE PONE AQUI Y NO SOLO ARRIBA A PROPOSITO: la linea de mas arriba esta
+                    # dentro de "if (EscuchaMotor -eq 'vosk')", y este bloque esta fuera de esa
+                    # rama. Hoy el motor es vosk y por eso la variable llegaba de casualidad;
+                    # con cualquier otro motor el dictado se quedaba sin proteger.
+                    $env:NOVA_PID_PADRE = "$PID"
                     $script:vozWinProc = Start-Process -FilePath $PyWorker `
                         -ArgumentList @('-u', $wv, $MarcaDictar, $RutaDictadoWin, $EventLog, 'es-ES') `
                         -WorkingDirectory $LogDir -WindowStyle Hidden -PassThru
@@ -25330,6 +25368,8 @@ while ($true) {
                 $script:vozWinProc = $null
                 try {
                     $wv = Join-Path $LogDir "voz_windows.py"
+                    # y el relanzado tambien, que si no quedaba huerfano igual que el primero
+                    $env:NOVA_PID_PADRE = "$PID"
                     $script:vozWinProc = Start-Process -FilePath $PyWorker `
                         -ArgumentList @('-u', $wv, $MarcaDictar, $RutaDictadoWin, $EventLog, 'es-ES') `
                         -WorkingDirectory $LogDir -WindowStyle Hidden -PassThru
@@ -25600,7 +25640,9 @@ while ($true) {
         # guiaProc entra aqui desde el 24/09 (repaso): si Nova se cerraba con una guia en
         # vuelo quedaba un powershell.exe huerfano y su .json en tmp sin borrar.
         try { Stop-Guia } catch {}
-        foreach ($pW in @($script:wakeProc, $script:ttsProc, $script:prepVozProc, $script:piperProc)) {
+        # vozWinProc entra aqui desde el 24/09: era el UNICO residente al que no mataba
+        # nadie, ni aqui ni en el barrido del arranque. Por ahi salian los 44.
+        foreach ($pW in @($script:wakeProc, $script:ttsProc, $script:prepVozProc, $script:piperProc, $script:vozWinProc)) {
             try { if ($pW -and -not $pW.HasExited) { $pW.Kill() } } catch {}
         }
         exit 0    # por aqui SI se dispara PowerShell.Exiting y se escribe "cerrado"

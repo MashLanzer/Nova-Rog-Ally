@@ -203,7 +203,17 @@ $sg = ($ast.Find({ param($x)
 $sg = (($sg -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n")
 Comp 'matarla no para el bucle' ($sg -notmatch '\-Wait') 'arrancar taskkill.exe y esperarlo son 100-400 ms con un juego delante'
 Comp 'y se suelta el proceso' ($sg -match 'Dispose') ''
-Comp 'y al salir Nova no queda huerfana' ($fuente -match '(?s)try \{ Stop-Guia \} catch \{\}\s*\n\s*foreach \(\$pW in') 'antes se mataban los otros cuatro procesos y este no'
+# ANCLADO A LO QUE HACE, NO A LO QUE TIENE DEBAJO (25/09). Esto exigia que la llamada a
+# Stop-Guia fuera seguida INMEDIATAMENTE del foreach que mata a los demas residentes, y se
+# puso rojo el dia que se metio un comentario entre esas dos lineas. Una comprobacion atada
+# al vecindario se cae sola con el codigo perfectamente bien.
+# Ahora se recorta el bloque de la salida limpia -de la marca de salir hasta su 'exit 0'-,
+# se le quitan los comentarios y se mira que dentro esten las dos cosas.
+$iMar = $fuente.IndexOf('Test-Path -LiteralPath $MarcaSalir')
+$iFin = if ($iMar -gt 0) { $fuente.IndexOf('exit 0', $iMar) } else { -1 }
+$blSal = if ($iMar -gt 0 -and $iFin -gt $iMar) { $fuente.Substring($iMar, $iFin - $iMar + 6) } else { '' }
+$blSal = (($blSal -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n")
+Comp 'y al salir Nova no queda huerfana' ($blSal.Contains('Stop-Guia') -and $blSal.Contains('foreach')) "bloque de $($blSal.Length) caracteres"
 
 try { Remove-Item -LiteralPath $TmpDir -Recurse -Force -ErrorAction SilentlyContinue } catch {}
 Write-Host ''

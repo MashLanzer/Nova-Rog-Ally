@@ -172,6 +172,108 @@ dirección más cara: hacer trabajo de más sobre algo que ya estaba bien.
 - El **ciclo entero de una regla**, probado por primera vez.
 - Y Nova ya **no se queda ciega** con el juego en pantalla completa.
 
+**Y de noche, tres que no encontró ningún banco** — dos los destapó un aviso de memoria
+de Windows y el tercero lo contaste tú jugando:
+
+### Los workers que sobrevivían a Nova
+
+A las 21:53 Nova se murió de golpe mientras jugabas. Media hora después había **44 procesos
+`voz_windows.py` vivos comiendo 1,3 GB**, con 0,70 GB libres y el juego usando 1,9. Regla 5 de
+la casa rota. Lo destapó un aviso de memoria baja de Windows, no una prueba.
+
+**Con la ventana temporal delante, el diagnóstico honesto:** el dictado de Windows está
+**apagado** en tu configuración (`input.vozWindows = false`), así que Nova **hoy no crea
+ninguno**. Esos 44 eran un **poso acumulado** de cuando estuvo encendido — y seguían ahí
+porque **nada los limpiaba nunca**. Lo que se ha arreglado es un fallo **latente**: el día que
+lo enciendas, vuelve a pasar.
+
+Eran **tres agujeros a la vez**, y ninguno se veía desde el otro:
+
+1. **El worker no miraba si su padre seguía vivo.** El oído sí lo hace desde el 13/09 — en el
+   registro se lee *"el asistente ya no existe; salgo y suelto el micrófono"* —, pero el del
+   dictado no tenía nada: su bucle duerme 80 ms, mira la marca y vuelve a empezar, para siempre.
+2. **El cierre ordenado no lo mataba.** La lista de procesos que se matan al salir nombraba
+   cuatro; él era **el único residente al que no mataba nadie**.
+3. **El barrido del arranque no lo nombraba.** Esa lista se escribió el 17/09 a las 16:34 y el
+   worker existe desde el 11/09 a las 23:00: no fue un desfase, fue un olvido.
+
+**Cómo quedó:** el worker pregunta cada 2 segundos si su padre existe, y se cierra solo.
+Medido: **tarda 1,5 s**. Y si nadie le dice de quién es hijo, sigue vivo — *ante la duda,
+vivo*: uno que se suicidara por no saberlo te dejaría sin dictado en mitad de una partida.
+
+*El banco no mira el código: arranca un worker de verdad, le pone un padre de mentira, mata al
+padre y comprueba que el hijo se muere solo. Tuvo que ser así — la primera versión miraba el
+código y daba por muerto a un proceso que estaba perfectamente vivo.*
+
+**Y por qué era el único**, que es lo que cierra el diagnóstico: Nova lanza cuatro workers que
+se quedan vivos, y los otros tres ya estaban protegidos **sin que nadie lo hubiera escrito
+aposta**. El de la charla y el de la voz leen órdenes por su entrada estándar, y cuando el
+padre muere esa tubería se cierra, salen del bucle y se apagan solos. El oído lleva el PID del
+padre desde el 13/09. El del dictado de Windows **no hacía ninguna de las dos cosas** — es el
+único que no lee nada por tubería y el único al que no se le decía de quién era hijo.
+
+Eso explica el reparto exacto de lo que se encontró: **44 de ese, y cero de los otros tres**.
+
+### La cápsula le robó el foco al juego
+
+Lo contaste tú, jugando: al reiniciar Nova a las 23:33 con *A Way Out* abierto, **el juego se
+quedó sin audio y la cápsula dejó de verse encima**. Medido con `GetForegroundWindow`, la
+ventana de delante era `nova_ui`, no el juego — y un juego que pierde el foco se silencia.
+
+Al principio di por hecho que eso explicaba **las dos cosas**, y no era verdad: el foco
+explicaba el audio, pero la cápsula seguía sin verse después de arreglarlo. Lo de no verse
+resultó ser otra cosa, y está más abajo. Conviene dejarlo escrito así: dos síntomas a la vez
+invitan a buscarles una causa única, y aquí eran dos.
+
+**El código no había cambiado** — comprobado con las fechas del `.cs` y del `.exe`. Lo que
+cambió fue el **orden**: Nova suele estar arrancada antes de que abras el juego, y entonces no
+hay foco que robar. El `WS_EX_NOACTIVATE` sí estaba, pero se aplicaba en `Loaded`, que corre
+**después** de pintar la ventana: para entonces el foco ya estaba robado.
+
+Ahora lleva **`ShowActivated = false`** — la propiedad de WPF hecha justo para esto — y los
+estilos se ponen también en `SourceInitialized`, antes del primer fotograma. Y aparte, el
+**"ducking" de Windows**: lo tenías sin definir, y el valor por defecto **baja el resto de
+sonidos un 80 %** cuando una app abre el micrófono — y Nova lo tiene abierto siempre. Puesto en
+*no tocar nada*.
+
+*Su banco comprueba algo que ningún otro miraba: que el `.exe` se haya compilado **después**
+del `.cs`. El binario va versionado, así que se puede arreglar el código y dejar corriendo el
+de antes. Y la parte que de verdad lo prueba — arrancar una segunda cápsula y mirar quién se
+queda con el foco — **se salta sola si hay un juego delante**, para no meterte una ventana en
+la pantalla mientras juegas; se corrió con el escritorio libre a las 00:12 y pasó: el foco se
+quedó donde estaba.*
+
+### Y escribiendo en tu disco siete veces por segundo
+
+Buscando lo anterior apareció esto en el registro: **443 líneas idénticas** — *"ENTORNO: 2
+aviso(s) no cabían ahora"* — a razón de **seis y siete por segundo**. Y cada una de esas
+pasadas **reescribe un fichero en tu disco**. Mientras jugabas.
+
+La causa: la llamada estaba suelta dentro del `if (botones -ne 0)` del vigilante del entorno.
+Su propio comentario dice *"este es el instante exacto en que se sabe que ha vuelto"* — pero
+ese bloque no corre cuando vuelves: corre **cada vez que el mando manda botones**, que jugando
+es continuo. Es la regla 5 rota por **entrada/salida a disco** en vez de por RAM.
+
+Ahora va detrás de un freno de un minuto, y la línea del registro solo sale **cuando el número
+cambia**. La pregunta por voz (*"qué me he perdido"*) no pasa por el freno y sigue contestando
+al momento — el banco comprueba esas dos cosas por separado, porque una rotura demostró que
+se podían confundir.
+
+### Lo que NO se puede arreglar desde Nova, y conviene saberlo
+
+Mientras se perseguía lo de la cápsula salió la explicación de fondo: **A Way Out estaba en
+pantalla completa exclusiva**. La prueba es limpia — el panel de la Ally es **1920×1080
+nativo** y el escritorio estaba a **1280×720**. Solo el modo exclusivo cambia la resolución del
+escritorio; el "sin bordes" nunca lo hace.
+
+En ese modo el juego manda directamente sobre la pantalla y **ningún overlay de ventana se
+dibuja**, por muy "siempre encima" que esté. Medido: la cápsula estaba en z=0, por delante del
+juego, visible y bien colocada — y aun así no se pintaba. Por eso Steam y Discord inyectan en
+DirectX para sus overlays, que es otra cosa y que Nova no hace.
+
+**La solución es del juego, no de Nova:** poner *Ventana sin bordes* en las opciones gráficas.
+Con eso vuelve la cápsula y deja de cortarse el audio al cambiar de foco.
+
 ---
 
 ## 7. Cómo se comprueba que nada de esto miente
@@ -181,7 +283,8 @@ script cambia el código de una manera que sería un fallo de verdad, corre el b
 salga **rojo**; luego restaura. Si una rotura deja el banco verde, al banco le falta un ojo y
 se le añade.
 
-**Las cinco maneras de que un banco salga verde mintiendo**, todas vistas de verdad:
+**Las nueve maneras de que un banco salga verde mintiendo**, todas vistas de verdad — cinco
+el 23/09 y cuatro más hoy:
 
 1. **Mira la forma del código, no lo que hace.** Un `-match` sobre el texto pasa aunque la
    función esté rota. Por eso se saca del árbol y **se ejecuta**.
@@ -192,8 +295,27 @@ se le añade.
 4. **Trae su propia copia de la constante.** Entonces prueba su número, no el del código.
 5. **Exige un formato cerrado que el diseño permite ampliar.** Ha mordido dos veces con los
    campos de `escucha-estado.txt`.
+6. **Trae su propia copia de una constante.** Dos bancos llevaban dentro el `4` del suelo de
+   avisos y el `3` de la racha de flojos: probaban su número, no el de Nova.
+7. **Saca la función con una expresión regular en vez del árbol.** Una de 3.000 caracteres
+   cortaba en la primera llave y probaba media función.
+8. **Define los dobles antes de cargar el archivo**, y el archivo los pisa. Uno acabó llamando
+   a Piper de verdad y dejando un `.wav` en el disco.
+9. **Se traga el error y lo cuenta como respuesta.** Hoy mismo: un `catch` que devolvía "muerto"
+   cuando en realidad no había podido mirar. El banco daba por muerto a un proceso vivo.
 
-Hoy: **170 bancos, 172 secciones**, y cada idea de las cuarenta con su script de roturas.
+**Y el mismo defecto, pero en el código y no en el banco:** una **lista cerrada que el diseño
+amplió y nadie volvió a tocar**. El barrido de huérfanos nombraba tres workers; el cuarto
+llevaba trece días acumulándose. Cada vez que se añade un proceso residente hay que añadirlo
+en los dos sitios que lo matan.
+
+**Y la trampa que más daño ha hecho hoy — la ventana temporal.** Tumbó **siete** conclusiones
+mías seguidas. Antes de decir que algo está roto hay que mirar **desde cuándo existe ese
+código, y a qué hora se commiteó, no solo qué día**: un fallo que "no aparece en quince días
+de registro" puede llevar arreglado desde ayer por la tarde. Está escrita en la cabecera de
+`tools/probar-todo.ps1` para que no se olvide.
+
+Hoy: **173 bancos, 175 secciones**, y cada idea de las cuarenta con su script de roturas.
 
 ---
 
@@ -204,6 +326,10 @@ Hoy: **170 bancos, 172 secciones**, y cada idea de las cuarenta con su script de
 - **El contexto de la charla con significado.** Pasarle el vector a la búsqueda de contexto
   sube los aciertos del 8,6 % al 12,2 %, pero cuesta **2,87 s por turno**. Con "velocidad sobre
   todo", +3,6 puntos no me parece una victoria clara — pero el tiempo es tuyo.
+- **Poner los juegos en "ventana sin bordes".** Es un ajuste en cada juego, no en Nova. En
+  pantalla completa exclusiva **la cápsula no se ve** — ningún overlay de ventana se dibuja —
+  y el audio se corta cada vez que algo le quita el foco al juego. Con el sin bordes se
+  arreglan las dos cosas de golpe y el rendimiento es el mismo.
 
 **Lo que hay que esperar a que se llene:**
 
@@ -222,6 +348,24 @@ Hoy: **170 bancos, 172 secciones**, y cada idea de las cuarenta con su script de
   su propio documento, con diez ideas medidas.
 - **El 89,8 % del tiempo de juego que se pierde** porque Nova no está encendida. Eso no se
   arregla con código de detección.
+
+---
+
+---
+
+## 9. Los demás documentos
+
+Este resume lo que **hay**. Lo que **podría haber** está repartido en estos, y cada uno lleva
+sus mediciones dentro:
+
+| Documento | Qué tiene |
+|---|---|
+| `IDEAS-2026-09-25-VEINTE.md` | **Las veinte siguientes**, salidas del repaso de esta madrugada: la cápsula que no sabe si se la ve, las 26 expresiones frágiles que quedan en los bancos, el perfil lleno |
+| `IDEAS-AUTONOMIA-Y-VIDA-50.md` | **Cincuenta** para que decida sola y se sienta viva, con el diagnóstico de por qué: nueve de sus veinte iniciativas están muertas |
+| `IDEAS-STEAM-2026-09-24.md` | Diez sólo de Steam, con la clave ya funcionando |
+| `IDEAS-2026-09-24-VEINTE.md` y `-NUEVAS-VEINTE.md` | Las cuarenta de ayer, ya cerradas |
+| `NOVA-EN-OTRO-PC.md` | Cómo llevarla a la laptop sin romper la de la consola |
+| `NOVA-LLM.md` | Los modelos medidos y cuál gana |
 
 ---
 

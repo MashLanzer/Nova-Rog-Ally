@@ -53,6 +53,73 @@ SILENCIO_FIN = 1.3
 CONFIANZAS = {0: "alta", 1: "media", 2: "baja", 3: "rechazada"}
 
 
+# EL ASISTENTE SIGUE VIVO? (24/09)
+#
+# LO QUE PASABA: el 24/09 a las 21:53 Nova murio de golpe mientras braya jugaba, y media hora
+# despues habia 44 de estos workers vivos comiendo 1,3 GB. En una maquina donde Windows ve
+# 11,70 GB y el juego estaba usando 1,9, eso es la regla 5 de la casa rota: nada residente
+# comiendo la RAM que le hace falta al juego.
+#
+# Este worker no tenia forma de enterarse de que se habia quedado solo: su bucle ocioso duerme
+# 80 ms, mira si existe la marca de dictado y vuelve a empezar, para siempre. wake_vosk.py SI
+# lo sabe desde el 13/09, y por eso en el registro se lee "el asistente ya no existe; salgo y
+# suelto el microfono". Esto es esa misma pareja de funciones, copiada tal cual: un banco
+# compara las dos y sale rojo si divergen.
+#
+# POR QUE NO VALE os.getppid(): en Windows el hijo no se reasigna a nadie cuando el padre
+# muere, asi que getppid() sigue devolviendo el mismo numero para siempre. Hay que preguntar
+# si ESE pid sigue vivo, y eso es OpenProcess + GetExitCodeProcess.
+try:
+    PID_PADRE = int(os.environ.get("NOVA_PID_PADRE", "0") or 0)
+except ValueError:
+    PID_PADRE = 0
+
+# Cada cuanto se mira. El bucle ocioso da 12 vueltas por segundo y preguntarselo al sistema en
+# todas seria gastar por gusto; a 2 s, lo peor que puede pasar es que el worker viva 2 s de mas.
+PULSO_PADRE = 2.0
+_ultimo_pulso = 0.0
+
+
+def proceso_vivo(pid):
+    # ANTE LA DUDA, VIVO: si ctypes falla se devuelve True. Dar por muerto a
+    # quien no lo esta es lo caro (se le pararia, o se abriria un segundo
+    # microfono); esperar de mas solo cuesta unos segundos.
+    if not pid:
+        return False
+    try:
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        h = k32.OpenProcess(0x1000, False, int(pid))   # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        codigo = ctypes.c_ulong()
+        ok = k32.GetExitCodeProcess(h, ctypes.byref(codigo))
+        k32.CloseHandle(h)
+        return (not ok) or codigo.value == 259   # 259 = STILL_ACTIVE
+    except Exception:
+        return True
+
+
+def padre_vivo():
+    if not PID_PADRE:
+        return True
+    return proceso_vivo(PID_PADRE)
+
+
+def morir_si_huerfano():
+    """Si el asistente que me lanzo ya no existe, me cierro. Se llama desde las dos esperas."""
+    global _ultimo_pulso
+    ahora = time.time()
+    if ahora - _ultimo_pulso < PULSO_PADRE:
+        return
+    _ultimo_pulso = ahora
+    if not padre_vivo():
+        anota("el asistente ya no existe (PID %d); me cierro" % PID_PADRE)
+        # SystemExit no lo atrapa el "except Exception" del bucle -hereda de BaseException-,
+        # ni el "except KeyboardInterrupt" del final. Sale de verdad. Probado en el banco.
+        sys.exit(0)
+
+
 def anota(mensaje):
     if not LOG:
         return
@@ -98,6 +165,10 @@ async def principal():
         return 1
     while True:
         try:
+            # AQUI PASA ESTE WORKER CASI TODA SU VIDA, asi que es donde se mira si el
+            # asistente sigue existiendo. morir_si_huerfano se frena sola a un vistazo cada
+            # 2 s, aunque esta rama se recorra 12 veces por segundo.
+            morir_si_huerfano()
             if not MARCA or not os.path.exists(MARCA):
                 await asyncio.sleep(0.08)
                 continue
@@ -115,6 +186,11 @@ async def principal():
             # ronda dejaria un texto que el asistente se encontraria en la orden
             # SIGUIENTE y contestaria a lo de hace un minuto.
             while MARCA and os.path.exists(MARCA):
+                # Y TAMBIEN AQUI: si el asistente muere durante un dictado, la marca se queda
+                # puesta y no la va a retirar nadie, asi que sin esto el worker se quedaria en
+                # esta espera para siempre. Es el caso mas probable de todos: si Nova se cae,
+                # se cae justo cuando esta haciendo algo.
+                morir_si_huerfano()
                 await asyncio.sleep(0.08)
         except Exception as e:                              # noqa: BLE001
             # una ronda que falle no se lleva el worker: se anota y se sigue
