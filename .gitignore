@@ -80,6 +80,9 @@ memoria/nube-tiempos.json
 # cuanto tarda CADA trabajo suyo, por motor y modo: de ahi sale la barra de espera.
 # Numeros, no frases, pero memoria de uso igual que el de arriba.
 memoria/trabajo-tiempos.json
+# cuanto tarda la voz en sintetizar cada frase, en ms por letra (24/09, idea 8): de ahi sale
+# el plazo con el que se la da por perdida. Numeros, no frases, pero memoria de uso igual.
+memoria/voz-tiempos.json
 # lo que queda a medias si se va la luz justo al guardar (ver Write-Atomico)
 *.json.tmp
 # archivos de memoria que no se podian leer, apartados en vez de perderse
