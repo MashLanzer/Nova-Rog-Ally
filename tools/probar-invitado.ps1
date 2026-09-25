@@ -43,6 +43,11 @@ $EXENTAS = @{
     'Save-DecisionPropia'     = 'lo que decidio Nova de si misma, no del invitado'
     'Add-RecetasInfoBase'     = 'recetas de fabrica, se cargan al arrancar'
     'Save-EntornoVistos'      = 'dispositivos vistos, del equipo y no de una persona'
+    # LA FECHA DE UN FICHERO DE STEAM, no algo que nadie haya dicho (25/09). Y tiene que
+    # guardarse TAMBIEN con un invitado delante: si no, al volver braya veria como "logro
+    # nuevo" un cambio que en realidad paso mientras jugaba otro. Aqui no guardar es lo que
+    # ensucia, al reves que en todo lo demas de esta lista.
+    'Save-LogrosStamp'        = 'la fecha de un fichero de Steam, del equipo y no de una persona'
     'Save-Captura'            = 'guarda la imagen que se acaba de pedir a proposito'
     'Save-Habitos'            = 'lo llama Add-Habito, que ya mira el modo'
     'Save-JuegosMem'          = 'lo llaman Set-NotaJuego y Add-TiempoJuego, ya protegidos'
