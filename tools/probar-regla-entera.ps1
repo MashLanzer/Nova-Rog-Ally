@@ -86,15 +86,39 @@ $script:invitado = $false
 $script:confirmado = $true
 $script:reglas = $null
 
+# EL NOMBRE DEL JUEGO NO PUEDE IR A FUEGO (25/09). Este banco decia 'elden ring' en siete
+# sitios, y el 25/09 salio con DIEZ rojos sin que nadie hubiera tocado el codigo: braya habia
+# cambiado ELDEN RING por ELDEN RING NIGHTREIGN en la consola y Find-Juego -que mira la
+# biblioteca DE VERDAD- ya no lo encontraba, asi que la regla ni se creaba. Comprobado contra
+# el assistant.ps1 commiteado: fallaba igual. Un rojo que depende de lo que tengas instalado
+# hoy no dice nada de Nova, y ademas tapa los rojos de verdad.
+# Se coge el primer juego de tu biblioteca que el propio Find-Juego sepa resolver.
+# Se lee la biblioteca del DISCO (Get-JuegosSteam lee los appmanifest) y no la memoria de
+# Nova: este banco no fija $MemoriaDir, asi que Get-JuegosMem no tiene de donde leer.
+$jugR = ''
+foreach ($cand in @(Get-JuegosSteam)) {
+    $nm = [string]$cand.nombre
+    if ($nm -and (Find-Juego $nm)) { $jugR = $nm; break }
+}
+if (-not $jugR) {
+    Write-Host '  --   sin biblioteca de Steam no se puede probar una regla de juego' -ForegroundColor DarkGray
+    Write-Host '       (este banco necesita UN juego instalado; no es un fallo de Nova)' -ForegroundColor DarkGray
+    Write-Host ''
+    Write-Host '  el ciclo de una regla, de punta a punta'
+    exit 0
+}
+$jugRb = $jugR.ToLower()
+Write-Host ("       (el juego de las reglas sale de tu biblioteca: " + $jugR + ")")
+
 Write-Host ''
 Write-Host '-- 1. SE CREA POR VOZ, que es como lo intento el 11/09 --'
 # La frase es la suya, palabra por palabra: "cuando abra elden ring pon modo noche".
-$r1 = Invoke-ReglaVoz 'cuando abra elden ring pon modo noche'
+$r1 = Invoke-ReglaVoz "cuando abra $jugRb pon modo noche"
 Comp 'la frase del 11/09 crea la regla' ([bool]$r1) "$r1"
 $g = Get-Reglas
 Comp 'y queda UNA guardada' (@($g).Count -eq 1) "$(@($g).Count)"
 Comp 'con su condicion' (@($g)[0].tipo -eq 'juegoAbre') "tipo: $(@($g)[0].tipo)"
-Comp 'y con el juego que dijo' ((@($g)[0].valor -replace '\s+', ' ') -match '(?i)elden ring') "valor: $(@($g)[0].valor)"
+Comp 'y con el juego que dijo' ((@($g)[0].valor -replace '\s+', ' ') -match ('(?i)' + [regex]::Escape($jugR))) "valor: $(@($g)[0].valor)"
 
 Write-Host ''
 Write-Host '-- 2. SOBREVIVE AL DISCO --'
@@ -107,8 +131,8 @@ Comp 'y con lo mismo dentro' (@($g2)[0].tipo -eq 'juegoAbre') ''
 Write-Host ''
 Write-Host '-- 3. Y DISPARA CUANDO TOCA, que es lo que no ha pasado NUNCA --'
 $script:hecho.Clear()
-Invoke-Reglas 'juegoAbre' 'ELDEN RING'
-Comp 'al abrir ELDEN RING, la regla se ejecuta' ($script:reglasDisparadas -ge 1) "disparadas: $($script:reglasDisparadas)"
+Invoke-Reglas 'juegoAbre' $jugR
+Comp "al abrir $jugR, la regla se ejecuta" ($script:reglasDisparadas -ge 1) "disparadas: $($script:reglasDisparadas)"
 Comp 'y hace lo que decia' (@($script:hecho | Where-Object { $_ -match 'modo noche' }).Count -ge 1) "$($script:hecho -join ' | ')"
 
 Write-Host ''
@@ -117,8 +141,8 @@ Write-Host '-- 4. y NO dispara cuando no toca --'
 # la regla 1 rota de la peor manera, porque braya ni siquiera ha hablado.
 foreach ($caso in @(
     @{ t = 'juegoAbre';   d = 'It Takes Two'; que = 'con otro juego' },
-    @{ t = 'juegoCierra'; d = 'ELDEN RING';   que = 'al CERRAR el mismo juego' },
-    @{ t = 'appAbre';     d = 'ELDEN RING';   que = 'al abrir una app con ese nombre' },
+    @{ t = 'juegoCierra'; d = $jugR;         que = 'al CERRAR el mismo juego' },
+    @{ t = 'appAbre';     d = $jugR;         que = 'al abrir una app con ese nombre' },
     @{ t = 'bateria';     d = '10';           que = 'al bajar la bateria' },
     @{ t = 'cascosPone';  d = 'pone';         que = 'al ponerse los cascos' }
 )) {
@@ -133,7 +157,7 @@ Write-Host '-- 5. el ciclo entero, con las otras formas que Nova ofrece --'
 # arranque. Si alguna no completara el ciclo, Nova estaria ofreciendo algo que no funciona.
 $formas = @(
     @{ f = 'cuando abra un juego pon modo juego';          t = 'juegoAbre';    d = 'Hollow Knight' },
-    @{ f = 'cuando cierre elden ring pon el brillo al 80'; t = 'juegoCierra';  d = 'ELDEN RING' },
+    @{ f = "cuando cierre $jugRb pon el brillo al 80"; t = 'juegoCierra';  d = $jugR },
     @{ f = 'cuando me ponga los cascos sube el volumen';   t = 'cascosPone';   d = 'pone' },
     @{ f = 'cuando quite el cargador pon modo ahorro';     t = 'cargadorQuita'; d = 'quita' }
 )
@@ -157,7 +181,7 @@ Write-Host '-- 6. y se puede borrar, que es un modo con salida --'
 # regla seria un modo sin salida, que es la regla 2 de la casa.
 '[]' | Set-Content -LiteralPath $ReglasPath -Encoding UTF8
 $script:reglas = $null
-[void](Invoke-ReglaVoz 'cuando abra elden ring pon modo noche')
+[void](Invoke-ReglaVoz "cuando abra $jugRb pon modo noche")
 $gAntes = Get-Reglas
 Comp 'hay una regla' (@($gAntes).Count -eq 1) "$(@($gAntes).Count)"
 $rb = Invoke-ReglaVoz 'borra las reglas'
@@ -177,7 +201,7 @@ Write-Host '-- 7. y con un invitado delante SI se puede, que esta decidido a con
 '[]' | Set-Content -LiteralPath $ReglasPath -Encoding UTF8
 $script:reglas = $null
 $script:invitado = $true
-[void](Invoke-ReglaVoz 'cuando abra elden ring pon modo noche')
+[void](Invoke-ReglaVoz "cuando abra $jugRb pon modo noche")
 $gInv = Get-Reglas
 Comp 'con invitado, una regla PEDIDA si se crea' (@($gInv).Count -eq 1) 'se pide a proposito; no es aprender solo'
 Comp 'y sigue exenta con su motivo escrito' ((Get-Content -LiteralPath (Join-Path $PSScriptRoot 'probar-invitado.ps1') -Raw) -match "'Save-Reglas'\s*=\s*'una regla se pide a proposito'") 'si alguien cambia de idea, que lo cambie ahi'

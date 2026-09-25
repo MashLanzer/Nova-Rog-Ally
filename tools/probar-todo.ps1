@@ -1867,6 +1867,99 @@ Titulo "2n140. Los workers que sobrevivian a Nova (44 vivos, 1,3 GB)"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-huerfanos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya no sobreviven a Nova)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n166. La correccion que niega lo mal oido (no dije Discord, dije Steam)"
+# EL PEOR FALLO QUE HABIA VIVO ESTA MANANA, y no lo encontro ningun banco: estaba escrito en
+# el registro y en disco. El 25/09 a la 01:26:11 la API tradujo un 'Cierra este in.' mal oido
+# -era "cierra Steam"- a 'cierra discord', y un segundo despues Nova lo APRENDIO PARA SIEMPRE.
+# A los diecisiete segundos braya dijo "No dije Discord, dije Steam", Nova contesto "Tienes
+# razon, mi mal"... y no deshizo nada: la traduccion seguia en traducciones.json hoy,
+# apuntando a la aplicacion por la que habla con su pareja. Pidio cerrar Steam CUATRO veces
+# entre las 01:25:37 y las 01:27:03 y no lo consiguio ni una.
+# DOS FALLOS, no uno: el patron capturaba desde el PRIMER "dije" -sacaba 'discord dije steam'-
+# y, como eso no resuelve a ninguna orden, se saltaba el bloque entero y se perdia tambien el
+# DESHACER. Una correccion a medio entender acababa en ninguna correccion.
+# MEDIDO sobre los 633 dictados distintos de assistant.log y su rotado: las dos formas nuevas
+# cogen EXACTAMENTE las dos correcciones de verdad que hay y ninguna de las otras 631; las
+# cuatro que se parecen y no lo son estan en el banco como casos negativos.
+# Y NO SE ADIVINA EL VERBO: de "no dije Discord, dije Steam" sale 'steam' a secas y Nova
+# deshace y olvida, pero no abre Steam por su cuenta (regla 1, igual que "abre este").
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-correccion-niega.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:deshace, olvida y no se inventa el verbo)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n167. Un veto de musica para siempre, de una frase mal oida"
+# DE LA MISMA NOCHE Y DEL MISMO 'cierra Steam'. memoria\musica-no.json ha tenido UNA sola
+# entrada en su vida y era basura: 'si es resting', del 25/09 a la 01:25:40, de un "No, no
+# quiero, Cierre Sting, Paul" que canary "mejoro". Nova contesto "no te pongo mas resting" y
+# lo guardo para siempre, sin preguntar.
+# DOS AGUJEROS: de las cuatro maneras de vetar, tres hablan de gustar o de poner y la cuarta
+# era "no quiero", que es una negativa de CUALQUIER cosa -contado sobre los 633 dictados casa
+# con UNA frase en catorce dias, y tampoco es musica: "no quiero saber que se esta descagando
+# en steam"-. Cero vetos buenos, dos malos. Y este camino no tenia la guarda de "no aprender
+# de lo mal oido" que las traducciones llevan desde el 15/09.
+# El banco EJECUTA la rama de verdad sacada del archivo, no mira su forma: con el oido dudando
+# no se guarda nada, con el oido limpio si, y la guarda tiene que ir ANTES de escribir.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-musica-no-guarda.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya no deja un veto de musica para siempre)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n168. La pregunta de los amigos, como la dice braya"
+# LO CARO ESTABA HECHO Y NO SE USABA NUNCA. Los tres patrones de "amigos conectados" iban
+# anclados en ^ y $ -la frase tenia que EMPEZAR por quien/quienes/hay algun amigo/que amigos y
+# ACABAR ahi-, y contado sobre los 633 dictados distintos de assistant.log y su rotado cogen
+# CERO de las tres veces que lo ha preguntado en catorce dias. Mientras tanto,
+# Start-AmigoPregunta, Receive-AmigoPregunta y Format-AmigosSteam estaban escritos y la clave
+# de Steam puesta desde el 24/09: las dos veces que lo pidio (25/09, 01:19:52 y 01:22:41) la
+# frase se fue al agente, que abrio Steam y pincho la pantalla con el raton -48,7 s y 70,5 s
+# contra ~166 ms de la peticion-. Braya lo dijo el solo a las 01:21:18: "no se supone que
+# tienes una API para hacer todo eso".
+# AHORA VA POR CONCEPTOS: nombra a un amigo Y habla de estar conectado, en doce palabras o
+# menos. El tope separa la PREGUNTA de la QUEJA: la de 32 palabras lleva las dos ideas dentro
+# y no pide nada. Medido: 3 de 3 cogidas, 0 coladas de 633.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-amigos-como-lo-dice.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:entra como la dice braya)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n169. Muevete a la derecha: una sola coordenada, y la coletilla"
+# LOS DOS PATRONES DE ESQUINA EXIGIAN LAS DOS COORDENADAS JUNTAS y acababan anclados, asi que
+# ni una sola ni "de la pantalla" detras. Contado sobre los 633 dictados distintos de
+# assistant.log y su rotado, braya lo ha pedido CUATRO veces y las cuatro con una sola
+# coordenada: no entraba ninguna. Tres de las cuatro llevan delante algo que $FILLER_INI no
+# quita ("exacto", "no no", "tu"), y por eso el patron nuevo admite ese arranque: se puede
+# hacer aqui y no en la lista general porque mover la capsula no borra, no cierra y no gasta.
+# La coordenada va al FINAL, que es lo que impide robarle la frase a "mueve X a la carpeta Y" y
+# a la pantalla partida. Medido: 4 de 4 cogidas, 0 coladas de 633.
+# Y SOLO SE MUEVE LO QUE SE DIJO: la otra coordenada se copia de donde este ahora.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-esquina-una-coordenada.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:mueve solo esa coordenada)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n170. La pregunta que se comia el nombre de la variable"
+# EN POWERSHELL 5.1 LA INTERROGACION ES UN CARACTER VALIDO DE NOMBRE DE VARIABLE, asi que
+# "$jg?" dentro de una cadena no es el valor de $jg y una interrogacion: es la variable $jg?,
+# que no existe, y la frase sale VACIA. Ya mordio en la auditoria del 13/09 -de ahi el
+# comentario que hay en la frase de "no era eso"- y volvio a colarse en el saludo de vuelta.
+# SALIO EN PRODUCCION: assistant.log:6458, 25/09 10:57:58, "VUELTA: 71 min fuera -> '¿Seguimos
+# con '". De las tres variantes del saludo de vuelta esa es la UNICA que usa la continuidad -a
+# que estabas jugando- y no habia funcionado NUNCA. Y la frase rota se GUARDO en
+# memoria\habitos.json, donde ocupaba una plaza del filtro de no repetir y le quitaba el turno
+# a las que si funcionan.
+# EL BANCO NO MIRA UNA FRASE, MIRA EL PATRON: demuestra el fallo ejecutando PowerShell, saca la
+# plantilla del archivo de verdad, y barre los 186 .ps1 del proyecto buscando mas. Arreglar el
+# caso y no la clase es como no arreglarlo: ya iban dos.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-interrogacion-variable.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se come el nombre de la variable)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n171. La regla 6 de la casa, que no vigilaba nadie"
+# LA REGLA: los .ps1 van SIN BOM si son ASCII puro y CON BOM si llevan algo que no lo es,
+# porque PowerShell 5.1 abre un .ps1 sin BOM como ANSI y no como UTF-8. Un fichero con una
+# sola letra rara y sin BOM se lee con las letras cambiadas: el mismo tipo de fallo que el
+# 0x08 de la seccion 8, se lee bien y no es lo que hay.
+# COMO SE DESTAPO: escribiendo un banco nuevo hoy se colo uno asi -no ASCII y sin BOM- y esta
+# bateria entera paso en verde sin decir una palabra. Ninguna de las 204 secciones lo miraba.
+# LO QUE SE EXIGE Y LO QUE SOLO SE CUENTA: rojo si hay uno con letras raras y sin BOM (hoy
+# cero); un BOM de mas sobre ASCII puro se dice y no rompe, porque PowerShell lo lee igual de
+# bien y pedir esa limpieza no arregla nada. Y las tildes van con TRINQUETE: hay 28 ficheros
+# que las llevan de antes, no se exige quitarlas, pero el numero solo puede bajar.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-regla-seis.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se lee distinto de como esta escrito)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n165. La ganancia es de un microfono, no de la consola"
 # ENTRA EN LA BATERIA EL 25/09, Y LLEVABA TRES DIAS ESCRITO SIN CORRER. El banco es del
 # 22/09 -el dia que braya enchufo un micro USB y dijo "Nova tiene que saber detectar cuando

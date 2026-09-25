@@ -78,6 +78,12 @@ Invoke-Expression (Traer 'Send-Aviso')
 Invoke-Expression (Traer 'Set-PresenciaAhora')
 Invoke-Expression (Traer 'Get-AusenciaMin')
 Invoke-Expression (Traer 'Get-FraseVuelta')
+# Get-NocheDesde ENTRA CON ELLA (25/09): desde hoy Test-VueltaSaludo pregunta por la noche
+# APRENDIDA -la mediana de cuando braya para de verdad- en vez del 23 fijo de config, y un
+# banco que no la trae revienta a mitad. Se trae la de verdad, no un doble: asi este banco
+# mide tambien su respaldo (si hay menos de cuatro dias, devuelve el 23 de siempre).
+Invoke-Expression (Traer 'Get-HoraFinHabitual')
+Invoke-Expression (Traer 'Get-NocheDesde')
 Invoke-Expression (Traer 'Test-VueltaSaludo')
 Invoke-Expression (Traer 'Set-HabloAhora')
 Invoke-Expression (Traer 'Test-ResumenAlVolver')

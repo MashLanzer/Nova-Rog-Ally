@@ -122,11 +122,30 @@ $preguntas = @(
     'que tengo para dos',
     'que juegos tengo para jugar juntos',
     'que juegos hay para dos jugadores',
-    'se puede jugar elden ring los dos',
-    'elden ring es de dos',
+    'se puede jugar {0} los dos',
+    '{0} es de dos',
     'a way out es cooperativo'
 )
 [void](Update-Juegos)      # Find-Juego mira la biblioteca de verdad
+# EL NOMBRE DEL JUEGO NO PUEDE IR A FUEGO (25/09). Estas dos frases llevaban 'elden ring'
+# escrito, y el 25/09 salieron en ROJO sin que nadie hubiera tocado el codigo: braya habia
+# cambiado ELDEN RING por ELDEN RING NIGHTREIGN en la consola, y Find-Juego -que mira la
+# biblioteca DE VERDAD- ya no lo encontraba. Un rojo que depende de lo que tengas instalado
+# hoy no es un fallo de Nova: es un banco preguntando por algo que no esta.
+# Se coge un juego instalado de verdad, el primero que el propio Find-Juego sepa resolver. Si
+# no hay ninguno -una maquina sin Steam-, esas dos se saltan y se dice, en vez de dar un rojo
+# que no significa nada.
+$jugReal = ''
+foreach ($cand in @(Get-JuegosMem).Keys) {
+    if ($cand -and (Find-Juego ([string]$cand))) { $jugReal = [string]$cand; break }
+}
+if ($jugReal) {
+    Write-Host ("       (el juego de las dos frases sale de tu biblioteca: " + $jugReal + ")")
+    $preguntas = @($preguntas | ForEach-Object { $_ -f $jugReal })
+} else {
+    Write-Host '       -- sin biblioteca de Steam: las dos frases con nombre de juego se saltan' -ForegroundColor DarkGray
+    $preguntas = @($preguntas | Where-Object { $_ -notmatch '\{0\}' })
+}
 $cogidas = 0
 foreach ($f in $preguntas) {
     $a = Resuelve $f
@@ -252,12 +271,24 @@ foreach ($par in @(
     @('apuntame que roblox es de dos',   'apuntaDos'),
     @('roblox si es de dos',             'apuntaDos'),
     @('roblox no es de dos',             'apuntaDos'),
-    @('roblox es de dos',                'paraDos'),
-    @('elden ring es de dos',            'paraDos'),
-    @('se puede jugar elden ring los dos', 'paraDos'))) {
+    @('roblox es de dos',                'paraDos'))) {
     $a = Resuelve $par[0]
     $kk = if ($a) { [string]$a.kind } else { '(nada)' }
     Comp ("'" + $par[0] + "'") ($kk -eq $par[1]) "$kk (se esperaba $($par[1]))"
+}
+# Y LAS MISMAS DOS, CON UN JUEGO QUE DE VERDAD TENGAS (25/09). Aqui tambien iba 'elden ring'
+# escrito a fuego, y el 25/09 se puso en rojo solo porque braya habia cambiado ELDEN RING por
+# ELDEN RING NIGHTREIGN: un rojo que depende de la biblioteca de hoy no dice nada de Nova.
+if ($jugReal) {
+    foreach ($par in @(
+        @(($jugReal + ' es de dos'),                'paraDos'),
+        @(('se puede jugar ' + $jugReal + ' los dos'), 'paraDos'))) {
+        $a = Resuelve $par[0]
+        $kk = if ($a) { [string]$a.kind } else { '(nada)' }
+        Comp ("'" + $par[0] + "'") ($kk -eq $par[1]) "$kk (se esperaba $($par[1]))"
+    }
+} else {
+    Write-Host '  --   sin biblioteca de Steam: las dos con nombre de juego se saltan' -ForegroundColor DarkGray
 }
 Write-Host ''
 Write-Host '-- el relleno es de fondo, y no molesta a la partida --'

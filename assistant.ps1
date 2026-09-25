@@ -3961,6 +3961,33 @@ function Resolve-Fragment([string]$f) {
         $hori = if ($g1 -match '^(?:izquierda|derecha)$') { $g1 } else { $g2 }
         return @(@{ kind = 'esquina'; valor = "$vert-$hori"; desc = "ponerse $vert a la $hori" })
     }
+    # UNA SOLA COORDENADA, Y LA COLETILLA (25/09). Los dos patrones de arriba exigen las DOS
+    # coordenadas juntas y acaban anclados en $, asi que ni una sola ni "de la pantalla"
+    # detras. Contado sobre los 633 dictados distintos de assistant.log y su rotado, braya lo
+    # ha pedido CUATRO veces y las cuatro con una sola coordenada, y no entraba NINGUNA:
+    #     "mueve a la derecha"                            "no no tu muevete a la derecha"
+    #     "exacto muevete a la derecha de la pantalla"    "no no no muevete a la derecha de la pantalla"
+    # TRES DE LAS CUATRO LLEVAN DELANTE algo que $FILLER_INI no quita ("exacto", "no no",
+    # "tu"), y por eso aqui se admite ese arranque. Se puede hacer en ESTE patron y no en la
+    # lista general por lo que cuesta equivocarse: mover la capsula es la orden mas inofensiva
+    # que tiene Nova -no borra, no cierra, no gasta y se deshace diciendo la otra esquina-.
+    # Meter "no" en $FILLER_INI seria lo contrario: se llevaria por delante la negacion de
+    # TODAS las ordenes.
+    # LA COORDENADA VA AL FINAL a proposito, que es lo que impide robarle la frase a otras dos
+    # que si son caras: "mueve y take two a la cappeta games" (mover un fichero, asi lo oyo) y
+    # "abre youtube en la pantalla izquierda y pinterest en la derecha" (pantalla partida).
+    # Medido con eso puesto: 4 de 4 cogidas, 0 coladas de 633.
+    # Y SOLO SE MUEVE LO QUE SE DIJO: la otra coordenada se copia de donde este ahora
+    # ($script:esquina, la misma que contesta "donde estas"). Rellenarla con un valor fijo
+    # seria inventarse la mitad de la orden.
+    if ($f -match '^(?:(?:no|exacto|eso|si|tu)\s+)*(?:ponte|ponme|poneme|pone|pon|ponete|vete|ve|colocate|coloca|muevete|mueve|pasate|pasa)\s+(?:a\s+la\s+|a\s+|al\s+|en\s+la\s+|en\s+)?(?:esquina\s+(?:de\s+)?)?(izquierda|derecha|arriba|abajo)(?:\s+de\s+la\s+pantalla)?$') {
+        $unaC = $Matches[1]
+        $actualC = if ($script:esquina) { [string]$script:esquina } else { 'abajo-izquierda' }
+        $pActC = $actualC -split '-'
+        $vertU = if ($unaC -match '^(?:arriba|abajo)$') { $unaC } elseif ($pActC.Count -gt 0) { [string]$pActC[0] } else { 'abajo' }
+        $horiU = if ($unaC -match '^(?:izquierda|derecha)$') { $unaC } elseif ($pActC.Count -gt 1) { [string]$pActC[1] } else { 'izquierda' }
+        return @(@{ kind = 'esquina'; valor = "$vertU-$horiU"; desc = "ponerse $vertU a la $horiU" })
+    }
     if ($f -match '^(?:donde estas|en que esquina estas|donde te has puesto)$') {
         return @(@{ kind = 'dondeEstas'; desc = 'donde esta la capsula' })
     }
@@ -4608,6 +4635,59 @@ function Resolve-Fragment([string]$f) {
     if ($f -match '^(?:no era eso|eso no era|no era esto|no te pedi eso|eso no|no queria eso|no era lo que dije|eso estuvo mal|eso esta mal|lo hiciste mal|te equivocaste|no era lo que queria)$') {
         return @(@{ kind = 'noEraEso'; desc = 'deshacer y olvidar esa interpretacion' })
     }
+    # "NO DIJE DISCORD, DIJE STEAM": la correccion que NIEGA lo mal oido y da lo bueno detras
+    # (25/09). Y es la que mas dano ha hecho hasta hoy, porque hasta ahora no hacia NADA:
+    #
+    # LO QUE PASO, minuto a minuto, el 25/09: braya pidio cerrar Steam, Parakeet oyo 'Que
+    # habla, dije que cerraras este in', la API tradujo eso a 'cierra discord' y a las
+    # 01:26:12 Nova lo APRENDIO PARA SIEMPRE. Diecisiete segundos despues braya dijo "No dije
+    # Discord, dije Steam", Nova contesto "Tienes razon, mi mal"... y no deshizo nada. La
+    # traduccion envenenada seguia en traducciones.json esta manana, y la siguiente vez que
+    # oyera algo parecido habria cerrado Discord, que es por donde habla con su pareja.
+    # Pidio cerrar Steam CUATRO veces entre las 01:25:37 y las 01:27:03 y no lo consiguio.
+    #
+    # POR QUE NO SALTABA, que son dos fallos y no uno:
+    #  1. El patron de abajo SI casaba, pero se quedaba con el trozo equivocado: captura desde
+    #     el PRIMER "dije", asi que de "no dije discord dije steam" sacaba 'discord dije steam'.
+    #  2. Y como ese trozo no resuelve a ninguna orden, el bloque entero se saltaba y la frase
+    #     se iba a la IA. Se perdia tambien el DESHACER, que es lo que de verdad importaba:
+    #     una correccion que Nova no entiende del todo acababa en ninguna correccion.
+    #
+    # LO MEDIDO, sobre los 737 dictados de assistant.log y su rotado (633 distintos): estas
+    # dos formas cogen EXACTAMENTE las dos correcciones de verdad que hay -"no dije discord
+    # dije steam" y "no no te pedi la hora dije sierra steam"- y NINGUNA de las otras 631.
+    # Las cuatro que se quedan fuera y lo parecen no son correcciones: "no solo no me estas
+    # entendiendo dije que podria ser algo de tu codigo", "no no te estoy probando dije el
+    # fuego", "no no solo queria saber el lado" y "...si eso lo dije hace cinco minutos". Por
+    # eso se exige la NEGACION DE LO DICHO delante: o "dije" dos veces, o "no te dije/pedi X"
+    # y despues la correccion. Sin esa negacion, un "dije" suelto en una charla deshace algo.
+    #
+    # AQUI SE DESHACE AUNQUE NO SE ENTIENDA LO CORREGIDO, y esa es la diferencia con el bloque
+    # de abajo: lo negado ya no admite duda -lo has dicho tu-, y olvidar una traduccion mala
+    # no rompe nada. Ejecutar lo corregido si admite duda, y por eso solo va si resuelve.
+    # Y NO SE ADIVINA EL VERBO: de "no dije discord, dije Steam" sale 'steam' a secas, que no
+    # resuelve a nada (comprobado: los 317 patrones de esta funcion, y el unico que coge una
+    # palabra suelta exige una lista de amigos viva y un numero). Nova deshace y olvida, y no
+    # abre Steam por su cuenta: adivinar que hacer con un nombre suelto es la regla 1 al reves,
+    # lo mismo que ya decide "abre este" en Resolve-Deictico.
+    $reNiegaDoble = '^no\b.*\b(?:dije|queria|quise decir)\b.*\b(?:dije|queria|quise decir)\s+(?:que\s+)?(.+)$'
+    $reNiegaPedi  = '^no\b.*?\bno\s+(?:te\s+)?(?:dije|pedi)\b.*\b(?:dije|queria|quise decir)\s+(?:que\s+)?(.+)$'
+    $corrN = ''
+    # Por separado y no con -or: un -match que falla NO limpia $Matches, asi que el segundo
+    # patron se leeria las capturas del anterior que hubiera casado.
+    if ($f -match $reNiegaDoble) { $corrN = $Matches[1].Trim() }
+    elseif ($f -match $reNiegaPedi) { $corrN = $Matches[1].Trim() }
+    if ($corrN) {
+        # EL VERBO DE DENTRO TAMBIEN PUEDE VENIR MAL OIDO. Es el mismo caso que al quitar el
+        # locativo unas lineas mas arriba ("al quitar el lugar aparece un verbo nuevo al
+        # frente, que puede venir deformado"): aqui al quitar el "no dije X" aparece 'sierra
+        # steam', y $VERBOS_OIDOS tiene 'sierra' = 'cierra' justamente por esto.
+        $corrN = Repair-Verb $corrN
+        $accN = @(Resolve-Fragment $corrN)
+        $baseN = @(@{ kind = 'noEraEso'; desc = 'deshacer y olvidar esa interpretacion' })
+        if ($accN.Count -gt 0 -and $accN[0]) { return $baseN + $accN }
+        return $baseN
+    }
     # "NO, DIJE ABRE STEAM": la correccion CON la orden buena dentro (20/09, D6). Hasta hoy
     # "no era eso" solo deshacia, y si en la misma frase le decias lo que si querias, toda
     # la frase se iba a la IA. Es la forma natural de corregir -das el error y el acierto de
@@ -4704,6 +4784,31 @@ function Resolve-Fragment([string]$f) {
         $f -match '^(?:hay\s+)?(?:algun\s+amigo|alguien)\s+(?:conectado|en\s+linea)(?:\s+en\s+(steam|discord))?$' -or
         $f -match '^que\s+amigos\s+(?:estan|hay)\s+(?:conectados|en\s+linea)(?:\s+en\s+(steam|discord))?$') {
         if ($Matches[1] -eq 'discord') { return @(@{ kind = 'amigosDiscord'; desc = 'amigos en Discord' }) }
+        return @(@{ kind = 'amigosSteam'; desc = 'amigos conectados' })
+    }
+    # Y COMO LO DICE BRAYA, QUE NO ES ASI (25/09). Los tres patrones de arriba van anclados en
+    # ^ y $: exigen que la frase EMPIECE por quien/quienes/hay algun amigo/que amigos y ACABE
+    # justo ahi. Contado sobre los 633 dictados distintos de assistant.log y su rotado, cogen
+    # CERO de las tres veces que lo ha preguntado en catorce dias:
+    #     "dime de mis amigos dona steam quien esta conectado"
+    #     "si dime cuales de mis amigos estan conectados en steam"
+    #     "tengo algun amigo conectado en el team"          ('team' es Steam mal oido)
+    # Y lo caro ya estaba hecho y sin estrenar: Start-AmigoPregunta, Receive-AmigoPregunta,
+    # Format-AmigosSteam y la clave de Steam puesta desde el 24/09. Las dos veces que lo pidio
+    # -el 25/09 a las 01:19:52 y a las 01:22:41- la frase acabo en el agente, que abrio Steam y
+    # pincho la pantalla con el raton: 48,7 s y 70,5 s contra los ~166 ms de la peticion. Braya
+    # se dio cuenta solo a las 01:21:18: "no se supone que tienes una API para hacer todo eso".
+    #
+    # POR CONCEPTOS, NO POR FORMA: que nombre a un amigo (o a alguien) Y que hable de estar
+    # conectado. El tope de doce palabras no es decoracion, es lo que separa la pregunta de la
+    # QUEJA: sin el, tambien entraba "ok pero porque tuviste que abrir el steam y mirar la
+    # pantalla y todo eso para ver que amigo estaba conectado...", que son 32 palabras y no
+    # pide nada. Medido con el tope: 3 de 3 preguntas cogidas, 0 frases coladas de 633.
+    # Y no le quita la frase a la vigilancia ("avisame cuando se conecte mi novia"): esa dice
+    # "conecte", no "conectado", y aqui no entra.
+    if ($f -match '\b(?:amigos?|alguien)\b' -and $f -match '\b(?:conectad[oa]s?|en\s+linea|jugando)\b' -and
+        (@($f -split '\s+' | Where-Object { $_ }).Count -le 12)) {
+        if ($f -match '\bdiscord\b') { return @(@{ kind = 'amigosDiscord'; desc = 'amigos en Discord' }) }
         return @(@{ kind = 'amigosSteam'; desc = 'amigos conectados' })
     }
     # HISTORIAL DE MUSICA (F10)
@@ -5736,7 +5841,17 @@ function Resolve-Fragment([string]$f) {
         return @(@{ kind = 'musicaNo'; que = ''; desc = 'apuntar que eso no te gusta' })
     }
     # NOMBRANDO: lista abierta, asi que el ejecutor repite SIEMPRE en voz alta lo que apunto
-    if ($f -match '^(?:no\s+me\s+gusta|odio|no\s+quiero|no\s+me\s+pongas)\s+(?:la\s+|el\s+)?(?:musica\s+|canciones\s+)?(?:de\s+)?(.{3,40})$') {
+    # FUERA "NO QUIERO" (25/09). Era la unica alternativa de las cuatro que no habla de MUSICA
+    # ni de gustos: "no quiero" es una negativa de cualquier cosa, y detras de ella cabe la
+    # frase entera. Lo que dejo en disco: la UNICA entrada que ha tenido musica-no.json en su
+    # vida es 'si es resting', que salio de un "No, no quiero, Cierre Sting, Paul" mal oido el
+    # 25/09 a la 01:25:40 -braya estaba pidiendo cerrar Steam-. Y contado sobre los 633
+    # dictados distintos de assistant.log y su rotado, este patron casa con UNA sola frase en
+    # catorce dias, y tampoco es musica: "no quiero saber que se esta descagando en steam",
+    # que habria vetado 'saber que se esta descagando en steam' para siempre.
+    # O sea: cero vetos buenos, dos malos. Las otras tres se quedan porque hablan de gustar
+    # ("no me gusta", "odio") o de poner ("no me pongas"), y ninguna ha fallado nunca.
+    if ($f -match '^(?:no\s+me\s+gusta|odio|no\s+me\s+pongas)\s+(?:la\s+|el\s+)?(?:musica\s+|canciones\s+)?(?:de\s+)?(.{3,40})$') {
         return @(@{ kind = 'musicaNo'; que = $Matches[1].Trim(); desc = "apuntar que no te gusta $($Matches[1].Trim())" })
     }
     if ($f -match '^(?:si\s+me\s+gusta|vuelve\s+a\s+ponerme|quita\s+de\s+lo\s+que\s+no\s+me\s+gusta)\s+(?:la\s+|el\s+)?(?:musica\s+)?(?:de\s+)?(.{3,40})$') {
@@ -8604,7 +8719,13 @@ function Get-FraseJuegoNotado([string]$nombre, [datetime]$hoy = (Get-Date)) {
     if (-not $nombre) { return '' }
     $dias = @(Get-DiasDeJuego $nombre)
     if ($dias.Count -eq 0) { return '' }
-    $hoyS = $hoy.ToString('yyyy-MM-dd')
+    # EL DIA DE JUGAR EMPIEZA A LAS CINCO DE LA MANANA (25/09, ver Get-DiaJuego). Aqui se usaba
+    # la fecha NATURAL mientras juegos.json guarda los dias con el corte a las 05:00, asi que
+    # entre las 00:00 y las 05:00 la cuenta se iba un dia entero — y esa es justo la franja en
+    # la que braya juega: la sesion continua mas larga del registro acaba a las 00:45.
+    # Es el mismo desfase que ya se pago el 23/09 entre habitos.json y juegos.json.
+    $hoyS = Get-DiaJuego $hoy
+    $hoyD = [datetime]::ParseExact($hoyS, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
     # SI YA JUGO HOY, NADA: esto se dice una vez al dia, no en cada arranque
     if ($dias -contains $hoyS) { return '' }
     $fechas = @()
@@ -8615,7 +8736,7 @@ function Get-FraseJuegoNotado([string]$nombre, [datetime]$hoy = (Get-Date)) {
     $fechas = @($fechas | Sort-Object -Descending)
     # LA RACHA: dias consecutivos hacia atras desde ayer
     $racha = 0
-    $esperado = $hoy.Date.AddDays(-1)
+    $esperado = $hoyD.AddDays(-1)
     foreach ($f in $fechas) {
         if ($f.Date -eq $esperado) { $racha++; $esperado = $esperado.AddDays(-1) }
         elseif ($f.Date -lt $esperado) { break }
@@ -8624,7 +8745,7 @@ function Get-FraseJuegoNotado([string]$nombre, [datetime]$hoy = (Get-Date)) {
         return "Este es el dia $($racha + 1) seguido con $nombre."
     }
     # LA VUELTA: cuanto hacia que no lo tocaba
-    $hueco = [int]($hoy.Date - $fechas[0].Date).TotalDays
+    $hueco = [int]($hoyD - $fechas[0].Date).TotalDays
     if ($hueco -ge $JuegoVueltaDias) {
         return "Hacia $hueco dias que no jugabas a $nombre."
     }
@@ -8638,7 +8759,15 @@ function Get-DiasDeJuego([string]$nombre) {
         if (-not $m.ContainsKey($nombre)) { return @() }
         $e = $m[$nombre]
         if (-not $e.ContainsKey('dias')) { return @() }
-        return @($e['dias'].PSObject.Properties | ForEach-Object { $_.Name })
+        # SE LEE CON Get-DiasJuego, QUE SABE LEER LAS DOS FORMAS (25/09). Aqui habia un
+        # .PSObject.Properties a pelo, que solo vale mientras 'dias' siga siendo el objeto que
+        # salio del JSON. Y deja de serlo en cuanto braya juega cinco minutos: Save-TiempoJuego
+        # lo reescribe como HASHTABLE (hace $m[$k]['dias'] = Get-DiasJuego ...), y sobre un
+        # hashtable .PSObject.Properties no devuelve las fechas, devuelve Keys, Values y Count.
+        # O sea que Get-FraseJuegoNotado recibia tres nombres que no son fechas, no parseaba
+        # ninguna y se volvia MUDA: 'juego-notado' sale 0 veces en los dos registros.
+        # El lector bueno ya existia veinte lineas mas abajo y lee las dos formas.
+        return @((Get-DiasJuego $e['dias']).Keys)
     } catch { return @() }
 }
 
@@ -11475,6 +11604,16 @@ function Get-AvisoSinUso([string]$ruta = '', [datetime]$ahora = (Get-Date), [int
 # El primer caso sale de sus numeros, no de una opinion: el ultimo recurso (turbo) se
 # lanzo 29 veces y sirvio 1, y cuesta 16,2 s de mediana. Tenia la prueba delante.
 #
+# Y QUE SIGNIFICA ESE 1, porque el mismo turbo tiene DOS numeros y hay que saber cual manda
+# (25/09). 'turbo-sirvio' se apunta en un solo sitio y solo cuando la transcripcion del turbo
+# sale ORDEN ENTENDIBLE: Test-FastCommand la acepta y se ejecuta. Eso es 1 de 29.
+# Leyendo el registro a mano sale otra cuenta distinta y tambien cierta: en CATORCE de las 29
+# el turbo impuso su transcripcion porque era MEJOR ("Coladojara y abre Steam" -> "Calculadora,
+# y abre Steam"), o sea 15 de 29 (52 %). Esta escrito entero al lado de $WhisperUltimo.
+# No se contradicen: cuentan cosas distintas. Y para ESTA decision manda el 1, porque lo que
+# se juzga aqui es si el ultimo recurso rescata ORDENES -para eso existe y por eso cuesta
+# 16,2 s-, no si transcribe mejor. Quien quiera reabrirlo que discuta ese criterio, no la cifra.
+#
 # Tres frenos, porque una maquina que se toca sus propios ajustes da mas miedo que
 # pereza: hace falta HISTORIAL (con cuatro intentos cualquier motor parece inutil), se
 # revisa UNA VEZ AL DIA, y se dice en voz alta lo que ha hecho y como deshacerlo.
@@ -12539,7 +12678,17 @@ function Get-FraseVuelta([int]$aus, [datetime]$ahora, $ultimas, [bool]$esNoche =
     # no hay nada que recordar, asi que esta frase casi nunca podra salir y no pasa nada
     $jg = $null
     try { $jg = Get-JuegoDeReferencia } catch {}
-    if ($jg) { $cands += "¿Seguimos con $jg?" }
+    # $($jg)? Y NO $jg? (25/09). En PowerShell 5.1 la interrogacion es un caracter valido de
+    # nombre de variable, asi que "$jg?" se lee como la variable $jg? -que no existe- y la
+    # frase sale VACIA y sin el juego. Es la misma trampa que ya esta documentada en la linea
+    # de "La ultima vez me dijiste que no era eso" (auditoria del 13/09); esta se colo igual.
+    # NO ES TEORICO, salio en produccion: assistant.log:6458, 25/09 10:57:58, "VUELTA: 71 min
+    # fuera -> '¿Seguimos con '". Y lo peor no es que saliera mal una vez: la frase rota se
+    # GUARDO en memoria\habitos.json (presencia.frases[2]), donde ocupa una de las plazas del
+    # filtro de no repetir, asi que ademas le quitaba el turno a las que si funcionan.
+    # De las tres variantes del saludo de vuelta, esta es la UNICA que usa la continuidad -a
+    # que estabas jugando-, y no ha funcionado NUNCA.
+    if ($jg) { $cands += "¿Seguimos con $($jg)?" }
     $libres = @($cands | Where-Object { @($ultimas) -notcontains $_ })
     if ($libres.Count -eq 0) { $libres = $cands }   # con pocas candidatas, antes repetir que callar
     return (Get-Random -InputObject $libres)
@@ -12558,9 +12707,18 @@ function Test-VueltaSaludo([datetime]$ahora = (Get-Date)) {
     if ($hbV.presencia['saludo'] -and [datetime]::TryParse([string]$hbV.presencia['saludo'], [ref]$ultS)) {
         if (($ahora - $ultS).TotalMinutes -lt 60) { return $false }     # uno por hora y basta
     }
+    # LA NOCHE APRENDIDA, NO EL 23 DE CONFIG (25/09). Get-NocheDesde saca la hora a la que
+    # braya para de verdad -la mediana de los ultimos 14 dias- y se cae sola al 23 de config
+    # si aun no hay cuatro dias, asi que cambiar aqui no puede dejar esto peor que antes.
+    # Lo unico que decide es CUAL de las frases de vuelta se elige, la de noche o la de dia:
+    # por eso se cambia aqui y no en Get-AvisoHoraDormir, donde el mismo cambio sin pensarlo
+    # rompe la salida temprana ("$hD -lt $EntornoNocheDesde -and $hD -ge 5"). Si la noche
+    # aprendida cae en la madrugada, ese -lt no es cierto NUNCA y el aviso se pondria a
+    # evaluarse a cualquier hora. Eso pide su propia medicion y su propio banco.
+    $nocheDesdeV = Get-NocheDesde
     $hV = $ahora.Hour
-    $esNocheV = if ($EntornoNocheDesde -gt $EntornoNocheHasta) { ($hV -ge $EntornoNocheDesde -or $hV -lt $EntornoNocheHasta) }
-                else { ($hV -ge $EntornoNocheDesde -and $hV -lt $EntornoNocheHasta) }
+    $esNocheV = if ($nocheDesdeV -gt $EntornoNocheHasta) { ($hV -ge $nocheDesdeV -or $hV -lt $EntornoNocheHasta) }
+                else { ($hV -ge $nocheDesdeV -and $hV -lt $EntornoNocheHasta) }
     $ultimas = @($hbV.presencia['frases'])
     $frase = Get-FraseVuelta $aus $ahora $ultimas $esNocheV
     # se apunta ANTES de decirla: si algo falla al hablar, peor es repetir la misma manana
@@ -14552,6 +14710,17 @@ function Invoke-FastCommand([string]$text) {
                     $a.desc = if ($vS.titulo) { 'pongo ' + $vS.titulo } else { "pongo el numero $($vS.n)" }
                 }
                 'musicaNo' {
+                    # NO SE VETA NADA PARA SIEMPRE DESDE UN OIDO QUE DUDABA (25/09). El camino
+                    # de las traducciones ya tiene esta guarda desde el 15/09 ("NO APRENDER DE
+                    # LO MAL OIDO") y este no la tenia: bastaba un repaso que se inventara una
+                    # palabra para dejar un veto de musica permanente, sin preguntar y sin que
+                    # se pudiera deshacer si no te dabas cuenta. Es exactamente lo que paso con
+                    # 'si es resting'. Lo apuntado se dice igual en voz alta, pero no se guarda.
+                    if (Test-OidoDudoso $text) {
+                        Log "no veto '$text': venia de un oido que dudaba (ver NO APRENDER DE LO MAL OIDO)"
+                        $a.desc = 'no te he entendido bien y prefiero no apuntar eso. Repitelo si quieres'
+                        break
+                    }
                     # SIN NOMBRAR NADA: se veta lo que acaba de sonar, que es como lo dice el
                     $queN = [string]$a.que
                     $tituloN = ''
@@ -14633,7 +14802,14 @@ function Invoke-FastCommand([string]$text) {
                             Save-Contactos
                             $a.desc = if ($fuera.Count -gt 0) { "quitado $($a.nombre)" } else { "$($a.nombre) no estaba entre los importantes" }
                         }
-                        'ver' { $a.desc = if ($lcI.Count -gt 0) { 'tus contactos importantes: ' + ($lcI -join ', ') } else { 'no tienes contactos importantes; todos los mensajes avisan igual' } }
+                        # DECIA JUSTO LO CONTRARIO DE LO QUE HACE (apuntado el 18/09, arreglado
+                        # el 25/09). Contestaba "no tienes contactos importantes; todos los
+                        # mensajes avisan igual", y es al reves: mira Add-Notificaciones, la
+                        # rama del Count -eq 0. Sin ningun contacto no se avisa de NADIE por su
+                        # nombre; jugando solo parpadea la capsula ('pulso:mensaje'), y sin
+                        # juego delante no pasa nada de nada. Y encima contactos.json no existe
+                        # todavia en esta consola, asi que esa frase es la unica que se ha oido.
+                        'ver' { $a.desc = if ($lcI.Count -gt 0) { 'tus contactos importantes: ' + ($lcI -join ', ') } else { 'ninguno, asi que no te aviso de nadie por su nombre: jugando solo parpadea la capsula. Dime avisame si me escribe y un nombre' } }
                     }
                 }
                 'brilloAuto' {

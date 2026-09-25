@@ -51,24 +51,48 @@ foreach ($cte in @('JuegoRachaMin', 'JuegoVueltaDias')) {
     Comp ("se saca del archivo " + $cte) $m.Success ''
     if ($m.Success) { Invoke-Expression ('$' + $cte + ' = ' + $m.Groups[1].Value.Trim()) }
 }
-# el doble de los datos, DESPUES de cargar (manera 9)
-$script:juegosDias = @{}
-function Get-DiasDeJuego([string]$nombre) {
-    if ($script:juegosDias.ContainsKey($nombre)) { return $script:juegosDias[$nombre] }
-    return @()
+# EL DOBLE SE PONE UN ESCALON MAS ABAJO (25/09). Aqui habia un doble de Get-DiasDeJuego, o sea
+# que este banco sustituia LA FUNCION QUE ESTABA ROTA y por eso salia verde con ella rota. Es
+# una manera nueva de salir verde mintiendo: doblar justo la pieza que se quiere probar.
+# LO QUE TAPABA: Get-DiasDeJuego leia 'dias' con .PSObject.Properties, que solo vale mientras
+# ese campo sea el objeto recien salido del JSON. En cuanto braya juega cinco minutos,
+# Save-TiempoJuego lo reescribe como HASHTABLE, y ahi .PSObject.Properties devuelve Keys,
+# Values y Count en vez de fechas. Resultado: 'juego-notado' 0 veces en los dos registros.
+# Ahora el doble es Get-JuegosMem -el fichero- y se traen del archivo los DOS lectores de
+# verdad, asi que las dos formas del campo 'dias' se prueban de verdad.
+foreach ($fn in @('Get-DiasDeJuego', 'Get-DiasJuego', 'Get-DiaJuego')) {
+    $dFn = $ast.Find({ param($x)
+        $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq $fn }, $true)
+    if (-not $dFn) { Comp "se saca $fn del arbol" $false ''; Write-Host ''; Write-Host "  $mal MAL"; exit 1 }
+    Invoke-Expression $dFn.Extent.Text
 }
-$hoy = [datetime]'2026-09-25'
+$script:juegosMemDoble = @{}
+function Get-JuegosMem { return $script:juegosMemDoble }
+# ayuda para montar el fichero como lo deja Nova: 'dias' es un HASHTABLE con minutos por dia
+function PonDias([string]$nombre, [string[]]$dias) {
+    $h = @{}
+    foreach ($d in $dias) { $h[$d] = 30 }
+    $script:juegosMemDoble[$nombre] = @{ 'dias' = $h }
+}
+# y como sale del JSON la primera vez, antes de que nadie lo reescriba
+function PonDiasJson([string]$nombre, [string[]]$dias) {
+    $o = New-Object PSObject
+    foreach ($d in $dias) { Add-Member -InputObject $o -NotePropertyName $d -NotePropertyValue 30 }
+    $script:juegosMemDoble[$nombre] = @{ 'dias' = $o }
+}
+$script:juegosDias = @{}   # se conserva el nombre para no tocar el resto del banco
+$hoy = [datetime]'2026-09-25 12:00'
 
 # UN JUEGO NUEVO: no hay nada que contar
-$script:juegosDias['Nuevo'] = @()
+PonDias 'Nuevo' @()
 Comp 'un juego nuevo no da pie a nada' ([string]::IsNullOrEmpty((Get-FraseJuegoNotado 'Nuevo' $hoy))) ''
 
 # UN DIA SUELTO: tampoco
-$script:juegosDias['Suelto'] = @('2026-09-24')
+PonDias 'Suelto' @('2026-09-24')
 Comp 'con un dia detras tampoco' ([string]::IsNullOrEmpty((Get-FraseJuegoNotado 'Suelto' $hoy))) 'una racha de dos no es una racha'
 
 # RACHA DE TRES (ayer, anteayer y el anterior): eso si
-$script:juegosDias['Elden'] = @('2026-09-24', '2026-09-23', '2026-09-22')
+PonDias 'Elden' @('2026-09-24', '2026-09-23', '2026-09-22')
 $f = Get-FraseJuegoNotado 'Elden' $hoy
 Comp 'tres dias seguidos si se notan' (-not [string]::IsNullOrEmpty($f)) "$f"
 Comp '  y dice cuantos' ($f -match '4|cuarto|cuatro') "$f"
@@ -77,22 +101,44 @@ Comp '  y dice cuantos' ($f -match '4|cuarto|cuatro') "$f"
 # CUALQUIER dia en vez de solo los consecutivos, el banco seguia verde entero. Ninguno de los
 # casos de arriba tenia tres dias repartidos, asi que la unica linea que mide "seguidos" no la
 # miraba nadie). Jugo ayer, hace cinco dias y hace diez: son tres dias, no una racha de tres.
-$script:juegosDias['Salteado'] = @('2026-09-24', '2026-09-20', '2026-09-15')
+PonDias 'Salteado' @('2026-09-24', '2026-09-20', '2026-09-15')
 Comp 'tres dias sueltos NO son una racha' ([string]::IsNullOrEmpty((Get-FraseJuegoNotado 'Salteado' $hoy))) 'seguidos quiere decir seguidos'
 
 # UNA VUELTA DESPUES DE MUCHO: tambien
-$script:juegosDias['Viejo'] = @('2026-09-01')
+PonDias 'Viejo' @('2026-09-01')
 $f2 = Get-FraseJuegoNotado 'Viejo' $hoy
 Comp 'una vuelta despues de semanas se nota' (-not [string]::IsNullOrEmpty($f2)) "$f2"
 Comp '  y dice cuanto hacia' ($f2 -match '24|semanas|dias') "$f2"
 
 # PERO NO SI FUE HACE POCO
-$script:juegosDias['Reciente'] = @('2026-09-23')
+PonDias 'Reciente' @('2026-09-23')
 Comp 'volver tras dos dias no es noticia' ([string]::IsNullOrEmpty((Get-FraseJuegoNotado 'Reciente' $hoy))) ''
 
 # SI YA JUGO HOY, NO SE REPITE
-$script:juegosDias['Hoy'] = @('2026-09-25', '2026-09-24', '2026-09-23', '2026-09-22')
+PonDias 'Hoy' @('2026-09-25', '2026-09-24', '2026-09-23', '2026-09-22')
 Comp 'si ya jugo hoy, no lo vuelve a decir' ([string]::IsNullOrEmpty((Get-FraseJuegoNotado 'Hoy' $hoy))) 'una vez al dia, no en cada arranque'
+
+Write-Host ''
+Write-Host '-- 3. LAS DOS FORMAS DEL CAMPO "dias" (lo que tenia mudo esto) --'
+# El fichero nace del JSON con 'dias' como objeto, y en cuanto braya juega cinco minutos
+# Save-TiempoJuego lo reescribe como HASHTABLE. Las dos tienen que leerse igual: con una sola
+# de las dos probada, el fallo que dejo 'juego-notado' en cero pasaba en verde.
+PonDiasJson 'RecienLeido' @('2026-09-24', '2026-09-23', '2026-09-22')
+Comp 'con dias como sale del JSON, se lee' ((Get-FraseJuegoNotado 'RecienLeido' $hoy) -match 'dia 4 seguido') ''
+PonDias 'YaGuardado' @('2026-09-24', '2026-09-23', '2026-09-22')
+Comp 'y con dias ya reescrito como hashtable, tambien' ((Get-FraseJuegoNotado 'YaGuardado' $hoy) -match 'dia 4 seguido') 'esta era la que fallaba'
+
+Write-Host ''
+Write-Host '-- 4. EL DIA DE JUGAR EMPIEZA A LAS CINCO --'
+# juegos.json guarda los dias con Get-DiaJuego, que resta cinco horas. Si aqui se usara la
+# fecha natural, entre las 00:00 y las 05:00 la cuenta se iria un dia entero: justo la franja
+# en la que braya juega (la sesion continua mas larga del registro acaba a las 00:45).
+PonDias 'Madrugada' @('2026-09-24', '2026-09-23', '2026-09-22')
+$deMadrugada = [datetime]'2026-09-26 02:00'
+Comp 'a las 02:00 del 26 todavia es el dia 25' ((Get-FraseJuegoNotado 'Madrugada' $deMadrugada) -match 'dia 4 seguido') `
+    "sale: '$(Get-FraseJuegoNotado 'Madrugada' $deMadrugada)'"
+PonDias 'YaJugoDeNoche' @('2026-09-25', '2026-09-24', '2026-09-23')
+Comp 'y si ya jugo esta noche, no lo repite' ([string]::IsNullOrEmpty((Get-FraseJuegoNotado 'YaJugoDeNoche' $deMadrugada))) ''
 
 Write-Host ''
 if ($mal -gt 0) { Write-Host "  $mal MAL"; exit 1 }

@@ -35,7 +35,7 @@ cristal en una esquina.
 | `wake_vosk.py` (el oído) | 4.001 líneas |
 | `charla_worker.py` + `charla_memoria.py` | 1.304 + 934 líneas |
 | `ajedrez.py` | 293 líneas |
-| Bancos de pruebas | **199 bancos** + la batería que los corre, 201 secciones |
+| Bancos de pruebas | **205 bancos** + la batería que los corre, 207 secciones |
 | Órdenes distintas que entiende | **162** |
 | Contadores que lleva de sí misma | 49 |
 | Commits | 515 |
@@ -315,6 +315,20 @@ código, y a qué hora se commiteó, no solo qué día**: un fallo que "no apare
 de registro" puede llevar arreglado desde ayer por la tarde. Está escrita en la cabecera de
 `tools/probar-todo.ps1` para que no se olvide.
 
+**La duodécima: una regla de la casa que no vigilaba nadie.** La regla 6 —un `.ps1` va sin BOM
+si es ASCII puro y con BOM si no lo es, porque PowerShell 5.1 abre sin BOM como ANSI— no tenía
+ni una comprobación en las 204 secciones. Se vio el 25/09 al colarse un banco nuevo escrito
+así: la batería entera pasó en verde sin decir nada. Ahora lo mira la **sección 2n171**, en
+rojo solo para el caso que se lee mal, y con trinquete para las 28 tildes que ya había.
+
+**La undécima, y la aprendí de mis propias roturas el 25/09: un banco puede estar en verde
+porque sus casos negativos no llegan a tocar lo que dice vigilar.** Dos veces el mismo día. En
+el de los amigos, las dos frases que debían quedarse fuera decían *"mi novia"* y *"mi amiga"*, y
+ninguna casa con `amigos?`: se caían por la **primera** condición y no probaban nada de la
+segunda, así que la rotura de ampliar `conectado` a `conect\w+` salía **verde**. Y en el de la
+corrección, `@($null)` en PowerShell es un array de **un** elemento, así que "no ha devuelto
+nada" contaba como una acción. Las dos las destapó romper el código a propósito, no leerlo.
+
 **Y la décima manera, que no es salir verde mintiendo sino no salir.** Un banco que **no corre
 nadie** no sale rojo, no sale verde: no sale. El 25/09 había **198 bancos y 199 secciones**, un
 empate que parecía decir que estaban todos —y no lo decía, porque algunas secciones corren dos
@@ -326,7 +340,7 @@ entero, comentarios incluidos, así que nombrar un banco en un comentario lo dab
 había **tres** así, los tres que se quedan fuera a propósito, pasando en verde por la razón
 equivocada. Hoy son una excepción declarada y el cuarto sale rojo.
 
-Hoy: **199 bancos, 201 secciones**, y cada idea de las cuarenta con su script de roturas.
+Hoy: **205 bancos, 207 secciones**, y cada idea de las cuarenta con su script de roturas.
 
 ---
 
@@ -356,6 +370,12 @@ Hoy: **199 bancos, 201 secciones**, y cada idea de las cuarenta con su script de
   quince días son **cinco minutos**, porque juegas enchufado—, faltaban datos.
 - **Una regla viva**: el ciclo entero funciona y está probado, pero ninguna ha disparado nunca
   en producción porque no hay ninguna guardada.
+
+**El mapa entero, medido el 25/09, está en `PENDIENTES-2026-09-25.md`**: 155 pendientes en
+bruto repartidos por los 34 documentos y el código → **25 accionables, 8 esperando datos, 10
+decisiones tuyas, 41 ya hechos**. Y con tres cosas que circulaban mal y ahí quedan corregidas,
+la primera importante: **el aviso de dos horas de juego no ha disparado nunca** con el código de
+hoy; las dos líneas del registro que lo parecen son del formato viejo.
 
 **Lo que sigue abierto y no depende de esperar:**
 
