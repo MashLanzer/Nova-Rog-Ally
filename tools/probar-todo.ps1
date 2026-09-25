@@ -1502,6 +1502,23 @@ Titulo "2n78. Que los bancos midan ESTE repo, en orden y sin etapas mudas"
 python (Join-Path $PSScriptRoot 'probar-bancos-de-verdad.py')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:sin etapas mudas)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n158. El animo con memoria larga (idea 34 de las 50)"
+# LO MEDIDO, y es peor de lo que decia la idea: el animo de hoy+ayer SALTA COMO UN YOYO.
+#     23/09  +0,62      24/09  -0,50      25/09  +0,50
+# Ese -0,50 del 24/09 no viene de un mal dia: viene de UN error y CERO aciertos, porque ese dia
+# braya estuvo programando y casi no le hablo. O sea que el animo corto CONFUNDE "dia malo" con
+# "dia vacio", y desde la idea 50 ese numero decide cuanto habla Nova por su cuenta.
+# Ahora hay una ventana de 7 dias con peso decreciente y, sobre todo, UN DIA CON POCOS SUCESOS
+# NO VOTA: eso es lo que separa el dia malo del dia vacio. La misma semana pasa a dar +0,66,
+# +0,62 y +0,64. Y ademas sabe CONTARLO ("llevo unos dias entendiendote peor"), que es lo que
+# separa un caracter de un termometro; se calla salvo que el salto sea grande y tenga base.
+# TRES COSAS LAS CAZO ESTE BANCO, todas en codigo recien escrito: $AnimoLargoDias (la ventana)
+# y $script:animoLargoDias (los que votan) eran LA MISMA variable para PowerShell; el detector
+# que lo buscaba usaba un @{} cuyas claves tampoco distinguen mayusculas, o sea que tenia
+# dentro el fallo que buscaba; y dos guardas no las ejercitaba ninguna prueba.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-animo-largo.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:memoria larga, y sabe contarla)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n157. El animo con el que se despierta (idea 15)"
 # LO MEDIDO: el animo -de -1 a 1, sacado de los aciertos y errores de hoy y ayer- se calculaba
 # DENTRO de Add-Estadistica, o sea solo cuando ya habia pasado algo. En 27.000 lineas aparecia

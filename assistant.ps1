@@ -2988,6 +2988,8 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '', [bool]$deCamino =
         # EL QUE SE DESPIERTA). Hasta el 25/09 la cuenta estaba escrita AQUI DENTRO, que es
         # por lo que al arrancar valia 0: nadie la hacia hasta que pasaba la primera cosa.
         try { $script:uiAnimo = Get-AnimoDeDias $s.dias } catch {}
+        # y el de memoria larga, que es el que decide cuanto habla por su cuenta (idea 34)
+        try { $lg = Get-AnimoLargo $s.dias; $script:animoLargo = $lg.animo; $script:animoBase = $lg.dias } catch {}
         $d = ($detalle -replace '\s+', ' ').Trim()
         if ($d.Length -gt 90) { $d = $d.Substring(0, 87) + '...' }
         if ($ruta -eq 'descarte' -and $d) {
@@ -10173,6 +10175,92 @@ function Test-PuedoAvisar([string]$clave, [string]$nivel = 'medio', [int]$cadaMi
 # milisegundo.
 # QUE EL ANIMO TENGA CONSECUENCIAS, NO SOLO COLOR (25/09, idea 50).
 #
+# EL ANIMO CON MEMORIA LARGA (25/09, idea 34 de las 50)
+#
+# LO MEDIDO, y es peor de lo que decia la idea: el animo de hoy+ayer SALTA COMO UN YOYO. Sacado
+# de memoria\estadisticas.json, dia a dia:
+#     23/09  +0,62      24/09  -0,50      25/09  +0,50
+# De +0,62 a -0,50 y otra vez a +0,50 en tres dias. Y ese -0,50 del 24/09 no viene de un mal
+# dia: viene de UN error y CERO aciertos, porque ese dia braya estuvo programando y casi no le
+# hablo. Lo mismo el 17/09: -0,36 con cero sucesos propios, arrastrado del 16.
+#
+# O SEA QUE EL ANIMO CORTO CONFUNDE "DIA MALO" CON "DIA VACIO". Y desde la idea 50 ese numero
+# decide cuanto habla Nova por su cuenta: el 24/09 se habria pasado el dia a media racion por
+# un unico error, cuando la semana entera iba bien.
+#
+# EL ARREGLO son dos cosas, y la segunda es la que importa:
+#   1. Una ventana de 7 dias con peso decreciente (hoy pesa 1, ayer 1/2, anteayer 1/3...), de
+#      forma que un dia flojo no tumba la semana pero uno reciente pesa mas que uno viejo.
+#   2. UN DIA CON MENOS DE AnimoLargoMinSucesos NO VOTA. Es lo que separa el dia malo del dia
+#      vacio, y es justo lo que el corto no sabe hacer. Con el liston en 10, de los 14 dias
+#      guardados votan 8: los otros 6 tienen entre 0 y 7 sucesos y no dicen nada de nadie.
+# Con eso, la misma semana da: 23/09 +0,66, 24/09 +0,62, 25/09 +0,64. Estable, que es lo que
+# tiene que ser una tendencia.
+#
+# CUAL MANDA EN CADA COSA: el corto sigue mandando en lo de AHORA -el latido y el color de la
+# capsula, que deben reflejar el rato que llevais-. El largo manda en lo de FONDO: cuanto habla
+# por su cuenta. Un mal rato no puede cambiarle el caracter al dia entero.
+$AnimoLargoDias = 7
+$AnimoLargoMinSucesos = 10
+$AnimoLargoMinDias = 2
+function Get-AnimoDia($dias, [string]$clave) {
+    # @{ animo; sucesos } de UN dia suelto. Aparte porque lo usan los dos calculos, y porque
+    # 'sucesos' es lo que deja distinguir un dia malo de un dia en que no paso nada.
+    $r = @{ animo = 0.0; sucesos = 0 }
+    try {
+        if ($null -eq $dias -or -not $dias.ContainsKey($clave)) { return $r }
+        $ok = 0; $mal = 0
+        foreach ($x in @('local', 'aprendida', 'memoria', 'traducida')) {
+            if ($dias[$clave].ContainsKey($x)) { $ok += $dias[$clave][$x] }
+        }
+        if ($dias[$clave].ContainsKey('error')) { $mal = $dias[$clave]['error'] }
+        $r.sucesos = $ok + $mal
+        $r.animo = [Math]::Max(-1.0, [Math]::Min(1.0, ($ok - 2.0 * $mal) / [Math]::Max(10.0, $ok + $mal)))
+    } catch {}
+    return $r
+}
+function Get-AnimoLargo($dias, [datetime]$hoy = (Get-Date)) {
+    # Devuelve @{ animo; dias } -- 'dias' es cuantos VOTARON, y es lo que dice si el numero
+    # tiene base. Con menos de AnimoLargoMinDias no se usa para nada: se cae al corto.
+    $res = @{ animo = 0.0; dias = 0 }
+    try {
+        if ($null -eq $dias) { return $res }
+        $num = 0.0; $den = 0.0
+        for ($j = 0; $j -lt $AnimoLargoDias; $j++) {
+            $d = Get-AnimoDia $dias $hoy.AddDays(-$j).ToString('yyyy-MM-dd')
+            if ($d.sucesos -lt $AnimoLargoMinSucesos) { continue }   # un dia vacio no opina
+            $res.dias++
+            $w = 1.0 / ($j + 1)
+            $num += $d.animo * $w
+            $den += $w
+        }
+        if ($den -gt 0) { $res.animo = $num / $den }
+    } catch {
+        # ver EL CATCH QUE NO PUEDE CALLARSE: 0.0 es tambien una respuesta legitima, asi que
+        # un fallo aqui tiene que dejar linea o pasaria por una semana tranquila.
+        Log ("animo largo: no pude calcularlo: " + $_.Exception.Message)
+    }
+    return $res
+}
+# Y QUE SEPA CONTARLO, que es la parte que hace que no parezca un termometro (extension de la
+# idea 34, 25/09). Un numero que nadie puede explicar no se siente vivo; una asistente que dice
+# "llevo unos dias entendiendote peor" si. Se compara la tendencia de ahora con la de hace unos
+# dias, y SOLO se dice cuando las dos tienen base y el salto es grande: si no, se calla, que es
+# lo normal. No se inventa nada: los dos numeros salen del mismo fichero que ya esta en disco.
+$AnimoSaltoMin = 0.35
+function Get-FraseAnimo($dias, [datetime]$hoy = (Get-Date)) {
+    try {
+        $ahora = Get-AnimoLargo $dias $hoy
+        if ($ahora.dias -lt $AnimoLargoMinDias) { return '' }
+        $antes = Get-AnimoLargo $dias $hoy.AddDays(-3)
+        if ($antes.dias -lt $AnimoLargoMinDias) { return '' }
+        $salto = $ahora.animo - $antes.animo
+        if ($salto -ge $AnimoSaltoMin) { return 'Estos dias te estoy entendiendo mejor que antes.' }
+        if ($salto -le (-1 * $AnimoSaltoMin)) { return 'Llevo unos dias entendiendote peor de lo normal, y lo se.' }
+        return ''
+    } catch { return '' }
+}
+
 # Nova calcula un animo de -1 a 1 con sus aciertos y errores de hoy y ayer ($script:uiAnimo).
 # Es un dato REAL, no un adorno... y hasta hoy solo servia para dos cosas, las dos de aspecto:
 # el latido de la capsula se hacia mas lento si estaba desanimada y el color se apagaba.
@@ -10190,7 +10278,12 @@ $AnimoMalo = -0.3
 $AnimoBueno = 0.5
 function Get-SueloPorAnimo([int]$suelo) {
     try {
-        $a = [double]$script:uiAnimo
+        # EL DE FONDO, NO EL DEL RATO (25/09, idea 34). Cuanto habla Nova por su cuenta es una
+        # decision de dia entero, y el animo corto se movia de +0,62 a -0,50 por un solo error
+        # en un dia tranquilo. Si la ventana larga tiene base manda ella; si no -los primeros
+        # dias, o tras un paron-, se cae al de siempre y esto se comporta como antes.
+        $a = if ($script:animoBase -ge $AnimoLargoMinDias) { [double]$script:animoLargo }
+             else { [double]$script:uiAnimo }
         if ($a -le $AnimoMalo) { return [int][Math]::Max(1, [Math]::Floor($suelo / 2)) }
         if ($a -ge $AnimoBueno) { return [int][Math]::Min($suelo * 2, $suelo + 2) }
         return $suelo
@@ -17766,6 +17859,12 @@ $script:ambienteUltimo = ''   # lo que sonaba antes de llamarla (solo con escuch
 $script:uiClima = ''        # emoji del tiempo: solo unos segundos cuando se pregunta
 $script:uiClimaHasta = 0
 $script:uiAnimo = 0         # -1..1 segun aciertos y errores de las ultimas 24 h
+$script:animoLargo = 0      # el mismo numero, pero con 7 dias de memoria (idea 34)
+$script:animoBase = 0       # cuantos de esos 7 dias tenian datos suficientes para votar
+# NO SE LLAMA animoLargoDias, y la razon la cazo su propio banco el 25/09: en PowerShell los
+# nombres de variable NO distinguen mayusculas, asi que $script:animoLargoDias y la constante
+# $AnimoLargoDias de mas abajo eran LA MISMA, y el estado le pisaba el 7 a la ventana en cuanto
+# se calculaba por primera vez. Es el mismo tropiezo que $PY contra $py de esta misma semana.
 $script:uiHaciendo = ''     # QUE se esta ejecutando ahora mismo (glifo en la capsula)
 $script:uiRemoto = $false   # "pensando" lo lleva la IA (violeta) y no Nova sola (ambar)
 $script:sinTarjeta = $false # la proxima respuesta es para oirla: sin tarjeta grande (ver Show-Popup)
@@ -20328,7 +20427,14 @@ try { Clear-PerfilPasajeros } catch {}
 # hoy arrancaba en 0 y no se enteraba de que venia de un dia malo hasta la primera orden, que
 # es DESPUES de haber soltado los avisos que se quedaron esperando. Ahora lo sabe antes.
 try {
-    $script:uiAnimo = Get-AnimoDeDias (Get-Estadisticas).dias
+    $diasE = (Get-Estadisticas).dias
+    $script:uiAnimo = Get-AnimoDeDias $diasE
+    $lgA = Get-AnimoLargo $diasE
+    $script:animoLargo = $lgA.animo
+    $script:animoBase = $lgA.dias
+    if ($lgA.dias -ge $AnimoLargoMinDias) {
+        Log ("animo de fondo: " + $lgA.animo.ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture) + " con " + $lgA.dias + " dia(s) de base")
+    }
     if ($script:uiAnimo -le $AnimoMalo) { Log ("animo de arranque: " + $script:uiAnimo.ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture) + " (dia malo: hoy hablo menos por mi cuenta)") }
 } catch {}
 # Y SI LA VEZ ANTERIOR ACABO MAL, SE DICE (25/09, idea 29). Va por Send-AvisoEntorno y no por
