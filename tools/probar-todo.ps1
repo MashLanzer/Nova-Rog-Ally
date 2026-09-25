@@ -1502,6 +1502,21 @@ Titulo "2n78. Que los bancos midan ESTE repo, en orden y sin etapas mudas"
 python (Join-Path $PSScriptRoot 'probar-bancos-de-verdad.py')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:sin etapas mudas)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n148. Cuando la capsula no se ve, no cuenta como salida"
+# LO QUE PASO la noche del 24 con braya jugando: la capsula estaba en z=0 -por delante del
+# juego-, visible, colocada y del tamano correcto, y NO SE PINTABA NI UN PIXEL. A Way Out
+# estaba en pantalla completa EXCLUSIVA, y ahi ningun overlay de ventana se dibuja.
+# COMO SE SABE: el modo exclusivo CAMBIA LA RESOLUCION DEL ESCRITORIO. Medido esa noche, el
+# panel es 1920x1080 nativo y el escritorio estaba a 1280x720; el modo "sin bordes" no la
+# cambia nunca. Con la capsula ciega, lo que solo va ahi no llega a nadie: regla 2 rota.
+# Ahora Nova lo sabe, se lo dice a la propia capsula y VIBRA el mando en vez de callarse del
+# todo -vibrar no saca a braya de la partida, que es lo que se evitaba al no hablar-.
+# Y LA IDEA 6, de la misma medicion: braya cerro el juego a las 00:01:13 y veinte minutos
+# despues la pantalla seguia a 720p. Ahora se lo dice. NO se la cambia sola: en una portatil
+# bajar la resolucion a veces es deliberado, para bateria.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-capsula-ciega.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:sabe cuando no se la ve)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n147. Los avisos que no te mueven se dicen menos"
 # MEDIDO sobre los 81 avisos que Nova dijo de verdad en quince dias, mirando si braya le hablo
 # en los cinco minutos siguientes: el ruido del micro son 32 avisos (40 % del total) y solo

@@ -17571,6 +17571,9 @@ function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
     $json = '{"estado":"' + $estado + '","texto":"' + (ConvertTo-JsonTexto $t) + '","nivel":0' +
             ',"evento":"' + $script:uiEvento + '","n":' + $script:uiEventoN +
             ',"juego":"' + (ConvertTo-JsonTexto $script:juegoExe) + '"' +
+            # Y SI NO SE LA VE (25/09, idea 1): la propia capsula lo sabe, para poder dejar de
+            # gastar en animaciones que nadie mira.
+            ',"capsulaCiega":' + $(if ($script:capsulaCiega) { '1' } else { '0' }) +
             ',"audio":"' + (ConvertTo-JsonTexto $script:uiAudio) + '"' +
             ',"bateria":' + $script:uiBateria + ',"cargando":' + $script:uiCargando +
             ',"tempoFin":' + $tFin + ',"tempoTotal":' + $tTotal +
@@ -17717,6 +17720,57 @@ function Test-EnLlamada {
     $script:llamadaActiva = $activa
     return $activa
 }
+# LA CAPSULA CIEGA (25/09, idea 1).
+#
+# LO QUE PASO la noche del 24 con braya jugando: la capsula estaba en z=0 -por delante del
+# juego-, visible, colocada y del tamano correcto, y NO SE PINTABA NI UN PIXEL. A Way Out
+# estaba en pantalla completa EXCLUSIVA, y ahi ningun overlay de ventana se dibuja. Nova estuvo
+# media hora ensenandole cosas a nadie, y eso choca con la regla 2 de la casa: ningun modo
+# puede tener una sola salida.
+#
+# COMO SE SABE, y es limpio: el modo exclusivo CAMBIA LA RESOLUCION DEL ESCRITORIO. Medido esa
+# noche: el panel de la Ally es 1920x1080 nativo y el escritorio estaba a 1280x720. El modo
+# "ventana sin bordes" no la cambia nunca, asi que la diferencia lo delata sin preguntarle nada
+# a DirectX ni inyectar nada en el juego.
+#
+# LA NATIVA SE PREGUNTA UNA VEZ: el panel de una consola no cambia de tamano, y la consulta WMI
+# cuesta cientos de milisegundos. La actual si se mira cada vez, porque es lo que cambia.
+$script:resNativa = $null
+$script:resNativaMirada = $false
+function Get-ResolucionNativa {
+    if ($script:resNativaMirada) { return $script:resNativa }
+    $script:resNativaMirada = $true
+    try {
+        $m = @(Get-CimInstance -Namespace 'root\wmi' -ClassName WmiMonitorListedSupportedSourceModes -ErrorAction SilentlyContinue)
+        foreach ($x in $m) {
+            $p = $x.MonitorSourceModes[$x.PreferredMonitorSourceModeIndex]
+            if ($p.HorizontalActivePixels -gt 0) {
+                $script:resNativa = @([int]$p.HorizontalActivePixels, [int]$p.VerticalActivePixels)
+                break
+            }
+        }
+    } catch { $script:resNativa = $null }
+    return $script:resNativa
+}
+function Get-ResolucionActual {
+    try {
+        $v = @(Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue |
+               Where-Object { $_.CurrentHorizontalResolution -gt 0 })
+        if ($v.Count -gt 0) { return @([int]$v[0].CurrentHorizontalResolution, [int]$v[0].CurrentVerticalResolution) }
+    } catch {}
+    return $null
+}
+function Test-CapsulaCiega {
+    # ANTE LA DUDA, SE VE: si no se sabe alguna de las dos resoluciones, no se inventa un
+    # problema. Dar por ciega una capsula que si se ve haria hablar a Nova encima del juego,
+    # que es peor que el fallo que esto arregla.
+    if (-not $script:juegoActivo) { return $false }
+    $nat = Get-ResolucionNativa
+    $act = Get-ResolucionActual
+    if (-not $nat -or -not $act) { return $false }
+    return (($nat[0] -ne $act[0]) -or ($nat[1] -ne $act[1]))
+}
+
 function Test-AvisoSinVoz {
     if (Test-EnLlamada) { return $true }
     if (-not $AvisosSinVoz) { return $false }
@@ -17727,6 +17781,15 @@ function Test-AvisoSinVoz {
     # y el modo silencio es exactamente esto
     if ($script:uiPerfil -eq 'silencio') { return $true }
     return $false
+}
+
+# SI NO SE LA VE, QUE AL MENOS SE NOTE (25/09, idea 1). Con un juego en pantalla completa
+# exclusiva la capsula no se pinta: un aviso que se calla por respeto a la partida y ademas no
+# se ve no ha llegado a ninguna parte, y eso es la regla 2 rota. Se vibra, que no interrumpe
+# la partida como si lo haria hablar encima.
+function Send-AvisoVibrado {
+    if (-not $script:capsulaCiega) { return $false }
+    try { Start-Vibracion @(90, 60, 90) 16000; return $true } catch { return $false }
 }
 
 # Un aviso, por la puerta que toque. $tipo da el color del pulso: bateria,
@@ -17742,7 +17805,11 @@ function Send-Aviso([string]$texto, [string]$tipo = '') {
     Show-Popup $texto
     if (Test-AvisoSinVoz) {
         Send-UIEvento ("pulso:" + $tipo)
-        Log "aviso SIN VOZ ($tipo): $texto"
+        # Y SI LA CAPSULA NO SE VE, QUE AL MENOS SE NOTE (25/09, idea 1): con el juego en
+        # pantalla completa exclusiva ese pulso no lo pinta nadie. Vibrar no saca a braya de la
+        # partida, que es lo que se evitaba callandose.
+        $vib = Send-AvisoVibrado
+        Log ("aviso SIN VOZ ($tipo)" + $(if ($vib) { ', vibrado: no se ve la capsula' }) + ": $texto")
     } else {
         Say $texto
         # una descarga terminada tiene su propio gesto: el salto con chispas (13/09)
@@ -17788,6 +17855,9 @@ function Send-WinAlt([int]$vk) {
 # Saber a que juegas desbloquea frases naturales ("cuanto llevo jugando",
 # "busca una guia de esto") sin tener que nombrarlo cada vez.
 $script:juegoActivo = $null
+# Si el juego esta en pantalla completa exclusiva, la capsula no se pinta (ver LA CAPSULA
+# CIEGA). Se recalcula junto al juego, no en cada aviso: la consulta cuesta milisegundos.
+$script:capsulaCiega = $false
 $script:juegoDesde = 0
 $script:juegoPid = 0             # PID del proceso que tiene la ventana del juego (C4, 19/09)
 $script:juegoPidCandidato = 0
@@ -19583,6 +19653,21 @@ function Test-SalidaJuego {
         return
     }
     Log "JUEGO: cerrado de verdad $($s.nombre) ($minsS min de partida)"
+    # Y SI TE DEJO LA PANTALLA CAMBIADA (25/09, idea 6). Medido el 24/09: braya cerro A Way Out
+    # a las 00:01:13 y VEINTE MINUTOS despues el escritorio seguia a 1280x720 con un panel de
+    # 1920x1080. El juego no le devolvio su resolucion y nadie se lo dijo.
+    # NO SE LA CAMBIA SOLA, a proposito: en una consola portatil bajar la resolucion a veces es
+    # deliberado, para que dure la bateria. Se dice y decide braya.
+    try {
+        $script:capsulaCiega = $false
+        $nat = Get-ResolucionNativa
+        $act = Get-ResolucionActual
+        if ($nat -and $act -and (($nat[0] -ne $act[0]) -or ($nat[1] -ne $act[1]))) {
+            [void](Send-AvisoEntorno 'pantalla-cambiada' (
+                "El juego te ha dejado la pantalla en $($act[0]) por $($act[1]); la tuya es $($nat[0]) por $($nat[1])."
+            ) 'medio' 120)
+        }
+    } catch {}
     # idea 9: es el momento en que te acuerdas; media hora despues, ya no
     [void](Send-AvisoEntorno 'juego-cierra' "Cerraste $($s.nombre). Si quieres, dime donde te quedaste." 'medio' 120)
     # IDEA 20: y de paso, lo que llevas hoy (se lee de habitos, que lo acaba de sumar
@@ -26975,6 +27060,15 @@ while ($true) {
                     if ($SoloBotonEnJuego) { Log 'escucha: vuelve la palabra de activacion (fuera del juego)' }
                 }
                 $script:juegoActivo = $j
+                # Y SI ESE JUEGO NOS DEJA CIEGAS (25/09, idea 1): con el modo exclusivo la
+                # capsula no se dibuja, asi que lo que solo va ahi no llega a nadie.
+                try {
+                    $ciegaAntes = $script:capsulaCiega
+                    $script:capsulaCiega = Test-CapsulaCiega
+                    if ($script:capsulaCiega -ne $ciegaAntes) {
+                        Log ("CAPSULA " + $(if ($script:capsulaCiega) { "CIEGA: el juego esta en pantalla completa exclusiva; lo que solo se ve no llega" } else { "visible otra vez" }))
+                    }
+                } catch {}
                 Refresh-UI   # la capsula cambia de avatar
             } elseif ($j) {
                 Watch-LogrosSteam
