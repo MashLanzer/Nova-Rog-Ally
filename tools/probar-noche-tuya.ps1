@@ -29,7 +29,12 @@ $sinCom = (($txt -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) 
 
 Write-Host '-- 1. la noche sale de sus habitos --'
 Comp 'existe Get-NocheDesde' ($sinCom -match 'function Get-NocheDesde') ''
-Comp 'y usa la funcion que YA existia' ($sinCom -match 'Get-NocheDesde[\s\S]{0,600}Get-HoraFinHabitual') 'no un criterio nuevo'
+# EL BLOQUE, NO UNA DISTANCIA (25/09, idea 2): esto era un "que esten a menos de 600
+# caracteres", y esa clase de expresion se pone roja el dia que alguien mete un comentario en
+# medio. Se saca la funcion entera del arbol, que no depende de cuanto ocupe nada.
+$dN = $ast.Find({ param($x)
+    $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq 'Get-NocheDesde' }, $true)
+Comp 'y usa la funcion que YA existia' ($dN -and $dN.Extent.Text -match 'Get-HoraFinHabitual') 'no un criterio nuevo'
 Comp 'el numero de config sigue como respaldo' ($sinCom -match '\$EntornoNocheDesde = \[int\]\(Get-Cfg') 'el primer dia funciona igual que antes'
 $usos = @([regex]::Matches($sinCom, '(?<!function )Get-NocheDesde')).Count
 Comp 'y se usa al decidir si es de noche' ($usos -ge 1) "$usos uso(s)"

@@ -1502,6 +1502,18 @@ Titulo "2n78. Que los bancos midan ESTE repo, en orden y sin etapas mudas"
 python (Join-Path $PSScriptRoot 'probar-bancos-de-verdad.py')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:sin etapas mudas)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n153. Las expresiones de los bancos que se rompen solas (idea 2)"
+# EL PATRON: "que estas dos cosas esten a menos de 900 caracteres". Parece inofensivo y es una
+# bomba de relojeria: el dia que alguien mete un comentario entre las dos, el banco se pone
+# ROJO con el codigo perfectamente bien. Y un banco que se pone rojo solo entrena a ignorarlo.
+# MEDIDO: 28 expresiones asi. DOS mordieron la madrugada del 25/09 -probar-log y probar-guia-
+# solo porque se escribio un comentario dentro del bloque que miraban; y una tercera media 2200
+# caracteres cuando la linea que importaba caia sobre el 2300, dejando pasar una rotura.
+# NO SE PROHIBEN DE GOLPE -arreglar 28 a ciegas romperia comprobaciones que hoy funcionan- sino
+# que hay un TECHO QUE SOLO PUEDE BAJAR, como esta casa trata estas cosas.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-bancos-fragiles.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:fragiles no crecen)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n152. El animo cambia lo que hace, no solo como se ve (idea 50)"
 # Nova calcula un animo de -1 a 1 con sus aciertos y errores de hoy y ayer. Es un dato REAL...
 # y hasta hoy solo servia para dos cosas de aspecto: el latido de la capsula y el color.
