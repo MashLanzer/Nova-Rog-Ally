@@ -89,6 +89,36 @@ $AutoSubmitMs = [int](Get-Cfg 'input' 'autoSubmitMs' 2500)
 # aviso proactivo cuando la bateria baja de este porcentaje (0 = desactivado)
 $BateriaAviso = [int](Get-Cfg 'avisos' 'bateriaPct' 15)
 
+# QUE AVISO DE BATERIA TOCA (25/09, idea 7). Habia DOS avisos para el mismo hecho y ninguno
+# sabia del otro, asi que al cruzar el liston saltaban LOS DOS: un aviso de prioridad alta por
+# la cola del entorno y, unas lineas mas abajo, la frase hablada. Lo mismo dicho dos veces.
+#
+# Y el de arriba llevaba el 15 ESCRITO A MANO en vez de $BateriaAviso, asi que cambiar
+# avisos.bateriaPct en config.json movia uno de los dos y el otro se quedaba en 15. Un numero
+# duplicado siempre acaba asi: se cambia uno y nadie se acuerda del otro.
+#
+# LO QUE QUERIA CADA UNO, que es distinto y por eso no se borra ninguno: el de abajo es el
+# PRIMER aviso -tiene el pestillo para no repetirse, y con un juego delante no habla: pone la
+# capsula en ambar y pregunta si bajar el brillo-. El de arriba es el RECORDATORIO mientras
+# sigas sin enchufar, y por eso va por la cola con su plazo de 20 minutos.
+# Ahora se reparten el trabajo en vez de pisarse: primero uno, luego el otro.
+#
+# NO SE TOCA EL 15. La sospecha que abrio esto -"avisa aunque tengas el cargador puesto"- es
+# FALSA: las dos ramas miran $cargando, y esta bien. Y para mover el liston no hay datos: UN
+# solo aviso en 16 dias (11/09 17:16) y las tres unicas veces que se apunto a que % enchufa
+# braya fueron al 97, 100 y 100 %. La consola vive enchufada. Sin datos no se mueve un numero.
+function Get-AvisoBateria([int]$pct, [bool]$cargando, [bool]$yaAvisada) {
+    if ($cargando) { return '' }
+    if ($BateriaAviso -le 0) { return '' }      # 0 = desactivado, como dice la linea de arriba
+    if ($pct -gt $BateriaAviso) { return '' }
+    if ($yaAvisada) { return 'recordatorio' }
+    return 'primero'
+}
+# Y CUANDO SE REARMA, que es el otro sitio donde vivia el mismo numero suelto.
+function Test-BateriaRearme([int]$pct, [bool]$cargando) {
+    return ($cargando -or $pct -gt ($BateriaAviso + 10))
+}
+
 # A QUE PORCENTAJE ENCHUFA DE VERDAD (18/09). bateriaPct (15) es cuando avisa de que queda
 # poca... pero para saber si ese numero es el bueno haria falta saber a que % enchufa braya, y
 # ESO NO SE APUNTABA EN NINGUN SITIO: el log decia "cargador: enchufado" y nada mas.
@@ -2902,6 +2932,48 @@ function Get-FalsasAlarmas([string]$dirUso = '') {
     return $fa
 }
 
+# EL ANIMO CON EL QUE SE DESPIERTA (25/09, idea 15)
+#
+# LO MEDIDO: el animo es un numero de -1 a 1 que sale de los aciertos y los errores de hoy y
+# ayer, y se calculaba DENTRO de Add-Estadistica -o sea, solo cuando ya habia pasado algo-.
+# Al arrancar valia 0, neutro, viniera de donde viniera. Los dos unicos sitios donde aparecia
+# en 27.000 lineas eran ese calculo y el "$script:uiAnimo = 0" de la inicializacion.
+#
+# POR QUE IMPORTA Y NO ES UN ADORNO: desde la idea 50, el animo decide CUANTO habla Nova por su
+# cuenta (Get-SueloPorAnimo). Y el arranque es justo el momento de mas iniciativa: ahi salen
+# los avisos del entorno que se quedaron esperando, la caida anterior, lo que no dijo a tiempo.
+# O sea que Nova soltaba su tanda mas grande del dia creyendo que venia de un dia neutro,
+# aunque el dia anterior hubiera sido malo. Era el peor sitio posible para no saberlo.
+#
+# Y NO HABIA QUE GUARDAR NADA: los datos llevan en memoria\estadisticas.json desde el 11/09
+# -14 dias con sus aciertos y errores- y Get-Estadisticas ya los carga enteros al arrancar. Lo
+# unico que faltaba era hacer la cuenta. Por eso sale de Add-Estadistica a su propia funcion:
+# asi la misma cuenta sirve en los dos sitios y no hay dos copias que se separen con el tiempo.
+function Get-AnimoDeDias($dias, [datetime]$hoy = (Get-Date)) {
+    try {
+        if ($null -eq $dias) { return 0.0 }
+        $ok = 0; $mal = 0
+        foreach ($k in @($hoy.ToString('yyyy-MM-dd'), $hoy.AddDays(-1).ToString('yyyy-MM-dd'))) {
+            if (-not $dias.ContainsKey($k)) { continue }
+            foreach ($r in @('local', 'aprendida', 'memoria', 'traducida')) {
+                if ($dias[$k].ContainsKey($r)) { $ok += $dias[$k][$r] }
+            }
+            if ($dias[$k].ContainsKey('error')) { $mal += $dias[$k]['error'] }
+        }
+        # El 10 de abajo es el que impide que UN error del primer minuto mande el animo al
+        # suelo: hasta que no hay diez cosas hechas, el divisor no baja de diez.
+        return [Math]::Max(-1.0, [Math]::Min(1.0, ($ok - 2.0 * $mal) / [Math]::Max(10.0, $ok + $mal)))
+    } catch {
+        # EL CATCH QUE NO PUEDE CALLARSE (25/09, lo cazo una rotura de este mismo dia). Este
+        # catch devolvia 0.0 a secas, y 0.0 es tambien la respuesta BUENA de un dia neutro:
+        # desde fuera no habia forma de distinguir "hoy no ha pasado nada" de "la cuenta
+        # reviento". Es la manera 8 de que un banco salga verde mintiendo, y estaba aqui.
+        # Ahora deja linea, asi que un animo roto se ve en el log en vez de parecer calma.
+        Log ("animo: no pude calcularlo, me quedo neutra: " + $_.Exception.Message)
+        return 0.0
+    }
+}
+
 function Add-Estadistica([string]$ruta, [string]$detalle = '', [bool]$deCamino = $false) {
     if ($script:invitado) { return }   # ver MODO INVITADO
     # $deCamino: esta apuntando una parada, no un desenlace (ver Write-DestinoUso)
@@ -2912,16 +2984,10 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '', [bool]$deCamino =
         if (-not $s.dias.ContainsKey($dia)) { $s.dias[$dia] = @{} }
         if (-not $s.dias[$dia].ContainsKey($ruta)) { $s.dias[$dia][$ruta] = 0 }
         $s.dias[$dia][$ruta]++
-        # humor de la capsula: aciertos frente a errores de hoy y ayer
-        try {
-            $ok = 0; $mal = 0
-            foreach ($k in @($dia, (Get-Date).AddDays(-1).ToString('yyyy-MM-dd'))) {
-                if (-not $s.dias.ContainsKey($k)) { continue }
-                foreach ($r in @('local', 'aprendida', 'memoria', 'traducida')) { if ($s.dias[$k].ContainsKey($r)) { $ok += $s.dias[$k][$r] } }
-                if ($s.dias[$k].ContainsKey('error')) { $mal += $s.dias[$k]['error'] }
-            }
-            $script:uiAnimo = [Math]::Max(-1.0, [Math]::Min(1.0, ($ok - 2.0 * $mal) / [Math]::Max(10.0, $ok + $mal)))
-        } catch {}
+        # humor de la capsula: aciertos frente a errores de hoy y ayer (ver EL ANIMO CON
+        # EL QUE SE DESPIERTA). Hasta el 25/09 la cuenta estaba escrita AQUI DENTRO, que es
+        # por lo que al arrancar valia 0: nadie la hacia hasta que pasaba la primera cosa.
+        try { $script:uiAnimo = Get-AnimoDeDias $s.dias } catch {}
         $d = ($detalle -replace '\s+', ' ').Trim()
         if ($d.Length -gt 90) { $d = $d.Substring(0, 87) + '...' }
         if ($ruta -eq 'descarte' -and $d) {
@@ -20258,6 +20324,13 @@ try { Initialize-PerfilTodo } catch {}
 # Y LOS QUE ERAN DE UN RATO, FUERA DEL QUE VIAJA (25/09, idea 4). Va DESPUES de sembrar la
 # memoria permanente a proposito: asi lo que se saca del perfil ya tiene donde quedarse.
 try { Clear-PerfilPasajeros } catch {}
+# Y CON QUE ANIMO SE DESPIERTA (25/09, idea 15). Ver EL ANIMO CON EL QUE SE DESPIERTA: hasta
+# hoy arrancaba en 0 y no se enteraba de que venia de un dia malo hasta la primera orden, que
+# es DESPUES de haber soltado los avisos que se quedaron esperando. Ahora lo sabe antes.
+try {
+    $script:uiAnimo = Get-AnimoDeDias (Get-Estadisticas).dias
+    if ($script:uiAnimo -le $AnimoMalo) { Log ("animo de arranque: " + $script:uiAnimo.ToString('0.00', [System.Globalization.CultureInfo]::InvariantCulture) + " (dia malo: hoy hablo menos por mi cuenta)") }
+} catch {}
 # Y SI LA VEZ ANTERIOR ACABO MAL, SE DICE (25/09, idea 29). Va por Send-AvisoEntorno y no por
 # Say a proposito: si braya no esta delante, el aviso se guarda y se suelta cuando vuelva, que
 # es exactamente cuando sirve. Nivel 'medio': no es una urgencia, pero tampoco algo que deba
@@ -27504,8 +27577,11 @@ while ($true) {
                     Invoke-Reglas 'bateriaLlena' 'llena'
                     [void](Send-AvisoEntorno 'bateria-llena' 'Ya esta cargada del todo, puedes desenchufarla.' 'bajo' 240)
                 }
-                # idea 14: por debajo del 15 %, y esto SI es critico (suena jugando)
-                if (-not $cargando -and $pc -le 15) {
+                # EL RECORDATORIO mientras sigas sin enchufar (idea 14; repartido el 25/09,
+                # ver QUE AVISO DE BATERIA TOCA). Antes decia "$pc -le 15" a pelo y saltaba a la
+                # vez que la frase hablada de mas abajo: lo mismo dicho dos veces. Ahora solo
+                # habla cuando el primer aviso YA salio, y su plazo de 20 min hace el resto.
+                if ((Get-AvisoBateria $pc ([bool]$cargando) ([bool]$script:bateriaAvisada)) -eq 'recordatorio') {
                     [void](Send-AvisoEntorno 'bateria-baja' "Te queda el $pc por ciento de bateria." 'alto' 20)
                 }
                 $script:cargandoAntes = $cg
@@ -27571,7 +27647,8 @@ while ($true) {
                         }
                     }
                 } catch {}
-                if (-not $cargando -and $pc -le $BateriaAviso -and -not $script:bateriaAvisada) {
+                # EL PRIMER AVISO del episodio (ver QUE AVISO DE BATERIA TOCA, 25/09)
+                if ((Get-AvisoBateria $pc ([bool]$cargando) ([bool]$script:bateriaAvisada)) -eq 'primero') {
                     $script:bateriaAvisada = $true
                     Log "AVISO: bateria al $pc %"
                     # AHORRO JUGANDO (13/09): con un juego delante no se habla. Pulso
@@ -27589,7 +27666,7 @@ while ($true) {
                     }
                 }
                 # rearmar cuando se recupera, para que pueda volver a avisar
-                if ($cargando -or $pc -gt ($BateriaAviso + 10)) { $script:bateriaAvisada = $false }
+                if (Test-BateriaRearme $pc ([bool]$cargando)) { $script:bateriaAvisada = $false }
             }
         } catch {}
     }

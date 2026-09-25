@@ -1502,6 +1502,33 @@ Titulo "2n78. Que los bancos midan ESTE repo, en orden y sin etapas mudas"
 python (Join-Path $PSScriptRoot 'probar-bancos-de-verdad.py')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:sin etapas mudas)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n157. El animo con el que se despierta (idea 15)"
+# LO MEDIDO: el animo -de -1 a 1, sacado de los aciertos y errores de hoy y ayer- se calculaba
+# DENTRO de Add-Estadistica, o sea solo cuando ya habia pasado algo. En 27.000 lineas aparecia
+# en dos sitios: ese calculo y el "= 0" de la inicializacion. Al arrancar valia 0, viniera de
+# donde viniera.
+# Y NO ES UN ADORNO: desde la idea 50 el animo decide cuanto habla Nova por su cuenta. El
+# arranque es su momento de MAS iniciativa -ahi salen los avisos que se quedaron esperando, la
+# caida anterior, lo que no dijo a tiempo- y soltaba esa tanda creyendo venir de un dia neutro.
+# No hubo que guardar nada: estadisticas.json lleva los dias desde el 11/09 y ya se carga al
+# arrancar. Solo faltaba hacer la cuenta, y ahora se hace en UN sitio en vez de dos.
+# Y UNA ROTURA DESTAPO UN CATCH MENTIROSO EN NUESTRO PROPIO CODIGO: devolvia 0.0, que es
+# tambien la respuesta buena, asi que un animo roto era indistinguible de un dia tranquilo.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-animo-arranque.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:de que dia viene)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n156. Los dos avisos de bateria que no sabian uno del otro (idea 7)"
+# LA SOSPECHA ERA FALSA y conviene decirlo: la idea 7 decia "avisa aunque tengas el cargador
+# puesto". Se midio y NO: las dos ramas miran $cargando antes de abrir la boca.
+# LO QUE SI DESTAPO: habia DOS avisos para el mismo hecho a 66 lineas uno del otro, ninguno
+# sabia del otro, y al cruzar el liston saltaban LOS DOS -aviso de prioridad alta por la cola
+# Y la frase hablada-. Y el de arriba llevaba el 15 ESCRITO A MANO en vez de $BateriaAviso,
+# asi que mover avisos.bateriaPct en config.json cambiaba uno y dejaba el otro en 15.
+# NO SE MUEVE EL 15: para eso no hay datos -UN aviso en 16 dias, y las tres unicas lecturas de
+# a que % enchufa braya son 97, 100 y 100-. Se reparten el trabajo: primero uno, luego el otro.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-aviso-bateria.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se reparten el trabajo)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n155. Que note a que estas jugando (ideas 17 y 38)"
 # LO MEDIDO: memoria\juegos.json lleva 6 juegos con sus minutos por dia -ELDEN RING el 18, 19 y
 # 20; Black Myth el 19; Unravel Two el 23- y ese fichero SOLO servia para contestar "cuanto he
