@@ -263,5 +263,35 @@ existan, en vez de escribirse a mano. Lo que hoy es un descuido posible pasaría
 
 ---
 
+## Y una vigésimo primera, que salió de una pregunta tuya
+
+### 21. El perfil no tiene por qué tener tope — y 45 de sus 60 datos no los ve nadie
+
+**La pregunta fue:** *"¿por qué el perfil tiene un límite de 60? ¿no puede ser infinito?"*.
+
+**Lo medido, y es peor de lo que parecía:**
+
+- El `60` es **un número a fuego**: `$PerfilMax = 60`, sin un solo comentario que diga de dónde
+  sale. Otro de los sospechosos de la idea 7.
+- La razón de que exista un tope sí es real, y la dice el propio código: *"Va con CADA petición
+  al cerebro"*. Los 60 datos (**2.603 caracteres, ~723 tokens**) viajan enteros a Claude en cada
+  consulta — 186 consultas en quince días.
+- **Pero al modelo local de la charla solo le llegan los últimos 15**:
+  `"; ".join(dp[-15:])`. O sea que **45 de tus 60 datos no los ve nunca** esa mitad de Nova.
+  Entre los que no ve, por antigüedad: *"braya tiene sentido del humor"*, *"braya tiene
+  pareja"*. Ocupan sitio, compiten por el tope y expulsan a otros **para no usarse jamás**.
+- Y como manda "los últimos", lo que sobrevive es **lo más reciente, no lo más útil**.
+
+**Qué haría, y la maquinaria ya existe:** el problema no es *guardar*, es *mandar*. El cerebro de
+la charla ya busca por significado con vectores (277 KB de ellos). Aplicar eso al perfil
+significa guardar **los que hagan falta** y mandar en cada pregunta **los 8 que vienen a
+cuento**: el coste por petición bajaría de ~723 tokens a ~100, y el tope desaparecería.
+
+**Mientras tanto, y cuesta una línea:** que el local reciba una **selección** en vez de los 15
+últimos. Hoy el criterio es "los que entraron después", que no tiene nada que ver con lo que
+sirve para contestar.
+
+---
+
 *Las veinte salen de mediciones de hoy y de esta madrugada. Las que dicen "lo medido" se pueden
 volver a sacar: `grep`, `git log -S`, el registro y los ficheros de `memoria\`.*

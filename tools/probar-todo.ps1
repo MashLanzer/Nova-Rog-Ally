@@ -1502,6 +1502,20 @@ Titulo "2n78. Que los bancos midan ESTE repo, en orden y sin etapas mudas"
 python (Join-Path $PSScriptRoot 'probar-bancos-de-verdad.py')  2>>$script:errBanco| Select-String -CaseSensitive '(?i:sin etapas mudas)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n141. La memoria que no se borra (y que no viaja al cerebro)"
+# LO PIDIO BRAYA el 25/09: "haz una memoria permanente que guarde todo y no se mande al cerebro,
+# y esta de 60 que siga asi, o sea temporal". Y tenia razon por donde no parecia: el perfil de
+# 60 es lo que VIAJA -"va con CADA peticion al cerebro", dice su propio comentario-, 2.603
+# caracteres y unos 723 tokens en cada una de las 186 consultas de quince dias. Por eso tiene
+# tope. Pero que no pueda VIAJAR no obliga a PERDERLO: se aprendieron 91 datos y quedan 60, y
+# entre los caidos estan los DOS UNICOS que braya enseno a mano.
+# Ahora son dos ficheros: perfil.md sigue igual (60 plazas, viaja) y perfil-todo.md no tiene
+# tope y NO VIAJA NUNCA. La seccion 3 del banco es la que importa: comprueba que el permanente
+# no aparece en ninguno de los caminos por los que algo llega al modelo, porque el dia que
+# alguien lo meta "para que Nova sepa mas", el coste por consulta se multiplica en silencio.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-memoria-permanente.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya no se pierde, y sigue sin viajar)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n138. Lo que espera no se reintenta siete veces por segundo"
 # MEDIDO CON BRAYA JUGANDO, el 24/09 a las 23:49: 413 lineas identicas en el registro -"ENTORNO:
 # 2 aviso(s) no cabian ahora"- a razon de SEIS Y SIETE POR SEGUNDO, y cada pasada reescribiendo

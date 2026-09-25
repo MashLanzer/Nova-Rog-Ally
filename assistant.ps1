@@ -7990,6 +7990,73 @@ function Test-DatoPasajero([string]$dato) {
 # sabia cual: se han caido cosas que braya enseno a mano con "aprende que...". No es un
 # fichero mas por capricho -es el unico modo de que "que has olvidado de mi" tenga respuesta-,
 # y tiene el mismo tope que el perfil para no crecer sin fin.
+# LA MEMORIA QUE NO SE BORRA (25/09, pedida por braya: "una memoria permanente que guarde todo
+# y no se mande al cerebro, y esta de 60 que siga asi, o sea temporal").
+#
+# POR QUE HACEN FALTA DOS. El perfil de arriba es lo que VIAJA: su comentario lo dice, "va con
+# CADA peticion al cerebro". Medido el 25/09: 60 lineas son 2.603 caracteres, unos 723 tokens,
+# y en quince dias hubo 186 peticiones a Claude. Por eso tiene tope y por eso la poda tira.
+# Este fichero es lo contrario: no viaja NUNCA. No se lee al montar el prompt, no se manda al
+# worker de la charla, no entra en Get-SistemaCerebro. Solo se abre cuando braya pregunta.
+# Asi que puede crecer sin que cueste un solo token por consulta.
+#
+# SIN TOPE A PROPOSITO. Al ritmo medido -91 datos en quince dias, unos seis al dia- esto son
+# 90 KB al ano. Es lo que vale no volver a perder "mi juego favorito es Hollow Knight".
+$PerfilTodoPath = Join-Path $MemoriaDir 'perfil-todo.md'
+function Add-PerfilTodo([string]$dato, [string]$fuente = '') {
+    # la misma guarda que el perfil: con un invitado delante no se aprende nada de nadie
+    if ($script:invitado) { return }
+    if (-not $dato) { return }
+    try {
+        $l = @()
+        if (Test-Path -LiteralPath $PerfilTodoPath) {
+            $l = @(Get-Content -LiteralPath $PerfilTodoPath -Encoding UTF8 | Where-Object { $_.Trim() })
+        }
+        # SIN DUPLICADOS, Y SIN TILDES PARA COMPARAR: el mismo dato se aprende varias veces
+        # -"lo que repite se renueva" mueve el dato al final del perfil cada vez-, y aqui eso
+        # dejaria la misma linea cien veces. Se compara en plano y sin la fecha del final.
+        $plano = (ConvertTo-Plain $dato).ToLower()
+        foreach ($x in $l) {
+            $limpio = ($x -replace '^\s*-\s*', '') -replace '\s+\([^)]*\)\s*$', ''
+            if ((ConvertTo-Plain $limpio).ToLower() -eq $plano) { return }
+        }
+        $cola = (Get-Date -Format 'yyyy-MM-dd')
+        if ($fuente) { $cola = $cola + ', ' + $fuente }
+        $l += ('- ' + $dato + '   (' + $cola + ')')
+        Write-Atomico $PerfilTodoPath (($l -join "`r`n") + "`r`n")
+    } catch {}
+}
+function Get-PerfilTodo {
+    try {
+        if (-not (Test-Path -LiteralPath $PerfilTodoPath)) { return @() }
+        return @(Get-Content -LiteralPath $PerfilTodoPath -Encoding UTF8 |
+                 Where-Object { $_ -match '^\s*-\s+\S' } |
+                 ForEach-Object { (($_ -replace '^\s*-\s*', '') -replace '\s+\([^)]*\)\s*$', '').Trim() })
+    } catch { return @() }
+}
+# LO QUE BUSCA UNA PALABRA (para "que sabes de mi sobre X"). No sale al modelo: se lee aqui
+# y se contesta con lo que haya, que es justo lo que este fichero viene a permitir.
+function Find-PerfilTodo([string]$que, [int]$tope = 6) {
+    if (-not $que) { return @() }
+    $q = (ConvertTo-Plain $que).ToLower().Trim()
+    if ($q.Length -lt 3) { return @() }
+    return @(Get-PerfilTodo | Where-Object { (ConvertTo-Plain $_).ToLower().Contains($q) } | Select-Object -First $tope)
+}
+# LA SIEMBRA (25/09): la primera vez se llena con lo que ya hay en el perfil, para que no nazca
+# vacia el dia que se estrena. Sin esto, los 60 datos de hoy solo entrarian aqui segun se
+# fueran repitiendo, y los que no se repitan nunca se perderian igual que antes.
+function Initialize-PerfilTodo {
+    if ($script:invitado) { return }
+    if (Test-Path -LiteralPath $PerfilTodoPath) { return }
+    try {
+        $hay = @(Get-DatosPerfil)
+        if ($hay.Count -eq 0) { return }
+        $l = @($hay | ForEach-Object { '- ' + $_ + '   (sembrado 2026-09-25)' })
+        Write-Atomico $PerfilTodoPath (($l -join "`r`n") + "`r`n")
+        Log "PERFIL: memoria permanente sembrada con $($hay.Count) datos"
+    } catch {}
+}
+
 $PerfilCaidosPath = Join-Path $MemoriaDir 'perfil-caidos.md'
 function Add-PerfilCaido([string]$dato, [string]$por) {
     # LA GUARDA VA DENTRO (24/09, repaso). Hoy no es explotable -su unico llamador es la poda
@@ -8004,7 +8071,9 @@ function Add-PerfilCaido([string]$dato, [string]$por) {
             $l = @(Get-Content -LiteralPath $PerfilCaidosPath -Encoding UTF8 | Where-Object { $_.Trim() })
         }
         $l += ('- ' + $dato + '   (' + $por + ')')
-        if ($l.Count -gt $PerfilMax) { $l = @($l[($l.Count - $PerfilMax)..($l.Count - 1)]) }
+        # SIN TOPE DESDE EL 25/09. Tenia el mismo 60 que el perfil "para no crecer sin fin",
+        # pero esto no viaja en ninguna peticion: lo unico que conseguia el tope era que lo
+        # ya olvidado se volviera a olvidar. Al ritmo real son unos 90 KB al ano.
         Write-Atomico $PerfilCaidosPath (($l -join "`r`n") + "`r`n")
     } catch {}
 }
@@ -8237,6 +8306,9 @@ function Add-DatoPerfil([string]$dato, [string]$fuente = '') {
     # para poder decir "eso es un dato falso, eliminalo" (18/09): sin esto, "eso" no
     # apuntaba a nada y Nova contestaba "?de donde sacas que lo tengo?"
     $script:ultimoDatoPerfil = $d
+    # Y A LA MEMORIA QUE NO SE BORRA (25/09). El de arriba es el que viaja y tiene 60 plazas;
+    # este guarda todo lo que ha pasado por ahi, para que la poda deje de ser una perdida.
+    Add-PerfilTodo $d $fuente
     Log "PERFIL: aprendido ($fuente): $d"
     Add-Estadistica 'perfil' $d
     Set-AcabaDeAprender
@@ -19576,6 +19648,10 @@ elseif ($cmds) {
          @($cmds.busquedas.PSObject.Properties).Count + " buscadores")
 } else { Log "WARN: no hay commands.json; todo ira a opencode"; Add-FalloArranque 'no tengo mi lista de ordenes, asi que todo ira al agente y sere lenta' }
 
+# LA MEMORIA QUE NO SE BORRA, SEMBRADA (25/09). Solo hace algo la primera vez: si el fichero
+# no existe, lo llena con los datos que el perfil tenga en ese momento. Sin esto naceria vacia
+# y los 60 de hoy solo entrarian segun se fueran repitiendo.
+try { Initialize-PerfilTodo } catch {}
 Initialize-Voz
 Initialize-Escucha
 # gestos propios (config.json -> ui.gestos): la capsula los lee de tmp\gestos.txt

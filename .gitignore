@@ -56,6 +56,12 @@ __pycache__/
 memoria/recetas.json
 # lo que Nova sabe de ti (carpetas, juegos, preferencias)
 memoria/perfil.md
+# LA MEMORIA PERSONAL NO SE PUBLICA (25/09). perfil-todo.md y perfil-caidos.md nacieron
+# hoy y se quedaron fuera de esta lista: llevan lo mismo que perfil.md -donde vive braya,
+# con quien, que mascota tiene- y este repositorio es publico. Se vio antes del primer
+# commit que los incluia, al comprobar uno por uno que lo de memoria\ estuviera ignorado.
+memoria/perfil-todo.md
+memoria/perfil-caidos.md
 # lo que recuerda de cada juego: donde te quedaste y cuanto gasta de bateria
 memoria/juegos.json
 # que juegos tuyos son de dos (sale de tu biblioteca: es la lista de lo que tienes)
