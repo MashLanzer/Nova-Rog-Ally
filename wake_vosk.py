@@ -1974,6 +1974,89 @@ def soltar_preciso_si_toca():
           % ("hay un juego delante" if hay_juego else "sin juego delante", quieto / 60))
 
 
+# --- LA PUERTA DE LOS ALTAVOCES SE APRENDE DE TUS LLAMADAS (26/09, idea 18 de las 121) ---
+# Cuando los altavoces pasan de UMBRAL_ALTAVOZ, a la palabra de activacion se le exige 0,85 en
+# vez de 0,55, y ahi se le caen las llamadas. Ese 0,02 nunca salio de un dato: en esta consola
+# el silencio no es 0,0002, es CERO CLAVADO. Medido sobre 14.422 pulsos con el nivel apuntado,
+# 13.436 (el 93,2 %) valen cero exacto y entre 0 y 0,02 solo caen 89, el 0,6 %. O sea que ese
+# liston no separa nada: o suena algo, o no suena.
+# LO QUE COSTABA: 153 llamadas descartadas por esa rama en los dos registros, y 111 de ellas
+# (el 72,5 %) traian confianza 0,55 o mas, o sea que habrian pasado con el liston normal.
+# Y EL LISTON DURO NO ES EL PROBLEMA, medido en activaciones.jsonl: las que pasaron con el
+# 0,85 acabaron en orden MAS veces que las del liston flojo (70 % contra 61 %). El liston duro
+# se estaba aplicando a llamadas de verdad. Lo que sobra es aplicarlo tan pronto.
+# DE DONDE SALE EL NUMERO: del nivel de altavoces al que braya llama DE VERDAD. De las 75
+# activaciones que acabaron en ORDEN, el p80 de su campo 'altavoces' es 0,177. Cruzado contra
+# los descartes reales y sin juego delante, esa puerta recupera 13 de 28 y los 13 son "nova" a
+# secas: cero engendros. Con el p90 (0,241) se recuperarian mas, pero se entra en el tramo
+# donde tambien viven las activaciones que NO sirvieron de nada (su maximo es 0,287).
+ALTAVOZ_CUANTIL = 0.80
+# Y CON POCAS LLAMADAS APUNTADAS, EL 0,02 DE SIEMPRE. El 30 tampoco es a ojo: es donde el p80
+# deja de bailar. Medido sobre este mismo fichero, el p80 con las ultimas N filas de orden vale
+# 0,286 (N=10), 0,286 (15), 0,178 (20), 0,208 (25), 0,178 (30), 0,149 (40), 0,164 (50) y 0,177
+# con todas. Por debajo de 30 el numero se mueve 0,14 -mas que la distancia entre la puerta
+# vieja y la nueva-; desde 30 se queda a menos de 0,03 del valor final.
+ALTAVOZ_MIN_MUESTRAS = 30
+# La ventana: las ultimas llamadas, no las de hace un mes. Con 100 y con el fichero entero sale
+# el mismo 0,177 hoy, asi que no cambia nada ahora; esta para cuando el fichero sea largo.
+ALTAVOZ_VENTANA = 100
+_puerta_altavoz = [None]   # cache perezosa: se calcula la primera vez que hace falta
+
+
+def umbral_altavoz():
+    """El nivel de altavoces a partir del cual se desconfia del microfono.
+
+    GEMELA DE umbral_rafaga(): lo aprendido, acotado entre un suelo y un techo que ya existian.
+    El suelo es UMBRAL_ALTAVOZ (el 0,02 de config.json, que sigue siendo la palanca de
+    emergencia) y el techo es UMBRAL_ALTAVOZ_FUERTE, el nivel al que la palabra se ignora
+    entera: por encima de ahi el liston duro no se aplicaria JAMAS.
+    EL TECHO NO ES ADORNO. Esta puerta se alimenta de un fichero que ella misma hace crecer:
+    puerta mas alta -> pasan mas llamadas con los altavoces altos -> las que acaben en orden
+    suben el p80 -> puerta mas alta. Es un trinquete lento, y lo unico que lo para es el techo.
+    PEREZOSA A PROPOSITO: USO_DIR nace muchas lineas mas abajo que esta funcion. Leer el
+    fichero al importar seria un NameError al arrancar el oido.
+    """
+    if _puerta_altavoz[0] is not None:
+        return _puerta_altavoz[0]
+    puerta = UMBRAL_ALTAVOZ
+    try:
+        ruta = os.path.join(USO_DIR, "activaciones.jsonl")
+        niveles = []
+        if os.path.exists(ruta):
+            with open(ruta, "r", encoding="utf-8", errors="ignore") as f:
+                filas = f.readlines()[-ALTAVOZ_VENTANA:]
+            for linea in filas:
+                linea = linea.strip()
+                if not linea:
+                    continue
+                try:
+                    d = json.loads(linea)
+                except Exception:
+                    continue   # una linea a medio escribir no puede tumbar el oido
+                # SOLO LAS QUE ACABARON EN ORDEN. Aprender de las que no sirvieron para nada
+                # seria aprender de los falsos positivos: el remedio peor que la enfermedad.
+                if d.get("desenlace") != "orden":
+                    continue
+                v = d.get("altavoces")
+                if isinstance(v, (int, float)) and v >= 0:
+                    niveles.append(float(v))
+        if len(niveles) >= ALTAVOZ_MIN_MUESTRAS:
+            niveles.sort()
+            i = int(ALTAVOZ_CUANTIL * (len(niveles) - 1))
+            puerta = max(UMBRAL_ALTAVOZ, min(UMBRAL_ALTAVOZ_FUERTE, niveles[i]))
+            anota("puerta de altavoces aprendida: %.3f (p%d de %d llamadas tuyas); antes %.3f"
+                  % (puerta, int(ALTAVOZ_CUANTIL * 100), len(niveles), UMBRAL_ALTAVOZ))
+        else:
+            anota("puerta de altavoces: me quedo en %.3f, solo llevo %d llamadas apuntadas de %d"
+                  % (puerta, len(niveles), ALTAVOZ_MIN_MUESTRAS))
+    except Exception as e:      # noqa: BLE001
+        puerta = UMBRAL_ALTAVOZ
+        anota("WARN: no pude aprender la puerta de altavoces (%s); me quedo en %.3f"
+              % (e, puerta))
+    _puerta_altavoz[0] = puerta
+    return puerta
+
+
 def umbral_confianza(plano):
     """Cuanta confianza se le exige al nombre para dar por buena la activacion."""
     u = CONFIANZA_MIN
@@ -1981,7 +2064,15 @@ def umbral_confianza(plano):
         u = max(u, CONFIANZA_LARGA)
     # Si por los altavoces esta sonando algo, lo que entra por el microfono es
     # sospechoso por definicion: casi todo el ruido de anoche era eso.
-    if nivel_salida() > UMBRAL_ALTAVOZ:
+    # PERO DESDE QUE NIVEL (26/09, ver umbral_altavoz): el 0,02 no separaba nada, y con la
+    # puerta aprendida de las llamadas de verdad se recuperan 13 descartes reales.
+    # LA GUARDA DEL JUEGO VA AQUI Y NO DENTRO DE umbral_altavoz, y es lo que evita el destrozo:
+    # jugando, subir la puerta NO recupera ni una llamada -la rama de solo-boton esta justo
+    # detras y las para igual-, lo unico que cambia es que escribirian la marca de llamada, o
+    # sea una VIBRACION en el mando que braya no ha pedido. Medido: de los 153 descartes, 125
+    # ocurrieron con un juego delante, y ahi viven los seis unicos textos raros del monton
+    # ("nova por", "por nova", "hola nova", "oye nova"...). Con la guarda se quedan fuera.
+    if nivel_salida() > (UMBRAL_ALTAVOZ if jugando() else umbral_altavoz()):
         u = max(u, CONFIANZA_LARGA)
     return u
 
@@ -4261,12 +4352,18 @@ try:
                                     # el 0,85 o el 0,02, en vez de adivinarlo.
                                     _larga = len(plano.split()) > PALABRAS_SIN_SOSPECHA
                                     _alt = nivel_salida()
-                                    if _larga and _alt > UMBRAL_ALTAVOZ:
+                                    # LA PUERTA QUE DECIDIO, NO LA CONSTANTE (26/09, idea 18).
+                                    # Se calcula UNA vez y se usa en los dos sitios: si la linea
+                                    # imprimiera UMBRAL_ALTAVOZ mientras decide umbral_altavoz(),
+                                    # el log mentiria y se perderia la unica medicion que hay de
+                                    # esta rama, que es de donde salio el numero nuevo.
+                                    _puerta = UMBRAL_ALTAVOZ if jugando() else umbral_altavoz()
+                                    if _larga and _alt > _puerta:
                                         _porque = " (frase larga: se exige mas; y altavoces %.3f)" % _alt
                                     elif _larga:
                                         _porque = " (frase larga: se exige mas)"
-                                    elif _alt > UMBRAL_ALTAVOZ:
-                                        _porque = " (altavoces %.3f > %.3f: se exige mas)" % (_alt, UMBRAL_ALTAVOZ)
+                                    elif _alt > _puerta:
+                                        _porque = " (altavoces %.3f > %.3f: se exige mas)" % (_alt, _puerta)
                                     else:
                                         _porque = ""
                                     anota("descartado '%s': confianza %.2f < %.2f%s"

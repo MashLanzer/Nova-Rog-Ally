@@ -1997,6 +1997,19 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n191. La puerta de los altavoces se aprende de tus llamadas (idea 18 de las 121)"
+# Cuando los altavoces pasaban de 0,02, a la palabra de activacion se le exigia 0,85 en vez de
+# 0,55 y ahi se le caian las llamadas. Ese 0,02 nunca salio de un dato: medido sobre 14.422
+# pulsos, 13.436 (el 93,2 %) valen CERO CLAVADO y entre 0 y 0,02 caen 89, el 0,6 %. No separaba
+# nada, y costaba 153 descartes en los dos registros, 111 de ellos con confianza de sobra para el
+# liston normal. Ahora la puerta sale del nivel al que braya llama DE VERDAD: el p80 de las 75
+# activaciones que acabaron en orden, 0,177, acotado entre el 0,02 de config.json y el 0,35 al que
+# la palabra se ignora entera. El techo no es adorno: la puerta se alimenta de un fichero que ella
+# misma hace crecer, y es un trinquete. Y JUGANDO manda el 0,02 de siempre: ahi subirla no
+# recupera ni una llamada -la rama de solo-boton las para igual- y solo anadiria vibraciones.
+python (Join-Path $PSScriptRoot 'probar-puerta-altavoces.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la puerta de los altavoces se aprende de tus llamadas)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n190. Se sabe con cuanta memoria estuvo oyendo (idea 17 de las 121)"
 # El oido encoge SOLO su plazo para soltar los modelos cuando queda poca memoria -y con eso oye
 # peor-, lo apuntaba en assistant-pulso.log y no se enteraba nadie: assistant.ps1 abria ese
