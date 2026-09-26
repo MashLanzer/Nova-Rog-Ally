@@ -1997,6 +1997,21 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n198. Nova aprende sola con que programa se abre cada juego (idea 26 de las 121)"
+# EL CASO, con numeros: el 25/09 braya jugo 4.038 segundos seguidos a ELDEN RING NIGHTREIGN -una
+# hora y siete minutos- y Nova apunto SETENTA Y CINCO. El 1,86 %: se perdio el 98,14 % de la
+# partida. Y en esa hora, con el microfono abierto porque "no habia juego", hay 45 lineas de
+# llamadas descartadas en el registro. La lista de ejecutables de juego esta escrita a mano y
+# tiene CUATRO entradas: todo lo que no arranque desde una carpeta reconocible es invisible.
+# COMO SE APRENDE: si un proceso lleva diez minutos seguidos delante sin que Nova lo reconozca,
+# se le pregunta a Steam, que sella LastPlayed en el appmanifest de lo que se acaba de jugar. Si
+# se movio EXACTAMENTE UNO, ese es. Con dos no se aprende NADA: equivocarse aqui hace que Nova
+# cierre el microfono creyendo que esta jugando, y eso lo deja sin voz. Los diez minutos salen
+# del cuaderno de la Ally: el no-juego con mas tiempo delante en un DIA es explorer con 350 s, y
+# la partida mas corta medida son 2.351. El liston cae en el hueco vacio entre los dos.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-exe-de-juego.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:con que programa se abre cada juego)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n197. Lo que oyo el otro motor se prueba antes de rendirse (idea 25 de las 121)"
 # Cada orden la oyen TRES motores -Vosk, Parakeet y a veces Whisper- y Nova se queda con uno.
 # Los otros dos se escriben en tmp\dictado-oidos.txt y hasta hoy solo los leia la NUBE, cuando

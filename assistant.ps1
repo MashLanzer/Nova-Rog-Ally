@@ -12120,6 +12120,37 @@ function Watch-Entorno([int]$botones = 0) {
         }
     } catch {}
 
+    # CON QUE PROGRAMA SE ABRE CADA JUEGO (26/09, idea 26). Si un proceso lleva diez minutos
+    # seguidos delante y Nova no lo reconoce como juego, se le pregunta a Steam. NO INTERRUMPE:
+    # no hay ningun aviso, solo una linea en el log y una entrada en la tabla.
+    # LA GUARDA: solo se aprende si se movio EXACTAMENTE UN appmanifest en esa ventana. Con dos
+    # no se aprende nada, porque equivocarse aqui hace que Nova cierre el microfono creyendo que
+    # braya esta jugando, y eso lo deja sin voz.
+    try {
+        if ($script:exeSinJuego -and $script:exeSinJuegoDesde -gt 0 -and -not $script:invitado -and
+            ($sw.ElapsedMilliseconds - $script:exeSinJuegoDesde) -ge ($ExesJuegoMinSeg * 1000)) {
+            $procE = ([string]$script:exeSinJuego).ToLowerInvariant()
+            $tbE = Get-ExesJuego
+            if (-not $tbE.ContainsKey($procE) -and -not $EXES_JUEGO.ContainsKey($procE)) {
+                # la foto del ANTES, de lo que ya esta cargado: no cuesta ninguna lectura
+                $antesE = @{}
+                foreach ($jj in @($script:Juegos)) {
+                    try { $antesE[[string]$jj.nombre] = [long]$jj.ultimo } catch {}
+                }
+                $desdeE = (Get-Date).AddMilliseconds(-($sw.ElapsedMilliseconds - $script:exeSinJuegoDesde))
+                # se fuerza la relectura de la biblioteca, igual que hace el aviso de unidades
+                $script:JuegosStamp = (Get-Date).AddMinutes(-5)
+                [void](Update-Juegos)
+                $cualE = Find-JuegoPorUltimoJugado $desdeE (Get-Date) $antesE
+                if ($cualE) { [void](Save-ExeJuego $procE $cualE) }
+                else { Log "EXE DE JUEGO: '$procE' lleva rato delante y no se cual es; Steam no lo aclara" }
+            }
+            # se gasta el candidato pase lo que pase: si no, se reintentaria cada vuelta
+            $script:exeSinJuego = ''
+            $script:exeSinJuegoDesde = 0
+        }
+    } catch { Log ('exes de juego: ' + $_.Exception.Message) }
+
     # IDEA 18: te has pasado de tu hora
     try {
         $txtD = Get-AvisoHoraDormir
@@ -19766,6 +19797,14 @@ function Get-JuegoEnPrimerPlano {
         $nomP = ''
         try { $nomP = ([string]$p.Name).ToLowerInvariant() } catch {}
         if ($nomP -and $EXES_JUEGO.ContainsKey($nomP)) { $carpeta = [string]$EXES_JUEGO[$nomP] }
+        # Y DESPUES, lo aprendido (26/09, idea 26). Lo escrito a mano manda: si el proceso esta
+        # en las dos, gana la lista de arriba. Y lo aprendido pasa por los MISMOS filtros de
+        # abajo -carpeta que no es juego, redistribuibles, limpieza del nombre-, no se salta
+        # ninguno.
+        if (-not $carpeta -and $nomP) {
+            $aprE = Get-ExesJuego
+            if ($aprE.ContainsKey($nomP)) { $carpeta = [string]$aprE[$nomP].juego }
+        }
     }
     if (-not $carpeta) { return $null }
     if ($CARPETA_NO_JUEGO -contains $carpeta.ToLowerInvariant()) { return $null }
@@ -19784,6 +19823,122 @@ function Get-JuegoEnPrimerPlano {
     $j = Find-Juego $carpeta
     if ($j) { return $j.nombre }
     return $carpeta
+}
+
+
+# EL SITIO NO ES CAPRICHO: esto va DESPUES de Get-JuegoEnPrimerPlano, no antes.
+# probar-juego-primer-plano saca $EXES_JUEGO con un regex que llega hasta la primera llave en
+# COLUMNA CERO, o sea hasta el final de esa funcion. Metido en medio, el banco se tragaba este
+# bloque entero y moria intentando un Join-Path con un $MemoriaDir que alli no existe.
+# Y LA TABLA QUE SE APRENDE SOLA (26/09, idea 26 de las 121). La lista de arriba tiene CUATRO
+# entradas escritas a mano, y todo juego que no arranque desde una carpeta reconocible y no este
+# en esas cuatro es invisible para Nova.
+# EL CASO, con numeros: el 25/09 braya jugo 4.038 segundos seguidos a ELDEN RING NIGHTREIGN -una
+# hora y siete minutos- y Nova apunto SETENTA Y CINCO. El 1,86 %: se perdio el 98,14 % de la
+# partida. Y no es solo la cuenta: en esa hora con el microfono abierto porque "no habia juego"
+# hay 45 lineas de llamadas descartadas en el registro.
+# COMO SE APRENDE: si un proceso lleva mucho rato delante sin que Nova lo reconozca como juego,
+# se le pregunta a Steam. Steam sella LastPlayed en el appmanifest de lo que se acaba de jugar;
+# si en esa ventana se movio EXACTAMENTE UN appmanifest, ese es el juego. Si se movieron cero o
+# dos, no se aprende nada: adivinar entre dos seria inventarse el dato.
+# Comprobado con el caso real: LastPlayed de nightreign cayo a las 23:53:48, dentro de la
+# ventana, y ningun otro appmanifest se movio en ella.
+$ExesJuegoPath = Join-Path $MemoriaDir 'juegos-exes.json'
+# EL TOPE ES EL MISMO QUE EL DEL CUADERNO DE LA ALLY, y por lo mismo. En dos dias de cuaderno han
+# salido nueve procesos distintos: cuarenta sobra.
+$ExesJuegoMax = 40
+# Y LOS DIEZ MINUTOS TAMPOCO SON A OJO. Medido sobre memoria\uso-ally.json: el proceso NO-juego
+# con mas tiempo delante en un DIA ENTERO es explorer, 350 s (26/09) y 321 s (25/09); detras van
+# EADesktop 30, steamwebhelper 20 y 19, SearchHost 10, Discord 10. Ninguno ha juntado 350 s en
+# veinticuatro horas, asi que no puede juntar 600 SEGUIDOS. Y el caso bueno sobra: nightreign
+# 4.038 s, Spider-Man 2.351 s. El liston cae en el hueco vacio entre 350 y 2.351.
+# LOS 300 s QUE PEDIA LA IDEA NO SE SOSTIENEN: explorer ya pasa de 300 en un dia y quedaria a
+# tiro. Por eso 600 y no 300.
+$ExesJuegoMinSeg = 600
+$script:exesJuego = $null
+$script:exeSinJuego = ''
+$script:exeSinJuegoDesde = 0
+function Get-ExesJuego {
+    if ($null -ne $script:exesJuego) { return $script:exesJuego }
+    $script:exesJuego = @{}
+    if (Test-Path -LiteralPath $ExesJuegoPath) {
+        try {
+            $jE = Get-Content -LiteralPath $ExesJuegoPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($pe in $jE.PSObject.Properties) {
+                $script:exesJuego[$pe.Name] = @{
+                    juego = [string]$pe.Value.juego; desde = [string]$pe.Value.desde
+                    veces = [int]$pe.Value.veces
+                }
+            }
+        } catch { Save-Corrupto $ExesJuegoPath 'juegos-exes' }
+    }
+    return $script:exesJuego
+}
+function Save-ExeJuego([string]$proc, [string]$juego) {
+    # LO QUE HAGA OTRO NO SE APRENDE (modo invitado).
+    if ($script:invitado) { return $false }
+    if (-not $proc -or -not $juego) { return $false }
+    $k = $proc.ToLowerInvariant()
+    try {
+        $tb = Get-ExesJuego
+        if ($tb.ContainsKey($k)) { $tb[$k].veces = [int]$tb[$k].veces + 1; $tb[$k].juego = $juego }
+        else { $tb[$k] = @{ juego = $juego; desde = (Get-Date).ToString('yyyy-MM-dd'); veces = 1 } }
+        # el tope se aplica por las MAS VIEJAS, que es lo que sobra cuando se desinstala algo
+        while ($tb.Count -gt $ExesJuegoMax) {
+            $vieja = ($tb.GetEnumerator() | Sort-Object { [string]$_.Value.desde } | Select-Object -First 1)
+            if (-not $vieja) { break }
+            [void]$tb.Remove($vieja.Key)
+        }
+        $o = [ordered]@{}
+        foreach ($kk in ($tb.Keys | Sort-Object)) { $o[$kk] = $tb[$kk] }
+        Write-Atomico $ExesJuegoPath (ConvertTo-Json -InputObject $o -Depth 4)
+        Log "EXE DE JUEGO: '$k' es $juego"
+        return $true
+    } catch { Log ('exes de juego: no pude guardarlo: ' + $_.Exception.Message); return $false }
+}
+function Remove-ExeJuego([string]$proc) {
+    if (-not $proc) { return $false }
+    $k = $proc.ToLowerInvariant()
+    try {
+        $tb = Get-ExesJuego
+        if (-not $tb.ContainsKey($k)) { return $false }
+        [void]$tb.Remove($k)
+        $o = [ordered]@{}
+        foreach ($kk in ($tb.Keys | Sort-Object)) { $o[$kk] = $tb[$kk] }
+        Write-Atomico $ExesJuegoPath (ConvertTo-Json -InputObject $o -Depth 4)
+        Log "EXE DE JUEGO: olvido que '$k' era un juego"
+        return $true
+    } catch { return $false }
+}
+# Y QUIEN DECIDE: se le pregunta a Steam cual fue el ultimo juego que se toco.
+# UN SOLO CANDIDATO O NINGUNO. Steam sella LastPlayed en el appmanifest de lo que se acaba de
+# jugar; si en la ventana en que ese proceso estuvo delante se movio EXACTAMENTE UNO, ese es. Si
+# se movieron dos, adivinar entre ellos seria inventarse el dato, y lo que se aprende aqui hace
+# que Nova cierre el microfono: equivocarse deja a braya sin voz mientras no juega.
+# LA HOLGURA NO ES UN NUMERO NUEVO: el +120 s es el MISMO tope que ya usan Add-TiempoJuego y
+# Add-UsoAlly para decidir que un hueco entre dos miradas no es tiempo de verdad. El -60 s es
+# porque Steam puede sellar al arrancar y no al salir.
+function Find-JuegoPorUltimoJugado([datetime]$desde, [datetime]$hasta, $antes) {
+    # PURA en lo que importa: recibe la foto del ANTES, asi el banco la prueba sin Steam.
+    $ini = $desde.AddSeconds(-60)
+    $fin = $hasta.AddSeconds(120)
+    $cands = @()
+    foreach ($jj in @($script:Juegos)) {
+        $lp = 0
+        try { $lp = [long]$jj.ultimo } catch { $lp = 0 }
+        if ($lp -le 0) { continue }
+        $antesLp = 0
+        $cl = [string]$jj.nombre
+        if ($antes -and $antes.ContainsKey($cl)) { $antesLp = [long]$antes[$cl] }
+        # tiene que haber SUBIDO: uno que ya estaba sellado de ayer no dice nada de ahora
+        if ($lp -le $antesLp) { continue }
+        $cuando = [DateTimeOffset]::FromUnixTimeSeconds($lp).LocalDateTime
+        if ($cuando -lt $ini -or $cuando -gt $fin) { continue }
+        $cands += $cl
+    }
+    $cands = @($cands | Select-Object -Unique)
+    if ($cands.Count -eq 1) { return [string]$cands[0] }
+    return ''
 }
 
 # --- RUTINAS DE JUEGO (config.json -> juego) ---
@@ -29487,6 +29642,17 @@ while ($true) {
                     Add-UsoAlly $appU ([int](($sw.ElapsedMilliseconds - $script:usoAllyVisto) / 1000)) (Get-InactividadMin)
                 }
                 $script:usoAllyVisto = $sw.ElapsedMilliseconds
+                # EL CANDIDATO A JUEGO DESCONOCIDO (26/09, idea 26). Se reusa el $appU que la
+                # linea de arriba ya tiene en la mano: CERO consultas nuevas al sistema, que es
+                # la regla 5. Si Nova ya sabe que es un juego ($j lleno) no hay nada que
+                # aprender; si el proceso cambia, la cuenta empieza de nuevo.
+                if ($j -or -not $appU) {
+                    $script:exeSinJuego = ''
+                    $script:exeSinJuegoDesde = 0
+                } elseif ([string]$appU -ne [string]$script:exeSinJuego) {
+                    $script:exeSinJuego = [string]$appU
+                    $script:exeSinJuegoDesde = $sw.ElapsedMilliseconds
+                }
             } catch {}
             if ($j -ne $script:juegoActivo) {
                 if ($script:juegoActivo) { Exit-Juego $script:juegoActivo }

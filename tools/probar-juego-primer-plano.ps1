@@ -38,6 +38,16 @@ foreach ($v in @('CARPETAS_JUEGO', 'CARPETA_NO_JUEGO', 'EXES_JUEGO')) {
 $ml = [regex]::Match($fuente, '(?ms)^function Get-NombreJuegoLimpio[ (].*?^\}')
 if (-not $ml.Success) { Write-Host '  MAL  no encuentro Get-NombreJuegoLimpio'; exit 1 }
 . ([scriptblock]::Create($ml.Value))
+# Y LA TABLA APRENDIDA (26/09, idea 26). Get-JuegoEnPrimerPlano la consulta ahora, asi que hay
+# que traerla DEL ARCHIVO tambien: un doble escrito aqui seria doblar la pieza que se prueba.
+# Sin esto, la funcion llama a algo que no existe y este banco muere con
+# CommandNotFoundException, que es rojo por lo que no es.
+$mE = [regex]::Match($fuente, '(?ms)^function Get-ExesJuego \{.*?^\}')
+if (-not $mE.Success) { Write-Host '  MAL  no encuentro Get-ExesJuego'; exit 1 }
+$ExesJuegoPath = Join-Path ([IO.Path]::GetTempPath()) 'exes-de-juego-que-no-existe.json'
+$script:exesJuego = $null
+function Save-Corrupto($a, $b) { }
+. ([scriptblock]::Create($mE.Value))
 $mf = [regex]::Match($fuente, '(?ms)^function Get-JuegoEnPrimerPlano \{.*?^\}')
 if (-not $mf.Success) { Write-Host '  MAL  no encuentro Get-JuegoEnPrimerPlano'; exit 1 }
 . ([scriptblock]::Create($mf.Value))

@@ -129,6 +129,7 @@ memoria/claves.json
 # fichero a fichero. Guarda hora a hora que se hace con la consola -con quien delante y sin
 # nadie-, o sea a que horas estas en casa y a cuales no. Es lo mismo que ubicacion.json.
 memoria/uso-ally.json
+memoria/juegos-exes.json
 
 # 26/09, idea 1 de las 121: esta lista se escribia a mano fichero a fichero, y el banco
 # tools\probar-memoria-ignorada.ps1 -que nacio para no volver a fiarse de que alguien se
