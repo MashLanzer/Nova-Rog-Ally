@@ -1997,6 +1997,17 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n188. Lo aprendido espera a ver si lo corriges (idea 15 de las 121)"
+# EL CASO, con hora: el 25/09 a la 01:26:12 Nova aprendio 'Cierra este in.' = 'cierra discord' y
+# lo bajo a disco al instante. DIECISIETE SEGUNDOS despues braya dijo "No dije Discord, dije
+# Steam". Demasiado tarde: ya estaba escrito, apuntando a la app por la que habla con su pareja.
+# Ahora lo aprendido espera EN MEMORIA antes de bajar a disco. La entrada entra igual en la
+# tabla -Nova la usa ya-; lo unico que espera es el fichero, y si braya corrige no se escribe.
+# El plazo se APRENDE de lo que tarda en corregir (p90 de sus propias correcciones, entre 10 y
+# 45 s); hasta que haya ocho muestras manda el de arranque, que son los 17 s del caso real.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-cuarentena.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:espera a ver si lo corriges)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n187. El cerebro local caido se nota una vez, no setecientas (idea 14 de las 121)"
 # MEDIDO el 26/09: entre las 00:07 y las 13:49, assistant.log trae SETECIENTAS CINCUENTA Y SEIS
 # lineas de "diario: no pude resumir ... 10061" -Windows diciendo que no hay nadie en ese

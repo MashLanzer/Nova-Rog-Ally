@@ -7223,6 +7223,101 @@ function Get-FraseComoLaDijiste {
         return [string]$script:fraseComoLaDijiste.texto
     } catch { return '' }
 }
+# =====================================================================
+# CUARENTENA: LO APRENDIDO NO TOCA EL DISCO HASTA QUE SOBREVIVE TU CORRECCION
+# (26/09, idea 15 de las 121)
+# =====================================================================
+# EL CASO QUE LO DESTAPO, con hora: el 25/09 a la 01:26:12 Nova aprendio
+# 'Cierra este in.' = 'cierra discord' y lo bajo a disco al instante. DIECISIETE SEGUNDOS
+# despues, a la 01:26:29, braya dijo "No dije Discord, dije Steam". Demasiado tarde: ya estaba
+# escrito, apuntando a la app por la que habla con su pareja, y ahi se quedo hasta que alguien
+# lo vio a mano al dia siguiente.
+#
+# LA IDEA ES SENCILLA: lo aprendido espera un rato en memoria antes de bajar a disco. Si en ese
+# rato braya corrige, no llega a escribirse nunca. Si no corrige, baja igual y no se pierde
+# nada. La entrada SI entra en $script:traducciones desde el primer momento -o sea que Nova la
+# usa ya-; lo unico que espera es el fichero.
+#
+# EL PLAZO SE APRENDE DE LO QUE BRAYA TARDA EN CORREGIR, que es justo lo que hay que medir.
+# Recontado sobre los 783 dictados de los dos registros, emparejando los que se repiten casi
+# igual: 21 pares reales, con el hueco entre el primero y el segundo. De ahi sale el p90.
+# Hasta que haya muestras suyas manda el de arranque, que son los 17 segundos del caso real
+# redondeados a 20. Y el techo son 45 s: mas seria dejar sin escribir algo que ya nadie va a
+# corregir, y el propio proceso muere mucho (235 arranques en 14 dias).
+$CuarentenaArranque = 20000     # los 17 s del caso del 25/09, redondeados
+$CuarentenaSuelo = 10000        # menos que esto no da tiempo ni a oir la frase
+$CuarentenaTecho = 45000        # mas que esto es apostar a que Nova no muera antes
+$CuarentenaMinimas = 8          # hasta aqui, el de arranque
+$CorreccionTiemposJson = Join-Path $MemoriaDir 'correcciones-tiempos.json'
+$script:traduccionesCuarentena = New-Object System.Collections.ArrayList
+$script:cuarentenaCheck = 0
+# SOLO NUMEROS, NUNCA LA FRASE: asi este fichero no tiene que entrar en Invoke-Olvido ni en
+# ninguna poda de privacidad. Cinta de 200, como los tiempos de la voz.
+function Get-CorreccionTiempos {
+    $l = New-Object System.Collections.ArrayList
+    if (-not (Test-Path -LiteralPath $CorreccionTiemposJson)) { return , $l }
+    try {
+        $j = Get-Content -LiteralPath $CorreccionTiemposJson -Raw -Encoding UTF8 | ConvertFrom-Json
+        foreach ($v in @($j)) { $n = 0; if ([int]::TryParse([string]$v, [ref]$n) -and $n -gt 0) { [void]$l.Add($n) } }
+    } catch { Log ('correcciones: no pude leer los tiempos: ' + $_.Exception.Message) }
+    return , $l
+}
+function Add-CorreccionTiempo([int]$ms) {
+    if ($ms -le 0) { return }
+    try {
+        $l = Get-CorreccionTiempos
+        [void]$l.Add($ms)
+        while ($l.Count -gt 200) { $l.RemoveAt(0) }
+        Write-Atomico $CorreccionTiemposJson (ConvertTo-Json -InputObject @($l) -Depth 2 -Compress)
+    } catch { Log ('correcciones: no pude guardar el tiempo: ' + $_.Exception.Message) }
+}
+function Get-CuarentenaMs {
+    # El plazo de ahora mismo, con la misma receta que cobertura_min() del oido: lo medido si
+    # hay bastante, y si no lo escrito; siempre entre suelo y techo.
+    try {
+        $l = Get-CorreccionTiempos
+        if ($l.Count -lt $CuarentenaMinimas) { return $CuarentenaArranque }
+        $p = [int](Get-NubePercentil 90 $l)
+        if ($p -le 0) { return $CuarentenaArranque }
+        if ($p -lt $CuarentenaSuelo) { return $CuarentenaSuelo }
+        if ($p -gt $CuarentenaTecho) { return $CuarentenaTecho }
+        return $p
+    } catch { return $CuarentenaArranque }
+}
+# LO QUE YA HA ESPERADO BASTANTE, AL DISCO. Una sola escritura para todas las que vencen, no
+# una por entrada: Save-Traducciones reescribe el fichero entero.
+function Flush-Cuarentena {
+    if ($script:traduccionesCuarentena.Count -eq 0) { return 0 }
+    $ahora = $sw.ElapsedMilliseconds
+    $listas = @($script:traduccionesCuarentena | Where-Object { $ahora -ge [double]$_.vence })
+    if ($listas.Count -eq 0) { return 0 }
+    foreach ($e in $listas) { [void]$script:traduccionesCuarentena.Remove($e) }
+    try {
+        [void](Save-Traducciones)
+        foreach ($e in $listas) { Log ("APRENDIDO: '" + $e.original + "' = '" + $e.texto + "'") }
+        return $listas.Count
+    } catch {
+        Log ('no pude guardar lo aprendido: ' + $_.Exception.Message)
+        return 0
+    }
+}
+# Y LO QUE BRAYA ACABA DE CORREGIR, FUERA ANTES DE ESCRIBIRSE. Devuelve cuantas ha quitado.
+function Remove-Cuarentena([string]$porque = '') {
+    if ($script:traduccionesCuarentena.Count -eq 0) { return 0 }
+    $n = 0
+    $t = Get-Traducciones
+    foreach ($e in @($script:traduccionesCuarentena)) {
+        # SE MIDE LO QUE TARDO, que es de donde sale el plazo de manana
+        $tardo = [int]($sw.ElapsedMilliseconds - [double]$e.puesta)
+        Add-CorreccionTiempo $tardo
+        [void]$t.Remove([string]$e.clave)
+        Log ("CUARENTENA: no aprendo '" + $e.original + "' = '" + $e.texto + "': lo corregiste " +
+             [int]($tardo / 1000) + " s despues" + $(if ($porque) { " ($porque)" } else { '' }))
+        $n++
+    }
+    [void]$script:traduccionesCuarentena.Clear()
+    return $n
+}
 function Add-Traduccion([string]$original, [string]$traducida) {
     if ($script:invitado) { return }   # MODO INVITADO: lo que diga otro no se queda (17/09)
     $clave = ConvertTo-Plain $original
@@ -7238,10 +7333,16 @@ function Add-Traduccion([string]$original, [string]$traducida) {
     $t = Get-Traducciones
     $t[$clave] = $traducida
     [void]$script:traduccionesQuitadas.Remove($clave)   # si se olvido antes, ahora se vuelve a querer
-    try {
-        [void](Save-Traducciones)
-        Log "APRENDIDO: '$original' = '$traducida'"
-    } catch { Log ("no pude guardar la traduccion: " + $_.Exception.Message) }
+    # A LA COLA, NO AL DISCO (26/09, idea 15 de las 121). La entrada YA esta en
+    # $script:traducciones -o sea que Nova la usa desde ahora mismo-; lo que espera es el
+    # fichero. Si braya corrige antes de que venza, no llega a escribirse nunca.
+    # El Log de "APRENDIDO" se ha MOVIDO a Flush-Cuarentena: decirlo aqui seria anunciar algo
+    # que todavia puede no llegar a disco.
+    [void]$script:traduccionesCuarentena.Add(@{
+        clave = $clave; texto = $traducida; original = $original
+        puesta = $sw.ElapsedMilliseconds
+        vence = $sw.ElapsedMilliseconds + (Get-CuarentenaMs)
+    })
 }
 
 # ¿La traduccion del modelo se explica por UNA palabra desconocida que
@@ -7338,6 +7439,11 @@ function Invoke-AprenderDelError([bool]$soloSiDudosa = $false) {
     try { [void](Write-FalloUso $fraseRechazo) } catch {}
 
     $olvidada = $null
+    # LO QUE AUN NO HA BAJADO A DISCO, FUERA ANTES DE ESCRIBIRSE (26/09, idea 15 de las 121).
+    # Va PRIMERO, antes de Remove-Traduccion: si la entrada sigue en cuarentena, quitarla de la
+    # cola es todo lo que hace falta -nunca llego al fichero- y ademas se mide cuanto tardo
+    # braya en corregir, que es de donde sale el plazo de manana.
+    try { [void](Remove-Cuarentena 'lo rechazaste') } catch {}
     if ($huboTraduccion) {
         $olvidada = $script:ultimaAprendida
         [void](Remove-Traduccion $olvidada)
@@ -28881,6 +28987,12 @@ while ($true) {
     }
 
     # --- ¿se abrio lo que mande abrir? (cada 2 s, y solo si hay algo que mirar) ---
+    # LO QUE YA HA ESPERADO BASTANTE, AL DISCO (26/09, idea 15). Con la cola vacia no cuesta ni
+    # una comparacion de mas, que es lo que pide la regla 4.
+    if ($script:traduccionesCuarentena.Count -gt 0 -and ($sw.ElapsedMilliseconds - $script:cuarentenaCheck) -ge 2000) {
+        $script:cuarentenaCheck = $sw.ElapsedMilliseconds
+        try { [void](Flush-Cuarentena) } catch { Log ('cuarentena: ' + $_.Exception.Message) }
+    }
     if ($script:aperturas.Count -gt 0 -and ($sw.ElapsedMilliseconds - $script:aperturaCheck) -ge 2000) {
         $script:aperturaCheck = $sw.ElapsedMilliseconds
         try {
