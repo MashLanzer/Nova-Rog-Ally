@@ -125,3 +125,7 @@ memoria/trivia.json
 memoria/descargas.json
 memoria/descargas-estado.json
 memoria/claves.json
+# 25/09: el cuaderno de la Ally (idea 2n173) nacio hoy y se quedo fuera de esta lista, que va
+# fichero a fichero. Guarda hora a hora que se hace con la consola -con quien delante y sin
+# nadie-, o sea a que horas estas en casa y a cuales no. Es lo mismo que ubicacion.json.
+memoria/uso-ally.json

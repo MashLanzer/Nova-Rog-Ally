@@ -10398,6 +10398,12 @@ function Get-AnimoLargo($dias, [datetime]$hoy = (Get-Date)) {
 # dias, y SOLO se dice cuando las dos tienen base y el salto es grande: si no, se calla, que es
 # lo normal. No se inventa nada: los dos numeros salen del mismo fichero que ya esta en disco.
 $AnimoSaltoMin = 0.35
+# LAS DOS FRASES, CON NOMBRE (25/09, idea 38). Estaban escritas dentro de los return, y quien
+# las diga necesita saber CUAL de las dos salio para no contar la misma noticia dos veces (ver
+# Test-AnimoQueSeCuenta). Mirar si el texto trae la palabra "mejor" funcionaria hoy y se
+# romperia el dia que alguien reescriba la frase; comparar con la constante, no.
+$AnimoFraseMejor = 'Estos dias te estoy entendiendo mejor que antes.'
+$AnimoFrasePeor  = 'Llevo unos dias entendiendote peor de lo normal, y lo se.'
 function Get-FraseAnimo($dias, [datetime]$hoy = (Get-Date)) {
     try {
         $ahora = Get-AnimoLargo $dias $hoy
@@ -10405,8 +10411,8 @@ function Get-FraseAnimo($dias, [datetime]$hoy = (Get-Date)) {
         $antes = Get-AnimoLargo $dias $hoy.AddDays(-3)
         if ($antes.dias -lt $AnimoLargoMinDias) { return '' }
         $salto = $ahora.animo - $antes.animo
-        if ($salto -ge $AnimoSaltoMin) { return 'Estos dias te estoy entendiendo mejor que antes.' }
-        if ($salto -le (-1 * $AnimoSaltoMin)) { return 'Llevo unos dias entendiendote peor de lo normal, y lo se.' }
+        if ($salto -ge $AnimoSaltoMin) { return $AnimoFraseMejor }
+        if ($salto -le (-1 * $AnimoSaltoMin)) { return $AnimoFrasePeor }
         return ''
     } catch { return '' }
 }
@@ -10619,6 +10625,19 @@ function Get-ProcesosResidentes {
     return $fuera
 }
 
+# EL DOMINGO DE UNA SEMANA CON NOMBRE ('2026-W38' -> 20/09/2026), EN UN SOLO SITIO (25/09,
+# idea 37). Esta cuenta la necesitan dos: Get-CostumbresOlvidadas, para saber si el resumen
+# semanal se ha dejado de escribir, y Test-ParteSemanaContado, para saber si el que hay en
+# disco todavia es noticia. Escrita dos veces se separarian el dia que alguien tocara una, que
+# es la manera 4 de salir verde mintiendo y ya paso aqui con la formula del animo.
+# El 4 de enero cae SIEMPRE en la primera semana, con cualquiera de las convenciones; de ahi
+# se retrocede a su lunes y se avanzan las semanas que toquen.
+function Get-DomingoDeSemana([int]$anio, [int]$sem) {
+    $ene = [datetime]::new($anio, 1, 4)
+    $lunes = $ene.AddDays(7 * ($sem - 1) - (([int]$ene.DayOfWeek + 6) % 7))
+    return $lunes.AddDays(6)
+}
+
 function Get-CostumbresOlvidadas([hashtable[]]$costumbres, [datetime]$hoy = (Get-Date)) {
     $fuera = @()
     foreach ($c in $costumbres) {
@@ -10638,12 +10657,9 @@ function Get-CostumbresOlvidadas([hashtable[]]$costumbres, [datetime]$hoy = (Get
                     # banco). Un resumen semanal se escribe cuando la semana ACABA, asi que
                     # fechar '2026-W38' en su lunes le anade seis dias de vejez de regalo: con
                     # la gracia de diez dias, la semana en curso salia "olvidada" el jueves
-                    # siguiente sin que pasara nada raro. Se toma el domingo.
-                    try {
-                        $ene = [datetime]::new([int]$Matches[1], 1, 4)
-                        $lunes = $ene.AddDays(7 * ([int]$Matches[2] - 1) - (([int]$ene.DayOfWeek + 6) % 7))
-                        $d = $lunes.AddDays(6)
-                    } catch { continue }
+                    # siguiente sin que pasara nada raro. Se toma el domingo, y la cuenta vive
+                    # en Get-DomingoDeSemana porque hay otro que la necesita.
+                    try { $d = Get-DomingoDeSemana ([int]$Matches[1]) ([int]$Matches[2]) } catch { continue }
                     if (-not $ult -or $d -gt $ult) { $ult = $d }
                 }
             }
@@ -10684,6 +10700,135 @@ function Test-CostumbresPropias {
         Log ("COSTUMBRE OLVIDADA: " + (($olv | ForEach-Object { $_.nombre + ' ' + $_.dias + 'd' }) -join ', '))
         [void](Send-AvisoEntorno 'me-olvide' $fr 'medio' 1440)
     } catch {}
+}
+
+# =====================================================================
+# QUE EL ANIMO DE FONDO SE CUENTE (25/09, idea 38 de las 50)
+# =====================================================================
+# Get-FraseAnimo se escribio esta misma manana, con su banco de once comprobaciones... y sin
+# UN SOLO LLAMADOR. O sea que Nova sabia decir "llevo unos dias entendiendote peor" y no lo
+# decia nunca: el numero existia, la frase existia, y el hueco entre las dos era el total.
+#
+# MEDIDO sobre los 14 dias de memoria\estadisticas.json (tools\medir-frase-animo.ps1), dia a
+# dia: la frase habria salido 5 veces y se habria callado 9. Los cinco dias son el 16, el 17,
+# el 23, el 24 y el 25 de septiembre.
+#
+# PERO DOS DE ESOS CINCO SON LA MISMA NOTICIA REPETIDA. El 17 repite el "te entiendo peor" del
+# 16 y el 24 repite el "mejor que antes" del 23, y no es que pasara nada nuevo: la ventana
+# compara con hace TRES dias, asi que un mismo salto se sigue viendo durante varios dias
+# seguidos. Decirlo cada manana seria justo la asistente pesada que el banco de Get-FraseAnimo
+# se esfuerza en no ser.
+#
+# LA GUARDA, Y POR QUE SON DOS CLAVES Y NO UNA. Con una sola clave "no repito en tres dias"
+# quedarian el 16 y el 23... y se perderia el 25, que es el dia MAS interesante de los catorce:
+# es el unico en que la tendencia cambia de signo (venia de "mejor" el 23 y pasa a "peor").
+# Con una clave por frase, el "peor" del 25 mira su propio ultimo "peor" -el del 16, nueve dias
+# atras- y sale. Quedan TRES de catorce: 16, 23 y 25, y los tres dicen algo distinto.
+#
+# NO HACE FALTA GUARDAR NADA NUEVO: Send-AvisoEntorno ya lleva la cuenta por clave en
+# entorno-vistos, que esta EN DISCO. Importa, porque Nova arranca unas doce veces al dia y una
+# variable de sesion se rearmaria en cada arranque (el mismo fallo que tuvo el parte de la
+# manana el 22/09).
+$AnimoFraseCadaDias = 3
+function Test-AnimoQueSeCuenta {
+    try {
+        $frA = Get-FraseAnimo (Get-Estadisticas).dias
+        if (-not $frA) { return $false }
+        # una clave por frase: ver arriba por que no vale una sola
+        $claveA = if ($frA -eq $AnimoFraseMejor) { 'animo-mejor' }
+                  elseif ($frA -eq $AnimoFrasePeor) { 'animo-peor' }
+                  else { 'animo-fondo' }
+        return [bool](Send-AvisoEntorno $claveA $frA 'medio' ($AnimoFraseCadaDias * 1440))
+    } catch {
+        # ver EL CATCH QUE NO PUEDE CALLARSE: callarse es tambien la respuesta normal de esta
+        # funcion -nueve dias de catorce-, asi que un fallo aqui pasaria por un dia tranquilo.
+        Log ('animo de fondo: no pude contarlo: ' + $_.Exception.Message)
+        return $false
+    }
+}
+
+# =====================================================================
+# EL RESUMEN DE LA SEMANA, DICHO (25/09, idea 37 de las 50)
+# =====================================================================
+# Write-NotaSemanal lleva escribiendo desde el 14/09 en memoria\semanas\AAAA-Www.md, y su
+# unica huella fuera del disco es un Log. Resultado: DOS ficheros escritos (2026-W37 y
+# 2026-W38) y CERO veces que nadie los haya abierto. Nova se escribia cartas a si misma.
+#
+# Y NO ES POCA COSA lo que hay dentro: los dias que hablasteis, cuantas cosas pediste,
+# cuantas resolvio sin el modelo, las frases que no entendio -que son justo las que se le
+# pueden ensenar- y, desde el 17/09, las decisiones que tomo ella sola. Es el unico sitio
+# donde eso se cuenta en cristiano.
+#
+# EL TITULAR SALE DEL PROPIO FICHERO, no de una cuenta nueva. Es la primera linea del cuerpo,
+# la que Write-NotaSemanal ya compone con los numeros de la semana. Recalcularla aqui seria
+# tener la misma cuenta en dos sitios, y el dia que una cambie diran cosas distintas: Nova
+# contaria una semana y el fichero otra.
+#
+# Y NO ES EL OTRO 'resumen-semana' QUE YA HABIA (comprobado antes de escribir esto): ese es
+# Get-BalanceAprendizaje, sale los domingos a las 18:00, es de nivel 'bajo' -o sea que solo se
+# VE en la capsula, no se ha dicho nunca- y cuenta otra cosa: lo que Nova SABE HACER ("se hacer
+# 6 tareas y entiendo 7 formas de pedirlas, y se 13 cosas de ti"). Este cuenta cuanto os
+# hablasteis. Se pisan en el tema y no en el contenido, y van con horas de diferencia: aquel el
+# domingo por la tarde, este el lunes al arrancar.
+#
+# SE CUENTA UNA SOLA VEZ POR SEMANA, y solo si la nota es RECIENTE. Sin el plazo, el dia que
+# alguien arrancara Nova despues de dos meses le soltaria el resumen de una semana de agosto
+# como si fuera noticia. Siete dias es justo lo que hace falta: la nota se escribe el lunes al
+# arrancar y braya arranca Nova casi a diario (235 arranques en 14 dias).
+$ParteSemanaFrescoDias = 7
+# CUANTO SE DICE EN VOZ ALTA. La primera linea de las dos notas que hay en disco mide 114
+# caracteres las dos ("Esta semana hablamos 6 dias. Me pediste 440 cosas, y 109 de ellas las
+# resolvi al instante sin pasar por el modelo."), y esa linea entera es justo el titular: los
+# dias, lo que pediste y lo que resolvio sola. El ladrillo son las CINCO lineas siguientes
+# -tropiezos, frases que no entendio, gestos-, y esas se quedan para leerlas.
+# El tope no es para las notas de hoy, que caben de sobra: es por si un dia la primera linea
+# crece. Sin el, una linea de mil caracteres se soltaria entera por voz.
+$ParteSemanaTitularMax = 180
+function Get-TitularSemana([string]$ruta) {
+    # la primera linea de texto del cuerpo, saltandose el titulo '# Semana del...' y los huecos
+    try {
+        foreach ($l in [System.IO.File]::ReadAllLines($ruta, [System.Text.Encoding]::UTF8)) {
+            $t = $l.Trim()
+            if (-not $t -or $t.StartsWith('#')) { continue }
+            if ($t.Length -le $ParteSemanaTitularMax) { return $t }
+            # SE CORTA POR UNA FRASE ENTERA, no a mitad de palabra: el ultimo punto que cabe.
+            # Si no hay ninguno -una linea larguisima sin puntos- se corta y se avisa con
+            # puntos suspensivos, que es mejor que soltarla entera.
+            $p = $t.LastIndexOf('. ', $ParteSemanaTitularMax - 1)
+            if ($p -gt 20) { return $t.Substring(0, $p + 1) }
+            return $t.Substring(0, $ParteSemanaTitularMax) + '...'
+        }
+    } catch { Log ('parte semanal: no pude leer ' + $ruta + ': ' + $_.Exception.Message) }
+    return ''
+}
+function Test-ParteSemanaContado([datetime]$hoy = (Get-Date)) {
+    try {
+        $dirS = Join-Path $MemoriaDir 'semanas'
+        if (-not (Test-Path -LiteralPath $dirS)) { return $false }
+        # LA MAS RECIENTE POR SU NOMBRE, no por la fecha del disco: ver LA FECHA SALE DEL
+        # NOMBRE DEL FICHERO en Get-CostumbresOlvidadas. Una copia de seguridad le cambia el
+        # LastWriteTime a las dos a la vez.
+        $mejor = $null; $finMejor = [datetime]::MinValue
+        foreach ($f in @(Get-ChildItem -LiteralPath $dirS -Filter '*.md' -File -ErrorAction SilentlyContinue)) {
+            if ($f.Name -notmatch '(\d{4})-W(\d{2})') { continue }
+            $fin = $null
+            try { $fin = Get-DomingoDeSemana ([int]$Matches[1]) ([int]$Matches[2]) } catch { continue }
+            if ($fin -gt $finMejor) { $finMejor = $fin; $mejor = $f }
+        }
+        if (-not $mejor) { return $false }
+        $edad = [int]([Math]::Floor(($hoy.Date - $finMejor.Date).TotalDays))
+        if ($edad -gt $ParteSemanaFrescoDias) { return $false }   # ya no es noticia
+        $tit = Get-TitularSemana $mejor.FullName
+        if (-not $tit) { return $false }
+        # LA CLAVE LLEVA LA SEMANA DENTRO, asi que el plazo enorme no tapa la nota siguiente:
+        # cada semana estrena su propia cuenta y la del lunes que viene sale igual.
+        $clv = 'parte-semana-' + [IO.Path]::GetFileNameWithoutExtension($mejor.Name)
+        $fr = $tit + ' Te lo he dejado escrito entero en el resumen de la semana.'
+        return [bool](Send-AvisoEntorno $clv $fr 'medio' 20160)
+    } catch {
+        Log ('parte semanal: no pude contarlo: ' + $_.Exception.Message)
+        return $false
+    }
 }
 $CaidaDesdeQueHayCerrado = [datetime]'2026-09-18 17:06:00'
 # Y UN HUECO CON FECHA DE CADUCIDAD: si la caida fue hace mas de doce horas, la noticia ya no
@@ -21056,6 +21201,11 @@ try {
     # diario ha dejado de pasar. Va aqui, al arrancar, porque es cuando ya estan montadas las
     # rutas y no cuesta nada; el propio Test-CostumbresPropias se frena a una vez por dia.
     try { Test-CostumbresPropias } catch {}
+    # Y SU ANIMO DE FONDO, SI HA CAMBIADO (25/09, idea 38). Va aqui y no en el saludo de vuelta
+    # por lo mismo que la caida: si braya no esta delante, Send-AvisoEntorno lo guarda y lo
+    # suelta cuando vuelva. Y va DESPUES del bloque que calcula $script:animoLargo, aunque no
+    # dependa de el: la frase se saca de las estadisticas del disco, no de esa variable.
+    try { [void](Test-AnimoQueSeCuenta) } catch {}
     $caida = Get-CaidaAnterior $EventLog $PID
     if ($caida) {
         $fr = Get-FraseCaida $caida
@@ -26154,6 +26304,11 @@ $script:diaVisto = Get-Date -Format 'yyyy-MM-dd'
 # al arrancar: fechas de hoy y nota de la semana pasada (si toca)
 try { Test-FechasHoy } catch {}
 try { Write-NotaSemanal } catch {}
+# Y SE CUENTA, QUE ES LO QUE FALTABA (25/09, idea 37). Va pegado a Write-NotaSemanal y no
+# arriba con las otras miradas del arranque por el ORDEN: el bloque de Test-CostumbresPropias
+# corre cinco mil lineas antes que esto, asi que alli el lunes se habria contado la nota de la
+# semana pasada -la de ocho dias- y la recien escrita se habria quedado otros siete esperando.
+try { [void](Test-ParteSemanaContado) } catch {}
 $script:wakeCheck = 0
 $script:wakeIntentos = 0
 $script:pollReintento = 0

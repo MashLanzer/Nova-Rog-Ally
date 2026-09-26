@@ -107,7 +107,8 @@ foreach ($fA in @($ast.FindAll({ param($x)
 }
 
 # las constantes, del archivo (manera 6)
-foreach ($cte in @('AnimoLargoDias', 'AnimoLargoMinSucesos', 'AnimoLargoMinDias', 'AnimoSaltoMin')) {
+foreach ($cte in @('AnimoLargoDias', 'AnimoLargoMinSucesos', 'AnimoLargoMinDias', 'AnimoSaltoMin',
+                   'AnimoFraseMejor', 'AnimoFrasePeor', 'AnimoFraseCadaDias')) {
     $m = [regex]::Match($txt, ('(?m)^\$' + $cte + '\s*=\s*(.+)$'))
     Comp ("se saca del archivo " + $cte) $m.Success ''
     if ($m.Success) { Invoke-Expression ('$' + $cte + ' = ' + $m.Groups[1].Value.Trim()) }
@@ -226,6 +227,53 @@ foreach ($j in 0..2) { $estreno[$hoy.AddDays(-$j).ToString('yyyy-MM-dd')] = (Dia
 Comp 'con base hoy pero nada detras, tampoco' ([string]::IsNullOrEmpty((Get-FraseAnimo $estreno $hoy))) 'no hay "antes" con el que comparar'
 
 Write-Host ''
+Write-Host '-- 7. Y ALGUIEN LA DICE (idea 38: estaba escrita y sin llamador) --'
+# LA TRAMPA QUE SE ARREGLA AQUI, y es la manera 3 de salir verde mintiendo: las once
+# comprobaciones de arriba pasaban con Get-FraseAnimo perfectamente muda, porque no habia una
+# sola linea en 26.900 que la llamara. Un banco que prueba una funcion sin preguntarse quien la
+# usa certifica codigo muerto.
+$defT = $ast.Find({ param($x)
+    $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq 'Test-AnimoQueSeCuenta' }, $true)
+Comp 'existe Test-AnimoQueSeCuenta' ($null -ne $defT) ''
+# UNA DEFINICION NO ES UNA LLAMADA: buscar el nombre a secas encuentra su propia "function".
+$llamT = @([regex]::Matches($sinCom, '(?<!function )Test-AnimoQueSeCuenta')).Count
+Comp '  y alguien la llama de verdad' ($llamT -ge 1) "$llamT llamada(s) fuera de su definicion"
+Comp '  y ella llama a Get-FraseAnimo' ($defT -and $defT.Extent.Text -match 'Get-FraseAnimo') 'si no, la frase seguiria sin decirse'
+
+# LOS DOBLES, DE LAS DEPENDENCIAS Y NO DE LA PIEZA QUE SE PRUEBA (manera 14). Se doblan
+# Get-Estadisticas y Send-AvisoEntorno -de donde salen los datos y por donde sale la voz-;
+# Test-AnimoQueSeCuenta corre entera y de verdad.
+$script:dichos = @()
+function Get-Estadisticas { return @{ dias = $script:diasDePrueba } }
+function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'medio', [int]$cadaMin = 60, [bool]$yaEsperado = $false) {
+    $script:dichos += @{ clave = $clave; texto = $texto; nivel = $nivel; cadaMin = $cadaMin }
+    return $true
+}
+$script:diasDePrueba = $mejora
+$script:dichos = @()
+$rT = Test-AnimoQueSeCuenta
+Comp 'con una mejora clara, habla' ($rT -and $script:dichos.Count -eq 1) "$($script:dichos.Count) aviso(s)"
+$cM = if ($script:dichos.Count -gt 0) { $script:dichos[0].clave } else { '' }
+Comp '  y no se queda en la capsula' ($script:dichos.Count -gt 0 -and $script:dichos[0].nivel -ne 'bajo') "nivel '$($script:dichos[0].nivel)'; los 'bajo' solo se VEN, no se dicen"
+# EL PLAZO SALE DE LA CONSTANTE, no de un numero escrito a mano en el aviso.
+Comp '  y no lo repite en los proximos dias' ($script:dichos.Count -gt 0 -and $script:dichos[0].cadaMin -eq ($AnimoFraseCadaDias * 1440)) "$($script:dichos[0].cadaMin) min = $AnimoFraseCadaDias dias"
+
+$script:diasDePrueba = $peora
+$script:dichos = @()
+[void](Test-AnimoQueSeCuenta)
+$cP = if ($script:dichos.Count -gt 0) { $script:dichos[0].clave } else { '' }
+Comp 'con un empeoramiento, tambien' ($script:dichos.Count -eq 1) ''
+# LO QUE SALVA EL 25/09, el dia mas interesante de los catorce: es el unico en que la tendencia
+# CAMBIA DE SIGNO, y venia de un "mejor" dos dias antes. Con una sola clave de "no repito en
+# tres dias" ese cambio se habria callado. Con una clave por frase, sale.
+Comp '  con una clave DISTINTA de la de mejora' ($cM -and $cP -and $cM -ne $cP) "'$cM' contra '$cP'"
+
+$script:diasDePrueba = $normal
+$script:dichos = @()
+$rN = Test-AnimoQueSeCuenta
+Comp 'y en una semana normal no dice nada' ((-not $rN) -and $script:dichos.Count -eq 0) 'lo normal, nueve dias de catorce, es callarse'
+
+Write-Host ''
 if ($mal -gt 0) { Write-Host "  $mal MAL"; exit 1 }
-Write-Host '  el animo tiene memoria larga, y sabe contarla'
+Write-Host '  el animo tiene memoria larga, sabe contarla, y ahora alguien la dice'
 exit 0

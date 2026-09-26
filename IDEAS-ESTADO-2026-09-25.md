@@ -34,6 +34,9 @@ tumbó. Descartar una idea con un número es tan útil como implementarla, y bas
 | — | **La cascada de repasos, medible** | **canary: 18 usos, CERO órdenes sacadas** |
 | **50.27** | **Trabajar cuando no molesta** | **las 13 copias, las 13 entre las 17h y las 22h** |
 | **50.30** | **Contar lo que hizo mientras no estabas** | **el resumen sólo contaba mensajes, nunca lo que hizo ella** |
+| **50.37** | **El resumen de la semana, dicho** | **2 notas escritas desde el 14/09, 0 leídas: Nova se escribía cartas a sí misma** |
+| **50.38** | **El ánimo de fondo, contado** | **`Get-FraseAnimo` escrita con banco y CERO llamadores; con tus 14 días habla 3 veces** |
+| **50.49** | **El logro no se contaba a sí mismo** | **'logro' 0 veces en 3.527 líneas del diario, con 32 logros reales en 14 días** |
 
 ---
 

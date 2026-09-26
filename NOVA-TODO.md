@@ -35,7 +35,7 @@ cristal en una esquina.
 | `wake_vosk.py` (el oído) | 4.001 líneas |
 | `charla_worker.py` + `charla_memoria.py` | 1.304 + 934 líneas |
 | `ajedrez.py` | 293 líneas |
-| Bancos de pruebas | **205 bancos** + la batería que los corre, 207 secciones |
+| Bancos de pruebas | **209 bancos** (`tools\probar-*`) + la batería que los corre, **210 secciones** |
 | Órdenes distintas que entiende | **162** |
 | Contadores que lleva de sí misma | 49 |
 | Commits | 515 |
@@ -340,7 +340,9 @@ entero, comentarios incluidos, así que nombrar un banco en un comentario lo dab
 había **tres** así, los tres que se quedan fuera a propósito, pasando en verde por la razón
 equivocada. Hoy son una excepción declarada y el cuarto sale rojo.
 
-Hoy: **205 bancos, 207 secciones**, y cada idea de las cuarenta con su script de roturas.
+Hoy: **209 bancos, 210 secciones**, y cada idea de las cuarenta con su script de roturas.
+*(El recuento venía desfasado: el 25/09 decía 205 y 207 cuando en disco había 208 y 209.
+Se cuentan los ficheros `tools\probar-*.ps1` y `.py`, y las líneas `^Titulo ` de la batería.)*
 
 ---
 
@@ -434,6 +436,9 @@ sus mediciones dentro:
 | `IDEAS-2026-09-24-VEINTE.md` y `-NUEVAS-VEINTE.md` | Las cuarenta de ayer, ya cerradas |
 | `NOVA-EN-OTRO-PC.md` | Cómo llevarla a la laptop sin romper la de la consola |
 | `NOVA-LLM.md` | Los modelos medidos y cuál gana |
+| **`IDEAS-AUTONOMIA-121-2026-09-26.md`** | **Ciento veintiuna ideas nuevas**, de 180 propuestas por veinte buscadores y tres filtros adversariales. Cada una con el número que la sostiene, reproducido por un agente distinto del que la propuso. Y las trece descartadas, con lo que salió al volver a contar |
+| **`METODO-BUSCAR-IDEAS.md`** | **La máquina de producir ideas, no una lista de ideas**: el barrido de 20 ángulos con revisor adversarial. Braya pidió guardarlo el 25/09 para reusarlo en cada tanda. El script, en `tools\ideas\buscar-ideas.workflow.js` |
+| `PENDIENTES-2026-09-25.md` | El mapa entero de lo que queda, con el dato que sostiene cada línea |
 
 ---
 

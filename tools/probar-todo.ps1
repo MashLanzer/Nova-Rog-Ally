@@ -1596,7 +1596,7 @@ Titulo "2n158. El animo con memoria larga (idea 34 de las 50)"
 # y $script:animoLargoDias (los que votan) eran LA MISMA variable para PowerShell; el detector
 # que lo buscaba usaba un @{} cuyas claves tampoco distinguen mayusculas, o sea que tenia
 # dentro el fallo que buscaba; y dos guardas no las ejercitaba ninguna prueba.
-powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-animo-largo.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:memoria larga, y sabe contarla)|MAL'
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-animo-largo.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:memoria larga, sabe contarla)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
 Titulo "2n157. El animo con el que se despierta (idea 15)"
@@ -1995,6 +1995,18 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 # que NO se suman -"con" alguien tocando algo, "sin" nadie- y si no se puede saber, no se apunta
 # en ninguna: inventarse que hay alguien seria peor que perder diez segundos.
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n174. El logro no se contaba a si mismo (idea 49)"
+# LO MEDIDO: 'logro' sale CERO veces en las 3.518 lineas de tmp\gestos.log, mientras 'orgullo'
+# sale 188 y 'aprendido' 16. Y no es que no pasara: el registro de catorce dias trae 11 logros
+# de Steam, 10 medallas de hora de juego y 11 fechas especiales. Treinta y dos momentos buenos
+# que Nova celebro en pantalla y no apunto en ningun lado, asi que no salen en el resumen de la
+# semana -que cuenta los gestos- ni le pusieron el humor 'contenta' que Gesto() da a 'logro'.
+# El switch de Evento() lo mandaba a Logro() directo, saltandose Gesto(), que es quien apunta.
+# OJO: esto vive en nova_ui.cs, o sea que hasta que la capsula se recompile con Nova parada,
+# el diario seguira a cero. La seccion 5b de mas abajo lo avisa en amarillo.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-logro-anotado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el logro ya se cuenta a si mismo)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
 Titulo "2n165. La ganancia es de un microfono, no de la consola"

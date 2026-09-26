@@ -95,7 +95,8 @@ de canary. **Es tuya la decisión de si quieres que arranque sola.**
   de 21 nombres mientras el JSON guarda todo.
 - **`llamada-en-juego`** se escribe (10 casos en 4 días) y no lo lee nadie.
 - **`Test-BuenRatoParaTrabajo`** solo la usa la copia de seguridad, teniendo dos llamadores.
-- **Los resúmenes semanales** se escriben (2 ficheros) y no los lee nadie.
+- ~~**Los resúmenes semanales** se escriben (2 ficheros) y no los lee nadie.~~ **Hecho el 25/09
+  por la noche** (idea 37): Nova cuenta el titular de la nota si tiene menos de siete días.
 - **El enmascarado de la clave de Steam** está repartido en **cuatro** sitios; el documento
   decía tres, o sea que ya creció.
 
@@ -108,7 +109,8 @@ de canary. **Es tuya la decisión de si quieres que arranque sola.**
 - **Las 28 expresiones frágiles de los bancos siguen las 28**: lo que se hizo fue el trinquete
   que impide que crezcan, no el arreglo.
 - **Los logros avisan de que pasó algo pero no de cuál**, y el 25/09 pasó **cinco veces
-  seguidas** con el mismo juego.
+  seguidas** con el mismo juego. *(Sigue vivo: lo de esta noche —idea 49— fue que el logro
+  quedara **apuntado**, no que se sepa de cuál se trata.)*
 
 ---
 
@@ -138,7 +140,8 @@ de canary. **Es tuya la decisión de si quieres que arranque sola.**
 5. **Poner los juegos en «ventana sin bordes»**: arregla de golpe que la cápsula no se vea en
    pantalla completa exclusiva y que el audio se corte. Es un ajuste en cada juego.
 6. **Quitar el segundo motor de transcripción**: ~2 s por orden a cambio de comprensión.
-7. **Bajar el `holdMs` de 1100 ms**: la medición dice que no hace falta.
+7. ~~**Bajar el `holdMs` de 1100 ms**~~: **cerrado el 25/09 con los 48 toques medidos** — 40
+   de ellos se sueltan antes de los 300 ms, sólo 3 pasan de 700. El umbral no estorba.
 8. **Limpiar los ocho datos mal oídos del perfil** preguntándote un par.
 9. **Revocar la `ANTHROPIC_API_KEY`** que salió en claro el 13/09.
 10. **Crear en Discord los atajos** `Ctrl+Shift+M` y `Ctrl+Shift+D`.
@@ -175,11 +178,30 @@ documento, así que las repasaron cinco agentes **en el código**, no en el pape
 ponía un doble **encima de la función rota**, así que probaba su propio doble. Ahora el doble
 está un escalón más abajo —en el fichero— y las dos formas del campo `dias` se prueban de verdad.
 
-**Quedan 4 vivas**: la 22 (bajar `holdMs` — **es decisión tuya**, toca cómo se siente el
-gatillo), la 37 (leer las dos notas semanales que nadie ha leído nunca), la 38 (`Get-FraseAnimo`
-está escrita, con banco, y **sin un solo llamador**) y la 49 (el logro no se cuenta a sí mismo:
-`nova_ui.cs:2642` se salta `Gesto()`, y 'logro' sale **0 veces** en 3.434 líneas de `gestos.log`
-— pero toca recompilar la cápsula).
+**Quedaban 4 vivas**, y esta noche se han hecho **tres**. La cuarta es tuya:
+
+| # | Qué era | Lo que se hizo, y el dato |
+|---|---|---|
+| **38** | `Get-FraseAnimo` escrita, con banco, y **sin un solo llamador** | `Test-AnimoQueSeCuenta`, colgada del arranque. Medido con tus 14 días (`tools\medir-frase-animo.ps1`): la frase sale **5 de 14 días**, pero dos repiten la del día anterior —la ventana compara con hace tres días, así que el mismo salto se ve varios días—. Con una clave por frase quedan **3**: el 16, el 23 y el 25. Y el 25 es el único día en que la tendencia **cambia de signo**, que con una sola clave se habría callado |
+| **37** | Las dos notas semanales que nadie ha leído nunca | `Test-ParteSemanaContado`, pegada a `Write-NotaSemanal`. El titular es **la primera línea del propio fichero** —114 caracteres en las dos notas que hay— y no una cuenta nueva: recalcularla sería tener el mismo número en dos sitios. Se dice una vez por semana y sólo si la nota tiene menos de 7 días |
+| **49** | El logro no se cuenta a sí mismo | `case "logro"` pasa ahora por `Gesto("logro")`, que ya llama a `Logro()`: se ve y suena igual, pero **apunta**. Medido: 'logro' sale **0 veces** en 3.527 líneas de `gestos.log` mientras 'orgullo' sale 188 — y en 14 días hubo **11 logros de Steam, 10 medallas de hora y 11 fechas especiales**. 32 momentos sin apuntar. ⚠️ **Toca recompilar la cápsula con Nova parada** (`tools\compilar-ui.ps1`); compila limpio, comprobado |
+
+**Y la cuarta, la 22, ya no es una decisión: es un dato.** Bajar el `holdMs` de 1100 ms
+esperaba desde el 18/09 a tener «toques cortos repartidos en ≥3 días». Lleva **48 en 8 días**,
+o sea que la condición se cumplió hace una semana. El reparto: **40 de 48 se sueltan entre 120
+y 299 ms** (mediana **158**), y sólo **3 pasan de 700**. No se amontonan cerca del 1100, se
+amontonan en 158: el umbral **no es lo que estorba**, y bajarlo a 700 rescataría 3 pulsaciones
+en ocho días a cambio de acercarle el dictado a las otras 45. **Se queda en 1100**, y la idea
+se cierra sola como decía su propio criterio (detalle en `AUTONOMIA.md`, punto 35).
+
+*(Lo que el dato NO dice: qué son esos 40 toques de ~150 ms. Roces, mitades de doble toque o
+intentos de otra cosa — no hay línea en el registro que lo aclare. Es otra pregunta.)*
+
+Tres bancos nuevos o ampliados, y **trece roturas a propósito, trece rojos**. Dos de ellas
+destaparon fallos **en los bancos, no en el código**: uno comparaba el recorte del titular
+contra la misma constante que la rotura cambiaba (subirla a cien mil dejaba el banco verde con
+un titular de 640 caracteres), y otro prohibía una línea en todo `nova_ui.cs` cuando esa misma
+línea, dentro de `Gesto()`, es la buena.
 
 ---
 

@@ -2639,7 +2639,22 @@ public class NovaUI : Window
                 break;
             case "pulso": PulsoAviso(arg); break;
             case "destello": Destello(); break;
-            case "logro": Logro(); break;
+            // EL LOGRO NO SE CONTABA A SI MISMO (25/09, idea 49 de las 50). Esta linea
+            // llamaba directamente a Logro(), que pinta el oro y suena... y se saltaba
+            // Gesto(), que es quien apunta en tmp\gestos.log y quien pone el humor.
+            // MEDIDO: 'logro' sale CERO veces en las 3.518 lineas del diario de gestos,
+            // mientras 'orgullo' sale 188 y 'aprendido' 16. Y no es que no pasara: en el
+            // registro de catorce dias hay 11 logros de Steam, 10 medallas de hora de juego
+            // y 11 fechas especiales. Treinta y dos momentos buenos que Nova vivio y no
+            // apunto en ninguna parte, asi que tampoco salen en el resumen de la semana
+            // -que cuenta los gestos- ni le ponian el humor 'contenta' que Gesto() da a
+            // 'logro' desde que existe.
+            // Gesto("logro") llama a Logro() en su propio switch, o sea que se ve y suena
+            // exactamente igual que antes. Lo que se gana es el apunte, el humor y la
+            // expresion de ojos felices; lo que se acepta es el antirrebote de 1,5 s que
+            // tienen los otros veinte gestos, que aqui no quita nada: dos oros seguidos en
+            // milisegundo y medio se pisan el uno al otro de todas formas.
+            case "logro": Gesto("logro"); break;
             case "error": Sacudir(); break;
             case "gesto": Gesto(arg); break;
             // SE ABRE EL MICROFONO: TIC (20/09/2026). Alexa enciende el

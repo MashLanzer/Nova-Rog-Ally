@@ -191,7 +191,7 @@ los causaba.
 **media móvil**. De hecho **ya se había movido y nadie se enteró**: era 119,6 Hz y hoy
 `mi-voz.json` dice **116,8**.
 **El agujero que apareció al mirarlo:** la guarda de 60 Hz impide un **salto**, pero no una
-**deriva lenta**. En `tmpoces.json` la segunda voz de la casa está en **144,0 Hz**, a solo
+**deriva lenta**. En `tmp\voces.json` la segunda voz de la casa está en **144,0 Hz**, a solo
 **27,2 Hz** de la tuya — o sea **dentro** de esa guarda. Si esa persona usa el botón a menudo,
 su tono entra poco a poco en tu media y un día «solo yo» la acepta a ella y duda de ti, sin
 que nadie lo sepa.
@@ -651,6 +651,28 @@ orden — y `Write-DestinoUso` filtra por `$DestinosUso`, así que una clave nue
 **Cuándo se podrá decidir:** cuando haya toques cortos repartidos en ≥3 días. Si se amontonan
 cerca de los 1100 ms, el umbral está alto; si casi no aparecen, el número era bueno y la idea
 se cierra sola.
+
+**YA SE PUEDE DECIDIR, Y EL NÚMERO ERA BUENO (25/09 de noche).** El medidor lleva **48 toques
+cortos repartidos en 8 días** (18 al 25/09), o sea que la condición se cumplió hace una semana
+y nadie fue a mirar. El reparto contesta la pregunta de un vistazo:
+
+| Dónde se soltó | Cuántos |
+|---|---|
+| 120–299 ms | **40** |
+| 300–499 ms | 5 |
+| 500–699 ms | 0 |
+| 700–899 ms | 1 |
+| 900–1099 ms | 2 |
+
+Mediana **158 ms**, y sólo **3 de 48** se quedan por encima de los 700. **No se amontonan cerca
+del 1100: se amontonan en 158.** O sea que lo que impide dictar no es que el umbral esté alto
+—para eso habría que soltar *cerca* de él y no llegar—, y bajarlo a 700 ms rescataría **3
+pulsaciones en 8 días** a cambio de acercar el dictado a los otros 45. → **Se queda en 1100.**
+
+**Lo que este dato NO dice, y conviene no inventarlo:** qué son esos 40 toques de ~150 ms.
+Pueden ser roces del gatillo, mitades de un doble toque o intentos de otra cosa. No hay ninguna
+línea del registro que lo diga, y mirar qué pasa justo después no enseña ningún patrón. Si
+alguna vez molesta, eso es **otra** pregunta que necesita su propia medición.
 
 **36. `autoSubmitMs` (2500).** — **NO PROCEDE: el número no está en el camino que usa (18/09)**
 *Ese 2500 es letra muerta.* Solo actúa bajo `-not $script:ordenPorWorker`, y el propio código lo

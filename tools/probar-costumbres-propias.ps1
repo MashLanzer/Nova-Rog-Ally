@@ -56,6 +56,13 @@ if (-not $d) {
     exit 1
 }
 Invoke-Expression $d.Extent.Text
+# Y LA QUE FECHA LAS SEMANAS, QUE DESDE EL 25/09 ES UNA FUNCION APARTE. Sin traerla, el
+# try/catch de dentro se tragaba el CommandNotFoundException y la semana se saltaba en
+# silencio: ver el caso positivo de mas abajo, que es lo unico que lo delata.
+$dS = $ast.Find({ param($x)
+    $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq 'Get-DomingoDeSemana' }, $true)
+Comp 'se saca Get-DomingoDeSemana del arbol' ($null -ne $dS) 'la cuenta vive ahi desde el 25/09'
+if ($dS) { Invoke-Expression $dS.Extent.Text }
 function Log([string]$m) { }          # el doble, DESPUES de cargar (manera 9)
 
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ('nova-cost-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
@@ -92,6 +99,26 @@ try {
     $sem = Carpeta 'sem' @('2026-W38.md')
     $r = @(Get-CostumbresOlvidadas @(@{ nombre = 'el resumen de la semana'; carpeta = $sem; cadaDias = 7; graciaDias = 3 }) $hoy)
     Comp 'una semanal con 4 dias no se dice' ($r.Count -eq 0) 'cadaDias 7 + gracia 3 = 10'
+    # --- Y EL CASO POSITIVO, QUE ES EL UNICO QUE VIGILA DE VERDAD (25/09)
+    # LO DE ARRIBA ESPERA CERO, y cero es tambien lo que sale si la cuenta de la fecha REVIENTA:
+    # el try/catch de dentro se traga el error, la semana se salta y la carpeta parece no haber
+    # empezado nunca. O sea que esta seccion entera pasaba en verde con la funcion que fecha las
+    # semanas borrada del archivo. Es la manera 16: un caso negativo que no toca lo que vigila.
+    # Con la misma carpeta y una fecha mas tarde tiene que salir SI, y eso ya no lo puede
+    # imitar un fallo.
+    $r = @(Get-CostumbresOlvidadas @(@{ nombre = 'el resumen de la semana'; carpeta = $sem; cadaDias = 7; graciaDias = 3 }) ([datetime]'2026-10-05'))
+    Comp 'y dos semanas despues SI se dice' ($r.Count -eq 1) "15 dias desde el domingo 20/09, tope 10"
+    if ($r.Count -eq 1) { Comp '  con los dias bien contados' ($r[0].dias -eq 15) "$($r[0].dias) dias" }
+    # LOS DOS BORDES, que son lo unico que separa un tope de 10 de uno de 100
+    $r = @(Get-CostumbresOlvidadas @(@{ nombre = 'x'; carpeta = $sem; cadaDias = 7; graciaDias = 3 }) ([datetime]'2026-09-30'))
+    Comp '  el dia 10 justo, ya se dice' ($r.Count -eq 1) '20/09 + 10'
+    $r = @(Get-CostumbresOlvidadas @(@{ nombre = 'x'; carpeta = $sem; cadaDias = 7; graciaDias = 3 }) ([datetime]'2026-09-29'))
+    Comp '  y el 9 todavia no' ($r.Count -eq 0) ''
+    # --- Y QUE SE FECHE POR EL DOMINGO Y NO POR EL LUNES, que es el fallo del 25/09
+    # Con el lunes 14/09 como fecha, el 24/09 darian 10 dias y la semana saldria "olvidada"
+    # seis dias antes de tiempo, sin que hubiera pasado nada raro. Con el domingo, no.
+    $r = @(Get-CostumbresOlvidadas @(@{ nombre = 'x'; carpeta = $sem; cadaDias = 7; graciaDias = 3 }) ([datetime]'2026-09-24'))
+    Comp '  y el 24/09 no, que es lo que fallaba' ($r.Count -eq 0) 'fechada por el lunes darian 10 dias y saldria'
 
     # --- CARPETA VACIA: nunca lo ha hecho. No es un olvido, es que no ha empezado.
     $vacia = Carpeta 'vacia' @()
