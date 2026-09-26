@@ -81,33 +81,47 @@ $script:quejas = 0
 Comp 'con $null tampoco revienta' ((Get-AnimoDeDias $null $hoy) -eq 0.0) ''
 Comp '  y sale por la guarda, no por el catch' ($script:quejas -eq 0) 'si saltara el catch, el log lo diria'
 
+# LAS CLAVES QUE CUENTAN, DEL ARCHIVO Y NO A MANO (26/09, idea 2 de las 121). Estos casos
+# llevaban 'error' escrito dentro, y 'error' dejo de ser un fallo del animo: sube en tres
+# sitios y ninguno es un fallo de oido -dictado vacio, cancelacion de braya y timeout de
+# opencode-, 124 eventos en 14 dias que hundian el numero que decide cuanto habla Nova sola.
+# Un banco con la clave a fuego seguiria verde midiendo la clave equivocada.
+$mB = [regex]::Match($txt, '(?m)^\$AnimoClavesBien\s*=\s*(.+)$')
+$mM = [regex]::Match($txt, '(?m)^\$AnimoClavesMal\s*=\s*(.+)$')
+Comp 'se sacan del archivo las claves del animo' ($mB.Success -and $mM.Success) ''
+Invoke-Expression ('$AnimoClavesBien = ' + $mB.Groups[1].Value.Trim())
+Invoke-Expression ('$AnimoClavesMal = ' + $mM.Groups[1].Value.Trim())
+$kBien = $AnimoClavesBien[0]
+$kMal = $AnimoClavesMal[0]
+Comp "  lo que cuenta como fallo es '$kMal'" ($kMal -ne 'error') 'error mide botones pulsados sin hablar'
+
 # UN DIA BUENO
-$buenos = @{ $hoyS = @{ local = 20; traducida = 5 } }
+$buenos = @{ $hoyS = @{ $kBien = 25 } }
 $aB = Get-AnimoDeDias $buenos $hoy
 Comp 'un dia de aciertos da animo positivo' ($aB -gt 0) ([string]$aB)
 
 # UN DIA MALO
-$malos = @{ $hoyS = @{ local = 2; error = 8 } }
+$malos = @{ $hoyS = @{ $kBien = 2; $kMal = 8 } }
 $aM = Get-AnimoDeDias $malos $hoy
 Comp 'un dia de errores da animo negativo' ($aM -lt 0) ([string]$aM)
 
 # AYER CUENTA: es la mitad de la ventana, y es justo lo que se perdia al reiniciar
-$soloAyer = @{ $ayer = @{ local = 1; error = 9 } }
+$soloAyer = @{ $ayer = @{ $kBien = 1; $kMal = 9 } }
 $aA = Get-AnimoDeDias $soloAyer $hoy
 Comp 'un dia malo de AYER se nota hoy' ($aA -lt 0) "$aA; esto es lo que se perdia al reiniciar"
 
 # Y ANTEAYER NO: la ventana son dos dias, ni uno mas
-$anteayer = @{ '2026-09-23' = @{ error = 50 } }
+$anteayer = @{ '2026-09-23' = @{ $kMal = 50 } }
 Comp 'anteayer ya no cuenta' ((Get-AnimoDeDias $anteayer $hoy) -eq 0.0) 'la ventana son dos dias'
 
 # LOS TOPES
-$exagerado = @{ $hoyS = @{ error = 500 } }
+$exagerado = @{ $hoyS = @{ $kMal = 500 } }
 Comp 'nunca baja de -1' ((Get-AnimoDeDias $exagerado $hoy) -ge -1.0) ([string](Get-AnimoDeDias $exagerado $hoy))
-$exagerado2 = @{ $hoyS = @{ local = 5000 } }
+$exagerado2 = @{ $hoyS = @{ $kBien = 5000 } }
 Comp 'nunca sube de 1' ((Get-AnimoDeDias $exagerado2 $hoy) -le 1.0) ([string](Get-AnimoDeDias $exagerado2 $hoy))
 
 # EL DIVISOR MINIMO DE 10: un solo error del primer minuto no puede hundir el animo
-$unError = @{ $hoyS = @{ error = 1 } }
+$unError = @{ $hoyS = @{ $kMal = 1 } }
 $a1 = Get-AnimoDeDias $unError $hoy
 Comp 'un solo error no hunde el animo' ($a1 -gt -0.3) "$a1; con el divisor a 10 sale -0,2 y no -2"
 

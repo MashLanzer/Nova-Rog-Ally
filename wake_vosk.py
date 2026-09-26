@@ -610,6 +610,14 @@ UMBRAL_ALTAVOZ = _num_de_config("umbralAltavoz", 0.02)
 # por encima del umbral exigente- y encima el usuario esta jugando, que es
 # cuando mas molesta. Queda el boton, que no se equivoca nunca.
 UMBRAL_ALTAVOZ_FUERTE = 0.35
+# EL MISMO FALLO DOS VECES NO SE ARREGLA REHACIENDO EL RECONOCEDOR (26/09, idea 5 de las 121).
+# Guarda el texto del ultimo fallo del bucle y cuando paso. Si vuelve IDENTICO dentro de esta
+# ventana, es del codigo y no de un json raro de Vosk: rehacer no arregla nada y lo unico que
+# se consigue es perder el dictado en silencio. Medido en el registro del 25/09: las tres
+# repeticiones cayeron en 5 segundos (21:33:23, 21:33:27 y 21:33:28), asi que treinta cubre de
+# sobra un dictado entero -el tope duro son 30 s- sin llegar a juntar dos dictados distintos.
+FALLO_REPETIDO_SEG = 30.0
+_ultimo_fallo = ["", 0.0]
 # El modelo preciso solo corre a rachas y con prioridad baja: puede permitirse
 # mas hilos que el rapido, que va en el camino de cada orden.
 HILOS_PRECISO = 8
@@ -3679,9 +3687,24 @@ try:
                         # lo que hay. El silencio de cierre NO se toca: esto no acorta la
                         # espera, solo aprovecha el rato en que no se hacia nada con el audio.
                         # CON UN JUEGO DELANTE, NO: gastar CPU de mas mientras braya juega es
-                        # la regla 5 de la casa. Ni mientras Nova habla (callado), que ahi lo
-                        # que entra por el microfono es ella misma.
-                        if (hay_algo and not callado and not jugando()
+                        # la regla 5 de la casa. Ni mientras Nova habla, que ahi lo que entra
+                        # por el microfono es ella misma.
+                        #
+                        # ESTA LINEA REVENTABA, Y NO EN TEORIA (26/09, idea 5 de las 121). Decia
+                        # "not callado", y 'callado' se ASIGNA 45 lineas mas abajo: el primer
+                        # dictado de cada worker moria con "name 'callado' is not defined". Salio
+                        # CUATRO veces en el registro del 25/09 -21:33:23, 21:33:27, 21:33:28 y
+                        # 22:48:16- y las tres primeras seguidas, mientras braya la llamaba
+                        # cuatro veces ("nova nova nova nova"); lo que llego despues fue un
+                        # "8 s sin oir nada" y la orden se perdio entera y en silencio.
+                        #
+                        # Y AUNQUE NO HUBIERA REVENTADO, NO HACIA LO QUE DICE EL COMENTARIO: mas
+                        # abajo 'callado' vale "no se oyo nada", no "Nova esta hablando". Con
+                        # 'hay_algo' delante, "not callado" es cierto SIEMPRE -si hay algo, no
+                        # esta callado por definicion-, o sea que la guarda no frenaba nada.
+                        # Lo que hace falta es la senal de que suenan los altavoces, que es la
+                        # misma que usa _corta_juego quince lineas mas abajo.
+                        if (hay_algo and nivel_salida() <= UMBRAL_ALTAVOZ and not jugando()
                                 and (ahora - ultima_voz) >= ADELANTO_DESDE_SEG
                                 and _adelanto["texto"] is None
                                 and (_adelanto["hilo"] is None or not _adelanto["hilo"].is_alive())):
@@ -4166,6 +4189,34 @@ try:
                 # anota y se sigue con la siguiente. Antes cualquier json.loads
                 # raro de Vosk mataba el proceso, y con el el dictado en curso.
                 anota("fallo en una vuelta del bucle: %s" % e)
+                # REHACER EL RECONOCEDOR NO ARREGLA UN FALLO DEL CODIGO (26/09, idea 5 de las
+                # 121). Este except se escribio para los json raros de Vosk, y para eso
+                # rehacerlo esta bien. Pero cuando el fallo es del propio codigo -un nombre que
+                # no existe, por ejemplo- rehacerlo no cambia nada y la siguiente vuelta falla
+                # igual: el 25/09 a las 21:33 paso TRES VECES SEGUIDAS en cinco segundos
+                # ("name 'callado' is not defined"), las tres rehizo el reconocedor, y lo que
+                # llego un segundo despues fue "8 s sin oir nada". Braya la habia llamado
+                # cuatro veces y la orden se perdio entera y en silencio.
+                #
+                # LA CONDICION ES EL TEXTO EXACTAMENTE IGUAL, y eso es lo que separa un fallo
+                # de codigo de uno pasajero: dos json rotos distintos no dan el mismo texto,
+                # asi que la recuperacion que este except vino a dar sigue intacta.
+                _txt_fallo = str(e)
+                _mismo = (_txt_fallo == _ultimo_fallo[0] and (ahora - _ultimo_fallo[1]) <= FALLO_REPETIDO_SEG)
+                _ultimo_fallo[0] = _txt_fallo
+                _ultimo_fallo[1] = ahora
+                if _mismo:
+                    # NO SE REHACE, Y SOBRE TODO NO SE CALLA: el asistente lee esta marca por el
+                    # mismo camino que el dictado vacio, pero sabiendo que hubo un fallo puede
+                    # decir "se me ha ido, repitemelo" en vez de tratarlo como si braya no
+                    # hubiera dicho nada. Un turno perdido que se sabe perdido no es lo mismo
+                    # que un turno perdido en silencio.
+                    anota("el mismo fallo otra vez (%s): no rehago el reconocedor, marco el turno como perdido" % _txt_fallo)
+                    try:
+                        escribir(RUTA_DICTADO, "PERDIDO")
+                    except Exception:  # noqa: BLE001
+                        pass
+                    continue
                 try:
                     rec = nuevo_reconocedor()
                 except Exception as _e_rec:  # noqa: BLE001

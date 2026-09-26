@@ -1997,6 +1997,28 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n179. El tiempo de hace un rato sobrevive al reinicio (idea 6 de las 121)"
+# El clima se guardaba una hora, pero solo DENTRO del proceso: cada arranque nacia con la cache
+# vacia y el reloj en "hace una hora", asi que a los 20 segundos de vivir Nova salia a internet
+# otra vez aunque el dato de hace cuatro minutos siguiera siendo bueno. MEDIDO: 258 arranques y
+# 504 consultas de clima, 334 de ellas -el 66 %- en los TRES minutos siguientes a un arranque.
+# Dos de cada tres viajes eran el dato que ya se sabia. La ventana NO se alarga: sigue siendo la
+# misma hora. Y el reloj descuenta lo que el fichero ya habia envejecido, para que la proxima
+# consulta caiga cuando le tocaba y no una hora mas tarde.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-clima-guardado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:sobrevive al reinicio)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n178. El oido roto se nota, y no se arregla rehaciendolo (idea 5 de las 121)"
+# EL CASO REAL, con hora: 25/09 21:33:19 braya la llama cuatro veces seguidas. 21:33:23, :27 y
+# :28, el bucle falla tres veces con "name 'callado' is not defined" y las tres rehace el
+# reconocedor, que no arregla un fallo del codigo. 21:33:29 llega "8 s sin oir nada" -> "No te
+# escuche". La orden se perdio entera y braya se quedo creyendo que no le oia. Otra vez a las
+# 22:48. El bug: wake_vosk.py usaba 'callado' CUARENTA Y CINCO lineas antes de asignarlo, y
+# ademas no hacia lo que decia su comentario. Ahora: la guarda mira los altavoces, el mismo
+# fallo repetido no rehace nada, y el turno perdido se DICE en vez de callarse.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-oido-roto.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el oido roto se nota)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n177. Volver al juego no es entrar en el juego (idea 4 de las 121)"
 # Enter-Juego la llama el bucle en cuanto la ventana del juego vuelve al primer plano, asi que
 # un alt-tab de veinte segundos contaba como entrar y Nova soltaba "Modo juego" otra vez.

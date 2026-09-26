@@ -19234,6 +19234,54 @@ $ClimaLat = Get-Cfg 'clima' 'lat' $null
 $ClimaLon = Get-Cfg 'clima' 'lon' $null
 $script:clima = $null
 $script:climaCheck = -3600000
+# =====================================================================
+# EL TIEMPO NO SE PIDE OTRA VEZ EN CADA ARRANQUE (26/09, idea 6 de las 121)
+# =====================================================================
+# El clima se guarda una hora... pero solo dentro del proceso. Cada arranque nace con
+# $script:clima vacio y $script:climaCheck en -3600000 -o sea, "hace una hora"-, asi que a los
+# veinte segundos de vivir Nova sale a internet otra vez aunque el dato de hace cuatro minutos
+# siguiera siendo bueno. Y Nova arranca MUCHO.
+#
+# MEDIDO sobre los dos registros: 258 arranques y 504 consultas de clima, de las cuales 334
+# -el 66 %- caen en los TRES MINUTOS siguientes a un arranque. Dos de cada tres viajes a
+# internet eran el mismo dato que ya se sabia.
+#
+# LA VENTANA ES LA MISMA QUE YA HABIA, una hora: no se alarga nada. Lo unico que cambia es que
+# ahora sobrevive al reinicio. Si el fichero es mas viejo, se ignora y se pregunta como siempre.
+$ClimaFrescoMs = 3600000
+function Save-Clima([int]$codigo) {
+    if (-not $script:clima) { return $false }
+    try {
+        $o = [ordered]@{
+            emoji = [string]$script:clima.emoji; desc = [string]$script:clima.desc
+            temp = [int]$script:clima.temp; codigo = $codigo
+            ui = [string]$script:uiTiempo; cuando = (Get-Date).ToString('o')
+        }
+        Write-Atomico (Join-Path $MemoriaDir 'clima.json') (ConvertTo-Json -InputObject $o -Depth 3)
+        return $true
+    } catch { Log ('clima: no pude guardarlo: ' + $_.Exception.Message); return $false }
+}
+function Restore-Clima([datetime]$ahora = (Get-Date)) {
+    # Devuelve los minutos de antiguedad si lo ha cargado, o -1 si no habia nada usable.
+    try {
+        $ruta = Join-Path $MemoriaDir 'clima.json'
+        if (-not (Test-Path -LiteralPath $ruta)) { return -1 }
+        $g = Get-Content -LiteralPath $ruta -Raw -Encoding UTF8 | ConvertFrom-Json
+        if (-not $g -or -not $g.cuando) { return -1 }
+        $c = [datetime]::MinValue
+        if (-not [datetime]::TryParse([string]$g.cuando, [ref]$c)) { return -1 }
+        $ms = ($ahora - $c).TotalMilliseconds
+        # NI DEL FUTURO NI RANCIO: un reloj movido hacia atras dejaria un fichero "del futuro"
+        # que parecia fresco para siempre.
+        if ($ms -lt 0 -or $ms -ge $ClimaFrescoMs) { return -1 }
+        $script:clima = @{ emoji = [string]$g.emoji; desc = [string]$g.desc; temp = [int]$g.temp }
+        $script:uiTiempo = [string]$g.ui
+        # Y EL RELOJ SE PONE COMO SI ACABARA DE MIRARLO, descontando lo que ya ha envejecido:
+        # asi la proxima consulta cae cuando le tocaba, no una hora mas tarde.
+        $script:climaCheck = $sw.ElapsedMilliseconds - $ms
+        return [int]($ms / 60000)
+    } catch { Log ('clima: no pude leer el guardado: ' + $_.Exception.Message); return -1 }
+}
 
 # lluvia / nieve / tormenta / '' : lo dibuja la capsula, muy de vez en cuando
 $script:uiTiempo = ''
@@ -19307,6 +19355,9 @@ function Update-Clima {
         # el avatar NO cambia solo: la carita manda. El tiempo se ensena solo
         # cuando se pregunta (Resolve-Fragment) y unos segundos.
         Log "clima: $desc, $temp grados (codigo $codigo)"
+        # Y AL DISCO, PARA NO VOLVER A PREGUNTARLO EN EL PROXIMO ARRANQUE (26/09, idea 6 de las
+        # 121). Ver Restore-Clima.
+        try { Save-Clima $codigo } catch {}
     } catch { Log ("clima: no disponible (" + $_.Exception.Message + ")") }
 }
 
@@ -21371,6 +21422,12 @@ try {
     # Y QUE NO SE LE ESCAPE NADA AL REPOSITORIO (26/09, idea 1 de las 121). Una vez al dia, y
     # ni eso con un juego delante: son 120 ms de un proceso de git.
     try { [void](Test-MemoriaIgnorada) } catch {}
+    # Y EL TIEMPO DE HACE UN RATO, QUE SIGUE VALIENDO (26/09, idea 6 de las 121). Dos de cada
+    # tres consultas de clima caian en los tres minutos siguientes a un arranque.
+    try {
+        $minC = Restore-Clima
+        if ($minC -ge 0) { Log "clima: recupero el de hace $minC min del disco; no hace falta preguntar" }
+    } catch {}
     $caida = Get-CaidaAnterior $EventLog $PID
     if ($caida) {
         $fr = Get-FraseCaida $caida
@@ -26343,6 +26400,18 @@ function Process-Texto([string]$text) {
             if ($TraducirOn) { Submit-Command $text 'traducir' }
             else { Submit-Command $text }
         }
+    } elseif ($text -eq 'PERDIDO') {
+        # UN TURNO PERDIDO QUE SE SABE PERDIDO (26/09, idea 5 de las 121). El oido escribe esta
+        # marca cuando el MISMO fallo del bucle se repite dentro del dictado: ahi no es que
+        # braya no dijera nada, es que Nova se rompio por dentro mientras hablaba.
+        # El 25/09 a las 21:33 paso tres veces seguidas y lo unico que salio fue "No te
+        # escuche": braya la habia llamado cuatro veces y se quedo creyendo que no le oia.
+        # Decir "se me ha ido" es la verdad, y ademas le dice que merece la pena repetirlo.
+        Log "PERDIDO: el oido se rompio a mitad del dictado; se lo digo en vez de callarmelo"
+        Add-Estadistica 'oido-roto' 'fallo repetido del bucle'
+        $script:ultimaRespuesta = 'Se me ha ido. Repitemelo, por favor.'
+        Show-Popup 'Se me ha ido. Repitemelo.' 'error'
+        Send-Aviso 'Se me ha ido. Repitemelo, por favor.' 'oido-roto'
     } else {
         # antes esto era mudo: no distinguias "fallo" de "no dije nada"
         Log "vacio, ignorado"

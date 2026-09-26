@@ -141,3 +141,7 @@ memoria/uso-ally.json
 memoria/montajes.json
 memoria/palabras-no.json
 memoria/logros-stamp.json
+# 26/09, idea 6: el tiempo guardado para no volver a pedirlo en cada arranque. Lleva la
+# temperatura de TU ciudad, asi que dice donde vives igual que ubicacion.json.
+# Lo cazo el banco de la idea 1 el mismo dia que nacio, que es justo para lo que se hizo.
+memoria/clima.json
