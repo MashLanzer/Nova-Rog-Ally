@@ -40,6 +40,7 @@
 
 import sys
 import os
+import subprocess
 import re
 import json
 import time
@@ -61,6 +62,108 @@ atexit.register(_api.close)
 import charla_memoria as cm
 
 OLLAMA = "http://127.0.0.1:11434"
+# QUE NOTE QUE EL CEREBRO LOCAL ESTA APAGADO (26/09, idea 14 de las 121)
+#
+# LO MEDIDO, y es diez veces peor de lo que decia la idea: el 26/09, entre las 00:07 y las
+# 13:49, assistant.log trae SETECIENTAS CINCUENTA Y SEIS lineas de "diario: no pude resumir
+# ... 10061" -Windows diciendo "no hay nadie escuchando en ese puerto"-. Los huecos entre una
+# y otra: 517 de 65 segundos, 237 de 66 y uno de 67. Ni un freno, ni uno solo creciendo.
+# Y pesa: de las 877 lineas que la charla escribio ese dia, 756 son esta misma. El 86,2 %.
+#
+# Ollama no estaba arrancado -comprobado: ningun proceso y el puerto sin escuchar-, asi que
+# Nova llamaba a una puerta cerrada cada minuto durante catorce horas, y lo apuntaba cada vez.
+#
+# LO QUE SE HACE: se cuenta el fallo, se espera cada vez mas antes de volver a intentarlo, se
+# dice UNA vez, y en el primer fallo se prueba a levantarlo -UNA vez en toda la sesion-. Cuando
+# vuelve, se dice tambien y la espera se borra del todo.
+#
+# LOS TRES NUMEROS: el suelo son 65 s, que es el hueco real medido entre dos intentos, para que
+# el primer reintento caiga donde caia antes. El techo es media hora: con 756 intentos medidos
+# en 13,7 h, subir de ahi seria dejar de mirar en toda una tarde. Y la RAM minima para atreverse
+# a arrancarlo son los 1.200 MB que el oido ya exige para Parakeet (RAM_MIN_PARAKEET en
+# wake_vosk.py), que es el modelo grande de la casa: no es un numero nuevo.
+OLLAMA_ESPERA_SUELO = 65.0
+OLLAMA_ESPERA_TECHO = 1800.0
+OLLAMA_ARRANQUE_RAM_MIN_MB = 1200.0
+_OLLAMA = {"fallos": 0, "no_antes_de": 0.0, "caido_desde": 0.0, "avisado": False,
+           "arranque_probado": False}
+
+
+def ollama_vivo():
+    """Si toca volver a intentarlo. NO toca la red: solo mira el reloj."""
+    return time.time() >= _OLLAMA["no_antes_de"]
+
+
+def ollama_cayo(e):
+    """Un intento fallido: se espera el doble que la vez anterior, hasta el techo."""
+    ahora = time.time()
+    _OLLAMA["fallos"] += 1
+    espera = min(OLLAMA_ESPERA_TECHO, OLLAMA_ESPERA_SUELO * (2 ** (_OLLAMA["fallos"] - 1)))
+    _OLLAMA["no_antes_de"] = ahora + espera
+    if not _OLLAMA["avisado"]:
+        _OLLAMA["avisado"] = True
+        _OLLAMA["caido_desde"] = ahora
+        salida("info", texto="el cerebro local no responde (%s); dejo de llamarlo un rato" % e)
+        # y se prueba a levantarlo UNA sola vez en toda la sesion
+        ollama_arrancar()
+
+
+def ollama_respondio():
+    """Ha vuelto: se dice una vez y la espera se borra del todo, no se divide."""
+    if _OLLAMA["fallos"] or _OLLAMA["avisado"]:
+        fuera = int((time.time() - _OLLAMA["caido_desde"]) / 60.0) if _OLLAMA["caido_desde"] else 0
+        salida("info", texto="el cerebro local ha vuelto (estuvo %d min sin responder)" % fuera)
+    _OLLAMA["fallos"] = 0
+    _OLLAMA["no_antes_de"] = 0.0
+    _OLLAMA["caido_desde"] = 0.0
+    _OLLAMA["avisado"] = False
+
+
+def _ram_libre_mb():
+    """RAM fisica libre, con la stdlib. charla_worker no importa psutil y no se le anade."""
+    try:
+        import ctypes
+
+        class _MS(ctypes.Structure):
+            _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                        ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                        ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                        ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                        ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+        m = _MS()
+        m.dwLength = ctypes.sizeof(_MS)
+        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m)):
+            return -1.0
+        return m.ullAvailPhys / 1048576.0
+    except Exception:  # noqa: BLE001
+        return -1.0
+
+
+def ollama_arrancar():
+    """Levantarlo UNA vez por sesion, y solo si no estorba.
+
+    La marca se pone ANTES de cualquier comprobacion: si algo falla, no se vuelve a intentar
+    en toda la sesion. Levantar un modelo en bucle con braya jugando es justo lo que prohibe
+    la regla 5 de la casa.
+    """
+    if _OLLAMA["arranque_probado"]:
+        return
+    _OLLAMA["arranque_probado"] = True
+    try:
+        if revisor_parado.is_set():
+            return                      # hay un juego delante: ni tocarlo
+        libre = _ram_libre_mb()
+        if 0 <= libre < OLLAMA_ARRANQUE_RAM_MIN_MB:
+            salida("info", texto="no levanto el cerebro local: solo quedan %.0f MB libres" % libre)
+            return
+        exe = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Ollama", "ollama.exe")
+        if not os.path.exists(exe):
+            return
+        subprocess.Popen([exe, "serve"], creationflags=0x08000000,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        salida("info", texto="levanto el cerebro local, que no estaba en marcha")
+    except Exception:  # noqa: BLE001
+        pass
 MODELO_LOCAL = sys.argv[1] if len(sys.argv) > 1 else "qwen2.5:3b"
 MODELO_API = sys.argv[2] if len(sys.argv) > 2 else "claude-haiku-4-5"
 MODELO_EMBED = sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] not in ("", "-") else ""
@@ -434,12 +537,19 @@ def generar_local(mensajes, marcas, emitir, extra=""):
                             emitir(f)
                 if d.get("done"):
                     break
-    except (httpx.ConnectError, httpx.ConnectTimeout):
+    except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+        # SE CUENTA, PERO ESTE CAMINO NO SE FRENA (26/09, idea 14). Aqui hay alguien esperando
+        # una respuesta: saltarselo por una espera dejaria a braya sin contestacion cuando el
+        # cerebro local SI habia vuelto. Lo que se gana es el aviso de que esta caido y el
+        # intento de levantarlo; el freno es solo para el bucle de fondo, que no espera nadie.
+        ollama_cayo(e)
         return "fallo", "ollama no esta en marcha"
     except httpx.ReadTimeout:
         return "fallo", "ollama tardo demasiado"
     except Exception as e:  # noqa: BLE001
         return "fallo", "ollama: %s" % e
+    # ha contestado de verdad: si estaba dado por caido, se dice que ha vuelto
+    ollama_respondio()
     estado, t = ini.final()
     if estado == "marca":
         return "marca", t
@@ -1055,6 +1165,11 @@ def resumir_dias_pasados(hoy=None):
     asistente anade al diario de ese dia; el registro en bruto se borra.
     Uno por vez. Si el modelo no esta, se queda para otro rato."""
     hoy = hoy or time.strftime("%Y-%m-%d")
+    # SI EL CEREBRO LOCAL NO ESTA, NI SE INTENTA (26/09, idea 14). Esta funcion la llama el
+    # bucle de reposo cada 65 s, y el 26/09 dejo 756 lineas de "no pude resumir" en catorce
+    # horas, todas con el mismo error de Windows: no hay nadie escuchando en ese puerto.
+    if not ollama_vivo():
+        return False
     if not cerebro_dicho("el resumen del diario"):
         return False
     try:
@@ -1111,9 +1226,13 @@ def resumir_dias_pasados(hoy=None):
                     "en español, cada una empezando por '- ', sobre de qué hablaron braya y Nova. No inventes nada.")},
                     {"role": "user", "content": "\n".join(turnos)[-2500:]}]})
             r.raise_for_status()
+            # ha contestado: se dice que ha vuelto y la espera se borra del todo
+            ollama_respondio()
             resumen = CJK.sub("", ((r.json().get("message") or {}).get("content") or "")).strip()
         except Exception as e:  # noqa: BLE001
-            salida("info", texto="diario: no pude resumir lo del %s (%s)" % (dia, e))
+            # SE CUENTA, NO SOLO SE ESCRIBE (26/09, idea 14): ollama_cayo espacia el siguiente
+            # intento y lo dice UNA vez, en vez de repetir esta linea cada minuto.
+            ollama_cayo(e)
             return False
         vinetas = ["- " + re.sub(r"^\s*[-•*]\s*", "", l).strip() for l in resumen.splitlines() if l.strip()]
         vinetas = [v for v in vinetas if len(v) > 3][:6]

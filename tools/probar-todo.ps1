@@ -1997,6 +1997,18 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n187. El cerebro local caido se nota una vez, no setecientas (idea 14 de las 121)"
+# MEDIDO el 26/09: entre las 00:07 y las 13:49, assistant.log trae SETECIENTAS CINCUENTA Y SEIS
+# lineas de "diario: no pude resumir ... 10061" -Windows diciendo que no hay nadie en ese
+# puerto-. Los huecos: 517 de 65 s, 237 de 66 y uno de 67. Ni un freno. Y de las 877 lineas que
+# la charla escribio ese dia, 756 son esa misma: el 86,2 %.
+# Ahora se cuenta el fallo, se espera cada vez mas (65 s -> 30 min), se dice UNA vez, y en el
+# primer fallo se prueba a levantarlo UNA vez por sesion -nunca con un juego delante ni sin RAM-.
+# LO QUE MAS VIGILA EL BANCO: que el freno NO llegue a generar_local. Ahi hay alguien esperando
+# respuesta, y saltarselo dejaria a braya sin contestacion cuando el modelo SI habia vuelto.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-cerebro-caido.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:una vez, no setecientas)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n186. El ruido solo se dice cuando ha costado algo (idea 13 de las 121)"
 # El aviso de "hay mucho ruido" saltaba mirando SOLO el nivel de fondo. MEDIDO: 36 avisos en
 # los dos registros y en TREINTA Y TRES -el 91,7 %- no se habia caido ni una llamada del nombre

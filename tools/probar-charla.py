@@ -438,6 +438,12 @@ try:
             return {"message": {"content": "- braya contó que le encanta Hades\n* hablaron de juegos"}}
     cw.httpx.post = lambda url, **kw: (posts_d.append(kw.get("json")), RespDiario())[1]
     del eventos[:]
+    # EL ESTADO DEL CEREBRO LOCAL, A CERO ANTES DE ESTA PRUEBA (26/09, idea 14). Mas arriba
+    # este mismo banco prueba generar_local con la conexion rota a proposito, y desde la idea
+    # 14 eso marca el cerebro como caido y frena el bucle de fondo durante 65 s. Es el
+    # comportamiento bueno -si esta apagado, lo esta para todos-, pero deja el estado sucio
+    # para la prueba siguiente: sin este reseteo, una prueba contamina a la otra.
+    cw._OLLAMA.update(fallos=0, no_antes_de=0.0, caido_desde=0.0, avisado=False)
     comp("al dia siguiente se resume con el modelo local", cw.resumir_dias_pasados(hoy) is True and posts_d and posts_d[-1]["model"] == cw.MODELO_LOCAL)
     ev_d = [e for e in eventos if e["ev"] == "diario"]
     comp("y va al diario de ese dia, en viñetas", ev_d and ev_d[0]["fecha"] == ayer and ev_d[0]["texto"] == "- braya contó que le encanta Hades\n- hablaron de juegos", ev_d)
