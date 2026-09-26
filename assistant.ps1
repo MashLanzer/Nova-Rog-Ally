@@ -9495,7 +9495,7 @@ function Watch-Musica($mu) {
 $script:habitos = $null
 function Get-Habitos {
     if ($null -ne $script:habitos) { return $script:habitos }
-    $script:habitos = @{ usos = (New-Object System.Collections.ArrayList); rechazadas = (New-Object System.Collections.ArrayList); ultimaPropuesta = ''; fin = @{}; cargaAvisada = ''; nivelVisto = 0; brilloAuto = $false; parteVisto = ''; parteTexto = ''; sinDatosVisto = ''; sinDatosTexto = ''; correoVisto = ''; correoNum = -1; ritmo = (New-Object System.Collections.ArrayList); charlaHoras = @{}; variedad = @{}; presencia = @{}; avisoJuego = @{ dia = ''; ult = 0; cada = 0; no = '' } }
+    $script:habitos = @{ usos = (New-Object System.Collections.ArrayList); rechazadas = (New-Object System.Collections.ArrayList); ultimaPropuesta = ''; fin = @{}; cargaAvisada = ''; nivelVisto = 0; brilloAuto = $false; parteVisto = ''; parteTexto = ''; sinDatosVisto = ''; sinDatosTexto = ''; correoVisto = ''; correoNum = -1; ritmo = (New-Object System.Collections.ArrayList); charlaHoras = @{}; variedad = @{}; presencia = @{}; avisoJuego = @{ dia = ''; ult = 0; cada = 0; no = '' }; horas = @{}; ruptura = @{ desde = ''; dicha = '' } }
     $rutaH = Join-Path $MemoriaDir 'habitos.json'
     if (Test-Path -LiteralPath $rutaH) {
         try {
@@ -9511,6 +9511,14 @@ function Get-Habitos {
             }
             $script:habitos.ultimaPropuesta = [string]$crudoH.ultimaPropuesta
             if ($crudoH.fin) { foreach ($pf in $crudoH.fin.PSObject.Properties) { $script:habitos.fin[$pf.Name] = [string]$pf.Value } }
+            # LAS HORAS DE USO Y LA RUPTURA (26/09, idea 27). Con el patron de los demas: una
+            # version vieja del fichero no trae estas claves y no puede reventar la lectura.
+            if ($crudoH.PSObject.Properties['horas'] -and $crudoH.horas) {
+                foreach ($ph in $crudoH.horas.PSObject.Properties) { $script:habitos.horas[$ph.Name] = [int]$ph.Value }
+            }
+            if ($crudoH.PSObject.Properties['ruptura'] -and $crudoH.ruptura) {
+                $script:habitos.ruptura = @{ desde = [string]$crudoH.ruptura.desde; dicha = [string]$crudoH.ruptura.dicha }
+            }
             $script:habitos.cargaAvisada = [string]$crudoH.cargaAvisada
             $script:habitos.nivelVisto = [int]$crudoH.nivelVisto
             $script:habitos.brilloAuto = [bool]$crudoH.brilloAuto
@@ -9566,7 +9574,7 @@ function Get-Habitos {
 function Save-Habitos {
     try {
         $hb = Get-Habitos
-        $o = [ordered]@{ usos = @($hb.usos); rechazadas = @($hb.rechazadas); ultimaPropuesta = $hb.ultimaPropuesta; fin = $hb.fin; cargaAvisada = $hb.cargaAvisada; nivelVisto = $hb.nivelVisto; brilloAuto = [bool]$hb.brilloAuto; parteVisto = [string]$hb.parteVisto; parteTexto = [string]$hb.parteTexto; correoVisto = [string]$hb.correoVisto; correoNum = [int]$hb.correoNum; sinDatosVisto = [string]$hb.sinDatosVisto; sinDatosTexto = [string]$hb.sinDatosTexto; ritmo = @($hb.ritmo); charlaHoras = $hb.charlaHoras; variedad = $hb.variedad; presencia = $hb.presencia; avisoJuego = $hb.avisoJuego }
+        $o = [ordered]@{ usos = @($hb.usos); rechazadas = @($hb.rechazadas); ultimaPropuesta = $hb.ultimaPropuesta; fin = $hb.fin; cargaAvisada = $hb.cargaAvisada; nivelVisto = $hb.nivelVisto; brilloAuto = [bool]$hb.brilloAuto; parteVisto = [string]$hb.parteVisto; parteTexto = [string]$hb.parteTexto; correoVisto = [string]$hb.correoVisto; correoNum = [int]$hb.correoNum; sinDatosVisto = [string]$hb.sinDatosVisto; sinDatosTexto = [string]$hb.sinDatosTexto; ritmo = @($hb.ritmo); charlaHoras = $hb.charlaHoras; variedad = $hb.variedad; presencia = $hb.presencia; avisoJuego = $hb.avisoJuego; horas = $hb.horas; ruptura = $hb.ruptura }
         $rutaH = Join-Path $MemoriaDir 'habitos.json'
         [System.IO.File]::WriteAllText($rutaH + '.tmp', (ConvertTo-Json -InputObject $o -Depth 4), (New-Object System.Text.UTF8Encoding($false)))
         Move-Item -LiteralPath ($rutaH + '.tmp') -Destination $rutaH -Force
@@ -12151,6 +12159,31 @@ function Watch-Entorno([int]$botones = 0) {
         }
     } catch { Log ('exes de juego: ' + $_.Exception.Message) }
 
+    # CAMBIASTE DE HORARIO (26/09, idea 27). NIVEL 'bajo' a proposito: esto no es una averia ni
+    # algo que haya que atender, es Nova diciendo que se ha dado cuenta. Con 'bajo' entra en la
+    # capsula y no se habla encima de nada.
+    # UNA VEZ POR RUPTURA, no una vez por plazo: la marca 'dicha' lleva el dia del corte, asi
+    # que hasta que no cambie el horario OTRA VEZ no se vuelve a decir. El plazo de
+    # Send-AvisoEntorno es un segundo cinturon y se reusa el de disco-poco: 720 minutos.
+    try {
+        $rupH = Get-RupturaHorario
+        if ($rupH) {
+            $hbR = Get-Habitos
+            if (Test-RupturaNueva $hbR.ruptura ([string]$rupH.desde)) {
+                $hbR.ruptura.desde = [string]$rupH.desde
+                $hbR.ruptura.dicha = [string]$rupH.desde
+                Save-Habitos
+                $horasR = [Math]::Round([Math]::Abs($rupH.dif) / 60.0)
+                $haciaR = if ($rupH.dif -gt 0) { 'mas tarde' } else { 'mas temprano' }
+                Log ("RUPTURA DE HORARIO: " + $rupH.antes + " -> " + $rupH.ahora + " minutos (dif " + $rupH.dif + ", dispersion " + $rupH.iqr + ")")
+                Add-Estadistica 'cambio-horario' ("$($rupH.dif) min desde $($rupH.desde)")
+                [void](Send-AvisoEntorno 'cambio-horario' (
+                        "He notado que llevas unos dias usandome unas $horasR horas $haciaR de lo normal. " +
+                        "Me quedo con lo nuevo para calcular tu hora de dormir y lo demas.") 'bajo' 720)
+            }
+        }
+    } catch { Log ('cambio de horario: ' + $_.Exception.Message) }
+
     # IDEA 18: te has pasado de tu hora
     try {
         $txtD = Get-AvisoHoraDormir
@@ -13557,10 +13590,120 @@ function Test-VueltaSaludo([datetime]$ahora = (Get-Date)) {
     return $true
 }
 # minutos desde las 00:00 del dia (la madrugada suma 24 h: la 01:00 son 1500), o -1
+# CAMBIASTE DE HORARIO Y NO SE ENTERO (26/09, idea 27 de las 121).
+# LO MEDIDO sobre las 714 ordenes con texto de los dos registros, partidas en dos semanas:
+#     10-16/09:  73 de manana, 244 de tarde,  25 de noche,  1 de madrugada
+#     18-25/09:   4 de manana,  83 de tarde, 201 de noche, 83 de madrugada
+# La mediana del momento del dia pasa de las 15:30 a las 22:58: CUATROCIENTOS CUARENTA Y OCHO
+# minutos de salto, siete horas y media. Y Nova sigue promediando las dos semanas, asi que su
+# idea de "tu hora de dormir" se queda en tierra de nadie.
+# EL ENVOLTORIO DE LA MADRUGADA ES OBLIGATORIO para que ese numero salga: el dia empieza a las
+# 05:00, y lo de antes cuenta como cola del dia anterior. Es el mismo convenio que
+# Get-HoraFinHabitual ya lleva escrito ("if ($mm -lt 300) { $mm += 1440 }"); sin el, la mediana
+# de la segunda semana sale 20:08 y el salto 278 en vez de 448.
+# Y NO HAY UMBRAL FIJO, a proposito: el salto se compara contra la DISPERSION de los propios
+# dias de referencia (su p75 menos su p25). Medido: ese IQR es 160 minutos y 448/160 = 2,8. Un
+# umbral fijo de 120 haria cantar ruptura tres dias seguidos mas (+195, +150, +195) que con el
+# IQR (300, 540, 420) se callan solos.
+# EL SUELO DE DIEZ ORDENES TAMPOCO ES A OJO: barriendo suelos de 5, 8, 10, 12, 15 y 20 sobre
+# esas 714 ordenes, en 5, 8, 10 y 12 el resultado es IDENTICO -ruptura el 21 y el 22/09 y nada
+# mas-, asi que 10 es el centro del tramo plano. SIN suelo aparecen dos rupturas falsas del
+# lado contrario, el 18/09 y el 19/09, causadas por dias de dos y cuatro ordenes.
+$RupturaMinOrdenesDia = 10
+$RupturaDiasNuevos = 3
+# Y ESTE NO ES NUEVO: es el suelo que Get-HoraFinHabitual ya lleva escrito ahi abajo.
+$RupturaMinDiasRef = 4
+function Get-MedianaMomento($mapa, [string]$desde, [string]$hasta, [int]$minOrdenes) {
+    # La mediana del momento del dia, por dias. Pura: recibe el mapa, no lo busca.
+    # POR DIAS Y NO POR ORDENES: un dia con cuarenta ordenes no puede pesar diez veces mas que
+    # uno con cuatro. Primero la mediana de cada dia, luego la mediana de esas.
+    if (-not $mapa) { return -1 }
+    $porDia = @{}
+    foreach ($k in @($mapa.Keys)) {
+        $ks = [string]$k
+        if ($ks.Length -lt 13) { continue }
+        $dia = $ks.Substring(0, 10)
+        if ($dia -lt $desde -or $dia -ge $hasta) { continue }
+        $hh = [int]$ks.Substring(11, 2)
+        $mm = $hh * 60 + 30            # el centro del cubo de una hora
+        if ($mm -lt 300) { $mm += 1440 }
+        if (-not $porDia.ContainsKey($dia)) { $porDia[$dia] = New-Object System.Collections.ArrayList }
+        for ($i = 0; $i -lt [int]$mapa[$k]; $i++) { [void]$porDia[$dia].Add($mm) }
+    }
+    $medianas = @()
+    foreach ($d in @($porDia.Keys)) {
+        $l = @($porDia[$d] | Sort-Object)
+        if ($l.Count -lt $minOrdenes) { continue }
+        $medianas += $l[[int][Math]::Floor($l.Count / 2)]
+    }
+    if ($medianas.Count -eq 0) { return -1 }
+    $medianas = @($medianas | Sort-Object)
+    return $medianas[[int][Math]::Floor($medianas.Count / 2)]
+}
+function Get-RupturaHorario([datetime]$hoy = (Get-Date)) {
+    # Si el horario de los ultimos dias se ha salido de lo que era, devuelve cuanto.
+    # Devuelve $null si no hay ruptura o si no hay datos suficientes. NO decide nada: quien
+    # avisa y quien recorta la ventana miran esto, pero esto no toca ni un ajuste.
+    try {
+        $hb = Get-Habitos
+        if (-not $hb.horas -or @($hb.horas.Keys).Count -eq 0) { return $null }
+        $finNuevo = $hoy.AddHours(-5).AddDays(1).ToString('yyyy-MM-dd')
+        $iniNuevo = $hoy.AddHours(-5).AddDays(-($RupturaDiasNuevos - 1)).ToString('yyyy-MM-dd')
+        $iniRef = $hoy.AddHours(-5).AddDays(-10).ToString('yyyy-MM-dd')
+        $medNuevo = Get-MedianaMomento $hb.horas $iniNuevo $finNuevo $RupturaMinOrdenesDia
+        if ($medNuevo -lt 0) { return $null }
+        # LOS DIAS DE REFERENCIA, uno a uno: hacen falta sus medianas para sacar la dispersion.
+        $refs = @()
+        for ($i = 0; $i -lt 8; $i++) {
+            $d = $hoy.AddHours(-5).AddDays(-10 + $i)
+            $k1 = $d.ToString('yyyy-MM-dd')
+            $k2 = $d.AddDays(1).ToString('yyyy-MM-dd')
+            $m = Get-MedianaMomento $hb.horas $k1 $k2 $RupturaMinOrdenesDia
+            if ($m -ge 0) { $refs += $m }
+        }
+        if ($refs.Count -lt $RupturaMinDiasRef) { return $null }
+        $refs = @($refs | Sort-Object)
+        $medRef = $refs[[int][Math]::Floor($refs.Count / 2)]
+        # LA DISPERSION DE LOS PROPIOS DIAS, no un numero escrito: p75 menos p25 por rango
+        # cercano, que es el metodo con el que sale el 160 de la medicion.
+        $p25 = $refs[[int][Math]::Floor(0.25 * ($refs.Count - 1))]
+        $p75 = $refs[[int][Math]::Floor(0.75 * ($refs.Count - 1))]
+        $iqr = $p75 - $p25
+        $dif = $medNuevo - $medRef
+        if ([Math]::Abs($dif) -le $iqr) { return $null }
+        return @{ desde = $iniNuevo; dif = [int]$dif; iqr = [int]$iqr; antes = [int]$medRef; ahora = [int]$medNuevo }
+    } catch { return $null }
+}
+function Test-RupturaNueva($ruptura, [string]$desdeNuevo) {
+    # UN CAMBIO DE HORARIO, UN AVISO. Medido: un solo cambio hace saltar al detector CUATRO
+    # dias seguidos, porque la ventana de referencia todavia arrastra los dias de antes y el
+    # tramo nuevo se va corriendo un dia cada vez. Sin esta guarda, braya oiria cuatro veces lo
+    # mismo por el mismo cambio.
+    # LOS OCHO DIAS NO SON NUEVOS: son la ventana de referencia que el propio detector usa
+    # (D-10 a D-3). Mientras esa ventana siga tocando la ruptura anterior, esto es el mismo
+    # cambio; cuando ha rodado entera, un salto nuevo es un cambio nuevo de verdad.
+    if (-not $ruptura -or -not [string]$ruptura.dicha) { return $true }
+    try {
+        $d1 = [datetime]::ParseExact([string]$ruptura.dicha, 'yyyy-MM-dd', $null)
+        $d2 = [datetime]::ParseExact($desdeNuevo, 'yyyy-MM-dd', $null)
+        return (($d2 - $d1).TotalDays -gt 8)
+    } catch { return $true }
+}
 function Get-HoraFinHabitual([datetime]$hoy = (Get-Date)) {
     $hb = Get-Habitos
     $desde = $hoy.AddDays(-14).ToString('yyyy-MM-dd')
     $hoyK = $hoy.AddHours(-5).ToString('yyyy-MM-dd')
+    # SI CAMBIASTE DE HORARIO, LO DE ANTES NO CUENTA (26/09, idea 27). Pero SOLO si despues del
+    # corte quedan al menos cuatro dias, que es el suelo que esta misma funcion tiene abajo.
+    # SIN ESA GUARDA LA REGRESION ESTA MEDIDA: recortando al dia de la ruptura, esta funcion se
+    # queda con 0, 1, 2 y 3 dias los cuatro dias siguientes, devuelve -1, Get-NocheDesde cae al
+    # valor de fabrica y LA NOCHE VUELVE A LAS 23:00 cuatro dias seguidos. Es exactamente la
+    # regresion que la idea 8 del 25/09 acaba de arreglar.
+    $cortaR = [string]$hb.ruptura.desde
+    if ($cortaR -and $cortaR -gt $desde) {
+        $quedan = @($hb.fin.Keys | Where-Object { $_ -ge $cortaR -and $_ -lt $hoyK }).Count
+        if ($quedan -ge 4) { $desde = $cortaR }
+    }
     $mins = @($hb.fin.Keys | Where-Object { $_ -ge $desde -and $_ -lt $hoyK } | ForEach-Object {
         $hf = [string]$hb.fin[$_]
         $mm = [int]$hf.Substring(0, 2) * 60 + [int]$hf.Substring(3, 2)
@@ -23666,6 +23809,25 @@ function Get-VentanaSeguimiento([bool]$charla = $false) {
 # probable que vayas a conversar (hablasteis hace poco, o sueles hacerlo a esta
 # hora tres dias de las dos ultimas semanas), al llamarla se precarga mientras
 # dictas. Jugando no, que la RAM es del juego, salvo que acabeis de hablar.
+# A QUE HORAS USA NOVA, CONTANDO (26/09, idea 27 de las 121). Gemela de Add-CharlaHora, con
+# UNA diferencia: aqui se INCREMENTA. Aquella solo marca "hubo charla en esta hora"; esto
+# necesita la cuenta, porque el detector de mas abajo descarta los dias con pocas ordenes y sin
+# contar no se sabe cuantas hubo.
+# POR QUE HACE FALTA UN REGISTRO NUEVO: habitos.fin solo guarda la hora de la ULTIMA orden del
+# dia -once dias en total- y charlaHoras solo las horas con charla. Ninguno de los dos dice a
+# que horas se usa Nova. Con las 714 ordenes de los dos registros el patron canta; con lo que
+# hay guardado hoy, el detector no dispara ni una vez.
+function Add-HoraUso([datetime]$cuando = (Get-Date)) {
+    if ($script:invitado) { return }
+    $hbU = Get-Habitos
+    $claveU = $cuando.ToString('yyyy-MM-dd|HH')
+    if ($hbU.horas.ContainsKey($claveU)) { $hbU.horas[$claveU] = [int]$hbU.horas[$claveU] + 1 }
+    else { $hbU.horas[$claveU] = 1 }
+    # la misma poda de 14 dias que su gemela, que es tambien la ventana de Get-HoraFinHabitual
+    $limU = $cuando.AddDays(-14).ToString('yyyy-MM-dd')
+    foreach ($k in @($hbU.horas.Keys)) { if ($k.Substring(0, 10) -lt $limU) { $hbU.horas.Remove($k) } }
+    Save-Habitos
+}
 function Add-CharlaHora([datetime]$cuando = (Get-Date)) {
     if ($script:invitado) { return }
     $hbC = Get-Habitos
@@ -26294,6 +26456,9 @@ function Process-Texto([string]$text) {
             try { Test-ResumenAlVolver } catch {}
             try { Test-ParteManana } catch {}   # ver PARTE DE LA MANANA
             try { Set-UsoAhora } catch {}
+            # A QUE HORA HA SIDO (26/09, idea 27). Aqui pasan TODAS las ordenes con texto: son
+            # exactamente las 714 con las que esta medido el cambio de horario.
+            try { Add-HoraUso } catch {}
             # y AHORA se sella: hablar es lo unico que cuenta como "estaba aqui". Va detras
             # de Test-ResumenAlVolver a proposito, o no habria ausencia que detectar (18/09).
             try { Set-HabloAhora } catch {}

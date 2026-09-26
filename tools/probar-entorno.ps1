@@ -112,7 +112,10 @@ Invoke-Expression (Traer 'Test-PuedoAvisar')
 $AvisoJuntarMs = 4000
 $script:avisoCola = New-Object System.Collections.ArrayList
 $script:avisoColaDesde = 0
-$script:habitosFalsos = @{ charlaHoras = @{} }
+# LAS DOS CLAVES NUEVAS, A PROPOSITO (26/09, idea 27). Sin ellas este doble seguiria VERDE
+# probando nada: en PowerShell 5.1 sin StrictMode, $hb.horas sobre una tabla que no la tiene
+# es $null, @($null.Keys) sale vacio y $null.Count es 0. No peta, y eso es peor.
+$script:habitosFalsos = @{ charlaHoras = @{}; horas = @{}; ruptura = @{ desde = ''; dicha = '' } }
 function Get-Habitos { return $script:habitosFalsos }
 $script:statsFalsas = @{ dias = @{} }
 function Get-Estadisticas { return $script:statsFalsas }

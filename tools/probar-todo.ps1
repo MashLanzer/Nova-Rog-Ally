@@ -1997,6 +1997,21 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n199. Nova se entera de que cambiaste de horario (idea 27 de las 121)"
+# MEDIDO sobre las 714 ordenes con texto de los dos registros, partidas en dos semanas:
+#   10-16/09:  73 de manana, 244 de tarde,  25 de noche,  1 de madrugada
+#   18-25/09:   4 de manana,  83 de tarde, 201 de noche, 83 de madrugada
+# La mediana del momento del dia pasa de las 15:30 a las 22:58: CUATROCIENTOS CUARENTA Y OCHO
+# minutos de salto, y Nova seguia promediando las dos semanas. NO HAY UMBRAL FIJO: el salto se
+# compara contra la dispersion de los propios dias de referencia (IQR 160; 448/160 = 2,8). Con
+# un umbral de 120 cantarian tres dias mas que con el IQR se callan. Y el suelo de diez ordenes
+# por dia tampoco es a ojo: sin el, el 18 y el 19/09 cantan ruptura DEL LADO CONTRARIO.
+# LA GUARDA QUE EVITA LA REGRESION: el recorte de la ventana solo se aplica si despues del
+# corte quedan cuatro dias. Sin ella, Get-HoraFinHabitual devuelve -1 cuatro dias seguidos y la
+# noche vuelve a las 23:00, que es justo lo que la idea 8 del 25/09 acaba de arreglar.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-cambio-horario.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se entera de que cambiaste de horario)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n198. Nova aprende sola con que programa se abre cada juego (idea 26 de las 121)"
 # EL CASO, con numeros: el 25/09 braya jugo 4.038 segundos seguidos a ELDEN RING NIGHTREIGN -una
 # hora y siete minutos- y Nova apunto SETENTA Y CINCO. El 1,86 %: se perdio el 98,14 % de la

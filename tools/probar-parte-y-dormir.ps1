@@ -35,7 +35,10 @@ function Traer([string]$nombre) {
 }
 
 # --- dependencias: los habitos de mentira y los numeros del fichero real ---
-$script:habitosFalsos = @{ fin = @{}; charlaHoras = @{}; presencia = @{} }
+# Y LAS DOS DE LA IDEA 27, que este banco trae Get-HoraFinHabitual y esa funcion mira ahora
+# $hb.ruptura.desde. Sin la clave no peta -da $null y no recorta-, o sea que pasaria en verde
+# sin llegar a probar el recorte nunca.
+$script:habitosFalsos = @{ fin = @{}; charlaHoras = @{}; presencia = @{}; horas = @{}; ruptura = @{ desde = ''; dicha = '' } }
 function Get-Habitos { return $script:habitosFalsos }
 function Get-Cfg([string]$s, [string]$k, $d) { return $d }
 $mND = [regex]::Match($fuente, '(?m)^\$EntornoNocheDesde = (.+)$')

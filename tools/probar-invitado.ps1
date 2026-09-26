@@ -31,7 +31,7 @@ $DEBEN = @(
     'Add-Memoria', 'Add-DiarioResumen', 'Add-Alias-Comando', 'Add-Traduccion', 'Add-Rechazo',
     'Add-VarianteReceta', 'Add-Receta', 'Set-NotaJuego', 'Save-Contactos', 'Add-TiempoJuego',
     'Add-Fecha', 'Add-Estadistica', 'Add-Habito', 'Add-HistorialMusica', 'Add-DatoPerfil',
-    'Add-CharlaHora', 'Add-RitmoSeguimiento'
+    'Add-CharlaHora', 'Add-RitmoSeguimiento', 'Add-HoraUso'
 )
 # --- y las que NO guardan nada personal: exentas, con el motivo ---
 $EXENTAS = @{
