@@ -186,9 +186,20 @@ if (Test-Path -LiteralPath $fichero) {
     $nSolo = @($todas | Where-Object { $_.dos -and -not $_.solo }).Count
     $nPart = @($todas | Where-Object { $_.dos -and $_.partida }).Count
     $cab = ([System.IO.File]::ReadAllText($ruta)).Substring($j1, 1200)
-    Comp 'el comentario dice cuantos son de dos, y cuadra' ($cab -match 'OCHO' -and $nDos -eq 8) "$nDos de dos"
-    Comp 'y cuantos SOLO de dos' ($cab -match 'TRES' -and $nSolo -eq 3) "$nSolo solo de dos"
-    Comp 'y cuantos a pantalla partida' ($cab -match 'Cuatro se juegan a pantalla partida' -and $nPart -eq 4) "$nPart a pantalla partida"
+    # EL NUMERO DEL COMENTARIO LLEVA FECHA, NO SE COMPARA CON HOY (25/09). Antes se exigia
+    # "$cab dice OCHO Y hoy son 8", y eso se cae solo: braya instala y desinstala juegos, y el
+    # 25/09 habian pasado a ser doce, asi que el banco salio rojo sin que nadie tocara una
+    # linea. Lo que de verdad manda la regla 3 no es que la cifra sea la de hoy: es que se
+    # sepa DE CUANDO es y se pueda volver a sacar. Asi que se exige la fecha, y el recuento de
+    # hoy se dice al lado para ver como se mueve.
+    Comp 'el numero del comentario viene con su fecha' ($cab -match 'MEDIDO EL \d{2}/\d{2}') "hoy son $nDos de dos"
+    Comp 'y sigue habiendo juegos de dos que contar' ($nDos -ge 1) "$nDos de dos, $nSolo solo de dos"
+    # Las otras dos cifras del comentario, con el mismo criterio: lo que se exige es que el
+    # comentario las de en pasado y con su dia (esta medido el 23/09), no que cuadren con la
+    # biblioteca de esta noche. La de "a pantalla partida" ya habia pasado de cuatro a seis.
+    Comp 'las cifras del comentario estan en pasado' `
+        ($cab -match 'eran de dos' -and $cab -match 'PODIAN JUGAR SOLO' -and $cab -match 'se jugaban a pantalla partida') `
+        "hoy: $nSolo solo de dos, $nPart a pantalla partida"
 }
 
 Write-Host ''

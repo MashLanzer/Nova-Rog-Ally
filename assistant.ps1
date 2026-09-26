@@ -1252,10 +1252,15 @@ function Update-Juegos {
 
 
 # ===================== A QUE PODEMOS JUGAR LOS DOS (23/09, funcion 9) =====================
-# De donde sale: de su propia biblioteca. Contado de sus doce fichas: OCHO de sus juegos son
-# de dos -siete cooperativos y 5D Chess, que es uno contra otro- y TRES de ellos, A Way Out,
-# The Past Within y Content Warning, NO SE PUEDEN JUGAR SOLO: no traen la categoria "Un
-# jugador". Cuatro se juegan a pantalla partida. Ademas juega a Roblox con su novia y tiene
+# De donde sale: de su propia biblioteca. MEDIDO EL 23/09 sobre sus doce fichas de entonces:
+# OCHO de sus juegos eran de dos -siete cooperativos y 5D Chess, que es uno contra otro- y
+# TRES de ellos, A Way Out, The Past Within y Content Warning, NO SE PODIAN JUGAR SOLO: no
+# traen la categoria "Un jugador". Cuatro se jugaban a pantalla partida.
+# ESE NUMERO LLEVA FECHA A PROPOSITO, y desde el 25/09 el banco ya no exige que cuadre con hoy:
+# braya instala y desinstala juegos, asi que "hoy son ocho" caduca solo y pone el banco en rojo
+# sin que nadie haya tocado una linea (paso el 25/09: habian pasado a ser doce). Lo que si se
+# exige es que el numero venga con su dia, que es lo que lo hace comprobable. El recuento de
+# hoy se dice al pasar el banco, para que se vea como se mueve. Ademas juega a Roblox con su novia y tiene
 # It Takes Two apuntado en su memoria de juegos, que tambien es solo de dos. Nova tenia todo
 # eso delante y no sabia decir cual es cual: "abre A Way Out" lo abria igual que otro.
 #
@@ -11668,6 +11673,7 @@ function Undo-DecisionPropia {
         # una salida que exige reiniciar es media salida, y la regla 2 pide dos de verdad.
         # Se parte igual que al arrancar (assistant.ps1, donde nace $RepasoCascada), porque lo
         # que se guardo en $d.antes es la lista unida por comas.
+        'escucha.repasos' { $script:RepasoCascada = @([string]$d.antes -split '\s*,\s*' | Where-Object { $_ }) }
         default { $enVivoD = $false }
     }
     if (-not $okU) {

@@ -57,6 +57,11 @@ $EXENTAS = @{
     'Save-Recordatorios'      = 'un recordatorio se pide a proposito'
     'Save-Reglas'             = 'una regla se pide a proposito'
     'Save-TiempoJuego'        = 'lo llama Add-TiempoJuego, ya protegido'
+    # EL CUADERNO DE LA ALLY (25/09), exactamente por el mismo motivo que su gemelo de arriba:
+    # Save-UsoAlly solo vuelca lo que Add-UsoAlly haya acumulado, y Add-UsoAlly ya se planta en
+    # seco con un invitado delante. Lo que hace otra persona con la consola no es la costumbre
+    # de braya, y ese cuaderno existe para deducir sus costumbres.
+    'Save-UsoAlly'            = 'lo llama Add-UsoAlly, ya protegido'
     'Save-DatosPerfil'        = 'lo llama Add-DatoPerfil, que ya mira el modo'
     # 23/09: dejo de estar exenta por el motivo viejo -"se pide a proposito"- y lleva la guarda
     # dentro. El modo invitado se propone justo cuando Nova no reconoce la voz, o sea cuando
