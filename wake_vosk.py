@@ -328,6 +328,23 @@ pulsos_ruidosos = 0
 # amplificar justo el juego, que es la receta de que Nova haga algo que nadie pidio.
 # Por eso solo cuentan los que pasan con los altavoces CALLADOS (<= UMBRAL_ALTAVOZ).
 FLOJO_VENTANA = 120.0
+# EL DESCARTE QUE SE ARREPIENTE (26/09, idea 23 de las 121). Cuando el oido tira una llamada
+# -porque la rafaga sono floja, o porque los altavoces obligaban a exigir mas confianza- no
+# vuelve a pensar en ello nunca. Pero si a los pocos segundos se abre una escucha BUENA -porque
+# braya repitio, o porque se rindio y apreto el boton- ese descarte estaba MAL, y las dos
+# lineas ya estan escritas en el registro sin que nadie las cruce.
+# MEDIDO sobre los dos registros, 18 dias: 113 descartes por rafaga floja con 15 arrepentidos
+# (13 %) y 162 por confianza con altavoces con 9 (6 %). Son 24 veces en que Nova le ignoro y el
+# tuvo que insistir.
+# LOS 30 SEGUNDOS NO SON A OJO: de los 67 arrepentidos del registro entero, solo 7 caen en 3 s
+# o menos -esos son la misma rafaga, no un segundo intento- y los 60 restantes se reparten
+# entre 4 y 30 s con cola espesa hasta el final (6 a 24 s, 4 a 27 s, 3 a 29 s, 1 a 30 s).
+# Acortarla a 15 s perderia mas de un tercio, y el borde de 30 s todavia trae casos.
+DESCARTE_ARREPIENTE_SEG = 30.0   # ventana para darle la vuelta a un descarte
+# La cola solo tiene que sobrevivir esa ventana, no la sesion: el dia mas cargado (24/09) son
+# 54 descartes por altavoces en TODO el dia. Mismo orden que el del flojos_callados de al lado.
+DESCARTES_RECUERDO = 40
+descartes_pendientes = []        # descartes a la espera de veredicto
 flojos_callados = []
 # AVISAR DEL RUIDO SOLO SI EL RUIDO HA COSTADO ALGO (26/09, idea 13 de las 121).
 #
@@ -2724,6 +2741,70 @@ def fila_activacion(pend, desenlace, ahora, extra=None):
     return fila
 
 
+def fila_descarte(pend, veredicto, ahora):
+    """La linea que se guarda de un descarte. Pura, como fila_activacion: ni disco ni reloj.
+
+    Asi el banco puede probar el veredicto entero sin tocar el microfono.
+    """
+    fila = dict(pend)
+    t0 = fila.pop("t", None)
+    fila["veredicto"] = veredicto
+    if t0 is not None:
+        fila["espera"] = round(max(0.0, ahora - float(t0)), 2)
+    return fila
+
+
+def guardar_descarte(campos):
+    """Una linea en descartes.jsonl. Gemela de apuntar_activacion.
+
+    OJO CON EL NOMBRE: apuntar_descarte() ya existe y es otra cosa -apunta la hora en una lista
+    en RAM para el aviso de ruido, idea 13-. Esta escribe en disco.
+    """
+    try:
+        os.makedirs(USO_DIR, exist_ok=True)
+        with open(os.path.join(USO_DIR, "descartes.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps(campos, ensure_ascii=False) + "\n")
+    except Exception as e:
+        anota("WARN: no pude apuntar el descarte (%s)" % e)
+
+
+def encolar_descarte(campos):
+    """Un descarte mas a la espera de veredicto. Con tope, que esto corre en el bucle."""
+    descartes_pendientes.append(campos)
+    del descartes_pendientes[:-DESCARTES_RECUERDO]
+
+
+def veredicto_descartes(ahora, abrio_dictado, origen=""):
+    """Le pone la nota a los descartes que ya se puede juzgar. Devuelve las filas escritas.
+
+    UN DESCARTE, UNA LINEA: se saca de la cola ANTES de escribir, igual que cerrar_activacion
+    vacia ACT_PENDIENTE antes de apuntar. Si no, dos dictados seguidos dentro de la ventana
+    escribirian el mismo descarte dos veces y la cuenta saldria inflada.
+    ESTO NO MUEVE NINGUN LISTON, Y ES A PROPOSITO. La idea original queria que la fraccion de
+    arrepentidos bajara el umbral sola, y su propio dato lo tumba: con la ventana y el escalon
+    mas generosos que proponia, se recuperan 7 llamadas y se cuelan 30 falsas. Esto es un
+    cuaderno, no un mando. Cuando haya numeros suyos, ya se decidira con ellos.
+    """
+    if not descartes_pendientes:
+        return []
+    quedan = []
+    salen = []
+    for p in descartes_pendientes:
+        edad = ahora - float(p.get("t", ahora))
+        if abrio_dictado and edad <= DESCARTE_ARREPIENTE_SEG:
+            salen.append(fila_descarte(p, "arrepentido", ahora))
+        elif edad > DESCARTE_ARREPIENTE_SEG:
+            salen.append(fila_descarte(p, "acertado", ahora))
+        else:
+            quedan.append(p)
+    descartes_pendientes[:] = quedan
+    for fila in salen:
+        if origen and fila.get("veredicto") == "arrepentido":
+            fila["volvio_por"] = origen
+        guardar_descarte(fila)
+    return salen
+
+
 def apuntar_activacion(campos):
     try:
         os.makedirs(USO_DIR, exist_ok=True)
@@ -3632,6 +3713,10 @@ try:
                 ahora = time.time()
                 crudo = datos   # se conserva para medir el nivel aunque se tire
                 caducar_activacion(ahora)   # ver APUNTAR LAS ACTIVACIONES
+                # Y LOS DESCARTES QUE YA NADIE VA A desmentir (26/09, idea 23). Sin esta
+                # llamada, un descarte acertado se quedaria en la cola para siempre y solo se
+                # apuntarian los arrepentidos: la cuenta saldria del 100 %.
+                veredicto_descartes(ahora, False)
                 if datos is None and ahora - ultima_llegada > MIC_MUERTO:
                     anota("ERROR: el microfono lleva %.0f s sin entregar audio; salgo para que me relancen"
                           % (ahora - ultima_llegada))
@@ -3733,6 +3818,11 @@ try:
                     ultima_palabra = ahora
                     visto_dictado = ""
                     escribir(PARCIAL, "")
+                    # AQUI SE ARREPIENTE (26/09, idea 23): si hay descartes de hace menos de
+                    # treinta segundos, esta escucha buena dice que aquellos estaban mal. Y
+                    # aqui ya se sabe por donde volvio, que es la mitad del dato: si braya
+                    # repitio el nombre, o si se rindio y apreto el boton.
+                    veredicto_descartes(ahora, True, "nombre" if origen_nombre else "boton")
                     anota("dictado: escuchando la orden")
                 elif dictando and not quiere_dictar:
                     # el asistente lo corto a mano (boton): se entrega lo que haya
@@ -4339,6 +4429,19 @@ try:
                                     if salida <= UMBRAL_ALTAVOZ:
                                         flojos_callados.append(ahora)
                                         del flojos_callados[:-20]
+                                    # Y A LA COLA, A VER SI ERA BRAYA (26/09, idea 23). Se
+                                    # guarda TODO lo que la linea del log no lleva: si esto
+                                    # resulta estar mal, el numero que habria que mover se
+                                    # decide con estos campos, no adivinando.
+                                    encolar_descarte(dict(
+                                        hora=time.strftime("%Y-%m-%d %H:%M:%S"), t=ahora,
+                                        motivo="rafaga", texto=texto,
+                                        rafaga=round(float(pico_rafaga), 4),
+                                        umbral=round(float(umbral_rafaga()), 4),
+                                        altavoces=round(float(salida), 3),
+                                        p90=round(float(ultimo_p90), 4),
+                                        suelo=round(float(suelo_ruido), 4),
+                                        ganancia=round(float(ganancia), 1)))
                                 elif conf < umbral_confianza(plano):
                                     # Y POR QUE SE SUBIO EL LISTON (22/09). Hasta hoy esta
                                     # linea decia contra que numero se comparaba, pero no
@@ -4369,6 +4472,19 @@ try:
                                     anota("descartado '%s': confianza %.2f < %.2f%s"
                                           % (texto, conf, umbral_confianza(plano), _porque))
                                     apuntar_descarte(ahora)
+                                    # Y A LA COLA (26/09, idea 23). Aqui _larga y _alt ya estan
+                                    # calculados, que es justo lo que hay que guardar para poder
+                                    # repartir despues la culpa entre la frase larga y el ruido.
+                                    encolar_descarte(dict(
+                                        hora=time.strftime("%Y-%m-%d %H:%M:%S"), t=ahora,
+                                        motivo="confianza", texto=texto,
+                                        conf=round(float(conf), 2),
+                                        umbral=round(float(umbral_confianza(plano)), 2),
+                                        altavoces=round(float(_alt), 3),
+                                        puerta=round(float(_puerta), 3),
+                                        larga=bool(_larga),
+                                        rafaga=round(float(pico_rafaga), 4),
+                                        ganancia=round(float(ganancia), 1)))
                                 elif not juez_deja_pasar(texto):
                                     # el juez ya lo apunto en el log con las dos versiones, y
                                     # tambien apunto el descarte (idea 13)

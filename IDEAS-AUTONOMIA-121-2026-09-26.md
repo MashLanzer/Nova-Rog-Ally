@@ -335,6 +335,39 @@ Leyenda: **⬆** acerca el 100 % de comprensión · **∿** adaptativa · **⚙*
 
 > **El verificador corrigió el dato:** El 'como' es inviable tal cual: escucha.confianzaMinima NO se puede subir en caliente. $EscuchaConf se lee una vez (17997) y se pasa como argumento 15 al lanzar wake_vosk.py (18379); cambiarlo obligaria a relanzar el worker y soltar el microfono, que rompe la regla 4 justo en el peor momento. La palanca que SI esta en el cerebro y SI se puede mover por vuelta del bucle es $RepasoDudosoUmbral (24196, input.repasoDudoso = -0.9) contra $script:dictadoConfianza (25721), que ya manda a repasar antes de hacer nada. Ademas la racha mas larga no es de 4 sino de 11 'negar' seguidos.
 
+### ~~22. Un tercer oído de Vosk que solo sabe los nombres de lo que tienes instalado~~ ✗ TUMBADA POR LA MEDICIÓN
+
+**Se midió antes de escribir una línea, y no pasa la puerta.** El plan de esta idea ponía una
+condición explícita: *«si la medición no separa limpio (a) las veces que hay un nombre de verdad
+de (b) las veces que no lo hay y se lo inventa, la idea se cae y no se implementa»*. Se midió con
+`tools/medir-nombres-instalados.py`, que monta el reconocedor cerrado con la lista real de
+`tmp/vocabulario.txt` (53 nombres) contra `vosk-model-small-es-0.42` y lo pasa por los .wav de
+`pruebas/audio/uso`.
+
+**Lo que salió, sobre 90 órdenes con un nombre en lo entregado y 150 sin ninguno:**
+
+| | acierta | se calla | se lo inventa |
+|---|---|---|---|
+| (a) SÍ había un nombre | 22 exacto, 76 suelto | — | — |
+| (b) NO había ninguno | — | 19 | **131** |
+
+**Y las confianzas no separan:** la mediana de los aciertos es 0,74 y la de los inventos 0,63; el
+invento con más confianza llega a **1,00**, o sea al mismo techo que el mejor acierto. No existe
+un listón que deje pasar los buenos y pare los inventados.
+
+**Y no es cuestión de afinar, es estructural.** Un reconocedor de gramática cerrada está
+OBLIGADO a elegir de la lista: no tiene la opción de callarse ante una frase cualquiera. Por eso
+se inventa un nombre en el 87 % de las órdenes que no hablaban de ninguna app, con frases como
+«se inventó *steam*, confianza 1,00» sobre audio donde braya no dijo Steam. Meter eso delante de
+`Find-Aproximado` es la regla 1 de la casa al revés: Nova abriría cosas que nadie pidió.
+
+**El problema que quería arreglar es real y sigue ahí:** 21 de las 1.037 órdenes guardadas traen
+`sting` en el campo `vosk` cuando lo entregado decía *Steam*, y 5 de los 369 repasos salen de
+eso. Pero hay que atacarlo por otro lado, no con una gramática cerrada sobre la frase entera.
+La medición queda en `tools/medir-nombres-instalados.py` para quien lo intente.
+
+<details><summary>La idea original, tal y como se propuso</summary>
+
 ### 22. Un tercer oído de Vosk que solo sabe los nombres de lo que tienes instalado ⬆ ∿
 
 **Valor 8 · coste 6 · ángulo `oido`**
@@ -350,6 +383,8 @@ Leyenda: **⬆** acerca el 100 % de comprensión · **∿** adaptativa · **⚙*
 **Riesgo y guarda.** Que la gramática cerrada alucine un nombre en cualquier ruido, que es exactamente el fallo del 20/09 con el nombre 'nova'. Dos guardas: el reconocedor lleva SetWords(True) y se exige confianza como en los otros tres, y su respuesta no ejecuta nada por sí sola, solo entra como candidata detrás de un verbo de abrir/cerrar, que es donde Find-Aproximado ya obliga a confirmar.
 
 > **El verificador corrigió el dato:** Exacto por los dos lados. Contando palabras sobre registro.jsonl: 'sting' 36, 'steam' 113, 'ting' 2, 'resting' 1. Y reimplementando Get-DistanciaFon (assistant.ps1:820) con sus GruposFon: sting->steam = 5, ting->steam = 7, resting->steam = 9, con el tope de Find-Aproximado para una clave de 5 letras en max(2, floor(5*0,34)*2) = 2. Los tres se rechazan. Comprobado además en el log real: 25/09 01:25:37 'Cierre Sting, Paul' -> 'no es una orden que entienda; lo repasa canary' -> canary devuelve 'resting' -> acaba en 'no te pongo mas resting'.
+
+</details>
 
 ### 23. El descarte que se arrepiente: el oído ya tiene la respuesta correcta 30 segundos después ⬆ ∿
 

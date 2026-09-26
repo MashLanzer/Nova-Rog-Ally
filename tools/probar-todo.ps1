@@ -1997,6 +1997,19 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n195. El oido se pone la nota a sus propios descartes (idea 23 de las 121)"
+# Cuando el oido tira una llamada -la rafaga sono floja, o los altavoces obligaban a exigir mas
+# confianza- no volvia a pensar en ello nunca. Pero si a los pocos segundos se abre una escucha
+# BUENA -porque braya repitio, o porque se rindio y apreto el boton- ese descarte estaba MAL, y
+# las dos lineas ya estaban escritas en el registro sin que nadie las cruzara. MEDIDO sobre 18
+# dias: 113 descartes por rafaga con 15 arrepentidos (13 %) y 162 por confianza con 9 (6 %). Los
+# 30 s de la ventana tampoco son a ojo: de 67 arrepentidos, 60 caen entre 4 y 30 s.
+# Y ESTO ES UN CUADERNO, NO UN MANDO: la mitad de la idea que ajustaba listones sola se cayo con
+# su propio dato -recupera 7 llamadas y cuela 30 falsas-, asi que el banco vigila que nadie
+# cablee descartes.jsonl dentro de umbral_rafaga, umbral_confianza, umbral_actividad ni la puerta.
+python (Join-Path $PSScriptRoot 'probar-arrepentidos.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se pone la nota a sus propios descartes)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n194. Con un juego delante la capsula apaga lo que nadie mira (idea 20 de las 121)"
 # MEDIDO: 21,7 horas de juego en diez dias distintos, contadas sobre memoria\juegos.json. Y en
 # todas ellas la capsula NO se duerme nunca: la condicion de Dormir() pide que no haya juego
