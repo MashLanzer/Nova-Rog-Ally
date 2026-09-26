@@ -377,6 +377,82 @@ CABE_MAX = 0.70           # si ruido x ganancia pasa de esto, esa ganancia no ca
 RECORTE_RECIENTE = 45.0   # y ademas, ni tocarla justo despues de un recorte
 ultimo_recorte = 0.0
 PASO_MAX = 4.0
+
+
+# --- UN TECHO DE GANANCIA APRENDIDO, Y QUE LO RESPETEN LOS DOS CAMINOS QUE LA SUBEN ---
+# (26/09, idea 16 de las 121)
+#
+# LO MEDIDO, y es mas grande de lo que parecia: 985 lineas de "recorte detectado: bajando
+# ganancia" en los dos registros, y QUINIENTAS SESENTA Y CUATRO son de hoy. Emparejando cada
+# recorte con el anterior y reconstruyendo la ganancia de partida -la bajada es fija, x0,6-,
+# 329 de los 985 (el 33,4 %) llegaron con la ganancia YA POR ENCIMA de la que acababa de
+# saturar. Uno de cada tres recortes es volver a pisar el mismo charco.
+#
+# CABE_MAX NO BASTA, y por eso hace falta esto: aquella calcula si el FONDO amplificado llena
+# el rango, y acierta cuando hay ruido constante medido. Pero la voz tiene picos que el fondo
+# no anticipa: una ganancia puede caber para el silencio de la habitacion y saturar en cuanto
+# braya habla. El unico dato que no miente sobre eso es el recorte que YA PASO con ella.
+#
+# SE RECUERDA LA MENOR QUE HA SATURADO, no la ultima: si x14 satura y luego satura x9, el que
+# protege es el 9; al reves, una racha con la ganancia ya baja borraria lo aprendido de la alta.
+#
+# Y CADUCA, porque una habitacion cambia. El numero sale de los huecos entre recortes medidos
+# desde el 22/09 -cuando entro la guarda de altavoces-, 633 huecos: mediana 58 s, p95 904 s,
+# p97 2.978 s. Por debajo del p95 los recortes siguen viniendo en racha y el techo vale; pasado
+# eso, ya no hay racha y toca volver a probar.
+#
+# NO SE GUARDA EN DISCO A PROPOSITO: caduca a los 15 minutos y hoy ha habido un recorte cada
+# 2,5 minutos de media, asi que tras un arranque se reaprende enseguida. Un fichero aqui seria
+# una escritura mas dentro del bucle de audio por cada recorte (564 hoy) a cambio de nada.
+TECHO_CADUCA_SEG = 904.0   # p95 de los huecos entre recortes: pasado eso, la sala ya es otra
+TECHO_MARGEN = 0.95        # se admite justo por debajo del techo, no el techo clavado
+techo_recorte = 0.0        # 0 = todavia no se sabe de ninguna ganancia que sature
+techo_visto = 0.0          # cuando se supo (para que caduque)
+
+
+def techo_apuntar(g, ahora):
+    """Esta ganancia acaba de saturar: se queda si es la menor conocida."""
+    global techo_recorte, techo_visto
+    if g <= 0:
+        return
+    if techo_recorte <= 0 or g < techo_recorte:
+        techo_recorte = float(g)
+    techo_visto = ahora
+
+
+def techo_vigente(ahora):
+    """El techo de ahora mismo, o 0 si no hay o ya caduco."""
+    if techo_recorte <= 0:
+        return 0.0
+    if ahora - techo_visto > TECHO_CADUCA_SEG:
+        return 0.0
+    return techo_recorte
+
+
+def techo_cabe(g, ahora):
+    """Si se puede saltar a esta ganancia sin volver a pisar el charco de siempre."""
+    t = techo_vigente(ahora)
+    if t <= 0:
+        return True
+    return g <= round(t * TECHO_MARGEN, 1)
+
+
+def techo_frenar(nueva, vieja, ahora):
+    """La ganancia que de verdad se puede usar.
+
+    NUNCA FRENA UNA BAJADA: si lo hiciera, el techo impediria salir de un recorte, que es
+    exactamente lo contrario de para lo que esta. Y nunca devuelve menos que la de ahora, asi
+    que no puede convertir una subida en una bajada por sorpresa.
+    """
+    if nueva <= vieja:
+        return nueva
+    t = techo_vigente(ahora)
+    if t <= 0:
+        return nueva
+    tope = round(t * TECHO_MARGEN, 1)
+    if nueva <= tope:
+        return nueva
+    return max(vieja, tope)
 # --- PUERTA DE ENERGIA ---
 # Sin esto Vosk decodifica 4 bloques por segundo las 24 horas, aunque no haya
 # nadie hablando, y este worker arranca con Windows en un portatil de juegos.
@@ -3668,6 +3744,11 @@ try:
                                         anota("recorte con los altavoces sonando (%.3f): la ganancia se queda en x%.1f"
                                               % (nivel_salida(), ganancia))
                                 else:
+                                    # LO QUE SE APRENDE DEL RECORTE, antes de bajarla (26/09,
+                                    # ver techo_apuntar): esta ganancia satura en esta
+                                    # habitacion, y los dos caminos que la suben lo van a tener
+                                    # en cuenta durante el proximo cuarto de hora.
+                                    techo_apuntar(ganancia, ahora)
                                     ganancia = round(max(GANANCIA_MIN, ganancia * 0.6), 1)
                                     # cuando fue: si el audio esta saturando, volver a la
                                     # ganancia buena es imposible (ver ULTIMO_RECORTE)
@@ -4256,8 +4337,16 @@ try:
                                 or suelo_ruido * ganancia_buena < CABE_MAX)
                         if (ganancia_buena > 0 and abs(ganancia - ganancia_buena) > 0.2
                                 and cabe and ahora - ultimo_recorte > RECORTE_RECIENTE):
-                            vuelta = "; vuelvo a la x%.1f de cuando te oia" % ganancia_buena
-                            ganancia = ganancia_buena
+                            # EL TECHO APRENDIDO (26/09, ver techo_cabe). CABE_MAX ya ha
+                            # dicho que el fondo amplificado cabe, pero la voz tiene picos que
+                            # el fondo no anticipa: si esa misma ganancia buena saturo hace
+                            # menos de un cuarto de hora, volver a ella es el charco de siempre.
+                            if techo_cabe(ganancia_buena, ahora):
+                                vuelta = "; vuelvo a la x%.1f de cuando te oia" % ganancia_buena
+                                ganancia = ganancia_buena
+                            else:
+                                vuelta = ("; no vuelvo a la x%.1f: con esa acabas de saturar"
+                                          % ganancia_buena)
                         # POR anota_pulso, COMO SUS TRES HERMANAS (22/09). Esta linea nacio
                         # hoy y se escribio con anota() directo, saltandose la regla del
                         # 18/09 -"el latido solo cuando dice algo nuevo"- que las otras tres
@@ -4310,7 +4399,12 @@ try:
                         # Si toca bajar, se fuerza un decimal, sin pasarse del objetivo.
                         if nueva < ganancia:
                             propuesta = max(nueva, min(propuesta, ganancia - 0.1))
+                        anterior = ganancia
                         ganancia = round(max(GANANCIA_MIN, min(GANANCIA_MAX, propuesta)), 1)
+                        # EL TECHO APRENDIDO, el ultimo filtro antes de usarla (26/09, ver
+                        # techo_frenar). Va DESPUES del redondeo a proposito: si fuera antes,
+                        # round() podria devolverla por encima del tope otra vez.
+                        ganancia = techo_frenar(ganancia, anterior, ahora)
                         # esta SI se escribe siempre: es el ajuste de ganancia de verdad, el
                         # dato con el que se decide si la escucha esta bien calibrada
                         # el p90 de su voz, para el liston de la rafaga (ver umbral_rafaga)

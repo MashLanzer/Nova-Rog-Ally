@@ -44,7 +44,12 @@ Comp 'y se lanza durante el silencio' ($pyCod -match 'def lanzar_adelanto|_adela
 $iL = $pyCod.IndexOf('lanzar_adelanto(audio_dictado')
 $blL = if ($iL -gt 0) { $pyCod.Substring([Math]::Max(0, $iL - 700), [Math]::Min(700, $iL)) } else { '' }
 Comp 'NO se hace con un juego delante' ($blL -match 'not jugando') 'regla 5: no competir con el juego'
-Comp 'ni mientras Nova habla' ($blL -match 'not callado') 'se oiria a si misma'
+# LA GUARDA CAMBIO Y ESTE BANCO SE QUEDO VIEJO (26/09). Pedia 'not callado', y esa linea (a)
+# reventaba con NameError -callado se asigna 45 lineas mas abajo- y (b) aunque no reventara no
+# frenaba nada: con hay_algo delante, 'not callado' es cierto siempre. La senal de verdad de que
+# Nova esta hablando es la de los altavoces, la misma que usa _corta_juego quince lineas despues.
+Comp 'ni mientras Nova habla' ($blL -match 'nivel_salida\(\) <= UMBRAL_ALTAVOZ') 'se oiria a si misma'
+Comp '  y no con la guarda vieja, que no frenaba' ($blL -notmatch 'not callado') 'hay_algo ya implicaba not callado'
 Comp 'y hay un margen medido, no un numero suelto' ($pyCod -match 'ADELANTO_MARGEN_SEG') ''
 
 Write-Host ''

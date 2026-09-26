@@ -1997,6 +1997,19 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n189. La ganancia que saturo no se vuelve a poner (idea 16 de las 121)"
+# MEDIDO sobre los dos registros: 985 lineas de "recorte detectado: bajando ganancia", y 564 son
+# de hoy. Emparejando cada recorte con el anterior y reconstruyendo la ganancia de partida -la
+# bajada es fija, x0,6-, 329 de los 985 (el 33,4 %) llegaron con la ganancia YA POR ENCIMA de la
+# que acababa de saturar: uno de cada tres recortes es volver a pisar el mismo charco. CABE_MAX no
+# lo veia porque mira el FONDO amplificado, y la voz tiene picos que el fondo no anticipa. Ahora se
+# recuerda la MENOR ganancia que ha llegado a saturar y la respetan los DOS caminos que la suben,
+# la vuelta a la buena y la calibracion del pulso. Caduca a los 904 s -el p95 de los 633 huecos
+# medidos entre recortes- porque una habitacion cambia, y NUNCA frena una bajada: frenarla ahi
+# dejaria el microfono saturado sin forma de salir.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-techo-ganancia.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no se vuelve a poner)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n188. Lo aprendido espera a ver si lo corriges (idea 15 de las 121)"
 # EL CASO, con hora: el 25/09 a la 01:26:12 Nova aprendio 'Cierra este in.' = 'cierra discord' y
 # lo bajo a disco al instante. DIECISIETE SEGUNDOS despues braya dijo "No dije Discord, dije
