@@ -11352,6 +11352,19 @@ function Test-AvisarSinRepaso([string]$que, [int]$mb, [bool]$yaAvisado) {
     return $true
 }
 
+# CUANTAS LLAMADAS SE HAN CAIDO EN LA ULTIMA MEDIA HORA (26/09, idea 13 de las 121).
+# -1 significa "no se sabe" -oido viejo, estado rancio o sin fichero- y NO es lo mismo que
+# cero: con -1 el aviso se comporta como hasta hoy, que es lo unico seguro sin dato.
+function Get-OidoDescartes {
+    if (-not (Test-Path -LiteralPath $RutaEstado)) { return -1 }
+    if (-not (Test-EstadoFresco)) { return -1 }
+    try {
+        $st = ([System.IO.File]::ReadAllText($RutaEstado).Trim()) -split '\|'
+        if ($st.Count -lt 9) { return -1 }
+        return [int]$st[8].Trim()
+    } catch { return -1 }
+}
+
 function Get-OidoConRuido {
     # $true si el oido lleva rato oyendo ruido de fondo constante en vez de voz.
     if (-not (Test-Path -LiteralPath $RutaEstado)) { return $false }
@@ -11383,7 +11396,21 @@ $script:ruidoAvisado = $false     # ya se dijo en el episodio de ruido en curso
 $script:ruidoLimpioDesde = 0      # desde cuando el oido esta limpio (0 = ahora mismo no lo esta)
 # Pura a proposito: recibe el estado y el reloj y no toca nada mas, para que el banco pueda
 # correr un dia entero de ruido en un milisegundo.
-function Test-AvisarRuido([bool]$hayRuido, [long]$ahoraMs, [int]$rearmeMs) {
+function Test-AvisarRuido([bool]$hayRuido, [long]$ahoraMs, [int]$rearmeMs, [int]$descartes = -1) {
+    # EL RUIDO SOLO IMPORTA SI TE HA COSTADO ALGO (26/09, idea 13 de las 121).
+    #
+    # Hasta hoy esto miraba SOLO el nivel de fondo. Medido sobre los dos registros: 36 avisos
+    # de "hay mucho ruido", y en 33 -el 91,7 %- NO se habia caido ni una llamada en la hora
+    # anterior. Nova avisaba de un problema que no estaba teniendo, y el 22/09 solto
+    # VEINTICINCO en doce horas.
+    #
+    # $descartes = -1 quiere decir "no se sabe" (oido viejo, estado rancio o sin fichero), y
+    # entonces se avisa como siempre: callarse por falta de dato seria cambiar el
+    # comportamiento justo cuando menos se sabe.
+    if ($hayRuido -and $descartes -eq 0) {
+        $script:ruidoLimpioDesde = 0
+        return $false
+    }
     if ($hayRuido) {
         $script:ruidoLimpioDesde = 0
         return (-not $script:ruidoAvisado)
@@ -11696,7 +11723,7 @@ function Watch-Entorno([int]$botones = 0) {
     # NO TE ESTOY OYENDO, Y TE LO DIGO (ver Get-OidoConRuido)
     try {
         $rearmeR = [int](Get-Cfg 'entorno' 'ruidoRearmeMinutos' 15) * 60000
-        if (Test-AvisarRuido (Get-OidoConRuido) $ahoraW $rearmeR) {
+        if (Test-AvisarRuido (Get-OidoConRuido) $ahoraW $rearmeR (Get-OidoDescartes)) {
             # el 'true' solo se apunta si el aviso SALIO: si lo para la noche o el modo juego,
             # se vuelve a intentar despues, que es cuando braya puede oirlo.
             if (Send-AvisoEntorno 'oido-ruido' `

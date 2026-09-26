@@ -329,6 +329,23 @@ pulsos_ruidosos = 0
 # Por eso solo cuentan los que pasan con los altavoces CALLADOS (<= UMBRAL_ALTAVOZ).
 FLOJO_VENTANA = 120.0
 flojos_callados = []
+# AVISAR DEL RUIDO SOLO SI EL RUIDO HA COSTADO ALGO (26/09, idea 13 de las 121).
+#
+# El aviso de "hay mucho ruido" salta mirando SOLO el nivel de fondo, sin preguntarse si por
+# ese ruido se ha perdido alguna llamada. Medido sobre los dos registros: 36 avisos, y en 33
+# de ellos -el 91,7 %- NO habia ni un descarte del nombre en la hora anterior. Nova avisaba de
+# un problema que no estaba teniendo. El 22/09 llego a soltar veinticinco en doce horas.
+#
+# Lo que hace falta es saber si el nombre se esta cayendo, y eso ya pasa por aqui: cada rama
+# que descarta un "nova" apunta su hora, y el aviso solo sale si hay alguno reciente.
+DESCARTES_VENTANA = 1800.0      # media hora; ver el comentario del aviso en assistant.ps1
+descartes_nova = []             # cuando se ha descartado una llamada, por el motivo que sea
+
+
+def apuntar_descarte(t):
+    """Una llamada descartada, venga de donde venga. Se guardan las ultimas 64."""
+    descartes_nova.append(t)
+    del descartes_nova[:-64]
 # Y LA GANANCIA BUENA SE GUARDA APARTE (22/09, por la mañana, estrenandolo).
 # Al arrancar el worker con el codigo nuevo se vio el caso que faltaba: la deteccion de ruido
 # funcionaba -'esto no es voz, es ruido de fondo (60 de 60 bloques)'- pero congelaba la
@@ -2155,6 +2172,7 @@ def juez_deja_pasar(texto):
         return True
     anota("descartado '%s': el juez de segunda etapa oyo '%s' y ahi no esta '%s'; ver EL JUEZ DEL NOMBRE"
           % (texto, libre, NOMBRE_PLANO))
+    apuntar_descarte(time.time())
     return False
 
 
@@ -3208,10 +3226,16 @@ def decir_estado(ref=0.0):
     # faltaban (idea 9, 26/09). Va AL FINAL por el mismo motivo que el quinto y el sexto.
     # El "-" en vez de vacio a proposito: un campo final vacio se distingue mal de un fichero
     # cortado a medias, y el guion se ve de un vistazo en el log.
-    return "%.1f|%s|%.3f|%d|%d|%d|%d|%s" % (
+    # NOVENO CAMPO: cuantas llamadas se han descartado en la ultima media hora (idea 13,
+    # 26/09). El octavo lo ocupo esta misma tarde el repaso perdido por falta de RAM, asi que
+    # este va detras. Se reusa el ahora_f de arriba: llamar otra vez a time.time() aqui no
+    # cambiaria nada, pero volver a llamar a nivel_salida() costaria una medida de audio en
+    # cada pulso.
+    desc_recientes = sum(1 for t in descartes_nova if ahora_f - t <= DESCARTES_VENTANA)
+    return "%.1f|%s|%.3f|%d|%d|%d|%d|%s|%d" % (
         ganancia, ("%.4f" % ref) if ref else "0",
         salida, bloques_voz, 1 if ruido_de_fuera else 0, recientes, desde_recorte,
-        repaso_perdido or "-")
+        repaso_perdido or "-", desc_recientes)
 # Mientras exista esta marca no se evalua la palabra de activacion: solo el
 # boton. La crea el asistente cuando hay un juego en primer plano. El dictado
 # y la confirmacion siguen funcionando con normalidad.
@@ -4068,6 +4092,10 @@ try:
                                     # nada que reconocer.
                                     anota("descartado '%s': suena demasiado flojo para ser una llamada (rafaga %.4f < %.3f); ver LA RAFAGA QUE DE VERDAD TE DELATA"
                                           % (texto, pico_rafaga, umbral_rafaga()))
+                                    # SE APUNTA SIEMPRE, aunque la linea del log tenga freno
+                                    # de 60 s: el freno es para no llenar el registro, no para
+                                    # perder la cuenta (idea 13).
+                                    apuntar_descarte(ahora)
                                     # Y SE APUNTA SI FUE EN SILENCIO (24/09, idea 1): ver
                                     # flojos_callados. Con los altavoces sonando no cuenta,
                                     # porque entonces lo mas probable es que el que dijo algo
@@ -4098,8 +4126,11 @@ try:
                                         _porque = ""
                                     anota("descartado '%s': confianza %.2f < %.2f%s"
                                           % (texto, conf, umbral_confianza(plano), _porque))
+                                    apuntar_descarte(ahora)
                                 elif not juez_deja_pasar(texto):
-                                    pass   # el juez ya lo apunto en el log con las dos versiones
+                                    # el juez ya lo apunto en el log con las dos versiones, y
+                                    # tambien apunto el descarte (idea 13)
+                                    pass
                                 elif solo_boton:
                                     # JUGANDO, LAS MISMAS GUARDAS QUE SIN JUEGO (22/09 por la
                                     # noche). Esta rama era la PRIMERA de la cadena, asi que con

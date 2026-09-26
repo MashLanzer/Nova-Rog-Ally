@@ -107,7 +107,12 @@ Comp 'y los altavoces no cuentan como ruido' ($oido -match 'ruido_de_fuera = pul
 # si se midiera dos veces, podrian contradecirse dentro de la misma linea.
 $dEstado = [regex]::Match($oido, '(?ms)^def decir_estado\(.*?
 (?=\S)').Value
-Comp 'el nivel de salida se mide una vez por linea' (([regex]::Matches($dEstado, 'nivel_salida\(\)')).Count -eq 1)
+# SIN LOS COMENTARIOS (26/09): esto contaba 'nivel_salida()' sobre el texto crudo, y se puso
+# rojo cuando la idea 13 metio un comentario dentro de decir_estado que EXPLICA por que no hay
+# que volver a llamarla. O sea que se ponia rojo justo por escribir la razon de la regla que
+# vigila. Lo que importa son las LLAMADAS, no las veces que se nombra.
+$dEstadoSin = (($dEstado -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) -join "`n"
+Comp 'el nivel de salida se mide una vez por linea' (([regex]::Matches($dEstadoSin, 'nivel_salida\(\)')).Count -eq 1)
 # Y EL PULSO LO DEJA ESCRITO, o manana no se puede contar cuantos eran altavoces.
 Comp 'el pulso de ruido apunta los altavoces' ($oido -match 'seguidos, altavoces %\.3f')
 Comp 'nadie lo escribe ya a mano' (-not ($oido -match 'escribir\(RUTA_ESTADO, "%'))

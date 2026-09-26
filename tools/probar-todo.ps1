@@ -1997,6 +1997,18 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n186. El ruido solo se dice cuando ha costado algo (idea 13 de las 121)"
+# El aviso de "hay mucho ruido" saltaba mirando SOLO el nivel de fondo. MEDIDO: 36 avisos en
+# los dos registros y en TREINTA Y TRES -el 91,7 %- no se habia caido ni una llamada del nombre
+# en la hora anterior. Nova avisaba de un problema que no estaba teniendo; el 22/09 solto
+# VEINTICINCO en doce horas. Ahora el oido cuenta las llamadas que se le caen y el aviso solo
+# sale si hay alguna en la ultima media hora.
+# Y VA EN EL NOVENO CAMPO, no en el octavo: el octavo lo ocupo esta misma tarde el repaso
+# perdido por falta de RAM (idea 9). Dos ideas del mismo dia queriendo el mismo sitio.
+# "No se sabe" es -1 y NO cero: con cero, un oido viejo dejaria el aviso mudo para siempre.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-ruido-que-cuesta.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:cuando ha costado algo)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n185. Una confianza gratis para Parakeet (idea 12 de las 121)"
 # Tres de cada cuatro ordenes llegaban al asistente SIN NINGUN numero de confianza: 422 de 560
 # con seguridad=null, porque solo Whisper sabe decir lo seguro que esta. Pero Vosk ya oyo esa
