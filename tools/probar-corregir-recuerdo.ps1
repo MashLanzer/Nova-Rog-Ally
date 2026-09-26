@@ -46,8 +46,13 @@ Comp 'el hueco se guarda antes de pisar ultima_charla' ($wSin -match 'hueco = ah
 
 Write-Host ''
 Write-Host '-- 3. las guardas del bloque nuevo --'
-$i = $wSin.IndexOf('por_que_importa(texto, "") == "correccion"')
-$bl = if ($i -ge 0) { $wSin.Substring([Math]::Max(0, $i - 300), [Math]::Min(2200, $wSin.Length - [Math]::Max(0, $i - 300))) } else { '' }
+# EL BLOQUE SE DELIMITA POR SU PRIMERA Y SU ULTIMA LINEA, no por una ventana de caracteres
+# (26/09, lo cazo una rotura). Contando 300 caracteres hacia atras se colaba el 'return' de la
+# rama de la trivia, que esta justo encima, y el banco cantaba que este bloque cortaba el turno
+# cuando no lo hace. Una ventana fija cambia de significado en cuanto el codigo se mueve.
+$i = $wSin.IndexOf('if (cerebro is not None and not invitado and not duda')
+$iF = $wSin.IndexOf('no pude corregir', [Math]::Max(0, $i))
+$bl = if ($i -ge 0 -and $iF -gt $i) { $wSin.Substring($i, $iF - $i) } else { '' }
 foreach ($g in @(@('cerebro is not None', 'sin cerebro no hay nada que corregir'),
                  @('not invitado', 'en modo invitado no se toca la memoria'),
                  @('not duda', 'si el asistente ya dudo, ese camino lo hace el de siempre'),
@@ -61,9 +66,7 @@ Comp '  y se olvida el recuerdo tras tocarlo' ($bl -match 'ultimo_dicho = None')
 # EL BLOQUE ACABA EN SU except, no 2.200 caracteres despues (26/09, lo cazo una rotura): la
 # ventana fija se comia el 'return' de la rama siguiente y el banco cantaba que este bloque
 # cortaba el turno cuando no lo hace.
-$iFin = $bl.IndexOf('no pude corregir')
-$soloBloque = if ($iFin -ge 0) { $bl.Substring(0, $iFin) } else { $bl }
-Comp '  sin cortar el turno' ($soloBloque -notmatch '(?m)^\s+return\s*$') 'Nova sigue contestando a lo que le acaban de decir'
+Comp '  sin cortar el turno' ($bl -notmatch '(?m)^\s+return\s*$') 'Nova sigue contestando a lo que le acaban de decir'
 
 Write-Host ''
 Write-Host '-- 4. corregir NO es inventar --'

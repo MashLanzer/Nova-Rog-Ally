@@ -560,6 +560,19 @@ def responder(p):
         r = trivia["r"]
         trivia["r"] = None
 
+        if RE_RENDIDO.search(cm.plano(texto)):
+            dicho = "La respuesta es: " + r["respuesta"]
+        elif cm.juzgar_trivia(r["pregunta"], r["respuesta"], texto):
+            dicho = "¡Correcto! " + r["respuesta"]
+        else:
+            dicho = "Casi. " + r["respuesta"]
+        troc = Troceador()
+        for f in troc.meter(dicho + " ") + troc.cerrar():
+            emitir(f)
+        salida("fin", idp, origen="trivia-respuesta")
+        return
+    trivia["r"] = None
+
     # CORREGIRLA HABLANDO TOCA EL RECUERDO (26/09, idea 11 de las 121)
     #
     # Hasta hoy, decirle "no, eso no es verdad" solo tachaba el recuerdo si el asistente habia
@@ -597,18 +610,6 @@ def responder(p):
                 ultimo_dicho = None
         except Exception as e:  # noqa: BLE001
             salida("info", idp, origen="memoria", texto="memoria: no pude corregir (%s)" % e)
-        if RE_RENDIDO.search(cm.plano(texto)):
-            dicho = "La respuesta es: " + r["respuesta"]
-        elif cm.juzgar_trivia(r["pregunta"], r["respuesta"], texto):
-            dicho = "¡Correcto! " + r["respuesta"]
-        else:
-            dicho = "Casi. " + r["respuesta"]
-        troc = Troceador()
-        for f in troc.meter(dicho + " ") + troc.cerrar():
-            emitir(f)
-        salida("fin", idp, origen="trivia-respuesta")
-        return
-    trivia["r"] = None
 
     # 1) EL CEREBRO: ¿ya lo sabe de verdad?
     qvec = None
