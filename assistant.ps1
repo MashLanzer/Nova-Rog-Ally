@@ -7198,6 +7198,24 @@ function Save-Traducciones {
     return $fusion.Count
 }
 
+# LA FRASE TAL Y COMO LA DIJO BRAYA, cuando la charla la ha reescrito (26/09, idea 7 de las
+# 121). Ver el comentario largo donde se rellena.
+# LA VENTANA SALE DE LOS DATOS: medidos los 17 APRENDIDO que siguen a una orden sacada de la
+# charla, los huecos son 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 4, 4, 5, 6, 11 y 4800 segundos. El
+# corte es nitido: dieciseis por debajo de 11 s y el siguiente a hora y veinte, que ya no viene
+# de esa orden. Treinta segundos cubre los dieciseis con margen y deja fuera el falso.
+$FraseDichaVentanaMs = 30000
+$script:fraseComoLaDijiste = $null
+function Get-FraseComoLaDijiste {
+    if (-not $script:fraseComoLaDijiste) { return '' }
+    try {
+        if (($sw.ElapsedMilliseconds - [double]$script:fraseComoLaDijiste.cuando) -gt $FraseDichaVentanaMs) {
+            $script:fraseComoLaDijiste = $null
+            return ''
+        }
+        return [string]$script:fraseComoLaDijiste.texto
+    } catch { return '' }
+}
 function Add-Traduccion([string]$original, [string]$traducida) {
     if ($script:invitado) { return }   # MODO INVITADO: lo que diga otro no se queda (17/09)
     $clave = ConvertTo-Plain $original
@@ -22439,6 +22457,96 @@ function Get-DuracionEsperada([string]$motor, [string]$modo) {
     return $medido
 }
 
+# =====================================================================
+# EL PLAZO DE CADA REPASO SALE DE LO QUE TARDA ESE MOTOR (26/09, idea 8 de las 121)
+# =====================================================================
+# Todos los repasos del oido compartian UN plazo escrito a mano, 15 s, y el ultimo recurso otro,
+# 60 s: dos numeros fijos para cinco motores que tardan cosas muy distintas.
+#
+# MEDIDO sobre las 477 filas con 'segundos' de pruebas\audio\uso\registro.jsonl:
+#     base   n=328  p50 1,75 s  p90 5,96   p99 24,09   max 60,76   pasan de 15 s:  6
+#     small  n=94   p50 4,66    p90 28,78  p99 238,88  max 238,88  pasan de 15 s: 12
+#     canary n=29   p50 2,99    p90 8,78   p99 14,53   max 14,53   pasan de 15 s:  0
+#     turbo  n=23   p50 16,21   p90 22,87  p99 76,53   max 76,53   pasan de 15 s: 17
+#     omni   n=3                                       max 15,92   pasan de 15 s:  1
+# Y lo que costaba en el registro: 30 lineas "OIDO FINO: sin respuesta a tiempo", y las 30
+# tenian respuesta DESPUES -a 8, 12, 14, 23, 28, 30, 35, 45, 61, 88, 142 y hasta 238,9 s-.
+# Treinta repasos pagados enteros y tirados a la basura.
+#
+# EL PERCENTIL ES 99 Y NO 90, Y ESTO ES LO QUE MAS IMPORTA. La idea pedia p90; simulado sobre
+# las 477 medidas, p90 da DIECISIETE timeouts nuevos contra 3 rescatados: peor que hoy. La razon
+# es de bulto: un p90 usado como plazo de RENDIRSE garantiza por construccion que el 10 % se
+# tire. p95 da 11 contra 4. p99 da CERO nuevos contra 8 rescatados, y es el unico que no empeora
+# ningun motor. Por eso tampoco se reusa $TrabajoPercentil = 75: ese alimenta una BARRA, donde
+# equivocarse solo pinta mal; aqui equivocarse TIRA trabajo ya pagado. El p75 de small es
+# 8,39 s, o sea que el oido fino bajaria de 15 s a 7,5 y se tiraria todavia mas.
+#
+# Y POR QUE SE MIDE DESDE registro.jsonl Y NO CRONOMETRANDO AQUI, que es lo que pedia el cuerpo
+# a gritos: el asistente solo ve los repasos que llegan ANTES del plazo, porque al rendirse
+# borra la marca y no lee la respuesta tardia. La muestra saldria censurada por el propio plazo,
+# el percentil nunca podria superarlo, el plazo solo bajaria, y bajar produce mas timeouts, que
+# censuran mas... hasta clavarse en el suelo. Python apunta la duracion real aunque el asistente
+# ya se hubiera rendido: por eso ahi estan los 238,9 s y aqui no estarian nunca.
+#
+# CON LOS DATOS DE HOY SALE: canary 14,5 s, base 24,1 s, small 30,0 s (el techo), omni 15,0 s
+# (n=3, manda lo escrito) y turbo 76,5 s.
+$PlazoOidoPercentil = 99        # p99 y no p75: esto no es una barra, es rendirse
+$PlazoOidoMin = 10              # menos muestras que esto y manda el numero escrito
+$PlazoOidoSuelo = 0.5           # nunca por debajo de la mitad de lo escrito
+$PlazoOidoTecho = 2.0           # ni por encima del doble (el p99 de small son 238,9 s)
+$script:reintentoPlazo = 15000   # el plazo que se uso en el repaso en curso, para poder decirlo
+$script:repasoTiempos = $null
+$script:repasoSello = ''
+function Get-RepasoTiempos([string]$dirUso = '') {
+    # motor -> lista de milisegundos, sacada de lo que apunta Python en cada repaso.
+    if (-not $dirUso) { $dirUso = Join-Path $LogDir 'pruebas\audio\uso' }
+    $rReg = Join-Path $dirUso 'registro.jsonl'
+    if (-not (Test-Path -LiteralPath $rReg)) { return @{} }
+    # EL MISMO TRUCO QUE Get-FalsasAlarmas: el fichero solo crece por el final, asi que si no ha
+    # cambiado de tamano el reparto sale igual. Medido aqui: 1.037 lineas, 14-15 ms en caliente.
+    $sello = ''
+    try { $sello = $rReg + '|' + (Get-Item -LiteralPath $rReg).Length } catch { $sello = '' }
+    if ($sello -and $sello -eq $script:repasoSello -and $null -ne $script:repasoTiempos) { return $script:repasoTiempos }
+    $t = @{}
+    try {
+        foreach ($l in [System.IO.File]::ReadAllLines($rReg, [System.Text.Encoding]::UTF8)) {
+            if ($l -match '"motor"\s*:\s*"([^"]+)".*?"segundos"\s*:\s*([0-9]+(?:\.[0-9]+)?)') {
+                $mo = $Matches[1]
+                $ms = [int][Math]::Round([double]$Matches[2] * 1000)
+                if (-not $t.ContainsKey($mo)) { $t[$mo] = New-Object System.Collections.ArrayList }
+                [void]$t[$mo].Add($ms)
+            }
+        }
+    } catch { Log ('plazo del oido: no pude leer los tiempos: ' + $_.Exception.Message); return @{} }
+    $script:repasoTiempos = $t
+    $script:repasoSello = $sello
+    return $t
+}
+function Get-PlazoOido([string]$motor, [int]$escrito) {
+    # SIN MOTOR O SIN NUMERO ESCRITO NO SE INVENTA NADA: se devuelve lo de siempre. Y ojo con
+    # $null, que en PowerShell vale 0 en una comparacion numerica.
+    if ($escrito -le 0) { $escrito = 15000 }
+    if (-not $motor) { return $escrito }
+    try {
+        $t = Get-RepasoTiempos
+        if (-not $t.ContainsKey($motor)) { return $escrito }
+        $v = @($t[$motor] | Sort-Object)
+        if ($v.Count -lt $PlazoOidoMin) { return $escrito }   # todavia no se sabe bastante
+        $i = [int][Math]::Ceiling(($PlazoOidoPercentil / 100.0) * $v.Count) - 1
+        if ($i -lt 0) { $i = 0 }
+        if ($i -ge $v.Count) { $i = $v.Count - 1 }
+        $medido = [int]$v[$i]
+        $suelo = [int]($escrito * $PlazoOidoSuelo)
+        $techo = [int]($escrito * $PlazoOidoTecho)
+        if ($medido -lt $suelo) { return $suelo }
+        if ($medido -gt $techo) { return $techo }
+        return $medido
+    } catch {
+        Log ('plazo del oido: me quedo con el escrito (' + $_.Exception.Message + ')')
+        return $escrito
+    }
+}
+
 function Watch-OpencodeProgress {
     if (-not $script:busy -or -not $script:jobOut) { return }
     if (($sw.ElapsedMilliseconds - $script:jobProgresoCheck) -lt 600) { return }
@@ -23287,6 +23395,25 @@ $script:triviaGenerandoEn = 0
                 continue
             }
             Log ("charla: no era charla sino una orden -> '$ordenC'" + $(if ($ev.original -and [string]$ev.original -ne $ordenC) { " (dicho: '$($ev.original)')" } else { '' }))
+            # LO QUE SE APRENDE TIENE QUE LLEVAR TU FRASE COMO CLAVE (26/09, idea 7 de las 121).
+            # Cuando la charla decide que lo dicho era en realidad una orden, la REESCRIBE a su
+            # manera, y hasta hoy era esa reescritura la que acababa de clave en
+            # traducciones.json: Nova aprendia a entender sus propias palabras, que braya no
+            # vuelve a decir nunca. La frase de verdad se tenia aqui delante, se escribia en el
+            # log y se tiraba.
+            #
+            # MEDIDO: de las 21 lineas APRENDIDO del registro, CUATRO tienen de clave una frase
+            # que braya no dijo jamas en esa forma -'cambia al bloc de notas', 'Ensectiva el
+            # modo noche', 'Que ponga muzigen, YouTube' y 'Cierra este in.'-. Y esa ultima es
+            # justo la que envenevo el vocabulario el 25/09: braya dijo "Que habla, dije que
+            # cerraras este in" y lo que se guardo fue 'Cierra este in.' = 'cierra discord',
+            # apuntando a la app por la que habla con su pareja. Explica tambien el otro numero:
+            # 21 aprendidas y UNA sola usada en su vida.
+            if ($ev.original -and ([string]$ev.original) -ne $ordenC) {
+                $script:fraseComoLaDijiste = @{ texto = [string]$ev.original; cuando = $sw.ElapsedMilliseconds }
+            } else {
+                $script:fraseComoLaDijiste = $null
+            }
             $script:seguimientoPendiente = $true
             $script:seguimientoFactor = 1.0   # viene de una charla: se sigue hablando
             # ORDENES DENTRO DE LA CHARLA (M10): ya reescrita con lo hablado. Primero
@@ -23835,6 +23962,28 @@ function Report-Reply($out) {
                     Log "no aprendo '$original' = '$propuesta': frase larga o con un nombre que la traduccion no conserva (ver SOLO SE APRENDE LO QUE SE PUEDE REPETIR)"
                 } else {
                     Add-Traduccion $original $propuesta
+                    # Y TAMBIEN CON LA FRASE QUE BRAYA DIJO DE VERDAD (26/09, idea 7 de las
+                    # 121), cuando la charla la habia reescrito. Las DOS apuntan al mismo
+                    # destino: la reescrita no estorba -si Nova vuelve a reconstruirla igual,
+                    # la encontrara- y la de braya es la que de verdad va a volver a decirse.
+                    #
+                    # PASA POR EL MISMO FILTRO, sin excepciones: si la frase real es larga, o
+                    # pierde un nombre propio, o trae letras rotas, no se aprende, que es
+                    # exactamente lo que pasa hoy de todas formas. Aqui no se afloja nada: se
+                    # archiva bajo el nombre bueno.
+                    $dicha = Get-FraseComoLaDijiste
+                    if ($dicha -and $dicha -ne $original) {
+                        $palD = @((ConvertTo-Plain $dicha) -split '\s+' | Where-Object { $_ })
+                        $nombreFueraD = @([regex]::Matches($dicha, '(?<=\S\s)\p{Lu}\p{L}{3,}') | Where-Object { -not $plProp.Contains(' ' + (ConvertTo-Plain $_.Value) + ' ') }).Count -gt 0
+                        if (Test-OidoDudoso $dicha) {
+                            Log "no aprendo tambien '$dicha': venia de un oido que dudaba"
+                        } elseif ($palD.Count -gt 6 -or $nombreFueraD) {
+                            Log "no aprendo tambien '$dicha' = '$propuesta': no pasa el filtro de lo que se puede repetir"
+                        } else {
+                            Log "y lo aprendo tambien como lo dijiste tu: '$dicha' = '$propuesta'"
+                            Add-Traduccion $dicha $propuesta
+                        }
+                    }
                 }
                 $script:ultimaAprendida = $original
                 Add-Estadistica 'traducida' "$original -> $propuesta"
@@ -24730,7 +24879,10 @@ function Request-WhisperTras([string]$texto, [int]$paso = 0) {
         $script:reintentoBase = $true
         $script:repasoPaso = $paso
         if ($paso -eq 0) { $script:repasoOriginal = $texto }
-        $script:reintentoVence = $sw.ElapsedMilliseconds + $ReintentoMaxMs
+        # EL PLAZO, DE LO QUE TARDA ESTE MOTOR (26/09, idea 8). Ver Get-PlazoOido: canary sale
+        # a 14,5 s y base a 24,1 con los datos de hoy, contra los 15 fijos de antes.
+        $script:reintentoPlazo = [int](Get-PlazoOido $quien $ReintentoMaxMs)
+        $script:reintentoVence = $sw.ElapsedMilliseconds + $script:reintentoPlazo
         Log "PARAKEET: '$texto' no es una orden que entienda; lo repasa $quien"
         Add-Estadistica 'parakeet-a-whisper' $texto
         # LA NUBE SOLO SE LANZA UNA VEZ POR FRASE, en el primer paso: si no, cada escalon
@@ -24788,7 +24940,10 @@ function Request-UltimoRecurso([string]$orig, [bool]$reconocida, [bool]$eco, [st
         $script:reintentoEco = $eco
         $script:reintentoUltimo = $true
         $script:reintentoAlFallar = $alFallar
-        $script:reintentoVence = $sw.ElapsedMilliseconds + $ReintentoUltimoMs
+        # turbo es el que peor cumplia el plazo: DIECISIETE de sus 23 repasos pasaban de 15 s,
+        # y su p99 medido son 76,5. Ver Get-PlazoOido.
+        $script:reintentoPlazo = [int](Get-PlazoOido 'turbo' $ReintentoUltimoMs)
+        $script:reintentoVence = $sw.ElapsedMilliseconds + $script:reintentoPlazo
         Log "ULTIMO RECURSO: ni base ni small sacan una orden de '$orig'; lo repasa turbo"
         Add-Estadistica 'turbo' $orig
         Set-UI 'pensando' 'Pensandolo mejor'
@@ -25973,7 +26128,9 @@ function Process-Texto([string]$text) {
                 # el eco del ejemplo NO se hace si el repaso no lo confirma (ver ECO DE LA FRASE DE EJEMPLO)
                 $script:reintentoEco = ($script:dictadoEco -and $script:dictadoConfianza -lt $RepasoEcoUmbral)
                 if ($script:reintentoEco) { Log "OIDO FINO: '$text' es la frase de ejemplo de Whisper con poca seguridad ($($script:dictadoConfianza)); lo confirmo antes" }
-                $script:reintentoVence = $sw.ElapsedMilliseconds + $ReintentoMaxMs
+                # el oido fino es small: p99 238,9 s, asi que aqui manda el techo (30 s)
+                $script:reintentoPlazo = [int](Get-PlazoOido 'small' $ReintentoMaxMs)
+                $script:reintentoVence = $sw.ElapsedMilliseconds + $script:reintentoPlazo
                 Log "OIDO FINO: '$text' se entiende pero Whisper dudaba ($($script:dictadoConfianza)); lo repaso antes de hacerlo"
                 Add-Estadistica 'fino' $text
                 Set-UI 'pensando' 'Afinando el oido'
@@ -26367,8 +26524,9 @@ function Process-Texto([string]$text) {
                     [System.IO.File]::WriteAllText($MarcaReintento, 'x')
                     $script:reintentoTexto = $text
                     Add-OidoDudoso $text
-                    $script:reintentoVence = $sw.ElapsedMilliseconds + $ReintentoMaxMs
-                    Log "OIDO FINO: no reconoci '$text', pido repaso"
+                    $script:reintentoPlazo = [int](Get-PlazoOido 'small' $ReintentoMaxMs)
+                    $script:reintentoVence = $sw.ElapsedMilliseconds + $script:reintentoPlazo
+                    Log "OIDO FINO: no reconoci '$text', pido repaso (plazo $([int]($script:reintentoPlazo/1000)) s)"
                     Add-Estadistica 'fino' $text
                     Set-UI 'pensando' 'Afinando el oido'
                     return
@@ -28016,7 +28174,9 @@ while ($true) {
             try { $fino = [System.IO.File]::ReadAllText($RutaReintento, [System.Text.Encoding]::UTF8) } catch { $fino = '' }
             Remove-Item -LiteralPath $RutaReintento -Force -ErrorAction SilentlyContinue
         } elseif ($sw.ElapsedMilliseconds -ge $script:reintentoVence) {
-            Log "OIDO FINO: sin respuesta a tiempo; sigo con lo que tenia"
+            # EL PLAZO, EN LA LINEA: ya no hay un unico 15, asi que sin decirlo un "sin
+            # respuesta a tiempo" no se puede leer ni contar (26/09, idea 8).
+            Log ("OIDO FINO: sin respuesta a tiempo (plazo " + [int]($script:reintentoPlazo / 1000) + " s); sigo con lo que tenia")
             Remove-Item -LiteralPath $MarcaReintento -Force -ErrorAction SilentlyContinue
             $fino = ''
         }

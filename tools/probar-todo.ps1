@@ -1997,6 +1997,30 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n181. El plazo de cada repaso, de lo que tarda ESE motor (idea 8 de las 121)"
+# Todos los repasos compartian UN plazo escrito a mano, 15 s, y el ultimo recurso 60: dos
+# numeros fijos para cinco motores que tardan cosas muy distintas. MEDIDO sobre las 477 filas
+# con 'segundos' de registro.jsonl: canary p99 14,5 s (0 pasan de 15), base p99 24,1 (6 pasan),
+# small p99 238,9 (12 pasan), turbo p99 76,5 (DIECISIETE de 23 pasan). Y 30 lineas "sin
+# respuesta a tiempo" que SI tenian respuesta despues: 30 repasos pagados y tirados.
+# EL PERCENTIL ES 99 Y NO EL 90 QUE PEDIA LA IDEA: simulado, p90 da 17 timeouts NUEVOS contra 3
+# rescatados -peor que hoy-, p95 11 contra 4, y p99 CERO contra 8. Un percentil usado como plazo
+# de RENDIRSE garantiza por construccion que el (100-p) % se tire.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-plazo-oido.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el plazo que de verdad necesita)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n180. Lo aprendido lleva TU frase, no la que Nova se reescribio (idea 7 de las 121)"
+# Cuando la charla decide que lo dicho era en realidad una orden, la REESCRIBE a su manera, y
+# hasta hoy era esa reescritura la que acababa de clave en traducciones.json: Nova aprendia a
+# entender sus PROPIAS palabras, que braya no vuelve a decir nunca. MEDIDO: de las 21 lineas
+# APRENDIDO del registro, CUATRO llevan de clave una frase que braya no dijo jamas asi. Una de
+# ellas es la que envenevo el vocabulario el 25/09: dijo "Que habla, dije que cerraras este in"
+# y se guardo 'Cierra este in.' = 'cierra discord'. Y explica el otro numero: 21 aprendidas y
+# UNA usada. Ahora se archivan LAS DOS, y la de braya pasa por el MISMO filtro (6 palabras,
+# nombre propio, oido dudoso): aqui no se afloja nada, se archiva bajo el nombre bueno.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-clave-como-la-dijiste.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:lleva tu frase)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n179. El tiempo de hace un rato sobrevive al reinicio (idea 6 de las 121)"
 # El clima se guardaba una hora, pero solo DENTRO del proceso: cada arranque nacia con la cache
 # vacia y el reloj en "hace una hora", asi que a los 20 segundos de vivir Nova salia a internet

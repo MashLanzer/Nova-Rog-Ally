@@ -123,6 +123,17 @@ function TraerFn([string]$n) {
     if (-not $f) { throw "falta $n" }
     return $f.Extent.Text
 }
+# Y LAS QUE LLAMA POR DENTRO (26/09): desde la idea 8, Request-WhisperTras saca el plazo de lo
+# que tarda ese motor en vez de usar el 15 escrito, asi que necesita Get-PlazoOido. Sin traerla
+# el banco reventaba dentro de la funcion y salian dos rojos que no eran del codigo. Es el
+# patron de "banco que llama a una funcion que no ha traido", que este proyecto ya conoce.
+Invoke-Expression (TraerFn 'Get-RepasoTiempos')
+Invoke-Expression (TraerFn 'Get-PlazoOido')
+$txtR = [IO.File]::ReadAllText((Join-Path $raiz 'assistant.ps1'), [Text.Encoding]::UTF8)
+foreach ($cteR in @('PlazoOidoPercentil', 'PlazoOidoMin', 'PlazoOidoSuelo', 'PlazoOidoTecho')) {
+    $mR = [regex]::Match($txtR, ('(?m)^\$' + $cteR + '\s*=\s*([0-9.]+)'))
+    if ($mR.Success) { Set-Variable -Name $cteR -Value ([double]$mR.Groups[1].Value) }
+}
 Invoke-Expression (TraerFn 'Request-WhisperTras')
 # el mundo de mentira: lo justo para que corra sin microfono, sin worker y sin nube
 $script:uiEst = ''; $script:uiTxt = ''; $script:uiN = 0
