@@ -67,8 +67,15 @@ Write-Host '-- 3. el oido lo deja escrito, y AL FINAL --'
 # cambiaria el significado de todos ellos de golpe; es la misma decision del quinto (22/09) y
 # del sexto (24/09).
 $sinCom = (($oido -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n")
-Comp 'el estado tiene siete campos' ($sinCom -match '"%\.1f\|%s\|%\.3f\|%d\|%d\|%d\|%d"') ''
-Comp 'y el del recorte es el ULTIMO' ($sinCom -match 'recientes, desde_recorte\)') ''
+# EL REGEX CERRADO HA MORDIDO TRES VECES (26/09). Primero a probar-aviso-ruido con el sexto
+# campo, luego a probar-oido-flojo con el septimo, y ahora a este con el OCTAVO -el repaso que
+# no se pudo cargar por falta de RAM, idea 9-. La linea CRECE por diseno: decir_estado lo tiene
+# escrito desde el 22/09, "se anade AL FINAL a proposito", justo para que un lector por indice
+# siga leyendo lo mismo. Un banco que exige un numero exacto de campos castiga cumplir el
+# diseno. Se mira el PREFIJO, que es lo que de verdad protege a los lectores, y por separado
+# que cada campo siga en su sitio.
+Comp 'el estado empieza por sus campos de siempre' ($sinCom -match '"%\.1f\|%s\|%\.3f\|%d\|%d\|%d\|%d') ''
+Comp 'y el del recorte sigue siendo el SEPTIMO' ($sinCom -match 'recientes, desde_recorte') ''
 Comp 'y sale del ultimo recorte de verdad' ($sinCom -match 'desde_recorte = -1 if ultimo_recorte <= 0') ''
 Comp 'que es el mismo que usa la guarda de la ganancia' ($sinCom -match 'ultimo_recorte = ahora') 'no hay dos relojes distintos'
 

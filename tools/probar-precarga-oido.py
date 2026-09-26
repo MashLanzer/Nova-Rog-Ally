@@ -68,6 +68,11 @@ ns = {
     "ram_libre_mb": lambda: ns.get("_ram", 9000.0),
     "hacer_sitio_a_parakeet": lambda libre: ns.get("_ram_tras_sitio", libre),
     "_ram": 9000.0,
+    # idea 9 (26/09): modelo_parakeet marca aqui que no pudo cargarse por falta de RAM, y
+    # _repaso_recuperado lo borra al conseguirlo. Sin estas dos entradas el exec de abajo
+    # revienta con NameError en cuanto la guarda salta.
+    "repaso_perdido": "",
+    "_repaso_recuperado": lambda cual: None,
     # __file__ lo usa el glob de la carpeta de modelos: se le da el de verdad
     "__file__": os.path.join(RAIZ, "wake_vosk.py"),
 }

@@ -844,6 +844,27 @@ def plazo_soltar(base):
 # para siempre, y esto es pasajero: cuando cierres el juego habra sitio y se cargara.
 RAM_MIN_PARAKEET = 1200.0
 RAM_MIN_PRECISO = 900.0
+# SE QUEDA SIN SU REPASO FINO Y NO LO DICE (26/09, idea 9 de las 121). Cuando no hay RAM para
+# un modelo, la guarda de arriba lo deja sin cargar y escribe una linea en el log... que no lee
+# nadie. Nova sigue funcionando, pero oye PEOR, y braya no tiene forma de saberlo: piensa que
+# hoy le entiende mal sin mas.
+# MEDIDO en assistant.log + assistant.log.1: TREINTA Y DOS veces en 18 dias -18 parakeet, 8 el
+# oido fino y 6 canary-, repartidas en DIEZ sesiones distintas. Los megas que faltaban: minimo
+# 24, mediana 376, maximo 906.
+# Y OJO CON LA ETIQUETA: esto es RAM FISICA (ram_libre_mb -> GlobalMemoryStatusEx), no disco.
+# El aviso de disco-poco del asistente habla de gigas de disco y es otra averia distinta; por
+# eso este va con clave propia y no colgado de aquel.
+# El formato es "<que>:<megas>" y viaja en el octavo campo de escucha-estado.txt.
+repaso_perdido = ""
+def _repaso_recuperado(cual):
+    """Borra la marca SOLO si es de este modelo (idea 9, 26/09).
+
+    Sin esto, cerrar el juego y cargar parakeet bien dejaria a Nova quejandose de algo que ya
+    se arreglo. Y borrando a ciegas, recuperar canary taparia que parakeet sigue sin cargarse:
+    cada uno limpia lo suyo."""
+    global repaso_perdido
+    if repaso_perdido and repaso_perdido.split(":")[0] == cual:
+        repaso_perdido = ""
 
 
 def modelo_preciso():
@@ -854,6 +875,9 @@ def modelo_preciso():
     if 0 <= _libre < RAM_MIN_PRECISO:
         anota("oido fino: no lo cargo, solo quedan %.0f MB libres (hacen falta %.0f)"
               % (_libre, RAM_MIN_PRECISO))
+        # y que se pueda DECIR, no solo escribir en un log que no lee nadie (idea 9)
+        global repaso_perdido
+        repaso_perdido = "fino:%.0f" % (RAM_MIN_PRECISO - _libre)
         return None
     try:
         t0 = time.time()
@@ -868,6 +892,7 @@ def modelo_preciso():
         # las 18:57:04 hubo que cargarlo otra vez perdiendo 3,2 s EN MITAD de una orden.
         # Sellandolo aqui ningun camino nuevo puede volver a desincronizarlo.
         _preciso_uso = time.time()
+        _repaso_recuperado("fino")
         anota("oido fino '%s' cargado en %.1f s" % (MODELO_PRECISO, time.time() - t0))
     except Exception as e:
         _preciso_roto = True
@@ -1025,12 +1050,15 @@ def modelo_omni():
     global _omni, _omni_roto, _omni_uso
     if _omni is not None or _omni_roto:
         _omni_uso = time.time()
+        _repaso_recuperado("omni")
         return _omni
     _libre = ram_libre_mb()
     if 0 <= _libre < RAM_MIN_PARAKEET:
         _libre = hacer_sitio_a_parakeet(_libre)
     if 0 <= _libre < RAM_MIN_PARAKEET:
         anota("omni: no lo cargo, solo quedan %.0f MB libres" % _libre)
+        global repaso_perdido
+        repaso_perdido = "omni:%.0f" % (RAM_MIN_PARAKEET - _libre)
         return None
     try:
         import glob
@@ -1078,12 +1106,15 @@ def modelo_canary():
     global _canary, _canary_roto, _canary_uso
     if _canary is not None or _canary_roto:
         _canary_uso = time.time()
+        _repaso_recuperado("canary")
         return _canary
     _libre = ram_libre_mb()
     if 0 <= _libre < RAM_MIN_PARAKEET:
         _libre = hacer_sitio_a_parakeet(_libre)
     if 0 <= _libre < RAM_MIN_PARAKEET:
         anota("canary: no lo cargo, solo quedan %.0f MB libres" % _libre)
+        global repaso_perdido
+        repaso_perdido = "canary:%.0f" % (RAM_MIN_PARAKEET - _libre)
         return None
     try:
         import glob
@@ -1143,6 +1174,8 @@ def modelo_parakeet():
         if 0 <= _libre < RAM_MIN_PARAKEET:
             anota("parakeet: no lo cargo, solo quedan %.0f MB libres (hacen falta %.0f)"
                   % (_libre, RAM_MIN_PARAKEET))
+            global repaso_perdido
+            repaso_perdido = "parakeet:%.0f" % (RAM_MIN_PARAKEET - _libre)
             return None
         try:
             import glob
@@ -1159,6 +1192,7 @@ def modelo_parakeet():
                 encoder=fichero("encoder*.onnx"), decoder=fichero("decoder*.onnx"), joiner=fichero("joiner*.onnx"),
                 tokens=fichero("tokens.txt"), num_threads=HILOS_PRECISO, decoding_method="greedy_search", model_type="nemo_transducer")
             _parakeet_uso = time.time()
+            _repaso_recuperado("parakeet")
             anota("parakeet cargado en %.1f s" % (time.time() - t0))
         except Exception as e:
             _parakeet_roto = True
@@ -3099,9 +3133,14 @@ def decir_estado(ref=0.0):
     # pedir que se lo repitan en vez de mandarselo al agente.
     # Va al final por el mismo motivo que el quinto y el sexto: se lee por indice.
     desde_recorte = -1 if ultimo_recorte <= 0 else int(ahora_f - ultimo_recorte)
-    return "%.1f|%s|%.3f|%d|%d|%d|%d" % (
+    # OCTAVO CAMPO: que repaso se ha quedado sin cargar por falta de RAM y cuantos megas
+    # faltaban (idea 9, 26/09). Va AL FINAL por el mismo motivo que el quinto y el sexto.
+    # El "-" en vez de vacio a proposito: un campo final vacio se distingue mal de un fichero
+    # cortado a medias, y el guion se ve de un vistazo en el log.
+    return "%.1f|%s|%.3f|%d|%d|%d|%d|%s" % (
         ganancia, ("%.4f" % ref) if ref else "0",
-        salida, bloques_voz, 1 if ruido_de_fuera else 0, recientes, desde_recorte)
+        salida, bloques_voz, 1 if ruido_de_fuera else 0, recientes, desde_recorte,
+        repaso_perdido or "-")
 # Mientras exista esta marca no se evalua la palabra de activacion: solo el
 # boton. La crea el asistente cuando hay un juego en primer plano. El dictado
 # y la confirmacion siguen funcionando con normalidad.

@@ -1997,6 +1997,32 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n183. Los temporales que nadie vuelve a mirar (idea 10 de las 121)"
+# EL CASO QUE LO DESTAPO: tmp\clave.txt, 109 bytes, del 12/09, con una clave de la API de
+# Anthropic EN CLARO, y NADIE la lee: cero referencias en el codigo. tmp\ esta en el .gitignore
+# y "git ls-files tmp" sale vacio, asi que no viajo al repositorio; lo que llevaba catorce dias
+# es en el DISCO, con un agente de acceso total autorizado en la casa.
+# MEDIDO: de los 134 ficheros del primer nivel de tmp, 96 llevan mas de 7 dias sin tocarse y el
+# codigo no los nombra: 12,1 MB. El reparto de edades deja un hueco limpio entre 7 y 9 dias.
+# LO QUE MAS VIGILA EL BANCO no es que borre, es QUE NO BORRE DE MAS: mi-voz.json es la huella
+# de la voz de braya y puede pasar semanas sin reescribirse. Y tmpoz no se toca jamas: tiene
+# dueno (tts_worker.py la poda con su propio tope de 60 MB).
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-tmp-barrido.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:lo que hace falta no se toca)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n182. Cuando se queda sin un repaso por RAM, lo dice (idea 9 de las 121)"
+# Cuando no hay RAM para un modelo, la guarda lo deja sin cargar y escribe una linea en el log
+# que no lee nadie: Nova sigue funcionando pero oye PEOR, y braya piensa que hoy le entiende mal
+# sin mas. MEDIDO: TREINTA Y DOS veces en 18 dias -18 parakeet, 8 oido fino, 6 canary- en DIEZ
+# sesiones distintas; faltaban entre 24 y 906 MB, mediana 376.
+# LA IDEA SE EQUIVOCABA EN LA CAUSA: decia disco y es RAM FISICA (ram_libre_mb ->
+# GlobalMemoryStatusEx). disco-poco habla de gigas de disco y es otra averia; colgarlo de ahi
+# daria "Te quedan 10,7 gigas. Me he quedado sin mi repaso fino" y se taparian entre ellos por
+# compartir reposo. Clave propia. Y son CUATRO guardas, no tres: omni tambien, aunque no haya
+# saltado nunca.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-repaso-perdido.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se queda sin un repaso, lo dice)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n181. El plazo de cada repaso, de lo que tarda ESE motor (idea 8 de las 121)"
 # Todos los repasos compartian UN plazo escrito a mano, 15 s, y el ultimo recurso 60: dos
 # numeros fijos para cinco motores que tardan cosas muy distintas. MEDIDO sobre las 477 filas

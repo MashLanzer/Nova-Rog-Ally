@@ -11309,6 +11309,42 @@ function Get-OidoFlojos {
     } catch { return 0 }
 }
 
+# SE QUEDA SIN SU REPASO FINO Y NO LO DICE (26/09, idea 9 de las 121).
+# Cuando no hay RAM para un modelo, el oido lo deja sin cargar y escribe una linea en el log
+# que no lee nadie. Nova sigue funcionando pero oye PEOR, y braya no tiene forma de saberlo:
+# piensa que hoy le entiende mal sin mas.
+# MEDIDO en los dos registros: TREINTA Y DOS veces en 18 dias -18 parakeet, 8 el oido fino y
+# 6 canary-, repartidas en DIEZ sesiones distintas. Los megas que faltaban: minimo 24, mediana
+# 376, maximo 906.
+# Y NO ES EL AVISO DEL DISCO, aunque la idea lo proponia: esto es RAM fisica y disco-poco habla
+# de gigas de disco. Son dos averias que solo se parecen en la palabra "libres"; juntarlas daria
+# la frase "Te quedan 10,7 gigas. Me he quedado sin mi repaso fino" y ademas se taparian entre
+# ellas por compartir el reposo. Clave propia.
+function Get-RepasoPerdido {
+    # @{ que; mb } del repaso que no se pudo cargar, o $null si no falta ninguno. Mismas cuatro
+    # guardas y en el mismo orden que Get-SegDesdeRecorte y Get-OidoFlojos.
+    if (-not (Test-Path -LiteralPath $RutaEstado)) { return $null }
+    if (-not (Test-EstadoFresco)) { return $null }
+    try {
+        $st = ([System.IO.File]::ReadAllText($RutaEstado).Trim()) -split '\|'
+        if ($st.Count -lt 8) { return $null }
+        $v = [string]$st[7].Trim()
+        if (-not $v -or $v -eq '-') { return $null }
+        $p = $v -split ':'
+        if ($p.Count -lt 2) { return $null }
+        return @{ que = [string]$p[0]; mb = [int]$p[1] }
+    } catch { return $null }
+}
+# COMO SE LLAMA CADA UNO CUANDO SE HABLA DE EL. 'fino' y 'parakeet' no le dicen nada a braya.
+$RepasoNombres = @{ fino = 'mi repaso fino'; parakeet = 'mi oido rapido'; canary = 'uno de mis repasos'; omni = 'uno de mis repasos' }
+function Test-AvisarSinRepaso([string]$que, [int]$mb, [bool]$yaAvisado) {
+    # Pura, para que el banco pueda correrla sin tocar disco.
+    if ($yaAvisado) { return $false }
+    if (-not $que) { return $false }
+    if ($mb -le 0) { return $false }
+    return $true
+}
+
 function Get-OidoConRuido {
     # $true si el oido lleva rato oyendo ruido de fondo constante en vez de voz.
     if (-not (Test-Path -LiteralPath $RutaEstado)) { return $false }
@@ -11409,6 +11445,7 @@ function Test-AvisarMudo([int]$segMudo, [bool]$workerVivo, [long]$ahoraMs) {
 # Y va con la vuelta de la regla 7: lo que dice es "usa el boton", que es la segunda via.
 $FlojoRachaMinima = [int](Get-Cfg 'escucha' 'flojoRachaMinima' 3)
 $script:flojoAvisado = $false     # ya se dijo en esta racha
+$script:sinRepasoAvisado = $false   # idea 9: ya dije que me falta un repaso
 # Pura igual que Test-AvisarRuido y Test-AvisarMudo: recibe la cuenta y devuelve si toca
 # hablar, para que el banco pueda correr un dia entero de rachas en un milisegundo.
 function Test-AvisarFlojo([int]$cuantos, [bool]$enPausa, [bool]$enSordina) {
@@ -11677,6 +11714,25 @@ function Watch-Entorno([int]$botones = 0) {
             if (Send-AvisoEntorno 'oido-flojo' `
                 'Te he oido llamarme varias veces pero llegas muy flojo. Acercate un poco, o usame con el boton.' 'alto' 10) {
                 $script:flojoAvisado = $true
+            }
+        }
+    } catch {}
+
+    # ME HE QUEDADO SIN UN REPASO (26/09, idea 9 de las 121). VA EL ULTIMO DE LOS CUATRO DEL
+    # OIDO, y el orden esta razonado: estar sorda manda sobre oir ruido, y oir ruido sobre no
+    # oirte; quedarse sin un repaso es el menos urgente porque Nova SIGUE oyendo, solo que
+    # peor. Nivel 'medio' y 720 min son los mismos de disco-poco, reusados y no inventados:
+    # con 720, los 10 episodios medidos en 18 dias se quedan en unos 5 avisos.
+    # Y EL 'medio' HACE FALTA AQUI: se calla con un juego delante, que es justo cuando falta la
+    # RAM; el aviso se reintenta y sale al cerrar el juego, que es cuando braya puede oirlo.
+    # Por eso la bandera solo se marca si el aviso SALIO, igual que en los tres de arriba.
+    try {
+        $rp = Get-RepasoPerdido
+        if ($rp -and (Test-AvisarSinRepaso $rp.que $rp.mb $script:sinRepasoAvisado)) {
+            $comoSeLlama = if ($RepasoNombres.ContainsKey($rp.que)) { $RepasoNombres[$rp.que] } else { 'uno de mis repasos' }
+            if (Send-AvisoEntorno 'oido-sin-repaso' `
+                "Me he quedado sin $comoSeLlama por falta de memoria, me faltan $($rp.mb) megas. Te voy a entender algo peor hasta que cierres algo; con el boton me llega igual." 'medio' 720) {
+                $script:sinRepasoAvisado = $true
             }
         }
     } catch {}
@@ -17391,6 +17447,91 @@ function Get-FacturaDisco {
 }
 # LO QUE SE SOLTO DE VERDAD SE MIDE CON EL DISCO, no sumando lo que se borro: un fichero
 # bloqueado no se va, y el numero tiene que ser el que ve Windows.
+# =====================================================================
+# LOS TEMPORALES QUE NADIE VUELVE A MIRAR (26/09, idea 10 de las 121)
+# =====================================================================
+# EL CASO QUE LO DESTAPO: tmp\clave.txt, 109 bytes, del 12 de septiembre, con una clave de la
+# API de Anthropic EN CLARO. Catorce dias ahi. Y lo peor -o lo mejor, segun se mire- es que
+# NADIE LA LEE: cero referencias en todo el codigo. Es residuo de una prueba.
+# Un matiz honesto que baja el susto sin quitarlo: tmp\ esta en el .gitignore desde la linea 7
+# y "git ls-files tmp" sale vacio, asi que la clave NO viajo al repositorio publico. Lo que
+# lleva catorce dias es en el DISCO, a la vista de cualquier cosa que lea la carpeta, y en esta
+# casa hay un agente con acceso total autorizado.
+#
+# MEDIDO el 26/09 sobre los 134 ficheros del primer nivel de tmp: 96 llevan mas de 7 dias sin
+# tocarse y nadie los nombra en el codigo. Son 12,1 MB. El reparto de edades deja un hueco
+# limpio: hay ficheros de 0-1 dia y de 9-14, y NI UNO entre 7 y 9, asi que el corte cae en
+# tierra de nadie.
+#
+# DE DONDE SALE EL 7 (regla 3): no es nuevo. $CachesLimpiables ya usa 'dias = 7' para decidir
+# que un temporal de Windows es viejo, y tools\probar-disco-limpia.ps1 exige que ese plazo sea
+# de al menos 3 dias. Es el numero que esta casa ya daba por bueno.
+$TmpVidaDias = 7
+# LO QUE NO SE TOCA NUNCA, ESTE VIEJO O NO. Son los ficheros de tmp que el codigo nombra: los
+# escribe o los LEE, y alguno se lee mucho mas de lo que se escribe -mi-voz.json es la huella de
+# la voz de braya y puede pasar semanas sin reescribirse-. Borrar uno de estos no seria soltar
+# basura, seria perder algo que costo conseguir.
+# EL BANCO VIGILA QUE ESTA LISTA ESTE COMPLETA comparandola con lo que el codigo menciona, que
+# es la misma idea que el .gitignore vigilado de esta manana: una lista a mano caduca sola.
+$TmpVivos = @(
+    '-pulso.log', 'ambiente.txt', 'avisos-esperando.json', 'avisos-vistos.json',
+    'cerebro-sistema-actual.md', 'coberturas.txt', 'config.json', 'confirmacion.txt',
+    'confirmar.flag', 'corte.flag', 'despierta.flag', 'dictado-confianza.txt',
+    'dictado-id.txt', 'dictado-motor.txt', 'dictado-oidos.txt', 'dictado-parcial.txt',
+    'dictado-voz.txt', 'dictado-winrt.txt', 'dictado.txt', 'dictar.flag', 'escucha-estado.txt',
+    'escucha-pausa.flag', 'ganancia.txt', 'gestos.log', 'gestos.txt', 'guardar-audio.txt',
+    'idioma-dictado.txt', 'invitado.json', 'juego-brillo.json', 'llamada-en-juego.txt',
+    'lotengo.txt', 'lupa.png', 'mi-voz.json', 'ocr.txt', 'oido-cargando.txt',
+    'orden-escrita.txt', 'pantalla.png', 'rafagas.txt', 'reintentar.flag', 'reintento.txt',
+    'salir.flag', 'seguimiento-voz.txt', 'solo-boton.flag', 'tokens.txt',
+    'transcribiendo.flag', 'ui-error.log', 'ui-estado.json', 'ui-nivel.txt',
+    'ultima-orden.wav', 'velocidad.txt', 'vocabulario.txt', 'voces.json', 'voz', 'voz.wav',
+    'wake-err.log', 'wake-worker.lock'
+)
+function Clear-TmpViejo([string]$donde = '') {
+    # Devuelve @{ ficheros; bytes; nombres }. Solo el primer nivel y solo ficheros: tmpoz es
+    # la cache de la voz y tiene DUENO -tts_worker.py la poda sola con su propio tope de 60 MB-,
+    # y dos limpiadores sobre la misma carpeta es como se pierde una cache entera.
+    $r = @{ ficheros = 0; bytes = 0; nombres = @() }
+    if (-not $donde) { $donde = $TmpDir }
+    if (-not $donde -or -not (Test-Path -LiteralPath $donde)) { return $r }
+    try {
+        $vivos = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+        foreach ($v in $TmpVivos) { [void]$vivos.Add($v) }
+        # NADA DE LO ESCRITO DESDE QUE ARRANCO ESTE PROCESO: si algo se ha tocado hoy, esta vivo
+        # por definicion, y la edad podria enganar con un reloj movido.
+        $desde = (Get-Date).AddDays(-1 * $TmpVidaDias)
+        $secretos = @()
+        foreach ($f in @(Get-ChildItem -LiteralPath $donde -File -ErrorAction SilentlyContinue)) {
+            if ($vivos.Contains($f.Name)) { continue }
+            # .lock y .flag son senales, no datos: valen cero bytes y su ausencia significa algo
+            if ($f.Extension -in @('.lock', '.flag')) { continue }
+            if ($f.LastWriteTime -gt $desde) { continue }
+            # UN SECRETO SE AVISA ANTES DE BORRARLO, no despues: si se borra callando, braya no
+            # se entera nunca de que tiene una clave que rotar.
+            if ($f.Length -lt 4096) {
+                try {
+                    $c = [IO.File]::ReadAllText($f.FullName)
+                    if ($c -match '(?:sk-[a-z]{2,4}-[A-Za-z0-9_-]{20,}|AIza[A-Za-z0-9_-]{30,})') { $secretos += $f.Name }
+                } catch {}
+            }
+            $r.ficheros++
+            $r.bytes += [int64]$f.Length
+            $r.nombres += $f.Name
+            Remove-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue
+        }
+        if ($r.ficheros -gt 0) {
+            Log ("TMP: solte $($r.ficheros) fichero(s), $([Math]::Round($r.bytes / 1MB, 1)) MB: " + (($r.nombres | Select-Object -First 12) -join ', '))
+        }
+        if ($secretos.Count -gt 0) {
+            Log ("SECRETO EN CLARO: " + ($secretos -join ', ') + " llevaba(n) mas de $TmpVidaDias dias en tmp; lo he borrado, pero hay que rotar esa clave")
+            [void](Send-AvisoEntorno 'secreto-en-claro' `
+                ("He encontrado una clave escrita en claro en un fichero viejo de mis temporales y lo he borrado. Deberias cambiar esa clave, porque llevaba dias ahi.") 'alto' 43200)
+        }
+    } catch { Log ('tmp: no pude barrer: ' + $_.Exception.Message) }
+    return $r
+}
+
 function Clear-CachesDisco {
     $antes = 0.0
     try { $antes = [Math]::Round((New-Object System.IO.DriveInfo('C')).AvailableFreeSpace / 1GB, 2) } catch {}
@@ -21440,6 +21581,10 @@ try {
     # Y QUE NO SE LE ESCAPE NADA AL REPOSITORIO (26/09, idea 1 de las 121). Una vez al dia, y
     # ni eso con un juego delante: son 120 ms de un proceso de git.
     try { [void](Test-MemoriaIgnorada) } catch {}
+    # Y LOS TEMPORALES QUE NADIE VUELVE A MIRAR (26/09, idea 10 de las 121). Medido: 96
+    # ficheros de mas de 7 dias que el codigo no nombra, 12,1 MB, y entre ellos una clave de
+    # la API en claro del 12/09. Ver Clear-TmpViejo.
+    try { [void](Clear-TmpViejo) } catch {}
     # Y EL TIEMPO DE HACE UN RATO, QUE SIGUE VALIENDO (26/09, idea 6 de las 121). Dos de cada
     # tres consultas de clima caian en los tres minutos siguientes a un arranque.
     try {
