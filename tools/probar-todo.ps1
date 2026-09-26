@@ -1997,6 +1997,19 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n197. Lo que oyo el otro motor se prueba antes de rendirse (idea 25 de las 121)"
+# Cada orden la oyen TRES motores -Vosk, Parakeet y a veces Whisper- y Nova se queda con uno.
+# Los otros dos se escriben en tmp\dictado-oidos.txt y hasta hoy solo los leia la NUBE, cuando
+# ya se habia decidido mandar la frase fuera. MEDIDO sobre las 560 ordenes con las tres
+# transcripciones: en 17 (el 3,0 %) la entregada no empieza por verbo y la de Vosk SI, y leidas
+# una a una en QUINCE de esas 17 la de Vosk era la buena. El sitio tambien esta medido: puesto
+# delante del filtro de ruido se cubren los 17; delante de la nube se pierden TRES, el 18 %.
+# LA GUARDA QUE EL BANCO VIGILA MAS, y es la regla 1: la candidata SOLO se prueba cuando la
+# entregada no ha resuelto nada. Si se probara siempre, un "abre steam" que ya funciono podria
+# acabar ejecutando el "cierra todos los programas" que oyo otro motor. Y nunca sale de local.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-otro-oido.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se prueba antes de rendirse)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n196. Si te repites, lo aprendo (idea 24 de las 121)"
 # Cuando braya dice algo, Nova no lo entiende, y a los pocos segundos lo repite de otra forma y
 # ESO SI funciona, ahi hay una traduccion regalada. MEDIDO sobre los 714 dictados con texto de

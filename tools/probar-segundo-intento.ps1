@@ -112,7 +112,13 @@ Write-Host '-- 5. las demas ramas que actuan tambien marcan --'
 # Si falta una, esa frase contara como muerta y la siguiente orden parecida se aprendera
 # encima. Son siete sitios: seis ramas locales mas la de la nube.
 $n = @([regex]::Matches($sinCom, "intentoActual\.llego = 'local'")).Count
-Comp 'las siete marcas estan puestas' ($n -eq 7) "$n"
+# OCHO DESDE LA IDEA 25: el camino de "lo que oyo el otro motor" tambien ejecuta una orden, asi
+# que tambien tiene que marcar. Si no, la frase que ese camino resolvio contaria como muerta y
+# la siguiente orden parecida se aprenderia encima de ella.
+Comp 'las ocho marcas estan puestas' ($n -eq 8) "$n"
+$iOO = $sinCom.IndexOf('Set-UltimaOrden $candO ([string]$rO)')
+$iMO = if ($iOO -ge 0) { $sinCom.IndexOf("intentoActual.llego = 'local'", $iOO) } else { -1 }
+Comp '  incluida la del otro motor' ($iOO -ge 0 -and $iMO -gt $iOO -and ($iMO - $iOO) -lt 200) 'idea 25: ese camino tambien ejecuta'
 foreach ($par in @(
         @{ n = 'la que pregunta antes de hacer'; a = 'Log "CONFIRMAR: ''$text'' -> $fast"' },
         @{ n = 'la orden local'; a = 'Set-UltimaOrden $text ([string]$fast)' },

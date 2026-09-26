@@ -18795,8 +18795,13 @@ $RutaParcial = Join-Path $TmpDir "dictado-parcial.txt"
 # habia convertido ese nombre en "base". Con "base" dentro, Claude no podia adivinar nada y
 # Nova contesto que no sabia. Con las dos delante, si puede.
 $RutaOidos = Join-Path $TmpDir "dictado-oidos.txt"
-function Get-OtrosOidos([string]$principal, [string]$ruta = $RutaOidos) {
-    if (-not $ruta -or -not (Test-Path -LiteralPath $ruta)) { return '' }
+function Get-OtrosOidos([string]$principal, [string]$ruta = $RutaOidos, [switch]$Crudo) {
+    # -Crudo (26/09, idea 25): devuelve el ARRAY de textos ya limpios, sin el prefijo del motor,
+    # y NO borra el fichero. Es para probarlas contra la capa local antes de rendirse. Sin el
+    # interruptor, todo sigue exactamente igual que siempre, borrado incluido.
+    # CON -Crudo SE DEVUELVE UNA LISTA VACIA, no una cadena: quien llama hace foreach, y una
+    # cadena vacia se recorreria como un elemento.
+    if (-not $ruta -or -not (Test-Path -LiteralPath $ruta)) { if ($Crudo) { return @() } return '' }
     $lineas = @()
     try {
         $lineas = @(Get-Content -LiteralPath $ruta -Encoding UTF8 | Where-Object { $_.Trim() })
@@ -18804,9 +18809,14 @@ function Get-OtrosOidos([string]$principal, [string]$ruta = $RutaOidos) {
     # SE CONSUME AL LEERLA. Unas candidatas de hace tres ordenes no ayudan: harian que Nova
     # contestara a lo de antes. El oido las reescribe en cada dictado, pero si por lo que sea
     # no llegara a hacerlo, aqui se cierra la puerta igual.
-    try { Remove-Item -LiteralPath $ruta -Force -ErrorAction SilentlyContinue } catch {}
+    # CON -Crudo NO SE BORRA: quien pregunta va a probarlas en local y, si ninguna sirve, la
+    # frase sigue su camino hasta la nube, que es quien de verdad las consume.
+    if (-not $Crudo) {
+        try { Remove-Item -LiteralPath $ruta -Force -ErrorAction SilentlyContinue } catch {}
+    }
     $plano = (ConvertTo-Plain $principal).ToLower().Trim()
     $utiles = @()
+    $limpias = @()
     foreach ($l in $lineas) {
         $t = ($l -replace '^[a-z-]+:\s*', '').Trim()
         if (-not $t) { continue }
@@ -18814,7 +18824,12 @@ function Get-OtrosOidos([string]$principal, [string]$ruta = $RutaOidos) {
         if ((ConvertTo-Plain $t).ToLower().Trim() -eq $plano) { continue }
         if ($utiles -contains $l) { continue }
         $utiles += $l
+        # EL TEXTO SIN EL PREFIJO, en el mismo bucle. Si -Crudo devolviera la linea entera
+        # -'vosk: cierra los ajustes'- Test-FastCommand no aceptaria NUNCA una candidata y la
+        # idea se quedaria muerta EN VERDE.
+        $limpias += $t
     }
+    if ($Crudo) { return @($limpias) }
     if ($utiles.Count -eq 0) { return '' }
     return ("LO QUE OYERON LOS OTROS MOTORES de esa misma frase (el microfono es imperfecto y" +
             " cada motor se equivoca en cosas distintas):`n" + ($utiles -join "`n") +
@@ -27108,6 +27123,78 @@ function Process-Texto([string]$text) {
                 Log "RECETA $($recInc.receta.id): falta '$($recInc.hueco)' en '$text', lo pregunto"
                 Say $preguntaH
                 return
+            }
+            # 3.4) LO QUE OYO EL MOTOR QUE SE DESCARTO, PROBADO EN LOCAL (26/09, idea 25).
+            #      Cada orden la oyen TRES motores -Vosk, Parakeet y a veces Whisper- y Nova se
+            #      queda con uno. Los otros dos se escriben en tmp\dictado-oidos.txt y hoy solo
+            #      los lee la NUBE, cuando ya se ha decidido mandarla fuera.
+            #      MEDIDO sobre las 560 ordenes con las tres transcripciones guardadas: en 17
+            #      (el 3,0 %) la entregada NO empieza por un verbo de la lista y la de Vosk SI.
+            #      Leidas una a una, en 15 de esas 17 la de Vosk era la buena:
+            #        'Su volumen cincuenta por ciento'  <- 'sube el volumen cincuenta porciento'
+            #        'Y es un navegador'                <- 'cierra el navegador'
+            #        'Here the glove'                   <- 'abre teclado'
+            #      VA AQUI Y NO "ANTES DE LA NUBE" como decia la idea, y el sitio esta medido:
+            #      puesto aqui se cubren los 17; puesto delante de la nube se pierden TRES -el
+            #      18 %- porque mueren antes en el filtro de ruido de abajo ('Sierra Gul',
+            #      'Seattle Navegador', 'Haber team', todas de una o dos palabras).
+            #      Y NO ROMPE LA GUARDA DEL RUIDO: el ruido existe para no mandar basura AL
+            #      AGENTE, que puede hacer cualquier cosa en el disco. Aqui no se manda nada a
+            #      ningun lado: se prueba contra la capa local, que es cerrada.
+            #      VA DETRAS de las traducciones aprendidas y de las recetas a proposito: lo que
+            #      braya enseno a mano vale mas que la adivinanza de otro motor.
+            if (-not ($script:enSeguimiento -and ($sw.ElapsedMilliseconds - $script:charlaUltima) -lt 60000)) {
+                # con nombres y no por posicion: probar-segunda-oreja busca la cadena literal
+                # 'Get-OtrosOidos $text' para comprobar otra cosa, y asi no se confunde
+                $candsO = @()
+                try { $candsO = @(Get-OtrosOidos -principal $text -ruta $RutaOidos -Crudo) } catch { $candsO = @() }
+                $candO = ''
+                foreach ($cO in $candsO) {
+                    if (-not $cO) { continue }
+                    $okO = $false
+                    try { $okO = [bool](Test-FastCommand $cO) } catch { $okO = $false }
+                    # LA PRIMERA QUE RESUELVE, y en el orden en que las escribe el oido
+                    # (parakeet, parakeet-corto, whisper, vosk): no hay puntuacion ni liston
+                    # propio. El filtro es Test-FastCommand y nada mas, que ya esta medido.
+                    if ($okO) { $candO = $cO; break }
+                }
+                if ($candO) {
+                    # CON LA VOZ RARA O EL DICTADO DUDOSO, SE PREGUNTA. Esto es adivinar de
+                    # segunda mano: ejecutar sin confirmar seria la regla 1 al reves.
+                    $dudosoO = $false
+                    try { $dudosoO = [bool](Test-VozExtrana) -or [bool](Test-DictadoDudoso) } catch { $dudosoO = $false }
+                    if ($dudosoO) {
+                        Log "OTRO OIDO: '$text' no la entendi, pero otro motor oyo '$candO'; pregunto antes"
+                        $script:pendiente = @{ texto = $candO; vence = 0; tipo = 'peligrosa' }
+                        $preguntaO = "Entendi: $candO. ¿Lo hago?"
+                        Say $preguntaO
+                        Set-UI 'escuchando' $preguntaO
+                        Start-Confirmacion
+                        return
+                    }
+                    $rO = $null
+                    try { $rO = Invoke-FastCommand $candO } catch { $rO = $null }
+                    if ($script:pendiente) {
+                        # la orden dejo una pregunta armada: se pregunta, no se da por hecha
+                        Start-Confirmacion
+                        return
+                    }
+                    if ($rO) {
+                        Log "OTRO OIDO: '$text' no la entendi; otro motor habia oido '$candO' -> $rO"
+                        Add-Estadistica 'otro-oido' "$text -> $candO"
+                        Set-UltimaOrden $candO ([string]$rO)
+                        $script:noEntendiSeguidos = 0
+                        if ($script:intentoActual) { $script:intentoActual.llego = 'local' }   # idea 24
+                        # y las candidatas se consumen: ya han servido
+                        try { Remove-Item -LiteralPath $RutaOidos -Force -ErrorAction SilentlyContinue } catch {}
+                        $fraseO = (Get-FraseAccion ([string]$rO)) + ', que es lo que entendi'
+                        $script:ultimaRespuesta = $fraseO
+                        Send-UIEvento 'hecho'
+                        Show-Popup $fraseO
+                        Say $fraseO
+                        return
+                    }
+                }
             }
             # 3.5) FILTRO DE RUIDO. Lo que llega aqui no lo entendio la capa
             #      local, y el siguiente paso lo manda al agente con --auto,
