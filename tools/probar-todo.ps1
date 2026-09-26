@@ -1997,6 +1997,19 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n194. Con un juego delante la capsula apaga lo que nadie mira (idea 20 de las 121)"
+# MEDIDO: 21,7 horas de juego en diez dias distintos, contadas sobre memoria\juegos.json. Y en
+# todas ellas la capsula NO se duerme nunca: la condicion de Dormir() pide que no haya juego
+# delante, asi que con uno abierto los cinco relojes siguen corriendo enteros. Los cinco suman
+# 65,28 tics por segundo y los DOS que se apagan aqui -la mirada de 66 ms y el tic33- son 45,45
+# de ellos, el 69,6 %; ademas cada tic de la mirada hace TRES llamadas al sistema que con un
+# juego a pantalla completa devuelven siempre lo mismo. NO se dice cuanto nucleo ahorra porque
+# no esta medido: el 28 % del comentario del latido es de antes del tope de 12 fps.
+# Y SOLO EN REPOSO: si se apagara mientras Nova habla se perderian el lipsync y la onda. El
+# reloj que lee el estado, el latido y el parpadeo no se paran JAMAS: eso la dejaria tiesa.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-capsula-ahorro.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apaga lo que nadie mira)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n193. El registro sirve para juzgar la cascada (idea 19 de las 121)"
 # Python apunta en registro.jsonl TODO repaso que hace, con su motor y el texto que saco: 480
 # lineas -base 328, small 94, canary 30, turbo 23, omni 3-. El asistente no abria ese fichero

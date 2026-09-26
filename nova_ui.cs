@@ -236,6 +236,10 @@ public class NovaUI : Window
     DateTime calmaFin = DateTime.MinValue;
     Random azar = new Random();
     DispatcherTimer parpadeo;
+    // LOS DOS QUE SE PUEDEN APAGAR CON UN JUEGO DELANTE (26/09, idea 20 de las 121). Eran var
+    // locales del constructor, y asi no hay forma de pararlos desde fuera. Ver AhorroJuego().
+    DispatcherTimer relojMirada, relojTic33;
+    bool ahorroJuego = false;
     Point raton = new Point(-1, -1);
     DateTime ratonMovido = DateTime.MinValue;
     double miradaX = 0, miradaY = 0;
@@ -850,17 +854,17 @@ public class NovaUI : Window
         reloj.Tick += delegate { LeerEstado(); };
         reloj.Start();
 
-        var reloj2 = new DispatcherTimer();
-        reloj2.Interval = TimeSpan.FromMilliseconds(33);
-        reloj2.Tick += delegate { Tic33(); };
-        if (!Sin("tic33")) { reloj2.Start(); }
+        relojTic33 = new DispatcherTimer();
+        relojTic33.Interval = TimeSpan.FromMilliseconds(33);
+        relojTic33.Tick += delegate { Tic33(); };
+        if (!Sin("tic33")) { relojTic33.Start(); }
 
         var reloj4 = new DispatcherTimer();
         reloj4.Interval = TimeSpan.FromMilliseconds(250);
         reloj4.Tick += delegate { Tic250(); };
         reloj4.Start();
 
-        var relojMirada = new DispatcherTimer();
+        relojMirada = new DispatcherTimer();
         relojMirada.Interval = TimeSpan.FromMilliseconds(66);
         relojMirada.Tick += delegate { Mirar(); };
         if (!Sin("mirar")) { relojMirada.Start(); }
@@ -2036,6 +2040,57 @@ public class NovaUI : Window
     // ---------------------------------------------------------------
     // Sueno
     // ---------------------------------------------------------------
+    // ---------------------------------------------------------------
+    // CON UN JUEGO DELANTE, APAGAR LO QUE NADIE MIRA (26/09, idea 20 de las 121)
+    // ---------------------------------------------------------------
+    // LO MEDIDO: 73.222 segundos de juego -20,3 horas- en diez dias distintos, contados en
+    // memoria\juegos.json. Y en todo ese tiempo la capsula no se duerme NUNCA: la condicion de
+    // Dormir() pide string.IsNullOrEmpty(juegoActual), o sea que con un juego delante los
+    // cinco relojes siguen corriendo enteros.
+    //
+    // LOS CINCO SUMAN 65,28 TICS POR SEGUNDO (300 ms, 80 ms, 33 ms, 250 ms y 66 ms). Los DOS
+    // que se apagan aqui son 45,45 de esos 65,28: el 69,6 %. Y el de la mirada no es solo un
+    // tic: cada uno hace TRES llamadas al sistema -GetCursorPos, GetForegroundWindow y
+    // GetWindowRect-, o sea unas 45 por segundo que con un juego a pantalla completa
+    // devuelven siempre exactamente lo mismo.
+    //
+    // LO QUE NO SE APAGA, Y POR QUE: el reloj de 80 ms lee el estado y es lo que mantiene viva
+    // la capsula -pararlo la deja tiesa de verdad-; el latido y el parpadeo son el "esta viva";
+    // y el de 300 ms la mantiene por encima del juego. La regla es la de siempre: nada
+    // residente comiendo lo que el juego necesita, pero tampoco parecer colgada.
+    //
+    // Y SOLO EN REPOSO: con la boca quieta. Si se apagara tambien mientras Nova habla o
+    // escucha, se perderian el lipsync y la onda, que es justo cuando braya la esta mirando.
+    //
+    // NO SE PUEDE DECIR CUANTO NUCLEO AHORRA, y por eso no se dice: el 28 % que cita el
+    // comentario del latido es del 13/09 y es el coste de ANTES del tope de 12 fps que ya se
+    // aplica; no hay ningun medidor de CPU de la capsula en tools\. Lo contable son los tics.
+    void AhorroJuego()
+    {
+        try
+        {
+            bool quieto = (estadoActual == "reposo" || estadoActual == "");
+            bool debe = !string.IsNullOrEmpty(juegoActual) && quieto;
+            // IDEMPOTENTE: si ya esta como toca, no se toca nada. Esto lo llama LeerEstado, que
+            // corre doce veces por segundo.
+            if (debe == ahorroJuego) { return; }
+            ahorroJuego = debe;
+            // LAS GUARDAS DE NOVA_DIAG SE RESPETAN: si alguien apago una pieza a mano para
+            // medir, no se le vuelve a encender por detras.
+            if (debe)
+            {
+                if (!Sin("mirar")) { relojMirada.Stop(); }
+                if (!Sin("tic33")) { relojTic33.Stop(); }
+            }
+            else
+            {
+                if (!Sin("mirar")) { relojMirada.Start(); Mirar(); }
+                if (!Sin("tic33")) { relojTic33.Start(); }
+            }
+        }
+        catch { }
+    }
+
     void Dormir()
     {
         dormido = true;
@@ -3632,6 +3687,9 @@ public class NovaUI : Window
             // ya en foco, se quedaba con el tamano del video. Solo si cambio el
             // JUEGO: el clima entra por la misma puerta y no pinta nada aqui.
             if (cambioJuego) { EscalaFoco(foco && (estadoActual == "reposo" || estadoActual == "")); }
+            // ENTRAR O SALIR DE UN JUEGO (26/09, idea 20): es el unico sitio del fichero que ya
+            // sabe que eso acaba de pasar.
+            if (cambioJuego) { AhorroJuego(); }
             climaActual = clima;
             CargarAvatar(juego, clima);
             // el color de reposo depende del juego (EL TONO DEL JUEGO): se rehace
@@ -3652,6 +3710,10 @@ public class NovaUI : Window
             string estadoAnterior = estadoActual;
             estadoActual = est;
             textoActual = txt;
+            // Y LA SEGUNDA SALIDA (26/09, idea 20): con la llamada SOLO en la rama del juego,
+            // al empezar a hablar con el juego delante los dos relojes seguirian parados y
+            // Nova hablaria con la boca quieta. Aqui es donde se entera de que dejo el reposo.
+            AhorroJuego();
             if (est != "reposo") { Despertar(); }
             if (estabaEnReposo && est != "reposo") { CapturarFondo(); }
             if (est == "escuchando" && estadoAnterior != "escuchando") { escuchandoDesde = DateTime.UtcNow; ultimoAsentimiento = DateTime.UtcNow; ritmo.Clear(); }
