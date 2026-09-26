@@ -203,6 +203,28 @@ Comp 'lo apunta en las estadisticas' ((@($script:apuntes) -join ' ') -match 'aut
 $rD2 = Undo-DecisionPropia
 Comp 'pedirlo dos veces no miente ni rompe' ($rD2 -match 'No he cambiado nada') "'$rD2'"
 
+Write-Host ''
+Write-Host '  -- y la CASCADA tambien se deshace en caliente (25/09) --'
+# EL CASO 5 -quitar un escalon del repaso- se anadio la manana del 25/09 y se olvido su linea en
+# el switch de Undo-DecisionPropia, asi que era la UNICA de las cinco decisiones propias que no
+# volvia en vivo: Nova contestaba "en cuanto me reinicies" y hasta entonces seguia sin ese
+# escalon. Una salida que exige reiniciar es media salida, y la regla 2 pide dos de verdad.
+# NO LO CAZO NADIE porque el banco de la cascada solo miraba la FORMA del codigo -comprobaba que
+# la linea Save-DecisionPropia estuviera escrita-, que es la manera 1 de salir verde mintiendo.
+# Aqui se EJECUTA el deshacer y se mira la variable viva.
+$script:RepasoCascada = @('base')
+$script:autoDecision = @{ seccion = 'escucha'; clave = 'repasos'; antes = 'canary,base'; que = 'el repaso con canary' }
+$script:cfgPuesta = @()
+$rC = Undo-DecisionPropia
+Comp 'vuelve la cascada entera, en vivo' (($script:RepasoCascada -join ',') -eq 'canary,base') "cascada='$($script:RepasoCascada -join ',')'"
+Comp 'y sin pedir que reinicies' ($rC -notmatch 'reinicies') "'$rC'"
+Comp 'y lo guarda tambien en config' (@($script:cfgPuesta) -contains 'escucha.repasos=canary,base') ($script:cfgPuesta -join ' ')
+# y que no se haya arreglado poniendo un 'default' que se invente un valor: una clave que nadie
+# sabe devolver en vivo TIENE que seguir diciendo "en cuanto me reinicies".
+$script:autoDecision = @{ seccion = 'escucha'; clave = 'inventada'; antes = 'x'; que = 'algo que no existe' }
+$rX = Undo-DecisionPropia
+Comp 'y una clave desconocida sigue avisando del reinicio' ($rX -match 'reinicies') "'$rX'"
+
 Write-Host '  -- y no se pone a discutir contigo --'
 Poner 45 1
 [void](Test-RevisionPropia $hoy)

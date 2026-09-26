@@ -11661,6 +11661,13 @@ function Undo-DecisionPropia {
         'escucha.nubeOir' { $script:NubeOir = [string]$d.antes }
         'input.whisperModeloPreciso' { $script:WhisperPreciso = [string]$d.antes }
         'escucha.nubeTopeMs' { $script:NubeTopeMs = [int]$d.antes }
+        # LA CASCADA FALTABA (25/09). El caso 5 -quitar un escalon del repaso- se anadio esta
+        # manana y se olvido esta linea, asi que era la UNICA de las cinco decisiones propias
+        # que no se podia deshacer en caliente: Nova contestaba "en cuanto me reinicies" y hasta
+        # entonces seguia sin ese escalon. No mentia -el codigo ya distingue los dos casos- pero
+        # una salida que exige reiniciar es media salida, y la regla 2 pide dos de verdad.
+        # Se parte igual que al arrancar (assistant.ps1, donde nace $RepasoCascada), porque lo
+        # que se guardo en $d.antes es la lista unida por comas.
         default { $enVivoD = $false }
     }
     if (-not $okU) {
@@ -12616,6 +12623,37 @@ function Get-AusenciaMin([datetime]$ahora = (Get-Date)) {
     }
     return [int](($ahora - $desde).TotalMinutes)
 }
+# ¿HAY ALGUIEN EN LA CONSOLA? (25/09). Get-AusenciaMin de arriba mide desde la ultima senal que
+# le llego A NOVA, y tiene un suelo a proposito: "arranque + 60 s". Eso la deja ciega justo en
+# el instante en que mas falta hace, el saludo de arranque: al arrancar la ausencia vale 0 por
+# construccion, asi que Nova da por sentado que braya esta delante SIEMPRE que acaba de nacer.
+# Y nace 10-15 veces al dia.
+# Esto pregunta otra cosa, y se la pregunta a Windows: cuanto hace que alguien toco el teclado,
+# el raton o el mando EN LA MAQUINA, viva Nova o no. Es la unica senal que vale a los cero
+# segundos de vida, porque no depende de que Nova estuviera escuchando.
+# DEVUELVE -1 SI NO PUEDE SABERLO, y eso NO es cero: un catch que devuelve el valor que
+# responde la pregunta es la manera 10 de mentir. Quien llama tiene que tratar el -1 como "no
+# lo se" y quedarse con lo de siempre, nunca callar a Nova porque fallo una medicion.
+# Cuesta una llamada al sistema, sin nada residente detras (regla 5).
+function Get-InactividadMin {
+    try {
+        if (-not ('NovaOcio.P' -as [type])) {
+            Add-Type -Namespace NovaOcio -Name P -MemberDefinition @'
+[StructLayout(LayoutKind.Sequential)] public struct LASTINPUT { public uint cbSize; public uint dwTime; }
+[DllImport("user32.dll")] public static extern bool GetLastInputInfo(ref LASTINPUT p);
+[DllImport("kernel32.dll")] public static extern uint GetTickCount();
+'@ -ErrorAction Stop
+        }
+        $li = New-Object NovaOcio.P+LASTINPUT
+        $li.cbSize = [uint32][System.Runtime.InteropServices.Marshal]::SizeOf($li)
+        if (-not [NovaOcio.P]::GetLastInputInfo([ref]$li)) { return -1 }
+        $msOcio = [double]([NovaOcio.P]::GetTickCount()) - [double]$li.dwTime
+        # GetTickCount da la vuelta a los 49,7 dias: una resta absurda es "no lo se", no un
+        # ocio de meses que dejaria a Nova muda para siempre.
+        if ($msOcio -lt 0 -or $msOcio -gt 604800000) { return -1 }
+        return [int][Math]::Floor($msOcio / 60000.0)
+    } catch { return -1 }
+}
 # LA VARIEDAD (lo que pidio: "no siempre igual porque se vuelve repetitivo"). El patron ya
 # estaba en casa -el relleno de la charla, que sortea filtrando la ultima dicha- con dos
 # arreglos: se filtran las TRES ultimas, no una (con tres frases se repetian, lo dice su
@@ -13048,6 +13086,109 @@ function Add-TiempoJuego([string]$juego, [int]$seg) {
     $sumaP = 0; foreach ($v in $script:tiempoJuegoPend.Values) { $sumaP += $v }
     if ($sumaP -ge 300) { Save-TiempoJuego }
 }
+# EL CUADERNO DE LA ALLY (25/09). Lo pidio braya con estas palabras: "a veces no hablo con nova
+# pero paso horas con ella jugando o encendida o haciendo cosas, y eso nova deberia saberlo
+# tambien, ya que ella tiene que controlar toda la Ally".
+#
+# POR QUE HACIA FALTA, medido: Nova LEE que hay en primer plano -Get-JuegoEnPrimerPlano, cada
+# 10 s- pero solo lo APUNTA si resulta ser un juego. De todo lo demas no queda ni rastro. Y el
+# unico motor que podria proponerle algo a braya, Find-Propuesta, come de habitos.usos, que son
+# ORDENES DE VOZ: 34 entradas de 27 tipos distintos en 6 dias, asi que la condicion de "lo mismo
+# a la misma hora en tres dias" no se cumple jamas y NUNCA ha propuesto nada.
+# Mientras tanto, la consola si deja rastro de sobra: 49 comienzos de juego en 10 dias, 169
+# sucesos de cargador y 211 de descargas, contra 737 dictados en 14 dias, de los que NI UNO pide
+# una regla. La senal esta en lo que braya HACE, no en lo que dice.
+#
+# Y LA DISTINCION QUE LO DECIDE TODO, que la puso el propio braya: "la consola esta encendida
+# tambien porque tu estas trabajando ahi". O sea que ENCENDIDA NO ES EN USO. Por eso cada tramo
+# se apunta en una de dos cuentas, nunca sumadas:
+#     'con' = alguien toco el teclado, el raton o el mando hace menos de $UsoAllyOcioMin
+#     'sin' = la Ally esta despierta y no la esta usando nadie
+# Get-InactividadMin le pregunta eso a Windows, asi que vale aunque Nova acabe de arrancar y
+# aunque braya no le haya hablado en horas. Si devuelve -1 (no lo sabe), el tramo no se apunta
+# en ninguna de las dos: inventarse que hay alguien seria peor que perder diez segundos.
+$UsoAllyPath = Join-Path $MemoriaDir 'uso-ally.json'
+$UsoAllyOcioMin = 5      # sin tocar nada durante esto, la consola esta encendida pero no en uso
+$UsoAllyMax = 40         # apps distintas que se guardan por dia (las de mas tiempo)
+$UsoAllyDias = 60        # lo mismo que juegos.json
+$script:usoAllyPend = @{}
+$script:usoAlly = $null
+$script:usoAllyVisto = 0
+
+function Get-UsoAlly {
+    if ($null -ne $script:usoAlly) { return $script:usoAlly }
+    $script:usoAlly = @{}
+    if (Test-Path -LiteralPath $UsoAllyPath) {
+        try {
+            $jU = Get-Content -LiteralPath $UsoAllyPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($pd in $jU.PSObject.Properties) {
+                $dia = @{}
+                foreach ($pa in $pd.Value.PSObject.Properties) {
+                    $dia[$pa.Name] = @{ con = [int]$pa.Value.con; sin = [int]$pa.Value.sin }
+                }
+                $script:usoAlly[$pd.Name] = $dia
+            }
+        } catch { Save-Corrupto $UsoAllyPath 'uso-ally' }
+    }
+    return $script:usoAlly
+}
+
+# SE ACUMULA EN RAM Y SE BAJA A DISCO DE TANTO EN TANTO, igual que el tiempo de juego: el bucle
+# pasa por aqui cada 10 s y reescribir el fichero cada vez seria justo lo que braya no quiere.
+function Add-UsoAlly([string]$app, [int]$seg, [int]$ocioMin) {
+    if ($script:invitado) { return }            # lo que haga otro no es su costumbre (17/09)
+    if (-not $app -or $seg -le 0) { return }
+    # EL TOPE DE 120 s ES EL MISMO DE Add-TiempoJuego, y por el mismo motivo: si la consola
+    # durmio, el hueco entre dos miradas no es tiempo de uso.
+    if ($seg -gt 120) { return }
+    if ($ocioMin -lt 0) { return }              # no lo sabe: no se apunta en ninguna cuenta
+    $col = if ($ocioMin -lt $UsoAllyOcioMin) { 'con' } else { 'sin' }
+    $clave = "$app|$col"
+    if (-not $script:usoAllyPend.ContainsKey($clave)) { $script:usoAllyPend[$clave] = 0 }
+    $script:usoAllyPend[$clave] += $seg
+    $sumaU = 0; foreach ($v in $script:usoAllyPend.Values) { $sumaU += $v }
+    if ($sumaU -ge 300) { Save-UsoAlly }
+}
+
+function Save-UsoAlly([datetime]$hoy = (Get-Date)) {
+    if ($script:usoAllyPend.Count -eq 0) { return }
+    $u = Get-UsoAlly
+    # EL MISMO DIA QUE EL DE JUGAR, que empieza a las cinco: dos cuentas del mismo dia a cinco
+    # lineas una de otra ya se pagaron el 23/09 entre habitos.json y juegos.json.
+    $diaU = Get-DiaJuego $hoy
+    $limiteU = Get-DiaJuego $hoy.AddDays(-$UsoAllyDias)
+    if (-not $u.ContainsKey($diaU)) { $u[$diaU] = @{} }
+    foreach ($k in @($script:usoAllyPend.Keys)) {
+        $par = $k -split '\|', 2
+        $appU = $par[0]; $colU = $par[1]
+        if (-not $u[$diaU].ContainsKey($appU)) { $u[$diaU][$appU] = @{ con = 0; sin = 0 } }
+        $u[$diaU][$appU][$colU] = [int]$u[$diaU][$appU][$colU] + [int]$script:usoAllyPend[$k]
+    }
+    $script:usoAllyPend = @{}
+    foreach ($d in @($u.Keys)) { if ($d -lt $limiteU) { [void]$u.Remove($d) } }
+    # Y UN TOPE POR DIA: una app rara que salga un segundo no puede ir empujando al fichero para
+    # siempre. Caen las de MENOS tiempo, que son justo las que no dicen nada.
+    foreach ($d in @($u.Keys)) {
+        if ($u[$d].Count -le $UsoAllyMax) { continue }
+        $orden = @($u[$d].Keys | Sort-Object { [int]$u[$d][$_]['con'] + [int]$u[$d][$_]['sin'] } -Descending)
+        foreach ($sobra in @($orden | Select-Object -Skip $UsoAllyMax)) { [void]$u[$d].Remove($sobra) }
+    }
+    try {
+        $oU = New-Object PSObject
+        foreach ($d in @($u.Keys | Sort-Object)) {
+            $oD = New-Object PSObject
+            foreach ($a in @($u[$d].Keys | Sort-Object)) {
+                $oA = New-Object PSObject
+                $oA | Add-Member -NotePropertyName con -NotePropertyValue ([int]$u[$d][$a]['con'])
+                $oA | Add-Member -NotePropertyName sin -NotePropertyValue ([int]$u[$d][$a]['sin'])
+                $oD | Add-Member -NotePropertyName $a -NotePropertyValue $oA
+            }
+            $oU | Add-Member -NotePropertyName $d -NotePropertyValue $oD
+        }
+        $oU | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $UsoAllyPath -Encoding UTF8
+    } catch { Log ("uso de la Ally: no pude guardarlo: " + $_.Exception.Message) }
+}
+
 function Get-DiasJuego($dias) {
     $h = @{}
     if ($dias -is [hashtable]) { foreach ($k in $dias.Keys) { $h[$k] = [int]$dias[$k] } }
@@ -25887,8 +26028,29 @@ if ($SaludoOn) {
             $saludo = ($saludo.TrimEnd('.') + ', aunque todavia estoy abriendo el oido: dame un par de segundos.')
             Log 'ARRANQUE: el oido aun carga, lo aviso en el saludo'
         }
-        Log "saludo de arranque"
-        Say $saludo
+        # SALUDAR A UNA HABITACION VACIA NO ES ESTAR VIVA, ES RUIDO (25/09).
+        # LO MEDIDO sobre assistant.log y su rotado: 213 saludos de arranque en 16 dias -lo que
+        # mas dice Nova por su cuenta, con diferencia-, y de esos 59 (el 28 %) se dijeron sin
+        # UNA SOLA senal de braya en media hora a cada lado; 87 (el 41 %) sin ninguna en diez
+        # minutos. Y no es de un dia: estan repartidos en DOCE dias distintos.
+        # La causa esta contada en NOVA-TODO: el 84 % de los arranques cae a menos de 30 min de
+        # un commit, o sea que la mayoria son reinicios de desarrollo, no braya sentandose.
+        # EL NUMERO NO SE INVENTA: es $AvisoEsperaMin, los mismos 30 minutos con los que Nova ya
+        # decide "no hay nadie" para aparcar un aviso. Usar dos listones distintos para la misma
+        # pregunta seria tener dos opiniones sobre si braya esta delante.
+        # Y NO SE PIERDE NADA: el saludo se ve igual en la capsula, como hacen los avisos de
+        # nivel 'bajo'. Lo unico que se decide es si suena.
+        # SI NO SE PUEDE MEDIR, SE SALUDA: Get-InactividadMin devuelve -1 cuando no lo sabe, y
+        # callar a Nova por una medicion fallida seria peor que el ruido que se quita.
+        $ocioS = Get-InactividadMin
+        if ($ocioS -ge $AvisoEsperaMin) {
+            Log "saludo de arranque: solo en la capsula (nadie toca la consola desde hace $ocioS min)"
+            Add-Estadistica 'saludo-callado' "$ocioS min sin tocar nada"
+            Show-Popup $saludo
+        } else {
+            Log "saludo de arranque"
+            Say $saludo
+        }
     } catch { Log ("saludo fallido: " + $_.Exception.Message) }
 }
 
@@ -27920,6 +28082,21 @@ while ($true) {
                 try { Add-TiempoJuego $script:juegoActivo ([int](($sw.ElapsedMilliseconds - $script:tiempoJuegoVisto) / 1000)) } catch {}
             }
             $script:tiempoJuegoVisto = $sw.ElapsedMilliseconds
+            # EL CUADERNO DE LA ALLY, en la misma mirada (25/09). Se aprovecha este tic porque
+            # Get-JuegoEnPrimerPlano ya ha pagado la consulta cara; pedir la ventana de delante
+            # otra vez en su propio bucle seria gastar dos veces por el mismo dato (regla 5).
+            # Aqui entra TODO lo que haya delante, sea juego o no: hasta hoy Nova miraba la
+            # ventana y solo se quedaba con ella si era un juego.
+            try {
+                $appU = if ($j) { $j } else {
+                    $prU = Get-ProcesoEnPrimerPlano
+                    if ($prU) { [string]$prU.ProcessName } else { '' }
+                }
+                if ($script:usoAllyVisto -gt 0 -and $appU) {
+                    Add-UsoAlly $appU ([int](($sw.ElapsedMilliseconds - $script:usoAllyVisto) / 1000)) (Get-InactividadMin)
+                }
+                $script:usoAllyVisto = $sw.ElapsedMilliseconds
+            } catch {}
             if ($j -ne $script:juegoActivo) {
                 if ($script:juegoActivo) { Exit-Juego $script:juegoActivo }
                 if ($j) {

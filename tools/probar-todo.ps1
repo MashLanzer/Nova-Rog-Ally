@@ -1960,6 +1960,43 @@ Titulo "2n171. La regla 6 de la casa, que no vigilaba nadie"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-regla-seis.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se lee distinto de como esta escrito)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n172. Saludar a una habitacion vacia no es estar viva, es ruido"
+# LO MEDIDO sobre assistant.log y su rotado: 213 "saludo de arranque" en 16 dias. Es, con
+# diferencia, lo que mas dice Nova por su cuenta. De esos, 59 (el 28 %) se dijeron sin UNA SOLA
+# senal de braya en media hora a cada lado, y 87 (el 41 %) sin ninguna en diez minutos; y estan
+# repartidos en DOCE dias distintos, asi que no es una tanda de pruebas. La causa ya estaba
+# contada: el 84 % de los arranques cae a menos de 30 min de un commit, o sea que la mayoria son
+# reinicios de desarrollo y no braya sentandose.
+# POR QUE NO BASTABA LO QUE HABIA: Get-AusenciaMin mide desde la ultima senal que le llego A
+# NOVA y lleva un suelo de "arranque + 60 s", asi que al arrancar la ausencia vale CERO por
+# construccion. Nova daba por hecho que braya estaba delante siempre que acababa de nacer, y
+# nace 10-15 veces al dia. Ahora se lo pregunta a Windows: cuanto hace que alguien toco el
+# teclado, el raton o el mando EN LA MAQUINA, viva Nova o no.
+# EL LISTON NO SE INVENTA: es $AvisoEsperaMin, los mismos 30 minutos con los que ya decide "no
+# hay nadie" para aparcar un aviso. Y callada no es desaparecida: el saludo se ve en la capsula.
+# LO QUE MAS VIGILA EL BANCO: que un fallo de la llamada al sistema devuelva -1 ("no lo se") y
+# Nova SALUDE. Callarla por una medicion fallida seria peor que el ruido que se quita, y ese
+# camino se ejercita de verdad, con un tipo senuelo que hace reventar el P/Invoke.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-saludo-vacio.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no se dice a una habitacion vacia)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
+# LO PIDIO BRAYA ASI: "a veces no hablo con nova pero paso horas con ella jugando o encendida o
+# haciendo cosas, y eso nova deberia saberlo tambien, ya que ella tiene que controlar toda la
+# Ally, es literalmente el cerebro que le estoy creando".
+# LO MEDIDO: Nova ya miraba que hay en primer plano cada 10 s, pero solo se quedaba con ello si
+# era un JUEGO; de lo demas no guardaba nada. Y el unico motor que podria proponerle algo
+# -Find-Propuesta- come de habitos.usos, que son ORDENES DE VOZ: 34 entradas de 27 tipos
+# distintos en 6 dias, asi que su condicion de "lo mismo a la misma hora en tres dias" no se
+# cumple jamas y no ha propuesto NADA. Mientras tanto la consola deja 49 comienzos de juego en
+# 10 dias, 169 sucesos de cargador y 211 de descargas, y de 737 dictados NI UNO pide una regla.
+# LA DISTINCION QUE LO DECIDE TODO, y la puso el propio braya: "la consola esta encendida tambien
+# porque tu estas trabajando ahi". ENCENDIDA NO ES EN USO. Cada tramo cae en una de dos cuentas
+# que NO se suman -"con" alguien tocando algo, "sin" nadie- y si no se puede saber, no se apunta
+# en ninguna: inventarse que hay alguien seria peor que perder diez segundos.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n165. La ganancia es de un microfono, no de la consola"
 # ENTRA EN LA BATERIA EL 25/09, Y LLEVABA TRES DIAS ESCRITO SIN CORRER. El banco es del
 # 22/09 -el dia que braya enchufo un micro USB y dijo "Nova tiene que saber detectar cuando
