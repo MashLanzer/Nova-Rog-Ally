@@ -1997,6 +1997,19 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n200. Lo que no se dice no gasta turno (idea 29 de las 121)"
+# Un aviso de nivel "bajo" solo sale en la capsula, no se dice NUNCA. Pero gastaba una de las
+# cuatro plazas de VOZ de la hora y ademas se quedaba como el aviso al que Nova le mira la
+# reaccion para aprender cuanto esperar. MEDIDO sobre los 97 avisos de los dos registros: 26 son
+# "bajo", el 26,8 %, y CUATRO de las DOCE muestras de reaccion guardadas son de claves mudas.
+# LOS DOS ROBOS, con hora: el 22/09 a las 08:00:25 salio oido-ruido (dicho) y 89 segundos
+# despues bateria-llena (mudo) le quito la observacion; el 23/09 a las 20:41:58, cargador-quita
+# pisado 60 s despues por cargador-pone. Es el mismo arreglo del 24/09 con aviso-dicho: el
+# presupuesto es de VOZ, y lo que no habla no gasta. El aviso mudo sigue saliendo, viendose en
+# la capsula y contandose; lo unico que cambia es que ya no cobra el turno de otro.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-aviso-sin-voz.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:lo que no se dice no gasta turno)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n199. Nova se entera de que cambiaste de horario (idea 27 de las 121)"
 # MEDIDO sobre las 714 ordenes con texto de los dos registros, partidas en dos semanas:
 #   10-16/09:  73 de manana, 244 de tarde,  25 de noche,  1 de madrugada

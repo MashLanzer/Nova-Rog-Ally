@@ -11483,15 +11483,8 @@ function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'med
     if (-not (Test-PuedoAvisar $clave $nivel $cadaMin)) { return $false }
     $script:entornoVistos[$clave] = (Get-Date).ToString('s')
     Save-EntornoVistos
-    [void]$script:entornoAvisos.Add($sw.ElapsedMilliseconds)
     Log "ENTORNO ($clave, $nivel): $texto"
     Add-Estadistica 'aviso-entorno' $clave
-    # Y SE QUEDA EN OBSERVACION (25/09, idea 24): si braya le habla en los proximos minutos,
-    # ese aviso movio algo; si no, no. De ahi sale la espera aprendida (ver Get-EsperaAviso).
-    # Se guarda UNO SOLO: si caen dos avisos seguidos, el segundo pisa al primero y el primero
-    # se queda sin apuntar. Es mejor perder una muestra que atribuirle a un aviso la reaccion
-    # que provoco otro.
-    $script:avisoMirar = @{ clave = $clave; hasta = ($sw.ElapsedMilliseconds + $AvisoReaccionVentanaMs) }
     Show-Popup $texto
     # los de poca monta NO se dicen: se ven y ya. Hablar por todo es lo que cansa.
     # Y POR ESO NO SON LA ULTIMA RESPUESTA (21/09). ultimaRespuesta es lo que contesta
@@ -11518,6 +11511,32 @@ function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'med
         if ($script:avisoCola.Count -eq 0) { $script:avisoColaDesde = $sw.ElapsedMilliseconds }
         [void]$script:avisoCola.Add($texto)
         Add-Estadistica 'aviso-dicho' $clave
+    }
+    # EL TURNO Y LA OBSERVACION SE GASTAN SOLO SI SONO (26/09, idea 29 de las 121).
+    # Estas dos lineas estaban ARRIBA del if, o sea que un aviso 'bajo' -que solo sale en la
+    # capsula y no se dice NUNCA- gastaba una de las cuatro plazas de VOZ de la hora y ademas
+    # se quedaba como el aviso al que Nova le mira la reaccion.
+    # MEDIDO sobre los 97 avisos de los dos registros: 26 son 'bajo', el 26,8 % (bateria-llena
+    # 21, cargador-pone 2, lo-que-no-dije 2, resumen-semana 1). Y CUATRO de las DOCE muestras
+    # de reaccion guardadas hoy son de claves que no suenan: un tercio del corpus con el que se
+    # aprende la espera esta medido sobre avisos que nadie oyo.
+    # LOS DOS ROBOS, con hora: el 22/09 a las 08:00:25 salio oido-ruido (medio, dicho) y 89
+    # segundos despues bateria-llena (bajo, mudo) le quito la observacion; el 23/09 a las
+    # 20:41:58, cargador-quita pisado 60 s despues por cargador-pone.
+    # ES EL MISMO ARREGLO QUE YA SE HIZO EL 24/09 con Add-Estadistica 'aviso-dicho', y por el
+    # mismo motivo: el presupuesto es de voz, y lo que no habla no gasta.
+    # UN SOLO BLOQUE DETRAS DEL if Y NO DOS TROZOS DENTRO DE LAS RAMAS: la union de 'alto' y
+    # 'ne bajo' es exactamente 'ne bajo'. Y sobre todo, asi no se toca ni un caracter dentro de
+    # las dos ramas, que es donde probar-perfil-avisos exige que no haya NADA -ni un comentario-
+    # entre la llave de apertura y $script:ultimaRespuesta.
+    if ($nivel -ne 'bajo') {
+        [void]$script:entornoAvisos.Add($sw.ElapsedMilliseconds)
+        # Y SE QUEDA EN OBSERVACION (25/09, idea 24): si braya le habla en los proximos minutos,
+        # ese aviso movio algo; si no, no. De ahi sale la espera aprendida (ver Get-EsperaAviso).
+        # Se guarda UNO SOLO: si caen dos avisos seguidos, el segundo pisa al primero y el
+        # primero se queda sin apuntar. Es mejor perder una muestra que atribuirle a un aviso la
+        # reaccion que provoco otro.
+        $script:avisoMirar = @{ clave = $clave; hasta = ($sw.ElapsedMilliseconds + $AvisoReaccionVentanaMs) }
     }
     return $true
 }
