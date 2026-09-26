@@ -2961,6 +2961,145 @@ function Get-FalsasAlarmas([string]$dirUso = '') {
     return $fa
 }
 
+# LO QUE YA ESTA EN EL REGISTRO Y NADIE MIRABA (26/09, idea 19 de las 121).
+#
+# EL AGUJERO: Python apunta en pruebas\audio\uso\registro.jsonl TODO repaso que hace, con su
+# motor y el texto que saco. Son 480 lineas con motor: base 328, small 94, canary 30, turbo 23,
+# omni 3. El asistente no abria ese fichero mas que para borrarlo en Invoke-Olvido.
+# Y MIENTRAS TANTO, el caso 5 de la revision propia -el que decide si un escalon de la cascada
+# de repasos merece la pena- no podia decidir nada, porque sus contadores propios
+# (repaso:canary y repaso-sirvio:canary) llevan CINCO filas, todas de un solo dia, y
+# DecisionMinIntentos son 20. Con el registro son 30 repasos de canary repartidos en CINCO
+# dias, que pasa las dos guardas.
+#
+# "SIRVIO" SE DECIDE IGUAL QUE EN EL CONTADOR VIVO, con Test-FastCommand del texto del repaso
+# (ver el sitio donde se hace Add-Estadistica "repaso-sirvio:"). Dos definiciones distintas
+# metidas en el mismo umbral serian un banco verde mintiendo: el numero diria una cosa y el
+# freno estaria medido con otra.
+#
+# Y POR ESO HAY UNA CINTA DE VEREDICTOS, que es lo que de verdad hacia falta pensar. Medido el
+# 26/09 con el reloj por dentro: Test-FastCommand tarda una media de 70 ms por frase y llega a
+# 300 ms en las peores, asi que pasarle los 30 textos de canary de una tacada son unos DOS
+# SEGUNDOS con el bucle principal parado. Eso es la regla 4 rota. La solucion es que el
+# veredicto de cada linea se calcule UNA sola vez en la vida, se guarde por su id, y se haga de
+# UNO EN UNO desde el bucle y solo cuando Nova no esta haciendo nada (ver Step-MotorVeredicto).
+$MotoresVeredictosJson = Join-Path $MemoriaDir 'motores-veredictos.json'
+$script:motoresVeredictos = $null
+$script:motoresLineas = $null
+$script:motoresSello = ''
+function Get-MotoresLineas([string]$dirUso = '') {
+    # Las lineas de repaso del registro: id, dia, motor y texto. Mismo sello por tamano que
+    # Get-RepasoTiempos, que ya lee este fichero: solo crece por el final.
+    if (-not $dirUso) { $dirUso = Join-Path $LogDir 'pruebas\audio\uso' }
+    $rReg = Join-Path $dirUso 'registro.jsonl'
+    if (-not (Test-Path -LiteralPath $rReg)) { return @() }
+    $sello = ''
+    try { $sello = $rReg + '|' + (Get-Item -LiteralPath $rReg).Length } catch { $sello = '' }
+    if ($sello -and $sello -eq $script:motoresSello -and $null -ne $script:motoresLineas) { return $script:motoresLineas }
+    $l = New-Object System.Collections.ArrayList
+    try {
+        foreach ($linea in [System.IO.File]::ReadAllLines($rReg, [System.Text.Encoding]::UTF8)) {
+            # EN POSITIVO: -notmatch tambien deja $Matches puesto, pero leer el grupo de una
+            # comparacion que acaba de decir 'no casa' es de las cosas que se rompen al tocarlas.
+            $mo = ''
+            if ($linea -match '"motor"\s*:\s*"([^"]+)"') { $mo = $Matches[1] }
+            if (-not $mo) { continue }
+            # EL TEXTO PUEDE VENIR VACIO y eso NO es un error: canary devolvio la nada seis
+            # veces de treinta. Un repaso que no dice nada cuenta como uso y no como acierto,
+            # que es justo lo que hay que medir.
+            $tx = ''
+            if ($linea -match '"texto"\s*:\s*"((?:[^"\\]|\\.)*)"') { $tx = $Matches[1] }
+            $id = ''
+            if ($linea -match '"id"\s*:\s*"([^"]+)"') { $id = $Matches[1] }
+            if (-not $id) { continue }
+            # EL DIA SALE DEL id, que es yyyyMMdd-HHmmss, el mismo truco que Get-FalsasAlarmas.
+            if ($id.Length -lt 8) { continue }
+            $dia = $id.Substring(0, 4) + '-' + $id.Substring(4, 2) + '-' + $id.Substring(6, 2)
+            [void]$l.Add(@{ id = ($id + '|' + $mo); dia = $dia; motor = $mo; texto = $tx })
+        }
+    } catch { Log ('motores: no pude leer el registro: ' + $_.Exception.Message); return @() }
+    $script:motoresLineas = $l
+    $script:motoresSello = $sello
+    return $l
+}
+function Get-MotoresVeredictos {
+    if ($null -ne $script:motoresVeredictos) { return $script:motoresVeredictos }
+    $v = @{}
+    if (Test-Path -LiteralPath $MotoresVeredictosJson) {
+        try {
+            $j = Get-Content -LiteralPath $MotoresVeredictosJson -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($p in $j.PSObject.Properties) { $v[[string]$p.Name] = [int]$p.Value }
+        } catch { Log ('motores: no pude leer los veredictos: ' + $_.Exception.Message) }
+    }
+    $script:motoresVeredictos = $v
+    return $v
+}
+function Step-MotorVeredicto {
+    # UN SOLO TEXTO POR VUELTA, y solo desde el bucle cuando Nova no esta a otra cosa. Devuelve
+    # cuantos quedan por juzgar. Con todos juzgados no cuesta mas que recorrer la lista.
+    $lineas = Get-MotoresLineas
+    if (-not $lineas -or @($lineas).Count -eq 0) { return 0 }
+    $v = Get-MotoresVeredictos
+    $quedan = 0
+    $cual = $null
+    foreach ($x in $lineas) {
+        if ($v.ContainsKey([string]$x.id)) { continue }
+        $quedan++
+        if (-not $cual) { $cual = $x }
+    }
+    if (-not $cual) { return 0 }
+    $sirvio = 0
+    # UN TEXTO VACIO NO PASA POR Test-FastCommand: no hay nada que reconocer, y ademas asi no se
+    # gastan 70 ms en una linea que ya se sabe.
+    if ([string]$cual.texto) {
+        try { if (Test-FastCommand ([string]$cual.texto)) { $sirvio = 1 } } catch { $sirvio = 0 }
+    }
+    $v[[string]$cual.id] = $sirvio
+    try { Write-Atomico $MotoresVeredictosJson (ConvertTo-Json -InputObject $v -Depth 3 -Compress) }
+    catch { Log ('motores: no pude guardar el veredicto: ' + $_.Exception.Message) }
+    return ($quedan - 1)
+}
+function Get-MotoresMedidos {
+    # motor -> @{ dias = @{ 'yyyy-MM-dd' = @{ usos; sirvio } }; completo = $true/$false }
+    # COMPLETO IMPORTA: mientras queden lineas sin juzgar, las que faltan son las MAS NUEVAS,
+    # asi que la cuenta parcial no es una muestra al azar, esta sesgada hacia atras. Un numero
+    # sesgado con el que se apaga un motor es peor que no tener numero.
+    $med = @{}
+    $lineas = Get-MotoresLineas
+    if (-not $lineas) { return $med }
+    $v = Get-MotoresVeredictos
+    foreach ($x in $lineas) {
+        $mo = [string]$x.motor
+        if (-not $med.ContainsKey($mo)) { $med[$mo] = @{ dias = @{}; completo = $true } }
+        if (-not $v.ContainsKey([string]$x.id)) { $med[$mo].completo = $false; continue }
+        $d = [string]$x.dia
+        if (-not $med[$mo].dias.ContainsKey($d)) { $med[$mo].dias[$d] = @{ usos = 0; sirvio = 0 } }
+        $med[$mo].dias[$d].usos++
+        if ([int]$v[[string]$x.id] -gt 0) { $med[$mo].dias[$d].sirvio++ }
+    }
+    return $med
+}
+function Get-MotoresRepartidos($med, [string]$motor, [datetime]$ahora, [int]$diasMin = 3, [double]$topeDia = 0.70) {
+    # LA MISMA CUENTA QUE Test-DatosRepartidos, con los mismos dos numeros, pero leyendo este
+    # mapa en vez de estadisticas.json. Va aparte y no dentro porque aquella recibe $stats y su
+    # firma tiene un banco colgado.
+    if (-not $med -or -not $med.ContainsKey($motor)) { return $false }
+    $tot = 0; $peor = 0; $dias = 0
+    try {
+        for ($i = 0; $i -lt 14; $i++) {
+            $k = $ahora.AddDays(-$i).ToString('yyyy-MM-dd')
+            if (-not (Test-DiaCuenta $k)) { continue }
+            if (-not $med[$motor].dias.ContainsKey($k)) { continue }
+            $n = [int]$med[$motor].dias[$k].usos
+            if ($n -le 0) { continue }
+            $tot += $n; $dias++
+            if ($n -gt $peor) { $peor = $n }
+        }
+    } catch { return $false }
+    if ($tot -le 0 -or $dias -lt $diasMin) { return $false }
+    return (($peor / [double]$tot) -le $topeDia)
+}
+
 # LA FORMULA DEL ANIMO, EN UN SOLO SITIO. Estaba escrita en dos funciones -la corta y la de
 # un dia- hasta que el banco de la corta lo canto el 25/09: dos copias de una formula se
 # separan el dia que alguien toca una. El 10 del divisor es lo que impide que UN error del
@@ -7268,6 +7407,10 @@ $CuarentenaMinimas = 8          # hasta aqui, el de arranque
 $CorreccionTiemposJson = Join-Path $MemoriaDir 'correcciones-tiempos.json'
 $script:traduccionesCuarentena = New-Object System.Collections.ArrayList
 $script:cuarentenaCheck = 0
+$script:motoresCheck = 0
+# Cuantos textos de repaso quedan por juzgar. No frena el tick -si lo hiciera, los repasos
+# nuevos de manana no se juzgarian nunca-: esta para poder mirarlo desde fuera.
+$script:motoresQuedan = -1
 # SOLO NUMEROS, NUNCA LA FRASE: asi este fichero no tiene que entrar en Invoke-Olvido ni en
 # ninguna poda de privacidad. Cinta de 200, como los tiempos de la voz.
 function Get-CorreccionTiempos {
@@ -12594,13 +12737,37 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     # desenlaces por Whisper en el registro) y quitarlo dejaria a Nova sin red. Solo se pueden
     # quitar los de en medio, que son los que cuestan tiempo ANTES de llegar a el. Por eso el
     # bucle se para en Count-1 y ademas se comprueba que quede al menos uno.
+    # Y SI LAS CUENTAS PROPIAS NO LLEGAN, LO QUE YA ESTA EN EL REGISTRO (26/09, idea 19). El
+    # contador vivo lleva cinco filas de un solo dia; el registro trae treinta repasos de canary
+    # repartidos en cinco dias, y los mide con la MISMA regla (Test-FastCommand del texto).
+    # NO SE SUMAN LOS DOS: son denominadores distintos a proposito. Python apunta TODO repaso
+    # que hizo, aunque el asistente ya se hubiera rendido; el contador vivo solo cuenta los que
+    # llegaron a tiempo. Mezclarlos seria inventarse una poblacion que no existe.
+    $medC = @{}
+    try { $medC = Get-MotoresMedidos } catch { $medC = @{} }
     foreach ($mtC in @($RepasoCascada | Select-Object -First ([Math]::Max(0, $RepasoCascada.Count - 1)))) {
         $intC = [int]$numR["repaso:$mtC"]
         $okC = [int]$numR["repaso-sirvio:$mtC"]
+        $deRegC = $false
+        # SOLO SI EL MOTOR ESTA JUZGADO ENTERO: con veredictos a medias, lo que falta son las
+        # lineas mas nuevas, y esa cuenta esta sesgada hacia atras.
+        if ($intC -lt $DecisionMinIntentos -and $medC.ContainsKey($mtC) -and $medC[$mtC].completo) {
+            $usosR = 0; $sirvioR = 0
+            foreach ($dR in $medC[$mtC].dias.Keys) {
+                if (-not (Test-DiaCuenta ([string]$dR))) { continue }
+                $usosR += [int]$medC[$mtC].dias[$dR].usos
+                $sirvioR += [int]$medC[$mtC].dias[$dR].sirvio
+            }
+            if ($usosR -gt $intC) { $intC = $usosR; $okC = $sirvioR; $deRegC = $true }
+        }
         if ($intC -lt $DecisionMinIntentos) { continue }
         if ($okC -ge (Get-DecisionMinimo $intC)) { continue }
         if (-not (Test-DecisionSolida $okC $intC)) { continue }
-        if (-not (Test-DatosRepartidos $stR "repaso:$mtC" $ahora)) { continue }
+        if ($deRegC) {
+            if (-not (Get-MotoresRepartidos $medC $mtC $ahora)) { continue }
+        } else {
+            if (-not (Test-DatosRepartidos $stR "repaso:$mtC" $ahora)) { continue }
+        }
         $antesC = ($RepasoCascada -join ',')
         $quedaC = @($RepasoCascada | Where-Object { $_ -ne $mtC })
         if ($quedaC.Count -lt 1) { continue }     # la cascada no se queda vacia jamas
@@ -12612,9 +12779,11 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
             return $false
         }
         $apuntadaC = Save-DecisionPropia 'escucha' 'repasos' $antesC "el repaso con $mtC"
-        Log "REVISION PROPIA: quito $mtC de la cascada de repasos ($okC ordenes de $intC repasos)"
-        Add-Estadistica 'auto-ajuste' "cascada sin ${mtC}: $okC de $intC"
-        [void](Send-AvisoEntorno 'auto-cascada' ("He quitado $mtC de mi cascada de repasos: $(Get-DesdeCuentaTexto) lo use $intC veces y no saco ni una orden que yo entendiera, y mientras tanto te hacia esperar. Sigo repasando con lo demas. Si lo quieres de vuelta, dime: deshaz lo que has cambiado." + $(if (-not $apuntadaC) { ' Aunque no he podido apuntarlo: si me reinicias, vuelve solo.' } else { '' })) 'medio' 43200)
+        # DE DONDE SALE EL NUMERO, DICHO: si Nova decide con un dato, tiene que poder decir cual.
+        $fuenteC = if ($deRegC) { 'de mis grabaciones' } else { 'de mis cuentas' }
+        Log "REVISION PROPIA: quito $mtC de la cascada de repasos ($okC ordenes de $intC repasos, $fuenteC)"
+        Add-Estadistica 'auto-ajuste' "cascada sin ${mtC}: $okC de $intC $fuenteC"
+        [void](Send-AvisoEntorno 'auto-cascada' ("He quitado $mtC de mi cascada de repasos: $(if ($deRegC) { 'mirando mis grabaciones' } else { Get-DesdeCuentaTexto }) lo use $intC veces y no saco ni una orden que yo entendiera, y mientras tanto te hacia esperar. Sigo repasando con lo demas. Si lo quieres de vuelta, dime: deshaz lo que has cambiado." + $(if (-not $apuntadaC) { ' Aunque no he podido apuntarlo: si me reinicias, vuelve solo.' } else { '' })) 'medio' 43200)
         return $true
     }
 
@@ -29057,6 +29226,18 @@ while ($true) {
     if ($script:traduccionesCuarentena.Count -gt 0 -and ($sw.ElapsedMilliseconds - $script:cuarentenaCheck) -ge 2000) {
         $script:cuarentenaCheck = $sw.ElapsedMilliseconds
         try { [void](Flush-Cuarentena) } catch { Log ('cuarentena: ' + $_.Exception.Message) }
+    }
+    # --- juzgar UN texto de repaso del registro (26/09, idea 19) ---
+    # DE UNO EN UNO Y SOLO CON NOVA PARADA, y la razon esta medida: Test-FastCommand tarda una
+    # media de 70 ms por frase y hasta 300 ms en las peores, asi que juzgar los treinta textos
+    # de canary de una tacada serian dos segundos con el bucle quieto. La regla 4 dice que el
+    # bucle no se bloquea, y esto no tiene ninguna prisa: el veredicto de cada linea se calcula
+    # una sola vez en la vida y se guarda. Las guardas de estar ocupada son las mismas que usa
+    # el aviso de juegos colgados, doce lineas mas arriba.
+    if (-not $script:busy -and -not $script:armed -and -not $script:pendiente -and
+        ($sw.ElapsedMilliseconds - $script:motoresCheck) -ge 3000) {
+        $script:motoresCheck = $sw.ElapsedMilliseconds
+        try { $script:motoresQuedan = Step-MotorVeredicto } catch { Log ('motores: ' + $_.Exception.Message); $script:motoresQuedan = 0 }
     }
     if ($script:aperturas.Count -gt 0 -and ($sw.ElapsedMilliseconds - $script:aperturaCheck) -ge 2000) {
         $script:aperturaCheck = $sw.ElapsedMilliseconds

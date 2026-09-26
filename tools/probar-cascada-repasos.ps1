@@ -61,6 +61,12 @@ if ($d) {
     Comp 'exige que no llegue al umbral de aprovecho' ($c -match 'Get-DecisionMinimo \$intC') ''
     Comp 'exige que el dato sea solido' ($c -match 'Test-DecisionSolida \$okC \$intC') ''
     Comp 'y que este repartido en varios dias' ($c -match 'Test-DatosRepartidos \$stR "repaso:\$mtC"') 'una tarde mala no cambia la config'
+    # Y EL FRENO DEL OTRO CAMINO (26/09, idea 19). Desde hoy el caso 5 puede juzgar con lo que
+    # ya esta en registro.jsonl cuando sus propias cuentas no llegan a 20. Sin este Comp, meter
+    # el Test-DatosRepartidos de arriba dentro de un if/else dejaria la cadena literal en el
+    # fuente y este banco seguiria verde mientras el camino nuevo se salta el reparto entero.
+    Comp '  y tambien cuando decide con el registro' ($c -match 'Get-MotoresRepartidos \$medC \$mtC') 'el camino nuevo tiene su propio freno'
+    Comp '  y solo con ese motor juzgado entero' ($c -match '\$medC\[\$mtC\]\.completo') 'lo que falta por juzgar son las lineas mas nuevas'
     Comp 'se puede deshacer' ($c -match "Save-DecisionPropia 'escucha' 'repasos'") 'regla 2: dos salidas'
     Comp 'y se dice en voz alta' ($c -match "Send-AvisoEntorno 'auto-cascada'") ''
     Comp '  con las dos salidas dentro del aviso' ($c -match 'deshaz lo que has cambiado') ''
@@ -97,7 +103,25 @@ Write-Host '-- 4. y el liston de hoy NO alcanza para decidir, que es lo correcto
 $mD = [regex]::Match($txt, '(?m)^\$DecisionMinIntentos\s*=\s*(\d+)')
 Comp 'se saca del archivo DecisionMinIntentos' $mD.Success ''
 $minI = if ($mD.Success) { [int]$mD.Groups[1].Value } else { 20 }
-Comp "con los 18 usos de canary NO se decide nada" (18 -lt $minI) "18 < ${minI}: hoy solo se cuenta"
+# EL 18 ESTABA ESCRITO A MANO Y YA NO ES VERDAD (26/09). El registro trae hoy treinta repasos
+# de canary, no dieciocho, y desde la idea 19 el caso 5 SI puede juzgarlos. Lo que sigue
+# valiendo -y es lo que aqui hay que afirmar- es que las CUENTAS PROPIAS no llegan: se sacan
+# del fichero en vez de escribirlas.
+$nCanary = 0
+$regC = Join-Path $Raiz 'pruebas\audio\uso\registro.jsonl'
+if (Test-Path -LiteralPath $regC) {
+    foreach ($lC in [IO.File]::ReadAllLines($regC)) { if ($lC -match '"motor"\s*:\s*"canary"') { $nCanary++ } }
+}
+$propiasC = 0
+try {
+    $stC = Get-Content -LiteralPath (Join-Path $Raiz 'memoria\estadisticas.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    foreach ($dC in $stC.dias.PSObject.Properties) {
+        foreach ($kC in $dC.Value.PSObject.Properties) { if ($kC.Name -eq 'repaso:canary') { $propiasC += [int]$kC.Value } }
+    }
+} catch { }
+Write-Host "       canary: $nCanary repasos en el registro, $propiasC en mis propias cuentas"
+Comp 'las cuentas propias de canary siguen sin llegar al minimo' ($propiasC -lt $minI) "$propiasC < ${minI}"
+Comp '  pero el registro si tiene con que juzgarlo' ($nCanary -ge $minI) "$nCanary repasos apuntados por Python"
 
 Write-Host ''
 if ($mal -gt 0) { Write-Host "  $mal MAL"; exit 1 }

@@ -1997,6 +1997,33 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n193. El registro sirve para juzgar la cascada (idea 19 de las 121)"
+# Python apunta en registro.jsonl TODO repaso que hace, con su motor y el texto que saco: 480
+# lineas -base 328, small 94, canary 30, turbo 23, omni 3-. El asistente no abria ese fichero
+# mas que para borrarlo. Y mientras tanto el caso 5 de la revision propia -el que decide si un
+# escalon de la cascada de repasos merece la pena- no podia decidir NADA: sus contadores propios
+# llevan cinco filas de un solo dia y DecisionMinIntentos son 20. Con el registro son treinta
+# repasos de canary en cinco dias. "Sirvio" se decide con Test-FastCommand, LA MISMA regla que
+# el contador vivo. Y se juzga de UNO EN UNO desde el bucle y solo con Nova parada: medido, eso
+# tarda 70 ms de media y hasta 300 ms por frase, asi que los treinta de golpe serian dos
+# segundos con el bucle quieto. El veredicto de cada linea se calcula una vez en la vida.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-motores-medidos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el registro sirve para juzgar la cascada)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n192. El atajo por longitud no cambia ni una respuesta (26/09)"
+# LO QUE SE ENCONTRO MIDIENDO OTRA COSA: Test-FastCommand -que esta en el camino en caliente y
+# se llama de dos a cuatro veces por cada orden que braya dice- tardaba hasta 1.077 ms en una
+# sola frase. Con el reloj por dentro: Resolve-Target 1.074 ms, y de esos Find-Aproximado 785.
+# La culpa era montar una matriz de Levenshtein en PowerShell interpretado por CADA app y CADA
+# sitio, aunque la candidata midiera cuatro letras y la frase quince. El atajo es exacto, no
+# aproximado: borrar e insertar cuestan 2, asi que la distancia nunca baja de 2*|n-m|; si ese
+# minimo ya pasa del tope, esa candidata no puede ganar. Medido limpio y con calentamiento:
+# frase larga 2.295 ms -> 0,7 ms; palabra corta 38 ms -> 26 ms. Y este banco NO mide el tiempo:
+# ejecuta las DOS versiones sobre el catalogo entero tocado letra a letra y exige la misma
+# respuesta y la misma marca de duda en cada caso.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-aproximado-rapido.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no cambia ni una respuesta)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n191. La puerta de los altavoces se aprende de tus llamadas (idea 18 de las 121)"
 # Cuando los altavoces pasaban de 0,02, a la palabra de activacion se le exigia 0,85 en vez de
 # 0,55 y ahi se le caian las llamadas. Ese 0,02 nunca salio de un dato: medido sobre 14.422

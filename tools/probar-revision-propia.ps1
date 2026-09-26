@@ -46,6 +46,15 @@ function Set-Cfg($sec, $clave, $valor) {
 function Test-PuedoAvisar([string]$clave, [string]$nivel = 'medio', [int]$cadaMin = 60) { return $script:puedoAvisar }
 function Add-Estadistica($ruta, $detalle) { $script:apuntes += "$ruta|$detalle" }
 function Send-AvisoEntorno($clave, $texto, $nivel = 'medio', $cada = 60) { $script:avisos += $texto; return $true }
+# LOS NUMEROS DEL REGISTRO, DE MENTIRA (26/09, idea 19). El caso 5 llama ahora a
+# Get-MotoresMedidos, y traer la de verdad arrastraria Test-FastCommand -y con el, medio
+# archivo-. Aqui se le da un mapa vacio: con el, el caso 5 se comporta como antes de la idea
+# 19 y los casos de este banco siguen midiendo lo que median. Los numeros del registro los
+# prueba probar-motores-medidos.ps1, que para eso esta.
+$script:medidosFalsos = @{}
+function Get-MotoresMedidos { return $script:medidosFalsos }
+function Get-MotoresRepartidos($med, [string]$motor, [datetime]$ahora, [int]$diasMin = 3, [double]$topeDia = 0.70) { return $script:repartidoFalso }
+$script:repartidoFalso = $false
 Invoke-Expression (Traer 'Save-DecisionPropia')
 Invoke-Expression (Traer 'Undo-DecisionPropia')
 Invoke-Expression (Traer 'Invoke-Deshacer')
