@@ -721,6 +721,56 @@ class Cerebro:
             if r is None or r.get("tipo") != "respuesta":
                 return None
             r["estado"] = "rechazada"
+            # Y SU TRABAJO PENDIENTE, FUERA (26/09, idea 11 de las 121). Tachar el recuerdo y
+            # dejar vivo su job es medio arreglo: el revisor de fondo lo coge mas tarde, lo da
+            # por bueno y lo vuelve a dejar firme. El job apunta al recuerdo por "recuerdo",
+            # no por "id" (ver aprender_turno), asi que hay que filtrar por ese campo.
+            idm = r.get("id")
+            self.datos["pendientes"] = [j for j in self.datos.get("pendientes", [])
+                                        if j.get("recuerdo") != idm]
+            self._cambio(r)
+            self.guardar()
+            return dict(r)
+
+    def corregir_respuesta(self, idr, malo, bueno):
+        """ "No es X, es Y": cambia esa palabra en la respuesta guardada, en vez de tirarla.
+
+        MEDIDO (26/09): de las 61 correcciones habladas de catorce dias, SOLO UNA trae un par
+        malo/bueno con la palabra mala DENTRO de lo que Nova acababa de decir. Las otras
+        sesenta corrigen algo que Nova no habia dicho con esas palabras y se van a tachar, que
+        es el camino de marcar_incorrecta. O sea que esto no es lo que salva la idea -eso es
+        tachar-, pero sale casi gratis porque el patron ya existe en el asistente.
+
+        LA GUARDA QUE MANDA, portada de Get-OrdenCorregida (assistant.ps1): si la palabra mala
+        NO aparece en la respuesta guardada, no se toca nada. Es lo unico que separa corregir
+        de inventar: sin ella, "no es azul, es verde" reescribiria cualquier recuerdo que
+        estuviera encima, dijera lo que dijera.
+        """
+        if not idr or not malo or not bueno:
+            return None
+        with self.lock:
+            r = self._por_id(idr)
+            if r is None or r.get("tipo") != "respuesta":
+                return None
+            # lo ya tachado no se resucita
+            if r.get("estado") == "rechazada":
+                return None
+            vieja = r.get("respuesta") or ""
+            if not re.search(r"\b" + re.escape(plano(malo)) + r"\b", plano(vieja)):
+                return None
+            nueva = re.sub(r"(?i)\b" + re.escape(malo) + r"\b", bueno, vieja)
+            nueva = limpio(nueva, 600)
+            if not nueva or nueva == vieja:
+                return None
+            # lo que no debe guardarse sigue sin guardarse, tambien por aqui
+            if sensible((r.get("pregunta") or "") + " " + nueva):
+                return None
+            r["respuesta"] = nueva
+            r["estado"] = "firme"
+            r["revisada"] = self.reloj()
+            idm = r.get("id")
+            self.datos["pendientes"] = [j for j in self.datos.get("pendientes", [])
+                                        if j.get("recuerdo") != idm]
             self._cambio(r)
             self.guardar()
             return dict(r)

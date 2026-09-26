@@ -539,6 +539,9 @@ def responder(p):
     buscar = bool(p.get("buscar"))     # ayuda con un juego: internet si o si
     ayuda = bool(p.get("ayuda"))
     ahora = time.time()
+    # EL HUECO, ANTES DE PISARLO (26/09, idea 11): la linea de abajo deja ultima_charla en
+    # "ahora", asi que leerlo mas tarde daria siempre 0 y la ventana no filtraria nada.
+    hueco = ahora - ultima_charla
     if ahora - ultima_charla > OLVIDO_S:
         historial.clear()
     ultima_charla = ahora
@@ -556,6 +559,44 @@ def responder(p):
     if trivia["r"] is not None and time.time() < trivia["hasta"] and not duda:
         r = trivia["r"]
         trivia["r"] = None
+
+    # CORREGIRLA HABLANDO TOCA EL RECUERDO (26/09, idea 11 de las 121)
+    #
+    # Hasta hoy, decirle "no, eso no es verdad" solo tachaba el recuerdo si el asistente habia
+    # puesto duda=true, y eso sale de un patron anclado que caza CERO de las 61 correcciones
+    # reales de catorce dias. Aqui se usa el detector que YA existe -por_que_importa, el mismo
+    # que decide guardar el turno- en vez de inventar un segundo detector que se separaria del
+    # primero al mes siguiente.
+    #
+    # DOS CAMINOS, y el que vale es el segundo: si la frase trae un par "no es X, es Y" Y la
+    # palabra mala esta de verdad en lo que Nova dijo, se CORRIGE ese recuerdo (medido: 1 caso
+    # en catorce dias); en cualquier otro caso se TACHA (los otros 60).
+    #
+    # Y NO SE CONTESTA AQUI: el turno sigue su camino y Nova responde a lo que le acaban de
+    # decir. Marcar no es responder.
+    if (cerebro is not None and not invitado and not duda and ultimo_dicho is not None
+            and hueco <= CORRIGE_VENTANA_S and por_que_importa(texto, "") == "correccion"):
+        try:
+            hecho = None
+            m = RE_PAR_CORRIGE.search(texto)
+            if m:
+                hecho = cerebro.corregir_respuesta(ultimo_dicho, m.group(1).strip(), m.group(2).strip())
+                if hecho:
+                    salida("info", idp, origen="memoria",
+                           texto="memoria: corregido el recuerdo %s por '%s'" % (hecho.get("id"), texto[:60]))
+            if not hecho:
+                mala = cerebro.marcar_incorrecta(ultimo_dicho)
+                if mala:
+                    salida("info", idp, origen="memoria",
+                           texto="memoria: '%s' queda como incorrecta por '%s'"
+                                 % ((mala.get("respuesta") or "")[:40], texto[:60]))
+                    hecho = mala
+            # UNA VEZ POR RECUERDO: sin esto, "no, te equivocas" dos veces seguidas tacharia el
+            # mismo dos veces, y la segunda podria pillar uno que no tiene culpa.
+            if hecho:
+                ultimo_dicho = None
+        except Exception as e:  # noqa: BLE001
+            salida("info", idp, origen="memoria", texto="memoria: no pude corregir (%s)" % e)
         if RE_RENDIDO.search(cm.plano(texto)):
             dicho = "La respuesta es: " + r["respuesta"]
         elif cm.juzgar_trivia(r["pregunta"], r["respuesta"], texto):
@@ -925,6 +966,24 @@ RE_AGUJERO = re.compile(
 # linea en un fichero sin tope, y perder una correccion la pierde para siempre.
 RE_NEGACION = re.compile(r"(?i)^\s*no[,.]?\s")
 NEGACION_PALABRAS = 5
+
+# QUE CORREGIR A NOVA HABLANDO SIRVA DE ALGO (26/09, idea 11 de las 121).
+#
+# Nova ya sabe reconocer una correccion -por_que_importa la caza para guardar el turno-, pero
+# eso no toca el RECUERDO que estaba mal: se queda firme en el cerebro y lo vuelve a decir.
+# El unico camino que lo tachaba exige que el asistente ponga duda=true, y ese camino sale de
+# un patron ANCLADO con ^ que, medido sobre las 61 correcciones habladas de catorce dias, caza
+# CERO. Por eso "queda como incorrecta" aparece UNA vez en 59.872 lineas de registro.
+#
+# LA VENTANA SALE DE LOS DATOS: de esas 61, los segundos desde el turno anterior dan p50 35 s,
+# p75 55 y p90 166. Dentro de 180 s caen 55 de 61 (90 %), y de 180 a 300 no entra NI UNA mas:
+# meseta. Ademas 180 es el mismo numero que $QuejaVentanaMs del asistente. No es inventado.
+CORRIGE_VENTANA_S = 180
+# EL PAR "no es X, es Y", portado de Get-OrdenCorregida del asistente, con "se llama"/"te
+# llamas" ademas de "es"/"era", que es como braya corrige un nombre.
+RE_PAR_CORRIGE = re.compile(
+    r"(?i)^(?:no|pero)[,.]?\s+(?:es|era|se llama|te llamas)\s+(?:el|la|lo)?\s*(.+?)\s+"
+    r"(?:es|era|sino|se llama|te llamas)\s+(?:el|la|lo)?\s*(.+)$")
 
 
 def por_que_importa(texto, respuesta):

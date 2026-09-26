@@ -17489,7 +17489,7 @@ $TmpVivos = @(
     'wake-err.log', 'wake-worker.lock'
 )
 function Clear-TmpViejo([string]$donde = '') {
-    # Devuelve @{ ficheros; bytes; nombres }. Solo el primer nivel y solo ficheros: tmpoz es
+    # Devuelve @{ ficheros; bytes; nombres }. Solo el primer nivel y solo ficheros: tmp\voz es
     # la cache de la voz y tiene DUENO -tts_worker.py la poda sola con su propio tope de 60 MB-,
     # y dos limpiadores sobre la misma carpeta es como se pierde una cache entera.
     $r = @{ ficheros = 0; bytes = 0; nombres = @() }

@@ -1997,6 +1997,19 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n184. Corregirla hablando toca el recuerdo (idea 11 de las 121)"
+# Nova ya sabia reconocer una correccion -por_que_importa la caza para guardar el turno- pero
+# eso no tocaba el RECUERDO que estaba mal: se quedaba firme en el cerebro y lo volvia a decir.
+# El unico camino que lo tachaba exigia duda=true del asistente, y ese sale de un patron
+# ANCLADO con ^ que caza CERO de las 61 correcciones habladas de catorce dias. Por eso "queda
+# como incorrecta" aparece UNA vez en 59.872 lineas.
+# Y EL VALOR ESTA EN TACHAR, NO EN SUSTITUIR: de esas 61, solo UNA trae un par "no es X, es Y"
+# con la palabra mala dentro de lo que Nova acababa de decir. Las otras 60 se tachan.
+# De paso, un bug: marcar_incorrecta tachaba el recuerdo y dejaba vivo su job, asi que el
+# revisor de fondo lo daba por bueno mas tarde y lo volvia a dejar firme.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-corregir-recuerdo.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:hablando ya toca el recuerdo)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n183. Los temporales que nadie vuelve a mirar (idea 10 de las 121)"
 # EL CASO QUE LO DESTAPO: tmp\clave.txt, 109 bytes, del 12/09, con una clave de la API de
 # Anthropic EN CLARO, y NADIE la lee: cero referencias en el codigo. tmp\ esta en el .gitignore
@@ -2005,7 +2018,7 @@ Titulo "2n183. Los temporales que nadie vuelve a mirar (idea 10 de las 121)"
 # MEDIDO: de los 134 ficheros del primer nivel de tmp, 96 llevan mas de 7 dias sin tocarse y el
 # codigo no los nombra: 12,1 MB. El reparto de edades deja un hueco limpio entre 7 y 9 dias.
 # LO QUE MAS VIGILA EL BANCO no es que borre, es QUE NO BORRE DE MAS: mi-voz.json es la huella
-# de la voz de braya y puede pasar semanas sin reescribirse. Y tmpoz no se toca jamas: tiene
+# de la voz de braya y puede pasar semanas sin reescribirse. Y tmp\voz no se toca jamas: tiene
 # dueno (tts_worker.py la poda con su propio tope de 60 MB).
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-tmp-barrido.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:lo que hace falta no se toca)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
