@@ -125,8 +125,16 @@ print("")
 print("-- y la RAM queda escrita en el log, que anoche no se pudo saber --")
 comp("el pulso dice cuanta RAM queda", "ram_libre=" in SRC)
 comp("y el plazo que se esta aplicando", "plazo=x" in SRC)
+# ANCLADO EN LA LINEA DEL PULSO, NO EN UNA VENTANA DE CARACTERES (26/09). Esto pedia el "?"
+# dentro de los 400 caracteres siguientes a ram_libre_mb() y se puso rojo solo en cuanto
+# entro el contador de memoria justa entre las dos: una ventana fija castiga cualquier linea
+# nueva en medio aunque lo vigilado siga intacto. Lo que de verdad importa es que la LINEA
+# del pulso -la que escribe ram_libre- decida entre el valor y el "?" mirando el signo.
+_pulso = re.search(r'anota_pulso\("pulso: suelo=.*?\), ahora\)', SRC, re.S)
+comp("el pulso existe y se puede leer entero", _pulso is not None)
+_txt = _pulso.group(0) if _pulso else ""
 comp("con '?' si no se puede medir, no un cero que engane",
-     re.search(r'ram_libre_mb\(\).{0,400}"\?"', SRC, re.S) is not None)
+     '"?"' in _txt and "_ram >= 0" in _txt)
 
 print("")
 print("-- los limites son razonables para esta consola (11,7 GB) --")
@@ -135,6 +143,135 @@ comp("RAM_APRETADA deja sitio a la guarda del oido fino",
      "apretada %.0f, el oido fino pide %.0f" % (ns["RAM_APRETADA"], ns["RAM_MIN_PRECISO"]))
 comp("RAM_COMODA esta por encima de RAM_APRETADA", ns["RAM_COMODA"] > ns["RAM_APRETADA"])
 comp("y por debajo de lo que pide un juego (4 GB)", ns["RAM_COMODA"] < 4000)
+
+
+
+# ==========================================================================================
+# LOS LISTONES SALEN DE LO QUE CUESTAN LOS MODELOS (26/09, idea 17 de las 121)
+# ==========================================================================================
+print("")
+print("-- de donde salen los dos listones --")
+# ESTO ES LO QUE SUSTITUYE A "ADAPTATIVO": los listones no pueden separarse en silencio de lo
+# que cuesta volver a cargar lo que sueltan. Si manana entra un Parakeet mas gordo y alguien
+# sube RAM_MIN_PARAKEET sin tocar esto, se pone rojo.
+_mp = re.search(r"^RAM_MIN_PARAKEET = ([0-9.]+)", SRC, re.M)
+comp("se encuentra RAM_MIN_PARAKEET", _mp is not None)
+_RMP = float(_mp.group(1)) if _mp else 0.0
+comp("RAM_APRETADA es lo que pide el oido fino",
+     ns["RAM_APRETADA"] == ns["RAM_MIN_PRECISO"],
+     "%.0f == %.0f; por debajo ya no cabe, retenerlo no compra nada"
+     % (ns["RAM_APRETADA"], ns["RAM_MIN_PRECISO"]))
+comp("RAM_COMODA es lo que cuesta traer los dos",
+     ns["RAM_COMODA"] == _RMP + ns["RAM_MIN_PRECISO"],
+     "%.0f == %.0f + %.0f" % (ns["RAM_COMODA"], _RMP, ns["RAM_MIN_PRECISO"]))
+
+print("")
+print("-- y el efecto, sobre los pulsos de verdad --")
+# NO SE CUENTAN NUMEROS EXACTOS, SE COMPARAN TRES JUEGOS DE LISTONES SOBRE LOS MISMOS DATOS.
+# El log crece cada quince segundos: un banco que exigiera "30 recortados" se pondria rojo
+# manana sin que nadie tocara nada. Lo que se afirma es una RELACION, y esa no caduca.
+_log = os.path.join(RAIZ, "assistant-pulso.log")
+_libres = []
+if os.path.exists(_log):
+    for _l in io.open(_log, encoding="utf-8", errors="ignore"):
+        _m = re.search(r"ram_libre=([0-9]+)", _l)
+        if _m:
+            _libres.append(float(_m.group(1)))
+
+
+def _recorta_con(comoda, apretada):
+    """Cuantos de esos pulsos correrian con el plazo recortado, con esos dos listones.
+
+    Se ejecuta el plazo_soltar DE VERDAD, cambiandole solo las dos constantes: reescribir la
+    formula aqui seria doblar la pieza que se prueba, y entonces el banco pasaria en verde con
+    la de wake_vosk.py rota.
+    """
+    n2 = dict(ns)
+    n2["RAM_COMODA"] = comoda
+    n2["RAM_APRETADA"] = apretada
+    exec(compile(m.group(0), "plazo_soltar", "exec"), n2)
+    f = n2["plazo_soltar"]
+    n = 0
+    for v in _libres:
+        _ram[0] = v
+        if f(QUIETO) < QUIETO - 0.001:
+            n += 1
+    return n
+
+
+if not _libres:
+    print("       NO HAY assistant-pulso.log: este caso NO se ha comprobado")
+    comp("hay pulsos que replicar", False, "sin el log no se puede decir nada")
+else:
+    _hoy = _recorta_con(ns["RAM_COMODA"], ns["RAM_APRETADA"])
+    _antes = _recorta_con(2500.0, 1000.0)
+    # El p60 y el p15 de los propios datos, que es lo que pedia la idea antes de recontarla.
+    _ord = sorted(_libres)
+    _p60 = _ord[min(len(_ord) - 1, int(0.60 * len(_ord)))]
+    _p15 = _ord[min(len(_ord) - 1, int(0.15 * len(_ord)))]
+    _pct = _recorta_con(_p60, _p15)
+    print("       %d pulsos reales; recortados: hoy %d, antes %d, por percentil %d"
+          % (len(_libres), _hoy, _antes, _pct))
+    comp("los listones nuevos recortan MENOS que los viejos", _hoy < _antes,
+         "%.1f %% frente a %.1f %%" % (100.0 * _hoy / len(_libres), 100.0 * _antes / len(_libres)))
+    # Y ESTE ES EL CASO QUE EXPLICA POR QUE NO SE HIZO LO QUE PEDIA LA IDEA: un liston puesto
+    # en el percentil p fija el recorte en 1-p POR CONSTRUCCION, aqui y en cualquier consola.
+    comp("  y muchisimo menos que su propio percentil", _hoy < _pct,
+         "el p60/p15 recortaria el %.1f %%: congelar el sintoma, no adaptarse"
+         % (100.0 * _pct / len(_libres)))
+    # LA RED DE ABAJO: no recortar nunca seria soltar tarde, y soltar tarde es lo que mato a
+    # Nova la madrugada del 19/09.
+    comp("  sin dejar de recortar cuando de verdad falta", _hoy > 0,
+         "con la memoria justa sigue soltando pronto")
+
+print("")
+print("-- la cuenta de con cuanta memoria esta oyendo --")
+_ns3 = {"RAM_COMODA": ns["RAM_COMODA"], "pulsos_ram": 0, "pulsos_ram_justa": 0}
+_mpm = re.search(r"^RAM_PULSOS_MINIMOS = (.+)$", SRC, re.M)
+comp("se encuentra RAM_PULSOS_MINIMOS", _mpm is not None)
+_mip = re.search(r"^INTERVALO_PULSO = ([0-9.]+)", SRC, re.M)
+if _mpm and _mip:
+    _ns3["INTERVALO_PULSO"] = float(_mip.group(1))
+    exec(compile("RAM_PULSOS_MINIMOS = " + _mpm.group(1), "cte", "exec"), _ns3)
+    # DIEZ MINUTOS, Y NO UN NUMERO SUELTO: son los diez minutos de la frase partidos por el
+    # periodo del pulso. Si manana cambia INTERVALO_PULSO, esto se ajusta solo.
+    comp("son los diez minutos de la frase, no un numero a ojo",
+         _ns3["RAM_PULSOS_MINIMOS"] == int(600.0 / _ns3["INTERVALO_PULSO"]),
+         "%d pulsos de %.0f s" % (_ns3["RAM_PULSOS_MINIMOS"], _ns3["INTERVALO_PULSO"]))
+for _f in ("apunta_ram", "ram_justa_pct"):
+    _mf = re.search(r"(?ms)^def %s\(.*?\n(?=\n*\S|\Z)" % _f, SRC)
+    comp("se encuentra %s a nivel de modulo" % _f, _mf is not None)
+    if _mf:
+        exec(compile(_mf.group(0), _f, "exec"), _ns3)
+if "apunta_ram" in _ns3 and "ram_justa_pct" in _ns3:
+    _ap = _ns3["apunta_ram"]
+    _pct_f = _ns3["ram_justa_pct"]
+    _min = _ns3.get("RAM_PULSOS_MINIMOS", 40)
+    comp("sin diez minutos contados, no se sabe nada", _pct_f() == -1,
+         "-1, nunca 0: con dos pulsos el porcentaje salta entre 0 y 100")
+    # LA GUARDA DEL RIESGO: con un juego delante la foto de memoria es la del juego, que pide
+    # de 4 a 6 GB. Contarla haria decir a Nova que anda apretada cuando lo que pasa es que
+    # braya esta jugando. Es exactamente la madrugada del 19/09 que nombra el riesgo.
+    for _i in range(_min * 2):
+        _ap(200.0, True)
+    comp("con un juego delante no se cuenta ni un pulso", _pct_f() == -1,
+         "ahi la memoria es del juego, no de Nova")
+    # NI LO QUE NO SE HA PODIDO MEDIR: ram_libre_mb devuelve -1 cuando falla.
+    for _i in range(_min * 2):
+        _ap(-1.0, False)
+    comp("  ni lo que no se ha podido medir", _pct_f() == -1, "contarlo como apretado seria inventarselo")
+    # Y AHORA LA CUENTA DE VERDAD: mitad justos, mitad comodos.
+    for _i in range(_min):
+        _ap(ns["RAM_COMODA"] - 100.0, False)
+    for _i in range(_min):
+        _ap(ns["RAM_COMODA"] + 100.0, False)
+    comp("con la mitad justos, dice la mitad", _pct_f() == 50, "%d %%" % _pct_f())
+    _ns3["pulsos_ram"] = 0
+    _ns3["pulsos_ram_justa"] = 0
+    for _i in range(_min):
+        _ap(ns["RAM_COMODA"], False)
+    comp("  y justo en el liston ya NO cuenta como apretado", _pct_f() == 0,
+         "RAM_COMODA clavada es comoda, igual que en plazo_soltar")
 
 if fallos:
     print("")

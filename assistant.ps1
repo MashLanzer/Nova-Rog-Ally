@@ -11471,6 +11471,24 @@ function Get-OidoDescartes {
     } catch { return -1 }
 }
 
+# CON CUANTA MEMORIA ESTA OYENDO (26/09, idea 17 de las 121). El oido se encoge solo el plazo
+# para soltar los modelos cuando queda poca memoria -y con eso oye peor-, lo apuntaba en su
+# pulso y no se enteraba nadie: ni esta funcion existia, ni assistant.ps1 abria nunca
+# assistant-pulso.log mas que para borrarlo. Medido sobre 105 pulsos: el 42,9 % corria
+# recortado. Ahora el oido manda el porcentaje en el decimo campo.
+# -1 ES "NO LO SE", NUNCA 0, y aqui esa diferencia lo es todo: sin la guarda de abajo,
+# $st[9] de un worker viejo es $null, [int]$null vale 0, y Nova diria en voz alta "he estado
+# 0 % con la memoria justa" cuando la verdad es que no tiene ni idea.
+function Get-OidoMemoriaJusta {
+    if (-not (Test-Path -LiteralPath $RutaEstado)) { return -1 }
+    if (-not (Test-EstadoFresco)) { return -1 }
+    try {
+        $st = ([System.IO.File]::ReadAllText($RutaEstado).Trim()) -split '\|'
+        if ($st.Count -lt 10) { return -1 }
+        return [int]$st[9].Trim()
+    } catch { return -1 }
+}
+
 function Get-OidoConRuido {
     # $true si el oido lleva rato oyendo ruido de fondo constante en vez de voz.
     if (-not (Test-Path -LiteralPath $RutaEstado)) { return $false }
@@ -11586,6 +11604,7 @@ function Test-AvisarMudo([int]$segMudo, [bool]$workerVivo, [long]$ahoraMs) {
 $FlojoRachaMinima = [int](Get-Cfg 'escucha' 'flojoRachaMinima' 3)
 $script:flojoAvisado = $false     # ya se dijo en esta racha
 $script:sinRepasoAvisado = $false   # idea 9: ya dije que me falta un repaso
+$script:ramJustaApuntada = $false  # idea 17: ya apunte con cuanta memoria estuvo oyendo
 # Pura igual que Test-AvisarRuido y Test-AvisarMudo: recibe la cuenta y devuelve si toca
 # hablar, para que el banco pueda correr un dia entero de rachas en un milisegundo.
 function Test-AvisarFlojo([int]$cuantos, [bool]$enPausa, [bool]$enSordina) {
@@ -11874,6 +11893,23 @@ function Watch-Entorno([int]$botones = 0) {
                 "Me he quedado sin $comoSeLlama por falta de memoria, me faltan $($rp.mb) megas. Te voy a entender algo peor hasta que cierres algo; con el boton me llega igual." 'medio' 720) {
                 $script:sinRepasoAvisado = $true
             }
+        }
+    } catch {}
+
+    # CON CUANTA MEMORIA ESTUVO OYENDO (26/09, idea 17). ESTO NO INTERRUMPE: no hay
+    # Send-AvisoEntorno ninguno, solo una linea en las estadisticas. El 22/09 ya se midio a
+    # donde lleva avisar de todo: 28 de las 40 filas de estadisticas.json eran aviso-entorno y
+    # las decisiones dentro de esa ventana eran CERO. Esto se apunta y se contesta si braya
+    # pregunta "como me oyes"; nada mas.
+    # UNA VEZ POR SESION DEL OIDO, y el rearme sale gratis: el worker devuelve -1 hasta tener
+    # diez minutos contados, asi que un oido recien arrancado borra la bandera el solo.
+    try {
+        $pctRJ = Get-OidoMemoriaJusta
+        if ($pctRJ -lt 0) {
+            $script:ramJustaApuntada = $false
+        } elseif (-not $script:ramJustaApuntada) {
+            $script:ramJustaApuntada = $true
+            Add-Estadistica 'oido-apretado' ("$pctRJ % de los pulsos con la memoria justa")
         }
     } catch {}
 
@@ -16592,6 +16628,18 @@ function Invoke-FastCommand([string]$text) {
                             $partes += 'el microfono entra bien'
                         }
                         if ($alt -gt 0.02) { $partes += 'y ahora suenan los altavoces, asi que desconfio de lo que oigo' }
+                        # LA MEMORIA JUSTA (26/09, idea 17). Solo si se sabe --1 es "no lo
+                        # se"- y solo si ha pasado alguna vez: decir "cero de cada diez
+                        # minutos" es ruido. Se dice en minutos y no en por ciento porque asi
+                        # es como se entiende: el pulso corre cada 15 s, o sea 40 por cada
+                        # diez minutos, y la cuenta es exacta, no una estimacion.
+                        $pctM = Get-OidoMemoriaJusta
+                        if ($pctM -gt 0) {
+                            $minM = [Math]::Round($pctM / 10.0)
+                            if ($minM -ge 1) {
+                                $partes += "y he estado oyendo con la memoria justa $minM de cada diez minutos"
+                            }
+                        }
                         try {
                             # LAS DOS CIFRAS DE LA MISMA FRASE, DE LA MISMA POBLACION (20/09):
                             # "despertado" salia de las activaciones por nombre y "no eran para

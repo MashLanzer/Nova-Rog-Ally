@@ -913,9 +913,68 @@ def ram_libre_mb():
 #   - en medio, proporcional.
 # Y SI NO SE PUEDE SABER, EL PLAZO DE SIEMPRE: ram_libre_mb devuelve -1 cuando falla, y ahi
 # lo prudente es no cambiar nada en vez de suponer lo peor y ponerse lento por si acaso.
-RAM_COMODA = 2500.0     # de aqui para arriba, ni se toca el plazo
-RAM_APRETADA = 1000.0   # de aqui para abajo, se suelta en cuanto se puede
+# Y LOS DOS LISTONES SALEN DE LO QUE CUESTAN LOS MODELOS (26/09, idea 17 de las 121). Hasta
+# hoy eran 2.500 y 1.000 escritos a mano, tres lineas despues de citar a braya pidiendo que
+# todo se adaptase solo. Medido sobre los 105 pulsos con ram_libre de assistant-pulso.log
+# (24/09 20:45 -> 26/09 13:51): CUARENTA Y CINCO corrian con el plazo recortado, el 42,9 %, y
+# doce en el suelo x0,10. La mediana de memoria libre de esta consola son 2.815 MB, o sea que
+# el liston de "comoda" estaba JUSTO por debajo de la mediana: por eso se recortaba casi la
+# mitad del tiempo.
+# LO QUE NO SE HACE, y es lo primero que se probo: sacarlos de su propio percentil. Un liston
+# puesto en el percentil p fija el recorte en 1-p POR CONSTRUCCION, en esta consola y en
+# cualquier otra. Con el p60 y el p15 reales (3.469 y 1.388) el recorte SUBIA del 42,9 % al
+# 60,0 %: oiria peor. Eso no es adaptarse, es congelar el sintoma.
+# DE DONDE SALEN AHORA: de lo que cuesta volver a cargar lo que se suelta, que ya esta medido
+# ahi abajo. RAM_APRETADA = RAM_MIN_PRECISO: por debajo de eso el oido fino ya no puede
+# volver, asi que retenerlo no compra nada. RAM_COMODA = RAM_MIN_PARAKEET + RAM_MIN_PRECISO:
+# es la memoria que hace falta para traer los dos de vuelta; por encima, soltarlos pronto no
+# protege de nada y solo cuesta los 2,5-5 s de recarga.
+# Efecto sobre esos mismos 105 pulsos: recortados 45 -> 30 (28,6 %), apretados 12 -> 11.
+# SIGUEN SIENDO LITERALES A PROPOSITO: probar-plazos-soltar.py los saca con un regex de
+# "^RAM_COMODA = ([0-9.]+)" y se muere sin decir nada si no casa; y ademas RAM_MIN_* se
+# definen veintidos lineas MAS ABAJO, asi que la suma aqui seria un NameError.
+RAM_COMODA = 2100.0     # = RAM_MIN_PARAKEET + RAM_MIN_PRECISO: lo que cuesta traer los dos
+RAM_APRETADA = 900.0    # = RAM_MIN_PRECISO: por debajo, el oido fino ya no cabe
 SOLTAR_MIN_FACTOR = 0.1
+# Y CUANTAS VECES PASA, PARA PODER DECIRLO (26/09, idea 17). El oido se recortaba el plazo
+# el 42,9 % del tiempo y no se enteraba nadie: ni el cerebro, ni braya, ni las estadisticas.
+# No hace falta ningun histograma ni ninguna ventana que inventar: con dos enteros basta,
+# porque el pulso corre cada INTERVALO_PULSO = 15 s y diez minutos son exactamente 40
+# muestras. "Cuatro de cada diez minutos" es literal, no una estimacion.
+pulsos_ram = 0          # pulsos contados en esta sesion (los del juego no cuentan)
+pulsos_ram_justa = 0    # y de esos, cuantos con la memoria por debajo de RAM_COMODA
+# Y NO SE DICE NADA HASTA TENER DIEZ MINUTOS, que es la unidad de la propia frase. No es un
+# numero suelto: son los diez minutos partidos por INTERVALO_PULSO, el periodo del pulso.
+# Con dos o tres pulsos el porcentaje salta entre 0 y 100 y no significa nada.
+RAM_PULSOS_MINIMOS = int(600.0 / INTERVALO_PULSO)
+
+
+def apunta_ram(libre, hay_juego):
+    """Un pulso mas en la cuenta de con cuanta memoria esta oyendo.
+
+    CON UN JUEGO DELANTE NO SE CUENTA, y esta es la guarda del riesgo: ahi la foto de memoria
+    es la del juego -que pide de 4 a 6 GB-, no la de Nova. Contarla arrastraria la cuenta
+    hacia abajo y Nova diria que anda apretada cuando lo que pasa es que esta jugando.
+    Y CON -1 TAMPOCO: ram_libre_mb devuelve -1 cuando no puede medir, y contarlo como
+    apretado seria inventarse el dato.
+    """
+    global pulsos_ram, pulsos_ram_justa
+    if hay_juego or libre < 0:
+        return
+    pulsos_ram += 1
+    if libre < RAM_COMODA:
+        pulsos_ram_justa += 1
+
+
+def ram_justa_pct():
+    """El porcentaje de pulsos con la memoria justa, o -1 si todavia no se sabe.
+
+    -1 Y NO 0: son cosas distintas. "no lo se" contado como "0 %" es una mentira con pinta de
+    dato, y el asistente la repetiria en voz alta.
+    """
+    if pulsos_ram < RAM_PULSOS_MINIMOS:
+        return -1
+    return int(round(100.0 * pulsos_ram_justa / pulsos_ram))
 
 
 def plazo_soltar(base):
@@ -3308,10 +3367,15 @@ def decir_estado(ref=0.0):
     # cambiaria nada, pero volver a llamar a nivel_salida() costaria una medida de audio en
     # cada pulso.
     desc_recientes = sum(1 for t in descartes_nova if ahora_f - t <= DESCARTES_VENTANA)
-    return "%.1f|%s|%.3f|%d|%d|%d|%d|%s|%d" % (
+    # DECIMO CAMPO: con cuanta memoria esta oyendo, en porcentaje de pulsos (idea 17, 26/09).
+    # El octavo y el noveno se ocuparon esta misma tarde, asi que este va detras. AL FINAL,
+    # como todos desde el quinto: assistant.ps1 lee este fichero POR INDICE en varios sitios y
+    # meter un campo en medio les cambia el significado a todos a la vez y en silencio.
+    # Es -1 mientras no haya ni un pulso contado, nunca 0.
+    return "%.1f|%s|%.3f|%d|%d|%d|%d|%s|%d|%d" % (
         ganancia, ("%.4f" % ref) if ref else "0",
         salida, bloques_voz, 1 if ruido_de_fuera else 0, recientes, desde_recorte,
-        repaso_perdido or "-", desc_recientes)
+        repaso_perdido or "-", desc_recientes, ram_justa_pct())
 # Mientras exista esta marca no se evalua la palabra de activacion: solo el
 # boton. La crea el asistente cuando hay un juego en primer plano. El dictado
 # y la confirmacion siguen funcionando con normalidad.
@@ -4420,10 +4484,16 @@ try:
                         # escrito en cada pulso, junto al plazo que se esta aplicando (ver
                         # plazo_soltar): si vuelve a morirse, el log lo dira.
                         _ram = ram_libre_mb()
-                        anota_pulso("pulso: suelo=%.4f puerta=%.4f ram_libre=%s plazo=x%.2f"
+                        # SE REUSA _ram, NI UNA MEDIDA NUEVA (reglas 4 y 5): ram_libre_mb hace
+                        # un GlobalMemoryStatusEx por ctypes y esto corre mientras braya juega.
+                        # Son dos sumas de enteros sobre el dato que la linea de arriba ya
+                        # tiene en la mano.
+                        apunta_ram(_ram, jugando())
+                        anota_pulso("pulso: suelo=%.4f puerta=%.4f ram_libre=%s plazo=x%.2f memoria_justa=%s"
                                     % (suelo_ruido, umbral_actividad(),
                                        ("%.0f MB" % _ram) if _ram >= 0 else "?",
-                                       plazo_soltar(1.0)), ahora)
+                                       plazo_soltar(1.0),
+                                       ("%d%%" % ram_justa_pct()) if ram_justa_pct() >= 0 else "?"), ahora)
                         # BUENA ES UN PULSO SIN NADA DE RUIDO, no uno que TODAVIA no se ha
                         # confirmado (22/09, estrenandolo por segunda vez). El ruido pide
                         # RUIDO_PULSOS pulsos seguidos para darse por bueno, asi que el

@@ -1997,6 +1997,19 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n190. Se sabe con cuanta memoria estuvo oyendo (idea 17 de las 121)"
+# El oido encoge SOLO su plazo para soltar los modelos cuando queda poca memoria -y con eso oye
+# peor-, lo apuntaba en assistant-pulso.log y no se enteraba nadie: assistant.ps1 abria ese
+# fichero en UN sitio y era para borrarlo. MEDIDO: el 42,9 % de los pulsos corria recortado y el
+# 11,4 % en el suelo x0,10, con la mediana de memoria libre de la consola en 2.815 MB y el liston
+# de "comoda" puesto a mano en 2.500, justo por debajo. Ahora los dos listones salen de lo que
+# cuesta traer de vuelta lo que sueltan (RAM_MIN_PRECISO y RAM_MIN_PARAKEET + RAM_MIN_PRECISO) y
+# el oido manda el porcentaje en el decimo campo. NO se hizo lo que pedia la idea -sacarlos de su
+# propio p60/p15-: eso subia el recorte del 27,8 % al 59,8 %, porque un liston en el percentil p
+# fija el recorte en 1-p por construccion. Eso no es adaptarse, es congelar el sintoma.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-oido-apretado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:con cuanta memoria estuvo oyendo)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n189. La ganancia que saturo no se vuelve a poner (idea 16 de las 121)"
 # MEDIDO sobre los dos registros: 985 lineas de "recorte detectado: bajando ganancia", y 564 son
 # de hoy. Emparejando cada recorte con el anterior y reconstruyendo la ganancia de partida -la
