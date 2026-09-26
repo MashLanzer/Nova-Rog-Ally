@@ -856,11 +856,28 @@ function Find-Aproximado([string]$t, $obj) {
     if ($t.Length -lt 4) { return $null }
     $mejor = $null
     $mejorD = 999
+    # LA LONGITUD, FUERA DEL BUCLE (26/09): se miraba una vez por candidata y son decenas.
+    $lt = $t.Length
     foreach ($p in $obj.PSObject.Properties) {
         $k = $p.Name
-        if ($k.Length -ge 4 -and $t -match ('\b' + [regex]::Escape($k))) { return $k }
+        $kl = $k.Length
+        if ($kl -ge 4 -and $t -match ('\b' + [regex]::Escape($k))) { return $k }
         # tope en la misma escala doblada que Get-DistanciaFon
-        $tope = [Math]::Max(2, [int][Math]::Floor($k.Length * 0.34) * 2)
+        $tope = [Math]::Max(2, [int][Math]::Floor($kl * 0.34) * 2)
+        # EL ATAJO POR LONGITUD (26/09). Esto NO cambia ni un resultado: en
+        # Get-DistanciaFon borrar e insertar cuestan 2 cada una, asi que para pasar de una
+        # palabra de n letras a otra de m hacen falta al menos |n-m| de esas operaciones, o
+        # sea que la distancia nunca baja de 2*|n-m|. Si ya ese minimo pasa del tope, esa
+        # candidata no puede ganar y montar la matriz entera es tiempo tirado.
+        # LO QUE COSTABA, medido el 26/09 con los textos de repaso del registro de verdad:
+        # Find-Aproximado tardaba 785 ms con "que los cierres", y Test-FastCommand llegaba a
+        # 1.077 ms por frase. Eso esta EN EL CAMINO EN CALIENTE: Test-FastCommand se llama de
+        # dos a cuatro veces por cada orden que braya dice. La culpa era esta: una matriz de
+        # Levenshtein en PowerShell interpretado por CADA app y CADA sitio, aunque la
+        # candidata midiera cuatro letras y la frase quince.
+        $dif = $lt - $kl
+        if ($dif -lt 0) { $dif = -$dif }
+        if (($dif + $dif) -gt $tope) { continue }
         $d = Get-DistanciaFon $t $k
         if ($d -le $tope -and $d -lt $mejorD) { $mejorD = $d; $mejor = $k }
     }
