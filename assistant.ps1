@@ -7368,6 +7368,53 @@ function Save-Traducciones {
 # corte es nitido: dieciseis por debajo de 11 s y el siguiente a hora y veinte, que ya no viene
 # de esa orden. Treinta segundos cubre los dieciseis con margen y deja fuera el falso.
 $FraseDichaVentanaMs = 30000
+# APRENDER DEL SEGUNDO INTENTO (26/09, idea 24 de las 121). Cuando braya dice algo, Nova no lo
+# entiende, y a los pocos segundos lo repite de otra forma y ESO SI funciona, ahi hay una
+# traduccion regalada: lo que dijo mal es lo mismo que lo que dijo bien.
+# MEDIDO sobre los 714 dictados con texto de los dos registros: SEIS pares reales, con sus
+# huecos de 12, 15, 17, 29, 30 y 42 segundos. Por ejemplo 'Cierra Do' -> 'Cierra todo' (15 s) y
+# 'DINTA, CORREO' -> 'Dicta un correo' (12 s).
+# LA VENTANA SON 60 s Y NO 90: el hueco real mas largo de los seis es 42, y subir el tope de 45
+# a 180 s no anade NI UN par en catorce dias (medido: 6 pares con 45 s, 6 con 180). Los 90 que
+# pedia la idea solo abrian la puerta a ruido sin traer un solo caso.
+$RepeticionVentanaMs = 60000
+# Y EL PARECIDO ES 0,60, NO 0,75. Ese 0,75 sale de SequenceMatcher, que es de Python; aqui la
+# metrica que existe es Get-Distancia (Levenshtein). Medidos los MISMOS seis pares con
+# 1 - Get-Distancia/max(largo) sobre ConvertTo-Plain: 0,662 0,667 0,733 0,763 0,818 y 0,889.
+# Con 0,75 se pierden TRES de los seis. Barriendo los 534 pares consecutivos de menos de 90 s:
+# con 0,65 entran los 6 y cero falsos; con 0,60 entran los 6 mas una repeticion de verdad que
+# el 0,75 dejaba fuera ('Enciende bruto' -> 'Enciende el Bluetooth', 0,619) y siguen cero
+# falsos; con 0,50 entran 11, todas repeticiones de verdad, pero ya con claves que no conviene
+# aprender ('Calculadora y ahora esto').
+$RepeticionParecido = 0.60
+# El tope de largo es para que Get-Distancia no se coma el bucle: es una matriz de n x m y esto
+# corre en el camino en caliente. El par mas largo de los seis mide 77 caracteres.
+$RepeticionLargoMax = 140
+$script:intentoActual = $null
+$script:intentoPrevio = $null
+function Test-SegundoIntento($previo, [string]$planoAhora, [double]$ahoraMs) {
+    # Pura a proposito: el banco la corre con los seis pares de verdad sin tocar disco.
+    if (-not $previo) { return $false }
+    # EL PRIMER INTENTO TIENE QUE HABER MUERTO. Sin esta guarda, dos ordenes parecidas seguidas
+    # -'Activa Bluetooth' y 'Activa el Bluetooth', 11 s, parecido 0,90- se aprenderian como si
+    # la segunda corrigiera a la primera, y la primera se habia ejecutado bien.
+    if ([string]$previo.llego -eq 'local') { return $false }
+    if (-not $planoAhora) { return $false }
+    $p = [string]$previo.plano
+    if (-not $p) { return $false }
+    if ($p.Length -gt $RepeticionLargoMax -or $planoAhora.Length -gt $RepeticionLargoMax) { return $false }
+    # EN DOUBLE, que $null vale 0 en una comparacion numerica y un previo a medio hacer pasaria
+    # por "hace un momento".
+    $edad = $ahoraMs - [double]$previo.cuando
+    if ($edad -lt 0 -or $edad -gt $RepeticionVentanaMs) { return $false }
+    $largo = [Math]::Max($p.Length, $planoAhora.Length)
+    if ($largo -le 0) { return $false }
+    $parecido = 1.0 - ((Get-Distancia $p $planoAhora) / [double]$largo)
+    # Y NO SE APRENDE DE UNA FRASE IDENTICA: eso no es una correccion, es que lo dijo dos veces
+    # y la primera se perdio por otro motivo.
+    if ($p -eq $planoAhora) { return $false }
+    return ($parecido -ge $RepeticionParecido)
+}
 $script:fraseComoLaDijiste = $null
 function Get-FraseComoLaDijiste {
     if (-not $script:fraseComoLaDijiste) { return '' }
@@ -24505,6 +24552,14 @@ function Report-Reply($out) {
                     }
                 }
                 $script:ultimaAprendida = $original
+                # LA MARCA QUE NO SE PUEDE OLVIDAR (26/09, idea 24). Esta rama ejecuta FUERA
+                # de Process-Texto, asi que sin esta linea una frase que la NUBE tradujo y
+                # Nova EJECUTO seguiria contando como "no llego a nada". El caso esta en el
+                # log: el 22/09 a la 01:09 'Si es Steam' murio en la capa local, la nube la
+                # tradujo a 'abre steam' y Nova ABRIO Steam; diecisiete segundos despues braya
+                # dijo 'Sierra Steam'. Sin esto se aprenderia 'si es steam' = cerrar Steam, y a
+                # partir de ahi ese mal oido CERRARIA Steam. Eso es la regla 1 rota.
+                if ($script:intentoActual) { $script:intentoActual.llego = 'local' }   # idea 24
                 Add-Estadistica 'traducida' "$original -> $propuesta"
                 $script:ultimaRespuesta = $r
                 Add-Turno $original $r
@@ -26081,6 +26136,17 @@ function Process-Texto([string]$text) {
             try { Set-PresenciaAhora } catch {}
         }
         $plano = ConvertTo-Plain $text
+        # LOS DOS ULTIMOS INTENTOS (26/09, idea 24). Process-Texto es el unico embudo: la
+        # llaman doce sitios distintos, asi que aqui se ven todas las ordenes pasen por donde
+        # pasen.
+        # EL GUARDA DEL REPASO ES LA MITAD DEL VALOR: sin el, el repaso del oido fino se
+        # re-entra con SU re-transcripcion del mismo audio y pisa la frase buena. Medido:
+        # 'Tiktam un correo en el bloc de notas' da 0,889 contra la repeticion, y lo que el
+        # repaso saco de ese mismo audio -'Tiktok, Rean, Blood and Notas'- da 0,429.
+        if (-not $script:invitado -and -not $script:yaReintentado) {
+            $script:intentoPrevio = $script:intentoActual
+            $script:intentoActual = @{ texto = $text; plano = $plano; cuando = $sw.ElapsedMilliseconds; llego = 'nada' }
+        }
         if ($script:invitado) { $script:invitadoUltimo = $sw.ElapsedMilliseconds }
         $script:uiOrigen = ''   # lo que se conteste ahora no hereda el tinte de la charla anterior
 
@@ -26872,6 +26938,7 @@ function Process-Texto([string]$text) {
                 # coincidencia dudosa: se pregunta y se espera un si/no (o el
                 # plazo). $fast es la pregunta ("¿Little Nightmares III?")
                 Log "CONFIRMAR: '$text' -> $fast"
+                if ($script:intentoActual) { $script:intentoActual.llego = 'local' }   # idea 24: preguntar ya es haber entendido
                 Show-Popup $fast
                 Say $fast
                 Set-UI 'escuchando' $fast
@@ -26886,6 +26953,7 @@ function Process-Texto([string]$text) {
                 else { Log "LOCAL: $text -> $fast" }
                 $script:respuestaPrivada = $false
                 Set-UltimaOrden $text ([string]$fast)
+                if ($script:intentoActual) { $script:intentoActual.llego = 'local' }   # idea 24
                 $script:noEntendiSeguidos = 0
                 Add-Estadistica 'local' $text
                 # tus costumbres, para proponerte automatizarlas (ver HABITOS)
@@ -26909,6 +26977,31 @@ function Process-Texto([string]$text) {
                     $script:charlaResto = ''
                     [void](Send-Charla $restoC)
                 }
+                # LO QUE DIJISTE ANTES Y NO LLEGO A NADA (26/09, idea 24). Esta orden SI ha
+                # funcionado; si la de hace un momento se le parecia y murio, aquella era esta
+                # mal oida, y eso es una traduccion regalada.
+                # AQUI NO SE APLICA Test-OidoDudoso, y hay que decirlo o vuelve alguien a
+                # ponerlo: el camino de la nube tiene ese freno -"no aprendo de lo mal oido"-
+                # pero aqui el primer intento ES mal oido POR DEFINICION. Lo que sustituye a
+                # ese freno es la repeticion misma: braya volvio a decirlo y esta vez salio.
+                try {
+                    if (Test-SegundoIntento $script:intentoPrevio $plano ([double]$sw.ElapsedMilliseconds)) {
+                        # SOLO SE APRENDE LO QUE SE PUEDE REPETIR: el mismo filtro de seis
+                        # palabras que ya usa la traduccion de la nube (15/09). Una frase larga
+                        # no se vuelve a decir igual nunca, asi que la clave no serviria.
+                        $palV = @(([string]$script:intentoPrevio.plano) -split '\s+' | Where-Object { $_ })
+                        if ($palV.Count -le 6) {
+                            Log ("SEGUNDO INTENTO: '" + $script:intentoPrevio.texto + "' no llego a nada y lo repetiste como '" + $text + "'; me lo quedo")
+                            [void](Add-Traduccion $script:intentoPrevio.texto $text)
+                            Add-Estadistica 'segundo-intento' ($script:intentoPrevio.texto + ' = ' + $text)
+                        } else {
+                            Log ("SEGUNDO INTENTO: '" + $script:intentoPrevio.texto + "' se parece a lo que acabas de decir, pero son " + $palV.Count + " palabras y eso no se repite igual dos veces")
+                        }
+                        # SE GASTA AL USARLO: si no, la misma pareja se aprenderia otra vez en
+                        # la siguiente orden que tambien funcione.
+                        $script:intentoPrevio = $null
+                    }
+                } catch { Log ('segundo intento: ' + $_.Exception.Message) }
             }
         }
         # 1b) memoria: buscar en las notas ANTES de molestar al modelo
@@ -26918,6 +27011,7 @@ function Process-Texto([string]$text) {
             try { $enc = Find-EnMemoria $text } catch { $enc = $null }
             if ($enc) {
                 Log "MEMORIA LOCAL: $text -> $enc"
+                if ($script:intentoActual) { $script:intentoActual.llego = 'local' }   # idea 24
                 Add-Estadistica 'memoria' $text
                 $script:ultimaRespuesta = $enc
                 Send-UIEvento 'hecho'
@@ -26941,6 +27035,7 @@ function Process-Texto([string]$text) {
                 if ($r) {
                     Log "APRENDIDA: '$text' -> '$apr' -> $r"
                     Set-UltimaOrden $apr ([string]$r)
+                    if ($script:intentoActual) { $script:intentoActual.llego = 'local' }   # idea 24
                     $script:ultimaAprendida = $text
                     if ($script:ultimaAprendida) { Log "(si dices 'no era eso', la olvido)" }
                     Add-Estadistica 'aprendida' $text
@@ -26976,6 +27071,7 @@ function Process-Texto([string]$text) {
                 # UNA RECETA DE INFORMACION NO SE PREGUNTA (16/09): solo mira y dice, no
                 # cambia nada, asi que preguntar "¿lo hago?" molesta sin proteger de nada.
                 if ([string]$recEnc.receta.tipo -eq 'info') {
+                    if ($script:intentoActual) { $script:intentoActual.llego = 'local' }   # idea 24
                     [void](Start-Receta $recEnc $text)
                     return
                 }
@@ -26988,6 +27084,7 @@ function Process-Texto([string]$text) {
                     Set-UI 'escuchando' $preguntaDato
                     Start-Confirmacion
                 } elseif ($script:confirmado -or [int]$recEnc.receta.confirmadas -ge $RecetasConfirmar) {
+                    if ($script:intentoActual) { $script:intentoActual.llego = 'local' }   # idea 24
                     [void](Start-Receta $recEnc $text)
                 } else {
                     $script:pendiente = @{ texto = ''; vence = 0; tipo = 'receta'; id = $recEnc.receta.id; valores = $recEnc.valores; original = $text }

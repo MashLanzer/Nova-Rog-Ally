@@ -1997,6 +1997,21 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n196. Si te repites, lo aprendo (idea 24 de las 121)"
+# Cuando braya dice algo, Nova no lo entiende, y a los pocos segundos lo repite de otra forma y
+# ESO SI funciona, ahi hay una traduccion regalada. MEDIDO sobre los 714 dictados con texto de
+# los dos registros: SEIS pares reales, con huecos de 12, 15, 17, 29, 30 y 42 s.
+# LOS DOS NUMEROS NO SON LOS DE LA IDEA, y esa es la parte importante. La idea pedia parecido
+# 0,75, pero ese 0,75 sale de SequenceMatcher, que es de Python; aqui la metrica que existe es
+# Get-Distancia (Levenshtein), y con ella los seis pares dan de 0,662 a 0,889: con 0,75 se
+# pierden TRES. Con 0,60 entran los seis y cero falsos sobre 534 pares. Y la ventana son 60 s y
+# no 90: el hueco real mas largo es 42 y subir de 45 a 180 s no anade ni un par en catorce dias.
+# LA ROTURA PELIGROSA que el banco vigila: que falte la marca del camino de la NUBE. El 22/09 a
+# la 01:09 'Si es Steam' murio en local, la nube la tradujo y Nova ABRIO Steam; 17 s despues
+# llego 'Sierra Steam'. Sin esa marca se aprenderia 'si es steam' = cerrar Steam. Regla 1 rota.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-segundo-intento.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:si te repites, lo aprendo)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n195. El oido se pone la nota a sus propios descartes (idea 23 de las 121)"
 # Cuando el oido tira una llamada -la rafaga sono floja, o los altavoces obligaban a exigir mas
 # confianza- no volvia a pensar en ello nunca. Pero si a los pocos segundos se abre una escucha

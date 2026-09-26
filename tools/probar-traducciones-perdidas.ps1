@@ -48,6 +48,25 @@ Invoke-Expression (Traer 'ConvertTo-Plain')
 Invoke-Expression (Traer 'Write-Atomico')
 Invoke-Expression (Traer 'Get-Traducciones')
 Invoke-Expression (Traer 'Save-Traducciones')
+# LA CUARENTENA ENTRO EL 26/09 Y ESTE BANCO NO SE ENTERO (idea 15). Add-Traduccion ya no
+# baja a disco al momento: mete la entrada en una cola que espera Get-CuarentenaMs por si
+# braya corrige. Traer esa funcion de verdad arrastraria Get-NubePercentil y el fichero de
+# tiempos; aqui lo que se prueba es QUE se aprende y que no, no CUANDO se escribe, asi que
+# se le da un plazo fijo. El plazo lo prueba probar-cuarentena.ps1, que para eso esta.
+$script:traduccionesCuarentena = New-Object System.Collections.ArrayList
+function Get-CuarentenaMs { return 20000 }
+# Y SE VACIA A MANO DESPUES DE CADA APRENDIZAJE. Lo que este banco protege es COMO se escribe
+# el fichero -fusionando con el disco, para no perder las 14 de aquella noche-, no CUANDO. Con
+# la cuarentena, el cuando lo decide Flush-Cuarentena, y ese lo prueba probar-cuarentena.ps1.
+$sw = [Diagnostics.Stopwatch]::StartNew()
+Invoke-Expression (Traer 'Flush-Cuarentena')
+function Aprende([string]$a, [string]$b) {
+    $r = Add-Traduccion $a $b
+    # se les adelanta el vencimiento: aqui no se espera, se comprueba el fichero
+    foreach ($e in @($script:traduccionesCuarentena)) { $e.vence = 0 }
+    [void](Flush-Cuarentena)
+    return $r
+}
 Invoke-Expression (Traer 'Add-Traduccion')
 Invoke-Expression (Traer 'Remove-Traduccion')
 Invoke-Expression (Traer 'Add-UsoTraduccion')
@@ -87,8 +106,8 @@ function Usos([string]$k) {
 
 Write-Host ''
 Write-Host '-- lo normal: aprender y olvidar --'
-Comp 'se aprende una' ($null -eq (Add-Traduccion 'hazme la pantalla mas clarita' 'sube el brillo') -or $true) ''
-Add-Traduccion 'ponme una peli' 'abre netflix'
+Comp 'se aprende una' ($null -eq (Aprende 'hazme la pantalla mas clarita' 'sube el brillo') -or $true) ''
+Aprende 'ponme una peli' 'abre netflix'
 Comp 'hay dos en el fichero' ((Cuantas) -eq 2) ("van $(Cuantas)")
 Comp 'y dicen lo que tienen que decir' ((Dice 'hazme la pantalla mas clarita') -eq 'sube el brillo')
 Comp 'olvidar una la quita' ((Remove-Traduccion 'ponme una peli') -and (Cuantas) -eq 1)
@@ -104,7 +123,7 @@ $script:traducciones = $null              # como si Nova acabara de arrancar
 $script:traducciones = @{}                # ...y la lectura hubiera fallado: tabla VACIA
 $script:traduccionesQuitadas = New-Object System.Collections.Generic.HashSet[string]
 Comp 'el fichero tiene las 14' ((Cuantas) -eq 14)
-Add-Traduccion 'una frase nueva' 'una orden nueva'
+Aprende 'una frase nueva' 'una orden nueva'
 Comp 'tras aprender UNA, siguen estando las 14 + la nueva' ((Cuantas) -eq 15) ("quedaron $(Cuantas)")
 Comp 'y la numero 7 sigue diciendo lo suyo' ((Dice 'frase numero 7') -eq 'orden 7') (Dice 'frase numero 7')
 
@@ -114,15 +133,15 @@ Write-Host '-- lo que NO puede pasar: que olvidar se deshaga solo --'
 # resucita lo que acabas de olvidar, porque sigue estando en el fichero
 Comp 'se olvida la numero 3' (Remove-Traduccion 'frase numero 3')
 Comp 'y ya no esta' ((Dice 'frase numero 3') -eq '') (Dice 'frase numero 3')
-Add-Traduccion 'otra mas' 'otra orden'
+Aprende 'otra mas' 'otra orden'
 Comp 'tras guardar otra vez, la 3 NO ha vuelto' ((Dice 'frase numero 3') -eq '') (Dice 'frase numero 3')
 Comp 'y el resto sigue' ((Cuantas) -eq 15) ("van $(Cuantas)")
 
 Write-Host ''
 Write-Host '-- y si la olvidaste y la vuelves a aprender, se queda --'
-Add-Traduccion 'frase numero 3' 'la quiero otra vez'
+Aprende 'frase numero 3' 'la quiero otra vez'
 Comp 'vuelve a estar' ((Dice 'frase numero 3') -eq 'la quiero otra vez')
-Add-Traduccion 'y una mas' 'y una orden mas'
+Aprende 'y una mas' 'y una orden mas'
 Comp 'y sigue estando tras otro guardado' ((Dice 'frase numero 3') -eq 'la quiero otra vez')
 
 Write-Host ''
@@ -142,7 +161,7 @@ Write-Atomico $TraduccionesPath ($nuevo | ConvertTo-Json -Depth 4)
 $script:traducciones = @{}                # la RAM vacia: es lo que deja un JSON corrupto
 $script:traduccionesUsos = @{}
 $script:traduccionesQuitadas = New-Object System.Collections.Generic.HashSet[string]
-Add-Traduccion 'otra frase cualquiera' 'abre el explorador'
+Aprende 'otra frase cualquiera' 'abre el explorador'
 Comp 'siguen las 5 y entra la nueva' ((Cuantas) -eq 6) ("quedaron $(Cuantas)")
 Comp 'la 4 dice su orden, no el objeto' ((Dice 'dilo asi 4') -eq 'orden buena 4') (Dice 'dilo asi 4')
 Comp 'ninguna quedo con un @{ dentro' (-not ((Get-Content -LiteralPath $TraduccionesPath -Raw -Encoding UTF8) -match '@\{')) ''
@@ -159,7 +178,7 @@ Write-Atomico $TraduccionesPath ($mezcla | ConvertTo-Json -Depth 4)
 $script:traducciones = @{}
 $script:traduccionesUsos = @{}
 $script:traduccionesQuitadas = New-Object System.Collections.Generic.HashSet[string]
-Add-Traduccion 'y una tercera' 'pon el mando a cargar'
+Aprende 'y una tercera' 'pon el mando a cargar'
 Comp 'la del formato viejo sobrevive entera' ((Dice 'la vieja de toda la vida') -eq 'sube el volumen') (Dice 'la vieja de toda la vida')
 Comp 'la del formato nuevo tambien' ((Dice 'la nueva del 22') -eq 'baja el volumen') (Dice 'la nueva del 22')
 Comp 'la vieja arranca en cero usos' ((Usos 'la vieja de toda la vida') -eq 0) ("usos=$(Usos 'la vieja de toda la vida')")
@@ -185,7 +204,7 @@ Comp 'y la que no se usa se queda en cero' ([int]$script:traduccionesUsos['que e
 # EL DISCO NO SE TOCA EN CADA USO: eso corre en mitad de una orden
 Comp 'contar no escribe en disco' ((Usos 'hazme la pantalla mas clarita') -eq 0) 'el fichero sigue en formato viejo'
 # ...hasta que se guarda por otra cosa
-Add-Traduccion 'una nueva' 'abre steam'
+Aprende 'una nueva' 'abre steam'
 Comp 'al guardar, los usos quedan en el fichero' ((Usos 'hazme la pantalla mas clarita') -eq 3) ("usos=$(Usos 'hazme la pantalla mas clarita')")
 Comp 'y el texto sigue estando' ((Dice 'hazme la pantalla mas clarita') -eq 'sube el brillo')
 Comp 'la nueva nace con cero usos' ((Usos 'una nueva') -eq 0)
@@ -193,8 +212,8 @@ Comp 'la nueva nace con cero usos' ((Usos 'una nueva') -eq 0)
 Write-Host ''
 Write-Host '-- y hay tope: caen las que menos se usan --'
 $TraduccionesMax = 4
-Add-Traduccion 'otra mas todavia' 'abre spotify'
-Add-Traduccion 'y otra que sobra' 'abre discord'
+Aprende 'otra mas todavia' 'abre spotify'
+Aprende 'y otra que sobra' 'abre discord'
 Comp 'no se pasa del tope' ((Cuantas) -le 4) ("hay $(Cuantas), tope 4")
 Comp 'la que MAS se usa sobrevive' ((Dice 'hazme la pantalla mas clarita') -eq 'sube el brillo')
 $TraduccionesMax = 300

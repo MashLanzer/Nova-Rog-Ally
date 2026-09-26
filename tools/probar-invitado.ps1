@@ -49,6 +49,16 @@ $EXENTAS = @{
     # ensucia, al reves que en todo lo demas de esta lista.
     'Save-LogrosStamp'        = 'la fecha de un fichero de Steam, del equipo y no de una persona'
     'Save-Captura'            = 'guarda la imagen que se acaba de pedir a proposito'
+    # DOS QUE ENTRARON EL 26/09 Y NO SE DECIDIERON EN SU MOMENTO. Este banco las caza, que
+    # para eso esta; aqui queda dicho por que ninguna de las dos lleva la guarda.
+    # Add-CorreccionTiempo (idea 15) guarda SOLO NUMEROS -los milisegundos que se tarda en
+    # corregir-, nunca la frase. Por eso no entra en Invoke-Olvido ni en ninguna poda de
+    # privacidad, y por eso tampoco hace falta callarla con un invitado delante: no hay nada
+    # de nadie ahi dentro. Y si se callara, el plazo dejaria de aprenderse por una visita.
+    'Add-CorreccionTiempo'    = 'solo milisegundos, nunca la frase: no hay nada de nadie ahi'
+    # Save-Clima (idea 6) guarda el tiempo que hace: emoji, descripcion, temperatura y hora.
+    # Es del sitio, no de una persona, igual que Save-EntornoVistos.
+    'Save-Clima'              = 'el tiempo que hace, del sitio y no de una persona'
     'Save-Habitos'            = 'lo llama Add-Habito, que ya mira el modo'
     'Save-JuegosMem'          = 'lo llaman Set-NotaJuego y Add-TiempoJuego, ya protegidos'
     'Save-Listas'             = 'la lista de la compra se pide en voz alta, no se aprende sola'

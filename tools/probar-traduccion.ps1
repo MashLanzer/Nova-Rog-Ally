@@ -117,6 +117,13 @@ $script:traduccionesUsos = @{}
 $script:traduccionesUsoSucio = $false
 function Get-Traducciones { return $script:traducciones }
 $TraduccionesPath = Join-Path $env:TEMP 'traducciones-prueba-nunca.json'
+# LA CUARENTENA ENTRO EL 26/09 Y ESTE BANCO NO SE ENTERO (idea 15). Add-Traduccion ya no
+# baja a disco al momento: mete la entrada en una cola que espera Get-CuarentenaMs por si
+# braya corrige. Traer esa funcion de verdad arrastraria Get-NubePercentil y el fichero de
+# tiempos; aqui lo que se prueba es QUE se aprende y que no, no CUANDO se escribe, asi que
+# se le da un plazo fijo. El plazo lo prueba probar-cuarentena.ps1, que para eso esta.
+$script:traduccionesCuarentena = New-Object System.Collections.ArrayList
+function Get-CuarentenaMs { return 20000 }
 Invoke-Expression (Traer 'Add-Traduccion')
 Add-Traduccion 'cierra lo ultimo que habrete' 'cierra todos los programas'
 Comp 'cerrar todo NO se aprende' (-not $script:traducciones.ContainsKey('cierra lo ultimo que habrete')) (($script:logsT | Select-Object -Last 1))
