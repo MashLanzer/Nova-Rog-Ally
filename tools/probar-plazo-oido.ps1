@@ -95,7 +95,10 @@ $n = @([regex]::Matches($sinCom, 'Get-PlazoOido')).Count
 Comp 'Get-PlazoOido se usa cuatro veces' ($n -ge 5) "$n (la definicion mas cuatro usos)"
 Comp '  en la cascada, con el motor del escalon' ($sinCom -match 'Get-PlazoOido \$quien \$ReintentoMaxMs') ''
 Comp '  en el ultimo recurso, con turbo' ($sinCom -match "Get-PlazoOido 'turbo' \`$ReintentoUltimoMs") ''
-Comp '  y en los dos del oido fino, con small' (@([regex]::Matches($sinCom, "Get-PlazoOido 'small'")).Count -eq 2) ''
+# "LOS DOS" CADUCO EL MISMO DIA: la idea 12 anadio un tercer camino al oido fino (el repaso
+# por desacuerdo entre Vosk y Parakeet). Lo que importa es que TODOS los que piden small usen
+# el plazo de small, no cuantos sean.
+Comp '  y todos los del oido fino, con small' (@([regex]::Matches($sinCom, "Get-PlazoOido 'small'")).Count -ge 2) "$(@([regex]::Matches($sinCom, "Get-PlazoOido 'small'")).Count) caminos"
 # NO SE TOCAN LOS NUMEROS DE SIEMPRE: ahora son el respaldo, no sobran.
 Comp 'los numeros escritos siguen existiendo' (($txt -match '\$ReintentoMaxMs = 15000') -and ($txt -match '\$ReintentoUltimoMs = 60000')) 'son el respaldo cuando no hay medidas'
 # Y EL LOG DEL ABANDONO TIENE QUE DECIR EL PLAZO: ya no hay un unico 15, asi que sin eso un

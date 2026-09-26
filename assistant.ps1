@@ -2076,6 +2076,13 @@ function Add-DiarioResumen([string]$fecha, [string]$texto) {
 # de un dictado dudoso, se pregunta antes de hacer nada con un nombre mal oido.
 $script:dictadoConfianza = 0.0
 $script:dictadoConfianzaEn = -999999
+# EL ACUERDO ENTRE LOS DOS OIDOS (26/09, idea 12 de las 121). Cuanto coincide lo que oyo Vosk
+# con lo que oyo Parakeet, de 0 a 1. Es la confianza de las ordenes que entrega Parakeet, que
+# son tres de cada cuatro y hasta hoy llegaban SIN NINGUN numero: 422 de 560 con seguridad=null.
+# Arranca en 1.0 -"de acuerdo del todo"- para que la ausencia de dato no pida repasos sola.
+$script:dictadoAcuerdo = 1.0
+$script:dictadoAcuerdoEn = -999999
+$script:dictadoAcuerdoListon = 0.2
 # El umbral se calibro con las 20 grabaciones de pruebas\audio (14/09): con este
 # microfono Whisper base casi nunca esta muy seguro; con -0,6 preguntaba en 13 de
 # 20 dictados, con -0,8 en 9, todos mal oidos, y en ninguno bien oido.
@@ -26287,6 +26294,43 @@ function Process-Texto([string]$text) {
             }
         }
 
+        # 0 bis) Y REPASO CUANDO LOS DOS OIDOS NO SE PONEN DE ACUERDO (26/09, idea 12 de las
+        #    121). El bloque de arriba solo puede disparar si Whisper corrio, porque su numero
+        #    es el avg_logprob de Whisper. Pero tres de cada cuatro ordenes las entrega
+        #    Parakeet y llegan sin ningun numero: 422 de 560 con seguridad=null. Para esas, la
+        #    confianza es cuanto coincide lo que oyo Parakeet con lo que ya habia oido Vosk.
+        #    MEDIDO sobre 273 ordenes con destino apuntado: con acuerdo por debajo de 0,2 el
+        #    28 % acaba en nada; por encima de 0,5, el 9 %. Tres veces mas basura.
+        #    El liston lo manda el oido en el mismo fichero y lo aprende de sus propios pares,
+        #    asi que aqui no hay ningun numero escrito a mano.
+        #    VA DEBAJO Y NO DENTRO a proposito: el camino de Whisper se queda exactamente como
+        #    estaba, y este solo entra cuando aquel no tenia dato que mirar.
+        if ($WhisperPreciso -and $script:ordenPorWorker -and -not $script:yaReintentado -and
+            $script:wakeProc -and -not $script:wakeProc.HasExited -and
+            ($sw.ElapsedMilliseconds - $script:dictadoAcuerdoEn) -lt 15000 -and
+            $script:dictadoAcuerdo -lt $script:dictadoAcuerdoListon -and
+            (Test-FastCommand $text)) {
+            $script:yaReintentado = $true
+            try {
+                Remove-Item -LiteralPath $RutaReintento -Force -ErrorAction SilentlyContinue
+                [System.IO.File]::WriteAllText($MarcaReintento, 'x')
+                $script:reintentoTexto = $text
+                Add-OidoDudoso $text
+                $script:reintentoReconocida = $true
+                $script:reintentoEco = $false
+                $script:reintentoPlazo = [int](Get-PlazoOido 'small' $ReintentoMaxMs)
+                $script:reintentoVence = $sw.ElapsedMilliseconds + $script:reintentoPlazo
+                Log "OIDO FINO: '$text' lo entiendo, pero mis dos oidos solo coinciden un $([int]($script:dictadoAcuerdo * 100)) % (mi liston es $([int]($script:dictadoAcuerdoListon * 100)) %); lo repaso antes de hacerlo"
+                Add-Estadistica 'fino-acuerdo' $text
+                Set-UI 'pensando' 'Afinando el oido'
+                return
+            } catch {
+                $script:reintentoVence = 0
+                $script:reintentoReconocida = $false
+                Log ('no se pudo pedir el repaso por acuerdo: ' + $_.Exception.Message)
+            }
+        }
+
         # LAS QUEJAS REHACEN LA ORDEN (ver Get-OrdenCorregida). Va antes que nada
         # porque una queja puede encajar por accidente en una regla local ("no es el
         # wifi, es el bluetooth" tiene dentro una orden de radio) y porque despues
@@ -28169,9 +28213,28 @@ while ($true) {
                 if (Test-Path -LiteralPath $rc) {
                     # "-0.52" o "-0.52 eco" (lo oido es la frase de ejemplo de Whisper)
                     $partesC = @(([System.IO.File]::ReadAllText($rc)).Trim() -split '\s+')
-                    $script:dictadoConfianza = [double]::Parse($partesC[0], [System.Globalization.CultureInfo]::InvariantCulture)
-                    $script:dictadoEco = ($partesC.Count -gt 1 -and $partesC[1] -eq 'eco')
-                    $script:dictadoConfianzaEn = $sw.ElapsedMilliseconds
+                    $numC = [double]::Parse($partesC[0], [System.Globalization.CultureInfo]::InvariantCulture)
+                    # DOS NUMEROS DISTINTOS EN EL MISMO FICHERO (26/09, idea 12). Si la segunda
+                    # palabra es "acuerdo", esto NO es el avg_logprob de Whisper -que es
+                    # negativo y mide otra cosa- sino el acuerdo entre Vosk y Parakeet, de 0 a 1.
+                    # Mezclarlos seria comparar un numero con el umbral del otro.
+                    if ($partesC.Count -gt 1 -and $partesC[1] -eq 'acuerdo') {
+                        $script:dictadoAcuerdo = $numC
+                        $script:dictadoAcuerdoEn = $sw.ElapsedMilliseconds
+                        if ($partesC.Count -gt 2) {
+                            try { $script:dictadoAcuerdoListon = [double]::Parse($partesC[2], [System.Globalization.CultureInfo]::InvariantCulture) } catch {}
+                        }
+                        # y lo de Whisper se deshace: no corrio, asi que su numero seria de antes
+                        $script:dictadoConfianza = 0.0
+                        $script:dictadoConfianzaEn = -999999
+                        $script:dictadoEco = $false
+                    } else {
+                        $script:dictadoConfianza = $numC
+                        $script:dictadoEco = ($partesC.Count -gt 1 -and $partesC[1] -eq 'eco')
+                        $script:dictadoConfianzaEn = $sw.ElapsedMilliseconds
+                        # y al reves: un acuerdo viejo no sobrevive a un dictado de Whisper
+                        $script:dictadoAcuerdoEn = -999999
+                    }
                     Remove-Item -LiteralPath $rc -Force -ErrorAction SilentlyContinue
                 }
                 # ¿lo oyo Parakeet? (ver PARAKEET PRIMERO)

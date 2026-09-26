@@ -1264,6 +1264,66 @@ def apuntar_cobertura(c):
     guardar_coberturas()
 
 
+# UNA CONFIANZA GRATIS PARA PARAKEET (26/09, idea 12 de las 121)
+#
+# EL AGUJERO: tres de cada cuatro ordenes llegan al asistente SIN NINGUN numero de confianza.
+# Medido sobre las 560 ordenes de registro.jsonl: 422 traen seguridad=null, el 75,4 %. Solo
+# Whisper sabe decir lo seguro que esta de lo que oyo (su avg_logprob); cuando la orden la
+# entrega Parakeet -que es lo normal, porque es el titular- no hay nada, y el repaso del oido
+# fino no se puede disparar por falta de dato.
+#
+# LO QUE SI HAY, Y NO CUESTA NADA: Vosk ya ha oido esa misma frase para abrir el microfono, y su
+# texto esta ahi. Cuanto se parecen los dos es una confianza gratis. Medido sobre los 273 pares
+# con destino apuntado, con Jaccard de palabras sin tildes:
+#     acuerdo >= 0,50   n=146   13 acabaron en nada =  9 %
+#     acuerdo 0,2-0,5   n= 77    6 acabaron en nada =  8 %
+#     acuerdo <  0,20   n= 50   14 acabaron en nada = 28 %
+# Por debajo de 0,2 se tira TRES VECES MAS. Y ese 0,2 no es a ojo: es el percentil 20 exacto de
+# los 421 pares medidos (p10 0,00 / p20 0,200 / p50 0,500 / p75 0,727 / p90 1,00).
+#
+# EL LISTON SE APRENDE, como todo lo demas de este fichero: percentil 20 de sus propios pares,
+# entre un suelo y un techo que salen de lo medido por dia (0,040 el dia mas bajo, 0,269 el mas
+# alto). Y va atado al microfono, como la cobertura y la ganancia.
+ACUERDO_ARRANQUE = 0.2          # hasta que hay muestras suyas: su p20 sobre 421 pares
+ACUERDO_SUELO = 0.04            # su p20 mas bajo medido por dia (21/09)
+ACUERDO_TECHO = 0.30            # su p20 mas alto medido (20/09, 0,269) con un pelo de margen
+ACUERDO_PERCENTIL = 20          # el corte que separa el 28 % de basura del 9 %
+ACUERDO_MEMORIA = 80            # como COBERTURA_MEMORIA: ~1,7 dias a 47 pares por dia
+ACUERDO_MINIMAS = 15            # como COBERTURA_MINIMAS
+acuerdos = []
+
+
+def acuerdo_oidos(a, b):
+    """Cuanto coinciden las palabras de Vosk y las de Parakeet. None si falta alguno."""
+    ta = set(re.sub(r"[^\w\s]", " ", sin_tildes(a or "")).split())
+    tb = set(re.sub(r"[^\w\s]", " ", sin_tildes(b or "")).split())
+    if not ta or not tb:
+        return None
+    return len(ta & tb) / float(len(ta | tb))
+
+
+def acuerdo_min():
+    """El liston de ahora mismo, sacado de sus propios pares (ver arriba)."""
+    if len(acuerdos) < ACUERDO_MINIMAS:
+        return ACUERDO_ARRANQUE
+    p = float(np.percentile(np.array(acuerdos), ACUERDO_PERCENTIL))
+    return max(ACUERDO_SUELO, min(ACUERDO_TECHO, p))
+
+
+def apuntar_acuerdo(j):
+    """Se guarda PISADO a (0,01..1,0), y esto no es un detalle.
+
+    cargar_lista tira el fichero ENTERO si ve un valor fuera de (0, tope): lo dice su propio
+    comentario, "un solo valor imposible tira el fichero entero". Y de los 421 pares medidos,
+    64 dan Jaccard 0,00 clavado y otros tantos 1,00. Sin pisar, el liston se quedaria en el de
+    arranque para siempre, sin log, sin excepcion y sin banco rojo: una averia muda.
+    """
+    acuerdos.append(min(1.0, max(0.01, float(j))))
+    if len(acuerdos) > ACUERDO_MEMORIA:
+        del acuerdos[:len(acuerdos) - ACUERDO_MEMORIA]
+    guardar_acuerdos()
+
+
 # LO QUE APRENDE DE SU VOZ SOBREVIVE AL REINICIO, Y VA CON SU MICROFONO (22/09).
 # Sin esto, todo lo aprendido se perdia en cada arranque del worker y volvia al valor de
 # partida. No es un caso raro: el 22/09 Nova arranco CATORCE veces en un dia, asi que se
@@ -1306,6 +1366,10 @@ def cargar_lista(ruta, tope, tope_valor=200.0):
         return []
 
 
+def guardar_acuerdos():
+    guardar_lista(RUTA_ACUERDOS, acuerdos)
+
+
 def guardar_coberturas():
     guardar_lista(RUTA_COBERTURAS, coberturas)
 
@@ -1317,6 +1381,12 @@ def guardar_margenes():
 def cargar_lo_aprendido():
     """Al arrancar: el ritmo de habla de braya y las rafagas con las que la ha llamado."""
     coberturas[:] = cargar_lista(RUTA_COBERTURAS, COBERTURA_MEMORIA)
+    # EL TOPE 1.01 ES OBLIGATORIO: cargar_lista exige v < tope_valor ESTRICTO, y el 15 % de los
+    # pares da 1,00 clavado. Con el tope por defecto el fichero entero se tiraria en silencio.
+    acuerdos[:] = cargar_lista(RUTA_ACUERDOS, ACUERDO_MEMORIA, 1.01)
+    if acuerdos:
+        anota("el liston de acuerdo entre oidos, recordado de antes: %.2f con %d pares"
+              % (acuerdo_min(), len(acuerdos)))
     if coberturas:
         anota("el liston de letras, recordado de antes: %.1f con %d frases tuyas"
               % (cobertura_min(), len(coberturas)))
@@ -3083,6 +3153,7 @@ RUTA_GANANCIA = os.path.join(os.path.dirname(NIVEL), "ganancia.txt") if NIVEL el
 # lo aprendido del ritmo de habla de braya, al lado de la ganancia y con las mismas
 # reglas: va con el nombre del microfono (ver cargar_coberturas)
 RUTA_COBERTURAS = os.path.join(os.path.dirname(NIVEL), "coberturas.txt") if NIVEL else ""
+RUTA_ACUERDOS = os.path.join(os.path.dirname(NIVEL), "acuerdos.txt") if NIVEL else ""
 RUTA_RAFAGAS = os.path.join(os.path.dirname(NIVEL), "rafagas.txt") if NIVEL else ""
 # Estado legible para el asistente, escrito en cada pulso. Sirve para que
 # puedas preguntarle "¿como me oyes?" en vez de tener que abrir el log.
@@ -3457,6 +3528,14 @@ try:
                     # mano-, asi que se deja vacio.
                     if RUTA_OIDOS:
                         escribir(RUTA_OIDOS, "")
+                    # Y EL ACUERDO DE LA ORDEN ANTERIOR TAMPOCO SE QUEDA (26/09, idea 12): por
+                    # la misma razon que las candidatas de arriba. Aqui se corto a mano y no hay
+                    # acuerdo que calcular, asi que lo que hubiera es de otra orden.
+                    if NIVEL:
+                        try:
+                            os.remove(os.path.join(os.path.dirname(NIVEL), "dictado-confianza.txt"))
+                        except Exception:
+                            pass
                     _parakeet_descartado = ""
                     escribir(TEXTO, texto_final)
                     guardar_uso(audio_dictado, origen="boton", parakeet=oido_parakeet, whisper=mejor,
@@ -3875,6 +3954,33 @@ try:
                                     _cands.append((_m, _t))
                                 escribir(RUTA_OIDOS, chr(10).join("%s: %s" % (_m, _t) for _m, _t in _cands))
                             _parakeet_descartado = ""
+                            # UNA CONFIANZA GRATIS PARA PARAKEET (26/09, idea 12 de las 121).
+                            # Tres de cada cuatro ordenes llegan sin ningun numero de confianza
+                            # (422 de 560 con seguridad=null), porque solo Whisper sabe decir lo
+                            # seguro que esta. Pero Vosk ya oyo esta misma frase para abrir el
+                            # microfono: cuanto coinciden los dos es un numero que ya esta ahi.
+                            #
+                            # SOLO SI WHISPER NO CORRIO, y esta guarda es la que impide el
+                            # destrozo: dictado-confianza.txt lo escribe TAMBIEN
+                            # transcribir_whisper con su avg_logprob, y repasar_si_ingles lo
+                            # llama hasta dos veces. Pisarlo justo cuando Whisper acaba de
+                            # trabajar dejaria al asistente sin el unico dato que hoy dispara el
+                            # repaso del oido fino y la confirmacion de datos de las recetas.
+                            # Mirar "if rapido" NO vale: repasar_si_ingles puede devolver rapido
+                            # vacio y mejor lleno, y al reves.
+                            _acu = None
+                            if _ultima_seguridad is None and not callado and texto_final.strip():
+                                _acu = acuerdo_oidos(texto_vosk, oido_parakeet)
+                            if _acu is not None and NIVEL:
+                                apuntar_acuerdo(_acu)
+                                # EL NUMERO PRIMERO, y el liston detras en el mismo fichero: asi
+                                # el asistente no tiene que conocerlo ni recalcularlo, y un
+                                # lector viejo que haga float() de la primera palabra sigue
+                                # leyendo un numero.
+                                escribir(os.path.join(os.path.dirname(NIVEL), "dictado-confianza.txt"),
+                                         "%.2f acuerdo %.2f" % (_acu, acuerdo_min()))
+                                anota("acuerdo Vosk/Parakeet %.2f (mi liston de hoy %.2f, %d pares)"
+                                      % (_acu, acuerdo_min(), len(acuerdos)))
                             escribir(TEXTO, texto_final)
                             if not callado:
                                 guardar_uso(audio_dictado, origen="nombre" if origen_nombre else "boton o seguimiento",

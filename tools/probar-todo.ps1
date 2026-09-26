@@ -1997,6 +1997,18 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n185. Una confianza gratis para Parakeet (idea 12 de las 121)"
+# Tres de cada cuatro ordenes llegaban al asistente SIN NINGUN numero de confianza: 422 de 560
+# con seguridad=null, porque solo Whisper sabe decir lo seguro que esta. Pero Vosk ya oyo esa
+# misma frase para abrir el microfono: cuanto coinciden los dos es una confianza gratis.
+# MEDIDO sobre 273 ordenes con destino: acuerdo <0,2 -> 28 % acaba en nada; >=0,5 -> 9 %. Tres
+# veces mas basura. Y el 0,2 es el p20 exacto de los 421 pares, no un numero a ojo.
+# DOS TRAMPAS MUDAS que este banco vigila: escribir el acuerdo siempre pisaria el avg_logprob
+# de Whisper justo cuando acaba de correr; y cargar_lista tira el fichero ENTERO si ve un 0,00
+# o un 1,00 (el 15 % de los pares da cada uno), dejando el liston clavado y en verde.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-acuerdo-oidos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya traen confianza)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n184. Corregirla hablando toca el recuerdo (idea 11 de las 121)"
 # Nova ya sabia reconocer una correccion -por_que_importa la caza para guardar el turno- pero
 # eso no tocaba el RECUERDO que estaba mal: se quedaba firme en el cerebro y lo volvia a decir.

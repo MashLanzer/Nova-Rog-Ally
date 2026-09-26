@@ -167,7 +167,11 @@ Comp 'el segundo escalon pone lo mismo (no parpadea)' ($script:uiTxt -eq $antesU
 Comp 'y pasada la cascada no se pide nada' (-not (Request-WhisperTras 'baja el brio' 9))
 # LO QUE NO DEBE CAMBIAR: los tres caminos hermanos siguen con su etiqueta de siempre.
 Comp "el ultimo recurso sigue diciendo 'Pensandolo mejor'" ($fuente -match "Set-UI 'pensando' 'Pensandolo mejor'")
-Comp "y el oido fino, 'Afinando el oido' las dos veces" (([regex]::Matches($fuente, "Set-UI 'pensando' 'Afinando el oido'")).Count -eq 2)
+# UN NUMERO EXACTO DE SITIOS CADUCA EN CUANTO NACE OTRO (26/09). Aqui decia "las dos veces" y
+# se puso rojo al llegar el tercer camino al oido fino -el repaso por desacuerdo entre Vosk y
+# Parakeet, idea 12-, con el codigo perfectamente bien. Lo que hay que proteger es que TODOS
+# los caminos que piden el oido fino dejen la capsula igual, no que sean dos.
+Comp "y el oido fino deja siempre 'Afinando el oido'" (([regex]::Matches($fuente, "Set-UI 'pensando' 'Afinando el oido'")).Count -ge 2)
 
 Write-Host ''
 Write-Host '-- y el modelo esta donde se espera --'
