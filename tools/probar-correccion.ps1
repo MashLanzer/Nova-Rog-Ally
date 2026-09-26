@@ -27,12 +27,22 @@ foreach ($v in @('RE_QUEJA', 'VERBOS')) {
     Set-Variable -Name $v -Value $Matches[1]
 }
 $VERBOS_LISTA = (($VERBOS -replace '^\(\?:', '') -replace '\)$', '') -split '\|'
+# LA VENTANA DE LA QUEJA, DEL ARCHIVO (26/09). Get-OrdenCorregida dejo de llevar el 180000
+# escrito dentro y ahora usa $QuejaVentanaMs, que comparte con la marca del fallo. Sin sacarla
+# aqui, la funcion la veia como $null... y en PowerShell $null vale 0 en una comparacion
+# numerica, asi que "algo -gt $null" es CIERTO SIEMPRE: la funcion se salia por la guarda de
+# "esto es muy viejo" en las seis pruebas y devolvia cadena vacia. Seis rojos con el codigo
+# perfectamente bien. Es el mismo tropiezo que ya documenta el banco del animo.
+$mQV = [regex]::Match($txt, '(?m)^\$QuejaVentanaMs\s*=\s*(.+)$')
+if (-not $mQV.Success) { throw "no encuentro QuejaVentanaMs en assistant.ps1" }
+Invoke-Expression ('$QuejaVentanaMs = ' + $mQV.Groups[1].Value.Trim())
 if ($txt -match '(?ms)^\$VERBOS_OIDOS = @\{.*?^\}') { Invoke-Expression $Matches[0] }
 if ($txt -match '(?ms)^\$VERBOS_IMPERATIVO = @\{.*?^\}') { Invoke-Expression $Matches[0] }
 
 Invoke-Expression (Traer 'ConvertTo-Plain')
 Invoke-Expression (Traer 'Get-Distancia')
 Invoke-Expression (Traer 'Repair-Verb')
+Invoke-Expression (Traer 'Get-QuejaVentanaMs')
 Invoke-Expression (Traer 'Get-OrdenCorregida')
 
 $fallos = 0

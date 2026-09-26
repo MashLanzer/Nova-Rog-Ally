@@ -108,17 +108,58 @@ foreach ($fA in @($ast.FindAll({ param($x)
 
 # las constantes, del archivo (manera 6)
 foreach ($cte in @('AnimoLargoDias', 'AnimoLargoMinSucesos', 'AnimoLargoMinDias', 'AnimoSaltoMin',
-                   'AnimoFraseMejor', 'AnimoFrasePeor', 'AnimoFraseCadaDias')) {
+                   'AnimoFraseMejor', 'AnimoFrasePeor', 'AnimoFraseCadaDias',
+                   'AnimoClavesBien', 'AnimoClavesMal')) {
     $m = [regex]::Match($txt, ('(?m)^\$' + $cte + '\s*=\s*(.+)$'))
     Comp ("se saca del archivo " + $cte) $m.Success ''
     if ($m.Success) { Invoke-Expression ('$' + $cte + ' = ' + $m.Groups[1].Value.Trim()) }
 }
+# QUE CUENTA COMO FALLO: va AQUI y no arriba, y costo dos rojos falsos (26/09). Puesto antes
+# del bucle que carga las constantes, $AnimoClavesMal estaba VACIA, asi que "no contiene
+# 'error'" pasaba en verde por la razon equivocada -una lista vacia no contiene nada- mientras
+# "contiene 'descarte'" se ponia roja. Un banco que comprueba una lista sin cargarla dice que
+# todo esta bien justo cuando no hay nada.
+Write-Host '-- 0 bis. QUE CUENTA COMO FALLO (26/09, idea 2 de las 121) --'
+# ESTO NO PUEDE SALIR DE LA CONSTANTE, o seria una tautologia: los dias de prueba de mas abajo
+# se construyen CON $AnimoClavesMal, asi que si alguien pusiera ahi 'error' otra vez, todas las
+# demas comprobaciones seguirian verdes midiendo la clave equivocada. Aqui se dicen los nombres
+# a proposito.
+#
+# 'error' sube en TRES sitios de assistant.ps1 y ninguno es un fallo de oido: dictado vacio,
+# cancelacion de braya y timeout de opencode. En 14 dias son 124 eventos. Contarlos como fallo
+# hundia el numero que decide cuanto habla Nova por su cuenta.
+Comp "'error' NO cuenta como fallo del animo" (@($AnimoClavesMal) -notcontains 'error') 'mide botones pulsados sin hablar, no comprension'
+Comp "  y 'descarte' SI" (@($AnimoClavesMal) -contains 'descarte') 'lo que de verdad no entendio'
+# Y 'ruido' TAMPOCO, y esto tiene su propia medicion: con 'ruido' dentro, 8 de los 15 dias de
+# estadisticas.json caen por debajo de $AnimoMalo -contra 4 con 'descarte' solo-, o sea que
+# Nova hablaria a media racion mas de la mitad de los dias. Ademas 'ruido' es que el microfono
+# se abrio sin que braya hablara, que no es no entenderle.
+Comp "  y 'ruido' tampoco" (@($AnimoClavesMal) -notcontains 'ruido') '8 dias malos de 15 en vez de 4'
+Comp '  lo bueno sigue siendo lo que resolvio' (
+    (@($AnimoClavesBien) -contains 'local') -and (@($AnimoClavesBien) -contains 'traducida')) ''
+# Y QUE LA FUNCION USE LAS LISTAS, no una copia suya escrita dentro
+$dA = $ast.Find({ param($x)
+    $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq 'Get-AnimoDia' }, $true)
+Comp '  y Get-AnimoDia las lee de ahi' (
+    $dA -and $dA.Extent.Text -match 'AnimoClavesBien' -and $dA.Extent.Text -match 'AnimoClavesMal') 'sin copias sueltas'
+
+Write-Host ''
+
 # los dobles, DESPUES de cargar (manera 9)
 $script:quejas = 0
 function Log([string]$m) { if ($m -match 'animo largo: no pude') { $script:quejas++ } }
 
 $hoy = [datetime]'2026-09-25'
-function Dia([int]$ok, [int]$mal) { return @{ local = $ok; error = $mal } }
+# LOS DIAS DE PRUEBA SE CONSTRUYEN CON LA CLAVE QUE DE VERDAD CUENTA COMO FALLO, sacada del
+# archivo. Hasta el 26/09 aqui ponia 'error' a fuego, y ese era justo el fallo que se arreglo:
+# 'error' no mide comprension, mide botones pulsados sin hablar. Un banco con la clave escrita
+# a mano habria seguido verde midiendo la clave equivocada.
+function Dia([int]$ok, [int]$mal) {
+    $d = @{}
+    $d[$AnimoClavesBien[0]] = $ok
+    $d[$AnimoClavesMal[0]] = $mal
+    return $d
+}
 
 Write-Host ''
 Write-Host '-- 3. UN DIA VACIO NO ES UN DIA MALO (el fallo que arregla) --'

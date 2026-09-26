@@ -129,3 +129,15 @@ memoria/claves.json
 # fichero a fichero. Guarda hora a hora que se hace con la consola -con quien delante y sin
 # nadie-, o sea a que horas estas en casa y a cuales no. Es lo mismo que ubicacion.json.
 memoria/uso-ally.json
+
+# 26/09, idea 1 de las 121: esta lista se escribia a mano fichero a fichero, y el banco
+# tools\probar-memoria-ignorada.ps1 -que nacio para no volver a fiarse de que alguien se
+# acuerde- encontro estas tres a la primera. Ninguna existia aun en disco, asi que no se habia
+# colado nada: el proximo "git add -A" despues de usar esas funciones las habria metido en un
+# repositorio publico.
+#   montajes.json     sus colocaciones de ventanas, con las URL que visitas
+#   palabras-no.json  las palabras que no aguantas que te diga
+#   logros-stamp.json cuando juegas y que logros sacas
+memoria/montajes.json
+memoria/palabras-no.json
+memoria/logros-stamp.json

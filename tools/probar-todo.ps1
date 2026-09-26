@@ -1997,6 +1997,42 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n177. Volver al juego no es entrar en el juego (idea 4 de las 121)"
+# Enter-Juego la llama el bucle en cuanto la ventana del juego vuelve al primer plano, asi que
+# un alt-tab de veinte segundos contaba como entrar y Nova soltaba "Modo juego" otra vez.
+# MEDIDO: 56 entradas en 14 dias, 45 vueltas a un juego ya visto y TREINTA de esas en menos de
+# una hora (24 s, 24 s, 30 s, 41 s, 47 s, 52 s, 110 s...). Solo hubo 9 cierres de verdad.
+# La senal buena no es el reloj sino el PROCESO: si el PID no ha cambiado no has salido, pasen
+# veinte segundos o tres horas; si ha cambiado, es partida nueva aunque hayan pasado 20 s. El
+# reloj queda de respaldo con la MISMA hora que la tarjeta hermana. El perfil se aplica igual:
+# lo que se calla es la frase, y deja linea en el log.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-vuelta-juego.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya no es entrar en el juego)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n176. Quejarse marca la orden, sepa o no rehacerla (idea 3 de las 121)"
+# 'fallo-dicho-por-ti' es EL UNICO dato humano de la medicion -braya diciendo "eso no era"- y
+# va 0 de 588. Sin el, la meta nº 1 no se puede medir. Iba a cero porque el unico Write-FalloUso
+# de ese camino vivia DENTRO del "if ($corrOk)": marcar dependia de que Nova supiera ademas
+# reconstruir la orden buena. Y ni llegaba: 'CORRECCION:' sale CERO veces en los dos registros,
+# porque de las 64 frases reales que encajan en $RE_QUEJA, Get-OrdenCorregida devuelve algo en
+# CERO. Ahora marcar no depende de rehacer, y una queja que NOMBRA el acto de pedir marca aunque
+# no salga ninguna orden. Con $RE_QUEJA a secas se marcarian 63 frases de charla que empiezan
+# por "no"; con el patron fuerte se marca 1 de 64, y esa 1 es queja de verdad.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-queja-marca.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:marca la orden, sepa o no rehacerla)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n175. Lo que sabe de braya no se escapa al repositorio (idea 1 de las 121)"
+# El .gitignore lista los ficheros de memoria\ UNO A UNO, a mano, y el propio fichero cuenta por
+# escrito TRES veces que se le escapo alguno. El repositorio es publico. Medido el 26/09: de las
+# 37 rutas de memoria\ que el codigo puede crear, tres no estaban cubiertas -montajes.json (las
+# URL que visita), palabras-no.json (las palabras que no aguanta) y logros-stamp.json (cuando
+# juega)-. Ninguna existia aun en disco: no se habia colado nada, pero el siguiente "git add -A"
+# despues de usar esas funciones las habria metido. De los 189 bancos, ninguno miraba esto.
+# Dos redes: lo que el codigo PUEDE escribir y lo que YA hay en disco. Y la misma comprobacion
+# vive en assistant.ps1, porque un banco solo protege si alguien lo corre antes de commitear.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-memoria-ignorada.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se queda fuera del repositorio)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n174. El logro no se contaba a si mismo (idea 49)"
 # LO MEDIDO: 'logro' sale CERO veces en las 3.518 lineas de tmp\gestos.log, mientras 'orgullo'
 # sale 188 y 'aprendido' 16. Y no es que no pasara: el registro de catorce dias trae 11 logros

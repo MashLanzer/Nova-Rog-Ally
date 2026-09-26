@@ -2944,17 +2944,51 @@ function Get-FalsasAlarmas([string]$dirUso = '') {
 function Get-AnimoDeCuentas([int]$ok, [int]$mal) {
     return [Math]::Max(-1.0, [Math]::Min(1.0, ($ok - 2.0 * $mal) / [Math]::Max(10.0, $ok + $mal)))
 }
+# QUE CUENTA A FAVOR Y QUE EN CONTRA, en una lista y no escrito dentro de la funcion: asi el
+# banco puede leerlas del archivo y comprobar que 'error' NO esta entre las malas, que es justo
+# lo que se arreglo el 26/09. Ver el comentario largo de Get-AnimoDia.
+# NO SON MAYUSCULAS DE $ok Y $mal A PROPOSITO: en PowerShell $ok y $OK son la MISMA variable, y
+# llamar a estas listas $OK/$MAL las machacaria en cuanto alguien escribiera $ok = 0 dentro de
+# la funcion. Paso al medir esto y solo el primer dia salia bien.
+$AnimoClavesBien = @('local', 'aprendida', 'memoria', 'traducida')
+$AnimoClavesMal = @('descarte')
 function Get-AnimoDia($dias, [string]$clave) {
     # @{ animo; sucesos; ok; mal } de UN dia suelto. Aparte porque lo usan los dos calculos, y
     # porque 'sucesos' es lo que deja distinguir un dia malo de un dia en que no paso nada.
+    #
+    # EL 'MAL' DEL ANIMO NO ERA COMPRENSION (26/09, idea 2 de las 121). Hasta hoy el unico
+    # 'mal' era el contador 'error', y 'error' sube en TRES sitios exactos de las 28.800 lineas,
+    # ninguno de ellos un fallo de oido: dictado vacio (26126), cancelacion de braya (27010) y
+    # timeout de opencode (27712). Contados en el registro de 14 dias: 100 "vacio, ignorado",
+    # 23 "CANCELAR (hold durante procesamiento)" y 1 "RUNNER timeout" = 124 eventos, o sea que
+    # el numero que decide CUANTO HABLA NOVA POR SU CUENTA se hundia con los botones que braya
+    # pulsa sin llegar a hablar.
+    #
+    # Y la casa ya lo sabia por dos sitios: Write-FalloDeducido (2821) excluye 'dictado vacio' a
+    # proposito -"EL BOTON PULSADO SIN HABLAR NO ES QUE NO TE ENTIENDA"- y Get-AvisoFallos hizo
+    # este mismo cambio el 22/09 por esta misma razon. El animo era el ultimo sitio que lo
+    # contaba como fallo, y encima pesado x2 por la formula.
+    #
+    # POR QUE 'descarte' SOLO Y NO 'descarte'+'ruido', que es lo que pedia la idea: medido dia a
+    # dia sobre los 15 de estadisticas.json, contando cuantos caen por debajo de $AnimoMalo
+    # (-0,3), que es el liston que PARTE EN DOS el suelo de avisos:
+    #     hoy ('error')        5 dias de 15   media  +0,02
+    #     'descarte'           4 dias de 15   media  -0,12   <- este
+    #     'descarte'+'ruido'   8 dias de 15   media  -0,39
+    #     'descarte'+'error'   7 dias de 15   media  -0,38
+    # Con 'ruido' dentro, Nova pasaria a media racion MAS DE LA MITAD de los dias, que es peor
+    # que el fallo que se viene a arreglar. Y ademas 'ruido' no es que no entienda a braya: es
+    # que el microfono se abrio sin que braya hablara, que es otra cosa y ya tiene su aviso.
     $r = @{ animo = 0.0; sucesos = 0; ok = 0; mal = 0 }
     try {
         if ($null -eq $dias -or -not $dias.ContainsKey($clave)) { return $r }
         $ok = 0; $mal = 0
-        foreach ($x in @('local', 'aprendida', 'memoria', 'traducida')) {
+        foreach ($x in $AnimoClavesBien) {
             if ($dias[$clave].ContainsKey($x)) { $ok += $dias[$clave][$x] }
         }
-        if ($dias[$clave].ContainsKey('error')) { $mal = $dias[$clave]['error'] }
+        foreach ($x in $AnimoClavesMal) {
+            if ($dias[$clave].ContainsKey($x)) { $mal += $dias[$clave][$x] }
+        }
         $r.ok = $ok; $r.mal = $mal
         $r.sucesos = $ok + $mal
         $r.animo = Get-AnimoDeCuentas $ok $mal
@@ -10743,6 +10777,81 @@ function Test-AnimoQueSeCuenta {
         # ver EL CATCH QUE NO PUEDE CALLARSE: callarse es tambien la respuesta normal de esta
         # funcion -nueve dias de catorce-, asi que un fallo aqui pasaria por un dia tranquilo.
         Log ('animo de fondo: no pude contarlo: ' + $_.Exception.Message)
+        return $false
+    }
+}
+
+# =====================================================================
+# QUE LO QUE SABE DE BRAYA NO SE LE ESCAPE AL REPOSITORIO (26/09, idea 1 de las 121)
+# =====================================================================
+# El .gitignore lista los ficheros de memoria\ UNO A UNO, a mano, y la prueba de que eso falla
+# esta escrita en el propio fichero: tres veces dice "se me escapo". El repositorio es PUBLICO.
+#
+# MEDIDO EL 26/09: de las 37 rutas de memoria\ que el codigo puede crear, TRES no estaban
+# cubiertas -montajes.json (las URL que visita), palabras-no.json (las palabras que no aguanta)
+# y logros-stamp.json (cuando juega)-. Ninguna existia aun en disco: no se habia colado nada
+# todavia, pero el siguiente "git add -A" despues de usar esas funciones las habria metido.
+#
+# EL BANCO tools\probar-memoria-ignorada.ps1 lo caza en la bateria, y esto lo caza EN CASA: el
+# banco solo protege si alguien lo corre antes de commitear, y braya commitea a mano.
+#
+# LO QUE HACE Y LO QUE NO: mira, avisa y ANADE al final del .gitignore. Nunca quita una linea,
+# nunca reordena, nunca commitea nada. Si no hay repositorio git -Nova se puede copiar a otro
+# PC, ver NOVA-EN-OTRO-PC.md- no hace absolutamente nada.
+#
+# UNA VEZ AL DIA, no en cada arranque: son ~120 ms de un proceso de git, y Nova arranca unas
+# doce veces al dia. Y con un juego delante, ni eso (regla 5).
+$script:ignoradasMiradas = ''
+# $fuente y $donde son para que el banco pueda correrla entera contra un repositorio de mentira
+# sin tocar este. En produccion se llama sin argumentos y mira este mismo archivo.
+function Test-MemoriaIgnorada([string]$fuente = $PSCommandPath, [string]$donde = $LogDir) {
+    $hoyG = (Get-Date).ToString('yyyy-MM-dd')
+    if ($script:ignoradasMiradas -eq $hoyG) { return $false }
+    $script:ignoradasMiradas = $hoyG
+    if ($script:juegoActivo) { return $false }
+    try {
+        Push-Location $donde
+        try {
+            $null = & git rev-parse --is-inside-work-tree 2>$null
+            if ($LASTEXITCODE -ne 0) { return $false }   # aqui no hay repositorio: nada que proteger
+            # lo que git ya sigue a proposito (memoria\README.md) no es un escape
+            $sigue = @{}
+            foreach ($l in @(& git ls-files memoria 2>$null)) { if ($l) { $sigue[$l.Trim()] = $true } }
+            $mirar = @()
+            foreach ($m in [regex]::Matches([IO.File]::ReadAllText($fuente, [Text.Encoding]::UTF8),
+                                            "Join-Path\s+\`$MemoriaDir\s+['`"]([A-Za-z0-9_.\\-]+)['`"]")) {
+                $r = 'memoria/' + $m.Groups[1].Value.Replace('\', '/')
+                # UNA CARPETA SE PRUEBA CON ALGO DENTRO: el .gitignore las cubre con barra final
+                # y ese patron solo casa si el directorio existe de verdad en disco. Preguntar
+                # por la carpeta a secas antes de que exista da un escape falso.
+                if ($r -notmatch '\.[A-Za-z0-9]{1,6}$') { $r = $r.TrimEnd('/') + '/lo-que-escriba-dentro' }
+                if (-not $sigue.ContainsKey($r)) { $mirar += $r }
+            }
+            $mirar = @($mirar | Select-Object -Unique)
+            if ($mirar.Count -eq 0) { return $false }
+            # UNA SOLA LLAMADA con las rutas por ARGUMENTOS. Por --stdin no vale: PowerShell 5.1
+            # le pega un BOM y CRLF a lo que manda por la tuberia, git no reconoce ni una ruta y
+            # salen TODAS como no cubiertas. Costo un rojo falso de cuarenta escapes el 26/09.
+            $fuera = @()
+            foreach ($l in @(& git check-ignore --non-matching --verbose -- $mirar 2>$null)) {
+                if ($l -match '^::\s+(.+)$') { $fuera += $Matches[1].Trim() }
+            }
+            if ($fuera.Count -eq 0) { return $false }
+            $gi = Join-Path $donde '.gitignore'
+            if (-not (Test-Path -LiteralPath $gi)) { return $false }
+            $lineas = @("", "# " + (Get-Date -Format 'dd/MM/yyyy') + ": esto lo anadio Nova sola al ver que podia escribirlo",
+                        "# y que no estaba cubierto. El repositorio es publico (idea 1 de las 121).")
+            foreach ($f in $fuera) { $lineas += $f }
+            Add-Content -LiteralPath $gi -Value $lineas -Encoding UTF8
+            Log ("GITIGNORE: me anadi sola " + $fuera.Count + " ruta(s) que se me podian escapar: " + ($fuera -join ', '))
+            $fr = if ($fuera.Count -eq 1) { "Habia un fichero mio que podia acabar en el repositorio. Lo he tapado." }
+                  else { "Habia $($fuera.Count) ficheros mios que podian acabar en el repositorio. Los he tapado." }
+            return [bool](Send-AvisoEntorno 'gitignore-escape' $fr 'medio' 1440)
+        } finally { Pop-Location }
+    } catch {
+        # ver EL CATCH QUE NO PUEDE CALLARSE: no encontrar nada es la respuesta normal de esta
+        # funcion, asi que un fallo aqui pasaria por "todo cubierto", que es lo contrario.
+        Log ('gitignore: no pude comprobar lo que se me escapa: ' + $_.Exception.Message)
         return $false
     }
 }
@@ -18859,6 +18968,31 @@ $script:capsulaCiega = $false
 $script:juegoDesde = 0
 $script:juegoPid = 0             # PID del proceso que tiene la ventana del juego (C4, 19/09)
 $script:juegoPidCandidato = 0
+# La ultima entrada a cada juego: con que proceso y cuando. Sirve para no decir "Modo juego"
+# treinta veces por los alt-tabs (26/09, idea 4). Ver Enter-Juego.
+$script:juegoEntradas = @{}
+# El respaldo de reloj para cuando no hay PID. Es la MISMA hora que usa Show-RecuerdoJuego
+# (8920) desde siempre, a proposito: dos guardas hermanas con dos numeros distintos son dos
+# numeros que mantener. Medido el 26/09: de las 45 vueltas a un juego ya visto, 30 caen por
+# debajo de esta hora -los alt-tabs- y las 15 que la pasan son partidas nuevas de verdad.
+$JuegoVueltaMs = 3600000
+# LA DECISION, EN SU PROPIA FUNCION Y CON TODO POR PARAMETRO, para que el banco la corra DE
+# VERDAD en vez de reimplementarla al lado: un banco que prueba su propia copia de la logica
+# se queda verde el dia que el codigo cambia y la copia no. Ver Enter-Juego.
+# Devuelve $true cuando NO hay que anunciar nada porque no has salido del juego.
+function Test-VuelveAlMismoJuego([string]$nombre, [int]$proc, [double]$ahora) {
+    $v = $false
+    $ant = $null
+    if ($script:juegoEntradas.ContainsKey($nombre)) { $ant = $script:juegoEntradas[$nombre] }
+    if ($ant) {
+        # EL PROCESO MANDA: si es el mismo, no has salido, pasen veinte segundos o tres horas.
+        if ($proc -gt 0 -and [int]$ant.proc -eq $proc) { $v = $true }
+        # y el reloj solo cuando no hay proceso con el que comparar
+        elseif ([int]$ant.proc -le 0 -and ($ahora - [double]$ant.cuando) -lt $JuegoVueltaMs) { $v = $true }
+    }
+    $script:juegoEntradas[$nombre] = @{ proc = $proc; cuando = $ahora }
+    return $v
+}
 $script:juegoSalida = $null      # salida EN DUDA: @{nombre; exe; proc; desdeMs} (C4, 19/09)
 $script:juegoSesionMin = 0       # minutos de primer plano de la partida de ahora (C4, 19/09)
 
@@ -20603,6 +20737,27 @@ function Enter-Juego([string]$nombre) {
     if (-not ($script:juegoSalida -and $script:juegoSalida.nombre -eq $nombre)) { $script:juegoSesionMin = 0 }
     $script:juegoBrilloAntes = $null
     $script:logroArchivo = ''
+    # VOLVER AL JUEGO NO ES ENTRAR EN EL JUEGO (26/09, idea 4 de las 121). Esta funcion la
+    # llama el bucle en cuanto la ventana del juego vuelve al primer plano, asi que un alt-tab
+    # de veinte segundos cuenta como entrar y Nova suelta "Modo juego" otra vez.
+    #
+    # MEDIDO sobre los dos registros: 56 entradas en 14 dias, 45 de ellas vueltas a un juego ya
+    # visto, y TREINTA de esas 45 en menos de una hora. Los huecos hablan solos: 24 s, 24 s,
+    # 30 s, 41 s, 47 s, 52 s, 110 s, 113 s, 121 s, 130 s, 141 s, 221 s... La mitad de los "Modo
+    # juego" llegan a menos de cinco minutos del anterior. La tarjeta hermana
+    # (Show-RecuerdoJuego, 8920) ya tiene su guarda de una hora desde siempre; la frase hablada
+    # no tenia ninguna.
+    #
+    # Y LA SENAL BUENA NO ES EL RELOJ, ES EL PROCESO: si el PID del juego no ha cambiado, no
+    # has salido de el, por muchas horas que hayan pasado; y si ha cambiado, es una partida
+    # nueva aunque hayan pasado veinte segundos. Nova guarda ese PID desde el 19/09 (C4) justo
+    # para no tener que enumerar procesos en un chip de 4 nucleos. El reloj queda de respaldo
+    # para cuando no hay PID -Nova reinicio, o no se pudo leer-, y su hora es la MISMA que usa
+    # la tarjeta hermana: no hay numero nuevo que justificar, y los datos lo sostienen, porque
+    # las 15 vueltas que pasan de una hora son las partidas nuevas de verdad.
+    $vuelveAlMismo = $false
+    try { $vuelveAlMismo = [bool](Test-VuelveAlMismoJuego $nombre ([int]$script:juegoPid) $sw.ElapsedMilliseconds) }
+    catch { $vuelveAlMismo = $false }
     try { Show-RecuerdoJuego $nombre } catch { Log ("juegos: " + $_.Exception.Message) }
     Invoke-Reglas 'juegoAbre' $nombre
     if (-not $JuegoPerfilEntrar) { return }
@@ -20662,8 +20817,15 @@ function Enter-Juego([string]$nombre) {
     }
     if ($hechas.Count -gt 0) {
         Log "JUEGO: perfil '$JuegoPerfilEntrar' aplicado al entrar en $nombre"
-        Say "Modo $JuegoPerfilEntrar."
-        Send-UIEvento 'hecho'
+        # EL PERFIL SE APLICA IGUAL, LO QUE SE CALLA ES LA FRASE (26/09, idea 4). El brillo hay
+        # que ponerlo vuelvas de donde vuelvas; lo que sobra es anunciarlo por trigesima vez.
+        # Y se deja linea, que un silencio sin explicacion parece una averia.
+        if ($vuelveAlMismo) {
+            Log "JUEGO: no digo 'Modo $JuegoPerfilEntrar' porque es el mismo $nombre de antes (alt-tab, no partida nueva)"
+        } else {
+            Say "Modo $JuegoPerfilEntrar."
+            Send-UIEvento 'hecho'
+        }
     }
 }
 
@@ -21206,6 +21368,9 @@ try {
     # suelta cuando vuelva. Y va DESPUES del bloque que calcula $script:animoLargo, aunque no
     # dependa de el: la frase se saca de las estadisticas del disco, no de esa variable.
     try { [void](Test-AnimoQueSeCuenta) } catch {}
+    # Y QUE NO SE LE ESCAPE NADA AL REPOSITORIO (26/09, idea 1 de las 121). Una vez al dia, y
+    # ni eso con un juego delante: son 120 ms de un proceso de git.
+    try { [void](Test-MemoriaIgnorada) } catch {}
     $caida = Get-CaidaAnterior $EventLog $PID
     if ($caida) {
         $fr = Get-FraseCaida $caida
@@ -25076,10 +25241,31 @@ function Invoke-DictadoLargo([string]$text) {
 # nada raro, la frase sigue su camino de siempre (charla o modelo).
 $RE_QUEJA = '(?:^(?:no|pero|oye no|que no)\b|no te (?:pedi|dije)|yo no (?:dije|pedi)|lo que (?:dije|pedi|queria) fue|no es (?:el|la|eso)|no solo|por que no (?:abriste|cerraste|pusiste|hiciste|iniciaste)|te (?:dije|pedi) que)'
 
+# LAS QUEJAS QUE NOMBRAN EL ACTO DE PEDIR (26/09, idea 3 de las 121). Separado de $RE_QUEJA a
+# proposito: aquel es para RECONOCER una queja y contestarla, y puede permitirse el "no" de
+# cabeza; este decide si se MARCA una orden como equivocada en el unico dato humano que mide la
+# meta, y ahi un falso positivo es peor que no marcar nada. Probado contra las 432 frases reales
+# con texto: $RE_QUEJA coge 64 y de esas 63 son charla; este coge 1, y esa 1 es queja de verdad.
+$RE_QUEJA_FUERTE = '(?:no te (?:pedi|dije)|yo no (?:dije|pedi)|lo que (?:dije|pedi|queria) fue|te (?:dije|pedi) que|por que no (?:abriste|cerraste|pusiste|hiciste|iniciaste))'
+# La ventana de la queja, en un solo sitio: la usan Get-OrdenCorregida y la marca del fallo.
+$QuejaVentanaMs = 180000
+# Y UNA FUNCION PARA LEERLA QUE NO SE FIA DE QUE EXISTA (26/09, lo cazo la bateria a la primera).
+# En PowerShell $null vale 0 en una comparacion numerica, asi que "algo -gt $null" es CIERTO
+# SIEMPRE: el dia que esta constante no este definida al pasar por aqui -un banco que saca la
+# funcion del arbol sin sacarla a ella, que es justo lo que paso- Get-OrdenCorregida se sale por
+# la guarda de "esto es muy viejo" en TODAS las quejas y devuelve nada, sin una linea que lo
+# diga. Seis rojos en la bateria con el codigo perfectamente bien. Es el mismo tropiezo que ya
+# tiene su guarda en Get-SueloPorAnimo con [Math]::Max(1, [int]$AnimoLargoMinDias).
+function Get-QuejaVentanaMs {
+    $v = 0
+    try { $v = [int]$QuejaVentanaMs } catch { $v = 0 }
+    if ($v -le 0) { $v = 180000 }   # el valor de siempre, no "sin ventana"
+    return $v
+}
 function Get-OrdenCorregida([string]$text) {
     if (-not $script:ultimaOrden -or -not $text) { return $null }
     # solo lo reciente: una queja de hace media hora no habla de esa orden
-    if (($sw.ElapsedMilliseconds - [double]$script:ultimaOrden.cuando) -gt 180000) { return $null }
+    if (($sw.ElapsedMilliseconds - [double]$script:ultimaOrden.cuando) -gt (Get-QuejaVentanaMs)) { return $null }
     $p = ConvertTo-Plain $text
     if ($p -notmatch $RE_QUEJA) { return $null }
     # OJO: aqui NO hay comas ni signos (ConvertTo-Plain los quita). La primera version
@@ -25747,21 +25933,59 @@ function Process-Texto([string]$text) {
         # wifi, es el bluetooth" tiene dentro una orden de radio) y porque despues
         # solo quedan la memoria, la charla y el modelo, que es donde se perdian.
         if (-not $script:corrigiendo -and -not $script:pendiente -and -not $script:invitado) {
+            # MARCAR EL FALLO NO ES REHACER LA ORDEN, Y NO PUEDE DEPENDER DE ELLO (26/09,
+            # idea 3 de las 121). Hasta hoy el unico Write-FalloUso de este camino vivia
+            # dentro del "if ($corrOk)", o sea que braya solo conseguia marcar una orden como
+            # equivocada si ADEMAS Nova sabia reconstruir la buena y ejecutarla. Rehacer es
+            # dificil; marcar es facil y no ejecuta nada.
+            #
+            # LO MEDIDO, y es peor de lo que parecia: 'CORRECCION:' sale CERO veces en los dos
+            # registros, o sea que ese "if" no se ha alcanzado NUNCA desde el 16/09. Sacadas
+            # las 432 frases con texto de destinos.jsonl, 64 encajan en $RE_QUEJA y
+            # Get-OrdenCorregida devuelve algo en CERO de las 64: sus cinco patrones no cogen
+            # ni una de las formas reales de braya. Por eso 'fallo-dicho-por-ti' va 0 de 588,
+            # y por eso la meta nº 1 -cero ordenes equivocadas- no se puede medir.
+            #
+            # POR QUE NO SE MARCA CON $RE_QUEJA A SECAS, que es lo que pedia la idea: de esas
+            # 64, SESENTA Y TRES son charla que empieza por "no" o "pero" ("No veo una
+            # ciencia", "No, no estaba hablando contigo", "No lo estas haciendo mal"). Marcar
+            # por ahi envenenaria el unico dato humano que hay, y un dato falso es peor que un
+            # dato que falta: es la misma razon que ya esta escrita en Write-FalloUso.
+            #
+            # LO QUE SI VALE es que braya nombre el acto de pedir: "no te pedi eso", "yo no
+            # dije", "lo que dije fue", "te pedi que". Probado contra las 64: coge UNA, y esa
+            # una es queja de verdad ("No tienes que leer la pantalla, no te pedi eso, te pedi
+            # que abrieras los ajustes"). Una al mes es poquisimo, pero es la primera, y 1
+            # cierto vale mas que 64 dudosos. Las 63 flojas siguen yendo a Write-FalloDeducido,
+            # que es el fichero de sospechas y existe justo para esto.
+            # OJO CON METER AQUI "no es el/la": lo probe y sube a 4, pero tres de esas cuatro
+            # son charla sobre el juego ("no es el de Roblox", "no es el timing").
+            $quejaFuerte = $false
+            try { $quejaFuerte = ((ConvertTo-Plain $text) -match $RE_QUEJA_FUERTE) } catch {}
+            if ($quejaFuerte -and $script:ultimaOrden -and
+                (($sw.ElapsedMilliseconds - [double]$script:ultimaOrden.cuando) -le (Get-QuejaVentanaMs))) {
+                Log "QUEJA: '$text' niega lo que pediste; la ultima orden queda marcada como fallo"
+                try { [void](Write-FalloUso "queja: $text") } catch {}
+            }
             $corr = $null
             try { $corr = Get-OrdenCorregida $text } catch { $corr = $null }
             if ($corr) {
                 $corrOk = $false
                 try { $corrOk = [bool](Test-FastCommand $corr) } catch { $corrOk = $false }
+                # LA ORDEN EQUIVOCADA CUENTA COMO FALLO (18/09). Nova reconocia la queja y
+                # rehacia la orden, pero la que estuvo mal seguia contando como acierto, y
+                # ese es el unico dato que mide la meta nº 1 de braya.
+                # Y AHORA SE MARCA AUNQUE NO SEPA REHACERLA (26/09): que Nova no sepa
+                # reconstruir la orden buena no hace que la anterior fuera buena. Si arriba ya
+                # se marco, esto no hace nada: Write-FalloUso consume el id y es "una sola vez
+                # por orden".
+                # NO se mete 'correccion' en $DestinosUso: Write-DestinoUso CONSUME el id,
+                # asi que la orden rehecha se quedaria sin destino y un solo error
+                # escribiria DOS lineas MAL, con dos ids, en destinos.jsonl.
+                try { [void](Write-FalloUso "queja: $text") } catch {}
                 if ($corrOk) {
                     Log "CORRECCION: '$text' -> '$corr' (la ultima fue '$($script:ultimaOrden.texto)')"
                     Add-Estadistica 'correccion' "$text -> $corr"
-                    # LA ORDEN EQUIVOCADA CUENTA COMO FALLO (18/09). Nova reconocia la queja y
-                    # rehacia la orden, pero la que estuvo mal seguia contando como acierto, y
-                    # ese es el unico dato que mide la meta nº 1 de braya.
-                    # NO se mete 'correccion' en $DestinosUso: Write-DestinoUso CONSUME el id,
-                    # asi que la orden rehecha se quedaria sin destino y un solo error
-                    # escribiria DOS lineas MAL, con dos ids, en destinos.jsonl.
-                    try { [void](Write-FalloUso "queja: $text") } catch {}
                     $script:corrigiendo = $true
                     try { Process-Texto $corr } finally { $script:corrigiendo = $false }
                     return
