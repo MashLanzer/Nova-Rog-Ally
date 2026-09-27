@@ -17,7 +17,10 @@ function TraerFn($n) {
 }
 foreach ($n in 'Get-JuegosMem', 'Save-JuegosMem', 'Get-JuegoDeReferencia', 'Set-NotaJuego', 'Get-HaceCuanto', 'Update-BateriaJuego',
     'Get-DuracionBateriaJuego', 'Format-Minutos', 'Show-RecuerdoJuego', 'Add-TiempoJuego', 'Get-DiasJuego', 'Save-TiempoJuego',
-    'Get-TiempoJugado', 'Get-DiaJuego', 'Get-MinutosJuegoHoy') { Invoke-Expression (TraerFn $n) }
+    # Get-CorteDia Y Get-FranjaMuerta ENTRAN DESDE LA IDEA 86 (27/09): la hora en que empieza el dia
+    # de juego ya no es un 5 escrito a mano, sale del final de su franja muerta, y Get-DiaJuego la
+    # llama. Sin traerlas, este banco moria con 'Get-CorteDia no se reconoce'.
+    'Get-TiempoJugado', 'Get-DiaJuego', 'Get-MinutosJuegoHoy', 'Get-CorteDia', 'Get-FranjaMuerta') { Invoke-Expression (TraerFn $n) }
 
 $MemoriaDir = Join-Path $env:TEMP ('nova-juegos-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $MemoriaDir | Out-Null

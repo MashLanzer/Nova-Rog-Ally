@@ -1399,6 +1399,100 @@ function Remove-JuegoOido([string]$oido) {
 
 # Lee la biblioteca de Steam del disco (appmanifest_*.acf). Es la unica forma
 # de lanzar un juego por su nombre sin preguntarle a un LLM.
+# EL DISCO DE FUERA: LOS JUEGOS QUE NOVA NO SABIA QUE EXISTEN (27/09, idea 107 de las 121)
+#
+# EL DATO: libraryfolders.vdf declara DOS bibliotecas. La 0 (C:) con 20 appids, y la 1
+# (E:\SteamLibrary, totalsize 1 TB) con DIEZ. Test-Path E:\SteamLibrary = False y las unidades que
+# hay son C: y D:. Dos de esos diez estan tambien en C:, o sea OCHO exclusivos que suman
+# 734.289.177.929 bytes = 683,9 GiB EXACTOS, y siete de ellos con contenido.
+#
+# Y NOVA NO SABIA NI QUE EXISTEN: el texto '"apps"' no aparecia NI UNA VEZ en el fichero. Al ver que
+# la unidad no esta, se hacia 'continue' y se perdia la lista de appids que el propio vdf trae
+# escrita. Si braya pedia uno, o contestaba "no lo tengo" o le abria la ficha de la tienda para
+# instalarlo: reinstalar 683,9 GiB que ya tiene.
+#
+# EL CASO DE VERDAD: el appid 1245620 es ELDEN RING, 66,4 GiB, y esta en esa lista. braya jugo el 18,
+# el 19 y el 20/09, y lo intento abrir el 25/09 a las 21:31.
+#
+# NOMBRARLOS ES EL PROBLEMA, y no se inventa nada: el vdf solo trae appid y bytes. Cruzando con lo
+# que ya se tiene -los appmanifest de C: y memoria\juegos-dos.json- hoy solo se puede nombrar UNO de
+# los ocho, que es justo ELDEN RING. De los otros siete se dice cuantos son y cuanto ocupan.
+#
+# OJO CON EL NOMBRE DEL APARATO: E: no es "la tarjeta". La SD que SI esta puesta es D:, de 477 GB;
+# E: es otra cosa, de 1 TB. Aqui se dice "el disco de fuera" y nunca se le pone nombre.
+# LA RUTA DE LOS JUEGOS DE FUERA VIVE PEGADA A $MemoriaDir, no aqui: este bloque esta 900 lineas
+# ANTES de que $MemoriaDir exista, y el Join-Path sobre un nulo no deja arrancar a Nova. Es el
+# mismo fallo que tuvo $OidoAprendidoPath el 27/09, y lo canto igual: -Probar.
+
+# PURA Y SOBRE EL TEXTO: el banco le pasa cualquier vdf sin tocar el disco.
+# Devuelve una lista de @{ path; apps = @{ appid = bytes } } en el orden del fichero.
+function Get-BibliotecasSteam([string]$texto) {
+    $fuera = New-Object System.Collections.ArrayList
+    if (-not $texto) { return $fuera }
+    $actual = $null
+    $enApps = $false
+    foreach ($l in ($texto -split "`r?`n")) {
+        $t = $l.Trim()
+        if ($t -match '^"path"\s+"([^"]+)"$') {
+            # UNA BIBLIOTECA EMPIEZA EN SU "path": el numero de bloque no hace falta para nada, y
+            # asi no hay que contar llaves -que es donde un parseo de vdf se rompe siempre-.
+            # LAS BARRAS DOBLES DEL VDF, A UNA. Steam escribe "E:\\SteamLibrary" con dos, igual que
+            # la linea de mas abajo que ya leia el path. Con el patron mal escapado se quedaba en
+            # "E:SteamLibrary" y el Test-Path de la biblioteca no fallaba: acertaba por casualidad
+            # -no existe ninguna de las dos formas- pero el nombre guardado era basura.
+            $actual = @{ path = ($Matches[1] -replace '\\\\', '\'); apps = @{} }
+            [void]$fuera.Add($actual)
+            $enApps = $false
+            continue
+        }
+        if ($t -eq '"apps"') { $enApps = $true; continue }
+        if ($enApps) {
+            if ($t -eq '}') { $enApps = $false; continue }
+            if ($t -match '^"(\d+)"\s+"(\d+)"$' -and $null -ne $actual) {
+                $actual.apps[$Matches[1]] = [double]$Matches[2]
+            }
+        }
+    }
+    return $fuera
+}
+
+# Lo que se sabe de los juegos que estan en un disco que no esta puesto.
+function Get-JuegosFuera {
+    try {
+        if (-not (Test-Path -LiteralPath $JuegosFueraPath)) { return @() }
+        $j = Get-Content -LiteralPath $JuegosFueraPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $fuera = @()
+        foreach ($x in @($j)) {
+            if (-not $x -or -not [string]$x.appid) { continue }
+            $fuera += @{ appid = [string]$x.appid; nombre = [string]$x.nombre; bytes = [double]$x.bytes; donde = [string]$x.donde }
+        }
+        return $fuera
+    } catch { return @() }
+}
+
+# LOS SIETE SIN NOMBRE SE QUEDAN SIN NOMBRE, Y ESO ES UN RESULTADO (27/09, idea 107)
+#
+# La ficha proponia sacarlos de la consulta a la tienda que ya existe (Get-FichaDosSteam). MEDIDO
+# hoy con los ocho appids y tres filtros distintos -categories, basic y sin filtro-: la API de
+# Steam NO devuelve el nombre en ninguno de los tres. De hecho el campo 'nombre' de
+# Get-FichaDosSteam nunca ha sacado nada de la tienda: siempre cae a su respaldo.
+#
+# Asi que no se escribe una cola de consultas que no puede funcionar -eso es justo el pecado que
+# arreglaron las ideas 99 y 100: codigo que nadie lee y ficheros que nadie mira-. De los siete se
+# dice cuantos son y cuanto ocupan, que es lo que hace falta para decidir si buscar el disco. Y
+# SE NOMBRARAN SOLOS el dia que el disco se conecte una vez: ahi Steam escribe sus appmanifest y
+# Get-JuegosSteam los lee como los de C:.
+function Save-JuegosFuera($lista) {
+    try {
+        $o = @()
+        foreach ($x in @($lista)) {
+            $o += [ordered]@{ appid = [string]$x.appid; nombre = [string]$x.nombre; bytes = [double]$x.bytes; donde = [string]$x.donde }
+        }
+        Write-Atomico $JuegosFueraPath (ConvertTo-Json -InputObject @($o) -Depth 4)
+        return $true
+    } catch { return $false }
+}
+
 function Get-JuegosSteam {
     $res = @()
     try {
@@ -1406,11 +1500,13 @@ function Get-JuegosSteam {
         if (-not $sp) { return $res }
         $libs = New-Object System.Collections.ArrayList
         [void]$libs.Add(($sp -replace '/', '\'))
+        # Y LOS JUEGOS QUE CADA BIBLIOTECA DICE TENER (27/09, idea 107): hasta hoy solo se sacaba el
+        # "path" con un regex por linea y el bloque "apps" no se leia jamas. Ver EL DISCO DE FUERA.
+        $bibs = @()
         $vdf = Join-Path ($sp -replace '/', '\') 'steamapps\libraryfolders.vdf'
         if (Test-Path -LiteralPath $vdf) {
-            foreach ($l in ((Get-Content -LiteralPath $vdf -Raw -Encoding UTF8) -split "`n")) {
-                if ($l -match '"path"\s*"([^"]+)"') { [void]$libs.Add(($Matches[1] -replace '\\\\', '\')) }
-            }
+            try { $bibs = @(Get-BibliotecasSteam (Get-Content -LiteralPath $vdf -Raw -Encoding UTF8)) } catch { $bibs = @() }
+            foreach ($b in $bibs) { if ($b.path) { [void]$libs.Add($b.path) } }
         }
         $vistos = @{}
         foreach ($lib in ($libs | Select-Object -Unique)) {
@@ -1450,6 +1546,40 @@ function Get-JuegosSteam {
                            tamano = $tam; ultimo = $lp; dir = $dir }
             }
         }
+        # LO QUE HAY EN LOS DISCOS QUE NO ESTAN PUESTOS (27/09, idea 107). Se hace DESPUES del bucle
+        # a proposito: asi ya se sabe que appids se han encontrado de verdad, y un juego que esta en
+        # las dos bibliotecas -hay dos- no se cuenta como ausente.
+        try {
+            $fuera = @()
+            foreach ($b in $bibs) {
+                if (-not $b.path -or $b.apps.Count -eq 0) { continue }
+                $dB = ($b.path -replace '/', '\').TrimEnd('\') + '\steamapps'
+                if (Test-Path -LiteralPath $dB) { continue }        # esta puesta: sus juegos ya estan arriba
+                foreach ($idB in @($b.apps.Keys)) {
+                    if ($vistos.ContainsKey($idB)) { continue }     # tambien lo tiene en un disco que SI esta
+
+                    # EL NOMBRE, SI SE SABE DE ALGUN SITIO. El vdf solo trae appid y bytes, asi que se
+                    # cruza con lo que ya se tiene; si no sale, se queda vacio y NO se inventa.
+                    $nmB = ''
+                    try {
+                        $dosB = Get-JuegosDos
+                        if ($dosB.ContainsKey($idB)) { $nmB = [string]$dosB[$idB].nombre }
+                    } catch {}
+                    $fuera += @{ appid = $idB; nombre = $nmB; bytes = [double]$b.apps[$idB]; donde = [string]$b.path }
+                }
+            }
+            $antes = @(Get-JuegosFuera)
+            if ($fuera.Count -gt 0 -or $antes.Count -gt 0) {
+                [void](Save-JuegosFuera $fuera)
+                if ($fuera.Count -ne $antes.Count) {
+                    $gb = 0.0
+                    foreach ($x in $fuera) { $gb += [double]$x.bytes }
+                    Log ("JUEGOS FUERA: " + $fuera.Count + " en un disco que no esta puesto (" +
+                         [Math]::Round($gb / 1073741824.0, 1) + " GiB); nombrables: " +
+                         @($fuera | Where-Object { $_.nombre }).Count)
+                }
+            }
+        } catch {}
     } catch {}
     return $res
 }
@@ -1514,6 +1644,16 @@ function Get-JuegosXbox {
 # seguridad al abrir un juego mientras juegas a otro y el poder deshacerlo.
 function New-AbrirJuego($j) {
     if (-not $j) { return $null }
+    # ESTA, PERO NO AQUI (27/09, idea 107 de las 121). Si el juego sale de la lista de un disco que
+    # no esta puesto, lanzar steam://rungameid solo abriria Steam para que diera un error. Se dice
+    # lo que pasa y cuanto ocupa, que es lo que hace falta para decidir si merece la pena buscar el
+    # disco. Ver EL DISCO DE FUERA.
+    if ($j.fuera) {
+        $gbJ = [Math]::Round([double]$j.tamano / 1073741824.0, 1)
+        return @(@{ kind = 'decir'
+                    desc = ("$($j.nombre) esta en un disco que no esta puesto ahora mismo (" + $gbJ +
+                            " GiB). Conectalo y te lo abro.") })
+    }
     if ($j.lanzar) {
         return @(@{ kind = 'app'; target = [string]$j.lanzar; esJuego = $true
                     desc = "abrir $($j.nombre)" })
@@ -1994,7 +2134,29 @@ function Find-Juego([string]$t) {
     if ($j) { return $j }
     # Ningun titulo encaja: puede ser un juego instalado DESPUES de arrancar.
     # Se relee la biblioteca (con tope de una vez por minuto) y se reintenta.
-    if (Update-Juegos) { return (Find-JuegoEn $q $script:Juegos) }
+    if (Update-Juegos) {
+        $j2 = Find-JuegoEn $q $script:Juegos
+        if ($j2) { return $j2 }
+    }
+    # ¿Y EN UN DISCO QUE NO ESTA PUESTO? (27/09, idea 107 de las 121). Antes de rendirse -y sobre
+    # todo antes de que la rama de instalar le abra la ficha de la tienda para bajarse 66 GiB que ya
+    # tiene- se mira la lista de lo que las bibliotecas ausentes dicen tener. Ver EL DISCO DE FUERA.
+    #
+    # DEVUELVE UN JUEGO CON 'fuera' PUESTO: asi quien lo reciba puede decir "esta, pero no aqui" en
+    # vez de "no lo tienes", y el que no sepa de este campo se comporta como antes.
+    try {
+        foreach ($jf in @(Get-JuegosFuera)) {
+            $nmF = [string]$jf.nombre
+            if (-not $nmF) { continue }          # sin nombre no se puede casar: no se inventa
+            $plF = ConvertTo-Juego $nmF
+            if (-not $plF) { continue }
+            if ($plF -eq $q -or $plF.Contains($q) -or $q.Contains($plF)) {
+                return @{ id = [string]$jf.appid; nombre = $nmF; plano = $plF; fuera = $true
+                          tamano = [double]$jf.bytes; donde = [string]$jf.donde
+                          estado = 0; bajando = $false; descargado = 0; total = 0; ultimo = 0; dir = '' }
+            }
+        }
+    } catch {}
     return $null
 }
 
@@ -2347,6 +2509,7 @@ function Resolve-Target([string]$t) {
 # Guardar es LOCAL e instantaneo; recordar necesita a opencode (ver README del
 # vault). Separarlo asi evita esperar un minuto por escribir una linea.
 $MemoriaDir = Join-Path $LogDir "memoria"
+$JuegosFueraPath = Join-Path $MemoriaDir 'juegos-fuera.json'
 $OidoAprendidoPath = Join-Path $MemoriaDir 'oido-aprendido.json'
 $DiarioDir = Join-Path $MemoriaDir "diario"
 
@@ -7304,6 +7467,15 @@ function Resolve-Fragment([string]$f) {
             # al otro: si sobran palabras, es otro juego y hay que ir a la tienda.
             $yaInst = Find-Juego $jInst
             if ($yaInst -and (ConvertTo-Suave ([string]$yaInst.nombre)) -eq (ConvertTo-Suave $jInst)) {
+                # ¿Y SI ESTA EN EL DISCO QUE NO ESTA PUESTO? (27/09, idea 107). Aqui estaba el dano
+                # de verdad: sin esto, "instala ELDEN RING" mandaba a la tienda a bajarse 66,4 GiB
+                # que ya estan en un disco de casa. Son ocho juegos y 683,9 GiB en total.
+                if ($yaInst.fuera) {
+                    $gbI = [Math]::Round([double]$yaInst.tamano / 1073741824.0, 1)
+                    return @(@{ kind = 'decir'
+                                desc = ("$($yaInst.nombre) ya lo tienes, pero esta en un disco que no esta puesto ahora mismo (" +
+                                        $gbI + " GiB). Conectalo y lo abro; bajarlo otra vez seria tirar esos gigas.") })
+                }
                 return @(@{ kind = 'decir'; desc = "$($yaInst.nombre) ya lo tienes instalado. Dime: abre $($yaInst.nombre)" })
             }
             return @(@{ kind = 'url'
@@ -14008,7 +14180,20 @@ function Watch-Entorno([int]$botones = 0) {
                 Invoke-Reglas 'discoJuegos' $(if ($ahoraJ -lt $antesJ) { 'quita' } else { 'pone' })
             }
             if ($ahoraJ -gt $antesJ) {
-                [void](Send-AvisoEntorno 'disco-juegos' "Veo el disco de los juegos. Ahora tienes $ahoraJ juegos." 'medio' 5)
+                # Y SE DICE CUANTOS SIGUEN FUERA (27/09, idea 107): si al conectar un disco quedan
+                # otros ocho juegos en OTRO que no esta, eso es lo que hace falta saber. Con los
+                # datos de hoy son ocho y 683,9 GiB, y de ellos solo uno se puede nombrar.
+                $colaJ = ''
+                try {
+                    $fueraJ = @(Get-JuegosFuera)
+                    if ($fueraJ.Count -gt 0) {
+                        $gbJ = 0.0
+                        foreach ($x in $fueraJ) { $gbJ += [double]$x.bytes }
+                        $colaJ = (' Y me quedan ' + $fueraJ.Count + ' en otro disco que no esta, ' +
+                                  [Math]::Round($gbJ / 1073741824.0, 0) + ' gigas.')
+                    }
+                } catch {}
+                [void](Send-AvisoEntorno 'disco-juegos' "Veo el disco de los juegos. Ahora tienes $ahoraJ juegos.$colaJ" 'medio' 5)
             } elseif ($ahoraJ -lt $antesJ) {
                 [void](Send-AvisoEntorno 'disco-juegos' "Quitaste el disco: te quedan $ahoraJ juegos a mano." 'medio' 5)
             }
@@ -14027,7 +14212,9 @@ function Watch-Entorno([int]$botones = 0) {
     try {
         if (-not (Get-JuegoEnPrimerPlano) -and -not $script:busy -and -not $script:pendiente -and
             -not $script:armed -and -not $script:panel -and -not $script:eleccion -and
-            $sw.ElapsedMilliseconds -ge $script:pausaHasta) { [void](Update-JuegosDosUno) }
+            $sw.ElapsedMilliseconds -ge $script:pausaHasta) {
+            [void](Update-JuegosDosUno)
+        }
     } catch {}
 
     # TE HE OIDO, PERO ESTAS JUGANDO (ver Test-LlamadaEnJuego). No pasa por

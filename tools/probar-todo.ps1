@@ -2089,6 +2089,18 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n257. El disco de fuera: los juegos que Nova no sabia que existen (idea 107 de las 121)"
+# libraryfolders.vdf declara DOS bibliotecas: la 0 (C:) con 20 appids y la 1 (E:\SteamLibrary, 1 TB)
+# con DIEZ. E: no esta puesto -las unidades son C: y D:- y dos de esos diez estan tambien en C:, o
+# sea OCHO exclusivos que suman 734.289.177.929 bytes = 683,9 GiB EXACTOS. Y el texto '"apps"' no
+# aparecia NI UNA VEZ en el fichero: al ver que la unidad no esta se hacia continue y se perdia la
+# lista que el propio vdf trae escrita. El appid 1245620 de esa lista es ELDEN RING, 66,4 GiB, y
+# braya lo intento abrir el 25/09. Sin esto, 'instala elden ring' manda a la tienda a bajar de nuevo
+# 66 gigas que ya estan en casa. MEDIDO Y DESCARTADO: la API de la tienda NO devuelve el nombre con
+# ningun filtro, asi que los siete sin nombre se dicen como cantidad y gigas -no se escribio una
+# cola de consultas que no puede funcionar- y se nombraran solos cuando el disco se conecte una vez.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-juegos-fuera.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:Nova sabe que juegos hay en el disco)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n256. Que el que sabes de mire tambien el cerebro, no solo el diario (idea 106 de las 121)"
 # La busqueda rapida en la memoria abria memoria\diario -14 ficheros, 38 vinetas RESUMIDAS- y una
 # carpeta memoria	emas que NO EXISTE y nunca ha existido: cero ficheros en 17 dias, y ningun sitio

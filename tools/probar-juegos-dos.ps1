@@ -332,7 +332,11 @@ Comp 'y si falla no tumba el bucle' (($trozoRelleno -match 'try \{') -and ($troz
 # SIN LOS COMENTARIOS: al quitar filters=categories de la URL este banco seguia verde,
 # porque la palabra estaba en el comentario de encima explicando por que se pone.
 $ficha = ((Traer 'Get-FichaDosSteam') -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
-Comp 'la peticion tiene tope de tiempo' ($ficha -match 'TimeoutSec 3') 'corre en el bucle: 3 s de techo'
+# EL TOPE PASA POR Get-PlazoRed DESDE LA IDEA 84 (27/09): sigue siendo 3 s de techo, pero cuando la
+# red esta sospechosa se le da la mitad. El patron viejo exigia 'TimeoutSec 3' literal y este banco
+# llevaba rojo desde ese dia. Se aceptan las dos formas y se sigue exigiendo que el 3 este ahi.
+Comp 'la peticion tiene tope de tiempo' ($ficha -match 'TimeoutSec (?:3|\(Get-PlazoRed 3\))') 'corre en el bucle: 3 s de techo'
+Comp '  y el plazo se acorta si la red va mal' ($ficha -match 'Get-PlazoRed 3') 'idea 84: no se regalan segundos cuando ya se sabe'
 Comp 'y pide solo las categorias' ($ficha -match 'filters=categories') 'medido: 606-808 bytes en vez de 14.725-29.108'
 Comp 'y si Steam no contesta, devuelve nada' ($ficha -match 'return \$null')
 
