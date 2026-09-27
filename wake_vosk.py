@@ -1018,6 +1018,18 @@ def plazo_soltar(base):
 # para siempre, y esto es pasajero: cuando cierres el juego habra sitio y se cargara.
 RAM_MIN_PARAKEET = 1200.0
 RAM_MIN_PRECISO = 900.0
+# LOS 1200 MB NO LOS MIDIO NADIE (26/09, idea 44 de las 121). Las dos lineas de arriba se
+# escribieron el 15/09 con 7,7 GB libres y creyendo que la pila costaba el doble; el 19/09
+# tools/medir-pila-oido.py midio Parakeet TDT 0.6b int8 en 746 MB (VRAM-2026-09-19.md:212). Peor
+# aun, el 1200 lo COMPARTEN tres modelos: canary (198 MB en disco) y omni (350) piden el liston
+# del grande. Ahora cada modelo mide en vivo lo que ocupa al cargar y su liston sale de ahi
+# (max de la huella + reserva); mientras no haya huella, el respaldo es el 1200/900 de siempre,
+# asi que el dia de estreno nada cambia. RAM_RESERVA = 1200 - 746: la RAM que la casa ya exigia
+# que quedara libre DESPUES de cargar, escrita por fin. NO puede bajar: con ~400 MB libres
+# Parakeet tardo 32,9 s en 14 s de audio (USO-2026-09-18.md:216-221) y con ~307 MB Whisper paso
+# de ~1 s a 4,5-12,9 s (15/09, comentario de mas arriba). Al ser ADITIVA hace de suelo absoluto.
+RAM_RESERVA_TRAS_CARGAR = 454.0
+HUELLA_MEMORIA = 80             # cuantas huellas por modelo (el mismo 80 de COBERTURA/ACUERDO)
 # SE QUEDA SIN SU REPASO FINO Y NO LO DICE (26/09, idea 9 de las 121). Cuando no hay RAM para
 # un modelo, la guarda de arriba lo deja sin cargar y escribe una linea en el log... que no lee
 # nadie. Nova sigue funcionando, pero oye PEOR, y braya no tiene forma de saberlo: piensa que
@@ -1041,17 +1053,84 @@ def _repaso_recuperado(cual):
         repaso_perdido = ""
 
 
+def _carpeta_modelo(patron):
+    """La carpeta del modelo que casa con el patron (o '' si no esta descargado). Sirve para
+    ETIQUETAR la huella: cambiar de modelo debe invalidarla (idea 44)."""
+    import glob
+    cs = [c for c in glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "modelos", patron)) if os.path.isdir(c)]
+    return cs[0] if cs else ""
+
+
+def apuntar_huella(cual, carpeta, antes, despues):
+    """Cuanta RAM ocupo de verdad cargar un modelo (idea 44). Una linea por modelo en
+    huellas-ram.txt: cual|basename(carpeta)|h1,h2,... NO apunta si no se pudo medir (ram_libre_mb
+    devuelve -1) ni si el delta es absurdo (el juego solto memoria entre medias, o >3000, el
+    mismo tope de cordura de Test-RamParaCharla)."""
+    if antes < 0 or despues < 0:
+        return
+    h = antes - despues
+    if not (0 < h < 3000):
+        return
+    if not RUTA_HUELLAS:
+        return
+    etq = os.path.basename(carpeta) if carpeta else ""
+    lineas = []
+    if os.path.exists(RUTA_HUELLAS):
+        try:
+            with open(RUTA_HUELLAS, encoding="utf-8") as f:
+                lineas = [ln.rstrip("\n") for ln in f if ln.strip()]
+        except Exception:  # noqa: BLE001
+            lineas = []
+    otras = [ln for ln in lineas if not ln.startswith(cual + "|")]
+    mia = [ln for ln in lineas if ln.startswith(cual + "|")]
+    vals = []
+    if mia:
+        partes = mia[0].split("|")
+        # solo se acumula si es la MISMA carpeta; si el modelo cambio, se empieza de cero
+        if len(partes) >= 3 and partes[1] == etq:
+            vals = [v for v in partes[2].split(",") if v]
+    vals.append("%.0f" % h)
+    vals = vals[-HUELLA_MEMORIA:]
+    otras.append("%s|%s|%s" % (cual, etq, ",".join(vals)))
+    try:
+        escribir(RUTA_HUELLAS, "\n".join(otras) + "\n")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def ram_que_pide(cual, carpeta, respaldo):
+    """La RAM libre que hace falta para cargar 'cual': max de la huella + RAM_RESERVA_TRAS_CARGAR,
+    o el respaldo (el liston de siempre, 1200/900) si no hay huella, esta rota, o el modelo cambio
+    de carpeta. El max y no la media: sherpa reserva memoria de forma perezosa y una carga puede
+    ocupar mas que otra; se coge la peor."""
+    if not RUTA_HUELLAS or not os.path.exists(RUTA_HUELLAS):
+        return respaldo
+    etq = os.path.basename(carpeta) if carpeta else ""
+    try:
+        with open(RUTA_HUELLAS, encoding="utf-8") as f:
+            for ln in f:
+                partes = ln.rstrip("\n").split("|")
+                if len(partes) >= 3 and partes[0] == cual and partes[1] == etq:
+                    vals = [float(v) for v in partes[2].split(",") if v]
+                    if vals:
+                        return max(vals) + RAM_RESERVA_TRAS_CARGAR
+    except Exception:  # noqa: BLE001
+        return respaldo
+    return respaldo
+
+
 def modelo_preciso():
     global _preciso, _preciso_roto, _preciso_uso
     if _preciso is not None or _preciso_roto or not MODELO_PRECISO:
         return _preciso
     _libre = ram_libre_mb()
-    if 0 <= _libre < RAM_MIN_PRECISO:
+    _pide = ram_que_pide("fino", MODELO_PRECISO, RAM_MIN_PRECISO)   # el liston sale de lo medido (idea 44)
+    if 0 <= _libre < _pide:
         anota("oido fino: no lo cargo, solo quedan %.0f MB libres (hacen falta %.0f)"
-              % (_libre, RAM_MIN_PRECISO))
+              % (_libre, _pide))
         # y que se pueda DECIR, no solo escribir en un log que no lee nadie (idea 9)
         global repaso_perdido
-        repaso_perdido = "fino:%.0f" % (RAM_MIN_PRECISO - _libre)
+        repaso_perdido = "fino:%.0f" % (_pide - _libre)
         return None
     try:
         t0 = time.time()
@@ -1067,6 +1146,7 @@ def modelo_preciso():
         # Sellandolo aqui ningun camino nuevo puede volver a desincronizarlo.
         _preciso_uso = time.time()
         _repaso_recuperado("fino")
+        apuntar_huella("fino", MODELO_PRECISO, _libre, ram_libre_mb())   # lo que ocupo de verdad (idea 44)
         anota("oido fino '%s' cargado en %.1f s" % (MODELO_PRECISO, time.time() - t0))
     except Exception as e:
         _preciso_roto = True
@@ -1227,12 +1307,14 @@ def modelo_omni():
         _repaso_recuperado("omni")
         return _omni
     _libre = ram_libre_mb()
-    if 0 <= _libre < RAM_MIN_PARAKEET:
+    _carpO = _carpeta_modelo("*omnilingual*")
+    _pide = ram_que_pide("omni", _carpO, RAM_MIN_PARAKEET)   # el liston sale de lo medido (idea 44)
+    if 0 <= _libre < _pide:
         _libre = hacer_sitio_a_parakeet(_libre)
-    if 0 <= _libre < RAM_MIN_PARAKEET:
+    if 0 <= _libre < _pide:
         anota("omni: no lo cargo, solo quedan %.0f MB libres" % _libre)
         global repaso_perdido
-        repaso_perdido = "omni:%.0f" % (RAM_MIN_PARAKEET - _libre)
+        repaso_perdido = "omni:%.0f" % (_pide - _libre)
         return None
     try:
         import glob
@@ -1250,6 +1332,7 @@ def modelo_omni():
             model=fichero("model*.onnx"), tokens=fichero("tokens.txt"),
             num_threads=HILOS_PRECISO)
         _omni_uso = time.time()
+        apuntar_huella("omni", _carpO, _libre, ram_libre_mb())   # lo que ocupo de verdad (idea 44)
         anota("omni cargado en %.1f s" % (time.time() - t0))
     except Exception as e:
         _omni_roto = True
@@ -1283,12 +1366,14 @@ def modelo_canary():
         _repaso_recuperado("canary")
         return _canary
     _libre = ram_libre_mb()
-    if 0 <= _libre < RAM_MIN_PARAKEET:
+    _carpC = _carpeta_modelo("*canary*")
+    _pide = ram_que_pide("canary", _carpC, RAM_MIN_PARAKEET)   # el liston sale de lo medido (idea 44)
+    if 0 <= _libre < _pide:
         _libre = hacer_sitio_a_parakeet(_libre)
-    if 0 <= _libre < RAM_MIN_PARAKEET:
+    if 0 <= _libre < _pide:
         anota("canary: no lo cargo, solo quedan %.0f MB libres" % _libre)
         global repaso_perdido
-        repaso_perdido = "canary:%.0f" % (RAM_MIN_PARAKEET - _libre)
+        repaso_perdido = "canary:%.0f" % (_pide - _libre)
         return None
     try:
         import glob
@@ -1309,6 +1394,7 @@ def modelo_canary():
             tokens=fichero("tokens.txt"), src_lang="es", tgt_lang="es",
             num_threads=HILOS_PRECISO)
         _canary_uso = time.time()
+        apuntar_huella("canary", _carpC, _libre, ram_libre_mb())   # lo que ocupo de verdad (idea 44)
         anota("canary cargado en %.1f s" % (time.time() - t0))
     except Exception as e:
         _canary_roto = True
@@ -1343,13 +1429,15 @@ def modelo_parakeet():
         if _parakeet is not None or _parakeet_roto:
             return _parakeet
         _libre = ram_libre_mb()
-        if 0 <= _libre < RAM_MIN_PARAKEET:
+        _carpP = _carpeta_modelo("*parakeet*")
+        _pide = ram_que_pide("parakeet", _carpP, RAM_MIN_PARAKEET)   # el liston sale de lo medido (idea 44)
+        if 0 <= _libre < _pide:
             _libre = hacer_sitio_a_parakeet(_libre)
-        if 0 <= _libre < RAM_MIN_PARAKEET:
+        if 0 <= _libre < _pide:
             anota("parakeet: no lo cargo, solo quedan %.0f MB libres (hacen falta %.0f)"
-                  % (_libre, RAM_MIN_PARAKEET))
+                  % (_libre, _pide))
             global repaso_perdido
-            repaso_perdido = "parakeet:%.0f" % (RAM_MIN_PARAKEET - _libre)
+            repaso_perdido = "parakeet:%.0f" % (_pide - _libre)
             return None
         try:
             import glob
@@ -1367,6 +1455,7 @@ def modelo_parakeet():
                 tokens=fichero("tokens.txt"), num_threads=HILOS_PRECISO, decoding_method="greedy_search", model_type="nemo_transducer")
             _parakeet_uso = time.time()
             _repaso_recuperado("parakeet")
+            apuntar_huella("parakeet", _carpP, _libre, ram_libre_mb())   # lo que ocupo de verdad (idea 44)
             anota("parakeet cargado en %.1f s" % (time.time() - t0))
         except Exception as e:
             _parakeet_roto = True
@@ -3513,6 +3602,9 @@ RUTA_ESTADO = os.path.join(os.path.dirname(NIVEL), "escucha-estado.txt") if NIVE
 # LO QUE OYO CADA MOTOR, para cuando la frase elegida no lleva a ninguna parte (25/09).
 # Ver TODO LO QUE OYO CADA MOTOR VA JUNTO, mas abajo.
 RUTA_OIDOS = os.path.join(os.path.dirname(NIVEL), "dictado-oidos.txt") if NIVEL else ""
+# lo que ocupo cada modelo al cargar, para que su liston de RAM salga de ahi (idea 44). En tmp\,
+# ya ignorada; hay que meterla en $TmpVivos de assistant.ps1 o el barrido de 7 dias se la lleva.
+RUTA_HUELLAS = os.path.join(os.path.dirname(NIVEL), "huellas-ram.txt") if NIVEL else ""
 
 
 def decir_estado(ref=0.0):

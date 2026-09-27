@@ -39,10 +39,14 @@ Comp '  y las cuatro marcan el repaso perdido' ($nMarca -ge 4) "$nMarca asignaci
 foreach ($q in @('fino', 'parakeet', 'canary', 'omni')) {
     Comp "  marca '$q'" ($pSin -match ('repaso_perdido = "' + $q + ':')) ''
 }
-# CON LOS MEGAS QUE FALTAN, no con un numero escrito: el "280" de la idea era un ejemplo.
-Comp '  con los megas que faltan de verdad' ($pSin -match 'RAM_MIN_PRECISO - _libre' -and $pSin -match 'RAM_MIN_PARAKEET - _libre') 'la mediana real son 376 MB'
-# Y LOS LISTONES NO SE MUEVEN: la idea no pide cargar mas modelos, pide DECIR que no se cargaron.
-Comp 'los listones de RAM siguen intactos' (($tp -match 'RAM_MIN_PARAKEET = 1200\.0') -and ($tp -match 'RAM_MIN_PRECISO = 900\.0')) 'no se afloja para que quepan: solo se avisa'
+# CON LOS MEGAS QUE FALTAN, del liston EFECTIVO: la idea 44 cambio '- _libre' de la constante al
+# valor que devuelve ram_que_pide, asi que ahora la marca dice cuantos MB faltan para el liston de
+# verdad (medido), no para el 1200/900 a pelo.
+Comp '  con los megas que faltan de verdad (del liston efectivo)' ($pSin -match '_pide - _libre') 'la mediana real son 376 MB'
+# EL RESPALDO SIGUE EN 1200/900, pero el liston de cada modelo ya sale de lo medido (idea 44):
+# canary y omni dejan de pedir prestado el liston del grande.
+Comp 'el respaldo de RAM sigue en 1200/900' (($tp -match 'RAM_MIN_PARAKEET = 1200\.0') -and ($tp -match 'RAM_MIN_PRECISO = 900\.0')) 'son el respaldo cuando no hay huella medida'
+Comp '  y el liston sale de ram_que_pide, no de la constante a pelo' (($pSin -match 'ram_que_pide\("canary"') -and ($pSin -match 'ram_que_pide\("parakeet"')) 'canary ya no pide el liston del grande'
 
 Write-Host ''
 Write-Host '-- 2. y se borra cuando el modelo SI carga --'

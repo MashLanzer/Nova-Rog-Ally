@@ -68,6 +68,13 @@ ns = {
     "ram_libre_mb": lambda: ns.get("_ram", 9000.0),
     "hacer_sitio_a_parakeet": lambda libre: ns.get("_ram_tras_sitio", libre),
     "_ram": 9000.0,
+    # idea 44 (26/09): modelo_parakeet resuelve la carpeta, pregunta el liston a ram_que_pide y
+    # apunta la huella al cargar. Aqui se prueba el CERROJO y la precarga, no la huella: se finge
+    # ram_que_pide devolviendo el respaldo (asi la guarda se comporta igual que antes) y
+    # apuntar_huella como un no-op.
+    "_carpeta_modelo": lambda patron: "modelos/parakeet",
+    "ram_que_pide": lambda cual, carpeta, respaldo: respaldo,
+    "apuntar_huella": lambda *a: None,
     # idea 9 (26/09): modelo_parakeet marca aqui que no pudo cargarse por falta de RAM, y
     # _repaso_recuperado lo borra al conseguirlo. Sin estas dos entradas el exec de abajo
     # revienta con NameError en cuanto la guarda salta.

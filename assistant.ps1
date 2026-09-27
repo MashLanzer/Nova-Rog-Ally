@@ -18463,7 +18463,7 @@ $TmpVivos = @(
     'dictado-id.txt', 'dictado-motor.txt', 'dictado-oidos.txt', 'dictado-parcial.txt',
     'dictado-voz.txt', 'dictado-winrt.txt', 'dictado.txt', 'dictar.flag', 'escucha-estado.txt',
     'escucha-pausa.flag', 'ganancia.txt', 'gestos.log', 'gestos.txt', 'guardar-audio.txt',
-    'idioma-dictado.txt', 'invitado.json', 'juego-brillo.json', 'llamada-en-juego.txt',
+    'huellas-ram.txt', 'idioma-dictado.txt', 'invitado.json', 'juego-brillo.json', 'llamada-en-juego.txt',
     'lotengo.txt', 'lupa.png', 'mi-voz.json', 'ocr.txt', 'oido-cargando.txt',
     'orden-escrita.txt', 'pantalla.png', 'rafagas.txt', 'reintentar.flag', 'reintento.txt',
     'salir.flag', 'seguimiento-voz.txt', 'solo-boton.flag', 'tokens.txt',

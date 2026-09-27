@@ -1997,6 +1997,15 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n210. Los 1200 MB que Parakeet dice necesitar no los midio nadie (idea 44 de las 121)"
+# El liston de RAM (1200) se escribio con 7,7 GB libres y lo comparten tres modelos: canary
+# (198 MB en disco) y omni (350) piden el liston del grande. Ahora cada modelo mide en vivo lo
+# que ocupa al cargar (huellas-ram.txt) y su liston sale de max(huella)+454; sin huella, el
+# respaldo es el 1200/900 de siempre, asi que el dia de estreno nada cambia. La ganancia
+# medida es de canary y omni, que dejan de pedir prestado el liston del grande.
+python (Join-Path $PSScriptRoot 'probar-huella-ram.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el liston sale de lo medido)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n209. Una pregunta nace muda en las manos: zumbido, y medir si sirve (idea 42 de las 121)"
 # El mando NUNCA contesto una pregunta (0 en 17 dias) ni con la pista de texto puesta. Al nacer
 # una pregunta, un zumbido corto y flojo -segunda via, regla 7-, con puerta HAY MANDO (no juego:
