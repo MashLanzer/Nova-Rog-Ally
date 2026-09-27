@@ -54,9 +54,12 @@ Comp 'la variable arranca vacia' ($fuente -match '\$script:discoUltimoGb = \$nul
 
 Write-Host ''
 Write-Host '-- y el aviso de disco sigue donde estaba --'
-Comp "el critico sigue en 'alto'" ($fuente -match "'disco-critico'.{0,200}'alto'") ''
-Comp "y el suave en 'medio'" ($fuente -match "'disco-poco'.{0,200}'medio'")
-Comp 'el rastro va ANTES de los dos avisos' ($fuente.IndexOf('Log "DISCO: $gbLibres GB libres"') -lt $fuente.IndexOf("'disco-critico'")) 'para que quede escrito salga el aviso o no'
+Comp "el critico sigue en 'alto'" ($fuente -match "Send-AvisoEntorno 'disco-critico'.{0,200}'alto'") ''
+Comp "y el suave en 'medio'" ($fuente -match "Send-AvisoEntorno 'disco-poco'.{0,200}'medio'")
+# ANCLADO A LA LLAMADA, NO A LA CADENA SUELTA: la clave 'disco-critico' aparece tambien donde se
+# recomprueba el hecho de un aviso aparcado (idea 119), que esta mucho antes en el fichero, y
+# entonces este IndexOf miraba ese y el caso salia rojo sin que nada estuviera mal.
+Comp 'el rastro va ANTES de los dos avisos' ($fuente.IndexOf('Log "DISCO: $gbLibres GB libres"') -lt $fuente.IndexOf("Send-AvisoEntorno 'disco-critico'")) 'para que quede escrito salga el aviso o no'
 
 Write-Host ''
 if ($fallos -gt 0) { Write-Host "  $fallos caso(s) MAL"; exit 1 }

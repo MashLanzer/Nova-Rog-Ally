@@ -13730,12 +13730,109 @@ function Get-FraseCaida($c) {
     return "Antes me cai a las $($c.cuando) y he estado $cuanto sin enterarme de nada."
 }
 
+# EL AVISO APARCADO SE REHACE AL DECIRLO, NO SE REPITE EL DE HACE HORAS (27/09, idea 119 de las 121)
+#
+# EL DATO: 4.187 avisos aparcados en el registro, repartidos asi:
+#     oido-ruido  1.694     gmail-lleno  1.649     disco-poco  843     correo-manana  1
+# Y hay DOS problemas distintos, uno por cada cabeza de esa lista:
+#
+# 1. LA CIFRA ENVEJECE (disco-poco, 843). Su texto lleva el numero dentro: "Te quedan 10.2 gigas en
+#    el disco. Preguntame que ocupa mas." Y el disco de braya no se esta quieto: de las 75 lecturas
+#    'DISCO:' del registro salen VEINTICINCO saltos de un giga o mas en menos de una hora, y el peor
+#    son 9,1 GB en UN MINUTO (25/09, de 35,7 a 26,6 entre las 22:09:26 y las 22:10:26). El 25/09 el
+#    disco se movio en un rango de 35,2 gigas el mismo dia, de 7,8 a 43,0. Soltar "te quedan 10.2"
+#    doce horas despues es decir un numero que ya no existe.
+#
+# 2. EL HECHO DEJA DE SER CIERTO (oido-ruido, 1.694, el mas aparcado de todos). Ese no lleva cifra:
+#    dice "Tengo un zumbido de fondo encima y me cuesta oirte. Acercame el microfono si puedes." Y
+#    decirlo cuando el zumbido ya se fue no es un numero viejo, es una queja falsa.
+#
+# LO QUE NO SE TOCA: los treinta y pico llamadores de Send-AvisoEntorno. El hecho se saca de la
+# CLAVE y del propio texto al aparcar, asi que ningun sitio del archivo tiene que pasar nada nuevo.
+#
+# Y NO SE TIRA NADA POR VIEJO, NUNCA: solo si el hecho ya NO se cumple, que es la promesa que esta
+# cola vino a cumplir. Si el dato no se puede releer, se dice igual con la cifra que hubiera, porque
+# callar un aviso que si importaba es justo lo que esto no puede hacer.
+$AvisoRehacerClaves = @('disco-poco', 'disco-critico', 'oido-ruido')
+
+# PURA: de la clave y el texto, saca el hecho que habra que volver a comprobar al soltarlo.
+# Devuelve $null para los avisos que no tienen nada que recomprobar: esos se sueltan como hoy.
+function Get-HechoAviso([string]$clave, [string]$texto) {
+    if (-not $clave) { return $null }
+    if ($AvisoRehacerClaves -notcontains $clave) { return $null }
+    if ($clave -eq 'oido-ruido') { return @{ tipo = 'ruido' } }
+    # LA CIFRA SALE DEL TEXTO, no de un parametro nuevo: "Te quedan 10.2 gigas" -> 10.2
+    $gb = -1.0
+    $m = [regex]::Match([string]$texto, '(\d+(?:[.,]\d+)?)\s*gigas')
+    if ($m.Success) {
+        $crudo = $m.Groups[1].Value.Replace(',', '.')
+        $d = 0.0
+        if ([double]::TryParse($crudo, [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$d)) { $gb = $d }
+    }
+    if ($gb -lt 0) { return $null }          # sin cifra que rehacer, se suelta tal cual
+    return @{ tipo = 'disco'; gb = $gb; texto = [string]$m.Groups[1].Value }
+}
+
+# PURA: dado el aviso guardado y el dato de AHORA, dice si sigue valiendo y con que texto.
+#   $ahoraGb : los gigas de ahora, o -1 si no se pudieron leer
+#   $hayRuido: $true / $false / $null si no se sabe
+# Devuelve @{ vale; texto; porque }.
+# EL LISTON NO ES UN NUMERO NUEVO: es el MISMO con el que se dispara cada aviso, que vive en el
+# bloque del disco -por debajo de 15 gigas 'disco-poco', por debajo de entorno.discoCriticoGb
+# 'disco-critico'-. Aqui entra por parametro para que la funcion siga siendo pura y para que el dia
+# que braya cambie el de config, este cambie con el.
+function Get-AvisoAlDia($v, [double]$ahoraGb = -1, $hayRuido = $null, [double]$listonGb = 15, [double]$listonCritico = 2) {
+    $r = @{ vale = $true; texto = [string]$v.texto; porque = '' }
+    $h = $null
+    if ($v.hecho) { $h = $v.hecho }
+    if (-not $h) { return $r }
+    $tipo = [string]$h.tipo
+    if ($tipo -eq 'ruido') {
+        # SI YA NO HAY ZUMBIDO, LA QUEJA ES FALSA. Y si no se sabe, se dice: no saber no es
+        # motivo para callar una promesa.
+        if ($null -ne $hayRuido -and -not [bool]$hayRuido) {
+            $r.vale = $false; $r.porque = 'el zumbido ya no esta'
+        }
+        return $r
+    }
+    if ($tipo -eq 'disco') {
+        if ($ahoraGb -lt 0) { $r.porque = 'no pude releer el disco; lo digo con la cifra que tenia'; return $r }
+        # EL HECHO: seguia habiendo poco sitio? El liston es el mismo con el que se aviso, o sea
+        # la cifra de entonces, no un numero nuevo: si entonces 10,2 daba aviso y ahora hay 43, el
+        # hecho ya no se cumple.
+        # EL HECHO ES EL QUE DISPARO EL AVISO: 'disco-critico' vale mientras siga por debajo del
+        # liston critico, y 'disco-poco' mientras siga por debajo de los quince. Si ahora hay 43
+        # gigas, ninguno de los dos es verdad y no se dice.
+        $liston = $(if ([string]$v.clave -eq 'disco-critico') { $listonCritico } else { $listonGb })
+        if ($ahoraGb -ge $liston) {
+            $r.vale = $false
+            $r.porque = ('el disco paso de ' + $h.gb + ' a ' + [Math]::Round($ahoraGb, 1) +
+                         ' gigas, por encima de los ' + $liston + ' que lo disparan')
+            return $r
+        }
+        # Y LA CIFRA SE PONE AL DIA: se sustituye la de entonces por la de ahora, sin rehacer la
+        # frase entera -que la componen dos sitios distintos con coletillas que aqui no se saben-.
+        $nueva = [string]([Math]::Round($ahoraGb, 1))
+        if ($nueva -ne [string]$h.texto) {
+            $r.texto = ([string]$v.texto).Replace([string]$h.texto, $nueva)
+            $r.porque = ('la cifra pasa de ' + $h.texto + ' a ' + $nueva)
+        }
+        return $r
+    }
+    return $r
+}
+
 function Add-AvisoEspera([string]$clave, [string]$texto, [string]$nivel, [int]$cada, [datetime]$ahora = (Get-Date)) {
     [void](Get-AvisoEspera)
     $viejos = @($script:avisoEspera | Where-Object { [string]$_.clave -eq $clave })
     $igual = ($viejos.Count -eq 1 -and [string]$viejos[0].texto -eq $texto -and [string]$viejos[0].nivel -eq $nivel)
     foreach ($v in $viejos) { [void]$script:avisoEspera.Remove($v) }
+    # EL HECHO VA GUARDADO CON EL AVISO (27/09, idea 119): la clave y el texto ya estan aqui, asi
+    # que sacarlo no obliga a cambiar ni uno de los treinta llamadores de Send-AvisoEntorno.
+    $hechoA = $null
+    try { $hechoA = Get-HechoAviso $clave $texto } catch { $hechoA = $null }
     [void]$script:avisoEspera.Add(@{ clave = $clave; texto = $texto; nivel = $nivel; cada = $cada
+                                     hecho = $hechoA
                                      vence = $ahora.AddMinutes($AvisoEsperaCaducaMin).ToString('s') })
     # EL PLAZO SI SE REFRESCA aunque el aviso sea el mismo -arriba se pone $ahora-, porque el
     # aviso sigue siendo verdad ahora mismo; lo que no se repite es la linea y el guardado.
@@ -13798,10 +13895,33 @@ function Send-AvisoEsperaSuelta([datetime]$ahora = (Get-Date), [bool]$soloCaduca
     # ANTES de intentar soltarlos, asi que el que Test-PuedoAvisar rechazara por el tope de
     # cuatro por hora se perdia del todo: ni se decia ni volvia. Y estos avisos existen
     # justamente porque Nova prometio decirlos cuando braya volviera.
+    # EL DATO DE AHORA, UNA VEZ PARA TODOS (27/09, idea 119). Se lee aqui y no dentro del bucle:
+    # con tres avisos de disco en la cola seria tres veces el mismo DriveInfo.
+    $gbAhora = -1.0
+    try {
+        $diA = New-Object System.IO.DriveInfo('C')
+        if ($diA.IsReady) { $gbAhora = [Math]::Round($diA.AvailableFreeSpace / 1073741824.0, 1) }
+    } catch { $gbAhora = -1.0 }
+    # EL RUIDO, Y OJO CON LO QUE DEVUELVE Get-OidoConRuido: da $false TAMBIEN cuando no lo sabe -sin
+    # fichero de estado, o con el del worker anterior-. Para su uso de siempre eso esta bien, porque
+    # alli $false significa "no avises", que es lo prudente; aqui significaria "tira el aviso", que
+    # es lo contrario. Asi que solo se cree la respuesta si el estado esta fresco; si no, se queda en
+    # $null -no lo se- y el aviso se dice igual.
+    $ruidoAhora = $null
+    try { if (Test-EstadoFresco) { $ruidoAhora = [bool](Get-OidoConRuido) } } catch { $ruidoAhora = $null }
     $n = 0
     $quedan = @()
     foreach ($v in $vivos) {
-        if (Send-AvisoEntorno ([string]$v.clave) ([string]$v.texto) ([string]$v.nivel) ([int]$v.cada) $true) { $n++ }
+        $al = @{ vale = $true; texto = [string]$v.texto; porque = '' }
+        try { $al = Get-AvisoAlDia $v $gbAhora $ruidoAhora 15 ([double](Get-Cfg 'entorno' 'discoCriticoGb' 2)) } catch {}
+        if (-not $al.vale) {
+            # NO SE TIRA POR VIEJO, SE TIRA PORQUE YA NO ES VERDAD, y se dice cual de las dos cosas
+            Log ("ENTORNO: no digo '" + [string]$v.clave + "' porque " + [string]$al.porque)
+            Add-Estadistica 'aviso-caduco-hecho' ([string]$v.clave + ': ' + [string]$al.porque)
+            continue
+        }
+        if ([string]$al.porque) { Log ("ENTORNO: '" + [string]$v.clave + "' al dia, " + [string]$al.porque) }
+        if (Send-AvisoEntorno ([string]$v.clave) ([string]$al.texto) ([string]$v.nivel) ([int]$v.cada) $true) { $n++ }
         else { $quedan += $v }
     }
     foreach ($q in $quedan) { [void]$script:avisoEspera.Add($q) }

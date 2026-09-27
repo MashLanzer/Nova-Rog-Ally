@@ -2089,6 +2089,19 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n269. El aviso aparcado se dice con el dato de ahora, o no se dice (idea 119 de las 121)"
+# 4.187 avisos aparcados en el registro: oido-ruido 1.694, gmail-lleno 1.649, disco-poco 843. Y dos
+# problemas distintos. La CIFRA envejece: disco-poco lleva el numero dentro -"Te quedan 10.2 gigas"-
+# y de las 75 lecturas 'DISCO:' salen VEINTICINCO saltos de un giga o mas en menos de una hora, con
+# el peor de 9,1 GB en UN MINUTO y un rango de 35,2 gigas el 25/09. Y el HECHO deja de ser cierto:
+# oido-ruido, el mas aparcado de todos, dice "tengo un zumbido encima" y decirlo cuando ya se fue es
+# una queja falsa. Ahora el hecho se saca de la clave y del propio texto al aparcar -asi no cambia ni
+# uno de los treinta llamadores de Send-AvisoEntorno- y al soltarlo se recomprueba. NADA se tira por
+# viejo: solo si el hecho ya no se cumple, y el liston es el MISMO que dispara cada aviso, no un
+# factor nuevo. Si el dato no se puede releer, se dice igual. Once roturas, diez lo tumban.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-aviso-al-dia.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se dice con el dato de ahora)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n268. La frase de ejemplo del oido ya lleva los verbos que de verdad dice (idea 118 de las 121)"
 # A Whisper se le daba siempre la misma frase, escrita a mano el 14/09: "Nova, abre Steam. Sube el
 # volumen. Pon el modo noche. Que hora es? Baja el brillo." Contadas las primeras palabras de las 226
