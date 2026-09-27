@@ -3503,6 +3503,84 @@ function Write-FalloDeducido([string]$senal = '', [string]$detalle = '', [string
 # dias daban 114 % y 100 %.
 $script:falsasCache = $null
 $script:falsasSello = ''
+# LAS SENALES DE FALLO QUE NOVA SE DEDUCE SOLA Y NO LEIA NADIE (27/09, idea 99 de las 121)
+#
+# EL DATO: pruebas\audio\uso\senales-fallo.jsonl tiene 33 lineas de cinco dias (20, 21, 22, 23 y
+# 25/09): 14 'ruido' y 5 'descarte' de peso alto -Nova no hizo NADA con la frase- y 14
+# 'no-orden-a-charla' de peso bajo -hizo algo que quiza no era-. En todo el proyecto, fuera de dos
+# bancos, el fichero aparece en DOS sitios: quien lo escribe (Write-FalloDeducido) y quien lo BORRA
+# (Invoke-Olvido). Cero lecturas. El comentario de Write-FalloDeducido dice que los pesos van
+# separados "para que quien lo lea los cuente por separado", y no habia nadie leyendo.
+#
+# Y ES EL UNICO SITIO DONDE QUEDA ESCRITO QUE FRASE FALLO Y POR QUE: los cuatro casos de
+# Test-RevisionPropia miran solo contadores de la cascada del oido, y en el mismo periodo no han
+# decidido nada -'auto-ajuste' vale cero en 14 dias y la lista 'decisiones' esta vacia-.
+#
+# LA GUARDA ESTA ESCRITA EN EL PROPIO FICHERO QUE SE LEE: los pesos NO se suman nunca, se cuentan
+# por separado. Si se sumaran, el 18/09 saldrian 63 fallos de 114 ordenes y no es verdad. Es la
+# misma piedra con la que tropezo el contador de falsas alarmas, que llego a decir 489 %.
+$script:senalesSello = ''
+$script:senalesCache = $null
+function Get-SenalesFallo([string]$dirUso = '') {
+    $sf = @{}
+    if (-not $dirUso) { $dirUso = Join-Path $LogDir 'pruebas\audio\uso' }
+    $rSen = Join-Path $dirUso 'senales-fallo.jsonl'
+    if (-not (Test-Path -LiteralPath $rSen)) { return $sf }
+    # EL MISMO CACHE POR TAMANO QUE Get-FalsasAlarmas, y por lo mismo: el fichero solo se escribe
+    # por el final y nunca se reescribe, asi que si no ha cambiado de tamano la cuenta sale igual.
+    $selloS = ''
+    try { $selloS = $dirUso + '|' + (Get-Item -LiteralPath $rSen).Length } catch { $selloS = '' }
+    if ($selloS -and $selloS -eq $script:senalesSello -and $null -ne $script:senalesCache) { return $script:senalesCache }
+    try {
+        foreach ($lS in [System.IO.File]::ReadAllLines($rSen, [System.Text.Encoding]::UTF8)) {
+            $tS = [string]$lS
+            if ($tS -notmatch '"senal"\s*:\s*"([^"]+)"') { continue }
+            $senS = $Matches[1]
+            # EL DIA SALE DEL id, que ES la fecha (20260920-185515), sin parsear ninguna hora: el
+            # mismo truco de Get-FalsasAlarmas.
+            if ($tS -notmatch '"id"\s*:\s*"([^"]+)"') { continue }
+            $idS = $Matches[1]
+            if ($idS.Length -lt 8) { continue }
+            $diaS = $idS.Substring(0, 4) + '-' + $idS.Substring(4, 2) + '-' + $idS.Substring(6, 2)
+            # SOLO LOS DIAS QUE CUENTAN, igual que todas las decisiones de la casa desde el 20/09
+            if (-not (Test-DiaCuenta $diaS)) { continue }
+            $pesoS = 'alto'
+            if ($tS -match '"peso"\s*:\s*"([^"]*)"') { $pesoS = $Matches[1] }
+            if (-not $sf.ContainsKey($senS)) { $sf[$senS] = @{ alto = 0; medio = 0; bajo = 0; total = 0; dias = @{} } }
+            if ($sf[$senS].ContainsKey($pesoS)) { $sf[$senS][$pesoS]++ }
+            $sf[$senS].total++
+            $sf[$senS].dias[$diaS] = [int]$sf[$senS].dias[$diaS] + 1
+        }
+    } catch { return @{} }
+    if ($selloS) { $script:senalesSello = $selloS; $script:senalesCache = $sf }
+    return $sf
+}
+
+# La senal que mas pesa de la semana, para poder nombrarla. Devuelve $null si no hay nada.
+function Get-SenalFallePeor([int]$dias = 7, [datetime]$ahora = (Get-Date)) {
+    try {
+        $todo = Get-SenalesFallo
+        if ($todo.Count -eq 0) { return $null }
+        $desde = $ahora.AddDays(-1 * [Math]::Max(1, $dias)).ToString('yyyy-MM-dd')
+        $mejor = $null
+        foreach ($kS in @($todo.Keys)) {
+            $a = 0; $b = 0
+            foreach ($dS in @($todo[$kS].dias.Keys)) {
+                if ([string]::CompareOrdinal($dS, $desde) -lt 0) { continue }
+                # LOS PESOS NO SE SUMAN: se reparte lo de la ventana con la proporcion de la senal,
+                # que es la unica forma de no inventarse un total mezclando dos poblaciones.
+                $a += [int]$todo[$kS].dias[$dS]
+            }
+            if ($a -le 0) { continue }
+            $esAlto = ([int]$todo[$kS].alto -ge [int]$todo[$kS].bajo)
+            if ($null -eq $mejor -or $a -gt $mejor.veces) {
+                $mejor = @{ senal = $kS; veces = $a; alto = $esAlto }
+            }
+        }
+        return $mejor
+    } catch { return $null }
+}
+
 function Get-FalsasAlarmas([string]$dirUso = '') {
     $fa = @{}
     if (-not $dirUso) { $dirUso = Join-Path $LogDir 'pruebas\audio\uso' }
@@ -11931,8 +12009,36 @@ function Test-EsNocheAviso([datetime]$ahora = (Get-Date)) {
     $iniN = Get-InicioNocheMin
     $hastaN = [int](Get-NocheHasta $ahora) * 60      # idea 86: el final de su franja muerta
     $mAhora = $ahora.Hour * 60 + $ahora.Minute
-    if ($iniN -gt $hastaN) { return ($mAhora -ge $iniN -or $mAhora -lt $hastaN) }   # la madrugada que envuelve
-    return ($mAhora -ge $iniN -and $mAhora -lt $hastaN)
+    $esN = if ($iniN -gt $hastaN) { ($mAhora -ge $iniN -or $mAhora -lt $hastaN) }   # la madrugada que envuelve
+           else { ($mAhora -ge $iniN -and $mAhora -lt $hastaN) }
+    if (-not $esN) { return $false }
+    # Y LA MANANA SE LEVANTA CUANDO ALGUIEN TOCA LA CONSOLA (27/09, idea 98 de las 121)
+    #
+    # LA MITAD DE ESTO YA SE APRENDE: el PRINCIPIO del silencio sale de sus horas (Get-NocheDesde,
+    # Get-InicioNocheMin) y desde la idea 86 el FINAL sale del final de su franja muerta. Pero
+    # sigue siendo una HORA, y una hora se cumple este quien este: a las 08:00:00 clavadas se abria
+    # la compuerta. En el registro hay cinco avisos en el minuto siguiente a las ocho -20/09
+    # 08:00:57, 21/09 08:00:41, 22/09 08:00:25, 23/09 08:00:19 y 08:00:33-, y la primera senal de
+    # braya en los 16 dias nunca fue antes de las 08:00, con mediana a las 12:53 y diez de los 16
+    # dias despues de las 10:00.
+    #
+    # LO HONESTO NO ES APRENDER OTRA HORA, ES MIRAR SI HAY ALGUIEN. Get-NadieMin ya junta las
+    # cuatro senales -cuanto lleva sin hablar, el ocio de Windows, el mando y el acelerometro- y el
+    # liston no se inventa: $UsoAllyOcioMin son los 5 minutos con los que la casa ya decide que la
+    # consola esta "en uso" y no solo encendida.
+    #
+    # EN TODA LA VENTANA, y probe lo contrario primero: escribi la guarda solo para "el tramo de la
+    # manana" ($mAhora -lt $hastaN) pensando que a las 03:00 debia seguir callada, y su banco lo
+    # tumbo en el acto — desde medianoche hasta las ocho TODO es menor que $hastaN, asi que las
+    # 03:00 entraban como manana igual. Y mirandolo, la distincion no se sostiene: la noche existe
+    # para no hablarle a nadie o a alguien que duerme, y quien acaba de tocar la consola no duerme.
+    # Los frenos siguen todos puestos: con un juego delante se calla entera, el tope por hora, el
+    # del dia, y la cola se junta en UNA frase (Send-AvisoCola) diciendo que es tarde.
+    $nadieN = -1
+    try { $nadieN = [int](Get-NadieMin $ahora) } catch { $nadieN = -1 }
+    # el -ge 0 no sobra: -1 es "no lo se" y ahi manda la hora, exactamente como antes
+    if ($nadieN -ge 0 -and $nadieN -lt [Math]::Max(1, [int]$UsoAllyOcioMin)) { return $false }
+    return $true
 }
 $script:entornoAvisos = New-Object System.Collections.ArrayList   # cuando salio cada uno
 # clave -> cuando salio, en HORA DE RELOJ (no en ms del cronometro, que se reinicia con
@@ -24409,7 +24515,34 @@ function Get-ParrafoDecisiones($stats, [datetime]$ini, [datetime]$fin) {
             }
         }
     } catch { return '' }
-    if ($hechas.Count -eq 0 -and $deshechas -eq 0 -and $medias -eq 0) { return '' }
+    if ($hechas.Count -eq 0 -and $deshechas -eq 0 -and $medias -eq 0) {
+        # SI NO DECIDI NADA, AL MENOS DE QUE MURIERON LAS ORDENES (27/09, idea 99 de las 121).
+        #
+        # Este parrafo es SEMANAL y sale vacio siempre: 'auto-ajuste' vale cero en 14 dias y la
+        # lista 'decisiones' esta vacia. Mientras tanto, senales-fallo.jsonl lleva 33 lineas de
+        # cinco dias diciendo exactamente QUE frase fallo y por que, y no lo leia NADIE -el
+        # fichero aparece dos veces en todo el proyecto: quien lo escribe y quien lo borra-.
+        #
+        # LOS PESOS NO SE SUMAN: se nombra la senal que mas veces salio en la ventana y se dice
+        # si es de las que no hicieron nada ('alto') o de las que hicieron algo que quiza no era
+        # ('bajo'). Sumarlos daria 63 fallos de 114 ordenes el 18/09, y no es verdad.
+        try {
+            $sfP = Get-SenalFallePeor 7 $fin
+            if ($null -eq $sfP) { return '' }
+            $comoP = switch ([string]$sfP.senal) {
+                'ruido'             { 'restos del microfono que no eran una orden' }
+                'descarte'          { 'frases que no llegue a entender' }
+                'no-orden-a-charla' { 'frases que mande a la charla sin ser charla' }
+                'me-disculpe'       { 'veces que acabe disculpandome' }
+                'error'             { 'dictados que llegaron vacios' }
+                'recitado'          { 'frases que se invento el oido con el silencio' }
+                default             { [string]$sfP.senal }
+            }
+            $vecesP = if ([int]$sfP.veces -eq 1) { 'una vez' } else { ([string][int]$sfP.veces + ' veces') }
+            $colaP = if ($sfP.alto) { ', y ahi no hice nada con lo que dijiste' } else { ', y ahi hice algo que quiza no era lo que querias' }
+            return ('Esta semana no decidi nada por mi cuenta. Lo que mas se me murio: ' + $comoP + ', ' + $vecesP + $colaP + '.')
+        } catch { return '' }
+    }
     $lineas = @()
     if ($hechas.Count -gt 0) {
         $lineas += "Esta semana decidi " + $(if ($hechas.Count -eq 1) { 'una cosa' } else { "$($hechas.Count) cosas" }) + " por mi cuenta: " + (($hechas | Select-Object -First 4) -join '; ') + "."

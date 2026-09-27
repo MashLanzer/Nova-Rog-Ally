@@ -98,6 +98,16 @@ Invoke-Expression $dNoc.Extent.Text
 # prueba es el INICIO de la noche, no de donde sale el final, que tiene el suyo
 # (probar-franja-muerta.ps1). Sin esto moria con 'Get-NocheHasta no se reconoce'.
 function Get-NocheHasta([datetime]$ahora = (Get-Date)) { return [int]$EntornoNocheHasta }
+# IDEA 98 (27/09): la manana se levanta si HAY ALGUIEN. Get-NadieMin se dobla -junta cuatro senales
+# del sistema y aqui lo que se prueba es la decision, no como se mide la presencia, que tiene su
+# propio banco- y $UsoAllyOcioMin se lee del archivo, que es el liston de "en uso" que la casa ya
+# tenia: si alguien lo cambia, este banco cambia con el.
+$script:nadieMin = 999
+function Get-NadieMin([datetime]$ahora = (Get-Date)) { return $script:nadieMin }
+$mUso = [regex]::Match($txt, '(?m)^\$UsoAllyOcioMin = (\d+)')
+if (-not $mUso.Success) { Write-Host '  MAL  no encuentro $UsoAllyOcioMin en el archivo'; exit 1 }
+$UsoAllyOcioMin = [int]$mUso.Groups[1].Value
+Comp 'el liston de "hay alguien" sale del archivo' ($UsoAllyOcioMin -ge 1) ([string]$UsoAllyOcioMin + ' min sin tocar nada')
 
 # 1. el corazon: 00:24 + 30 de margen = 00:54, no las 00:00 del truncado
 $script:finHabitual = 1464
@@ -137,6 +147,55 @@ Comp 'Test-PuedoAvisar llama a Test-EsNocheAviso' ($txtP -match 'Test-EsNocheAvi
 Comp '  y ya no trunca con (Get-Date).Hour' ($txtP -notmatch '\(Get-Date\)\.Hour') 'esa era la comparacion vieja, en horas'
 # Y Get-NocheDesde NO se toca: sigue devolviendo horas para su otro cliente (Test-VueltaSaludo)
 Comp 'Get-NocheDesde sigue devolviendo horas (su otro cliente)' ($dN.Extent.Text -match 'Floor\(\$m / 60\) % 24') 'Test-VueltaSaludo compara con .Hour'
+
+Write-Host ''
+Write-Host '-- LA MANANA SE LEVANTA CUANDO ALGUIEN TOCA LA CONSOLA (idea 98 de las 121) --'
+# EL DATO: en el registro hay cinco avisos en el minuto siguiente a las ocho -20/09 08:00:57, 21/09
+# 08:00:41, 22/09 08:00:25, 23/09 08:00:19 y 08:00:33- y la primera senal de braya en los 16 dias
+# NUNCA fue antes de las 08:00, con mediana a las 12:53 y diez de los 16 dias despues de las 10:00.
+# A las 08:00:00 clavadas se abria la compuerta, estuviera quien estuviera.
+$script:finHabitual = 1464          # apaga a las 00:24 -> silencio de 00:54 a 08:00
+$script:nadieMin = 999
+Comp 'a las 07:30, sin nadie, sigue siendo noche' (Test-EsNocheAviso ([datetime]'2026-09-27 07:30')) 'es lo que pasa 15 de cada 16 dias'
+$script:nadieMin = 0
+Comp '  pero si acaba de tocar la consola, no' (-not (Test-EsNocheAviso ([datetime]'2026-09-27 07:30'))) 'esta despierto: no hay a quien no molestar'
+$script:nadieMin = $UsoAllyOcioMin - 1
+Comp '  ni con un toque de hace poco' (-not (Test-EsNocheAviso ([datetime]'2026-09-27 07:30'))) ([string]$script:nadieMin + ' min, liston ' + [string]$UsoAllyOcioMin)
+$script:nadieMin = $UsoAllyOcioMin
+Comp '  y en el borde exacto vuelve a ser noche' (Test-EsNocheAviso ([datetime]'2026-09-27 07:30')) 'el liston no se estira'
+$script:nadieMin = -1
+Comp '  y si no se sabe, manda la hora como antes' (Test-EsNocheAviso ([datetime]'2026-09-27 07:30')) '-1 es "no lo se", no "no hay nadie"'
+
+# EN TODA LA VENTANA, y este banco tumbo lo contrario: la primera version de la guarda solo miraba
+# "el tramo de la manana" ($mAhora -lt $hastaN), y desde medianoche hasta las ocho TODO es menor que
+# eso, asi que las 03:00 entraban igual. La distincion no se sostenia: la noche existe para no
+# hablarle a nadie o a alguien que duerme, y quien acaba de tocar la consola no duerme.
+$script:nadieMin = 0
+Comp 'a las 03:00, con el delante, tampoco es noche' (-not (Test-EsNocheAviso ([datetime]'2026-09-27 03:00'))) 'esta usando la consola'
+Comp '  ni a las 01:30' (-not (Test-EsNocheAviso ([datetime]'2026-09-27 01:30'))) ''
+$script:nadieMin = 999
+Comp '  pero sin nadie, a las 03:00 si' (Test-EsNocheAviso ([datetime]'2026-09-27 03:00')) 'es lo normal: silencio'
+# y lo mismo con la ventana que envuelve la medianoche
+$script:finHabitual = 1358          # silencio desde las 23:08
+$script:nadieMin = 999
+Comp 'a las 23:30 sin nadie es noche' (Test-EsNocheAviso ([datetime]'2026-09-27 23:30')) ''
+$script:nadieMin = 0
+Comp '  y con el delante, no' (-not (Test-EsNocheAviso ([datetime]'2026-09-27 23:30'))) 'el aviso de la hora de dormir se salta este silencio por su cuenta'
+$script:finHabitual = 1464
+
+# Y FUERA DE LA NOCHE NO CAMBIA NADA: el mediodia sigue siendo el mediodia
+$script:nadieMin = 999
+Comp 'a las 13:00 no es de noche, haya alguien o no' (-not (Test-EsNocheAviso ([datetime]'2026-09-27 13:00'))) ''
+$script:nadieMin = 0
+Comp '  ni con el delante' (-not (Test-EsNocheAviso ([datetime]'2026-09-27 13:00'))) ''
+
+# EL CABLEADO
+$sinComN = (($txt -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) -join "`n"
+$cuerpoN = $dNoc.Extent.Text
+Comp 'la guarda mira Get-NadieMin, no un reloj nuevo' ($cuerpoN -match 'Get-NadieMin \$ahora') 'ya junta voz, ocio de Windows, mando y acelerometro'
+Comp '  con el liston que ya existia' ($cuerpoN -match '\$UsoAllyOcioMin') 'no hay numero nuevo que justificar'
+Comp '  blindado contra el nulo' ($cuerpoN -match '\[Math\]::Max\(1, \[int\]\$UsoAllyOcioMin\)') 'en PowerShell $null vale 0 al comparar'
+Comp '  y en toda la ventana, no solo en un tramo' (-not ($cuerpoN -match 'if \(\$mAhora -lt \$hastaN\) \{')) 'la primera version partia la noche en dos y el banco lo tumbo'
 
 Write-Host ''
 if ($mal -gt 0) { Write-Host "  $mal MAL"; exit 1 }

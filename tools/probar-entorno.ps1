@@ -287,8 +287,20 @@ Reset
 $hAhora = (Get-Date).Hour
 $EntornoNocheDesde = $hAhora
 $EntornoNocheHasta = ($hAhora + 1) % 24
-Comp 'de noche, un aviso normal se calla' (-not (Send-AvisoEntorno 'dock' 'Pantalla conectada.')) ''
+# Y SIN NADIE DELANTE (27/09, idea 98): desde esa idea, la noche se levanta si alguien toco la
+# consola hace menos de $UsoAllyOcioMin, y el doble de arriba pone el ocio en CERO -braya delante-
+# para probar el resto del banco. Con braya delante ya no es de noche, asi que el silencio nocturno
+# hay que probarlo con la casa vacia, que es cuando existe. El aviso de la hora de dormir se prueba
+# igual: ese se salta el silencio pase lo que pase.
+$ocioViejoN = ${function:Get-InactividadMin}
+function Get-InactividadMin { return 600 }
+Comp 'de noche y sin nadie, un aviso normal se calla' (-not (Send-AvisoEntorno 'dock' 'Pantalla conectada.')) ''
 Comp 'pero el de la hora de dormir SI sale' (Send-AvisoEntorno 'hora-dormir' 'Son las 2:30.' 'noche') ''
+Reset
+# Y LA PROPIEDAD NUEVA, aqui mismo: la misma hora, con braya delante, ya no es silencio
+function Get-InactividadMin { return 0 }
+Comp 'y a esa misma hora, con el delante, SI sale' ([bool](Send-AvisoEntorno 'dock' 'Pantalla conectada.')) 'quien acaba de tocar la consola no duerme'
+${function:Get-InactividadMin} = $ocioViejoN
 Reset
 $script:juegoActivo = 'It Takes Two'
 Comp 'y aun asi no interrumpe la partida' (-not (Send-AvisoEntorno 'hora-dormir' 'Son las 2:30.' 'noche')) ''

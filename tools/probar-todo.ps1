@@ -1701,6 +1701,15 @@ Titulo "2n151. La noche es la tuya, no las once (idea 8)"
 # Sin datos suficientes (menos de 4 dias) sigue el numero de config, asi que el primer dia
 # funciona igual que antes. Y se valida lo que ENTRA: 99999 minutos, con el modulo 24, darian
 # "las 10", una hora perfectamente valida y perfectamente inventada.
+# Y AMPLIADO CON LA IDEA 98 (27/09): la manana se levanta cuando alguien toca la consola. La mitad
+# de esto ya se aprendia -el principio del silencio sale de sus horas y desde la idea 86 el final
+# sale de su franja muerta- pero seguia siendo una HORA, y una hora se cumple este quien este: en
+# el registro hay cinco avisos en el minuto siguiente a las 08:00, y la primera senal de braya en
+# 16 dias NUNCA fue antes de las 08:00 (mediana 12:53, diez de los 16 dias despues de las 10:00).
+# Ahora Get-NadieMin -que ya junta voz, ocio de Windows, mando y acelerometro- levanta la noche si
+# alguien toco algo hace menos de $UsoAllyOcioMin, el liston de 'en uso' que la casa ya tenia.
+# Escribi primero la guarda solo para 'el tramo de la manana' y el banco la tumbo: de medianoche a
+# las ocho TODO es ese tramo, asi que las 03:00 entraban igual. Va en toda la ventana.
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-noche-tuya.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la noche es la tuya)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
@@ -2080,6 +2089,16 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n249. Las senales de fallo que Nova se deduce sola y no leia nadie (idea 99 de las 121)"
+# senales-fallo.jsonl tiene 33 lineas de cinco dias: 14 'ruido' y 5 'descarte' de peso ALTO -no hizo
+# NADA con la frase- y 14 'no-orden-a-charla' de peso BAJO -hizo algo que quiza no era-. En todo el
+# proyecto, fuera de dos bancos, el fichero aparecia en DOS sitios: quien lo escribe y quien lo
+# BORRA. Cero lecturas, y el comentario de Write-FalloDeducido decia que los pesos van separados
+# 'para que quien lo lea los cuente por separado'. Ahora las cuelga el parrafo semanal, que salia
+# vacio SIEMPRE ('auto-ajuste' vale cero en 14 dias). LOS PESOS NO SE SUMAN: sumarlos daria 63
+# fallos de 114 ordenes el 18/09, que es la piedra del contador de falsas alarmas y su 489 %.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-senales-fallo.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:las senales de fallo ya las lee alguien)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n248. Noventa segundos esperando a que elijas un amigo, sin medirlo (idea 97 de las 121)"
 # EL FALLO DE FONDO NO ERA EL NUMERO, ERA DESDE CUANDO SE CUENTA: los 90 s arrancaban al ARMAR el
 # selector, antes de leer la lista en voz alta -diez nombres son unos 15 s-, asi que la ventana

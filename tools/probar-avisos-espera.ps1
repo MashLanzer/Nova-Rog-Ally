@@ -207,7 +207,12 @@ Limpia
 $script:ausenciaMin = 300
 $r5 = Send-AvisoEntorno 'cargador-quita' 'Has quitado el cargador' 'medio' 5
 Comp 'y lo que acaba de hacer con las manos, igual' ($r5) 'ahi la presencia esta probada'
-Comp 'las ocho exentas estan en UNA lista a la vista' ($AvisoSiempre.Count -eq 8) "$($AvisoSiempre.Count)"
+# EL TRINQUETE CUENTA, Y ESE ES SU TRABAJO: eran ocho y la idea 92 (27/09) anadio 'sin-red' y
+# 'red-vuelve', que caducan igual que el cargador o los cascos -un aviso de que no hay internet
+# soltado tres horas despues, cuando ya la hay, es ruido-. Son diez. Si alguien anade una sin
+# pensarlo, este numero vuelve a salir rojo, que es para lo que esta.
+Comp 'las diez exentas estan en UNA lista a la vista' ($AvisoSiempre.Count -eq 10) "$($AvisoSiempre.Count)"
+Comp '  y las dos de red estan dentro' (($AvisoSiempre -contains 'sin-red') -and ($AvisoSiempre -contains 'red-vuelve')) 'caducan: son de aqui y ahora'
 Limpia
 $script:ausenciaMin = 300
 $r6 = Send-AvisoEntorno 'bateria-llena' 'Ya esta cargada' 'bajo' 60
