@@ -14,7 +14,7 @@ import sys
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 fuente = open(os.path.join(RAIZ, "wake_vosk.py"), encoding="utf-8").read()
 arbol = ast.parse(fuente)
-QUIERO = {"PALABRAS_ES", "PALABRAS_EN", "suena_ingles", "SILENCIO_FIN", "SILENCIO_FIN_LOTENGO", "silencio_para_cerrar", "MARGEN_CORTE_HZ", "es_voz_de_braya", "PROMPT_ORDENES", "es_eco_del_ejemplo", "PICO_OBJETIVO", "GANANCIA_MIN", "GANANCIA_MAX", "GANANCIA_INICIAL", "DICTADO_MAX", "ACT_ESPERA_MAX", "activacion_caducada", "fila_activacion"}
+QUIERO = {"PALABRAS_ES", "PALABRAS_EN", "VOSK_MIN_PALABRAS", "palabras_planas", "suena_ingles", "SILENCIO_FIN", "SILENCIO_FIN_LOTENGO", "silencio_para_cerrar", "MARGEN_CORTE_HZ", "es_voz_de_braya", "PROMPT_ORDENES", "es_eco_del_ejemplo", "PICO_OBJETIVO", "GANANCIA_MIN", "GANANCIA_MAX", "GANANCIA_INICIAL", "DICTADO_MAX", "ACT_ESPERA_MAX", "activacion_caducada", "fila_activacion"}
 trozos = []
 for n in arbol.body:
     nombre = n.targets[0].id if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name) else getattr(n, "name", None)
@@ -121,6 +121,46 @@ comp("vacio no suena a nada", not suena("") and not suena(None))
 # coste asumido, y que se sepa: un nombre ingles A SECAS con palabra vacia dentro si se marca;
 # Whisper lo repasa (forzado a español) y si no saca nada se entrega lo de Parakeet igual
 comp("'The Witcher' a secas SI se marca (coste asumido, documentado)", suena("The Witcher"))
+
+# PARAKEET SE VA A OTRO IDIOMA Y LA GUARDA SOLO SABIA INGLES (26/09, idea 43). Ahora, si Parakeet
+# no trae palabra de PALABRAS_EN pero Vosk oyo varias y alguna es española, tambien se repasa.
+print("")
+print("-- la red de Vosk: las 8 que gana, con el par real del registro --")
+for p, v in (("Kyo", "que hora es"), ("An together temporary", "conto que temporizador"),
+             ("Maar die dog komen beheer", "marido a en vez de"),
+             ("Completion telephone", "conto con podrian telefono"),
+             ("Sierra Gul", "cierra gould"), ("Cierro", "sierra lo"), ("Sierra Ul", "si raul"),
+             ("Vamos comentar", "vamos que mientras damas de")):
+    comp("'%s' + Vosk '%s' se repasa" % (p, v), suena(p, v))
+print("-- pero la red no se pasa de lista --")
+comp("'Sim' + Vosk 'se' (una palabra) NO", not suena("Sim", "se"))          # VOSK_MIN_PALABRAS
+comp("'Hola, comida' + 'hola avenida' (sin ES en Vosk) NO", not suena("Hola, comida", "hola avenida"))
+comp("'Abre Steam' aunque Vosk oiga algo (veto 1 manda)", not suena("Abre Steam", "abre steam de"))
+comp("VOSK_MIN_PALABRAS es 2 (de las 7 ordenes de Vosk-una-palabra)", ns["VOSK_MIN_PALABRAS"] == 2)
+print("-- compatibilidad: un solo argumento da EXACTAMENTE lo de hoy --")
+_iguales = True
+for t in ("Haben The Ring", "See it now", "Everything", "Abre Steam", "Elden Ring", "Gracias",
+          "¿Qué hora es", "The Witcher", "abre the witcher", ""):
+    if suena(t) != suena(t, ""):
+        _iguales = False
+comp("suena(t) == suena(t, '') para todos los casos de hoy", _iguales, "un argumento no puede cambiar")
+comp("texto_vosk None no revienta (guardar_uso escribe null)", (suena("Kyo", None) is False))
+
+# EL CABLEADO, sobre el fuente (lo que un banco de valores no ve, idea 43 caso E):
+print("")
+print("-- el cableado de los dos puntos de llamada --")
+comp("la rama del silencio pasa texto_vosk como tercer argumento",
+     "repasar_si_ingles(rapido, audio_dictado, texto_vosk)" in fuente)
+# la rama del boton NO puede usar el texto_vosk de nivel de modulo (trae el Vosk de la orden
+# anterior): usa una variable propia _vosk_boton
+comp("la rama del boton usa _vosk_boton, no el texto_vosk de modulo",
+     "repasar_si_ingles(rapido, audio_dictado, _vosk_boton)" in fuente)
+_iBoton = fuente.find("_vosk_boton = texto_final")
+_ventana = fuente[max(0, _iBoton - 200): _iBoton + 400] if _iBoton >= 0 else ""
+comp("y no escribe texto_vosk en la rama del boton", _iBoton >= 0 and "texto_vosk =" not in _ventana,
+     "texto_vosk de modulo mentiria a partir de la 2a orden")
+comp("suena_ingles conserva los dos vetos antes del disparo de Vosk",
+     ns["suena_ingles"] and fuente.count("return False") >= 2)
 
 # LAS ACTIVACIONES SECAS (20/09/2026): la linea que se guarda en activaciones.jsonl
 _fila_act = ns["fila_activacion"]

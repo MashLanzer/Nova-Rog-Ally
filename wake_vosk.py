@@ -1628,25 +1628,47 @@ PALABRAS_EN = set("""the and i'm i im you your it it's is are was were this that
     get got go going come came make made let yeah okay please thanks thank hello hi hey right left up down
     over out about into back off all any some more most much very too also still again ever never always
     sometimes tentative""".split())
+# CUANTAS PALABRAS DE VOSK HACEN FALTA para creerle cuando dice que era español (26/09, idea 43).
+# Sale del registro: de las 24 entregas sin una sola palabra española que la guarda vieja no
+# pillaba, 7 tenian un Vosk de UNA sola palabra ('Sim'/'se', 'Hola'/'va', 'Banta'/'tanto'...);
+# un 'se' suelto de Vosk no prueba nada. El liston de 2 es lo unico que impide que 'Sim' dispare
+# por ese 'se'. Medido sobre las 561 ordenes de pruebas\audio\uso\registro.jsonl.
+VOSK_MIN_PALABRAS = 2
 
 
-def suena_ingles(texto):
-    """True si lo de Parakeet es ingles de arriba abajo: sin una palabra española, con alguna inglesa."""
-    palabras = [unicodedata.normalize("NFD", w).encode("ascii", "ignore").decode().lower()
-                for w in re.findall(r"[a-záéíóúñüA-ZÁÉÍÓÚÑÜ']+", texto or "")]
-    palabras = [w for w in palabras if w]
+def palabras_planas(texto):
+    """Las palabras de un texto, sin tildes y en minusculas. Nivel de modulo a proposito: los
+    bancos sacan los nodos del arbol por nombre, y una funcion anidada no la ven (probar-no-sorda)."""
+    ws = [unicodedata.normalize("NFD", w).encode("ascii", "ignore").decode().lower()
+          for w in re.findall(r"[a-záéíóúñüA-ZÁÉÍÓÚÑÜ']+", texto or "")]
+    return [w for w in ws if w]
+
+
+def suena_ingles(texto, texto_vosk=""):
+    """True si lo de Parakeet es ingles de arriba abajo: sin una palabra española, con alguna
+    inglesa. El texto_vosk (lo que oyo Vosk en paralelo) es una RED DE SEGURIDAD para los casos en
+    que Parakeet no trae una palabra de PALABRAS_EN pero Vosk si oyo español: la mitad de Vosk se
+    cumple en el 86 % de las ordenes, asi que lo que esto hace de verdad es dejar de EXIGIR una
+    palabra de PALABRAS_EN, no que 'Vosk confirme que era español'. El defecto "" da EXACTAMENTE
+    lo de antes (dos bancos la llaman con un solo argumento)."""
+    palabras = palabras_planas(texto)
     if not palabras or any(w in PALABRAS_ES for w in palabras):
-        return False
+        return False   # veto 1: una palabra española de Parakeet y no es ingles
     if re.search(r"[áéíóúñ¿¡]", texto or ""):
-        return False
-    return any(w in PALABRAS_EN for w in palabras)
+        return False   # veto 2: una tilde o signo de apertura y no es ingles
+    if any(w in PALABRAS_EN for w in palabras):
+        return True    # lo de siempre: una palabra inglesa clara
+    # la red de Vosk: sin palabra inglesa, pero Vosk saco varias y alguna es española
+    vosk = palabras_planas(texto_vosk)
+    return len(vosk) >= VOSK_MIN_PALABRAS and any(w in PALABRAS_ES for w in vosk)
 
 
-def repasar_si_ingles(rapido, bloques):
+def repasar_si_ingles(rapido, bloques, texto_vosk=""):
     """Si lo de Parakeet suena a ingles, lo oye Whisper (forzado a español) antes de entregar.
     Devuelve (parakeet, whisper): con Whisper acertando, lo de Parakeet se queda en "" para
-    que se entregue lo suyo; si Whisper no saca nada, se entrega lo de Parakeet como siempre."""
-    if not rapido or whisper is None or not suena_ingles(rapido):
+    que se entregue lo suyo; si Whisper no saca nada, se entrega lo de Parakeet como siempre.
+    texto_vosk: lo que oyo Vosk, como red de seguridad de suena_ingles (26/09, idea 43)."""
+    if not rapido or whisper is None or not suena_ingles(rapido, texto_vosk):
         return rapido, ""
     # EL REPASO, CON EL OIDO FINO (19/09). Medido pasando las 311 grabaciones de uso por
     # este mismo camino: la guarda salta 22 veces (bien: detecta el ingles), pero el
@@ -3845,11 +3867,16 @@ try:
                     parcial = json.loads(rec.FinalResult()).get("text", "")
                     if parcial:
                         texto_final = (texto_final + " " + parcial).strip()
+                    # lo que oyo Vosk aqui, capturado en VARIABLE PROPIA (idea 43): NO se puede usar
+                    # el texto_vosk de nivel de modulo, que en esta rama trae el Vosk de la orden
+                    # ANTERIOR (miente, y solo a partir de la segunda orden). Esta rama no guarda
+                    # campo vosk en el registro, asi que de aqui no hay medicion: es por coherencia.
+                    _vosk_boton = texto_final
                     rapido = oir_parakeet(audio_dictado)
                     mejor = ""
                     _ultima_seguridad = None
                     oido_parakeet = rapido
-                    rapido, mejor = repasar_si_ingles(rapido, audio_dictado)   # ver PARAKEET OYE INGLES
+                    rapido, mejor = repasar_si_ingles(rapido, audio_dictado, _vosk_boton)   # ver PARAKEET OYE INGLES
                     if rapido:
                         texto_final = rapido
                         marcar_parakeet()
@@ -4264,7 +4291,9 @@ try:
                             _ultima_seguridad = None
                             # lo que dijo Parakeet se guarda aunque suene a ingles: es el dato
                             oido_parakeet = rapido
-                            rapido, mejor = repasar_si_ingles(rapido, audio_dictado)
+                            # texto_vosk es la red de seguridad de suena_ingles (idea 43): aqui SI
+                            # existe, lo asigna el cierre por silencio unas lineas mas arriba.
+                            rapido, mejor = repasar_si_ingles(rapido, audio_dictado, texto_vosk)
                             if rapido:
                                 texto_final = rapido
                                 marcar_parakeet()
