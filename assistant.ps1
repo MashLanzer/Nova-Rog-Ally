@@ -6643,7 +6643,7 @@ function Resolve-Fragment([string]$f) {
     # EL NUMERO, y SOLO mientras hay una lista viva: fuera de esos noventa segundos "el dos"
     # no significa nada aqui y sigue su camino. Sin esta guarda, un "dos" suelto en mitad de
     # una charla acabaria armando una vigilancia que nadie pidio, que es la regla 1.
-    if ($script:amigoEligiendo -and ($sw.ElapsedMilliseconds - [double]$script:amigoEligiendo.en) -lt $AmigoEligeMs -and
+    if ($script:amigoEligiendo -and ($sw.ElapsedMilliseconds - (Get-AmigoEligeDesde $script:amigoEligiendo)) -lt (Get-VentanaElegir) -and
         $f -match '^(?:el\s+|la\s+|el\s+numero\s+|la\s+numero\s+)?(\w+)$' -and
         ($CARDINALES.ContainsKey([string]$Matches[1]) -or $ORDINALES_YT.ContainsKey([string]$Matches[1]) -or
          (([string]$Matches[1]).Length -le 2 -and ($Matches[1] -as [int]) -gt 0))) {
@@ -10710,6 +10710,15 @@ function Get-Habitos {
             # IDEA 61: ritmo pasa de numeros pelados a {s, f} (segundos, fecha). El lector viejo se
             # sigue aceptando -como con juegos.json-: un numero suelto entra con fecha vacia (no cuenta
             # para los 3 dias, pero no se pierde el dato).
+            # LAS MEDIDAS DE ELEGIR (27/09, idea 97), con el patron de las demas: un habitos.json
+            # de ayer no trae esta clave y no puede reventar la lectura.
+            if ($crudoH.PSObject.Properties['elegir']) {
+                $script:habitos['elegir'] = New-Object System.Collections.ArrayList
+                foreach ($xe in @($crudoH.elegir)) {
+                    if (-not $xe) { continue }
+                    try { [void]$script:habitos.elegir.Add(@{ s = [double]$xe.s; f = [string]$xe.f }) } catch {}
+                }
+            }
             foreach ($x in @($crudoH.ritmo)) {
                 if ($null -eq $x) { continue }
                 if ($x.PSObject.Properties.Name -contains 's') { [void]$script:habitos.ritmo.Add(@{ s = [double]$x.s; f = [string]$x.f }) }
@@ -10724,7 +10733,7 @@ function Get-Habitos {
 function Save-Habitos {
     try {
         $hb = Get-Habitos
-        $o = [ordered]@{ usos = @($hb.usos); rechazadas = @($hb.rechazadas); ultimaPropuesta = $hb.ultimaPropuesta; fin = $hb.fin; cargaAvisada = $hb.cargaAvisada; nivelVisto = $hb.nivelVisto; brilloAuto = [bool]$hb.brilloAuto; parteVisto = [string]$hb.parteVisto; parteTexto = [string]$hb.parteTexto; correoVisto = [string]$hb.correoVisto; correoNum = [int]$hb.correoNum; sinDatosVisto = [string]$hb.sinDatosVisto; sinDatosTexto = [string]$hb.sinDatosTexto; ritmo = @($hb.ritmo); charlaHoras = $hb.charlaHoras; variedad = $hb.variedad; presencia = $hb.presencia; avisoJuego = $hb.avisoJuego; horas = $hb.horas; ruptura = $hb.ruptura }
+        $o = [ordered]@{ usos = @($hb.usos); rechazadas = @($hb.rechazadas); ultimaPropuesta = $hb.ultimaPropuesta; fin = $hb.fin; cargaAvisada = $hb.cargaAvisada; nivelVisto = $hb.nivelVisto; brilloAuto = [bool]$hb.brilloAuto; parteVisto = [string]$hb.parteVisto; parteTexto = [string]$hb.parteTexto; correoVisto = [string]$hb.correoVisto; correoNum = [int]$hb.correoNum; sinDatosVisto = [string]$hb.sinDatosVisto; sinDatosTexto = [string]$hb.sinDatosTexto; ritmo = @($hb.ritmo); elegir = @($(if ($hb.ContainsKey('elegir')) { $hb.elegir } else { @() })); charlaHoras = $hb.charlaHoras; variedad = $hb.variedad; presencia = $hb.presencia; avisoJuego = $hb.avisoJuego; horas = $hb.horas; ruptura = $hb.ruptura }
         $rutaH = Join-Path $MemoriaDir 'habitos.json'
         [System.IO.File]::WriteAllText($rutaH + '.tmp', (ConvertTo-Json -InputObject $o -Depth 4), (New-Object System.Text.UTF8Encoding($false)))
         Move-Item -LiteralPath ($rutaH + '.tmp') -Destination $rutaH -Force
@@ -11344,7 +11353,76 @@ $AmigoRedMs = 10000
 # sale de que Nova lee hasta diez nombres en voz alta, que a su velocidad son unos 20 s, mas el
 # tiempo de mirar. El selector del mando dura 15 s porque ahi la lista se VE; aqui hay que
 # oirla entera antes de poder contestar, asi que no se puede copiar ese numero.
-$AmigoEligeMs = 90000
+# NOVENTA SEGUNDOS ESPERANDO A QUE ELIJAS UN AMIGO, SIN HABER MEDIDO NUNCA CUANTO TARDAS
+# (27/09, idea 97 de las 121)
+#
+# EL FALLO DE FONDO NO ERA EL NUMERO, ERA DESDE CUANDO SE CUENTA: los 90 s arrancaban al ARMAR el
+# selector, o sea antes de leer la lista en voz alta. Diez nombres leidos son unos 15 s, asi que la
+# ventana efectiva para elegir eran ~75 s y nadie lo habia escrito en ningun sitio. Ahora empieza
+# cuando Nova CALLA (ver Get-AmigoEligeDesde), que es lo que obligaba a poner un numero tan grande.
+#
+# Y EL NUMERO SE MIDE, como todo lo demas de la casa. Lo que habia medido NO servia y hay que
+# decirlo: memoria\habitos.json guarda 30 medidas de ritmo -mediana 2,26 s, p80 3,75 s, maxima
+# 6,26 s-, pero eso es "cuanto tarda en EMPEZAR a hablar tras una frase corta", no "cuanto tarda en
+# elegir de una lista de diez oida". Son tareas distintas: en una contesta, en la otra tiene que
+# acordarse de diez nombres y de su numero. Aplicarle el p80 del ritmo seria usar una medicion para
+# lo que no se midio. (Y ademas hoy no daria nada: ninguna de las 30 lleva fecha, asi que
+# Get-VentanaSeguimiento se va por su guarda de 3 dias distintos y devuelve el valor por defecto.)
+#
+# ASI QUE SE MIDE ESTO: cada vez que braya elige un numero de la lista se apunta cuanto tardo desde
+# que Nova callo, y con 5 medidas en 3 dias distintos la ventana pasa a ser su p90 mas dos segundos
+# para decir el numero. Hasta entonces manda el numero escrito, que queda como TECHO y solo puede
+# bajar.
+#
+# LOS 25 s DEL TECHO NO ESTAN MEDIDOS y por eso son un techo: son cuatro veces la espera mas larga
+# que se le ha medido nunca para arrancar a hablar (6,26 s), contados ya desde que Nova calla. Si
+# resulta que tarda mas, se vera en el registro -la linea dice cuanto tardo cuando elige- y si
+# tarda menos, baja solo.
+$AmigoEligeMs = 25000
+$EligeTopeDia = 3                # tres medidas al dia como mucho: una tarde no llena la lista
+$EligeMax = 20                   # y la lista no crece sin fin
+
+# ¿Desde cuando se cuenta la ventana de elegir? Desde que la voz CALLO, no desde que se armo el
+# selector. El mismo patron que ya usa la guarda de los 6 s de la linea de Test-VozExtrana.
+function Get-AmigoEligeDesde($e) {
+    if (-not $e) { return 0 }
+    $finE = [Math]::Max([double]$script:vozFinReal, [double]$script:finVoz)
+    if ($finE -gt [double]$e.en) { return $finE }
+    return [double]$e.en
+}
+
+# Cuanto tardo en elegir, en segundos, desde que Nova callo.
+function Add-RitmoElegir([double]$seg) {
+    if ($seg -le 0 -or $seg -gt 120 -or $script:invitado) { return $false }
+    try {
+        $hbE = Get-Habitos
+        if (-not $hbE.ContainsKey('elegir')) { $hbE['elegir'] = New-Object System.Collections.ArrayList }
+        $hoyE = (Get-Date).ToString('yyyy-MM-dd')
+        if (@($hbE.elegir | Where-Object { [string]$_.f -eq $hoyE }).Count -ge $EligeTopeDia) { return $false }
+        [void]$hbE.elegir.Add(@{ s = [Math]::Round($seg, 2); f = $hoyE })
+        while ($hbE.elegir.Count -gt $EligeMax) { $hbE.elegir.RemoveAt(0) }
+        Save-Habitos
+        return $true
+    } catch { return $false }
+}
+
+function Get-VentanaElegir {
+    try {
+        $hbE = Get-Habitos
+        $msE = @()
+        if ($hbE.ContainsKey('elegir')) { $msE = @($hbE.elegir) }
+        # LA MISMA GUARDA DE DATOS REPARTIDOS QUE LAS OTRAS DECISIONES PROPIAS: 5 muestras y 3 dias
+        # distintos. Una sola tarde de pruebas no puede decidir esto.
+        $diasE = @($msE | Where-Object { [string]$_.f } | ForEach-Object { [string]$_.f } | Select-Object -Unique)
+        if ($msE.Count -lt 5 -or $diasE.Count -lt 3) { return $AmigoEligeMs }
+        $ordE = @($msE | ForEach-Object { [double]$_.s } | Sort-Object)
+        $p90E = [double]$ordE[[int][Math]::Floor(($ordE.Count - 1) * 0.9)]
+        # EL P90 Y NO EL P80: cortarle la eleccion una vez de cada cinco seria hacerle repetir la
+        # orden entera, que cuesta mucho mas que esperar tres segundos de mas. Y +2 s para decir el
+        # numero, que la medida acaba cuando la orden LLEGA.
+        return [int][Math]::Min($AmigoEligeMs, [Math]::Max(6000, $p90E * 1000 + 2000))
+    } catch { return $AmigoEligeMs }
+}
 
 # LA CLAVE NO VA EN config.json (24/09, repaso): ese fichero ESTA VERSIONADO, y hasta hoy
 # Nova le decia a braya que pusiera ahi la clave de la API de Steam. El dia que la pusiera
@@ -11638,6 +11716,14 @@ function Complete-AmigoElige([int]$n) {
     if ($script:invitado) { $script:amigoEligiendo = $null; return 'ahora mismo no dejo avisos puestos' }
     $lV = @($eV.lista)
     if ($n -lt 1 -or $n -gt $lV.Count) { return "No tengo un $n en esa lista." }
+    # CUANTO TARDO DE VERDAD (27/09, idea 97): desde que Nova callo hasta que llego el numero. De
+    # aqui sale la ventana, en vez del 90.000 escrito a ojo. Va DESPUES del numero fuera de rango
+    # -ese no es una eleccion- y antes de vaciar $script:amigoEligiendo, que es de donde sale el
+    # momento de partida.
+    $segE = ($sw.ElapsedMilliseconds - (Get-AmigoEligeDesde $eV)) / 1000.0
+    if (Add-RitmoElegir $segE) {
+        Log ("ELEGIR: tardaste " + [Math]::Round($segE, 1) + " s en elegir de la lista; la ventana es de " + [int]((Get-VentanaElegir) / 1000) + " s")
+    }
     $script:amigoEligiendo = $null
     $quienV = $lV[$n - 1]
     if (-not $quienV.visible) {

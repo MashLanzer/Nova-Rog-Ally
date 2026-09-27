@@ -2080,6 +2080,16 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n248. Noventa segundos esperando a que elijas un amigo, sin medirlo (idea 97 de las 121)"
+# EL FALLO DE FONDO NO ERA EL NUMERO, ERA DESDE CUANDO SE CUENTA: los 90 s arrancaban al ARMAR el
+# selector, antes de leer la lista en voz alta -diez nombres son unos 15 s-, asi que la ventana
+# efectiva eran ~75 s y no estaba escrito en ningun sitio. Ahora empieza cuando Nova CALLA. Y el
+# numero se mide: cada eleccion apunta cuanto tardo, y con 5 medidas en 3 dias distintos la ventana
+# pasa a ser su p90 mas dos segundos. Lo que habia medido NO servia: las 30 medidas de 'ritmo' son
+# de cuanto tarda en EMPEZAR A HABLAR, no de elegir de una lista de diez oida, y ademas ninguna de
+# las 30 lleva fecha, asi que Get-VentanaSeguimiento se va por su guarda y devuelve el defecto.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-elegir-amigo.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la ventana de elegir empieza cuando Nova calla)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n247. Contar como uso lo que de verdad usa el cerebro (idea 96 de las 121)"
 # De los 123 recuerdos, 122 tenian usos=0 y uno tenia 1. Y no es que no se usen: el contador SOLO
 # subia en respuesta_directa, que busca entre los de tipo 'respuesta', y de los 123 solo CUATRO lo

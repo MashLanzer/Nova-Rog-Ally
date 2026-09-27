@@ -181,7 +181,17 @@ $script:amigoEligiendo = $null
 foreach ($f in @('ConvertTo-Plain', 'Get-Reglas', 'Save-Reglas', 'Describe-Regla', 'Invoke-Reglas',
                  'Start-AmigoPregunta', 'Receive-AmigoPregunta', 'Format-AmigosSteam',
                  'Open-AmigoEleccion', 'Watch-AmigoConecta', 'Start-AmigoVigila',
-                 'Complete-AmigoElige')) { Invoke-Expression (Traer $f) }
+                 'Get-AmigoEligeDesde', 'Complete-AmigoElige')) { Invoke-Expression (Traer $f) }
+# Get-AmigoEligeDesde ENTRA (27/09, idea 97): es de consulta -dice desde cuando cuenta la ventana
+# de elegir, y cuenta desde que la voz CALLO- y Complete-AmigoElige la llama, asi que sin ella el
+# banco muere con 'no se reconoce'. Add-RitmoElegir y Get-VentanaElegir NO entran: la primera
+# escribe en habitos.json y la segunda lo lee, y aqui no se prueba la ventana -para eso esta
+# probar-elegir-amigo.ps1-. Se doblan.
+$script:vozFinReal = 0
+$script:finVoz = 0
+$script:medidasElegir = @()
+function Add-RitmoElegir([double]$seg) { $script:medidasElegir += @($seg); return $false }
+function Get-VentanaElegir { return 25000 }
 # el mensaje de la clave que falta, leido del codigo (lo usan las dos puertas)
 $mensajeSinClave = if ($fuente -match "(?m)^\`$mensajeSinClave = '([^']+)'") { $Matches[1] } else { '' }
 if (-not $mensajeSinClave) { Write-Host '  MAL  no encuentro el mensaje de la clave que falta'; exit 1 }
