@@ -83,7 +83,7 @@ Comp 'y la siembra solo actua si no existe' ($blI -match 'Test-Path -LiteralPath
 Write-Host ''
 Write-Host '-- 5. LAS FUNCIONES, SACADAS DEL ARCHIVO Y EJECUTADAS --'
 $faltan = 0
-foreach ($f in @('ConvertTo-Plain', 'Write-Atomico', 'Add-PerfilTodo', 'Get-PerfilTodo', 'Find-PerfilTodo')) {
+foreach ($f in @('ConvertTo-Plain', 'Write-Atomico', 'Get-DatoSinCola', 'Add-PerfilTodo', 'Get-PerfilTodo', 'Find-PerfilTodo')) {
     $d = $ast.Find({ param($x)
         $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq $f }, $true)
     if (-not $d) { Comp ("se encuentra " + $f) $false ''; $faltan++; continue }

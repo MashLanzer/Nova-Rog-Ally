@@ -2068,6 +2068,14 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n219. Las copias de seguridad resucitaban 73 datos que el perfil ya habia tirado (idea 65 de las 121)"
+# Juntando el perfil.md de los 13 zips salian 94 datos distintos frente a los 38 del vivo, entre
+# ellos 'Braya considera que Nova se equivoca frecuentemente'. Al hacer la copia del dia se poda
+# el perfil.md de las anteriores dejando solo lo que sigue vivo: cada zip en su .tmp y al sitio
+# solo al terminar; si el vivo estuviera vacio NO se toca nada; un zip ilegible se salta y un
+# fallo AL ESCRIBIR para la pasada. perfil-todo.md no se poda nunca: es lo que braya pidio.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-copias-podadas.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:lo que el perfil tiro ya no revive en las copias)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n216. Se muere la mitad de las veces y solo recuerda la ultima: contar arranques y relanzamientos (idea 50 de las 121)"
 # 72 arranques / 36 cierres limpios (50 %) y 46 relanzamientos del oido o la capsula en 12 dias
 # que Nova nunca conto ni dijo. Ahora cuenta 'arranque', 'cierre-limpio', 'relanza:oido' y

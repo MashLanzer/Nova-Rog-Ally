@@ -8906,6 +8906,15 @@ function Test-DatoPasajero([string]$dato) {
 # SIN TOPE A PROPOSITO. Al ritmo medido -91 datos en quince dias, unos seis al dia- esto son
 # 90 KB al ano. Es lo que vale no volver a perder "mi juego favorito es Hollow Knight".
 $PerfilTodoPath = Join-Path $MemoriaDir 'perfil-todo.md'
+# UNA LINEA DE DATO, SIN EL GUION NI LA FECHA DEL FINAL (27/09, idea 65). Estaba copiada en
+# Add-PerfilTodo y en Get-PerfilTodo, y la poda de las copias necesitaba una tercera. Va AQUI y
+# no junto a las copias -12.000 lineas mas abajo- porque el script se lee de arriba abajo y la
+# siembra del perfil la usa al arrancar: definida despues, hoy funcionaba de milagro.
+function Get-DatoSinCola([string]$l) {
+    if (-not $l) { return '' }
+    return ((($l -replace '^\s*-\s*', '') -replace '\s+\([^)]*\)\s*$', '')).Trim()
+}
+
 function Add-PerfilTodo([string]$dato, [string]$fuente = '') {
     # la misma guarda que el perfil: con un invitado delante no se aprende nada de nadie
     if ($script:invitado) { return }
@@ -8920,8 +8929,7 @@ function Add-PerfilTodo([string]$dato, [string]$fuente = '') {
         # dejaria la misma linea cien veces. Se compara en plano y sin la fecha del final.
         $plano = (ConvertTo-Plain $dato).ToLower()
         foreach ($x in $l) {
-            $limpio = ($x -replace '^\s*-\s*', '') -replace '\s+\([^)]*\)\s*$', ''
-            if ((ConvertTo-Plain $limpio).ToLower() -eq $plano) { return }
+            if ((ConvertTo-Plain (Get-DatoSinCola $x)).ToLower() -eq $plano) { return }
         }
         $cola = (Get-Date -Format 'yyyy-MM-dd')
         if ($fuente) { $cola = $cola + ', ' + $fuente }
@@ -8934,7 +8942,7 @@ function Get-PerfilTodo {
         if (-not (Test-Path -LiteralPath $PerfilTodoPath)) { return @() }
         return @(Get-Content -LiteralPath $PerfilTodoPath -Encoding UTF8 |
                  Where-Object { $_ -match '^\s*-\s+\S' } |
-                 ForEach-Object { (($_ -replace '^\s*-\s*', '') -replace '\s+\([^)]*\)\s*$', '').Trim() })
+                 ForEach-Object { Get-DatoSinCola $_ })   # una sola pieza, ver Get-DatoSinCola (idea 65)
     } catch { return @() }
 }
 # LO QUE BUSCA UNA PALABRA (para "que sabes de mi sobre X"). No sale al modelo: se lee aqui
@@ -21144,6 +21152,108 @@ function Update-Clima {
 # ultimas, que con ~40 KB cada una no ocupan nada.
 $CopiasDir = Join-Path $LogDir 'copias'
 $CopiasMax = 14
+# LAS COPIAS TAMBIEN SE PODAN (27/09, idea 65). El perfil vivo se limpia solo -la poda tira los
+# estados pasajeros y lo que ya no toca- pero cada zip guarda intacto el perfil de SU dia, asi
+# que lo borrado sigue vivo en catorce sitios. Medido: juntando el perfil.md de los 13 zips
+# salen 94 datos distintos frente a los 38 del vivo; 73 huerfanos, entre ellos 'Braya considera
+# que Nova se equivoca frecuentemente' y 'A braya no le gusta la musica electronica'.
+#
+# UNA POR DIA, NO LAS CATORCE DE GOLPE: se poda el zip MAS VIEJO que aun tenga huerfanos, asi
+# que un fallo nunca se lleva mas de una copia, y no hace falta guardar por donde iba: en cuanto
+# un zip queda limpio, deja de ser el elegido y le toca al siguiente.
+#
+# LA GUARDA QUE NO PIDE LA IDEA Y HACE FALTA: si el perfil vivo estuviera vacio -un fichero que
+# se corta a medias, justo lo que estas copias vienen a arreglar- 'quitar lo que no este en el
+# vivo' vaciaria las catorce. Con cero datos vivos no se toca ni un zip.
+#
+# Y LO QUE NO SE PODA, dicho aqui para que nadie lo 'arregle': memoria/perfil-todo.md. Es la
+# memoria que braya pidio que no se borre nunca; en los zips desde el 25/09 el dato sigue ahi
+# aunque salga de perfil.md, y eso es lo correcto, no un olvido.
+# Poda UN zip: deja en su memoria/perfil.md solo las lineas que sigan en el vivo. Devuelve
+# cuantas quito, o -1 si no habia nada que hacer. ATOMICO: se trabaja sobre una copia .tmp y
+# solo al final se pone en el sitio del original, igual que Write-Atomico con los json.
+function Update-CopiaPodada([string]$zip, $vivosPlano) {
+    $tmp = $zip + '.tmp'
+    $entrada = 'memoria/perfil.md'
+    try {
+        Copy-Item -LiteralPath $zip -Destination $tmp -Force -ErrorAction Stop
+        $quitadas = 0
+        $za = [System.IO.Compression.ZipFile]::Open($tmp, 'Update')
+        try {
+            $e = @($za.Entries | Where-Object { $_.FullName.Replace('\', '/') -eq $entrada })[0]
+            if (-not $e) { $za.Dispose(); Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue; return -1 }
+            $sr = New-Object System.IO.StreamReader($e.Open(), (New-Object System.Text.UTF8Encoding($false)))
+            $texto = $sr.ReadToEnd(); $sr.Close()
+            $lineas = @(($texto -split "`r?`n"))
+            $quedan = New-Object System.Collections.Generic.List[string]
+            foreach ($l in $lineas) {
+                if ($l -match '^\s*-\s+\S') {
+                    $plano = (ConvertTo-Plain (Get-DatoSinCola $l)).ToLower()
+                    if ($vivosPlano -notcontains $plano) { $quitadas++; continue }
+                }
+                $quedan.Add($l)
+            }
+            if ($quitadas -eq 0) { $za.Dispose(); Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue; return 0 }
+            $nombre = $e.FullName
+            $e.Delete()
+            $nueva = $za.CreateEntry($nombre)
+            $sw = New-Object System.IO.StreamWriter($nueva.Open(), (New-Object System.Text.UTF8Encoding($false)))
+            $sw.Write(($quedan -join "`r`n")); $sw.Flush(); $sw.Close()
+        } finally { $za.Dispose() }
+        # DESDE AQUI, UN FALLO ES DE LOS QUE PARAN LA PASADA: ya se ha reescrito la entrada
+        # dentro del .tmp y lo unico que queda es ponerlo en su sitio. Si esto falla, algo va mal
+        # de verdad (disco lleno, permisos) y seguir con los otros trece seria repetir el fallo.
+        $paso = $false
+        try {
+            # el cambio de sitio, al final y de una vez: si algo se rompio arriba, el zip de
+            # verdad sigue entero y lo unico que sobra es un .tmp.
+            Move-Item -LiteralPath $tmp -Destination $zip -Force -ErrorAction Stop
+            $paso = $true
+        } catch {
+            Log ('COPIA poda: no pude poner en su sitio ' + (Split-Path -Leaf $zip) + ': ' + $_.Exception.Message)
+            Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+            return -2
+        }
+        if (-not $paso) { return -2 }
+        return $quitadas
+    } catch {
+        # LEER no salio: un zip que no se abre (cortado a medias en su dia, o que no es un zip).
+        # No es un fallo de la poda y no debe bloquearla: se apunta, se salta y a por el siguiente.
+        Log ('COPIA poda: no pude leer ' + (Split-Path -Leaf $zip) + ': ' + $_.Exception.Message)
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        return -1
+    }
+}
+
+# TODAS LAS QUE HAGA FALTA EN UNA PASADA, pero cortando en el primer fallo de escritura. La idea
+# pedia "una por dia" por miedo a corromper catorce de golpe, y con eso no llegaba nunca: solo
+# se guardan las 14 ultimas copias, asi que a una por dia las viejas salen de la rotacion antes
+# de que les toque el turno y la poda no serviria para lo que se hizo. El miedo se cubre igual:
+# cada zip se reescribe en su propio .tmp -un fallo deja el original entero- y en cuanto uno
+# falla AL ESCRIBIR se para la pasada, asi que un problema de verdad se lleva una copia como
+# mucho. Un zip que no se puede leer no para nada: se salta.
+function Invoke-PodaCopias {
+    try {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+        $vivos = @(Get-DatosPerfil)
+        if ($vivos.Count -eq 0) { Log 'COPIA poda: el perfil vivo esta vacio; no se toca ninguna copia'; return $null }
+        $vivosPlano = @($vivos | ForEach-Object { (ConvertTo-Plain (Get-DatoSinCola $_)).ToLower() })
+        $zips = @(Get-ChildItem -LiteralPath $CopiasDir -Filter 'lo-aprendido_*.zip' -File -ErrorAction SilentlyContinue | Sort-Object Name)
+        $podadas = 0; $quitadasTot = 0; $corto = ''
+        foreach ($z in $zips) {
+            $q = Update-CopiaPodada $z.FullName $vivosPlano
+            if ($q -eq -2) { $corto = $z.Name; break }   # fallo al escribir: se para aqui
+            if ($q -gt 0) {
+                Log ("COPIA poda: " + $q + " datos que el perfil ya no tiene, fuera de " + $z.Name)
+                Add-Estadistica 'copia-podada' $z.Name
+                $podadas++; $quitadasTot += $q
+            }
+        }
+        if ($corto) { Log ("COPIA poda: parada en " + $corto + "; las demas se quedan como estaban") }
+        if ($podadas -eq 0) { return $null }
+        return @{ copias = $podadas; quitadas = $quitadasTot; parada = $corto }
+    } catch { Log ('COPIA poda: ' + $_.Exception.Message); return $null }
+}
 function New-CopiaSeguridad([string]$motivo = 'a mano') {
     try {
         $origen = @($TraduccionesPath, (Join-Path $LogDir 'reglas.json'), $cmdsPath, $cfgPath, $MemoriaDir,
@@ -21155,6 +21265,10 @@ function New-CopiaSeguridad([string]$motivo = 'a mano') {
         # las viejas fuera: el nombre lleva la fecha, asi que ordenar por nombre es ordenar por fecha
         Get-ChildItem -LiteralPath $CopiasDir -Filter 'lo-aprendido_*.zip' | Sort-Object Name -Descending |
             Select-Object -Skip $CopiasMax | Remove-Item -Force -ErrorAction SilentlyContinue
+        # LA PODA DE LAS VIEJAS (27/09, idea 65). Va DESPUES de escribir la de hoy: si algo se
+        # rompiera aqui, la copia de hoy ya esta hecha y entera. Una por dia, la mas vieja con
+        # huerfanos; la de hoy nace ya limpia porque su perfil.md ES el vivo.
+        try { [void](Invoke-PodaCopias) } catch { Log ('COPIA poda: ' + $_.Exception.Message) }
         $n = @($origen | ForEach-Object { if (Test-Path -LiteralPath $_ -PathType Container) { Get-ChildItem -LiteralPath $_ -Recurse -File } else { Get-Item -LiteralPath $_ } }).Count
         $kb = [int][Math]::Ceiling((Get-Item -LiteralPath $zip).Length / 1KB)
         Log "COPIA ($motivo): $n archivos, $kb KB -> $zip"
