@@ -2072,6 +2072,17 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n224. El oido sabe cuanto tarda cada motor, asi que no empieza lo que no llega (idea 71 de las 121)"
+# Medido sobre los 477 repasos de registro.jsonl, segundos por segundo de audio: base 0,32,
+# canary 0,43, small 0,93, omni 1,05, turbo 2,97. En los 15 s de plazo a base le caben 46 s de
+# audio y a turbo 5, y el tope era 8 para los dos: turbo se paso del plazo en 17 de sus 23 usos,
+# 36 repasos llegaron tarde y 23,2 minutos de CPU se quemaron para nada. Canary y omni NO tenian
+# ningun tope. Ahora el plazo viaja con el pedido y el oido estima antes de cargar; el ultimo
+# escalon nunca se salta, y sin ritmo medido manda el tope de siempre.
+python (Join-Path $PSScriptRoot 'probar-repaso-cabe.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el oido no empieza lo que no va a llegar)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-repaso-cabe.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el plazo viaja con el pedido)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n223. El historial de energia que Windows guarda de los dias que Nova no estaba (idea 70 de las 121)"
 # Nova arranco 259 veces en 17 dias y su serie de bateria son 18 lineas. Windows guarda dia a dia
 # cuanto estuvo la consola despierta con cargador y sin el: 248 ms el informe, 12 dias validos.

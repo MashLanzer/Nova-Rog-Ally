@@ -163,6 +163,25 @@ REPASO_MAX = 8.0
 # que se pide: ahi el audio largo no compensa.
 REPASO_MAX_BASE = 12.0
 
+# Y EL TOPE DE VERDAD ES EL PLAZO, NO LOS SEGUNDOS DE AUDIO (27/09, idea 71). Medido sobre los 477
+# repasos de registro.jsonl, los segundos que tarda cada motor por segundo de audio: base 0,32
+# (n=328), canary 0,43 (n=29), small 0,93 (n=94), omni 1,05 (n=3), turbo 2,97 (n=23). Dentro del
+# plazo del asistente -15 s- a base le caben 46 s de audio y a turbo 5; el tope de hoy son 8 para
+# los dos. Resultado: turbo se paso del plazo en 17 de sus 23 usos (73 %), small en 12 de 94 y base
+# en 6 de 328: 36 repasos que llegaron tarde, 23,2 minutos de CPU quemados para nada y 30 lineas
+# 'sin respuesta a tiempo' en los registros.
+#
+# Y CANARY Y OMNI NO TENIAN NINGUN TOPE: salen por su propia rama antes de que se calcule la
+# duracion, asi que un audio de un minuto se repasaba entero.
+#
+# Ahora cada motor lleva su propia lista de segundos-por-segundo y se estima ANTES de cargar nada:
+# si no cabe en el plazo que manda el asistente, se contesta vacio al momento y el asistente sigue
+# con el siguiente escalon en vez de esperar quince segundos para tirarlo.
+RITMO_MEMORIA = 20        # repasos recordados por motor
+RITMO_MIN = 4             # menos que esto y manda el tope de segundos de audio de siempre
+RITMO_MARGEN = 1.25       # se exige que quepa con un cuarto de sitio de sobra
+_ritmo = {}               # motor -> [segundos de CPU por segundo de audio]
+
 # se da por terminada la frase tras este silencio
 SILENCIO_FIN = 1.5
 # Y EL SILENCIO QUE CUENTA CUANDO SUENAN LOS ALTAVOCES (22/09 por la noche, idea 2).
@@ -2028,6 +2047,61 @@ def soltar_ultimo_si_toca():
     anota("ultimo recurso soltado (%s)" % ("hay un juego delante" if jugando else "sin usarse"))
 
 
+def mediana(vals):
+    v = sorted(vals)
+    if not v:
+        return 0.0
+    n = len(v)
+    return v[n // 2] if n % 2 else (v[n // 2 - 1] + v[n // 2]) / 2.0
+
+
+def ritmo_motor(motor):
+    """Segundos que tarda ese motor por segundo de audio, o 0 si aun no se sabe. La MEDIANA y no
+    la peor: un arranque en frio no puede dejar a un motor fuera para siempre (la guarda que pide
+    la idea)."""
+    if motor not in _ritmo:
+        _ritmo[motor] = cargar_lista(ruta_ritmo(motor), RITMO_MEMORIA, 60.0)
+    vals = _ritmo[motor]
+    if len(vals) < RITMO_MIN:
+        return 0.0
+    return mediana(vals)
+
+
+def apuntar_ritmo(motor, segundos, duracion):
+    """Lo que acaba de costar un repaso, por segundo de audio."""
+    if not motor or duracion <= 0.05 or segundos <= 0:
+        return
+    r = segundos / duracion
+    if not (0.0 < r < 60.0):
+        return
+    if motor not in _ritmo:
+        _ritmo[motor] = cargar_lista(ruta_ritmo(motor), RITMO_MEMORIA, 60.0)
+    _ritmo[motor].append(r)
+    del _ritmo[motor][:-RITMO_MEMORIA]
+    guardar_lista(ruta_ritmo(motor), _ritmo[motor])
+
+
+def cabe_el_repaso(motor, duracion, plazo_s, ultimo=False):
+    """(cabe, por_que). Con plazo y ritmo medidos se estima; si falta cualquiera de los dos se
+    vuelve al tope de segundos de audio de siempre, que es lo que hacia hasta hoy.
+
+    EL ULTIMO ESCALON NO SE SALTA NUNCA por este motivo: si se salta, no queda nada detras. Es la
+    misma regla que ya cumple la revision propia del asistente."""
+    if ultimo:
+        return True, ""
+    r = ritmo_motor(motor)
+    if plazo_s > 0 and r > 0:
+        estimado = duracion * r
+        if estimado * RITMO_MARGEN > plazo_s:
+            return False, ("%.1f s de audio x %.2f s/s = %.1f s estimados, y el plazo son %.1f s"
+                           % (duracion, r, estimado, plazo_s))
+        return True, ""
+    tope = REPASO_MAX_BASE if motor == "base" else REPASO_MAX
+    if duracion > tope:
+        return False, "%.1f s de audio es demasiado para repasar (tope %.0f s)" % (duracion, tope)
+    return True, ""
+
+
 def atender_reintento(ultimo_audio):
     """El asistente no reconocio la orden: se repasa el mismo audio con el
     modelo preciso (o, si pide "ultimo", con el ultimo recurso). Siempre se
@@ -2042,21 +2116,43 @@ def atender_reintento(ultimo_audio):
                 pedido = f.read().strip()
         except Exception:
             pass
+        # EL PLAZO VIAJA DETRAS DEL MOTOR (27/09, idea 71): "small|15000". Si no viene -un
+        # asistente viejo-, plazo_s queda en 0 y todo funciona como antes, con el tope de segundos
+        # de audio de siempre.
+        plazo_s = 0.0
+        if "|" in pedido:
+            pedido, _, resto = pedido.partition("|")
+            pedido = pedido.strip()
+            try:
+                plazo_s = max(0.0, float(resto.strip()) / 1000.0)
+            except Exception:
+                plazo_s = 0.0
         ultimo = pedido == "ultimo" and bool(MODELO_ULTIMO)
         base = pedido == "base" and esperar_whisper()
+        duracion = sum(len(b) for b in ultimo_audio) / float(TASA) if ultimo_audio else 0.0
         # CANARY (21/09): el repaso mas rapido y el que mas acierta. Va aparte de los tres
         # de Whisper porque no es un modelo de Whisper: es sherpa-onnx, con su propia
         # llamada. Si no esta descargado, modelo_canary() devuelve None y el asistente lo
         # ve con el texto vacio, asi que pide "base" y todo sigue como siempre.
         if pedido in ("canary", "omni"):
-            t0 = time.time()
-            m = modelo_canary() if pedido == "canary" else modelo_omni()
-            texto = quitar_nombre(transcribir_sherpa(ultimo_audio, m))
-            anota("%s tras parakeet: '%s' (%.1f s)" % (pedido, texto, time.time() - t0))
-            if _uso["id"] and grabar_uso_activo():
-                apuntar_uso(dict(id=_uso["id"], hora=time.strftime("%Y-%m-%d %H:%M:%S"),
-                                 motor=pedido, texto=texto, seguridad=_ultima_seguridad,
-                                 segundos=round(time.time() - t0, 2)))
+            # ESTOS DOS NO TENIAN NINGUN TOPE (27/09, idea 71): salian por aqui antes de que se
+            # calculase la duracion, asi que un audio de un minuto se repasaba entero aunque el
+            # asistente hubiera dejado de esperar hace rato.
+            cabe, por_que = cabe_el_repaso(pedido, duracion, plazo_s)
+            if not cabe:
+                anota("%s: no lo repaso, %s" % (pedido, por_que))
+                texto = ""
+            else:
+                t0 = time.time()
+                m = modelo_canary() if pedido == "canary" else modelo_omni()
+                texto = quitar_nombre(transcribir_sherpa(ultimo_audio, m))
+                tardo = time.time() - t0
+                anota("%s tras parakeet: '%s' (%.1f s)" % (pedido, texto, tardo))
+                apuntar_ritmo(pedido, tardo, duracion)
+                if _uso["id"] and grabar_uso_activo():
+                    apuntar_uso(dict(id=_uso["id"], hora=time.strftime("%Y-%m-%d %H:%M:%S"),
+                                     motor=pedido, texto=texto, seguridad=_ultima_seguridad,
+                                     segundos=round(tardo, 2)))
             escribir(REINTENTO_TEXTO, texto)
             try:
                 os.remove(REINTENTO)
@@ -2068,18 +2164,18 @@ def atender_reintento(ultimo_audio):
         # idea 2). Estaban despues, asi que Nova cargaba el modelo y acto seguido decia que el
         # audio era demasiado largo para repasarlo: a las 21:45:31 cargo small durante 3,7
         # segundos para no usarlo. Con el tope delante, si no se va a repasar no se carga nada.
-        duracion = sum(len(b) for b in ultimo_audio) / float(TASA) if ultimo_audio else 0.0
-        # cada uno con el suyo (ver REPASO_MAX_BASE): base es el que mas se usa y no tenia ninguno
-        tope_repaso = REPASO_MAX_BASE if base else REPASO_MAX
+        # la duracion ya se calculo arriba, antes de las ramas de canary y omni (idea 71)
+        motor_nombre = "turbo" if ultimo else ("base" if base else "small")
         global _preciso_uso, _ultimo_uso
         # NI return NI break: solo se deja de CARGAR. Todo lo que hay al final de esta
         # funcion -escribir el texto del repaso, borrar la marca REINTENTO y vaciar la cola-
         # tiene que seguir pasando igual, o el asistente se queda esperando un repaso que no
         # va a llegar y la marca sin borrar. Con m en None, el bloque de transcribir no entra
         # y el resto sigue exactamente como antes.
-        if duracion > tope_repaso:
-            anota("%s: %.1f s de audio es demasiado para repasar (tope %.0f s)"
-                  % ("whisper tras parakeet" if base else "oido fino", duracion, tope_repaso))
+        cabe, por_que = cabe_el_repaso(motor_nombre, duracion, plazo_s, ultimo)
+        if not cabe:
+            anota("%s: no lo repaso, %s"
+                  % ("whisper tras parakeet" if base else "oido fino", por_que))
             m = None
         elif ultimo:
             m = modelo_ultimo()
@@ -2099,11 +2195,14 @@ def atender_reintento(ultimo_audio):
             # en el siguiente segmento en vez de seguir sordo para nada
             texto = quitar_nombre(transcribir_whisper(
                 ultimo_audio, m, seguir=lambda: os.path.exists(REINTENTO)))
-            anota("%s: '%s' (%.1f s)" % ("ultimo recurso" if ultimo else ("whisper tras parakeet" if base else "oido fino"), texto, time.time() - t0))
+            tardo = time.time() - t0
+            anota("%s: '%s' (%.1f s)" % ("ultimo recurso" if ultimo else ("whisper tras parakeet" if base else "oido fino"), texto, tardo))
+            # lo que ha costado, por segundo de audio: de aqui sale el calculo de arriba (idea 71)
+            apuntar_ritmo(motor_nombre, tardo, duracion)
             if _uso["id"] and grabar_uso_activo():
                 apuntar_uso(dict(id=_uso["id"], hora=time.strftime("%Y-%m-%d %H:%M:%S"),
-                                 motor="turbo" if ultimo else ("base" if base else "small"), texto=texto,
-                                 seguridad=_ultima_seguridad, segundos=round(time.time() - t0, 2)))
+                                 motor=motor_nombre, texto=texto,
+                                 seguridad=_ultima_seguridad, segundos=round(tardo, 2)))
         elif not ultimo_audio:
             anota("oido fino: no queda audio de la orden anterior")
     except Exception as e:
@@ -3624,6 +3723,13 @@ RUTA_GANANCIA = os.path.join(os.path.dirname(NIVEL), "ganancia.txt") if NIVEL el
 RUTA_COBERTURAS = os.path.join(os.path.dirname(NIVEL), "coberturas.txt") if NIVEL else ""
 RUTA_ACUERDOS = os.path.join(os.path.dirname(NIVEL), "acuerdos.txt") if NIVEL else ""
 RUTA_RAFAGAS = os.path.join(os.path.dirname(NIVEL), "rafagas.txt") if NIVEL else ""
+# una por motor, con el mismo guardar_lista/cargar_lista que las coberturas (idea 71). Van
+# atadas al microfono como las demas: el ritmo no depende del micro, pero cambiar de micro
+# solo hace que se vuelva al tope de siempre mientras se rellenan, y eso no rompe nada.
+def ruta_ritmo(motor):
+    if not NIVEL or not motor:
+        return ""
+    return os.path.join(os.path.dirname(NIVEL), "ritmo-%s.txt" % motor)
 # Estado legible para el asistente, escrito en cada pulso. Sirve para que
 # puedas preguntarle "¿como me oyes?" en vez de tener que abrir el log.
 RUTA_ESTADO = os.path.join(os.path.dirname(NIVEL), "escucha-estado.txt") if NIVEL else ""

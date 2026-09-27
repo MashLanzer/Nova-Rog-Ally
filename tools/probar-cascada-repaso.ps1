@@ -160,7 +160,12 @@ Comp 'CON TEXTO, no en blanco' ([bool]$script:uiTxt) ("capsula: '" + $script:uiT
 Comp 'y dentro sigue lo que se oyo' ($script:uiTxt -like '*baja el brio*')
 Comp 'con una etiqueta delante, no solo la frase' ($script:uiTxt -ne 'baja el brio')
 Comp 'una sola escritura de capsula por repaso' ($script:uiN -eq 1) "$($script:uiN)"
-Comp 'y se le sigue pidiendo al escalon que toca' (([System.IO.File]::ReadAllText($MarcaReintento)) -eq 'canary')
+# DESDE EL 27/09 (idea 71) LA MARCA LLEVA EL PLAZO DETRAS: 'canary|20000'. El oido lo usa para
+# decidir si le cabe el repaso antes de cargar el modelo. Se comprueban las dos cosas: el
+# escalon que toca y que el plazo viaja, que es justo lo que se olvida al mover codigo.
+$marcaV = [System.IO.File]::ReadAllText($MarcaReintento)
+Comp 'y se le sigue pidiendo al escalon que toca' (($marcaV -split '\|')[0] -eq 'canary') $marcaV
+Comp '  con su plazo detras, para que decida si le cabe' ($marcaV -match '^canary\|\d+$') $marcaV
 $antesUI = $script:uiTxt
 [void](Request-WhisperTras 'baja el brio' 1)
 Comp 'el segundo escalon pone lo mismo (no parpadea)' ($script:uiTxt -eq $antesUI)

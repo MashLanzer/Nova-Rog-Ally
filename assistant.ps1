@@ -27160,14 +27160,17 @@ function Request-WhisperTras([string]$texto, [int]$paso = 0) {
     try {
         Remove-Item -LiteralPath $RutaReintento -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath (Join-Path $TmpDir 'dictado-confianza.txt') -Force -ErrorAction SilentlyContinue
-        [System.IO.File]::WriteAllText($MarcaReintento, $quien)
+        # EL PLAZO, DE LO QUE TARDA ESTE MOTOR (26/09, idea 8). Ver Get-PlazoOido: canary sale
+        # a 14,5 s y base a 24,1 con los datos de hoy, contra los 15 fijos de antes.
+        # Y SE CALCULA ANTES DE ESCRIBIR LA MARCA (27/09, idea 71): el plazo viaja detras del
+        # motor -"small|15000"- para que el oido pueda decidir si le cabe el repaso ANTES de
+        # cargar el modelo, en vez de tardar 40 s en algo que iba a tirarse a los 15.
+        $script:reintentoPlazo = [int](Get-PlazoOido $quien $ReintentoMaxMs)
+        [System.IO.File]::WriteAllText($MarcaReintento, ($quien + '|' + $script:reintentoPlazo))
         $script:reintentoTexto = $texto
         $script:reintentoBase = $true
         $script:repasoPaso = $paso
         if ($paso -eq 0) { $script:repasoOriginal = $texto }
-        # EL PLAZO, DE LO QUE TARDA ESTE MOTOR (26/09, idea 8). Ver Get-PlazoOido: canary sale
-        # a 14,5 s y base a 24,1 con los datos de hoy, contra los 15 fijos de antes.
-        $script:reintentoPlazo = [int](Get-PlazoOido $quien $ReintentoMaxMs)
         $script:reintentoVence = $sw.ElapsedMilliseconds + $script:reintentoPlazo
         Log "PARAKEET: '$texto' no es una orden que entienda; lo repasa $quien"
         Add-Estadistica 'parakeet-a-whisper' $texto
@@ -27217,7 +27220,9 @@ function Request-UltimoRecurso([string]$orig, [bool]$reconocida, [bool]$eco, [st
     if (-not (Test-MereceRepaso $orig)) { return $false }
     try {
         Remove-Item -LiteralPath $RutaReintento -Force -ErrorAction SilentlyContinue
-        [System.IO.File]::WriteAllText($MarcaReintento, 'ultimo')
+        # el plazo va con el pedido (idea 71); turbo es el unico que NO se salta nunca por no
+        # caber -detras de el no hay nada-, pero su plazo sirve igual para el registro.
+        [System.IO.File]::WriteAllText($MarcaReintento, ('ultimo|' + [int](Get-PlazoOido 'turbo' $ReintentoUltimoMs)))
         $script:ultimoRecursoPara = $claveU
         $script:ultimoRecursoEn = $sw.ElapsedMilliseconds
         $script:reintentoTexto = $orig
@@ -28425,7 +28430,7 @@ function Process-Texto([string]$text) {
             $script:yaReintentado = $true
             try {
                 Remove-Item -LiteralPath $RutaReintento -Force -ErrorAction SilentlyContinue
-                [System.IO.File]::WriteAllText($MarcaReintento, 'x')
+                [System.IO.File]::WriteAllText($MarcaReintento, ('x|' + [int](Get-PlazoOido 'small' $ReintentoMaxMs)))
                 $script:reintentoTexto = $text
                 Add-OidoDudoso $text
                 $script:reintentoReconocida = $true
@@ -28465,7 +28470,7 @@ function Process-Texto([string]$text) {
             $script:yaReintentado = $true
             try {
                 Remove-Item -LiteralPath $RutaReintento -Force -ErrorAction SilentlyContinue
-                [System.IO.File]::WriteAllText($MarcaReintento, 'x')
+                [System.IO.File]::WriteAllText($MarcaReintento, ('x|' + [int](Get-PlazoOido 'small' $ReintentoMaxMs)))
                 $script:reintentoTexto = $text
                 Add-OidoDudoso $text
                 $script:reintentoReconocida = $true
@@ -28965,7 +28970,7 @@ function Process-Texto([string]$text) {
                 $script:yaReintentado = $true
                 try {
                     Remove-Item -LiteralPath $RutaReintento -Force -ErrorAction SilentlyContinue
-                    [System.IO.File]::WriteAllText($MarcaReintento, 'x')
+                    [System.IO.File]::WriteAllText($MarcaReintento, ('x|' + [int](Get-PlazoOido 'small' $ReintentoMaxMs)))
                     $script:reintentoTexto = $text
                     Add-OidoDudoso $text
                     $script:reintentoPlazo = [int](Get-PlazoOido 'small' $ReintentoMaxMs)
