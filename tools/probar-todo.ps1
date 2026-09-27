@@ -2080,6 +2080,16 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n244. Que aprenda que fichero no la deja cambiarlo de golpe (idea 93 de las 121)"
+# 37 fallos 'escritura atomica fallida ... [WinError 5] Acceso denegado' en ocho dias distintos: 21
+# de ui-nivel.txt, 14 de dictado-parcial.txt y 2 de escucha-estado.txt. Y el 22/09 esto se dio por
+# arreglado -se anadio FileShare.Delete en los dos lectores- y DESPUES hay TRECE mas: 2 el 23/09, 2
+# el 24/09, OCHO el 25/09 y uno el 27/09. El arreglo no lo arreglo, y con el tope de 50 avisos por
+# proceso 37 es un suelo. Ahora, al tercer fallo del MISMO fichero, ese pasa a escritura directa el
+# resto de la sesion: no se pierde nada -en esos 37 casos ya se escribia directo- y se quita la
+# excepcion, el aviso y el reintento en cada palabra que se oye.
+python (Join-Path $PSScriptRoot 'probar-escritura-directa.py')  2>>$script:errBanco| Select-String 'MAL|cada fichero aprende'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n243. Lo que dice otra persona no se escribe en el registro (idea 90 de las 121)"
 # Con la voz ajena Nova ya hacia lo correcto TRES veces -no guarda el wav, no lo manda al agente
 # y no aprende nada- y acto seguido la escribia ENTERA. ONCE lineas de conversacion de otra

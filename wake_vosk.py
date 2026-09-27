@@ -3458,6 +3458,29 @@ _avisos_escribir = 0
 # escribe en cada palabra que oyes y sin freno llenaria el log con miles de lineas.
 MAX_AVISOS_ESCRIBIR = 50
 
+# QUE APRENDA QUE FICHERO NO LA DEJA CAMBIARLO DE GOLPE (27/09, idea 93 de las 121)
+#
+# EL DATO: 37 fallos "escritura atomica fallida ... [WinError 5] Acceso denegado" en ocho dias
+# distintos; 21 de ui-nivel.txt, 14 de dictado-parcial.txt y 2 de escucha-estado.txt. Y lo que de
+# verdad importa: el 22/09 esto se dio por arreglado -se anadio FileShare.Delete en los dos
+# lectores- y DESPUES hay TRECE mas: 2 el 23/09, 2 el 24/09, OCHO el 25/09 y uno HOY MISMO, el
+# 27/09. El arreglo no lo arreglo. Y con el tope de 50 avisos por proceso, 37 es un suelo.
+#
+# LO QUE CAMBIA: al tercer fallo del MISMO fichero en esta sesion, ese fichero pasa a escritura
+# directa el resto de la sesion. Hoy se paga la excepcion, el aviso y el reintento en cada palabra
+# que se oye, y el dictado parcial se escribe varias veces por segundo.
+#
+# POR QUE ESTO NO PIERDE NADA: en esos 37 casos ya se esta escribiendo directo -es justo lo que
+# hace el segundo try de abajo-, asi que la atomicidad ya se perdio ahi. Lo que se quita es el
+# coste y el ruido, no una garantia.
+#
+# Y LAS DOS GUARDAS: hacen falta TRES fallos del mismo nombre, no uno -un choque suelto no
+# significa que ese fichero este condenado-, y la lista SOLO dura la sesion, asi que el siguiente
+# arranque vuelve a intentarlo atomico. Si el problema era pasajero, se arregla solo.
+FALLOS_PARA_DIRECTO = 3
+_fallos_fichero = {}
+_directo = set()
+
 
 def escribir(ruta, contenido):
     if not ruta:
@@ -3467,6 +3490,18 @@ def escribir(ruta, contenido):
     # cambio falla porque justo lo tiene abierto el lector, se escribe directo
     # como antes: mejor eso que perder la escritura.
     global _avisos_escribir
+    nombre = os.path.basename(ruta)
+    # ESTE FICHERO YA DEMOSTRO QUE NO SE DEJA (idea 93): directo y sin intentarlo, que el intento
+    # cuesta una excepcion por palabra oida.
+    if nombre in _directo:
+        try:
+            with open(ruta, "w", encoding="utf-8") as f:
+                f.write(contenido)
+        except Exception as e:  # noqa: BLE001
+            if _avisos_escribir < MAX_AVISOS_ESCRIBIR:
+                _avisos_escribir += 1
+                anota("NO PUDE ESCRIBIR %s (%s): lo que iba ahi se ha perdido" % (nombre, e))
+        return
     tmp = ruta + ".tmp"
     try:
         with open(tmp, "w", encoding="utf-8") as f:
@@ -3475,9 +3510,15 @@ def escribir(ruta, contenido):
         return
     except Exception as e:  # noqa: BLE001
         # no es grave por si solo: abajo se reintenta escribiendo directo
-        if _avisos_escribir < MAX_AVISOS_ESCRIBIR:
+        _fallos_fichero[nombre] = _fallos_fichero.get(nombre, 0) + 1
+        if _fallos_fichero[nombre] >= FALLOS_PARA_DIRECTO:
+            _directo.add(nombre)
+            # UNA SOLA VEZ, y con la cuenta: asi se sabe cuando se rindio y por cuantos fallos.
+            anota("ESCRITURA: %s no deja cambiarlo de golpe (%d fallos); directo el resto de la sesion"
+                  % (nombre, _fallos_fichero[nombre]))
+        elif _avisos_escribir < MAX_AVISOS_ESCRIBIR:
             _avisos_escribir += 1
-            anota("escritura atomica fallida en %s (%s); lo intento directo" % (os.path.basename(ruta), e))
+            anota("escritura atomica fallida en %s (%s); lo intento directo" % (nombre, e))
     try:
         with open(ruta, "w", encoding="utf-8") as f:
             f.write(contenido)
@@ -3486,7 +3527,7 @@ def escribir(ruta, contenido):
         # pierde, el asistente no se entera de nada y solo ve vencer su plazo.
         if _avisos_escribir < MAX_AVISOS_ESCRIBIR:
             _avisos_escribir += 1
-            anota("NO PUDE ESCRIBIR %s (%s): lo que iba ahi se ha perdido" % (os.path.basename(ruta), e))
+            anota("NO PUDE ESCRIBIR %s (%s): lo que iba ahi se ha perdido" % (nombre, e))
 
 
 # EL ASISTENTE SIGUE VIVO? (auditoria del 13/09): si el asistente moria, este
