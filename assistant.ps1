@@ -959,6 +959,20 @@ function Test-Prop($obj, [string]$name) {
 # evitaba perderlo todo, no el destrozo). Ahora se escribe un .tmp y se cambia
 # por el bueno de una vez: o esta el viejo entero o el nuevo entero.
 function Write-Atomico([string]$ruta, [string]$texto, [bool]$bom = $false) {
+    # UNA RUTA VACIA SE DICE, NO SE ESCRIBE EN CUALQUIER SITIO (27/09, tras la revision).
+    #
+    # LO QUE PASABA: con $ruta vacia, "$ruta.tmp" es ".tmp" a secas, y
+    # [System.IO.File]::WriteAllText lo resuelve contra el directorio de trabajo DEL PROCESO -que no
+    # es el que PowerShell cree, porque Push-Location no lo mueve-. Resultado: un fichero '.tmp' con
+    # los datos de braya tirado en la raiz del repositorio, el Move-Item fallando detras, y el catch
+    # del llamador tragandoselo. Se descubrio con uno de verdad en la raiz: '.tmp', 1.108 bytes, con
+    # los juegos del disco E:\SteamLibrary dentro.
+    #
+    # Y ESTO NO ES UN CASO IMPOSIBLE: en este proyecto una '$XxxPath' vacia ya ha pasado DOS veces
+    # -una $AlgoPath declarada despues de $MemoriaDir, que el parser no ve y los bancos AST tampoco-.
+    # Cuando vuelva a pasar, el fichero de braya no se guardara; la diferencia es que ahora se sabra
+    # por que, en vez de aparecer basura en la raiz y un guardado que no guarda nada.
+    if (-not $ruta) { Log 'ESCRITURA: me han pedido guardar en una ruta vacia; no escribo nada'; return }
     $tmp = "$ruta.tmp"
     [System.IO.File]::WriteAllText($tmp, $texto, (New-Object System.Text.UTF8Encoding($bom)))
     if (Test-Path -LiteralPath $ruta) {
