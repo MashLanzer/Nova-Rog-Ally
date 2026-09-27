@@ -180,6 +180,10 @@ function Rotate-Log([string]$path) {
 if (-not $Probar) { Rotate-Log $EventLog }
 $script:logEscrituras = 0
 function Log([string]$msg) {
+    # IDEA 72: lo ultimo que Nova apunto, para que 'me quede sorda 1,4 s' pueda decir HACIENDO
+    # QUE. Va aqui porque Log es el embudo por el que pasa todo lo que hace, y cuesta una
+    # asignacion de cadena; poner la etiqueta a mano en cincuenta sitios se habria quedado viejo.
+    if ($msg) { $script:ultimoLog = if ($msg.Length -gt 80) { $msg.Substring(0, 80) } else { $msg } }
     # TAPAR LOS SECRETOS ES COSA DEL REGISTRO (26/09, idea 45): se sustituye el VALOR de cada
     # secreto por *** antes de escribir, en las DOS ramas (una linea y multilinea). El 'if'
     # delante del foreach no es cosmetico: la lista se llena en Initialize-Secretos (~10390) y las
@@ -24487,6 +24491,72 @@ $TrabajoPercentil = 75          # ver arriba: la mediana se pasa la mitad de las
 $TrabajoSuelo = 0.5             # nunca por debajo de la mitad de lo escrito
 $TrabajoTecho = 2.0             # ni por encima del doble
 
+# EL PULSO DEL BUCLE, QUE NADIE HABIA MEDIDO (27/09, idea 72)
+#
+# EL BUCLE duerme 30 ms por vuelta, y en 31.000 lineas no habia ni UNA medicion de lo que tarda de
+# verdad una vuelta: ElapsedMilliseconds sale 350 veces y ninguna cronometra el pulso. Mientras
+# tanto el bucle SI se bloquea, y esta medido a mano en los comentarios: Say deja el microfono mudo
+# 3,6 s en el saludo, recorrer los ~200 procesos cuesta de 500 a 740 ms, y la zona de ejecucion de
+# ordenes que Process-Texto alcanza desde el bucle tiene 29 Start-Sleep que suman 8.050 ms de
+# bloqueo deliberado. Hay un comentario que llega a contar "47 vueltas del bucle" SUPONIENDO el
+# periodo, porque no habia forma de saberlo. Mientras una vuelta dura, Nova NO TE OYE.
+#
+# NI UN FICHERO EN EL BUCLE (la regla 4 de la casa). La idea proponia Add-TrabajoTiempo por vuelta,
+# y eso son 33 escrituras por segundo del JSON entero. Aqui las vueltas viven en RAM y solo baja a
+# disco UNA muestra por minuto, el peor del minuto, que es lo que hace falta para que el liston
+# sobreviva entre sesiones.
+$VueltasMemoria = 2000           # ~60 s de vueltas a 30 ms; con 8 bytes por double no es nada
+$VueltasMin = 200               # menos que esto y no hay percentil que valga
+$VueltaPercentil = 99
+$VueltaAvisoMs = 60000          # como mucho una linea por minuto, aunque haya cien vueltas malas
+$script:vueltas = New-Object System.Collections.ArrayList
+$script:vueltaDesde = 0
+$script:vueltaMs = 0
+$script:vueltaPeor = 0
+$script:vueltaPeorQue = ''
+$script:vueltaAvisoEn = -100000
+$script:vueltaVolcadoEn = 0
+$script:vueltaPeorMinuto = 0
+$script:ultimoLog = ''          # lo ultimo que hizo Nova, para poder decir sorda HACIENDO QUE
+
+function Get-VueltaP99 {
+    if ($script:vueltas.Count -lt $VueltasMin) { return 0 }
+    return (Get-PercentilLista $script:vueltas $VueltaPercentil)
+}
+
+function Add-VueltaMedida([int]$ms) {
+    if ($ms -lt 0) { return }
+    [void]$script:vueltas.Add($ms)
+    while ($script:vueltas.Count -gt $VueltasMemoria) { $script:vueltas.RemoveAt(0) }
+    if ($ms -gt $script:vueltaPeor) {
+        $script:vueltaPeor = $ms
+        $script:vueltaPeorQue = $script:ultimoLog
+    }
+    if ($ms -gt $script:vueltaPeorMinuto) { $script:vueltaPeorMinuto = $ms }
+    $ahoraV = $sw.ElapsedMilliseconds
+    # UNA MUESTRA AL MINUTO AL DISCO: el peor del minuto, que es el que dice si Nova se queda sorda.
+    # Guardar la mediana seria guardar los 30 ms de dormir, que ya se saben.
+    if (($ahoraV - $script:vueltaVolcadoEn) -ge 60000) {
+        $script:vueltaVolcadoEn = $ahoraV
+        if ($script:vueltaPeorMinuto -gt 0) { [void](Add-TrabajoTiempo 'vuelta' $script:vueltaPeorMinuto) }
+        $script:vueltaPeorMinuto = 0
+    }
+    # Y LA LINEA, solo cuando la vuelta se sale de lo normal EN ESTA SESION y como mucho una por
+    # minuto. Sin el freno, un tramo lento escribiria cien lineas iguales.
+    $p99 = Get-VueltaP99
+    if ($p99 -le 0) { return }
+    if ($ms -le $p99) { return }
+    if (($ahoraV - $script:vueltaAvisoEn) -lt $VueltaAvisoMs) { return }
+    $script:vueltaAvisoEn = $ahoraV
+    $que = if ($script:ultimoLog) { $script:ultimoLog } else { 'no se que' }
+    Log ("SORDA " + [Math]::Round($ms / 1000.0, 2) + " s en una vuelta (lo normal en mi son " + $p99 + " ms): " + $que)
+}
+
+# El peor de la sesion y haciendo que, para quien quiera contarlo (el parte, la revision propia).
+function Get-VueltaPeor {
+    return @{ ms = $script:vueltaPeor; que = $script:vueltaPeorQue; p99 = (Get-VueltaP99); n = $script:vueltas.Count }
+}
+
 # LA CLAVE ES MOTOR Y MODO JUNTOS ('api-plan', 'claude-code-accion'): el mismo modo por la
 # API y por Claude Code no se parecen en nada (1,5 s contra 20), y mezclarlos daria un numero
 # que no sirve para ninguno de los dos. Se escribe igual que la linea TRABAJO del log, para
@@ -29826,6 +29896,14 @@ while ($true) {
     # sola excepcion sin capturar en cualquier punto de la vuelta apagaba el
     # asistente hasta el siguiente inicio de sesion. Ahora se anota y se sigue.
     try {
+    # EL PULSO (27/09, idea 72). Lo primero de la vuelta: lo que tardo la ANTERIOR, que es una resta
+    # y no cuesta nada. Ver EL PULSO DEL BUCLE.
+    $vAhora = $sw.ElapsedMilliseconds
+    if ($script:vueltaDesde -gt 0) {
+        $script:vueltaMs = [int]($vAhora - $script:vueltaDesde)
+        try { Add-VueltaMedida $script:vueltaMs } catch {}
+    }
+    $script:vueltaDesde = $vAhora
     [System.Windows.Forms.Application]::DoEvents()
     $startNow = $false
     $botones = 0

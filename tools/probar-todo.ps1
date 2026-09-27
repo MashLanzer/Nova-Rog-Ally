@@ -2072,6 +2072,15 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n225. El pulso del bucle, que nadie habia medido nunca (idea 72 de las 121)"
+# ElapsedMilliseconds sale 350 veces en el script y ninguna cronometraba la vuelta, mientras el
+# bucle SI se bloquea: 29 Start-Sleep suman 8.050 ms en la zona de ordenes, Say deja el microfono
+# mudo 3,6 s y los ~200 procesos cuestan 740 ms. Ahora cada vuelta mide la anterior (una resta) y,
+# cuando pasa de SU p99, se escribe con lo ultimo que Nova apunto: 'SORDA 1,4 s ... STEAM:
+# abriendo X'. En RAM y una muestra al disco por minuto: la regla 4 dice que el bucle no abre
+# ficheros, y la ficha de la idea pedia justo una escritura por vuelta.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-pulso-bucle.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:Nova mide su propio pulso)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n224. El oido sabe cuanto tarda cada motor, asi que no empieza lo que no llega (idea 71 de las 121)"
 # Medido sobre los 477 repasos de registro.jsonl, segundos por segundo de audio: base 0,32,
 # canary 0,43, small 0,93, omni 1,05, turbo 2,97. En los 15 s de plazo a base le caben 46 s de
