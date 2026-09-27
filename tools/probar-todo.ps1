@@ -2080,6 +2080,15 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n247. Contar como uso lo que de verdad usa el cerebro (idea 96 de las 121)"
+# De los 123 recuerdos, 122 tenian usos=0 y uno tenia 1. Y no es que no se usen: el contador SOLO
+# subia en respuesta_directa, que busca entre los de tipo 'respuesta', y de los 123 solo CUATRO lo
+# son (113 episodios, 6 contados). Los otros 119 -los que entran a diario en el contexto de la
+# charla- se quedaban a cero para siempre. LO QUE SE GANA ES EL DATO, NO LA PODA, al reves de lo
+# que decia la ficha: MAX_RECUERDOS son 5000 y hay 123, asi que _podar hoy no corre nunca. Y solo
+# suben los TRES que se escriben en el prompt, no los seis que devuelve buscar.
+python (Join-Path $PSScriptRoot 'probar-usos-contexto.py')  2>>$script:errBanco| Select-String 'MAL|se cuenta como uso lo que de verdad'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n246. Nova no sabia que version de si misma estaba corriendo (idea 95 de las 121)"
 # 648 commits sobre Nova entre el 10 y el 27/09, unos 36 al dia, y 259 lineas 'VoiceAssistant
 # iniciado' SIN UNA SOLA marca de version. Cuando un numero suyo empeora no habia forma de decir

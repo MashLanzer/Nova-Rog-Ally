@@ -529,9 +529,28 @@ class Cerebro:
         hits = [h for h in self.buscar(texto, tipos=tipos, k=6, qvec=qvec)
                 if self._vale_de_contexto(h, contenido)]
         lineas = []
+        usados = 0
         for h in hits[:3]:
             r = h["r"]
             r["usada"] = self.reloj()        # lo que sirve de contexto no se poda por viejo
+            # CONTAR COMO USO LO QUE DE VERDAD USA EL CEREBRO (27/09, idea 96 de las 121).
+            #
+            # EL DATO: de los 123 recuerdos, 122 tienen usos=0 y uno tiene 1. Y no es que no se
+            # usen: es que el contador SOLO subia en respuesta_directa, que busca entre los de tipo
+            # "respuesta", y de los 123 solo CUATRO lo son (113 episodios y 6 contados). Los otros
+            # 119, los que entran a diario justo aqui, en el contexto de la charla, se quedaban a
+            # cero para siempre.
+            #
+            # LO QUE SE GANA ES EL DATO, NO LA PODA, y conviene decirlo porque la ficha lo tenia al
+            # reves: _podar ordena por (prioridad, usos, usada), pero MAX_RECUERDOS son 5000 y hay
+            # 123, asi que hoy _podar no se ejecuta NUNCA. Lo que aparece es un numero que no
+            # existia: "este recuerdo te ha servido siete veces", que sirve para el repaso y para
+            # contestar que ha aprendido.
+            #
+            # Y SOLO LOS TRES QUE SE ESCRIBEN EN EL PROMPT, no los seis que devuelve buscar: los
+            # otros tres no los ve el modelo, asi que contarlos seria inflar el numero.
+            r["usos"] = int(r.get("usos", 0)) + 1
+            usados += 1
             if r["tipo"] == "respuesta":
                 marca = "" if r.get("estado") == "firme" else " (SIN CONFIRMAR: no lo afirmes)"
                 lineas.append("- %s -> %s%s" % (r["pregunta"], r["respuesta"], marca))
@@ -540,6 +559,16 @@ class Cerebro:
             else:
                 dia = time.strftime("%d/%m", time.localtime(r.get("creada", 0)))
                 lineas.append("- recuerdo del %s: %s" % (dia, r["respuesta"]))
+        # Y LLEGA AL DISCO (idea 96). Sin esto, el contador -y el refresco de "usada", que ya
+        # estaba aqui desde antes- solo se guardaban si algo DESPUES en el mismo turno tocaba a
+        # guardar, y aprender_turno se va sin guardar cuando el origen no es local ni api. MEDIDO:
+        # guardar cerebro.json son 3,64 ms de mediana (47 KB), contra turnos de charla que en el
+        # mejor caso son 1,1 s. Es el 0,3 %, y contexto corre una vez por turno.
+        if usados:
+            try:
+                self.guardar()
+            except Exception:  # noqa: BLE001
+                pass
         partes = []
         if lineas:
             partes.append("Lo que ya sabes (úsalo solo si viene al caso):\n" + "\n".join(lineas))
