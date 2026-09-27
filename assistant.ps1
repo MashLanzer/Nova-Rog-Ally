@@ -14470,7 +14470,11 @@ function Watch-Entorno([int]$botones = 0) {
         # desde el 13/09 con parteVisto en habitos.json, y aqui faltaba.
         $hbC = Get-Habitos
         $yaMireHoy = ($script:correoMananaDia -eq $diaC -or [string]$hbC.correoVisto -eq $diaC)
-        if (-not $script:invitado -and $hC -ge 7 -and $hC -lt 12 -and -not $script:correoOut -and -not $yaMireHoy) {
+        # Y CON ALGUIEN DELANTE (27/09, idea 112). Nueve de las catorce miradas al correo de la
+        # manana caen entre las 02:00 y las 08:59, o sea a las 7 y a las 8, durmiendo. Esto no solo
+        # ahorra la salida a internet: el conteo que se le cuenta al volver es el de AHORA y no el
+        # de hace cuatro horas. La ventana de 7 a 12 y el 'una vez al dia' se quedan como estaban.
+        if (-not $script:invitado -and $hC -ge 7 -and $hC -lt 12 -and -not $script:correoOut -and -not $yaMireHoy -and (Test-HayAlguien)) {
             $script:correoMananaDia = $diaC
             $hbC.correoVisto = $diaC
             Save-Habitos
@@ -23686,6 +23690,95 @@ function Test-BuenRatoParaTrabajo([int]$ausenciaMin, [bool]$hayJuego, [double]$h
     if ($hayJuego) { return $false }
     return ($ausenciaMin -ge $TrabajoAusenciaMin)
 }
+# LA RONDA DE FONDO NO MIRABA SI HAY ALGUIEN DELANTE (27/09, idea 112 de las 121)
+#
+# EL DATO, contado en los dos registros: entre las 02:00 y las 08:59 no hay NI UNA de las 170
+# ordenes -cero, hora por hora- y en esa misma franja Nova consulto el tiempo 62 veces y salio a
+# mirar el correo 9 (de 14 en total: el 64 % de las miradas al correo caen cuando no hay nadie).
+# Mientras, escribia 4.187 lineas 'ENTORNO aparcado', que es ella misma diciendo que no hay nadie
+# a quien contarselo.
+#
+# LA GUARDA YA EXISTIA Y ERA DE OTRO: Test-BuenRatoParaTrabajo, aqui arriba, con $TrabajoAusenciaMin.
+# La copia de seguridad si preguntaba si molestaba; la ronda de red, no.
+#
+# LA CADENCIA LARGA NO ES UN NUMERO NUEVO: es lo que lleva sin nadie. Con dos horas sola mira cada
+# dos horas, con diez cada diez. Se ajusta sola, nunca deja de mirar -que seria un modo sin salida,
+# la regla 2- y no hay ni un numero escrito a mano que revisar el mes que viene.
+#
+# Y EL REFRESCO INMEDIATO AL VOLVER SALE GRATIS, sin una linea para el: en cuanto la ausencia baja
+# del liston, la condicion vuelve a ser la de siempre y el plazo ya esta vencido hace horas, asi que
+# la siguiente vuelta del bucle -30 ms- hace la ronda. No hace falta un evento de vuelta.
+#
+# EL FRENO DE UN MINUTO NO ES OPCIONAL, Y ESTA MEDIDO: Get-InactividadMin cuesta 0,364 ms por
+# llamada (200 llamadas cronometradas aqui) y es la parte BARATA de Get-NadieMin, que ademas lee
+# habitos, el mando y el acelerometro. Sin freno, una vez vencido el plazo esto se preguntaria en
+# cada vuelta del bucle: 712.800 llamadas en seis horas sin nadie, 259 segundos de CPU solo por
+# preguntar si hay alguien. Justo lo que la regla 5 prohibe.
+#
+# EL OIDO QUEDA FUERA, y el disco y la biblioteca de Steam TAMBIEN, aunque la ficha los pedia:
+# ninguno de los dos es red. El disco es un DriveInfo local y la biblioteca lee el vdf del disco
+# (Get-JuegosSteam cuesta 67 ms, esta medido en su comentario). Dormirlos no ahorraria ni un viaje
+# a internet y solo serviria para contestar con datos viejos.
+$script:nadieCache = -1
+$script:nadieCacheEn = -100000
+$script:fondoSaltadas = 0
+
+# La misma pregunta que Get-NadieMin, con freno de un minuto. Ver arriba por que hace falta.
+function Get-NadieMinFrenado {
+    if (($sw.ElapsedMilliseconds - $script:nadieCacheEn) -lt 60000) { return $script:nadieCache }
+    $script:nadieCacheEn = $sw.ElapsedMilliseconds
+    try { $script:nadieCache = [int](Get-NadieMin) } catch { $script:nadieCache = -1 }
+    return $script:nadieCache
+}
+
+# NO SABER NO ES 'NO HAY NADIE': Get-NadieMin devuelve -1 cuando no puede saberlo, y un -1 tratado
+# como ausencia dejaria a Nova sin mirar nada por una averia de user32. Con duda, se hace lo de
+# siempre. Es la misma regla que la idea 30 escribio para el aparcado de avisos.
+function Test-HayAlguien {
+    $n = [int](Get-NadieMinFrenado)
+    if ($n -lt 0) { return $true }
+    return ($n -lt $TrabajoAusenciaMin)
+}
+
+# PURA: dado lo que lleva sin hacerse, su cadencia y lo que lleva sin nadie, dice si toca ahora.
+#
+# AQUI HABIA UN SUELO -'la cadencia larga nunca menor que la normal'- Y ERA CODIGO MUERTO. Lo canto
+# su propia rotura: quitarlo no ponia rojo ni un caso. La razon es la primera linea: a partir de
+# ella llevaMs >= cadaMs SIEMPRE, asi que si la ausencia es mas corta que la cadencia se cumple
+# llevaMs >= cadaMs > ausencia y el resultado es el mismo con suelo que sin el; y si es mas larga,
+# el suelo no elegia nada. Codigo que no cambia ningun resultado es codigo que engaña al que lo lee.
+# La propiedad que el suelo pretendia dar -que esto nunca se mire mas a menudo que su cadencia- la
+# da la primera linea, y ahi si hay casos que la vigilan.
+function Test-TocaRonda([double]$llevaMs, [double]$cadaMs, [int]$nadieMin) {
+    # NUNCA ANTES DE SU CADENCIA NORMAL, pase lo que pase con la presencia
+    if ($llevaMs -lt $cadaMs) { return $false }
+    # HAY ALGUIEN: lo de siempre. Y el -1 de 'no lo se' cae aqui solo, porque -1 es menor que
+    # cualquier liston; se deja dicho aparte por lo que significa, no porque haga falta.
+    if ($nadieMin -lt 0) { return $true }
+    if ($nadieMin -lt $TrabajoAusenciaMin) { return $true }
+    # SIN NADIE, LA CADENCIA ES LO QUE LLEVA SIN NADIE: dos horas sola, mira cada dos horas.
+    return ($llevaMs -ge ([double]$nadieMin * 60000.0))
+}
+
+# Lo que se pregunta desde el bucle. Y APUNTA LO QUE SE AHORRA, que si no, dentro de un mes no
+# habria forma de saber si esto sirvio para algo: la casa mide con uso real, no con la intencion.
+function Test-RondaDeFondo([double]$desdeMs, [double]$cadaMs, [string]$que) {
+    $lleva = [double]$sw.ElapsedMilliseconds - $desdeMs
+    if ($lleva -lt $cadaMs) { return $false }
+    if (-not (Test-RedParaFondo)) { return $false }
+    $nadie = [int](Get-NadieMinFrenado)
+    if (Test-TocaRonda $lleva $cadaMs $nadie) {
+        if ($script:fondoSaltadas -gt 0) {
+            Log ("FONDO: vuelvo a mirar " + $que + " (me ahorre " + $script:fondoSaltadas +
+                 " salida(s) a internet sin nadie delante)")
+            $script:fondoSaltadas = 0
+        }
+        return $true
+    }
+    $script:fondoSaltadas++
+    return $false
+}
+
 # Cuanto lleva esperando la copia, en horas. Aparte para poder probar las dos cosas sueltas.
 function Get-CopiaHorasEsperando {
     try {
@@ -34963,7 +35056,13 @@ while ($true) {
     }
 
     # --- el tiempo (una vez por hora; la primera, a los 20 s de arrancar) ---
-    if ($ClimaOn -and ($sw.ElapsedMilliseconds - $script:climaCheck) -ge 3600000 -and $sw.ElapsedMilliseconds -ge 20000) {
+    # Y SOLO SI HAY ALGUIEN A QUIEN CONTARSELO (27/09, idea 112). Medido en los dos registros: 62
+    # consultas del tiempo entre las 02:00 y las 08:59, la franja donde no hay NI UNA de las 170
+    # ordenes. Sin nadie, la cadencia pasa a ser lo que lleve sin nadie, y en cuanto vuelve, la
+    # ronda cae en la siguiente vuelta del bucle. Test-RondaDeFondo trae ademas el Test-RedParaFondo
+    # que a esto le faltaba: el correo de fondo si lo tenia desde la idea 84, el clima no, asi que
+    # con la red caida salia a internet igual.
+    if ($ClimaOn -and $sw.ElapsedMilliseconds -ge 20000 -and (Test-RondaDeFondo $script:climaCheck 3600000 'el tiempo')) {
         $script:climaCheck = $sw.ElapsedMilliseconds
         Update-Clima
     }

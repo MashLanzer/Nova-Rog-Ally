@@ -58,6 +58,11 @@ $script:log = @()
 $script:avisos = @()
 
 function Test-CorreoListo { return $script:listo }
+# LA GUARDA DE LA RED, QUE LE FALTABA AL BANCO: la idea 84 metio Test-RedParaFondo dentro de
+# Start-CorreoManana y este banco se quedo sin su doble, asi que llevaba rojo desde entonces con un
+# 'no se reconoce el termino'. Con la red buena por defecto, todos sus casos valen igual.
+$script:redFondoOk = $true
+function Test-RedParaFondo { return $script:redFondoOk }
 function Log($m) { $script:log += [string]$m }
 function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'medio', [int]$cadaMin = 60) {
     $script:avisos += , ([pscustomobject]@{ clave = $clave; texto = $texto; nivel = $nivel; cadaMin = $cadaMin })

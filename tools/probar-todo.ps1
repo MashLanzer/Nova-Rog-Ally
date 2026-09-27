@@ -2089,6 +2089,20 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n262. La ronda de fondo ya mira si hay alguien delante (idea 112 de las 121)"
+# Contado en los dos registros: entre las 02:00 y las 08:59 no hay NI UNA de las 170 ordenes -cero,
+# hora por hora- y en esa franja Nova consulto el tiempo 62 veces y salio a mirar el correo 9 (de 14
+# en total), mientras escribia 4.187 lineas 'ENTORNO aparcado'. La guarda ya existia y era de otro:
+# Test-BuenRatoParaTrabajo, con $TrabajoAusenciaMin, que la copia si usaba. La cadencia larga NO es
+# un numero nuevo: es lo que lleva sin nadie, asi que con dos horas sola mira cada dos horas y nunca
+# deja de mirar. Y el refresco al volver sale gratis, sin una linea para el. El freno de un minuto
+# esta medido: Get-InactividadMin cuesta 0,364 ms y sin freno serian 712.800 llamadas -259 s de
+# CPU- en seis horas sin nadie. El disco, la biblioteca y el oido se quedan fuera: los dos primeros
+# no son red y el tercero se dejaria sordo. Nueve roturas tumban el banco, y una de ellas destapo
+# codigo muerto que se quito: un 'suelo' que no cambiaba ningun resultado.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-ronda-de-fondo.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la ronda de fondo ya mira si hay alguien)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n261. Lo que Nova ocupa de la consola, medido por ella misma (idea 111 de las 121)"
 # La regla 5 de la casa dice que nada residente se coma la RAM ni un nucleo que le hace falta al
 # juego, y NO HABIA NI UNA MEDICION DE ESO: TotalProcessorTime no aparecia ni una vez en el
