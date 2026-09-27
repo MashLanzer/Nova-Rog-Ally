@@ -11840,7 +11840,25 @@ $script:entornoCalladoDia = ''
 # si braya hablaba en los CINCO minutos siguientes, asi que el codigo mide lo mismo que la
 # medicion que lo justifica.
 $AvisoReaccionVentanaMs = 300000
-$script:avisoMirar = $null
+# MIRA VARIOS A LA VEZ, NO UNO (27/09, idea 91 de las 121). Antes se guardaba UN solo aviso en
+# observacion y el siguiente lo pisaba, asi que el primero se quedaba sin apuntar ni 'sirvio' ni
+# 'nada'. MEDIDO sobre los 103 avisos de los dos registros: 76 suenan, y ONCE de esos 76 tienen
+# otro aviso que suena dentro de los cinco minutos de la ventana -huecos de 14, 15, 15, 28, 50,
+# 54, 77, 78, 209, 239 y 266 s-. Una medicion de cada siete se perdia, y con 12 muestras
+# guardadas en total eso es perder casi la mitad de lo que hay.
+#
+# Y LO QUE PISABA ERA CASI SIEMPRE EL AVISO MENOS UTIL: 'oido-ruino' es el segundo de cinco de
+# esos once pares, y es el que menos mueve a braya (reacciono 2 veces de 32). O sea que el
+# mecanismo que existe para espaciar el aviso inutil se estaba quedando sin datos justo por
+# culpa del aviso inutil, robandoselos a 'juego-cierra', 'disco-poco', 'me-cai' y
+# 'correo-manana', que son los que si le interesan.
+#
+# LO QUE NO SE HACE, que es lo que el comentario de la version de uno queria evitar: atribuirle a
+# un aviso la reaccion que provoco otro. Cuando braya habla, el 'sirvio' va SOLO al mas antiguo
+# que siga vivo y los demas se tiran sin apuntar nada. Se pierde el empate, no la muestra del que
+# llevaba mas rato esperando.
+$AvisosMirarMax = 4              # medido: en 103 avisos nunca se juntaron mas de dos
+$script:avisosMirar = New-Object System.Collections.ArrayList
 # SEMBRAR LA ESPERA APRENDIDA DEL REGISTRO (27/09, idea 73)
 #
 # EL MECANISMO (25/09) esta bien: Nova mira si braya le habla en los cinco minutos siguientes a un
@@ -11859,7 +11877,8 @@ $script:avisoMirar = $null
 #   2. NIVEL 'alto' FUERA: Test-PuedoAvisar ni llama a Get-EsperaAviso para esos, asi que contarlos
 #      seria llenar de datos una cuenta que nadie mira.
 #   3. OTRO AVISO A MENOS DE CINCO MINUTOS, FUERA: ahi no se sabe a cual contesto braya. Es el
-#      mismo criterio que ya aplica $script:avisoMirar, que solo vigila UNO.
+#      mismo criterio que la regla en vivo: cuando dos avisos se juntan, Start-Dictado le apunta
+#      la reaccion al mas antiguo y descarta el resto por empate (ver idea 91).
 #
 # Y NO SE REPITE: la clave 'siembra-reacciones' queda en las estadisticas; si esta, no se vuelve a
 # sembrar. Va en el fichero de siempre y no en tmp a proposito: tmp se limpia, y sembrar dos veces
@@ -12940,10 +12959,13 @@ function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'med
         [void]$script:entornoAvisos.Add($sw.ElapsedMilliseconds)
         # Y SE QUEDA EN OBSERVACION (25/09, idea 24): si braya le habla en los proximos minutos,
         # ese aviso movio algo; si no, no. De ahi sale la espera aprendida (ver Get-EsperaAviso).
-        # Se guarda UNO SOLO: si caen dos avisos seguidos, el segundo pisa al primero y el
-        # primero se queda sin apuntar. Es mejor perder una muestra que atribuirle a un aviso la
-        # reaccion que provoco otro.
-        $script:avisoMirar = @{ clave = $clave; hasta = ($sw.ElapsedMilliseconds + $AvisoReaccionVentanaMs) }
+        # SE GUARDAN VARIOS (idea 91): el segundo ya no pisa al primero. Quien decide a cual se
+        # le apunta la reaccion es Start-Dictado, y lo hace por el mas antiguo.
+        [void]$script:avisosMirar.Add(@{ clave = $clave; hasta = ($sw.ElapsedMilliseconds + $AvisoReaccionVentanaMs) })
+        while ($script:avisosMirar.Count -gt $AvisosMirarMax) {
+            Log ("REACCION: '" + [string]$script:avisosMirar[0].clave + "' sale de observacion sin medir, hay " + $AvisosMirarMax + " esperando")
+            $script:avisosMirar.RemoveAt(0)
+        }
     }
     return $true
 }
@@ -28871,9 +28893,17 @@ function Start-Dictado([string]$origen) {
     Log "DICTADO ($origen)"
     # SI HABIA UN AVISO EN OBSERVACION, ESTE ES SU DESENLACE (25/09, idea 24): braya ha
     # hablado dentro de la ventana, asi que ese aviso movio algo. Ver Get-EsperaAviso.
-    if ($script:avisoMirar) {
-        Add-Estadistica ("aviso-sirvio:" + $script:avisoMirar.clave)
-        $script:avisoMirar = $null
+    if ($script:avisosMirar.Count -gt 0) {
+        # AL MAS ANTIGUO QUE SIGA VIVO, Y LOS DEMAS SE TIRAN (idea 91): una sola frase no puede
+        # haber contestado a tres avisos, asi que el empate se pierde a proposito. Lo que ya no se
+        # pierde es la muestra del que llevaba mas rato esperando.
+        $vieM = $script:avisosMirar[0]
+        Add-Estadistica ("aviso-sirvio:" + [string]$vieM.clave)
+        if ($script:avisosMirar.Count -gt 1) {
+            Log ("REACCION: se la apunto a '" + [string]$vieM.clave + "', que llevaba mas rato esperando; los otros " +
+                 ($script:avisosMirar.Count - 1) + " se descartan por empate")
+        }
+        $script:avisosMirar.Clear()
     }
     if ($origen -ne 'seguimiento') { $script:noEntendiSeguidos = 0 }
     $script:origenDictado = $origen
@@ -31831,9 +31861,15 @@ while ($true) {
     # --- EL AVISO QUE NO MOVIO NADA (25/09, idea 24) ---
     # Si la ventana vence sin que braya haya hablado, ese aviso no sirvio. Se apunta y de ahi
     # sale la espera aprendida. NO se calla el aviso: se espacia (ver Get-EsperaAviso).
-    if ($script:avisoMirar -and $sw.ElapsedMilliseconds -ge $script:avisoMirar.hasta) {
-        Add-Estadistica ("aviso-nada:" + $script:avisoMirar.clave)
-        $script:avisoMirar = $null
+    # AL REVES PARA PODER QUITAR MIENTRAS SE RECORRE (idea 91): de atras adelante, que quitar por
+    # delante mueve los indices de lo que queda por mirar.
+    if ($script:avisosMirar.Count -gt 0) {
+        for ($iM = $script:avisosMirar.Count - 1; $iM -ge 0; $iM--) {
+            if ($sw.ElapsedMilliseconds -ge $script:avisosMirar[$iM].hasta) {
+                Add-Estadistica ("aviso-nada:" + [string]$script:avisosMirar[$iM].clave)
+                $script:avisosMirar.RemoveAt($iM)
+            }
+        }
     }
 
     # --- VIGILANCIA DEL OIDO DE WINDOWS ---

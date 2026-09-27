@@ -43,11 +43,15 @@ $script:ahoraMs = 600000
 $sw = [pscustomobject]@{}
 $sw | Add-Member -MemberType ScriptProperty -Name ElapsedMilliseconds -Value { $script:ahoraMs }
 $script:entornoVistos = @{}
-$script:entornoAvisos = New-Object System.Collections.ArrayList
+$script:entornoAvisos = New-Object System.Collections.ArrayList
+# LA LISTA DE AVISOS EN OBSERVACION (27/09, idea 91): antes era UNA variable a $null y ahora es
+# una lista a la que Send-AvisoEntorno le hace .Add(). Sin este doble el banco revienta con "no
+# se puede llamar a un metodo en una expresion con valor NULL".
+$script:avisosMirar = New-Object System.Collections.ArrayList
+$AvisosMirarMax = 4
 $script:avisoCola = New-Object System.Collections.ArrayList
 $script:avisoEspera = New-Object System.Collections.ArrayList
 $script:avisoColaDesde = 0
-$script:avisoMirar = $null
 $script:juegoActivo = $null
 $script:ultimaRespuesta = ''
 $script:ausenciaMin = 0
@@ -102,7 +106,7 @@ function Limpia {
     $script:entornoVistos = @{}
     $script:entornoAvisos.Clear()
     $script:avisoCola.Clear()
-    $script:avisoMirar = $null
+    $script:avisosMirar.Clear()
     $script:logs = @(); $script:apuntes = @(); $script:dichos = @(); $script:popups = @()
 }
 
@@ -115,7 +119,7 @@ try {
     $r0 = Send-AvisoEntorno 'oido-ruido' 'Hay ruido de fondo' 'medio' 60
     Comp 'un aviso normal SI sale' ([bool]$r0) "$r0"
     Comp '  y gasta su turno' ($script:entornoAvisos.Count -eq 1) "$($script:entornoAvisos.Count)"
-    Comp '  y queda en observacion' ($null -ne $script:avisoMirar -and $script:avisoMirar.clave -eq 'oido-ruido') ''
+    Comp '  y queda en observacion' ($script:avisosMirar.Count -eq 1 -and $script:avisosMirar[0].clave -eq 'oido-ruido') ''
 
     Write-Host ''
     Write-Host '-- A. EL TURNO: cuatro mudos no dejan a Nova sin voz --'
@@ -140,9 +144,17 @@ try {
     [void](Send-AvisoEntorno 'oido-ruido' 'Hay ruido de fondo' 'medio' 60)
     $script:ahoraMs += 89000
     [void](Send-AvisoEntorno 'bateria-llena' 'Ya esta llena' 'bajo' 60)
-    Comp 'el mudo NO le quita la observacion al que sono' ($script:avisoMirar.clave -eq 'oido-ruido') (
-        "quedo mirando '$($script:avisoMirar.clave)'")
-    Comp '  y sigue con su plazo original' ($script:avisoMirar.hasta -eq (600000 + $AvisoReaccionVentanaMs)) ''
+    Comp 'el mudo NO le quita la observacion al que sono' ($script:avisosMirar.Count -eq 1 -and $script:avisosMirar[0].clave -eq 'oido-ruido') (
+        "quedo mirando '$($script:avisosMirar[0].clave)'")
+    Comp '  y sigue con su plazo original' ($script:avisosMirar[0].hasta -eq (600000 + $AvisoReaccionVentanaMs)) ''
+    # Y DESDE LA IDEA 91 (27/09) TAMPOCO SE LO QUITA OTRO QUE SI SUENE. Este es el otro robo, el
+    # que el mudo no arreglaba: MEDIDO, once de los 76 avisos que suenan tienen otro que suena
+    # dentro de la ventana -el 23/09 a las 08:00:19 disco-poco y 14 s despues oido-ruido-, y con
+    # la version de UNA variable el primero se quedaba sin apuntar nada.
+    $script:ahoraMs += 14000
+    [void](Send-AvisoEntorno 'disco-poco' 'Queda poco disco' 'medio' 60)
+    Comp '  ni otro que SI suena' ($script:avisosMirar.Count -eq 2) ([string]$script:avisosMirar.Count + ' en observacion')
+    Comp '  y el primero sigue siendo el primero' ($script:avisosMirar[0].clave -eq 'oido-ruido') 'el "sirvio" va al mas antiguo'
 
     Write-Host ''
     Write-Host '-- C. y lo que NO puede cambiar: el mudo sigue saliendo --'
@@ -165,7 +177,7 @@ try {
         Limpia
         [void](Send-AvisoEntorno 'oido-ruido' 'algo' $n 60)
         Comp "el nivel '$n' gasta su turno" ($script:entornoAvisos.Count -eq 1) ''
-        Comp "  y queda en observacion" ($null -ne $script:avisoMirar) ''
+        Comp "  y queda en observacion" ($script:avisosMirar.Count -eq 1) ''
     }
 } finally { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }
 
@@ -189,11 +201,11 @@ $iRama = $cuerpoS.IndexOf("elseif (`$nivel -ne 'bajo') {")
 $iGuarda = $cuerpoS.LastIndexOf("if (`$nivel -ne 'bajo') {")
 Comp 'el guarda nuevo va DETRAS de las ramas' ($iGuarda -gt $iRama) 'asi no se toca ni un caracter dentro de ellas'
 $iAdd = $cuerpoS.IndexOf('$script:entornoAvisos.Add')
-$iMirar = $cuerpoS.IndexOf('$script:avisoMirar = @{')
+$iMirar = $cuerpoS.IndexOf('$script:avisosMirar.Add(')
 Comp '  y las dos lineas viven dentro' ($iAdd -gt $iGuarda -and $iMirar -gt $iGuarda) ''
 Comp '  y solo hay una de cada' (
     @([regex]::Matches($cuerpoS, '\$script:entornoAvisos\.Add')).Count -eq 1 -and
-    @([regex]::Matches($cuerpoS, '\$script:avisoMirar = @\{')).Count -eq 1) ''
+    @([regex]::Matches($cuerpoS, '\$script:avisosMirar\.Add\(')).Count -eq 1) ''
 
 Write-Host ''
 Write-Host '-- F. contra el registro de verdad --'

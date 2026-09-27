@@ -1745,6 +1745,14 @@ Titulo "2n147. Los avisos que no te mueven se dicen menos"
 # ventilador sin decir nada, cuenta como que no reacciono-. Por eso NO se calla ningun aviso:
 # se ESPACIA. Y hace falta un minimo de 8 muestras, un tope de 6 h y que lo critico ('alto') no
 # se toque nunca.
+# Y AMPLIADO CON LA IDEA 91 DE LAS 121 (27/09): miraba UN solo aviso en observacion y el
+# siguiente lo pisaba. MEDIDO sobre los 103 avisos de los dos registros, 76 suenan y ONCE de
+# esos 76 tienen otro que suena dentro de la ventana de 5 min (huecos de 14, 15, 15, 28, 50,
+# 54, 77, 78, 209, 239 y 266 s): una medicion de cada siete se perdia, con 12 muestras
+# guardadas en total. Y lo que pisaba era el aviso MENOS util -'oido-ruido' es el segundo en
+# cinco de esos once pares-, o sea que el mecanismo que existe para espaciarlo se quedaba sin
+# datos por su culpa. Ahora se guardan varios y el 'sirvio' va SOLO al mas antiguo: el empate
+# se pierde a proposito, la muestra del que llevaba mas rato esperando no.
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-avisos-que-sirven.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:aprende que avisos te mueven)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 

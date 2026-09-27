@@ -117,6 +117,128 @@ $e2 = Get-EsperaAviso 'nunca' 60
 Comp 'y con una base normal, cuatro veces mas' ($e2 -eq 240) "$e2 min en vez de 60"
 
 Write-Host ''
+Write-Host '-- MIRA VARIOS AVISOS A LA VEZ, NO UNO (27/09, idea 91 de las 121) --'
+# EL DATO: de los 103 avisos de los dos registros, 76 suenan, y ONCE de esos 76 tienen otro aviso
+# que suena dentro de los cinco minutos de la ventana (huecos de 14, 15, 15, 28, 50, 54, 77, 78,
+# 209, 239 y 266 s). Con la version de UN solo aviso en observacion, el segundo pisaba al primero
+# y el primero se quedaba sin apuntar ni 'sirvio' ni 'nada': una medicion de cada siete perdida,
+# con 12 muestras guardadas en total.
+#
+# Y LO QUE PISABA ERA EL AVISO MENOS UTIL: 'oido-ruido' es el segundo en cinco de esos once pares
+# y es el que menos mueve a braya (2 reacciones de 32). El mecanismo que existe para espaciarlo se
+# quedaba sin datos justo por su culpa.
+#
+# LOS TRES TROZOS SE SACAN DEL FICHERO Y SE EJECUTAN. No estan en funciones propias -viven dentro
+# de Send-AvisoEntorno, Start-Dictado y el bucle principal-, asi que se cortan por texto con
+# asserts de que se cogio lo que se queria.
+$lin = [IO.File]::ReadAllLines($PS1)
+function Equilibrio([string]$l) {
+    $c = (($l -replace "'[^']*'", "''") -replace '"[^"]*"', '""')
+    $c = ($c -split '#')[0]
+    return (@([regex]::Matches($c, '\{')).Count - @([regex]::Matches($c, '\}')).Count)
+}
+function CortarDesde([int]$i0) {
+    $prof = 0
+    for ($i = $i0; $i -lt $lin.Count; $i++) {
+        $prof += Equilibrio $lin[$i]
+        if ($prof -le 0) { return ($lin[$i0..$i] -join "`n") }
+    }
+    return ''
+}
+# los dos 'if ($script:avisosMirar.Count -gt 0)': uno apunta 'sirvio' y el otro 'nada'
+$trozoSirvio = ''; $trozoNada = ''; $trozoObs = ''
+for ($i = 0; $i -lt $lin.Count; $i++) {
+    if ($lin[$i] -match '^\s*if \(\$script:avisosMirar\.Count -gt 0\) \{') {
+        $b = CortarDesde $i
+        if ($b -match 'aviso-sirvio') { $trozoSirvio = $b }
+        elseif ($b -match 'aviso-nada') { $trozoNada = $b }
+    }
+    if ($lin[$i] -match '^\s*\[void\]\$script:avisosMirar\.Add\(') {
+        # el Add mas el while del tope: cuatro lineas, y se comprueba que son esas
+        $trozoObs = ($lin[$i..($i + 4)] -join "`n")
+    }
+}
+Comp 'se saca del fichero el trozo que pone en observacion' (($trozoObs -match 'avisosMirar\.Add\(') -and ($trozoObs -match 'RemoveAt\(0\)')) ([string]@($trozoObs -split "`n").Count + ' lineas')
+Comp '  el que apunta que SIRVIO' (($trozoSirvio -match 'aviso-sirvio') -and ($trozoSirvio -match 'Clear\(\)')) ([string]@($trozoSirvio -split "`n").Count + ' lineas')
+Comp '  y el que apunta que NO movio nada' (($trozoNada -match 'aviso-nada') -and ($trozoNada -match 'RemoveAt\(\$iM\)')) ([string]@($trozoNada -split "`n").Count + ' lineas')
+Comp '  y ninguno se paso de tamano' ((@($trozoSirvio -split "`n").Count -lt 20) -and (@($trozoNada -split "`n").Count -lt 20)) 'si crece de golpe, el corte caso donde no debia'
+Comp 'y ya no queda ni una mencion al de uno solo' (-not ($txt -match '\$script:avisoMirar\b')) 'el nombre viejo se fue entero'
+
+# EL MUNDO DE MENTIRA, DESPUES de cortar los trozos. $sw se dobla con un objeto cuyo reloj se
+# mueve a mano: es lo unico que decide cuando vence una ventana.
+$sw = [pscustomobject]@{ ElapsedMilliseconds = 0 }
+$script:apuntes = @()
+$script:lineas = @()
+function Add-Estadistica([string]$ruta, [string]$detalle = '', [bool]$deCamino = $false) { $script:apuntes += @($ruta) }
+function Log([string]$m) { $script:lineas += @($m) }
+$AvisosMirarMax = 4
+$AvisoReaccionVentanaMs = 300000
+$script:avisosMirar = New-Object System.Collections.ArrayList
+$fObs = [scriptblock]::Create("function Observar([string]`$clave) {`n$trozoObs`n}")
+$fSir = [scriptblock]::Create("function Hablo {`n$trozoSirvio`n}")
+$fNad = [scriptblock]::Create("function Vencer {`n$trozoNada`n}")
+. $fObs; . $fSir; . $fNad
+function ResetM { $script:avisosMirar.Clear(); $script:apuntes = @(); $script:lineas = @(); $sw.ElapsedMilliseconds = 0 }
+
+# 1. EL CASO REAL QUE SE PERDIA: los 14 s del 23/09 (disco-poco y 14 s despues oido-ruido)
+ResetM
+Observar 'disco-poco'
+$sw.ElapsedMilliseconds = 14000
+Observar 'oido-ruido'
+Comp 'los dos avisos siguen en observacion' ($script:avisosMirar.Count -eq 2) ([string]$script:avisosMirar.Count)
+$sw.ElapsedMilliseconds = 60000
+Hablo
+Comp '  y al hablar se apunta UNA reaccion' (@($script:apuntes | Where-Object { $_ -match '^aviso-sirvio:' }).Count -eq 1) ([string]@($script:apuntes).Count + ' apunte(s)')
+Comp '  a disco-poco, que llevaba mas rato esperando' ($script:apuntes -contains 'aviso-sirvio:disco-poco') ($script:apuntes -join ', ')
+Comp '  y NO a oido-ruido, que es el que pisaba' (-not ($script:apuntes -contains 'aviso-sirvio:oido-ruido')) 'el empate se pierde a proposito'
+Comp '  y se dice en el registro' (@($script:lineas | Where-Object { $_ -match 'empate' }).Count -eq 1) ''
+Comp '  la lista queda vacia' ($script:avisosMirar.Count -eq 0) 'una frase no contesta a dos avisos'
+
+# 2. Y LO QUE ANTES SE PERDIA, AHORA SE APUNTA COMO 'nada' SI NADIE HABLA
+ResetM
+Observar 'juego-cierra'
+$sw.ElapsedMilliseconds = 50000
+Observar 'oido-ruido'
+$sw.ElapsedMilliseconds = 300001            # vence la ventana del primero
+Vencer
+Comp 'al vencer el primero se apunta que no movio nada' ($script:apuntes -contains 'aviso-nada:juego-cierra') ($script:apuntes -join ', ')
+Comp '  y el segundo sigue esperando su turno' ($script:avisosMirar.Count -eq 1 -and $script:avisosMirar[0].clave -eq 'oido-ruido') ([string]$script:avisosMirar.Count)
+$sw.ElapsedMilliseconds = 350002
+Vencer
+Comp '  y cuando le toca, tambien se apunta' ($script:apuntes -contains 'aviso-nada:oido-ruido') 'antes esta muestra no existia'
+Comp '  sin dejar nada dentro' ($script:avisosMirar.Count -eq 0) ''
+
+# 3. LO QUE NO PUEDE PASAR: que un aviso se apunte DOS veces
+ResetM
+Observar 'disco-poco'
+$sw.ElapsedMilliseconds = 60000
+Hablo
+$sw.ElapsedMilliseconds = 400000
+Vencer
+Comp 'un aviso que sirvio no se apunta tambien como que no' (@($script:apuntes | Where-Object { $_ -match 'disco-poco' }).Count -eq 1) ($script:apuntes -join ', ')
+
+# 4. Y HABLAR SIN NINGUN AVISO DELANTE NO APUNTA NADA
+ResetM
+Hablo
+Comp 'hablar sin avisos en observacion no apunta nada' (@($script:apuntes).Count -eq 0) ([string]@($script:apuntes).Count)
+Comp '  ni escribe en el registro' (@($script:lineas).Count -eq 0) 'un dictado normal no dice nada de esto'
+
+# 5. EL TOPE, que existe para que una tanda de avisos no llene la lista
+ResetM
+foreach ($k in @('a', 'b', 'c', 'd', 'e', 'f')) { Observar $k }
+Comp 'la lista no pasa de su tope' ($script:avisosMirar.Count -le $AvisosMirarMax) ([string]$script:avisosMirar.Count + ' de ' + [string]$AvisosMirarMax)
+Comp '  y se van los mas viejos, no los nuevos' ($script:avisosMirar[($script:avisosMirar.Count - 1)].clave -eq 'f') ([string]$script:avisosMirar[($script:avisosMirar.Count - 1)].clave)
+Comp '  diciendo que salen sin medir' (@($script:lineas | Where-Object { $_ -match 'sin medir' }).Count -eq 2) ([string]@($script:lineas | Where-Object { $_ -match 'sin medir' }).Count)
+Comp '  y el tope sale del archivo' ($txt -match '\$AvisosMirarMax = 4') 'medido: nunca se juntaron mas de dos'
+
+# 6. Y LOS QUE NO SUENAN SIGUEN SIN ENTRAR: de un aviso que nadie oyo no se deduce nada
+$blSA = ''
+for ($i = 0; $i -lt $lin.Count; $i++) {
+    if ($lin[$i] -match "^\s*if \(\`$nivel -ne 'bajo'\) \{") { $blSA = CortarDesde $i; break }
+}
+Comp 'la observacion vive dentro del if de nivel' (($blSA -match 'avisosMirar\.Add\(') -and ($blSA.Length -gt 0)) 'los "bajo" no suenan: de esos no se puede deducir si movieron algo'
+
+Write-Host ''
 if ($mal -gt 0) { Write-Host "  $mal MAL"; exit 1 }
 Write-Host '  Nova aprende que avisos te mueven'
 exit 0

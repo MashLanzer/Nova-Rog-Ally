@@ -38,6 +38,11 @@ $script:entornoVistos = @{}
 $script:avisoCola = New-Object System.Collections.ArrayList
 $script:avisoColaDesde = 0
 $script:entornoAvisos = New-Object System.Collections.ArrayList
+# LA LISTA DE AVISOS EN OBSERVACION (27/09, idea 91): antes era UNA variable a $null y ahora es
+# una lista a la que Send-AvisoEntorno le hace .Add(). Sin este doble el banco revienta con "no
+# se puede llamar a un metodo en una expresion con valor NULL".
+$script:avisosMirar = New-Object System.Collections.ArrayList
+$AvisosMirarMax = 4
 $script:ultimaRespuesta = ''
 $script:avisoMirar = $null
 $AvisoReaccionVentanaMs = 180000

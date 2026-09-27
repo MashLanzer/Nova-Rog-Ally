@@ -87,8 +87,16 @@ Comp 'y ni siquiera lo rozan' ($tocadas.Count -eq $conFreno) "$($tocadas.Count) 
 # y que el freno sea de verdad un minuto y no un numero cualquiera
 $txt = [IO.File]::ReadAllText($PS1)
 $sinCom = (($txt -split "`n") | Where-Object { $_.TrimStart() -notmatch '^\s*#' }) -join "`n"
-Comp 'la variable del antirrebote se inicializa' ($sinCom -match '\$script:avisoSueltaUltimo\s*=\s*-?\d+') 'sin esto la primera pasada fallaria'
-Comp 'y arranca en el pasado, para no perder la primera' ($sinCom -match '\$script:avisoSueltaUltimo\s*=\s*-\d{4,}') 'un 0 haria esperar un minuto tras arrancar'
+# DESDE LA IDEA 82 (27/09) EL VALOR NO ES UN NUMERO SUELTO: se lee del disco con Get-Reloj y el
+# numero va de respaldo para cuando no hay nada guardado. Los dos patrones de antes exigian un
+# literal, asi que este banco llevaba rojo desde ese dia sin que nada estuviera roto. Se sigue
+# vigilando lo mismo -que se inicializa, y en el pasado- aceptando las dos formas.
+Comp 'la variable del antirrebote se inicializa' ($sinCom -match '\$script:avisoSueltaUltimo\s*=\s*(?:Get-Reloj [^
+]*?)?-?\d+') 'sin esto la primera pasada fallaria'
+Comp 'y arranca en el pasado, para no perder la primera' ($sinCom -match '\$script:avisoSueltaUltimo\s*=\s*(?:Get-Reloj [^
+]*?)?-\d{4,}') 'un 0 haria esperar un minuto tras arrancar'
+# y que lo que se lee del disco sea un reloj de los de la lista blanca, no una clave inventada
+Comp '  y el reloj que lee esta en la lista blanca' ($txt -match "\`$RelojesBlanca = @\([^)]*'aviso-suelta'") 'si no, Set-Reloj no lo guardaria nunca'
 
 Write-Host ''
 Write-Host '-- 2. la funcion, SACADA DEL ARCHIVO Y EJECUTADA --'

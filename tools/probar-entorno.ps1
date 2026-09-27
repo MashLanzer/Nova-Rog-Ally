@@ -74,6 +74,11 @@ $hAhoraP = (Get-Date).Hour
 $EntornoNocheDesde = ($hAhoraP + 2) % 24
 $EntornoNocheHasta = ($hAhoraP + 3) % 24
 $script:entornoAvisos = New-Object System.Collections.ArrayList
+# LA LISTA DE AVISOS EN OBSERVACION (27/09, idea 91). Antes era UNA variable a $null y ahora es una
+# lista: Send-AvisoEntorno le hace .Add(), asi que sin este doble el banco revienta con "no se puede
+# llamar a un metodo en una expresion con valor NULL" -que es exactamente lo que hizo al cambiarlo-.
+$script:avisosMirar = New-Object System.Collections.ArrayList
+$AvisosMirarMax = 4
 $script:entornoVistos = @{}
 $script:entornoCallado = $false
 $script:invitado = $false
@@ -172,6 +177,7 @@ function Comp($etiqueta, $ok, $detalle) {
 }
 function Reset {
     $script:entornoAvisos = New-Object System.Collections.ArrayList
+    $script:avisosMirar = New-Object System.Collections.ArrayList
     $script:entornoVistos = @{}
     # las marcas ya viven en disco: si no se borran, un caso ensucia al siguiente
     Remove-Item -LiteralPath $EntornoVistosPath -Force -ErrorAction SilentlyContinue
