@@ -114,6 +114,10 @@ $EXENTAS = @{
     # se pusiera aqui dentro, ese olvido se quedaria a medias: borrado de la memoria y
     # no del fichero, o sea que volveria al reiniciar.
     'Save-Traducciones'       = 'la decide quien la llama: Add-Traduccion tiene la guarda y Remove-Traduccion no la quiere'
+    # ESTRENOS (26/09, idea 49). Guarda que juego bajado y sin abrir ya se aviso, keyed por
+    # nombre. Es de la biblioteca de braya -sus habitos-, asi que la guarda la pone el unico que
+    # la llama: Test-JuegoSinEstrenar sale en su primera linea si hay invitado. Ya avisado.
+    'Save-Estrenos'           = 'lo llama Test-JuegoSinEstrenar, que sale en su primera linea si hay invitado'
 }
 
 $fns = $ast.FindAll({ param($x) $x -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)

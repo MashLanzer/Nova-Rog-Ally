@@ -1997,6 +1997,15 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n216. Se muere la mitad de las veces y solo recuerda la ultima: contar arranques y relanzamientos (idea 50 de las 121)"
+# 72 arranques / 36 cierres limpios (50 %) y 46 relanzamientos del oido o la capsula en 12 dias
+# que Nova nunca conto ni dijo. Ahora cuenta 'arranque', 'cierre-limpio', 'relanza:oido' y
+# 'relanza:capsula', y Test-ReiniciosDeMas avisa (nivel 'medio', se aparca si no hay nadie) cuando
+# HOY supera SU PROPIA mediana de 14 dias -nunca un numero a mano; el liston es la propia Nova-.
+# Datos inyectados; el banco ejecuta las funciones y el scriptblock del Exiting de verdad (AST).
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-reinicios.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:los reinicios se cuentan y se comparan con lo normal)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n215. Lo que bajas y no abres: cruzar descargas.json con el LastPlayed de Steam (idea 49 de las 121)"
 # Nova avisaba de disco poco contestando megas de cache con 52 GB de juegos sin abrir delante.
 # Get-JuegosSinAbrir los ve (tamano>0 y ultimo=0, el mayor primero) y el aviso de disco los nombra;

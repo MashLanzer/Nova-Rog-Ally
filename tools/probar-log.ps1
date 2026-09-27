@@ -80,6 +80,11 @@ Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue
 # fuente y se comprueba que las cuatro piezas siguen ahi.
 Write-Host '  -- la salida limpia, entera --'
 $src = [System.IO.File]::ReadAllText((Join-Path $raiz 'assistant.ps1'), [System.Text.Encoding]::UTF8)
+# EL FUENTE SIN COMENTARIOS (26/09, idea 50): el primer 'PowerShell.Exiting' del archivo esta en
+# un comentario que ademas dice 'VoiceAssistant cerrado', asi que el -match de mas abajo casaba
+# aunque se borrara el gancho de verdad (manera 2 de salir verde mintiendo). Se tiran las lineas
+# que empiezan por '#' antes de mirar.
+$srcSinCom = (($src -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) -join "`n"
 Comp 'la marca de salida esta definida' ($src -match '\$MarcaSalir = Join-Path \$TmpDir "salir\.flag"') ''
 Comp 'y se limpia al arrancar, con las demas' ($src -match '\$MarcaWake, \$MarcaSalir\)') ''
 # EL BLOQUE DE VERDAD, NO UNA DISTANCIA EN CARACTERES (25/09). Esto eran dos regex con
@@ -133,7 +138,7 @@ Comp 'y cierra sus workers antes de salir (charla, escucha, voz)' ($blSalida.Con
 # Y CIERRA SUS WORKERS ANTES (18/09, noche): el de escucha miraba al padre solo en su pulso, cada
 # 15 s, y se quedaba vivo hasta que parar-nova.ps1 lo mataba. La charla por Stop-Charla, escucha
 # y voz por Kill, y todo ANTES del exit, que despues ya no hay quien lo haga.
-Comp 'y el cierre deja su linea en el log' ($src -match 'PowerShell\.Exiting[\s\S]{0,200}VoiceAssistant cerrado') ''
+Comp 'y el cierre deja su linea en el log' ($srcSinCom -match 'PowerShell\.Exiting[\s\S]{0,200}VoiceAssistant cerrado') ''
 Comp 'existe tools\parar-nova.ps1' (Test-Path -LiteralPath (Join-Path $raiz 'tools\parar-nova.ps1')) ''
 
 Write-Host ''

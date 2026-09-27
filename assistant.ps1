@@ -11517,6 +11517,7 @@ function Save-Estrenos($h) {
     } catch {}
 }
 function Test-JuegoSinEstrenar {
+    if ($script:invitado) { return $false }                  # con invitado no se mira su biblioteca (y ANTES de marcar el dia)
     $hoyE = (Get-Date).ToString('yyyy-MM-dd')
     if ($script:estrenoMirado -eq $hoyE) { return $false }   # una vez al dia
     $script:estrenoMirado = $hoyE
@@ -12428,6 +12429,9 @@ function Watch-Entorno([int]$botones = 0) {
 
     try { [void](Test-RevisionPropia) } catch { Log ("revision propia: " + $_.Exception.Message) }
 
+    # IDEA 50: demasiados reinicios hoy, medido contra la propia mediana de Nova (nunca un numero).
+    try { [void](Test-ReiniciosDeMas) } catch { Log ("reinicios: " + $_.Exception.Message) }
+
     # IDEAS 1 y 17: el parte de la manana y el resumen al volver EXISTIAN, pero solo
     # se preparaban dentro de Process-Texto: si no le hablabas, no salian nunca.
     if (-not $script:invitado) {
@@ -13126,7 +13130,79 @@ function Test-DatosRepartidos($stats, [string]$clave, [datetime]$ahora, [int]$di
     return (($peor / [double]$tot) -le $topeDia)
 }
 
+# LA MEDIANA DE UNA CLAVE POR DIA (26/09, idea 50 de las 121). El liston de "demasiados
+# reinicios" NO es un numero a mano: es lo normal en la propia Nova. Cuenta los CEROS de los
+# dias que existen (Nova arranco) pero no traen la clave -por eso NO se puede copiar el
+# `if ($v -le 0) { continue }` de Test-DatosRepartidos, que para su proposito esta bien y para
+# una mediana esta MAL: dejaria fuera los dias tranquilos y solo promediaria los malos-.
+# EXCLUYE hoy (empieza en i=1): si no, lo que se mide arrastra al liston. Respeta el corte
+# $DecisionDatosDesde por Test-DiaCuenta, como todo lo demas.
+function Get-MedianaDias($stats, [string]$clave, [datetime]$ahora, [int]$dias = 14) {
+    $vals = @()
+    try {
+        for ($i = 1; $i -le $dias; $i++) {                       # desde 1: HOY no entra
+            $k = $ahora.AddDays(-$i).ToString('yyyy-MM-dd')
+            if (-not (Test-DiaCuenta $k)) { continue }
+            if (-not $stats.dias.ContainsKey($k)) { continue }   # ese dia Nova no arranco: no cuenta
+            $vals += [int]$stats.dias[$k][$clave]                # clave ausente = 0, y el cero SI cuenta
+        }
+    } catch { return 0 }
+    if ($vals.Count -eq 0) { return 0 }
+    $ord = @($vals | Sort-Object)
+    $m = [int][Math]::Floor($ord.Count / 2)
+    if ($ord.Count % 2 -eq 1) { return [double]$ord[$m] }
+    return ([double]($ord[$m - 1] + $ord[$m]) / 2.0)
+}
+
+# DEMASIADOS REINICIOS, MEDIDO CONTRA UNO MISMO (26/09, idea 50). El 22/09 Nova relanzo el oido
+# y la capsula nueve veces y no dijo nada; media hora antes se moria la mitad de las veces al
+# arrancar. Mira DOS cosas por separado: los 'arranque' y la suma 'relanza:oido'+'relanza:capsula'.
+# Para cada una, el liston es SU PROPIA mediana de 14 dias (Get-MedianaDias), no un numero; solo
+# habla si hoy la supera de verdad. Test-DatosRepartidos con sus valores por defecto (3 dias,
+# 70 %) frena la tarde de desarrollo con todo el historial en un solo dia. Copiada en forma de
+# Test-RevisionPropia: invitado/jugando fuera y una vez al dia. La clave 'me-reinicio' no va en
+# $AvisoSiempre, asi que Test-AvisoAplazable (dentro de Send-AvisoEntorno) la aparca si no hay
+# nadie: esa es la guarda de presencia que pide la idea, y sale gratis.
+# OJO (guarda de $script:invitado en Add-Estadistica): una sesion que empieza normal y acaba en
+# modo invitado apunta 'arranque' y no 'cierre-limpio', o sea que se lee como muerte sucia. Es
+# raro y no justifica saltarse el modo invitado; queda escrito para que nadie "arregle" una tasa
+# que no esta rota.
+function Test-ReiniciosDeMas([datetime]$ahora = (Get-Date)) {
+    if ($script:invitado -or $script:juegoActivo) { return $false }
+    $hoyRe = $ahora.ToString('yyyy-MM-dd')
+    if ($script:reiniciosAvisoDia -eq $hoyRe) { return $false }   # una vez al dia
+    $stRe = $null
+    try { $stRe = Get-Estadisticas } catch { return $false }
+    if (-not $stRe -or -not $stRe.dias) { return $false }
+
+    # 1) ARRANQUES
+    $arrHoy = Get-CuentaHoy 'arranque'
+    $arrMed = Get-MedianaDias $stRe 'arranque' $ahora 14
+    $hablaArr = ((Test-DatosRepartidos $stRe 'arranque' $ahora) -and ($arrHoy -gt $arrMed))
+
+    # 2) RELANZAMIENTOS (oido + capsula): se cuentan aparte y se suman, porque "algo no se
+    #    sostiene" es lo mismo lo tire quien lo tire. Basta con que UNA de las dos claves tenga
+    #    los datos repartidos para no callar la suma.
+    $relHoy = (Get-CuentaHoy 'relanza:oido') + (Get-CuentaHoy 'relanza:capsula')
+    $relMed = (Get-MedianaDias $stRe 'relanza:oido' $ahora 14) + (Get-MedianaDias $stRe 'relanza:capsula' $ahora 14)
+    $repartoRel = ((Test-DatosRepartidos $stRe 'relanza:oido' $ahora) -or (Test-DatosRepartidos $stRe 'relanza:capsula' $ahora))
+    $hablaRel = ($repartoRel -and ($relHoy -gt $relMed))
+
+    if (-not $hablaArr -and -not $hablaRel) { return $false }
+
+    if ($hablaArr) {
+        $texto = "Llevo $arrHoy arranques hoy; lo normal en mi son $([Math]::Round($arrMed, 1)) al dia."
+    } else {
+        $texto = "Hoy he tenido que relanzar $relHoy veces lo que me escucha y lo que me dibuja; lo normal son $([Math]::Round($relMed, 1))."
+    }
+    $script:reiniciosAvisoDia = $hoyRe   # se marca al comprometer el aviso; el 1440 de cadaMin es "un dia", el freno es esta marca
+    [void](Send-AvisoEntorno 'me-reinicio' $texto 'medio' 1440)
+    return $true
+}
+
 $script:revisionPropiaDia = ''
+$script:arranqueContado = $false   # idea 50: esta sesion ya conto su 'arranque' (guarda del 'cierre-limpio')
+$script:reiniciosAvisoDia = ''     # idea 50: ultimo dia que se aviso de demasiados reinicios
 # LO QUE NO PUEDE DECIDIR, TAMBIEN SE CUENTA (18/09). Hasta hoy Nova solo hablaba cuando
 # decidia algo. Pero puede pasar -y pasa- que los numeros canten y el freno de datos repartidos
 # la pare: el ultimo recurso lleva 1 acierto de 29 intentos (muy por debajo del 15 %), y aun asi
@@ -22849,6 +22925,12 @@ Log "VoiceAssistant iniciado PID=$PID (trigger: mantener ≡ $([Math]::Round($HO
 try {
     $null = Register-EngineEvent PowerShell.Exiting -Action {
         try { Log ("VoiceAssistant cerrado PID=" + $PID) } catch {}
+        # CIERRE LIMPIO (26/09, idea 50), DEBAJO del Log a proposito: probar-log.ps1 mide un hueco
+        # corto entre 'PowerShell.Exiting' y 'cerrado', y meter algo ANTES lo reventaria. La guarda
+        # NO es adorno: el "exit 1" de "opencode CLI no encontrado" corre DESPUES de registrarse
+        # esto y ANTES de $sw, o sea sin haber contado 'arranque'; sin la guarda apuntaria un
+        # cierre-limpio sin su arranque y la tasa se pasaria del 100 %.
+        if ($script:arranqueContado) { try { Add-Estadistica 'cierre-limpio' } catch {} }
     }
 } catch {}
 if ($cfgError) { Log "WARN: config.json ilegible, se usan los valores por defecto: $cfgError" }
@@ -28287,6 +28369,13 @@ function Process-Texto([string]$text) {
 }
 
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
+# ARRANQUE CONTADO (26/09, idea 50 de las 121). Aqui y no en el Log "iniciado" (5.000 lineas
+# antes): Add-Estadistica usa $sw.ElapsedMilliseconds para frenar la reconstruccion del markdown,
+# y con $sw todavia a $null estadisticas.md se rehace dos veces seguidas. SIN detalle (segundo
+# argumento): con detalle mete una fila en $s.recientes, que tiene 40 plazas y ya va lleno de
+# aviso-entorno; cuatro contadores con detalle se comerian la ventana. El detalle ya esta en el Log.
+Add-Estadistica 'arranque'
+$script:arranqueContado = $true
 
 # Saludo al arrancar: confirma en voz alta que esta lista, y sirve de prueba
 # inmediata de que la cadena de audio funciona de extremo a extremo.
@@ -29296,6 +29385,7 @@ while ($true) {
             if ($script:wakeIntentos -lt 3) {
                 $script:wakeIntentos++
                 Log "WARN: el worker de escucha murio; relanzando (intento $($script:wakeIntentos)/3)"
+                Add-Estadistica 'relanza:oido'   # idea 50: pegado al Log y ANTES del Dispose/Initialize-Escucha, que pueden tirar
                 # liberar el handle antes de soltar la referencia: este proceso
                 # vive meses y cada relanzo filtraria uno
                 try { $script:wakeProc.Dispose() } catch {}
@@ -31010,6 +31100,7 @@ while ($true) {
                     }
                 } catch {}
                 Log "WARN: la interfaz murio ($porQueUi); relanzando (intento $($script:uiIntentos)/3)"
+                Add-Estadistica 'relanza:capsula'   # idea 50: pegado al Log y ANTES del Dispose/Initialize-UI
                 try { $script:uiProc.Dispose() } catch {}
                 $script:uiProc = $null
                 Initialize-UI
