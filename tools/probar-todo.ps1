@@ -2089,6 +2089,20 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n265. Nova se da cuenta cuando uno de sus cuadernos se queda parado (idea 115 de las 121)"
+# La vigilancia de costumbres miraba TRES carpetas y nadie miraba los ficheros sueltos. Contado en
+# disco: el codigo nombra 41 .json dentro de memoria\ y existen 20, y cuatro de los veinte llevan
+# dias congelados -fechas.json 16, recordatorios.json 15, musica.json 6, nube-tiempos.json 3-. La
+# lista NO se escribe a mano: se le pasa la foto de las variables del script, porque una lista a mano
+# en una casa que estrena cuadernos cada dia nace desactualizada -de los 21 que hoy no existen, la
+# mitad son de esta misma tanda-. El ritmo sale del propio fichero: musica.json parado seis dias no
+# es una averia si braya pone musica cada cinco. Y el codigo recien nacido no se acusa de no haber
+# tenido tiempo: Nova apunta cuando ve un nombre por primera vez. Doce roturas tumban el banco, y el
+# banco cazo dos fallos de verdad: un @() sobre un 'return ,@(...)' y dos barras invertidas que el
+# parche se comio y dejaban la lista vacia.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-cuadernos-parados.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:cuando uno de sus cuadernos se queda parado)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n264. La lista de 'lo que decidi yo sola' ya tiene con que llenarse (idea 114 de las 121)"
 # estadisticas.json tiene la clave 'decisiones' y esta VACIA: en 16 dias hay 3.335 eventos en 67
 # claves y ni uno es 'auto-ajuste', 'auto-deshecho' ni 'arranque-medias'. Y no es por falta de motor

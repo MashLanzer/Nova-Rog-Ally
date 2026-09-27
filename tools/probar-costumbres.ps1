@@ -19,6 +19,13 @@ function TraerFn($n) {
     if (-not $f) { throw "falta la funcion $n en assistant.ps1" }
     return $f.Extent.Text
 }
+# EL CORTE DE TANDA, SACADO DEL FICHERO REAL: Get-MinutosDeTanda lo usa para saber si una orden
+# empieza tanda nueva. Sin el vale $null, la comparacion se hace contra cero y TODOS los usos
+# salen con s=0 -o sea todos 'al empezar a hablarle'-, con lo que el cuarto detector de
+# Find-Propuesta se dispara en cada caso y tapa a los otros tres.
+$TandaCorteMin = [int]($ast.Find({ param($x) $x -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+    $x.Left.Extent.Text -eq '$TandaCorteMin' }, $true).Right.Extent.Text)
+if ($TandaCorteMin -le 0) { throw 'no pude leer $TandaCorteMin de assistant.ps1' }
 foreach ($n in 'ConvertTo-Plain', 'Watch-Notificaciones', 'Get-ResumenNotificaciones', 'Get-LecturaNotificaciones', 'Get-Contactos', 'Save-Contactos',
     'Get-Habitos', 'Save-Habitos', 'Add-Habito', 'Find-Propuesta', 'Test-ParteManana',
     'Add-RitmoSeguimiento', 'Get-VentanaSeguimiento', 'Add-CharlaHora', 'Get-PesoCharlaHoras', 'Test-PrecargaCharla', 'Write-Atomico',
@@ -27,6 +34,11 @@ foreach ($n in 'ConvertTo-Plain', 'Watch-Notificaciones', 'Get-ResumenNotificaci
     # escupia CommandNotFoundException, la condicion valia $false y los casos pasaban igual,
     # o sea que se estaba probando media funcion sin enterarse.
     'Test-ApiContestaPrimero',
+    # Y LAS DOS QUE TAMBIEN LE FALTABAN: este banco llevaba rojo con un 'no se reconoce el
+    # termino', que es exactamente el fallo que su propio comentario de arriba describe.
+    # Get-MinutosDeTanda pone el campo 's' de cada uso -los minutos desde que braya empezo a
+    # hablarle- y Get-PercentilLista es la que saca el p80 de esos desfases (idea 78).
+    'Get-MinutosDeTanda', 'Get-PercentilLista',
     'Test-PropuestaVetada', 'Add-PropuestaTratada') { Invoke-Expression (TraerFn $n) }
 # Test-PropuestaVetada usa esta variable del script. Sin ella valdria $null y el veto
 # dejaria de aplicarse EN SILENCIO, que es peor que fallar (17/09).
@@ -88,7 +100,9 @@ Comp 'tres dias a la misma hora: la propone' ($pr -and $pr.tipo -eq 'hora' -and 
 Comp 'a la hora del medio, redondeada a 5 min' ($pr.valor -eq '21:05') $pr.valor
 $script:habitos = $null
 Comp 'sobrevive a releer el archivo' ($null -ne (Find-Propuesta $hoy) -and (Get-Habitos).usos.Count -eq 4)
-Comp 'lo de hace mas de una semana no cuenta' ($null -eq (Find-Propuesta (Get-Date '2026-09-30 10:00')))
+# CATORCE DIAS Y NO SIETE: la idea 78 abrio la ventana, y este caso se quedo con la vieja. Con los
+# usos del 17 al 19 de septiembre, el 30 todavia esta dentro; el 5 de octubre ya no.
+Comp 'lo de hace mas de dos semanas no cuenta' ($null -eq (Find-Propuesta (Get-Date '2026-10-05 10:00')))
 (Get-Habitos).ultimaPropuesta = '2026-09-20'
 Comp 'una al dia como mucho' ($null -eq (Find-Propuesta $hoy))
 (Get-Habitos).ultimaPropuesta = ''
@@ -115,28 +129,51 @@ $script:reglasFalsas.Clear()
 
 Write-Host "--- habitos: justo despues de abrir una app ---"
 $script:habitos = $null; Remove-Item (Join-Path $MemoriaDir 'habitos.json') -ErrorAction SilentlyContinue
+# UNA ORDEN DISTINTA ANTES DE CADA UNA, Y ESO ES LO QUE PROBABA ESTE CASO SIN SABERLO: la idea 78
+# anadio un cuarto detector -'la misma orden al empezar a hablarle'- que se mira ANTES que este. Si
+# 'abre steam' es lo primero de la tanda tres dias, gana aquel y este caso nunca llega a probarse.
+# Las previas van variadas a proposito: tres iguales harian costumbre por su cuenta.
+$antesDe = @{ '2026-09-15' = 'pon modo noche'; '2026-09-16' = 'sube el brillo al 50'; '2026-09-18' = 'baja el brillo al 20'; '2026-09-19' = 'pon modo lectura' }
 foreach ($d in '2026-09-15', '2026-09-16') {
+    Add-Habito $antesDe[$d] (Get-Date "$d 17:00")
     Add-Habito 'abre steam' (Get-Date "$d 18:00"); Add-Habito 'baja el volumen al 30' (Get-Date "$d 18:02")
 }
+Add-Habito $antesDe['2026-09-18'] (Get-Date '2026-09-18 11:00')
 Add-Habito 'abre steam' (Get-Date '2026-09-18 12:00'); Add-Habito 'baja el volumen al 30' (Get-Date '2026-09-18 12:10')
-Comp 'a los 10 min ya no cuenta como "justo despues"' ($null -eq (Find-Propuesta $hoy))
+# CADA CASO NEGATIVO VIGILA SU DETECTOR, NO 'QUE NO SALGA NADA': con cuatro detectores en pie, un
+# '$null -eq' aqui se pone rojo en cuanto otro cualquiera tenga algo que decir -y 'abre steam' tres
+# dias distintos es exactamente lo que el cuarto busca-. Lo que este caso prueba es que diez minutos
+# de hueco NO son 'justo despues', o sea que no hay propuesta de tipo appAbre.
+$prA = Find-Propuesta $hoy
+Comp 'a los 10 min ya no cuenta como "justo despues"' ($null -eq $prA -or $prA.tipo -ne 'appAbre') $(if ($prA) { $prA.clave } else { '' })
+Add-Habito $antesDe['2026-09-19'] (Get-Date '2026-09-19 22:00')
 Add-Habito 'abre steam' (Get-Date '2026-09-19 23:00'); Add-Habito 'baja el volumen al 30' (Get-Date '2026-09-19 23:01')
 $pr2 = Find-Propuesta $hoy
 Comp 'tres dias abriendo y luego lo mismo: la propone' ($pr2 -and $pr2.tipo -eq 'appAbre' -and $pr2.valor -eq 'steam' -and $pr2.accion -eq 'baja el volumen al 30') $pr2.clave
 
 Write-Host "--- habitos: tres ordenes seguidas -> un modo ---"
 $script:habitos = $null; Remove-Item (Join-Path $MemoriaDir 'habitos.json') -ErrorAction SilentlyContinue
+# lo mismo aqui: 'pon modo juego' no puede ser lo primero de la tanda, o gana el cuarto detector
+$antesSec = @{ '2026-09-15' = 'pon modo noche'; '2026-09-16' = 'sube el brillo al 50'; '2026-09-18' = 'baja el brillo al 20'; '2026-09-19' = 'pon modo lectura' }
 foreach ($d in '2026-09-15', '2026-09-16') {
+    Add-Habito $antesSec[$d] (Get-Date "$d 19:00")
     Add-Habito 'pon modo juego' (Get-Date "$d 20:00"); Add-Habito 'sube el brillo al 80' (Get-Date "$d 20:01"); Add-Habito 'abre discord' (Get-Date "$d 20:02")
 }
 Comp 'dos dias seguidos no bastan' ($null -eq (Find-Propuesta $hoy))
+Add-Habito $antesSec['2026-09-18'] (Get-Date '2026-09-18 09:00')
 Add-Habito 'pon modo juego' (Get-Date '2026-09-18 10:00'); Add-Habito 'sube el brillo al 80' (Get-Date '2026-09-18 10:04'); Add-Habito 'abre discord' (Get-Date '2026-09-18 10:12')
-Comp 'si se estiran mas de 5 min no es una secuencia' ($null -eq (Find-Propuesta $hoy))
+# lo mismo: lo que se vigila es que no salga una SECUENCIA, no que no salga nada
+$prS = Find-Propuesta $hoy
+Comp 'si se estiran mas de 5 min no es una secuencia' ($null -eq $prS -or $prS.tipo -ne 'secuencia') $(if ($prS) { $prS.clave } else { '' })
+Add-Habito $antesSec['2026-09-19'] (Get-Date '2026-09-19 21:00')
 Add-Habito 'pon modo juego' (Get-Date '2026-09-19 22:00'); Add-Habito 'sube el brillo al 80' (Get-Date '2026-09-19 22:01'); Add-Habito 'abre discord' (Get-Date '2026-09-19 22:03')
 $pr3 = Find-Propuesta $hoy
 Comp 'tres dias, las tres seguidas: la propone (aunque sea a otra hora)' ($pr3 -and $pr3.tipo -eq 'secuencia' -and @($pr3.ordenes).Count -eq 3 -and $pr3.ordenes[2] -eq 'abre discord') $pr3.clave
 [void](Get-Habitos).rechazadas.Add($pr3.clave)
-Comp 'rechazada, no vuelve' ($null -eq (Find-Propuesta $hoy))
+# y aqui, que no vuelve LA RECHAZADA. Que detras asome otra propuesta distinta no es un fallo: es
+# que hay cuatro detectores y cada uno mira lo suyo.
+$prR = Find-Propuesta $hoy
+Comp 'rechazada, no vuelve' ($null -eq $prR -or $prR.clave -ne $pr3.clave) $(if ($prR) { $prR.clave } else { '' })
 $script:invitado = $true
 $antesInv = (Get-Habitos).usos.Count
 Add-Habito 'pon modo noche' (Get-Date '2026-09-19 23:00')

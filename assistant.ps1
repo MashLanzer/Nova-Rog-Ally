@@ -13111,6 +13111,180 @@ function Get-CostumbresPropias {
         @{ nombre = 'la copia de lo aprendido';   carpeta = (Join-Path $LogDir 'copias');      cadaDias = 1; graciaDias = 2 }
     )
 }
+# VIGILAR LOS FICHEROS DE MEMORIA, NO SOLO LAS CARPETAS (27/09, idea 115 de las 121)
+#
+# EL DATO: la vigilancia de aqui arriba mira TRES carpetas y nadie mira los ficheros sueltos.
+# Contado ahora: el codigo nombra 41 ficheros .json dentro de memoria\ y solo existen 20. Y de los
+# veinte, cuatro llevan dias congelados sin que nadie se entere: fechas.json 16 dias,
+# recordatorios.json 15, musica.json 6 y nube-tiempos.json 3.
+#
+# LA LISTA NO SE ESCRIBE A MANO, SE PREGUNTA: la casa declara cada uno con un '$AlgoPath = Join-Path
+# $MemoriaDir ...', asi que basta con recorrer las variables del script y quedarse con las que
+# apuntan dentro de memoria y acaban en .json. Una lista escrita a mano en una casa que estrena
+# ficheros cada dia nace desactualizada: de los 21 que hoy no existen, la mitad son de esta misma
+# tanda.
+#
+# Y ESO ES JUSTO LA TRAMPA DE LA FICHA: decia "once ficheros que el codigo sabe escribir y no se han
+# creado NUNCA en toda la vida del proyecto". Hoy son 21, y entre ellos estan firmas.json,
+# juegos-ciegos.json, juegos-exes.json, oido-aprendido.json y confirmacion-tiempos.json, que son de
+# codigo escrito ayer y hoy. Llamarlos 'lo que se hacer y nunca he hecho' seria acusar al codigo
+# recien nacido de no haber tenido tiempo. Por eso el aviso solo mira los que Nova conoce desde hace
+# dias, y de cuando los conoce se acuerda ella: la primera vez que ve un nombre lo apunta.
+#
+# EL RITMO SALE DEL PROPIO FICHERO Y NO DE UN NUMERO: se guardan los huecos en dias entre escrituras
+# y el liston es el triple de su mediana. musica.json parado seis dias no es una averia si braya
+# pone musica cada cinco; lo seria si la pusiera a diario.
+#
+# Y NO VA A LA LISTA DE 'LO QUE DECIDI YO SOLA', aunque la ficha lo proponia "de paso" para llenarla:
+# un fichero congelado no es una decision que Nova haya tomado, y meterlo ahi seria mentir sobre lo
+# que esa lista significa. La idea 114 la llena con decisiones de verdad.
+$FicherosHuecosMax = 30          # cuantos huecos entre escrituras se recuerdan por fichero
+$FicherosHuecosMin = 4           # el mismo liston que la hora de dormir: con menos no se opina
+$FicherosVecesRitmo = 3          # 'se paso del triple de lo suyo'
+$FicherosNacerDias = 7           # lo que lleva conocido antes de echarle en falta el nacimiento
+
+# Los .json de memoria que el codigo declara. LA LISTA DE VARIABLES ENTRA POR PARAMETRO, que es el
+# patron de Find-JuegoPorUltimoJugado: 'PURA en lo que importa, recibe la foto del ANTES'.
+#
+# Y NO ES UN CAPRICHO. Primero se escribio con un Get-Variable dentro, y su banco la sacaba por AST y
+# la cargaba con Invoke-Expression: asi la funcion ya no ve las variables del banco -Invoke-Expression
+# le hace su propio ambito- y devolvia la lista vacia siempre, con '-Scope Script' y sin el. Medido
+# con las cuatro formas. Una pieza que se porta distinto en casa que en su banco no se puede probar,
+# y probarla es justo lo que hace que valga. Con la foto por parametro, el banco le pasa nueve
+# variables de mentira y quien la llama de verdad le pasa (Get-Variable).
+function Get-FicherosMemoria([string]$raiz, $variables) {
+    $l = New-Object System.Collections.ArrayList
+    try {
+        if (-not $raiz) { return ,@($l) }
+        foreach ($v in @($variables)) {
+            $val = ''
+            try { $val = [string]$v.Value } catch { continue }
+            if (-not $val -or -not $val.EndsWith('.json')) { continue }
+            if (-not $val.StartsWith($raiz, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+            # el de dentro de una subcarpeta no es un fichero suelto de memoria
+            # LAS DOS BARRAS SE ESCRIBEN CON [char]92 A PROPOSITO: escritas a pelo, el parche que
+            # las trajo las perdio y quedo un TrimStart('', '/') que no recortaba nada, asi que
+            # $resto se quedaba con la barra de delante y TODOS los ficheros parecian de subcarpeta.
+            # La lista salia vacia y su banco lo canto.
+            $barra = [string][char]92
+            $resto = $val.Substring($raiz.Length).TrimStart($barra[0], '/')
+            if ($resto.Contains($barra) -or $resto.Contains('/')) { continue }
+            if (@($l) -notcontains $val) { [void]$l.Add($val) }
+        }
+    } catch {}
+    return ,@($l | Sort-Object)
+}
+
+# PURA: dado lo que se sabia del fichero y lo que dice el disco, dice si se paso de su ritmo y
+# devuelve el historial ya actualizado.
+#   $antes = @{ visto; huecos; conocido; dicho } o $null la primera vez que se le ve el nombre
+function Test-FicheroParado($antes, [string]$escrito, [int]$diasSin, [string]$hoy) {
+    $r = @{ avisa = $false; ritmo = 0.0; huecos = @(); conocido = $hoy; nace = $false }
+    if (-not $antes) {
+        # LA PRIMERA VEZ SOLO SE APUNTA QUE EXISTE EL NOMBRE. Si el fichero ya esta ahi, tambien su
+        # fecha; el historial de huecos empieza desde hoy y no se inventa hacia atras.
+        $r.visto = $escrito
+        return $r
+    }
+    $r.conocido = [string]$antes.conocido
+    if (-not $r.conocido) { $r.conocido = $hoy }
+    $r.huecos = @(@($antes.huecos) | ForEach-Object { [double]$_ })
+    $r.visto = [string]$antes.visto
+    # SI SE HA ESCRITO DESDE LA ULTIMA MIRADA, ese es un hueco nuevo de su ritmo
+    if ($escrito -and $escrito -ne [string]$antes.visto) {
+        $d1 = [datetime]::MinValue; $d2 = [datetime]::MinValue
+        if ([datetime]::TryParse($escrito, [ref]$d1) -and [datetime]::TryParse([string]$antes.visto, [ref]$d2)) {
+            $h = [Math]::Abs(($d1 - $d2).TotalDays)
+            if ($h -gt 0) {
+                $r.huecos = @(@($r.huecos) + @($h))
+                while (@($r.huecos).Count -gt $FicherosHuecosMax) { $r.huecos = @(@($r.huecos)[1..(@($r.huecos).Count - 1)]) }
+            }
+        }
+        $r.visto = $escrito
+        return $r          # acaba de escribirse: no esta parado, y punto
+    }
+    # EL QUE NO EXISTE: no hay costumbre que romper, solo se cuenta si lleva dias conocido
+    if (-not $escrito) {
+        $dc = 999.0
+        $cc = [datetime]::MinValue
+        if ([datetime]::TryParse($r.conocido, [ref]$cc)) {
+            $hh = [datetime]::MinValue
+            if ([datetime]::TryParse($hoy, [ref]$hh)) { $dc = ($hh - $cc).TotalDays }
+        }
+        if ($dc -ge $FicherosNacerDias) { $r.nace = $true }
+        return $r
+    }
+    # Y EL PARADO: con historial suficiente y pasado el triple de lo suyo
+    $vivos = @(@($r.huecos) | Where-Object { [double]$_ -gt 0 })
+    if ($vivos.Count -lt $FicherosHuecosMin) { return $r }
+    $ord = @($vivos | Sort-Object)
+    $i = [int][Math]::Ceiling(0.5 * $ord.Count) - 1
+    if ($i -lt 0) { $i = 0 }
+    if ($i -ge $ord.Count) { $i = $ord.Count - 1 }
+    $r.ritmo = [double]$ord[$i]
+    if ($r.ritmo -le 0) { return $r }
+    if ([double]$diasSin -gt ($r.ritmo * $FicherosVecesRitmo)) {
+        # UNA VEZ Y NO CADA DIA: mientras siga parado, la noticia es la misma
+        if ([string]$antes.dicho -ne $hoy) { $r.avisa = $true }
+    }
+    return $r
+}
+
+# El repaso, una vez al dia. Devuelve @{ parados; sinNacer }.
+$script:ficherosMirados = ''
+function Test-FicherosMemoria([string]$hoy = '') {
+    $res = @{ parados = @(); sinNacer = @() }
+    try {
+        if (-not $hoy) { $hoy = (Get-Date).ToString('yyyy-MM-dd') }
+        if ($script:ficherosMirados -eq $hoy) { return $res }
+        $script:ficherosMirados = $hoy
+        $hb = Get-Habitos
+        if (-not $hb.ficheros) { $hb.ficheros = @{} }
+        $tb = $hb.ficheros
+        $hd = [datetime]::MinValue
+        [void][datetime]::TryParse($hoy, [ref]$hd)
+        # SIN @(): Get-FicherosMemoria devuelve con 'return ,@(...)', asi que un @() aqui daria
+        # un array de UNO con la lista dentro. El mismo fallo que su hermana Get-ProcesosNova.
+        # Y AQUI es donde se pregunta a las variables, que es el sitio que SI las ve.
+        foreach ($ruta in (Get-FicherosMemoria ([string]$MemoriaDir) @(Get-Variable -ErrorAction SilentlyContinue))) {
+            $nom = [System.IO.Path]::GetFileName($ruta)
+            $escrito = ''
+            $diasSin = 0
+            try {
+                if (Test-Path -LiteralPath $ruta) {
+                    $lw = (Get-Item -LiteralPath $ruta).LastWriteTime
+                    $escrito = $lw.ToString('yyyy-MM-dd')
+                    $diasSin = [int][Math]::Floor(($hd - $lw.Date).TotalDays)
+                }
+            } catch { continue }
+            $antes = $null
+            if ($tb.ContainsKey($nom)) { $antes = $tb[$nom] }
+            $r = Test-FicheroParado $antes $escrito $diasSin $hoy
+            $nuevo = @{ visto = [string]$r.visto; huecos = @($r.huecos); conocido = [string]$r.conocido
+                        dicho = $(if ($r.avisa) { $hoy } elseif ($antes) { [string]$antes.dicho } else { '' }) }
+            $tb[$nom] = $nuevo
+            if ($r.avisa) { $res.parados += @(@{ nombre = $nom; dias = $diasSin; ritmo = [Math]::Round([double]$r.ritmo, 1) }) }
+            if ($r.nace) { $res.sinNacer += @($nom) }
+        }
+        Save-Habitos
+        if (@($res.parados).Count -gt 0) {
+            foreach ($pp in @($res.parados)) {
+                Log ('FICHERO PARADO: ' + $pp.nombre + ' lleva ' + $pp.dias + ' dias sin escribirse y lo suyo es cada ' + $pp.ritmo)
+            }
+            # UNA SOLA FRASE PARA TODOS, como el aviso de costumbres: tres avisos por el mismo
+            # problema serian tres interrupciones.
+            $trz = @(@($res.parados) | ForEach-Object { $_.nombre + ' (' + $_.dias + ' dias)' })
+            $fr = if ($trz.Count -eq 1) { 'Llevo tiempo sin apuntar nada en ' + $trz[0] + '.' }
+                  else { 'Llevo tiempo sin apuntar nada en ' + $trz.Count + ' de mis cuadernos: ' + ($trz -join '; ') + '.' }
+            [void](Send-AvisoEntorno 'fichero-parado' $fr 'bajo' 10080)
+        }
+        if (@($res.sinNacer).Count -gt 0) {
+            Log ('SE HACER Y NO HE HECHO: ' + @($res.sinNacer).Count + ' cuaderno(s) que nunca he escrito: ' + (@($res.sinNacer) -join ', '))
+        }
+    } catch { Log ('ficheros de memoria: ' + $_.Exception.Message) }
+    return $res
+}
+
 # UNA VEZ AL DIA COMO MUCHO, y solo si hay algo que decir. Se junta todo en una frase: tres
 # avisos sueltos por tres costumbres rotas serian tres interrupciones por el mismo problema.
 $script:costumbresMiradas = ''
@@ -16463,30 +16637,6 @@ function Find-Propuesta([datetime]$hoy = (Get-Date)) {
         return @{ clave = $clave; tipo = 'hora'; valor = $hora; accion = $g.Name
             pregunta = "Estos dias, a eso de las $hora, sueles pedirme $($g.Name). ¿Quieres que lo haga yo sola cada dia a esa hora?" }
     }
-    # 1b. LA MISMA ORDEN AL EMPEZAR A HABLARLE (27/09, idea 78). El de arriba busca la misma hora
-    #     del reloj y braya no tiene reloj: sus siete 'abre steam' caen todos en el primer minuto y
-    #     medio de la tanda, con horas que van de la 01:09 a las 20:05. N no se escribe a mano: es
-    #     el p80 de los desfases que de verdad tienen, con suelo de 2 minutos.
-    foreach ($g in @($rec | Group-Object { $_.t })) {
-        # solo los usos que traen el campo: los de antes del 27/09 no lo tienen y contarlos como
-        # cero seria inventarse que se pidieron al empezar
-        $conS = @($g.Group | Where-Object { $null -ne $_.s })
-        if ($conS.Count -lt 3) { continue }
-        $porDiaS = @{}
-        foreach ($u in $conS) { if (-not $porDiaS.ContainsKey($u.f)) { $porDiaS[$u.f] = [int]$u.s } }
-        if ($porDiaS.Count -lt 3) { continue }          # TRES DIAS distintos, no tres de una tarde
-        $desf = @($porDiaS.Values | Sort-Object)
-        $n80 = [Math]::Max(2, (Get-PercentilLista $desf 80))
-        if (@($desf | Where-Object { $_ -le $n80 }).Count -lt 3) { continue }
-        # 'empiezas' y no 'arranque': ese nombre ya es el contador de cuantas veces arranco NOVA
-        # (idea 50), y dos cosas distintas con el mismo nombre se confunden al leerlas.
-        $claveS = "empiezas|$($g.Name)"
-        if (Test-PropuestaVetada $hb $claveS) { continue }
-        if (@($reglasP | Where-Object { $_.tipo -eq 'empiezas' -and (ConvertTo-Plain $_.accion) -eq $g.Name }).Count -gt 0) { continue }
-        $comoS = if ($n80 -le 2) { 'en cuanto empiezas a hablarme' } else { "en los primeros $n80 minutos" }
-        return @{ clave = $claveS; tipo = 'empiezas'; valor = [string]$n80; accion = $g.Name
-            pregunta = "Estos dias, $comoS, sueles pedirme $($g.Name). ¿Quieres que lo haga yo sola cuando empieces?" }
-    }
     # 2. la misma orden justo despues de abrir una app
     $pares = @{}
     for ($i = 1; $i -lt $rec.Count; $i++) {
@@ -16530,6 +16680,49 @@ function Find-Propuesta([datetime]$hoy = (Get-Date)) {
         return @{ clave = $clave; tipo = 'secuencia'; ordenes = $ords; valor = ''; accion = ''
             pregunta = "Sueles pedirme seguidas estas tres cosas: $($ords[0]), $($ords[1]) y $($ords[2]). ¿Te hago un modo que lo haga todo junto?" }
     }
+    # 4. LA MISMA ORDEN AL EMPEZAR A HABLARLE (idea 78; movida aqui abajo el 27/09)
+    #
+    # ESTABA ARRIBA, DE SEGUNDA, Y TAPABA A LOS DOS DE EN MEDIO. Este detector se dispara con
+    # CUALQUIER orden repetida tres dias distintos, o sea que es el mas generico de los cuatro; y
+    # los de "justo despues de abrir una app" y "tres ordenes seguidas" son los mas concretos,
+    # porque dicen QUE dispara QUE. Puesto delante, se llevaba por delante a los dos: en cuanto
+    # una orden se repetia tres dias -que es justamente lo que aquellos piden- esto contestaba
+    # primero y los otros no llegaban a mirarse nunca. Lo canto probar-costumbres en cuanto se le
+    # arreglo la extraccion: cinco de sus casos devolvian "empiezas|..." en lugar de lo suyo.
+    #
+    # Y DE PASO, LA GUARDA QUE NO GUARDABA NADA: aqui habia un
+    #     if (@($desf | Where-Object { $_ -le $n80 }).Count -lt 3) { continue }
+    # que es cierto SIEMPRE por construccion, porque $n80 es el percentil 80 de esa misma lista y
+    # con tres valores el p80 ES el mayor de los tres. No podia fallar nunca. Se quita: de lo
+    # generico que es este detector ya se encarga el orden, que es donde estaba el problema de
+    # verdad, y una condicion que no puede ser falsa solo engana al que la lee.
+    # El de la misma hora del reloj no le sirve: sus siete "abre steam" caen a horas que van
+    #     de la 01:09 a las 20:05, asi que N no se escribe a mano: es el p80 de sus desfases,
+    #     con suelo de 2 minutos.
+    #     medio de la tanda, con horas que van de la 01:09 a las 20:05. N no se escribe a mano: es
+    foreach ($g in @($rec | Group-Object { $_.t })) {
+        # solo los usos que traen el campo: los de antes del 27/09 no lo tienen y contarlos como
+        # cero seria inventarse que se pidieron al empezar
+        $conS = @($g.Group | Where-Object { $null -ne $_.s })
+        if ($conS.Count -lt 3) { continue }
+        $porDiaS = @{}
+        foreach ($u in $conS) { if (-not $porDiaS.ContainsKey($u.f)) { $porDiaS[$u.f] = [int]$u.s } }
+        if ($porDiaS.Count -lt 3) { continue }          # TRES DIAS distintos, no tres de una tarde
+        $desf = @($porDiaS.Values | Sort-Object)
+        $n80 = [Math]::Max(2, (Get-PercentilLista $desf 80))
+        if ($todosS.Count -lt $DecisionMinIntentos) { continue }   # sin historial no se opina
+        $medS = [int](Get-PercentilLista $todosS 50)
+        if ($n80 -gt [Math]::Max(2, $medS)) { continue }
+        # 'empiezas' y no 'arranque': ese nombre ya es el contador de cuantas veces arranco NOVA
+        # (idea 50), y dos cosas distintas con el mismo nombre se confunden al leerlas.
+        $claveS = "empiezas|$($g.Name)"
+        if (Test-PropuestaVetada $hb $claveS) { continue }
+        if (@($reglasP | Where-Object { $_.tipo -eq 'empiezas' -and (ConvertTo-Plain $_.accion) -eq $g.Name }).Count -gt 0) { continue }
+        $comoS = if ($n80 -le 2) { 'en cuanto empiezas a hablarme' } else { "en los primeros $n80 minutos" }
+        return @{ clave = $claveS; tipo = 'empiezas'; valor = [string]$n80; accion = $g.Name
+            pregunta = "Estos dias, $comoS, sueles pedirme $($g.Name). ¿Quieres que lo haga yo sola cuando empieces?" }
+    }
+
     return $null
 }
 
@@ -22862,7 +23055,7 @@ function Clear-MuereAlArrancar([string]$nombre) {
     # una partida que pasa del minimo limpia el contador de ESE juego: no era una racha de muerte
     if ($script:juegoMuertesSeguidas.ContainsKey($nombre)) { [void]$script:juegoMuertesSeguidas.Remove($nombre) }
 }
-$script:juegoSalida = $null      # salida EN DUDA: @{nombre; exe; proc; desdeMs} (C4, 19/09)
+$script:juegoSalida = $null      # salida EN DUDA: @{nombre; exe; proc; desdeMs} (C4, 19/09)
 $script:soloBotonPuesto = $false   # idea 108: para no repetir la linea del registro
 $script:juegoSesionMin = 0       # minutos de primer plano de la partida de ahora (C4, 19/09)
 $script:juegoSesionSeg = 0       # segundos de la sentada, solo para la frase (idea 47)
@@ -23855,6 +24048,9 @@ function New-CopiaSeguridad([string]$motivo = 'a mano') {
         # Y LOS NUMEROS QUE SE AJUSTA SOLA (27/09, idea 114). Aqui porque es una vez al dia y
         # porque lee voz-tiempos.json y trabajo-tiempos.json: no es para el bucle.
         try { [void](Test-AjustesDelDia) } catch { Log ('AJUSTES: ' + $_.Exception.Message) }
+        # Y LOS CUADERNOS PARADOS (27/09, idea 115). Aqui porque es una vez al dia y porque hace un
+        # Test-Path por fichero: no es para el bucle.
+        try { [void](Test-FicherosMemoria) } catch { Log ('FICHEROS: ' + $_.Exception.Message) }
         $n = @($origen | ForEach-Object { if (Test-Path -LiteralPath $_ -PathType Container) { Get-ChildItem -LiteralPath $_ -Recurse -File } else { Get-Item -LiteralPath $_ } }).Count
         $kb = [int][Math]::Ceiling((Get-Item -LiteralPath $zip).Length / 1KB)
         Log "COPIA ($motivo): $n archivos, $kb KB -> $zip"
