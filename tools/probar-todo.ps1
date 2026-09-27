@@ -1997,6 +1997,14 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n211. Que tapar los secretos sea cosa del registro, no de quien lo llama (idea 45 de las 121)"
+# 4 de 144 vuelcos de excepcion tapan la clave de Steam con -replace; los otros 140 no. Ninguna
+# se ha escapado aun (0 en los cuatro registros), pero son 140 caminos abiertos. Ahora Log
+# sustituye el VALOR de cada secreto (claves.json entero + ANTHROPIC_API_KEY + NOVA_CORREO_CLAVE)
+# por ***, asi que anadir una clave la tapa sin tocar codigo. Se carga una vez al arrancar.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-log-sin-secretos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:todo correcto)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n210. Los 1200 MB que Parakeet dice necesitar no los midio nadie (idea 44 de las 121)"
 # El liston de RAM (1200) se escribio con 7,7 GB libres y lo comparten tres modelos: canary
 # (198 MB en disco) y omni (350) piden el liston del grande. Ahora cada modelo mide en vivo lo

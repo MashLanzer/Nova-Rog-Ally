@@ -180,6 +180,12 @@ function Rotate-Log([string]$path) {
 if (-not $Probar) { Rotate-Log $EventLog }
 $script:logEscrituras = 0
 function Log([string]$msg) {
+    # TAPAR LOS SECRETOS ES COSA DEL REGISTRO (26/09, idea 45): se sustituye el VALOR de cada
+    # secreto por *** antes de escribir, en las DOS ramas (una linea y multilinea). El 'if'
+    # delante del foreach no es cosmetico: la lista se llena en Initialize-Secretos (~10390) y las
+    # primeras llamadas a Log son de la 134, con la lista aun a $null. NO se lee claves.json aqui:
+    # seria un Get-Content por cada linea del registro.
+    if ($script:secretosTapar) { foreach ($s in $script:secretosTapar) { $msg = $msg.Replace($s, '***') } }
     $marca = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
     # CADA LINEA CON SU MARCA (18/09). La salida del agente llega con saltos de linea dentro, y
     # Out-File la escribia tal cual: solo la primera quedaba fechada y las demas rompian
@@ -10363,6 +10369,12 @@ $AmigoEligeMs = 90000
 # sigue leyendo config.json de respaldo por si ya la habia puesto ahi: en ese caso se avisa
 # en el registro -sin decir la clave, claro- para que la mueva.
 $ClavesPath = Join-Path $MemoriaDir 'claves.json'
+# EL SECRETO MAS CORTO QUE NOVA TIENE MIDE 16 (NOVA_CORREO_CLAVE); la clave de Steam 32 y la de
+# la API 109. El suelo de 8 no deja fuera ninguno y evita tapar cadenas vacias o palabras sueltas.
+# A columna cero para que el banco lo saque con '(?m)^\$SecretoMinCar\s*=\s*(\d+)'. Y no es adorno:
+# [string]::Replace('', '***') lanza, y '{ "steam": "" }' es el estado NORMAL de claves.json nuevo.
+$SecretoMinCar = 8
+$script:secretosTapar = @()   # lo llena Initialize-Secretos al arrancar; ver la funcion Log
 # ESCRITO UNA SOLA VEZ: lo dicen los dos caminos -la pregunta y la vigilancia- y dos copias de
 # una frase acaban separandose, que es la leccion que ya esta escrita tres veces en este fichero.
 $mensajeSinClave = 'para eso necesito una clave de la API de Steam: pidela en steamcommunity.com barra dev barra apikey, y pegala en el archivo memoria barra claves punto json, que ya te he dejado preparado'
@@ -10374,10 +10386,17 @@ function Get-ClaveSteam {
             $k = [string]$jk.steam
         }
     } catch { Save-Corrupto $ClavesPath 'claves' }
-    if ($k) { return $k.Trim() }
+    if ($k) { return (Add-SecretoTapar $k.Trim()) }
     $vieja = [string](Get-Cfg 'steam' 'apiKey' '')
     if ($vieja) { Log 'STEAM: la clave esta en config.json, que se versiona; conviene moverla a memoria\claves.json' }
-    return $vieja.Trim()
+    return (Add-SecretoTapar $vieja.Trim())
+}
+# LA CLAVE PEGADA EN CALIENTE TAMBIEN SE TAPA (idea 45): claves.json nace vacio, asi que si braya
+# pega la clave con Nova en marcha, Initialize-Secretos ya paso y la cache estaria vieja hasta el
+# reinicio -justo en la sesion en que se empieza a usar-. Se anade al leerla y se devuelve tal cual.
+function Add-SecretoTapar([string]$s) {
+    if ($s -and $s.Length -ge $SecretoMinCar -and $script:secretosTapar -notcontains $s) { $script:secretosTapar += $s }
+    return $s
 }
 
 # Deja el hueco preparado para que braya solo tenga que pegar la clave dentro.
@@ -10388,6 +10407,28 @@ function New-ClavesVacio {
         return $true
     } catch { return $false }
 }
+# LA LISTA DE SECRETOS QUE Log TAPA (26/09, idea 45). Se carga UNA vez al arrancar, aqui y no
+# dentro de Log. Hoy hay 0 fugas en los cuatro ficheros de registro: esto es una guarda
+# preventiva sobre 140 vuelcos de excepcion que no tapan nada, no la reparacion de un incendio.
+function Initialize-Secretos {
+    $lista = @()
+    try {
+        if (Test-Path -LiteralPath $ClavesPath) {
+            $jk = Get-Content -LiteralPath $ClavesPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            # TODAS las claves del fichero, no solo .steam: anadir una manana la tapa sin tocar codigo
+            foreach ($p in $jk.PSObject.Properties) { $lista += [string]$p.Value }
+        }
+    } catch {}
+    # y las dos de entorno, leidas como Test-CorreoListo: Process primero, User si no
+    foreach ($v in 'ANTHROPIC_API_KEY', 'NOVA_CORREO_CLAVE') {
+        $x = [Environment]::GetEnvironmentVariable($v, 'Process')
+        if (-not $x) { $x = [Environment]::GetEnvironmentVariable($v, 'User') }
+        if ($x) { $lista += [string]$x }
+    }
+    # .Trim() SIEMPRE (ANTHROPIC_API_KEY llega con salto de linea) y fuera lo mas corto que el suelo
+    $script:secretosTapar = @($lista | ForEach-Object { $_.Trim() } | Where-Object { $_.Length -ge $SecretoMinCar } | Select-Object -Unique)
+}
+Initialize-Secretos
 function Get-YoSteam {
     $cuentaS = [int64]0
     try { $cuentaS = [int64](Get-ItemProperty 'HKCU:\Software\Valve\Steam\ActiveProcess' -ErrorAction Stop).ActiveUser } catch {}
