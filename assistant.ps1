@@ -20902,9 +20902,75 @@ function Test-AvisoSinVoz {
 # exclusiva la capsula no se pinta: un aviso que se calla por respeto a la partida y ademas no
 # se ve no ha llegado a ninguna parte, y eso es la regla 2 rota. Se vibra, que no interrumpe
 # la partida como si lo haria hablar encima.
-function Send-AvisoVibrado {
-    if (-not $script:capsulaCiega) { return $false }
-    try { Start-Vibracion @(90, 60, 90) 16000; return $true } catch { return $false }
+#
+# Y LA PUERTA NO SE ABRIA NUNCA (27/09, idea 77). Esto solo vibraba con $script:capsulaCiega, que
+# hasta hoy se decidia comparando resoluciones: cero lineas 'CAPSULA CIEGA' en los dos registros
+# (16 dias) con 4.038 segundos de nightreign en un solo dia, porque el juego corre a la resolucion
+# nativa. Resultado medido: 5 avisos 'SIN VOZ' y CERO vibrados, con el canal disponible las 130
+# veces que arranco ('mando: vibracion disponible'). La idea 67 arreglo la deteccion -ahora lo dice
+# la propia capsula- y aqui se abre la puerta que falta: TAMBIEN se vibra con un juego delante,
+# aunque la capsula se vea, porque con un juego el punto queda al 42 % de tamano y braya ya dijo el
+# 24/09 que no lo veia.
+#
+# Y SE MIDE SI EL ZUMBIDO SIRVE, como se mide todo lo demas: si tras vibrar hay gatillo, panel o
+# llamada por su nombre en los 30 s siguientes, ese aviso sirvio. La clase de aviso que no mueve
+# nada cinco veces seguidas deja de vibrar sola.
+$VibrarVentanaMs = 30000        # ventana para ver si el zumbido movio algo
+$VibrarSeguidosMax = 5          # cinco zumbidos sin reaccion y esa clase deja de vibrar
+$VibrarSeparacionMs = 60000     # nunca dos zumbidos en menos de un minuto
+$script:vibroEn = -100000       # cuando se vibro por ultima vez
+$script:vibroClave = ''         # por que aviso (para apuntar si sirvio)
+$script:vibroVence = 0          # hasta cuando se mira la reaccion
+
+function Get-VibradoSeguidosSinNada([string]$clave) {
+    # cuantos zumbidos seguidos de esta clase no movieron nada, de las estadisticas de siempre
+    if (-not $clave) { return 0 }
+    try {
+        $s = Get-Estadisticas
+        $si = 0; $no = 0
+        foreach ($d in @($s.dias.Keys)) {
+            if ($s.dias[$d].ContainsKey("vibro-sirvio:$clave")) { $si += [int]$s.dias[$d]["vibro-sirvio:$clave"] }
+            if ($s.dias[$d].ContainsKey("vibro-nada:$clave")) { $no += [int]$s.dias[$d]["vibro-nada:$clave"] }
+        }
+        if ($si -gt 0) { return 0 }    # si alguna vez sirvio, no se corta
+        return $no
+    } catch { return 0 }
+}
+
+function Send-AvisoVibrado([string]$clave = '') {
+    # LAS DOS RAZONES PARA VIBRAR: que no se vea la capsula, o que haya un juego delante (donde el
+    # punto es diminuto). Sin ninguna de las dos, el aviso se ve y vibrar solo molesta.
+    if (-not $script:capsulaCiega -and -not $script:juegoActivo) { return $false }
+    $ahoraV = $sw.ElapsedMilliseconds
+    # ni dos zumbidos pegados, ni uno encima de otro que aun suena
+    if (($ahoraV - $script:vibroEn) -lt $VibrarSeparacionMs) { return $false }
+    # LA CLASE QUE NUNCA MUEVE NADA SE CORTA SOLA (la regla de la casa: lo que no sirve, fuera)
+    if ($clave -and (Get-VibradoSeguidosSinNada $clave) -ge $VibrarSeguidosMax) {
+        Log ("VIBRAR: '" + $clave + "' llevaba " + $VibrarSeguidosMax + " zumbidos sin que movieras nada; dejo de vibrar por eso")
+        return $false
+    }
+    try {
+        Start-Vibracion @(90, 60, 90) 16000
+        $script:vibroEn = $ahoraV
+        $script:vibroClave = [string]$clave
+        $script:vibroVence = $ahoraV + $VibrarVentanaMs
+        return $true
+    } catch { return $false }
+}
+
+# ¿Movio algo el zumbido? Lo llama el bucle cuando ve gatillo, panel o llamada por el nombre, y
+# tambien cuando se pasa la ventana sin nada. Aqui no se decide nada: solo se apunta.
+function Set-VibradoReaccion([bool]$reacciono) {
+    if (-not $script:vibroVence) { return $false }
+    $cl = $script:vibroClave
+    $script:vibroVence = 0
+    $script:vibroClave = ''
+    if (-not $cl) { return $false }
+    try {
+        Add-Estadistica $(if ($reacciono) { "vibro-sirvio:$cl" } else { "vibro-nada:$cl" }) $cl
+        if (-not $reacciono) { Log ("VIBRAR: el zumbido de '" + $cl + "' no movio nada en " + [int]($VibrarVentanaMs / 1000) + " s") }
+    } catch {}
+    return $true
 }
 
 # Un aviso, por la puerta que toque. $tipo da el color del pulso: bateria,
@@ -20923,8 +20989,10 @@ function Send-Aviso([string]$texto, [string]$tipo = '') {
         # Y SI LA CAPSULA NO SE VE, QUE AL MENOS SE NOTE (25/09, idea 1): con el juego en
         # pantalla completa exclusiva ese pulso no lo pinta nadie. Vibrar no saca a braya de la
         # partida, que es lo que se evitaba callandose.
-        $vib = Send-AvisoVibrado
-        Log ("aviso SIN VOZ ($tipo)" + $(if ($vib) { ', vibrado: no se ve la capsula' }) + ": $texto")
+        # la clase de aviso viaja al vibrado para poder medir por clase cual sirve (idea 77)
+        $vib = Send-AvisoVibrado $(if ($tipo) { [string]$tipo } else { 'aviso' })
+        $porQueVib = if ($script:capsulaCiega) { 'no se ve la capsula' } else { 'hay un juego delante' }
+        Log ("aviso SIN VOZ ($tipo)" + $(if ($vib) { ', vibrado: ' + $porQueVib }) + ": $texto")
     } else {
         Say $texto
         # una descarga terminada tiene su propio gesto: el salto con chispas (13/09)
@@ -29604,6 +29672,8 @@ function Open-PanelRapido {
     $script:panel = @{ i = 0; hasta = $sw.ElapsedMilliseconds + 6000; nota = '' }
     $script:panelEnergia = ''; $script:panelSalida = $null   # se releen al llegar a ellos
     Log "PANEL RAPIDO: abierto"
+    # idea 77: abrir el panel tras un zumbido tambien cuenta como que movio algo
+    if ($script:vibroVence -gt 0) { [void](Set-VibradoReaccion $true) }
     Start-Vibracion @(30, 40, 30) 14000
     Show-PanelRapido
 }
@@ -30386,7 +30456,13 @@ while ($true) {
     if ($startNow -and -not $startPrev) {
         $downSince = $sw.ElapsedMilliseconds
         $holdFired = $false
+        # ¿MOVIO ALGO EL ZUMBIDO? (27/09, idea 77). Tocar el gatillo tras vibrar es la
+        # reaccion mas clara que hay; la llamada por el nombre y el panel se apuntan en sus
+        # propios sitios. Si no pasa nada en la ventana, lo recoge el bloque de abajo.
+        if ($script:vibroVence -gt 0) { [void](Set-VibradoReaccion $true) }
     }
+    # y la ventana que se pasa sin que nada se mueva: ese zumbido no sirvio de nada
+    if ($script:vibroVence -gt 0 -and $sw.ElapsedMilliseconds -gt $script:vibroVence) { [void](Set-VibradoReaccion $false) }
     # si ≡ se uso como ≡+A / ≡+B para contestar, mantenerlo no dicta (revision 13/09)
     if ($startNow -and -not $holdFired -and ($sw.ElapsedMilliseconds - $downSince) -ge $HOLD_MS -and
         ($sw.ElapsedMilliseconds - $script:mandoRespondioEn) -gt 1500) {
@@ -30821,6 +30897,8 @@ while ($true) {
             # acabamos de hablar: evita despertarse con su propia voz
             Log "despertar ignorado (acabamos de hablar)"
         } else {
+            # idea 77: llamarla por su nombre tras un zumbido es la segunda reaccion clara
+            if ($script:vibroVence -gt 0) { [void](Set-VibradoReaccion $true) }
             Start-Dictado "nombre '$EscuchaNombre'"
         }
     }

@@ -2072,6 +2072,15 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n230. La vibracion estaba detras de una puerta que no se abria nunca (idea 77 de las 121)"
+# Send-AvisoVibrado solo vibraba con la capsula ciega, y eso se decidia por resolucion: cero lineas
+# 'CAPSULA CIEGA' en 16 dias con 4.038 s de nightreign en un solo dia, o sea 5 avisos 'SIN VOZ' y
+# CERO vibrados, con el canal disponible las 130 veces que arranco. La idea 67 arreglo la deteccion
+# y aqui se anade la puerta que faltaba: tambien se vibra con un juego delante. Y se MIDE si el
+# zumbido movio algo (gatillo, nombre o panel en 30 s); la clase que no mueve nada cinco veces
+# seguidas deja de vibrar, pero la que alguna vez sirvio no se corta nunca.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-vibrado-sirve.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el zumbido se usa cuando hace falta)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n229. La misma queja sesenta y una veces y nadie la oye (idea 76 de las 121)"
 # La madrugada del 26/09: 61 lineas identicas de 'no pude resumir lo del 2026-09-25', una cada 65 s,
 # y seguian saliendo mientras se contaban; la linea mas repetida de los dos registros sale 774
