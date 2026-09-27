@@ -1197,6 +1197,15 @@ _carga_parakeet = threading.Lock()   # ver modelo_parakeet
 # Y el hilo es daemon: si el worker tiene que salir -cambio de microfono, cerrojo perdido-,
 # no se queda esperando a que termine de cargar.
 PRECARGA_ESPERA = 6.0
+# IDEA 56 (26/09): y tambien DURANTE cada pausa (mientras Nova habla o dicta, el micro no sirve).
+# 1.221 pausas en 17 dias, mediana 5 s, y el 57 % terminan con braya hablando en menos de 5 s: es
+# justo cuando se pagaba la carga de parakeet (30 de 72 cargas caian en los 20 s tras una pausa).
+# La espera es MAS CORTA que la de arranque -aqui no compite con la carga de Whisper base- y por
+# debajo de la mediana de 5 s, para que una pausa normal de tiempo a arrancar la carga; "un par de
+# segundos" (regla 3: estructural, no medido, una pausa-parpadeo no arranca nada). Y se RECOMPRUEBA
+# que la pausa sigue abierta tras la espera: si no, cargar le robaria CPU al reconocimiento de la
+# respuesta que braya ya esta diciendo -que es el riesgo entero de la idea-.
+PRECARGA_PAUSA_ESPERA = 2.0
 
 
 # ESPERAR A WHISPER EN VEZ DE DEGRADAR (24/09, ideas 14 y 15). Desde hoy Whisper carga en un
@@ -1257,6 +1266,25 @@ def precargar_parakeet():
             anota("parakeet precargado: la primera orden ya no paga la carga")
     except Exception as e:
         anota("WARN: la precarga de parakeet fallo (%s); se cargara cuando haga falta" % e)
+
+
+def precargar_parakeet_en_pausa():
+    """IDEA 56: cargar el oido DURANTE una pausa (Nova habla/dicta, el micro se ignora), para que
+    la respuesta de braya no pague la carga. Espera un par de segundos (< 5 s de mediana) y
+    RECOMPRUEBA que la pausa sigue abierta: si braya ya volvio a hablar, cargar aqui le robaria
+    CPU al reconocimiento. El cerrojo de modelo_parakeet y la guarda de RAM ya estan dentro."""
+    try:
+        if jugando() or _parakeet is not None or _parakeet_roto:
+            return
+        time.sleep(PRECARGA_PAUSA_ESPERA)
+        if jugando() or _parakeet is not None or _parakeet_roto:
+            return
+        if not (PAUSA and os.path.exists(PAUSA)):
+            return   # la pausa ya termino: NO cargar con el micro otra vez activo
+        if modelo_parakeet() is not None:
+            anota("parakeet precargado en la pausa: la respuesta de braya no paga la carga")
+    except Exception as e:
+        anota("WARN: la precarga en pausa fallo (%s); se cargara cuando haga falta" % e)
 _parakeet_roto = False
 
 
@@ -3870,6 +3898,11 @@ try:
                     if not pausado:
                         pausado = True
                         anota("pausa: el asistente habla o dicta, se ignora el microfono")
+                        # IDEA 56: cargar el oido AHORA, con el micro ya ignorado, para que la
+                        # respuesta de braya (57 % llega en < 5 s) no pague la carga de parakeet.
+                        # El hilo se planta si la pausa es corta (recomprueba PAUSA tras esperar).
+                        if _parakeet is None and not _parakeet_roto and not jugando():
+                            threading.Thread(target=precargar_parakeet_en_pausa, daemon=True).start()
                     vigilar_corte(datos)   # salvo "espera", "para"... (ver INTERRUMPIR A NOVA)
                     datos = None
                     picos = []

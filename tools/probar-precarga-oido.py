@@ -83,7 +83,7 @@ ns = {
     # __file__ lo usa el glob de la carpeta de modelos: se le da el de verdad
     "__file__": os.path.join(RAIZ, "wake_vosk.py"),
 }
-for cte in ("PRECARGA_ESPERA", "RAM_MIN_PARAKEET", "HILOS_PRECISO"):
+for cte in ("PRECARGA_ESPERA", "PRECARGA_PAUSA_ESPERA", "RAM_MIN_PARAKEET", "HILOS_PRECISO"):
     m = re.search(r"^%s = ([0-9.]+)" % cte, SRC, re.M)
     if not m:
         print("  MAL  falta la constante %s" % cte)
@@ -91,7 +91,9 @@ for cte in ("PRECARGA_ESPERA", "RAM_MIN_PARAKEET", "HILOS_PRECISO"):
     ns[cte] = float(m.group(1))
 PRECARGA_REAL = ns["PRECARGA_ESPERA"]
 
-for nombre in ("modelo_parakeet", "precargar_parakeet"):
+# idea 56: PAUSA es la marca de "el asistente habla o dicta"; precargar_parakeet_en_pausa la mira
+ns["PAUSA"] = os.path.join(os.environ.get("TEMP", "/tmp"), "pausa-test-%d.flag" % os.getpid())
+for nombre in ("modelo_parakeet", "precargar_parakeet", "precargar_parakeet_en_pausa"):
     mm = re.search(r"(?ms)^def %s\(\):.*?\n(?=\n*\S|\Z)" % nombre, SRC)
     if not mm:
         print("  MAL  no encuentro %s en wake_vosk.py" % nombre)
@@ -99,6 +101,7 @@ for nombre in ("modelo_parakeet", "precargar_parakeet"):
     exec(compile(mm.group(0), nombre, "exec"), ns)
 modelo_parakeet = ns["modelo_parakeet"]
 precargar_parakeet = ns["precargar_parakeet"]
+precargar_parakeet_en_pausa = ns["precargar_parakeet_en_pausa"]
 
 
 def reset():
@@ -240,6 +243,71 @@ _cuerpo = _m.group(0) if _m else ""
 for _que in ("RAM_MIN_PARAKEET", "hacer_sitio_a_parakeet", "_parakeet_uso = time.time()",
              "with _carga_parakeet", "sherpa_onnx"):
     comp("modelo_parakeet sigue conteniendo %s" % _que, _que in _cuerpo)
+
+print("")
+print("-- IDEA 56: cargar el oido DURANTE la pausa, no despues --")
+ns["PRECARGA_PAUSA_ESPERA"] = 0.05   # sin esperar los 2 s reales
+
+
+def _quita_pausa():
+    try:
+        os.remove(ns["PAUSA"])
+    except OSError:
+        pass
+
+
+# la pausa sigue abierta cuando vence la espera -> carga (el micro esta ignorado, gratis)
+reset()
+_quita_pausa()
+io.open(ns["PAUSA"], "w").close()
+precargar_parakeet_en_pausa()
+comp("con la pausa abierta, carga el oido", len(cargas) == 1, "%d cargas" % len(cargas))
+comp("y lo deja dicho", any("precargado en la pausa" in d for d in dicho), dicho[-1:])
+
+# EL CASO QUE IMPORTA: la pausa termina antes de que venza la espera -> NO carga (si no,
+# la carga correria con braya ya hablando y le robaria CPU al reconocimiento)
+reset()
+io.open(ns["PAUSA"], "w").close()
+
+
+def _cierra_pausa_pronto():
+    time.sleep(0.02)
+    _quita_pausa()
+
+
+threading.Thread(target=_cierra_pausa_pronto).start()
+precargar_parakeet_en_pausa()
+comp("si la pausa termina antes, NO carga (no roba CPU a la respuesta)", not cargas,
+     "%d cargas" % len(cargas))
+
+# con un juego delante, ni lo intenta (la RAM es del juego)
+reset()
+_quita_pausa()
+io.open(ns["PAUSA"], "w").close()
+ns["_jugando"] = True
+precargar_parakeet_en_pausa()
+comp("jugando, ni lo intenta", not cargas)
+ns["_jugando"] = False
+_quita_pausa()
+
+# ya cargado: no relanza
+reset()
+io.open(ns["PAUSA"], "w").close()
+ns["_parakeet"] = "el-modelo"
+precargar_parakeet_en_pausa()
+comp("si ya estaba cargado, no hace nada", not cargas)
+_quita_pausa()
+
+print("")
+print("-- y como se lanza en la rama de PAUSA --")
+comp("se lanza en un hilo daemon al entrar en pausa",
+     bool(re.search(r"Thread\(target=precargar_parakeet_en_pausa, daemon=True\)", SRC)))
+# el lanzamiento va DENTRO del 'if not pausado' (al ENTRAR), no en cada vuelta de la pausa
+i_entra = SRC.find('anota("pausa: el asistente habla o dicta')
+i_lanza = SRC.find("Thread(target=precargar_parakeet_en_pausa")
+i_vigila = SRC.find("vigilar_corte(datos)", i_entra if i_entra >= 0 else 0)
+comp("solo al ENTRAR en pausa, no en cada vuelta", 0 < i_entra < i_lanza < i_vigila,
+     "asi no lanza un hilo por bloque de audio")
 
 if fallos:
     print("")
