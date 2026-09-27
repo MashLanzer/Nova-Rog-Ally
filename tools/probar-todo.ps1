@@ -2072,6 +2072,15 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n241. La tabla de atragantos tenia tres filas y ninguna era una orden (idea 88 de las 121)"
+# Las tres filas eran: una frase que llegaba a 2 porque una tilde duplico el descarte, la ETIQUETA
+# interna 'dictado vacio' -que la tabla pedia ensenarle a Nova- y holandes de un video de fondo. Y
+# por texto exacto no habia nada que encontrar: 'recientes' cubre 38 minutos, los descartes borran la
+# entrada identica al reanadir, y las 34 frases que acabaron en nada son 34 distintas. Ahora 'error'
+# no entra y las frases se agrupan por PARECIDO con las dos distancias que ya existen, ensenando
+# debajo el texto crudo de cada forma para que un grupo falso se vea de un vistazo.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-atragantos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la tabla de atragantos agrupa por parecido)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n240. Las correcciones de oido se ganan del uso, no se escriben a mano (idea 87 de las 121)"
 # De las 110 correcciones foneticas escritas a mano en commands.json, solo NUEVE han aparecido
 # alguna vez en algo que Nova oyera; 101 no se han usado nunca. Y las que si pasan no estaban.

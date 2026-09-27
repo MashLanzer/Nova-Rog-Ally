@@ -3925,6 +3925,11 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '', [bool]$deCamino =
                 [void]$sb.AppendLine("|---:|---|---|")
                 foreach ($x in $at) {
                     [void]$sb.AppendLine("| $($x.veces) | $($x.frase) | " + ($x.rutas -join ", ") + " |")
+                    # LAS OTRAS FORMAS DEL MISMO GRUPO, con el texto crudo (idea 88): agrupar por
+                    # parecido puede juntar dos ordenes distintas, y asi braya lo ve de un vistazo.
+                    foreach ($v in @($x.variantes)) {
+                        [void]$sb.AppendLine("| | ↳ tambien: $v | |")
+                    }
                 }
                 [void]$sb.AppendLine("")
             }
@@ -3992,18 +3997,52 @@ function Get-Ojeada([string]$t) {
     return $x
 }
 
+# LA TABLA DE LO QUE MAS SE LE ATRAGANTA TENIA TRES FILAS Y NINGUNA ERA UNA ORDEN (27/09, idea 88)
+#
+# LO QUE HABIA: las tres filas de memoria\estadisticas.md eran «avisame cuando la descarga de Steam
+# termino» -que llegaba a 2 solo porque una tilde hizo que la lista de descartes guardara dos copias-,
+# «dictado vacio» -que es la ETIQUETA interna del contador 'error', no algo que braya dijera, y la
+# tabla le pedia que se lo ensenara- y «maar die dog komen beheer», holandes de un video de fondo.
+#
+# Y NO ERA MALA SUERTE, es que por texto exacto no hay nada que encontrar: la lista 'recientes' cubre
+# TREINTA Y OCHO MINUTOS (del 25/09 23:16 al 23:54), la de descartes borra la entrada identica al
+# reanadir -asi que una frase no puede contar mas de 1 por ahi- y en los datos completos de uso hay 34
+# frases que acabaron en nada y las 34 son DISTINTAS entre si.
+#
+# DOS ARREGLOS: 'error' deja de entrar (su detalle es una etiqueta interna) y las frases se agrupan
+# por PARECIDO con las funciones de distancia que Nova ya tiene, no por texto identico.
+$AtraganteDistMax = 0.34        # a un tercio de la frase de distancia, es la misma orden mal oida
+
 function Get-Atragantos {
     $s = Get-Estadisticas
-    $cuenta = @{}; $rutasDe = @{}; $comoSeDijo = @{}
+    $cuenta = @{}; $rutasDe = @{}; $comoSeDijo = @{}; $variantes = @{}
     $apuntar = {
         param($frase, $ruta)
         $k = ConvertTo-Plain $frase
         if (-not $k -or $k.Length -lt 3) { return }
         # una palabra suelta casi siempre es ruido, no una orden que falle
         if ($k -notmatch '\s') { return }
-        if (-not $cuenta.ContainsKey($k)) { $cuenta[$k] = 0; $rutasDe[$k] = @(); $comoSeDijo[$k] = $frase }
-        $cuenta[$k]++
-        if ($rutasDe[$k] -notcontains $ruta) { $rutasDe[$k] += $ruta }
+        # POR PARECIDO, NO POR TEXTO IDENTICO (idea 88): dos formas de la misma orden mal oida caen en
+        # el mismo grupo. Se usan las dos distancias que ya existen y ya tienen banco -la de letras y
+        # la fonetica-, normalizadas por el largo de la frase para que una diferencia de tres letras
+        # pese distinto en "pon musica" que en "avisame cuando acabe la descarga de steam".
+        $grupo = $k
+        foreach ($otra in @($cuenta.Keys)) {
+            $largo = [Math]::Max($k.Length, $otra.Length)
+            if ($largo -le 0) { continue }
+            $dLetras = (Get-Distancia $k $otra) / [double]$largo
+            $dFon = 1.0
+            try { $dFon = (Get-DistanciaFon $k $otra) / [double]$largo } catch { $dFon = 1.0 }
+            if ([Math]::Min($dLetras, $dFon) -le $AtraganteDistMax) { $grupo = $otra; break }
+        }
+        if (-not $cuenta.ContainsKey($grupo)) {
+            $cuenta[$grupo] = 0; $rutasDe[$grupo] = @(); $comoSeDijo[$grupo] = $frase; $variantes[$grupo] = @()
+        }
+        $cuenta[$grupo]++
+        if ($rutasDe[$grupo] -notcontains $ruta) { $rutasDe[$grupo] += $ruta }
+        # LAS OTRAS FORMAS SE GUARDAN Y SE ENSENAN DEBAJO: asi braya ve el texto crudo de cada una y
+        # puede descartar un grupo falso de un vistazo, que es la guarda de agrupar por parecido.
+        if ($k -ne $grupo -and $variantes[$grupo] -notcontains $frase) { $variantes[$grupo] += $frase }
     }
     foreach ($x in @($s.descartes)) {
         # "2026-09-12  abre el disco duro"
@@ -4019,7 +4058,9 @@ function Get-Atragantos {
             'traducir' { 'tuve que preguntarle al modelo' }
             'accion'   { 'tuve que preguntarle al modelo' }
             'pregunta' { 'tuve que preguntarle al modelo' }
-            'error'    { 'acabo en error' }
+            # 'error' YA NO ENTRA (idea 88): su detalle es la etiqueta interna del contador
+            # ('dictado vacio', 'cancelado', 'timeout'), no algo que braya dijera, y la tabla
+            # acababa pidiendole que le ensenara a Nova la frase 'dictado vacio'.
             default    { '' }
         }
         if (-not $etiqueta) { continue }
@@ -4027,7 +4068,8 @@ function Get-Atragantos {
     }
     $lista = @()
     foreach ($k in $cuenta.Keys) {
-        $lista += @{ frase = $comoSeDijo[$k]; veces = $cuenta[$k]; rutas = $rutasDe[$k] }
+        $lista += @{ frase = $comoSeDijo[$k]; veces = $cuenta[$k]; rutas = $rutasDe[$k]
+                     variantes = @($variantes[$k]) }
     }
     return @($lista | Sort-Object -Property @{ Expression = { $_.veces }; Descending = $true }, @{ Expression = { $_.frase } })
 }
@@ -18011,7 +18053,13 @@ function Invoke-FastCommand([string]$text) {
                     if ($at.Count -eq 0) {
                         $a.desc = 'de lo que llevo apuntado, nada se me ha atragantado mas de una vez'
                     } else {
-                        $partes = foreach ($x in $at) { "$($x.frase), $($x.veces) veces ($($x.rutas -join ' y '))" }
+                        # idea 88: si el grupo tiene varias formas se dice cuantas, pero NO se recitan:
+                        # hablando, tres variantes de la misma frase mal oida son ruido.
+                        $partes = foreach ($x in $at) {
+                            $formas = @($x.variantes).Count
+                            "$($x.frase), $($x.veces) veces ($($x.rutas -join ' y '))" +
+                                $(if ($formas -gt 0) { ", y $formas " + $(if ($formas -eq 1) { 'forma parecida' } else { 'formas parecidas' }) } else { '' })
+                        }
                         $a.desc = 'lo que mas se me atraganta: ' + ($partes -join '; ') +
                                   '. Si me dices "aprende que" y luego la frase y la orden buena, no vuelve a pasar.'
                     }
