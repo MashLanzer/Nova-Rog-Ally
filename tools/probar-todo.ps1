@@ -1997,6 +1997,14 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n209. Una pregunta nace muda en las manos: zumbido, y medir si sirve (idea 42 de las 121)"
+# El mando NUNCA contesto una pregunta (0 en 17 dias) ni con la pista de texto puesta. Al nacer
+# una pregunta, un zumbido corto y flojo -segunda via, regla 7-, con puerta HAY MANDO (no juego:
+# 1 pregunta con juego delante en 17 dias). Se mide en dos listas y, si con 20 la mediana no
+# baja, se apaga solo. No sustituye la pista de texto ni toca los plazos.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-zumbido-pregunta.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la pregunta zumba en las manos y se mide si sirve)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n208. Mirar todas las unidades, no solo la C: (idea 41 de las 121)"
 # El aviso de disco solo miraba C:. braya tiene una microSD de 477 GB vacia (D:, 'Rog SD'): Nova
 # decia "quedan 5 gigas" con 477 al lado sin usar. Get-Unidades ve todas las fijas y extraibles

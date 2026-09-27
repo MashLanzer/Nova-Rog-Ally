@@ -2537,6 +2537,61 @@ function Get-VozPlazoMs([int]$letras, $muestras, [int]$minIntentos, [int]$sueloM
     return $ms
 }
 
+# UNA PREGUNTA NACE MUDA EN LAS MANOS (26/09, idea 42 de las 121). Cuando nace una pregunta, un
+# zumbido corto y flojo -la SEGUNDA via del mando (regla 7)-. El mando NUNCA ha contestado una
+# pregunta (0 "CONFIRMAR con el mando" en 17 dias) ni con la pista de texto puesta desde el
+# 23/09: ese es el argumento. Y se MIDE si sirve: dos listas -con zumbido y sin el- calcadas de
+# voz-tiempos, y si con 20 muestras la mediana no baja, se apaga solo. La puerta es HAY MANDO, no
+# HAY JUEGO: en 17 dias solo 1 pregunta nacio con juego delante, asi que "si hay juego" no
+# juntaria muestras ni en medio ano.
+$ZumbidoTiemposJson = Join-Path $MemoriaDir 'zumbido-tiempos.json'
+$ZumbidoTiemposMax = 200
+function Get-MedianaMs($valores) {
+    $v = @($valores | Sort-Object)
+    if ($v.Count -eq 0) { return 0.0 }
+    $m = [int][Math]::Floor($v.Count / 2)
+    if ($v.Count % 2 -eq 1) { return [double]$v[$m] }
+    return ([double]$v[$m - 1] + [double]$v[$m]) / 2.0
+}
+function Get-ZumbidoTiempos {
+    # sin cache, como Get-VozTiempos: cada funcion sacada del archivo tiene su propio ambito
+    $con = New-Object System.Collections.ArrayList
+    $sin = New-Object System.Collections.ArrayList
+    if (Test-Path -LiteralPath $ZumbidoTiemposJson) {
+        try {
+            $j = Get-Content -LiteralPath $ZumbidoTiemposJson -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($v in @($j.con)) { $d = 0.0; if ([double]::TryParse([string]$v, [ref]$d) -and $d -gt 0) { [void]$con.Add($d) } }
+            foreach ($v in @($j.sin)) { $d = 0.0; if ([double]::TryParse([string]$v, [ref]$d) -and $d -gt 0) { [void]$sin.Add($d) } }
+        } catch {}
+    }
+    return [pscustomobject]@{ con = @($con); sin = @($sin) }
+}
+function Add-ZumbidoTiempo([int]$ms, [bool]$zumbo) {
+    if ($ms -le 0) { return $false }
+    if ($script:invitado) { return $false }   # igual que Add-VozTiempo
+    try {
+        $t = Get-ZumbidoTiempos
+        $con = New-Object System.Collections.ArrayList; [void]$con.AddRange(@($t.con))
+        $sin = New-Object System.Collections.ArrayList; [void]$sin.AddRange(@($t.sin))
+        if ($zumbo) { [void]$con.Add([double]$ms) } else { [void]$sin.Add([double]$ms) }
+        while ($con.Count -gt $ZumbidoTiemposMax) { $con.RemoveAt(0) }
+        while ($sin.Count -gt $ZumbidoTiemposMax) { $sin.RemoveAt(0) }
+        $o = [ordered]@{ con = @($con); sin = @($sin); hasta = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') }
+        [System.IO.File]::WriteAllText($ZumbidoTiemposJson, ($o | ConvertTo-Json -Depth 4 -Compress), (New-Object System.Text.UTF8Encoding $false))
+        return $true
+    } catch { return $false }
+}
+function Test-ZumbidoSirve($con, $sin, [int]$minIntentos) {
+    # PURA, todo por parametro (como Get-VozPlazoMs). Sin historial no se juzga -devuelve $true,
+    # el zumbido sigue-. Con datos, "sirve" solo si la MEDIANA con zumbido es MENOR que sin el
+    # (mediana, no media: con n=20 y la cola de 11 s una sola pregunta tuerce la media).
+    $c = @($con)
+    if ($c.Count -lt $minIntentos) { return $true }
+    $s = @($sin)
+    if ($s.Count -eq 0) { return $true }   # sin con que comparar, no se apaga
+    return ((Get-MedianaMs $c) -lt (Get-MedianaMs $s))
+}
+
 # CUANTO TARDA LA CHARLA EN SOLTAR LA PRIMERA FRASE (26/09, idea 37 de las 121). Igual que
 # voz-tiempos: un numero (los ms) por respuesta en un json de 200, y de ahi salen los cuatro
 # umbrales de espera que hasta hoy estaban a fuego (5.000 / 2.000 / 5.000 / 16.000 ms).
@@ -22392,12 +22447,17 @@ $script:vibraCola = @()
 $script:vibraHasta = 0
 $script:vibraEncendida = $false
 $script:vibraFuerza = 0
+# CUANDO VIBRO POR ULTIMA VEZ (26/09, idea 42). Arranca en -100000, no en 0 ni $null: en la
+# primera vuelta "$sw.ElapsedMilliseconds - $script:vibraUltimaEn" daria un hueco falso si no.
+# Hoy no decide nada; es el dato por si algun dia hay que medir ese hueco.
+$script:vibraUltimaEn = -100000
 
 $script:vibraSiguienteOn = $true
 $script:vibraAvisado = $false
 
 function Start-Vibracion([int[]]$patron, [int]$fuerza = 22000) {
     if (-not $MandoVibracion -or -not $patron -or $patron.Count -eq 0) { return }
+    $script:vibraUltimaEn = $sw.ElapsedMilliseconds   # idea 42: cuando fue el ultimo zumbido
     # el patron alterna encendido/apagado empezando por encendido
     $script:vibraCola = @($patron)
     $script:vibraFuerza = $fuerza
@@ -25558,6 +25618,18 @@ function Complete-Confirmacion([string]$respuesta) {
     Remove-Item -LiteralPath $MarcaConfirmar -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $RutaConfirmacion -Force -ErrorAction SilentlyContinue
     if (-not $p) { return }
+    # LA MEDIDA DEL ZUMBIDO (26/09, idea 42): cuanto se tardo en contestar, con zumbido o sin el.
+    # Va aqui, en la unica salida de los diez desenlaces. Y cuando con zumbido junta 20 muestras y
+    # la mediana NO baja, el zumbido se apaga solo y se anota -un ajuste que no se cuenta no ha
+    # pasado-. El '-eq' y el $p.zumbo hacen que se diga una sola vez, al cruzar el liston.
+    if ($p.nace) {
+        [void](Add-ZumbidoTiempo ($sw.ElapsedMilliseconds - [int]$p.nace) ([bool]$p.zumbo))
+        $ztC = Get-ZumbidoTiempos
+        if ([bool]$p.zumbo -and @($ztC.con).Count -eq $DecisionMinIntentos -and -not (Test-ZumbidoSirve $ztC.con $ztC.sin $DecisionMinIntentos)) {
+            Log ("ZUMBIDO DE PREGUNTA: apagado solo; con zumbido la mediana es " + [int](Get-MedianaMs $ztC.con) + " ms y sin el " + [int](Get-MedianaMs $ztC.sin) + " ms")
+            Add-Estadistica 'auto-deshecho' 'zumbido-pregunta'
+        }
+    }
     # DESCANSO TRAS EL FOCO (ver MODO FOCO)
     if ($p.tipo -eq 'descanso') {
         if ($respuesta -eq 'si') {
@@ -29304,6 +29376,16 @@ while ($true) {
             # Y AQUI SE DICE QUE EL MANDO VALE (23/09, funcion 10). En catorce dias se uso
             # cero veces para contestar, teniendolo en las manos: nadie se lo habia dicho.
             Set-UI 'confirmando' ($script:uiTexto + (Get-PistaMando ([string]$script:pendiente.tipo)))
+            # ZUMBIDO AL NACER LA PREGUNTA (26/09, idea 42): la segunda via del mando. Puerta = HAY
+            # MANDO (no juego). Dos guardas obligatorias porque con la capsula apagada este bloque
+            # se repite cada vuelta: la marca $p.zumbo y la cola de vibracion libre. Se mide en Complete-Confirmacion.
+            $script:pendiente.nace = $sw.ElapsedMilliseconds
+            $script:pendiente.zumbo = $false
+            $ztP = Get-ZumbidoTiempos
+            if ($script:mandoHay -and $script:pendiente.tipo -ne 'peligrosa' -and $script:vibraCola.Count -eq 0 -and $script:vibraHasta -le 0 -and (Test-ZumbidoSirve $ztP.con $ztP.sin $DecisionMinIntentos)) {
+                Start-Vibracion @(70, 90, 70) 16000
+                $script:pendiente.zumbo = $true
+            }
         }
         $resp = ''
         if (Test-Path -LiteralPath $RutaConfirmacion) {
