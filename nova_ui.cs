@@ -2447,11 +2447,41 @@ public class NovaUI : Window
         }
         catch { }
     }
+    // EL 44 % DEL DIARIO DE GESTOS ERA RUIDO QUE NINGUN LECTOR MIRA (27/09, idea 100 de las 121)
+    //
+    // EL DATO, contado sobre tmp\gestos.log: 1.506 'escucho' + 124 'lotengo' + 2 'atencion' = 1.632
+    // de 3.674 lineas, el 44,4 %. Y los DOS unicos lectores -la tabla de memoria\estadisticas.md y
+    // el parte semanal- los saltan explicitamente por nombre: "ruido: pasan a cada rato".
+    //
+    // Y LA PODA IBA A TIRAR LO BUENO PARA CONSERVARLOS: el fichero crece a 204 lineas al dia y la
+    // poda entra a las 6.000 dejando 5.000, asi que llega en unos once dias, y de las 5.000 que
+    // conserve unas 2.220 serian de esas tres. Cada linea de ruido que se queda echa una de verdad.
+    //
+    // NO SE PIERDE LA CUENTA: van a gestos-cuenta.txt, UNA linea por dia y por gesto, reescrita en
+    // el sitio. Doce escrituras de un fichero de 200 bytes en vez de 1.632 appends.
+    static readonly string[] gestosRuido = { "escucho", "lotengo", "atencion" };
+    Dictionary<string, int> cuentaGestos = new Dictionary<string, int>();
+    string cuentaGestosDia = "";
+
     void AnotarGesto(string nombre)
     {
         try
         {
             if (string.IsNullOrEmpty(rutaGestosLog)) { return; }
+            string hoy = DateTime.Now.ToString("yyyy-MM-dd");
+            if (Array.IndexOf(gestosRuido, nombre) >= 0)
+            {
+                // AL CONTADOR, NO AL DIARIO. Al cambiar el dia se empieza de cero: el fichero
+                // guarda la cuenta de hoy y la de ayer se la lleva la reescritura, igual que el
+                // diario se poda. Lo que importa es que quien lo lea sepa cuantas veces fue.
+                if (cuentaGestosDia != hoy) { cuentaGestos.Clear(); cuentaGestosDia = hoy; }
+                cuentaGestos[nombre] = (cuentaGestos.ContainsKey(nombre) ? cuentaGestos[nombre] : 0) + 1;
+                var sbG = new StringBuilder();
+                foreach (var kv in cuentaGestos) { sbG.Append(hoy).Append(' ').Append(kv.Key).Append(' ').Append(kv.Value).Append("\r\n"); }
+                string rutaC = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(rutaGestosLog), "gestos-cuenta.txt");
+                File.WriteAllText(rutaC, sbG.ToString(), Encoding.UTF8);
+                return;
+            }
             File.AppendAllText(rutaGestosLog, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " " + nombre + "\r\n", Encoding.UTF8);
         }
         catch { }

@@ -2089,6 +2089,16 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n250. El 44 % del diario de gestos era ruido que nadie lee (idea 100 de las 121)"
+# 1.506 'escucho' + 124 'lotengo' + 2 'atencion' = 1.632 de 3.674 lineas, el 44,4 %. Y los DOS
+# unicos lectores -la tabla de estadisticas.md y el parte semanal- los saltan por nombre: 'ruido:
+# pasan a cada rato'. Y la poda iba a tirar lo bueno para conservarlos: 204 lineas al dia, poda a
+# las 6.000 dejando 5.000, o sea unos once dias, y de esas 5.000 unas 2.220 serian de esas tres.
+# Ahora la capsula lleva su cuenta del dia en gestos-cuenta.txt -que SI se lee y se ensena, para
+# que no sea otro fichero muerto- y la poda corta por FECHA: catorce dias, los mismos que la tabla
+# ensena, en vez de un numero de lineas que segun cuanto se hablara ese mes eran 8 dias o 40.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-gestos-podados.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el diario de gestos se mide en dias)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n249. Las senales de fallo que Nova se deduce sola y no leia nadie (idea 99 de las 121)"
 # senales-fallo.jsonl tiene 33 lineas de cinco dias: 14 'ruido' y 5 'descarte' de peso ALTO -no hizo
 # NADA con la frase- y 14 'no-orden-a-charla' de peso BAJO -hizo algo que quiza no era-. En todo el

@@ -2567,6 +2567,11 @@ function Find-EnMemoria([string]$text) {
 # Que ruta toma cada orden y que no se reconocio, en una nota de Obsidian que
 # se puede leer sin abrir logs. Dice exactamente que anadir a commands.json.
 $EstadisticasJson = Join-Path $MemoriaDir 'estadisticas.json'
+# EL DIARIO DE GESTOS SE MIDE EN DIAS, NO EN LINEAS (27/09, idea 100). Catorce son los que ensena
+# la tabla de memoria\estadisticas.md: cortar por ahi hace que la ventana de la relacion sea
+# siempre la misma, en vez de depender de cuanto se hablara ese mes.
+$GestosDias = 14
+$GestosLineasTope = 6000        # el techo duro de siempre, por si un bucle escribe de golpe
 $EstadisticasMd = Join-Path $MemoriaDir 'estadisticas.md'
 $script:estadisticasMdEn = 0   # cuando se rehizo por ultima vez (21/09)
 $script:stats = $null
@@ -4116,9 +4121,31 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '', [bool]$deCamino =
             $gl = Join-Path $TmpDir 'gestos.log'
             if (Test-Path -LiteralPath $gl) {
                 $lineasG = [System.IO.File]::ReadAllLines($gl, [System.Text.Encoding]::UTF8)
-                if ($lineasG.Count -gt 6000) {
-                    $lineasG = $lineasG[($lineasG.Count - 5000)..($lineasG.Count - 1)]
-                    [System.IO.File]::WriteAllLines($gl, [string[]]$lineasG, $enc)
+                # LA PODA CORTA POR FECHA, NO POR LINEAS (27/09, idea 100 de las 121)
+                #
+                # ANTES: a las 6.000 lineas se dejaban las 5.000 ultimas. Con 204 lineas al dia eso
+                # son 24 dias de relacion... o 8, o 40, segun cuanto se hablara ese mes: la ventana
+                # cambiaba de tamano sola, y justo el mes con mas conversacion era el que menos dias
+                # guardaba. La tabla de aqui abajo ensena CATORCE dias, asi que se guardan catorce.
+                #
+                # Y NO HACE FALTA CALCULAR NINGUN RITMO, que es lo que la ficha proponia para pasar
+                # de lineas a dias: cortando directamente por fecha, los dias son los dias.
+                #
+                # EL TOPE DE LINEAS SE QUEDA COMO TECHO DURO: si un dia se escriben 20.000 lineas en
+                # una tarde -un bucle de gestos, por ejemplo-, el fichero no puede crecer sin fin.
+                if ($lineasG.Count -gt $GestosLineasTope) {
+                    $desdeG = (Get-Date).AddDays(-1 * $GestosDias).ToString('yyyy-MM-dd')
+                    $quedanG = @($lineasG | Where-Object {
+                        $_.Length -ge 10 -and [string]::CompareOrdinal($_.Substring(0, 10), $desdeG) -ge 0 })
+                    if ($quedanG.Count -gt $GestosLineasTope) {
+                        $quedanG = @($quedanG[($quedanG.Count - $GestosLineasTope)..($quedanG.Count - 1)])
+                    }
+                    # si por lo que sea no se pudo recortar nada (fechas raras), se deja como estaba:
+                    # mejor un fichero grande que uno vacio
+                    if ($quedanG.Count -gt 0 -and $quedanG.Count -lt $lineasG.Count) {
+                        $lineasG = $quedanG
+                        [System.IO.File]::WriteAllLines($gl, [string[]]$lineasG, $enc)
+                    }
                 }
                 $porDia = @{}
                 foreach ($l in $lineasG) {
@@ -4136,10 +4163,28 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '', [bool]$deCamino =
                     [void]$sb.AppendLine("")
                     [void]$sb.AppendLine("Lo que le dijiste y cómo reaccionó: cariño, gracias, risa, negar, duda, pena, orgullo…")
                     [void]$sb.AppendLine("")
-                    foreach ($k in ($porDia.Keys | Sort-Object -Descending | Select-Object -First 14)) {
+                    foreach ($k in ($porDia.Keys | Sort-Object -Descending | Select-Object -First $GestosDias)) {
                         $partes = $porDia[$k].GetEnumerator() | Sort-Object -Property Value -Descending | ForEach-Object { "$($_.Key) ×$($_.Value)" }
                         [void]$sb.AppendLine("- **$k**: " + ($partes -join ', '))
                     }
+                    # Y LOS TRES QUE NO ENTRAN EN LA TABLA, CONTADOS APARTE (idea 100). Desde hoy la
+                    # capsula no los escribe linea a linea -eran el 44,4 % del fichero y ningun
+                    # lector los mira- sino que lleva su cuenta del dia en gestos-cuenta.txt. Se
+                    # ensena aqui para que ese fichero no sea otro que nadie lee, que es el pecado
+                    # que tenia senales-fallo.jsonl.
+                    try {
+                        $rcG = Join-Path $TmpDir 'gestos-cuenta.txt'
+                        if (Test-Path -LiteralPath $rcG) {
+                            $cuentasG = @()
+                            foreach ($lc in [System.IO.File]::ReadAllLines($rcG, [System.Text.Encoding]::UTF8)) {
+                                if ($lc -match '^(\d{4}-\d{2}-\d{2}) (\S+) (\d+)$') { $cuentasG += ($Matches[2] + ' ×' + $Matches[3]) }
+                            }
+                            if ($cuentasG.Count -gt 0) {
+                                [void]$sb.AppendLine("")
+                                [void]$sb.AppendLine("Y hoy, de los que pasan a cada rato: " + ($cuentasG -join ', ') + ".")
+                            }
+                        }
+                    } catch {}
                 }
             }
         } catch {}
