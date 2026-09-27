@@ -69,13 +69,16 @@ function Get-CuentaHoy([string]$r) { if ($script:hoyCuenta.ContainsKey($r)) { re
 function Test-DiaCuenta([string]$d) { return $true }
 $script:avisos = New-Object System.Collections.ArrayList
 function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'medio', [int]$cadaMin = 60, [bool]$yaEsperado = $false) {
-    [void]$script:avisos.Add(@{ clave = $clave; texto = $texto; nivel = $nivel }); return $true
+    [void]$script:avisos.Add(@{ clave = $clave; texto = $texto; nivel = $nivel; cada = $cadaMin }); return $true
 }
 $script:invitado = $false
 $script:juegoActivo = $null
 $script:reiniciosAvisoDia = ''
 Invoke-Expression (Traer 'Get-MedianaDias')
 Invoke-Expression (Traer 'Test-DatosRepartidos')
+Invoke-Expression (Traer 'Get-SumaDias')
+Invoke-Expression (Traer 'Get-DiasConClave')
+Invoke-Expression (Traer 'Get-TasaSucia')
 Invoke-Expression (Traer 'Test-ReiniciosDeMas')
 
 Write-Host ''
@@ -147,8 +150,59 @@ $script:avisos.Clear(); $script:reiniciosAvisoDia = ''; $script:invitado = $fals
 $r9 = Test-ReiniciosDeMas $ahora
 $txt9 = if ($script:avisos.Count) { [string]$script:avisos[0].texto } else { '' }
 Comp '9. habla por relanzamientos y la frase lleva el 9 y el 2' ($r9 -and ($txt9 -match '\b9\b') -and ($txt9 -match '\b2\b') -and ($txt9 -notmatch 'arranques')) $txt9
-Comp '   y el aviso es nivel "medio", clave me-reinicio' ($script:avisos.Count -ge 1 -and $script:avisos[0].nivel -eq 'medio' -and $script:avisos[0].clave -eq 'me-reinicio') ''
+# EL NIVEL CAMBIO EL 27/09 (idea 64): relanzar el oido o la capsula lo arregla Nova sola
+# relanzando, asi que se VE en la capsula y no se dice ('bajo'). Lo que se dice en voz alta es
+# lo que ella no se arregla: morirse entera o arrancar de mas.
+Comp '   y el aviso es nivel "bajo" (se arregla sola), clave me-reinicio' ($script:avisos.Count -ge 1 -and $script:avisos[0].nivel -eq 'bajo' -and $script:avisos[0].clave -eq 'me-reinicio') $(if ($script:avisos.Count) { $script:avisos[0].nivel })
 
+
+Write-Host ''
+Write-Host '  -- 10 a 14. MORIR MAL: la semana contra la anterior (27/09, idea 64) --'
+# La idea 50 dejo 'arranque' y 'cierre-limpio' contandose y NADIE los comparaba, que era el dato
+# por el que nacio la idea: 72 arranques y 36 cierres limpios en los registros reales.
+function DatosTasa([int]$arrR, [int]$cieR, [int]$arrA, [int]$cieA, [hashtable]$hoy = $null) {
+    # se reparte en los 7 dias de cada ventana para que la guarda de reparto no lo frene
+    $s = @{ dias = @{} }
+    for ($i = 1; $i -le 7; $i++) { $s.dias[(Dia $i)] = @{ 'arranque' = 0; 'cierre-limpio' = 0 } }
+    for ($i = 8; $i -le 14; $i++) { $s.dias[(Dia $i)] = @{ 'arranque' = 0; 'cierre-limpio' = 0 } }
+    for ($n = 0; $n -lt $arrR; $n++) { $d = Dia (($n % 7) + 1); $s.dias[$d]['arranque'] = [int]$s.dias[$d]['arranque'] + 1 }
+    for ($n = 0; $n -lt $cieR; $n++) { $d = Dia (($n % 7) + 1); $s.dias[$d]['cierre-limpio'] = [int]$s.dias[$d]['cierre-limpio'] + 1 }
+    for ($n = 0; $n -lt $arrA; $n++) { $d = Dia (($n % 7) + 8); $s.dias[$d]['arranque'] = [int]$s.dias[$d]['arranque'] + 1 }
+    for ($n = 0; $n -lt $cieA; $n++) { $d = Dia (($n % 7) + 8); $s.dias[$d]['cierre-limpio'] = [int]$s.dias[$d]['cierre-limpio'] + 1 }
+    if ($hoy) { $s.dias[(Dia 0)] = $hoy }
+    $script:statsFalsas = $s
+    $script:hoyCuenta = @{ 'arranque' = 0 }   # hoy a cero: asi el que hable solo puede ser la tasa
+}
+# 10. esta semana 14 de 14 sin cierre normal; la anterior 1 de 14 -> habla, y con los dos numeros
+DatosTasa 14 0 14 13; $r10 = Corre
+$txt10 = if ($script:avisos.Count) { [string]$script:avisos[0].texto } else { '' }
+Comp '10. con la tasa disparada, habla' ($r10 -and $script:avisos.Count -eq 1) $txt10
+Comp '   y la frase lleva los dos porcentajes (100 y 7)' (($txt10 -match '100 %') -and ($txt10 -match '7 %')) $txt10
+Comp '   con clave propia y nivel medio (esto NO se arregla sola)' ($script:avisos.Count -ge 1 -and $script:avisos[0].clave -eq 'me-muero-mal' -and $script:avisos[0].nivel -eq 'medio') $(if ($script:avisos.Count) { $script:avisos[0].clave })
+# 11. EL MARGEN SALE DE LA MUESTRA: con 4 arranques, una subida de 25 puntos es UNA sesion -> calla
+DatosTasa 4 2 4 3; $r11 = Corre
+Comp '11. subida del tamano de una sola sesion (4 arranques, +25 pts): calla' ((-not $r11) -and $script:avisos.Count -eq 0) 'el margen es 1/4 = 25 pts'
+# 11b. y con la MISMA subida pero 20 arranques (margen 5 pts), si habla
+DatosTasa 20 10 20 15; $r11b = Corre
+Comp '11b. la misma subida con 20 arranques (margen 5 pts): habla' ($r11b -and $script:avisos.Count -eq 1) 'la muestra manda, no un numero'
+# 12. HOY NO ENTRA: la sesion de hoy esta viva y no tiene cierre; si contara, siempre saldria sucia
+DatosTasa 14 14 14 14 @{ 'arranque' = 99; 'cierre-limpio' = 0 }; $r12 = Corre
+Comp '12. hoy no cuenta para la tasa (99 arranques sin cierre hoy y calla)' ((-not $r12) -and $script:avisos.Count -eq 0) 'si contara hoy, hablaria siempre'
+# 13. UNA TARDE DE DESARROLLO no es una averia: todo en un dia -> la guarda de reparto calla
+$s13 = @{ dias = @{} }
+$s13.dias[(Dia 1)] = @{ 'arranque' = 20; 'cierre-limpio' = 0 }
+for ($i = 8; $i -le 14; $i++) { $s13.dias[(Dia $i)] = @{ 'arranque' = 2; 'cierre-limpio' = 2 } }
+$script:statsFalsas = $s13; $script:hoyCuenta = @{ 'arranque' = 0 }
+$r13 = Corre
+Comp '13. 20 arranques sucios en UN solo dia: calla (reparto)' ((-not $r13) -and $script:avisos.Count -eq 0) 'sin la guarda, cada tarde de desarrollo seria una averia'
+# 14. si coinciden la tasa mala Y los relanzamientos, habla la tasa: es la que no se arregla sola
+$s14 = @{ dias = @{} }
+for ($i = 1; $i -le 7; $i++) { $s14.dias[(Dia $i)] = @{ 'arranque' = 2; 'cierre-limpio' = 0; 'relanza:oido' = 1 } }
+for ($i = 8; $i -le 14; $i++) { $s14.dias[(Dia $i)] = @{ 'arranque' = 2; 'cierre-limpio' = 2; 'relanza:oido' = 1 } }
+$script:statsFalsas = $s14; $script:hoyCuenta = @{ 'arranque' = 0; 'relanza:oido' = 9 }
+$r14 = Corre
+Comp '14. con las dos cosas a la vez, habla la que no se arregla sola' ($r14 -and $script:avisos.Count -eq 1 -and $script:avisos[0].clave -eq 'me-muero-mal') $(if ($script:avisos.Count) { $script:avisos[0].clave })
+Comp '   y con plazo de una semana, no de un dia' ($script:avisos.Count -ge 1 -and $script:avisos[0].cada -eq 10080) $(if ($script:avisos.Count) { $script:avisos[0].cada })
 Write-Host ''
 if ($mal -gt 0) { Write-Host "$mal casos MAL" -ForegroundColor Red; exit 1 }
 Write-Host 'los reinicios se cuentan y se comparan con lo normal' -ForegroundColor Green

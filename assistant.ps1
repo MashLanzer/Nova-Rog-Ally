@@ -13270,6 +13270,53 @@ function Get-MedianaDias($stats, [string]$clave, [datetime]$ahora, [int]$dias = 
     return ([double]($ord[$m - 1] + $ord[$m]) / 2.0)
 }
 
+# LA TASA DE MORIR MAL, CONTRA SI MISMA (27/09, idea 64). La idea 50 dejo los cuatro
+# contadores puestos y NADIE compara 'arranque' con 'cierre-limpio', que es el dato por el que
+# nacio: 72 arranques y 36 cierres limpios, o sea la mitad de las veces se muere sin salir por
+# la puerta. Aqui se compara la semana pasada con la anterior -no un porcentaje escrito a
+# mano- y HOY NO ENTRA en ninguna de las dos (Get-MedianaDias hace lo mismo y por lo mismo:
+# la sesion de hoy esta viva, no tiene cierre todavia, y contaria como muerte sucia siempre).
+function Get-SumaDias($stats, [string]$clave, [datetime]$ahora, [int]$desde, [int]$hasta) {
+    $t = 0
+    try {
+        for ($i = $desde; $i -le $hasta; $i++) {
+            $k = $ahora.AddDays(-$i).ToString('yyyy-MM-dd')
+            if (-not (Test-DiaCuenta $k)) { continue }
+            if (-not $stats.dias.ContainsKey($k)) { continue }   # ese dia Nova no arranco
+            $t += [int]$stats.dias[$k][$clave]
+        }
+    } catch { return 0 }
+    return $t
+}
+
+# EN CUANTOS DIAS DISTINTOS DE LA VENTANA HUBO ALGO. Test-DatosRepartidos mira los 14 dias
+# enteros, asi que una tarde de desarrollo con veinte arranques en UN dia se le cuela cuando la
+# ventana de al lado trae un historial normal (cazado por el caso 13 del banco). Aqui se exige
+# el mismo minimo de 3 dias que usa Test-DatosRepartidos, pero DENTRO de la ventana que se mide.
+function Get-DiasConClave($stats, [string]$clave, [datetime]$ahora, [int]$desde, [int]$hasta) {
+    $n = 0
+    try {
+        for ($i = $desde; $i -le $hasta; $i++) {
+            $k = $ahora.AddDays(-$i).ToString('yyyy-MM-dd')
+            if (-not (Test-DiaCuenta $k)) { continue }
+            if (-not $stats.dias.ContainsKey($k)) { continue }
+            if ([int]$stats.dias[$k][$clave] -gt 0) { $n++ }
+        }
+    } catch { return 0 }
+    return $n
+}
+
+# EL MARGEN SALE DE LA MUESTRA, NO DE UN NUMERO: solo habla si la subida es mayor de lo que
+# movería una sola sesion en la ventana (1/arranques). Con 4 arranques eso son 25 puntos; con
+# 20, cinco. Asi una semana floja de datos no la hace hablar y una de verdad si.
+function Get-TasaSucia($stats, [datetime]$ahora, [int]$desde, [int]$hasta) {
+    $arr = Get-SumaDias $stats 'arranque' $ahora $desde $hasta
+    if ($arr -le 0) { return $null }
+    $cie = Get-SumaDias $stats 'cierre-limpio' $ahora $desde $hasta
+    $sucias = [Math]::Max(0, $arr - $cie)
+    return @{ arr = $arr; cie = $cie; sucias = $sucias; tasa = ([double]$sucias / [double]$arr) }
+}
+
 # DEMASIADOS REINICIOS, MEDIDO CONTRA UNO MISMO (26/09, idea 50). El 22/09 Nova relanzo el oido
 # y la capsula nueve veces y no dijo nada; media hora antes se moria la mitad de las veces al
 # arrancar. Mira DOS cosas por separado: los 'arranque' y la suma 'relanza:oido'+'relanza:capsula'.
@@ -13304,15 +13351,43 @@ function Test-ReiniciosDeMas([datetime]$ahora = (Get-Date)) {
     $repartoRel = ((Test-DatosRepartidos $stRe 'relanza:oido' $ahora) -or (Test-DatosRepartidos $stRe 'relanza:capsula' $ahora))
     $hablaRel = ($repartoRel -and ($relHoy -gt $relMed))
 
-    if (-not $hablaArr -and -not $hablaRel) { return $false }
+    # 3) MORIR MAL (27/09, idea 64): la semana pasada contra la anterior. Va aparte de los dos
+    #    de arriba porque es lo unico de los tres que Nova NO se arregla sola -relanzar el oido
+    #    si lo hace ella; morirse entera, no-, y por eso este habla y los otros dos no.
+    $suR = Get-TasaSucia $stRe $ahora 1 7
+    $suA = Get-TasaSucia $stRe $ahora 8 14
+    $hablaSucio = $false
+    # LA MISMA GUARDA DE REPARTO que los otros dos, y por lo mismo: una tarde de desarrollo con
+    # veinte arranques y ningun cierre normal tiene la tasa por las nubes sin que nada este roto.
+    if ($suR -and $suA -and $suR.arr -gt 0 -and (Test-DatosRepartidos $stRe 'arranque' $ahora) -and
+        (Get-DiasConClave $stRe 'arranque' $ahora 1 7) -ge 3) {
+        $margen = 1.0 / [double]$suR.arr        # lo que moveria UNA sola sesion: por debajo de eso es ruido
+        $hablaSucio = (($suR.tasa - $suA.tasa) -gt $margen)
+    }
 
-    if ($hablaArr) {
+    if (-not $hablaSucio -and -not $hablaArr -and -not $hablaRel) { return $false }
+
+    # EL NIVEL, POR SI NOVA PUEDE ARREGLARLO SOLA (27/09, idea 64). 'medio' se DICE en voz alta;
+    # 'bajo' se ve en la capsula y no se dice (ver Send-AvisoEntorno). Morirse entera y arrancar
+    # de mas no los arregla ella: eso se dice. Relanzar el oido o la capsula ya lo arregla
+    # relanzando, asi que se ensena y no se cuenta en voz alta: hablar por todo es lo que cansa.
+    $clave = 'me-reinicio'
+    $nivel = 'medio'
+    $cadaRe = 1440   # el de los arranques/relanzamientos es de HOY: un dia de plazo
+    if ($hablaSucio) {
+        $pcR = [int][Math]::Round($suR.tasa * 100)
+        $pcA = [int][Math]::Round($suA.tasa * 100)
+        $clave = 'me-muero-mal'   # clave propia: si no, el aviso de arranques se lo come por el plazo de un dia
+        $cadaRe = 10080          # y plazo de una semana: el dato es de la semana y no cambia hasta la siguiente
+        $texto = "De mis $($suR.arr) arranques de esta semana, $($suR.sucias) no acabaron en cierre normal: el $pcR %, cuando la semana anterior era el $pcA %."
+    } elseif ($hablaArr) {
         $texto = "Llevo $arrHoy arranques hoy; lo normal en mi son $([Math]::Round($arrMed, 1)) al dia."
     } else {
+        $nivel = 'bajo'
         $texto = "Hoy he tenido que relanzar $relHoy veces lo que me escucha y lo que me dibuja; lo normal son $([Math]::Round($relMed, 1))."
     }
     $script:reiniciosAvisoDia = $hoyRe   # se marca al comprometer el aviso; el 1440 de cadaMin es "un dia", el freno es esta marca
-    [void](Send-AvisoEntorno 'me-reinicio' $texto 'medio' 1440)
+    [void](Send-AvisoEntorno $clave $texto $nivel $cadaRe)
     return $true
 }
 
