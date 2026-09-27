@@ -138,6 +138,7 @@ public class NovaUI : Window
     StackPanel colaPuntos;          // un punto por cada cosa de la orden
     string colaActual = "";         // "3/2" o "3/2!" (la 2 fallo)
     TextBlock glifoAccion;
+    Ellipse aroMia;                 // idea 54: aro ambar fino sobre el glifo cuando la accion la decidio Nova
     string haciendoActual = "";     // que accion esta en curso ("" = ninguna)
     double descarga = 0;            // 0..1 de la descarga de Steam mas avanzada
     // TAMANO A PETICION. En la pantalla de 7 pulgadas de la Ally, 13,5 px es
@@ -259,6 +260,8 @@ public class NovaUI : Window
     double topBase = 0;
     // la IA lleva la orden (el asistente lo manda en "remoto")
     bool remoto = false;
+    // idea 54: la accion la decidio Nova, no la pediste (campo "mia" del JSON)
+    bool mia = false;
     // suena musica (campo "musica"): la carita se mece. Rotacion PROPIA, para no
     // pelearse con la de los gestos (rotGesto)
     bool musica = false;
@@ -1190,6 +1193,17 @@ public class NovaUI : Window
         discoAccion.Width = AVATAR; discoAccion.Height = AVATAR;
         discoAccion.Fill = new SolidColorBrush(Color.FromArgb(0xDD, 0x0A, 0x0F, 0x18));
         capaAccion.Children.Add(discoAccion);
+        // idea 54: aro fino ambar sobre el glifo cuando la accion la decidio Nova. Sin animacion
+        // (el banco de los Forever exige tope de frames y este aro no lo lleva). 1.2 es mas fino que
+        // el 1.5 de aroAvatar a proposito: no hay medicion, la guarda es no llenar la capsula de adornos.
+        aroMia = new Ellipse();
+        aroMia.Width = AVATAR; aroMia.Height = AVATAR;
+        aroMia.Stroke = new SolidColorBrush(Color.FromRgb(0xFF, 0xB3, 0x3D));
+        aroMia.StrokeThickness = 1.2;
+        aroMia.Fill = null;
+        aroMia.IsHitTestVisible = false;
+        aroMia.Visibility = Visibility.Collapsed;
+        capaAccion.Children.Add(aroMia);
         glifoAccion = new TextBlock();
         glifoAccion.FontFamily = new FontFamily("Segoe MDL2 Assets");
         glifoAccion.FontSize = 13;
@@ -1246,6 +1260,7 @@ public class NovaUI : Window
             return;
         }
         glifoAccion.Text = g;
+        if (aroMia != null) { aroMia.Visibility = mia ? Visibility.Visible : Visibility.Collapsed; }   // idea 54
         Desvanecer(capaAccion, 1, 90);
         var esc = capaAccion.RenderTransform as ScaleTransform;
         if (esc != null)
@@ -3534,6 +3549,12 @@ public class NovaUI : Window
                     remoto = rem;
                     if (estadoActual == "pensando") { Aplicar(estadoActual, textoActual, false); }
                 }
+                // idea 54: autoria. Se lee y se actualiza ANTES del glifo para que PintarHaciendo
+                // vea el valor nuevo; autCambio deja repintar el glifo aunque la familia no cambie.
+                bool mi = Campo(j, "mia", "0") == "1";
+                bool autCambio = (mi != mia);
+                mia = mi;
+                if (autCambio && estadoActual == "hablando") { Aplicar(estadoActual, textoActual, false); }
                 string col = Campo(j, "cola", "");
                 if (col != colaActual) { PintarCola(col); }
                 double esl;
@@ -3542,7 +3563,7 @@ public class NovaUI : Window
                 double dsc;
                 double.TryParse(Campo(j, "descarga", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out dsc);
                 descarga = Math.Max(0, Math.Min(1, dsc));
-                if (hac != haciendoActual) { PintarHaciendo(hac); }
+                if (hac != haciendoActual || (autCambio && hac != "")) { PintarHaciendo(hac); }
                 musica = Campo(j, "musica", "0") == "1";
                 string org = Campo(j, "origen", "");
                 if (org != origenHabla)
@@ -3884,6 +3905,9 @@ public class NovaUI : Window
                     Color h = Color.FromRgb(0x4D, 0xA6, 0xFF);
                     if (origenHabla == "memoria") { h = Mezcla(h, Color.FromRgb(0xFF, 0xD3, 0x6A), 0.35); }
                     else if (origenHabla == "api") { h = Mezcla(h, Color.FromRgb(0xA9, 0x8B, 0xFF), 0.35); }
+                    // idea 54: y un tinte ambar si la respuesta la decidio Nova, no la pediste. Es el
+                    // mismo ambar de "pensando sola" (0xFFB33D) y el mismo 0.35 de las dos mezclas de arriba.
+                    if (mia) { h = Mezcla(h, Color.FromRgb(0xFF, 0xB3, 0x3D), 0.35); }
                     return h;
                 }
             case "error": return Color.FromRgb(0xFF, 0x5A, 0x5A);

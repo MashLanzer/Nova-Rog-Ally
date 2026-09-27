@@ -11957,6 +11957,7 @@ function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'med
     Save-EntornoVistos
     Log "ENTORNO ($clave, $nivel): $texto"
     Add-Estadistica 'aviso-entorno' $clave
+    $script:uiMia = $true   # idea 54: un aviso de entorno lo decidio Nova, no lo pediste (linea suelta, sin funcion nueva)
     Show-Popup $texto
     # los de poca monta NO se dicen: se ven y ya. Hablar por todo es lo que cansa.
     # Y POR ESO NO SON LA ULTIMA RESPUESTA (21/09). ultimaRespuesta es lo que contesta
@@ -20047,6 +20048,7 @@ $script:animoBase = 0       # cuantos de esos 7 dias tenian datos suficientes pa
 # se calculaba por primera vez. Es el mismo tropiezo que $PY contra $py de esta misma semana.
 $script:uiHaciendo = ''     # QUE se esta ejecutando ahora mismo (glifo en la capsula)
 $script:uiRemoto = $false   # "pensando" lo lleva la IA (violeta) y no Nova sola (ambar)
+$script:uiMia = $false      # idea 54: esto NO me lo pediste (una regla, un aviso de entorno, una decision propia)
 $script:sinTarjeta = $false # la proxima respuesta es para oirla: sin tarjeta grande (ver Show-Popup)
 $script:sinTarjetaEn = 0
 $script:respuestaSinTarjeta = $false   # la respuesta del cerebro que viene es para oirla
@@ -20097,6 +20099,9 @@ function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
     # la marca de "lo lleva la IA" dura lo que dura el pensar: cualquier otro
     # estado (respuesta, error, reposo) la quita
     if ($estado -ne 'pensando') { $script:uiRemoto = $false }
+    # idea 54: la marca "mia" tambien caduca (regla 2, dos salidas + plazo): volver al reposo la apaga
+    # -con el $ms que ya lleva cada Show-Popup- y que braya hable (escuchando) la apaga al instante.
+    if ($estado -eq 'reposo' -or $estado -eq 'retirada' -or $estado -eq 'escuchando') { $script:uiMia = $false }
     # temporizador mas proximo, en tiempo de reloj (ms Unix) para que la
     # capsula dibuje el anillo con su propio reloj sin que haya que reescribir
     $tFin = 0; $tTotal = 0; $tTipo = ''
@@ -20134,6 +20139,7 @@ function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
             ',"oido":"' + $oido + '","tempoTipo":"' + $tTipo + '"' +
             ',"haciendo":"' + $script:uiHaciendo + '"' +
             ',"remoto":"' + $(if ($script:uiRemoto -or $script:busy) { '1' } else { '0' }) + '"' +
+            ',"mia":"' + $(if ($script:uiMia) { '1' } else { '0' }) + '"' +   # idea 54: "1" si lo hice yo sola, no me lo pediste
             ',"musica":"' + $script:uiMusica + '"' +
             ',"peligrosa":"' + $(if ($script:pendiente -and $script:pendiente.tipo -eq 'peligrosa') { '1' } else { '0' }) + '"' +
             ',"madurez":"' + $script:uiMadurez + '"' +
@@ -21621,6 +21627,7 @@ function Invoke-Reglas([string]$tipo, [string]$dato = '') {
         Log ("REGLA $($r.id) dispara: " + (Describe-Regla $r))
         $script:reglasDisparadas++
         $script:confirmado = $true
+        $script:uiMia = $true   # idea 54: una regla dispara sola, no me lo pediste (la apaga el vuelta-a-reposo)
         $res = $null
         try { $res = Invoke-FastCommand $r.accion } catch { $res = $null } finally { $script:confirmado = $false }
         # 'amigoConecta' entra aqui (23/09, idea 10): la vigilancia se borra sola en cuanto
@@ -27317,6 +27324,7 @@ function Process-Texto([string]$text) {
         }
         if ($script:invitado) { $script:invitadoUltimo = $sw.ElapsedMilliseconds }
         $script:uiOrigen = ''   # lo que se conteste ahora no hereda el tinte de la charla anterior
+        $script:uiMia = $false  # idea 54: una orden de braya SIEMPRE apaga la marca, y antes de ejecutarla
 
         # RECITADO DE LA FRASE DE EJEMPLO: solo con lo oido por Whisper hace un momento
         # (una orden escrita con dos de esas frases es tuya y vale)

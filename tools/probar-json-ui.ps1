@@ -119,6 +119,34 @@ try {
 Write-Host ("  {0}  {1,-26} haciendo='{2}' descarga={3}" -f $(if ($okE) { 'OK ' } else { 'MAL' }), 'y se apagan al acabar', $je.haciendo, $je.descarga)
 if (-not $okE) { $fallos++ }
 
+# IDEA 54: el campo "mia" (lo hizo Nova sola) y su caducidad.
+$script:uiHaciendo = ''; $script:uiMia = $true; $script:uiUltimo = ''
+Set-UI 'hablando' 'ya esta cargada del todo'
+$txtM = Get-Content -Raw -LiteralPath $RutaUiEstado
+$okM = $false; $jm = $null
+try { $jm = $txtM | ConvertFrom-Json; $okM = ($jm.mia -eq '1') } catch { $okM = $false }
+Write-Host ("  {0}  {1,-26} mia='{2}'" -f $(if ($okM) { 'OK ' } else { 'MAL' }), 'lo que hizo Nova sola', $jm.mia)
+if (-not $okM) { $fallos++ }
+
+# vuelve al reposo -> la marca CADUCA sola (dos salidas + plazo, regla 2)
+$script:uiMia = $true; $script:uiUltimo = ''
+Set-UI 'reposo' ''
+$txtM2 = Get-Content -Raw -LiteralPath $RutaUiEstado
+$okM2 = $false; $jm2 = $null
+try { $jm2 = $txtM2 | ConvertFrom-Json; $okM2 = ($jm2.mia -eq '0') -and ($script:uiMia -eq $false) } catch { $okM2 = $false }
+Write-Host ("  {0}  {1,-26} mia='{2}' var={3}" -f $(if ($okM2) { 'OK ' } else { 'MAL' }), 'y caduca al volver al reposo', $jm2.mia, $script:uiMia)
+if (-not $okM2) { $fallos++ }
+
+# sin asignar (Set-UI la lee como $null) -> "0" y JSON valido, no "mia": (que romperia el JSON entero)
+Remove-Variable -Name uiMia -Scope script -ErrorAction SilentlyContinue
+$script:uiUltimo = ''
+Set-UI 'hablando' 'hola'
+$txtM3 = Get-Content -Raw -LiteralPath $RutaUiEstado
+$okM3 = $false; $jm3 = $null
+try { $jm3 = $txtM3 | ConvertFrom-Json; $okM3 = ($jm3.mia -eq '0') } catch { $okM3 = $false }
+Write-Host ("  {0}  {1,-26} mia='{2}'" -f $(if ($okM3) { 'OK ' } else { 'MAL' }), 'sin marca, 0 y JSON valido', $jm3.mia)
+if (-not $okM3) { $fallos++ }
+
 Remove-Item $RutaUiEstado -Force -ErrorAction SilentlyContinue
 
 # CADA ANIMACION SIN FIN, CON SU TOPE DE FOTOGRAMAS (18/09).

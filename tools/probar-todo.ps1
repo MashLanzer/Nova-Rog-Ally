@@ -1997,6 +1997,15 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n219. Lo que Nova hace sola se ve igual que lo que le pediste: campo 'mia' y marca en la capsula (idea 54 de las 121)"
+# 100 avisos de entorno en 11 dias se veian exactamente igual que una respuesta a una orden;
+# ninguna de las 35 claves del JSON decia de quien fue la idea. Ahora Set-UI escribe "mia",
+# Send-AvisoEntorno/Invoke-Reglas la encienden, una orden de braya y el vuelta-a-reposo la apagan
+# (regla 2), y la capsula tine 'hablando' de ambar y pone un aro sobre el glifo. El banco ejecuta
+# el aviso de entorno de verdad y mira el sitio exacto en Invoke-Reglas, Process-Texto y nova_ui.cs.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-capsula-mia.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:lo que Nova hace sola se marca en la capsula)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n218. Olvidar un alias que aprendio Nova: darle marcha atras a commands.json (idea 53 de las 121)"
 # commands.json era el UNICO sitio donde lo aprendido no tenia marcha atras. En 15 dias Nova
 # escribio UN alias, y fue el envenenado ('ajutos' la noche del 22/09). Ahora Add-Alias-Comando
