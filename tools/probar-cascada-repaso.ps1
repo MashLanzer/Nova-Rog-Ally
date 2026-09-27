@@ -245,7 +245,7 @@ Comp 'sigue siendo solo visual: ni una palabra nueva' `
     (-not ($fuente -match "(?s)Test-Path -LiteralPath \`$RutaTranscribiendo\)\) \{.{0,400}(Say |Show-Popup|Play-Sonido|Send-UIEvento)"))
 Comp 'el estado normal sigue siendo escuchando' ($fuente -match "'pensando' \} else \{ 'escuchando' \}")
 Comp 'la red de seguridad de los 50 s sigue en su sitio' `
-    ($fuente -match 'dictado sin respuesta del worker; se cancela')
+    (($fuente -match '\) -ge 50000\) \{') -and ($fuente -match 'dictado sin respuesta'))
 Comp 'la lista de marcas huerfanas del arranque no se ha tocado' `
     ($fuente -match '\$MarcaWake, \$MarcaSalir\)')
 Comp 'y la marca no se toca en ningun otro sitio de la escucha' `

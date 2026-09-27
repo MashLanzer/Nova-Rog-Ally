@@ -163,7 +163,10 @@ Write-Host ''
 Write-Host '-- 6. y el aprendizaje: sin avisos y con sus guardas --'
 $iA = $sinCom.IndexOf('$cualE = Find-JuegoPorUltimoJugado')
 Comp 'el aprendizaje existe' ($iA -ge 0) ''
-$iFinA = $sinCom.IndexOf('Get-AvisoHoraDormir', [Math]::Max(0, $iA))
+# EL FIN ES SU PROPIO catch, no un vecino lejano: entre este bloque y Get-AvisoHoraDormir la
+# idea 27 (cambio de horario) metio un Send-AvisoEntorno legitimo, y usar el vecino como fin
+# metia ese aviso en la ventana y ponia roja la comprobacion de "no interrumpe" con el codigo bien.
+$iFinA = $sinCom.IndexOf("exes de juego:", [Math]::Max(0, $iA))
 $iIniA = $sinCom.LastIndexOf('if ($script:exeSinJuego -and', [Math]::Max(0, $iA))
 $blA = if ($iIniA -ge 0 -and $iFinA -gt $iIniA) { $sinCom.Substring($iIniA, $iFinA - $iIniA) } else { '' }
 Comp '  y se lee entero' ($blA -ne '') ''
