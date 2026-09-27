@@ -10382,7 +10382,7 @@ $script:limiteJuego = $null
 $script:vozAjenaVeces = @()
 $script:vozAjenaF0Vista = 0.0
 $script:invitadoPropuesta = $false
-$script:invitadoPropuestoEn = -9999999
+$script:invitadoPropuestoEn = Get-Reloj 'invitado-propuesto' -9999999
 
 # "dos horas", "media hora", "una hora y media", "45 minutos" -> minutos
 # LOS NUMEROS HABLADOS LLEGABAN HASTA CINCO (arreglado el 23/09). "no me hables en diez
@@ -12408,7 +12408,7 @@ $script:entornoCheck = 0
 $script:entornoUltimaActividad = 0
 # CUANDO SE INTENTO SOLTAR LO GUARDADO POR ULTIMA VEZ (24/09). Ver el antirrebote de
 # Watch-Entorno: sin esto se reintentaba con CADA rafaga de botones del mando.
-$script:avisoSueltaUltimo = -999999
+$script:avisoSueltaUltimo = Get-Reloj 'aviso-suelta' -999999
 # y el ultimo numero que se dijo en el registro, para no repetir la misma linea
 $script:avisoSueltaDicho = -1
 $script:entornoBotonesAntes = 0
@@ -12842,6 +12842,7 @@ function Watch-Entorno([int]$botones = 0) {
         # contestando al momento.
         if (($ahoraW - $script:avisoSueltaUltimo) -ge 60000) {
             $script:avisoSueltaUltimo = $ahoraW
+            [void](Set-Reloj 'aviso-suelta')
             try { [void](Send-AvisoEsperaSuelta) } catch { Log ("avisos en espera: " + $_.Exception.Message) }
         }
         try { Set-PresenciaAhora } catch {}
@@ -21094,6 +21095,71 @@ function Get-PeorPete {
     if ([int]$script:petePeor.veces -lt 2) { return $null }   # una vez no es noticia
     return $script:petePeor
 }
+# DIEZ RELOJES DE 'UNA VEZ CADA TANTO' NACIAN DICIENDO 'YA PUEDES' (27/09, idea 82)
+#
+# EL PROBLEMA: las esperas de Nova se miden contra $sw, su propio cronometro, que empieza en cero
+# con el proceso. Diez variables de sesion arrancan en un negativo de cuatro cifras o mas -que
+# significa 'hace muchisimo que no pasa'- y Nova arranca 15,2 veces al dia: una guarda de 'no
+# repitas esto en diez minutos' podia dispararse quince veces en un dia. Ya se arreglo UNO a mano
+# (calladoDia, el 24/09, guardado en habitos.json); esto es el mecanismo para los demas.
+#
+# POR LISTA BLANCA, NO TODOS DE GOLPE. Y hay un motivo escrito para los que se quedan fuera: los
+# relojes de 'estoy callada' (sordinaHasta, pausaHasta) NO se restauran nunca. Si braya reinicia a
+# proposito para que Nova deje de estar callada, devolverle la sordina seria justo lo contrario de
+# lo que pidio. Aqui solo entran relojes de 'no repitas esto tan pronto'.
+$RelojesJson = Join-Path $TmpDir 'relojes.json'
+$RelojesViejoMs = 604800000      # una semana: mas alla de eso, el reloj guardado no dice nada
+# EL CLIMA NO ESTA EN LA LISTA y no es un olvido: la idea 6 ya le hizo su propio guardado
+# (Restore-Clima, que devuelve el codigo Y la antiguedad en ms). Meterlo aqui seria un segundo
+# mecanismo para lo mismo, y dos relojes para una cosa acaban separandose.
+$RelojesBlanca = @('charla', 'precarga', 'invitado-propuesto', 'aviso-suelta')
+$script:relojes = $null          # cache de lectura: esto se lee al arrancar, no en el bucle
+$script:relojesEscritoEn = @{}   # clave -> ms de la ultima escritura (freno)
+
+function Get-RelojesDisco {
+    if ($null -ne $script:relojes) { return $script:relojes }
+    $script:relojes = @{}
+    try {
+        if (Test-Path -LiteralPath $RelojesJson) {
+            $j = Get-Content -LiteralPath $RelojesJson -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($pr in $j.PSObject.Properties) { $script:relojes[$pr.Name] = [string]$pr.Value }
+        }
+    } catch { $script:relojes = @{} }
+    return $script:relojes
+}
+
+# El valor que le toca a un reloj al arrancar: los ms de $sw que corresponden a la hora de pared
+# guardada. Si no hay nada, es viejo o no esta en la lista blanca, devuelve el valor de siempre.
+function Get-Reloj([string]$clave, [double]$pordefecto) {
+    if ($RelojesBlanca -notcontains $clave) { return $pordefecto }
+    try {
+        $r = Get-RelojesDisco
+        if (-not $r.ContainsKey($clave)) { return $pordefecto }
+        $cuando = [datetime]::MinValue
+        if (-not [datetime]::TryParseExact([string]$r[$clave], 'yyyy-MM-dd HH:mm:ss', [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$cuando)) { return $pordefecto }
+        $hace = ((Get-Date) - $cuando).TotalMilliseconds
+        # UN RELOJ DEL FUTURO ES UN RELOJ ROTO (cambio de hora, fichero de otra maquina): se tira
+        if ($hace -lt 0 -or $hace -gt $RelojesViejoMs) { return $pordefecto }
+        return ($sw.ElapsedMilliseconds - $hace)
+    } catch { return $pordefecto }
+}
+
+# Apunta que ESTO ha pasado ahora. Con freno: se escribe como mucho una vez por minuto y clave.
+function Set-Reloj([string]$clave) {
+    if ($RelojesBlanca -notcontains $clave) { return $false }
+    try {
+        $ahoraR = $sw.ElapsedMilliseconds
+        $ultima = $script:relojesEscritoEn[$clave]
+        if ($null -ne $ultima -and ($ahoraR - [double]$ultima) -lt 60000) { return $false }
+        $script:relojesEscritoEn[$clave] = $ahoraR
+        $r = Get-RelojesDisco
+        $r[$clave] = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        $o = [ordered]@{}
+        foreach ($k in ($r.Keys | Sort-Object)) { $o[$k] = [string]$r[$k] }
+        Write-Atomico $RelojesJson (ConvertTo-Json $o -Compress)
+        return $true
+    } catch { return $false }
+}
 # Un aviso, por la puerta que toque. $tipo da el color del pulso: bateria,
 # tiempo, descarga, recordatorio.
 function Send-Aviso([string]$texto, [string]$tipo = '') {
@@ -21578,7 +21644,7 @@ $ClimaOn = [bool](Get-Cfg 'clima' 'activada' $true)
 $ClimaLat = Get-Cfg 'clima' 'lat' $null
 $ClimaLon = Get-Cfg 'clima' 'lon' $null
 $script:clima = $null
-$script:climaCheck = -3600000
+$script:climaCheck = -3600000        # lo restaura Restore-Clima (idea 6), no la lista de relojes
 # =====================================================================
 # EL TIEMPO NO SE PIDE OTRA VEZ EN CADA ARRANQUE (26/09, idea 6 de las 121)
 # =====================================================================
@@ -23991,6 +24057,13 @@ try {
         # se iba a hacer igual, adelantada al cierre limpio (36 de 71 sesiones que hoy tiran hasta 299 s).
         try { Save-UsoAlly } catch {}
         try { Save-TiempoJuego } catch {}
+        # IDEA 82: y los relojes de 'no repitas esto tan pronto', para que el proximo arranque no
+        # nazca creyendo que hace horas que no pasa nada. El freno de un minuto de Set-Reloj se
+        # salta aqui a proposito: es la ultima oportunidad de guardar lo de este ultimo minuto.
+        try {
+            $script:relojesEscritoEn = @{}
+            if ($script:charlaUltima -gt 0) { [void](Set-Reloj 'charla') }
+        } catch {}
     }
 } catch {}
 if ($cfgError) { Log "WARN: config.json ilegible, se usan los valores por defecto: $cfgError" }
@@ -25586,7 +25659,8 @@ $script:charlaEscalaFria = 16000
 $script:charlaTexto = ''
 $script:charlaEsperando = $false
 $script:charlaFrases = New-Object System.Collections.Queue
-$script:charlaUltima = -600000      # ms del ultimo intercambio de charla
+# ver DIEZ RELOJES: la hora del ultimo intercambio sobrevive al reinicio (idea 82)
+$script:charlaUltima = Get-Reloj 'charla' -600000      # ms del ultimo intercambio de charla
 $script:charlaSilencios = 0
 $script:charlaDescargada = $true
 $script:vozFinReal = 0              # cuando acaba DE VERDAD la frase que suena (ver Say-Online)
@@ -25598,7 +25672,7 @@ $script:charlaRebote = ''
 $script:charlaReboteHasta = 0
 $script:triviaHasta = 0             # hasta cuando la proxima frase es la respuesta a la trivia
 $script:ventanaCharla = $false      # el proximo seguimiento es de una conversacion
-$script:precargaEn = -600000        # ultima precarga del modelo de charla
+$script:precargaEn = Get-Reloj 'precarga' -600000        # ultima precarga del modelo de charla
 $script:uiOrigen = ''               # quien dice la frase que suena (memoria, local, api): la capsula la tine
 $script:progresoCharla = $false     # la linea de la capsula marca la espera de la charla
 
@@ -26174,6 +26248,7 @@ $script:triviaGenerandoEn = 0
         } elseif ($ev.ev -eq 'fin') {
             $script:charlaEsperando = $false
             $script:charlaUltima = $sw.ElapsedMilliseconds
+            [void](Set-Reloj 'charla')
             Log "charla: contesto ($($ev.origen))"
             if ($ev.origen -ne 'parado') {
                 # al acabar de hablar, vuelve a escuchar sola y con mas margen
@@ -27933,6 +28008,7 @@ function Start-Dictado([string]$origen) {
         try {
             if (Test-PrecargaCharla) {
                 $script:precargaEn = $sw.ElapsedMilliseconds
+                [void](Set-Reloj 'precarga')
                 # charlaDescargada = el modelo NO esta en la RAM. Solo lo ponia a $false
                 # Send-Charla, asi que tras una precarga el bucle del minuto creia que ya
                 # estaba fuera y no lo sacaba al abrir un juego (19/09).
@@ -31083,6 +31159,7 @@ while ($true) {
             # VOZ AJENA VARIAS VECES (M7): se pregunta, nunca se pone solo
             $script:invitadoPropuesta = $false
             $script:invitadoPropuestoEn = $sw.ElapsedMilliseconds
+            [void](Set-Reloj 'invitado-propuesto')
             $script:vozAjenaVeces = @()
             $script:pendiente = @{ texto = ''; vence = 0; tipo = 'invitadoAuto' }
             $pregI = 'No reconozco esta voz. ¿Pongo el modo invitado?'
@@ -31320,6 +31397,7 @@ while ($true) {
                         @($vista -split '\s+').Count -ge 3 -and -not $vista.StartsWith('...') -and
                         (Test-PareceCharla $vista) -and -not (Test-FastCommand $vista) -and -not (Test-ApiContestaPrimero)) {
                         $script:precargaEn = $sw.ElapsedMilliseconds
+                        [void](Set-Reloj 'precarga')
                         try { if ((Test-RamParaCharla) -and (Send-CharlaPedido @{ op = 'calentar' })) { $script:charlaDescargada = $false; Log "charla: precargo el modelo, '$vista' suena a charla" } } catch {}
                     }
                 }

@@ -2072,6 +2072,15 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n235. Diez relojes de una-vez-cada-tanto nacian diciendo ya-puedes (idea 82 de las 121)"
+# Las esperas se miden contra el cronometro del proceso, que empieza en cero. Diez variables de
+# sesion arrancan en un negativo de cuatro cifras -'hace muchisimo que no pasa'- y Nova arranca 15,2
+# veces al dia: una guarda de 'no repitas en diez minutos' podia dispararse quince veces. Ahora hay
+# tmpelojes.json con hora de pared y un par Get-Reloj/Set-Reloj, por LISTA BLANCA: solo relojes de
+# 'no repitas' (charla, precarga, propuesta de invitado, aviso de suelta). Los de 'estoy callada' se
+# quedan fuera a proposito: si braya reinicia para que Nova hable, devolverle la sordina seria peor.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-relojes.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:los relojes de no-repitas sobreviven)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n234. Abrir un juego era lo unico que Nova nunca comprobaba (idea 81 de las 121)"
 # SILENT BREATH se mando abrir CINCO veces el 11/09 y el detector no lo vio arrancar ni una vez;
 # Little Nightmares 7 ordenes y 3 arranques, Outlast 2 y 1. Los juegos estaban excluidos A PROPOSITO
