@@ -14,7 +14,14 @@ import sys
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 fuente = open(os.path.join(RAIZ, "wake_vosk.py"), encoding="utf-8").read()
 arbol = ast.parse(fuente)
-QUIERO = {"PALABRAS_ES", "PALABRAS_EN", "VOSK_MIN_PALABRAS", "palabras_planas", "suena_ingles", "SILENCIO_FIN", "SILENCIO_FIN_LOTENGO", "silencio_para_cerrar", "MARGEN_CORTE_HZ", "es_voz_de_braya", "PROMPT_ORDENES", "es_eco_del_ejemplo", "PICO_OBJETIVO", "GANANCIA_MIN", "GANANCIA_MAX", "GANANCIA_INICIAL", "DICTADO_MAX", "ACT_ESPERA_MAX", "activacion_caducada", "fila_activacion"}
+QUIERO = {"PALABRAS_ES", "PALABRAS_EN", "VOSK_MIN_PALABRAS", "palabras_planas", "suena_ingles", "SILENCIO_FIN", "SILENCIO_FIN_LOTENGO", "silencio_para_cerrar",
+          # IDEA 74 (27/09): silencio_para_cerrar ya no devuelve constantes, pregunta a
+          # silencio_medido por el percentil de las pausas de braya. Sin traerla -y sin sus
+          # numeros- moria con NameError, y este banco SI mira lo que devuelve, asi que lo
+          # canto en el acto. "pausas" se deja vacia: entonces manda el numero escrito.
+          "silencio_medido", "pausas", "PAUSAS_MINIMAS", "PAUSAS_PCT_LARGO", "PAUSAS_PCT_CORTO",
+          "SILENCIO_FIN_SUELO", "SILENCIO_FIN_LOTENGO_SUELO",
+          "MARGEN_CORTE_HZ", "es_voz_de_braya", "PROMPT_ORDENES", "es_eco_del_ejemplo", "PICO_OBJETIVO", "GANANCIA_MIN", "GANANCIA_MAX", "GANANCIA_INICIAL", "DICTADO_MAX", "ACT_ESPERA_MAX", "activacion_caducada", "fila_activacion"}
 trozos = []
 for n in arbol.body:
     nombre = n.targets[0].id if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name) else getattr(n, "name", None)
