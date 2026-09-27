@@ -1997,6 +1997,15 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n215. Lo que bajas y no abres: cruzar descargas.json con el LastPlayed de Steam (idea 49 de las 121)"
+# Nova avisaba de disco poco contestando megas de cache con 52 GB de juegos sin abrir delante.
+# Get-JuegosSinAbrir los ve (tamano>0 y ultimo=0, el mayor primero) y el aviso de disco los nombra;
+# Test-JuegoSinEstrenar avisa (nivel 'bajo', solo popup, una vez por juego) de lo bajado y no abierto
+# pasado TU plazo -aprendido de tus propios estrenos, no un numero a mano-. NUNCA desinstala. Datos
+# inyectados: mirar la biblioteca real se pondria rojo solo en cuanto braya desinstale un juego.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-juegos-sin-abrir.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:lo que bajas y no abres se cuenta)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n214. Los instrumentos mudos: contadores que no han contado nada (idea 48 de las 121)"
 # ~90 claves de Add-Estadistica y ~40 no han contado nunca; 13 rutas memoria\* que el codigo
 # nombra y no existen. Un contador que nadie alimenta parece que mide y no mide. El banco fecha

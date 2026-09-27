@@ -1272,6 +1272,16 @@ function Update-Juegos {
     $script:ClavesJuegos = $null
     return $true
 }
+function Get-JuegosSinAbrir {
+    # LO QUE BAJAS Y NO ABRES (26/09, idea 49 de las 121). Los juegos instalados que ocupan sitio
+    # y nunca se han abierto (ultimo = 0), el mayor primero. SIN E/S: lee $script:Juegos, que
+    # Update-Juegos refresca cada 60 s (Get-JuegosSteam cuesta 67 ms y esto lo mira el aviso de
+    # disco cada minuto, regla 4). El tamano > 0 deja fuera Game Pass, que trae ultimo=0 y tamano=0
+    # hasta que juegas con Nova mirando: sin esa guarda, Nova echaria en cara todo el Game Pass.
+    return @(@($script:Juegos) |
+             Where-Object { [double]$_.tamano -gt 0 -and [long]$_.ultimo -eq 0 } |
+             Sort-Object -Property @{ Expression = { [double]$_.tamano } } -Descending)
+}
 
 
 # ===================== A QUE PODEMOS JUGAR LOS DOS (23/09, funcion 9) =====================
@@ -11482,6 +11492,83 @@ function Test-AnimoQueSeCuenta {
 # UNA VEZ AL DIA, no en cada arranque: son ~120 ms de un proceso de git, y Nova arranca unas
 # doce veces al dia. Y con un juego delante, ni eso (regla 5).
 $script:ignoradasMiradas = ''
+$script:estrenoMirado = ''       # idea 49: la ultima vez que se miro lo que se bajo y no se abrio
+# LO QUE BAJAS Y NO ABRES (26/09, idea 49 de las 121). Cruza memoria\descargas.json con el
+# LastPlayed de $script:Juegos. El PLAZO no es un numero a mano: sale de tus propios estrenos
+# (max de dias entre bajar y abrir, + 1), y con menos de 2 muestras no dice nada. Nivel 'bajo':
+# solo popup, ni voz ni reganina. NUNCA desinstala (regla 1): solo lo dice.
+$EstrenosPath = Join-Path $MemoriaDir 'estrenos.json'
+function Get-Estrenos {
+    $h = @{}
+    if (Test-Path -LiteralPath $EstrenosPath) {
+        try {
+            $j = Get-Content -LiteralPath $EstrenosPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($p in $j.PSObject.Properties) { $h[[string]$p.Name] = [string]$p.Value }
+        } catch {}
+    }
+    return $h
+}
+function Save-Estrenos($h) {
+    try {
+        $corte = (Get-Date).AddDays(-$DescargasHechasDias).ToString('yyyy-MM-dd')   # el mismo corte que descargas.json
+        $o = [ordered]@{}
+        foreach ($k in @($h.Keys | Sort-Object)) { if ([string]$h[$k] -ge $corte) { $o[$k] = [string]$h[$k] } }
+        Write-Atomico $EstrenosPath (ConvertTo-Json -InputObject $o -Depth 3)
+    } catch {}
+}
+function Test-JuegoSinEstrenar {
+    $hoyE = (Get-Date).ToString('yyyy-MM-dd')
+    if ($script:estrenoMirado -eq $hoyE) { return $false }   # una vez al dia
+    $script:estrenoMirado = $hoyE
+    if ($script:juegoActivo) { return $false }               # jugando, no
+    $ep = [datetime]'1970-01-01'
+    $descargas = Get-DescargasHechas
+    $infoDe = @{}
+    foreach ($jj in @($script:Juegos)) { $infoDe[[string]$jj.nombre] = @{ ultimo = [long]$jj.ultimo; tam = [double]$jj.tamano } }
+    # el dia MAS RECIENTE de descarga de cada nombre (descargas.json repite nombres entre dias)
+    $bajadoEl = @{}
+    foreach ($diaK in @($descargas.Keys)) {
+        foreach ($nm in @($descargas[$diaK])) {
+            if (-not $bajadoEl.ContainsKey($nm) -or $diaK -gt $bajadoEl[$nm]) { $bajadoEl[$nm] = $diaK }
+        }
+    }
+    # EL PLAZO, de tus propios estrenos: dias entre bajar y abrir de los que SI se abrieron
+    $muestras = @()
+    foreach ($nm in @($bajadoEl.Keys)) {
+        $inf = $infoDe[$nm]
+        if ($inf -and [long]$inf.ultimo -gt 0) {
+            $dLast = $ep.AddSeconds([long]$inf.ultimo).ToLocalTime().Date
+            $dBaja = ([datetime]$bajadoEl[$nm]).Date
+            $muestras += [Math]::Max(0, [int]($dLast - $dBaja).Days)
+        }
+    }
+    if ($muestras.Count -lt 2) {
+        Log "ESTRENO: solo $($muestras.Count) muestra(s); no digo nada todavia"
+        return $false   # regla 3: sin medicion, sin frase
+    }
+    $maxM = ($muestras | Measure-Object -Maximum).Maximum
+    $plazo = [int]$maxM + 1
+    Log "ESTRENO: plazo $plazo dia(s) de $($muestras.Count) muestras (max observado $maxM)"
+    $dichos = Get-Estrenos
+    $hoyD = (Get-Date).Date
+    $cand = @()
+    foreach ($nm in @($bajadoEl.Keys)) {
+        $inf = $infoDe[$nm]
+        if (-not $inf -or [long]$inf.ultimo -ne 0 -or [double]$inf.tam -le 0) { continue }   # solo sin abrir e instalado
+        $dBaja = ([datetime]$bajadoEl[$nm]).Date
+        if (([int]($hoyD - $dBaja).Days) -lt $plazo) { continue }                             # aun dentro del plazo
+        if ($dichos.ContainsKey($nm)) { continue }                                            # ya se lo dije
+        $cand += [pscustomobject]@{ nombre = $nm; tam = [double]$inf.tam; dias = [int]($hoyD - $dBaja).Days }
+    }
+    if ($cand.Count -eq 0) { return $false }
+    $mejor = @($cand | Sort-Object tam -Descending)[0]   # el mas grande primero, uno por pasada
+    $gb = [Math]::Round($mejor.tam / 1GB, 1)
+    if (Send-AvisoEntorno ("estreno-" + (ConvertTo-Plain $mejor.nombre)) "Bajaste $($mejor.nombre) hace $($mejor.dias) dias y aun no lo has abierto. Ocupa $gb gigas." 'bajo' 43200) {
+        $dichos[$mejor.nombre] = $hoyE
+        Save-Estrenos $dichos
+    }
+    return $true
+}
 # $fuente y $donde son para que el banco pueda correrla entera contra un repositorio de mentira
 # sin tocar este. En produccion se llama sin argumentos y mira este mismo archivo.
 function Test-MemoriaIgnorada([string]$fuente = $PSCommandPath, [string]$donde = $LogDir) {
@@ -22815,6 +22902,9 @@ try {
     # ficheros de mas de 7 dias que el codigo no nombra, 12,1 MB, y entre ellos una clave de
     # la API en claro del 12/09. Ver Clear-TmpViejo.
     try { [void](Clear-TmpViejo) } catch {}
+    # Y LO QUE BAJASTE Y NO HAS ABIERTO (27/09, idea 49 de las 121). Una vez al dia, ni eso con
+    # un juego delante: lee $script:Juegos (RAM), no toca disco caro.
+    try { [void](Test-JuegoSinEstrenar) } catch {}
     # Y EL TIEMPO DE HACE UN RATO, QUE SIGUE VALIENDO (26/09, idea 6 de las 121). Dos de cada
     # tres consultas de clima caian en los tres minutos siguientes a un arranque.
     try {
@@ -30811,6 +30901,11 @@ while ($true) {
                         # interpola una variable corta en los dos textos.
                         $otraU = ''
                         try { $otraU = Get-FraseOtraUnidad 'C' } catch {}
+                        # y el juego mas grande que bajaste y no abriste (27/09, idea 49). Se monta
+                        # aqui arriba -fuera de la ventana de la regla del banco disco-critico- y se
+                        # interpola en el aviso; si no hay ninguno, la frase se queda sin la promesa.
+                        $colaDisco = ''
+                        try { $sinD = @(Get-JuegosSinAbrir); if ($sinD.Count -gt 0) { $colaDisco = " $($sinD[0].nombre) ocupa $([Math]::Round([double]$sinD[0].tamano / 1GB, 1)) gigas y no lo has abierto nunca." } } catch { }
                         # idea 25: con menos de 15 gigas, un juego ya no cabe
                         # Y CON MENOS DE DOS, YA NO CABE NI WINDOWS (22/09 por la noche, con
                         # el dato delante). Este aviso es de nivel 'medio' y con plazo de 720
@@ -30830,7 +30925,7 @@ while ($true) {
                         if ($gbLibres -lt $discoCritico) {
                             [void](Send-AvisoEntorno 'disco-critico' "Quedan $gbLibres gigas en el disco, casi nada$otraU. Voy a empezar a fallar: borra algo o dime que ocupa mas." 'alto' 60)
                         } elseif ($gbLibres -lt 15) {
-                            [void](Send-AvisoEntorno 'disco-poco' "Te quedan $gbLibres gigas en el disco$otraU. Preguntame que ocupa mas." 'medio' 720)
+                            [void](Send-AvisoEntorno 'disco-poco' "Te quedan $gbLibres gigas en el disco$otraU.$colaDisco" 'medio' 720)
                         }
                     }
                 } catch {}
