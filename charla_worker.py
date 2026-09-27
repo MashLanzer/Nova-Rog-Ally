@@ -1212,6 +1212,83 @@ def apuntar_charla(texto, respuesta):
         pass
 
 
+# EL RESUMEN DEL DIA SE ESCRIBIA CON EL FINAL DEL DIA (27/09, idea 105 de las 121)
+#
+# EL DATO, contado sobre los turnos reales: el 20/09 hubo 82 turnos y 16.098 caracteres de
+# conversacion, y al resumidor entraban los ONCE ultimos turnos -el 13 %- por el recorte [-2500:].
+# El 18/09, 33 de 89. El 15/09, 25 de 72. Y despues os.remove borraba el bruto entero: el resto del
+# dia no se perdia a medias, se perdia del todo.
+#
+# Y EL DIARIO HABLABA DE NOVA: de las 38 vinetas escritas en memoria\diario, DIECINUEVE -la mitad-
+# la nombran ("Nova asumio que estaba hablando de uno", "Nova se disculpa y pide que Braya repita").
+# El prompt pedia "de que hablaron braya y Nova", y eso es lo que salia.
+#
+# AHORA SE TROCEA: una llamada local por conversacion -corte de cinco minutos sin hablar- o por cada
+# 2.500 caracteres, dos vinetas por trozo, y se queda con las cinco de los trozos mas largos. Esto
+# corre con Nova VEINTE MINUTOS en reposo, asi que tres o cuatro llamadas locales mas no le quitan
+# nada a nadie.
+RESUMEN_TROZO_CHARS = 2500      # lo que cabe en el num_ctx de 1536 que ya se usa
+RESUMEN_TROZOS_MAX = 6          # tope de llamadas por dia
+RESUMEN_HUECO_MIN = 5           # cinco minutos sin hablar es otra conversacion
+RESUMEN_VINETAS = 5             # las que acaban en el diario
+
+
+def minutos_de(h):
+    """'14:07' -> 847. Devuelve None si no se entiende, que cuenta como "no se cuando"."""
+    try:
+        p = str(h).split(":")
+        return int(p[0]) * 60 + int(p[1])
+    except (ValueError, IndexError):
+        return None
+
+
+def trocear_turnos(turnos, trozo_chars=RESUMEN_TROZO_CHARS, hueco_min=RESUMEN_HUECO_MIN):
+    """turnos = [(minutos_o_None, texto)]. Devuelve [[texto, ...], ...].
+
+    PURA Y CON TODO POR PARAMETRO para que el banco le pueda pasar doscientos casos.
+
+    DOS MOTIVOS PARA CORTAR, y el orden importa: primero el hueco -porque una conversacion de
+    hace cuatro horas no es la misma que esta- y despues el tamano, porque un trozo mas largo que
+    el contexto se volveria a recortar dentro del modelo y estariamos donde empezamos.
+    """
+    trozos = []
+    actual = []
+    largo = 0
+    antes = None
+    for m, texto in turnos:
+        t = str(texto)
+        corta = False
+        if actual:
+            if m is not None and antes is not None and (m - antes) >= hueco_min:
+                corta = True
+            elif (largo + len(t)) > trozo_chars:
+                corta = True
+        if corta:
+            trozos.append(actual)
+            actual = []
+            largo = 0
+        actual.append(t)
+        largo += len(t)
+        if m is not None:
+            antes = m
+    if actual:
+        trozos.append(actual)
+    return trozos
+
+
+def trozos_que_valen(trozos, tope=RESUMEN_TROZOS_MAX):
+    """Los $tope trozos MAS LARGOS, en el orden en que pasaron.
+
+    LOS MAS LARGOS Y NO LOS ULTIMOS, que es justo el fallo que se arregla: si hay que dejar algo
+    fuera, que sea el intercambio de dos frases y no la conversacion de media hora. Y se devuelven
+    en orden cronologico para que el diario del dia se lea de la manana a la noche.
+    """
+    if len(trozos) <= tope:
+        return list(trozos)
+    conIndice = sorted(enumerate(trozos), key=lambda x: -sum(len(t) for t in x[1]))[:tope]
+    return [t for _, t in sorted(conIndice, key=lambda x: x[0])]
+
+
 def resumir_dias_pasados(hoy=None):
     """Con Nova en reposo, lo hablado cada dia YA PASADO se resume con el modelo
     LOCAL (son tus conversaciones: nunca la API) en unas vinetas, que el
@@ -1259,7 +1336,8 @@ def resumir_dias_pasados(hoy=None):
                     if aqui_es_real and t.get("o", "real") != "real":
                         saltadas += 1
                         continue
-                    turnos.append("braya: %s\nNova: %s" % (t.get("braya", ""), t.get("nova", "")))
+                    # CON SU HORA (idea 105): es lo que permite cortar por conversacion.
+                    turnos.append((minutos_de(t.get("h")), "braya: %s\nNova: %s" % (t.get("braya", ""), t.get("nova", ""))))
         except OSError:
             continue
         if saltadas:
@@ -1270,25 +1348,45 @@ def resumir_dias_pasados(hoy=None):
             except OSError:
                 pass
             continue
-        try:
-            r = httpx.post(OLLAMA + "/api/chat", timeout=120, json={
-                "model": MODELO_LOCAL, "stream": False, "keep_alive": "2m",
-                "options": {"num_predict": 220, "temperature": 0.3, "num_ctx": 1536},
-                "messages": [{"role": "system", "content": (
-                    "Resumes conversaciones para un diario personal. Responde SOLO con 2 a 5 viñetas cortas "
-                    "en español, cada una empezando por '- ', sobre de qué hablaron braya y Nova. No inventes nada.")},
-                    {"role": "user", "content": "\n".join(turnos)[-2500:]}]})
-            r.raise_for_status()
-            # ha contestado: se dice que ha vuelto y la espera se borra del todo
-            ollama_respondio()
-            resumen = CJK.sub("", ((r.json().get("message") or {}).get("content") or "")).strip()
-        except Exception as e:  # noqa: BLE001
-            # SE CUENTA, NO SOLO SE ESCRIBE (26/09, idea 14): ollama_cayo espacia el siguiente
-            # intento y lo dice UNA vez, en vez de repetir esta linea cada minuto.
-            ollama_cayo(e)
-            return False
-        vinetas = ["- " + re.sub(r"^\s*[-•*]\s*", "", l).strip() for l in resumen.splitlines() if l.strip()]
-        vinetas = [v for v in vinetas if len(v) > 3][:6]
+        # UNA LLAMADA POR TROZO (idea 105). Antes era una sola con los ultimos 2.500 caracteres.
+        piezas = trozos_que_valen(trocear_turnos(turnos))
+        if len(piezas) > 1:
+            salida("info", texto="diario %s: %d conversaciones, las resumo por separado" % (dia, len(piezas)))
+        vinetas = []
+        for pieza in piezas:
+            try:
+                r = httpx.post(OLLAMA + "/api/chat", timeout=120, json={
+                    "model": MODELO_LOCAL, "stream": False, "keep_alive": "2m",
+                    "options": {"num_predict": 220, "temperature": 0.3, "num_ctx": 1536},
+                    "messages": [{"role": "system", "content": (
+                        # SOBRE LO QUE LE PASO A BRAYA, NO SOBRE NOVA (idea 105): de las 38 vinetas
+                        # que hay escritas, 19 -la mitad- hablaban de ella porque el prompt pedia
+                        # "de que hablaron braya y Nova".
+                        "Resumes conversaciones para el diario personal de braya. Responde SOLO con 1 o 2 viñetas "
+                        "cortas en español, cada una empezando por '- ', sobre lo que le pasó o le interesó a BRAYA. "
+                        "No hables de Nova, ni de la asistente, ni de lo que entendió o dejó de entender. "
+                        "No inventes nada.")},
+                        {"role": "user", "content": "\n".join(pieza)[-RESUMEN_TROZO_CHARS:]}]})
+                r.raise_for_status()
+                # ha contestado: se dice que ha vuelto y la espera se borra del todo
+                ollama_respondio()
+                resumen = CJK.sub("", ((r.json().get("message") or {}).get("content") or "")).strip()
+            except Exception as e:  # noqa: BLE001
+                # SE CUENTA, NO SOLO SE ESCRIBE (26/09, idea 14): ollama_cayo espacia el siguiente
+                # intento y lo dice UNA vez, en vez de repetir esta linea cada minuto.
+                #
+                # Y EL BRUTO NO SE BORRA: se sale sin llegar al os.remove de abajo, asi que manana
+                # se vuelve a intentar el dia entero. Es lo que ya pasaba con una sola llamada, y
+                # con varias es mas importante: un dia a medio resumir no se puede tirar.
+                ollama_cayo(e)
+                return False
+            for l in resumen.splitlines():
+                if not l.strip():
+                    continue
+                v = "- " + re.sub(r"^\s*[-•*]\s*", "", l).strip()
+                if len(v) > 3:
+                    vinetas.append(v)
+        vinetas = vinetas[:RESUMEN_VINETAS]
         if not vinetas:
             return False
         salida("diario", 0, fecha=dia, texto="\n".join(vinetas))

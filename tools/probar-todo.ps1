@@ -2089,6 +2089,17 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n255. El resumen del dia se escribia con el final del dia (idea 105 de las 121)"
+# El 20/09 hubo 82 turnos y 16.098 caracteres de conversacion, y al resumidor entraban los ONCE
+# ultimos turnos -el 13 %- por el recorte [-2500:]. El 18/09, 33 de 89. El 15/09, 25 de 72. Y
+# despues os.remove borraba el bruto entero: el resto del dia no se perdia a medias, se perdia del
+# todo. Ahora se trocea por CONVERSACION (cinco minutos sin hablar) o por tamano, una llamada local
+# por trozo con dos vinetas, y se queda con las cinco de los trozos MAS LARGOS -no los ultimos-.
+# Reconstruido el dia del 20/09: antes entraba el 15 %, ahora el 88 %. Y EL DIARIO HABLABA DE NOVA:
+# 19 de las 38 vinetas escritas la nombran, porque el prompt pedia 'de que hablaron braya y Nova';
+# ahora pide lo que le paso a BRAYA y dice explicitamente que no hable de ella.
+python (Join-Path $PSScriptRoot 'probar-diario-troceado.py')  2>>$script:errBanco| Select-String 'MAL|el resumen del dia mira el dia entero'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n254. El saludo de vuelta guarda el ritmo, no los minutos (idea 104 de las 121)"
 # Los 45 minutos se eligieron para que saliera 'poco mas de un saludo al dia'. Lo que hay que
 # guardar es ese 'uno al dia': los huecos de braya cambian y sobre todo Nova se reinicia mucho, y
