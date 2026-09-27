@@ -11179,6 +11179,88 @@ $script:entornoCalladoDia = ''
 # medicion que lo justifica.
 $AvisoReaccionVentanaMs = 300000
 $script:avisoMirar = $null
+# SEMBRAR LA ESPERA APRENDIDA DEL REGISTRO (27/09, idea 73)
+#
+# EL MECANISMO (25/09) esta bien: Nova mira si braya le habla en los cinco minutos siguientes a un
+# aviso y, con ocho muestras, espacia los que no mueven nada. EL PROBLEMA es que los contadores
+# nacieron ese dia: hoy hay 12 muestras repartidas en 10 claves y NINGUNA llega a ocho, asi que
+# Get-EsperaAviso devuelve siempre el numero escrito y la regla no hace absolutamente nada. Un mes
+# despues seguiria igual, porque los avisos utiles salen una o dos veces por semana.
+#
+# Y EL REGISTRO YA LO SABE desde el 9 de septiembre: 101 lineas 'ENTORNO (clave, nivel)' con su
+# hora, y la actividad de braya al lado. Se leen UNA vez y se rellenan los mismos dos contadores
+# que Get-ReaccionesAviso ya suma. Cero codigo de decision nuevo.
+#
+# TRES FILTROS, Y EL PRIMERO ES EL QUE FALTABA EN LAS DOS VERSIONES:
+#   1. NIVEL 'bajo' FUERA: solo se ven en la capsula, no suenan. De un aviso que nunca sono no se
+#      puede deducir si movio algo, y son 27 de las 101 (bateria-llena 21 de ellas).
+#   2. NIVEL 'alto' FUERA: Test-PuedoAvisar ni llama a Get-EsperaAviso para esos, asi que contarlos
+#      seria llenar de datos una cuenta que nadie mira.
+#   3. OTRO AVISO A MENOS DE CINCO MINUTOS, FUERA: ahi no se sabe a cual contesto braya. Es el
+#      mismo criterio que ya aplica $script:avisoMirar, que solo vigila UNO.
+#
+# Y NO SE REPITE: la clave 'siembra-reacciones' queda en las estadisticas; si esta, no se vuelve a
+# sembrar. Va en el fichero de siempre y no en tmp a proposito: tmp se limpia, y sembrar dos veces
+# seria doblar todas las cuentas.
+$SeedVentanaMs = 300000          # la misma ventana de 5 min que usa la regla en vivo
+$RE_SEED_ACTIVIDAD = '(?:\[escucha\] ACTIVADO|DICTADO \(|ORDEN ESCRITA|TOQUE CORTO)'
+function Seed-ReaccionesAviso {
+    try {
+        $s = Get-Estadisticas
+        foreach ($d in @($s.dias.Keys)) {
+            if ($s.dias[$d].ContainsKey('siembra-reacciones')) { return $false }   # ya se hizo
+        }
+        $avisos = New-Object System.Collections.ArrayList
+        $actividad = New-Object System.Collections.ArrayList
+        foreach ($log in @((Join-Path $LogDir 'assistant.log.1'), (Join-Path $LogDir 'assistant.log'))) {
+            if (-not (Test-Path -LiteralPath $log)) { continue }
+            # ReadLines y no ReadAllLines: son 6 MB entre los dos y esto corre en el arranque
+            foreach ($linea in [System.IO.File]::ReadLines($log)) {
+                if ($linea.Length -lt 20) { continue }
+                $cuando = [datetime]::MinValue
+                if (-not [datetime]::TryParseExact($linea.Substring(0, 19), 'yyyy-MM-dd HH:mm:ss', [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$cuando)) { continue }
+                $mE = [regex]::Match($linea, 'ENTORNO \(([a-z0-9-]+), ([a-z]+)\):')
+                if ($mE.Success) {
+                    [void]$avisos.Add(@{ cuando = $cuando; clave = $mE.Groups[1].Value; nivel = $mE.Groups[2].Value })
+                    continue
+                }
+                if ($linea -match $RE_SEED_ACTIVIDAD) { [void]$actividad.Add($cuando) }
+            }
+        }
+        if ($avisos.Count -eq 0) { return $false }
+        $avisos = @($avisos | Sort-Object { $_.cuando })
+        $actos = @($actividad | Sort-Object)
+        $si = 0; $no = 0; $fuera = 0
+        for ($i = 0; $i -lt $avisos.Count; $i++) {
+            $av = $avisos[$i]
+            # filtro 1 y 2: solo los niveles que de verdad pasan por Get-EsperaAviso Y suenan
+            if ($av.nivel -ne 'medio' -and $av.nivel -ne 'noche') { $fuera++; continue }
+            # filtro 3: otro aviso pegado, por delante o por detras
+            $solo = $true
+            if ($i -gt 0 -and (($av.cuando - $avisos[$i - 1].cuando).TotalMilliseconds -lt $SeedVentanaMs)) { $solo = $false }
+            if ($i -lt ($avisos.Count - 1) -and (($avisos[$i + 1].cuando - $av.cuando).TotalMilliseconds -lt $SeedVentanaMs)) { $solo = $false }
+            if (-not $solo) { $fuera++; continue }
+            $hasta = $av.cuando.AddMilliseconds($SeedVentanaMs)
+            $reacciono = $false
+            foreach ($t in $actos) {
+                if ($t -le $av.cuando) { continue }
+                if ($t -gt $hasta) { break }
+                $reacciono = $true; break
+            }
+            $dia = $av.cuando.ToString('yyyy-MM-dd')
+            if (-not $s.dias.ContainsKey($dia)) { $s.dias[$dia] = @{} }
+            $cl = $(if ($reacciono) { 'aviso-sirvio:' } else { 'aviso-nada:' }) + $av.clave
+            if (-not $s.dias[$dia].ContainsKey($cl)) { $s.dias[$dia][$cl] = 0 }
+            $s.dias[$dia][$cl]++
+            if ($reacciono) { $si++ } else { $no++ }
+        }
+        # la marca y el guardado, de una vez: Add-Estadistica escribe el fichero entero, asi que
+        # baja tambien todo lo sembrado de arriba.
+        Add-Estadistica 'siembra-reacciones' ([string]($si + $no) + ' avisos utiles de ' + $avisos.Count)
+        Log ('SIEMBRA: ' + ($si + $no) + ' avisos del registro sembrados (' + $si + ' movieron algo, ' + $no + ' no); ' + $fuera + ' fuera por nivel o por ir pegados a otro')
+        return $true
+    } catch { Log ('siembra de reacciones: ' + $_.Exception.Message); return $false }
+}
 $AvisoReaccionMin = 8
 # El tope, en horas: ni con cien avisos seguidos sin reaccion se calla del todo.
 $AvisoEsperaTope = 6
@@ -23569,6 +23651,9 @@ try {
 } catch {}
 Initialize-Voz
 Initialize-Escucha
+# LA SIEMBRA DE LA ESPERA APRENDIDA (27/09, idea 73). UNA sola vez en la vida, aqui y no en el
+# bucle: son 6 MB de registro entre los dos ficheros. Si ya se hizo, vuelve sola en seguida.
+try { [void](Seed-ReaccionesAviso) } catch { Log ('siembra de reacciones: ' + $_.Exception.Message) }
 # gestos propios (config.json -> ui.gestos): la capsula los lee de tmp\gestos.txt
 try {
     $lineas = @()

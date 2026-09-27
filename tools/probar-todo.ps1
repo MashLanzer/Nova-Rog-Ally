@@ -2072,6 +2072,15 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n226. Sembrar la espera aprendida con lo que ya sabia el registro (idea 73 de las 121)"
+# La regla del 25/09 -espaciar los avisos que no mueven nada- no hacia NADA: sus contadores
+# nacieron ese dia y ninguna clave llegaba a las 8 muestras que pide. El registro guarda 101
+# avisos desde el 9/09 con su hora; leidos una vez al arrancar quedan 48 utiles y dos claves
+# pasan del minimo: oido-ruido (30 muestras, 2 movieron algo -> espera x4) y hora-dormir (8 -> x2).
+# Tres filtros: fuera los de nivel bajo (no suenan: su 'no reacciono' no mide nada), fuera los
+# 'alto' (no pasan por Get-EsperaAviso) y fuera los que tienen otro aviso a menos de cinco minutos.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-siembra-avisos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la espera aprendida arranca con lo que ya sabia)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n225. El pulso del bucle, que nadie habia medido nunca (idea 72 de las 121)"
 # ElapsedMilliseconds sale 350 veces en el script y ninguna cronometraba la vuelta, mientras el
 # bucle SI se bloquea: 29 Start-Sleep suman 8.050 ms en la zona de ordenes, Say deja el microfono
