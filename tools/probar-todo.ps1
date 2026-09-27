@@ -1997,6 +1997,14 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n208. Mirar todas las unidades, no solo la C: (idea 41 de las 121)"
+# El aviso de disco solo miraba C:. braya tiene una microSD de 477 GB vacia (D:, 'Rog SD'): Nova
+# decia "quedan 5 gigas" con 477 al lado sin usar. Get-Unidades ve todas las fijas y extraibles
+# (cada una a su try, sin las de red que cuelgan el bucle), y el aviso nombra la de mas sitio
+# diciendo que es la tarjeta y que se puede quitar. No mueve nada (regla 1).
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-unidades.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el disco mira todas las unidades)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n207. El oido apunta sus propios fallos en vez de olvidarlos (idea 40 de las 121)"
 # El 25/09 el bucle del oido fallo 3 veces con el mismo texto, rehizo el reconocedor las 3, y la
 # orden se perdio entera y en silencio. El worker cuenta ahora el mismo fallo repetido (sin

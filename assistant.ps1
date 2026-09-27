@@ -1575,6 +1575,52 @@ function Format-Gigas([double]$bytes) {
     return ([int][Math]::Round($g)).ToString() + " gigas"
 }
 
+# MIRAR TODAS LAS UNIDADES, NO SOLO LA C: (26/09, idea 41 de las 121). El disco se avisaba solo
+# de C:, y braya tiene una microSD de 477 GB vacia (D:, 'Rog SD'): "quedan 5 gigas" cuando al
+# lado hay 477 sin usar. Cada unidad va en su PROPIO try/catch -una que se va a media frase no
+# tumba a las demas- y SOLO fijas y extraibles: las de red pueden colgar IsReady varios segundos
+# y esto corre en el bucle (regla 4). Cache corta -unos segundos- porque el bloque del minuto la
+# llama; NO se reusa $script:entornoUnidades, que es de la idea 31 y guarda otra cosa.
+function Get-Unidades {
+    if ($script:unidadesCache -and ($sw.ElapsedMilliseconds - $script:unidadesCacheMs) -lt 5000) { return $script:unidadesCache }
+    $res = @()
+    foreach ($d in @([System.IO.DriveInfo]::GetDrives())) {
+        try {
+            if (-not $d.IsReady) { continue }
+            $tipo = [string]$d.DriveType
+            if ($tipo -ne 'Fixed' -and $tipo -ne 'Removable') { continue }
+            # bytesLibres en 0 explicito, nunca $null: $null vale 0 en comparacion y una frase
+            # desapareceria sin motivo.
+            $res += [pscustomobject]@{
+                letra       = $d.Name.Substring(0, 1).ToUpper()
+                tipo        = if ($tipo -eq 'Removable') { 'extraible' } else { 'fija' }
+                etiqueta    = [string]$d.VolumeLabel
+                bytesLibres = [long]$d.AvailableFreeSpace
+                bytesTotal  = [long]$d.TotalSize
+            }
+        } catch {}
+    }
+    $script:unidadesCache = @($res)
+    $script:unidadesCacheMs = $sw.ElapsedMilliseconds
+    return @($res)
+}
+function Get-FraseOtraUnidad([string]$letraActual) {
+    # La otra unidad con MAS sitio que la que se esta llenando, ya redactada. Es una COMPARACION,
+    # no un umbral (regla 3): solo se nombra si tiene mas libres. "que puedes quitar" va SIEMPRE
+    # con las extraibles -nunca proponer una tarjeta como si fuera disco fijo-. No mueve nada.
+    $la = $letraActual.ToUpper()
+    $todas = @(Get-Unidades)
+    $otras = @($todas | Where-Object { $_.letra -ne $la })
+    if ($otras.Count -eq 0) { return '' }
+    $actual = @($todas | Where-Object { $_.letra -eq $la })
+    $libresActual = if ($actual.Count -gt 0) { [long]$actual[0].bytesLibres } else { 0 }
+    $mejor = @($otras | Sort-Object bytesLibres -Descending)[0]
+    if (-not $mejor -or [long]$mejor.bytesLibres -le $libresActual) { return '' }
+    $g = Format-Gigas $mejor.bytesLibres
+    if ($mejor.tipo -eq 'extraible') { return ", pero tienes $g libres en la tarjeta, que puedes quitar" }
+    return ", pero tienes $g libres en $($mejor.letra)"
+}
+
 # "hace dos dias" en vez de una fecha: es como se pregunta y como se responde.
 function Format-Desde([long]$unix) {
     if ($unix -le 0) { return $null }
@@ -16927,20 +16973,20 @@ function Invoke-FastCommand([string]$text) {
                     }
                 }
                 'disco' {
-                    # la unidad donde estan los juegos, no siempre C:
-                    $unidades = @('C')
+                    # TODAS las unidades (idea 41), con la de Steam delante y diciendo cual es la
+                    # tarjeta. Antes solo miraba C: y la de Steam.
+                    $steamU = ''
                     try {
                         $sp = (Get-ItemProperty 'HKCU:\Software\Valve\Steam' -ErrorAction SilentlyContinue).SteamPath
-                        if ($sp) { $u = ($sp -replace '/', '\').Substring(0, 1).ToUpper(); if ($unidades -notcontains $u) { $unidades += $u } }
+                        if ($sp) { $steamU = ($sp -replace '/', '\').Substring(0, 1).ToUpper() }
                     } catch {}
+                    $us = @(Get-Unidades)
+                    if ($steamU) { $us = @(@($us | Where-Object { $_.letra -eq $steamU }) + @($us | Where-Object { $_.letra -ne $steamU })) }
                     $partes = @()
-                    foreach ($u in $unidades) {
-                        try {
-                            $di = New-Object System.IO.DriveInfo($u)
-                            if (-not $di.IsReady) { continue }
-                            $libre = Format-Gigas $di.AvailableFreeSpace
-                            $partes += "en $($u): $libre"
-                        } catch {}
+                    foreach ($u in $us) {
+                        $libre = Format-Gigas $u.bytesLibres
+                        if ($u.tipo -eq 'extraible') { $partes += "en $($u.letra), la tarjeta: $libre" }
+                        else { $partes += "en $($u.letra): $libre" }
                     }
                     if ($partes.Count -eq 0) { $a.desc = 'no pude leer el disco' }
                     else { $a.desc = 'te quedan ' + ($partes -join ', ') }
@@ -30579,6 +30625,12 @@ while ($true) {
                             $script:discoUltimoGb = $suelo    # subio (borraste algo): se reengancha sin escribir
                         }
                         Invoke-Reglas 'disco' ([string]$gbLibres)
+                        # LA OTRA UNIDAD, SI TIENE MAS SITIO (26/09, idea 41). Se calcula UNA vez
+                        # y AQUI ARRIBA -no dentro del try del aviso- para no partir la ventana
+                        # de '} catch {}' que probar-disco-critico usa para acotar el bloque. Se
+                        # interpola una variable corta en los dos textos.
+                        $otraU = ''
+                        try { $otraU = Get-FraseOtraUnidad 'C' } catch {}
                         # idea 25: con menos de 15 gigas, un juego ya no cabe
                         # Y CON MENOS DE DOS, YA NO CABE NI WINDOWS (22/09 por la noche, con
                         # el dato delante). Este aviso es de nivel 'medio' y con plazo de 720
@@ -30596,9 +30648,9 @@ while ($true) {
                         # Los dos numeros son de config, que braya los pueda tocar.
                         $discoCritico = [double](Get-Cfg 'entorno' 'discoCriticoGb' 2)
                         if ($gbLibres -lt $discoCritico) {
-                            [void](Send-AvisoEntorno 'disco-critico' "Quedan $gbLibres gigas en el disco, casi nada. Voy a empezar a fallar: borra algo o dime que ocupa mas." 'alto' 60)
+                            [void](Send-AvisoEntorno 'disco-critico' "Quedan $gbLibres gigas en el disco, casi nada$otraU. Voy a empezar a fallar: borra algo o dime que ocupa mas." 'alto' 60)
                         } elseif ($gbLibres -lt 15) {
-                            [void](Send-AvisoEntorno 'disco-poco' "Te quedan $gbLibres gigas en el disco. Preguntame que ocupa mas." 'medio' 720)
+                            [void](Send-AvisoEntorno 'disco-poco' "Te quedan $gbLibres gigas en el disco$otraU. Preguntame que ocupa mas." 'medio' 720)
                         }
                     }
                 } catch {}
