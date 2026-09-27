@@ -64,6 +64,7 @@ memoria/perfil-todo.md
 memoria/perfil-caidos.md
 # lo que recuerda de cada juego: donde te quedaste y cuanto gasta de bateria
 memoria/juegos.json
+memoria/*.antes-fusion-*
 # que juegos tuyos son de dos (sale de tu biblioteca: es la lista de lo que tienes)
 memoria/juegos-dos.json
 # tus partidas de ajedrez a ciegas

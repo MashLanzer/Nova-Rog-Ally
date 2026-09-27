@@ -1665,6 +1665,27 @@ function Find-Juego([string]$t) {
     return $null
 }
 
+function Get-JuegoPorCarpeta([string]$carpeta) {
+    # LA CARPETA DE INSTALACION -> EL NOMBRE DE VERDAD (26/09, idea 38 de las 121). Cada juego de
+    # Steam guarda su installdir en el campo 'dir' (Get-JuegosSteam:1167), que hasta hoy NO leia
+    # nadie (grep '\.dir\b' = 0). Sin esto, cuando la carpeta no se parece al titulo
+    # -CatQuest_Purribean es "Cat Quest III", "Skyrim Special Edition" es "The Elder Scrolls V..."-
+    # Nova decia el nombre de la CARPETA ("Cerraste CatQuest_Purribean", 20/09). Igualdad EXACTA en
+    # minusculas, sin distancias: las distancias ya las pone Find-Juego de respaldo. Barato -0,41 ms
+    # el peor caso, y esto corre cada 10 s- y SIN cache, que se quedaria rancia como le paso a
+    # $script:ClavesJuegos (ver Update-Juegos).
+    if (-not $carpeta) { return $null }
+    $obj = $carpeta.ToLowerInvariant()
+    foreach ($j in @($script:Juegos)) {
+        $dirJ = [string]$j.dir
+        # SE SALTA lo vacio y lo que lleve barra: Get-JuegosXbox mete en 'dir' la RUTA ENTERA
+        # ('C:\XboxGames\Roblox', :1227), no un installdir. Los 16 de Steam no llevan barra.
+        if (-not $dirJ -or $dirJ.Contains('\') -or $dirJ.Contains('/')) { continue }
+        if ($dirJ.ToLowerInvariant() -eq $obj) { return $j }
+    }
+    return $null
+}
+
 # Nombre hablado de una app -> nombre de PROCESO, para cerrarla o traerla al
 # frente. Se saca del ejecutable de commands.json; los URI (steam://, spotify:)
 # tienen su proceso conocido a mano.
@@ -9249,6 +9270,65 @@ function Save-JuegosMem {
         [System.IO.File]::WriteAllText($tmpJ, ((Get-JuegosMem) | ConvertTo-Json -Depth 4), (New-Object System.Text.UTF8Encoding($false)))
         Move-Item -LiteralPath $tmpJ -Destination $rutaJ -Force
     } catch { Log ("juegos: no pude guardar la memoria: " + $_.Exception.Message) }
+}
+function Repair-ClavesPorCarpeta {
+    # RENOMBRAR EN LA MEMORIA LO QUE SE GUARDO CON EL NOMBRE DE LA CARPETA (26/09, idea 38). Hasta
+    # hoy juegos.json podia tener "CatQuest_Purribean" (100 s el 20/09) en vez de "Cat Quest III".
+    # Se hace SOLA una vez y sin marca: al renombrar, la clave mala deja de existir, asi que el
+    # arranque siguiente no encuentra nada. Necesita $script:Juegos ya leida (por eso corre en el
+    # arranque); si esta vacia, la tabla sale vacia y no toca nada.
+    $tabla = @{}
+    foreach ($j in @($script:Juegos)) {
+        $dirJ = [string]$j.dir
+        if (-not $dirJ -or $dirJ.Contains('\') -or $dirJ.Contains('/')) { continue }   # mismo filtro de barra que Get-JuegoPorCarpeta
+        $nom = [string]$j.nombre
+        if ($nom -and $dirJ -ne $nom) { $tabla[$dirJ.ToLowerInvariant()] = $nom }
+    }
+    if ($tabla.Count -eq 0) { return }
+    $m = Get-JuegosMem
+    $copiaHecha = $false
+    $movidas = 0
+    foreach ($origen in @($m.Keys)) {
+        $destino = $tabla[$origen.ToLowerInvariant()]
+        if (-not $destino -or $destino -eq $origen) { continue }
+        # COPIA DE SEGURIDAD antes del primer cambio: Copy-Item, NO Save-Corrupto (que hace
+        # Move-Item y dejaria juegos.json sin existir, perdiendo la memoria de juegos entera).
+        if (-not $copiaHecha) {
+            try {
+                $rutaJc = Join-Path $MemoriaDir 'juegos.json'
+                if (Test-Path -LiteralPath $rutaJc) {
+                    Copy-Item -LiteralPath $rutaJc -Destination ($rutaJc + '.antes-fusion-' + (Get-Date).ToString('yyyyMMdd-HHmmss')) -Force
+                }
+            } catch {}
+            $copiaHecha = $true
+        }
+        if (-not $m.ContainsKey($destino)) {
+            # GUARDA 1: renombrado limpio, el destino no existe todavia
+            $m[$destino] = $m[$origen]
+            $m.Remove($origen)
+            Log "juegos: renombrado '$origen' -> '$destino' (por la carpeta de instalacion)"
+            $movidas++
+        } else {
+            $dO = Get-DiasJuego $m[$origen]['dias']
+            $dD = Get-DiasJuego $m[$destino]['dias']
+            $comun = @($dO.Keys | Where-Object { $dD.ContainsKey($_) })
+            if ($comun.Count -gt 0) {
+                # GUARDA 3: comparten dia(s) -> no se toca nada, ni doblar ni perder segundos
+                Log "juegos: '$origen' y '$destino' comparten dia(s); no fusiono, lo dejo a mano"
+                continue
+            }
+            # GUARDA 2: sin dia en comun -> union de dias, y de los otros campos solo los que falten
+            foreach ($k in $dO.Keys) { $dD[$k] = $dO[$k] }
+            $m[$destino]['dias'] = $dD
+            foreach ($campo in @('nota', 'notaFecha', 'ritmoBateria', 'muestrasBateria')) {
+                if ($m[$origen].ContainsKey($campo) -and -not $m[$destino].ContainsKey($campo)) { $m[$destino][$campo] = $m[$origen][$campo] }
+            }
+            $m.Remove($origen)
+            Log "juegos: fusionado '$origen' -> '$destino' (dias unidos, sin solape)"
+            $movidas++
+        }
+    }
+    if ($movidas -gt 0) { Save-JuegosMem }
 }
 # El juego del que se habla: el de delante, o el ultimo que cerraste (2 h)
 function Get-JuegoDeReferencia {
@@ -20093,7 +20173,12 @@ function Get-JuegoEnPrimerPlano {
     # C4 (19/09): y el PID, para poder preguntar luego si ese proceso sigue vivo sin
     # tener que enumerar todos los procesos de la maquina (4 nucleos)
     $script:juegoPidCandidato = [int]$p.Id
-    # la carpeta de instalacion suele parecerse al titulo
+    # PRIMERO POR LA CARPETA EXACTA (idea 38): si el installdir casa, ese es el nombre de verdad,
+    # sin pasar por la distancia de Find-Juego (que ademas deja $script:dudosa puesta cada 10 s).
+    $jc = Get-JuegoPorCarpeta $carpeta
+    if ($jc) { return $jc.nombre }
+    # la carpeta de instalacion suele parecerse al titulo (respaldo: ELDEN RING, Little Nightmares
+    # y REANIMAL no tienen appmanifest, o sea que no estan en la tabla y salen por aqui)
     $j = Find-Juego $carpeta
     if ($j) { return $j.nombre }
     return $carpeta
@@ -22477,6 +22562,10 @@ Initialize-UI
 
 $script:Juegos = @(Get-JuegosSteam) + @(Get-JuegosXbox)
 $script:JuegosStamp = Get-Date
+# ARREGLAR LAS CLAVES DE MEMORIA GUARDADAS CON EL NOMBRE DE LA CARPETA (idea 38): con catch
+# propio y Log dentro -un fallo aqui no puede tumbar el arranque, pero tampoco quedarse mudo-.
+# Va DESPUES de leer la biblioteca: si no, $script:Juegos aun no existe y no arregla nada.
+try { Repair-ClavesPorCarpeta } catch { Log ('claves de juego: ' + $_.Exception.Message) }
 # Vocabulario para Whisper: nombres propios que el dictado suele destrozar.
 # Se le pasan como "prompt" y los transcribe bien ("Steam", no "stim").
 try {

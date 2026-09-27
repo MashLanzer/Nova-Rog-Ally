@@ -1997,6 +1997,15 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n206. Decir el nombre del juego, no el de la carpeta (idea 38 de las 121)"
+# El campo 'dir' (el installdir de Steam) se leia y no lo usaba nadie. Cuando la carpeta no se
+# parece al titulo -CatQuest_Purribean es "Cat Quest III"- Nova decia el nombre de la CARPETA
+# ("Cerraste CatQuest_Purribean", 20/09). Ahora Get-JuegoPorCarpeta lo traduce por igualdad
+# exacta, y Repair-ClavesPorCarpeta arregla al arrancar lo ya guardado con el nombre malo (con
+# copia de seguridad y sin fusionar dias que se solapan).
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-carpeta-a-nombre.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:las claves de juego se arreglan por la carpeta)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n205. Las charlas ya medidas que se tiraban, y cuatro umbrales que salen de ellas (idea 37 de las 121)"
 # La primera frase de cada charla llegaba cronometrada al log ("primera frase en N s") y se
 # tiraba: 265 medidas que no alimentaban nada, con cuatro umbrales de espera a fuego. Ahora se

@@ -48,10 +48,41 @@ $ExesJuegoPath = Join-Path ([IO.Path]::GetTempPath()) 'exes-de-juego-que-no-exis
 $script:exesJuego = $null
 function Save-Corrupto($a, $b) { }
 . ([scriptblock]::Create($mE.Value))
+# Y LA TABLA CARPETA->NOMBRE (26/09, idea 38). Get-JuegoEnPrimerPlano la consulta ahora, asi que
+# se saca DEL ARCHIVO (doblarla aqui seria doblar la pieza que se prueba). Con una biblioteca de
+# mentira con pares REALES del disco (leidos de los appmanifest_*.acf el 26/09; la de braya cambia,
+# por eso van a mano). La entrada estilo Xbox lleva la RUTA ENTERA en 'dir' a proposito: prueba
+# que el filtro de barra la deja fuera de la tabla.
+$mC = [regex]::Match($fuente, '(?ms)^function Get-JuegoPorCarpeta[ (].*?^\}')
+if (-not $mC.Success) { Write-Host '  MAL  no encuentro Get-JuegoPorCarpeta'; exit 1 }
+. ([scriptblock]::Create($mC.Value))
+$script:Juegos = @(
+    @{ nombre = 'Cat Quest III'; dir = 'CatQuest_Purribean' }
+    @{ nombre = 'The Elder Scrolls V: Skyrim Special Edition'; dir = 'Skyrim Special Edition' }
+    @{ nombre = 'Black Myth: Wukong'; dir = 'BlackMythWukong' }
+    @{ nombre = 'Roblox'; dir = 'C:\XboxGames\Roblox' }
+)
 $mf = [regex]::Match($fuente, '(?ms)^function Get-JuegoEnPrimerPlano \{.*?^\}')
 if (-not $mf.Success) { Write-Host '  MAL  no encuentro Get-JuegoEnPrimerPlano'; exit 1 }
 . ([scriptblock]::Create($mf.Value))
 Comp 'las tres listas y la funcion salen del archivo de verdad' ($CARPETAS_JUEGO.Count -ge 8 -and $EXES_JUEGO.Count -ge 2)
+
+# LA TABLA, DIRECTA (idea 38): igualdad exacta de installdir en minusculas.
+Comp 'CatQuest_Purribean -> Cat Quest III' ((Get-JuegoPorCarpeta 'CatQuest_Purribean').nombre -eq 'Cat Quest III')
+Comp 'Skyrim Special Edition -> su nombre largo' ((Get-JuegoPorCarpeta 'Skyrim Special Edition').nombre -eq 'The Elder Scrolls V: Skyrim Special Edition')
+Comp 'y no distingue mayusculas' ((Get-JuegoPorCarpeta 'blackmythwukong').nombre -eq 'Black Myth: Wukong')
+Comp 'una carpeta que no esta en la tabla -> $null' ($null -eq (Get-JuegoPorCarpeta 'ELDEN RING'))
+# IGUALDAD EXACTA, NO -like: una carpeta que es TROZO de un installdir no puede casar (si fuera
+# -like "*$obj*", 'Skyrim' casaria con 'Skyrim Special Edition' y se colarian falsos positivos)
+Comp 'un trozo de installdir no casa (igualdad exacta, no -like)' ($null -eq (Get-JuegoPorCarpeta 'Skyrim')) 'con -like colaria'
+# EL FILTRO DE BARRA: la ruta entera de una entrada Xbox NO puede casar como installdir
+Comp 'una dir con barras (Xbox) no entra en la tabla' ($null -eq (Get-JuegoPorCarpeta 'C:\XboxGames\Roblox')) 'sin el filtro, la ruta entera casaria'
+# EL ORDEN: la tabla se consulta ANTES que Find-Juego dentro de Get-JuegoEnPrimerPlano. Sin
+# comentarios: si no, un comentario que nombra 'Find-Juego' antes de la llamada enganaria al indice.
+$sinComF = (($mf.Value -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) -join "`n"
+$idxTabla = $sinComF.IndexOf('Get-JuegoPorCarpeta')
+$idxFind = $sinComF.IndexOf('Find-Juego')
+Comp 'y se consulta antes que Find-Juego (si no, Levenshtein pone $script:dudosa)' ($idxTabla -ge 0 -and $idxTabla -lt $idxFind) "tabla en $idxTabla, find en $idxFind"
 
 # la funcion llama a estas dos: aqui se fingen para poder darle rutas a mano
 $script:rutaFalsa = ''
@@ -81,9 +112,21 @@ Comp 'si no se puede leer la ruta, por el nombre del proceso' `
     ((Mira '' 'RobloxPlayerBeta') -eq 'Roblox')
 
 Write-Host ''
-Write-Host '-- lo que ya funcionaba: Steam, que no se puede romper --'
-Comp 'ELDEN RING' ((Mira 'D:\SteamLibrary\steamapps\common\ELDEN RING\Game\eldenring.exe' 'eldenring') -eq 'ELDEN RING')
-Comp 'BlackMythWukong' ((Mira 'C:\Program Files (x86)\Steam\steamapps\common\BlackMythWukong\b1.exe' 'b1') -eq 'BlackMythWukong')
+Write-Host '-- por la carpeta de instalacion, el nombre de verdad (idea 38) --'
+# el caso del 20/09: "Cerraste CatQuest_Purribean" decia la carpeta, no el juego
+Comp 'CatQuest_Purribean por su ruta -> Cat Quest III' `
+    ((Mira 'C:\Program Files (x86)\Steam\steamapps\common\CatQuest_Purribean\x.exe' 'x') -eq 'Cat Quest III')
+Comp 'Skyrim Special Edition por su ruta -> nombre largo' `
+    ((Mira 'C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\SkyrimSE.exe' 'SkyrimSE') -eq 'The Elder Scrolls V: Skyrim Special Edition')
+# antes esta linea esperaba 'BlackMythWukong' (el nombre de la CARPETA): es lo que la idea 38 desmiente
+Comp 'BlackMythWukong por su ruta -> Black Myth: Wukong' `
+    ((Mira 'C:\Program Files (x86)\Steam\steamapps\common\BlackMythWukong\b1.exe' 'b1') -eq 'Black Myth: Wukong')
+
+Write-Host ''
+Write-Host '-- lo que ya funcionaba: Steam sin appmanifest, por el respaldo --'
+# ELDEN RING no tiene appmanifest -> no esta en la tabla -> sale por el camino de siempre (la
+# carpeta cruda, porque Find-Juego esta fingida a $null aqui)
+Comp 'ELDEN RING (sin appmanifest, respaldo)' ((Mira 'D:\SteamLibrary\steamapps\common\ELDEN RING\Game\eldenring.exe' 'eldenring') -eq 'ELDEN RING')
 
 Write-Host ''
 Write-Host '-- las demas tiendas --'
