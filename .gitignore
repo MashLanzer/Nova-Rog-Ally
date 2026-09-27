@@ -130,6 +130,7 @@ memoria/claves.json
 # nadie-, o sea a que horas estas en casa y a cuales no. Es lo mismo que ubicacion.json.
 memoria/uso-ally.json
 memoria/juegos-exes.json
+memoria/motores-veredictos.json
 
 # 26/09, idea 1 de las 121: esta lista se escribia a mano fichero a fichero, y el banco
 # tools\probar-memoria-ignorada.ps1 -que nacio para no volver a fiarse de que alguien se
