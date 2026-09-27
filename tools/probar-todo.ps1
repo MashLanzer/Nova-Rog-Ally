@@ -2089,6 +2089,19 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n260. El oido se moria sin decir de que (idea 110 de las 121)"
+# 28 relanzamientos del worker de escucha en el registro -25 al primer intento, 2 al segundo y 1 al
+# tercero- y NI UNA autopsia: la linea decia "murio; relanzando" y nada mas. Mientras la capsula SI
+# lo hace bien desde siempre, y en el registro hay tres lineas suyas con "( codigo -1)". Ahora el
+# oido usa el mismo patron: codigo de salida, y el 3 traducido -es un sys.exit(3) del propio worker
+# cuando el microfono lleva demasiado sin entregar audio, seis de esas muertes son asi-, mas la
+# ultima linea CON ALGO de wake-err.log (el fichero suele acabar en blanco) y solo si es de hace
+# menos de dos minutos. Si huele a comtypes/VTable/access violation se nombra el medidor de
+# altavoces, que es a donde apuntan las tres autopsias que existen en todo el registro. SE DICE, NO
+# SE DECIDE: relanzar distinto segun la causa con tres autopsias en 17 dias no se justifica.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-autopsia-oido.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el oido dice por que se murio antes de que lo relancen)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n259. La tabla de correcciones: 96 de 110 nunca se han oido (idea 109 de las 121)"
 # commands.json lleva 110 correcciones escritas a mano una por una. Cruzadas contra las 1.447
 # frases unicas de pruebas\audio\uso -once dias de uso real- solo CATORCE se han oido alguna vez.

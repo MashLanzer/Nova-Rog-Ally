@@ -33171,7 +33171,54 @@ while ($true) {
         if ($script:wakeProc -and $script:wakeProc.HasExited) {
             if ($script:wakeIntentos -lt 3) {
                 $script:wakeIntentos++
-                Log "WARN: el worker de escucha murio; relanzando (intento $($script:wakeIntentos)/3)"
+                # LA AUTOPSIA DEL OIDO ANTES DE RELANZARLO (27/09, idea 110 de las 121)
+                #
+                # EL DATO: 28 relanzamientos del worker en el registro -25 al primer intento, 2 al
+                # segundo y 1 al tercero- y NI UNA autopsia: la linea decia "murio; relanzando" y
+                # nada mas. Mientras, la capsula SI lo hace bien desde siempre: su relanzamiento
+                # imprime el codigo de salida y la ultima linea de ui-error.log, y en el registro
+                # hay tres lineas suyas con "( codigo -1)".
+                #
+                # Y LA CAUSA SE SABE EN LA MITAD DE LOS CASOS: seis de esas muertes son SUICIDIOS
+                # con causa apuntada -"el microfono lleva N s sin entregar audio; salgo para que me
+                # relancen", que es un sys.exit(3)-, asi que el codigo 3 dice "el microfono se paro"
+                # sin tener que adivinar nada. Y las tres autopsias que existen en todo el registro
+                # (las tres del 15/09) apuntan al mismo sitio: "Windows fatal exception: access
+                # violation", comtypes/_post_coinit/unknwn.py line 420 in Release y "ValueError: COM
+                # method call without VTable", que es el medidor de altavoces.
+                #
+                # SE DICE, NO SE DECIDE, y eso es a proposito: relanzar distinto segun la causa -sin
+                # el medidor de altavoces, reenumerando dispositivos- es un cambio de comportamiento
+                # que con TRES autopsias en 17 dias no se puede justificar. Primero se mide; el dia
+                # que haya autopsias suficientes, la decision tendra con que tomarse. Hoy lo que
+                # faltaba era saber POR QUE se muere.
+                # NO SUSTITUYE AL VUELCO ENTERO que ya hace Initialize-Escucha al relanzar: ese
+                # pasa los ultimos 2.000 caracteres del stderr al registro, y sigue ahi. Lo que
+                # faltaba era tener la CAUSA en la misma linea del "murio", como la capsula.
+                $porQueW = ''
+                try { $porQueW = " codigo $($script:wakeProc.ExitCode)" } catch {}
+                # EL CODIGO 3 ES SUYO Y LO DICE EL PROPIO WORKER: sys.exit(3) cuando el microfono
+                # lleva demasiado sin entregar audio. No hay que adivinarlo.
+                try { if ([int]$script:wakeProc.ExitCode -eq 3) { $porQueW += ' (el microfono se paro y salio el solo)' } } catch {}
+                try {
+                    $rutaErrW = Join-Path $TmpDir 'wake-err.log'
+                    if ((Test-Path -LiteralPath $rutaErrW) -and ((Get-Item -LiteralPath $rutaErrW).LastWriteTime -gt (Get-Date).AddMinutes(-2))) {
+                        # LA ULTIMA LINEA CON ALGO, no la ultima a secas: el fichero suele acabar en
+                        # blanco y entonces la autopsia decia "su ultimo error: " y nada mas.
+                        $lineasW = @(Get-Content -LiteralPath $rutaErrW -Tail 12 -ErrorAction SilentlyContinue |
+                                     Where-Object { $_ -and $_.Trim().Length -gt 0 })
+                        if ($lineasW.Count -gt 0) {
+                            $ultW = [string]$lineasW[$lineasW.Count - 1]
+                            $porQueW += "; su ultimo error: " + $ultW.Substring(0, [Math]::Min(400, $ultW.Length))
+                            # Y SI HUELE A COM, SE NOMBRA: las tres autopsias que hay apuntan todas al
+                            # medidor de altavoces. Nombrarlo es lo que permitira decidir algun dia.
+                            if ($ultW -match '(?i)comtypes|VTable|access violation|CoInitialize') {
+                                $porQueW += ' [huele al medidor de altavoces]'
+                            }
+                        }
+                    }
+                } catch {}
+                Log "WARN: el worker de escucha murio ($porQueW); relanzando (intento $($script:wakeIntentos)/3)"
                 Add-Estadistica 'relanza:oido'   # idea 50: pegado al Log y ANTES del Dispose/Initialize-Escucha, que pueden tirar
                 # liberar el handle antes de soltar la referencia: este proceso
                 # vive meses y cada relanzo filtraria uno
