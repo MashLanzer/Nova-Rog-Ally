@@ -179,11 +179,99 @@ function Rotate-Log([string]$path) {
 # historico entero en cada arranque.
 if (-not $Probar) { Rotate-Log $EventLog }
 $script:logEscrituras = 0
+# LA MISMA QUEJA VEINTISIETE VECES Y NADIE LA OYE (27/09, idea 76)
+#
+# EL DATO: la madrugada del 26/09 hubo 61 lineas identicas de 'charla: diario: no pude resumir lo
+# del 2026-09-25 ([WinError 10061]...)' entre las 00:07:45 y la 01:13:07, una cada 65 segundos, y
+# seguian saliendo mientras se contaban. Y no es un caso raro: la linea mas repetida de los dos
+# registros es 'RESUMEN AL VOLVER: Mientras no estabas: 1 mensaje de XBOX Game Bar Widgets', 774
+# veces IDENTICA. Nova reintentaba al mismo ritmo, escribia lo mismo una y otra vez, y no lo decia.
+#
+# ESE CASO YA ESTA ARREGLADO EN SU SITIO (idea 14, 26/09: ollama_vivo dobla la espera hasta un
+# techo). Lo que faltaba es el detector GENERAL: cualquier linea que entre en bucle se ve aqui,
+# porque Log es el embudo por el que pasa todo.
+#
+# LO QUE ESTA FUNCION NO HACE, y es a proposito: NO llama a nada. Ni Add-Estadistica, ni
+# Send-AvisoEntorno, ni otro Log. Cualquiera de las tres puede acabar llamando a Log otra vez -sus
+# catch escriben- y eso seria una recursion infinita en la pieza mas usada del programa. Aqui solo
+# se cuenta; el que recoge y avisa es el bucle, una vez por minuto (ver Get-LogRepetido).
+$LogRepeTabla = 200             # claves distintas como mucho; con 58.000 lineas distintas hay que topar
+$LogRepeVentanaMs = 1800000     # media hora: pasada, la cuenta de esa linea empieza de cero
+$LogRepeListon = 10             # a partir de aqui es un bucle, no mala suerte
+$script:logRepe = @{}           # linea normalizada -> @{ veces; primera; ultima; dicho }
+$script:logRepeAvisos = New-Object System.Collections.ArrayList
+
+function Get-LogClave([string]$linea) {
+    # los numeros a N y las horas fuera: 'no pude resumir lo del 2026-09-25 (10061)' y el mismo
+    # fallo de manana tienen que caer en la misma cuenta, que es justo lo que los hace un bucle.
+    $c = $linea
+    if ($c.Length -gt 160) { $c = $c.Substring(0, 160) }
+    $c = [regex]::Replace($c, '\d+', 'N')
+    return $c.Trim()
+}
+
+function Add-LogRepe([string]$linea, [double]$ms) {
+    $cl = Get-LogClave $linea
+    if (-not $cl) { return }
+    $e = $script:logRepe[$cl]
+    if ($null -eq $e -or ($ms - [double]$e.primera) -gt $LogRepeVentanaMs) {
+        # LA TABLA NO CRECE SIN FIN: al llenarse se tira la mitad mas vieja. Sin esto, 58.000
+        # lineas distintas serian 58.000 entradas en RAM por sesion.
+        if ($script:logRepe.Count -ge $LogRepeTabla) {
+            $viejas = @($script:logRepe.GetEnumerator() | Sort-Object { [double]$_.Value.ultima } | Select-Object -First ([int]($LogRepeTabla / 2)))
+            foreach ($v in $viejas) { $script:logRepe.Remove($v.Key) }
+        }
+        $script:logRepe[$cl] = @{ veces = 1; primera = $ms; ultima = $ms; dicho = 0 }
+        return
+    }
+    $e.veces++
+    $e.ultima = $ms
+    # SE AVISA UNA VEZ POR CADA DUPLICACION (10, 20, 40, 80...), no en cada linea: el liston sube
+    # con la propia racha, asi que un bucle largo deja cuatro notas y no cuatrocientas.
+    $listonAhora = if ($e.dicho -le 0) { $LogRepeListon } else { [int]$e.dicho * 2 }
+    if ($e.veces -ge $listonAhora) {
+        $e.dicho = $e.veces
+        [void]$script:logRepeAvisos.Add(@{ clave = $cl; veces = $e.veces; minutos = [int](($ms - [double]$e.primera) / 60000) })
+        while ($script:logRepeAvisos.Count -gt 20) { $script:logRepeAvisos.RemoveAt(0) }
+    }
+}
+
+# Lo que hay que contar, y se vacia al recogerlo. Lo llama el bucle una vez por minuto: aqui SI se
+# puede llamar a Add-Estadistica y a Send-AvisoEntorno, porque no estamos dentro de Log.
+function Get-LogRepetido {
+    if ($script:logRepeAvisos.Count -eq 0) { return @() }
+    $fuera = @($script:logRepeAvisos.ToArray())
+    $script:logRepeAvisos.Clear()
+    return $fuera
+}
+
+# Para quien reintente algo: ¿esta linea esta en bucle ahora mismo? Con esto se puede doblar una
+# espera sin inventarse un contador propio.
+function Test-LogEnBucle([string]$linea) {
+    $e = $script:logRepe[(Get-LogClave $linea)]
+    if ($null -eq $e) { return $false }
+    if (($sw.ElapsedMilliseconds - [double]$e.ultima) -gt $LogRepeVentanaMs) { return $false }
+    return ([int]$e.veces -ge $LogRepeListon)
+}
+
+# Cuantas veces lleva repitiendose lo que mas se repite, para el parte de la manana.
+function Get-LogRepePeor {
+    $peor = $null
+    foreach ($k in @($script:logRepe.Keys)) {
+        $e = $script:logRepe[$k]
+        if ([int]$e.veces -lt $LogRepeListon) { continue }
+        if ($null -eq $peor -or [int]$e.veces -gt [int]$peor.veces) { $peor = @{ clave = $k; veces = [int]$e.veces; minutos = [int](([double]$e.ultima - [double]$e.primera) / 60000) } }
+    }
+    return $peor
+}
 function Log([string]$msg) {
     # IDEA 72: lo ultimo que Nova apunto, para que 'me quede sorda 1,4 s' pueda decir HACIENDO
     # QUE. Va aqui porque Log es el embudo por el que pasa todo lo que hace, y cuesta una
     # asignacion de cadena; poner la etiqueta a mano en cincuenta sitios se habria quedado viejo.
     if ($msg) { $script:ultimoLog = if ($msg.Length -gt 80) { $msg.Substring(0, 80) } else { $msg } }
+    # IDEA 76: y si esta linea se esta repitiendo, se cuenta. Sin llamar a nada (ver LA MISMA
+    # QUEJA VEINTISIETE VECES): dentro de Log una llamada que a su vez escriba seria recursion.
+    if ($msg) { try { Add-LogRepe $msg $sw.ElapsedMilliseconds } catch {} }
     # TAPAR LOS SECRETOS ES COSA DEL REGISTRO (26/09, idea 45): se sustituye el VALOR de cada
     # secreto por *** antes de escribir, en las DOS ramas (una linea y multilinea). El 'if'
     # delante del foreach no es cosmetico: la lista se llena en Initialize-Secretos (~10390) y las
@@ -31900,6 +31988,19 @@ while ($true) {
     # --- aviso proactivo de bateria (se comprueba una vez por minuto) ---
     if (($sw.ElapsedMilliseconds - $script:bateriaCheck) -ge 60000) {
         $script:bateriaCheck = $sw.ElapsedMilliseconds
+        # LO QUE SE ESTA REPITIENDO EN BUCLE (27/09, idea 76). Log solo cuenta; aqui se recoge y
+        # se dice, que dentro de Log una llamada que escriba seria una recursion sin fin.
+        try {
+            foreach ($rp in @(Get-LogRepetido)) {
+                $cortaR = if ($rp.clave.Length -gt 60) { $rp.clave.Substring(0, 60) } else { $rp.clave }
+                Add-Estadistica 'repetido' ([string]$rp.veces + ' veces en ' + [string]$rp.minutos + ' min: ' + $cortaR)
+                Log ('EN BUCLE: llevo ' + $rp.veces + ' veces lo mismo en ' + $rp.minutos + ' min: ' + $cortaR)
+                # SOLO SE HABLA DE LO GORDO, y por la puerta que ya respeta el juego y la noche.
+                if ([int]$rp.veces -ge ($LogRepeListon * 4)) {
+                    [void](Send-AvisoEntorno 'en-bucle' ('Llevo ' + $rp.veces + ' intentos fallando lo mismo desde hace ' + $rp.minutos + ' minutos.') 'medio' 360)
+                }
+            }
+        } catch {}
         try {
             $bat = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($bat -and $bat.EstimatedChargeRemaining) {

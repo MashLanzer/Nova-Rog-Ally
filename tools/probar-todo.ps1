@@ -2072,6 +2072,15 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n229. La misma queja sesenta y una veces y nadie la oye (idea 76 de las 121)"
+# La madrugada del 26/09: 61 lineas identicas de 'no pude resumir lo del 2026-09-25', una cada 65 s,
+# y seguian saliendo mientras se contaban; la linea mas repetida de los dos registros sale 774
+# veces IDENTICA. Ahora Log normaliza cada linea (numeros a N) y cuenta; pasado su liston se apunta
+# 'repetido', se escribe una nota por DUPLICACION (10, 20, 40...) y se habla solo de lo gordo.
+# Log NO llama a nada: Add-Estadistica o Send-AvisoEntorno desde dentro de Log serian recursion
+# infinita en la pieza mas usada del programa; recoge el bucle, una vez por minuto.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-en-bucle.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:lo que se repite en bucle se cuenta)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n228. Apuntar la decision que NO se tomo, y que le falta para tomarla (idea 75 de las 121)"
 # Cinco decisiones propias se evaluaban cada dia y salian EN SILENCIO cuando no llegaban al
 # liston: cero 'auto-ajuste' en 14 dias con nueve sitios que lo escribirian. Get-AvisoSinDatos ya
