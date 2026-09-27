@@ -29252,12 +29252,57 @@ while ($true) {
         # 50 s: el worker corta el dictado a los 30 y Whisper ha llegado a tardar
         # 13,6 s mas; con 35 se cancelaba y el texto llegaba despues sin dueno
         } elseif (($sw.ElapsedMilliseconds - $script:dictaInicio) -ge 50000) {
-            # red de seguridad: si el worker no responde, no dejar el estado colgado
-            Log "dictado sin respuesta del worker; se cancela"
+            # ANTES DE RENDIRSE, MIRAR SI EL OIDO SIGUE VIVO (26/09, idea 35 de las 121).
+            # Esta rama vive dentro de 'if ($script:armed -and $script:ordenPorWorker)', o sea
+            # que el transcriptor ES el worker de Vosk: no hace falta guarda de motor aparte.
+            # MEDIDO sobre 59 cancelaciones (assistant.log + .1): en 58 el worker seguia VIVO y
+            # solo mudo -el texto no llego nunca, "la mentira duro 38,9 s de media"- y en 1
+            # (1,7 %) habia muerto dentro de los 60 s. Hasta hoy las 59 se cancelaban igual, sin
+            # mirar. Ahora se mira: si murio de verdad, se relanza aqui mismo -sin esperar hasta
+            # 30 s a la vigilancia de mas abajo- respetando SU MISMO contador de 3 intentos.
+            #
+            # SI SIGUE VIVO, NO SE TOCA, y esto es a proposito: relanzar un worker vivo -aunque
+            # su estado lleve rato sin moverse- exigiria matarlo primero (Dispose no mata, solo
+            # suelta el handle), y matarlo seria (a) tirar una transcripcion que quiza esta
+            # llegando -esas vueltas van a 72 s de maximo, ver $EstadoMaxSegundos = 45- y (b)
+            # dejar un proceso huerfano sujetando el microfono si el relanzado falla (regla 5).
+            # Test-EstadoFresco entra SOLO en el texto del log, nunca en la decision de relanzar:
+            # esa decision es "vivo o muerto", que es lo unico seguro de actuar.
+            #
+            # $script:wakeProc puede valer $null aqui (lo pone a null la vigilancia de 27694):
+            # por eso el '$script:wakeProc -and' va delante, nunca .HasExited a pelo.
+            $vivoW = ($script:wakeProc -and -not $script:wakeProc.HasExited)
+            $frescoW = Test-EstadoFresco
+            $mudoSeg = Get-OidoMudoDesde
+            if (-not $vivoW) {
+                if ($script:wakeIntentos -lt 3) {
+                    $script:wakeIntentos++
+                    Log "dictado sin respuesta: el worker de escucha estaba MUERTO; relanzo (intento $($script:wakeIntentos)/3)"
+                    # Dispose antes de soltar la referencia: este proceso vive meses y cada
+                    # relanzo filtraria un handle (misma leccion que la vigilancia de 30 s).
+                    try { $script:wakeProc.Dispose() } catch {}
+                    $script:wakeProc = $null
+                    Initialize-Escucha
+                } else {
+                    Log "dictado sin respuesta: el worker estaba MUERTO y ya agote los 3 intentos; sigo con el boton"
+                }
+                $textoCorte = 'El microfono se cayo; lo reabro'
+            } else {
+                Log "dictado sin respuesta: el worker sigue vivo ($mudoSeg s sin escribir, estado $(if ($frescoW) { 'fresco' } else { 'parado' })); no llego el texto"
+                $textoCorte = 'No me llego nada'
+            }
+            # CANCELAR EL DICTADO NO ES NEGOCIABLE: los tres pasos se hacen SIEMPRE -vivo o
+            # muerto- y despues de decidir, nunca dentro de una rama.
             Remove-Item -LiteralPath $MarcaDictar -Force -ErrorAction SilentlyContinue
             $script:armed = $false
             $capture.Hide()
-            Set-UI 'error' 'Sin respuesta del microfono' 2500
+            Set-UI 'error' $textoCorte 2500
+            # SOLO SE HABLA SI EL OIDO ESTABA VIVO. Si estaba muerto y se acaba de relanzar, Say
+            # pausaria (Pausar-Escucha) el worker recien abierto; y del oido caido ya habla el
+            # aviso 'oido-mudo' (90 s) por su propio canal con freno por hora -dos bocas para la
+            # misma averia es el fallo de los 25 del 22/09-. El Say va DESPUES del Set-UI: Say
+            # hace Set-UI 'hablando' por dentro, asi que ponerlo antes se comeria el mensaje.
+            if ($vivoW) { Say 'No me llego nada, repitemelo.' }
         }
     }
 

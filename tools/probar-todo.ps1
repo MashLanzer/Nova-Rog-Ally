@@ -1997,6 +1997,15 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n203. Al cancelar un dictado a los 50 s, mira si el oido sigue vivo (idea 35 de las 121)"
+# La rama que corta el dictado a los 50 s cancelaba igual los 59 casos del registro, sin mirar.
+# MEDIDO: en 58 el worker seguia vivo y solo mudo, en 1 (1,7 %) habia muerto. Ahora mira: MUERTO
+# -> relanza aqui mismo (mismo contador de 3 intentos que la vigilancia de 30 s); VIVO -> no lo
+# toca (matarlo tiraria una transcripcion que quiza llega y lo dejaria huerfano, regla 5) y solo
+# lo dice. Test-EstadoFresco entra en el texto del log, nunca en la decision de relanzar.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-corte-50s.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el corte de los 50 s mira si el oido sigue vivo)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n202. La lista que impide borrar la consola se salta con un alias (idea 34 de las 121)"
 # opencode tiene acceso total. Lo que le frena es una lista de 35 patrones "deny" en su jsonc,
 # que casan TEXTO LITERAL: no saben que ri/rm/rd/del son Remove-Item, ni que -R es -Recurse.
