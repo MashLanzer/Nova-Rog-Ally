@@ -2080,6 +2080,16 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n245. Dos de las cinco lineas de temas del prompt decian lo mismo (idea 94 de las 121)"
+# En el prompt de cada charla viajan los cinco temas mas contados, y eran videojuegos (63),
+# comunicacion (26), clarificacion (10), steam (10) y videojuego (10): una plaza gastada en repetir
+# el primero en singular, y el tema que se quedaba fuera era real (roblox, 6). Y los 30 temas estan
+# en su tope, asi que cada tema nuevo echa a otro y una plaza gastada cuesta el doble. Pasados los
+# 30 por clave_tema salen 29 grupos: la UNICA pareja que se junta en todo el cerebro es esa, y
+# estaba en el prompt dos veces. Se agrupa por raices EN ORDEN, no en conjunto como pedia la ficha,
+# asi que 'juegos de mesa' y 'mesa de juegos' siguen siendo dos temas.
+python (Join-Path $PSScriptRoot 'probar-temas-juntos.py')  2>>$script:errBanco| Select-String 'MAL|no gastan dos plazas'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n244. Que aprenda que fichero no la deja cambiarlo de golpe (idea 93 de las 121)"
 # 37 fallos 'escritura atomica fallida ... [WinError 5] Acceso denegado' en ocho dias distintos: 21
 # de ui-nivel.txt, 14 de dictado-parcial.txt y 2 de escucha-estado.txt. Y el 22/09 esto se dio por

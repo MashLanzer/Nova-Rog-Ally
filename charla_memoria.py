@@ -143,6 +143,27 @@ def raiz(w):
     return w
 
 
+def clave_tema(t):
+    """Las raices de un tema, en orden: "videojuegos" y "videojuego" dan la misma.
+
+    DOS DE LAS CINCO LINEAS DE "temas de los que suele hablar" DECIAN LO MISMO (27/09, idea 94).
+    En el prompt de cada charla viajan los cinco temas mas contados, y hoy eran: videojuegos (63),
+    comunicacion (26), clarificacion (10), steam (10) y videojuego (10). O sea que una de las cinco
+    plazas estaba gastada en repetir el primero en singular, y el tema que se quedaba fuera era
+    real (roblox, 6).
+
+    Y NO ES UN CASO INVENTADO NI HABRA MUCHOS: pasados los 30 temas guardados por esta clave salen
+    29 grupos. La UNICA pareja que se junta en todo el cerebro es justo esa, y estaba en el prompt
+    dos veces. Los temas estan ademas en su tope (MAX_TEMAS = 30), asi que cada tema nuevo echa a
+    otro: una plaza gastada cuesta el doble.
+
+    EN ORDEN Y NO EN CONJUNTO, aunque la ficha pedia un frozenset: con tuplas, "juegos de mesa" y
+    "mesa de juegos" siguen siendo dos temas. Medido sobre los 30 de hoy, las dos formas dan
+    exactamente los mismos 29 grupos, asi que la mas conservadora sale gratis.
+    """
+    return tuple(raiz(w) for w in t.split())
+
+
 def interrogativo(texto):
     q = sin_cortesia(plano(texto))
     for w in INTERROGATIVOS:
@@ -280,6 +301,7 @@ class Cerebro:
         return {"version": 1, "siguiente": 1, "recuerdos": [], "estilo": [], "temas": {}, "pendientes": []}
 
     estilo_fuera = 0      # cuantas entradas de estilo tiro el repaso al cargar
+    temas_juntados = 0    # cuantos temas eran el mismo escrito de otra forma (idea 94)
     recuerdos_fuera = 0   # y cuantos recuerdos aparto el repaso (negativo: no toco nada)
     aclaraciones_fuera = 0  # y cuantas 'respuestas' eran en realidad preguntas suyas
 
@@ -318,6 +340,12 @@ class Cerebro:
                 self.aclaraciones_fuera = self.repasar_aclaraciones()
             except Exception:  # noqa: BLE001
                 self.aclaraciones_fuera = 0
+            # Y LOS TEMAS QUE SON EL MISMO ESCRITO DE OTRA FORMA (27/09, idea 94): videojuegos y
+            # videojuego gastaban DOS de las cinco plazas del prompt de cada charla.
+            try:
+                self.temas_juntados = self.repasar_temas()
+            except Exception:  # noqa: BLE001
+                self.temas_juntados = 0
             self.vec = {}
             if np is not None and self.embedder is not None and os.path.exists(self.ruta_vec):
                 try:
@@ -802,6 +830,34 @@ class Cerebro:
             self._estilo(e)
         return len(viejas) - len(self.datos.get("estilo", []))
 
+    def repasar_temas(self):
+        """Junta los temas YA guardados que son el mismo escrito de otra forma.
+
+        Igual que repasar_estilo, repasar_recuerdos y repasar_aclaraciones: una regla que solo
+        mira lo que entra deja armado para siempre lo que entro antes de escribirla. Aqui el dano
+        es concreto y medible: videojuegos (63) y videojuego (10) ocupaban DOS de las cinco plazas
+        del prompt de cada charla, y roblox (6) se quedaba fuera por eso.
+
+        Se reutiliza clave_tema, la misma que usa _tema, para que la regla viva en un solo sitio.
+        El nombre que queda es el de la forma MAS CONTADA del grupo, y las cuentas se suman.
+        Devuelve cuantos temas desaparecieron por juntarse; el worker lo dice al arrancar, que un
+        repaso que no se ve no se puede comprobar.
+        """
+        temas = self.datos.get("temas") or {}
+        if not temas:
+            return 0
+        grupos = {}
+        for nombre, veces in temas.items():
+            k = clave_tema(nombre)
+            grupos.setdefault(k, []).append((nombre, veces))
+        nuevos = {}
+        for formas in grupos.values():
+            # el mas contado da el nombre; con empate, el mas corto, para que sea estable
+            formas.sort(key=lambda nv: (-nv[1], len(nv[0])))
+            nuevos[formas[0][0]] = sum(v for _, v in formas)
+        self.datos["temas"] = nuevos
+        return len(temas) - len(nuevos)
+
     def repasar_aclaraciones(self):
         """Aparta las respuestas guardadas que en realidad eran peticiones de aclaracion.
 
@@ -870,6 +926,16 @@ class Cerebro:
         if RE_SOBRE_NOVA.search(t):
             return
         temas = self.datos.setdefault("temas", {})
+        # POR RAICES, NO POR TEXTO EXACTO (27/09, idea 94): ver clave_tema. Si ya hay un tema con
+        # las mismas raices, esto suma AHI en vez de abrir una plaza nueva para la misma cosa.
+        # EL NOMBRE VISIBLE NO SE CAMBIA: se queda el del grupo, que al fusionar los guardados es
+        # el de la forma mas contada ("videojuegos", 63, no "videojuego", 10). Cual de las dos
+        # formas viaje al prompt da igual; lo que importaba era no gastar dos plazas.
+        k = clave_tema(t)
+        for otro in temas:
+            if clave_tema(otro) == k:
+                t = otro
+                break
         temas[t] = temas.get(t, 0) + 1
         if len(temas) > MAX_TEMAS:
             for k, _ in sorted(temas.items(), key=lambda kv: kv[1])[:len(temas) - MAX_TEMAS]:

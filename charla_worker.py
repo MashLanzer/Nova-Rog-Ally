@@ -1792,6 +1792,11 @@ def principal():
         if getattr(cerebro, "estilo_fuera", 0):
             salida("info", texto="memoria: %d preferencia(s) de estilo que se contradecian, fuera"
                                  % cerebro.estilo_fuera)
+        # Y LOS TEMAS JUNTADOS (27/09, idea 94): si un dia junta de mas -raiz() es un corte de
+        # sufijos y puede pegar palabras distintas- se ve aqui el primer arranque.
+        if getattr(cerebro, "temas_juntados", 0):
+            salida("info", texto="memoria: %d tema(s) que eran el mismo escrito de otra forma, juntados"
+                                 % cerebro.temas_juntados)
         # Y LOS RECUERDOS REPASADOS (26/09, idea 31). El numero NEGATIVO no es un error:
         # es el disyuntor diciendo que NO ha tocado nada porque el filtro se estaba
         # comiendo mas de la mitad de la memoria. La regla 2 de la casa: el modo que no
