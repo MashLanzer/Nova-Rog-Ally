@@ -492,6 +492,172 @@ $VERBOS_IMPERATIVO = @{
 
 # El dictado deforma tambien los verbos ("buscal" por "busca"). Se corrige solo
 # la PRIMERA palabra y solo a distancia 1, para no inventar ordenes.
+# LAS CORRECCIONES DE OIDO SE GANAN DEL USO, NO SE ESCRIBEN A MANO (27/09, idea 87)
+#
+# EL DATO: commands.json lleva 110 correcciones foneticas escritas a mano. Cruzadas con los 941
+# dictados de los dos registros, solo NUEVE han aparecido alguna vez en algo que Nova oyera de
+# verdad: 'blog de notas', 'descagando', 'este estado es cargando', 'painterest', 'programan',
+# 'sirra', 'sting', 'team' y 'temporizado'. Las otras 101 no se han usado NUNCA. Y las que si pasan
+# no estan: en las 560 ordenes reales salen 12 sustituciones distintas en la cabeza de la frase
+# ('su'/'tuvo'/'subo' por 'sube', 'haben'/'haber'/'here' por 'abre', 'seattle'/'see'/'si es' por
+# 'cierra'), y 'si es' por 'cierra' sale DOS veces con Vosk de testigo. La tabla $VERBOS_OIDOS tiene
+# seis entradas, tambien a mano.
+#
+# LO QUE SE APRENDE Y LO QUE NO: se AÑADE lo que el uso confirma, y NUNCA se poda lo que puso braya.
+# Una entrada solo pasa a valer con DOS testigos independientes, y ademas tiene que superar los
+# mismos filtros que la casa ya aplica contra el caso 'ajutos' -la palabra mala no puede ser una que
+# Nova ya conozca (app, sitio, correccion o verbo) ni estar a menos de tres ediciones de una que si-.
+# Es el mismo filtro de Find-Generalizacion, no uno nuevo.
+$OidoAprendidoPath = Join-Path $MemoriaDir 'oido-aprendido.json'
+$OidoTestigosMin = 2            # dos testigos INDEPENDIENTES para que valga
+$OidoAprendidoMax = 60          # y la lista no crece sin fin
+$script:oidoAprendido = $null
+
+function Get-OidoAprendido {
+    if ($null -ne $script:oidoAprendido) { return $script:oidoAprendido }
+    $script:oidoAprendido = @{}
+    try {
+        if (Test-Path -LiteralPath $OidoAprendidoPath) {
+            $j = Get-Content -LiteralPath $OidoAprendidoPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($pr in $j.PSObject.Properties) {
+                $v = $pr.Value
+                $script:oidoAprendido[$pr.Name] = @{ bueno = [string]$v.bueno; testigos = [int]$v.testigos
+                                                      visto = [string]$v.visto }
+            }
+        }
+    } catch { $script:oidoAprendido = @{} }
+    return $script:oidoAprendido
+}
+
+function Save-OidoAprendido {
+    try {
+        $o = [ordered]@{}
+        foreach ($k in ($script:oidoAprendido.Keys | Sort-Object)) {
+            $o[$k] = [ordered]@{ bueno = [string]$script:oidoAprendido[$k].bueno
+                                 testigos = [int]$script:oidoAprendido[$k].testigos
+                                 visto = [string]$script:oidoAprendido[$k].visto }
+        }
+        Write-Atomico $OidoAprendidoPath (ConvertTo-Json $o -Depth 4)
+        return $true
+    } catch { return $false }
+}
+
+# ¿Se puede aprender que '$malo' era '$bueno'? Los filtros de la casa, en el orden en que importan.
+function Test-PuedeAprenderOido([string]$malo, [string]$bueno) {
+    if (-not $malo -or -not $bueno) { return $false }
+    $m = ConvertTo-Plain $malo
+    $b = ConvertTo-Plain $bueno
+    if (-not $m -or -not $b -or $m -eq $b) { return $false }
+    if ($m.Length -lt 3) { return $false }                       # 'su' es demasiado corto para atarlo
+    if ($m -match '\s') { return $false }                        # una sola palabra: la cabeza de la frase
+    # EL BUENO TIENE QUE SER UN VERBO QUE NOVA YA USA: aprender 'x' -> 'y' con una 'y' cualquiera es
+    # abrir la puerta a que el ruido invente ordenes.
+    if (-not ($VERBOS_LISTA -contains $b)) { return $false }
+    # Y EL MALO NO PUEDE SER ALGO QUE YA SIGNIFIQUE OTRA COSA (el caso 'ajutos'):
+    if ($VERBOS_LISTA -contains $m) { return $false }
+    if ($VERBOS_OIDOS.ContainsKey($m) -or $VERBOS_IMPERATIVO.ContainsKey($m)) { return $false }
+    # ni una app, sitio o correccion que Nova ya conoce: Test-EsNombreConocido es la que ya sabe
+    # eso, y usarla es no tener dos listas de lo mismo (el caso 'ajutos' salio de tener dos).
+    try { if (Test-NombreConocido $m) { return $false } } catch {}
+    # ni a menos de tres ediciones de un verbo que si existe: eso no es una palabra nueva, es la
+    # misma mal oida, y para eso ya esta la distancia de Repair-Verb.
+    foreach ($v in @($VERBOS_LISTA)) {
+        if ([Math]::Abs($v.Length - $m.Length) -le 3 -and (Get-Distancia $v $m) -le 2 -and $v -ne $b) { return $false }
+    }
+    return $true
+}
+
+# Un testigo de que '$malo' era '$bueno'. Solo cuenta si viene de una FUENTE distinta a la anterior:
+# dos veces el mismo camino es el mismo testigo repetido, no dos testigos.
+function Add-TestigoOido([string]$malo, [string]$bueno, [string]$fuente) {
+    if (-not (Test-PuedeAprenderOido $malo $bueno)) { return $false }
+    $m = ConvertTo-Plain $malo
+    $b = ConvertTo-Plain $bueno
+    try {
+        $t = Get-OidoAprendido
+        $e = $t[$m]
+        if ($null -eq $e) {
+            if ($t.Count -ge $OidoAprendidoMax) { return $false }
+            $t[$m] = @{ bueno = $b; testigos = 1; visto = (Get-Date -Format 'yyyy-MM-dd'); fuente = $fuente }
+            [void](Save-OidoAprendido)
+            Log ("OIDO APRENDIDO: primer testigo de '" + $m + "' = '" + $b + "' (" + $fuente + "); hace falta otro")
+            return $false
+        }
+        if ([string]$e.bueno -ne $b) { return $false }            # dice otra cosa: no es el mismo caso
+        if ([string]$e.fuente -eq $fuente) { return $false }       # el mismo camino no cuenta dos veces
+        $e.testigos = [int]$e.testigos + 1
+        $e.visto = (Get-Date -Format 'yyyy-MM-dd')
+        $e.fuente = $fuente
+        [void](Save-OidoAprendido)
+        if ([int]$e.testigos -ge $OidoTestigosMin) {
+            Log ("OIDO APRENDIDO: '" + $m + "' ya vale por '" + $b + "' (" + $e.testigos + " testigos)")
+            Add-Estadistica 'oido-aprendido' ($m + ' = ' + $b)
+            return $true
+        }
+        return $false
+    } catch { return $false }
+}
+
+# SEGUNDA FUENTE DE TESTIGOS: VOSK (27/09, idea 87). El registro de uso guarda, por cada orden, lo
+# que oyo cada motor. Cuando VOSK oyo un verbo de verdad en la cabeza y el texto que se entrego NO,
+# eso es exactamente la sustitucion que hay que aprender -y es un testigo INDEPENDIENTE de la
+# correccion hablada, que es lo que la idea pide-. Se lee UNA vez al dia, nunca en el bucle.
+$script:oidoVoskDia = ''
+function Read-TestigosVosk([datetime]$ahora = (Get-Date)) {
+    $hoyV = $ahora.ToString('yyyy-MM-dd')
+    if ($script:oidoVoskDia -eq $hoyV) { return 0 }
+    $script:oidoVoskDia = $hoyV
+    $n = 0
+    try {
+        $ruta = Join-Path $LogDir 'pruebas\audio\uso\registro.jsonl'
+        if (-not (Test-Path -LiteralPath $ruta)) { return 0 }
+        foreach ($linea in [System.IO.File]::ReadLines($ruta)) {
+            if (-not $linea -or $linea.Length -lt 20) { continue }
+            $o = $null
+            try { $o = $linea | ConvertFrom-Json } catch { continue }
+            $v = ConvertTo-Plain ([string]$o.vosk)
+            $e = ConvertTo-Plain ([string]$o.entregado)
+            if (-not $v -or -not $e) { continue }
+            $pv = $v -split '\s+', 2
+            $pe = $e -split '\s+', 2
+            if ($pv.Count -lt 2 -or $pe.Count -lt 2) { continue }
+            if ($pv[0] -eq $pe[0]) { continue }
+            # el de VOSK tiene que ser un verbo de verdad y el entregado NO: al reves seria
+            # aprenderse el fallo de Vosk, que tambien se equivoca.
+            if (-not ($VERBOS_LISTA -contains $pv[0])) { continue }
+            if ($VERBOS_LISTA -contains $pe[0]) { continue }
+            # y que el RESTO de la frase se parezca: si no, son dos frases distintas y no hay
+            # sustitucion que aprender.
+            if ((Get-Distancia $pv[1] $pe[1]) -gt [Math]::Max(2, [int]($pv[1].Length / 4))) { continue }
+            if (Add-TestigoOido $pe[0] $pv[0] 'vosk') { $n++ }
+        }
+    } catch { return 0 }
+    return $n
+}
+# Y SE PUEDE QUITAR HABLANDO: 'olvida que X era Y' o el 'no era eso' de siempre.
+function Remove-OidoAprendido([string]$malo) {
+    $m = ConvertTo-Plain $malo
+    try {
+        $t = Get-OidoAprendido
+        if (-not $t.ContainsKey($m)) { return $false }
+        $t.Remove($m)
+        [void](Save-OidoAprendido)
+        Log ("OIDO APRENDIDO: fuera '" + $m + "'")
+        return $true
+    } catch { return $false }
+}
+
+# Lo que de verdad vale hoy: las entradas con testigos de sobra. Lo usa Repair-Verb.
+function Get-VerbosAprendidos {
+    $fuera = @{}
+    try {
+        foreach ($k in @((Get-OidoAprendido).Keys)) {
+            $e = $script:oidoAprendido[$k]
+            if ([int]$e.testigos -ge $OidoTestigosMin) { $fuera[$k] = [string]$e.bueno }
+        }
+    } catch {}
+    return $fuera
+}
 function Repair-Verb([string]$f) {
     if (-not $f) { return $f }
     $partes = $f -split '\s+', 2
@@ -500,6 +666,12 @@ function Repair-Verb([string]$f) {
     }
     if ($partes.Count -gt 1 -and $VERBOS_IMPERATIVO.ContainsKey($partes[0])) {
         return ($VERBOS_IMPERATIVO[$partes[0]] + ' ' + $partes[1])
+    }
+    # Y LOS APRENDIDOS DEL USO (27/09, idea 87), DESPUES de los dos escritos a mano a proposito: lo
+    # que puso braya manda siempre sobre lo que Nova dedujo. Ver LAS CORRECCIONES DE OIDO SE GANAN.
+    if ($partes.Count -gt 1) {
+        $apr = Get-VerbosAprendidos
+        if ($apr.ContainsKey($partes[0])) { return ($apr[$partes[0]] + ' ' + $partes[1]) }
     }
     # UNA PALABRA SUELTA NO SE REPARA. Al hacerlo, una palabra cualquiera del
     # castellano se convertia en verbo y, ya reconocida, se ejecutaba saltandose
@@ -7930,6 +8102,16 @@ function Add-Traduccion([string]$original, [string]$traducida) {
     if ($script:invitado) { return }   # MODO INVITADO: lo que diga otro no se queda (17/09)
     $clave = ConvertTo-Plain $original
     if (-not $clave -or -not $traducida) { return }
+    # PRIMERA FUENTE DE TESTIGOS DEL OIDO (27/09, idea 87): si lo unico que cambia es la CABEZA de la
+    # frase, eso es una palabra mal oida en el sitio del verbo, y braya acaba de decir cual era la
+    # buena. Se apunta como testigo; hacen falta dos de fuentes distintas para que valga.
+    try {
+        $pMal = $clave -split '\s+', 2
+        $pBien = (ConvertTo-Plain $traducida) -split '\s+', 2
+        if ($pMal.Count -eq 2 -and $pBien.Count -eq 2 -and $pMal[1] -eq $pBien[1] -and $pMal[0] -ne $pBien[0]) {
+            [void](Add-TestigoOido $pMal[0] $pBien[0] 'correccion')
+        }
+    } catch {}
     # LO DESTRUCTIVO NO SE APRENDE (18/09). Hoy se guardo "cierra lo ultimo que habrete" =
     # "cierra todos los programas", para siempre: la proxima vez que se oyera mal, Nova
     # habria pedido cerrar todo. Una orden asi se ejecuta si se confirma ESA vez, pero no
@@ -24511,6 +24693,8 @@ Initialize-Escucha
 # LA SIEMBRA DE LA ESPERA APRENDIDA (27/09, idea 73). UNA sola vez en la vida, aqui y no en el
 # bucle: son 6 MB de registro entre los dos ficheros. Si ya se hizo, vuelve sola en seguida.
 try { [void](Seed-ReaccionesAviso) } catch { Log ('siembra de reacciones: ' + $_.Exception.Message) }
+# y los testigos de oido que Vosk ya dejo en el registro de uso (idea 87). Tambien una vez.
+try { [void](Read-TestigosVosk) } catch { Log ('testigos de oido: ' + $_.Exception.Message) }
 # gestos propios (config.json -> ui.gestos): la capsula los lee de tmp\gestos.txt
 try {
     $lineas = @()

@@ -2072,6 +2072,15 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n240. Las correcciones de oido se ganan del uso, no se escriben a mano (idea 87 de las 121)"
+# De las 110 correcciones foneticas escritas a mano en commands.json, solo NUEVE han aparecido
+# alguna vez en algo que Nova oyera; 101 no se han usado nunca. Y las que si pasan no estaban.
+# Ahora se aprenden del uso con DOS testigos de fuentes distintas: la correccion hablada (en vivo) y
+# Vosk oyendo el verbo bien cuando el entregado lo trae mal (del registro, una vez al dia). Los
+# filtros son los de la casa contra el caso 'ajutos', y lo escrito por braya manda siempre. Medido
+# en su registro: 3 candidatos apuntados, ninguno activo todavia -les falta el segundo testigo-.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-oido-aprendido.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:las correcciones de oido se ganan del uso)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n239. La franja en la que nunca estas, calculada por ella misma (idea 86 de las 121)"
 # El dia de braya empezaba a las 5 porque alguien lo escribio, y el AddHours(-5) estaba a mano en
 # SIETE lineas -seis sin llamar a Get-DiaJuego, que existe para eso-; y el fin del silencio nocturno
