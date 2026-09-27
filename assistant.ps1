@@ -9585,6 +9585,116 @@ function Get-HaceCuanto([string]$fecha) {
 # min, y si duro al menos 10 min y bajo algo, el ritmo (% por hora) se mezcla
 # con lo ya aprendido de ese juego. Ninguna estimacion sale de un solo vistazo.
 $script:tramoBat = $null
+# LO QUE WINDOWS APUNTO DE LOS DIAS QUE NOVA NO ESTABA (27/09, idea 70)
+#
+# EL PROBLEMA: Nova solo sabe lo que vio estando viva, y nace y muere muchas veces al dia -259
+# arranques en 17 dias-, asi que su serie de bateria entera son 18 lineas. Windows lleva por su
+# cuenta, en el informe de bateria, cuanto estuvo la consola despierta con cargador y sin el, dia
+# a dia, aunque Nova no estuviera.
+#
+# LO QUE DICE, medido hoy en esta Ally (powercfg /batteryreport /xml, 248 ms, 13 entradas de
+# historial y 18 de uso reciente): del 15 al 26/09 la consola estuvo activa Y ENCHUFADA entre
+# 23 h 13 m y 23 h 59 m CADA dia, y sin cargador 2 h 43 m en TOTAL en los once dias -media 14,8
+# min al dia-, con CUATRO dias a cero segundos. Eso explica dos cosas que parecian fallos: por que
+# el ritmo de bateria por juego no se aprende nunca (Update-BateriaJuego necesita tramos de 10 min
+# sin cargador) y por que el minimo de bateria que Nova ha visto en 17 dias es el 90 %.
+#
+# LA ENTRADA IMPOSIBLE: la primera fila del historial trae ActiveAcTime = P24695DT4H10M53S (24.695
+# dias). Las entradas absurdas se TIRAN, no se promedian: promediar una basura es inventarse un
+# numero con cara de medido.
+$BateriaWindowsJson = Join-Path $MemoriaDir 'bateria-windows.json'
+$BateriaInformeTopeMs = 5000     # medido 248 ms; si tarda 20 veces eso, esta maquina no es esta
+$script:bateriaInformeDia = ''   # el dia que se leyo (una vez al dia, nunca en el bucle)
+
+function ConvertTo-Segundos([string]$iso) {
+    # 'PT23H40M38S' -> 85238. Lo hace XmlConvert, que es de la casa y no hay que escribirlo.
+    if (-not $iso) { return -1 }
+    try { return [int]([System.Xml.XmlConvert]::ToTimeSpan($iso)).TotalSeconds } catch { return -1 }
+}
+
+# Lee el informe de Windows. Devuelve $null si no se puede (no es un fallo: es una maquina donde
+# no hay bateria o powercfg no contesta, y entonces todo se queda como estaba).
+function Read-InformeBateria {
+    $xml = Join-Path $TmpDir 'bateria-windows.xml'
+    try {
+        $cron = [System.Diagnostics.Stopwatch]::StartNew()
+        $null = & powercfg /batteryreport /xml /output $xml 2>&1
+        $cron.Stop()
+        if (-not (Test-Path -LiteralPath $xml)) { Log 'bateria de Windows: powercfg no dejo el informe'; return $null }
+        if ($cron.ElapsedMilliseconds -gt $BateriaInformeTopeMs) {
+            Log ('bateria de Windows: el informe tardo ' + $cron.ElapsedMilliseconds + ' ms (tope ' + $BateriaInformeTopeMs + ')')
+        }
+        $d = New-Object System.Xml.XmlDocument
+        $d.Load($xml)
+        $ns = New-Object System.Xml.XmlNamespaceManager($d.NameTable)
+        $ns.AddNamespace('b', $d.DocumentElement.NamespaceURI)
+        $dias = New-Object System.Collections.ArrayList
+        foreach ($h in @($d.SelectNodes('//b:History/b:HistoryEntry', $ns))) {
+            $acS = ConvertTo-Segundos ([string]$h.ActiveAcTime)
+            $dcS = ConvertTo-Segundos ([string]$h.ActiveDcTime)
+            if ($acS -lt 0 -or $dcS -lt 0) { continue }
+            # una entrada de un dia no puede traer mas de un dia: eso es la fila resumen con la
+            # duracion imposible, y sumarla se lleva la media a cualquier parte
+            if (($acS + $dcS) -gt 90000) { continue }
+            $fec = ([string]$h.LocalStartDate)
+            if ($fec.Length -ge 10) { $fec = $fec.Substring(0, 10) }
+            [void]$dias.Add(@{ fecha = $fec; acMin = [int]($acS / 60); dcMin = [int]($dcS / 60) })
+        }
+        $tramos = New-Object System.Collections.ArrayList
+        foreach ($u in @($d.SelectNodes('//b:RecentUsage/b:UsageEntry', $ns))) {
+            [void]$tramos.Add(@{ cuando = ([string]$u.LocalTimestamp); ac = ([string]$u.Ac -eq '1'); tipo = ([string]$u.EntryType) })
+        }
+        Remove-Item -LiteralPath $xml -Force -ErrorAction SilentlyContinue
+        return @{ ms = [int]$cron.ElapsedMilliseconds; dias = @($dias); tramos = @($tramos) }
+    } catch {
+        Log ('bateria de Windows: ' + $_.Exception.Message)
+        Remove-Item -LiteralPath $xml -Force -ErrorAction SilentlyContinue
+        return $null
+    }
+}
+
+# La media de minutos al dia SIN cargador, de lo que guarda Windows. -1 es 'no lo se'.
+function Get-MinutosSinCargador {
+    try {
+        if (-not (Test-Path -LiteralPath $BateriaWindowsJson)) { return -1 }
+        $j = Get-Content -LiteralPath $BateriaWindowsJson -Raw -Encoding UTF8 | ConvertFrom-Json
+        $n = [int]$j.dias
+        if ($n -le 0) { return -1 }
+        return [int]([double]$j.dcMinTotal / $n)
+    } catch { return -1 }
+}
+
+# Una vez al dia. Guarda el resumen y, sobre todo, DICE lo que ese resumen significa: si braya no
+# suelta el cargador, el ritmo de bateria por juego no se va a aprender nunca, y eso es mejor
+# saberlo que seguir esperando datos en silencio (la regla 2 de la casa).
+function Update-BateriaWindows {
+    $hoyB = (Get-Date).ToString('yyyy-MM-dd')
+    if ($script:bateriaInformeDia -eq $hoyB) { return $false }
+    $script:bateriaInformeDia = $hoyB
+    $inf = Read-InformeBateria
+    if (-not $inf -or @($inf.dias).Count -eq 0) { return $false }
+    $dcTot = 0; $acTot = 0; $cero = 0
+    foreach ($dd in @($inf.dias)) {
+        $dcTot += [int]$dd.dcMin
+        $acTot += [int]$dd.acMin
+        if ([int]$dd.dcMin -le 0) { $cero++ }
+    }
+    $nD = @($inf.dias).Count
+    $media = [int]($dcTot / $nD)
+    try {
+        Write-Atomico $BateriaWindowsJson (ConvertTo-Json @{ visto = (Get-Date -Format 's'); dias = $nD;
+            dcMinTotal = $dcTot; acMinTotal = $acTot; diasSinSoltar = $cero; ms = [int]$inf.ms } -Compress)
+    } catch {}
+    Log ('bateria de Windows: ' + $nD + ' dias, ' + $media + ' min/dia sin cargador (' + $cero + ' dias a cero), informe en ' + $inf.ms + ' ms')
+    # Y LO QUE ESO SIGNIFICA PARA LO QUE NOVA INTENTA APRENDER. El tramo minimo que exige
+    # Update-BateriaJuego son 10 minutos seguidos sin cargador; si la media del dia entero no llega
+    # a eso, la serie por juego no va a llenarse por mucho que se espere.
+    if ($media -lt 10 -and $nD -ge 7) {
+        Log ('bateria de Windows: con ' + $media + ' min/dia sin cargador no puedo aprender lo que gasta cada juego (hacen falta tramos de 10 min)')
+        [void](Send-AvisoEntorno 'bateria-nunca-suelta' ('Casi nunca usas la consola sin cargador: ' + $media + ' minutos al dia de media, asi que no puedo aprender cuanto gasta cada juego.') 'bajo' 10080)
+    }
+    return $true
+}
 function Update-BateriaJuego([int]$pct, [int]$cargando) {
     $j = $script:juegoActivo
     $t = $script:tramoBat
@@ -31504,6 +31614,9 @@ while ($true) {
                     }
                 }
             } catch {}
+            # lo que Windows apunto de los dias que Nova no estaba (idea 70). Una vez al dia y
+            # nunca en el bucle: el informe cuesta ~248 ms.
+            try { [void](Update-BateriaWindows) } catch { Log ('bateria de Windows: ' + $_.Exception.Message) }
             try { Write-NotaSemanal } catch {}
         }
         # micro-charla: un comentario si viene a cuento, una vez al dia

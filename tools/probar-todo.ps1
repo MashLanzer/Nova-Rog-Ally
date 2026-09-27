@@ -2072,6 +2072,15 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n223. El historial de energia que Windows guarda de los dias que Nova no estaba (idea 70 de las 121)"
+# Nova arranco 259 veces en 17 dias y su serie de bateria son 18 lineas. Windows guarda dia a dia
+# cuanto estuvo la consola despierta con cargador y sin el: 248 ms el informe, 12 dias validos.
+# Del 15 al 26/09, enchufada casi 24 h CADA dia y 14 min/dia sin cargador, cinco dias a cero: por
+# eso el ritmo por juego no se aprende nunca (pide tramos de 10 min) y el minimo visto es el 90 %.
+# La entrada imposible del informe (24.695 dias) se TIRA, no se promedia. Se lee una vez al dia y
+# NUNCA desde el bucle. La rama que avisa se prueba con datos inyectados: aqui no salta sola.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-bateria-windows.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:Nova lee lo que Windows apunto)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n222. En la mesa o en las manos: el paquete del mando y el sensor de orientacion (idea 69 de las 121)"
 # Dos senales que ya estaban y no se usaban: dwPacketNumber -que XInput solo sube cuando el mando
 # cambia, y aparecia CERO veces en el script- y SimpleOrientationSensor (0,157 ms en caliente
