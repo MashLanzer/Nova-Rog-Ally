@@ -1997,6 +1997,15 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 52 de las 121)"
+# Save-UsoAlly solo bajaba a disco al juntar 300 s; 35 de 71 sesiones (49 %) morian sin cierre
+# limpio y 10 no llegaban ni a 300 s, perdiendo entera su cuenta. Dos vias nuevas (regla 7): el
+# manejador de salida vuelca uso-ally y tiempo-de-juego al cerrar, y el bucle de 10 s vuelca cada
+# 90 s (percentil 10 de vida de sesion, por encima del suelo de 60). No estrena coste: los Save-*
+# ya salen sin escribir si no hay nada pendiente. El banco ejecuta el manejador y el bloque del bucle.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n216. Se muere la mitad de las veces y solo recuerda la ultima: contar arranques y relanzamientos (idea 50 de las 121)"
 # 72 arranques / 36 cierres limpios (50 %) y 46 relanzamientos del oido o la capsula en 12 dias
 # que Nova nunca conto ni dijo. Ahora cuenta 'arranque', 'cierre-limpio', 'relanza:oido' y

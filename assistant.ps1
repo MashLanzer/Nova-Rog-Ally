@@ -14645,6 +14645,13 @@ $UsoAllyDias = 60        # lo mismo que juegos.json
 $script:usoAllyPend = @{}
 $script:usoAlly = $null
 $script:usoAllyVisto = 0
+# VOLCAR EL CUADERNO POR RELOJ, NO SOLO POR CANTIDAD (26/09, idea 52 de las 121). 90 s: el mayor
+# multiplo de 30 (el tic de Watch-Entorno) por debajo del percentil 10 de vida de sesion (113 s,
+# medido sobre 71 sesiones desde el 18/09) y por encima del suelo de 60 que pide la idea. La marca
+# va SIN "Seg" en el nombre a proposito: $script:usoAllyVolcadoSeg seria la MISMA variable que la
+# constante (PowerShell no distingue mayusculas) y la machacaria en la primera vuelta del bucle.
+$UsoAllyVolcadoSeg = 90
+$script:usoAllyVolcado = 0   # a 0 y no $null: con $null la primera resta da el reloj entero y volcaria en el primer tic
 
 function Get-UsoAlly {
     if ($null -ne $script:usoAlly) { return $script:usoAlly }
@@ -22931,6 +22938,11 @@ try {
         # esto y ANTES de $sw, o sea sin haber contado 'arranque'; sin la guarda apuntaria un
         # cierre-limpio sin su arranque y la tasa se pasaria del 100 %.
         if ($script:arranqueContado) { try { Add-Estadistica 'cierre-limpio' } catch {} }
+        # IDEA 52: el cuaderno de la Ally y el tiempo de juego, a disco al salir. Los dos Save-* salen
+        # sin escribir si no hay nada pendiente, o sea que esto no estrena coste: es la escritura que
+        # se iba a hacer igual, adelantada al cierre limpio (36 de 71 sesiones que hoy tiran hasta 299 s).
+        try { Save-UsoAlly } catch {}
+        try { Save-TiempoJuego } catch {}
     }
 } catch {}
 if ($cfgError) { Log "WARN: config.json ilegible, se usan los valores por defecto: $cfgError" }
@@ -30681,6 +30693,17 @@ while ($true) {
                     Add-UsoAlly $appU ([int](($sw.ElapsedMilliseconds - $script:usoAllyVisto) / 1000)) (Get-InactividadMin)
                 }
                 $script:usoAllyVisto = $sw.ElapsedMilliseconds
+                # Y UN VOLCADO POR RELOJ, NO SOLO POR CANTIDAD (26/09, idea 52). Medido en el log: 35
+                # de las 71 sesiones terminadas desde el 18/09 (49 %) murieron sin cierre limpio, y 10
+                # de ellas no llegaron ni a 300 s de vida, o sea que no volcaron NUNCA y perdieron su
+                # cuenta entera. Save-UsoAlly ya sale sin escribir si no hay nada pendiente, asi que esto
+                # no toca el disco cuando no hay nada nuevo. Segundo camino: el $sumaU -ge 300 de
+                # Add-UsoAlly sigue en pie (regla 7). Un Stop-Process no dispara el manejador de salida;
+                # este reloj es lo unico que salva esas 35 muertes sucias.
+                if (($sw.ElapsedMilliseconds - $script:usoAllyVolcado) -ge ($UsoAllyVolcadoSeg * 1000)) {
+                    $script:usoAllyVolcado = $sw.ElapsedMilliseconds
+                    try { Save-UsoAlly } catch {}
+                }
                 # EL CANDIDATO A JUEGO DESCONOCIDO (26/09, idea 26). Se reusa el $appU que la
                 # linea de arriba ya tiene en la mano: CERO consultas nuevas al sistema, que es
                 # la regla 5. Si Nova ya sabe que es un juego ($j lleno) no hay nada que
