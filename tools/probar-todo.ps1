@@ -1997,6 +1997,15 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n220. Cuando Nova se disculpa, que lo apunte ella misma (idea 55 de las 121)"
+# De 542 respuestas de la charla en 14 dias, 31 admiten un error ("tienes razon, me equivoque").
+# Esa admision la escribe Nova, no braya, asi que no se confunde con una charla que empieza por
+# "no". Cada turno asi queda como sospecha (senal 'me-disculpe', peso 'medio') con la frase de
+# braya. Dobla el corpus de sospechas. El banco ejecuta Write-FalloDeducido y saca el patron del
+# propio assistant.ps1; deja fuera las disculpas por limitacion ("lo siento, no tengo informacion").
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-disculpa.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:cuando Nova se disculpa, lo apunta ella misma)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n219. Lo que Nova hace sola se ve igual que lo que le pediste: campo 'mia' y marca en la capsula (idea 54 de las 121)"
 # 100 avisos de entorno en 11 dias se veian exactamente igual que una respuesta a una orden;
 # ninguna de las 35 claves del JSON decia de quien fue la idea. Ahora Set-UI escribe "mia",

@@ -3068,7 +3068,9 @@ function Write-FalloDeducido([string]$senal = '', [string]$detalle = '', [string
         # 'alto': Nova no hizo NADA con la frase. 'bajo': hizo algo, pero pudo no ser lo
         # que se le pedia. Van con peso para que quien lo lea los cuente por separado; si
         # se sumaran a pelo, el 18/09 saldrian 63 fallos de 114 ordenes y no es verdad.
-        $pesoD = if ($senal -eq 'no-orden-a-charla') { 'bajo' } else { 'alto' }
+        # 'medio' para 'me-disculpe' (idea 55): Nova admitio un error, pero pudo disculparse
+        # sin fallar (educacion), asi que es sospecha, no verdad, y no pesa como el 'alto' de un descarte.
+        $pesoD = if ($senal -eq 'no-orden-a-charla') { 'bajo' } elseif ($senal -eq 'me-disculpe') { 'medio' } else { 'alto' }
         $oD = [ordered]@{ id = $idD; hora = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'); senal = $senal; peso = $pesoD; detalle = $dF }
         # UTF-8 SIN BOM, como destinos.jsonl: el BOM rompe la primera linea desde Python
         [System.IO.File]::AppendAllText((Join-Path $dirD 'senales-fallo.jsonl'),
@@ -29650,6 +29652,15 @@ while ($true) {
             Log "charla dice: $fraseC"
             $script:ultimaRespuesta = $fraseC
             Add-Turno $script:charlaTexto $fraseC
+            # IDEA 55: si Nova admite que se equivoco, ella misma lo apunta como sospecha de fallo
+            # (senal 'me-disculpe', peso medio). La escribe Nova, no braya, asi que no se confunde con
+            # una charla que empieza por "no". Patron del verificador sobre el texto SIN tildes; deja
+            # fuera las disculpas por limitacion ("lo siento, no tengo informacion sobre..."), que no
+            # llevan ninguno de estos verbos. Write-FalloDeducido no consume el id: un "no era eso"
+            # posterior sigue pudiendo apuntar la queja humana.
+            if ((ConvertTo-Plain $fraseC) -match 'tienes (toda la )?razon|me equivoque|me confundi|mi mal|mi error|meti la pata|no deberia haber') {
+                try { [void](Write-FalloDeducido 'me-disculpe' $script:charlaTexto) } catch {}
+            }
             Say $fraseC (Get-EmocionFrase $fraseC)
         }
     }
