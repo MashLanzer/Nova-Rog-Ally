@@ -82,6 +82,11 @@ Invoke-Expression (Traer 'Get-FraseVuelta')
 # APRENDIDA -la mediana de cuando braya para de verdad- en vez del 23 fijo de config, y un
 # banco que no la trae revienta a mitad. Se trae la de verdad, no un doble: asi este banco
 # mide tambien su respaldo (si hay menos de cuatro dias, devuelve el 23 de siempre).
+# idea 46: Get-HoraFinHabitual llama ahora a Get-BandaFinHabitual (con los cuartiles del archivo).
+$srcBanda = [System.IO.File]::ReadAllText((Join-Path $raiz 'assistant.ps1'))
+Invoke-Expression ('$BandaFinPctBajo = ' + $(if ($srcBanda -match '(?m)^\$BandaFinPctBajo = (\d+)') { $Matches[1] } else { '25' }))
+Invoke-Expression ('$BandaFinPctAlto = ' + $(if ($srcBanda -match '(?m)^\$BandaFinPctAlto = (\d+)') { $Matches[1] } else { '75' }))
+Invoke-Expression (Traer 'Get-BandaFinHabitual')
 Invoke-Expression (Traer 'Get-HoraFinHabitual')
 Invoke-Expression (Traer 'Get-NocheDesde')
 Invoke-Expression (Traer 'Test-VueltaSaludo')

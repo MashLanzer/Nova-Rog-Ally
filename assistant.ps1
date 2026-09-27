@@ -12677,7 +12677,12 @@ function Get-AvisoHoraDormir([datetime]$ahora = (Get-Date)) {
     if ($finD -ge 0) {
         $mD = $ahora.Hour * 60 + $ahora.Minute
         if ($mD -lt 300) { $mD += 1440 }      # la madrugada cuenta como el dia anterior
+        # EL MARGEN SALE DE TU DISPERSION (26/09, idea 46): p75-mediana, con suelo en el 30 de
+        # siempre. Si varias mucho la hora de parar, el aviso espera mas antes de darte la lata;
+        # si p75 == mediana (dispersion cero) se queda en 30, nunca por debajo.
         $margenD = [int](Get-Cfg 'entorno' 'margenDormirMin' 30)
+        $bD = Get-BandaFinHabitual $ahora
+        if ($null -ne $bD) { $margenD = [Math]::Max($bD.p75 - $bD.med, $margenD) }
         if ($mD -le ($finD + $margenD)) { return '' }
         $hFin = [int][Math]::Floor(($finD % 1440) / 60)
         $mFin = $finD % 60
@@ -14118,16 +14123,21 @@ function Test-RupturaNueva($ruptura, [string]$desdeNuevo) {
         return (($d2 - $d1).TotalDays -gt 8)
     } catch { return $true }
 }
-function Get-HoraFinHabitual([datetime]$hoy = (Get-Date)) {
+# SABE A QUE HORA PARAS, PERO NO CUANTO TE MUEVES DE ESA HORA (26/09, idea 46 de las 121). La
+# banda p25/mediana/p75 de habitos.fin: la mediana ya la sabia (la hora a la que sueles parar),
+# y la banda anade la DISPERSION. De ahi salen la ventana del recordatorio de carga (p75-p25, hoy
+# 160 min contra los 30 fijos de antes) y el margen del aviso de dormir (p75-med), que asi se
+# adapta a lo mucho o poco que varias. Los cuartiles son el metodo del mas cercano (Ceiling), como
+# Get-NubePercentil. La MEDIANA no cambia: sigue siendo Floor(n/2), porque Get-NocheDesde y el
+# texto "sueles parar sobre las H:MM" dependen de su valor exacto.
+$BandaFinPctBajo = 25
+$BandaFinPctAlto = 75
+function Get-BandaFinHabitual([datetime]$hoy = (Get-Date)) {
     $hb = Get-Habitos
     $desde = $hoy.AddDays(-14).ToString('yyyy-MM-dd')
     $hoyK = $hoy.AddHours(-5).ToString('yyyy-MM-dd')
-    # SI CAMBIASTE DE HORARIO, LO DE ANTES NO CUENTA (26/09, idea 27). Pero SOLO si despues del
-    # corte quedan al menos cuatro dias, que es el suelo que esta misma funcion tiene abajo.
-    # SIN ESA GUARDA LA REGRESION ESTA MEDIDA: recortando al dia de la ruptura, esta funcion se
-    # queda con 0, 1, 2 y 3 dias los cuatro dias siguientes, devuelve -1, Get-NocheDesde cae al
-    # valor de fabrica y LA NOCHE VUELVE A LAS 23:00 cuatro dias seguidos. Es exactamente la
-    # regresion que la idea 8 del 25/09 acaba de arreglar.
+    # SI CAMBIASTE DE HORARIO, LO DE ANTES NO CUENTA (idea 27), pero solo si tras el corte quedan
+    # >= 4 dias: sin esa guarda, Get-NocheDesde caeria a fabrica y la noche volveria a las 23:00.
     $cortaR = [string]$hb.ruptura.desde
     if ($cortaR -and $cortaR -gt $desde) {
         $quedan = @($hb.fin.Keys | Where-Object { $_ -ge $cortaR -and $_ -lt $hoyK }).Count
@@ -14139,16 +14149,28 @@ function Get-HoraFinHabitual([datetime]$hoy = (Get-Date)) {
         if ($mm -lt 300) { $mm += 1440 }
         $mm
     } | Sort-Object)
-    if ($mins.Count -lt 4) { return -1 }
-    return $mins[[int][Math]::Floor($mins.Count / 2)]
+    if ($mins.Count -lt 4) { return $null }
+    $iBajo = [int][Math]::Ceiling(($BandaFinPctBajo / 100.0) * $mins.Count) - 1
+    $iAlto = [int][Math]::Ceiling(($BandaFinPctAlto / 100.0) * $mins.Count) - 1
+    if ($iBajo -lt 0) { $iBajo = 0 } elseif ($iBajo -ge $mins.Count) { $iBajo = $mins.Count - 1 }
+    if ($iAlto -lt 0) { $iAlto = 0 } elseif ($iAlto -ge $mins.Count) { $iAlto = $mins.Count - 1 }
+    return @{ p25 = [int]$mins[$iBajo]; med = [int]$mins[[int][Math]::Floor($mins.Count / 2)]; p75 = [int]$mins[$iAlto]; n = $mins.Count }
+}
+function Get-HoraFinHabitual([datetime]$hoy = (Get-Date)) {
+    # UN SOLO SITIO PARA LA BANDA (idea 46): la mediana sale de Get-BandaFinHabitual, sin duplicar
+    # la ventana ni la formula. Devuelve exactamente lo mismo que antes para cualquier entrada.
+    $b = Get-BandaFinHabitual $hoy
+    if ($null -eq $b) { return -1 }
+    return $b.med
 }
 function Test-RecordarCarga([int]$pct, [int]$cargando, [datetime]$ahora = (Get-Date)) {
     if ($cargando -eq 1 -or $pct -gt 40) { return $false }
-    $finH = Get-HoraFinHabitual $ahora
-    if ($finH -lt 0) { return $false }
+    $b = Get-BandaFinHabitual $ahora
+    if ($null -eq $b) { return $false }
     $mAhora = $ahora.Hour * 60 + $ahora.Minute
     if ($mAhora -lt 300) { $mAhora += 1440 }
-    if ($mAhora -lt ($finH - 30) -or $mAhora -gt $finH) { return $false }
+    # la ventana es TU banda (p25..p75), no 30 min fijos alrededor de la mediana (idea 46)
+    if ($mAhora -lt $b.p25 -or $mAhora -gt $b.p75) { return $false }
     $hb = Get-Habitos
     $diaC = $ahora.AddHours(-5).ToString('yyyy-MM-dd')
     if ($hb.cargaAvisada -eq $diaC) { return $false }

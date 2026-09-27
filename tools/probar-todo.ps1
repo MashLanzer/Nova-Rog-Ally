@@ -1997,6 +1997,14 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n212. Sabe a que hora paras, pero no cuanto te mueves de esa hora (idea 46 de las 121)"
+# La banda p25/mediana/p75 de habitos.fin. La mediana ya la sabia; la banda anade la dispersion,
+# y de ahi salen la ventana del recordatorio de carga (p75-p25, hoy 160 min contra 30 fijos) y el
+# margen del aviso de dormir (p75-med, con suelo en 30). La mediana NO cambia (Floor(n/2)). Con
+# los tres avisos reales del registro: 2 de 3 se silencian, el unico tardio de verdad se conserva.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-banda-fin.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la banda de habitos se mide sola)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n211. Que tapar los secretos sea cosa del registro, no de quien lo llama (idea 45 de las 121)"
 # 4 de 144 vuelcos de excepcion tapan la clave de Steam con -replace; los otros 140 no. Ninguna
 # se ha escapado aun (0 en los cuatro registros), pero son 140 caminos abiertos. Ahora Log

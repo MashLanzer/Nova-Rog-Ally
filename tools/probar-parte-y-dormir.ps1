@@ -43,6 +43,11 @@ function Get-Habitos { return $script:habitosFalsos }
 function Get-Cfg([string]$s, [string]$k, $d) { return $d }
 $mND = [regex]::Match($fuente, '(?m)^\$EntornoNocheDesde = (.+)$')
 Invoke-Expression ('$EntornoNocheDesde = ' + $(if ($mND.Success) { $mND.Groups[1].Value } else { '23' }))
+# idea 46: Get-HoraFinHabitual y Get-AvisoHoraDormir llaman ahora a Get-BandaFinHabitual, que usa
+# los cuartiles del archivo. Se sacan del fuente para no fijarlos a mano.
+Invoke-Expression ('$BandaFinPctBajo = ' + $(if ($fuente -match '(?m)^\$BandaFinPctBajo = (\d+)') { $Matches[1] } else { '25' }))
+Invoke-Expression ('$BandaFinPctAlto = ' + $(if ($fuente -match '(?m)^\$BandaFinPctAlto = (\d+)') { $Matches[1] } else { '75' }))
+Invoke-Expression (Traer 'Get-BandaFinHabitual')
 Invoke-Expression (Traer 'Get-HoraFinHabitual')
 Invoke-Expression (Traer 'Get-AvisoHoraDormir')
 
@@ -65,7 +70,7 @@ $h3 = [datetime]'2026-09-22 02:30:00'
 $txt = Get-AvisoHoraDormir $h3
 Comp 'a las 2:30 si habla' ($txt -ne '') $txt
 Comp 'y dice a que hora suele parar' ($txt -match 'sueles parar sobre') 'con su dato, no con un reproche'
-Comp 'y la hora que dice es la suya' ($txt -match '0:(1|2|3)\d') 'su mediana son las 00:24'
+Comp 'y la hora que dice es la suya' ($txt -match 'sobre las 0:24') 'su mediana son las 00:24, exacta (no un 0:1x cualquiera)'
 
 Write-Host ''
 Write-Host '-- sin datos suficientes, se cae a lo de antes --'

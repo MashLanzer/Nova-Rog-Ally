@@ -122,6 +122,12 @@ function Get-Estadisticas { return $script:statsFalsas }
 # Get-HoraFinHabitual entra el 22/09: desde ese dia Get-AvisoHoraDormir decide con la hora a
 # la que braya PARA de verdad, no con las horas en que ha tenido conversacion. Sin traerla,
 # esto muere con CommandNotFoundException a la primera.
+# idea 46: Get-HoraFinHabitual y Get-AvisoHoraDormir llaman a Get-BandaFinHabitual (con los
+# cuartiles del archivo). Se trae antes o revientan en cuanto se las llama.
+$srcBanda = [System.IO.File]::ReadAllText($ruta)
+Invoke-Expression ('$BandaFinPctBajo = ' + $(if ($srcBanda -match '(?m)^\$BandaFinPctBajo = (\d+)') { $Matches[1] } else { '25' }))
+Invoke-Expression ('$BandaFinPctAlto = ' + $(if ($srcBanda -match '(?m)^\$BandaFinPctAlto = (\d+)') { $Matches[1] } else { '75' }))
+Invoke-Expression (Traer 'Get-BandaFinHabitual')
 Invoke-Expression (Traer 'Get-HoraFinHabitual')
 Invoke-Expression (Traer 'Get-AvisoHoraDormir')
 Invoke-Expression (Traer 'Get-AvisoFallos')
