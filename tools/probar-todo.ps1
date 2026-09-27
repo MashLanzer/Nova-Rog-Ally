@@ -1997,6 +1997,14 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n213. El juego que se abre y se muere a los diez segundos (idea 47 de las 121)"
+# El 25/09 NIGHTREIGN murio 6 veces en una hora y Nova callo. Ahora cuenta las muertes seguidas
+# del mismo juego (racha que se rompe por partida buena o por $JuegoVueltaMs) y a la 3a ofrece
+# 'cierra steam'. >=3 y no ==3 porque la 3a real coincidio con una confirmacion viva. Solo
+# palabras (regla 1): braya usa la orden que ya existe. Ningun numero nuevo.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-juego-muere-al-arrancar.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el juego que se muere al arrancar se caza)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n212. Sabe a que hora paras, pero no cuanto te mueves de esa hora (idea 46 de las 121)"
 # La banda p25/mediana/p75 de habitos.fin. La mediana ya la sabia; la banda anade la dispersion,
 # y de ahi salen la ventana del recordatorio de carga (p75-p25, hoy 160 min contra 30 fijos) y el

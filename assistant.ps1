@@ -20213,8 +20213,27 @@ function Test-VuelveAlMismoJuego([string]$nombre, [int]$proc, [double]$ahora) {
     $script:juegoEntradas[$nombre] = @{ proc = $proc; cuando = $ahora }
     return $v
 }
+# EL JUEGO QUE SE ABRE Y SE MUERE A LOS DIEZ SEGUNDOS (26/09, idea 47 de las 121). Cuenta las
+# muertes CONSECUTIVAS del mismo juego; la racha se rompe si pasa mas de $JuegoVueltaMs desde la
+# ultima (la misma hora que Test-VuelveAlMismoJuego usa para "es la misma sesion"). MEDIDO: el
+# 25/09 NIGHTREIGN murio 6 veces en una hora; con esto, al 3er intento Nova ofrece 'cierra steam'.
+# Vive en RAM (regla 5): un reinicio empieza de cero, que es lo correcto.
+function Test-MuereAlArrancar([string]$nombre, [double]$ahora) {
+    $ant = $null
+    if ($script:juegoMuertesSeguidas.ContainsKey($nombre)) { $ant = $script:juegoMuertesSeguidas[$nombre] }
+    $n = 1
+    if ($ant -and ($ahora - [double]$ant.cuando) -lt $JuegoVueltaMs) { $n = ([int]$ant.n) + 1 }
+    $script:juegoMuertesSeguidas[$nombre] = @{ n = $n; cuando = $ahora }
+    return $n
+}
+function Clear-MuereAlArrancar([string]$nombre) {
+    # una partida que pasa del minimo limpia el contador de ESE juego: no era una racha de muerte
+    if ($script:juegoMuertesSeguidas.ContainsKey($nombre)) { [void]$script:juegoMuertesSeguidas.Remove($nombre) }
+}
 $script:juegoSalida = $null      # salida EN DUDA: @{nombre; exe; proc; desdeMs} (C4, 19/09)
 $script:juegoSesionMin = 0       # minutos de primer plano de la partida de ahora (C4, 19/09)
+$script:juegoSesionSeg = 0       # segundos de la sentada, solo para la frase (idea 47)
+$script:juegoMuertesSeguidas = @{}   # nombre -> @{ n; cuando }; muertes seguidas al arrancar (idea 47), en RAM
 
 # EL PID DE LA VENTANA, NO SU MainWindowHandle (24/09, idea 8 de la tanda nueva).
 #
@@ -22134,7 +22153,7 @@ function Enter-Juego([string]$nombre) {
     # C4 (19/09): los minutos de la partida SIGUEN contando si es el mismo juego al que
     # se acaba de volver (un alt-tab de 10 s parte la sesion en dos, y el log del 18/09
     # tiene tres de esos); con otro juego delante, la cuenta empieza de cero.
-    if (-not ($script:juegoSalida -and $script:juegoSalida.nombre -eq $nombre)) { $script:juegoSesionMin = 0 }
+    if (-not ($script:juegoSalida -and $script:juegoSalida.nombre -eq $nombre)) { $script:juegoSesionMin = 0; $script:juegoSesionSeg = 0 }
     $script:juegoBrilloAntes = $null
     $script:logroArchivo = ''
     # VOLVER AL JUEGO NO ES ENTRAR EN EL JUEGO (26/09, idea 4 de las 121). Esta funcion la
@@ -22245,6 +22264,9 @@ function Exit-Juego([string]$nombre) {
     # sumaban 3 minutos sin haber jugado ni dos. Con Floor, un minuto es un minuto.
     $minsFg = [int][Math]::Floor(($sw.ElapsedMilliseconds - $script:juegoDesde) / 60000)
     if ($minsFg -gt 0 -and $minsFg -le 720) { $script:juegoSesionMin += $minsFg }
+    # y los segundos del tramo, para la frase de "murio a los N segundos" (idea 47)
+    $segsFg = [int][Math]::Floor(($sw.ElapsedMilliseconds - $script:juegoDesde) / 1000)
+    if ($segsFg -gt 0 -and $segsFg -le 43200) { $script:juegoSesionSeg += $segsFg }
     # IDEAS 19 y 20: cuanto se juega cada dia. Se apunta AL CERRAR, que es cuando se
     # sabe lo que duro la partida; asi "cuanto llevo hoy" no se lo inventa nadie.
     # UNA SOLA FUENTE DE VERDAD: juegos.json (23/09). Aqui se escribia ADEMAS en
@@ -22329,16 +22351,29 @@ function Test-SalidaJuego {
             Log "JUEGO: $($s.nombre) sigue abierto 2 h despues de dejarlo; se olvida la salida"
             $script:juegoSalida = $null
             $script:juegoSesionMin = 0
+            $script:juegoSesionSeg = 0
         }
         return
     }
     $script:juegoSalida = $null
+    # los segundos ANTES de $minsS: hay un banco que exige < 240 caracteres entre esa linea y el
+    # if de $JuegoMinimoPartida, asi que la captura del segundo va aqui arriba (idea 47).
+    $segS = [int]$script:juegoSesionSeg
+    $script:juegoSesionSeg = 0
     $minsS = [int]$script:juegoSesionMin
     $script:juegoSesionMin = 0
     if ($minsS -lt $JuegoMinimoPartida) {
         Log "JUEGO: $($s.nombre) cerrado con $minsS min de partida (minimo $JuegoMinimoPartida): sin aviso"
+        # SE ABRE Y SE MUERE (idea 47): a la 3a muerte seguida del mismo juego, ofrece cerrar Steam.
+        # >= 3 y no == 3: el 25/09 la 3a coincidio con una confirmacion viva y Test-PuedoAvisar la
+        # habria tirado; asi la 4a (sin pendiente) si habla. Solo palabras: braya usa 'cierra steam'.
+        $nSeg = Test-MuereAlArrancar $s.nombre $sw.ElapsedMilliseconds
+        if ($nSeg -ge 3) {
+            [void](Send-AvisoEntorno ("juego-muere-" + $s.nombre) "$($s.nombre) lleva $nSeg intentos muriendose al arrancar, el ultimo a los $segS segundos. Si quieres, dime 'cierra steam' y lo reinicias limpio." 'medio' 30)
+        }
         return
     }
+    Clear-MuereAlArrancar $s.nombre   # partida de verdad: la racha de muertes se rompe (idea 47)
     Log "JUEGO: cerrado de verdad $($s.nombre) ($minsS min de partida)"
     # Y SI TE DEJO LA PANTALLA CAMBIADA (25/09, idea 6). Medido el 24/09: braya cerro A Way Out
     # a las 00:01:13 y VEINTE MINUTOS despues el escritorio seguia a 1280x720 con un panel de
