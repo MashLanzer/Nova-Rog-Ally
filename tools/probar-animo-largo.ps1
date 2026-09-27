@@ -290,7 +290,26 @@ function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'med
     $script:dichos += @{ clave = $clave; texto = $texto; nivel = $nivel; cadaMin = $cadaMin }
     return $true
 }
-$script:diasDePrueba = $mejora
+# CON LA MISMA REFERENCIA DE TIEMPO QUE LA FUNCION DE VERDAD (27/09). Los dias de arriba se
+# generan desde un $hoy FIJO -el 25/09- pero Test-AnimoQueSeCuenta llama a Get-FraseAnimo sin
+# fecha, o sea con Get-Date: el 25 y el 26 esto pasaba y el 27 salio ROJO sin que nadie tocara
+# el codigo. Un banco que solo vale el dia que se escribio no protege nada, asi que los tres
+# casos de esta seccion se rehacen contra el hoy DE VERDAD.
+$hoyDeVerdad = (Get-Date).Date
+function DiasDesdeHoy([int[]]$buenos, [int[]]$malos) {
+    $h = @{}
+    foreach ($j in $buenos) { $h[$hoyDeVerdad.AddDays(-$j).ToString('yyyy-MM-dd')] = (Dia 40 0) }
+    foreach ($j in $malos)  { $h[$hoyDeVerdad.AddDays(-$j).ToString('yyyy-MM-dd')] = (Dia 2 15) }
+    return $h
+}
+$mejoraHoy = DiasDesdeHoy @(0, 1, 2) @(3, 4, 5, 6)
+$peoraHoy  = DiasDesdeHoy @(3, 4, 5, 6) @(0, 1, 2)
+$normalHoy = @{}
+foreach ($j in 0..6) { $normalHoy[$hoyDeVerdad.AddDays(-$j).ToString('yyyy-MM-dd')] = (Dia 20 3) }
+# y que los tres digan lo que se espera con la fecha de verdad, o lo de abajo no prueba nada
+Comp '  los casos de esta seccion valen para HOY' (((Get-FraseAnimo $mejoraHoy) -eq $AnimoFraseMejor) -and
+    ((Get-FraseAnimo $peoraHoy) -eq $AnimoFrasePeor) -and ([string]::IsNullOrEmpty((Get-FraseAnimo $normalHoy)))) 'sin esto, un banco que caduca'
+$script:diasDePrueba = $mejoraHoy
 $script:dichos = @()
 $rT = Test-AnimoQueSeCuenta
 Comp 'con una mejora clara, habla' ($rT -and $script:dichos.Count -eq 1) "$($script:dichos.Count) aviso(s)"
@@ -299,7 +318,7 @@ Comp '  y no se queda en la capsula' ($script:dichos.Count -gt 0 -and $script:di
 # EL PLAZO SALE DE LA CONSTANTE, no de un numero escrito a mano en el aviso.
 Comp '  y no lo repite en los proximos dias' ($script:dichos.Count -gt 0 -and $script:dichos[0].cadaMin -eq ($AnimoFraseCadaDias * 1440)) "$($script:dichos[0].cadaMin) min = $AnimoFraseCadaDias dias"
 
-$script:diasDePrueba = $peora
+$script:diasDePrueba = $peoraHoy
 $script:dichos = @()
 [void](Test-AnimoQueSeCuenta)
 $cP = if ($script:dichos.Count -gt 0) { $script:dichos[0].clave } else { '' }
@@ -309,7 +328,7 @@ Comp 'con un empeoramiento, tambien' ($script:dichos.Count -eq 1) ''
 # tres dias" ese cambio se habria callado. Con una clave por frase, sale.
 Comp '  con una clave DISTINTA de la de mejora' ($cM -and $cP -and $cM -ne $cP) "'$cM' contra '$cP'"
 
-$script:diasDePrueba = $normal
+$script:diasDePrueba = $normalHoy
 $script:dichos = @()
 $rN = Test-AnimoQueSeCuenta
 Comp 'y en una semana normal no dice nada' ((-not $rN) -and $script:dichos.Count -eq 0) 'lo normal, nueve dias de catorce, es callarse'

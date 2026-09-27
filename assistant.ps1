@@ -508,7 +508,10 @@ $VERBOS_IMPERATIVO = @{
 # mismos filtros que la casa ya aplica contra el caso 'ajutos' -la palabra mala no puede ser una que
 # Nova ya conozca (app, sitio, correccion o verbo) ni estar a menos de tres ediciones de una que si-.
 # Es el mismo filtro de Find-Generalizacion, no uno nuevo.
-$OidoAprendidoPath = Join-Path $MemoriaDir 'oido-aprendido.json'
+# LA RUTA DE LO APRENDIDO DE OIDO NO VIVE AQUI, sino pegada a $MemoriaDir (27/09). Este bloque
+# esta 1.800 lineas ANTES de que $MemoriaDir exista, asi que el Join-Path se hacia sobre un nulo
+# y Nova no arrancaba. El parser decia que la sintaxis era correcta y el banco de la idea 87 no
+# lo veia porque ahi la ruta se dobla: lo canto arrancarla de verdad con -Probar.
 $OidoTestigosMin = 2            # dos testigos INDEPENDIENTES para que valga
 $OidoAprendidoMax = 60          # y la lista no crece sin fin
 $script:oidoAprendido = $null
@@ -2341,6 +2344,7 @@ function Resolve-Target([string]$t) {
 # Guardar es LOCAL e instantaneo; recordar necesita a opencode (ver README del
 # vault). Separarlo asi evita esperar un minuto por escribir una linea.
 $MemoriaDir = Join-Path $LogDir "memoria"
+$OidoAprendidoPath = Join-Path $MemoriaDir 'oido-aprendido.json'
 $DiarioDir = Join-Path $MemoriaDir "diario"
 
 # LISTAS DE VERDAD, no notas sueltas.
@@ -3166,7 +3170,10 @@ $script:descarteYaVa = @{}
 # worker a proposito: el oido fino apunta su linea segundos despues, y dos procesos
 # haciendo append al mismo archivo es pedir una carrera justo en lo que existe para
 # medir bien.
-$DestinosUso = @('local', 'aprendida', 'memoria', 'traducida', 'receta', 'error', 'descarte', 'ruido', 'recitado')
+# 'firma' ES UN DESTINO PROPIO (27/09, idea 89) y no 'local' a secas: las firmas se ganan para
+# ahorrar llamadas a la nube, y medido sobre las 58 del registro se habria ahorrado UNA. Si se
+# apuntaran como 'local' no habria manera de saber nunca si el numero crece con el uso o no.
+$DestinosUso = @('local', 'aprendida', 'firma', 'memoria', 'traducida', 'receta', 'error', 'descarte', 'ruido', 'recitado')
 # LA CHARLA Y EL AGENTE TAMBIEN DEJAN HUELLA (18/09), pero no son ni acierto ni fallo: son lo
 # que Nova hizo con la frase, no si acerto. Mas de la mitad del uso real caia aqui y se quedaba
 # fuera de la cuenta (el 15/09: 142 eventos apuntables frente a 145 que no lo eran).
@@ -3632,7 +3639,7 @@ function Get-AnimoDeCuentas([int]$ok, [int]$mal) {
 # NO SON MAYUSCULAS DE $ok Y $mal A PROPOSITO: en PowerShell $ok y $OK son la MISMA variable, y
 # llamar a estas listas $OK/$MAL las machacaria en cuanto alguien escribiera $ok = 0 dentro de
 # la funcion. Paso al medir esto y solo el primer dia salia bien.
-$AnimoClavesBien = @('local', 'aprendida', 'memoria', 'traducida')
+$AnimoClavesBien = @('local', 'aprendida', 'firma', 'memoria', 'traducida')
 $AnimoClavesMal = @('descarte')
 function Get-AnimoDia($dias, [string]$clave) {
     # @{ animo; sucesos; ok; mal } de UN dia suelto. Aparte porque lo usan los dos calculos, y
@@ -3793,7 +3800,7 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '', [bool]$deCamino =
             (Test-Path -LiteralPath $EstadisticasMd)) { return }
         $script:estadisticasMdEn = $msMd
 
-        $rutas = @('activacion', 'vozwin', 'vozwin-mudo', 'local', 'aprendida', 'memoria', 'pregunta', 'traducir', 'traducida', 'accion', 'charla', 'ruido', 'recitado', 'descarte', 'error', 'fino', 'fino-sirvio', 'fino-igual', 'fino-invento', 'fino-ahorrado', 'repaso-ahorrado')
+        $rutas = @('activacion', 'vozwin', 'vozwin-mudo', 'local', 'aprendida', 'firma', 'memoria', 'pregunta', 'traducir', 'traducida', 'accion', 'charla', 'ruido', 'recitado', 'descarte', 'error', 'fino', 'fino-sirvio', 'fino-igual', 'fino-invento', 'fino-ahorrado', 'repaso-ahorrado')
         $sb = New-Object System.Text.StringBuilder
         [void]$sb.AppendLine("# Estadísticas del asistente")
         [void]$sb.AppendLine("")
@@ -3807,7 +3814,7 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '', [bool]$deCamino =
         # Bajar la ganancia por esto seria dejarla mas sorda justo cuando no oye nada.
         [void]$sb.AppendLine("**activacion**: veces que se desperto al oir su nombre. **ruido**: lo que se descarto por no ser una orden. **recitado**: lo que Whisper se inventa cuando casi no hay audio, de dos formas: repitiendo su propia frase de ejemplo (Que hora es, Que hora es) o enumerando nombres de tu biblioteca. MEDIDO sobre 13 casos (18/09): NO quiere decir que el microfono este cazando audio, sino lo contrario, porque llegan con el pico a 0.000 de mediana frente a 0.077 del ruido de verdad; bajar la ganancia por esto la dejaria mas sorda todavia. Y un cero tampoco quiere decir que sobre el filtro: puede ser un dia sin usarla.")
         [void]$sb.AppendLine("")
-        [void]$sb.AppendLine("Rutas: **local** (<1 s, sin modelo), **aprendida** (traducción guardada), **memoria** (búsqueda en notas), **pregunta** (modelo sin herramientas), **traducir** → **traducida** (el modelo la convirtió a una orden local y se aprendió), **accion** (agente completo), **charla**, **descarte** (trozo que la capa local no entendió).")
+        [void]$sb.AppendLine("Rutas: **local** (<1 s, sin modelo), **aprendida** (traducción guardada), **firma** (las palabras que eran la orden, aprendidas de dos formas de decirlo), **memoria** (búsqueda en notas), **pregunta** (modelo sin herramientas), **traducir** → **traducida** (el modelo la convirtió a una orden local y se aprendió), **accion** (agente completo), **charla**, **descarte** (trozo que la capa local no entendió).")
         [void]$sb.AppendLine("")
         # EL NUMERO DE LA META, LO PRIMERO QUE SE VE (C19, 21/09). Debajo hay tablas de
         # rutas y de fallos, pero ninguna contesta "¿me esta entendiendo?", que es LA
@@ -4279,7 +4286,7 @@ function Get-QueHeHecho {
         if ($st.dias.ContainsKey($hoy)) {
             $d = $st.dias[$hoy]
             $hechas = 0
-            foreach ($r in @('local', 'aprendida', 'traducida', 'memoria')) {
+            foreach ($r in @('local', 'aprendida', 'firma', 'traducida', 'memoria')) {
                 if ($d.ContainsKey($r)) { $hechas += [int]$d[$r] }
             }
             # LAS QUE SE DESPERTARON PARA NADA, DE LA MISMA POBLACION (20/09): ver
@@ -4357,7 +4364,7 @@ function Get-QueHeHecho {
 # EVENTOS (584 lineas frente a 236) que habria que agrupar por id, y esto se contesta
 # hablando. Lo unico que aportaba se replica abajo con una linea (el dictado vacio), y el
 # resultado se ha cruzado con el analisis del 18/09: 58 de 77, 75 %, los dos igual.
-$UsoBien   = @('local', 'aprendida', 'memoria', 'traducida', 'receta')
+$UsoBien   = @('local', 'aprendida', 'firma', 'memoria', 'traducida', 'receta')
 $UsoMal    = @('error', 'descarte', 'ruido')
 # Y 'recitado' ESTA AQUI DESDE EL 26/09 (idea 32 de las 121), no en $UsoBien. Un recitado es lo
 # que Whisper se inventa cuando casi no hay audio: devuelve las frases de ejemplo de su propio
@@ -8342,6 +8349,243 @@ function Remove-Traduccion([string]$original) {
         Log "OLVIDADO: la traduccion de '$original'"
         return $true
     } catch { Log ("no pude olvidar la traduccion: " + $_.Exception.Message); return $false }
+}
+
+# =====================================================================
+# FIRMAS: LAS PALABRAS QUE ERAN LA ORDEN, NO LA FRASE ENTERA (27/09, idea 89)
+#
+# EL PROBLEMA MEDIDO: lo que Nova aprende es la frase COMPLETA, letra por letra, y braya no
+# repite frases: repite intenciones con palabras distintas. En 14 dias la nube tradujo 58
+# frases y 57 eran distintas entre si; 24 de esas 58 cayeron en un destino que la nube YA
+# habia producido antes. Resultado del aprendizaje de frase entera: 21 traducciones
+# aprendidas, UNA usada en toda su vida ('aprendida' vale 1 frente a 'traducida' 42), y las
+# 6 que quedan en traducciones.json tienen todas usos: 0. Las 22 lineas 'no aprendo ...
+# frase larga' del registro son justo estas frases, tiradas a la basura.
+#
+# LO QUE VALE DE VERDAD, MEDIDO SOBRE ESAS 58 Y DICHO SIN ADORNOS: de los 10 destinos
+# repetidos solo DOS tienen dos o mas palabras de contenido en comun -{mira, pantalla} para
+# 'lee la pantalla' y {abre, pantalla, pinterest, youtube} para abrir las dos a media
+# pantalla-, y corriendo el algoritmo en orden cronologico se habria ahorrado UNA llamada de
+# 58, no tres. Es poco. Se hace igual porque cada una de esas llamadas son 5 a 8 segundos de
+# espera -lo que braya menos aguanta- y porque esto solo crece con el uso: la firma se gana
+# una vez y sirve para siempre.
+#
+# LAS GUARDAS SALEN DE LOS MISMOS DATOS, y las tres primeras son el motivo de que esto no sea
+# peligroso:
+#   1. MINIMO DOS PALABRAS. Las intersecciones de UNA palabra que hay en los datos reales son
+#      {cierra} -> 'cierra todos los programas' y {ring} -> 'cierra elden ring'. Con firmas
+#      de una palabra, decir "cierra steam" cerraria TODOS los programas y "abre elden ring"
+#      lo CERRARIA. Eso es la regla 1 rota. El minimo de dos las mata a las cuatro.
+#   2. AL MENOS UNA PALABRA DE LA FIRMA TIENE QUE APARECER EN EL DESTINO. En los datos hay
+#      dos frases que la nube tradujo a 'abre ajustes' sin que ninguna palabra lo dijera:
+#      'dije que si que lo hagas ahora' y 'si es a los ajutos'. La nube devuelve a veces un
+#      destino que sale del CONTEXTO de la conversacion, no de la frase; una firma nacida de
+#      ahi ('hagas' = abre ajustes) seria ley para siempre.
+#   3. UNA FIRMA QUE SEA SUBCONJUNTO DE OTRA CON OTRO DESTINO se descarta por ambigua.
+# Y la del dia a dia: las primeras veces PREGUNTA, con el mismo contador que las recetas
+# (recetas.confirmarVeces), y dos veces que no la borran.
+# =====================================================================
+$FirmasOn = [bool](Get-Cfg 'firmas' 'activadas' $true)
+$FirmasPath = Join-Path $MemoriaDir 'firmas.json'
+$FirmasMax = 40                  # y la lista no crece sin fin
+$FirmasPalabrasMin = 2           # ver guarda 1: con una palabra esto seria un arma
+$FirmasCandidatosMax = 6         # lo que se recuerda de cada destino
+$script:firmas = $null
+# LA BANDERA QUE CORTA EL BUCLE. Una firma puede tener todas sus palabras dentro de su
+# propio destino -pasa con {abre, pantalla, pinterest, youtube}-, asi que ejecutar el destino
+# volveria a disparar la firma. Mientras el destino de una firma se esta haciendo, no se
+# prueban firmas.
+$script:enFirma = $false
+
+function Get-FirmasDisco {
+    if ($null -ne $script:firmas) { return $script:firmas }
+    $script:firmas = @{ candidatos = @{}; firmas = (New-Object System.Collections.ArrayList) }
+    try {
+        if (Test-Path -LiteralPath $FirmasPath) {
+            $j = Get-Content -LiteralPath $FirmasPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($pr in @($j.candidatos.PSObject.Properties)) {
+                $ls = New-Object System.Collections.ArrayList
+                foreach ($c in @($pr.Value)) {
+                    $pal = @(@($c) | ForEach-Object { [string]$_ } | Where-Object { $_ })
+                    if ($pal.Count -gt 0) { [void]$ls.Add($pal) }
+                }
+                if ($ls.Count -gt 0) { $script:firmas.candidatos[[string]$pr.Name] = $ls }
+            }
+            foreach ($f in @($j.firmas)) {
+                if (-not $f -or -not [string]$f.destino) { continue }
+                $pal = @(@($f.palabras) | ForEach-Object { [string]$_ } | Where-Object { $_ })
+                if ($pal.Count -lt $FirmasPalabrasMin) { continue }
+                [void]$script:firmas.firmas.Add(@{ palabras = $pal; destino = [string]$f.destino
+                                                  confirmadas = [int]$f.confirmadas; rechazos = [int]$f.rechazos
+                                                  usos = [int]$f.usos; visto = [string]$f.visto })
+            }
+        }
+    } catch {
+        Log ('no pude leer firmas.json: ' + $_.Exception.Message)
+        $script:firmas = @{ candidatos = @{}; firmas = (New-Object System.Collections.ArrayList) }
+    }
+    return $script:firmas
+}
+
+function Save-Firmas {
+    try {
+        $g = Get-FirmasDisco
+        # el tope se aplica al guardar, quitando las que menos se usan
+        if ($g.firmas.Count -gt $FirmasMax) {
+            $sobra = @($g.firmas | Sort-Object @{ e = { [int]$_.usos } }, @{ e = { [string]$_.visto } } | Select-Object -First ($g.firmas.Count - $FirmasMax))
+            foreach ($x in $sobra) { [void]$g.firmas.Remove($x) }
+        }
+        $cand = [ordered]@{}
+        foreach ($k in @($g.candidatos.Keys | Sort-Object)) { $cand[$k] = @(@($g.candidatos[$k]) | ForEach-Object { ,@($_) }) }
+        $fir = @()
+        foreach ($f in @($g.firmas)) {
+            $fir += [ordered]@{ palabras = @($f.palabras); destino = [string]$f.destino
+                                confirmadas = [int]$f.confirmadas; rechazos = [int]$f.rechazos
+                                usos = [int]$f.usos; visto = [string]$f.visto }
+        }
+        Write-Atomico $FirmasPath (ConvertTo-Json ([ordered]@{ candidatos = $cand; firmas = $fir }) -Depth 6)
+        return $true
+    } catch { Log ('no pude guardar firmas.json: ' + $_.Exception.Message); return $false }
+}
+
+# LAS PALABRAS DE CONTENIDO, con la MISMA pieza que ya usa la busqueda en la memoria
+# ($PALABRAS_VACIAS y el minimo de 3 letras de Find-EnMemoria): una sola idea de que es una
+# palabra que dice algo, no dos listas que se separan con el tiempo.
+function Get-ClavesFirma([string]$texto) {
+    $p = ConvertTo-Plain $texto
+    if (-not $p) { return @() }
+    return @($p -split '\s+' | Where-Object { $_.Length -ge 3 -and $PALABRAS_VACIAS -notcontains $_ } | Select-Object -Unique)
+}
+
+# Las guardas 1, 2 y 3 de arriba, en el orden en que importan.
+function Test-FirmaValida($palabras, [string]$destino) {
+    $ps = @(@($palabras) | Where-Object { $_ })
+    if ($ps.Count -lt $FirmasPalabrasMin) { return $false }
+    $pd = ' ' + (ConvertTo-Plain $destino) + ' '
+    if ($pd.Trim().Length -lt 3) { return $false }
+    # GUARDA 2: alguna palabra de la firma tiene que estar en el destino
+    $tocan = 0
+    foreach ($w in $ps) { if ($pd.Contains(' ' + $w + ' ')) { $tocan++ } }
+    if ($tocan -lt 1) { return $false }
+    # GUARDA 3: ni subconjunto ni superconjunto de una firma que lleva a OTRO sitio
+    $pdPlano = ConvertTo-Plain $destino
+    foreach ($o in @((Get-FirmasDisco).firmas)) {
+        if ((ConvertTo-Plain ([string]$o.destino)) -eq $pdPlano) { continue }
+        $otras = @($o.palabras)
+        $meCubre = $true
+        foreach ($w in $ps) { if ($otras -notcontains $w) { $meCubre = $false; break } }
+        $cubroYo = $true
+        foreach ($w in $otras) { if ($ps -notcontains $w) { $cubroYo = $false; break } }
+        if ($meCubre -or $cubroYo) { return $false }
+    }
+    return $true
+}
+
+# UN CASO MAS PARA ESTE DESTINO. Cuando junta dos, la interseccion de lo que TODOS
+# comparten pasa a ser la firma; si un caso nuevo la vacia, la firma se va, porque entonces
+# esas palabras no eran la firma de la intencion.
+function Add-CandidatoFirma([string]$original, [string]$destino) {
+    if (-not $FirmasOn) { return $false }
+    if ($script:invitado) { return $false }          # lo que diga otro no se queda (modo invitado)
+    $d = ConvertTo-Plain $destino
+    if (-not $d -or $d.Length -lt 3) { return $false }
+    # EL MISMO FRENO QUE EL APRENDIZAJE DE FRASE ENTERA: de lo mal oido no se aprende nada
+    try { if (Test-OidoDudoso $original) { return $false } } catch {}
+    $cl = @(Get-ClavesFirma $original)
+    if ($cl.Count -lt $FirmasPalabrasMin) { return $false }
+    try {
+        $g = Get-FirmasDisco
+        if (-not $g.candidatos.ContainsKey($d)) { $g.candidatos[$d] = New-Object System.Collections.ArrayList }
+        $clave = ($cl | Sort-Object) -join ' '
+        foreach ($c in @($g.candidatos[$d])) {
+            if (((@($c) | Sort-Object) -join ' ') -eq $clave) { return $false }   # la misma frase no es otro caso
+        }
+        [void]$g.candidatos[$d].Add($cl)
+        while ($g.candidatos[$d].Count -gt $FirmasCandidatosMax) { $g.candidatos[$d].RemoveAt(0) }
+        $vieja = @($g.firmas | Where-Object { (ConvertTo-Plain ([string]$_.destino)) -eq $d })
+        if ($g.candidatos[$d].Count -lt 2) { [void](Save-Firmas); return $false }
+        # la interseccion de TODOS los casos
+        $inter = @($g.candidatos[$d][0])
+        foreach ($c in @($g.candidatos[$d])) { $inter = @($inter | Where-Object { @($c) -contains $_ }) }
+        if (-not (Test-FirmaValida $inter $d)) {
+            if ($vieja.Count -gt 0) {
+                foreach ($v in $vieja) { [void]$g.firmas.Remove($v) }
+                Log ("FIRMA de '" + $d + "' retirada: un caso nuevo deja la interseccion en " + $inter.Count + " palabra(s)")
+            }
+            [void](Save-Firmas)
+            return $false
+        }
+        if ($vieja.Count -gt 0) {
+            if (((@($vieja[0].palabras) | Sort-Object) -join ' ') -eq (($inter | Sort-Object) -join ' ')) { return $false }
+            $vieja[0].palabras = @($inter)
+            $vieja[0].visto = (Get-Date -Format 'yyyy-MM-dd')
+            [void](Save-Firmas)
+            Log ("FIRMA afinada: {" + (($inter | Sort-Object) -join ' ') + "} -> '" + $d + "'")
+            return $true
+        }
+        [void]$g.firmas.Add(@{ palabras = @($inter); destino = $d; confirmadas = 0; rechazos = 0
+                               usos = 0; visto = (Get-Date -Format 'yyyy-MM-dd') })
+        [void](Save-Firmas)
+        Log ("FIRMA APRENDIDA: {" + (($inter | Sort-Object) -join ' ') + "} -> '" + $d + "' (de " + $g.candidatos[$d].Count + " formas de decirlo)")
+        Add-Estadistica 'firma-aprendida' ((($inter | Sort-Object) -join ' ') + ' = ' + $d)
+        return $true
+    } catch { Log ('no pude apuntar la firma: ' + $_.Exception.Message); return $false }
+}
+
+# ¿Alguna firma cabe entera en lo dicho? Gana la MAS LARGA, que es la mas especifica.
+function Find-Firma([string]$texto) {
+    if (-not $FirmasOn) { return $null }
+    $cl = @(Get-ClavesFirma $texto)
+    if ($cl.Count -lt $FirmasPalabrasMin) { return $null }
+    $mejor = $null
+    foreach ($f in @((Get-FirmasDisco).firmas)) {
+        $todas = $true
+        foreach ($w in @($f.palabras)) { if ($cl -notcontains $w) { $todas = $false; break } }
+        if (-not $todas) { continue }
+        if ($null -eq $mejor -or @($f.palabras).Count -gt @($mejor.palabras).Count) { $mejor = $f }
+    }
+    return $mejor
+}
+
+function Get-ClaveFirma($f) { return ((@($f.palabras) | Sort-Object) -join ' ') }
+
+# La respuesta cuenta: dos veces que si y ya va directa, dos que no y fuera.
+function Add-FirmaRespuesta([string]$clave, [bool]$bien) {
+    try {
+        $g = Get-FirmasDisco
+        $enc = @($g.firmas | Where-Object { (Get-ClaveFirma $_) -eq $clave })
+        if ($enc.Count -eq 0) { return $false }
+        if ($bien) {
+            $enc[0].confirmadas = [int]$enc[0].confirmadas + 1
+            $enc[0].usos = [int]$enc[0].usos + 1
+            $enc[0].visto = (Get-Date -Format 'yyyy-MM-dd')
+        } else {
+            $enc[0].rechazos = [int]$enc[0].rechazos + 1
+            if ([int]$enc[0].rechazos -ge 2) {
+                [void]$g.firmas.Remove($enc[0])
+                Log ("FIRMA {" + $clave + "} olvidada: dos veces que no")
+                Add-Estadistica 'firma-olvidada' $clave
+            }
+        }
+        [void](Save-Firmas)
+        return $true
+    } catch { return $false }
+}
+
+# SE PUEDE QUITAR: por el destino, que es como braya la nombraria ("olvida lo de leer la pantalla").
+function Remove-Firma([string]$destino) {
+    $d = ConvertTo-Plain $destino
+    if (-not $d) { return $false }
+    try {
+        $g = Get-FirmasDisco
+        $enc = @($g.firmas | Where-Object { (ConvertTo-Plain ([string]$_.destino)) -eq $d })
+        if ($enc.Count -eq 0) { return $false }
+        foreach ($x in $enc) { [void]$g.firmas.Remove($x) }
+        if ($g.candidatos.ContainsKey($d)) { $g.candidatos.Remove($d) }
+        [void](Save-Firmas)
+        Log ("FIRMA olvidada: la de '" + $d + "'")
+        return $true
+    } catch { return $false }
 }
 
 function Find-Generalizacion([string]$original, [string]$traducida) {
@@ -27461,6 +27705,11 @@ function Report-Reply($out) {
                 return
             }
             if ($r) {
+                # LAS PALABRAS QUE ERAN LA ORDEN (27/09, idea 89). Se apunta SIEMPRE que la nube
+                # tradujo y la capa local lo EJECUTO, pase o no el filtro de aqui abajo: justo las
+                # frases que ese filtro tira -las largas, 22 en 14 dias- son las que traen las
+                # palabras comunes buenas. Ver FIRMAS: LAS PALABRAS QUE ERAN LA ORDEN.
+                try { [void](Add-CandidatoFirma $original $propuesta) } catch {}
                 # SOLO SE APRENDE LO QUE SE PUEDE REPETIR (15/09). Se aprendieron "abre la carpeta
                 # Games" = "abre explorador", "cierra Google" = "cierra edge" y frases de 15 palabras
                 # que no se van a volver a decir igual. No se aprende una frase de mas de 6 palabras,
@@ -27992,6 +28241,26 @@ function Complete-Confirmacion([string]$respuesta) {
     # Para decir que si hay que decirlo.
     # DIJISTE QUE SI: entonces la querias. Se quita de la lista de rechazadas,
     # o se quedaria preguntando por ella el resto de su vida.
+    # LA RESPUESTA A UNA FIRMA CUENTA (27/09, idea 89): dos veces que si y ya va directa, dos
+    # que no y se olvida, como una receta. Va antes del desenlace comun a proposito, para poner
+    # la bandera que corta el bucle de una firma cuyas palabras esten dentro de su propio
+    # destino. Ver FIRMAS: LAS PALABRAS QUE ERAN LA ORDEN.
+    if ($p.tipo -eq 'firma' -and $p.firma) {
+        [void](Add-FirmaRespuesta ([string]$p.firma) ($respuesta -eq 'si'))
+        if ($respuesta -eq 'si') {
+            Log ("FIRMA {" + [string]$p.firma + "}: dijiste que si")
+            $script:confirmado = $true
+            $script:enFirma = $true
+            try { Process-Texto $p.texto } finally { $script:confirmado = $false; $script:enFirma = $false }
+        } elseif ($respuesta -eq 'no') {
+            Log ("FIRMA {" + [string]$p.firma + "}: dijiste que no")
+            Set-UI 'error' 'Vale, cancelado' 2000
+            Say 'Vale, lo dejo.'
+        } else {
+            Set-UI 'reposo'
+        }
+        return
+    }
     if ($respuesta -eq 'si' -and $p.tipo -eq 'rechazada') { $null = Remove-Rechazo $p.texto }
     if ($respuesta -ne 'si') {
         Log "CONFIRMAR: no se ejecuta '$($p.texto)' ($respuesta)"
@@ -30252,6 +30521,59 @@ function Process-Texto([string]$text) {
             # (y la reescribe entera) o parte de la conversacion
             # (y fuera de ella, lo que parece conversacion: ver Test-PareceCharla)
             if (((Test-CharlaCaliente) -or (Test-PareceCharla $text)) -and (Send-Charla $text)) { return }
+            # 3.7) ¿UNA FIRMA APRENDIDA CABE EN LO DICHO? (27/09, idea 89). Va aqui, en el ultimo
+            #      escalon antes de la nube: DESPUES del filtro de ruido, de la voz ajena y del
+            #      oido fino -las mismas guardas por las que pasan las recetas, y por el mismo
+            #      motivo: esto puede acabar ejecutando una orden- y ANTES de gastar los 5 a 8 s
+            #      de espera. Ver FIRMAS: LAS PALABRAS QUE ERAN LA ORDEN, NO LA FRASE ENTERA.
+            if ($FirmasOn -and -not $script:enFirma) {
+                $firEnc = $null
+                try { $firEnc = Find-Firma $text } catch { $firEnc = $null }
+                if ($firEnc) {
+                    $destF = [string]$firEnc.destino
+                    $claveF = Get-ClaveFirma $firEnc
+                    if (-not $script:confirmado -and [int]$firEnc.confirmadas -lt $RecetasConfirmar) {
+                        # LAS PRIMERAS VECES SE PREGUNTA, el mismo trato que una receta y con su
+                        # mismo contador (recetas.confirmarVeces). Una firma es una apuesta sobre
+                        # lo que braya quiso decir: preguntar cuesta un segundo y acertar de mas
+                        # cuesta una orden que nadie pidio.
+                        $script:pendiente = @{ texto = $destF; vence = 0; tipo = 'firma'; firma = $claveF }
+                        $pregF = '¿' + $destF + '?'
+                        Log ("FIRMA {" + $claveF + "}: pregunto antes de '" + $destF + "' por '" + $text + "'")
+                        Add-Estadistica 'firma-preguntada' ($claveF + ' = ' + $destF)
+                        Say $pregF
+                        Set-UI 'escuchando' $pregF
+                        Start-Confirmacion
+                        return
+                    }
+                    $rF = $null
+                    $script:enFirma = $true
+                    try { $rF = Invoke-FastCommand $destF } catch { $rF = $null } finally { $script:enFirma = $false }
+                    if ($rF -and $script:pendiente) {
+                        # la capa local quiere confirmar el destino (peligroso, voz que no suena a
+                        # la suya): se le deja, igual que con la traduccion de la nube
+                        Log ("FIRMA {" + $claveF + "} -> '" + $destF + "' -> " + $rF)
+                        Show-Popup $rF
+                        Say $rF
+                        Set-UI 'escuchando' $rF
+                        Start-Confirmacion
+                        return
+                    }
+                    if ($rF) {
+                        [void](Add-FirmaRespuesta $claveF $true)
+                        if ($script:intentoActual) { $script:intentoActual.llego = 'firma' }   # su destino propio
+                        Log ("FIRMA {" + $claveF + "}: '" + $text + "' -> '" + $destF + "', sin pasar por la nube")
+                        Add-Estadistica 'firma-usada' ($claveF + ' = ' + $destF)
+                        $script:ultimaRespuesta = $rF
+                        Send-UIEvento 'hecho'
+                        Show-Popup $rF
+                        Say $rF
+                        return
+                    }
+                    # no la pudo hacer: la frase sigue su camino a la nube como si nada
+                    Log ("FIRMA {" + $claveF + "}: la capa local no pudo con '" + $destF + "', sigo a la nube")
+                }
+            }
             # 4) que el modelo la traduzca a una orden conocida (~13 s) y se
             #    aprenda; si no encaja, cae al agente completo
             # DE CAMINO, NO DE LLEGADA (19/09): la frase sigue hacia el modelo en la linea de

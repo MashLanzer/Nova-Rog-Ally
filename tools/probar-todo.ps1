@@ -2072,6 +2072,16 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n242. Las palabras que eran la orden, no la frase entera (idea 89 de las 121)"
+# En 14 dias la nube tradujo 58 frases y 57 eran DISTINTAS: braya no repite frases, repite
+# intenciones con otras palabras. Por eso el aprendizaje de frase entera dio 21 traducciones y
+# UNA usada en su vida. Ahora, cuando dos frases distintas acaban en el mismo destino, lo que
+# comparten se guarda como firma. MEDIDO sobre esas 58 y sin adornos: se habria ahorrado UNA
+# llamada, no las tres de la ficha. Y las guardas salen de los mismos datos: con firmas de UNA
+# palabra, {cierra} cerraria todos los programas al oir 'cierra steam' y {ring} CERRARIA elden
+# ring cuando se pide abrirlo.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-firmas.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:las firmas aprenden las palabras)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n241. La tabla de atragantos tenia tres filas y ninguna era una orden (idea 88 de las 121)"
 # Las tres filas eran: una frase que llegaba a 2 porque una tilde duplico el descarte, la ETIQUETA
 # interna 'dictado vacio' -que la tabla pedia ensenarle a Nova- y holandes de un video de fondo. Y
