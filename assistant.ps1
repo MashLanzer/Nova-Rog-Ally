@@ -24488,9 +24488,10 @@ function Get-VentanaSeguimiento([bool]$charla = $false) {
 }
 
 # MENOS ESPERA EN FRIO (M2): el modelo de charla tarda ~15 s en cargar. Si es
-# probable que vayas a conversar (hablasteis hace poco, o sueles hacerlo a esta
-# hora tres dias de las dos ultimas semanas), al llamarla se precarga mientras
-# dictas. Jugando no, que la RAM es del juego, salvo que acabeis de hablar.
+# probable que vayas a conversar (hablasteis hace poco, o esta hora PESA en tus
+# charlas de las dos ultimas semanas -no cuantos dias, sino cuantas charlas: ver
+# idea 51 en Test-PrecargaCharla), al llamarla se precarga mientras dictas.
+# Jugando no, que la RAM es del juego, salvo que acabeis de hablar.
 # A QUE HORAS USA NOVA, CONTANDO (26/09, idea 27 de las 121). Gemela de Add-CharlaHora, con
 # UNA diferencia: aqui se INCREMENTA. Aquella solo marca "hubo charla en esta hora"; esto
 # necesita la cuenta, porque el detector de mas abajo descarta los dias con pocas ordenes y sin
@@ -24514,8 +24515,11 @@ function Add-CharlaHora([datetime]$cuando = (Get-Date)) {
     if ($script:invitado) { return }
     $hbC = Get-Habitos
     $clave = $cuando.ToString('yyyy-MM-dd|HH')
-    if ($hbC.charlaHoras.ContainsKey($clave)) { return }
-    $hbC.charlaHoras[$clave] = 1
+    # IDEA 51: pesa las charlas, no las cuenta por dias. Antes marcaba "hubo charla en esta hora"
+    # (= 1) y se iba; ahora SUMA. Clave ausente -> indice $null -> [int]$null vale 0 -> sale 1
+    # (mismo estreno que hoy), y un fichero viejo de unos se lee como "una vez" (Get-Habitos ya
+    # carga [int]$pf.Value). Asi la hora 23 con 105 charlas deja de pesar igual que la 09 con 2.
+    $hbC.charlaHoras[$clave] = [int]$hbC.charlaHoras[$clave] + 1
     $limite = $cuando.AddDays(-14).ToString('yyyy-MM-dd')
     foreach ($k in @($hbC.charlaHoras.Keys)) { if ($k.Substring(0, 10) -lt $limite) { $hbC.charlaHoras.Remove($k) } }
     Save-Habitos
@@ -24546,6 +24550,25 @@ function Test-RamParaCharla {
 function Test-ApiContestaPrimero {
     return ($ClaudeOn -and -not $script:apiFallo -and (Test-ClaveClaude))
 }
+# EL PESO DE LAS CHARLAS POR HORA (26/09, idea 51 de las 121). Recorre charlaHoras UNA vez y
+# devuelve dos repartos: cuantas charlas (peso) y cuantos dias distintos (dias) hubo en cada
+# hora HH de los ultimos 14 dias. El peso es lo nuevo: antes charlaHoras valia 1 por hora con
+# charla, asi que 105 charlas y 2 charlas pesaban igual. [int] en LOS DOS sumatorios a proposito:
+# sin el, un valor de ConvertFrom-Json ordena como texto ("105" < "9") y la mediana sale al reves.
+# La guarda de longitud no es adorno: una clave manoseada a mano reventaria, y el llamador de la
+# precarga envuelve esto en try/catch, o sea que el fallo seria MUDO y Nova dejaria de precargar.
+function Get-PesoCharlaHoras([datetime]$ahora = (Get-Date)) {
+    $limP = $ahora.AddDays(-14).ToString('yyyy-MM-dd')
+    $chP = (Get-Habitos).charlaHoras
+    $pesoP = @{}; $diasP = @{}
+    foreach ($kP in @($chP.Keys)) {
+        if ($kP.Length -lt 13 -or $kP.Substring(0, 10) -lt $limP) { continue }
+        $hP = $kP.Substring(11, 2)
+        $pesoP[$hP] = [int]$pesoP[$hP] + [int]$chP[$kP]
+        $diasP[$hP] = [int]$diasP[$hP] + 1
+    }
+    return @{ peso = $pesoP; dias = $diasP }
+}
 function Test-PrecargaCharla([datetime]$ahora = (Get-Date)) {
     if (-not $ConversacionOn) { return $false }
     # con la API contesta ella primero (ver API PRIMERO en charla_worker.py): cargar el
@@ -24561,9 +24584,22 @@ function Test-PrecargaCharla([datetime]$ahora = (Get-Date)) {
     $reciente = ($sw.ElapsedMilliseconds - $script:charlaUltima) -lt 1200000
     if ($reciente) { return $true }
     $hora = $ahora.ToString('HH')
-    $limite = $ahora.AddDays(-14).ToString('yyyy-MM-dd')
-    $dias = @((Get-Habitos).charlaHoras.Keys | Where-Object { $_.EndsWith("|$hora") -and $_.Substring(0, 10) -ge $limite }).Count
-    return ($dias -ge 3)
+    # IDEA 51: el liston es la MEDIANA del reparto de charlas por hora (mismo idiom que
+    # Get-HoraFinHabitual), no un numero. Si alguna hora destaca de verdad -su peso pasa la
+    # mediana- precarga solo donde pesa (y con al menos 2 dias, que un dia suelto no es costumbre);
+    # si nada destaca (reparto plano, el maximo no supera la mediana), manda el liston de siempre
+    # (>= 3 dias, con su comentario de 15/09). [int] en los tres sitios: una hora ausente da $null
+    # y "$null -gt 0" y "$null -lt 1" no se comportan igual.
+    $repP = Get-PesoCharlaHoras $ahora
+    $diasH = [int]$repP.dias[$hora]
+    $orden = @($repP.peso.Values | Sort-Object)
+    if ($orden.Count -gt 0) {
+        $med = [int]$orden[[int][Math]::Floor($orden.Count / 2)]
+        if ([int]$orden[-1] -gt $med) {
+            return (([int]$repP.peso[$hora] -gt $med) -and ($diasH -ge 2))
+        }
+    }
+    return ($diasH -ge 3)
 }
 
 # lo que ha aprendido HABLANDO, para "¿que has aprendido?" (M1)

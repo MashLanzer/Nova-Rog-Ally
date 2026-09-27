@@ -21,7 +21,7 @@ function TraerFn($n) {
 }
 foreach ($n in 'ConvertTo-Plain', 'Watch-Notificaciones', 'Get-ResumenNotificaciones', 'Get-LecturaNotificaciones', 'Get-Contactos', 'Save-Contactos',
     'Get-Habitos', 'Save-Habitos', 'Add-Habito', 'Find-Propuesta', 'Test-ParteManana',
-    'Add-RitmoSeguimiento', 'Get-VentanaSeguimiento', 'Add-CharlaHora', 'Test-PrecargaCharla', 'Write-Atomico',
+    'Add-RitmoSeguimiento', 'Get-VentanaSeguimiento', 'Add-CharlaHora', 'Get-PesoCharlaHoras', 'Test-PrecargaCharla', 'Write-Atomico',
     # Test-ApiContestaPrimero (19/09, af8961a): Test-PrecargaCharla la llama en su primera
     # linea. Sin traerla aqui, esta prueba corria con una funcion que NO existe: PowerShell
     # escupia CommandNotFoundException, la condicion valia $false y los casos pasaban igual,
@@ -258,6 +258,58 @@ $script:juegoActivo = $null
 Comp 'y sin juego, una charla reciente si precarga' (Test-PrecargaCharla (Get-Date '2026-09-20 22:10'))
 $script:invitado = $true; Add-CharlaHora (Get-Date '2026-09-20 03:00'); $script:invitado = $false
 Comp 'lo de un invitado no cuenta' (@((Get-Habitos).charlaHoras.Keys | Where-Object { $_ -like '*|03' }).Count -eq 0)
+
+Write-Host "--- idea 51: la precarga PESA las charlas, no las cuenta por dias ---"
+# Los casos entran por Test-PrecargaCharla con habitos escritos por Add-CharlaHora y afirman
+# $true/$false, que es lo unico que decide si qwen2.5:3b entra en la RAM. Doblar la mediana en el
+# propio banco no probaria nada. Reset obligado entre bloques: $reciente y el juego mandan por
+# encima de todo esto, y una hora vieja contamina la mediana.
+function ResetPrecarga { $script:charlaUltima = -99999999; $script:juegoActivo = $null; $script:invitado = $false; (Get-Habitos).charlaHoras.Clear() }
+
+# 1. tres charlas en la misma hora pesan tres (antes se quedaba en 1)
+ResetPrecarga
+foreach ($i in 1..3) { Add-CharlaHora (Get-Date '2026-09-20 22:15') }
+Comp '1. tres charlas en la misma hora pesan tres' ((Get-Habitos).charlaHoras['2026-09-20|22'] -eq 3) "valor: $((Get-Habitos).charlaHoras['2026-09-20|22'])"
+
+# 2. un invitado no suma NI SOBRE UNA HORA QUE YA EXISTE (agujero que antes tapaba el ContainsKey)
+ResetPrecarga
+(Get-Habitos).charlaHoras['2026-09-20|22'] = 3
+$script:invitado = $true; Add-CharlaHora (Get-Date '2026-09-20 22:45'); $script:invitado = $false
+Comp '2. un invitado no suma sobre una hora que ya existe' ((Get-Habitos).charlaHoras['2026-09-20|22'] -eq 3) "valor: $((Get-Habitos).charlaHoras['2026-09-20|22'])"
+
+# 3. la poda de 14 dias corre en CADA charla (no una vez por hora)
+ResetPrecarga
+(Get-Habitos).charlaHoras['2026-09-01|22'] = 5
+Add-CharlaHora (Get-Date '2026-09-25 22:15')
+Comp '3. lo de hace mas de 14 dias se cae aunque la hora exista' (-not (Get-Habitos).charlaHoras.ContainsKey('2026-09-01|22')) ''
+
+# 4. PESA LAS CHARLAS, NO LOS DIAS (el caso que de verdad prueba la idea)
+ResetPrecarga
+$ch4 = (Get-Habitos).charlaHoras
+$ch4['2026-09-18|22'] = 5; $ch4['2026-09-19|22'] = 5                                           # A: 2 dias, peso 10
+$ch4['2026-09-16|21'] = 1; $ch4['2026-09-17|21'] = 1; $ch4['2026-09-18|21'] = 1; $ch4['2026-09-19|21'] = 1  # B: 4 dias, peso 4
+$ch4['2026-09-19|09'] = 1                                                                     # C: 1 dia, peso 1
+Comp '4. A (2 dias x 5, peso 10) precarga' (Test-PrecargaCharla (Get-Date '2026-09-20 22:10')) ''
+Comp '   y B (4 dias x 1, peso 4) NO, aunque tenga mas dias' (-not (Test-PrecargaCharla (Get-Date '2026-09-20 21:10'))) ''
+
+# 7. los pesos se ordenan como NUMEROS, no como texto (105 no queda por debajo de 9)
+ResetPrecarga
+$ch7 = (Get-Habitos).charlaHoras
+$ch7['2026-09-18|19'] = 25; $ch7['2026-09-19|19'] = 25   # objetivo 19: 2 dias, peso 50 (por encima de la mediana 9)
+$ch7['2026-09-19|23'] = 105; $ch7['2026-09-19|13'] = 9; $ch7['2026-09-19|11'] = 8; $ch7['2026-09-19|09'] = 2
+Comp '7. los pesos se ordenan como numeros (mediana 9, no texto)' (Test-PrecargaCharla (Get-Date '2026-09-20 19:10')) ''
+
+# 5. REGRESION CON DATOS REALES: el habitos.json de hoy (todo a unos) elige las mismas 4 horas
+ResetPrecarga
+$ch5 = (Get-Habitos).charlaHoras
+$diasPorHora = @{ '09' = 1; '10' = 1; '13' = 1; '14' = 1; '17' = 1; '20' = 1; '00' = 2; '11' = 2; '15' = 2; '18' = 2; '19' = 2; '01' = 3; '22' = 4; '23' = 4; '21' = 5 }
+foreach ($h in $diasPorHora.Keys) {
+    for ($d = 0; $d -lt $diasPorHora[$h]; $d++) { $ch5[((Get-Date '2026-09-25').AddDays(-$d).ToString('yyyy-MM-dd')) + "|$h"] = 1 }
+}
+$precTrue = $true; foreach ($h in '01', '21', '22', '23') { if (-not (Test-PrecargaCharla (Get-Date "2026-09-26 $($h):00"))) { $precTrue = $false } }
+$precFalse = $true; foreach ($h in '00', '09', '11', '15', '18', '19', '20') { if (Test-PrecargaCharla (Get-Date "2026-09-26 $($h):00")) { $precFalse = $false } }
+Comp '5. con los datos reales de hoy, precarga en 01/21/22/23' $precTrue ''
+Comp '   y NO en 00/09/11/15/18/19/20 (con >= saldrian ocho)' $precFalse ''
 
 Remove-Item -LiteralPath $MemoriaDir -Recurse -Force -ErrorAction SilentlyContinue
 if ($mal -gt 0) { Write-Host "$mal casos MAL"; exit 1 }
