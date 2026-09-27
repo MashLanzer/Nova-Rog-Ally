@@ -1,4 +1,4 @@
-# EN LA MESA O EN LAS MANOS (27/09, idea 69 de las 121)
+﻿# EN LA MESA O EN LAS MANOS (27/09, idea 69 de las 121)
 #
 # DOS SENALES QUE NO COSTABAN NADA Y NO SE USABAN:
 #   1. dwPacketNumber del mando. XInput solo lo sube cuando el mando cambia de estado, y el estado

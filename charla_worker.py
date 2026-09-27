@@ -919,6 +919,25 @@ def revisar_una():
             if hecho:
                 salida("info", texto="memoria: repaso del dia (%d repetidos juntados, %d a revisar otra vez, %d podados)" % (
                     hecho["juntados"], hecho["reencolados"], hecho["podados"]))
+                # IDEA 79: y de paso se LEE el fichero de lo importante, que llevaba desde el 25/09
+                # escribiendose sin que nadie lo abriera. Aqui solo se cuenta y se agrupa -el
+                # agrupado usa fichas(), que vive en este lado- y el resultado se deja en un json
+                # para que el asistente lo diga en su resumen semanal: la prueba de si un agujero es
+                # FALSO (algo que Nova si sabe) la hace el, que es quien tiene el resolvedor.
+                try:
+                    ag = cerebro.agujeros(7)
+                    ruta_ag = os.path.join(CARPETA_CEREBRO, "agujeros.json")
+                    tmp_ag = ruta_ag + ".tmp"
+                    with open(tmp_ag, "w", encoding="utf-8") as f:
+                        json.dump({"visto": time.strftime("%Y-%m-%d %H:%M:%S"), "dias": 7,
+                                   "total": ag["total"], "grupos": ag["grupos"][:10]},
+                                  f, ensure_ascii=False)
+                    os.replace(tmp_ag, ruta_ag)
+                    if ag["total"]:
+                        rep = len([g for g in ag["grupos"] if g["veces"] > 1])
+                        salida("info", texto="lo importante: %d agujero(s) esta semana, %d de lo mismo" % (ag["total"], rep))
+                except Exception as e:  # noqa: BLE001
+                    salida("info", texto="lo importante: no pude contar los agujeros (%s)" % e)
         except Exception as e:  # noqa: BLE001
             salida("info", texto="memoria: repaso fallido (%s)" % e)
         # y lo hablado los dias pasados, resumido para el diario (M10)

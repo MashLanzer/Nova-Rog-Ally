@@ -23123,6 +23123,64 @@ function Watch-Acelerometro {
 #
 # Si esa semana no decidio nada, no escribe ninguna linea: un parte que dice "no hice nada
 # especial" cansa mas de lo que informa.
+# LEER EL FICHERO DE LO IMPORTANTE (27/09, idea 79)
+#
+# EL AGUJERO: desde el 25/09 el worker copia a memoria\cerebro\importante.jsonl cada turno en que
+# braya corrige y cada turno en que Nova admite que no sabe algo. Se escribia en modo 'a' y NO LO
+# LEIA NADIE: cero lectores en todo el repositorio fuera de dos bancos. Es el inventario de sus
+# agujeros y estaba muerto en el disco.
+#
+# EL REPARTO DEL TRABAJO: el worker agrupa (usa fichas(), que vive en su lado) y deja el resultado
+# en agujeros.json; aqui se hace lo que el worker NO puede hacer: probar EN SECO si eso que Nova
+# dijo que no sabia es algo que SI sabe. De los 8 agujeros contados en el registro, TRES eran
+# falsos: dos veces '¿que hora es?' -contesto 'no tengo acceso a la hora actual de tu consola'- y
+# una el clima, que se arreglo a mano el 15/09.
+#
+# EN SECO DE VERDAD: Test-FastCommand dice si la frase tiene una orden que Nova resuelve, y no
+# ejecuta nada. Nunca se llama a Invoke-FastCommand desde aqui.
+$AgujerosJson = Join-Path $MemoriaDir 'cerebro\agujeros.json'
+function Get-AgujerosSemana {
+    # devuelve @{ total; repetidos = @(@{ veces; frase; falso }) } o $null si no hay nada que leer
+    try {
+        if (-not (Test-Path -LiteralPath $AgujerosJson)) { return $null }
+        $j = Get-Content -LiteralPath $AgujerosJson -Raw -Encoding UTF8 | ConvertFrom-Json
+        $tot = [int]$j.total
+        if ($tot -le 0) { return $null }
+        $rep = New-Object System.Collections.ArrayList
+        foreach ($g in @($j.grupos)) {
+            if ([int]$g.veces -lt 2) { continue }          # lo que paso una vez no es un agujero suyo
+            $fr = [string]$g.frase
+            $falso = $false
+            # LA PRUEBA EN SECO: ¿sabria resolverlo hoy? Si si, el agujero es mentira.
+            try { $falso = [bool](Test-FastCommand $fr) } catch { $falso = $false }
+            [void]$rep.Add(@{ veces = [int]$g.veces; frase = $fr; falso = $falso })
+        }
+        return @{ total = $tot; repetidos = @($rep) }
+    } catch { return $null }
+}
+
+# La frase para el resumen semanal. Vacia si no hay agujeros repetidos: sin eso no hay noticia.
+function Get-ParrafoAgujeros {
+    $ag = Get-AgujerosSemana
+    if (-not $ag) { return '' }
+    $reps = @($ag.repetidos)
+    if ($reps.Count -eq 0) { return '' }
+    $falsos = @($reps | Where-Object { $_.falso })
+    $deVerdad = @($reps | Where-Object { -not $_.falso })
+    $lineas = @()
+    $cosas = if ($ag.total -eq 1) { 'cosa' } else { 'cosas' }
+    $eran = if ($reps.Count -eq 1) { 'era' } else { 'eran' }
+    $lineas += ('Esta semana no supe contestarte ' + $ag.total + ' ' + $cosas + ', y ' + $reps.Count + ' ' + $eran + ' de lo mismo.')
+    if ($deVerdad.Count -gt 0) {
+        $lineas += ('Lo que mas me faltó: ' + (@($deVerdad | Select-Object -First 3 | ForEach-Object { '«' + $_.frase + '» (' + $_.veces + ' veces)' }) -join ', ') + '.')
+    }
+    if ($falsos.Count -gt 0) {
+        # LO QUE SI SABIA Y DIJE QUE NO: esto es lo mas util del fichero, porque es arreglable hoy
+        $lineas += ('Y ' + $(if ($falsos.Count -eq 1) { 'una' } else { $falsos.Count }) + ' de esas si la sé y te dije que no: ' +
+                    (@($falsos | Select-Object -First 3 | ForEach-Object { '«' + $_.frase + '»' }) -join ', ') + '.')
+    }
+    return ($lineas -join ' ')
+}
 function Get-ParrafoDecisiones($stats, [datetime]$ini, [datetime]$fin) {
     $hechas = @(); $deshechas = 0; $medias = 0
     try {
@@ -23212,6 +23270,10 @@ function Write-NotaSemanal {
         if ($desc.Count -gt 0) { [void]$sb.AppendLine(""); [void]$sb.AppendLine("Cosas que no entendí a la primera y que podrías enseñarme en commands.json: " + (($desc | ForEach-Object { "«$_»" }) -join ', ') + ".") }
         $parrafoYo = Get-ParrafoDecisiones $s $ini $fin
         if ($parrafoYo) { [void]$sb.AppendLine(""); [void]$sb.AppendLine($parrafoYo) }
+        # los agujeros de la semana, leidos del fichero que nadie abria (idea 79)
+        $parrafoAg = ''
+        try { $parrafoAg = Get-ParrafoAgujeros } catch { $parrafoAg = '' }
+        if ($parrafoAg) { [void]$sb.AppendLine(""); [void]$sb.AppendLine($parrafoAg) }
         if ($gestos.Count -gt 0) {
             $top = @($gestos.GetEnumerator() | Sort-Object -Property Value -Descending | Select-Object -First 4 | ForEach-Object { "$($_.Key) ×$($_.Value)" })
             [void]$sb.AppendLine(""); [void]$sb.AppendLine("Lo que más me dijiste, según mis gestos: " + ($top -join ', ') + ".")

@@ -1012,6 +1012,64 @@ class Cerebro:
             self.guardar()
         return len(faltan)
 
+
+    def agujeros(self, dias=7):
+        """LEER EL FICHERO DE LO IMPORTANTE (27/09, idea 79). Desde el 25/09 se copia a
+        importante.jsonl cada turno en que braya corrige y cada turno en que Nova admite que no sabe
+        algo. Se escribia en modo 'a' y NO LO LEIA NADIE: es el inventario de sus agujeros y estaba
+        muerto en el disco (518 bytes, cero lectores en todo el repositorio fuera de dos bancos).
+
+        Aqui se leen las lineas por='agujero' de los ultimos 'dias' y se juntan las que son lo mismo
+        -por las palabras de contenido, con el mismo fichas() que usa el resto de la memoria-. No se
+        llama a ningun modelo: es leer un jsonl y contar.
+
+        SOLO LECTURA: este camino no poda ni reescribe el fichero. Devuelve
+        {"total": n, "grupos": [{"veces": n, "frase": "...", "dias": [..]}, ...]}, los grupos
+        ordenados por veces. La prueba de si un agujero es FALSO -algo que Nova si sabe- no se hace
+        aqui: la hace el asistente, que es quien tiene el resolvedor de ordenes."""
+        ruta = os.path.join(self.carpeta, "importante.jsonl")
+        if not os.path.exists(ruta):
+            return {"total": 0, "grupos": []}
+        corte = time.strftime("%Y-%m-%d", time.localtime(self.reloj() - dias * 86400))
+        lineas = []
+        try:
+            with open(ruta, encoding="utf-8") as f:
+                for linea in f:
+                    linea = linea.strip()
+                    if not linea:
+                        continue
+                    try:
+                        d = json.loads(linea)
+                    except ValueError:
+                        continue
+                    if (d.get("por") or "") != "agujero":
+                        continue
+                    if (d.get("d") or "") < corte:
+                        continue
+                    lineas.append(d)
+        except Exception:
+            return {"total": 0, "grupos": []}
+        grupos = []
+        for d in lineas:
+            pregunta = (d.get("braya") or "").strip()
+            if not pregunta:
+                continue
+            f = frozenset(t for t in fichas(pregunta) if not t.startswith("?"))
+            puesto = False
+            for g in grupos:
+                # la mitad de las palabras en comun ya es "lo mismo preguntado de otra forma"
+                if f and g["fichas"] and len(f & g["fichas"]) >= max(1, min(len(f), len(g["fichas"])) / 2.0):
+                    g["veces"] += 1
+                    if d.get("d") not in g["dias"]:
+                        g["dias"].append(d.get("d"))
+                    puesto = True
+                    break
+            if not puesto:
+                grupos.append({"veces": 1, "frase": pregunta[:120], "fichas": f, "dias": [d.get("d")]})
+        grupos.sort(key=lambda g: g["veces"], reverse=True)
+        for g in grupos:
+            del g["fichas"]      # no viaja: es un set y el json no lo quiere
+        return {"total": len(lineas), "grupos": grupos}
     def repaso(self, forzar=False):
         """REPASO DEL DIA (M3; una vez al dia, con Nova en reposo): poda lo viejo
         que no sirve, junta preguntas repetidas y vuelve a mandar a revision lo

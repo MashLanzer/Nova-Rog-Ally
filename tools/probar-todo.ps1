@@ -2072,6 +2072,17 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n232. Leer el fichero de lo importante: contar los agujeros y cazar los falsos (idea 79 de las 121)"
+# importante.jsonl se escribia desde el 25/09 en modo 'a' y NO LO LEIA NADIE: cero lectores en todo
+# el repositorio fuera de dos bancos. Es el inventario de sus agujeros. El worker agrupa los que
+# son lo mismo (usa fichas(), que vive en su lado) y deja agujeros.json; el asistente prueba EN
+# SECO con Test-FastCommand cuales de esos agujeros son FALSOS -de los 8 del registro, TRES lo
+# eran: dos '¿que hora es?' y uno del clima- y lo dice en el resumen semanal. Solo lectura: este
+# camino no poda ni reescribe el fichero, y sin agujeros repetidos no se dice nada.
+python (Join-Path $PSScriptRoot 'probar-agujeros.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el inventario de agujeros por fin se lee)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-agujeros-seco.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:los falsos se cazan en seco)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n231. La costumbre se medía contra el reloj, y braya no tiene reloj (idea 78 de las 121)"
 # CERO propuestas en 17 dias. El unico candidato, 'abre steam', tiene los 4 dias distintos que
 # hacen falta, pero sus horas son 10:14, 20:05, 18:54 y 01:09: contra la mediana del reloj solo 1

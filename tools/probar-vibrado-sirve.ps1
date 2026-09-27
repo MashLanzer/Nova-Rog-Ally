@@ -1,4 +1,4 @@
-# LA VIBRACION ESTABA DETRAS DE UNA PUERTA QUE NO SE ABRIA (27/09, idea 77 de las 121)
+﻿# LA VIBRACION ESTABA DETRAS DE UNA PUERTA QUE NO SE ABRIA (27/09, idea 77 de las 121)
 #
 # EL DATO: Send-AvisoVibrado solo vibraba si $script:capsulaCiega, y eso se decidia comparando la
 # resolucion nativa con la actual. 'CAPSULA CIEGA' sale CERO veces en los dos registros (16 dias) con
