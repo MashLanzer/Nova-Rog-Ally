@@ -2089,6 +2089,20 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n271. La pantalla no se apaga nunca, y Nova ya lo sabe (idea 121 de las 121, la ultima)"
+# Medido en esta consola: powercfg /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE da indice 0x00000000 en
+# corriente ALTERNA y en CONTINUA -"apagar la pantalla tras: nunca" en las dos- y el brillo esta a
+# 100. Con los 4.187 avisos aparcados por no haber nadie, eso son noches con la pantalla encendida a
+# tope. Y Nova no sabia nada: cero apariciones de LastBootUpTime, uptime y SendMessage en todo el
+# archivo. UN DATO DE LA FICHA YA NO ES CIERTO y se dice: hablaba de 158,9 h encendida desde el
+# 19/09, y medido hoy la consola arranco a las 02:57 y lleva 11,6 h. SE MIDE Y SE DICE, NO SE HACE
+# SOLO: apagarle la pantalla es una accion sobre su maquina, asi que la maquinaria queda escrita y
+# probada -con las tres guardas de la ficha y una cuarta: no saber algo nunca cuenta a favor de
+# apagar- y el interruptor nace APAGADO en config. Trece roturas tumban el banco, que llama a
+# powercfg de verdad para comprobar que el parseo aguanta un Windows traducido.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-pantalla-dormida.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:su pantalla no se apaga nunca)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n270. Los dos listones de lo que dice al entrar en un juego (idea 120 de las 121)"
 # Al entrar en un juego Nova tenia dos bocas y las dos cerradas, no por un fallo sino porque sus
 # numeros estaban puestos donde braya no llega. Los huecos que hay de verdad en juegos.json -9 juegos,

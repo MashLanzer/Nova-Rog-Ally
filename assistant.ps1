@@ -24391,6 +24391,9 @@ function New-CopiaSeguridad([string]$motivo = 'a mano') {
         # Y LA FRASE DE EJEMPLO DEL OIDO (27/09, idea 118). Aqui porque lee destinos.jsonl entero y
         # porque el oido la recoge en su siguiente arranque, y Nova arranca quince veces al dia.
         try { [void](Update-PromptOrdenes) } catch { Log ('OIDO frase: ' + $_.Exception.Message) }
+        # Y LO QUE WINDOWS TIENE PUESTO CON LA PANTALLA (27/09, idea 121). Aqui porque powercfg
+        # cuesta 34 ms medidos y esto es una vez al dia, no para el bucle.
+        try { [void](Test-DecirPantalla) } catch { Log ('PANTALLA: ' + $_.Exception.Message) }
         $n = @($origen | ForEach-Object { if (Test-Path -LiteralPath $_ -PathType Container) { Get-ChildItem -LiteralPath $_ -Recurse -File } else { Get-Item -LiteralPath $_ } }).Count
         $kb = [int][Math]::Ceiling((Get-Item -LiteralPath $zip).Length / 1KB)
         Log "COPIA ($motivo): $n archivos, $kb KB -> $zip"
@@ -25807,6 +25810,127 @@ function Get-AcelUmbral {
 
 # Minutos desde que la consola se movio, hermana de Get-InactividadMin. -1 si no se sabe (sensor
 # apagado, sin umbral aun, o sin haberla visto moverse en esta sesion): eso NO es "no hay nadie".
+# LA PANTALLA LLEVA HORAS ENCENDIDA Y LA CONSOLA ESTA PUESTA PARA NO APAGARLA NUNCA
+# (27/09, idea 121 de las 121, la ultima de la tanda)
+#
+# EL DATO, medido ahora mismo en esta consola:
+#   powercfg /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE -> indice 0x00000000 en corriente ALTERNA y
+#   en CONTINUA, o sea "apagar la pantalla tras: nunca" en las dos. Y WmiMonitorBrightness marca
+#   CurrentBrightness = 100.
+# Con eso, los 4.187 avisos aparcados por no haber nadie no son ratos cortos: son noches enteras con
+# la pantalla encendida a tope.
+#
+# Y NOVA NO SABE NADA DE ESTO: cero apariciones de LastBootUpTime, de uptime y de SendMessage en todo
+# el archivo. El plan de energia activo tampoco lo ve, porque Get-ModoEnergia lee el deslizador de
+# Windows, que es otra cosa.
+#
+# UN DATO DE LA FICHA YA NO ES CIERTO, Y SE DICE: hablaba de 158,9 horas encendida desde el 19/09.
+# Medido hoy, la consola arranco a las 02:57 y lleva 11,6 horas: braya la ha reiniciado. El argumento
+# de "seis dias sin apagarse" se ha caido solo, asi que lo que queda en pie es lo otro, que sigue
+# siendo verdad: la pantalla no se apaga NUNCA por si sola, ni enchufada ni con bateria.
+#
+# POR ESO ESTO SE MIDE Y SE DICE, Y NO SE HACE SOLO. Apagarle la pantalla es una accion sobre su
+# maquina, inmediata y visible, y el riesgo que la propia ficha nombra es real: que se la apague
+# mientras mira un video o una guia sin tocar nada. Asi que la maquinaria queda escrita y probada, el
+# dato se le cuenta -que es lo que hoy no tiene-, y el interruptor nace APAGADO en config.json. El
+# dia que braya lo encienda, las tres guardas de abajo estan puestas. Es el mismo criterio que la
+# idea 110 y la 111: primero se mide, y la decision espera a tener con que tomarse.
+$PantallaApagarOn = [bool](Get-Cfg 'entorno' 'apagarPantalla' $false)
+$PantallaAltavozMin = 0.01       # el mismo suelo de nivel que usa el aviso de cascos
+$script:pantallaApagadaEn = 0
+$script:pantallaDichoDia = ''
+
+# Lo que Windows tiene puesto: cuantos segundos tarda en apagar la pantalla, o 0 si nunca.
+# Cuesta 34 ms medidos, asi que se pregunta UNA VEZ AL DIA y no en el bucle.
+function Get-PantallaApagaTras {
+    $r = @{ alterna = -1; continua = -1 }
+    try {
+        $sal = @(powercfg /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 2>$null)
+        foreach ($l in $sal) {
+            # el texto de powercfg esta traducido, asi que se busca el numero, no la palabra
+            $m = [regex]::Match([string]$l, '(?i)(alterna|continua|\bAC\b|\bDC\b)[^:]*:\s*0x([0-9a-f]{8})')
+            if (-not $m.Success) { continue }
+            $seg = [Convert]::ToInt64($m.Groups[2].Value, 16)
+            if ($m.Groups[1].Value -match '(?i)alterna|AC') { $r.alterna = [int]$seg } else { $r.continua = [int]$seg }
+        }
+    } catch {}
+    return $r
+}
+
+# Cuantas horas lleva la consola encendida. -1 si no se puede saber.
+function Get-HorasEncendida([datetime]$ahora = (Get-Date)) {
+    try {
+        $b = (Get-CimInstance Win32_OperatingSystem -ErrorAction Stop).LastBootUpTime
+        if (-not $b) { return -1.0 }
+        $h = ($ahora - $b).TotalHours
+        if ($h -lt 0 -or $h -gt 8760) { return -1.0 }   # un reloj movido no es un dato
+        return [Math]::Round($h, 1)
+    } catch { return -1.0 }
+}
+
+# El nivel que el worker deja en el TERCER campo de escucha-estado.txt. -1 si no se sabe, que NO es
+# cero: un -1 tratado como silencio apagaria la pantalla con un video sonando.
+function Get-NivelAltavoces {
+    if (-not (Test-Path -LiteralPath $RutaEstado)) { return -1.0 }
+    if (-not (Test-EstadoFresco)) { return -1.0 }
+    try {
+        $st = ([System.IO.File]::ReadAllText($RutaEstado).Trim()) -split '\|'
+        if ($st.Count -lt 3) { return -1.0 }
+        $d = 0.0
+        if ([double]::TryParse($st[2].Trim(), [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$d)) { return $d }
+    } catch {}
+    return -1.0
+}
+
+# PURA: dice si toca apagar la pantalla, y si no, por que no. Las tres guardas de la ficha, y una
+# cuarta que ella no pide: no saber algo NUNCA cuenta a favor de apagar.
+function Test-ApagarPantalla([int]$nadieMin, [int]$movidoMin, [double]$nivel, [bool]$hayJuego,
+                             [int]$plazoMin, [bool]$encendido = $true) {
+    if (-not $encendido) { return @{ apagar = $false; porque = 'no me has dicho que lo haga' } }
+    if ($hayJuego) { return @{ apagar = $false; porque = 'hay un juego delante' } }
+    # LOS ALTAVOCES: si estan dando nivel, hay algo sonando y eso es alguien viendo algo. Y si no se
+    # sabe -el -1-, tampoco se apaga: es el riesgo que la ficha nombra.
+    if ($nivel -lt 0) { return @{ apagar = $false; porque = 'no se si suena algo' } }
+    if ($nivel -gt $PantallaAltavozMin) { return @{ apagar = $false; porque = 'algo esta sonando' } }
+    # EL MOVIMIENTO, que es la senal que la ficha pide: no basta el teclado. Si el acelerometro dice
+    # que la consola se movio hace poco, hay alguien. Y si no lo sabe (-1), no decide nada: manda la
+    # otra senal.
+    if ($movidoMin -ge 0 -and $movidoMin -lt $plazoMin) { return @{ apagar = $false; porque = 'la has movido hace ' + $movidoMin + ' min' } }
+    if ($nadieMin -lt 0) { return @{ apagar = $false; porque = 'no se si hay alguien' } }
+    if ($nadieMin -lt $plazoMin) { return @{ apagar = $false; porque = 'hace ' + $nadieMin + ' min que habia alguien' } }
+    # EL [string] NO SOBRA: con el int delante, PowerShell intenta SUMAR la cadena y peta
+    return @{ apagar = $true; porque = [string]$nadieMin + ' min sin nadie y sin nada sonando' }
+}
+
+# LA MANDA A DORMIR. Una linea, y nada queda puesto: cualquier tecla, el raton, el mando o la propia
+# Nova al ver movimiento la encienden.
+function Set-PantallaApagada([bool]$apagar = $true) {
+    try {
+        # HWND_BROADCAST = 0xffff, WM_SYSCOMMAND = 0x0112, SC_MONITORPOWER = 0xF170
+        # lParam: 2 = apagar, -1 = encender
+        $lp = if ($apagar) { [IntPtr]2 } else { [IntPtr](-1) }
+        [void][Nova.Win]::SendMessage([IntPtr]0xffff, 0x0112, [IntPtr]0xF170, $lp)
+        return $true
+    } catch { Log ('pantalla: no pude ' + $(if ($apagar) { 'apagarla' } else { 'encenderla' }) + ' (' + $_.Exception.Message + ')'); return $false }
+}
+
+# Y LO QUE SI SE HACE HOY: contarselo. Una vez al dia, y solo si de verdad esta puesta para no
+# apagarse nunca; si Windows ya la apaga solo, aqui no hay noticia.
+function Test-DecirPantalla([datetime]$ahora = (Get-Date)) {
+    $dia = $ahora.ToString('yyyy-MM-dd')
+    if ($script:pantallaDichoDia -eq $dia) { return $false }
+    $script:pantallaDichoDia = $dia
+    try {
+        $c = Get-PantallaApagaTras
+        if ([int]$c.alterna -ne 0 -and [int]$c.continua -ne 0) { return $false }
+        $h = Get-HorasEncendida $ahora
+        Log ('PANTALLA: Windows esta puesto para no apagarla nunca (alterna ' + $c.alterna + ', continua ' +
+             $c.continua + ')' + $(if ($h -ge 0) { '; la consola lleva ' + $h + ' h encendida' } else { '' }) +
+             '; yo puedo apagarla sola con entorno.apagarPantalla, hoy en ' + $PantallaApagarOn)
+        return $true
+    } catch { return $false }
+}
+
 function Get-MovimientoMin {
     if (-not $script:acelerometro) { return -1 }
     if ($script:movidoEn -le 0) { return -1 }
@@ -27244,6 +27368,11 @@ public static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, 
 public struct RECT { public int Left, Top, Right, Bottom; }
 [DllImport("user32.dll")]
 public static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
+// APAGAR LA PANTALLA (27/09, idea 121 de las 121). Es lo unico que faltaba de user32 para poder
+// hacerlo: WM_SYSCOMMAND (0x0112) con SC_MONITORPOWER (0xF170) a HWND_BROADCAST. No cambia ni una
+// opcion de energia de Windows y cualquier toque la vuelve a encender.
+[DllImport("user32.dll")]
+public static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 '@ -ErrorAction SilentlyContinue
 
 # EL PANEL DE WIN+H, CERRADO DE VERDAD.
