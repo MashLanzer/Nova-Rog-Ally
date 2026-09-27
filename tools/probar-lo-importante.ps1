@@ -39,6 +39,17 @@ $txt = [IO.File]::ReadAllText($PS1)
 $sinCom = (($txt -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) -join "`n"
 $py = [IO.File]::ReadAllText($PY)
 $pySin = (($py -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) -join "`n"
+# EL CUERPO DE UNA FUNCION DE PYTHON, POR SU SANGRADO (27/09, idea 2): de su 'def' hasta el
+# siguiente 'def' o 'class' que empiece en la columna cero. El 7i de abajo miraba "a menos de 300
+# caracteres del nombre del fichero", y eso se pone rojo solo el dia que se escribe una linea por
+# medio -o deja pasar la poda si la escriben 320 caracteres mas abajo-.
+function CuerpoPy([string]$texto, [string]$nombre) {
+    $i = $texto.IndexOf("def $nombre(")
+    if ($i -lt 0) { return '' }
+    $m = [regex]::Match($texto.Substring($i + 4), "(?m)^(def |class )")
+    if ($m.Success) { return $texto.Substring($i, $m.Index + 4) }
+    return $texto.Substring($i)
+}
 
 # LAS PIEZAS DE VERDAD DEL LADO DE POWERSHELL
 $quiero = @('Get-Importante', 'Get-ImportanteResumen', 'Get-ParrafoImportante')
@@ -149,7 +160,12 @@ Comp '7g. las correcciones NO van al prompt' (-not ($pySin -match "(?i)(ya te lo
 # LO QUE DE VERDAD IMPORTA ES EL MODO DE APERTURA: 'a' anade y 'w' machaca. (Buscar la palabra
 # 'poda' aqui la encontraba en el propio docstring de la funcion, que dice que NO se poda nunca.)
 Comp '7h. el fichero se abre para ANADIR, no para machacar' ($pySin -match '"importante\.jsonl"\), "a"') 'con "w" se perderia todo en cada turno'
-Comp '7i. y no se le corta la cola por ningun lado' (-not ($pySin -match '(?s)importante\.jsonl[\s\S]{0,300}?\[-\d+:\]')) 'su comentario dice que NO se poda nunca'
+# "POR NINGUN LADO" SE COMPRUEBA EN DOS MITADES: que la funcion que lo escribe no lo poda, y que
+# el nombre del fichero no aparece en codigo fuera de ella (si apareciera, habria otro que lo toca
+# y esta comprobacion se habria quedado corta sin avisar).
+$cuerpoImp = CuerpoPy $pySin 'apuntar_importante'
+$impFuera = @(($pySin -split "`n") | Where-Object { $_ -match 'importante\.jsonl' -and $cuerpoImp.IndexOf($_) -lt 0 })
+Comp '7i. y no se le corta la cola por ningun lado' (($cuerpoImp -ne '') -and -not ($cuerpoImp -match '\[-\d+:\]') -and ($impFuera.Count -eq 0)) ('su comentario dice que NO se poda nunca' + $(if ($impFuera.Count) { '; lo tocan fuera: ' + ($impFuera -join ' / ') }))
 $cuerpoR = @($defs | Where-Object { $_.Name -eq 'Get-ImportanteResumen' })[0].Extent.Text
 Comp '7j. Get-ImportanteResumen es pura' (-not ($cuerpoR -match '(Get-Date|Test-Path|Get-Content|Log |\$sw\.)')) 'por eso se le pueden pasar las cinco de verdad'
 

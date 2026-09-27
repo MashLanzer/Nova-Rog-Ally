@@ -33,6 +33,20 @@ $sinCom = (($txt -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) 
 $d = @($arbol.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Test-VozLocal' }, $true))
 Comp 'Test-VozLocal esta una sola vez' ($d.Count -eq 1) ([string]$d.Count)
 if ($d.Count -eq 1) { Invoke-Expression $d[0].Extent.Text }
+# EL BLOQUE DE UN if, CONTADO POR LLAVES (27/09, idea 2): el 6b de abajo media "a menos de 200
+# caracteres" y eso se pone rojo solo el dia que alguien escribe una linea dentro del if.
+function Bloque([string]$texto, [string]$ancla) {
+    $i = $texto.IndexOf($ancla)
+    if ($i -lt 0) { return '' }
+    $abre = $texto.IndexOf('{', $i)
+    if ($abre -lt 0) { return '' }
+    $prof = 0
+    for ($p = $abre; $p -lt $texto.Length; $p++) {
+        if ($texto[$p] -eq '{') { $prof++ }
+        elseif ($texto[$p] -eq '}') { $prof--; if ($prof -eq 0) { return $texto.Substring($abre, $p - $abre + 1) } }
+    }
+    return ''
+}
 function TraerVar([string]$n) {
     $a = $arbol.Find({ param($x) $x -is [System.Management.Automation.Language.AssignmentStatementAst] -and $x.Left.Extent.Text -eq ('$' + $n) }, $true)
     if (-not $a) { throw "falta la variable $n en assistant.ps1" }
@@ -121,11 +135,67 @@ $VozLocalSensible = $true
 Comp '5c. y encendido vuelve a quedarse' (Test-VozLocal $reales[0].t $false) ''
 
 Write-Host ''
+Write-Host '-- 5b. EL CAMINO DE VERDAD, EJECUTADO (no mirado) --'
+# ESTO ES LO QUE FALTABA, y lo destapo un revisor: con el apartado 6 de abajo -que solo mira orden y
+# cercania de texto- se podia INVERTIR el if real de Say (poner 'if (-not (Test-VozLocal ...))') y el
+# banco salia VERDE ENTERO, firmando "su saldo ya no sale de casa" mientras mandaba el saldo de Chase
+# a Microsoft y las frases normales a Piper. Un banco que no ejecuta el camino no vigila su signo.
+# Asi que aqui se saca el bloque de Say por SANGRADO -el cierre es la primera linea posterior que
+# empieza por '}' con la misma indentacion- y se EJECUTA con dobles que apuntan por donde salio.
+$lin = [IO.File]::ReadAllLines($PS1)
+$iV = -1
+# EL ANCLA ES LAXA A PROPOSITO: acepta tambien un '-not' delante. Si exigiera el texto exacto, la
+# inversion de polaridad se cazaria por "no encuentro el bloque" -que es frágil: un renombrado lo
+# rompe igual- en vez de por lo que de verdad importa, que la frase del saldo acabe en internet.
+for ($i = 0; $i -lt $lin.Count; $i++) { if ($lin[$i] -match '^\s+if \(.{0,8}Test-VozLocal \$t ') { $iV = $i; break } }
+Comp '5b0. se encuentra el bloque en Say' ($iV -ge 0) ('linea ' + ($iV + 1))
+$fV = -1
+if ($iV -ge 0) {
+    $sangria = ([regex]::Match($lin[$iV], '^(\s*)')).Groups[1].Value
+    for ($i = $iV + 1; $i -lt $lin.Count; $i++) { if ($lin[$i] -eq ($sangria + '}')) { $fV = $i; break } }
+}
+Comp '5b1. y su cierre por sangrado' ($fV -gt $iV) ([string]($fV - $iV + 1) + ' lineas')
+if ($fV -gt $iV) {
+    $cuerpoV = ($lin[$iV..$fV] -join "`n")
+    # los dobles: apuntan por donde salio la frase, y Say-Piper puede fallar a voluntad
+    $script:fue = ''
+    $script:piperPuede = $true
+    function Say-Piper([string]$x) { if ($script:piperPuede) { $script:fue = 'casa'; return $true } ; $script:fue = 'piper-no-pudo'; return $false }
+    function Log([string]$m) { $script:logs += @($m) }
+    $script:logs = @()
+    # se envuelve en una funcion para que el 'return' de dentro corte sin matar el banco
+    $fn = [scriptblock]::Create("function Decidir([string]`$t, [bool]`$priv) {`n`$script:respuestaPrivada = `$priv`n$cuerpoV`nreturn 'fuera'`n}")
+    . $fn
+    # LA FRASE DEL SALDO SE QUEDA EN CASA, ejecutandolo
+    $script:fue = ''; $script:piperPuede = $true
+    $r1 = Decidir $reales[0].t $false
+    Comp '5b2. la del saldo sale por la voz de casa' (($script:fue -eq 'casa') -and ($r1 -ne 'fuera')) ('fue por: ' + $script:fue)
+    # UNA NORMAL NO
+    $script:fue = ''
+    $r2 = Decidir 'Ya esta abierto Steam.' $false
+    Comp '5b3. una normal NO pasa por Piper' (($script:fue -eq '') -and ($r2 -eq 'fuera')) ('fue por: ' + $(if ($script:fue) { $script:fue } else { 'la de fuera, como debe' }))
+    # Y SI PIPER NO PUEDE, SE SIGUE HABLANDO
+    $script:fue = ''; $script:piperPuede = $false; $script:logs = @()
+    $r3 = Decidir $reales[0].t $false
+    Comp '5b4. si Piper no puede, sigue a la de fuera' ($r3 -eq 'fuera') ''
+    Comp '5b5. y lo deja dicho en el log' (@($script:logs | Where-Object { $_ -match 'Piper no pudo' }).Count -eq 1) ''
+    $script:piperPuede = $true
+    # LA MARCA DE PRIVADO TAMBIEN MANDA, ejecutandola
+    $script:fue = ''
+    [void](Decidir 'Ahi la tienes.' $true)
+    Comp '5b6. y una respuesta privada se queda en casa' ($script:fue -eq 'casa') ''
+}
+
+Write-Host ''
 Write-Host '-- 6. EL CABLEADO --'
 Comp '6a. la decision va ANTES de la voz de fuera' ($sinCom.IndexOf('Test-VozLocal $t') -lt $sinCom.IndexOf('if (Say-Online $t $emo)')) ''
-Comp '6b. se prueba Piper, que ya estaba escrita' ($sinCom -match '(?s)Test-VozLocal \$t[\s\S]{0,200}?Say-Piper \$t') ''
+Comp '6b. se prueba Piper, que ya estaba escrita' ((Bloque $sinCom 'Test-VozLocal $t') -match 'Say-Piper \$t') ''
 Comp '6c. y si Piper no puede, se sigue hablando' ($sinCom -match 'Piper no pudo; va por la de fuera') 'callarse seria peor que decirlo'
-Comp '6d. la cadena de respaldo sigue entera' ($sinCom -match '(?s)Say-Online \$t \$emo[\s\S]{0,300}?Say-Piper \$t') 'Piper sigue siendo el respaldo de siempre'
+# POR ORDEN, COMO EL 6a, Y NO POR DISTANCIA: lo que se protege es que DESPUES de intentar la voz de
+# fuera siga habiendo un Say-Piper. La cuenta de 300 caracteres se rompia sola en cuanto se
+# escribiera codigo entre las dos, que es justo lo que esta idea vino a quitar.
+$iOnline = $sinCom.IndexOf('if (Say-Online $t $emo)')
+Comp '6d. la cadena de respaldo sigue entera' (($iOnline -gt 0) -and ($sinCom.IndexOf('Say-Piper $t', $iOnline) -gt $iOnline)) 'Piper sigue siendo el respaldo de siempre'
 Comp '6e. el correo levanta la bandera de privado' ($sinCom -match '(?s)function Invoke-Correo\(\$a\) \{\s*\$script:respuestaPrivada = \$true') 'era el hueco: seis caminos la levantaban y el correo no'
 Comp '6f. y el patron del perfil NO se ha tocado' ($RE_DATO_SENSIBLE -match 'contrase\|password') 'ese decide que se guarda, que es otra decision'
 Comp '6g. son dos patrones y no uno' (@([regex]::Matches($sinCom, '\$RE_VOZ_LOCAL')).Count -ge 2) ''

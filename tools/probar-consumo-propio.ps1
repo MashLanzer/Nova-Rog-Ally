@@ -41,6 +41,27 @@ $sinCom = (($txt -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) 
 $quiero = @('Get-ProcesosNova', 'Get-ConsumoProceso', 'Get-ConsumoListon', 'Test-ConsumoSalido',
             'Update-Consumo', 'Get-ConsumoResumen', 'Get-PercentilLista')
 $defs = $arbol.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+# RECORTAR POR LOS LIMITES DE VERDAD, no por una ventana de N caracteres (27/09, idea 2). Los
+# cuatro casos del cableado de abajo median "a menos de N caracteres" -uno de ellos 4000, que no
+# es una vecindad, es medio archivo- y se ponen rojos solos en cuanto alguien escribe una linea
+# dentro. Cuerpo() usa el arbol del parser; Bloque() cuenta llaves, para lo que no es una funcion.
+function Cuerpo([string]$nombre) {
+    $d = @($defs | Where-Object { $_.Name -eq $nombre })
+    if ($d.Count -eq 0) { return '' }
+    return (($d[0].Extent.Text -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) -join "`n"
+}
+function Bloque([string]$texto, [string]$ancla) {
+    $i = $texto.IndexOf($ancla)
+    if ($i -lt 0) { return '' }
+    $abre = $texto.IndexOf('{', $i)
+    if ($abre -lt 0) { return '' }
+    $prof = 0
+    for ($p = $abre; $p -lt $texto.Length; $p++) {
+        if ($texto[$p] -eq '{') { $prof++ }
+        elseif ($texto[$p] -eq '}') { $prof--; if ($prof -eq 0) { return $texto.Substring($abre, $p - $abre + 1) } }
+    }
+    return ''
+}
 $puestas = 0
 foreach ($q in $quiero) {
     $d = @($defs | Where-Object { $_.Name -eq $q })
@@ -248,14 +269,21 @@ Comp '8b. Get-RamResumen lo cuenta' ($sinCom -match '(?s)yo llevo.{0,200}Get-Con
 Comp '8c. la sonda se cronometra a si misma' ($sinCom -match 'ConsumoTopeMs') 'como Get-CargaCPU y la de temperatura'
 Comp '8d. y se apaga sola si cuesta' ($sinCom -match "sonda de consumo off") ''
 Comp '8e. la primera lectura no se juzga' ($sinCom -match '\$script:consumoLeidas -ge 2') 'esa paga el Get-Process del cerebro'
-Comp '8f. NO reinicia ningun worker' (-not ($sinCom -match '(?s)Update-Consumo[\s\S]{0,40}(Restart|Stop-Process|\.Kill)')) 'con cero muestras eso seria un numero inventado'
-Comp '8g. ni mata procesos en la sonda' (-not ($sinCom -match "(?s)function Update-Consumo[\s\S]{0,4000}?(\.Kill\(\)|Stop-Process)")) ''
-Comp '8h. no habla por el altavoz' (-not ($sinCom -match "(?s)function Test-ConsumoSalido[\s\S]{0,1500}?(Say |Send-Aviso)")) 'esto va al registro, no a la voz'
+# ANCLADO A LAS LINEAS QUE LA NOMBRAN, no a los 40 caracteres siguientes: asi tambien se ve el
+# llamador que este en otro sitio del fichero, y no lo tapa una linea nueva por medio.
+$lineasUC = @(($sinCom -split "`n") | Where-Object { $_ -match 'Update-Consumo' })
+Comp '8f. NO reinicia ningun worker' (($lineasUC.Count -gt 0) -and -not ($lineasUC -match '(Restart|Stop-Process|\.Kill)')) 'con cero muestras eso seria un numero inventado'
+$cuerpoUC = Cuerpo 'Update-Consumo'
+Comp '8g. ni mata procesos en la sonda' (($cuerpoUC -ne '') -and -not ($cuerpoUC -match '(\.Kill\(\)|Stop-Process)')) ''
+$cuerpoCS = Cuerpo 'Test-ConsumoSalido'
+Comp '8h. no habla por el altavoz' (($cuerpoCS -ne '') -and -not ($cuerpoCS -match '(Say |Send-Aviso)')) 'esto va al registro, no a la voz'
 Comp '8i. ni estrena fichero' (-not ($sinCom -match 'consumo\.json|consumo\.txt')) 'reusa trabajo-tiempos.json, que ya existe'
 Comp '8j. el tope se puede tocar desde config' ($sinCom -match "Get-Cfg 'ui' 'consumoTopeMs'") ''
 # la tercera aparicion es un comentario de final de linea; lo que importa es que solo haya UN llamador
 Comp '8k. Get-RamResumen sigue sin correr en el bucle' (@([regex]::Matches($sinCom, '= Get-RamResumen ')).Count -eq 1) 'recorrer los 200 procesos cuesta de 500 a 740 ms'
-Comp '8l. y su unico llamador es la orden hablada' ($sinCom -match "(?s)'ram' \{[\s\S]{0,400}= Get-RamResumen ") ''
+# EL BLOQUE DE LA ACCION 'ram' ENTERO, contado por llaves: la ventana de 400 caracteres tapaba
+# esta comprobacion en cuanto se escribiera un comentario dentro del case.
+Comp '8l. y su unico llamador es la orden hablada' ((Bloque $sinCom "'ram' {") -match '= Get-RamResumen ') ''
 
 Write-Host ''
 if ($mal -gt 0) { Write-Host ([string]$mal + ' MAL') -ForegroundColor Red; exit 1 }

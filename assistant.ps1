@@ -998,15 +998,40 @@ function Get-Distancia([string]$a, [string]$b) {
 # de ejemplo son un recitado, no una orden. En las 214 grabaciones solo paso dos veces y
 # ninguna era una orden de verdad (ruido y "busca gatos en youtube" mal oido). La frase se
 # lee de wake_vosk.py (PROMPT_ORDENES) para no tener dos copias que se desincronicen.
+#
+# Y DESDE EL 27/09 LA FRASE YA NO ES UNA CONSTANTE (idea 118). Alla PROMPT_ORDENES paso a ser
+# 'PROMPT_ORDENES = _leer_prompt_ordenes()', que coge tmp\prompt-ordenes.txt -lo que Nova se
+# escribe con sus propios verbos- y solo si no lo hay se queda con PROMPT_ORDENES_POR_DEFECTO.
+# Aqui se leia por el nombre a secas, esa linea dejo de traer texto entre comillas y
+# Get-FrasesEjemplo devolvia CERO frases: con la lista vacia, Test-RecitaEjemplo y
+# Test-EsFraseEjemplo devuelven $false siempre, o sea que el recitado del 15/09 -el que subio
+# el volumen y bajo el brillo sin que nadie lo pidiera- volvia a pasar entero. Se lee lo mismo
+# que lee el oido y en el mismo orden, con sus dos listones (20..300 caracteres), para no tener
+# nunca una frase distinta de la que Whisper recibe de verdad. UNA SOLA fuente a la vez, no las
+# dos juntas: 'sube el volumen' es del ejemplo viejo y tambien una orden de verdad, asi que
+# sumar las dos listas se comeria ordenes buenas de braya.
 $script:frasesEjemplo = $null
 function Get-FrasesEjemplo {
     if ($null -ne $script:frasesEjemplo) { return $script:frasesEjemplo }
     $script:frasesEjemplo = @()
     try {
         $rutaW = if ($RutaWakeVosk) { $RutaWakeVosk } else { Join-Path $PSScriptRoot 'wake_vosk.py' }
-        $src = [System.IO.File]::ReadAllText($rutaW, [System.Text.Encoding]::UTF8)
-        if ($src -match '(?m)^PROMPT_ORDENES\s*=\s*"([^"]+)"') {
-            $script:frasesEjemplo = @(($Matches[1] -split '[.?¿!]+') |
+        $frase = ''
+        $rutaFr = Join-Path (Split-Path -Parent $rutaW) 'tmp\prompt-ordenes.txt'
+        if (Test-Path -LiteralPath $rutaFr) {
+            $f = ([System.IO.File]::ReadAllText($rutaFr, [System.Text.Encoding]::UTF8)).Trim()
+            # los mismos dos listones que _leer_prompt_ordenes, o alla se usaria otra frase
+            if ($f.Length -ge 20 -and $f.Length -le 300) { $frase = $f }
+        }
+        if (-not $frase) {
+            $src = [System.IO.File]::ReadAllText($rutaW, [System.Text.Encoding]::UTF8)
+            # el nombre a secas primero, por si algun dia vuelve a ser una constante; y si no,
+            # el respaldo de alla, que es la frase medida del 14/09
+            if ($src -match '(?m)^PROMPT_ORDENES\s*=\s*"([^"]+)"') { $frase = $Matches[1] }
+            elseif ($src -match '(?m)^PROMPT_ORDENES_POR_DEFECTO\s*=\s*"([^"]+)"') { $frase = $Matches[1] }
+        }
+        if ($frase) {
+            $script:frasesEjemplo = @(($frase -split '[.?¿!]+') |
                 ForEach-Object { (ConvertTo-Plain $_) -replace '^(?:oye |hey |ey )?nova ?', '' } |
                 Where-Object { $_ } | Select-Object -Unique)
         }
@@ -11064,7 +11089,10 @@ function Watch-Notificaciones([object[]]$todas) {
     $script:ultimaNotifEn = $sw.ElapsedMilliseconds
     while ($script:notifPendientes.Count -gt 30) { $script:notifPendientes.RemoveAt(0) }
     Log ("NOTIFICACIONES: {0} nueva(s) de {1}" -f $nuevas.Count, ((@($nuevas | ForEach-Object { $_.app }) | Select-Object -Unique) -join ', '))
-    $importantes = @(Get-Contactos)
+    # SIN @(): Get-Contactos acaba en 'return ,'. Con el @(), Count valia 1 aunque no hubiera ni un
+    # contacto, asi que el 'if ($importantes.Count -gt 0)' era SIEMPRE cierto y el Where-Object de
+    # dentro recibia la lista entera como un solo $_: el contacto importante no se podia acertar.
+    $importantes = Get-Contactos
     if ($importantes.Count -gt 0) {
         $deImp = @($nuevas | Where-Object {
             $tituloI = ConvertTo-Plain ([string]$_.titulo)
@@ -17023,10 +17051,9 @@ function Find-Propuesta([datetime]$hoy = (Get-Date)) {
     # con tres valores el p80 ES el mayor de los tres. No podia fallar nunca. Se quita: de lo
     # generico que es este detector ya se encarga el orden, que es donde estaba el problema de
     # verdad, y una condicion que no puede ser falsa solo engana al que la lee.
-    # El de la misma hora del reloj no le sirve: sus siete "abre steam" caen a horas que van
-    #     de la 01:09 a las 20:05, asi que N no se escribe a mano: es el p80 de sus desfases,
-    #     con suelo de 2 minutos.
-    #     medio de la tanda, con horas que van de la 01:09 a las 20:05. N no se escribe a mano: es
+    # El de la misma hora del reloj no le sirve: sus siete "abre steam" caen a horas que van de la
+    # 01:09 a las 20:05, y contra el arranque de la tanda caen todos en el primer par de minutos.
+    # Asi que N no se escribe a mano: es el p80 de sus desfases, con suelo de 2 minutos.
     foreach ($g in @($rec | Group-Object { $_.t })) {
         # solo los usos que traen el campo: los de antes del 27/09 no lo tienen y contarlos como
         # cero seria inventarse que se pidieron al empezar
@@ -17037,9 +17064,18 @@ function Find-Propuesta([datetime]$hoy = (Get-Date)) {
         if ($porDiaS.Count -lt 3) { continue }          # TRES DIAS distintos, no tres de una tarde
         $desf = @($porDiaS.Values | Sort-Object)
         $n80 = [Math]::Max(2, (Get-PercentilLista $desf 80))
-        if ($todosS.Count -lt $DecisionMinIntentos) { continue }   # sin historial no se opina
-        $medS = [int](Get-PercentilLista $todosS 50)
-        if ($n80 -gt [Math]::Max(2, $medS)) { continue }
+        # AQUI HABIA TRES LINEAS QUE MATABAN ESTE DETECTOR (27/09, cazado el mismo dia): el parche
+        # que quitaba la guarda que no guardaba nada dejo puesto, por error, un
+        #     if ($todosS.Count -lt $DecisionMinIntentos) { continue }
+        #     $medS = [int](Get-PercentilLista $todosS 50)
+        #     if ($n80 -gt [Math]::Max(2, $medS)) { continue }
+        # y $todosS NO EXISTE en toda la casa: esas eran sus unicas apariciones. Con $null,
+        # $todosS.Count vale 0, y 0 es siempre menor que los 20 de $DecisionMinIntentos, asi que el
+        # cuarto detector se saltaba TODAS las ordenes y no proponia nada nunca: la idea 78 estaba
+        # muerta en produccion. En el banco, donde la constante no se extrae y vale $null, lo que
+        # sobrevivia era "$n80 -gt 2" y tumbaba los dos casos de los desfases largos (4a y 4b).
+        # No se pone nada en su lugar: la guarda que se quito sobraba de verdad, y de lo generico
+        # que es este detector ya se encarga el ORDEN, que ahora va ultimo.
         # 'empiezas' y no 'arranque': ese nombre ya es el contador de cuantas veces arranco NOVA
         # (idea 50), y dos cosas distintas con el mismo nombre se confunden al leerlas.
         $claveS = "empiezas|$($g.Name)"
@@ -19129,7 +19165,9 @@ function Invoke-FastCommand([string]$text) {
                     else { $a.desc = "no tenia $($a.que) en esa lista" }
                 }
                 'musicaNoLista' {
-                    $lN = @(Get-MusicaNo)
+                    # SIN @(): Get-MusicaNo acaba en 'return ,'. Con el @(), la rama de "no tengo
+                    # nada apuntado" estaba muerta y con la lista vacia Nova contestaba 'tengo 1: '.
+                    $lN = Get-MusicaNo
                     if ($lN.Count -eq 0) { $a.desc = 'no tengo nada apuntado que no te guste'; break }
                     $ultN = @($lN | Select-Object -Last 5 | ForEach-Object { [string]$_.q })
                     $a.desc = "tengo $($lN.Count): " + ($ultN -join ', ')
@@ -23890,7 +23928,14 @@ function Test-JuegosCiegos([string]$dia = '') {
             return 0
         }
         $conocidos = @(@($script:Juegos) | ForEach-Object { [string]$_.nombre })
-        $deSteam = @(Get-JuegosDeSteamDelDia $dia)
+        # SIN @(), Y AQUI ES DONDE MAS DOLIA: Get-JuegosDeSteamDelDia acaba en 'return ,@($l)', asi
+        # que un @() encima da un array de UNO con la lista dentro. Con DOS juegos de Steam el mismo
+        # dia -el 25/09 hubo CUATRO- la guarda '$st.Count -eq 1' pasaba igual, y Nova aprendia
+        # 'ELDEN RING NIGHTREIGN The Past Within' como nombre de juego: lo escribia en
+        # juegos-exes.json, lo metia de clave en juegos-ciegos.json y lo decia por el altavoz.
+        # Reproducido ejecutando Find-CiegosDeUnDia con las dos formas. Cuarta vez de este patron:
+        # por eso ahora hay un banco que lo vigila en todo el fichero (probar-listas-envueltas.ps1).
+        $deSteam = Get-JuegosDeSteamDelDia $dia
         $apuntado = @{}
         $mem = Get-JuegosMem
         foreach ($k in @($mem.Keys)) {
@@ -24375,25 +24420,7 @@ function New-CopiaSeguridad([string]$motivo = 'a mano') {
         # LA PODA DE LAS VIEJAS (27/09, idea 65). Va DESPUES de escribir la de hoy: si algo se
         # rompiera aqui, la copia de hoy ya esta hecha y entera. Una por dia, la mas vieja con
         # huerfanos; la de hoy nace ya limpia porque su perfil.md ES el vivo.
-        try { [void](Invoke-PodaCopias) } catch { Log ('COPIA poda: ' + $_.Exception.Message) }
-        # Y EL REPASO DE LA TABLA DE CORRECCIONES (27/09, idea 109). Aqui porque esto es lo que ya
-        # corre UNA VEZ AL DIA, y porque lee los dos jsonl del uso: no es para el bucle.
-        try { [void](Invoke-CorreccionesDormidas) } catch { Log ('CORRECCIONES: ' + $_.Exception.Message) }
-        # Y EL REPASO DE AYER CONTRA STEAM (27/09, idea 113). Aqui porque esto es lo que ya corre
-        # una vez al dia y porque lee los dos cuadernos de disco: no es para el bucle.
-        try { [void](Test-JuegosCiegos) } catch { Log ('CIEGOS: ' + $_.Exception.Message) }
-        # Y LOS NUMEROS QUE SE AJUSTA SOLA (27/09, idea 114). Aqui porque es una vez al dia y
-        # porque lee voz-tiempos.json y trabajo-tiempos.json: no es para el bucle.
-        try { [void](Test-AjustesDelDia) } catch { Log ('AJUSTES: ' + $_.Exception.Message) }
-        # Y LOS CUADERNOS PARADOS (27/09, idea 115). Aqui porque es una vez al dia y porque hace un
-        # Test-Path por fichero: no es para el bucle.
-        try { [void](Test-FicherosMemoria) } catch { Log ('FICHEROS: ' + $_.Exception.Message) }
-        # Y LA FRASE DE EJEMPLO DEL OIDO (27/09, idea 118). Aqui porque lee destinos.jsonl entero y
-        # porque el oido la recoge en su siguiente arranque, y Nova arranca quince veces al dia.
-        try { [void](Update-PromptOrdenes) } catch { Log ('OIDO frase: ' + $_.Exception.Message) }
-        # Y LO QUE WINDOWS TIENE PUESTO CON LA PANTALLA (27/09, idea 121). Aqui porque powercfg
-        # cuesta 34 ms medidos y esto es una vez al dia, no para el bucle.
-        try { [void](Test-DecirPantalla) } catch { Log ('PANTALLA: ' + $_.Exception.Message) }
+        # LAS SIETE TAREAS DEL DIA YA NO CUELGAN DE AQUI: ver Invoke-TareasDelDia, mas abajo.
         $n = @($origen | ForEach-Object { if (Test-Path -LiteralPath $_ -PathType Container) { Get-ChildItem -LiteralPath $_ -Recurse -File } else { Get-Item -LiteralPath $_ } }).Count
         $kb = [int][Math]::Ceiling((Get-Item -LiteralPath $zip).Length / 1KB)
         Log "COPIA ($motivo): $n archivos, $kb KB -> $zip"
@@ -24416,6 +24443,43 @@ function New-CopiaSeguridad([string]$motivo = 'a mano') {
         Log ("COPIA fallida ($motivo): " + $_.Exception.Message)
         return $null
     }
+}
+
+# LAS SIETE TAREAS DEL DIA, FUERA DEL try DE LA COPIA (27/09, arreglado tras la revision)
+#
+# EL FALLO: las siete colgaban DENTRO de New-CopiaSeguridad y DESPUES de su
+# 'Compress-Archive ... -ErrorAction Stop'. O sea que si el zip fallaba, las siete se saltaban de
+# golpe y el registro solo decia "COPIA fallida": nada decia que ademas se habian quedado sin correr
+# el repaso contra Steam, los ajustes propios, los cuadernos parados, la frase del oido y lo de la
+# pantalla. Y el disparador mas probable de que el zip falle es EL DISCO LLENO, que es justo lo que
+# Nova vigila -843 avisos de 'disco-poco' aparcados en el registro-: el dia que de verdad importa
+# que estas tareas corran es el dia en que no corrian.
+#
+# HABIA UN SEGUNDO CAMINO, ademas: el 'if ($origen.Count -eq 0) { return $null }' de mas arriba las
+# saltaba igual, sin que nada fallara.
+#
+# Y UN TERCERO, al reves: pedir una copia a mano -"hazme una copia"- disparaba las siete tareas
+# diarias de propina. Ahora no: la copia es la copia y las tareas son las tareas.
+#
+# CADA UNA EN SU try, como estaban, para que la que pete no se lleve a las seis siguientes (regla 7).
+function Invoke-TareasDelDia {
+    $hechas = 0
+    foreach ($t in @(
+        @{ n = 'COPIA poda';    f = { Invoke-PodaCopias } }
+        @{ n = 'CORRECCIONES';  f = { Invoke-CorreccionesDormidas } }
+        @{ n = 'CIEGOS';        f = { Test-JuegosCiegos } }
+        @{ n = 'AJUSTES';       f = { Test-AjustesDelDia } }
+        @{ n = 'FICHEROS';      f = { Test-FicherosMemoria } }
+        @{ n = 'OIDO frase';    f = { Update-PromptOrdenes } }
+        @{ n = 'PANTALLA';      f = { Test-DecirPantalla } }
+    )) {
+        try { [void](& $t.f); $hechas++ }
+        catch { Log ([string]$t.n + ': ' + $_.Exception.Message) }
+    }
+    # Y SE DICE CUANTAS CORRIERON, que es lo que faltaba: con las siete dentro del try de la copia,
+    # "no corrio ninguna" y "corrieron todas" se escribian igual, o sea nada.
+    if ($hechas -lt 7) { Log ('DIA: corrieron ' + $hechas + ' de 7 tareas del dia') }
+    return $hechas
 }
 # ¿Hace falta la copia del dia? Solo si la ultima tiene mas de 20 horas: asi
 # reiniciar el asistente cinco veces no deja cinco copias iguales.
@@ -25836,6 +25900,12 @@ function Get-AcelUmbral {
 # dia que braya lo encienda, las tres guardas de abajo estan puestas. Es el mismo criterio que la
 # idea 110 y la 111: primero se mide, y la decision espera a tener con que tomarse.
 $PantallaApagarOn = [bool](Get-Cfg 'entorno' 'apagarPantalla' $false)
+# EL PLAZO VA EN CONFIG Y NO SALE DE UN DATO SUYO, y hay que decir por que: la pantalla de braya no
+# se ha apagado NUNCA -powercfg da 0 en alterna y en continua-, asi que no hay ni una medicion de
+# cuanto tarda el en volver despues de dejarla sola. Sin historial no se inventa un percentil: el
+# numero se escribe, se dice que esta escrito, y queda donde braya lo pueda tocar. Media hora es lo
+# que Windows trae de fabrica en un portatil, que es el unico punto de partida que hay.
+$PantallaApagarMin = [int](Get-Cfg 'entorno' 'apagarPantallaMin' 30)
 $PantallaAltavozMin = 0.01       # el mismo suelo de nivel que usa el aviso de cascos
 $script:pantallaApagadaEn = 0
 $script:pantallaDichoDia = ''
@@ -25914,6 +25984,50 @@ function Set-PantallaApagada([bool]$apagar = $true) {
     } catch { Log ('pantalla: no pude ' + $(if ($apagar) { 'apagarla' } else { 'encenderla' }) + ' (' + $_.Exception.Message + ')'); return $false }
 }
 
+# Y QUIEN LA MANDA A DORMIR DE VERDAD (cableado tras la revision del 27/09)
+#
+# EL FALLO QUE ESTO ARREGLA ERA MIO Y DE HONESTIDAD: Test-ApagarPantalla, Set-PantallaApagada y
+# Get-NivelAltavoces se escribieron con sus guardas y sus bancos... y NO LAS LLAMABA NADIE. Cada una
+# aparecia UNA vez en el fichero: su propia definicion. Y el comentario decia "el dia que braya lo
+# encienda, las tres guardas de abajo estan puestas", que se lee como "enciendelo y funciona": poner
+# entorno.apagarPantalla = true no hacia absolutamente nada. Noventa lineas muertas y un interruptor
+# de pega. Ahora esta cableado de verdad, y sigue naciendo APAGADO.
+#
+# EL PLAZO SE MIRA UNA VEZ POR MINUTO, no en cada vuelta: la decision necesita Get-NadieMin, que lee
+# habitos, el ocio de Windows, el mando y el acelerometro. Y la enciende Nova en cuanto ve a alguien,
+# que es la segunda salida que la regla 2 pide (la primera es cualquier tecla, raton o mando, que la
+# enciende sin que Nova haga nada).
+function Watch-PantallaDormida([datetime]$ahora = (Get-Date)) {
+    if (-not $PantallaApagarOn) { return $false }
+    $nadie = -1
+    try { $nadie = [int](Get-NadieMinFrenado) } catch { $nadie = -1 }
+    $movido = -1
+    try { $movido = [int](Get-MovimientoMin) } catch { $movido = -1 }
+    $nivel = -1.0
+    try { $nivel = [double](Get-NivelAltavoces) } catch { $nivel = -1.0 }
+    $d = Test-ApagarPantalla $nadie $movido $nivel ([bool]$script:juegoActivo) $PantallaApagarMin $true
+    if ($d.apagar) {
+        # UNA VEZ, NO EN CADA MINUTO: si ya la apago y sigue sin haber nadie, Windows la tiene
+        # apagada y repetir el mensaje no hace nada. Se vuelve a permitir cuando alguien aparece.
+        if ($script:pantallaApagadaEn -gt 0) { return $false }
+        if (Set-PantallaApagada $true) {
+            $script:pantallaApagadaEn = $sw.ElapsedMilliseconds
+            Log ('PANTALLA: la apago, ' + [string]$d.porque)
+            try { Add-Estadistica 'pantalla-off' ([string]$d.porque) } catch {}
+            return $true
+        }
+        return $false
+    }
+    # Y LA ENCIENDE EN CUANTO HAY ALGUIEN, sin esperar a que braya toque nada: es la salida que
+    # convierte esto en algo que no se queda puesto.
+    if ($script:pantallaApagadaEn -gt 0) {
+        $script:pantallaApagadaEn = 0
+        [void](Set-PantallaApagada $false)
+        Log ('PANTALLA: la enciendo, ' + [string]$d.porque)
+    }
+    return $false
+}
+
 # Y LO QUE SI SE HACE HOY: contarselo. Una vez al dia, y solo si de verdad esta puesta para no
 # apagarse nunca; si Windows ya la apaga solo, aqui no hay noticia.
 function Test-DecirPantalla([datetime]$ahora = (Get-Date)) {
@@ -25924,9 +26038,17 @@ function Test-DecirPantalla([datetime]$ahora = (Get-Date)) {
         $c = Get-PantallaApagaTras
         if ([int]$c.alterna -ne 0 -and [int]$c.continua -ne 0) { return $false }
         $h = Get-HorasEncendida $ahora
-        Log ('PANTALLA: Windows esta puesto para no apagarla nunca (alterna ' + $c.alterna + ', continua ' +
+        # NI "NUNCA" A SECAS CUANDO SOLO ES UNO DE LOS DOS (arreglado tras la revision): el texto
+        # decia "Windows esta puesto para no apagarla nunca (alterna 0, continua 600)", y eso es
+        # mentir en la primera mitad y desmentirse en la segunda, con los dos numeros al lado. Hoy
+        # en la Ally las dos valen 0 y acertaba por suerte; el dia que braya ponga un apagado solo
+        # con bateria, diria lo contrario de lo que ella misma imprime.
+        $quien = if ([int]$c.alterna -eq 0 -and [int]$c.continua -eq 0) { 'ni enchufada ni con bateria' }
+                 elseif ([int]$c.alterna -eq 0) { 'estando enchufada' }
+                 else { 'con bateria' }
+        Log ('PANTALLA: Windows no la apaga sola ' + $quien + ' (alterna ' + $c.alterna + ', continua ' +
              $c.continua + ')' + $(if ($h -ge 0) { '; la consola lleva ' + $h + ' h encendida' } else { '' }) +
-             '; yo puedo apagarla sola con entorno.apagarPantalla, hoy en ' + $PantallaApagarOn)
+             '; yo puedo apagarla a los ' + $PantallaApagarMin + ' min sin nadie con entorno.apagarPantalla, hoy en ' + $PantallaApagarOn)
         return $true
     } catch { return $false }
 }
@@ -28469,7 +28591,10 @@ function Test-AjustesDelDia {
     try {
         # 1. EL PLAZO CON EL QUE SE RINDE AL HABLAR: el p99 de ms por letra. 167 muestras en disco.
         try {
-            $vz = @(Get-VozTiempos)
+            # SIN @(): Get-VozTiempos acaba en 'return , $l'. Con el @(), Count valia 1 SIEMPRE y la
+            # guarda '-ge $DecisionMinIntentos' no se cumplia nunca, asi que el plazo de la voz -167
+            # muestras en disco, p99 de 70 ms por letra- no llegaba a apuntarse jamas.
+            $vz = Get-VozTiempos
             if (@($vz).Count -ge $DecisionMinIntentos) {
                 $p99 = [double](Get-PercentilLista $vz 99)
                 if ($p99 -gt 0 -and (Add-AjustePropio 'voz-por-letra' $p99 'lo que tardo en hablar, por letra')) { $n++ }
@@ -36238,6 +36363,12 @@ while ($true) {
                     }
                 }
             } catch {}
+            # LAS TAREAS DEL DIA VAN APARTE Y SIEMPRE (27/09, arreglado tras la revision): colgaban
+            # dentro del try de la copia y detras de su Compress-Archive, asi que un zip fallido
+            # -disco lleno, que es lo que Nova vigila- se llevaba las siete en silencio. Y aqui
+            # fuera del 'if (Test-CopiaPendiente)' tambien a proposito: que la copia de hoy ya
+            # estuviera hecha no es motivo para no repasar lo demas.
+            try { [void](Invoke-TareasDelDia) } catch { Log ('DIA: ' + $_.Exception.Message) }
         }
         $diaAhora = Get-Date -Format 'yyyy-MM-dd'
         if ($diaAhora -ne $script:diaVisto) {
@@ -36256,6 +36387,12 @@ while ($true) {
                     }
                 }
             } catch {}
+            # LAS TAREAS DEL DIA VAN APARTE Y SIEMPRE (27/09, arreglado tras la revision): colgaban
+            # dentro del try de la copia y detras de su Compress-Archive, asi que un zip fallido
+            # -disco lleno, que es lo que Nova vigila- se llevaba las siete en silencio. Y aqui
+            # fuera del 'if (Test-CopiaPendiente)' tambien a proposito: que la copia de hoy ya
+            # estuviera hecha no es motivo para no repasar lo demas.
+            try { [void](Invoke-TareasDelDia) } catch { Log ('DIA: ' + $_.Exception.Message) }
             # lo que Windows apunto de los dias que Nova no estaba (idea 70). Una vez al dia y
             # nunca en el bucle: el informe cuesta ~248 ms.
             try { [void](Update-BateriaWindows) } catch { Log ('bateria de Windows: ' + $_.Exception.Message) }
@@ -36409,6 +36546,11 @@ while ($true) {
                 # este bloque ya corre una vez por minuto y no hace falta estrenar reloj. Un proceso
                 # por vuelta, 4 ms medidos, y la sonda se apaga sola si algun dia cuesta mas.
                 try { [void](Update-Consumo) } catch {}
+                # Y LA PANTALLA, SI BRAYA LO HA ENCENDIDO (27/09, idea 121, cableada tras la
+                # revision). Nace apagado: con entorno.apagarPantalla en $false esto sale en la
+                # primera linea sin mirar nada. Aqui y no en el bucle porque la decision necesita
+                # Get-NadieMin, que lee habitos, el ocio de Windows, el mando y el acelerometro.
+                try { [void](Watch-PantallaDormida) } catch { Log ('PANTALLA: ' + $_.Exception.Message) }
                 if (-not $cargando) { Invoke-Reglas 'bateria' ([string]$pc) }
                 # CARGADOR: solo en el FLANCO, cuando cambia. Por estado se
                 # repetiria cada minuto mientras siguiera enchufado.

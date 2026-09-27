@@ -34,6 +34,14 @@ $sinCom = (($txt -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) 
 # LAS PIEZAS DE VERDAD. Los dobles van DESPUES.
 $quiero = @('Test-ApagarPantalla', 'Get-PantallaApagaTras', 'Get-HorasEncendida')
 $defs = $arbol.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+# RECORTAR POR LOS LIMITES DE VERDAD, no por una ventana de N caracteres (27/09, idea 2). Los
+# cuatro casos del cableado de abajo median "a menos de N caracteres de la firma", y una cuenta asi
+# se pone roja sola en cuanto alguien escribe una linea dentro de la funcion.
+function Cuerpo([string]$nombre) {
+    $d = @($defs | Where-Object { $_.Name -eq $nombre })
+    if ($d.Count -eq 0) { return '' }
+    return (($d[0].Extent.Text -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) -join "`n"
+}
 $puestas = 0
 foreach ($q in $quiero) {
     $d = @($defs | Where-Object { $_.Name -eq $q })
@@ -105,8 +113,14 @@ Write-Host '-- 6. NO QUEDA NADA PUESTO --'
 Comp '6a. no se toca ninguna opcion de energia' (-not ($sinCom -match 'powercfg /(setac|setdc|change|s\b)')) 'solo se LEE con /query'
 Comp '6b. la pantalla se enciende con el mismo sitio' ($sinCom -match 'function Set-PantallaApagada\(\[bool\]\$apagar = \$true\)') 'apagar y encender, una sola pieza'
 Comp '6c. y encender es el -1 de lParam' ($sinCom -match '\$lp = if \(\$apagar\) \{ \[IntPtr\]2 \} else \{ \[IntPtr\]\(-1\) \}') ''
-Comp '6d. el P/Invoke va en el bloque que ya existia' ($sinCom -match '(?s)Add-Type -Namespace Nova -Name Win[\s\S]{0,1400}?public static extern IntPtr SendMessage') 'ni un Add-Type nuevo'
-Comp '6e. y no se crea ninguna tarea ni servicio' (-not ($sinCom -match '(?s)function Set-PantallaApagada[\s\S]{0,600}?(schtasks|New-Service|Register-Scheduled)')) ''
+# EL BLOQUE DEL Add-Type, POR SU CIERRE DE VERDAD: el here-string va de @' a '@, y ahi estan sus
+# limites. La cuenta de 1400 caracteres se quedaba corta sola con cada DllImport nuevo de al lado.
+$iAT = $sinCom.IndexOf('Add-Type -Namespace Nova -Name Win')
+$fAT = if ($iAT -ge 0) { $sinCom.IndexOf("`n'@", $iAT) } else { -1 }
+$bloqueAT = if ($fAT -gt $iAT) { $sinCom.Substring($iAT, $fAT - $iAT) } else { '' }
+Comp '6d. el P/Invoke va en el bloque que ya existia' ($bloqueAT -match 'public static extern IntPtr SendMessage') 'ni un Add-Type nuevo'
+$cuerpoSP = Cuerpo 'Set-PantallaApagada'
+Comp '6e. y no se crea ninguna tarea ni servicio' (($cuerpoSP -ne '') -and -not ($cuerpoSP -match '(schtasks|New-Service|Register-Scheduled)')) ''
 
 Write-Host ''
 Write-Host '-- 7. EL CABLEADO, Y LO QUE SI SE HACE HOY --'
@@ -114,8 +128,9 @@ Comp '7a. se lo cuenta una vez al dia' ($sinCom -match '\$script:pantallaDichoDi
 Comp '7b. y cuelga del hueco diario, no del bucle' ($sinCom -match '(?s)Update-PromptOrdenes.{0,400}Test-DecirPantalla') 'powercfg cuesta 34 ms medidos'
 Comp '7c. solo lo dice si de verdad no se apaga nunca' ($sinCom -match '\[int\]\$c\.alterna -ne 0 -and \[int\]\$c\.continua -ne 0') 'si Windows ya la apaga, no hay noticia'
 Comp '7d. y dice si el interruptor esta puesto' ($sinCom -match 'entorno\.apagarPantalla') ''
-Comp '7e. el nivel de altavoces sale del campo que ya escribe el worker' ($sinCom -match '(?s)function Get-NivelAltavoces[\s\S]{0,500}?\$st\[2\]') 'tercer campo de escucha-estado.txt'
-Comp '7f. y solo si el estado esta fresco' ($sinCom -match '(?s)function Get-NivelAltavoces[\s\S]{0,300}?Test-EstadoFresco') 'el del worker anterior no dice nada de ahora'
+$cuerpoNA = Cuerpo 'Get-NivelAltavoces'
+Comp '7e. el nivel de altavoces sale del campo que ya escribe el worker' ($cuerpoNA -match '\$st\[2\]') 'tercer campo de escucha-estado.txt'
+Comp '7f. y solo si el estado esta fresco' ($cuerpoNA -match 'Test-EstadoFresco') 'el del worker anterior no dice nada de ahora'
 $cuerpoT = ((@($defs | Where-Object { $_.Name -eq 'Test-ApagarPantalla' })[0].Extent.Text -split "`n") |
             Where-Object { $_.TrimStart() -notmatch '^#' }) -join "`n"
 Comp '7g. Test-ApagarPantalla es pura' (-not ($cuerpoT -match '(Get-Date|Test-Path|powercfg|Get-CimInstance|Log |SendMessage|\$sw\.)')) 'por eso se le pueden correr veinte casos'

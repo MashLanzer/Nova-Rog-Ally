@@ -36,6 +36,14 @@ $sinCom = (($txt -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) 
 # LAS PIEZAS DE VERDAD. Los dobles van DESPUES.
 $quiero = @('Test-AjusteQueImporta', 'Add-AjustePropio', 'Get-PercentilLista')
 $defs = $arbol.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+# EL CUERPO DE UNA FUNCION, RECORTADO POR SUS LIMITES DE VERDAD (27/09, idea 2). Antes el 8n de
+# abajo media "a menos de 2000 caracteres de la firma", y eso se pone rojo solo el dia que
+# alguien escribe una linea dentro de la funcion. Con el arbol del parser da igual la distancia.
+function Cuerpo([string]$nombre) {
+    $d = @($defs | Where-Object { $_.Name -eq $nombre })
+    if ($d.Count -eq 0) { return '' }
+    return (($d[0].Extent.Text -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) -join "`n"
+}
 $puestas = 0
 foreach ($q in $quiero) {
     $d = @($defs | Where-Object { $_.Name -eq $q })
@@ -148,7 +156,7 @@ Comp '8c. la fuente del plazo de la voz esta' ($sinCom -match "Add-AjustePropio 
 # pasaba por otro, asi que quitarle el liston al repaso no lo ponia rojo.
 $cuerpoD = @($defs | Where-Object { $_.Name -eq 'Test-AjustesDelDia' })[0].Extent.Text
 Comp '8d. y exige el historial de la casa' ($cuerpoD -match '\$DecisionMinIntentos') 'el mismo liston que el resto de decisiones propias'
-Comp '8d2. y no se conforma con una muestra' (-not ($cuerpoD -match '@\(\$vz\)\.Count -ge 1')) 'con dos frases el p99 no dice nada'
+Comp '8d2. y no se conforma con una muestra' (-not ($cuerpoD -match '@\(\$vz\)\.Count -ge 1\b')) 'con dos frases el p99 no dice nada'
 Comp '8e. la del p75 de cada trabajo, tambien' ($sinCom -match "Add-AjustePropio \(\'trabajo-\' \+ \`$cl\)") ''
 Comp '8f. y la linea base del consumo' ($sinCom -match "Add-AjustePropio \(\'consumo-\' \+ \`$nom") ''
 # EL ritmoBateria NO: una linea 'BATERIA:' en todo el registro
@@ -165,7 +173,7 @@ Comp '8j. Test-AjusteQueImporta es pura' (-not ($cuerpoT -match '(Get-Date|\$sw\
 Comp '8k. el liston sale de sus propios cambios' (($cuerpoT -match '\$dist -gt \$normal') -and ($cuerpoT -match '\$ordC = @\(\$sinMedir')) ''
 Comp '8l. y no de un factor sobre el valor' (-not ($cuerpoT -match '\$valor \* |\* \$valor|apuntado \* ')) 'nada de "un 10 % mas"'
 Comp '8m. ni usa el percentil entero de la casa' (-not ($cuerpoT -match 'Get-PercentilLista')) 'aquel devuelve [int] y con 0,5 daba 0'
-Comp '8n. la etiqueta es una de las tres que esa lista lee' ($sinCom -match "(?s)function Add-AjustePropio[\s\S]{0,2000}?Add-Estadistica 'auto-ajuste'") ''
+Comp '8n. la etiqueta es una de las tres que esa lista lee' ((Cuerpo 'Add-AjustePropio') -match "Add-Estadistica 'auto-ajuste'") ''
 Comp '8o. y el camino a decisiones sigue en pie' ($sinCom -match "\`$ruta -in @\('auto-ajuste', 'auto-deshecho', 'arranque-medias'\)") ''
 
 Write-Host ''

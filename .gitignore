@@ -154,3 +154,19 @@ memoria/logros-stamp.json
 memoria/clima.json
 # 26/09, idea 15: cuanto tarda braya en corregir a Nova. Solo numeros, nunca la frase.
 memoria/correcciones-tiempos.json
+# 27/09, idea de los juegos ciegos: el cuaderno de los juegos que Nova aprendio sola porque el
+# contador de Steam no los veia. Lleva los NOMBRES de los juegos que juega braya y cuantos
+# segundos, o sea a que juega y cuando, igual que logros-stamp.json. La ruta la estrena el codigo
+# de hoy ($JuegosCiegosPath) y nacio sin linea aqui; el banco de la idea 1 la caza.
+memoria/juegos-ciegos.json
+
+# 27/09: CINCO CUADERNOS NUEVOS QUE NADIE HABIA TAPADO, y el repositorio es publico
+# (idea 1 de las 121). Los estrenaron las ideas 87, 89, 102 y 69 de la tanda y nacieron sin
+# linea aqui: oido-aprendido lleva lo que Nova aprendio de su voz, firmas las palabras con
+# las que le habla, confirmacion-tiempos lo que tarda en contestarle, bateria-windows lo que
+# Windows apunto de la consola y mando-huecos como usa el mando.
+memoria/oido-aprendido.json
+memoria/firmas.json
+memoria/bateria-windows.json
+memoria/confirmacion-tiempos.json
+memoria/mando-huecos.json

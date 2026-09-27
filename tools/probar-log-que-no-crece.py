@@ -131,8 +131,20 @@ comp("y los tres dicen desde cuando no es verdad",
      ASIS.count("11/09") >= 1 and ASIS.count("19/09") >= 1 and "leer_vocabulario" in ASIS)
 # La escucha ya lo dejaba escrito; que siga.
 comp("la escucha sigue explicando que no lo lee", "AQUI NO SE LEE" in WAKE)
+# EL INITIAL_PROMPT YA NO ES UNA CADENA FIJA (27/09, idea 118): lo escribe Nova con sus propios
+# verbos y la escucha lo lee de tmp\prompt-ordenes.txt. Este caso lo buscaba como constante y
+# daba MAL con el codigo BIEN. Lo que habia:
+#   PROMPT_ORDENES = "Nova, abre Steam. Sube el volumen. Pon el modo noche. Que hora es? Baja el brillo."
+# y lo que hay ahora:
+#   PROMPT_ORDENES_POR_DEFECTO = esa misma frase   +   PROMPT_ORDENES = _leer_prompt_ordenes()
+# Asi que el caso se ancla a las DOS mitades de lo que de verdad llega a Whisper: el respaldo -que
+# es la frase medida, y es donde caen los tres caminos del lector- sin nombres de juego, y que el
+# argumento del reconocedor siga siendo PROMPT_ORDENES. Lo que valga la frase que Nova escribe lo
+# vigila su propio banco (tools/probar-frase-ejemplo.py), que revisa las quince plantillas.
+_mprompt = re.search(r'PROMPT_ORDENES_POR_DEFECTO = "([^"]*)"', WAKE)
 comp("y que su initial_prompt no tiene nombres propios",
-     bool(re.search(r'PROMPT_ORDENES = "[^"]*"', WAKE)) and "Hollow" not in re.search(r'PROMPT_ORDENES = "([^"]*)"', WAKE).group(1))
+     bool(_mprompt) and "Hollow" not in _mprompt.group(1)
+     and "initial_prompt=PROMPT_ORDENES)" in WAKE)
 # La red de la alucinacion se queda aunque ya no dispare.
 comp("Test-CatalogoRecitado se queda de red", "function Test-CatalogoRecitado" in ASIS)
 comp("y se dice que sale gratis en el 99 % de las frases",

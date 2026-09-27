@@ -36,6 +36,26 @@ $sinCom = (($txt -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) 
 # LAS PIEZAS DE VERDAD. Los dobles van DESPUES.
 $quiero = @('Find-CiegosDeUnDia', 'Get-ColaCiegos', 'Get-JuegosDeSteamDelDia')
 $defs = $arbol.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+# RECORTAR POR LOS LIMITES DE VERDAD, no por una ventana de N caracteres (27/09, idea 2). Los tres
+# casos del cableado de abajo median "a menos de N caracteres" -uno de ellos 4000, que no mide una
+# vecindad sino medio archivo- y se ponen rojos solos en cuanto se escribe una linea por medio.
+function Cuerpo([string]$nombre) {
+    $d = @($defs | Where-Object { $_.Name -eq $nombre })
+    if ($d.Count -eq 0) { return '' }
+    return (($d[0].Extent.Text -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) -join "`n"
+}
+function Bloque([string]$texto, [string]$ancla) {
+    $i = $texto.IndexOf($ancla)
+    if ($i -lt 0) { return '' }
+    $abre = $texto.IndexOf('{', $i)
+    if ($abre -lt 0) { return '' }
+    $prof = 0
+    for ($p = $abre; $p -lt $texto.Length; $p++) {
+        if ($texto[$p] -eq '{') { $prof++ }
+        elseif ($texto[$p] -eq '}') { $prof--; if ($prof -eq 0) { return $texto.Substring($abre, $p - $abre + 1) } }
+    }
+    return ''
+}
 $puestas = 0
 foreach ($q in $quiero) {
     $d = @($defs | Where-Object { $_.Name -eq $q })
@@ -171,15 +191,18 @@ Write-Host ''
 Write-Host '-- 8. EL CABLEADO --'
 Comp '8a. el repaso cuelga del hueco de una vez al dia' ($sinCom -match '(?s)Invoke-CorreccionesDormidas.{0,400}Test-JuegosCiegos') ''
 Comp '8b. y no del bucle' (-not ($sinCom -match '(?s)juegoCheck.{0,400}Test-JuegosCiegos')) 'lee dos ficheros de disco'
-Comp '8c. se aprende en el fichero que YA existe' ($sinCom -match '(?s)function Test-JuegosCiegos[\s\S]{0,4000}?Save-ExeJuego') 'no estrena cuaderno para el aprendizaje'
+Comp '8c. se aprende en el fichero que YA existe' ((Cuerpo 'Test-JuegosCiegos') -match 'Save-ExeJuego') 'no estrena cuaderno para el aprendizaje'
 Comp '8d. y el aprendizaje en vivo sigue en pie' ($sinCom -match 'Find-JuegoPorUltimoJugado') 'esto es su red de seguridad, no su sustituto'
-Comp '8e. la cola se dice al contestar el tiempo jugado' ($sinCom -match '(?s)Get-TiempoJugado \$a\.dias[\s\S]{0,700}?Get-ColaCiegos') ''
+# EL BLOQUE DE LA ACCION 'tiempoSemana' ENTERO, contado por llaves: dentro estan las dos cosas, la
+# cuenta y la cola, en cualquier orden y a cualquier distancia.
+$bTS = Bloque $sinCom "'tiempoSemana' {"
+Comp '8e. la cola se dice al contestar el tiempo jugado' (($bTS -match 'Get-TiempoJugado \$a\.dias') -and ($bTS -match 'Get-ColaCiegos')) ''
 # SOBRE SU PROPIO TEXTO: AddDays(-1) sale en mas sitios del fichero y el caso pasaba por otro
 $cuerpoT = @($defs | Where-Object { $_.Name -eq 'Test-JuegosCiegos' })[0].Extent.Text
 Comp '8f. solo se repasa AYER' ($cuerpoT -match "AddDays\(-1\)") 'LastPlayed es el ULTIMO jugado: a los dos dias ya no dice nada del dia que se repasa'
 Comp '8g. y no el dia de hoy, que esta a medias' (-not ($cuerpoT -match "if \(-not \`$dia\) \{ \`$dia = \(Get-Date\)\.ToString")) ''
 Comp '8h. y una sola vez por dia' ($sinCom -match '\$hb\.ciegosVisto') ''
-Comp '8i. el modo invitado no aprende' ($sinCom -match '(?s)function Save-JuegoCiego[\s\S]{0,300}?\$script:invitado') 'lo que haga otro no es su cuenta'
+Comp '8i. el modo invitado no aprende' ((Cuerpo 'Save-JuegoCiego') -match '\$script:invitado') 'lo que haga otro no es su cuenta'
 $cuerpoF = @($defs | Where-Object { $_.Name -eq 'Find-CiegosDeUnDia' })[0].Extent.Text
 Comp '8i. Find-CiegosDeUnDia es pura' (-not ($cuerpoF -match '(Get-Date|\$sw\.|Log |Test-Path|Get-Content)')) 'por eso se puede probar con los dos dias reales'
 Comp '8j. y mira la columna con, no la suma' (($cuerpoF -match '\.con') -and -not ($cuerpoF -match '\.con \+ ')) ''

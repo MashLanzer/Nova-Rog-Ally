@@ -36,6 +36,14 @@ $sinCom = (($txt -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) 
 # LAS PIEZAS DE VERDAD. Los dobles van DESPUES.
 $quiero = @('Test-FicheroParado', 'Get-FicherosMemoria')
 $defs = $arbol.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+# EL CUERPO DE UNA FUNCION, RECORTADO POR SUS LIMITES DE VERDAD (27/09, idea 2). Antes el 8e de
+# abajo media "a menos de 3000 caracteres de la firma": una ventana de ese tamano no mide una
+# vecindad, mide medio archivo, y se pone roja sola en cuanto la funcion de al lado crece.
+function Cuerpo([string]$nombre) {
+    $d = @($defs | Where-Object { $_.Name -eq $nombre })
+    if ($d.Count -eq 0) { return '' }
+    return (($d[0].Extent.Text -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) -join "`n"
+}
 $puestas = 0
 foreach ($q in $quiero) {
     $d = @($defs | Where-Object { $_.Name -eq $q })
@@ -159,7 +167,10 @@ Comp '8a. el repaso cuelga del hueco de una vez al dia' ($sinCom -match '(?s)Tes
 Comp '8b. y no del bucle' (-not ($sinCom -match '(?s)juegoCheck.{0,500}Test-FicherosMemoria')) 'hace un Test-Path por fichero'
 Comp '8c. una sola frase para todos los parados' ($sinCom -match "Send-AvisoEntorno 'fichero-parado'") 'tres avisos por lo mismo serian tres interrupciones'
 Comp '8d. y de nivel bajo, que no es una urgencia' ($sinCom -match "'fichero-parado' \`$fr 'bajo'") ''
-Comp '8e. NO va a la lista de lo que decidio ella' (-not ($sinCom -match "(?s)function Test-FicherosMemoria[\s\S]{0,3000}?Add-Estadistica 'auto-ajuste'")) 'un cuaderno parado no es una decision suya'
+# EL CUERPO TIENE QUE EXISTIR: un caso negativo sobre una cadena vacia pasa siempre, y entonces
+# el dia que la funcion se renombre este 'ok' seria mentira.
+$cuerpoM = Cuerpo 'Test-FicherosMemoria'
+Comp '8e. NO va a la lista de lo que decidio ella' (($cuerpoM -ne '') -and -not ($cuerpoM -match "Add-Estadistica 'auto-ajuste'")) 'un cuaderno parado no es una decision suya'
 Comp '8f. la vigilancia de carpetas sigue en pie' ($sinCom -match 'function Get-CostumbresPropias') 'esto es lo que le faltaba, no su sustituto'
 Comp '8g. y las tres carpetas siguen ahi' (($sinCom -match "'diario'") -and ($sinCom -match "'semanas'") -and ($sinCom -match "'copias'")) ''
 $cuerpoT = ((@($defs | Where-Object { $_.Name -eq 'Test-FicheroParado' })[0].Extent.Text -split "`n") |

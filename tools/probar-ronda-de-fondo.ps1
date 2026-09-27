@@ -32,6 +32,15 @@ $sinCom = (($txt -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) 
 # LAS PIEZAS DE VERDAD, del fichero real. Los dobles van DESPUES.
 $quiero = @('Test-TocaRonda', 'Test-HayAlguien', 'Get-NadieMinFrenado', 'Test-RondaDeFondo')
 $defs = $arbol.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)
+# EL CUERPO DE UNA FUNCION, RECORTADO POR SUS LIMITES DE VERDAD (27/09, idea 2). El 8l de abajo
+# media "a menos de 400 caracteres de la firma", justo el error que el comentario del 8j ya cuenta
+# mas abajo: la funcion de al lado crece o encoge y la ventana empieza a mentir en un sentido o en
+# el otro. Con el arbol del parser da igual lo que ocupe.
+function Cuerpo([string]$nombre) {
+    $d = @($defs | Where-Object { $_.Name -eq $nombre })
+    if ($d.Count -eq 0) { return '' }
+    return (($d[0].Extent.Text -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) -join "`n"
+}
 $puestas = 0
 foreach ($q in $quiero) {
     $d = @($defs | Where-Object { $_.Name -eq $q })
@@ -172,8 +181,12 @@ Comp '8c. la primera sigue a los 20 s del arranque' ($sinCom -match '(?s)ClimaOn
 Comp '8d. el correo de la manana pregunta si hay alguien' ($sinCom -match '(?s)\$hC -ge 7 -and \$hC -lt 12.{0,120}Test-HayAlguien') ''
 Comp '8e. y conserva su ventana y su una-vez-al-dia' ($sinCom -match '(?s)\$hC -ge 7 -and \$hC -lt 12.{0,120}yaMireHoy') ''
 # EL OIDO FUERA: dormirlo por inactividad la dejaria sorda
-Comp '8f. el oido NO pasa por la ronda' (-not ($sinCom -match '(?s)(wakeCheck[\s\S]{0,200}Test-RondaDeFondo|Test-RondaDeFondo[^
-]{0,80}wakeCheck)')) 'dormirlo por inactividad la dejaria sorda'
+# ANCLADO A LAS LINEAS QUE NOMBRAN EL RELOJ DEL OIDO, no a los 200 caracteres de al lado (27/09,
+# idea 2): la ronda recibe el reloj COMO ARGUMENTO -mirar el 8a-, asi que si el oido pasara por
+# ella las dos cosas estarian en la misma llamada. Y aquel regex llevaba un salto de linea de
+# verdad dentro, partido en dos lineas del banco: bastaba con reindentarlo para romperlo.
+$lineasWake = @(($sinCom -split "`n") | Where-Object { $_ -match 'wakeCheck' })
+Comp '8f. el oido NO pasa por la ronda' (($lineasWake.Count -gt 0) -and -not ($lineasWake -match 'Test-RondaDeFondo')) 'dormirlo por inactividad la dejaria sorda'
 Comp '8g. y sigue mirandose cada 30 s' ($sinCom -match '\$script:wakeCheck\) -ge 30000') ''
 # EL DISCO Y LA BIBLIOTECA FUERA: no son red
 Comp '8h. el disco no pasa por la ronda' (-not ($sinCom -match '(?s)DriveInfo.{0,400}Test-RondaDeFondo')) 'DriveInfo es local, no ahorra ni un viaje'
@@ -184,7 +197,7 @@ $cuerpoT = @($defs | Where-Object { $_.Name -eq 'Test-TocaRonda' })[0].Extent.Te
 Comp '8j. Test-TocaRonda es pura' (-not ($cuerpoT -match '(Get-Date|\$sw\.|Log |Test-Path)')) 'sin reloj ni fichero dentro: por eso se puede probar'
 Comp '8k. y el liston es el que ya usa la copia' ($cuerpoT -match '\$TrabajoAusenciaMin') 'no es un numero nuevo'
 Comp '8m. y no le quedo suelo muerto' (-not ($cuerpoT -match 'largaMs')) 'quitarlo no ponia rojo ni un caso'
-Comp '8l. Test-BuenRatoParaTrabajo sigue usandolo' ($sinCom -match '(?s)function Test-BuenRatoParaTrabajo[\s\S]{0,400}?\$TrabajoAusenciaMin') 'las dos guardas miran el mismo numero'
+Comp '8l. Test-BuenRatoParaTrabajo sigue usandolo' ((Cuerpo 'Test-BuenRatoParaTrabajo') -match '\$TrabajoAusenciaMin') 'las dos guardas miran el mismo numero'
 
 Write-Host ''
 if ($mal -gt 0) { Write-Host ([string]$mal + ' MAL') -ForegroundColor Red; exit 1 }

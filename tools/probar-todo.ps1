@@ -2089,6 +2089,20 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n272. El @() sobre una lista envuelta, el fallo que ha vuelto cuatro veces"
+# En PowerShell una funcion que devuelve una coleccion la DESENROLLA, asi que la casa la envuelve con
+# 'return ,$l'. Pero entonces el llamador NO debe ponerle @() encima: eso da un array de UNO con la
+# lista dentro y .Count vale 1 SIEMPRE. Ha vuelto cuatro veces (Get-ProcesosNova, Get-FicherosMemoria,
+# Get-Importante) y la cuarta LLEGO A PRODUCCION: con dos juegos de Steam el mismo dia -el 25/09 hubo
+# CUATRO- la guarda de unicidad de Find-CiegosDeUnDia pasaba igual y Nova aprendia
+# 'ELDEN RING NIGHTREIGN The Past Within' como nombre de juego, lo escribia en juegos-exes.json y lo
+# DECIA por el altavoz. Mas dos que llevaban ahi de antes: Get-Contactos (el contacto importante no se
+# podia acertar) y Get-MusicaNo (con la lista vacia contestaba 'tengo 1: '). Este banco no prueba una
+# pieza: AUDITA los .ps1 de la raiz enteros, porque un fallo que vuelve cuatro veces no se arregla
+# arreglandolo. Y se prueba a si mismo con un fichero de mentira que SI lo lleva.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-listas-envueltas.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ni un @\(\) sobre una lista envuelta)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n271. La pantalla no se apaga nunca, y Nova ya lo sabe (idea 121 de las 121, la ultima)"
 # Medido en esta consola: powercfg /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE da indice 0x00000000 en
 # corriente ALTERNA y en CONTINUA -"apagar la pantalla tras: nunca" en las dos- y el brillo esta a
@@ -2169,7 +2183,7 @@ Titulo "2n266. Su saldo ya no sale de casa por el altavoz (idea 116 de las 121)"
 # dolares), una transferencia devuelta de 25 dolares'. El patron que ya habia caza 2 de las 220 y NO
 # caza esa, porque se escribio para decidir que se guarda en el perfil -alli el texto es de braya y
 # aqui es de TERCEROS: asuntos y remitentes-. El nuevo se construyo con las cinco frases delante y
-# los dos juntos cazan SEIS, el 2,7 %, con un solo falso positivo que viene del dinero heredado.
+# los dos juntos cazan SEIS, el 2,7 %, con un solo falso positivo que viene del \bdinero\b heredado.
 # A braya no le gustan las voces roboticas, asi que se limita a lo medido y se puede apagar en
 # config. Si Piper no puede, se sigue por fuera: callarse seria peor. Nueve roturas tumban el banco.
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-voz-local-sensible.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:su saldo ya no sale de casa)|MAL'
