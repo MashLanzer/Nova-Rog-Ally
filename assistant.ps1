@@ -10476,8 +10476,84 @@ $script:ultimoJuegoEn = 0
 # LO QUE LO SEPARA DE SER UN PESADO: no se comenta cada vez. Una racha se dice cuando LLEGA a
 # JuegoRachaMin, no todos los dias; una vuelta solo si de verdad hacia mucho; y si ya jugo hoy,
 # nada -si no, lo repetiria en cada arranque de Nova-. Si no hay nada que contar, se calla.
+# LOS DOS LISTONES DE LO QUE DICE AL ENTRAR EN UN JUEGO (27/09, idea 120 de las 121)
+#
+# EL AGUJERO: al entrar en un juego Nova tiene dos bocas y las dos estan cerradas, y no por un
+# fallo, sino porque sus numeros estan puestos donde braya no llega.
+#
+# LOS HUECOS QUE HAY DE VERDAD en memoria\juegos.json -9 juegos, 19 pares (juego, dia)- son
+#     1, 1, 1, 1, 1, 2, 2, 4, 5, 7
+# o sea que $JuegoVueltaDias = 10 no se ha alcanzado NI UNA VEZ. Y la racha mas larga que ha
+# encadenado con un juego son TRES dias (ELDEN RING, el 18, 19 y 20/09), mientras
+# $JuegoRachaMin = 3 exige un CUARTO dia seguido, que nunca hubo: tras el 20 vienen cinco dias de
+# hueco. Las dos ramas estan muertas por construccion, y se ve en el registro: 'juego-notado' sale
+# CERO veces en los dos ficheros, catorce dias.
+#
+# LOS LISTONES NUEVOS SALEN DE SUS PROPIOS HUECOS Y RACHAS, con la convencion de percentil que ya
+# usa la casa -Floor((n-1)*p), la de Get-VentanaSeguimiento-. Con los diez huecos de hoy el p90 da
+# CINCO, y con eso el hueco de 7 habria hablado y el de 5 tambien.
+#
+# Y LA RACHA SE IGUALA, NO SE SUPERA, que es lo que la deja viva: con el record en 3, igualar es lo
+# que braya hizo el 20/09 y superarlo es lo que no ha hecho nunca. Un 'un dia mas que tu record'
+# dejaria la rama tan muerta como esta.
+#
+# EL SUELO DE 3 DIAS SE QUEDA, y no es un numero nuevo: es el que ya tenia $JuegoRachaMin. Por
+# debajo de tres, cualquier cosa seria noticia y Nova hablaria cada vez que abre algo.
 $JuegoRachaMin = 3
 $JuegoVueltaDias = 10
+$JuegoHuecosMin = 5              # con menos huecos guardados manda el numero de siempre (regla 3)
+
+# PURA: todos los huecos entre partidas de TODOS los juegos, y la racha mas larga de cada uno.
+#   $porJuego: nombre -> lista de dias 'yyyy-MM-dd'
+# Devuelve @{ huecos = @(...); rachas = @{ nombre = N } }
+function Get-HuecosYRachas($porJuego) {
+    $r = @{ huecos = @(); rachas = @{} }
+    $hs = New-Object System.Collections.ArrayList
+    foreach ($k in @($porJuego.Keys)) {
+        $fs = @()
+        foreach ($d in @($porJuego[$k])) {
+            try { $fs += [datetime]::ParseExact([string]$d, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture) } catch {}
+        }
+        if ($fs.Count -eq 0) { $r.rachas[[string]$k] = 0; continue }
+        $fs = @($fs | Sort-Object)
+        $mx = 1; $cur = 1
+        for ($i = 1; $i -lt $fs.Count; $i++) {
+            $sal = [int]($fs[$i].Date - $fs[$i - 1].Date).TotalDays
+            if ($sal -gt 0) { [void]$hs.Add($sal) }
+            if ($sal -eq 1) { $cur++ } else { $cur = 1 }
+            if ($cur -gt $mx) { $mx = $cur }
+        }
+        $r.rachas[[string]$k] = $mx
+    }
+    $r.huecos = @($hs)
+    return $r
+}
+
+# PURA: el liston de la vuelta. El p90 de sus huecos, con suelo en el numero de siempre.
+# Devuelve @{ dias; deDonde } para poder decir en el log de que cuenta sale.
+function Get-ListonVuelta($huecos, [int]$fijo = 0, [int]$minHuecos = 0) {
+    if ($fijo -le 0) { $fijo = $JuegoVueltaDias }
+    if ($minHuecos -le 0) { $minHuecos = $JuegoHuecosMin }
+    $v = @(@($huecos) | Where-Object { [int]$_ -gt 0 } | Sort-Object)
+    if ($v.Count -lt $minHuecos) {
+        return @{ dias = $fijo; deDonde = ('solo ' + $v.Count + ' huecos guardados, hacen falta ' + $minHuecos + '; me quedo con ' + $fijo) }
+    }
+    # LA CONVENCION DE LA CASA: Floor((n-1)*p), la misma de Get-VentanaSeguimiento
+    $i = [int][Math]::Floor(($v.Count - 1) * 0.9)
+    if ($i -lt 0) { $i = 0 }
+    if ($i -ge $v.Count) { $i = $v.Count - 1 }
+    $p90 = [int]$v[$i]
+    $d = [Math]::Max($JuegoRachaMin, $p90)
+    return @{ dias = $d; deDonde = ('p90 de ' + $v.Count + ' huecos = ' + $p90 + ' dias') }
+}
+
+# PURA: el liston de la racha de ESE juego. Su propio record, con suelo en el de siempre.
+function Get-ListonRacha([int]$recordSuyo, [int]$fijo = 0) {
+    if ($fijo -le 0) { $fijo = $JuegoRachaMin }
+    if ($recordSuyo -le 0) { return @{ dias = $fijo; deDonde = ('sin rachas guardadas; me quedo con ' + $fijo) } }
+    $d = [Math]::Max($fijo, $recordSuyo)
+    return @{ dias = $d; deDonde = ('tu record con el son ' + $recordSuyo + ' dias seguidos') }
+}
 function Get-FraseJuegoNotado([string]$nombre, [datetime]$hoy = (Get-Date)) {
     if (-not $nombre) { return '' }
     $dias = @(Get-DiasDeJuego $nombre)
@@ -10504,16 +10580,42 @@ function Get-FraseJuegoNotado([string]$nombre, [datetime]$hoy = (Get-Date)) {
         if ($f.Date -eq $esperado) { $racha++; $esperado = $esperado.AddDays(-1) }
         elseif ($f.Date -lt $esperado) { break }
     }
-    if ($racha -ge ($JuegoRachaMin)) {
+    # LOS DOS LISTONES, DE SUS PROPIOS DATOS (27/09, idea 120). Se calculan aqui y se dicen en el
+    # log con la cuenta de la que salen, que es la unica forma de ver despues si valian.
+    $hr = @{ huecos = @(); rachas = @{} }
+    try { $hr = Get-HuecosYRachas (Get-TodosLosDiasDeJuego) } catch {}
+    $lr = Get-ListonRacha ([int]$hr.rachas[$nombre])
+    # SE IGUALA, NO SE SUPERA: con el record en 3, igualar es lo que braya hizo el 20/09 y
+    # superarlo es lo que no ha hecho nunca. El +1 es porque HOY cuenta: con dos dias detras y
+    # jugando hoy, este es el tercero.
+    if (($racha + 1) -ge [int]$lr.dias) {
+        Log ("JUEGOS: racha con " + $nombre + " = " + ($racha + 1) + ", liston " + $lr.dias + " (" + $lr.deDonde + ")")
         return "Este es el dia $($racha + 1) seguido con $nombre."
     }
     # LA VUELTA: cuanto hacia que no lo tocaba
     $hueco = [int]($hoyD - $fechas[0].Date).TotalDays
-    if ($hueco -ge $JuegoVueltaDias) {
+    $lv = Get-ListonVuelta $hr.huecos
+    if ($hueco -ge [int]$lv.dias) {
+        Log ("JUEGOS: vuelta a " + $nombre + " tras " + $hueco + " dias, liston " + $lv.dias + " (" + $lv.deDonde + ")")
         return "Hacia $hueco dias que no jugabas a $nombre."
     }
     return ''
 }
+# LOS DIAS DE TODOS, que es lo que hace falta para sacar los huecos y las rachas (27/09, idea 120).
+# Aparte de Get-DiasDeJuego y por lo mismo: para que el banco pueda darle dias de mentira.
+function Get-TodosLosDiasDeJuego {
+    $o = @{}
+    try {
+        $m = Get-JuegosMem
+        foreach ($k in @($m.Keys)) {
+            $e = $m[$k]
+            if (-not $e.ContainsKey('dias')) { continue }
+            $o[[string]$k] = @((Get-DiasJuego $e['dias']).Keys)
+        }
+    } catch {}
+    return $o
+}
+
 # Los dias en que jugo a algo, de la memoria de siempre. Aparte para que el banco pueda darle
 # dias de mentira sin tocar el fichero de braya.
 function Get-DiasDeJuego([string]$nombre) {
@@ -10809,6 +10911,46 @@ function Format-Minutos([int]$min) {
 # sin voz y sin tarjeta (el juego acaba de arrancar). Una vez por hora como
 # mucho: salir y volver con Alt+Tab tambien cuenta como "entrar".
 $script:juegoRecordado = @{}
+# PURA: lo que Nova sabe SIEMPRE de un juego, de los minutos que ya tiene guardados.
+#   $dias: dia 'yyyy-MM-dd' -> minutos... no: SEGUNDOS, que es lo que guarda juegos.json
+# Devuelve @{ minutos; cuanto; hueco; ultima } con las frases hechas y cortas, que esto va a una
+# tarjeta de 70 caracteres.
+function Get-ResumenJuego([string]$nombre, $dias = $null, [datetime]$hoy = (Get-Date)) {
+    $r = @{ minutos = 0; cuanto = ''; hueco = 0; ultima = '' }
+    if (-not $nombre) { return $r }
+    if ($null -eq $dias) {
+        try {
+            $m = Get-JuegosMem
+            if ($m.ContainsKey($nombre) -and $m[$nombre].ContainsKey('dias')) { $dias = Get-DiasJuego $m[$nombre]['dias'] }
+        } catch { $dias = $null }
+    }
+    if ($null -eq $dias) { return $r }
+    $seg = 0
+    $ult = [datetime]::MinValue
+    foreach ($k in @($dias.Keys)) {
+        $seg += [int]$dias[$k]
+        try {
+            $f = [datetime]::ParseExact([string]$k, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
+            if ($f -gt $ult) { $ult = $f }
+        } catch {}
+    }
+    $r.minutos = [int][Math]::Round($seg / 60.0)
+    if ($r.minutos -gt 0) { $r.cuanto = 'llevas ' + (Format-Minutos $r.minutos) + ' con esto' }
+    # EL DIA DE JUGAR EMPIEZA A LAS CINCO, como en Get-FraseJuegoNotado: con la fecha natural, de
+    # medianoche a las cinco la cuenta se va un dia entero, y esa es la franja en la que braya juega.
+    if ($ult -gt [datetime]::MinValue) {
+        try {
+            $hoyD = [datetime]::ParseExact((Get-DiaJuego $hoy), 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
+            $h = [int]($hoyD - $ult.Date).TotalDays
+            if ($h -gt 0) {
+                $r.hueco = $h
+                $r.ultima = if ($h -eq 1) { 'la ultima vez fue ayer' } else { 'la ultima, hace ' + $h + ' dias' }
+            }
+        } catch {}
+    }
+    return $r
+}
+
 function Show-RecuerdoJuego([string]$nombre) {
     if ($script:juegoRecordado.ContainsKey($nombre) -and ($sw.ElapsedMilliseconds - $script:juegoRecordado[$nombre]) -lt 3600000) { return }
     $m = Get-JuegosMem
@@ -10818,6 +10960,17 @@ function Show-RecuerdoJuego([string]$nombre) {
         $minB = Get-DuracionBateriaJuego $nombre
         if ($minB) { $partes += 'bateria para ' + (Format-Minutos $minB) }
     }
+    # Y LO QUE NOVA SI SABE SIEMPRE (27/09, idea 120). Esta tarjeta no ha salido NI UNA VEZ en
+    # catorce dias -'JUEGOS: al entrar en' sale cero veces en los dos registros- porque sus dos
+    # fuentes estan practicamente vacias: ninguno de los nueve juegos tiene nota, porque la
+    # pregunta 'dime donde te quedaste' salio cinco veces y se quedo sin respuesta las cinco; y
+    # solo UNO tiene ritmoBateria, que ademas pide estar sin cargador. En cambio los minutos por
+    # dia y por juego estan en los 19 pares de juegos.json: esa fuente no esta vacia nunca.
+    try {
+        $rec = Get-ResumenJuego $nombre
+        if ([int]$rec.minutos -gt 0) { $partes += [string]$rec.cuanto }
+        if ([int]$rec.hueco -gt 0) { $partes += [string]$rec.ultima }
+    } catch {}
     if ($partes.Count -eq 0) { return }
     $script:juegoRecordado[$nombre] = $sw.ElapsedMilliseconds
     $txtR = $partes -join ' · '

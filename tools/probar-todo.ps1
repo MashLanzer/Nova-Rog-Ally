@@ -2089,6 +2089,20 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n270. Los dos listones de lo que dice al entrar en un juego (idea 120 de las 121)"
+# Al entrar en un juego Nova tenia dos bocas y las dos cerradas, no por un fallo sino porque sus
+# numeros estaban puestos donde braya no llega. Los huecos que hay de verdad en juegos.json -9 juegos,
+# 19 pares- son 1,1,1,1,1,2,2,4,5,7: $JuegoVueltaDias = 10 no se alcanzo NI UNA VEZ. Y la racha mas
+# larga son TRES dias (ELDEN RING, 18/19/20 de septiembre), mientras $JuegoRachaMin = 3 exigia un
+# CUARTO dia seguido que nunca hubo. 'juego-notado' sale cero veces en los dos registros, y
+# 'JUEGOS: al entrar en' tambien cero. Ahora los listones salen del p90 de sus huecos -con la
+# convencion de la casa, Floor((n-1)*p): da CINCO- y del record de cada juego, y la racha se IGUALA,
+# no se supera, que es lo que la deja viva. La tarjeta gana lo que Nova sabe SIEMPRE -las horas con
+# ese juego y cuando fue la ultima vez-, porque sus dos fuentes de antes estan practicamente vacias.
+# Doce roturas tumban el banco, que corre con los dias reales de su fichero.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-juego-notado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:los dos listones salen de sus partidas)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n269. El aviso aparcado se dice con el dato de ahora, o no se dice (idea 119 de las 121)"
 # 4.187 avisos aparcados en el registro: oido-ruido 1.694, gmail-lleno 1.649, disco-poco 843. Y dos
 # problemas distintos. La CIFRA envejece: disco-poco lleva el numero dentro -"Te quedan 10.2 gigas"-
