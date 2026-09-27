@@ -221,7 +221,37 @@ SILENCIO_SIN_PALABRA = 3.2
 # en silencio con otro numero). Sin numeros acierta lo mismo (92 de 110) y ningun
 # numero cambia. Con "Abre Little Nightmares III" se inventaba ese juego en frases
 # que no lo decian, y la voz de Nova volvia a acabar en abrir otro.
-PROMPT_ORDENES = "Nova, abre Steam. Sube el volumen. Pon el modo noche. ¿Qué hora es? Baja el brillo."
+# Y DESDE EL 27/09 (idea 118) LA ESCRIBE NOVA CON SUS PROPIAS ORDENES. La de aqui abajo era fija
+# desde el 14/09 y llevaba 'sube' -UNA orden real en todo el historial- y 'baja' -tres-, y NO llevaba
+# 'cierra', que son dieciocho y es justo el verbo que peor se oye: 21 veces salio como 'Tierra
+# Steam', 'Sierra Gul', 'Si es Steam'. Quien la escribe es Update-PromptOrdenes, en assistant.ps1,
+# contando las primeras palabras de destinos.jsonl; las DOS guardas de arriba se respetan enteras,
+# porque de cada verbo se usa una plantilla fija y no sus ordenes de verdad: ni numeros ni nombres.
+#
+# SI NO HAY FICHERO, SE QUEDA LA DE SIEMPRE, que es la que esta medida (74 de 90 con base + small).
+# Un oido sin frase de ejemplo se va al ingles, asi que aqui no puede haber un camino que deje esto
+# vacio: por eso el respaldo es la constante y no una cadena en blanco.
+PROMPT_ORDENES_POR_DEFECTO = "Nova, abre Steam. Sube el volumen. Pon el modo noche. ¿Qué hora es? Baja el brillo."
+
+
+def _leer_prompt_ordenes():
+    """La frase que Nova escribio con sus verbos, o la de siempre si no hay o no vale."""
+    try:
+        ruta = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tmp", "prompt-ordenes.txt")
+        if not os.path.exists(ruta):
+            return PROMPT_ORDENES_POR_DEFECTO
+        with open(ruta, encoding="utf-8") as f:
+            fr = f.read().strip()
+        # UNA FRASE DEMASIADO CORTA NO EMPUJA A NADA, y una demasiado larga arrastra: los dos
+        # limites salen de la de siempre, que mide 86 caracteres y esta medida.
+        if len(fr) < 20 or len(fr) > 300:
+            return PROMPT_ORDENES_POR_DEFECTO
+        return fr
+    except Exception:  # noqa: BLE001
+        return PROMPT_ORDENES_POR_DEFECTO
+
+
+PROMPT_ORDENES = _leer_prompt_ordenes()
 
 
 def es_eco_del_ejemplo(texto):

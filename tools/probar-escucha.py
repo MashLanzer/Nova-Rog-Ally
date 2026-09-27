@@ -21,6 +21,10 @@ QUIERO = {"PALABRAS_ES", "PALABRAS_EN", "VOSK_MIN_PALABRAS", "palabras_planas", 
           # canto en el acto. "pausas" se deja vacia: entonces manda el numero escrito.
           "silencio_medido", "pausas", "PAUSAS_MINIMAS", "PAUSAS_PCT_LARGO", "PAUSAS_PCT_CORTO",
           "SILENCIO_FIN_SUELO", "SILENCIO_FIN_LOTENGO_SUELO",
+          # IDEA 118 (27/09): PROMPT_ORDENES ya no es una constante, la escribe Nova con sus verbos
+          # y aqui se lee de tmp\prompt-ordenes.txt. Sin traer el lector y su respaldo moria con
+          # NameError, y este banco SI mira lo que vale la frase, asi que lo canto en el acto.
+          "PROMPT_ORDENES_POR_DEFECTO", "_leer_prompt_ordenes",
           "MARGEN_CORTE_HZ", "es_voz_de_braya", "PROMPT_ORDENES", "es_eco_del_ejemplo", "PICO_OBJETIVO", "GANANCIA_MIN", "GANANCIA_MAX", "GANANCIA_INICIAL", "DICTADO_MAX", "ACT_ESPERA_MAX", "activacion_caducada", "fila_activacion"}
 trozos = []
 for n in arbol.body:
@@ -28,7 +32,9 @@ for n in arbol.body:
     if nombre in QUIERO:
         trozos.append(ast.get_source_segment(fuente, n))
 ns = {}
-exec("import re" + chr(10) + "import unicodedata" + chr(10) + chr(10).join(trozos), ns)
+# y "os" y __file__, que el lector de la frase de ejemplo los necesita para encontrar tmp
+ns = {"__file__": os.path.join(RAIZ, "wake_vosk.py")}
+exec("import re" + chr(10) + "import unicodedata" + chr(10) + "import os" + chr(10) + chr(10).join(trozos), ns)
 
 fallos = 0
 

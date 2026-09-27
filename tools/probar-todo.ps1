@@ -2089,6 +2089,22 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n268. La frase de ejemplo del oido ya lleva los verbos que de verdad dice (idea 118 de las 121)"
+# A Whisper se le daba siempre la misma frase, escrita a mano el 14/09: "Nova, abre Steam. Sube el
+# volumen. Pon el modo noche. Que hora es? Baja el brillo." Contadas las primeras palabras de las 226
+# ordenes utiles de destinos.jsonl: abre 23, cierra 18, que 13, mira 10, dime 6, pon 4, baja 3,
+# sube 1. La frase llevaba 'sube' -UNA orden real en todo el historial- y no llevaba 'cierra', que
+# son dieciocho y es el verbo que peor se oye: 21 veces salio como 'Tierra Steam', 'Sierra Gul', 'Si
+# es Steam'. Ahora la escribe Nova con sus verbos. Las DOS guardas medidas del 14/09 se respetan
+# enteras -ni numeros ni nombres propios- y por eso el texto sale de plantillas de la casa y no de
+# sus ordenes, que traen las dos cosas. Y el oido NUNCA se queda sin frase: tres caminos llevan a la
+# constante medida, porque un oido sin ejemplo se va al ingles. Doce roturas tumban uno de los dos
+# bancos, y una destapo que el parche habia dejado 30 saltos de linea LF en un fichero CRLF.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-frase-ejemplo.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:los verbos que de verdad dice)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+python (Join-Path $PSScriptRoot 'probar-frase-ejemplo.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:nunca se queda sin ella)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n267. El inventario de sus fallos ya lo lee alguien, y dice la verdad (idea 117 de las 121)"
 # memoria\cerebro\importante.jsonl lo escribe el worker en modo 'a' -su comentario dice que NO se
 # poda nunca- y no lo leia nadie. Al abrirlo: cinco lineas, las cinco con por='correccion', y ninguna

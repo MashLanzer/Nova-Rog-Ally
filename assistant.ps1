@@ -24115,6 +24115,9 @@ function New-CopiaSeguridad([string]$motivo = 'a mano') {
         # Y LOS CUADERNOS PARADOS (27/09, idea 115). Aqui porque es una vez al dia y porque hace un
         # Test-Path por fichero: no es para el bucle.
         try { [void](Test-FicherosMemoria) } catch { Log ('FICHEROS: ' + $_.Exception.Message) }
+        # Y LA FRASE DE EJEMPLO DEL OIDO (27/09, idea 118). Aqui porque lee destinos.jsonl entero y
+        # porque el oido la recoge en su siguiente arranque, y Nova arranca quince veces al dia.
+        try { [void](Update-PromptOrdenes) } catch { Log ('OIDO frase: ' + $_.Exception.Message) }
         $n = @($origen | ForEach-Object { if (Test-Path -LiteralPath $_ -PathType Container) { Get-ChildItem -LiteralPath $_ -Recurse -File } else { Get-Item -LiteralPath $_ } }).Count
         $kb = [int][Math]::Ceiling((Get-Item -LiteralPath $zip).Length / 1KB)
         Log "COPIA ($motivo): $n archivos, $kb KB -> $zip"
@@ -25630,6 +25633,123 @@ function Get-AgujerosSemana {
         }
         return @{ total = $tot; repetidos = @($rep) }
     } catch { return $null }
+}
+
+# LA FRASE DE EJEMPLO DE WHISPER, ESCRITA CON SUS PROPIAS ORDENES (27/09, idea 118 de las 121)
+#
+# EL DATO: a Whisper se le pasa siempre la misma frase, escrita a mano el 14/09 -"Nova, abre Steam.
+# Sube el volumen. Pon el modo noche. Que hora es? Baja el brillo."- y no se ha movido desde
+# entonces. Contadas las primeras palabras de las 226 ordenes utiles de destinos.jsonl:
+#     abre 23, cierra 18, que 12, mira 10, dime 6, pon 4, sube 1
+# La frase lleva 'sube' (UNA orden real en todo el historial) y 'baja' (tres), y NO lleva 'cierra',
+# que son dieciocho.
+#
+# Y 'CIERRA' ES JUSTO EL QUE PEOR SE OYE: 21 veces salio deformado en el registro, y no de milagro:
+#     'Tierra Steam y pon un tempon'   'Tierra el navegador'   'Sierra Gul'   'Sierra and the Ring'
+#     'Si es Steam'                    'Si es el navegador'    'Sierra Paint' 'Si es a los ajutos'
+# Veintiuna ordenes de cerrar que acabaron en otra parte, con el verbo mas usado despues de 'abre'
+# fuera del unico sitio donde se le puede dar una pista al reconocedor.
+#
+# LAS DOS GUARDAS DEL 14/09 SE RESPETAN ENTERAS, porque estan medidas y son lo unico que sostiene
+# que esta frase funcione: sin numeros -"al treinta" dentro hacia que "pon el juego al ochenta" se
+# oyera "al treinta"- y sin nombres de juegos -"Abre Little Nightmares III" se inventaba ese juego
+# en frases que no lo decian-. Por eso NO se usan las ordenes reales de braya, que traen las dos
+# cosas: de cada verbo se coge una PLANTILLA fija escrita aqui. El dato de su uso elige QUE verbos
+# entran; el texto de cada frase no sale de sus grabaciones.
+#
+# Y es_eco_del_ejemplo no se toca: parte la frase por puntuacion, asi que sigue valiendo para
+# cualquier frase que se genere.
+$PromptOrdenesPath = Join-Path $TmpDir 'prompt-ordenes.txt'
+$PromptOrdenesMax = 5            # las mismas cinco frases que tiene la de hoy
+$PromptOrdenesMin = 20           # el liston de la casa: sin historial no se cambia nada
+# VERBO -> FRASE, y las frases son de aqui, no de sus grabaciones: ni un numero ni un nombre propio.
+# El orden de la tabla no importa; lo que manda es cuanto usa cada verbo.
+$PromptFrases = [ordered]@{
+    'abre'     = 'Abre el navegador.'
+    'cierra'   = 'Cierra la ventana.'
+    'pon'      = 'Pon el modo noche.'
+    'que'      = '¿Qué hora es?'
+    'dime'     = 'Dime la hora.'
+    'mira'     = 'Mira el correo.'
+    'revisa'   = 'Revisa el correo.'
+    'baja'     = 'Baja el brillo.'
+    'sube'     = 'Sube el volumen.'
+    'busca'    = 'Busca en internet.'
+    'silencia' = 'Silencia el sonido.'
+    'muevete'  = 'Muévete a la derecha.'
+    'activa'   = 'Activa el modo juego.'
+    'apaga'    = 'Apaga la pantalla.'
+    'lanza'    = 'Lanza el programa.'
+}
+
+# PURA: cuenta las primeras palabras de lo que braya pidio de verdad.
+# Solo las filas que Nova ATENDIO: una charla o un descarte no es una orden.
+function Get-VerbosUsados($filas) {
+    $c = @{}
+    foreach ($f in @($filas)) {
+        if (-not $f) { continue }
+        $hizo = [string]$f.hizo
+        if ($hizo -notin @('local', 'accion', 'traducir', 'traducida')) { continue }
+        $t = ([string]$f.detalle).Trim()
+        if (-not $t) { continue }
+        $w = @($t -split '\s+')[0]
+        $w = (ConvertTo-Plain $w).Trim('.', ',', '?', '!', ';', ':')
+        if (-not $w) { continue }
+        if (-not $c.ContainsKey($w)) { $c[$w] = 0 }
+        $c[$w]++
+    }
+    return $c
+}
+
+# PURA: monta la frase con los verbos que mas usa y que tienen plantilla. Devuelve '' si no hay
+# bastante historial, y entonces el worker se queda con la frase de siempre.
+function Get-PromptOrdenes($cuenta, [int]$minTotal = 0) {
+    if ($minTotal -le 0) { $minTotal = $PromptOrdenesMin }
+    $tot = 0
+    foreach ($v in @($cuenta.Values)) { $tot += [int]$v }
+    if ($tot -lt $minTotal) { return '' }
+    $con = @()
+    foreach ($k in @($cuenta.Keys)) {
+        if (-not $PromptFrases.Contains([string]$k)) { continue }   # sin plantilla no entra
+        $con += @(@{ verbo = [string]$k; veces = [int]$cuenta[$k] })
+    }
+    if ($con.Count -eq 0) { return '' }
+    # de mas usado a menos, y con el verbo como desempate para que la frase no baile entre dos
+    # arranques con los mismos datos
+    $con = @($con | Sort-Object @{ Expression = { -[int]$_.veces } }, @{ Expression = { [string]$_.verbo } })
+    $frases = @()
+    foreach ($x in @($con | Select-Object -First $PromptOrdenesMax)) {
+        $frases += @([string]$PromptFrases[[string]$x.verbo])
+    }
+    # 'Nova, ' delante de la primera, como la de hoy: es la palabra con la que empieza cada orden
+    $primera = [string]$frases[0]
+    if ($primera.Length -gt 1) { $primera = 'Nova, ' + $primera.Substring(0, 1).ToLowerInvariant() + $primera.Substring(1) }
+    $frases[0] = $primera
+    return ($frases -join ' ')
+}
+
+# Lo escribe en tmp para que el oido lo lea al arrancar. Devuelve $true si cambio algo.
+function Update-PromptOrdenes {
+    try {
+        $ruta = Join-Path $LogDir 'pruebas\audio\uso\destinos.jsonl'
+        if (-not (Test-Path -LiteralPath $ruta)) { return $false }
+        $filas = New-Object System.Collections.ArrayList
+        foreach ($ln in [System.IO.File]::ReadAllLines($ruta, [System.Text.Encoding]::UTF8)) {
+            if (-not $ln -or $ln.Length -lt 10) { continue }
+            try { [void]$filas.Add(($ln | ConvertFrom-Json)) } catch { continue }
+        }
+        $fr = Get-PromptOrdenes (Get-VerbosUsados $filas)
+        if (-not $fr) { return $false }
+        $antes = ''
+        if (Test-Path -LiteralPath $PromptOrdenesPath) {
+            try { $antes = ([System.IO.File]::ReadAllText($PromptOrdenesPath, [System.Text.Encoding]::UTF8)).Trim() } catch { $antes = '' }
+        }
+        if ($antes -eq $fr) { return $false }
+        if (-not (Test-Path -LiteralPath $TmpDir)) { New-Item -ItemType Directory -Force -Path $TmpDir | Out-Null }
+        [System.IO.File]::WriteAllText($PromptOrdenesPath, $fr, (New-Object System.Text.UTF8Encoding $false))
+        Log ('OIDO: la frase de ejemplo pasa a ser «' + $fr + '»')
+        return $true
+    } catch { Log ('prompt de ordenes: ' + $_.Exception.Message); return $false }
 }
 
 # LEER EL FICHERO DE LAS CORRECCIONES (27/09, idea 117 de las 121)
