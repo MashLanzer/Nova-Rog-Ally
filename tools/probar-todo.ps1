@@ -2072,6 +2072,15 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n237. Un solo estado de red, en vez de dieciseis plazos sueltos (idea 84 de las 121)"
+# Cada pieza descubria por su cuenta que no hay red: siete plazos escritos a mano en assistant.ps1 y
+# nueve en el worker, y un grep de Test-Connection/NetworkAvailability/hayRed/sinRed daba CERO.
+# Ahora hay un sitio con el ultimo exito y los fallos seguidos: lo de FONDO (clima, ip-api, ficha de
+# Steam, correo de la manana) pregunta antes de salir; lo que pide braya no se bloquea nunca, solo
+# se le acorta el plazo a la mitad. La guarda que importa: hacen falta DOS servicios DISTINTOS para
+# darla por caida -Steam en mantenimiento no puede apagar el clima- y la caida caduca en 5 min.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-estado-red.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:hay un solo estado de red)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n236. Saber si la consola esta en la mano, no solo si alguien toco un boton (idea 83 de las 121)"
 # El comentario del codigo decia que el acelerometro 'tarda 5 s y devuelve null SIEMPRE' y por eso
 # estaba apagado en config.json. Medido hoy con el MISMO camino (ReportInterval fijado): primera

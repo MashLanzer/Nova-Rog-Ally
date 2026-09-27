@@ -1445,7 +1445,8 @@ function Get-FichaDosSteam([string]$id, [string]$nombre) {
         # trae la descripcion, los precios, las capturas y los videos. Medido hoy con tres de
         # sus juegos: 606-808 bytes en vez de 14.725-29.108 (24 a 45 veces menos) y ~166 ms en
         # vez de ~320. Y el tope baja a 3 s: esto corre en el bucle.
-        $r = Invoke-RestMethod -Uri "https://store.steampowered.com/api/appdetails?appids=$id&l=spanish&filters=categories" -TimeoutSec 3
+        if (-not (Test-RedParaFondo)) { return $null }    # idea 84: la ficha de Steam es de fondo
+        $r = Invoke-RestMethod -Uri "https://store.steampowered.com/api/appdetails?appids=$id&l=spanish&filters=categories" -TimeoutSec (Get-PlazoRed 3)
         $d = $r.$id
         if (-not $d -or -not $d.success) { return $null }
         $cats = @()
@@ -10382,6 +10383,77 @@ $script:limiteJuego = $null
 $script:vozAjenaVeces = @()
 $script:vozAjenaF0Vista = 0.0
 $script:invitadoPropuesta = $false
+# EL BLOQUE DE LOS RELOJES VA AQUI Y NO 10.000 LINEAS MAS ABAJO (27/09, idea 82): PowerShell lee
+# el fichero de arriba abajo, asi que una funcion llamada antes de su definicion todavia no
+# existe. Estaba junto a los avisos, y la PRIMERA linea que la usa es la de aqui abajo: el
+# arranque entero petaba con 'Get-Reloj no se reconoce'. Lo cazo probar-tiempo-juego.ps1, que
+# arranca el script de verdad con -Probar; los bancos que solo sacan funciones por AST no lo
+# habrian visto nunca.
+# DIEZ RELOJES DE 'UNA VEZ CADA TANTO' NACIAN DICIENDO 'YA PUEDES' (27/09, idea 82)
+#
+# EL PROBLEMA: las esperas de Nova se miden contra $sw, su propio cronometro, que empieza en cero
+# con el proceso. Diez variables de sesion arrancan en un negativo de cuatro cifras o mas -que
+# significa 'hace muchisimo que no pasa'- y Nova arranca 15,2 veces al dia: una guarda de 'no
+# repitas esto en diez minutos' podia dispararse quince veces en un dia. Ya se arreglo UNO a mano
+# (calladoDia, el 24/09, guardado en habitos.json); esto es el mecanismo para los demas.
+#
+# POR LISTA BLANCA, NO TODOS DE GOLPE. Y hay un motivo escrito para los que se quedan fuera: los
+# relojes de 'estoy callada' (sordinaHasta, pausaHasta) NO se restauran nunca. Si braya reinicia a
+# proposito para que Nova deje de estar callada, devolverle la sordina seria justo lo contrario de
+# lo que pidio. Aqui solo entran relojes de 'no repitas esto tan pronto'.
+$RelojesJson = Join-Path $TmpDir 'relojes.json'
+$RelojesViejoMs = 604800000      # una semana: mas alla de eso, el reloj guardado no dice nada
+# EL CLIMA NO ESTA EN LA LISTA y no es un olvido: la idea 6 ya le hizo su propio guardado
+# (Restore-Clima, que devuelve el codigo Y la antiguedad en ms). Meterlo aqui seria un segundo
+# mecanismo para lo mismo, y dos relojes para una cosa acaban separandose.
+$RelojesBlanca = @('charla', 'precarga', 'invitado-propuesto', 'aviso-suelta')
+$script:relojes = $null          # cache de lectura: esto se lee al arrancar, no en el bucle
+$script:relojesEscritoEn = @{}   # clave -> ms de la ultima escritura (freno)
+
+function Get-RelojesDisco {
+    if ($null -ne $script:relojes) { return $script:relojes }
+    $script:relojes = @{}
+    try {
+        if (Test-Path -LiteralPath $RelojesJson) {
+            $j = Get-Content -LiteralPath $RelojesJson -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($pr in $j.PSObject.Properties) { $script:relojes[$pr.Name] = [string]$pr.Value }
+        }
+    } catch { $script:relojes = @{} }
+    return $script:relojes
+}
+
+# El valor que le toca a un reloj al arrancar: los ms de $sw que corresponden a la hora de pared
+# guardada. Si no hay nada, es viejo o no esta en la lista blanca, devuelve el valor de siempre.
+function Get-Reloj([string]$clave, [double]$pordefecto) {
+    if ($RelojesBlanca -notcontains $clave) { return $pordefecto }
+    try {
+        $r = Get-RelojesDisco
+        if (-not $r.ContainsKey($clave)) { return $pordefecto }
+        $cuando = [datetime]::MinValue
+        if (-not [datetime]::TryParseExact([string]$r[$clave], 'yyyy-MM-dd HH:mm:ss', [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$cuando)) { return $pordefecto }
+        $hace = ((Get-Date) - $cuando).TotalMilliseconds
+        # UN RELOJ DEL FUTURO ES UN RELOJ ROTO (cambio de hora, fichero de otra maquina): se tira
+        if ($hace -lt 0 -or $hace -gt $RelojesViejoMs) { return $pordefecto }
+        return ($sw.ElapsedMilliseconds - $hace)
+    } catch { return $pordefecto }
+}
+
+# Apunta que ESTO ha pasado ahora. Con freno: se escribe como mucho una vez por minuto y clave.
+function Set-Reloj([string]$clave) {
+    if ($RelojesBlanca -notcontains $clave) { return $false }
+    try {
+        $ahoraR = $sw.ElapsedMilliseconds
+        $ultima = $script:relojesEscritoEn[$clave]
+        if ($null -ne $ultima -and ($ahoraR - [double]$ultima) -lt 60000) { return $false }
+        $script:relojesEscritoEn[$clave] = $ahoraR
+        $r = Get-RelojesDisco
+        $r[$clave] = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+        $o = [ordered]@{}
+        foreach ($k in ($r.Keys | Sort-Object)) { $o[$k] = [string]$r[$k] }
+        Write-Atomico $RelojesJson (ConvertTo-Json $o -Compress)
+        return $true
+    } catch { return $false }
+}
 $script:invitadoPropuestoEn = Get-Reloj 'invitado-propuesto' -9999999
 
 # "dos horas", "media hora", "una hora y media", "45 minutos" -> minutos
@@ -14175,6 +14247,9 @@ $script:correoMananaDia = ''
 function Start-CorreoManana {
     if ($script:correoOut) { return $false }          # ya hay una mirando
     if (-not (Test-CorreoListo)) { return $false }
+    # idea 84: el de la manana es de FONDO (el correo que pide braya no pasa por aqui), asi que con
+    # la red caida no se levanta un proceso de Python para 30 segundos de espera segura.
+    if (-not (Test-RedParaFondo)) { return $false }
     try {
         $idC = [System.Guid]::NewGuid().ToString('N').Substring(0, 8)
         $script:correoOut = Join-Path $TmpDir "correo-manana-$idC.json"
@@ -21104,70 +21179,76 @@ function Get-PeorPete {
     if ([int]$script:petePeor.veces -lt 2) { return $null }   # una vez no es noticia
     return $script:petePeor
 }
-# DIEZ RELOJES DE 'UNA VEZ CADA TANTO' NACIAN DICIENDO 'YA PUEDES' (27/09, idea 82)
+# UN SOLO ESTADO DE RED, EN VEZ DE DIECISEIS PLAZOS SUELTOS (27/09, idea 84)
 #
-# EL PROBLEMA: las esperas de Nova se miden contra $sw, su propio cronometro, que empieza en cero
-# con el proceso. Diez variables de sesion arrancan en un negativo de cuatro cifras o mas -que
-# significa 'hace muchisimo que no pasa'- y Nova arranca 15,2 veces al dia: una guarda de 'no
-# repitas esto en diez minutos' podia dispararse quince veces en un dia. Ya se arreglo UNO a mano
-# (calladoDia, el 24/09, guardado en habitos.json); esto es el mecanismo para los demas.
+# EL PROBLEMA: cada pieza descubre por su cuenta que no hay red y paga su propio plazo. En este
+# fichero hay siete: la tienda de Steam 3 s, YouTube 6 s, ip-api 4 s, open-meteo 4 s, los amigos
+# 10 s, el correo 25 s y el correo de la manana 30 s. En el worker de la charla hay nueve mas. Y un
+# grep de Test-Connection, NetworkAvailability, Test-Red, hayRed y sinRed sobre los cuatro fuentes
+# da CERO: no existia ninguna funcion que supiera si hay red.
 #
-# POR LISTA BLANCA, NO TODOS DE GOLPE. Y hay un motivo escrito para los que se quedan fuera: los
-# relojes de 'estoy callada' (sordinaHasta, pausaHasta) NO se restauran nunca. Si braya reinicia a
-# proposito para que Nova deje de estar callada, devolverle la sordina seria justo lo contrario de
-# lo que pidio. Aqui solo entran relojes de 'no repitas esto tan pronto'.
-$RelojesJson = Join-Path $TmpDir 'relojes.json'
-$RelojesViejoMs = 604800000      # una semana: mas alla de eso, el reloj guardado no dice nada
-# EL CLIMA NO ESTA EN LA LISTA y no es un olvido: la idea 6 ya le hizo su propio guardado
-# (Restore-Clima, que devuelve el codigo Y la antiguedad en ms). Meterlo aqui seria un segundo
-# mecanismo para lo mismo, y dos relojes para una cosa acaban separandose.
-$RelojesBlanca = @('charla', 'precarga', 'invitado-propuesto', 'aviso-suelta')
-$script:relojes = $null          # cache de lectura: esto se lee al arrancar, no en el bucle
-$script:relojesEscritoEn = @{}   # clave -> ms de la ultima escritura (freno)
+# LO QUE HACE ESTO: un solo sitio donde se apunta cuando contesto algo de fuera por ultima vez y
+# cuantos fallos seguidos lleva. Las llamadas DE FONDO preguntan y se saltan si esta caido; lo que
+# pide braya en voz alta NO se bloquea nunca, solo se le acorta el plazo.
+#
+# LA GUARDA QUE IMPORTA: hace falta que fallen DOS SERVICIOS DISTINTOS seguidos para darlo por
+# caido. Con uno solo, la tienda de Steam en mantenimiento apagaria el clima, el correo y los
+# amigos, que es peor que el problema. Y cualquier exito lo borra al instante.
+$RedJson = Join-Path $TmpDir 'red.json'          # una linea; el worker de la charla lo lee tambien
+$RedFallosParaCaida = 2                          # dos servicios DISTINTOS
+$RedCaidaViejaMs = 300000                        # a los 5 min sin noticias, se vuelve a intentar
+$script:redUltimoOk = 0                          # ms del bucle del ultimo exito
+$script:redFallosSeguidos = 0
+$script:redQuienFallo = @()                      # los servicios distintos que llevan fallando
+$script:redCaidaDesde = 0
 
-function Get-RelojesDisco {
-    if ($null -ne $script:relojes) { return $script:relojes }
-    $script:relojes = @{}
-    try {
-        if (Test-Path -LiteralPath $RelojesJson) {
-            $j = Get-Content -LiteralPath $RelojesJson -Raw -Encoding UTF8 | ConvertFrom-Json
-            foreach ($pr in $j.PSObject.Properties) { $script:relojes[$pr.Name] = [string]$pr.Value }
-        }
-    } catch { $script:relojes = @{} }
-    return $script:relojes
+function Set-RedOk([string]$quien) {
+    # CUALQUIER exito borra la caida al instante: si algo de fuera contesta, hay red y punto.
+    $script:redUltimoOk = $sw.ElapsedMilliseconds
+    if ($script:redFallosSeguidos -gt 0 -or $script:redCaidaDesde -gt 0) {
+        Log ('RED: ' + $quien + ' contesta; vuelvo a contar con la red')
+    }
+    $script:redFallosSeguidos = 0
+    $script:redQuienFallo = @()
+    $script:redCaidaDesde = 0
+    try { Write-Atomico $RedJson (ConvertTo-Json @{ ok = (Get-Date).ToString('s'); caida = 0 } -Compress) } catch {}
 }
 
-# El valor que le toca a un reloj al arrancar: los ms de $sw que corresponden a la hora de pared
-# guardada. Si no hay nada, es viejo o no esta en la lista blanca, devuelve el valor de siempre.
-function Get-Reloj([string]$clave, [double]$pordefecto) {
-    if ($RelojesBlanca -notcontains $clave) { return $pordefecto }
-    try {
-        $r = Get-RelojesDisco
-        if (-not $r.ContainsKey($clave)) { return $pordefecto }
-        $cuando = [datetime]::MinValue
-        if (-not [datetime]::TryParseExact([string]$r[$clave], 'yyyy-MM-dd HH:mm:ss', [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$cuando)) { return $pordefecto }
-        $hace = ((Get-Date) - $cuando).TotalMilliseconds
-        # UN RELOJ DEL FUTURO ES UN RELOJ ROTO (cambio de hora, fichero de otra maquina): se tira
-        if ($hace -lt 0 -or $hace -gt $RelojesViejoMs) { return $pordefecto }
-        return ($sw.ElapsedMilliseconds - $hace)
-    } catch { return $pordefecto }
+function Set-RedFallo([string]$quien) {
+    $script:redFallosSeguidos++
+    if ($quien -and $script:redQuienFallo -notcontains $quien) { $script:redQuienFallo += $quien }
+    # DOS DISTINTOS, no dos veces el mismo: ver LA GUARDA QUE IMPORTA
+    if (@($script:redQuienFallo).Count -ge $RedFallosParaCaida -and $script:redCaidaDesde -le 0) {
+        $script:redCaidaDesde = $sw.ElapsedMilliseconds
+        Log ('RED: doy la red por caida (' + (@($script:redQuienFallo) -join ', ') + ' no contestan); las cosas de fondo se esperan')
+        try { Write-Atomico $RedJson (ConvertTo-Json @{ ok = ''; caida = 1; quien = (@($script:redQuienFallo) -join ',') } -Compress) } catch {}
+    }
 }
 
-# Apunta que ESTO ha pasado ahora. Con freno: se escribe como mucho una vez por minuto y clave.
-function Set-Reloj([string]$clave) {
-    if ($RelojesBlanca -notcontains $clave) { return $false }
-    try {
-        $ahoraR = $sw.ElapsedMilliseconds
-        $ultima = $script:relojesEscritoEn[$clave]
-        if ($null -ne $ultima -and ($ahoraR - [double]$ultima) -lt 60000) { return $false }
-        $script:relojesEscritoEn[$clave] = $ahoraR
-        $r = Get-RelojesDisco
-        $r[$clave] = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
-        $o = [ordered]@{}
-        foreach ($k in ($r.Keys | Sort-Object)) { $o[$k] = [string]$r[$k] }
-        Write-Atomico $RelojesJson (ConvertTo-Json $o -Compress)
+# ¿Merece la pena intentar algo DE FONDO ahora? Lo que pide braya no pregunta esto nunca.
+function Test-RedParaFondo {
+    if ($script:redCaidaDesde -le 0) { return $true }
+    # A LOS CINCO MINUTOS SE VUELVE A PROBAR: un modo sin salida no puede existir (regla 2). Se
+    # deja caducar la caida y que el siguiente intento decida, en vez de quedarse esperando para
+    # siempre a que alguien traiga un exito que nadie va a pedir.
+    if (($sw.ElapsedMilliseconds - $script:redCaidaDesde) -ge $RedCaidaViejaMs) {
+        $script:redCaidaDesde = 0
+        $script:redQuienFallo = @()
+        $script:redFallosSeguidos = 0
+        Log 'RED: han pasado cinco minutos de la caida; vuelvo a probar'
         return $true
-    } catch { return $false }
+    }
+    return $false
+}
+
+# El plazo que le toca a una llamada: el escrito si todo va bien, y la mitad si la red esta
+# sospechosa -uno de los dos fallos ya cayo-, para no regalar segundos cuando ya se sabe.
+function Get-PlazoRed([int]$escrito) {
+    if ($escrito -le 0) { return 1 }
+    if ($script:redCaidaDesde -gt 0 -or $script:redFallosSeguidos -gt 0) {
+        return [Math]::Max(1, [int]($escrito / 2))
+    }
+    return $escrito
 }
 # Un aviso, por la puerta que toque. $tipo da el color del pulso: bateria,
 # tiempo, descarga, recordatorio.
@@ -21731,7 +21812,11 @@ function Update-Clima {
                 # van por https); en esa peticion viajaba la IP publica de braya sin cifrar. ip-api
                 # sirve https. Si https falla, el catch deja $g a $null y mas abajo se usa la
                 # ubicacion guardada: NUNCA se vuelve a http.
-                try { $g = Invoke-RestMethod -Uri 'https://ip-api.com/json/?fields=lat,lon,city' -TimeoutSec 4 } catch { $g = $null }
+                # idea 84: esto es de fondo, asi que se salta si la red esta caida, y con plazo recortado
+                $g = $null
+                if (Test-RedParaFondo) {
+                    try { $g = Invoke-RestMethod -Uri 'https://ip-api.com/json/?fields=lat,lon,city' -TimeoutSec (Get-PlazoRed 4); Set-RedOk 'ip-api' } catch { $g = $null; Set-RedFallo 'ip-api' }
+                }
                 if ($g -and $g.lat) {
                     $script:ClimaLat = [double]$g.lat; $script:ClimaLon = [double]$g.lon
                     # IDEA 57: dias seguidos con la MISMA ciudad. Es la medicion (medir con uso real)
@@ -21753,7 +21838,9 @@ function Update-Clima {
         }
         $cul = [System.Globalization.CultureInfo]::InvariantCulture
         $u = 'https://api.open-meteo.com/v1/forecast?latitude=' + ([double]$ClimaLat).ToString($cul) + '&longitude=' + ([double]$ClimaLon).ToString($cul) + '&current_weather=true'
-        $r = Invoke-RestMethod -Uri $u -TimeoutSec 4
+        if (-not (Test-RedParaFondo)) { return }   # idea 84: el clima es de fondo
+        $r = $null
+        try { $r = Invoke-RestMethod -Uri $u -TimeoutSec (Get-PlazoRed 4); Set-RedOk 'clima' } catch { Set-RedFallo 'clima'; throw }
         $cw = $r.current_weather
         if (-not $cw) { return }
         $codigo = [int]$cw.weathercode
