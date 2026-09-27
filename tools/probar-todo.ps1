@@ -2072,6 +2072,15 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n236. Saber si la consola esta en la mano, no solo si alguien toco un boton (idea 83 de las 121)"
+# El comentario del codigo decia que el acelerometro 'tarda 5 s y devuelve null SIEMPRE' y por eso
+# estaba apagado en config.json. Medido hoy con el MISMO camino (ReportInterval fijado): primera
+# lectura 33 ms y de 30 lecturas CERO nulas, media 2,94 ms. Llevaba apagado por una medicion vieja.
+# Ahora el mismo sensor del sobresalto dice si la consola se mueve, con umbral sacado de SU reposo y
+# exigiendo dos lecturas seguidas (un golpe en la mesa no es braya). Eso recorta Get-NadieMin y
+# suelta los avisos aparcados: 4.153 lineas 'ENTORNO aparcado', el 52 % del registro actual.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-movimiento.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:Nova sabe si la consola esta en la mano)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n235. Diez relojes de una-vez-cada-tanto nacian diciendo ya-puedes (idea 82 de las 121)"
 # Las esperas se miden contra el cronometro del proceso, que empieza en cero. Diez variables de
 # sesion arrancan en un negativo de cuatro cifras -'hace muchisimo que no pasa'- y Nova arranca 15,2

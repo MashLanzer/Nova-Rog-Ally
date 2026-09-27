@@ -118,7 +118,7 @@
     "vibracion": true
   },
   "sensores": {
-    "acelerometro": false
+    "acelerometro": true
   },
   "seguridad": {
     "hashDll": "35B7D2737431CBB1C36848E456C6C89CD6F2A0F633481B37710057D512758B28"

@@ -14642,6 +14642,15 @@ function Get-NadieMin([datetime]$ahora = (Get-Date)) {
             if ($mMando -lt $res) { $res = $mMando }
         }
     } catch {}
+    # Y LA CONSOLA EN LA MANO (27/09, idea 83). El acelerometro dice que braya la esta moviendo
+    # aunque no haya tocado ningun boton: eso es alguien delante, y es lo que suelta los avisos
+    # aparcados -4.153 lineas 'ENTORNO aparcado' en el registro actual, el 52 % de lo que escribe-.
+    # Recorta igual que el mando; si no se sabe (sensor apagado o sin umbral aun) devuelve -1 y
+    # aqui no se toca nada: no saber NO es 'no hay nadie'.
+    try {
+        $mv = [int](Get-MovimientoMin)
+        if ($mv -ge 0 -and $mv -lt $res) { $res = $mv }
+    } catch {}
     return $res
 }
 # LA VARIEDAD (lo que pidio: "no siempre igual porque se vuelve repetitivo"). El patron ya
@@ -23140,11 +23149,19 @@ function Watch-LogrosSteam {
 $script:acelerometro = $null
 $script:acelCheck = 0
 $script:acelUltimo = 0
-# Apagado por defecto: en la ROG Ally GetDefault() devuelve un sensor pero
-# GetCurrentReading() tarda 5 s y devuelve null SIEMPRE (probado con
-# ReportInterval fijado). Con sensores.acelerometro = true se intenta, con la
-# guarda de Watch-Acelerometro por si cambia el hardware.
-if ([bool](Get-Cfg 'sensores' 'acelerometro' $false)) {
+# ESO YA NO ES VERDAD EN ESTA CONSOLA (27/09, idea 83). El comentario de arriba decia que
+# GetCurrentReading() "tarda 5 s y devuelve null SIEMPRE", y por eso config.json lo tenia apagado.
+# Medido hoy con el MISMO camino que usa este codigo -ReportInterval fijado antes de leer-: la
+# primera lectura tarda 33,1 ms (la guarda corta en 150), y de 30 lecturas seguidas CERO son nulas,
+# con media 2,94 ms y maximo 17,1. O sea que el sensor funciona y llevaba apagado por una medicion
+# vieja. Por defecto se enciende; la guarda de Watch-Acelerometro sigue ahi para la consola donde
+# esto no sea cierto, y lo apaga para siempre en la primera lectura.
+#
+# PARA QUE SIRVE, y es lo que lo justifica: 4.153 lineas "ENTORNO aparcado (no hay nadie...)" en el
+# registro actual, que tiene 7.924: el 52 % de lo que Nova escribe es apuntar que no hay nadie a
+# quien hablar, y siete de esos avisos caducaron sin decirse nunca. Con el acelerometro sabe que
+# braya la tiene en la mano aunque no haya tocado un boton, y suelta ahi lo que lleva guardado.
+if ([bool](Get-Cfg 'sensores' 'acelerometro' $true)) {
     try {
         $null = [Windows.Devices.Sensors.Accelerometer, Windows.Devices.Sensors, ContentType = WindowsRuntime]
         $script:acelerometro = [Windows.Devices.Sensors.Accelerometer]::GetDefault()
@@ -23204,6 +23221,41 @@ function Watch-Orientacion {
     } catch { $script:orientacion = $null }
 }
 $script:acelProbado = $false
+# EL MOVIMIENTO, ADEMAS DEL SOBRESALTO (27/09, idea 83). El mismo sensor que ya detecta el golpe
+# sirve para saber si la consola esta en la mano: se compara la magnitud con la de la lectura
+# anterior y, si la diferencia pasa del ruido de su propio reposo, hay alguien moviendola.
+#
+# EL UMBRAL SALE DE SU PROPIO REPOSO, no de un numero: es el p90 de las diferencias que ve, por
+# tres. En reposo esas diferencias son minusculas, asi que el liston se pone solo justo encima del
+# ruido de esta consola y de esta mesa.
+#
+# Y SE EXIGE QUE SE REPITA: dos lecturas seguidas por encima del liston. Un pico suelto es la mesa
+# al recibir un golpe, no braya cogiendo la consola.
+$AcelDeltasMemoria = 200
+$AcelDeltasMin = 40             # menos que esto y no se opina de movimiento
+$AcelUmbralMin = 0.02           # suelo: por debajo de esto es ruido en cualquier maquina
+# OJO CON EL NOMBRE: PowerShell NO distingue mayusculas en las variables, asi que esta
+# constante y el contador $script:acelRacha serian LA MISMA si se llamaran igual -y el
+# contador la machacaba, dejando el minimo en 1: un golpe en la mesa contaba como braya.
+# Lo cazo el banco de esta idea. Nombres distintos a proposito.
+$AcelRachaMin = 2               # lecturas seguidas para llamarlo movimiento
+$script:acelMagAntes = 0.0
+$script:acelDeltas = New-Object System.Collections.ArrayList
+$script:acelRacha = 0
+$script:movidoEn = 0            # ms del bucle de la ultima vez que se movio de verdad
+
+function Get-AcelUmbral {
+    if ($script:acelDeltas.Count -lt $AcelDeltasMin) { return 0.0 }   # 0 = todavia no lo se
+    return [Math]::Max($AcelUmbralMin, (Get-PercentilLista $script:acelDeltas 90) * 3.0)
+}
+
+# Minutos desde que la consola se movio, hermana de Get-InactividadMin. -1 si no se sabe (sensor
+# apagado, sin umbral aun, o sin haberla visto moverse en esta sesion): eso NO es "no hay nadie".
+function Get-MovimientoMin {
+    if (-not $script:acelerometro) { return -1 }
+    if ($script:movidoEn -le 0) { return -1 }
+    return [int](($sw.ElapsedMilliseconds - $script:movidoEn) / 60000)
+}
 function Watch-Acelerometro {
     if (-not $script:acelerometro) { return }
     try {
@@ -23226,6 +23278,20 @@ function Watch-Acelerometro {
         $r = $script:acelerometro.GetCurrentReading()
         if (-not $r) { return }
         $mag = [Math]::Sqrt($r.AccelerationX * $r.AccelerationX + $r.AccelerationY * $r.AccelerationY + $r.AccelerationZ * $r.AccelerationZ)
+        # ¿SE ESTA MOVIENDO? (idea 83). Ver EL MOVIMIENTO, ADEMAS DEL SOBRESALTO.
+        if ($script:acelMagAntes -gt 0) {
+            $delta = [Math]::Abs($mag - $script:acelMagAntes)
+            [void]$script:acelDeltas.Add([double]$delta)
+            while ($script:acelDeltas.Count -gt $AcelDeltasMemoria) { $script:acelDeltas.RemoveAt(0) }
+            $umbral = Get-AcelUmbral
+            if ($umbral -gt 0 -and $delta -gt $umbral) {
+                $script:acelRacha++
+                if ($script:acelRacha -ge $AcelRachaMin) { $script:movidoEn = $sw.ElapsedMilliseconds }
+            } else {
+                $script:acelRacha = 0
+            }
+        }
+        $script:acelMagAntes = $mag
         if ([Math]::Abs($mag - 1.0) -gt 0.7 -and ($sw.ElapsedMilliseconds - $script:acelUltimo) -ge 5000) {
             $script:acelUltimo = $sw.ElapsedMilliseconds
             Log ("SACUDIDA: {0:0.00} g" -f $mag)
@@ -32429,7 +32495,12 @@ while ($true) {
     if ($script:vibraCola.Count -gt 0 -or $script:vibraHasta -gt 0) { Tick-Vibracion }
 
     # --- acelerometro (cada 250 ms) y logros de Steam (con el juego) ---
-    if ($script:acelerometro -and ($sw.ElapsedMilliseconds - $script:acelCheck) -ge 250) { $script:acelCheck = $sw.ElapsedMilliseconds; Watch-Acelerometro }
+    # CADA 500 ms Y NO 250 (27/09, idea 83). Medido con el banco: una vuelta del vigilante cuesta
+    # 14,7 ms de media en esta consola -mas de lo que cuesta la lectura suelta- y la vuelta del
+    # bucle entero son 31 ms, asi que a 250 ms se llevaria el 6 % del tiempo de Nova. A 500 se
+    # queda en el 3 % y el sobresalto sigue viendose: un golpe dura mas que medio segundo en la
+    # senal. Si algun dia estorba, la forma buena es ReadingChanged y no preguntar en el bucle.
+    if ($script:acelerometro -and ($sw.ElapsedMilliseconds - $script:acelCheck) -ge 500) { $script:acelCheck = $sw.ElapsedMilliseconds; Watch-Acelerometro }
     # la orientacion, una vez por segundo: cuesta 0,157 ms medidos y no cambia mas deprisa que
     # se mueve una consola en una mesa (idea 69)
     if ($script:orientacion -and ($sw.ElapsedMilliseconds - $script:orientaCheck) -ge 1000) { $script:orientaCheck = $sw.ElapsedMilliseconds; Watch-Orientacion }
