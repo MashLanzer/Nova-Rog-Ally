@@ -2089,6 +2089,17 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n258. Perder el primer plano no es cerrar el juego (idea 108 de las 121)"
+# De las 45 salidas emparejadas de los dos registros, VEINTINUEVE (64 %) duran menos de dos minutos
+# y VEINTE menos de treinta segundos. El 25/09 entre las 21 y las 23, siete ciclos completos con
+# ELDEN RING y NIGHTREIGN de 20, 10, 21, 9, 10, 11 y 8 segundos: el brillo subio y bajo SIETE veces
+# y la escucha se apago y encendio SIETE veces en 75 minutos. Y la prueba de que la partida se
+# rompe: juegos.json dice NIGHTREIGN = 75 SEGUNDOS el 25/09 y uso-ally.json dice 4.038 del proceso.
+# Cincuenta y cuatro veces mas. Ahora la salida queda en duda de verdad -ni brillo, ni palabra de
+# activacion, ni contador- hasta que pase la ventana que Nova ha MEDIDO para ESE juego, y si vuelve
+# el tramo se SUMA. Test-JuegoVivo no sirve de guarda: en los siete casos dio falso.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-juego-parpadeo.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:un alt-tab ya no apaga el brillo)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n257. El disco de fuera: los juegos que Nova no sabia que existen (idea 107 de las 121)"
 # libraryfolders.vdf declara DOS bibliotecas: la 0 (C:) con 20 appids y la 1 (E:\SteamLibrary, 1 TB)
 # con DIEZ. E: no esta puesto -las unidades son C: y D:- y dos de esos diez estan tambien en C:, o

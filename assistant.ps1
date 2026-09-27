@@ -22850,7 +22850,8 @@ function Clear-MuereAlArrancar([string]$nombre) {
     # una partida que pasa del minimo limpia el contador de ESE juego: no era una racha de muerte
     if ($script:juegoMuertesSeguidas.ContainsKey($nombre)) { [void]$script:juegoMuertesSeguidas.Remove($nombre) }
 }
-$script:juegoSalida = $null      # salida EN DUDA: @{nombre; exe; proc; desdeMs} (C4, 19/09)
+$script:juegoSalida = $null      # salida EN DUDA: @{nombre; exe; proc; desdeMs} (C4, 19/09)
+$script:soloBotonPuesto = $false   # idea 108: para no repetir la linea del registro
 $script:juegoSesionMin = 0       # minutos de primer plano de la partida de ahora (C4, 19/09)
 $script:juegoSesionSeg = 0       # segundos de la sentada, solo para la frase (idea 47)
 $script:juegoMuertesSeguidas = @{}   # nombre -> @{ n; cuando }; muertes seguidas al arrancar (idea 47), en RAM
@@ -25223,6 +25224,74 @@ function Enter-Juego([string]$nombre) {
     }
 }
 
+# PERDER EL PRIMER PLANO NO ES CERRAR EL JUEGO, Y AQUI SE APLAZA TODO (27/09, idea 108 de las 121)
+#
+# EL DATO: de las 45 salidas emparejadas de los dos registros, VEINTINUEVE (el 64 %) duran menos de
+# dos minutos y VEINTE menos de treinta segundos. Las mas cortas: 4, 6, 8, 8, 9, 9, 10, 10, 10, 10,
+# 10, 11, 11, 11, 14, 15, 15, 20, 20 y 21 segundos.
+#
+# EL 25/09 ENTRE LAS 21 Y LAS 23, siete ciclos completos con ELDEN RING y ELDEN RING NIGHTREIGN de
+# 20, 10, 21, 9, 10, 11 y 8 segundos. Cada uno escribio "perfil 'juego' aplicado", "solo boton
+# mientras juegas" y, ocho segundos despues, "brillo restaurado a 100" y "vuelve la palabra de
+# activacion": el brillo subio y bajo SIETE veces y la escucha se apago y encendio SIETE veces en 75
+# minutos.
+#
+# Y LA CONTRADICCION DENTRO DE NOVA, que es la prueba de que la partida se rompe: memoria\juegos.json
+# dice ELDEN RING NIGHTREIGN = 75 SEGUNDOS el 2026-09-25, mientras memoria\uso-ally.json dice que el
+# proceso 'nightreign' estuvo 4.038 SEGUNDOS en primer plano ese mismo dia. Cincuenta y cuatro veces
+# mas.
+#
+# LO QUE NO SIRVE DE GUARDA, y hay que decirlo porque es lo primero que se piensa: Test-JuegoVivo. En
+# los siete casos del 25/09 dio FALSO -el proceso si habia muerto un instante- asi que con esa
+# condicion el parpadeo seguiria exactamente igual. La guarda es de TIEMPO: si el mismo nombre
+# reaparece dentro de la ventana, no era una salida.
+#
+# Y LA VENTANA SE MIDE, no se escribe: cada vez que un juego se va y vuelve, se apunta cuanto tardo
+# en volver. Sin datos de ESE juego, ventana cero y todo se comporta como hoy.
+$JuegoVueltaMax = 12            # reapariciones que se recuerdan por juego
+$JuegoVueltaTope = 300000       # cinco minutos: mas alla no se aplaza nada, sea lo que diga el dato
+
+# PURA Y CON TODO POR PARAMETRO: el banco le pasa cualquier lista de reapariciones.
+# Devuelve los ms que hay que esperar antes de dar la salida por buena.
+function Get-VentanaVuelta($vueltas, [int]$tope) {
+    $v = @($vueltas | ForEach-Object { [double]$_ } | Where-Object { $_ -gt 0 })
+    if ($v.Count -eq 0) { return 0 }
+    # EL MAXIMO VISTO Y NO UN PERCENTIL: aqui equivocarse por abajo es lo caro -el brillo parpadea y
+    # la partida se parte- y equivocarse por arriba solo retrasa un aviso unos segundos. Con las
+    # reapariciones medidas del 25/09 (8 a 21 s) esto da 21 s, que cubre las siete.
+    $max = 0.0
+    foreach ($x in $v) { if ($x -gt $max) { $max = $x } }
+    # UN MARGEN DE LA MITAD, por el mismo motivo: la siguiente puede ser un poco mas lenta.
+    $ms = [int]($max * 1.5)
+    if ($ms -gt $tope) { $ms = $tope }
+    return $ms
+}
+
+# Las reapariciones apuntadas de un juego, de memoria\juegos.json (donde ya viven 'ritmoBateria' y
+# 'muestrasBateria': ni fichero nuevo ni formato nuevo).
+function Get-VueltasJuego([string]$nombre) {
+    try {
+        $m = Get-JuegosMem
+        if (-not $m.ContainsKey($nombre)) { return @() }
+        return @($m[$nombre]['vueltas'])
+    } catch { return @() }
+}
+
+function Add-VueltaJuego([string]$nombre, [int]$ms) {
+    if (-not $nombre -or $ms -le 0 -or $ms -gt $JuegoVueltaTope) { return $false }
+    try {
+        $m = Get-JuegosMem
+        if (-not $m.ContainsKey($nombre)) { $m[$nombre] = @{} }
+        $l = New-Object System.Collections.ArrayList
+        foreach ($x in @($m[$nombre]['vueltas'])) { if ([double]$x -gt 0) { [void]$l.Add([int]$x) } }
+        [void]$l.Add($ms)
+        while ($l.Count -gt $JuegoVueltaMax) { $l.RemoveAt(0) }
+        $m[$nombre]['vueltas'] = @($l)
+        Save-JuegosMem
+        return $true
+    } catch { return $false }
+}
+
 function Exit-Juego([string]$nombre) {
     try { Save-TiempoJuego } catch {}
     # "me quede en..." dicho justo despues de salir sigue siendo de este juego
@@ -25273,7 +25342,22 @@ function Exit-Juego([string]$nombre) {
             desdeMs = $sw.ElapsedMilliseconds
         }
     }
+    # EL BRILLO YA NO SE TOCA AQUI (27/09, idea 108). Este bloque corria en el MISMO segundo en que
+    # se perdia el primer plano, y por eso el brillo subia y bajaba siete veces en 75 minutos.
+    # Ahora se guarda en la salida en duda y lo restaura Test-SalidaJuego cuando el juego NO ha
+    # vuelto dentro de la ventana medida. Ver PERDER EL PRIMER PLANO NO ES CERRAR EL JUEGO.
+    #
+    # SI NO HAY VENTANA (juego sin datos todavia) se restaura AQUI MISMO, como hasta hoy: sin
+    # medidas de ese juego no hay nada con que decidir y el comportamiento no cambia.
     if (-not $JuegoRestaurar -or $null -eq $script:juegoBrilloAntes) { return }
+    $ventana = 0
+    try { $ventana = [int](Get-VentanaVuelta (Get-VueltasJuego $nombre) $JuegoVueltaTope) } catch { $ventana = 0 }
+    if ($ventana -gt 0 -and $script:juegoSalida) {
+        $script:juegoSalida.brillo = [int]$script:juegoBrilloAntes
+        $script:juegoSalida.ventana = $ventana
+        Log ("JUEGO: salida en duda de $nombre; espero " + [int]($ventana / 1000) + " s antes de tocar el brillo")
+        return
+    }
     try {
         Set-Brillo ([int]$script:juegoBrilloAntes)
         Log "JUEGO: brillo restaurado a $($script:juegoBrilloAntes) al salir de $nombre"
@@ -25317,8 +25401,25 @@ function Test-JuegoVivo($s) {
 function Test-SalidaJuego {
     $s = $script:juegoSalida
     if (-not $s) { return }
-    # ha vuelto al mismo juego: no era una salida
-    if ($script:juegoActivo -and $script:juegoActivo -eq $s.nombre) { $script:juegoSalida = $null; return }
+    # HA VUELTO AL MISMO JUEGO: NO ERA UNA SALIDA, y ahora se APUNTA cuanto tardo en volver, que es
+    # de donde sale la ventana de la proxima vez (27/09, idea 108).
+    if ($script:juegoActivo -and $script:juegoActivo -eq $s.nombre) {
+        $msVuelta = [int]($sw.ElapsedMilliseconds - [double]$s.desdeMs)
+        if (Add-VueltaJuego $s.nombre $msVuelta) {
+            Log ("JUEGO: $($s.nombre) volvio en " + [Math]::Round($msVuelta / 1000.0, 1) + " s; no era una salida" +
+                 $(if ($s.brillo) { ' (el brillo no se toco)' } else { '' }))
+        }
+        # Y EL TRAMO SE SUMA, NO SE REINICIA: los minutos y los segundos siguen en
+        # $script:juegoSesionMin/Seg desde Exit-Juego, asi que aqui solo hay que NO borrarlos.
+        # Eso es lo que hacia que la partida se partiera en trozos de once segundos.
+        $script:juegoSalida = $null
+        return
+    }
+    # LA VENTANA MANDA, Y VA ANTES DE Test-JuegoVivo A PROPOSITO (27/09, idea 108): en los siete
+    # ciclos del 25/09 el proceso SI habia muerto un instante, asi que preguntando primero por el
+    # proceso el parpadeo seguiria igual. Mientras la ventana no venza, no se decide nada.
+
+    if ($s.ventana -and ($sw.ElapsedMilliseconds - [double]$s.desdeMs) -lt [double]$s.ventana) { return }
     if (Test-JuegoVivo $s) {
         # dos horas con el juego abierto detras sin mirarlo: si se cierra ahora ya no
         # viene a cuento preguntar donde te quedaste, asi que se deja de vigilar
@@ -25329,6 +25430,15 @@ function Test-SalidaJuego {
             $script:juegoSesionSeg = 0
         }
         return
+    }
+    # LO QUE SE APLAZO, AHORA (27/09, idea 108): la salida es de verdad, asi que el brillo vuelve.
+    if ($s.brillo) {
+        try {
+            Set-Brillo ([int]$s.brillo)
+            Log "JUEGO: brillo restaurado a $($s.brillo) al salir de $($s.nombre) (tras la espera)"
+            try { Remove-Item -LiteralPath (Join-Path $TmpDir 'juego-brillo.json') -Force -ErrorAction SilentlyContinue } catch {}
+            $script:juegoBrilloAntes = $null
+        } catch {}
     }
     $script:juegoSalida = $null
     # los segundos ANTES de $minsS: hay un banco que exige < 240 caracteres entre esa linea y el
@@ -34282,15 +34392,33 @@ while ($true) {
                     Enter-Juego $j
                     if ($SoloBotonEnJuego) {
                         try {
+                            # SOLO SE DICE CUANDO CAMBIA (idea 108): sin la bandera, con la salida
+                            # aplazada esta linea se repetiria en cada vuelta del bucle.
+                            if (-not $script:soloBotonPuesto) {
+                                Log 'escucha: solo boton mientras juegas (config: escucha.soloBotonEnJuego)'
+                            }
                             [System.IO.File]::WriteAllText($MarcaSoloBoton, $j)
-                            Log 'escucha: solo boton mientras juegas (config: escucha.soloBotonEnJuego)'
+                            $script:soloBotonPuesto = $true
                         } catch {}
                     }
                 } else {
                     $script:juegoExe = ''
                     $script:juegoPid = 0
-                    try { Remove-Item -LiteralPath $MarcaSoloBoton -Force -ErrorAction SilentlyContinue } catch {}
-                    if ($SoloBotonEnJuego) { Log 'escucha: vuelve la palabra de activacion (fuera del juego)' }
+                    # LA PALABRA DE ACTIVACION TAMBIEN SE APLAZA (27/09, idea 108). Este borrado
+                    # corria en el mismo segundo que el brillo, y por eso la escucha se apagaba y
+                    # encendia SIETE veces en 75 minutos el 25/09. Mientras haya una salida en duda
+                    # con ventana por delante, se deja como esta: si el juego vuelve -y en esos
+                    # siete casos volvio- no ha pasado nada.
+                    $dudaJ = $script:juegoSalida
+                    $esperaJ = ($dudaJ -and $dudaJ.ventana -and
+                                ($sw.ElapsedMilliseconds - [double]$dudaJ.desdeMs) -lt [double]$dudaJ.ventana)
+                    if (-not $esperaJ) {
+                        try { Remove-Item -LiteralPath $MarcaSoloBoton -Force -ErrorAction SilentlyContinue } catch {}
+                        if ($SoloBotonEnJuego -and $script:soloBotonPuesto) {
+                            $script:soloBotonPuesto = $false
+                            Log 'escucha: vuelve la palabra de activacion (fuera del juego)'
+                        }
+                    }
                 }
                 $script:juegoActivo = $j
                 # Y SE NOTA A QUE ESTAS JUGANDO (25/09, ideas 17 y 38): una racha o una vuelta
