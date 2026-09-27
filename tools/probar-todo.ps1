@@ -2068,6 +2068,15 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n221. Que la capsula diga si se la ve, en vez de adivinarlo por la resolucion (idea 67 de las 121)"
+# 'CAPSULA CIEGA' salia CERO veces en 58.636 lineas de registro con 19,9 h de juego dentro: los
+# juegos de hoy usan pantalla completa SIN cambiar de resolucion, asi que la cuenta que decidia
+# siempre dijo 'se ve' y Send-AvisoVibrado no disparo nunca. Ahora la capsula escribe en
+# tmp\ui-visible.txt '1|0 <hora> <cadencia>' cada 5 s mirando su opacidad, si esta visible y
+# SHQueryUserNotificationState; ese latido delata ademas que se cuelgue VIVA. Ante la duda -sin
+# fichero, vacio, ilegible o viejo- se supone visible. El banco arranca el exe de verdad.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-capsula-visible.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la capsula dice si se la ve)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n220. Los tres puertos de mando que no existen se llevaban el 86 % del sondeo (idea 66 de las 121)"
 # Medido en esta Ally con AX y 300 llamadas por puerto: el 0 (conectado) 0,15 ms; los 1, 2 y 3
 # (ret=1167) 0,36 / 0,39 / 0,39. De 1,29 ms por vuelta, 1,14 en puertos que nunca tuvieron nada,
