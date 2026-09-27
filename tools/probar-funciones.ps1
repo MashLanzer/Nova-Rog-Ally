@@ -301,6 +301,13 @@ function Set-UI($a, $b) {}
 Invoke-Expression (Traer 'Test-PareceCharla')
 Invoke-Expression (Traer 'Add-OidoDudoso')
 Invoke-Expression (TraerVariable 'ReintentoUltimoMs')
+# EL PLAZO POR MOTOR (idea 8, 25/09): Request-UltimoRecurso llama a Get-PlazoOido, que no estaba
+# aqui y por eso el turbo fallaba en silencio -su try/catch se comia el CommandNotFoundException y
+# devolvia $false-. Se saca la de verdad y se le finge SU leaf, Get-RepasoTiempos (que lee un
+# fichero): vacio -> Get-PlazoOido devuelve el numero escrito, que es lo que hace falta aqui.
+foreach ($v in @('PlazoOidoPercentil', 'PlazoOidoMin', 'PlazoOidoSuelo', 'PlazoOidoTecho')) { Invoke-Expression (TraerVariable $v) }
+function Get-RepasoTiempos([string]$d = '') { return @{} }
+Invoke-Expression (Traer 'Get-PlazoOido')
 Invoke-Expression (Traer 'Request-UltimoRecurso')
 $dirFino = Join-Path $env:TEMP ('nova-fino-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $dirFino | Out-Null
