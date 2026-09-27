@@ -1997,6 +1997,14 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n218. Olvidar un alias que aprendio Nova: darle marcha atras a commands.json (idea 53 de las 121)"
+# commands.json era el UNICO sitio donde lo aprendido no tenia marcha atras. En 15 dias Nova
+# escribio UN alias, y fue el envenenado ('ajutos' la noche del 22/09). Ahora Add-Alias-Comando
+# marca su origen (aliasNova), "no era eso" lo borra (Invoke-AprenderDelError) y "olvida que X es Y"
+# a viva voz tambien; nunca toca lo que puso braya a mano. El banco ejecuta las tres funciones (AST).
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-alias-olvido.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:un alias aprendido se puede olvidar)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 52 de las 121)"
 # Save-UsoAlly solo bajaba a disco al juntar 300 s; 35 de 71 sesiones (49 %) morian sin cierre
 # limpio y 10 no llegaban ni a 300 s, perdiendo entera su cuenta. Dos vias nuevas (regla 7): el

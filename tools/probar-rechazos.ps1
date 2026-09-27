@@ -75,6 +75,13 @@ $script:traduccionesQuitadas = @()
 $script:fallosMarcados = @()
 function Write-FalloUso([string]$porque = '') { $script:fallosMarcados += $porque; return $true }
 function Remove-Traduccion([string]$o) { $script:traduccionesQuitadas += $o; return $true }
+# idea 53: Invoke-AprenderDelError ahora tambien llama a Remove-Alias-Comando (sin try/catch), y esa
+# rama solo corre si $script:ultimoAlias esta puesto -aqui no lo esta, asi que no se ejerce-. El
+# sustituto apunta que se llamo, para que si algun dia esta prueba pone un ultimo alias no se caiga
+# muda con un CommandNotFound (la olvida de verdad la prueba probar-alias-olvido.ps1).
+$script:ultimoAlias = $null
+$script:aliasQuitados = @()
+function Remove-Alias-Comando([string]$a, [bool]$s = $true) { $script:aliasQuitados += $a; return $false }
 # OJO A LA COMA: Get-Recetas de verdad hace "return ,$script:recetas". Sin ella
 # PowerShell DESENROLLA el ArrayList y la funcion recibiria una copia, asi que su
 # .Remove() no tocaria el original y la prueba mentiria. Misma trampa que ya avisa

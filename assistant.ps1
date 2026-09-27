@@ -5041,7 +5041,9 @@ function Resolve-Fragment([string]$f) {
     }
     # Y SIN FORMA DE DESHACERLO NO SE APRENDE NADA (regla 2).
     if ($f -match '^(?:olvida|olvidate de|borra|quita)\s+que\s+(.{3,40})\s+(?:es|era|sea)\s+(?:el\s+|la\s+)?(.{3,40})$') {
-        return @(@{ kind = 'juegoOlvidaSonido'; oido = $Matches[1].Trim(); desc = 'olvidar como suena ese juego' })
+        # IDEA 53: $Matches[2] (lo que "X es") hoy se tiraba. Se lleva por si "X" no era un sonido de
+        # juego sino un alias aprendido; el reparto lo hace el manejador 'juegoOlvidaSonido'.
+        return @(@{ kind = 'juegoOlvidaSonido'; oido = $Matches[1].Trim(); objetivo = $Matches[2].Trim(); desc = 'olvidar como suena ese juego' })
     }
     if ($f -match '^(?:olvida|borra)\s+(?:lo que aprendiste de|el nombre de|como suena)\s+(.{3,40})$') {
         return @(@{ kind = 'juegoOlvidaSonido'; oido = $Matches[1].Trim(); desc = 'olvidar como suena ese juego' })
@@ -7429,20 +7431,57 @@ function Add-Alias-Comando([string]$alias, [string]$objetivo) {
             Log "NO aprendo '$alias': lo que resolvio no tiene ni programa ni direccion"
             return $null
         }
+        $donde = if ($d.kind -eq 'app') { 'apps' } else { 'sitios' }
         if ($d.kind -eq 'app') {
             $j.apps | Add-Member -NotePropertyName $alias -NotePropertyValue $valor -Force
         } else {
             $j.sitios | Add-Member -NotePropertyName $alias -NotePropertyValue $valor -Force
         }
+        # IDEA 53: marca de origen DENTRO de commands.json (una sola escritura: el alias y su marca
+        # bajan juntos, nunca discrepan). Lo que ya hay hoy en apps/sitios NO lleva marca, o sea que
+        # es de braya, y el olvido automatico no lo tocara. El Add-Member sobre $j.aliasNova sin
+        # crearlo antes revienta: en un commands.json que aun no lo tiene (el de hoy) es $null.
+        if (-not $j.aliasNova) { $j | Add-Member -NotePropertyName aliasNova -NotePropertyValue (New-Object PSObject) -Force }
+        $j.aliasNova | Add-Member -NotePropertyName $alias -NotePropertyValue $donde -Force
         $txt = $j | ConvertTo-Json -Depth 8
         Write-Atomico $cmdsPath $txt
         $script:cmds = Get-Content -LiteralPath $cmdsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $script:ultimoAlias = @{ alias = $alias; donde = $donde }   # espejo de $script:ultimaAprendida: "no era eso" lo borra
         Log "APRENDIDO: '$alias' -> $($d.desc)"
         return "Listo, ahora se que $alias es $($d.desc -replace '^abrir ', '')"
     } catch {
         Log ("no pude aprender: " + $_.Exception.Message)
         return $null
     }
+}
+
+# OLVIDAR UN ALIAS QUE APRENDIO NOVA (26/09, idea 53 de las 121). commands.json era el UNICO sitio
+# donde lo aprendido no tenia marcha atras: Invoke-AprenderDelError ya deshace traduccion, receta y
+# cuarentena. Molde de Remove-Perfil. $soloDeNova = $true (camino automatico "no era eso"): solo se
+# lleva lo que Nova marco en aliasNova, nunca lo que puso braya a mano. $false (camino hablado
+# "olvida que X es Y"): pedido a viva voz, si puede llevarse uno de braya. Devuelve $true/$false,
+# nunca una coleccion (PowerShell desenrolla los arrays al devolverlos).
+function Remove-Alias-Comando([string]$alias, [bool]$soloDeNova = $true) {
+    if ($script:invitado) { return $false }    # commands.json es el fichero de ordenes de braya (como Remove-JuegoOido)
+    $alias = (ConvertTo-Plain $alias).Trim()    # 'Ajutos' tiene que encontrar 'ajutos' (ConvertTo-Plain ya baja a minusculas)
+    if (-not $alias) { return $false }
+    try {
+        $j = Get-Content -LiteralPath $cmdsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $deNova = (Test-Prop $j.aliasNova $alias)
+        if ($soloDeNova -and -not $deNova) { return $false }   # no lo aprendio Nova: no se toca NI se reescribe
+        # de que grupo quitarlo: lo dice la marca; sin marca (uno de braya pedido a voz), se miran los dos.
+        # Los parentesis del -or NO son opcionales: sin ellos seria una sola llamada con argumentos sueltos.
+        $donde = if ($deNova) { [string]$j.aliasNova.$alias } else { '' }
+        $valor = ''
+        if (($donde -eq 'apps' -or -not $donde) -and (Test-Prop $j.apps $alias)) { $valor = [string]$j.apps.$alias; $j.apps.PSObject.Properties.Remove($alias) }
+        elseif (($donde -eq 'sitios' -or -not $donde) -and (Test-Prop $j.sitios $alias)) { $valor = [string]$j.sitios.$alias; $j.sitios.PSObject.Properties.Remove($alias) }
+        else { return $false }   # no estaba en ninguno: no se reescribe el fichero por nada
+        if ($deNova) { $j.aliasNova.PSObject.Properties.Remove($alias) }
+        Write-Atomico $cmdsPath ($j | ConvertTo-Json -Depth 8)
+        $script:cmds = Get-Content -LiteralPath $cmdsPath -Raw -Encoding UTF8 | ConvertFrom-Json   # Resolve-Target lee de aqui
+        Log "ALIAS OLVIDADO: '$alias' era $valor"
+        return $true
+    } catch { Log ("no pude olvidar el alias: " + $_.Exception.Message); return $false }
 }
 
 # =====================================================================
@@ -7880,7 +7919,15 @@ function Invoke-AprenderDelError([bool]$soloSiDudosa = $false) {
         $script:ultimaReceta = $null
         $script:ultimaRecetaUsada = $false
     }
-    return @{ apuntada = $apuntada; olvidada = $olvidada; recetaOlvidada = $recetaOlvidada }
+    # Y EL ALIAS, SI ACABAS DE APRENDER UNO (26/09, idea 53). commands.json era el unico sitio sin
+    # marcha atras. $soloDeNova = $true SIEMPRE por este camino automatico: "no era eso" jamas se
+    # lleva un alias que pusiste tu a mano, solo el que Nova acaba de escribir.
+    $aliasOlvidado = $null
+    if ($script:ultimoAlias) {
+        if (Remove-Alias-Comando ([string]$script:ultimoAlias.alias) $true) { $aliasOlvidado = [string]$script:ultimoAlias.alias }
+        $script:ultimoAlias = $null
+    }
+    return @{ apuntada = $apuntada; olvidada = $olvidada; recetaOlvidada = $recetaOlvidada; aliasOlvidado = $aliasOlvidado }
 }
 
 function Add-Rechazo([string]$texto) {
@@ -15998,6 +16045,7 @@ function Invoke-FastCommand([string]$text) {
                         $apD = Invoke-AprenderDelError $true
                         if ($apD) {
                             if ($apD.recetaOlvidada) { $a.desc = "$($a.desc). Y olvido esa receta." }
+                            elseif ($apD.aliasOlvidado) { $a.desc = "$($a.desc). Y olvido el atajo '$($apD.aliasOlvidado)'." }
                             elseif ($apD.olvidada) { $a.desc = "$($a.desc). Y olvido que '$($apD.olvidada)' significaba eso." }
                             elseif ($apD.apuntada) { $a.desc = "$($a.desc). Si lo vuelvo a oir, te pregunto antes." }
                         }
@@ -16740,6 +16788,10 @@ function Invoke-FastCommand([string]$text) {
                 }
                 'juegoOlvidaSonido' {
                     if (Remove-JuegoOido ([string]$a.oido)) { $a.desc = "olvidado: $($a.oido) vuelve a ser lo que suene" }
+                    # IDEA 53: si "X" no era un sonido de juego, prueba si era un alias aprendido. Pedido a
+                    # viva voz ($soloDeNova = $false): "olvida que X es Y" si puede llevarse un alias tuyo, y
+                    # se DICE cual, que es la guarda que pide la idea.
+                    elseif (Remove-Alias-Comando ([string]$a.oido) $false) { $a.desc = "olvidado: '$($a.oido)' ya no abre nada" }
                     else { $a.desc = "no tenia nada aprendido de $($a.oido)" }
                 }
                 'noEraEso' {
@@ -16750,6 +16802,7 @@ function Invoke-FastCommand([string]$text) {
                     #    Aqui SIEMPRE, porque lo has dicho tu: "no era eso" no deja dudas.
                     $ap = Invoke-AprenderDelError $false
                     $a.desc = if ($ap.recetaOlvidada) { "$r. Y olvido esa receta." }
+                              elseif ($ap.aliasOlvidado) { "$r. Y olvido el atajo '$($ap.aliasOlvidado)'." }
                               elseif ($ap.olvidada) { "$r. Y olvido que '$($ap.olvidada)' significaba eso." }
                               elseif ($ap.apuntada) { "$r. Si lo vuelvo a oir, te pregunto antes." }
                               else { $r }
@@ -26695,6 +26748,9 @@ $script:bajandoReglas = $null
 # De que frase aprendida salio la ultima orden, para poder olvidarla si dices
 # "no era eso".
 $script:ultimaAprendida = ''
+# IDEA 53: el ultimo alias que Nova escribio en commands.json, espejo de $script:ultimaAprendida,
+# para que "no era eso" lo borre. Lo pone Add-Alias-Comando; lo consume Invoke-AprenderDelError.
+$script:ultimoAlias = $null
 function Test-LoTengo([string]$vista) {
     if ($script:loTengo -or -not $UiNuevaOn -or -not $vista) { return }
     if (($sw.ElapsedMilliseconds - $script:loTengoCheck) -lt 400) { return }
