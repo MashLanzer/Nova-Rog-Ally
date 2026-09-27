@@ -103,13 +103,15 @@ Comp '  y el -1 sale por la puerta de delante' ($cG -match 'if \(\$st\.Count -lt
 
 Write-Host ''
 Write-Host '-- 4. SE APUNTA, PERO NO INTERRUMPE --'
-# EL BLOQUE ENTERO, ACOTADO POR SUS DOS VECINOS Y NO POR UN NUMERO DE CARACTERES. Una
-# ventana fija de 700 se comia el bloque de 'oido-sin-repaso' que va justo antes -que si
-# tiene un Send-AvisoEntorno- y daba rojo con el codigo bien. Ya mordio en probar-plazos-soltar
-# esta misma tarde.
+# EL BLOQUE, ACOTADO POR SU PROPIO try/catch Y NO POR UN VECINO LEJANO. Antes acababa en
+# 'Get-AvisoHoraDormir', pero entre medias las ideas 26 (exes de juego) y 27 (cambio de horario)
+# metieron sus bloques -y el de horario SI lleva un Send-AvisoEntorno legitimo-, asi que la
+# ventana crecio y cazaba un aviso que no es de esta rama. El bloque de ram-justa termina en su
+# '} catch {}': se corta ahi, que es el fin de verdad. (Una ventana fija de 700 ya mordio antes
+# en probar-plazos-soltar; un vecino que se aleja es el mismo error mas lento.)
 $iA = $sinCom.IndexOf('$pctRJ = Get-OidoMemoriaJusta')
-$iFin = $sinCom.IndexOf('Get-AvisoHoraDormir')
-Comp 'se encuentra el bloque, entre sus dos vecinos' ($iA -ge 0 -and $iFin -gt $iA) ''
+$iFin = if ($iA -ge 0) { $sinCom.IndexOf('} catch {}', $iA) } else { -1 }
+Comp 'se encuentra el bloque, acotado por su try/catch' ($iA -ge 0 -and $iFin -gt $iA) ''
 $blA = if ($iA -ge 0 -and $iFin -gt $iA) { $sinCom.Substring($iA, $iFin - $iA) } else { '' }
 Comp 'queda apuntado en las estadisticas' ($blA -match "Add-Estadistica 'oido-apretado'") ''
 # ESTO ES LO QUE EVITA EL DESTROZO: el 22/09 se midio a donde lleva avisar de todo -28 de las
