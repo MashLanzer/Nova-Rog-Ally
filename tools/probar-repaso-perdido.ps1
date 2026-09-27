@@ -96,7 +96,11 @@ Comp '  diciendo cuantos megas faltan' ($bl -match '\$\(\$rp\.mb\)') 'sin numero
 Comp '  y ofreciendo el boton' ($bl -match 'boton') 'regla 7: segunda via'
 # LA BANDERA SOLO SE MARCA SI EL AVISO SALIO: 'medio' se calla con un juego delante, que es
 # justo cuando falta la RAM. Marcarla antes de tiempo se comeria el aviso entero.
-Comp '  y la bandera solo si el aviso salio' ($bl -match 'if \(Send-AvisoEntorno[\s\S]{0,400}sinRepasoAvisado = \$true') 'jugando es cuando falta la RAM: el aviso espera a que cierres'
+function EnOrden([string]$t, [string]$a, [string]$b) {
+    $ma = [regex]::Match($t, $a); if (-not $ma.Success) { return $false }
+    return [regex]::Match($t.Substring($ma.Index + $ma.Length), $b).Success
+}
+Comp '  y la bandera solo si el aviso salio' (EnOrden $bl 'if \(Send-AvisoEntorno' 'sinRepasoAvisado = \$true') 'jugando es cuando falta la RAM: el aviso espera a que cierres'
 # EL ORDEN: este es el menos urgente de los cuatro del oido, porque Nova SIGUE oyendo.
 $iMudo = $aSin.IndexOf("'oido-mudo'"); $iFlojo = $aSin.IndexOf("'oido-flojo'")
 Comp '  y va detras de los otros tres del oido' ($iMudo -ge 0 -and $iFlojo -ge 0 -and $iAv -gt $iFlojo -and $iFlojo -gt $iMudo) 'sordo manda sobre ruido, y ruido sobre esto'

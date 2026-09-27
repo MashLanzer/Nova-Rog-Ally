@@ -42,7 +42,11 @@ Comp '  y solo si la charla la cambio' ($sinCom -match '\$ev\.original\) -ne \$o
 # frase distinta- se habria aprendido con la clave de la anterior. Peor que el fallo original.
 $iCh = $sinCom.IndexOf('$script:fraseComoLaDijiste = @{')
 $bloqueCh = if ($iCh -ge 0) { $sinCom.Substring($iCh, [Math]::Min(320, $sinCom.Length - $iCh)) } else { '' }
-Comp '  y se borra cuando no la hay' ($bloqueCh -match 'else \{[\s\S]{0,80}\$script:fraseComoLaDijiste = \$null') 'si se quedara pegada, envenenaria la siguiente'
+function EnOrden([string]$t, [string]$a, [string]$b) {
+    $ma = [regex]::Match($t, $a); if (-not $ma.Success) { return $false }
+    return [regex]::Match($t.Substring($ma.Index + $ma.Length), $b).Success
+}
+Comp '  y se borra cuando no la hay' (EnOrden $bloqueCh 'else \{' '\$script:fraseComoLaDijiste = \$null') 'si se quedara pegada, envenenaria la siguiente'
 
 Write-Host ''
 Write-Host '-- 2. la ventana sale de los datos --'

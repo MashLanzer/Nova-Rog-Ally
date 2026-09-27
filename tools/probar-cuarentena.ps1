@@ -108,7 +108,11 @@ Comp 'y lo corregido se tira antes de escribirse' ($blR -match '\$t\.Remove') ''
 Comp '  midiendo cuanto tardaste en corregir' ($blR -match 'Add-CorreccionTiempo') 'de ahi sale el plazo de manana'
 # EL ENGANCHE: el rechazo lo llama, y el bucle vacia.
 Comp 'el rechazo vacia la cuarentena' ($sinCom -match "Remove-Cuarentena 'lo rechazaste'") ''
-Comp '  y va ANTES de Remove-Traduccion' ($sinCom -match "Remove-Cuarentena 'lo rechazaste'[\s\S]{0,300}Remove-Traduccion \`$olvidada") 'si sigue en cola, no hay nada que borrar del fichero'
+function EnOrden([string]$t, [string]$a, [string]$b) {
+    $ma = [regex]::Match($t, $a); if (-not $ma.Success) { return $false }
+    return [regex]::Match($t.Substring($ma.Index + $ma.Length), $b).Success
+}
+Comp '  y va ANTES de Remove-Traduccion' (EnOrden $sinCom "Remove-Cuarentena 'lo rechazaste'" "Remove-Traduccion \`$olvidada") 'si sigue en cola, no hay nada que borrar del fichero'
 Comp 'el bucle baja lo que vence' ($sinCom -match '\$script:traduccionesCuarentena\.Count -gt 0 -and') ''
 Comp '  y no cuesta nada con la cola vacia' ($sinCom -match 'traduccionesCuarentena\.Count -gt 0 -and \(\$sw\.ElapsedMilliseconds - \$script:cuarentenaCheck\)') 'regla 4'
 

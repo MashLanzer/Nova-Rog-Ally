@@ -42,7 +42,11 @@ if ($m.Success) { $CORRIGE_VENTANA_S = [int]$m.Groups[1].Value }
 Comp '  cubre el 90 % de las correcciones' ($CORRIGE_VENTANA_S -ge 180) "$CORRIGE_VENTANA_S s; 55 de 61 caen dentro"
 Comp '  y no se pasa: de 180 a 300 no entra ni una mas' ($CORRIGE_VENTANA_S -le 300) "$CORRIGE_VENTANA_S s"
 # EL HUECO SE LEE ANTES DE PISARLO: ultima_charla se reasigna dos lineas mas abajo.
-Comp 'el hueco se guarda antes de pisar ultima_charla' ($wSin -match 'hueco = ahora - ultima_charla[\s\S]{0,200}ultima_charla = ahora') 'leerlo despues daria siempre 0'
+function EnOrden([string]$t, [string]$a, [string]$b) {
+    $ma = [regex]::Match($t, $a); if (-not $ma.Success) { return $false }
+    return [regex]::Match($t.Substring($ma.Index + $ma.Length), $b).Success
+}
+Comp 'el hueco se guarda antes de pisar ultima_charla' (EnOrden $wSin 'hueco = ahora - ultima_charla' 'ultima_charla = ahora') 'leerlo despues daria siempre 0'
 
 Write-Host ''
 Write-Host '-- 3. las guardas del bloque nuevo --'

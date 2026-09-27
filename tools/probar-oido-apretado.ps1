@@ -116,10 +116,14 @@ Comp 'queda apuntado en las estadisticas' ($blA -match "Add-Estadistica 'oido-ap
 # 40 filas de estadisticas.json eran aviso-entorno y las decisiones en esa ventana eran CERO-.
 Comp '  y NO hay ningun aviso nuevo' ($blA -notmatch 'Send-AvisoEntorno') 'esto se apunta, no interrumpe'
 # EL FLANCO: una vez por sesion del oido, no una cada vuelta del bucle.
+function EnOrden([string]$t, [string]$a, [string]$b) {
+    $ma = [regex]::Match($t, $a); if (-not $ma.Success) { return $false }
+    return [regex]::Match($t.Substring($ma.Index + $ma.Length), $b).Success
+}
 Comp '  una sola vez, con bandera' ($blA -match '-not \$script:ramJustaApuntada') ''
-Comp '  y la bandera se marca ANTES de apuntar' ($blA -match '\$script:ramJustaApuntada = \$true[\s\S]{0,120}Add-Estadistica') 'si falla el apunte, no se reintenta cada 30 s'
+Comp '  y la bandera se marca ANTES de apuntar' (EnOrden $blA '\$script:ramJustaApuntada = \$true' 'Add-Estadistica') 'si falla el apunte, no se reintenta cada 30 s'
 # Y SE REARMA SOLA: el oido nuevo devuelve -1 hasta tener diez minutos, y eso borra la bandera.
-Comp 'y un oido recien arrancado rearma la bandera' ($blA -match '\$pctRJ -lt 0[\s\S]{0,140}ramJustaApuntada = \$false') 'el -1 sale gratis como senal de oido nuevo'
+Comp 'y un oido recien arrancado rearma la bandera' (EnOrden $blA '\$pctRJ -lt 0' 'ramJustaApuntada = \$false') 'el -1 sale gratis como senal de oido nuevo'
 Comp 'la bandera nace apagada' ($sinCom -match '\$script:ramJustaApuntada = \$false') ''
 
 Write-Host ''

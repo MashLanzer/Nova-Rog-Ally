@@ -171,7 +171,13 @@ Write-Host '-- E. y las dos ramas de voz no se han tocado --'
 # $script:ultimaRespuesta no haya NADA, ni siquiera un comentario. Por eso el bloque nuevo va
 # DETRAS del if entero y no dentro de las ramas.
 $sinCom = (($fuente -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) -join "`n"
-Comp "la rama 'alto' sigue intacta" ($sinCom -match 'if \(\$nivel -eq .alto.\) \{[\s\S]{0,200}?\$script:ultimaRespuesta') ''
+# A luego B, en orden y sin tope de distancia: evita las expresiones fragiles [\s\S]{0,N} que se
+# rompen al meter un comentario en medio (ver probar-bancos-fragiles).
+function EnOrden([string]$t, [string]$a, [string]$b) {
+    $ma = [regex]::Match($t, $a); if (-not $ma.Success) { return $false }
+    return [regex]::Match($t.Substring($ma.Index + $ma.Length), $b).Success
+}
+Comp "la rama 'alto' sigue intacta" (EnOrden $sinCom 'if \(\$nivel -eq .alto.\) \{' '\$script:ultimaRespuesta') ''
 Comp '  y la de los demas tambien' ($sinCom -match 'elseif \(\$nivel -ne .bajo.\) \{\s*\r?\n\s*\$script:ultimaRespuesta = \$texto') ''
 # Y EL BLOQUE NUEVO VA DETRAS DEL if, no dentro.
 $cuerpoS = Traer 'Send-AvisoEntorno'

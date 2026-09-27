@@ -115,7 +115,11 @@ Comp '  y el filtro es Test-FastCommand, sin liston propio' ($blB -match 'Test-F
 # Hay que mirar la DECISION.
 Comp 'con la voz rara, pregunta antes' ($blB -match '\$dudosoO = \[bool\]\(Test-VozExtrana\)') ''
 Comp '  y con el dictado dudoso, tambien' ($blB -match 'Test-DictadoDudoso') ''
-Comp '  y ese "dudoso" decide de verdad' ($blB -match 'if \(\$dudosoO\) \{[\s\S]{0,400}Start-Confirmacion') 'la variable suelta no frena nada'
+function EnOrden([string]$t, [string]$a, [string]$b) {
+    $ma = [regex]::Match($t, $a); if (-not $ma.Success) { return $false }
+    return [regex]::Match($t.Substring($ma.Index + $ma.Length), $b).Success
+}
+Comp '  y ese "dudoso" decide de verdad' (EnOrden $blB 'if \(\$dudosoO\) \{' 'Start-Confirmacion') 'la variable suelta no frena nada'
 # Y SI LA PROPIA ORDEN ARMA UNA PREGUNTA, no se da por hecha.
 Comp '  y si la orden arma una pregunta, se pregunta' ($blB -match 'if \(\$script:pendiente\) \{') ''
 # EN CONVERSACION NO: una respuesta corta en mitad de una charla no es una orden fallida.

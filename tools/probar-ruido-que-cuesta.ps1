@@ -32,9 +32,13 @@ $n = @([regex]::Matches($pSin, 'apuntar_descarte\(')).Count
 Comp '  y lo llaman las ramas de descarte' ($n -ge 4) "$n (la definicion mas los sitios)"
 # LAS RAMAS DE VERDAD, por su nombre: si alguien anade una cuarta forma de descartar y no la
 # apunta, el aviso volvera a dispararse sin motivo y nadie sabra por que.
-Comp '  la del juez' ($pSin -match 'NOMBRE_PLANO\)\)[\s\S]{0,80}apuntar_descarte') ''
-Comp '  la de la rafaga floja' ($pSin -match 'umbral_rafaga\(\)\)\)[\s\S]{0,300}apuntar_descarte') ''
-Comp '  y la de la confianza' ($pSin -match 'umbral_confianza\(plano\), _porque\)\)[\s\S]{0,120}apuntar_descarte') ''
+function EnOrden([string]$t, [string]$a, [string]$b) {
+    $ma = [regex]::Match($t, $a); if (-not $ma.Success) { return $false }
+    return [regex]::Match($t.Substring($ma.Index + $ma.Length), $b).Success
+}
+Comp '  la del juez' (EnOrden $pSin 'NOMBRE_PLANO\)\)' 'apuntar_descarte') ''
+Comp '  la de la rafaga floja' (EnOrden $pSin 'umbral_rafaga\(\)\)\)' 'apuntar_descarte') ''
+Comp '  y la de la confianza' (EnOrden $pSin 'umbral_confianza\(plano\), _porque\)\)' 'apuntar_descarte') ''
 # SE APUNTA AUNQUE EL LOG SE CALLE: dos de esas ramas tienen freno de 60 s para la LINEA.
 Comp 'la lista tiene tope' ($pSin -match 'del descartes_nova\[:-64\]') 'no crece sin fin'
 
