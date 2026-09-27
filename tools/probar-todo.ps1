@@ -2089,6 +2089,17 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n253. La temperatura, que es la que explica el ruido del ventilador (idea 103 de las 121)"
+# Nova decia 'hay un ruido de fondo, si puedes quitalo' SIN SABER si el ruido era suyo: 36 veces en
+# 17 dias, mas 1.649 aparcadas. Y no habia mirado nunca lo caliente que estaba: cero apariciones de
+# ThermalZone en las 32.900 lineas. MEDIDO en esta maquina: \_TZ.THRM da 329 K (kelvin ENTEROS) =
+# 55,9 C, ThrottleReasons 0, PercentPassiveLimit 100; la primera lectura costo 9.331 ms con el
+# sistema ocupado y 30 con el tranquilo, y las siguientes 24-38 siempre (la sonda de CPU que se
+# apago por cara cuesta 480). CALIENTE NO ES UN NUMERO ESCRITO: es que ella misma se frene
+# (ThrottleReasons) o que baje el limite pasivo. Sin dato, el aviso de ruido es exactamente el de
+# antes: ninguna frase nueva depende de que la sonda exista.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-temperatura.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:Nova sabe si el zumbido es su propio ventilador)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n252. El plazo de los 6 s para decir si, contado y puesto por ella (idea 102 de las 121)"
 # MEDIDO emparejando cada 'confirmacion: esperando si/no' con su desenlace: 24 confirmaciones,
 # TRECE contestadas y once que vencieron sin respuesta. Los trece retrasos, en segundos: 1,1,1,1,

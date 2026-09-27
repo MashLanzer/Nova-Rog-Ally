@@ -13879,12 +13879,33 @@ function Watch-Entorno([int]$botones = 0) {
         if (Test-AvisarRuido (Get-OidoConRuido) $ahoraW $rearmeR (Get-OidoDescartes)) {
             # el 'true' solo se apunta si el aviso SALIO: si lo para la noche o el modo juego,
             # se vuelve a intentar despues, que es cuando braya puede oirlo.
-            if (Send-AvisoEntorno 'oido-ruido' `
-                (Get-FraseVariada 'oido-ruido' @(
+            # ¿Y SI EL RUIDO SOY YO? (27/09, idea 103 de las 121). Antes de mandarle a quitar un
+            # ruido, se mira la zona termica: si Nova se esta estrangulando por calor, el zumbido
+            # es su propio ventilador y pedirle a braya que lo apague es hacerle perder el tiempo.
+            #
+            # CALIENTE NO ES UN NUMERO ESCRITO: es que ELLA MISMA se estrangule (ThrottleReasons) o
+            # que el limite pasivo baje del 100 %. Decir "84 grados es mucho" seria inventarse un
+            # liston para una zona que no se sabe si es el chip o el chasis; que el sistema diga que
+            # se esta frenando, no.
+            #
+            # Y SI NO HAY DATO, LA FRASE ES LA MISMA DE SIEMPRE: ninguna de las cuatro depende de
+            # que la sonda exista. Get-Temperatura devuelve $null y aqui no cambia nada.
+            $tRuido = $null
+            try { $tRuido = Get-Temperatura } catch { $tRuido = $null }
+            $frasesRuido = @(
                     'Hay un ruido de fondo constante y asi no te voy a oir bien. Si puedes, quitalo o acercame el microfono.',
                     'Se oye un ruido de fondo que me tapa tu voz. Si puedes, quitalo o acercame un poco el microfono.',
                     'Con este ruido de fondo no te voy a oir bien. A ver si lo puedes bajar.',
-                    'Tengo un zumbido de fondo encima y me cuesta oirte. Acercame el microfono si puedes.')) 'medio' 120) {
+                    'Tengo un zumbido de fondo encima y me cuesta oirte. Acercame el microfono si puedes.')
+            if (Test-CalienteDeVerdad $tRuido) {
+                # SE DICE COMO LO QUE ES -"mi zona termica marca X"- y no como si fuera el chip:
+                # \_TZ.THRM puede ser del chasis y el numero no es tan exacto como suena.
+                $frasesRuido = @(
+                    ('Ese zumbido creo que soy yo: mi zona termica marca ' + [int]$tRuido.c + ' grados y me estoy frenando por calor. No hace falta que busques nada.'),
+                    ('El ruido es mi ventilador, que va a tope: ' + [int]$tRuido.c + ' grados en la zona termica. Se me pasara solo.'))
+            }
+            if (Send-AvisoEntorno 'oido-ruido' `
+                (Get-FraseVariada 'oido-ruido' $frasesRuido) 'medio' 120) {
                 $script:ruidoAvisado = $true
             }
         }
@@ -31327,6 +31348,97 @@ function New-ContadorCarga {
     } catch { return $null }
 }
 
+# LA TEMPERATURA DEL CHIP, QUE ES LA QUE EXPLICA EL RUIDO DEL VENTILADOR (27/09, idea 103)
+#
+# EL PROBLEMA: Nova dice "hay un ruido de fondo constante y asi no te voy a oir bien; si puedes,
+# quitalo" SIN SABER si el ruido es suyo. Lo ha dicho 36 veces en 17 dias, mas 1.649 aparcadas por
+# no haber nadie. Si el zumbido es su propio ventilador, mandarle a apagar algo que no existe es
+# hacerle perder el tiempo.
+#
+# Y NO LO HA MIRADO NUNCA: cero apariciones de ThermalZone, MSAcpi o temperatura en las 32.900
+# lineas del fichero.
+#
+# LO QUE HAY EN ESTA MAQUINA, medido: Win32_PerfFormattedData_Counters_ThermalZoneInformation da
+# \_TZ.THRM con Temperature = 329 (KELVIN ENTEROS, o sea resolucion de un grado) = 55,9 C,
+# ThrottleReasons = 0 y PercentPassiveLimit = 100. MSAcpi_ThermalZoneTemperature no devuelve nada
+# aqui, y AsusHWMonitorWMI / AsusAtkWmi_WMNB existen con CERO instancias: no hay revoluciones de
+# ventilador por ningun lado, solo la zona termica.
+#
+# LO QUE CUESTA, Y AQUI HAY QUE CORREGIR A LA FICHA Y A SU VERIFICADOR: la ficha decia 1.625 ms la
+# primera y el verificador 37 ms si el proceso ya habia hecho un Get-CimInstance. Medido hoy dos
+# veces: en un sistema ocupado la PRIMERA costo 9.331 ms, y en uno tranquilo 30 ms. Las siguientes,
+# siempre 24-38 ms. O sea que la primera puede ser carisima y no hay forma de saberlo de antemano.
+# Por eso se cronometra y se apaga sola, que es exactamente lo que hace Get-CargaCPU de aqui abajo.
+# Para comparar: la sonda de CPU por Get-Counter cuesta 480 ms, o sea que esto en caliente es
+# quince veces mas barato que lo que ya se usa.
+$TempTopeMs = [int](Get-Cfg 'ui' 'tempTopeMs' 400)
+$script:tempSonda = ''           # '' = sin probar, 'si', 'no' = apagada
+$script:tempUltima = $null       # @{ c; throttle; pasivo; en }
+$script:tempApuntada = -999      # el ultimo grado que se escribio en la serie del latido
+
+function Get-Temperatura {
+    if ($script:tempSonda -eq 'no') { return $null }
+    try {
+        $t = [System.Diagnostics.Stopwatch]::StartNew()
+        $z = @(Get-CimInstance Win32_PerfFormattedData_Counters_ThermalZoneInformation -ErrorAction SilentlyContinue)
+        $ms = $t.ElapsedMilliseconds
+        if ($z.Count -eq 0) {
+            if (-not $script:tempSonda) {
+                Log 'temperatura: esta maquina no expone zona termica; no vuelvo a mirar'
+                $script:tempSonda = 'no'
+            }
+            return $null
+        }
+        # LA MAS CALIENTE DE LAS ZONAS, que es la que explica el ventilador. Aqui solo hay una.
+        $mejor = $null
+        foreach ($x in $z) {
+            $k = [double]$x.Temperature
+            # KELVIN, Y CON SENTIDO: 250 K son -23 C y 400 K son 127 C. Fuera de ahi el contador
+            # esta diciendo cualquier cosa y es mejor no tener dato que tener uno inventado.
+            if ($k -lt 250 -or $k -gt 400) { continue }
+            if ($null -eq $mejor -or $k -gt [double]$mejor.Temperature) { $mejor = $x }
+        }
+        if ($null -eq $mejor) {
+            if (-not $script:tempSonda) {
+                Log 'temperatura: la zona termica no da un valor con sentido; no vuelvo a mirar'
+                $script:tempSonda = 'no'
+            }
+            return $null
+        }
+        $script:tempLeidas++
+        if (-not $script:tempSonda -and $script:tempLeidas -ge 2) {
+            # EL MISMO CRITERIO QUE EL ACELEROMETRO Y LA CARGA: el que no responde rapido, se apaga.
+            # Pero a partir de la SEGUNDA lectura: ver LA PRIMERA LECTURA NO SE JUZGA.
+            if ($ms -gt $TempTopeMs) {
+                Log ("temperatura: la sonda cuesta " + $ms + " ms (tope " + $TempTopeMs + "); la apago")
+                try { Add-Estadistica 'auto-ajuste' ("sonda de temperatura off: " + $ms + " ms de " + $TempTopeMs) } catch {}
+                $script:tempSonda = 'no'
+                return $null
+            }
+            $script:tempSonda = 'si'
+            Log ("temperatura: zona termica " + [string]$mejor.Name + " en " + [int]([double]$mejor.Temperature - 273.15) + " grados (" + $ms + " ms)")
+        }
+        $script:tempUltima = @{ c = [int]([double]$mejor.Temperature - 273.15)
+                                throttle = [int]$mejor.ThrottleReasons
+                                pasivo = [int]$mejor.PercentPassiveLimit
+                                zona = [string]$mejor.Name
+                                en = $sw.ElapsedMilliseconds }
+        return $script:tempUltima
+    } catch {
+        if (-not $script:tempSonda) { $script:tempSonda = 'no'; Log ('temperatura: no se puede leer (' + $_.Exception.Message + '); no vuelvo a mirar') }
+        return $null
+    }
+}
+
+# ¿Esta caliente de verdad? Sin numero fijo: caliente es cuando ELLA MISMA se estrangula, que es
+# lo que ThrottleReasons dice, o cuando el limite pasivo deja de estar al 100 %.
+function Test-CalienteDeVerdad($t) {
+    if ($null -eq $t) { return $false }
+    if ([int]$t.throttle -ne 0) { return $true }
+    if ([int]$t.pasivo -lt 100) { return $true }
+    return $false
+}
+
 function Get-CargaCPU {
     if ($script:cargaSonda -eq 'no') { return $null }
     if (-not $script:cargaSonda) {
@@ -34033,6 +34145,24 @@ while ($true) {
                     $script:uiBateria = $pc; $script:uiCargando = $cg
                     Refresh-UI
                 }
+                # Y LA SERIE DE LA TEMPERATURA, AL LADO DE LA DE LA BATERIA (27/09, idea 103). Aqui
+                # y no en su propio reloj: este bloque ya corre cada minuto y ya paga un
+                # Get-CimInstance, que es justo lo que hace que la lectura termica sea barata (24-38
+                # ms en caliente contra los 480 de la sonda de CPU que se apago por cara).
+                #
+                # SOLO CUANDO CAMBIA EL GRADO, como la bateria: Temperature viene en kelvin ENTEROS,
+                # asi que esto son del orden de unas pocas lineas por hora, no una por minuto.
+                try {
+                    $tP = Get-Temperatura
+                    if ($null -ne $tP -and [int]$tP.c -ne [int]$script:tempApuntada) {
+                        $script:tempApuntada = [int]$tP.c
+                        $lineaT = ((Get-Date).ToString('yyyy-MM-dd HH:mm:ss') + '  [temperatura] ' + [int]$tP.c +
+                                   ' grados' + $(if ([int]$tP.throttle -ne 0) { ' FRENANDO (' + [int]$tP.throttle + ')' } else { '' }) +
+                                   $(if ([int]$tP.pasivo -lt 100) { ' pasivo ' + [int]$tP.pasivo + ' %' } else { '' }) +
+                                   $(if ($script:juegoActivo) { ' jugando a ' + $script:juegoActivo } else { '' }))
+                        [System.IO.File]::AppendAllText($PulsoPath, $lineaT + "`r`n", (New-Object System.Text.UTF8Encoding $false))
+                    }
+                } catch {}
                 if (-not $cargando) { Invoke-Reglas 'bateria' ([string]$pc) }
                 # CARGADOR: solo en el FLANCO, cuando cambia. Por estado se
                 # repetiria cada minuto mientras siguiera enchufado.
