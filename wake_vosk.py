@@ -204,6 +204,9 @@ SILENCIO_FIN = 1.5
 # suya es de 1,44 s, y esto deja mas del doble de margen. Cuando haya medicion propia -los
 # huecos entre palabras decodificadas en las ordenes de uso real- sale de ahi, como salio
 # SILENCIO_FIN.
+# YA ESTA MEDIDO (27/09, idea 74): el p99 de sus 1.363 pausas reales son 3,55 s, asi que este 3,2
+# cae en el p98,5 y tambien estaba bien razonado. Se queda como TECHO y baja solo si sus pausas se
+# acortan de verdad; ver PAUSAS_PCT_ALTAVOCES.
 SILENCIO_SIN_PALABRA = 3.2
 # LA FRASE DE EJEMPLO PARA WHISPER (14/09). Antes se le daba la lista de apps y juegos
 # como hotwords. Con las 100 grabaciones de braya, eso lo arrastraba al ingles y a
@@ -244,6 +247,107 @@ def es_eco_del_ejemplo(texto):
 # 1,1 s para lo ya entendido y 1,5 s (antes 1,4) para lo que aun no.
 SILENCIO_FIN_LOTENGO = 1.1
 
+# Y MEDIDOS POR FIN SOBRE EL USO REAL (27/09, idea 74). Los tres numeros de arriba salieron de una
+# tanda de 100 grabaciones LEIDAS del 14/09, y el de los altavoces lo dice su propio comentario:
+# "provisional y razonado, no medido". Medidas hoy las 574 grabaciones de pruebas\audio\uso con el
+# MISMO detector que usa el oido (tramas de 30 ms, suelo por percentil 20 del propio audio), salen
+# 1.363 pausas DENTRO de una orden: p50 0,25 s - p90 1,15 - p95 1,70 - p98 2,45 - p99 3,55 - maxima
+# 6,75. Y la cola de silencio que se paga al final de cada orden: mediana 1,70 s, p90 2,30, o sea
+# 16,8 minutos de reloj en 566 ordenes.
+#
+# LO QUE DICE ESA MEDICION, y es lo contrario de lo que esperaba la idea: el 1,5 de hoy cae en el
+# percentil 93,5 de sus pausas reales, asi que esta BIEN elegido. Poner el p95 lo subiria a 1,70 y
+# Nova seria MAS LENTA, que es justo lo que braya no quiere; y bajarlo al p90 cortaria una pausa de
+# cada diez por la mitad, justo contra la meta del 100 % de comprension.
+#
+# ASI QUE SOLO PUEDE ACELERAR, NUNCA FRENAR: el numero escrito es el TECHO. Nova mide sus pausas y,
+# si de verdad hablase mas seguido -el p95 por debajo de 1,5-, cierra antes y va mas rapida; si sus
+# pausas se alargan, se queda en el numero de hoy y no se pone a esperar mas. Con los datos de hoy
+# no cambia nada, y eso es lo correcto: lo que cambia es que ahora esta medido y se sigue midiendo.
+PAUSAS_MEMORIA = 400            # pausas recordadas (unas 160 ordenes)
+# 200 Y NO 60, y el percentil 98 y no el 95: probado con sus grabaciones, con 180 pausas de una
+# tanda de frases cortas el p95 daba 0,30 s y el cierre se habria ido al suelo (0,90), cortando por
+# la mitad el 12 % de las pausas que braya hace de verdad. Cortar una orden a media es lo contrario
+# de la meta del 100 % de comprension, asi que para ACELERAR hace falta estar muy seguro: 200
+# pausas son unas 80 ordenes, y el p98 solo baja de 1,5 s si de verdad no hace pausas largas.
+PAUSAS_MINIMAS = 200
+# EL p99 PARA LA FRASE QUE AUN NO SE ENTIENDE, no el p98: es el unico de los tres donde cerrar antes
+# de tiempo PIERDE lo que braya estaba diciendo, y la meta es entenderle siempre. Probado con sus
+# 120 primeras grabaciones -pausas mas cortas que su media-, el p98 bajaba el cierre a 1,21 s y ahi
+# se cortaria una de cada once pausas que hace de verdad. Con el p99 solo acelera si REALMENTE no
+# hace pausas largas. Para lo que el asistente ya tiene entero (LOTENGO) vale el p98: ahi cerrar
+# antes no pierde nada, porque la orden ya esta completa.
+PAUSAS_PCT_LARGO = 99           # frase que aun no se entiende (hoy 1,5; su p99 real es 3,55)
+PAUSAS_PCT_CORTO = 98           # la que el asistente ya tiene entera (hoy 1,1; su p98 es 2,45)
+PAUSAS_PCT_ALTAVOCES = 99       # para el cierre con los altavoces sonando (hoy 3,2; su p99 es 3,55)
+# suelos: por debajo de esto cortaria frases a media, que es peor que esperar un poco
+SILENCIO_FIN_SUELO = 0.9
+SILENCIO_FIN_LOTENGO_SUELO = 0.7
+SILENCIO_SIN_PALABRA_SUELO = 2.0
+pausas = []                     # segundos de cada hueco dentro de una orden
+
+
+def pausas_del_audio(audio):
+    """Los huecos DENTRO de una orden, en segundos. Mismo detector que segundos_de_voz -tramas de
+    30 ms y suelo por percentil 20 del propio audio- para que lo medido y lo decidido usen la misma
+    idea de que es silencio; con otro detector, los numeros no se podrian comparar."""
+    tr = 480
+    n = audio.size // tr if audio is not None else 0
+    if n < 4:
+        return []
+    e = np.sqrt(np.mean(audio[:n * tr].reshape(n, tr) ** 2, axis=1))
+    suelo = float(np.percentile(e, 20))
+    corte = max(0.008, suelo * 1.8, float(np.percentile(e, 90)) * 0.15)
+    idx = np.where(e > corte)[0]
+    if idx.size < 2:
+        return []
+    voz = e > corte
+    fuera = []
+    i = int(idx[0])
+    fin = int(idx[-1])
+    while i <= fin:
+        if voz[i]:
+            i += 1
+            continue
+        j = i
+        while j <= fin and not voz[j]:
+            j += 1
+        dur = (j - i) * 0.03
+        if dur >= 0.09:          # por debajo de esto no es una pausa, es la separacion de dos palabras
+            fuera.append(round(dur, 3))
+        i = j
+    return fuera
+
+
+def apuntar_pausas(bloques):
+    """Las pausas de la orden que acaba de cerrarse. Se llama UNA vez por dictado, con los bloques
+    que ya estan en memoria: no se lee nada del disco y no se recorre el audio dos veces."""
+    global pausas
+    if not bloques:
+        return
+    try:
+        audio = np.frombuffer(b"".join(bloques), dtype=np.int16).astype("float32") / 32768.0
+        nuevas = pausas_del_audio(audio)
+    except Exception:
+        return
+    if not nuevas:
+        return
+    pausas.extend(nuevas)
+    if len(pausas) > PAUSAS_MEMORIA:
+        del pausas[:len(pausas) - PAUSAS_MEMORIA]
+    guardar_lista(RUTA_PAUSAS, pausas)
+
+
+def silencio_medido(pct, escrito, suelo):
+    """El percentil de SUS pausas, pero sin pasar del numero escrito: ver SOLO PUEDE ACELERAR."""
+    if len(pausas) < PAUSAS_MINIMAS:
+        return escrito
+    try:
+        v = float(np.percentile(np.array(pausas), pct))
+    except Exception:
+        return escrito
+    return max(suelo, min(escrito, v))
+
 
 def silencio_para_cerrar(tengo, dicho):
     """Cuanto silencio cierra la frase. Lo corto SOLO si lo que el asistente ya
@@ -251,8 +355,8 @@ def silencio_para_cerrar(tengo, dicho):
     despues ("abre steam... y pon modo juego"), ya no coincide y se espera lo
     de siempre. Aparte para poder probarlo sin microfono (tools/probar-escucha.py)."""
     if tengo and dicho and " ".join(tengo.split()) == " ".join(dicho.split()):
-        return SILENCIO_FIN_LOTENGO
-    return SILENCIO_FIN
+        return silencio_medido(PAUSAS_PCT_CORTO, SILENCIO_FIN_LOTENGO, SILENCIO_FIN_LOTENGO_SUELO)
+    return silencio_medido(PAUSAS_PCT_LARGO, SILENCIO_FIN, SILENCIO_FIN_SUELO)
 # tope duro, por si el silencio nunca llega (ruido de fondo constante)
 DICTADO_MAX = 30.0
 # sin reconocer ni una palabra en este rato, el dictado se cierra vacio
@@ -1705,6 +1809,15 @@ def cargar_lo_aprendido():
     if margenes_buenos:
         anota("tu voz asoma al menos %.4f sobre el ruido (%d llamadas); la puerta no pasara de ahi"
               % (min(margenes_buenos), len(margenes_buenos)))
+    # las pausas dentro de tus ordenes (idea 74): el tope es 30 s, que es DICTADO_MAX
+    pausas[:] = cargar_lista(RUTA_PAUSAS, PAUSAS_MEMORIA, 30.0)
+    if len(pausas) >= PAUSAS_MINIMAS:
+        anota("tus pausas, recordadas de antes (%d): cierro a %.2f s lo que no entiendo y a %.2f s lo que ya tengo"
+              % (len(pausas), silencio_medido(PAUSAS_PCT_LARGO, SILENCIO_FIN, SILENCIO_FIN_SUELO),
+                 silencio_medido(PAUSAS_PCT_CORTO, SILENCIO_FIN_LOTENGO, SILENCIO_FIN_LOTENGO_SUELO)))
+    elif pausas:
+        anota("tus pausas, recordadas de antes (%d de las %d que hacen falta para decidir con ellas)"
+              % (len(pausas), PAUSAS_MINIMAS))
 
 
 def segundos_de_voz(audio):
@@ -3723,6 +3836,7 @@ RUTA_GANANCIA = os.path.join(os.path.dirname(NIVEL), "ganancia.txt") if NIVEL el
 RUTA_COBERTURAS = os.path.join(os.path.dirname(NIVEL), "coberturas.txt") if NIVEL else ""
 RUTA_ACUERDOS = os.path.join(os.path.dirname(NIVEL), "acuerdos.txt") if NIVEL else ""
 RUTA_RAFAGAS = os.path.join(os.path.dirname(NIVEL), "rafagas.txt") if NIVEL else ""
+RUTA_PAUSAS = os.path.join(os.path.dirname(NIVEL), "pausas.txt") if NIVEL else ""   # idea 74
 # una por motor, con el mismo guardar_lista/cargar_lista que las coberturas (idea 71). Van
 # atadas al microfono como las demas: el ritmo no depende del micro, pero cambiar de micro
 # solo hace que se vuelva al tope de siempre mientras se rellenan, y eso no rompe nada.
@@ -4163,6 +4277,7 @@ try:
                                           id=(_uso["id"] or ""))
                     dictando = False
                     ultimo_audio = audio_dictado
+                    apuntar_pausas(ultimo_audio)         # idea 74: sus pausas, del audio que ya esta aqui
                     guardar_ultima_orden(ultimo_audio)   # ver EL AUDIO DE LA ULTIMA ORDEN
                     guardar_audio_si_toca(ultimo_audio)
                     audio_dictado = []
@@ -4456,7 +4571,7 @@ try:
                         # palabra nueva (ver SILENCIO_SIN_PALABRA). Es una condicion MAS, no sustituye
                         # a ninguna: sin altavoces no entra nunca.
                         _corta_juego = (hay_algo and nivel_salida() > UMBRAL_ALTAVOZ and
-                                        (ahora - ultima_palabra) >= SILENCIO_SIN_PALABRA and
+                                        (ahora - ultima_palabra) >= silencio_medido(PAUSAS_PCT_ALTAVOCES, SILENCIO_SIN_PALABRA, SILENCIO_SIN_PALABRA_SUELO) and
                                         (ahora - ultima_voz) < fin_silencio)
                         if ((ahora - ultima_voz) >= fin_silencio and hay_algo) or mudo or \
                            _corta_juego or \
@@ -4626,6 +4741,7 @@ try:
                                 pass
                             dictando = False
                             ultimo_audio = audio_dictado
+                            apuntar_pausas(ultimo_audio)         # idea 74
                             guardar_ultima_orden(ultimo_audio)   # ver EL AUDIO DE LA ULTIMA ORDEN
                             guardar_audio_si_toca(ultimo_audio)
                             audio_dictado = []

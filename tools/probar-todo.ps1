@@ -2072,6 +2072,15 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n227. Los tres silencios que cierran la frase, medidos de su uso real (idea 74 de las 121)"
+# Los tres numeros salian de 100 grabaciones LEIDAS del 14/09, y del tercero el propio comentario
+# decia 'provisional y razonado, no medido'. Medidas las 574 grabaciones de uso con el MISMO
+# detector del oido: 1.363 pausas dentro de una orden, p90 1,15 s, p95 1,70, p99 3,55. O sea que el
+# 1,5 de hoy cae en el p93,5 y estaba BIEN: poner el p95 lo haria mas LENTO. Asi que el numero
+# escrito es el TECHO y Nova solo puede acelerar, con suelo para no cortar frases y el p99 -no el
+# p98- en el unico silencio donde cerrar antes PIERDE lo que braya estaba diciendo.
+python (Join-Path $PSScriptRoot 'probar-pausas-medidas.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:los silencios salen de sus pausas)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n226. Sembrar la espera aprendida con lo que ya sabia el registro (idea 73 de las 121)"
 # La regla del 25/09 -espaciar los avisos que no mueven nada- no hacia NADA: sus contadores
 # nacieron ese dia y ninguna clave llegaba a las 8 muestras que pide. El registro guarda 101
