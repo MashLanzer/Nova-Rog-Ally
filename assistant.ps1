@@ -4149,12 +4149,19 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '', [bool]$deCamino =
                 }
                 $porDia = @{}
                 foreach ($l in $lineasG) {
-                    if ($l -match '^(\d{4}-\d{2}-\d{2}) \S+ (\S+)$') {
+                    # LA LETRA DEL FINAL ES OPCIONAL (27/09, idea 101): las lineas de antes de hoy no
+                    # la llevan y tienen que seguir contandose. Sin marca van a '?', que no se le
+                    # atribuye a nadie.
+                    if ($l -match '^(\d{4}-\d{2}-\d{2}) \S+ (\S+?)(?: ([tyn?]))?$') {
                         $g = $Matches[2]
                         if ($g -in @('escucho', 'lotengo', 'atencion')) { continue }   # ruido: pasan a cada rato
+                        $qG = if ($Matches[3]) { [string]$Matches[3] } else { '?' }
                         if (-not $porDia.ContainsKey($Matches[1])) { $porDia[$Matches[1]] = @{} }
-                        if (-not $porDia[$Matches[1]].ContainsKey($g)) { $porDia[$Matches[1]][$g] = 0 }
-                        $porDia[$Matches[1]][$g]++
+                        # EL NOMBRE LLEVA DE QUIEN ES, y no se juntan: 'confuso' de Nova y 'confuso'
+                        # de braya son dos cosas distintas y sumarlos es lo que hacia el resumen mal.
+                        $claveG = $g + $(switch ($qG) { 't' { ' (tu)' } 'y' { ' (yo)' } default { '' } })
+                        if (-not $porDia[$Matches[1]].ContainsKey($claveG)) { $porDia[$Matches[1]][$claveG] = 0 }
+                        $porDia[$Matches[1]][$claveG]++
                     }
                 }
                 if ($porDia.Count -gt 0) {
@@ -24621,14 +24628,32 @@ function Write-NotaSemanal {
             foreach ($r in $s.dias[$k].Keys) { if (-not $tot.ContainsKey($r)) { $tot[$r] = 0 }; $tot[$r] += $s.dias[$k][$r] }
         }
         if ($dias -eq 0) { return }   # semana sin uso: no hay nada que contar
+        # LO QUE ME DIJISTE ES SOLO LO QUE DIJISTE TU (27/09, idea 101 de las 121)
+        #
+        # ESTO ESTABA ESCRITO EN memoria\semanas\2026-W37.md: "Lo que mas me dijiste, segun mis
+        # gestos: grito x148, confuso x143, orgullo x123, perdida x59". De esos cuatro, TRES son de
+        # Nova: confuso, orgullo y perdida los dispara lo que ELLA dice o los manda el asistente por
+        # la puerta de eventos. Y W38 dice "duda x256, grito x235, confuso x119, negar x80", con
+        # confuso otra vez y 'duda' que pueden disparar los dos.
+        #
+        # MEDIDO sobre el diario entero: solo 87 lineas (el 4,3 %) son de gestos que UNICAMENTE
+        # braya puede disparar, 681 (33,3 %) son solo de Nova y 792 (38,8 %) llevan un nombre que
+        # pueden ser de cualquiera de los dos.
+        #
+        # AHORA SOLO ENTRAN LOS 't'. Las lineas sin letra -todas las de antes de hoy- van a '?' y NO
+        # entran: es mejor que la primera semana esta frase salga corta que seguir afirmando que
+        # braya dijo cosas que dijo ella.
         $gestos = @{}
+        $gestosSinMarca = 0
         $gl = Join-Path $TmpDir 'gestos.log'
         if (Test-Path -LiteralPath $gl) {
             foreach ($l in [System.IO.File]::ReadAllLines($gl, [System.Text.Encoding]::UTF8)) {
-                if ($l -match '^(\d{4}-\d{2}-\d{2}) \S+ (\S+)$') {
+                if ($l -match '^(\d{4}-\d{2}-\d{2}) \S+ (\S+?)(?: ([tyn?]))?$') {
                     $dd = [DateTime]::ParseExact($Matches[1], 'yyyy-MM-dd', $null)
                     if ($dd -lt $ini -or $dd -gt $fin) { continue }
                     if ($Matches[2] -in @('escucho', 'lotengo', 'atencion')) { continue }
+                    if (-not $Matches[3]) { $gestosSinMarca++; continue }
+                    if ([string]$Matches[3] -ne 't') { continue }
                     if (-not $gestos.ContainsKey($Matches[2])) { $gestos[$Matches[2]] = 0 }
                     $gestos[$Matches[2]]++
                 }
@@ -24662,6 +24687,12 @@ function Write-NotaSemanal {
         if ($gestos.Count -gt 0) {
             $top = @($gestos.GetEnumerator() | Sort-Object -Property Value -Descending | Select-Object -First 4 | ForEach-Object { "$($_.Key) ×$($_.Value)" })
             [void]$sb.AppendLine(""); [void]$sb.AppendLine("Lo que más me dijiste, según mis gestos: " + ($top -join ', ') + ".")
+        } elseif ($gestosSinMarca -gt 0) {
+            # LA REGLA 2 DE LA CASA: lo que no se sabe se dice, no se calla. Si toda la semana es de
+            # antes de que el diario supiera de quién era cada gesto, esta frase lo cuenta en vez de
+            # desaparecer sin explicación.
+            [void]$sb.AppendLine("")
+            [void]$sb.AppendLine("De los gestos de esta semana no sé cuáles fueron cosa tuya: $gestosSinMarca son de antes de que empezara a apuntarlo.")
             if ($gestos.ContainsKey('carino') -and $gestos['carino'] -ge 3) { [void]$sb.AppendLine("Gracias por los cariños, se notaron.") }
             if ($gestos.ContainsKey('negar') -and $gestos['negar'] -gt ($n / 3)) { [void]$sb.AppendLine("Hubo bastantes «no»: si algo hago mal a menudo, apúntamelo en la lista de descartes y lo aprendo.") }
         }

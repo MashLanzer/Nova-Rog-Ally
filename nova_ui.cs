@@ -2288,7 +2288,7 @@ public class NovaUI : Window
         {
             for (int i = 0; i < GESTOS_PROPIOS.Length; i++)
             {
-                if (RX_PROPIOS[i] != null && RX_PROPIOS[i].IsMatch(p)) { Gesto(GESTOS_PROPIOS[i][0]); break; }
+                if (RX_PROPIOS[i] != null && RX_PROPIOS[i].IsMatch(p)) { Gesto(GESTOS_PROPIOS[i][0], 'y'); break; }
             }
             Entonar(texto);
             return;
@@ -2296,7 +2296,7 @@ public class NovaUI : Window
         // 1) los gestos del usuario (config.json -> ui.gestos), que mandan
         for (int i = 0; i < gestosExtra.Count && i < rxExtra.Length; i++)
         {
-            if (rxExtra[i] != null && rxExtra[i].IsMatch(p)) { Gesto(gestosExtra[i][0]); return; }
+            if (rxExtra[i] != null && rxExtra[i].IsMatch(p)) { Gesto(gestosExtra[i][0], 't'); return; }
         }
         // 2) complicidad con el juego
         if (!string.IsNullOrEmpty(juegoActual))
@@ -2397,8 +2397,10 @@ public class NovaUI : Window
         gritoCuenta = (n >= 0.97) ? gritoCuenta + 1 : 0;
         susurroCuenta = (n > 0.02 && n < 0.22) ? susurroCuenta + 1 : 0;
         if (DateTime.UtcNow < tonoHasta) { return; }
-        if (gritoCuenta >= 3) { gritoCuenta = 0; Gesto("grito"); }
-        else if (susurroCuenta >= 8 && textoActual.Length > 0) { susurroCuenta = 0; Gesto("susurro"); }
+        // 't': esto sale del NIVEL DEL MICROFONO mientras el estado es "escuchando", o sea de la
+        // voz de braya. Es el dato que el verificador de la ficha corrigio: grito no es de Nova.
+        if (gritoCuenta >= 3) { gritoCuenta = 0; Gesto("grito", 't'); }
+        else if (susurroCuenta >= 8 && textoActual.Length > 0) { susurroCuenta = 0; Gesto("susurro", 't'); }
     }
 
     void Humor(string nuevo, int minutos)
@@ -2463,7 +2465,25 @@ public class NovaUI : Window
     Dictionary<string, int> cuentaGestos = new Dictionary<string, int>();
     string cuentaGestosDia = "";
 
-    void AnotarGesto(string nombre)
+    // EL DIARIO NO DECIA QUIEN LO PROVOCO, Y EL RESUMEN SEMANAL LO CONTABA AL REVES
+    // (27/09, idea 101 de las 121)
+    //
+    // LO QUE ESTABA ESCRITO: memoria\semanas\2026-W37.md dice "Lo que mas me dijiste, segun mis
+    // gestos: grito x148, confuso x143, orgullo x123, perdida x59". De esos cuatro, TRES son de
+    // Nova y no de braya -confuso, orgullo y perdida los dispara lo que ELLA dice-. W38 dice
+    // "duda x256, grito x235, confuso x119, negar x80": confuso es suyo y duda la disparan los dos.
+    //
+    // EL REPARTO, contado clasificando cada linea del diario contra las tres tablas de patrones y
+    // los doce 'gesto:<nombre>' que manda assistant.ps1: solo 87 lineas (el 4,3 %) son de gestos
+    // que UNICAMENTE braya puede disparar; 681 (33,3 %) son solo de Nova; 792 (38,8 %) llevan un
+    // nombre que pueden disparar los dos; y 481 son grito y susurro, que salen de MedirTono, o sea
+    // del microfono de braya. (El verificador de la ficha tenia razon en esto: grito NO es de Nova.)
+    //
+    // UNA LETRA POR LINEA: 't' de tu, 'y' de yo, '?' cuando de verdad no se sabe. Quien escribe ya
+    // lo sabe -AnalizarTexto recibe el bool 'propio' y la puerta de eventos del cerebro es otra-,
+    // asi que no hay nada que adivinar. Las lineas viejas sin letra cuentan como '?' y no se le
+    // atribuyen a nadie: ningun resumen afirma de quien es un gesto sin marca.
+    void AnotarGesto(string nombre, char quien)
     {
         try
         {
@@ -2482,7 +2502,9 @@ public class NovaUI : Window
                 File.WriteAllText(rutaC, sbG.ToString(), Encoding.UTF8);
                 return;
             }
-            File.AppendAllText(rutaGestosLog, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " " + nombre + "\r\n", Encoding.UTF8);
+            // LA LETRA VA AL FINAL, detras del nombre: asi las lineas viejas siguen casando con la
+            // parte de delante de las dos regex que lo leen y no hay nada que migrar.
+            File.AppendAllText(rutaGestosLog, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " " + nombre + " " + quien + "\r\n", Encoding.UTF8);
         }
         catch { }
     }
@@ -2548,7 +2570,8 @@ public class NovaUI : Window
         }
     }
 
-    void Gesto(string nombre)
+    // '?' de fabrica: quien no diga de quien es, no se lo atribuye a nadie.
+    void Gesto(string nombre, char quien = '?')
     {
         DateTime ultimo;
         if (ultimoGesto.TryGetValue(nombre, out ultimo) && (DateTime.UtcNow - ultimo).TotalMilliseconds < 1500) { return; }
@@ -2570,7 +2593,7 @@ public class NovaUI : Window
         }
         ultimoGestoNombre = nombre;
         ultimoGestoHora = ahora;
-        AnotarGesto(nombre);
+        AnotarGesto(nombre, quien);
 
         // la expresion de los ojos acompana al gesto
         switch (nombre)
@@ -2810,9 +2833,12 @@ public class NovaUI : Window
             // expresion de ojos felices; lo que se acepta es el antirrebote de 1,5 s que
             // tienen los otros veinte gestos, que aqui no quita nada: dos oros seguidos en
             // milisegundo y medio se pisan el uno al otro de todas formas.
-            case "logro": Gesto("logro"); break;
+            case "logro": Gesto("logro", 't'); break;      // el oro lo saco el jugando (idea 101)
             case "error": Sacudir(); break;
-            case "gesto": Gesto(arg); break;
+            // 'y': los doce gesto:<nombre> que manda assistant.ps1 -confuso, aprendido, perdida,
+            // nivel, sinia...- son reacciones de Nova a su propio estado, no cosas que braya dijera.
+            // Ahi estaban los 681 apuntes que el resumen semanal le atribuia a el.
+            case "gesto": Gesto(arg, 'y'); break;
             // SE ABRE EL MICROFONO: TIC (20/09/2026). Alexa enciende el
             // indicador CADA vez que abre el microfono, sin excepcion. Nova
             // reabria la escucha de seguimiento sin luz ni sonido y por esa
@@ -3399,7 +3425,7 @@ public class NovaUI : Window
             && (DateTime.UtcNow - ultimoAsentimiento).TotalSeconds >= 3.5)
         {
             ultimoAsentimiento = DateTime.UtcNow;
-            Gesto("escucho");
+            Gesto("escucho", 'y');       // lo hace ella mientras el habla; va al contador (idea 100)
         }
 
         // --- temporizador ---
@@ -3829,7 +3855,7 @@ public class NovaUI : Window
             {
                 // fin de una orden: si repite la que acabo en pena, determinacion
                 string orden = Plano(textoAnterior).Trim();
-                if (orden.Length > 0 && orden == ultimaOrden && (DateTime.UtcNow - ultimaPena).TotalSeconds < 90) { Gesto("determinacion"); }
+                if (orden.Length > 0 && orden == ultimaOrden && (DateTime.UtcNow - ultimaPena).TotalSeconds < 90) { Gesto("determinacion", 't'); }
                 if (orden.Length > 0) { ultimaOrden = orden; }
                 if (prisaHasta == DateTime.MinValue) { velocidadOnda = 0.45; }
             }

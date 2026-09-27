@@ -2089,6 +2089,17 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n251. El diario de gestos no decia quien lo provoco (idea 101 de las 121)"
+# memoria\semanas6-W37.md dice 'Lo que mas me dijiste, segun mis gestos: grito x148, confuso
+# x143, orgullo x123, perdida x59'. De esos cuatro, TRES son de NOVA: confuso, orgullo y perdida
+# los dispara lo que ella dice o los manda el asistente por la puerta de eventos. Contado sobre el
+# diario entero: solo 87 lineas (4,3 %) son de gestos que UNICAMENTE braya puede disparar, 681
+# (33,3 %) son solo de Nova y 792 (38,8 %) llevan un nombre que pueden disparar los dos. Ahora cada
+# linea lleva una letra -'t' de tu, 'y' de yo, '?' si no se sabe- y en 'lo que me dijiste' entran
+# SOLO los suyos. Y grito SI es de braya, que lo dispara el nivel del microfono: lo corrigio el
+# verificador de la ficha y el banco lo vigila.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-gestos-de-quien.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el diario de gestos dice de quien es cada uno)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n250. El 44 % del diario de gestos era ruido que nadie lee (idea 100 de las 121)"
 # 1.506 'escucho' + 124 'lotengo' + 2 'atencion' = 1.632 de 3.674 lineas, el 44,4 %. Y los DOS
 # unicos lectores -la tabla de estadisticas.md y el parte semanal- los saltan por nombre: 'ruido:
