@@ -2213,6 +2213,23 @@ $PALABRAS_VACIAS = @('que','sabes','sobre','de','del','la','el','los','las','un'
     'con','por','para','al','es','era','hay','tengo','tienes','tiene','como','cuando','donde','cual','quien','algo',
     'esto','eso','ese','esa','este','esta','hoy','ayer','ahora','dime','cuentame','acerca','respecto','guardaste')
 
+# LOS PUNTOS DE UNA LINEA (27/09, idea 63). Estaba dentro del bucle de las notas; ahora lo usan
+# las notas Y la memoria permanente, que hasta hoy no la leia nadie. Una sola pieza: si manana
+# cambia el modo de casar, cambia para las dos fuentes a la vez.
+function Get-PuntosClaves([string]$lp, $claves) {
+    $puntos = 0
+    foreach ($c in $claves) {
+        # prefijo o distancia 1 en palabras largas: "recetas" ~ "receta"
+        if ($lp -match ('\b' + [regex]::Escape($c))) { $puntos++; continue }
+        if ($c.Length -ge 5) {
+            foreach ($w in ($lp -split '\s+')) {
+                if ([Math]::Abs($w.Length - $c.Length) -le 1 -and (Get-Distancia $w $c) -le 1) { $puntos++; break }
+            }
+        }
+    }
+    return $puntos
+}
+
 function Find-EnMemoria([string]$text) {
     $plano = ConvertTo-Plain $text
     $claves = @($plano -split '\s+' | Where-Object { $_.Length -ge 3 -and $PALABRAS_VACIAS -notcontains $_ })
@@ -2230,16 +2247,7 @@ function Find-EnMemoria([string]$text) {
         foreach ($l in $lineas) {
             if ($l -match '^\s*#' -or $l.Trim().Length -lt 4) { continue }
             $lp = ConvertTo-Plain $l
-            $puntos = 0
-            foreach ($c in $claves) {
-                # prefijo o distancia 1 en palabras largas: "recetas" ~ "receta"
-                if ($lp -match ('\b' + [regex]::Escape($c))) { $puntos++; continue }
-                if ($c.Length -ge 5) {
-                    foreach ($w in ($lp -split '\s+')) {
-                        if ([Math]::Abs($w.Length - $c.Length) -le 1 -and (Get-Distancia $w $c) -le 1) { $puntos++; break }
-                    }
-                }
-            }
+            $puntos = Get-PuntosClaves $lp $claves
             if ($puntos -gt 0) {
                 $limpio = ($l -replace '^\s*-\s*', '' -replace '\*\*(\d\d:\d\d)\*\*\s*', '' -replace '\s+', ' ').Trim()
                 $fecha = ''
@@ -2251,13 +2259,35 @@ function Find-EnMemoria([string]$text) {
             }
         }
     }
+    # LA MEMORIA PERMANENTE TAMBIEN SE MIRA (27/09, idea 63). perfil-todo.md tenia 64 datos -31
+    # de ellos ya fuera del perfil de 60 plazas, entre ellos el nombre de su mascota- y CERO
+    # llamadores: Get-PerfilTodo y Find-PerfilTodo existian y nadie las usaba en 31.000 lineas,
+    # asi que esos 31 datos no habia forma humana de sacarlos. Se leen AQUI, en local y sin
+    # modelo, que es lo que respeta lo que braya pidio de este fichero: "que no se mande al
+    # cerebro" (ver LA MEMORIA QUE NO SE BORRA). Nada viaja en ninguna peticion: se contesta aqui.
+    $dePropia = 0
+    try {
+        foreach ($pl in @(Get-PerfilTodo)) {
+            if (-not $pl -or $pl.Trim().Length -lt 4) { continue }
+            $pp = Get-PuntosClaves (ConvertTo-Plain $pl) $claves
+            if ($pp -gt 0) {
+                $dePropia++
+                [void]$hallazgos.Add(@{ puntos = $pp; texto = $pl.Trim(); fecha = ''; orden = $hallazgos.Count; propia = $true })
+            }
+        }
+    } catch { Log ('memoria permanente: ' + $_.Exception.Message) }
     if ($hallazgos.Count -eq 0) { return $null }
     $mejores = @($hallazgos | Sort-Object @{e={$_.puntos};d=$true}, @{e={$_.orden}} | Select-Object -First 3)
+    # lo que se cuenta es lo que SALE, no lo que se encontro: si no entra en las tres mejores,
+    # decir que entro seria un contador que miente (ver los instrumentos mudos, idea 48).
+    $propiaDichas = @($mejores | Where-Object { $_.propia }).Count
+    if ($propiaDichas -gt 0) { Log ("MEMORIA LOCAL: " + $propiaDichas + " de " + $dePropia + " de la permanente salen en la respuesta") }
     $frases = @()
     foreach ($h in $mejores) {
         $frases += if ($h.fecha) { "$($h.texto) (el $($h.fecha))" } else { $h.texto }
     }
-    $intro = if ($mejores.Count -eq 1) { "Anotaste: " } else { "Encontre esto: " }
+    $intro = if ($propiaDichas -eq $mejores.Count) { "De ti tengo apuntado: " }
+            elseif ($mejores.Count -eq 1) { "Anotaste: " } else { "Encontre esto: " }
     return ($intro + ($frases -join '. '))
 }
 
@@ -4987,6 +5017,13 @@ function Resolve-Fragment([string]$f) {
     # --- el balance de lo aprendido ---
     if ($f -match '^(?:cuanto has aprendido|cuanto me has ahorrado|cuanto tiempo me has ahorrado|que tal vas aprendiendo|como vas aprendiendo|como va tu aprendizaje|cuanto sabes ya|que tanto has aprendido)$') {
         return @(@{ kind = 'balanceAprendizaje'; desc = 'lo aprendido' })
+    }
+    # --- Y LO QUE SABE DE TI SOBRE UNA COSA (27/09, idea 63) ---
+    # Va con cola, asi que no choca con el de abajo, que esta anclado ^...$. Esta es la
+    # unica frase que abre la memoria permanente a peticion: hasta hoy sus 64 datos -31 que
+    # ya no estan en el perfil- no tenian puerta ninguna.
+    if ($f -match '^(?:que sabes|que tienes anotado|que tienes apuntado|que has anotado|que has apuntado|que recuerdas|que has aprendido) (?:de|sobre) mi (?:sobre|de|acerca de|respecto a|en cuanto a) (.+)$') {
+        return @(@{ kind = 'perfilBusca'; que = $Matches[1].Trim(); desc = 'lo que se de ti sobre eso' })
     }
     # --- lo que Nova sabe de ti ---
     if ($f -match '^(?:que sabes de mi|que sabes sobre mi|que has aprendido de mi|que sabes de braya|que conoces de mi|que sabes de mi vida|que tienes anotado (?:sobre|de) mi|que tienes apuntado (?:sobre|de) mi|que has anotado (?:sobre|de) mi)$') {
@@ -16681,6 +16718,23 @@ function Invoke-FastCommand([string]$text) {
                     $dp = @(Get-DatosPerfil)
                     $a.desc = if ($dp.Count -eq 0) { 'todavia no se nada de ti; se ira llenando solo, o dime: aprende que mi...' }
                               else { "se $($dp.Count) cosas de ti: " + ((@($dp | Select-Object -Last 6) | ForEach-Object { $_ -replace '^Dicho por braya:\s*', '' }) -join '; ') }
+                }
+                'perfilBusca' {
+                    # SUS DATOS NO AL REGISTRO, igual que la lapida de aqui abajo.
+                    $script:respuestaPrivada = $true
+                    $pbQ = [string]$a.que
+                    $pbV = @(Find-PerfilTodo $pbQ)
+                    if ($pbV.Count -eq 0) {
+                        # la frase entera no casa: se prueba palabra a palabra, sin las vacias
+                        $pbClaves = @((ConvertTo-Plain $pbQ) -split '\s+' | Where-Object { $_.Length -ge 3 -and $PALABRAS_VACIAS -notcontains $_ })
+                        foreach ($pbC in $pbClaves) {
+                            foreach ($pbL in @(Find-PerfilTodo $pbC)) { if ($pbV -notcontains $pbL) { $pbV += $pbL } }
+                            if ($pbV.Count -ge 6) { break }
+                        }
+                        $pbV = @($pbV | Select-Object -First 6)
+                    }
+                    $a.desc = if ($pbV.Count -eq 0) { "de ti sobre $pbQ no tengo nada apuntado" }
+                              else { "sobre $pbQ tengo apuntado: " + ($pbV -join '; ') }
                 }
                 'perfilCaidos' {
                     # LA LAPIDA (24/09, idea 12). Sin esto seria un fichero que nadie lee, y

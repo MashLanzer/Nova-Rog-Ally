@@ -67,7 +67,13 @@ Invoke-Expression (TraerFn 'ConvertTo-Plain')
 # el banco seguiria en verde, porque nadie miraba el resultado. Las dos mitades del fallo
 # quedan tapadas: se trae la funcion, y abajo se comprueba lo que devuelve.
 Invoke-Expression (TraerFn 'Get-Distancia')
+# Y LO MISMO EL 27/09 (idea 63): Find-EnMemoria dejo de puntuar por dentro -ahora usa
+# Get-PuntosClaves- y ademas mira la memoria permanente con Get-PerfilTodo. Sin traer las
+# dos, moriria con CommandNotFoundException en la primera linea de una nota.
+Invoke-Expression (TraerFn 'Get-PuntosClaves')
+Invoke-Expression (TraerFn 'Get-PerfilTodo')
 Invoke-Expression (TraerFn 'Find-EnMemoria')
+$PerfilTodoPath = Join-Path $env:TEMP ('nova-ocr-perm-' + [Guid]::NewGuid().ToString('N').Substring(0,8) + '.md')   # no existe: la permanente no aporta nada aqui
 $MemoriaDir = $env:TEMP
 $PALABRAS_VACIAS = @('que','sabes','sobre','de','del','la','el','los','las','un','una','anote','apunte','cual','es','era')
 $r = Find-EnMemoria 'que codigo anote'

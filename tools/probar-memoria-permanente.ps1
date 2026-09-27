@@ -131,6 +131,78 @@ try {
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+
+Write-Host ''
+Write-Host '-- 6. LA PUERTA QUE LE FALTABA (27/09, idea 63) --'
+# Tenia 64 datos y CERO llamadores: Get-PerfilTodo y Find-PerfilTodo existian y no las usaba
+# nadie en 31.000 lineas, asi que los 31 datos que ya no estan en el perfil no habia forma
+# humana de sacarlos. Ahora hay dos puertas, las dos EN LOCAL para no romper la seccion 3:
+# una frase que pregunta a proposito, y la busqueda en la memoria que ya contestaba sin modelo.
+Comp 'hay una frase que la abre' ($sinCom -match 'perfilBusca') 'que sabes de mi sobre X'
+$iFC = $sinCom.IndexOf("kind = 'perfilBusca'")
+Comp 'con cola, para que no pise a "que sabes de mi" a secas' ($iFC -gt 0 -and $sinCom.Substring([Math]::Max(0,$iFC-320), 320) -match [regex]::Escape('(?:sobre|de|acerca de|respecto a|en cuanto a) (.+)$')) ''
+$iAc = $sinCom.IndexOf("'perfilBusca' {")
+$blAc = if ($iAc -gt 0) { $sinCom.Substring($iAc, [Math]::Min(1800, $sinCom.Length - $iAc)) } else { '' }
+Comp 'y la accion lee de verdad la permanente' ($blAc -match 'Find-PerfilTodo') ''
+Comp 'y no manda sus datos al registro' ($blAc -match 'respuestaPrivada') 'son cosas suyas'
+$iFM = $sinCom.IndexOf('function Find-EnMemoria')
+$blFM = if ($iFM -gt 0) { $sinCom.Substring($iFM, [Math]::Min(2600, $sinCom.Length - $iFM)) } else { '' }
+Comp 'la busqueda en la memoria tambien la mira' ($blFM -and $blFM -match 'Get-PerfilTodo') 'antes de decir que no sabe'
+Comp 'y sigue siendo en local, sin modelo' ($blFM -and -not ($blFM -match 'Send-Charla|Submit-Command')) 'lo que pidio braya'
+
+Write-Host ''
+Write-Host '-- 7. Y FUNCIONANDO DE VERDAD, no solo escrito --'
+$faltan2 = 0
+foreach ($f in @('Get-Distancia', 'Get-PuntosClaves', 'Find-EnMemoria')) {
+    $d = $ast.Find({ param($x)
+        $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq $f }, $true)
+    if (-not $d) { Comp ('se encuentra ' + $f) $false ''; $faltan2++; continue }
+    Invoke-Expression $d.Extent.Text
+}
+if ($faltan2 -gt 0) { Write-Host ''; Write-Host "  $mal MAL"; exit 1 }
+$tmp2 = Join-Path ([IO.Path]::GetTempPath()) ('nova-perm2-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
+New-Item -ItemType Directory -Path $tmp2 -Force | Out-Null
+try {
+    $script:invitado = $false
+    $PerfilTodoPath = Join-Path $tmp2 'perfil-todo.md'
+    # LOS DOS PATRONES, SACADOS DEL ARCHIVO Y EJECUTADOS (no mirados: ejecutados). Si el de la
+    # cola se escribiera mal, el de abajo -anclado ^...$- se lo comeria y la frase acabaria en el
+    # modelo sin que nadie lo notase.
+    $patBusca = ''; $patTodo = ''
+    foreach ($linea in ($txt -split "`n")) {
+        if (-not $patBusca -and $linea -match "if \(\`$f -match '(\^\(\?:que sabes\|que tienes anotado.+?)'\)") { $patBusca = $Matches[1] }
+        if (-not $patTodo -and $linea -match "if \(\`$f -match '(\^\(\?:que sabes de mi\|.+?)'\)") { $patTodo = $Matches[1] }
+    }
+    Comp 'el patron de la cola se encuentra en el archivo' ([bool]$patBusca) $patBusca
+    Comp 'y el de "que sabes de mi" a secas tambien' ([bool]$patTodo) ''
+    if ($patBusca -and $patTodo) {
+        Comp '"que sabes de mi sobre mi gato" entra por la puerta nueva' ('que sabes de mi sobre mi gato' -match $patBusca) ''
+        $colaV = if ('que sabes de mi sobre mi gato' -match $patBusca) { $Matches[1] } else { '' }
+        Comp 'y la cola que saca es lo que se busca' ($colaV -eq 'mi gato') "'$colaV'"
+        Comp 'y esa frase NO la coge el de a secas' (-not ('que sabes de mi sobre mi gato' -match $patTodo)) 'si la cogiera, contestaria el perfil entero'
+        Comp '"que sabes de mi" sigue yendo al de siempre' ('que sabes de mi' -match $patTodo) ''
+        Comp 'y NO entra por la puerta nueva' (-not ('que sabes de mi' -match $patBusca)) 'sin cola no hay que buscar'
+        Comp '"que tienes apuntado de mi sobre el verde" tambien entra' ('que tienes apuntado de mi sobre el verde' -match $patBusca) ''
+    }
+    # el dato de verdad que nadie podia sacar: la mascota
+    Add-PerfilTodo 'tiene un gato o mascota llamada Meramiau' 'charla'
+    Add-PerfilTodo 'su color favorito es el verde' 'a mano'
+    # sin notas ninguna: lo que salga sale de la permanente y de ningun otro sitio
+    $MemoriaDir = Join-Path $tmp2 'memoria-vacia'
+    $DiarioDir = Join-Path $tmp2 'diario-vacio'
+    $r1 = Find-EnMemoria 'que sabes de mi gato'
+    Comp 'preguntando por el gato, lo encuentra' ($r1 -and $r1 -match 'Meramiau') "$r1"
+    Comp 'y dice de donde sale' ($r1 -match 'De ti tengo apuntado') "$r1"
+    # EL CASO NEGATIVO (manera 16): una pregunta de otra cosa no puede devolver su mascota
+    $r2 = Find-EnMemoria 'que te dije del medico'
+    Comp 'y a una pregunta de otra cosa no le saca nada' (-not $r2) "$r2"
+    # Y SIN FICHERO, que es como esta el dia que se estrena en otro PC: ni se rompe ni inventa
+    $PerfilTodoPath = Join-Path $tmp2 'no-existe.md'
+    $r3 = Find-EnMemoria 'que sabes de mi gato'
+    Comp 'sin fichero permanente no se rompe y no devuelve nada' (-not $r3) "$r3"
+} finally {
+    Remove-Item -LiteralPath $tmp2 -Recurse -Force -ErrorAction SilentlyContinue
+}
 Write-Host ''
 if ($mal -gt 0) { Write-Host "  $mal MAL"; exit 1 }
 Write-Host '  lo que aprende ya no se pierde, y sigue sin viajar'
