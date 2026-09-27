@@ -18443,6 +18443,10 @@ function Invoke-FastCommand([string]$text) {
                                   $totalJ = 0; foreach ($x in $listaJ) { $totalJ += $x.minutos }
                                   "$($a.periodo) has jugado $(Format-Minutos $totalJ): " + ($trozosJ -join '; ')
                               }
+                    # Y SI HAY ALGUNO QUE VE MAL, SE DICE (27/09, idea 113): dar la cuenta como
+                    # buena cuando ella misma tiene apuntado que de ese juego ve el 2 % es lo que
+                    # esta idea venia a arreglar.
+                    try { $a.desc += (Get-ColaCiegos) } catch {}
                     $script:sinTarjeta = $true
                     $script:sinTarjetaEn = $sw.ElapsedMilliseconds
                 }
@@ -23188,6 +23192,222 @@ function Find-JuegoPorUltimoJugado([datetime]$desde, [datetime]$hasta, $antes) {
     return ''
 }
 
+# QUE NOVA SE MIDA A SI MISMA CONTRA STEAM, EN FRIO, UNA VEZ AL DIA (27/09, idea 113 de las 121)
+#
+# EL AGUJERO QUE DEJA EL APRENDIZAJE DE AQUI ARRIBA: ese aprende EN VIVO y necesita que un proceso
+# desconocido junte 600 segundos SEGUIDOS delante. Un juego que se alterna con el escritorio, o uno
+# que ya se jugo antes de que ese codigo existiera, no lo dispara nunca. Y el dato ya esta en casa:
+#
+# EL 25/09, MEDIDO EN LOS DOS CUADERNOS DE NOVA:
+#   memoria\juegos.json     'ELDEN RING NIGHTREIGN' -> 75 segundos
+#   memoria\uso-ally.json   'nightreign'            -> 4.038 segundos con alguien delante
+#                            'ELDEN RING NIGHTREIGN' ->    10 segundos
+# O sea que Nova SI vio la partida entera: la apunto en el otro cuaderno y con el nombre del
+# ejecutable, y nunca cruzo las dos cuentas. La ficha de esta idea creia que el dato se perdia; lo
+# que pasa es que esta partido en dos ficheros que no se hablan.
+#
+# Y STEAM ES EL ARBITRO QUE FALTABA: sella LastPlayed en el appmanifest sin que nadie se lo pida, y
+# el de nightreign cayo el 25/09 a las 23:53. Con eso se puede decir que ese 'nightreign' de 4.038
+# segundos era ELDEN RING NIGHTREIGN, y aprenderlo en juegos-exes.json, que es el fichero del
+# aprendizaje en vivo: esto no estrena cuaderno para nadie, alimenta el que ya hay.
+#
+# SOLO LA COLUMNA 'con' DEL CUADERNO, Y ESTO ES LO MAS FINO DE TODO: el cuaderno separa los
+# segundos con alguien delante de los segundos sin nadie. Medido, el 26/09: explorer con=2.797 y
+# sin=64.083. Sumando las dos columnas, el escritorio de Windows gana a cualquier juego por un
+# factor de diez y seria el 'candidato' de todos los dias. Jugar es estar delante, asi que solo
+# cuenta 'con'.
+#
+# EL LISTON DE 600 s NO SEPARA NADA EN FRIO, Y HAY QUE DECIRLO: el de arriba son 600 segundos
+# SEGUIDOS, y para eso esta medido. En el total de un dia entero los no-juegos llegan mucho mas
+# lejos: el 26/09, EmuDeck 1.850 s y msedge 1.260 s con alguien delante. Aqui 600 solo hace de
+# suelo de ruido -por debajo de diez minutos nadie es candidato a ser un juego-. Lo que de verdad
+# decide es la UNICIDAD, igual que arriba: un solo desconocido y un solo juego de Steam ese dia, o
+# no se aprende nada. Comprobado con los dos dias que hay: el 25/09 queda nightreign solo; el
+# 26/09 quedan EmuDeck y msedge, o sea dos, y no se aprende nada. Que es lo que se quiere.
+#
+# LA LISTA DEL SHELL NO ES UN UMBRAL, ES UN HECHO: explorer.exe ES el escritorio de Windows, y los
+# demas son las ventanas del propio sistema. No pueden ser un juego por definicion, no por un
+# numero que haya que revisar.
+#
+# Y LA GUARDA DE LA FICHA SALE GRATIS: solo se juzgan los dias que estan en el cuaderno de la Ally,
+# y ese cuaderno SOLO se escribe cuando Nova esta viva. Un dia que se jugo con Nova apagada no
+# tiene entrada y no se acusa a nadie.
+$JuegosCiegosPath = Join-Path $MemoriaDir 'juegos-ciegos.json'
+$CiegosMax = 40                  # el mismo tope que juegos-exes.json, y por lo mismo
+$CiegoFraccion = 3               # 'menos de un tercio de lo que dice la otra cuenta'
+# Los dos casos reales estan en los extremos y no en la frontera: NIGHTREIGN apunto el 1,9 % de lo
+# que vio el otro cuaderno (75 de 4.038), y Spider-Man y Black Myth el 100,0 % (5.485 de 5.486 y
+# 860 de 860). Con datos asi de partidos, cualquier corte entre el 10 % y el 90 % da el mismo
+# resultado: el numero no esta decidiendo nada, y por eso se deja el tercio que pedia la ficha.
+$CiegoShell = @('explorer', 'dwm', 'shellexperiencehost', 'searchhost', 'startmenuexperiencehost',
+                'applicationframehost', 'pickerhost', 'textinputhost', 'systemsettings',
+                'lockapp', 'searchapp', 'widgets', 'sihost', 'taskmgr')
+$script:juegosCiegos = $null
+
+function Get-JuegosCiegos {
+    if ($null -ne $script:juegosCiegos) { return $script:juegosCiegos }
+    $script:juegosCiegos = @{}
+    if (Test-Path -LiteralPath $JuegosCiegosPath) {
+        try {
+            $jC = Get-Content -LiteralPath $JuegosCiegosPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($pc in $jC.PSObject.Properties) {
+                $script:juegosCiegos[$pc.Name] = @{
+                    dia = [string]$pc.Value.dia; visto = [int]$pc.Value.visto
+                    podria = [int]$pc.Value.podria; proceso = [string]$pc.Value.proceso
+                }
+            }
+        } catch { Save-Corrupto $JuegosCiegosPath 'juegos-ciegos' }
+    }
+    return $script:juegosCiegos
+}
+
+function Save-JuegoCiego([string]$juego, [string]$dia, [int]$visto, [int]$podria, [string]$proceso) {
+    if ($script:invitado) { return $false }     # lo que haga otro no es su cuenta
+    if (-not $juego -or -not $dia) { return $false }
+    try {
+        $tb = Get-JuegosCiegos
+        $tb[$juego] = @{ dia = $dia; visto = $visto; podria = $podria; proceso = $proceso }
+        while ($tb.Count -gt $CiegosMax) {
+            $vieja = ($tb.GetEnumerator() | Sort-Object { [string]$_.Value.dia } | Select-Object -First 1)
+            if (-not $vieja) { break }
+            [void]$tb.Remove($vieja.Key)
+        }
+        $o = [ordered]@{}
+        foreach ($kk in ($tb.Keys | Sort-Object)) { $o[$kk] = $tb[$kk] }
+        Write-Atomico $JuegosCiegosPath (ConvertTo-Json -InputObject $o -Depth 4)
+        return $true
+    } catch { Log ('juegos ciegos: no pude guardarlo: ' + $_.Exception.Message); return $false }
+}
+
+# PURA, y por eso se puede probar con los dos dias de verdad que hay en disco.
+#   $cuaderno : clave -> @{ con; sin }, tal cual lo guarda uso-ally.json
+#   $conocidos: los nombres de juego que Nova sabe reconocer
+#   $deSteam  : los juegos que Steam dice que se jugaron ESE dia
+#   $apuntado : juego -> segundos que juegos.json tiene de ese dia
+# Devuelve @{ candidatos; mayor; aprende; ciegos }, y 'aprende' solo lleva nombre cuando no hay
+# ninguna duda posible.
+function Find-CiegosDeUnDia($cuaderno, $conocidos, $deSteam, $apuntado) {
+    $res = @{ candidatos = @(); mayor = @{ proc = ''; seg = 0 }; aprende = ''; ciegos = @() }
+    if (-not $cuaderno) { return $res }
+    $conoce = @{}
+    foreach ($c in @($conocidos)) { if ($c) { $conoce[([string]$c).ToLowerInvariant()] = $true } }
+    $cands = @()
+    $mejorJuego = 0
+    foreach ($k in @($cuaderno.Keys)) {
+        $seg = 0
+        # SOLO 'con': ver arriba por que. El escritorio tiene 64.083 en 'sin' y 2.797 en 'con'.
+        try { $seg = [int]$cuaderno[$k].con } catch { $seg = 0 }
+        if ($seg -le 0) { continue }
+        $kb = ([string]$k).ToLowerInvariant()
+        if ($conoce.ContainsKey($kb)) { if ($seg -gt $mejorJuego) { $mejorJuego = $seg }; continue }
+        if ($CiegoShell -contains $kb) { continue }        # el escritorio no es un juego
+        if ($seg -lt $ExesJuegoMinSeg) { continue }        # suelo de ruido, no frontera
+        $cands += @(@{ proc = [string]$k; seg = $seg })
+    }
+    $cands = @($cands | Sort-Object { -[int]$_.seg })
+    $res.candidatos = $cands
+    if ($cands.Count -gt 0) { $res.mayor = $cands[0] }
+    # QUIEN ES: un solo desconocido y un solo juego de Steam ese dia. Con dos de cualquiera,
+    # adivinar seria inventarse el dato, y esto acaba cerrando el microfono.
+    $st = @(@($deSteam) | Where-Object { $_ })
+    if ($cands.Count -eq 1 -and $st.Count -eq 1) {
+        # Y TIENE QUE GANARLE AL JUEGO MEJOR VISTO DE ESE DIA: si Nova reconocio algo durante mas
+        # tiempo que el desconocido, el desconocido era lo de menos y no se le atribuye la partida.
+        if ([int]$cands[0].seg -gt $mejorJuego) { $res.aprende = [string]$st[0] }
+    }
+    # Y LOS CIEGOS: un juego que Steam dice que se jugo y del que Nova apunto menos de un tercio
+    # de lo que el mayor desconocido estuvo delante.
+    if ([int]$res.mayor.seg -gt 0) {
+        $techo = [int][Math]::Floor([double]$res.mayor.seg / [double]$CiegoFraccion)
+        foreach ($g in $st) {
+            $v = 0
+            if ($apuntado -and $apuntado.ContainsKey([string]$g)) { $v = [int]$apuntado[[string]$g] }
+            if ($v -lt $techo) {
+                $res.ciegos += @(@{ juego = [string]$g; visto = $v; podria = [int]$res.mayor.seg
+                                    proceso = [string]$res.mayor.proc })
+            }
+        }
+    }
+    return $res
+}
+
+# Los juegos que Steam dice que se jugaron un dia, leyendo el LastPlayed que ya esta en memoria.
+function Get-JuegosDeSteamDelDia([string]$dia) {
+    $l = New-Object System.Collections.ArrayList
+    foreach ($jj in @($script:Juegos)) {
+        $lp = 0
+        try { $lp = [long]$jj.ultimo } catch { $lp = 0 }
+        if ($lp -le 0) { continue }
+        $cuando = ''
+        try { $cuando = [DateTimeOffset]::FromUnixTimeSeconds($lp).LocalDateTime.ToString('yyyy-MM-dd') } catch { continue }
+        if ($cuando -eq $dia) { [void]$l.Add([string]$jj.nombre) }
+    }
+    return ,@($l)
+}
+
+# EL REPASO, UNA VEZ AL DIA Y SOLO DE AYER. No de dias antiguos a proposito: LastPlayed es el
+# ULTIMO jugado, asi que en cuanto pasan dos dias ya no dice lo que paso el dia que se repasa.
+function Test-JuegosCiegos([string]$dia = '') {
+    try {
+        if (-not $dia) { $dia = (Get-Date).AddDays(-1).ToString('yyyy-MM-dd') }
+        $hb = Get-Habitos
+        if ([string]$hb.ciegosVisto -eq $dia) { return 0 }
+        $cuad = Get-UsoAlly
+        if (-not $cuad.ContainsKey($dia)) {
+            # LA GUARDA DE LA FICHA: sin cuaderno de ese dia, Nova no estuvo viva y no juzga a nadie
+            Log ("CIEGOS: del $dia no tengo cuaderno de uso, asi que no puedo juzgar lo que vi")
+            $hb.ciegosVisto = $dia; Save-Habitos
+            return 0
+        }
+        $conocidos = @(@($script:Juegos) | ForEach-Object { [string]$_.nombre })
+        $deSteam = @(Get-JuegosDeSteamDelDia $dia)
+        $apuntado = @{}
+        $mem = Get-JuegosMem
+        foreach ($k in @($mem.Keys)) {
+            $h = Get-DiasJuego $mem[$k]['dias']
+            if ($h.ContainsKey($dia)) { $apuntado[[string]$k] = [int]$h[$dia] }
+        }
+        $r = Find-CiegosDeUnDia $cuad[$dia] $conocidos $deSteam $apuntado
+        $hb.ciegosVisto = $dia; Save-Habitos
+        if (@($r.candidatos).Count -eq 0) { return 0 }
+        Log ("CIEGOS: el $dia hubo " + @($r.candidatos).Count + " proceso(s) delante que no supe reconocer; el mayor es '" +
+             [string]$r.mayor.proc + "' con " + [int]$r.mayor.seg + " s. Steam dice que ese dia se jugo a: " +
+             $(if (@($deSteam).Count -gt 0) { (@($deSteam) -join ', ') } else { 'nada' }))
+        $n = 0
+        foreach ($c in @($r.ciegos)) {
+            if (Save-JuegoCiego $c.juego $dia $c.visto $c.podria $c.proceso) { $n++ }
+            Log ("CIEGOS: de " + $c.juego + " apunte " + $c.visto + " s el " + $dia +
+                 " y hubo " + $c.podria + " s de '" + $c.proceso + "' delante: a ese juego lo veo mal")
+        }
+        # Y SE APRENDE, que es lo que cierra el bucle: va al MISMO juegos-exes.json que usa el
+        # aprendizaje en vivo, con un criterio mas estricto que el suyo (uno y uno, y ganandole al
+        # juego mejor visto del dia).
+        if ($r.aprende) {
+            Log ("CIEGOS: solo hubo un proceso sin reconocer y un juego de Steam el $dia; '" +
+                 [string]$r.mayor.proc + "' es " + [string]$r.aprende)
+            [void](Save-ExeJuego ([string]$r.mayor.proc) ([string]$r.aprende))
+        }
+        return $n
+    } catch {
+        Log ('CIEGOS: no pude repasarlo (' + $_.Exception.Message + ')')
+        return 0
+    }
+}
+
+# Y QUE ALGUIEN LO LEA: la coletilla para cuando braya pregunta cuanto ha jugado. Sin esto la lista
+# seria otro cuaderno que nadie mira, el pecado que las ideas 99 y 100 tuvieron que arreglar.
+function Get-ColaCiegos {
+    try {
+        $tb = Get-JuegosCiegos
+        if ($tb.Count -eq 0) { return '' }
+        if ($tb.Count -eq 1) {
+            $k = @($tb.Keys)[0]
+            return (' Y ojo, que a ' + $k + ' lo veo mal: lo que yo cuento de el se queda corto.')
+        }
+        return (' Y ojo, que hay ' + $tb.Count + ' juegos que veo mal y de esos mi cuenta se queda corta.')
+    } catch { return '' }
+}
+
 # --- RUTINAS DE JUEGO (config.json -> juego) ---
 # Al entrar en un juego se aplica un perfil (por defecto "juego"); al salir se
 # restaura el brillo que habia. El volumen no se puede leer sin librerias
@@ -23629,6 +23849,9 @@ function New-CopiaSeguridad([string]$motivo = 'a mano') {
         # Y EL REPASO DE LA TABLA DE CORRECCIONES (27/09, idea 109). Aqui porque esto es lo que ya
         # corre UNA VEZ AL DIA, y porque lee los dos jsonl del uso: no es para el bucle.
         try { [void](Invoke-CorreccionesDormidas) } catch { Log ('CORRECCIONES: ' + $_.Exception.Message) }
+        # Y EL REPASO DE AYER CONTRA STEAM (27/09, idea 113). Aqui porque esto es lo que ya corre
+        # una vez al dia y porque lee los dos cuadernos de disco: no es para el bucle.
+        try { [void](Test-JuegosCiegos) } catch { Log ('CIEGOS: ' + $_.Exception.Message) }
         $n = @($origen | ForEach-Object { if (Test-Path -LiteralPath $_ -PathType Container) { Get-ChildItem -LiteralPath $_ -Recurse -File } else { Get-Item -LiteralPath $_ } }).Count
         $kb = [int][Math]::Ceiling((Get-Item -LiteralPath $zip).Length / 1KB)
         Log "COPIA ($motivo): $n archivos, $kb KB -> $zip"

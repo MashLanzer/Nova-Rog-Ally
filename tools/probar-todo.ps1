@@ -2089,6 +2089,20 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n263. Nova cruza sus dos cuentas contra Steam y sabe a que juegos ve mal (idea 113 de las 121)"
+# El 25/09, en los DOS cuadernos de Nova: juegos.json dice 'ELDEN RING NIGHTREIGN' 75 segundos y
+# uso-ally.json dice 'nightreign' 4.038 segundos con alguien delante. Nova SI vio la partida entera;
+# la tenia apuntada en el otro cuaderno con el nombre del ejecutable y nunca cruzaba las dos
+# cuentas. Steam es el arbitro: sella LastPlayed de nightreign el 25/09 a las 23:53. Lo mas fino del
+# cambio es usar SOLO la columna 'con' del cuaderno: el 26/09 explorer tiene con=2.797 y sin=64.083,
+# asi que sumando las dos el escritorio de Windows seria el candidato de todos los dias. Y el liston
+# de 600 s no separa nada en frio -EmuDeck 1.850 y msedge 1.260 ese mismo dia-: lo que decide es la
+# unicidad, un desconocido y un juego de Steam o no se aprende nada. Aprende en el MISMO
+# juegos-exes.json del aprendizaje en vivo. Diez roturas tumban el banco, que corre con los dos dias
+# de verdad que hay en disco.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-juegos-ciegos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:Nova ya cruza sus dos cuentas)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n262. La ronda de fondo ya mira si hay alguien delante (idea 112 de las 121)"
 # Contado en los dos registros: entre las 02:00 y las 08:59 no hay NI UNA de las 170 ordenes -cero,
 # hora por hora- y en esa franja Nova consulto el tiempo 62 veces y salio a mirar el correo 9 (de 14

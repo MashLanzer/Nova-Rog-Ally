@@ -50,7 +50,9 @@ $script:arranqueContado = $true
 # UsoAllyMax lo usa Save-UsoAlly en su poda por dia: sin el, $null hace de tope y Save-UsoAlly tira
 # una excepcion que el manejador se traga, y el cuaderno sale sin escribir (paso al escribir esto).
 foreach ($v in @('UsoAllyOcioMin', 'UsoAllyMax', 'UsoAllyDias', 'UsoAllyVolcadoSeg')) { Invoke-Expression ('$' + $v + ' = ' + (TraerVar $v)) }
-foreach ($f in @('Get-UsoAlly', 'Add-UsoAlly', 'Save-UsoAlly', 'Get-DiaJuego',
+# Get-CorteDia LE FALTABA: Get-DiaJuego la llama y este banco llevaba rojo con un 'no se reconoce
+# el termino'. Es la que decide a que dia de juego pertenece una hora (la madrugada es de ayer).
+foreach ($f in @('Get-UsoAlly', 'Add-UsoAlly', 'Save-UsoAlly', 'Get-CorteDia', 'Get-FranjaMuerta', 'Get-DiaJuego',
         'Get-JuegosMem', 'Save-JuegosMem', 'Get-DiasJuego', 'Save-TiempoJuego', 'Get-TiempoJugado')) { Invoke-Expression (Traer $f) }
 
 # el scriptblock del manejador de salida, sacado por AST y ejecutable
