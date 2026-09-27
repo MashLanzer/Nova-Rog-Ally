@@ -599,19 +599,33 @@ class Cerebro:
             self.guardar()
             return r
 
-    def guardar_texto(self, tipo, texto):
-        """Lo que braya conto ('contado') o un recuerdo de lo hablado ('episodio')."""
+    def guardar_texto(self, tipo, texto, dicho=""):
+        """Lo que braya conto ('contado') o un recuerdo de lo hablado ('episodio').
+
+        'dicho' (idea 58): la frase con la que braya lo dijo. El recuerdo lo escribe la API con
+        SUS palabras y en tercera persona, braya con las suyas y en trozos, asi que la busqueda
+        por palabras casi nunca lo encuentra (97 de 121 recuerdos no aparecen ni una vez en 365
+        turnos). Se guarda como variante -lo que ya se hace con las respuestas, no con los
+        episodios- para que buscar()/_formas la puntuen sin llamar a ningun modelo. Solo si tiene
+        >= 3 palabras de contenido: una frase corta y generica ('no, no, no') como variante haria
+        saltar el recuerdo con cualquier cosa (_frecuencias ya castiga las palabras muy repartidas)."""
         texto = limpio(texto, 300)
         # LA REGLA VIVE EN UN SOLO SITIO (26/09, idea 31). Estas tres condiciones estaban aqui
         # escritas a mano; ahora las comparte con repasar_recuerdos, que las aplica a lo que ya
         # estaba guardado. El dia que la regla cambie, cambia para los dos caminos.
         if texto_no_entra(texto):
             return None
+        con_variante = bool(dicho) and len({t for t in fichas(dicho) if not t.startswith("?")}) >= 3
         with self.lock:
             for h in self.buscar(texto, tipos={tipo}, k=1):
                 if h["lex"] >= 0.85:
-                    return h["r"]             # ya lo sabia
+                    if con_variante:
+                        self._variante(h["r"], dicho)   # ya lo sabia, pero ahora tambien por tus palabras
+                        self.guardar()
+                    return h["r"]
             r = self._nuevo(tipo, texto, texto, "firme", "charla")
+            if con_variante:
+                self._variante(r, dicho)
             self.guardar()
             return r
 
@@ -701,9 +715,9 @@ class Cerebro:
             for t in rev.get("temas") or []:
                 self._tema(t)
             for h in rev.get("hechos") or []:
-                self.guardar_texto("contado", h)
+                self.guardar_texto("contado", h, job.get("pregunta", ""))   # idea 58: tu frase, como variante
             if rev.get("recuerdo"):
-                self.guardar_texto("episodio", rev.get("recuerdo"))
+                self.guardar_texto("episodio", rev.get("recuerdo"), job.get("pregunta", ""))
             self.guardar()
         return eventos
 

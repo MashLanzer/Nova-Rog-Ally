@@ -1997,6 +1997,14 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n222. Que el recuerdo guarde tambien la frase con la que tu lo dijiste (idea 58 de las 121)"
+# Los recuerdos los escribe la API en tercera persona y con sus palabras; braya con las suyas y
+# en trozos. Por eso la busqueda por palabras casi nunca los encuentra (97 de 121 no salen ni una
+# vez en 365 turnos). La frase de braya ya esta en la mano al guardar (job.pregunta): se deja como
+# variante, con guarda de >= 3 palabras de contenido para no ensuciar la busqueda. Ejecuta el Cerebro.
+python (Join-Path $PSScriptRoot 'probar-recuerdo-variante.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el recuerdo se encuentra por tus palabras)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n221. Su IP ya no sale en claro: ip-api por https y contar dias iguales (idea 57 de las 121)"
 # De los 8 destinos externos, ip-api.com era el UNICO por http:// sin cifrar (los otros 7 por
 # https): la IP publica de braya viajaba en claro una vez al dia. Ahora https, y se cuenta cuantos
