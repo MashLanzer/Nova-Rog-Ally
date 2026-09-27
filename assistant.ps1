@@ -11265,7 +11265,10 @@ function Get-NocheDesde {
 # EL MARGEN NO ES NUEVO: es entorno.margenDormirMin (30), el que Get-AvisoHoraDormir ya usa para
 # la MISMA pregunta -cuanto hay que pasarse de tu hora para que sea noticia-.
 function Get-InicioNocheMin {
-    $hastaMin = [int]$EntornoNocheHasta * 60
+    # EL FINAL DEL SILENCIO, MEDIDO (27/09, idea 86). Era un 8 fijo mientras el PRINCIPIO ya se
+    # aprendia de sus horas; ahora sale del final de su franja muerta -las 09:00 con los datos de
+    # hoy- y solo vuelve al 8 escrito si no hay franja que valga. Ver LA FRANJA EN LA QUE NUNCA ESTAS.
+    $hastaMin = [int](Get-NocheHasta) * 60
     $respaldo = [int]$EntornoNocheDesde * 60
     try {
         $mN = Get-HoraFinHabitual
@@ -11283,7 +11286,7 @@ function Get-InicioNocheMin {
 }
 function Test-EsNocheAviso([datetime]$ahora = (Get-Date)) {
     $iniN = Get-InicioNocheMin
-    $hastaN = [int]$EntornoNocheHasta * 60
+    $hastaN = [int](Get-NocheHasta $ahora) * 60      # idea 86: el final de su franja muerta
     $mAhora = $ahora.Hour * 60 + $ahora.Minute
     if ($iniN -gt $hastaN) { return ($mAhora -ge $iniN -or $mAhora -lt $hastaN) }   # la madrugada que envuelve
     return ($mAhora -ge $iniN -and $mAhora -lt $hastaN)
@@ -14628,7 +14631,7 @@ function Test-ResumenAlVolver {
 # antes, sin cargador y por debajo del 40 %, un pulso y "enchufame". Una vez al dia.
 function Set-UsoAhora([datetime]$cuando = (Get-Date)) {
     $hb = Get-Habitos
-    $hb.fin[$cuando.AddHours(-5).ToString('yyyy-MM-dd')] = $cuando.ToString('HH:mm')
+    $hb.fin[(Get-DiaJuego $cuando)] = $cuando.ToString('HH:mm')   # idea 86: la hora, de un solo sitio
     $limite = $cuando.AddDays(-30).ToString('yyyy-MM-dd')
     foreach ($k in @($hb.fin.Keys)) { if ($k -lt $limite) { $hb.fin.Remove($k) } }
     Save-Habitos
@@ -15019,15 +15022,16 @@ function Get-RupturaHorario([datetime]$hoy = (Get-Date)) {
     try {
         $hb = Get-Habitos
         if (-not $hb.horas -or @($hb.horas.Keys).Count -eq 0) { return $null }
-        $finNuevo = $hoy.AddHours(-5).AddDays(1).ToString('yyyy-MM-dd')
-        $iniNuevo = $hoy.AddHours(-5).AddDays(-($RupturaDiasNuevos - 1)).ToString('yyyy-MM-dd')
-        $iniRef = $hoy.AddHours(-5).AddDays(-10).ToString('yyyy-MM-dd')
+        # idea 86: los tres por Get-DiaJuego, que es quien sabe a que hora parte el dia
+        $finNuevo = Get-DiaJuego $hoy.AddDays(1)
+        $iniNuevo = Get-DiaJuego $hoy.AddDays(-($RupturaDiasNuevos - 1))
+        $iniRef = Get-DiaJuego $hoy.AddDays(-10)
         $medNuevo = Get-MedianaMomento $hb.horas $iniNuevo $finNuevo $RupturaMinOrdenesDia
         if ($medNuevo -lt 0) { return $null }
         # LOS DIAS DE REFERENCIA, uno a uno: hacen falta sus medianas para sacar la dispersion.
         $refs = @()
         for ($i = 0; $i -lt 8; $i++) {
-            $d = $hoy.AddHours(-5).AddDays(-10 + $i)
+            $d = $hoy.AddDays(-10 + $i)      # idea 86: la clave se saca con Get-DiaJuego abajo
             $k1 = $d.ToString('yyyy-MM-dd')
             $k2 = $d.AddDays(1).ToString('yyyy-MM-dd')
             $m = Get-MedianaMomento $hb.horas $k1 $k2 $RupturaMinOrdenesDia
@@ -15073,7 +15077,7 @@ $BandaFinPctAlto = 75
 function Get-BandaFinHabitual([datetime]$hoy = (Get-Date)) {
     $hb = Get-Habitos
     $desde = $hoy.AddDays(-14).ToString('yyyy-MM-dd')
-    $hoyK = $hoy.AddHours(-5).ToString('yyyy-MM-dd')
+    $hoyK = Get-DiaJuego $hoy      # idea 86
     # SI CAMBIASTE DE HORARIO, LO DE ANTES NO CUENTA (idea 27), pero solo si tras el corte quedan
     # >= 4 dias: sin esa guarda, Get-NocheDesde caeria a fabrica y la noche volveria a las 23:00.
     $cortaR = [string]$hb.ruptura.desde
@@ -15110,7 +15114,7 @@ function Test-RecordarCarga([int]$pct, [int]$cargando, [datetime]$ahora = (Get-D
     # la ventana es TU banda (p25..p75), no 30 min fijos alrededor de la mediana (idea 46)
     if ($mAhora -lt $b.p25 -or $mAhora -gt $b.p75) { return $false }
     $hb = Get-Habitos
-    $diaC = $ahora.AddHours(-5).ToString('yyyy-MM-dd')
+    $diaC = Get-DiaJuego $ahora    # idea 86
     if ($hb.cargaAvisada -eq $diaC) { return $false }
     $hb.cargaAvisada = $diaC
     Save-Habitos
@@ -15547,7 +15551,118 @@ function Get-DiasJuego($dias) {
 # debe: la unica sesion continua medible del registro va del 15/09 a las 18:31 al 16/09 a
 # las 00:45, seis horas y cuarto, y con el corte a medianoche el contador se pone a cero en
 # mitad de la partida -que es justo la parte de la noche en la que el aviso hace falta-.
-function Get-DiaJuego([datetime]$t = (Get-Date)) { return $t.AddHours(-5).ToString('yyyy-MM-dd') }
+# LA FRANJA EN LA QUE NUNCA ESTAS, CALCULADA POR ELLA MISMA (27/09, idea 86)
+#
+# EL PROBLEMA: el dia de braya empieza a las 5 porque alguien lo escribio, y el AddHours(-5) esta a
+# mano en SIETE lineas de este fichero; seis de ellas no llaman a Get-DiaJuego, que existe justo
+# para eso, y ese desfase ya costo un fallo el 23/09. Y el final del silencio nocturno es un 8 fijo
+# en config.json, mientras el PRINCIPIO de la noche si se aprende de sus horas.
+#
+# EL DATO: 0 de 714 ordenes entre las 02:00 y las 08:59 en 13 dias, y solo 6 de 3.557 gestos en esa
+# franja en 15 dias. Fuera de la madrugada, la orden mas temprana de todo el registro es a las 09:25.
+#
+# LO QUE HACE: la racha mas larga de horas seguidas sin NADA es su franja muerta. De ahi salen las
+# dos cosas: el corte del dia es su punto medio (hoy ~05:00, o sea que HOY NO CAMBIA NADA, y eso es
+# justo lo que lo hace seguro) y el fin del silencio es su final.
+#
+# SE CALCULA UNA VEZ AL DIA, no en cada llamada: Get-DiaJuego se llama desde el bucle y leer dos
+# ficheros ahi seria pagar la franja treinta veces por segundo. Y el corte NO se mueve a media
+# sesion: cambiarlo en mitad de las cuentas del dia dejaria dos mitades que no cuadran.
+$FranjaHorasMin = 4            # menos de cuatro horas seguidas no es una franja muerta
+$FranjaDiasMin = 3             # y con menos de tres dias con datos no se opina
+$CorteDiaPorDefecto = 5        # los de siempre, si no hay franja que valga
+$script:franjaCalculadaDia = ''
+$script:franjaMuerta = $null   # @{ de; a; horas } o $null
+$script:corteDia = $CorteDiaPorDefecto
+
+function Get-HorasConActividad([datetime]$ahora = (Get-Date)) {
+    # las 24 horas del reloj, con cuantas cosas hizo braya en cada una durante los ultimos 14 dias.
+    # Dos fuentes, las dos con hora de verdad: sus ordenes automatizables (habitos.json) y el
+    # cuaderno de activaciones. Ninguna se lee mas de una vez al dia (ver Get-FranjaMuerta).
+    $horas = @{}
+    for ($h = 0; $h -lt 24; $h++) { $horas[$h] = 0 }
+    $dias = @{}
+    $desde = $ahora.AddDays(-14).ToString('yyyy-MM-dd')
+    try {
+        $hb = Get-Habitos
+        foreach ($u in @($hb.usos)) {
+            if (-not $u -or -not [string]$u.h -or [string]$u.f -lt $desde) { continue }
+            $hh = 0
+            if (-not [int]::TryParse(([string]$u.h).Substring(0, 2), [ref]$hh)) { continue }
+            $horas[$hh]++
+            $dias[[string]$u.f] = $true
+        }
+    } catch {}
+    try {
+        if (Test-Path -LiteralPath $ActivacionesJsonl) {
+            foreach ($linea in [System.IO.File]::ReadLines($ActivacionesJsonl)) {
+                if (-not $linea -or $linea.Length -lt 20) { continue }
+                $o = $null
+                try { $o = $linea | ConvertFrom-Json } catch { continue }
+                $hs = [string]$o.hora
+                if ($hs.Length -lt 13 -or $hs.Substring(0, 10) -lt $desde) { continue }
+                $hh = 0
+                if (-not [int]::TryParse($hs.Substring(11, 2), [ref]$hh)) { continue }
+                $horas[$hh]++
+                $dias[$hs.Substring(0, 10)] = $true
+            }
+        }
+    } catch {}
+    return @{ horas = $horas; dias = @($dias.Keys).Count }
+}
+
+function Get-FranjaMuerta([datetime]$ahora = (Get-Date)) {
+    # La racha mas larga de horas seguidas con CERO actividad, mirando el reloj como un circulo
+    # (las 23 estan pegadas a las 0). $null si no hay bastante o si es demasiado corta.
+    $hoyF = $ahora.ToString('yyyy-MM-dd')
+    if ($script:franjaCalculadaDia -eq $hoyF) { return $script:franjaMuerta }
+    $script:franjaCalculadaDia = $hoyF
+    $script:franjaMuerta = $null
+    $script:corteDia = $CorteDiaPorDefecto
+    try {
+        $d = Get-HorasConActividad $ahora
+        if ([int]$d.dias -lt $FranjaDiasMin) { return $null }
+        $mejorIni = -1; $mejorLargo = 0
+        # se recorren 48 horas para que una racha que cruza la medianoche se vea entera
+        $ini = -1; $largo = 0
+        for ($i = 0; $i -lt 48; $i++) {
+            $h = $i % 24
+            if ([int]$d.horas[$h] -eq 0) {
+                if ($ini -lt 0) { $ini = $h }
+                $largo++
+                if ($largo -gt $mejorLargo -and $largo -le 24) { $mejorLargo = $largo; $mejorIni = $ini }
+            } else {
+                $ini = -1; $largo = 0
+            }
+        }
+        if ($mejorLargo -lt $FranjaHorasMin) { return $null }
+        $fin = ($mejorIni + $mejorLargo) % 24
+        $script:franjaMuerta = @{ de = $mejorIni; a = $fin; horas = $mejorLargo }
+        # el corte del dia es el PUNTO MEDIO de la franja: la hora en la que con mas seguridad no
+        # hay nadie, que es donde menos dano hace partir el dia.
+        # FLOOR Y NO [int]: PowerShell redondea 3,5 a 4 (redondeo bancario), asi que con su franja
+        # real de 7 horas el corte salia a las 6 en vez de a las 5, que es el de siempre. Con Floor
+        # sale 5 clavado: la idea era que HOY no cambiase nada, y asi es.
+        $script:corteDia = [int](($mejorIni + [Math]::Floor($mejorLargo / 2)) % 24)
+        Log ('FRANJA MUERTA: de las ' + $mejorIni + ' a las ' + $fin + ' (' + $mejorLargo + ' h sin nada); el dia parte a las ' + $script:corteDia)
+        return $script:franjaMuerta
+    } catch { return $null }
+}
+
+# La hora a la que parte el dia de braya. Cacheada: Get-DiaJuego la llama desde el bucle.
+function Get-CorteDia([datetime]$ahora = (Get-Date)) {
+    if ($script:franjaCalculadaDia -ne $ahora.ToString('yyyy-MM-dd')) { [void](Get-FranjaMuerta $ahora) }
+    return [int]$script:corteDia
+}
+
+# Y la hora en que se acaba el silencio de la noche: el final de la franja, o el 8 escrito.
+function Get-NocheHasta([datetime]$ahora = (Get-Date)) {
+    $f = Get-FranjaMuerta $ahora
+    if ($null -eq $f) { return [int]$EntornoNocheHasta }
+    return [int]$f.a
+}
+# LA HORA NO ES UN 5 ESCRITO A MANO (27/09, idea 86): sale de su franja muerta.
+function Get-DiaJuego([datetime]$t = (Get-Date)) { return $t.AddHours(-(Get-CorteDia $t)).ToString('yyyy-MM-dd') }
 
 function Save-TiempoJuego([datetime]$hoy = (Get-Date)) {
     if ($script:tiempoJuegoPend.Count -eq 0) { return }

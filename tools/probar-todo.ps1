@@ -2072,6 +2072,15 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n239. La franja en la que nunca estas, calculada por ella misma (idea 86 de las 121)"
+# El dia de braya empezaba a las 5 porque alguien lo escribio, y el AddHours(-5) estaba a mano en
+# SIETE lineas -seis sin llamar a Get-DiaJuego, que existe para eso-; y el fin del silencio nocturno
+# era un 8 fijo mientras el principio si se aprendia. Datos: 0 de 714 ordenes entre las 02:00 y las
+# 08:59 en 13 dias. Ahora Nova calcula su franja muerta (la racha mas larga sin NADA): con sus
+# ficheros de hoy va de las 2 a las 9, asi que el dia parte a las 5 -el de siempre, no cambia nada-
+# y el silencio acaba a las 9. Se calcula una vez al dia y no se mueve a media sesion.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-franja-muerta.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la franja muerta sale de sus horas)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n238. El cuaderno de activaciones que solo abria el borrador (idea 85 de las 121)"
 # Cada vez que Nova se despierta apunta 14 datos, incluido EN QUE ACABO, y el fichero aparecia tres
 # veces en todo el repositorio fuera de los bancos: quien lo escribe y quien lo BORRA. Leidas sus

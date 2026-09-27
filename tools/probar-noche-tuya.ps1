@@ -93,6 +93,11 @@ $dNoc = $ast.Find({ param($x) $x -is [System.Management.Automation.Language.Func
 Comp 'existen Get-InicioNocheMin y Test-EsNocheAviso' ($dIni -and $dNoc) ''
 Invoke-Expression $dIni.Extent.Text
 Invoke-Expression $dNoc.Extent.Text
+# IDEA 86 (27/09): el fin del silencio ya no es el 8 escrito, sale de Get-NocheHasta -el final de
+# la franja muerta medida-. Aqui se le da un doble que devuelve el 8 de siempre: lo que este banco
+# prueba es el INICIO de la noche, no de donde sale el final, que tiene el suyo
+# (probar-franja-muerta.ps1). Sin esto moria con 'Get-NocheHasta no se reconoce'.
+function Get-NocheHasta([datetime]$ahora = (Get-Date)) { return [int]$EntornoNocheHasta }
 
 # 1. el corazon: 00:24 + 30 de margen = 00:54, no las 00:00 del truncado
 $script:finHabitual = 1464

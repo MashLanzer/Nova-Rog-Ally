@@ -47,6 +47,11 @@ Invoke-Expression ('$EntornoNocheDesde = ' + $(if ($mND.Success) { $mND.Groups[1
 # los cuartiles del archivo. Se sacan del fuente para no fijarlos a mano.
 Invoke-Expression ('$BandaFinPctBajo = ' + $(if ($fuente -match '(?m)^\$BandaFinPctBajo = (\d+)') { $Matches[1] } else { '25' }))
 Invoke-Expression ('$BandaFinPctAlto = ' + $(if ($fuente -match '(?m)^\$BandaFinPctAlto = (\d+)') { $Matches[1] } else { '75' }))
+# IDEA 86 (27/09): lo que se trae aqui abajo acaba llamando a Get-DiaJuego, que ya no lleva el 5
+# escrito dentro: se lo pregunta a Get-CorteDia. Doble sencillo con el corte de siempre, que es lo
+# que este banco da por hecho; de donde sale el corte lo prueba probar-franja-muerta.ps1.
+function Get-CorteDia([datetime]$ahora = (Get-Date)) { return 5 }
+function Get-DiaJuego([datetime]$t = (Get-Date)) { return $t.AddHours(-5).ToString('yyyy-MM-dd') }
 Invoke-Expression (Traer 'Get-BandaFinHabitual')
 Invoke-Expression (Traer 'Get-HoraFinHabitual')
 Invoke-Expression (Traer 'Get-AvisoHoraDormir')

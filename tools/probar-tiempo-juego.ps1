@@ -55,7 +55,18 @@ $script:juegoActivo = ''
 $script:tiempoJuegoVisto = 0
 foreach ($n in @('Get-JuegosMem', 'Save-JuegosMem', 'Get-DiasJuego', 'Get-DiaJuego',
                  'Add-TiempoJuego', 'Save-TiempoJuego', 'Get-TiempoJugado',
-                 'Get-MinutosJuegoHoy', 'Format-Minutos')) { Invoke-Expression (Traer $n) }
+                 'Get-MinutosJuegoHoy', 'Format-Minutos',
+                 # IDEA 86 (27/09): Get-DiaJuego ya no lleva el 5 escrito dentro, se lo pregunta a
+                 # Get-CorteDia, que sale de la franja muerta. Sin traer las tres, este banco moria
+                 # con 'Get-CorteDia no se reconoce'.
+                 'Get-HorasConActividad', 'Get-FranjaMuerta', 'Get-CorteDia')) { Invoke-Expression (Traer $n) }
+# y sus numeros, que si no la franja no se puede calcular
+$FranjaHorasMin = 4
+$FranjaDiasMin = 3
+$CorteDiaPorDefecto = 5
+$script:franjaCalculadaDia = ''
+$script:franjaMuerta = $null
+$script:corteDia = 5
 $script:juegosMem = $null
 $script:tiempoJuegoPend = @{}
 
