@@ -573,6 +573,9 @@ function Test-PuedeAprenderOido([string]$malo, [string]$bueno) {
 # Un testigo de que '$malo' era '$bueno'. Solo cuenta si viene de una FUENTE distinta a la anterior:
 # dos veces el mismo camino es el mismo testigo repetido, no dos testigos.
 function Add-TestigoOido([string]$malo, [string]$bueno, [string]$fuente) {
+    # MODO INVITADO (27/09): lo que diga otro no se queda, y aqui menos que en ningun sitio -una
+    # correccion de oido cambia como Nova entiende TODAS las ordenes de braya a partir de entonces.
+    if ($script:invitado) { return $false }
     if (-not (Test-PuedeAprenderOido $malo $bueno)) { return $false }
     $m = ConvertTo-Plain $malo
     $b = ConvertTo-Plain $bueno
@@ -8551,6 +8554,7 @@ function Get-ClaveFirma($f) { return ((@($f.palabras) | Sort-Object) -join ' ') 
 
 # La respuesta cuenta: dos veces que si y ya va directa, dos que no y fuera.
 function Add-FirmaRespuesta([string]$clave, [bool]$bien) {
+    if ($script:invitado) { return $false }   # MODO INVITADO: su 'si' no confirma una firma de braya
     try {
         $g = Get-FirmasDisco
         $enc = @($g.firmas | Where-Object { (Get-ClaveFirma $_) -eq $clave })
@@ -30470,11 +30474,35 @@ function Process-Texto([string]$text) {
             if ($esCharla -and -not $esAjena -and (Send-Charla $text)) { return }
             if ($esCharla -or $esAjena) {
                 $porque = if ($esAjena) { 'voz que no es la tuya' } else { 'charla' }
-                Log "CHARLA descartada ($porque, no llega al agente): '$text'"
+                # LO QUE DICE OTRA PERSONA NO SE ESCRIBE (27/09, idea 90 de las 121). Nova ya hacia
+                # lo correcto TRES veces con la voz ajena -no guarda el wav, no lo manda al agente y
+                # no aprende nada- y acto seguido la escribia ENTERA en tres sitios: el registro, la
+                # lista de descartes que sale en memoria\estadisticas.md -que braya lee- y el
+                # registro de uso, por Write-DestinoUso.
+                #
+                # MEDIDO: ONCE lineas de conversacion de otra persona guardadas literal entre los
+                # dos registros, 689 caracteres, la mas larga de 174 ("Te te enamarito, creo que tu
+                # puedes convencerlo, ese no es mi problema"). Para medir hace falta saber cuantas
+                # eran y de que largo, nunca QUE dijeron.
+                #
+                # Y NO ES UNA DECISION, ES UN OLVIDO: la misma deteccion de voz ajena salta 14
+                # veces mas en el lado del OIDO ("uso: no lo guardo, esa voz no es la tuya") y ahi
+                # si se calla. Esto es el mismo criterio a este otro lado.
+                #
+                # CUANDO LA VOZ SI ES LA SUYA no cambia nada: ahi el texto es de braya y es
+                # exactamente lo que hace falta para entender por que se descarto.
+                if ($esAjena) {
+                    Log ("CHARLA descartada ($porque, no llega al agente): " + $palabras.Count +
+                         " palabras, " + $text.Length + " caracteres")
+                } else {
+                    Log "CHARLA descartada ($porque, no llega al agente): '$text'"
+                }
                 $script:seguimientoPendiente = $false
                 # 'descarte' y no 'charla': 'charla' ya es el modo de hablar con
                 # la IA, y esto es un despertar para nada
-                Add-Estadistica 'descarte' $text
+                # SIN DETALLE CUANDO NO ES SU VOZ: el contador del dia sube igual -que es lo que
+                # entra en las tablas y en el animo-, y lo que no viaja es el texto.
+                if ($esAjena) { Add-Estadistica 'descarte' } else { Add-Estadistica 'descarte' $text }
                 Set-UI 'reposo'
                 return
             }

@@ -64,6 +64,21 @@ $EXENTAS = @{
     'Save-Listas'             = 'la lista de la compra se pide en voz alta, no se aprende sola'
     'Save-Recetas'            = 'lo llaman Add-Receta y Add-VarianteReceta, ya protegidos'
     'Save-Rechazos'           = 'lo llama Add-Rechazo, ya protegido'
+    # SIETE QUE ENTRARON ENTRE EL 26 Y EL 27/09 Y NO SE DECIDIERON EN SU MOMENTO. Este trinquete
+    # las cazo -para eso esta- y de las siete DOS necesitaban guarda de verdad: Add-TestigoOido
+    # (una correccion de oido cambia como Nova entiende TODAS las ordenes de braya a partir de
+    # entonces) y Add-FirmaRespuesta (el 'si' de una visita no confirma una firma suya). Las dos
+    # la llevan ya. Las otras cinco quedan dichas aqui:
+    'Save-OidoAprendido'      = 'lo llaman Add-TestigoOido y Remove-OidoAprendido, ya protegidos'
+    'Save-Firmas'             = 'lo llaman Add-CandidatoFirma y Add-FirmaRespuesta, ya protegidos'
+    # Set-Reloj guarda CUANDO Nova hizo algo por ultima vez (charla, precarga, aviso-suelta):
+    # plazos de la casa, no datos de nadie. Y callarlo con una visita delante romperia los
+    # plazos, que es justo lo que no debe pasar por que entre alguien.
+    'Set-Reloj'               = 'cuando Nova hizo algo por ultima vez, un reloj de la casa'
+    'Set-RedOk'               = 'si la red va o no va, del equipo y no de una persona'
+    'Set-RedFallo'            = 'si la red va o no va, del equipo y no de una persona'
+    'Add-HiloPendiente'       = 'su unico llamador ya mira el modo (-not $script:invitado)'
+    'Add-HuecoMando'          = 'solo segundos de quietud del mando, nunca nada dicho'
     'Save-Recordatorios'      = 'un recordatorio se pide a proposito'
     'Save-Reglas'             = 'una regla se pide a proposito'
     'Save-TiempoJuego'        = 'lo llama Add-TiempoJuego, ya protegido'

@@ -2072,6 +2072,15 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n243. Lo que dice otra persona no se escribe en el registro (idea 90 de las 121)"
+# Con la voz ajena Nova ya hacia lo correcto TRES veces -no guarda el wav, no lo manda al agente
+# y no aprende nada- y acto seguido la escribia ENTERA. ONCE lineas de conversacion de otra
+# persona guardadas literal, 689 caracteres, la mas larga de 174. Y eran TRES sitios, no uno: el
+# registro, la lista de descartes que sale en memoria\estadisticas.md y el registro de uso. El
+# bloque de verdad se saca del fichero y se EJECUTA; y el caso contrario tambien se vigila -con
+# la voz de braya el texto se sigue escribiendo, que ahi es lo que explica el descarte-.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-voz-ajena-callada.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:lo que dice otra persona ya no se escribe)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n242. Las palabras que eran la orden, no la frase entera (idea 89 de las 121)"
 # En 14 dias la nube tradujo 58 frases y 57 eran DISTINTAS: braya no repite frases, repite
 # intenciones con otras palabras. Por eso el aprendizaje de frase entera dio 21 traducciones y

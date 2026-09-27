@@ -45,6 +45,7 @@ $VERBOS_IMPERATIVO = @{ 'abreme' = 'abre' }
 $cmds = $null
 function Test-NombreConocido([string]$t) { return ($t -eq 'steam' -or $t -eq 'spotify') }
 $script:logs = @()
+$script:invitado = $false
 function Log([string]$msg) { $script:logs += @($msg) }
 function Add-Estadistica([string]$r, [string]$d = '', [bool]$c = $false) { }
 $MemoriaDir = Join-Path ([IO.Path]::GetTempPath()) ('nova-oido-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
@@ -84,6 +85,14 @@ try {
     Reset
     $null = Add-TestigoOido 'haben' 'abre' 'correccion'
     Comp '2g. un testigo que dice otra palabra no suma' (-not (Add-TestigoOido 'haben' 'cierra' 'vosk')) ''
+    # NI UNA VISITA PUEDE ENSENARLE (27/09): lo pidio el trinquete de probar-invitado.ps1, y es la
+    # que mas importa de las siete que cazo: una correccion de oido cambia como Nova entiende
+    # TODAS las ordenes de braya a partir de entonces, no solo la frase que dijo el invitado.
+    Reset
+    $script:invitado = $true
+    Comp '2h. en modo invitado no hay testigo' (-not (Add-TestigoOido 'haben' 'abre' 'correccion')) ''
+    Comp '  ni se escribe nada' (-not (Test-Path -LiteralPath $OidoAprendidoPath)) 'lo que diga otro no se queda'
+    $script:invitado = $false
 
     Write-Host ''
     Write-Host '-- 3. LO APRENDIDO ARREGLA LA FRASE --'

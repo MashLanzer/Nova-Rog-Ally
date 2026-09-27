@@ -203,6 +203,13 @@ try {
     Comp '8c. y cuenta los usos' ((Firmas)[0].usos -eq 2) ([string](Firmas)[0].usos)
     $null = Add-FirmaRespuesta 'mira pantalla' $false
     Comp '8d. un no no la borra' ((Firmas).Count -eq 1) ''
+    # Y NO LA CUENTA OTRA PERSONA (27/09): el trinquete de probar-invitado.ps1 pidio decidir esto.
+    # El 'si' de una visita no puede confirmar una firma de braya, ni su 'no' borrarsela.
+    $script:invitado = $true
+    Comp '8d bis. el si de una visita no cuenta' (-not (Add-FirmaRespuesta 'mira pantalla' $true)) ''
+    Comp '  ni le sube las confirmaciones' ((Firmas)[0].confirmadas -eq 2) ([string](Firmas)[0].confirmadas)
+    Comp '  ni su no se la borra' (-not (Add-FirmaRespuesta 'mira pantalla' $false)) ''
+    $script:invitado = $false
     $null = Add-FirmaRespuesta 'mira pantalla' $false
     Comp '8e. dos si' ((Firmas).Count -eq 0) 'como una receta'
     Comp '8f. y lo dice' (@($script:logs | Where-Object { $_ -match 'olvidada: dos veces que no' }).Count -eq 1) ''
