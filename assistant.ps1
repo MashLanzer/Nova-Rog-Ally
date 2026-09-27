@@ -20484,15 +20484,47 @@ function Get-ResolucionActual {
     } catch {}
     return $null
 }
+# LO DICE LA CAPSULA, NO LA RESOLUCION (27/09, idea 67). Esto comparaba la resolucion nativa con
+# la actual, y esa cuenta no dio 'no se ve' NI UNA VEZ en las 58.636 lineas de los dos registros,
+# con 19,9 horas de juego dentro (memoria\juegos.json, 9 dias): ni un 'CAPSULA CIEGA', y por eso
+# los cinco avisos 'SIN VOZ' salieron sin vibrar. Razon: los juegos de hoy usan pantalla completa
+# sin cambiar de resolucion, asi que nativa y actual coinciden y la cuenta siempre decia 'se ve'.
+#
+# Ahora lo dice quien lo sabe: la capsula escribe en tmp\ui-visible.txt '1|0 <hora> <cadencia ms>'
+# cada 5 s (ver SeVe y AnotarVisible en nova_ui.cs), mirando su opacidad, si esta visible y
+# SHQueryUserNotificationState, que es la senal que da Windows para el modo exclusivo.
+#
+# ANTE LA DUDA, SE VE, igual que antes: sin fichero, vacio, ilegible o viejo se supone visible.
+# Dar por ciega una capsula que si se ve haria hablar a Nova encima del juego, que es peor que el
+# fallo que esto arregla. Y 'viejo' no es un numero a mano: es tres veces la cadencia que la
+# propia capsula acaba de declarar en el fichero.
+function Get-UiVisible {
+    # devuelve @{ ve = $true/$false; hace = ms desde que lo escribio; cada = su cadencia; viejo = bool }
+    # o $null si no hay nada que leer
+    try {
+        $ruta = Join-Path $TmpDir 'ui-visible.txt'
+        if (-not (Test-Path -LiteralPath $ruta)) { return $null }
+        $linea = ''
+        try { $linea = ([System.IO.File]::ReadAllText($ruta)).Trim() } catch { return $null }
+        if (-not $linea) { return $null }
+        $m = [regex]::Match($linea, '^([01])\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s+(\d+)$')
+        if (-not $m.Success) { return $null }
+        $cuando = [datetime]::MinValue
+        if (-not [datetime]::TryParseExact($m.Groups[2].Value, 'yyyy-MM-dd HH:mm:ss', [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$cuando)) { return $null }
+        $hace = ((Get-Date) - $cuando).TotalMilliseconds
+        $cada = [double]$m.Groups[3].Value
+        # la primera linea de cada arranque lleva cada=0 (no hay anterior): entonces vale la
+        # cadencia declarada del reloj de la capsula, 5 s.
+        if ($cada -le 0) { $cada = 5000 }
+        return @{ ve = ($m.Groups[1].Value -eq '1'); hace = $hace; cada = $cada; viejo = ($hace -gt (3 * $cada)) }
+    } catch { return $null }
+}
+
 function Test-CapsulaCiega {
-    # ANTE LA DUDA, SE VE: si no se sabe alguna de las dos resoluciones, no se inventa un
-    # problema. Dar por ciega una capsula que si se ve haria hablar a Nova encima del juego,
-    # que es peor que el fallo que esto arregla.
     if (-not $script:juegoActivo) { return $false }
-    $nat = Get-ResolucionNativa
-    $act = Get-ResolucionActual
-    if (-not $nat -or -not $act) { return $false }
-    return (($nat[0] -ne $act[0]) -or ($nat[1] -ne $act[1]))
+    $v = Get-UiVisible
+    if (-not $v -or $v.viejo) { return $false }   # ante la duda, se ve
+    return (-not $v.ve)
 }
 
 function Test-AvisoSinVoz {
@@ -31565,7 +31597,38 @@ while ($true) {
     }
     if ($UiNuevaOn -and ($sw.ElapsedMilliseconds - $script:uiCheck) -ge 30000) {
         $script:uiCheck = $sw.ElapsedMilliseconds
-        if ($script:uiProc -and $script:uiProc.HasExited) {
+        # ¿SE LA VE? (27/09, idea 67). Antes esto solo se miraba al cambiar de juego, y un juego
+        # que entra en exclusivo a los diez minutos de abrirse no se notaba nunca. Ahora la capsula
+        # lo escribe cada 5 s y aqui se lee, con juego delante o sin el.
+        try {
+            $ciegaAntes30 = $script:capsulaCiega
+            $script:capsulaCiega = Test-CapsulaCiega
+            if ($script:capsulaCiega -ne $ciegaAntes30) {
+                Log ("CAPSULA " + $(if ($script:capsulaCiega) { "CIEGA: el juego esta en pantalla completa exclusiva; lo que solo se ve no llega" } else { "visible otra vez" }))
+            }
+        } catch {}
+        # Y SI SE COLGO VIVA (27/09, idea 67). Hasta hoy solo se vigilaba el proceso MUERTO:
+        # una capsula colgada con su ventana pintada y sin atender nada se quedaba asi para
+        # siempre. El latido de ui-visible.txt lo delata. Solo cuenta si el fichero EXISTE: con
+        # un nova_ui.exe viejo -que no lo escribe- su ausencia no puede valer de sintoma, o seria
+        # un relanzamiento cada 30 s para siempre.
+        $colgada = $false
+        if ($script:uiProc -and -not $script:uiProc.HasExited -and $script:uiIntentos -lt 3) {
+            try {
+                $vLat = Get-UiVisible
+                if ($vLat -and $vLat.hace -gt (6 * $vLat.cada)) {
+                    $colgada = $true
+                    Log ("WARN: la interfaz lleva " + [int]($vLat.hace / 1000) + " s sin latir (su cadencia son " + [int]($vLat.cada / 1000) + " s); relanzando (intento " + ($script:uiIntentos + 1) + "/3)")
+                    $script:uiIntentos++
+                    Add-Estadistica 'relanza:capsula'
+                    try { $script:uiProc.Kill() } catch {}
+                    try { $script:uiProc.Dispose() } catch {}
+                    $script:uiProc = $null
+                    Initialize-UI
+                }
+            } catch { Log ('latido de la capsula: ' + $_.Exception.Message) }
+        }
+        if (-not $colgada -and $script:uiProc -and $script:uiProc.HasExited) {
             if ($script:uiIntentos -lt 3) {
                 $script:uiIntentos++
                 # POR QUE murio (14/09): el codigo de salida y lo ultimo que apunto

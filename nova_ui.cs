@@ -308,6 +308,13 @@ public class NovaUI : Window
     // la fecha del archivo hacia que se releyera en cada tic de 250 ms (auditoria 13/09)
     DateTime gestosExtraMirado = DateTime.MinValue;
     string rutaGestosCfg, rutaGestosLog;
+    // IDEA 67: la capsula dice si se la VE, en vez de que el cerebro lo adivine comparando
+    // resoluciones (esa cuenta no dio 'no se ve' ni una vez en 58.636 lineas de registro, con
+    // 20 horas de juego dentro). Se escribe en tmp\ui-visible.txt, la misma puerta por la
+    // que ya sale gestos.log, y la hora vale ademas de latido: hasta hoy el cerebro solo se
+    // enteraba de que la capsula MURIO, no de que se colgo viva.
+    string rutaVisible;
+    DateTime visibleUltima = DateTime.MinValue;
 
     // click-through: la barra nunca debe robar clics al juego
     const int GWL_EXSTYLE = -20;
@@ -321,6 +328,10 @@ public class NovaUI : Window
     [StructLayout(LayoutKind.Sequential)] struct RECTA { public int L, T, R, B; }
     [DllImport("user32.dll")] static extern bool GetCursorPos(out PUNTO p);
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+    // IDEA 67: QUNS_RUNNING_D3D_FULL_SCREEN (3) es un juego en pantalla completa exclusiva; con
+    // eso delante la capsula NO se pinta, por topmost que sea. Es la unica senal fiable de que
+    // no se la ve, y la da Windows.
+    [DllImport("shell32.dll")] static extern int SHQueryUserNotificationState(out int estado);
     [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECTA r);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
     static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
@@ -810,6 +821,7 @@ public class NovaUI : Window
             string carpeta = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(rutaEstado));
             rutaGestosCfg = System.IO.Path.Combine(carpeta, "gestos.txt");
             rutaGestosLog = System.IO.Path.Combine(carpeta, "gestos.log");
+            rutaVisible = System.IO.Path.Combine(carpeta, "ui-visible.txt");
             CargarGestosExtra();
         }
         catch { }
@@ -861,6 +873,17 @@ public class NovaUI : Window
         relojTic33.Interval = TimeSpan.FromMilliseconds(33);
         relojTic33.Tick += delegate { Tic33(); };
         if (!Sin("tic33")) { relojTic33.Start(); }
+
+        // IDEA 67: el latido de "se me ve", cada 5 s. Aparte de los otros relojes a proposito:
+        // escribe en disco y no tiene por que ir al ritmo de lo que se pinta.
+        // SIN LATIDO DE SALIDA: medido al estrenarlo, la primera escritura caia antes de que la
+        // ventana estuviera pintada y decia '0' (IsVisible todavia falso). Eso son cinco segundos
+        // en los que Nova se creeria ciega recien arrancada. El primer latido llega al primer
+        // tic; hasta entonces no hay fichero, y sin fichero se supone visible.
+        var relojVisible = new DispatcherTimer();
+        relojVisible.Interval = TimeSpan.FromMilliseconds(5000);
+        relojVisible.Tick += delegate { AnotarVisible(); };
+        relojVisible.Start();
 
         var reloj4 = new DispatcherTimer();
         reloj4.Interval = TimeSpan.FromMilliseconds(250);
@@ -2391,6 +2414,39 @@ public class NovaUI : Window
         if (estadoActual == "reposo" || estadoActual == "") { Aplicar(estadoActual, textoActual, false); }
     }
 
+    // IDEA 67: ¿SE LA VE? La capsula es la unica que lo sabe de verdad. Tres motivos para no
+    // verse, y los tres los sabe ella: opacidad a cero, ventana oculta, y un juego en pantalla
+    // completa exclusiva (QUNS_RUNNING_D3D_FULL_SCREEN), que la tapa por topmost que sea.
+    // Que este TAPADA no cuenta: para eso ya se aparta sola (AjustarApartada) y se sigue viendo.
+    bool SeVe()
+    {
+        try
+        {
+            if (Opacity <= 0.01) { return false; }
+            if (!IsVisible) { return false; }
+            int st = 0;
+            if (SHQueryUserNotificationState(out st) == 0 && st == 3) { return false; }
+        }
+        catch { }   // ante la duda, se ve: dar por ciega una capsula visible hace hablar encima
+        return true;
+    }
+
+    // La linea lleva TRES cosas: si se ve, la hora, y los milisegundos que han pasado desde la
+    // anterior. Lo tercero es para que el cerebro no tenga que adivinar la cadencia: si la
+    // capsula se cuelga viva, la ultima cadencia escrita dice cuanto tardaba cuando iba bien.
+    void AnotarVisible()
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(rutaVisible)) { return; }
+            DateTime ahora = DateTime.Now;
+            int cada = visibleUltima == DateTime.MinValue ? 0 : (int)(ahora - visibleUltima).TotalMilliseconds;
+            visibleUltima = ahora;
+            string linea = (SeVe() ? "1" : "0") + " " + ahora.ToString("yyyy-MM-dd HH:mm:ss") + " " + cada.ToString();
+            File.WriteAllText(rutaVisible, linea + "\r\n", new UTF8Encoding(false));
+        }
+        catch { }
+    }
     void AnotarGesto(string nombre)
     {
         try
