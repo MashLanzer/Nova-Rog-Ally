@@ -2089,6 +2089,20 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n264. La lista de 'lo que decidi yo sola' ya tiene con que llenarse (idea 114 de las 121)"
+# estadisticas.json tiene la clave 'decisiones' y esta VACIA: en 16 dias hay 3.335 eventos en 67
+# claves y ni uno es 'auto-ajuste', 'auto-deshecho' ni 'arranque-medias'. Y no es por falta de motor
+# -hay CATORCE sitios que escriben 'auto-ajuste' y ninguno se ha disparado-. Lo que la ficha pedia y
+# NO se puede hacer es apuntar el ritmoBateria: hay UNA linea 'BATERIA:' en todo el registro, porque
+# braya juega enchufado. Lo que si hay son los numeros que Nova recalcula de sus propias medidas: el
+# p99 de ms por letra (167 muestras en disco, hay dato desde el primer arranque), el p75 de cada
+# trabajo y su linea base de consumo. El liston de 'cambio que merece apuntarse' sale de la propia
+# serie, y son dos cuentas distintas: los cambios se alimentan SIEMPRE y se apunta cuando la
+# distancia al ultimo APUNTADO pasa de su mediana. Diez roturas tumban el banco, y una destapo que
+# Get-PercentilLista devuelve [int]: con cambios de 0,5 daba 0 y cualquier movimiento pasaba.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-ajustes-propios.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya tiene con que llenarse)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n263. Nova cruza sus dos cuentas contra Steam y sabe a que juegos ve mal (idea 113 de las 121)"
 # El 25/09, en los DOS cuadernos de Nova: juegos.json dice 'ELDEN RING NIGHTREIGN' 75 segundos y
 # uso-ally.json dice 'nightreign' 4.038 segundos con alguien delante. Nova SI vio la partida entera;

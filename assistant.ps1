@@ -23852,6 +23852,9 @@ function New-CopiaSeguridad([string]$motivo = 'a mano') {
         # Y EL REPASO DE AYER CONTRA STEAM (27/09, idea 113). Aqui porque esto es lo que ya corre
         # una vez al dia y porque lee los dos cuadernos de disco: no es para el bucle.
         try { [void](Test-JuegosCiegos) } catch { Log ('CIEGOS: ' + $_.Exception.Message) }
+        # Y LOS NUMEROS QUE SE AJUSTA SOLA (27/09, idea 114). Aqui porque es una vez al dia y
+        # porque lee voz-tiempos.json y trabajo-tiempos.json: no es para el bucle.
+        try { [void](Test-AjustesDelDia) } catch { Log ('AJUSTES: ' + $_.Exception.Message) }
         $n = @($origen | ForEach-Object { if (Test-Path -LiteralPath $_ -PathType Container) { Get-ChildItem -LiteralPath $_ -Recurse -File } else { Get-Item -LiteralPath $_ } }).Count
         $kb = [int][Math]::Ceiling((Get-Item -LiteralPath $zip).Length / 1KB)
         Log "COPIA ($motivo): $n archivos, $kb KB -> $zip"
@@ -27472,6 +27475,165 @@ function Get-DuracionEsperada([string]$motor, [string]$modo) {
     if ($medido -lt $suelo) { return $suelo }
     if ($medido -gt $techo) { return $techo }
     return $medido
+}
+
+# QUE LA LISTA DE 'LO QUE DECIDI YO SOLA' DEJE DE ESTAR VACIA (27/09, idea 114 de las 121)
+#
+# EL DATO: memoria\estadisticas.json tiene la clave 'decisiones' y esta VACIA. En 16 dias de
+# contadores hay 3.335 eventos repartidos en 67 claves distintas y NI UNO es 'auto-ajuste',
+# 'auto-deshecho' ni 'arranque-medias', que son las tres unicas etiquetas que entran en esa lista.
+# Asi que el parrafo semanal de 'esto lo decidi yo' lleva saliendo en blanco desde que existe.
+#
+# Y NO ES POR FALTA DE MOTOR: hoy hay CATORCE sitios que escriben 'auto-ajuste' -la ficha decia
+# nueve y esta tanda ha anadido cinco mas- y ninguno se ha disparado nunca. Buscados uno a uno en el
+# registro: 'mi voz:' 0, 'saludo de vuelta' 0, 'nube off' 0, 'oido fino off' 0, 'cascada sin' 0,
+# 'nube tope' 0, 'ultimo recurso off' 0, 'correcciones dormidas' 0, 'sonda de' 0. Las ocho lineas
+# que salen buscando 'confianza minima' son del arranque del 10/09, no del ajuste. La idea 75 ya
+# avisa de lo que le FALTA a cada una para poder juzgarse; esto es lo otro que hacia falta.
+#
+# LO QUE LA FICHA PEDIA Y NO SE PUEDE HACER: apuntar el ritmoBateria por juego. Medido, hay UNA
+# linea 'BATERIA:' en todo el registro, y la casa ya sabia por que -braya juega ENCHUFADO, y el
+# solape juego-sin-cargador de quince dias son cinco minutos-. Apuntar algo que pasa una vez cada
+# dieciseis dias no llena ninguna lista.
+#
+# LO QUE SI HAY: los numeros que Nova recalcula sola de sus propias medidas y que hoy no van a
+# ningun sitio. Medido ahora mismo en disco:
+#     memoria\voz-tiempos.json      porLetra, 167 muestras -> p99 = 69,7 ms por letra
+#     memoria\trabajo-tiempos.json  api-traducir 12 muestras -> p75 = 1.704 ms
+# El primero decide el plazo con el que Nova se rinde al hablar y ya tiene datos de sobra, asi que
+# la lista se llena en el primer arranque.
+#
+# EL LISTON DE 'CAMBIO QUE MERECE APUNTARSE' SALE DE LA PROPIA SERIE y son DOS cuentas distintas, a
+# proposito:
+#   - 'cambios' guarda lo que el numero se mueve de un dia al siguiente, SIEMPRE, se apunte o no.
+#     Si solo se alimentara con los cambios apuntados, la mediana subiria sola y acabaria tapandolo
+#     todo -el mismo fallo que el cero de la serie del consumo-.
+#   - y se apunta cuando la distancia al ultimo APUNTADO pasa de esa mediana. Asi una deriva lenta
+#     acaba saliendo -la distancia crece mientras la mediana no- y un numero que baila sin ir a
+#     ningun sitio no escribe nada.
+# La primera vez de cada numero se apunta siempre: es la primera vez que Nova lo sabe. Y el primer
+# cambio tambien, que es de donde sale la primera medida de cuanto se mueve.
+#
+# UNA VEZ AL DIA Y POR NUMERO, que es la cadencia de un auto-ajuste y la que ya usa el saludo de
+# vuelta. Sin eso, un numero que se recalcula en cada frase llenaria los 60 huecos en una tarde.
+$AjustesCambiosMax = 20          # cuantos cambios se recuerdan para saber cuanto se mueve
+function Get-AjustesPropios {
+    $hb = Get-Habitos
+    if (-not $hb.ajustes) { $hb.ajustes = @{} }
+    return $hb.ajustes
+}
+
+# PURA: decide si este valor merece apuntarse, dado lo que ya se sabia del numero.
+#   $antes  = @{ apuntado; ultimo; dia; cambios } o $null si es la primera vez
+# Devuelve @{ apunta; porque; cambios } con la serie de cambios ya actualizada.
+function Test-AjusteQueImporta($antes, [double]$valor, [string]$hoy) {
+    $r = @{ apunta = $false; porque = ''; cambios = @() }
+    if (-not $antes) {
+        $r.apunta = $true; $r.porque = 'la primera vez que lo se'
+        return $r
+    }
+    $r.cambios = @(@($antes.cambios) | ForEach-Object { [double]$_ })
+    # LA SERIE SE ALIMENTA SIEMPRE, con el salto respecto a la lectura ANTERIOR
+    $ult = [double]$antes.ultimo
+    $salto = [Math]::Abs($valor - $ult)
+    if ($salto -gt 0) {
+        $r.cambios = @(@($r.cambios) + @($salto))
+        while (@($r.cambios).Count -gt $AjustesCambiosMax) { $r.cambios = @(@($r.cambios)[1..(@($r.cambios).Count - 1)]) }
+    }
+    # UNA VEZ AL DIA Y POR NUMERO
+    if ([string]$antes.dia -eq $hoy) { return $r }
+    $dist = [Math]::Abs($valor - [double]$antes.apuntado)
+    if ($dist -le 0) { return $r }
+    $sinMedir = @(@($antes.cambios) | Where-Object { [double]$_ -gt 0 })
+    if ($sinMedir.Count -eq 0) {
+        $r.apunta = $true; $r.porque = 'el primer cambio que le veo'
+        return $r
+    }
+    # LA MEDIANA SE CUENTA AQUI Y NO CON Get-PercentilLista, Y NO ES UN CAPRICHO: aquella acaba en
+    # 'return [int]$v[$i]' porque esta hecha para milisegundos, y estos numeros son decimales
+    # pequenos. Con una serie de cambios de 0,5 devolvia 0 y entonces CUALQUIER movimiento pasaba
+    # el liston: una deriva de medio punto al dia escribia los ocho dias seguidos. Lo canto su
+    # banco. Mismo metodo -el del mas cercano, el de toda la casa-, sin el [int].
+    $ordC = @($sinMedir | Sort-Object)
+    $iC = [int][Math]::Ceiling(0.5 * $ordC.Count) - 1
+    if ($iC -lt 0) { $iC = 0 }
+    if ($iC -ge $ordC.Count) { $iC = $ordC.Count - 1 }
+    $normal = [double]$ordC[$iC]
+    if ($dist -gt $normal) {
+        $r.apunta = $true
+        $r.porque = ('se movio ' + [Math]::Round($dist, 2) + ' y lo normal en el es ' + [Math]::Round($normal, 2))
+    }
+    return $r
+}
+
+# Lo que hace la cuenta y lo apunta. Devuelve $true si escribio en la lista.
+function Add-AjustePropio([string]$clave, [double]$valor, [string]$como, [string]$hoy = '') {
+    if ($script:invitado) { return $false }          # lo que haga otro no es su decision
+    if (-not $clave) { return $false }
+    try {
+        if (-not $hoy) { $hoy = (Get-Date).ToString('yyyy-MM-dd') }
+        $tb = Get-AjustesPropios
+        $antes = $null
+        if ($tb.ContainsKey($clave)) { $antes = $tb[$clave] }
+        $r = Test-AjusteQueImporta $antes $valor $hoy
+        $nuevo = @{ apuntado = $(if ($r.apunta) { $valor } elseif ($antes) { [double]$antes.apuntado } else { $valor })
+                    ultimo = $valor
+                    dia = $(if ($r.apunta) { $hoy } elseif ($antes) { [string]$antes.dia } else { '' })
+                    cambios = @($r.cambios) }
+        $tb[$clave] = $nuevo
+        Save-Habitos
+        if (-not $r.apunta) { return $false }
+        # EL DETALLE LLEVA EL NUMERO, que es la regla de esta lista: un 'auto-ajuste' sin cifra no
+        # se puede leer en el parte de la semana.
+        $txt = $como + ': ' + [Math]::Round($valor, 2)
+        if ($antes -and [double]$antes.apuntado -ne $valor) { $txt = $como + ': ' + [Math]::Round([double]$antes.apuntado, 2) + ' -> ' + [Math]::Round($valor, 2) }
+        Add-Estadistica 'auto-ajuste' $txt
+        Log ('AJUSTE PROPIO: ' + $txt + ' (' + $r.porque + ')')
+        return $true
+    } catch { Log ('ajuste propio: ' + $_.Exception.Message); return $false }
+}
+
+# EL REPASO, una vez al dia, en el mismo hueco que los demas. Cada fuente es un numero que Nova YA
+# recalcula de sus propias medidas y que hasta hoy no llegaba a ninguna parte.
+function Test-AjustesDelDia {
+    $n = 0
+    try {
+        # 1. EL PLAZO CON EL QUE SE RINDE AL HABLAR: el p99 de ms por letra. 167 muestras en disco.
+        try {
+            $vz = @(Get-VozTiempos)
+            if (@($vz).Count -ge $DecisionMinIntentos) {
+                $p99 = [double](Get-PercentilLista $vz 99)
+                if ($p99 -gt 0 -and (Add-AjustePropio 'voz-por-letra' $p99 'lo que tardo en hablar, por letra')) { $n++ }
+            }
+        } catch {}
+        # 2. LO QUE DA POR BUENO CADA TRABAJO: el p75 de cada motor con muestras suficientes.
+        try {
+            if (Test-Path -LiteralPath $TrabajoTiemposJson) {
+                $jt = Get-Content -LiteralPath $TrabajoTiemposJson -Raw -Encoding UTF8 | ConvertFrom-Json
+                foreach ($pt in $jt.PSObject.Properties) {
+                    $cl = [string]$pt.Name
+                    # el consumo tiene su propia cuenta mas abajo y no es un plazo de trabajo
+                    if ($cl.StartsWith('ram:') -or $cl.StartsWith('cpu:') -or $cl -eq 'vuelta') { continue }
+                    $p75 = [double](Get-TrabajoPercentil $cl $TrabajoPercentil)
+                    if ($p75 -gt 0 -and (Add-AjustePropio ('trabajo-' + $cl) $p75 ('lo que suele tardar ' + $cl))) { $n++ }
+                }
+            }
+        } catch {}
+        # 3. Y SU PROPIA LINEA BASE (la de la idea 111), que si no se apunta es otra serie que nadie
+        # mira. Solo la RAM: la cuota de nucleo baila mucho mas y llenaria la lista de ruido.
+        try {
+            foreach ($nom in @('cerebro', 'oido', 'capsula', 'charla')) {
+                foreach ($suf in @('', ':juego')) {
+                    $cl = 'ram:' + $nom + $suf
+                    $lst = Get-TrabajoTiempos $cl
+                    if (@($lst).Count -lt $ConsumoMinMuestras) { continue }
+                    $lim = [double](Get-ConsumoListon $cl)
+                    if ($lim -gt 0 -and (Add-AjustePropio ('consumo-' + $nom + $suf) $lim ('lo que ocupa ' + $nom + $(if ($suf) { ' con un juego delante' } else { '' }) + ', en megas'))) { $n++ }
+                }
+            }
+        } catch {}
+    } catch { Log ('ajustes del dia: ' + $_.Exception.Message) }
+    return $n
 }
 
 # =====================================================================
