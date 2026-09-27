@@ -1997,6 +1997,15 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n214. Los instrumentos mudos: contadores que no han contado nada (idea 48 de las 121)"
+# ~90 claves de Add-Estadistica y ~40 no han contado nunca; 13 rutas memoria\* que el codigo
+# nombra y no existen. Un contador que nadie alimenta parece que mide y no mide. El banco fecha
+# cada clave por su primer commit (una pasada de git) y solo acusa las mudas de mas de 4 dias
+# (N medido: el retraso maximo de un contador que si funciona son 4 dias, nube-tarde). No toca
+# assistant.ps1: fechar pide git y son 2 s, que en el bucle de 30 s romperia la regla 4.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-instrumentos-mudos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no han medido nada estan contados)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n213. El juego que se abre y se muere a los diez segundos (idea 47 de las 121)"
 # El 25/09 NIGHTREIGN murio 6 veces en una hora y Nova callo. Ahora cuenta las muertes seguidas
 # del mismo juego (racha que se rompe por partida buena o por $JuegoVueltaMs) y a la 3a ofrece
