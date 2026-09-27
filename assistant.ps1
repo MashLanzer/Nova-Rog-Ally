@@ -25160,8 +25160,37 @@ function Set-UltimaOrden([string]$texto, [string]$hecho) {
     $script:ultimaOrden = @{ texto = $texto; desc = $hecho; cuando = $sw.ElapsedMilliseconds }
     if (-not $ConversacionOn -or -not $texto) { return }
     try {
-        [void](Send-CharlaPedido @{ op = 'apunta'; id = 0; texto = $texto; hecho = $hecho } $false)
+        $mandado = Send-CharlaPedido @{ op = 'apunta'; id = 0; texto = $texto; hecho = $hecho; invitado = [bool]$script:invitado } $false
+        # Y SI LA CHARLA ESTA DORMIDA, A LA COLA (27/09, idea 68). El turno se perdia entero, y
+        # con el las correcciones a ordenes -"no, yo te dije el segundo video"-, que son justo las
+        # que pasan SIN ninguna charla delante: 16 de las 68 frases-correccion del registro (el
+        # 24 %) no aparecen en ninguna linea CHARLA. Aqui se deja la linea CRUDA, sin juzgarla: el
+        # juicio lo hace el worker al arrancar (vaciar_hilo_pendiente), asi la regla de que es una
+        # correccion sigue viviendo en un solo sitio y no hay dos copias que separarse.
+        if (-not $mandado -and -not $script:invitado) { Add-HiloPendiente $texto $hecho }
     } catch { Log ('hilo: no pude apuntar la orden: ' + $_.Exception.Message) }
+}
+
+# La cola de lo que no pudo mandarse. Una linea JSON por turno, sin juzgar nada; el tope es para
+# que un dia entero con la charla apagada no deje un fichero sin fin, y se queda con las ULTIMAS,
+# que son las que aun tienen sentido leer.
+$HiloPendienteMax = 200
+function Add-HiloPendiente([string]$texto, [string]$hecho) {
+    try {
+        $carp = Join-Path $MemoriaDir 'cerebro'
+        if (-not (Test-Path -LiteralPath $carp)) { return }   # sin cerebro no hay donde guardarlo
+        $ruta = Join-Path $carp 'hilo-pendiente.jsonl'
+        $linea = ConvertTo-Json @{ d = (Get-Date -Format 'yyyy-MM-dd'); h = (Get-Date -Format 'HH:mm');
+                                   texto = $texto; hecho = $hecho } -Compress
+        Add-Content -LiteralPath $ruta -Value $linea -Encoding UTF8
+        # el tope, solo cuando toca: leer el fichero en cada orden seria pagarlo siempre
+        $n = 0
+        try { $n = @(Get-Content -LiteralPath $ruta -ErrorAction SilentlyContinue).Count } catch {}
+        if ($n -gt (2 * $HiloPendienteMax)) {
+            $ult = @(Get-Content -LiteralPath $ruta | Select-Object -Last $HiloPendienteMax)
+            Write-Atomico $ruta (($ult -join "`r`n") + "`r`n")
+        }
+    } catch { Log ('hilo: no pude encolar la correccion: ' + $_.Exception.Message) }
 }
 
 # LO QUE SE LEE DE FUERA SON DATOS, NO ORDENES (21/09). Hay tres sitios que le pasan al

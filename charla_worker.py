@@ -1447,7 +1447,7 @@ def calentar():
         salida("info", texto="no pude precargar el modelo local: %s" % e)
 
 
-def apuntar_hilo(texto, hecho):
+def apuntar_hilo(texto, hecho, invitado=False):
     """EL HILO NO SE CORTA CON LAS ORDENES (M2, 20/09). Una orden que hizo el asistente
     sin pasar por aqui: se deja el turno en el hilo para que la frase siguiente se
     entienda ("con la novena cancion", "te dije que en YouTube"). No llama a ningun
@@ -1466,6 +1466,24 @@ def apuntar_hilo(texto, hecho):
     historial.append({"role": "user", "content": texto[:300]})
     historial.append({"role": "assistant", "content": ((hecho or "").strip() or "hecho")[:300]})
     recortar()
+    # IDEA 68: Y AQUI TAMBIEN SE JUZGA SI EL TURNO IMPORTA. El juicio solo corria dentro de la
+    # charla, asi que una correccion a una ORDEN -"no, yo te dije el segundo video"- no llegaba
+    # nunca a importante.jsonl: de las 68 frases-correccion del registro, 16 (el 24 %) no pasaron
+    # por ninguna linea CHARLA. Se pierde justo la mas util, la que dice QUE orden se ejecuto mal.
+    #
+    # SIN DUPLICAR LA REGLA. La ficha de la idea proponia llevar por_que_importa() a PowerShell y
+    # que un banco comparase las dos copias; no hace falta, porque el asistente ya manda cada
+    # orden por aqui (Set-UltimaOrden -> op "apunta"). La regla sigue viviendo en un solo sitio,
+    # que es la unica manera de que no se separen con el tiempo (manera 15 de salir verde
+    # mintiendo). Y el motivo lleva "-orden" para poder contarlas por separado de las de charla.
+    if invitado:
+        return
+    try:
+        motivo = por_que_importa(texto, "")
+        if motivo:
+            apuntar_importante(texto, (hecho or "").strip() or "hecho", motivo + "-orden")
+    except Exception:  # noqa: BLE001
+        pass
 
 PROMPT_BANCO = (
     "Genera preguntas de cultura general en espanol, variadas (geografia, ciencia, historia, "
@@ -1612,7 +1630,7 @@ def atender(p):
             except Exception as e:  # noqa: BLE001
                 salida("info", texto="memoria: no pude aprender (%s)" % e)
     elif op == "apunta":
-        apuntar_hilo(p.get("texto") or "", p.get("hecho") or "")
+        apuntar_hilo(p.get("texto") or "", p.get("hecho") or "", bool(p.get("invitado")))
     elif op == "recordar":
         # BUSCAR EN LO QUE BRAYA LE HA CONTADO, POR SIGNIFICADO (23/09, funcion 4).
         # Hasta hoy una pregunta como "¿que te dije del juego que era caro?" se la comia el
@@ -1693,6 +1711,53 @@ def lector():
     pedidos.put(None)         # el asistente cerro la tuberia: se acabo
 
 
+def vaciar_hilo_pendiente():
+    """IDEA 68: las correcciones que llegaron con el worker APAGADO. Set-UltimaOrden manda cada
+    orden por la tuberia sin arrancar la charla a proposito (levantarla en mitad de una orden
+    costaria segundos), asi que con la charla dormida el turno se perdia... y es justo el caso
+    de la idea: una correccion a una orden suele pasar sin ninguna charla delante.
+
+    PowerShell deja ahi la linea CRUDA, sin juzgarla, y el juicio se hace AQUI: asi la regla
+    sigue en un solo sitio. No se toca el historial -son turnos viejos, meterlos ahora
+    confundiria la charla siguiente-: solo se mira si alguno importaba."""
+    if not CARPETA_CEREBRO:
+        return
+    ruta = os.path.join(CARPETA_CEREBRO, "hilo-pendiente.jsonl")
+    if not os.path.exists(ruta):
+        return
+    n = 0
+    try:
+        with open(ruta, encoding="utf-8") as f:
+            lineas = f.readlines()
+    except Exception:  # noqa: BLE001
+        return
+    # SE BORRA ANTES DE PROCESAR: si una linea rompiera algo, el fichero no se queda para
+    # siempre reintentandose en cada arranque.
+    try:
+        os.remove(ruta)
+    except Exception:  # noqa: BLE001
+        pass
+    for linea in lineas[-200:]:
+        try:
+            d = json.loads(linea)
+        except ValueError:
+            continue
+        if d.get("invitado"):
+            continue
+        texto = (d.get("texto") or "").strip()
+        if not texto:
+            continue
+        try:
+            motivo = por_que_importa(texto, "")
+            if motivo:
+                apuntar_importante(texto, (d.get("hecho") or "").strip() or "hecho", motivo + "-orden")
+                n += 1
+        except Exception:  # noqa: BLE001
+            pass
+    if n:
+        salida("info", texto="lo importante: %d correccion(es) de orden que esperaban con la charla apagada" % n)
+
+
 def principal():
     global cerebro
     try:
@@ -1724,6 +1789,10 @@ def principal():
     except Exception as e:  # noqa: BLE001
         cerebro = None
         salida("info", texto="memoria desactivada: %s" % e)
+    try:
+        vaciar_hilo_pendiente()
+    except Exception as e:  # noqa: BLE001
+        salida("info", texto="lo importante: no pude vaciar la cola de correcciones (%s)" % e)
     threading.Thread(target=lector, daemon=True).start()
     threading.Thread(target=revisor, daemon=True).start()
     salida("info", texto="charla lista (local %s, api %s)" % (MODELO_LOCAL, MODELO_API))

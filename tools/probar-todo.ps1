@@ -1579,6 +1579,10 @@ Titulo "2n159. Lo que importo no se resume (idea 35 de las 50 / 18 de las 21)"
 # importante.jsonl, que no se poda. El bruto se sigue resumiendo y borrando igual que antes.
 # La negacion larga se anadio midiendo: de las 66 frases que empiezan por "no", las de cinco
 # palabras o mas son casi todas correcciones de verdad. Cinco es el liston, y esta medido.
+# Y DESDE EL 27/09 (idea 68) el mismo banco cubre las correcciones que NO son charla: el juicio
+# corre tambien en apuntar_hilo -por donde el asistente manda cada orden- y lo que llega con la
+# charla dormida espera en hilo-pendiente.jsonl, que el worker vacia al arrancar. La regla sigue
+# en un solo sitio: no hay copia en PowerShell que pueda separarse de esta.
 python (Join-Path $PSScriptRoot 'probar-charla-importante.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:sobrevive a la poda)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 

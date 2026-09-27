@@ -189,6 +189,95 @@ comp('memoria/cerebro esta en el .gitignore', 'memoria/cerebro/' in gi or 'cereb
      'ahi es donde se escribe importante.jsonl')
 comp('y el fichero se escribe ahi dentro', 'CARPETA_CEREBRO' in src and 'importante.jsonl' in src)
 
+
+print('')
+print('-- 8. Y TAMBIEN FUERA DE LA CHARLA (27/09, idea 68) --')
+# EL DATO: de las 68 frases-correccion del registro, 16 (el 24 %) no aparecen en ninguna linea
+# CHARLA: eran ordenes o dictados. Se perdia justo la correccion mas util, la que dice QUE orden
+# se ejecuto mal. Ahora el juicio corre tambien en apuntar_hilo, que es por donde el asistente
+# manda cada orden (Set-UltimaOrden -> op "apunta").
+#
+# SIN DUPLICAR LA REGLA: la ficha de la idea proponia llevar por_que_importa a PowerShell y que un
+# banco comparase las dos copias. No hay dos copias que comparar, y eso es mejor que compararlas.
+ah = [n for n in ast.walk(arbol) if isinstance(n, ast.FunctionDef) and n.name == 'apuntar_hilo']
+comp('existe apuntar_hilo', len(ah) == 1)
+if len(ah) == 1:
+    llam2 = set()
+    for n in ast.walk(ah[0]):
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name):
+            llam2.add(n.func.id)
+    comp('  y juzga el turno igual que la charla', 'por_que_importa' in llam2)
+    comp('  y lo copia a lo importante', 'apuntar_importante' in llam2)
+    comp('  respetando el modo invitado', 'invitado' in [a.arg for a in ah[0].args.args],
+         'con otro delante no se guarda nada suyo')
+comp('y NO hay una segunda copia de la regla en PowerShell',
+     'no dije|no era eso' not in io.open(os.path.join(RAIZ, 'assistant.ps1'), encoding='utf-8').read(),
+     'la manera 15: dos copias que se separan con el tiempo')
+
+print('')
+print('-- 9. LA COLA DE CUANDO LA CHARLA ESTA DORMIDA, EJECUTADA DE VERDAD --')
+# Set-UltimaOrden manda la orden SIN arrancar el worker (levantarlo en mitad de una orden costaria
+# segundos), asi que con la charla dormida el turno se perdia entero. PowerShell deja la linea
+# CRUDA en hilo-pendiente.jsonl y el juicio se hace al arrancar, aqui.
+import json as _json
+import tempfile
+import shutil
+import time as _time
+ns9 = dict(ns)          # ns ya trae re + las constantes del modulo, cargadas del fichero
+carpeta9 = tempfile.mkdtemp(prefix='nova-pend-')
+try:
+    class _CmFalso(object):
+        @staticmethod
+        def limpio(t, n):
+            return (t or '')[:n]
+    ns9.update({'os': os, 'json': _json, 'time': _time, 'cm': _CmFalso, 'CARPETA_CEREBRO': carpeta9})
+    for f in ('por_que_importa', 'apuntar_importante', 'vaciar_hilo_pendiente'):
+        nodo = [n for n in arbol.body if isinstance(n, ast.FunctionDef) and n.name == f]
+        comp('se encuentra %s' % f, len(nodo) == 1)
+        if nodo:
+            exec(compile(ast.Module(body=nodo, type_ignores=[]), FUENTE, 'exec'), ns9)
+    ruta9 = os.path.join(carpeta9, 'hilo-pendiente.jsonl')
+    with io.open(ruta9, 'w', encoding='utf-8') as f:
+        f.write(_json.dumps({'texto': 'no, yo te dije el segundo video', 'hecho': 'reproducir el primero'}) + '\n')
+        f.write(_json.dumps({'texto': 'pon musica', 'hecho': 'abrir Spotify'}) + '\n')
+        f.write('esto no es json\n')
+        f.write(_json.dumps({'texto': 'no dije Discord, dije Steam', 'hecho': 'abrir Discord', 'invitado': True}) + '\n')
+    quejas[:] = []
+    ns9['vaciar_hilo_pendiente']()
+    imp = os.path.join(carpeta9, 'importante.jsonl')
+    lineas9 = []
+    if os.path.exists(imp):
+        lineas9 = [_json.loads(x) for x in io.open(imp, encoding='utf-8').read().splitlines() if x.strip()]
+    comp('la correccion se guarda', len(lineas9) == 1, '%d linea(s)' % len(lineas9))
+    if lineas9:
+        comp('  con el motivo marcado como de orden', lineas9[0].get('por') == 'correccion-orden',
+             str(lineas9[0].get('por')))
+        comp('  y dice QUE orden se ejecuto mal', lineas9[0].get('nova') == 'reproducir el primero',
+             str(lineas9[0].get('nova')))
+    comp('una orden normal NO se guarda', not any('pon musica' in (x.get('braya') or '') for x in lineas9),
+         'si se guardara todo, el fichero no distinguiria nada')
+    comp('lo de un invitado tampoco', not any('Discord' in (x.get('braya') or '') for x in lineas9))
+    comp('una linea rota no rompe la cola', len(lineas9) == 1, 'se salta y sigue')
+    comp('y la cola se borra al vaciarla', not os.path.exists(ruta9),
+         'si no, se reintentaria en cada arranque para siempre')
+    comp('y lo dice en voz alta', any('esperaban con la charla apagada' in q for q in quejas),
+         'un trabajo callado no se puede comprobar')
+    # sin fichero no hace nada y no revienta
+    quejas[:] = []
+    ns9['vaciar_hilo_pendiente']()
+    comp('sin cola, ni una palabra ni un fallo', not quejas)
+finally:
+    shutil.rmtree(carpeta9, ignore_errors=True)
+
+print('')
+print('-- 10. Y EL CABLEADO EN POWERSHELL --')
+ps = io.open(os.path.join(RAIZ, 'assistant.ps1'), encoding='utf-8').read()
+comp('Set-UltimaOrden manda tambien el modo invitado', "invitado = [bool]$script:invitado } $false" in ps)
+comp('y encola si la charla no estaba viva', 'if (-not $mandado -and -not $script:invitado) { Add-HiloPendiente' in ps)
+comp('la cola tiene tope', '$HiloPendienteMax = 200' in ps, 'un dia entero sin charla no deja un fichero sin fin')
+comp('y se queda con las ULTIMAS', 'Select-Object -Last $HiloPendienteMax' in ps)
+comp('la cola vive en memoria/cerebro (que no sale de la maquina)', "Join-Path $MemoriaDir 'cerebro'" in ps)
+
 print('')
 if mal:
     print('  %d MAL' % mal)
