@@ -2089,6 +2089,16 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n256. Que el que sabes de mire tambien el cerebro, no solo el diario (idea 106 de las 121)"
+# La busqueda rapida en la memoria abria memoria\diario -14 ficheros, 38 vinetas RESUMIDAS- y una
+# carpeta memoria	emas que NO EXISTE y nunca ha existido: cero ficheros en 17 dias, y ningun sitio
+# del codigo la crea; estaba en el bucle haciendo un Test-Path que siempre falla. Mientras,
+# cerebro.json guarda 123 recuerdos y 119 son de tipo episodio o contado -cosas que braya dijo, con
+# su texto entero- que esa busqueda no podia encontrar de ninguna manera. El contador 'memoria' va
+# a TRES en diecisiete dias. Ahora se leen en local y sin modelo, con la MISMA puntuacion que el
+# diario. Los de tipo 'respuesta' NO entran: eso es lo que Nova contesto y tiene su propio camino.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-memoria-cerebro.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la busqueda en la memoria ya mira el cerebro)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n255. El resumen del dia se escribia con el final del dia (idea 105 de las 121)"
 # El 20/09 hubo 82 turnos y 16.098 caracteres de conversacion, y al resumidor entraban los ONCE
 # ultimos turnos -el 13 %- por el recorte [-2500:]. El 18/09, 33 de 89. El 15/09, 25 de 72. Y

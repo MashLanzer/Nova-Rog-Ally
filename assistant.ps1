@@ -2507,7 +2507,10 @@ function Find-EnMemoria([string]$text) {
     $claves = @($plano -split '\s+' | Where-Object { $_.Length -ge 3 -and $PALABRAS_VACIAS -notcontains $_ })
     if ($claves.Count -eq 0) { return $null }
     $archivos = @()
-    foreach ($d in @($DiarioDir, (Join-Path $MemoriaDir 'temas'))) {
+    # LA CARPETA 'temas' NO EXISTE Y NUNCA HA EXISTIDO (27/09, idea 106 de las 121): cero ficheros en
+    # los diecisiete dias de vida del proyecto, y ningun sitio del codigo la crea. Estaba en este
+    # bucle desde el primer dia haciendo un Test-Path que siempre falla. Fuera.
+    foreach ($d in @($DiarioDir)) {
         if (Test-Path -LiteralPath $d) {
             $archivos += Get-ChildItem -LiteralPath $d -Filter '*.md' -File -ErrorAction SilentlyContinue | Sort-Object Name -Descending
         }
@@ -2548,12 +2551,61 @@ function Find-EnMemoria([string]$text) {
             }
         }
     } catch { Log ('memoria permanente: ' + $_.Exception.Message) }
+    # Y EL CEREBRO, QUE ES DONDE ESTA LO QUE DE VERDAD DIJO (27/09, idea 106 de las 121)
+    #
+    # EL DATO: esta busqueda abria memoria\diario -14 ficheros, 38 vinetas RESUMIDAS- y una carpeta
+    # 'temas' que no existe. Mientras tanto, memoria\cerebro\cerebro.json guarda 123 recuerdos, y
+    # 119 de ellos son de tipo 'episodio' o 'contado': cosas que braya dijo, con su texto entero, que
+    # esta busqueda no podia encontrar de ninguna manera. El contador 'memoria' de estadisticas.json
+    # va a TRES en diecisiete dias, y ahora se entiende por que.
+    #
+    # EN LOCAL Y SIN MODELO, como todo lo de aqui: se lee el json, se puntua con la MISMA
+    # Get-PuntosClaves que el diario y la permanente, y se contesta. Nada viaja a ninguna parte.
+    #
+    # LOS DE TIPO 'respuesta' NO ENTRAN: esos son lo que NOVA contesto, y ya tienen su propio camino
+    # (respuesta_directa, en el worker de la charla). Aqui se busca lo que braya conto.
+    $delCerebro = 0
+    try {
+        # $CerebroDir Y NO UNA RUTA A MANO: ya existe y la usan los otros dos sitios que abren
+        # el cerebro. Dos ideas de donde vive el fichero acabarian separandose.
+        $rutaC = Join-Path $CerebroDir 'cerebro.json'
+        if (Test-Path -LiteralPath $rutaC) {
+            $jc = Get-Content -LiteralPath $rutaC -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($rc in @($jc.recuerdos)) {
+                if (-not $rc) { continue }
+                $tipoC = [string]$rc.tipo
+                if ($tipoC -ne 'episodio' -and $tipoC -ne 'contado') { continue }
+
+                # LO RECHAZADO NO SE DICE: es un estado que ya existe y que buscar() respeta; si no
+                # se mirara aqui, un recuerdo apartado por falso volveria por esta puerta.
+                if ([string]$rc.estado -eq 'rechazada') { continue }
+                $txtC = [string]$rc.respuesta
+                if (-not $txtC -or $txtC.Trim().Length -lt 4) { continue }
+                $pc = Get-PuntosClaves (ConvertTo-Plain $txtC) $claves
+                if ($pc -le 0) { continue }
+                $delCerebro++
+                # LA FECHA SALE DE 'creada', que es un tiempo de Unix en segundos
+                $fc = ''
+                try {
+                    $seg = [double]$rc.creada
+                    if ($seg -gt 0) {
+                        $culC = New-Object System.Globalization.CultureInfo('es-MX')
+                        $fc = ([datetimeoffset]::FromUnixTimeSeconds([long]$seg)).ToLocalTime().ToString('d "de" MMMM', $culC)
+                    }
+                } catch {}
+                [void]$hallazgos.Add(@{ puntos = $pc; texto = $txtC.Trim(); fecha = $fc; orden = $hallazgos.Count })
+            }
+        }
+    } catch { Log ('memoria del cerebro: ' + $_.Exception.Message) }
     if ($hallazgos.Count -eq 0) { return $null }
     $mejores = @($hallazgos | Sort-Object @{e={$_.puntos};d=$true}, @{e={$_.orden}} | Select-Object -First 3)
     # lo que se cuenta es lo que SALE, no lo que se encontro: si no entra en las tres mejores,
     # decir que entro seria un contador que miente (ver los instrumentos mudos, idea 48).
     $propiaDichas = @($mejores | Where-Object { $_.propia }).Count
     if ($propiaDichas -gt 0) { Log ("MEMORIA LOCAL: " + $propiaDichas + " de " + $dePropia + " de la permanente salen en la respuesta") }
+    # LO MISMO PARA EL CEREBRO (idea 106), y por el mismo motivo: lo que se cuenta es lo que SALE.
+    # Si esto no se apuntara, no habria forma de saber si la fuente nueva sirve de algo.
+    if ($delCerebro -gt 0) { Log ("MEMORIA LOCAL: " + $delCerebro + " recuerdo(s) del cerebro encajaban") }
     $frases = @()
     foreach ($h in $mejores) {
         $frases += if ($h.fecha) { "$($h.texto) (el $($h.fecha))" } else { $h.texto }
