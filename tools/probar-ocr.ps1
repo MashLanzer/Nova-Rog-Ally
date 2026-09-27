@@ -71,6 +71,12 @@ Invoke-Expression (TraerFn 'Get-Distancia')
 # Get-PuntosClaves- y ademas mira la memoria permanente con Get-PerfilTodo. Sin traer las
 # dos, moriria con CommandNotFoundException en la primera linea de una nota.
 Invoke-Expression (TraerFn 'Get-PuntosClaves')
+# LOS DOBLES QUE Find-EnMemoria NECESITA (27/09). Desde la idea 63 lee tambien la memoria
+# permanente y escribe en el registro si algo falla, y desde la idea 106 el cerebro: sin estos
+# tres dobles el banco moria con "Log no se reconoce" justo al preguntar por el codigo.
+function Log([string]$m) { }
+function Get-PerfilTodo { return @() }
+$CerebroDir = Join-Path $env:TEMP 'cerebro-prueba-ocr'
 Invoke-Expression (TraerFn 'Get-PerfilTodo')
 Invoke-Expression (TraerFn 'Find-EnMemoria')
 $PerfilTodoPath = Join-Path $env:TEMP ('nova-ocr-perm-' + [Guid]::NewGuid().ToString('N').Substring(0,8) + '.md')   # no existe: la permanente no aporta nada aqui

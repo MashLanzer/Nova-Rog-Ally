@@ -2089,6 +2089,18 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n259. La tabla de correcciones: 96 de 110 nunca se han oido (idea 109 de las 121)"
+# commands.json lleva 110 correcciones escritas a mano una por una. Cruzadas contra las 1.447
+# frases unicas de pruebas\audio\uso -once dias de uso real- solo CATORCE se han oido alguna vez.
+# Y no es solo peso: Repair-Words hace UN regex por entrada en CADA dictado, y medido con una frase
+# de 54 caracteres son 1,125 ms con las 110 contra 0,145 con las 14: SIETE VECES Y MEDIA mas.
+# SOLO RETIRA, NUNCA ANADE, y ahi esta la guarda de verdad: por parecido fonetico, 'esta' (235
+# veces en el corpus), 'este' (123) y 'estas' (56) se parecen a 'steam', y meter cualquiera
+# convertiria 'esta bien' en 'steam bien' en cada frase. Las retiradas se MUEVEN a
+# 'correccionesDormidas' del propio fichero, no se borran, y si NINGUNA se ha oido no se toca nada
+# -eso huele a corpus roto-.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-correcciones-dormidas.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la tabla de correcciones se gana el sitio)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n258. Perder el primer plano no es cerrar el juego (idea 108 de las 121)"
 # De las 45 salidas emparejadas de los dos registros, VEINTINUEVE (64 %) duran menos de dos minutos
 # y VEINTE menos de treinta segundos. El 25/09 entre las 21 y las 23, siete ciclos completos con

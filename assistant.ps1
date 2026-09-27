@@ -23462,6 +23462,125 @@ function Update-CopiaPodada([string]$zip, $vivosPlano) {
 # cada zip se reescribe en su propio .tmp -un fallo deja el original entero- y en cuanto uno
 # falla AL ESCRIBIR se para la pasada, asi que un problema de verdad se lleva una copia como
 # mucho. Un zip que no se puede leer no para nada: se salta.
+# LA TABLA DE CORRECCIONES ESCRITA A MANO: 96 DE 110 NUNCA SE HAN OIDO (27/09, idea 109 de las 121)
+#
+# EL DATO: commands.json lleva 110 correcciones de palabras mal oidas ('yutub', 'espotifai',
+# 'guasap'...), escritas a mano una por una. Cruzadas contra las 1.449 frases unicas de
+# pruebas\audio\uso -once dias de uso real, todos los campos de destinos.jsonl y registro.jsonl-
+# solo CATORCE se han oido alguna vez: bril, descagando, discor, escagando, "este estado es
+# cargando", estin, navegado, painterest, pinteres, serra, sting, team, temporizado y youtub. Las
+# otras 96 son peso muerto que nadie habia medido nunca. (La ficha decia 8 de 110; contando la clave
+# como subcadena en el corpus entero salen 14. El orden de magnitud es el mismo.)
+#
+# Y NO ES SOLO PESO: Repair-Words hace UN [regex]::Replace POR ENTRADA en cada dictado. MEDIDO con
+# una frase de 54 caracteres, 200 repeticiones: 1,125 ms con las 110 y 0,145 ms con las 14. SIETE
+# VECES Y MEDIA mas, en el camino de cada orden. La velocidad es la primera preferencia de braya.
+#
+# SOLO RETIRA, NUNCA ANADE, y ese es el nucleo de la guarda: buscando candidatos por parecido
+# fonetico salen 'esta' (235 veces en el corpus), 'este' (123) y 'estas' (56) como parecidos a
+# 'steam'. Meter cualquiera convertiria "esta bien" en "steam bien" y rompe la regla 1 en cada frase.
+# Proponer entradas nuevas es cosa de braya, no de Nova.
+#
+# Y RETIRAR ES REVERSIBLE: las entradas se MUEVEN a una seccion 'correccionesDormidas' del propio
+# commands.json, no se borran. Volver a usar una es moverla de sitio a mano.
+#
+# CERO APARICIONES Y NO "POCAS": asi no hay ningun corte que escribir a mano. Lo unico que se exige
+# es que haya corpus suficiente para que ese cero signifique algo.
+$CorreccionesDiasMin = 7        # una semana de uso real antes de retirar nada
+$script:corpusUsoCache = $null
+$script:corpusUsoSello = ''
+
+# Todas las frases del uso real, en plano y en una sola cadena para poder buscar dentro.
+# Con cache por tamano, como Get-FalsasAlarmas: los dos ficheros solo crecen por el final.
+function Get-CorpusUso([string]$dirUso = '') {
+    if (-not $dirUso) { $dirUso = Join-Path $LogDir 'pruebas\audio\uso' }
+    $rD = Join-Path $dirUso 'destinos.jsonl'
+    $rR = Join-Path $dirUso 'registro.jsonl'
+    $sello = ''
+    try {
+        $sello = $dirUso + '|' + $(if (Test-Path -LiteralPath $rD) { (Get-Item -LiteralPath $rD).Length } else { 0 }) +
+                 '|' + $(if (Test-Path -LiteralPath $rR) { (Get-Item -LiteralPath $rR).Length } else { 0 })
+    } catch { $sello = '' }
+    if ($sello -and $sello -eq $script:corpusUsoSello -and $null -ne $script:corpusUsoCache) { return $script:corpusUsoCache }
+    $frases = @{}
+    $dias = @{}
+    foreach ($r in @($rD, $rR)) {
+        if (-not (Test-Path -LiteralPath $r)) { continue }
+        try {
+            foreach ($l in [System.IO.File]::ReadAllLines($r, [System.Text.Encoding]::UTF8)) {
+                if (-not $l -or $l.Length -lt 10) { continue }
+                # EL DIA SALE DEL id, que ES la fecha: el mismo truco de Get-FalsasAlarmas
+                if ($l -match '"id"\s*:\s*"(\d{8})') { $dias[$Matches[1]] = $true }
+                $o = $null
+                try { $o = $l | ConvertFrom-Json } catch { continue }
+                foreach ($c in @('texto', 'detalle', 'frase', 'orden', 'entregado', 'parakeet', 'whisper', 'vosk')) {
+                    $v = ''
+                    try { $v = [string]$o.$c } catch { $v = '' }
+                    if (-not $v -or $v.Trim().Length -lt 2) { continue }
+                    $pl = ConvertTo-Plain $v
+                    if ($pl) { $frases[$pl] = $true }
+                }
+            }
+        } catch { continue }
+    }
+    $res = @{ texto = (' || ' + (@($frases.Keys) -join ' || ') + ' || '); frases = $frases.Count; dias = $dias.Count }
+    if ($sello) { $script:corpusUsoSello = $sello; $script:corpusUsoCache = $res }
+    return $res
+}
+
+# PURA: dado el corpus en plano y las claves, dice cuales no aparecen NUNCA.
+function Get-CorreccionesDormidas([string]$corpus, $claves) {
+    $fuera = New-Object System.Collections.ArrayList
+    foreach ($k in @($claves)) {
+        $pl = ConvertTo-Plain ([string]$k)
+        if (-not $pl) { continue }
+        if (-not $corpus.Contains(' ' + $pl + ' ') -and -not $corpus.Contains($pl)) { [void]$fuera.Add([string]$k) }
+    }
+    return $fuera
+}
+
+function Invoke-CorreccionesDormidas {
+    try {
+        if (-not $cmds -or -not $cmds.correcciones) { return 0 }
+        $co = Get-CorpusUso
+        if ([int]$co.dias -lt $CorreccionesDiasMin) {
+            Log ("CORRECCIONES: solo " + [int]$co.dias + " dias de uso grabado, hacen falta " + $CorreccionesDiasMin + "; no retiro nada")
+            return 0
+        }
+        $claves = @($cmds.correcciones.PSObject.Properties.Name)
+        if ($claves.Count -eq 0) { return 0 }
+        $dormir = @(Get-CorreccionesDormidas ([string]$co.texto) $claves)
+        if ($dormir.Count -eq 0) { return 0 }
+        # NUNCA TODAS: si el corpus estuviera vacio o roto, esto se llevaria la tabla entera. Con
+        # menos de la mitad viva se para y lo dice, que es lo que hace toda decision de la casa
+        # cuando el dato huele raro.
+        if ($dormir.Count -ge $claves.Count) {
+            Log ("CORRECCIONES: el corpus dice que NINGUNA de las " + $claves.Count + " se ha oido; eso huele a corpus roto, no toco nada")
+            return 0
+        }
+        $j = Get-Content -LiteralPath $cmdsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if (-not $j.PSObject.Properties['correccionesDormidas']) {
+            $j | Add-Member -NotePropertyName correccionesDormidas -NotePropertyValue (New-Object PSObject)
+        }
+        foreach ($k in $dormir) {
+            $v = [string]$j.correcciones.$k
+            $j.correccionesDormidas | Add-Member -NotePropertyName $k -NotePropertyValue $v -Force
+            $j.correcciones.PSObject.Properties.Remove($k)
+        }
+        Write-Atomico $cmdsPath ($j | ConvertTo-Json -Depth 8)
+        # y la tabla viva de ESTA sesion, para que Repair-Words deje de pagarlas ya
+        $script:cmds = Get-Content -LiteralPath $cmdsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        Log ("CORRECCIONES: " + $dormir.Count + " de " + $claves.Count + " no se han oido en " + [int]$co.dias +
+             " dias de uso (" + [int]$co.frases + " frases); a dormir. Quedan " +
+             @($script:cmds.correcciones.PSObject.Properties).Count)
+        Add-Estadistica 'auto-ajuste' ("correcciones dormidas: " + $dormir.Count + " de " + $claves.Count)
+        return $dormir.Count
+    } catch {
+        Log ('CORRECCIONES: no pude repasarlas (' + $_.Exception.Message + ')')
+        return 0
+    }
+}
+
 function Invoke-PodaCopias {
     try {
         Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
@@ -23499,6 +23618,9 @@ function New-CopiaSeguridad([string]$motivo = 'a mano') {
         # rompiera aqui, la copia de hoy ya esta hecha y entera. Una por dia, la mas vieja con
         # huerfanos; la de hoy nace ya limpia porque su perfil.md ES el vivo.
         try { [void](Invoke-PodaCopias) } catch { Log ('COPIA poda: ' + $_.Exception.Message) }
+        # Y EL REPASO DE LA TABLA DE CORRECCIONES (27/09, idea 109). Aqui porque esto es lo que ya
+        # corre UNA VEZ AL DIA, y porque lee los dos jsonl del uso: no es para el bucle.
+        try { [void](Invoke-CorreccionesDormidas) } catch { Log ('CORRECCIONES: ' + $_.Exception.Message) }
         $n = @($origen | ForEach-Object { if (Test-Path -LiteralPath $_ -PathType Container) { Get-ChildItem -LiteralPath $_ -Recurse -File } else { Get-Item -LiteralPath $_ } }).Count
         $kb = [int][Math]::Ceiling((Get-Item -LiteralPath $zip).Length / 1KB)
         Log "COPIA ($motivo): $n archivos, $kb KB -> $zip"
