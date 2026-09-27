@@ -24865,8 +24865,9 @@ function Send-CharlaPedido($pedido, [bool]$arrancar = $true) {
     } catch { Log ("charla: no pude escribir al worker: " + $_.Exception.Message); return $false }
 }
 
-# EL HILO NO SE CORTA CON LAS ORDENES (M2, 20/09). La charla ya recuerda los ultimos
-# 6 turnos (charla_worker.py: historial / MAX_HISTORIAL) y los olvida sola a los 5
+# EL HILO NO SE CORTA CON LAS ORDENES (M2, 20/09). La charla ya recuerda lo hablado
+# hasta donde le cabe en caracteres -2.500 para el local, la conversacion entera para
+# la API (charla_worker.py: historial / HISTORIAL_CHARS_*, IDEA 62)- y lo olvida a los 5
 # minutos (OLVIDO_S), pero ahi solo entra lo que PASA por ella. Las ordenes que
 # resuelve la capa local -305 en el log- nunca se apuntaban, y la frase siguiente no
 # sabia de que se hablaba: "que sigues abriendo las canciones en Spotify si te dije

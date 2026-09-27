@@ -246,9 +246,19 @@ cw.ultima_charla = time.time() - 400
 hablar(8, "hola otra vez", Resp(api("Hola de nuevo, ¿qué me cuentas?")))
 comp("tras 5 min sin hablar, la charla empieza de cero", len(cw.historial) == 2, len(cw.historial))
 
-cw.historial[:] = [{"role": "assistant", "content": "x"}] + [{"role": "user" if n % 2 == 0 else "assistant", "content": str(n)} for n in range(14)]
+# IDEA 62: la memoria se recorta por CARACTERES (tope duro), no por numero de mensajes, y empieza por user
+cw.historial[:] = [{"role": "assistant", "content": "x"}] + [{"role": "user" if n % 2 == 0 else "assistant", "content": "a" * 3000} for n in range(14)]
 cw.recortar()
-comp("la memoria se recorta y empieza por el usuario", len(cw.historial) <= cw.MAX_HISTORIAL and cw.historial[0]["role"] == "user", len(cw.historial))
+_tot = sum(len(m["content"]) for m in cw.historial)
+comp("la memoria se recorta por caracteres y empieza por el usuario", _tot <= cw.HISTORIAL_CHARS_TOPE and cw.historial and cw.historial[0]["role"] == "user", "%d chars, %d msg" % (_tot, len(cw.historial)))
+# y el recorte fino del local cabe en su presupuesto (num_ctx), mas pequeno que el tope global
+_msgs = [{"role": "user" if n % 2 == 0 else "assistant", "content": "m" * 500} for n in range(20)]   # 20 x 500 = 10.000
+_loc = cw._recorte_chars(_msgs, cw.HISTORIAL_CHARS_LOCAL)
+_lt = sum(len(m["content"]) for m in _loc)
+comp("el recorte del local cabe en su presupuesto y empieza por user", _lt <= cw.HISTORIAL_CHARS_LOCAL and _loc and _loc[0]["role"] == "user" and len(_loc) < 20, "%d chars, %d msg" % (_lt, len(_loc)))
+# y que el local RECIBA el recorte, no el historial entero (el cableado, sobre el fuente)
+_srcCW = open(cw.__file__, encoding="utf-8").read()
+comp("generar_local recibe el recorte por caracteres, no el historial entero", "generar_local(_recorte_chars(historial, HISTORIAL_CHARS_LOCAL)" in _srcCW)
 
 print("--- con su propio cerebro ---")
 import charla_memoria as cm  # noqa: E402

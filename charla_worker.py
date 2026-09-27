@@ -177,7 +177,13 @@ MODELO_EMBED = sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] not in ("", "-")
 CARPETA_CEREBRO = sys.argv[4] if len(sys.argv) > 4 else ""
 RUTA_PERFIL = sys.argv[5] if len(sys.argv) > 5 else ""
 ESPERA_TROZO = 25.0        # s maximos entre trozos del local (en frio carga el modelo)
-MAX_HISTORIAL = 12         # mensajes (6 idas y vueltas)
+# IDEA 62: la ventana se mide en CARACTERES, no en mensajes (12 = 6 idas y vueltas dejaba fuera el
+# 56 % de los turnos en las charlas largas). El local tiene tope de contexto (num_ctx 1536 tokens ~
+# 2.500 caracteres de margen seguro); la API no lo tiene y contesta el 90 % de las veces, asi que
+# recibe la conversacion entera desde el ultimo hueco (historial.clear tras OLVIDO_S) con un tope
+# duro de seguridad ~2x la conversacion mas larga observada (52 turnos, ~10.000 caracteres).
+HISTORIAL_CHARS_LOCAL = 2500
+HISTORIAL_CHARS_TOPE = 20000
 OLVIDO_S = 300             # tras 5 min sin hablar, la charla empieza de cero (lo aprendido no)
 MIN_FRASE = 25             # letras: las frases muy cortas se juntan con la siguiente
 MAX_FRASE = 200
@@ -393,8 +399,29 @@ class Inicio:
         return "sigue", s.lstrip("[")
 
 
+def _recorte_chars(mensajes, tope):
+    """IDEA 62: los ultimos mensajes que caben en 'tope' caracteres (por content), enteros y
+    empezando por 'user' (la API lo exige). Siempre entra al menos el ultimo, aunque pase el tope."""
+    out = []
+    total = 0
+    for m in reversed(mensajes):
+        c = len(m.get("content", "") or "")
+        if out and total + c > tope:
+            break
+        out.append(m)
+        total += c
+    out.reverse()
+    while out and out[0]["role"] != "user":
+        del out[0]
+    return out
+
+
 def recortar():
-    while len(historial) > MAX_HISTORIAL:
+    # IDEA 62: el tope duro global (por caracteres) evita que el historial crezca sin fin entre
+    # huecos; el recorte fino por modelo se hace al armar cada llamada (_recorte_chars).
+    total = sum(len(m.get("content", "") or "") for m in historial)
+    while len(historial) > 1 and total > HISTORIAL_CHARS_TOPE:
+        total -= len(historial[0].get("content", "") or "")
         del historial[0]
     # la API exige que empiece por el usuario
     while historial and historial[0]["role"] != "user":
@@ -823,11 +850,11 @@ def responder(p):
             res, dato = generar_api(list(historial), [MARCA_ORDEN], emitir, extra, buscar=necesita_api(texto) or buscar or marca_api_vista)
         elif origen == "local":
             marcas = [MARCA_ORDEN] + ([MARCA_API] if api_disponible() else [])
-            res, dato = generar_local(list(historial), marcas, emitir, extra)
+            res, dato = generar_local(_recorte_chars(historial, HISTORIAL_CHARS_LOCAL), marcas, emitir, extra)
         else:
             if not marca_api_vista:
                 continue      # solo si el local se aparto para la API y la API fallo
-            res, dato = generar_local(list(historial), [MARCA_ORDEN], emitir, extra)
+            res, dato = generar_local(_recorte_chars(historial, HISTORIAL_CHARS_LOCAL), [MARCA_ORDEN], emitir, extra)
         if res == "marca" and dato == MARCA_ORDEN:
             # YA VOLVIO UNA VEZ (18/09): el asistente la mando a traducir, la traduccion
             # dijo que no era una orden y se la devolvio con "sin_orden". Insistir en
