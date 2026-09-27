@@ -1997,6 +1997,15 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n223. La voz de lo que ya esta escrito y esperando su turno (idea 59 de las 121)"
+# Los avisos del entorno se aparcan con el texto YA escrito y al soltarse pagaban ~974 ms de red
+# delante de braya (frente a 5 ms si ya estaba hecha). Ahora, al aparcarse, se manda al worker de
+# voz preparada (prioridad baja, cache md5): solo cuando Add-AvisoEspera devuelve true (no en cada
+# vuelta), solo los 'medio' que si se dicen, nunca con juego. El parte de la manana NO (se muestra,
+# no se dice). El banco ejecuta Send-AvisoEntorno con Send-PrepVoz doblado.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-voz-aparcada.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la voz del aviso aparcado se prepara sola)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n222. Que el recuerdo guarde tambien la frase con la que tu lo dijiste (idea 58 de las 121)"
 # Los recuerdos los escribe la API en tercera persona y con sus palabras; braya con las suyas y
 # en trozos. Por eso la busqueda por palabras casi nunca los encuentra (97 de 121 no salen ni una

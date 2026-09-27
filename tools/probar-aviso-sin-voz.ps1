@@ -85,6 +85,10 @@ $script:dictandoLargo = $false
 $script:armed = $false
 $EntornoNocheHasta = (Get-Date).Hour
 function Get-NocheDesde { return (((Get-Date).Hour + 2) % 24) }
+# desde idea 39 (commit 10c4fc6) Test-PuedoAvisar mira la franja de noche con Test-EsNocheAviso,
+# no con Get-NocheDesde: hay que doblarla a $false o el aviso se bloquea por "es de noche" y este
+# banco -que prueba SOLO el presupuesto por hora- salia rojo por otra cosa.
+function Test-EsNocheAviso([datetime]$ahora = (Get-Date)) { return $false }
 function Get-EsperaAviso([string]$c, [int]$d) { return $d }
 function Get-EntornoVistos { return $script:entornoVistos }
 # Test-CabeOtroAviso llama a Get-SueloPorAnimo, que lee el animo del dia y aqui no pinta nada:

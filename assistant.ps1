@@ -11951,6 +11951,14 @@ function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'med
             # "desde hace 1 min" mientras aparca por doce horas de ocio, justo en los once
             # casos que esto viene a arreglar.
             Log "ENTORNO aparcado (no hay nadie desde hace $(Get-NadieMin) min): $clave"
+            # IDEA 59: el texto ya esta escrito y esperando su turno; se prepara la voz AHORA
+            # (worker en prioridad baja, cache por md5) para que al soltarse no pague ~974 ms de
+            # red delante de braya, y para decirse con la voz buena aunque entonces no haya red.
+            # Solo cuando Add-AvisoEspera devuelve true (primera vez o cambio de texto): no en cada
+            # vuelta. Aqui solo llegan los 'medio' que SI se dicen (Test-AvisoAplazable) y nunca con
+            # un juego delante (esa guarda ya la lleva Test-AvisoAplazable). El parte de la manana
+            # NO se prepara: se MUESTRA en la capsula, no se dice, y prepararlo gastaria voz para nada.
+            try { Send-PrepVoz $texto } catch {}
         }
         return $false
     }
