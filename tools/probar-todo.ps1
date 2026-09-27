@@ -1997,6 +1997,16 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n224. Dejar de reintentar a ciegas el resumen del diario (idea 60 de las 121)"
+# El spam ('no pude resumir' cada 65 s, 71 lineas el 26/09) ya lo arreglo la idea 14 (backoff +
+# avisar una vez). Faltaba la regla 2: pasadas 6 h sin poder resumir un dia, volcar sus frases en
+# bruto al diario ('sin resumir todavia') para no perderlo -una vez por dia-, y sustituirlo por las
+# vinetas cuando ollama vuelva. Dos bancos: volcar_crudo_pendiente (py) y Add-DiarioResumen (ps).
+python (Join-Path $PSScriptRoot 'probar-diario-crudo.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el dia sin resumir se vuelca en bruto a tiempo)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-diario-crudo.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el diario en bruto se sustituye por el resumen)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n223. La voz de lo que ya esta escrito y esperando su turno (idea 59 de las 121)"
 # Los avisos del entorno se aparcan con el texto YA escrito y al soltarse pagaban ~974 ms de red
 # delante de braya (frente a 5 ms si ya estaba hecha). Ahora, al aparcarse, se manda al worker de

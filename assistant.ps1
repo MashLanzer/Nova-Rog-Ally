@@ -2155,20 +2155,34 @@ function Add-Memoria([string]$texto) {
 # DIARIO DE CONVERSACIONES (M10, 14/09): el worker de charla resume con el modelo
 # local lo hablado cada dia y aqui se anade al diario de ESE dia, bajo su titulo.
 # Asi "¿de que hablamos ayer?" lo encuentra la busqueda en tus notas.
-function Add-DiarioResumen([string]$fecha, [string]$texto) {
+function Add-DiarioResumen([string]$fecha, [string]$texto, [bool]$crudo = $false) {
     if ($script:invitado) { return }   # MODO INVITADO: lo que diga otro no se queda (17/09)
     if ($fecha -notmatch '^\d{4}-\d{2}-\d{2}$' -or -not $texto.Trim()) { return }
     if (-not (Test-Path -LiteralPath $DiarioDir)) { New-Item -ItemType Directory -Force -Path $DiarioDir | Out-Null }
     $notaD = Join-Path $DiarioDir ($fecha + '.md')
     $encD = New-Object System.Text.UTF8Encoding($false)
+    $tituloCrudo = 'Lo que hablamos (sin resumir todavia)'
+    # IDEA 60: cuando llega el resumen DE VERDAD (vinetas, no crudo), se quita antes el volcado en
+    # bruto de ese dia si lo hubo, para que no queden los dos. El volcado crudo -que entra cuando
+    # el cerebro local lleva horas caido- va con su propio titulo; asi se localiza para sustituirlo.
+    if (-not $crudo -and (Test-Path -LiteralPath $notaD)) {
+        try {
+            $viejoD = [System.IO.File]::ReadAllText($notaD, $encD)
+            if ($viejoD.Contains("## $tituloCrudo")) {
+                $viejoD = [regex]::Replace($viejoD, "(?s)\r?\n\r?\n## " + [regex]::Escape($tituloCrudo) + ".*?(?=\r?\n\r?\n## |\z)", "")
+                [System.IO.File]::WriteAllText($notaD, $viejoD, $encD)
+            }
+        } catch {}
+    }
     if (-not (Test-Path -LiteralPath $notaD)) {
         $culD = New-Object System.Globalization.CultureInfo('es-MX')
         $diaD = [datetime]::ParseExact($fecha, 'yyyy-MM-dd', [System.Globalization.CultureInfo]::InvariantCulture)
         [System.IO.File]::WriteAllText($notaD, "# " + $diaD.ToString('dddd d "de" MMMM "de" yyyy', $culD) + "`r`n", $encD)
     }
     $lineasD = @($texto -split "`r?`n" | Where-Object { $_.Trim() })
-    [System.IO.File]::AppendAllText($notaD, "`r`n`r`n## Lo que hablamos`r`n" + ($lineasD -join "`r`n") + "`r`n", $encD)
-    Log "DIARIO: lo hablado el $fecha, resumido en $($lineasD.Count) lineas"
+    $titD = if ($crudo) { $tituloCrudo } else { 'Lo que hablamos' }
+    [System.IO.File]::AppendAllText($notaD, "`r`n`r`n## $titD`r`n" + ($lineasD -join "`r`n") + "`r`n", $encD)
+    Log ("DIARIO: lo hablado el $fecha, " + $(if ($crudo) { 'en bruto (sin resumir todavia)' } else { 'resumido' }) + " en $($lineasD.Count) lineas")
 }
 
 # RECETAS QUE CONFIRMAN EL DATO DUDOSO (M7, 14/09): Whisper apunta su seguridad al
@@ -25031,7 +25045,7 @@ $script:triviaGenerandoEn = 0
         # el cerebro confirmo algo nuevo: un destello en la capsula (D1)
         if ($ev.ev -eq 'aprendido') { Log "charla: aprendido '$($ev.texto)'"; Send-UIEvento 'destello'; continue }
         # lo hablado un dia, resumido: al diario de ese dia (M10)
-        if ($ev.ev -eq 'diario') { try { Add-DiarioResumen ([string]$ev.fecha) ([string]$ev.texto) } catch { Log ("diario: " + $_.Exception.Message) }; continue }
+        if ($ev.ev -eq 'diario') { try { Add-DiarioResumen ([string]$ev.fecha) ([string]$ev.texto) ([bool]$ev.crudo) } catch { Log ("diario: " + $_.Exception.Message) }; continue }
         # EL CEREBRO PROPIO: lo que la revision saco de la charla (llega cuando sea, sin id)
         if ($ev.ev -eq 'dato') {
             if (-not $script:invitado) { try { [void](Add-DatoPerfil ([string]$ev.texto) 'charla') } catch {} }

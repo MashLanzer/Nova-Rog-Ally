@@ -900,6 +900,13 @@ def revisar_una():
                 return True
         except Exception as e:  # noqa: BLE001
             salida("info", texto="diario: %s" % e)
+        # IDEA 60: si un dia lleva horas sin poder resumirse (ollama caido), se vuelca en bruto para
+        # no perderlo -una vez por dia, no en cada vuelta-, y se sustituye por las vinetas al volver.
+        try:
+            if volcar_crudo_pendiente():
+                return True
+        except Exception as e:  # noqa: BLE001
+            salida("info", texto="diario crudo: %s" % e)
     # los vectores que faltan, solo con Qwen ya fuera de la RAM (5 min sin charla):
     # cargar el modelo de embeddings a su lado hace paginar a Windows
     if time.time() - ultima_charla > 300:
@@ -1241,6 +1248,68 @@ def resumir_dias_pasados(hoy=None):
         salida("diario", 0, fecha=dia, texto="\n".join(vinetas))
         try:
             os.remove(ruta)
+        except OSError:
+            pass
+        # IDEA 60: si este dia se habia volcado en bruto (ollama estuvo caido horas), se quita la
+        # marca: el asistente ya sustituyo el volcado crudo por estas vinetas.
+        try:
+            os.remove(ruta + ".crudo")
+        except OSError:
+            pass
+        return True
+    return False
+
+
+DIARIO_CRUDO_HORAS = 6.0   # IDEA 60 (regla 2): pasadas 6 h sin poder resumir un dia, se vuelca en bruto
+
+
+def volcar_crudo_pendiente(hoy=None):
+    """IDEA 60: si un dia pasado lleva mas de DIARIO_CRUDO_HORAS sin resumir -el cerebro local no
+    ha vuelto (ver ollama_cayo, idea 14)-, se vuelcan sus frases EN BRUTO recortadas al diario,
+    marcadas 'sin resumir todavia', para no perder el dia. El jsonl NO se borra: cuando ollama
+    vuelva, resumir_dias_pasados lo resume y sustituye lo crudo por las vinetas. Se vuelca UNA vez
+    por dia (marca .crudo al lado del jsonl), no en cada vuelta del reposo."""
+    hoy = hoy or time.strftime("%Y-%m-%d")
+    try:
+        nombres = sorted(n for n in os.listdir(CARPETA_CEREBRO) if n.startswith("charla-") and n.endswith(".jsonl"))
+    except OSError:
+        return False
+    aqui_es_real = (origen_linea() == "real")
+    ahora = time.time()
+    for n in nombres:
+        dia = n[len("charla-"):-len(".jsonl")]
+        if dia >= hoy:
+            continue
+        ruta = os.path.join(CARPETA_CEREBRO, n)
+        marca = ruta + ".crudo"
+        if os.path.exists(marca):
+            continue                              # ya se volco en bruto; espera a que ollama lo resuma
+        try:
+            if ahora - os.path.getmtime(ruta) < DIARIO_CRUDO_HORAS * 3600:
+                continue                          # aun no ha pasado el plazo: se le da tiempo al resumen
+        except OSError:
+            continue
+        frases = []
+        try:
+            with open(ruta, encoding="utf-8") as f:
+                for linea in f:
+                    try:
+                        t = json.loads(linea)
+                    except ValueError:
+                        continue
+                    if aqui_es_real and t.get("o", "real") != "real":   # el mismo filtro que resumir
+                        continue
+                    b = (t.get("braya", "") or "").strip()
+                    if b:
+                        frases.append("- " + b[:120])
+        except OSError:
+            continue
+        frases = frases[:12]
+        if not frases:
+            continue
+        salida("diario", 0, fecha=dia, texto="\n".join(frases), crudo=True)
+        try:
+            open(marca, "w").close()
         except OSError:
             pass
         return True
@@ -1609,9 +1678,9 @@ def principal():
         # EL REPASO DEL ESTILO (22/09, idea 5): cuantas preferencias guardadas se
         # contradecian entre ellas y se han ido al cargar. Si no se dice, un repaso que
         # borra cosas del cerebro no lo ve nadie.
-        if getattr(cerebro, "estilo_fuera", 0):
-            salida("info", texto="memoria: %d preferencia(s) de estilo que se contradecian, fuera"
-                                 % cerebro.estilo_fuera)
+        if getattr(cerebro, "estilo_fuera", 0):
+            salida("info", texto="memoria: %d preferencia(s) de estilo que se contradecian, fuera"
+                                 % cerebro.estilo_fuera)
         # Y LOS RECUERDOS REPASADOS (26/09, idea 31). El numero NEGATIVO no es un error:
         # es el disyuntor diciendo que NO ha tocado nada porque el filtro se estaba
         # comiendo mas de la mitad de la memoria. La regla 2 de la casa: el modo que no
