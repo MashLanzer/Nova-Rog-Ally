@@ -2072,6 +2072,15 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n238. El cuaderno de activaciones que solo abria el borrador (idea 85 de las 121)"
+# Cada vez que Nova se despierta apunta 14 datos, incluido EN QUE ACABO, y el fichero aparecia tres
+# veces en todo el repositorio fuera de los bancos: quien lo escribe y quien lo BORRA. Leidas sus
+# 125 lineas de 8 dias: 79 acabaron en orden y 46 en nada (37 %). Ahora Test-RevisionPropia lo lee
+# como sexto caso y puede subir la confianza minima al borde de un tramo bajo que no aporte. Con los
+# datos de HOY no mueve nada -ningun tramo bajo llega a 20 muestras con mala tasa-, y el tramo ALTO
+# no se toca nunca: subir ahi seria dejar de oir su nombre, lo contrario de la meta del 100 %.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-activaciones-leidas.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de activaciones por fin se lee)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n237. Un solo estado de red, en vez de dieciseis plazos sueltos (idea 84 de las 121)"
 # Cada pieza descubria por su cuenta que no hay red: siete plazos escritos a mano en assistant.ps1 y
 # nueve en el worker, y un grep de Test-Connection/NetworkAvailability/hayRed/sinRed daba CERO.

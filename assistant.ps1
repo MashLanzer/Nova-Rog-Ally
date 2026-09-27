@@ -13709,6 +13709,80 @@ function Get-TasaSucia($stats, [datetime]$ahora, [int]$desde, [int]$hasta) {
     return @{ arr = $arr; cie = $cie; sucias = $sucias; tasa = ([double]$sucias / [double]$arr) }
 }
 
+# EL CUADERNO DE ACTIVACIONES QUE SOLO ABRIA EL BORRADOR (27/09, idea 85)
+#
+# EL AGUJERO: cada vez que Nova se despierta al oir su nombre, el oido apunta una linea con 14
+# datos -la confianza con la que lo oyo, el umbral en vigor, la rafaga, el pico, la ganancia, si
+# sonaban los altavoces, cuanto espero y EN QUE ACABO-. Es el unico sitio del proyecto donde queda
+# escrito si despertarse valio la pena. Y en todo el repositorio el fichero aparece tres veces
+# fuera de los bancos: quien lo escribe (wake_vosk.py) y quien lo BORRA (Invoke-Olvido). Ni un lector.
+#
+# LO QUE DICE HOY, leidas sus 125 lineas de 8 dias: 79 acabaron en orden, 37 en NADA, 5 pisadas y 4
+# sin dictado. O sea que 46 de 125 -el 37 %- fueron despertarse para nada. Por tramos de confianza:
+# [0,55-0,70) 14 activaciones y el 43 % dio orden; [0,70-0,85) 12 y 58 %; [0,85-0,95) 33 y 52 %;
+# [0,95-1] 66 y 74 %. Ningun tramo bajo llega todavia a las 20 muestras que pide la casa para
+# decidir, asi que HOY esto no mueve nada: nace midiendo, no cambiando.
+$ActivacionesJsonl = Join-Path $LogDir 'pruebas\audio\uso\activaciones.jsonl'
+$ActivTramos = @(@{ de = 0.00; a = 0.55 }, @{ de = 0.55; a = 0.70 }, @{ de = 0.70; a = 0.85 },
+                 @{ de = 0.85; a = 0.95 }, @{ de = 0.95; a = 1.01 })
+
+function Get-ActivacionesTramos([datetime]$ahora = (Get-Date)) {
+    # Por tramo de confianza: cuantas activaciones y cuantas acabaron en orden. Solo los dias que
+    # cuentan (Test-DiaCuenta), igual que el resto de las decisiones.
+    $fuera = @()
+    try {
+        if (-not (Test-Path -LiteralPath $ActivacionesJsonl)) { return @() }
+        $porTramo = @{}
+        foreach ($t in $ActivTramos) { $porTramo[[string]$t.a] = @{ de = [double]$t.de; a = [double]$t.a; n = 0; ok = 0; dias = @{} } }
+        foreach ($linea in [System.IO.File]::ReadLines($ActivacionesJsonl)) {
+            if (-not $linea -or $linea.Length -lt 10) { continue }
+            $o = $null
+            try { $o = $linea | ConvertFrom-Json } catch { continue }
+            $dia = ([string]$o.hora)
+            if ($dia.Length -ge 10) { $dia = $dia.Substring(0, 10) } else { continue }
+            if (-not (Test-DiaCuenta $dia)) { continue }
+            $c = 0.0
+            try { $c = [double]$o.conf } catch { continue }
+            foreach ($t in $ActivTramos) {
+                if ($c -ge [double]$t.de -and $c -lt [double]$t.a) {
+                    $k = [string]$t.a
+                    $porTramo[$k].n++
+                    if ([string]$o.desenlace -eq 'orden') { $porTramo[$k].ok++ }
+                    $porTramo[$k].dias[$dia] = $true
+                    break
+                }
+            }
+        }
+        foreach ($t in $ActivTramos) {
+            $k = [string]$t.a
+            if ($porTramo[$k].n -le 0) { continue }
+            $fuera += @{ de = $porTramo[$k].de; a = $porTramo[$k].a; n = $porTramo[$k].n
+                         ok = $porTramo[$k].ok; dias = @($porTramo[$k].dias.Keys).Count }
+        }
+    } catch { return @() }
+    return @($fuera | Sort-Object { $_.de })
+}
+
+# ¿Hay un tramo BAJO que no sirve para nada? Devuelve el borde al que habria que subir el umbral, o
+# 0 si no hay nada que decidir. Solo mira tramos POR DEBAJO del umbral de hoy mas alto: subirlo por
+# encima de donde Nova acierta tres de cada cuatro veces seria dejar de oir su nombre.
+function Get-ConfianzaQueSobra([datetime]$ahora = (Get-Date)) {
+    $tramos = @(Get-ActivacionesTramos $ahora)
+    if ($tramos.Count -eq 0) { return 0.0 }
+    foreach ($t in $tramos) {
+        if ([double]$t.a -gt 0.95) { continue }            # el tramo alto no se toca nunca
+        if ([double]$t.de -lt $EscuchaConf) {
+            # el tramo ya esta por debajo del umbral en vigor: no hay nada que subir
+            if ([double]$t.a -le $EscuchaConf) { continue }
+        }
+        if ([int]$t.n -lt $DecisionMinIntentos) { continue }          # sin 20 muestras no se juzga
+        if ([int]$t.ok -ge (Get-DecisionMinimo ([int]$t.n))) { continue }   # si aporta, se queda
+        if (-not (Test-DecisionSolida ([int]$t.ok) ([int]$t.n))) { continue }
+        if ([int]$t.dias -lt 3) { continue }                          # ni por una tarde rara
+        return [double]$t.a
+    }
+    return 0.0
+}
 # DEMASIADOS REINICIOS, MEDIDO CONTRA UNO MISMO (26/09, idea 50). El 22/09 Nova relanzo el oido
 # y la capsula nueve veces y no dijo nada; media hora antes se moria la mitad de las veces al
 # arrancar. Mira DOS cosas por separado: los 'arranque' y la suma 'relanza:oido'+'relanza:capsula'.
@@ -14129,6 +14203,37 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     # (el worker recibe el modelo al arrancar, pero nunca se lo piden). Importa: al
     # relanzar la escucha, un valor vacio ya se le pasa como '-', que el worker entiende
     # como desactivado; asi que esto NO deja a Nova sorda en el proximo arranque.
+    # --- caso 6: LA CONFIANZA CON LA QUE SE DESPIERTA (27/09, idea 85) ---
+    # El cuaderno de activaciones tiene 14 datos por cada vez que Nova oye su nombre, incluido EN QUE
+    # ACABO, y no lo leia nadie: en todo el repositorio aparecia tres veces fuera de los bancos -quien
+    # lo escribe y quien lo BORRA-. Leidas sus 125 lineas de 8 dias: 79 acabaron en orden y 46 en nada
+    # (el 37 %). Si un tramo de confianza POR DEBAJO del alto acumula 20 muestras en tres dias
+    # distintos y aporta menos del minimo de la casa, el umbral sube a su borde.
+    #
+    # LA GUARDA GORDA: subir el umbral es arriesgarse a que Nova deje de oir su nombre, que es lo
+    # contrario de la meta del 100 %. Por eso el tramo alto (>= 0,95) no se toca NUNCA, hacen falta
+    # los mismos 20 intentos y la misma solidez que las otras cinco decisiones, y ademas el boton y el
+    # mando siguen abriendo el microfono pase lo que pase con este numero.
+    if (-not $script:autoDecision -and -not (Test-DecisionDevuelta 'escucha' 'confianzaMinima' $ahora)) {
+        $confSobra = 0.0
+        try { $confSobra = [double](Get-ConfianzaQueSobra $ahora) } catch { $confSobra = 0.0 }
+        if ($confSobra -gt 0 -and $confSobra -gt $EscuchaConf) {
+            $antesC = [double]$EscuchaConf
+            $script:EscuchaConf = $confSobra
+            if (-not (Set-Cfg 'escucha' 'confianzaMinima' $confSobra)) {
+                $script:EscuchaConf = $antesC
+                $script:revisionPropiaDia = ''
+                Log 'REVISION PROPIA: no pude guardar la confianza minima; la dejo como estaba'
+                return $false
+            }
+            $apuntadaC = Save-DecisionPropia 'escucha' 'confianzaMinima' $antesC 'la confianza con la que me despierto'
+            Log ("REVISION PROPIA: subo la confianza minima de " + $antesC + " a " + $confSobra + " (por debajo de ahi me despertaba para nada)")
+            Add-Estadistica 'auto-ajuste' ("confianza minima: " + $antesC + " -> " + $confSobra)
+            [void](Send-AvisoEntorno 'auto-confianza' ("He subido la confianza con la que me despierto de " + $antesC + " a " + $confSobra + ": por debajo de ahi casi siempre era ruido. El boton y el mando me abren igual. Si prefieres que vuelva, dime: deshaz lo que has cambiado." + $(if (-not $apuntadaC) { ' Aunque no he podido apuntarlo: si me reinicias, vuelve solo.' } else { '' })) 'medio' 43200)
+            return $true
+        }
+    }
+
     $antesR = [string]$WhisperUltimo
     $script:WhisperUltimo = ''
     if (-not (Set-Cfg 'input' 'whisperModeloUltimo' '')) {
