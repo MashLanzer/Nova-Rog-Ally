@@ -2072,6 +2072,15 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n231. La costumbre se medía contra el reloj, y braya no tiene reloj (idea 78 de las 121)"
+# CERO propuestas en 17 dias. El unico candidato, 'abre steam', tiene los 4 dias distintos que
+# hacen falta, pero sus horas son 10:14, 20:05, 18:54 y 01:09: contra la mediana del reloj solo 1
+# cae dentro de los +-30 min. Medidos contra el ARRANQUE DE LA TANDA, sus siete usos caen entre
+# -0,6 y +1,4 minutos. Cuarto detector anclado a cuando braya EMPIEZA a hablarle (tanda = primera
+# orden tras 45 min sin ninguna, no el arranque de Nova, que pasa 15 veces al dia), ventana de 14
+# dias y N por el p80 de sus desfases. Y de paso, el veto blindado contra el $null que vale 0.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-propuesta-tanda.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la costumbre se mide desde que empiezas)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n230. La vibracion estaba detras de una puerta que no se abria nunca (idea 77 de las 121)"
 # Send-AvisoVibrado solo vibraba con la capsula ciega, y eso se decidia por resolucion: cero lineas
 # 'CAPSULA CIEGA' en 16 dias con 4.038 s de nightreign en un solo dia, o sea 5 avisos 'SIN VOZ' y

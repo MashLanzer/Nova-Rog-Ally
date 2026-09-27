@@ -94,7 +94,12 @@ Comp 'una clave que no esta, tampoco' (-not (Test-PropuestaVetada $hb 'app|nada|
 Write-Host '  -- y los tres filtros usan la funcion nueva --'
 $fp = Traer 'Find-Propuesta'
 Comp 'ningun -contains suelto en Find-Propuesta' (-not ($fp -match 'rechazadas -contains')) ''
-Comp 'y los tres sitios preguntan por Test-PropuestaVetada' (([regex]::Matches($fp, 'Test-PropuestaVetada')).Count -eq 3) ("veces: " + ([regex]::Matches($fp, 'Test-PropuestaVetada')).Count)
+# DESDE EL 27/09 SON CUATRO DETECTORES (idea 78): el nuevo busca la misma orden al EMPEZAR a
+# hablarle, no a una hora del reloj, porque 'abre steam' se pedia a las 10:14, 20:05, 18:54 y
+# 01:09 -o sea nunca a la misma hora- pero siempre en el primer minuto y medio de la tanda.
+# El numero no se escribe a mano aqui: se cuentan los detectores que devuelven propuesta.
+$detectores = ([regex]::Matches($fp, 'return @\{ clave = ')).Count
+Comp 'y TODOS los detectores preguntan por Test-PropuestaVetada' (([regex]::Matches($fp, 'Test-PropuestaVetada')).Count -eq $detectores) ("detectores: " + $detectores + ", filtros: " + ([regex]::Matches($fp, 'Test-PropuestaVetada')).Count)
 
 Write-Host ''
 if ($mal -gt 0) { Write-Host "$mal casos MAL" -ForegroundColor Red; exit 1 }

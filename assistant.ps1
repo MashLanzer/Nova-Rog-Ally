@@ -10172,6 +10172,31 @@ function Save-Habitos {
         Move-Item -LiteralPath ($rutaH + '.tmp') -Destination $rutaH -Force
     } catch { Log ("habitos: no pude guardarlos: " + $_.Exception.Message) }
 }
+# LA COSTUMBRE SE MEDIA CONTRA EL RELOJ, Y BRAYA NO TIENE RELOJ (27/09, idea 78)
+#
+# EL DATO: CERO propuestas en 17 dias -ni una linea 'PROPUESTA:' en las 58.644 del registro-. El
+# unico candidato, 'abre steam', tiene 4 dias distintos en la ventana (el minimo son 3), pero sus
+# horas de reloj son 10:14, 20:05, 18:54 y 01:09: contra la mediana que calcula el codigo (18:54)
+# solo 1 de los 4 cae dentro de los +-30 minutos que exige, asi que se descarta. Medido contra el
+# ARRANQUE DE LA TANDA, los SIETE usos de 'abre steam' caen entre -0,6 y +1,4 minutos del inicio.
+# O sea: la costumbre existe y estaba medida contra la cosa equivocada.
+#
+# LA TANDA SE MIDE POR ORDENES, NO POR EL ARRANQUE DE NOVA, que ocurre quince veces al dia (259
+# arranques en 17 dias). Tanda = desde la primera orden tras 45 minutos sin ninguna.
+$TandaCorteMin = 45
+$script:tandaDesde = $null       # hora de la primera orden de esta tanda
+$script:tandaUltima = $null      # y la de la ultima, para saber si la tanda sigue viva
+
+function Get-MinutosDeTanda([datetime]$cuando = (Get-Date)) {
+    # minutos desde la primera orden de la tanda; 0 si esta es la primera
+    if ($null -eq $script:tandaDesde -or $null -eq $script:tandaUltima -or
+        ($cuando - $script:tandaUltima).TotalMinutes -gt $TandaCorteMin) {
+        $script:tandaDesde = $cuando
+    }
+    $script:tandaUltima = $cuando
+    return [int][Math]::Max(0, [Math]::Round(($cuando - $script:tandaDesde).TotalMinutes))
+}
+
 function Add-Habito([string]$texto, [datetime]$cuando = (Get-Date)) {
     if ($script:invitado) { return }   # lo que pide un invitado no es tu costumbre
     $p = ConvertTo-Plain $texto
@@ -10181,7 +10206,9 @@ function Add-Habito([string]$texto, [datetime]$cuando = (Get-Date)) {
     if (-not $p -or $p.Length -gt 60 -or $p -notmatch '^(?:abre|pon|ponme|modo|activa|desactiva|sube|baja|silencia|lanza|inicia|arranca)\b') { return }
     if ($p -match '\b(?:todo|todos|todas|apaga|reinicia|bloquea|borra|elimina)\b') { return }
     $hb = Get-Habitos
-    [void]$hb.usos.Add(@{ t = $p; f = $cuando.ToString('yyyy-MM-dd'); h = $cuando.ToString('HH:mm') })
+    # 's' son los minutos desde que braya empezo a hablarle en esta tanda (idea 78). Los usos
+    # viejos no lo traen y cuentan como sin dato, no como cero: ver el cuarto detector.
+    [void]$hb.usos.Add(@{ t = $p; f = $cuando.ToString('yyyy-MM-dd'); h = $cuando.ToString('HH:mm'); s = (Get-MinutosDeTanda $cuando) })
     while ($hb.usos.Count -gt 400) { $hb.usos.RemoveAt(0) }
     Save-Habitos
 }
@@ -14943,7 +14970,13 @@ function Test-PropuestaVetada($hb, [string]$clave, [datetime]$ahora = (Get-Date)
         $f = $null
         try { $f = [datetime]::ParseExact([string]$r.f, 'yyyy-MM-dd', [System.Globalization.CultureInfo]::InvariantCulture) } catch { $f = $null }
         if ($null -eq $f) { return $true }                    # sin fecha legible, se respeta
-        if (($ahora - $f).TotalDays -lt $PropuestaVetoDias) { return $true }
+        # EL Max(1, ...) NO SOBRA (27/09, idea 78): en PowerShell $null vale 0 en una comparacion
+        # numerica, asi que si esta constante faltara al pasar por aqui -o alguien la moviera de
+        # sitio-, 'TotalDays -lt $null' seria falso SIEMPRE y el veto no vetaria nada: Nova volveria
+        # a proponer lo que braya ya dijo que no. Lo cazo un banco al traer esta funcion sin sus
+        # constantes, que es la tercera vez que esta trampa muerde (ver Get-EsperaAviso y
+        # Get-SueloPorAnimo, los dos con el mismo blindaje).
+        if (($ahora - $f).TotalDays -lt [Math]::Max(1, [int]$PropuestaVetoDias)) { return $true }
     }
     return $false
 }
@@ -14969,7 +15002,10 @@ function Add-PropuestaTratada($hb, [string]$clave, [bool]$aceptada, [datetime]$a
 function Find-Propuesta([datetime]$hoy = (Get-Date)) {
     $hb = Get-Habitos
     if ($hb.ultimaPropuesta -eq $hoy.ToString('yyyy-MM-dd')) { return $null }
-    $desde = $hoy.AddDays(-7).ToString('yyyy-MM-dd')
+    # CATORCE DIAS Y NO SIETE (27/09, idea 78): es la ventana que ya usa todo lo demas -la mediana
+    # de reinicios, el reparto de datos, la revision propia-. Con 7 dias 'abre steam' solo tenia 2
+    # dias con usos y con 14 tiene los 4 que hacen falta para siquiera mirarlo.
+    $desde = $hoy.AddDays(-14).ToString('yyyy-MM-dd')
     $rec = @($hb.usos | Where-Object { $_.f -ge $desde })
     $reglasP = Get-Reglas
     # 1. la misma orden a la misma hora
@@ -14987,6 +15023,30 @@ function Find-Propuesta([datetime]$hoy = (Get-Date)) {
         if (@($reglasP | Where-Object { $_.tipo -eq 'hora' -and (ConvertTo-Plain $_.accion) -eq $g.Name }).Count -gt 0) { continue }
         return @{ clave = $clave; tipo = 'hora'; valor = $hora; accion = $g.Name
             pregunta = "Estos dias, a eso de las $hora, sueles pedirme $($g.Name). ¿Quieres que lo haga yo sola cada dia a esa hora?" }
+    }
+    # 1b. LA MISMA ORDEN AL EMPEZAR A HABLARLE (27/09, idea 78). El de arriba busca la misma hora
+    #     del reloj y braya no tiene reloj: sus siete 'abre steam' caen todos en el primer minuto y
+    #     medio de la tanda, con horas que van de la 01:09 a las 20:05. N no se escribe a mano: es
+    #     el p80 de los desfases que de verdad tienen, con suelo de 2 minutos.
+    foreach ($g in @($rec | Group-Object { $_.t })) {
+        # solo los usos que traen el campo: los de antes del 27/09 no lo tienen y contarlos como
+        # cero seria inventarse que se pidieron al empezar
+        $conS = @($g.Group | Where-Object { $null -ne $_.s })
+        if ($conS.Count -lt 3) { continue }
+        $porDiaS = @{}
+        foreach ($u in $conS) { if (-not $porDiaS.ContainsKey($u.f)) { $porDiaS[$u.f] = [int]$u.s } }
+        if ($porDiaS.Count -lt 3) { continue }          # TRES DIAS distintos, no tres de una tarde
+        $desf = @($porDiaS.Values | Sort-Object)
+        $n80 = [Math]::Max(2, (Get-PercentilLista $desf 80))
+        if (@($desf | Where-Object { $_ -le $n80 }).Count -lt 3) { continue }
+        # 'empiezas' y no 'arranque': ese nombre ya es el contador de cuantas veces arranco NOVA
+        # (idea 50), y dos cosas distintas con el mismo nombre se confunden al leerlas.
+        $claveS = "empiezas|$($g.Name)"
+        if (Test-PropuestaVetada $hb $claveS) { continue }
+        if (@($reglasP | Where-Object { $_.tipo -eq 'empiezas' -and (ConvertTo-Plain $_.accion) -eq $g.Name }).Count -gt 0) { continue }
+        $comoS = if ($n80 -le 2) { 'en cuanto empiezas a hablarme' } else { "en los primeros $n80 minutos" }
+        return @{ clave = $claveS; tipo = 'empiezas'; valor = [string]$n80; accion = $g.Name
+            pregunta = "Estos dias, $comoS, sueles pedirme $($g.Name). ¿Quieres que lo haga yo sola cuando empieces?" }
     }
     # 2. la misma orden justo despues de abrir una app
     $pares = @{}
@@ -21892,6 +21952,8 @@ function Describe-Regla($r) {
         'bateriaLlena' { 'cuando termine de cargar' }
         'discoJuegos' { if ($r.valor -eq 'quita') { 'cuando quites el disco de los juegos' } else { 'cuando conectes el disco de los juegos' } }
         'mandoCoge' { 'cuando cojas el mando' }
+        # idea 78: la costumbre anclada a cuando braya EMPIEZA a hablarle, no a una hora de reloj
+        'empiezas' { 'cuando empieces a hablarme' }
         # el nombre, no el steamid: la regla se lee en voz alta y un 76561198... no se entiende
         'amigoConecta' { $nomD = ([string]$r.valor).Split('|'); if ($nomD.Count -ge 2 -and $nomD[1]) { "cuando se conecte $($nomD[1])" } else { 'cuando se conecte' } }
         'disco' { "cuando queden menos de $($r.valor) gigas" }
@@ -22321,6 +22383,7 @@ function Invoke-Reglas([string]$tipo, [string]$dato = '') {
             # sin valor vale cualquiera de las dos, por si alguien dice solo "el disco"
             'discoJuegos' { $dispara = (-not $r.valor -or $r.valor -eq $dato) }
             'mandoCoge' { $dispara = ($dato -eq 'coge') }
+            'empiezas' { $dispara = ($dato -eq 'empieza') }
             # el dato que llega es el steamid, que es lo unico que no cambia: el nick se puede
             # cambiar en Steam en cualquier momento
             'amigoConecta' { $dispara = (([string]$r.valor).Split('|')[0] -eq $dato) }
@@ -29056,6 +29119,14 @@ function Process-Texto([string]$text) {
                 # lo que tuvo que confirmarse (peligroso, dudoso, voz ajena) no es
                 # una costumbre que automatizar (revision del 13/09)
                 if (-not $script:confirmado) { try { Add-Habito $text } catch {} }
+                # Y SI ESTA ES LA PRIMERA ORDEN DE LA TANDA, las reglas de 'empiezas' (idea 78).
+                # Get-MinutosDeTanda devuelve 0 justo en esa, y Add-Habito ya la ha llamado, asi que
+                # aqui se pregunta por lo que quedo apuntado: $script:tandaDesde -eq $script:tandaUltima.
+                try {
+                    if ($null -ne $script:tandaDesde -and $script:tandaDesde -eq $script:tandaUltima) {
+                        Invoke-Reglas 'empiezas' 'empieza'
+                    }
+                } catch { Log ('reglas de empezar: ' + $_.Exception.Message) }
                 # esta orden se entendio y se hizo: su tono eres tu. Es la unica
                 # fuente limpia que hay, y la que evita que el ruido acabe
                 # pasando por dueno de la casa.
