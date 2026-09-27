@@ -20906,12 +20906,22 @@ function Update-Clima {
                 $script:ClimaLat = [double]$cacheU.lat; $script:ClimaLon = [double]$cacheU.lon
             } else {
                 $g = $null
-                try { $g = Invoke-RestMethod -Uri 'http://ip-api.com/json/?fields=lat,lon,city' -TimeoutSec 4 } catch { $g = $null }
+                # IDEA 57: HTTPS, no http. Era el UNICO destino externo en claro (los otros siete
+                # van por https); en esa peticion viajaba la IP publica de braya sin cifrar. ip-api
+                # sirve https. Si https falla, el catch deja $g a $null y mas abajo se usa la
+                # ubicacion guardada: NUNCA se vuelve a http.
+                try { $g = Invoke-RestMethod -Uri 'https://ip-api.com/json/?fields=lat,lon,city' -TimeoutSec 4 } catch { $g = $null }
                 if ($g -and $g.lat) {
                     $script:ClimaLat = [double]$g.lat; $script:ClimaLon = [double]$g.lon
-                    Log "clima: ubicacion por IP ($($g.city))"
+                    # IDEA 57: dias seguidos con la MISMA ciudad. Es la medicion (medir con uso real)
+                    # para poder dejar de preguntar mas adelante; AUN NO se actua: fijar el numero de
+                    # racha sin medirlo romperia la regla 3, y antes hay que detectar el viaje (SSID)
+                    # -si no, con la consola de viaje Nova daria el clima de Tampa para siempre-.
+                    $igualesU = 1
+                    if ($cacheU -and [string]$cacheU.ciudad -eq [string]$g.city) { $igualesU = [int]$cacheU.iguales + 1 }
+                    Log "clima: ubicacion por IP ($($g.city)); $igualesU dia(s) seguidos igual"
                     try {
-                        Write-Atomico $rutaU (ConvertTo-Json -InputObject ([ordered]@{ lat = [double]$g.lat; lon = [double]$g.lon; ciudad = [string]$g.city; dia = $hoyU }) -Depth 3)
+                        Write-Atomico $rutaU (ConvertTo-Json -InputObject ([ordered]@{ lat = [double]$g.lat; lon = [double]$g.lon; ciudad = [string]$g.city; dia = $hoyU; iguales = $igualesU }) -Depth 3)
                     } catch {}
                 } elseif ($cacheU -and $cacheU.lat) {
                     # sin red: mejor el sitio de ayer que quedarse sin tiempo

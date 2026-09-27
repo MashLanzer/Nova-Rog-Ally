@@ -1997,6 +1997,15 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n221. Su IP ya no sale en claro: ip-api por https y contar dias iguales (idea 57 de las 121)"
+# De los 8 destinos externos, ip-api.com era el UNICO por http:// sin cifrar (los otros 7 por
+# https): la IP publica de braya viajaba en claro una vez al dia. Ahora https, y se cuenta cuantos
+# dias seguidos da la misma ciudad ('iguales' en ubicacion.json) para dejar de preguntar mas
+# adelante -aun no se actua: sin racha medida no se fija el numero (regla 3) y falta detectar el
+# viaje-. El banco es un guardarrail: ninguna llamada externa en claro en las cuatro fuentes.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-clima-privado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ni una llamada externa va en claro)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n220. Cuando Nova se disculpa, que lo apunte ella misma (idea 55 de las 121)"
 # De 542 respuestas de la charla en 14 dias, 31 admiten un error ("tienes razon, me equivoque").
 # Esa admision la escribe Nova, no braya, asi que no se confunde con una charla que empieza por
