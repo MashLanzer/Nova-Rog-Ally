@@ -2142,6 +2142,13 @@ Titulo "2n237. Un solo estado de red, en vez de dieciseis plazos sueltos (idea 8
 # Steam, correo de la manana) pregunta antes de salir; lo que pide braya no se bloquea nunca, solo
 # se le acorta el plazo a la mitad. La guarda que importa: hacen falta DOS servicios DISTINTOS para
 # darla por caida -Steam en mantenimiento no puede apagar el clima- y la caida caduca en 5 min.
+# Y AMPLIADO CON LA IDEA 92 (27/09): decir que esta sin red, una vez. Nova se quedaba sin clima,
+# sin resumen del dia y sin voz en linea, contestaba a medias y no explicaba por que; un grep de
+# 'sin-red' en las 32.900 lineas daba CERO. OJO CON EL DATO DE LA FICHA: las 756 lineas 'no pude
+# resumir' del registro son TODAS del 26/09, una por minuto, y son WinError 10061 -conexion
+# denegada- contra Ollama en localhost, que no es falta de red. Los fallos de red de verdad son
+# ONCE en 16 dias: 8 del clima (DNS de api.open-meteo.com) y 3 de la voz en linea. El aviso de
+# vuelta solo sale si el de ida se dijo, y los dos estan en $AvisoSiempre porque caducan.
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-estado-red.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:hay un solo estado de red)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n236. Saber si la consola esta en la mano, no solo si alguien toco un boton (idea 83 de las 121)"

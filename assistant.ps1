@@ -11804,8 +11804,12 @@ $AvisoEsperaCaducaMin = 120
 # LAS QUE NO SE APLAZAN NUNCA. Lista CERRADA y a la vista: las ocho son el flanco de algo que
 # braya acaba de hacer CON LAS MANOS -enchufar, ponerse los cascos, cerrar el juego-, asi que
 # ahi la presencia no hay que suponerla, esta probada.
+# 'sin-red' y 'red-vuelve' ESTAN AQUI PORQUE CADUCAN (27/09, idea 92 de las 121): un aviso de que
+# no hay internet soltado tres horas despues, cuando ya la hay, es ruido puro. Es la misma razon que
+# el cargador o los cascos: informacion de este momento, no una nota que se pueda guardar.
 $AvisoSiempre = @('cargador-pone', 'cargador-quita', 'cascos-pone', 'cascos-quita',
-                  'dock-pone', 'dock-quita', 'disco-juegos', 'juego-cierra')
+                  'dock-pone', 'dock-quita', 'disco-juegos', 'juego-cierra',
+                  'sin-red', 'red-vuelve')
 
 $script:entornoCallado = $false                                    # "no me avises de nada"
 # Y EL DIA EN QUE SE CALLO (23/09). Sin esto, "no me avises de nada" se quedaba puesto hasta
@@ -21921,12 +21925,22 @@ $script:redUltimoOk = 0                          # ms del bucle del ultimo exito
 $script:redFallosSeguidos = 0
 $script:redQuienFallo = @()                      # los servicios distintos que llevan fallando
 $script:redCaidaDesde = 0
+# ¿SE LE DIJO QUE NO HABIA RED? (27/09, idea 92). El aviso de que ya volvio solo sale si el de ida
+# llego a decirse de verdad: si braya no oyo que no habia internet, contarle que "ya volvio" es
+# hablarle de algo que nunca le contaron.
+$script:redAvisada = $false
 
 function Set-RedOk([string]$quien) {
     # CUALQUIER exito borra la caida al instante: si algo de fuera contesta, hay red y punto.
     $script:redUltimoOk = $sw.ElapsedMilliseconds
     if ($script:redFallosSeguidos -gt 0 -or $script:redCaidaDesde -gt 0) {
         Log ('RED: ' + $quien + ' contesta; vuelvo a contar con la red')
+        # Y SI EL DE IDA SE DIJO, ESTE TAMBIEN (idea 92). Corto, que lo unico que aporta es que
+        # braya sepa que ya puede volver a pedir lo que la red necesitaba.
+        if ($script:redAvisada) {
+            $script:redAvisada = $false
+            [void](Send-AvisoEntorno 'red-vuelve' 'Ya hay internet otra vez.' 'medio' 60)
+        }
     }
     $script:redFallosSeguidos = 0
     $script:redQuienFallo = @()
@@ -21942,6 +21956,20 @@ function Set-RedFallo([string]$quien) {
         $script:redCaidaDesde = $sw.ElapsedMilliseconds
         Log ('RED: doy la red por caida (' + (@($script:redQuienFallo) -join ', ') + ' no contestan); las cosas de fondo se esperan')
         try { Write-Atomico $RedJson (ConvertTo-Json @{ ok = ''; caida = 1; quien = (@($script:redQuienFallo) -join ',') } -Compress) } catch {}
+        # Y SE LO DICE, UNA VEZ (27/09, idea 92 de las 121). Hasta hoy Nova se quedaba sin clima,
+        # sin resumen del dia y sin voz en linea, contestaba a medias y no explicaba por que: un
+        # grep de 'sin-red' en las 32.900 lineas del fichero daba CERO.
+        #
+        # ES UN AVISO, NO UN MODO: caduca solo, y toda la maquinaria de frenos ya existe. Send-
+        # AvisoEntorno se calla entero con un juego delante, tiene el tope por hora, el "no
+        # repetir lo mismo" y la espera aprendida. Aqui no se anade ni un freno nuevo.
+        #
+        # Y NO PUEDE SALTAR POR UN SERVICIO LOCAL CAIDO, que es lo que de verdad pasa en el
+        # registro: las 756 lineas 'no pude resumir' del 26/09 son WinError 10061 -conexion
+        # denegada- contra Ollama en localhost, una por minuto durante todo el dia. Eso no es
+        # falta de red. Set-RedFallo solo lo llaman ip-api y el clima, que si salen a internet,
+        # y ademas hacen falta DOS servicios distintos.
+        $script:redAvisada = [bool](Send-AvisoEntorno 'sin-red' 'Parece que no hay internet. Lo que necesite la red va a esperar.' 'medio' 60)
     }
 }
 

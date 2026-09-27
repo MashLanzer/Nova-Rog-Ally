@@ -43,6 +43,15 @@ $UTF8 = New-Object Text.UTF8Encoding($false)
 function Write-Atomico([string]$ruta, [string]$contenido) { [IO.File]::WriteAllText($ruta, $contenido, $UTF8) }
 $script:logs = @()
 function Log([string]$msg) { $script:logs += @($msg) }
+# LA PUERTA POR LA QUE SALE LA VOZ (27/09, idea 92), doblada: aqui solo interesa QUE se dijo y con
+# que nivel, no la maquinaria de avisos, que tiene sus propios bancos. Devuelve $true = salio.
+$script:saleElAviso = $true
+$script:dichos = @()
+function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'medio', [int]$cadaMin = 60, [bool]$yaEsperado = $false) {
+    if (-not $script:saleElAviso) { return $false }
+    $script:dichos += @{ clave = $clave; texto = $texto; nivel = $nivel }
+    return $true
+}
 $script:msFalsos = 1000000
 $sw = [pscustomobject]@{}
 $sw | Add-Member -MemberType ScriptProperty -Name ElapsedMilliseconds -Value { $script:msFalsos }
@@ -52,6 +61,9 @@ function Reset {
     $script:redQuienFallo = @()
     $script:redCaidaDesde = 0
     $script:logs = @()
+    $script:dichos = @()
+    $script:redAvisada = $false
+    $script:saleElAviso = $true
     $script:msFalsos = 1000000
 }
 
@@ -118,6 +130,58 @@ try {
     # LO QUE NO DEBE PASAR: que la charla o el correo que pide braya se bloqueen
     Comp '6g. la charla NO pregunta por la red' (-not ($sinCom -match '(?s)function Send-Charla\b.{0,800}Test-RedParaFondo')) 'lo que pide braya no se bloquea nunca'
     Comp '6h. ni el correo que pide braya' (-not ($sinCom -match '(?s)function Invoke-CorreoScript.{0,600}Test-RedParaFondo')) ''
+
+    Write-Host ''
+    Write-Host '-- 7. Y SE LO DICE, UNA VEZ (27/09, idea 92 de las 121) --'
+    # EL HUECO: Nova se quedaba sin clima, sin resumen del dia y sin voz en linea, contestaba a
+    # medias y no explicaba por que. Un grep de 'sin-red' en las 32.900 lineas daba CERO.
+    #
+    # Y OJO CON EL DATO DE LA FICHA: de los fallos del registro, las 756 lineas 'no pude resumir'
+    # son TODAS del 26/09, una por minuto, y son WinError 10061 -conexion denegada- contra Ollama
+    # en localhost. Eso no es falta de red. Los fallos de red de verdad son 11 en 16 dias: 8 del
+    # clima (DNS de api.open-meteo.com) y 3 de la voz en linea.
+    Reset
+    Set-RedFallo 'clima'
+    Comp '7a. con un servicio caido todavia no dice nada' (@($script:dichos).Count -eq 0) 'no hay red caida que contar'
+    Set-RedFallo 'ip-api'
+    Comp '7b. al darla por caida lo dice' (@($script:dichos).Count -eq 1) ([string]@($script:dichos).Count)
+    Comp '7c. con la clave de red' ($script:dichos[0].clave -eq 'sin-red') ([string]$script:dichos[0].clave)
+    Comp '7d. y se oye, no se queda en la capsula' ($script:dichos[0].nivel -eq 'medio') ("nivel '" + [string]$script:dichos[0].nivel + "'")
+    Comp '7e. diciendo lo que va a pasar, no solo que falla' ($script:dichos[0].texto -match 'esperar') ([string]$script:dichos[0].texto)
+    # y no lo repite en cada fallo nuevo
+    Set-RedFallo 'steam'
+    Comp '7f. y no lo repite con el tercer fallo' (@($script:dichos).Count -eq 1) 'la caida ya estaba contada'
+
+    Write-Host ''
+    Write-Host '-- 8. Y CUANDO VUELVE, TAMBIEN --'
+    Set-RedOk 'clima'
+    Comp '8a. al volver lo dice' (@($script:dichos).Count -eq 2) ([string]@($script:dichos).Count)
+    Comp '8b. con su propia clave' ($script:dichos[1].clave -eq 'red-vuelve') ([string]$script:dichos[1].clave)
+    Comp '8c. y corto' ($script:dichos[1].texto.Length -lt 40) ([string]$script:dichos[1].texto)
+    Set-RedOk 'ip-api'
+    Comp '8d. y no lo repite en cada exito' (@($script:dichos).Count -eq 2) 'la bandera se apaga al decirlo'
+
+    Write-Host ''
+    Write-Host '-- 9. LA GUARDA: SI NO SE DIJO LA IDA, NO SE DICE LA VUELTA --'
+    # Si braya no oyo que no habia internet -habia un juego delante, o el tope por hora estaba
+    # gastado-, contarle que "ya volvio" es hablarle de algo que nunca le contaron.
+    Reset
+    $script:saleElAviso = $false
+    Set-RedFallo 'clima'; Set-RedFallo 'ip-api'
+    Comp '9a. el aviso de ida no sale' (@($script:dichos).Count -eq 0) 'como con un juego delante'
+    $script:saleElAviso = $true
+    Set-RedOk 'clima'
+    Comp '9b. y entonces el de vuelta tampoco' (@($script:dichos).Count -eq 0) ([string]@($script:dichos).Count)
+    Comp '9c. pero la caida SI se borro' ($script:redCaidaDesde -eq 0) 'el aviso es lo unico que se calla'
+
+    Write-Host ''
+    Write-Host '-- 10. EL CABLEADO --'
+    Comp '10a. los dos avisos no se aparcan' (($txt -match "'sin-red', 'red-vuelve'") -and ($txt -match '\$AvisoSiempre = @\(')) 'un aviso de red soltado tres horas despues es ruido'
+    Comp '10b. y estan dentro de AvisoSiempre, no en otra lista' ($txt -match "(?s)\`$AvisoSiempre = @\([^)]*'sin-red', 'red-vuelve'\)") ''
+    Comp '10c. el de ida sale del if de dar por caida' ($sinCom -match "(?s)redCaidaDesde = \`$sw\.ElapsedMilliseconds.{0,900}Send-AvisoEntorno 'sin-red'") 'no en cada fallo'
+    Comp '10d. y guarda si se dijo' ($sinCom -match "\`$script:redAvisada = \[bool\]\(Send-AvisoEntorno 'sin-red'") ''
+    Comp '10e. el de vuelta pregunta por esa bandera' ($sinCom -match "(?s)if \(\`$script:redAvisada\) \{.{0,200}Send-AvisoEntorno 'red-vuelve'") ''
+    Comp '10f. y el diario NO llama a Set-RedFallo' (-not ($sinCom -match "Set-RedFallo 'diario'")) 'Ollama en localhost caido no es falta de red'
 } finally {
     Remove-Item -LiteralPath $TmpDir -Recurse -Force -ErrorAction SilentlyContinue
 }
