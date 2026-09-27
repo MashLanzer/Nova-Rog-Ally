@@ -2072,6 +2072,15 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n233. Los errores que Nova se traga, leidos gratis en $Error (idea 80 de las 121)"
+# 470 de los 897 catch de assistant.ps1 estan VACIOS (52,4 %): cuando algo revienta se lo traga y
+# no habia ni un dato de cuales disparan. PowerShell ya mete toda excepcion capturada en $Error con
+# su linea, y esa variable no aparecia NI UNA vez en el script. Ahora se lee una vez por minuto, se
+# agrupa por linea y el parte dice la que mas. Y el unico de los 470 que ya se sabia que muerde
+# esta arreglado: la lectura de corte.flag, que al fallar dejaba la palabra vacia y convertia decir
+# 'nova' para salir de la sordina en callarla.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-petes-tragados.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:los errores tragados se cuentan)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n232. Leer el fichero de lo importante: contar los agujeros y cazar los falsos (idea 79 de las 121)"
 # importante.jsonl se escribia desde el 25/09 en modo 'a' y NO LO LEIA NADIE: cero lectores en todo
 # el repositorio fuera de dos bancos. Es el inventario de sus agujeros. El worker agrupa los que

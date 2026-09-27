@@ -21033,6 +21033,62 @@ function Set-VibradoReaccion([bool]$reacciono) {
     return $true
 }
 
+# LOS ERRORES QUE NOVA SE TRAGA, GRATIS (27/09, idea 80)
+#
+# EL DATO: 470 de los 897 catch de este fichero estan COMPLETAMENTE VACIOS -el 52,4 %-: cuando algo
+# revienta, se lo traga y sigue, y no habia ni un dato de cuales disparan de verdad. Solo 171 catch
+# escriben algo en el registro.
+#
+# Y NO HACE FALTA TOCAR NINGUNO para enterarse: PowerShell mete TODA excepcion capturada en la
+# variable automatica $Error, con su numero de linea. No aparecia ni una vez en las 31.000 lineas
+# del script (los aciertos del grep eran todos $ErrorActionPreference). Aqui se lee lo nuevo una vez
+# por minuto, se agrupa por linea y se cuenta como 'pete:<linea>'.
+#
+# EL TOPE DE $Error SON 256 ($MaximumErrorCount), asi que la resta con lo ya visto no vale cuando se
+# llena: en ese caso se leen los 256 y se dice que hay mas.
+$PetesPorVez = 60               # como mucho se leen 60 por pasada: esto corre en el bucle
+$script:erroresVistos = 0
+$script:petePeor = $null        # @{ linea; veces; que } para el parte
+$script:peteTabla = @{}         # linea -> veces en esta sesion
+
+function Watch-ErroresTragados {
+    # devuelve cuantos errores nuevos ha visto. NO usa Log para cada uno: serian cientos de lineas.
+    try {
+        $n = @($Error).Count
+        if ($n -le 0) { $script:erroresVistos = 0; return 0 }
+        $nuevos = $n - $script:erroresVistos
+        if ($nuevos -le 0) {
+            # o se limpio la lista, o no hay nada nuevo. Si esta topada, siempre hay 'nuevos'
+            # aunque el Count no se mueva, asi que se leen los primeros de todas formas.
+            if ($n -lt 256) { $script:erroresVistos = $n; return 0 }
+            $nuevos = $PetesPorVez
+        }
+        if ($nuevos -gt $PetesPorVez) { $nuevos = $PetesPorVez }
+        $script:erroresVistos = $n
+        for ($i = 0; $i -lt $nuevos; $i++) {
+            $e = $Error[$i]
+            if ($null -eq $e) { continue }
+            $linea = 0
+            $que = ''
+            try { $linea = [int]$e.InvocationInfo.ScriptLineNumber } catch {}
+            try { $que = [string]$e.Exception.Message } catch {}
+            if ($linea -le 0) { continue }
+            if (-not $script:peteTabla.ContainsKey($linea)) { $script:peteTabla[$linea] = 0 }
+            $script:peteTabla[$linea]++
+            if ($null -eq $script:petePeor -or $script:peteTabla[$linea] -gt [int]$script:petePeor.veces) {
+                $script:petePeor = @{ linea = $linea; veces = $script:peteTabla[$linea]; que = $que.Substring(0, [Math]::Min(120, $que.Length)) }
+            }
+        }
+        return $nuevos
+    } catch { return 0 }
+}
+
+# Lo que mas ha petado en esta sesion, para el parte. $null si nada ha petado.
+function Get-PeorPete {
+    if ($null -eq $script:petePeor) { return $null }
+    if ([int]$script:petePeor.veces -lt 2) { return $null }   # una vez no es noticia
+    return $script:petePeor
+}
 # Un aviso, por la puerta que toque. $tipo da el color del pulso: bateria,
 # tiempo, descarga, recordatorio.
 function Send-Aviso([string]$texto, [string]$tipo = '') {
@@ -23270,6 +23326,14 @@ function Write-NotaSemanal {
         if ($desc.Count -gt 0) { [void]$sb.AppendLine(""); [void]$sb.AppendLine("Cosas que no entendí a la primera y que podrías enseñarme en commands.json: " + (($desc | ForEach-Object { "«$_»" }) -join ', ') + ".") }
         $parrafoYo = Get-ParrafoDecisiones $s $ini $fin
         if ($parrafoYo) { [void]$sb.AppendLine(""); [void]$sb.AppendLine($parrafoYo) }
+        # y lo que mas se le ha roto por dentro sin decirlo (idea 80)
+        try {
+            $peorP = Get-PeorPete
+            if ($peorP) {
+                [void]$sb.AppendLine('')
+                [void]$sb.AppendLine('Por dentro se me rompio algo ' + $peorP.veces + ' veces en el mismo sitio (linea ' + $peorP.linea + ') y no te lo dije: ' + $peorP.que)
+            }
+        } catch {}
         # los agujeros de la semana, leidos del fichero que nadie abria (idea 79)
         $parrafoAg = ''
         try { $parrafoAg = Get-ParrafoAgujeros } catch { $parrafoAg = '' }
@@ -30732,8 +30796,34 @@ while ($true) {
     # --- INTERRUMPIR A NOVA (M5): "espera", "para", "calla"... dicho mientras habla ---
     $rutaCorte = Join-Path $TmpDir 'corte.flag'
     if (Test-Path -LiteralPath $rutaCorte) {
+        # LA LECTURA QUE PODIA CALLARLA (27/09, idea 80). Esto era un ReadAllText crudo dentro de un
+        # catch vacio, y ese fichero lo escribe el worker con la misma funcion escribir() que ya ha
+        # fallado 36 veces con "Acceso denegado". Si la lectura fallaba, $palabraCorte quedaba VACIA:
+        # con sordina puesta, decir "nova" para volver -que es justo para lo que existe- dejaba de
+        # parecerse al nombre y Resolve-Corte devolvia 'tarde'; en pausa, 'corta-y-calla'. O sea que
+        # un fallo de lectura se convertia en callar a Nova, en silencio.
+        #
+        # DOS ARREGLOS: se lee con FileShare::Delete, que es la unica forma de leer mientras el worker
+        # hace su os.replace -el patron ya estaba en casa, en la lectura del parcial-, y si aun asi
+        # falla NO se decide nada: una palabra que no se pudo leer no es una palabra vacia.
         $palabraCorte = ''
-        try { $palabraCorte = ([System.IO.File]::ReadAllText($rutaCorte)).Trim() } catch {}
+        $corteLeido = $false
+        $fsC = $null; $srC = $null
+        try {
+            $fsC = New-Object System.IO.FileStream($rutaCorte, [System.IO.FileMode]::Open,
+                    [System.IO.FileAccess]::Read,
+                    ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
+            $srC = New-Object System.IO.StreamReader($fsC, [System.Text.Encoding]::UTF8)
+            $palabraCorte = ($srC.ReadToEnd()).Trim()
+            $corteLeido = $true
+        } catch {
+            # y se DICE, que antes se tragaba: es la unica forma de saber si esto pasa de verdad
+            Log ('corte: no pude leer lo que dijiste (' + $_.Exception.Message + '); no decido nada')
+            Add-Estadistica 'corte-ilegible'
+        } finally {
+            if ($srC) { $srC.Dispose() }
+            if ($fsC) { $fsC.Dispose() }
+        }
         Remove-Item -LiteralPath $rutaCorte -Force -ErrorAction SilentlyContinue
         # ME HAS LLAMADO ESTANDO CALLADA: vuelvo entera (22/09, ver SALIR DE LA SORDINA en
         # wake_vosk.py). Va DELANTE del corte de toda la vida porque en sordina el worker
@@ -30744,9 +30834,14 @@ while ($true) {
         # LA DECISION, ANTES DE NADA (24/09, idea 2). Aqui habia dos ramas para tres
         # situaciones: con un dictado abierto no entraba ninguna y el corte se perdia en
         # silencio. Cuatro de las cinco perdidas de quince dias son ese caso.
-        $dCorte = Resolve-Corte $palabraCorte $EscuchaNombre $script:armed `
-                                ($sw.ElapsedMilliseconds -lt $script:pausaHasta) `
-                                ($script:sordinaHasta -gt $sw.ElapsedMilliseconds)
+        # sin haber podido leer, no se decide nada: ver LA LECTURA QUE PODIA CALLARLA
+        $dCorte = if (-not $corteLeido) {
+                      @{ accion = 'tarde'; abreMicro = $false; estadistica = 'corte-ilegible' }
+                  } else {
+                      Resolve-Corte $palabraCorte $EscuchaNombre $script:armed `
+                                    ($sw.ElapsedMilliseconds -lt $script:pausaHasta) `
+                                    ($script:sordinaHasta -gt $sw.ElapsedMilliseconds)
+                  }
         if ($dCorte.accion -eq 'cancela-dictado') {
             # LO QUE FALTABA. El 20/09 a las 12:54 y a las 13:34 hubo dos dictados colgados
             # de 48 segundos con "para", "nova" y "basta" dichos dentro, y no pasaba nada.
@@ -32199,6 +32294,14 @@ while ($true) {
     # --- aviso proactivo de bateria (se comprueba una vez por minuto) ---
     if (($sw.ElapsedMilliseconds - $script:bateriaCheck) -ge 60000) {
         $script:bateriaCheck = $sw.ElapsedMilliseconds
+        # LOS ERRORES QUE SE TRAGARON LOS catch VACIOS (27/09, idea 80). Gratis: ya estan en $Error.
+        try {
+            $petes = Watch-ErroresTragados
+            if ($petes -gt 0) {
+                $peor = Get-PeorPete
+                if ($peor) { Add-Estadistica ('pete:' + $peor.linea) ([string]$peor.veces + ' veces: ' + $peor.que) }
+            }
+        } catch {}
         # LO QUE SE ESTA REPITIENDO EN BUCLE (27/09, idea 76). Log solo cuenta; aqui se recoge y
         # se dice, que dentro de Log una llamada que escriba seria una recursion sin fin.
         try {
