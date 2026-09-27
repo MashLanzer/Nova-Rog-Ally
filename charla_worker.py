@@ -1609,9 +1609,19 @@ def principal():
         # EL REPASO DEL ESTILO (22/09, idea 5): cuantas preferencias guardadas se
         # contradecian entre ellas y se han ido al cargar. Si no se dice, un repaso que
         # borra cosas del cerebro no lo ve nadie.
-        if getattr(cerebro, "estilo_fuera", 0):
-            salida("info", texto="memoria: %d preferencia(s) de estilo que se contradecian, fuera"
-                                 % cerebro.estilo_fuera)
+        if getattr(cerebro, "estilo_fuera", 0):
+            salida("info", texto="memoria: %d preferencia(s) de estilo que se contradecian, fuera"
+                                 % cerebro.estilo_fuera)
+        # Y LOS RECUERDOS REPASADOS (26/09, idea 31). El numero NEGATIVO no es un error:
+        # es el disyuntor diciendo que NO ha tocado nada porque el filtro se estaba
+        # comiendo mas de la mitad de la memoria. La regla 2 de la casa: el modo que no
+        # actua tiene que decirlo, no callarse.
+        _rf = getattr(cerebro, "recuerdos_fuera", 0)
+        if _rf > 0:
+            salida("info", texto="memoria: %d recuerdo(s) que hablaban de mi, fuera del contexto" % _rf)
+        elif _rf < 0:
+            salida("info", texto="memoria: NO he repasado los recuerdos, %d de ellos caen con el filtro "
+                                 "y eso es mas de la mitad; revisa el filtro" % (-_rf))
     except Exception as e:  # noqa: BLE001
         cerebro = None
         salida("info", texto="memoria desactivada: %s" % e)

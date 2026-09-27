@@ -10894,7 +10894,9 @@ function Test-AvisoAplazable([string]$clave, [string]$nivel = 'medio', [datetime
     if ($nivel -ne 'medio') { return $false }
     if ($AvisoSiempre -contains $clave) { return $false }
     if ($script:juegoActivo) { return $false }
-    return ((Get-AusenciaMin $ahora) -ge $AvisoEsperaMin)
+    # LAS TRES GUARDAS VAN DELANTE a proposito: asi la llamada al sistema de Get-NadieMin solo
+    # corre para los 'medio' no exentos y sin juego, que son los unicos que se pueden aparcar.
+    return ((Get-NadieMin $ahora) -ge $AvisoEsperaMin)
 }
 
 function Get-AvisoEspera {
@@ -11476,7 +11478,10 @@ function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'med
         # Solo se apunta la PRIMERA vez y cuando cambia el texto (24/09): ver el comentario
         # de Add-AvisoEspera. Antes escribia una linea cada 30 s mientras durase la ausencia.
         if (Add-AvisoEspera $clave $texto $nivel $cadaMin) {
-            Log "ENTORNO aparcado (no hay nadie desde hace $(Get-AusenciaMin) min): $clave"
+            # EL MISMO NUMERO QUE DECIDIO, no otro: con Get-AusenciaMin aqui, el log diria
+            # "desde hace 1 min" mientras aparca por doce horas de ocio, justo en los once
+            # casos que esto viene a arreglar.
+            Log "ENTORNO aparcado (no hay nadie desde hace $(Get-NadieMin) min): $clave"
         }
         return $false
     }
@@ -13479,6 +13484,35 @@ function Get-InactividadMin {
         if ($msOcio -lt 0 -or $msOcio -gt 604800000) { return -1 }
         return [int][Math]::Floor($msOcio / 60000.0)
     } catch { return -1 }
+}
+# NO HAY NADIE, MIRADO POR LOS DOS SITIOS (26/09, idea 30 de las 121).
+# EL AGUJERO: Get-AusenciaMin cuenta desde la ultima vez que braya HABLO, con suelo en el
+# arranque de Nova. Y Nova nace 15,2 veces al dia -259 arranques en 17 dias-, asi que recien
+# arrancada ese numero vale casi cero y el aparcado de avisos es IMPOSIBLE por construccion.
+# MEDIDO sobre los dos registros desde el 23/09: de los 19 avisos de nivel 'medio' aparcables,
+# ONCE salieron con Nova arrancada hacia menos de 31 minutos. Y de esos once, NUEVE con mas de
+# UNA HORA sin que braya le hablara: el 23/09 a las 10:32 llevaba 602 minutos; a las 14:33,
+# 843; a las 16:33, 963. Diez, catorce y dieciseis horas hablandole a una habitacion vacia.
+# LO QUE LO ARREGLA YA ESTABA EN CASA: Windows sabe cuanto hace que nadie toca el teclado, el
+# raton ni el mando, y Windows no se reinicia con Nova. Es el mismo patron y el MISMO liston
+# que el saludo de arranque estrenado el 25/09.
+# SE QUEDA EL MAYOR, Y ESO ES TODA LA PROPIEDAD: asi el ocio solo puede APARCAR MAS, nunca
+# menos. Esto no es una regla nueva sobre si hay alguien, es una CORRECCION del suelo que
+# Get-AusenciaMin tiene por construccion. Si se quedara con el menor, un raton tocado hace un
+# momento desaparcaria un aviso que llevaba 45 minutos sin nadie que lo oyera, y eso ya se
+# aparcaba antes de este cambio.
+# Y EL -1 NO ES CERO NI ES INFINITO: Get-InactividadMin devuelve -1 por tres caminos distintos
+# cuando no lo puede saber. Con el MAYOR no hace falta tratarlo aparte: nunca gana, porque la
+# ausencia nunca es negativa. Lo que SI hace falta es que el catch devuelva -1 y no un numero:
+# un catch que contestara "no hay nadie" callaria a Nova por una averia de user32.
+# Y UNA SOLA FUNCION, no la cuenta escrita en dos sitios: quien decide y quien lo escribe en el
+# log tienen que estar mirando el mismo numero, o el log mentiria justo en los once casos.
+function Get-NadieMin([datetime]$ahora = (Get-Date)) {
+    $a = Get-AusenciaMin $ahora
+    $o = -1
+    try { $o = [int](Get-InactividadMin) } catch { $o = -1 }
+    if ($o -gt $a) { return $o }
+    return $a
 }
 # LA VARIEDAD (lo que pidio: "no siempre igual porque se vuelve repetitivo"). El patron ya
 # estaba en casa -el relleno de la charla, que sortea filtrando la ultima dicha- con dos

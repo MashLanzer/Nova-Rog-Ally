@@ -113,6 +113,14 @@ function Show-Popup([string]$t, [string]$e = 'hablando') { $script:popups += $t 
 function Say([string]$t, [string]$e = '') { $script:dichos += $t }
 function Save-EntornoVistos { $script:vistosGuardados++ }
 function Get-AusenciaMin([datetime]$ahora = (Get-Date)) { return $script:ausenciaMin }
+# EL OCIO DE WINDOWS, DOBLADO Y MOVIBLE (26/09, idea 30). Test-AvisoAplazable mira ahora el
+# MAYOR de la ausencia y el ocio, porque Nova nace 15 veces al dia y recien arrancada la
+# ausencia vale casi cero. Sin este doble, Traer se trae la de verdad y este banco pasa a
+# depender de si alguien toco el teclado en la ultima media hora.
+# ARRANCA EN -1, que es lo que devuelve cuando no se puede saber: asi los casos de siempre
+# siguen midiendo lo que median, y el -1 no puede desaparcar nada.
+$script:ocioFalso = -1
+function Get-InactividadMin { return $script:ocioFalso }
 function Write-Atomico([string]$r, [string]$t) { [System.IO.File]::WriteAllText($r, $t, (New-Object System.Text.UTF8Encoding($false))) }
 function Send-AvisoCola([bool]$yaMismo = $false) {
     if ($script:avisoCola.Count -eq 0) { return }
@@ -328,6 +336,103 @@ $hace = (Get-Date).AddMinutes(-($AvisoEsperaCaducaMin - 1))
 [void](Add-AvisoEspera 'oido-ruido' 'hay mucho ruido' 'medio' 60 (Get-Date))
 $v = [datetime]((@(Get-AvisoEspera))[0].vence)
 Comp 'el plazo se refresca aunque la linea no se repita' ($v -gt (Get-Date).AddMinutes($AvisoEsperaCaducaMin - 2)) "vence $($v.ToString('HH:mm'))"
+
+Write-Host ''
+Write-Host '-- EL OCIO DE WINDOWS, QUE NO SE REINICIA CON NOVA (26/09, idea 30) --'
+# EL AGUJERO: Get-AusenciaMin cuenta desde la ultima vez que braya hablo, con suelo en el
+# arranque de Nova. Y Nova nace 15,2 veces al dia -259 arranques en 17 dias-, asi que recien
+# arrancada ese numero vale casi cero y aparcar era IMPOSIBLE por construccion.
+# MEDIDO desde el 23/09: de los 19 avisos 'medio' aparcables, ONCE salieron con Nova arrancada
+# hacia menos de 31 minutos, y NUEVE de esos once con mas de UNA HORA de silencio: el 23/09 a
+# las 10:32 llevaba 602 minutos, a las 14:33 843, a las 16:33 963.
+
+# A. EL CASO DEL 25/09 08:14, que es para lo que existe esto.
+Limpia
+$script:ausenciaMin = 0        # Nova acaba de nacer
+$script:ocioFalso = 400        # pero nadie toca nada desde hace casi siete horas
+$rO = Send-AvisoEntorno 'oido-ruido' 'Hay mucho ruido, no te oigo bien' 'medio' 60
+Comp 'recien arrancada, el ocio de Windows manda' (-not $rO) "$rO"
+Comp '  y se aparca en vez de decirse' (@(Get-AvisoEspera).Count -eq 1 -and $script:dichos.Count -eq 0) (
+    "$(@(Get-AvisoEspera).Count) aparcados, $($script:dichos.Count) dichos")
+Comp '  y NO se marca como visto' ($script:vistosGuardados -eq 0) (
+    'si se marcara, el aviso se perderia su plazo entero sin haberse dicho')
+# Y EL LOG DICE EL NUMERO DE VERDAD, no la ausencia de un minuto.
+Comp '  y el log no miente sobre cuanto lleva' ((($script:logs -join ' ') -match 'desde hace 400 min')) (
+    ($script:logs | Where-Object { $_ -match 'aparcado' } | Select-Object -First 1))
+
+# B. EL -1 NO PUEDE DESAPARCAR NADA. Get-InactividadMin devuelve -1 por tres caminos cuando no
+# lo puede saber, y 'no lo se' no es 'hay alguien delante'.
+Limpia
+$script:ausenciaMin = 45
+$script:ocioFalso = -1
+$rN = Send-AvisoEntorno 'oido-ruido' 'Hay mucho ruido' 'medio' 60
+Comp 'con el ocio desconocido, manda la ausencia' (-not $rN) "$rN"
+Comp '  y se sigue aparcando' (@(Get-AvisoEspera).Count -eq 1) (
+    'un -1 que ganara dejaria de aparcar justo cuando no se sabe nada')
+# B bis. EL -1 CON LA AUSENCIA TAMBIEN A CERO: aqui es donde se nota si el -1 se trata como
+# "no lo se" o como un numero cualquiera. Con ausencia 45 el -1 nunca gana porque 45 es mayor,
+# asi que aquel caso no distinguia nada.
+Limpia
+$script:ausenciaMin = 0
+$script:ocioFalso = -1
+$rN2 = Send-AvisoEntorno 'oido-ruido' 'Hay mucho ruido' 'medio' 60
+Comp 'sin saber nada de nada, el aviso SALE' ([bool]$rN2) (
+    'no saber si hay alguien no es saber que no lo hay')
+Comp '  y no se aparca' (@(Get-AvisoEspera).Count -eq 0) ''
+
+# B bis 2. EL OCIO SOLO PUEDE APARCAR MAS, NUNCA MENOS, y esa es la propiedad entera del
+# cambio. Si braya lleva 45 minutos sin hablarle, hoy el aviso YA se aparca; que ademas acabe
+# de tocar el raton no puede desaparcarlo, porque entonces esto no seria una correccion del
+# suelo de Get-AusenciaMin sino una regla nueva con su propio criterio.
+Limpia
+$script:ausenciaMin = 45
+$script:ocioFalso = 0
+$rM = Send-AvisoEntorno 'oido-ruido' 'Hay mucho ruido' 'medio' 60
+Comp 'el ocio bajo NO desaparca lo que ya se aparcaba' (-not $rM) (
+    '45 min sin hablarle ya lo aparcaban antes de esto')
+Comp '  y se sigue aparcando' (@(Get-AvisoEspera).Count -eq 1) (
+    'quedarse con el MENOR seria una regla nueva, no una correccion del suelo')
+
+# B ter. Y SI LA LECTURA DEL OCIO REVIENTA, tampoco puede contestar la pregunta. Es la manera
+# 10 de salir verde mintiendo: un catch que decide.
+Limpia
+$script:ausenciaMin = 0
+function Get-InactividadMin { throw 'user32 no contesta' }
+$rN3 = Send-AvisoEntorno 'oido-ruido' 'Hay mucho ruido' 'medio' 60
+Comp 'si la lectura del ocio revienta, el aviso SALE' ([bool]$rN3) (
+    'un catch que contestara "no hay nadie" callaria a Nova por una averia')
+Comp '  y no se aparca nada' (@(Get-AvisoEspera).Count -eq 0) ''
+function Get-InactividadMin { return $script:ocioFalso }
+
+# C. Y AL REVES: con alguien delante de verdad, no se aparca nada.
+Limpia
+$script:ausenciaMin = 0
+$script:ocioFalso = 0
+$rD = Send-AvisoEntorno 'oido-ruido' 'Hay mucho ruido' 'medio' 60
+Comp 'con braya delante, el aviso SALE' ([bool]$rD) "$rD"
+Comp '  y no se aparca nada' (@(Get-AvisoEspera).Count -eq 0) ''
+
+# D. EL OCIO NO PUEDE APARCAR LO QUE NO SE APARCA. Este es el caso negativo que de verdad toca
+# lo que vigila: si el ocio decidiera por su cuenta, un aviso critico se quedaria en la cola.
+$script:ocioFalso = 900
+$script:ausenciaMin = 0
+Limpia
+$script:ocioFalso = 900
+Comp 'un aviso alto SALE aunque no haya nadie' ([bool](Send-AvisoEntorno 'bateria-baja' 'queda poca' 'alto' 60)) ''
+Limpia
+$script:ocioFalso = 900
+Comp '  y uno de noche tambien' ([bool](Send-AvisoEntorno 'hora-dormir' 'es tarde' 'noche' 60)) ''
+Limpia
+$script:ocioFalso = 900
+Comp '  y una clave de las que nunca se aparcan' ([bool](Send-AvisoEntorno 'cargador-quita' 'lo quitaste' 'medio' 60)) (
+    'esas son cosas que acaba de hacer CON LAS MANOS: prueban que esta')
+Limpia
+$script:ocioFalso = 900
+$script:juegoActivo = 'algo'
+Comp '  y con un juego delante, tampoco se aparca' ([bool](Send-AvisoEntorno 'oido-ruido' 'ruido' 'medio' 60)) (
+    'ahi el filtro de siempre ya decide, y decide callarse por otro motivo')
+$script:juegoActivo = $null
+$script:ocioFalso = -1
 
 Write-Host ''
 if ($fallos -gt 0) { Write-Host "  $fallos mal"; exit 1 }

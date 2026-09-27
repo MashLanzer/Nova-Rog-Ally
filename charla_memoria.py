@@ -44,6 +44,14 @@ MAX_RECUERDOS = 5000
 MAX_PENDIENTES = 300
 MAX_INTENTOS = 3
 MAX_ESTILO = 12
+# EL DISYUNTOR DEL REPASO DE RECUERDOS (26/09, idea 31). NO sale de ninguna medicion que diga
+# "0,5 es el punto bueno": eso no existe y hay que decirlo. Lo que SI esta medido es el reparto
+# de hoy sobre memoria\cerebro\cerebro.json: 36 de los 117 recuerdos de tipo contado+episodio
+# caen con el filtro, el 30,8 %. El freno esta diecinueve puntos por encima de lo observado.
+# Su unico trabajo: si un dia el filtro se ensancha y se empieza a comer mas de la MITAD de la
+# memoria de braya, Nova no toca nada y lo dice. Eso significaria que esta mal el filtro, no la
+# memoria.
+TOPE_REPASO_RECUERDOS = 0.5
 MAX_TEMAS = 30
 MAX_VARIANTES = 10
 
@@ -173,6 +181,20 @@ def citadas(texto):
     return fuera
 
 
+def texto_no_entra(texto):
+    """Si este texto NO puede entrar en el cerebro. La regla, en un solo sitio.
+
+    Son las tres de siempre, sin cambiar ni el orden: vacio o demasiado corto, sensible, o
+    hablando de Nova en vez de hablar de braya (19/09).
+    La saco fuera la idea 31 (26/09) para que el repaso de lo ya guardado use EXACTAMENTE la
+    misma que la puerta de entrada. Dos copias de la misma regla acaban separandose.
+    """
+    t = limpio(texto, 300)
+    if not t or len(t) < 8 or sensible(t):
+        return True
+    return bool(RE_SOBRE_NOVA.search(plano(t)))
+
+
 def limpio(x, maximo=300):
     t = re.sub(r"\s+", " ", str(x or "")).strip()
     return t[:maximo]
@@ -203,6 +225,7 @@ class Cerebro:
         return {"version": 1, "siguiente": 1, "recuerdos": [], "estilo": [], "temas": {}, "pendientes": []}
 
     estilo_fuera = 0      # cuantas entradas de estilo tiro el repaso al cargar
+    recuerdos_fuera = 0   # y cuantos recuerdos aparto el repaso (negativo: no toco nada)
 
     def cargar(self):
         with self.lock:
@@ -228,6 +251,12 @@ class Cerebro:
                 self.estilo_fuera = self.repasar_estilo()
             except Exception:  # noqa: BLE001
                 self.estilo_fuera = 0
+            # Y LO MISMO CON LOS RECUERDOS (26/09, idea 31): la regla que decide que NO entra
+            # tiene que valer tambien para lo que entro antes de escribirla.
+            try:
+                self.recuerdos_fuera = self.repasar_recuerdos()
+            except Exception:  # noqa: BLE001
+                self.recuerdos_fuera = 0
             self.vec = {}
             if np is not None and self.embedder is not None and os.path.exists(self.ruta_vec):
                 try:
@@ -506,10 +535,11 @@ class Cerebro:
     def guardar_texto(self, tipo, texto):
         """Lo que braya conto ('contado') o un recuerdo de lo hablado ('episodio')."""
         texto = limpio(texto, 300)
-        if not texto or len(texto) < 8 or sensible(texto):
+        # LA REGLA VIVE EN UN SOLO SITIO (26/09, idea 31). Estas tres condiciones estaban aqui
+        # escritas a mano; ahora las comparte con repasar_recuerdos, que las aplica a lo que ya
+        # estaba guardado. El dia que la regla cambie, cambia para los dos caminos.
+        if texto_no_entra(texto):
             return None
-        if RE_SOBRE_NOVA.search(plano(texto)):
-            return None      # hablaba de mi, no de braya: al cerebro no entra (19/09)
         with self.lock:
             for h in self.buscar(texto, tipos={tipo}, k=1):
                 if h["lex"] >= 0.85:
@@ -690,6 +720,46 @@ class Cerebro:
         for e in viejas:
             self._estilo(e)
         return len(viejas) - len(self.datos.get("estilo", []))
+
+    def repasar_recuerdos(self):
+        r"""Pasa la regla de entrada por los recuerdos que YA estaban guardados.
+
+        EL CASO, contado sobre memoria\cerebro\cerebro.json: de los 121 recuerdos, TREINTA Y
+        SEIS hablan de Nova y no de braya -el 29,75 %-, y los 36 estan en estado "firme", o sea
+        que entran en las busquedas y viajan en el contexto de las charlas. Son todos del 15/09
+        (20) y del 18/09 (16): cero del 19/09 en adelante, que es cuando se escribio el filtro
+        RE_SOBRE_NOVA. La regla se escribio y solo miro lo que llegaba despues.
+        Es el mismo agujero que repasar_estilo arreglo para el estilo, y se arregla igual.
+
+        NO SE BORRA NADA: se marcan como "rechazada", que es un estado que buscar() ya salta y
+        que se puede deshacer. La lista sigue teniendo los 121.
+
+        SOLO contado Y episodio, y SOLO el campo "respuesta". Los de tipo "respuesta" nunca
+        pasaron por este filtro y no tienen que pasar ahora: una respuesta de trivia con "nova"
+        en la pregunta es legitima. Y ni "pregunta" ni "variantes", que guardan la frase literal
+        de braya: el "oye nova" de "oye nova, quien pinto la mona lisa" tacharia un recuerdo
+        bueno.
+        """
+        recuerdos = self.datos.get("recuerdos") or []
+        candidatos = [r for r in recuerdos
+                      if r.get("tipo") in ("contado", "episodio") and r.get("estado") != "rechazada"]
+        if not candidatos:
+            return 0
+        fuera = [r for r in candidatos if texto_no_entra(r.get("respuesta", ""))]
+        if not fuera:
+            return 0
+        # EL DISYUNTOR: si el filtro se come mas de la mitad, no se toca nada y se dice.
+        if len(fuera) > TOPE_REPASO_RECUERDOS * len(candidatos):
+            return -len(fuera)
+        for r in fuera:
+            r["estado"] = "rechazada"
+            r["repasado"] = time.time()
+        # NO HACE FALTA INVALIDAR NINGUN CACHE, y conviene decirlo porque parece que si:
+        # _cambio tira _df y el cache de fichas por id, y ninguno de los dos depende del
+        # estado. _frecuencias recorre TODOS los recuerdos sea cual sea su estado, y _formas
+        # solo mira pregunta y variantes, que aqui no se tocan. Quien respeta el "rechazada"
+        # es buscar(), que lo mira en cada vuelta.
+        return len(fuera)
 
     def _tema(self, t):
         t = plano(t)[:30]

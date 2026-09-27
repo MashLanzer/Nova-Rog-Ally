@@ -1997,6 +1997,18 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n201. La regla vale tambien para lo que ya estaba (idea 31 de las 121)"
+# El 19/09 se escribio un filtro: lo que habla de Nova no entra en el cerebro, porque el cerebro
+# es la memoria de BRAYA, no el diario de Nova. Pero ese filtro solo miraba lo que LLEGA.
+# MEDIDO sobre memoria\cerebro\cerebro.json: de los 121 recuerdos, TREINTA Y SEIS hablan de Nova
+# -el 29,75 %- y los 36 estan en estado "firme", o sea que entran en las busquedas y viajan en el
+# contexto de todas las charlas. Los 36 son del 15/09 (20) y del 18/09 (16): cero del 19/09 en
+# adelante, que es justo cuando se escribio el filtro. Es el mismo agujero que repasar_estilo
+# arreglo para el estilo, y se arregla igual: no se borra nada, se marca como rechazada.
+# Y CON DISYUNTOR: si el filtro se come mas de la MITAD de la memoria, no toca nada y lo dice.
+python (Join-Path $PSScriptRoot 'probar-recuerdos-repasados.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la regla vale tambien para lo que ya estaba)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n200. Lo que no se dice no gasta turno (idea 29 de las 121)"
 # Un aviso de nivel "bajo" solo sale en la capsula, no se dice NUNCA. Pero gastaba una de las
 # cuatro plazas de VOZ de la hora y ademas se quedaba como el aviso al que Nova le mira la

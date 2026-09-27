@@ -64,8 +64,15 @@ def mejor(q):
 
 
 # temas que SI estan en su memoria (sacados de sus recuerdos reales)
+# EL OSO POLAR SE CAYO DE ESTA LISTA, Y CON RAZON (26/09, idea 31). El UNICO recuerdo que
+# hablaba de un oso polar era el id 39: "Braya quiere eliminar un dato sobre un oso polar de su
+# perfil, pero Nova no encontro ese dato". Eso no es algo que braya contara: es Nova contando lo
+# que le paso a ELLA, y desde el 19/09 eso no entra en el cerebro. El repaso de lo ya guardado
+# lo aparto, y sin el este banco se quedaba VERDE devolviendo una barbaridad a 0,279 -"?Como se
+# llama que? Completa que no me quedo"-, que es peor que ponerse rojo.
+# Se cambia por la funda de la consola (recuerdos 32 y 33), que SI es algo que conto braya.
 con = ["que te dije del juego que era caro", "de que hablamos del fuego en la casa",
-       "que me dijiste de mi pareja", "que sabes del oso polar",
+       "que me dijiste de mi pareja", "que te dije de la funda de la consola",
        "que dije de la musica electronica"]
 # y temas que NO ha hablado nunca
 sin = ["que te dije de la pesca en noruega", "que sabes de mi coche electrico",

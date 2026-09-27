@@ -140,6 +140,14 @@ $AvisoEsperaMin = if ($fuenteE -match '(?m)^\$AvisoEsperaMin = (\d+)') { [int]$M
 $AvisoEsperaCaducaMin = if ($fuenteE -match '(?m)^\$AvisoEsperaCaducaMin = (\d+)') { [int]$Matches[1] } else { 120 }
 $script:ausenciaFalsa = 0
 function Get-AusenciaMin([datetime]$ahora = (Get-Date)) { return $script:ausenciaFalsa }
+# Y EL OCIO DE WINDOWS TAMBIEN DOBLADO (26/09, idea 30). Test-AvisoAplazable mira ahora
+# Get-NadieMin, que pregunta a Windows cuanto hace que nadie toca el teclado. Sin este doble,
+# Traer se trae la de VERDAD, hace el P/Invoke a user32 y este banco sale verde o rojo segun
+# si alguien toco el teclado en la ultima media hora: lanzado por la bateria y dejado solo,
+# el ocio es siempre alto y las 37 comprobaciones de aqui se aparcarian todas.
+# EN CERO, como la ausencia de al lado y por lo mismo: aqui se prueba el filtro de siempre,
+# con braya delante.
+function Get-InactividadMin { return 0 }
 function Write-Atomico([string]$r, [string]$t) { [System.IO.File]::WriteAllText($r, $t, (New-Object System.Text.UTF8Encoding($false))) }
 # Set-AvisosEntorno llama a Get-DiaJuego desde la idea 11: otra que faltaba y que mataba
 # este banco a mitad, tambien en silencio.
