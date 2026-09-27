@@ -2089,6 +2089,17 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n252. El plazo de los 6 s para decir si, contado y puesto por ella (idea 102 de las 121)"
+# MEDIDO emparejando cada 'confirmacion: esperando si/no' con su desenlace: 24 confirmaciones,
+# TRECE contestadas y once que vencieron sin respuesta. Los trece retrasos, en segundos: 1,1,1,1,
+# 1,1,2,2,2,2,3,3,3. LA MAS LENTA, TRES SEGUNDOS. Y se mide desde donde el plazo empieza de verdad
+# -cuando el microfono queda libre-, no desde la pregunta: esa cuenta incluye la voz de Nova, que
+# el codigo ya descuenta, y es la que hacia parecer que el plazo cortaba a gente que si contestaba.
+# DE ENTRADA NO SE MUEVE NADA: con 13 muestras y un minimo de 20 manda el 6.000 de siempre; lo que
+# cambia es que deja de ser una corazonada -retocada a mano una vez, de 3,5 a 6- y empieza a
+# contarse. Dos cubos, y el del juego esta vacio a proposito: ahi las manos estan ocupadas.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-plazo-confirmar.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el plazo para decir si sale de lo que tarda braya)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n251. El diario de gestos no decia quien lo provoco (idea 101 de las 121)"
 # memoria\semanas6-W37.md dice 'Lo que mas me dijiste, segun mis gestos: grito x148, confuso
 # x143, orgullo x123, perdida x59'. De esos cuatro, TRES son de NOVA: confuso, orgullo y perdida

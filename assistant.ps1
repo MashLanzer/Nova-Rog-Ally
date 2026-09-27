@@ -28434,6 +28434,94 @@ $ConfirmacionOn = [bool](Get-Cfg 'confirmacion' 'activada' $true)
 # y en el uso real del 18/09 se cancelo por plazo una pregunta a la que si iba a contestar.
 # Con 6 sigue siendo corto si no contestas, que es lo que hay que proteger.
 $ConfirmacionMs = [int](Get-Cfg 'confirmacion' 'esperaMs' 6000)
+# EL PLAZO PARA DECIR SI, CONTADO Y PUESTO POR ELLA (27/09, idea 102 de las 121)
+#
+# EL DATO, emparejando cada 'confirmacion: esperando si/no' con su desenlace en los dos registros:
+# 24 confirmaciones, TRECE contestadas y once que vencieron sin respuesta. Los trece retrasos, en
+# segundos: 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3. LA MAS LENTA, TRES SEGUNDOS. Con el plazo en 4 s
+# no se pierde ni una de las trece, y en las once que mueren se recorta un tercio de la espera.
+#
+# Y SE MIDE DESDE DONDE EL PLAZO EMPIEZA DE VERDAD: desde que el microfono queda libre, no desde
+# que Nova empieza a preguntar. Contando desde la pregunta parece que el plazo corta por la mitad
+# del reparto -hay un si a los 7 s y una muerte a los 7 s-, pero esa cuenta incluye lo que tarda su
+# propia voz, y el codigo ya la descuenta (el bucle empuja el vencimiento a fin-de-voz + plazo).
+# Los que mueren no es que contesten tarde: es que no contestan.
+#
+# DE ENTRADA NO SE MUEVE NADA, y eso es a proposito: con 13 muestras y un minimo de
+# $DecisionMinIntentos = 20 manda el 6.000 de siempre. Lo que cambia hoy es que deja de ser una
+# corazonada -retocada a mano una vez, de 3,5 a 6 el 18/09- y empieza a contarse.
+#
+# DOS CUBOS, y el segundo esta vacio a proposito: con un juego delante las dos manos estan
+# ocupadas y contestar cuesta mas, asi que sus muestras no pueden mezclarse con las otras. De ese
+# cubo no hay NI UNA medida todavia, asi que ahi manda el numero de siempre hasta que las haya.
+$ConfirmacionTiemposJson = Join-Path $MemoriaDir 'confirmacion-tiempos.json'
+$ConfirmacionMax = 60           # muestras por cubo
+$ConfirmacionSueloMs = 3000     # nunca menos: la mas lenta medida son 3 s
+$script:confTiempos = $null
+
+function Get-ConfirmacionTiempos {
+    if ($null -ne $script:confTiempos) { return $script:confTiempos }
+    $script:confTiempos = @{ sinJuego = (New-Object System.Collections.ArrayList); conJuego = (New-Object System.Collections.ArrayList) }
+    try {
+        if (Test-Path -LiteralPath $ConfirmacionTiemposJson) {
+            $j = Get-Content -LiteralPath $ConfirmacionTiemposJson -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($k in @('sinJuego', 'conJuego')) {
+                foreach ($x in @($j.$k)) { try { [void]$script:confTiempos[$k].Add([int]$x) } catch {} }
+            }
+        }
+    } catch { }
+    return $script:confTiempos
+}
+
+# Cuanto tardo en contestar, en ms, desde que el microfono quedo libre.
+# LOS VENCIDOS POR PLAZO NO ENTRAN: son censura, no una medida. Si se apuntaran como "tardo 6.000",
+# el plazo se justificaria a si mismo para siempre.
+function Add-TiempoRespuesta([int]$ms, [string]$comoAcabo, [bool]$conJuego) {
+    if ($ms -le 0 -or $ms -gt 60000) { return $false }
+    if ($script:invitado) { return $false }
+    if ($comoAcabo -ne 'si' -and $comoAcabo -ne 'no') { return $false }
+    try {
+        $t = Get-ConfirmacionTiempos
+        $cubo = if ($conJuego) { 'conJuego' } else { 'sinJuego' }
+        [void]$t[$cubo].Add([int]$ms)
+        while ($t[$cubo].Count -gt $ConfirmacionMax) { $t[$cubo].RemoveAt(0) }
+        $o = [ordered]@{ sinJuego = @($t.sinJuego); conJuego = @($t.conJuego); hasta = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') }
+        Write-Atomico $ConfirmacionTiemposJson ($o | ConvertTo-Json -Depth 4 -Compress)
+        return $true
+    } catch { return $false }
+}
+
+# PURA Y CON TODO POR PARAMETRO, para que el banco le pueda pasar doscientos casos: el patron ya
+# probado de Get-VozPlazoMs. El percentil, por el metodo del mas cercano, igual que
+# Get-NubePercentil y Get-TrabajoPercentil.
+function Get-PlazoConfirmacionMs($muestras, [int]$minIntentos, [int]$deSiempreMs, [int]$sueloMs, [int]$techoMs) {
+    $v = @($muestras)
+    if ($v.Count -lt $minIntentos) { return $deSiempreMs }
+    $ord = @($v | Sort-Object)
+    $i = [int][Math]::Ceiling(0.95 * $ord.Count) - 1
+    if ($i -lt 0) { $i = 0 }
+    if ($i -ge $ord.Count) { $i = $ord.Count - 1 }
+    # EL P95 POR DOS: cortarle la respuesta cuesta que tenga que repetir la orden entera, asi que el
+    # margen se paga barato. Con lo medido -maximo 3 s- esto daria 6 s, o sea el numero de hoy: el
+    # dato de hoy NO pide cambiar nada, y eso tambien es un resultado.
+    $ms = [int]([double]$ord[$i] * 2)
+    if ($ms -gt $techoMs) { $ms = $techoMs }
+    if ($ms -lt $sueloMs) { $ms = $sueloMs }
+    return $ms
+}
+
+# El plazo de ahora mismo, con el cubo que toque.
+function Get-PlazoConfirmacion {
+    try {
+        $t = Get-ConfirmacionTiempos
+        $hayJuego = [bool]$script:juegoActivo
+        $cubo = if ($hayJuego) { 'conJuego' } else { 'sinJuego' }
+        # CON UN JUEGO DELANTE EL TECHO ES EL DEL SELECTOR ($EleccionMs), no el de siempre: ahi las
+        # manos estan ocupadas y el propio selector del mando ya acepta esa espera.
+        $techo = if ($hayJuego) { [Math]::Max($ConfirmacionMs, [int]$EleccionMs) } else { [int]$ConfirmacionMs }
+        return (Get-PlazoConfirmacionMs $t[$cubo] $DecisionMinIntentos $ConfirmacionMs $ConfirmacionSueloMs $techo)
+    } catch { return [int]$ConfirmacionMs }
+}
 $script:pendiente = $null
 $script:confirmado = $false
 # 'confirmado' = el usuario dijo que si. 'sinDudosa' = no preguntes por
@@ -28457,9 +28545,14 @@ function Start-Confirmacion {
     # al nacer, y se suma la pausa por si esa vuelta tardara: no sobra, pero no es de lo
     # que depende que puedas contestar. Si alguien viene a cambiar cuanto tiempo hay para
     # decir 'si', el sitio es el bucle, no esto.
-    $espera = $ConfirmacionMs
+    $espera = Get-PlazoConfirmacion        # idea 102: medido, ya no es un numero a fuego
     if ($script:pausaHasta -gt $sw.ElapsedMilliseconds) { $espera += ($script:pausaHasta - $sw.ElapsedMilliseconds) }
     $script:pendiente.vence = $sw.ElapsedMilliseconds + $espera
+    # Y DESDE CUANDO SE CUENTA, para poder medir lo que tardo de verdad (idea 102). Se apunta aqui
+    # y el bucle lo empuja igual que empuja el vencimiento: la medida acaba siendo "desde que el
+    # microfono quedo libre", que es lo que el plazo cuenta.
+    $script:pendiente.desde = $sw.ElapsedMilliseconds
+    $script:pendiente.juego = [bool]$script:juegoActivo
     if ($script:wakeProc -and -not $script:wakeProc.HasExited) {
         try { [System.IO.File]::WriteAllText($MarcaConfirmar, 'x') } catch {}
     }
@@ -28469,6 +28562,16 @@ function Start-Confirmacion {
 function Complete-Confirmacion([string]$respuesta) {
     $p = $script:pendiente
     $script:pendiente = $null
+    # CUANTO TARDO DE VERDAD (27/09, idea 102): desde que el microfono quedo libre hasta que llego
+    # la respuesta. Solo el si y el no; el 'plazo' es censura y Add-TiempoRespuesta lo rechaza.
+    if ($p -and $p.desde) {
+        try {
+            $msR = [int]($sw.ElapsedMilliseconds - [double]$p.desde)
+            if (Add-TiempoRespuesta $msR $respuesta ([bool]$p.juego)) {
+                Log ("CONFIRMAR: tardaste " + [Math]::Round($msR / 1000.0, 1) + " s en decir '" + $respuesta + "'; el plazo es de " + [int]((Get-PlazoConfirmacion) / 1000) + " s")
+            }
+        } catch {}
+    }
     $script:confirmaFin = 0; $script:confirmaTotal = 0
     Remove-Item -LiteralPath $MarcaConfirmar -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $RutaConfirmacion -Force -ErrorAction SilentlyContinue
@@ -32636,7 +32739,7 @@ while ($true) {
             # pregunta a las :18, micro libre a las :26, cancelada por plazo a las :29. Tres
             # segundos reales para contestar. El worker ya esperaba a que acabara la pausa;
             # el que contaba mal era este lado.
-            $script:pendiente.vence = $sw.ElapsedMilliseconds + $ConfirmacionMs
+            $script:pendiente.vence = $sw.ElapsedMilliseconds + (Get-PlazoConfirmacion)
             $queda = [Math]::Max(0, $script:pendiente.vence - $sw.ElapsedMilliseconds)
             $script:confirmaFin = [DateTimeOffset]::Now.ToUnixTimeMilliseconds() + $queda
             $script:confirmaTotal = [Math]::Max(1, $queda)
@@ -32666,8 +32769,11 @@ while ($true) {
         # se queda; pero ya no es de lo que depende.)
         $finVozC = [Math]::Max([double]$script:pausaHasta, [double]$script:uiHasta)
         if ($finVozC -gt $sw.ElapsedMilliseconds) {
-            $minimoC = $finVozC + $ConfirmacionMs
+            $minimoC = $finVozC + (Get-PlazoConfirmacion)
             if ($script:pendiente.vence -lt $minimoC) { $script:pendiente.vence = $minimoC }
+            # Y EL RELOJ DE LA MEDIDA SE EMPUJA IGUAL (idea 102): si no, se estaria midiendo lo que
+            # tarda la voz de Nova mas lo que tarda braya, que es justo la cuenta que enganaba.
+            if ([double]$script:pendiente.desde -lt $finVozC) { $script:pendiente.desde = $finVozC }
         }
         if ($resp) { Complete-Confirmacion $resp }
         elseif ($sw.ElapsedMilliseconds -ge $script:pendiente.vence) { Complete-Confirmacion 'plazo' }
