@@ -1997,6 +1997,16 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n202. La lista que impide borrar la consola se salta con un alias (idea 34 de las 121)"
+# opencode tiene acceso total. Lo que le frena es una lista de 35 patrones "deny" en su jsonc,
+# que casan TEXTO LITERAL: no saben que ri/rm/rd/del son Remove-Item, ni que -R es -Recurse.
+# Comprobado de verdad: `ri -Rec -For` borra un arbol en TEMP sin casar con ninguno de los 35.
+# La lista gemela de Claude Code ($CcProhibido) SI cubre alias; la de opencode se quedo atras.
+# El banco es de SOLO LECTURA (regla 1): cuenta los rodeos con un trinquete (hoy 6), no arregla
+# la lista, que es decision de braya. Urgencia baja: 0 ejecuciones de opencode desde el 13/09.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-permisos-opencode.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:los rodeos de la lista de opencode estan contados)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n201. La regla vale tambien para lo que ya estaba (idea 31 de las 121)"
 # El 19/09 se escribio un filtro: lo que habla de Nova no entra en el cerebro, porque el cerebro
 # es la memoria de BRAYA, no el diario de Nova. Pero ese filtro solo miraba lo que LLEGA.
