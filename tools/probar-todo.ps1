@@ -2072,6 +2072,15 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n222. En la mesa o en las manos: el paquete del mando y el sensor de orientacion (idea 69 de las 121)"
+# Dos senales que ya estaban y no se usaban: dwPacketNumber -que XInput solo sube cuando el mando
+# cambia, y aparecia CERO veces en el script- y SimpleOrientationSensor (0,157 ms en caliente
+# frente a los 15,52 del acelerometro, que sigue apagado). Get-EnLaMesa exige las DOS cosas y
+# calla si falta cualquiera. El umbral de 'quieto' es el p90 de los huecos de braya, con 20
+# muestras minimas. Y lo que mas valia y no pedia la ficha: el mando cuenta como PRESENCIA, que
+# GetLastInputInfo no ve. El banco lee el sensor de verdad y mide lo que cuesta.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-mesa-o-manos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:Nova sabe si la consola esta en la mesa)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n221. Que la capsula diga si se la ve, en vez de adivinarlo por la resolucion (idea 67 de las 121)"
 # 'CAPSULA CIEGA' salia CERO veces en 58.636 lineas de registro con 19,9 h de juego dentro: los
 # juegos de hoy usan pantalla completa SIN cambiar de resolucion, asi que la cuenta que decidia

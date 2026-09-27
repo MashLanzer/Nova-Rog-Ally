@@ -14254,8 +14254,22 @@ function Get-NadieMin([datetime]$ahora = (Get-Date)) {
     $a = Get-AusenciaMin $ahora
     $o = -1
     try { $o = [int](Get-InactividadMin) } catch { $o = -1 }
-    if ($o -gt $a) { return $o }
-    return $a
+    $res = if ($o -gt $a) { $o } else { $a }
+    # EL MANDO TAMBIEN ES ALGUIEN (27/09, idea 69). GetLastInputInfo no cuenta XInput: jugando una
+    # hora con el mando, para Windows braya lleva una hora sin tocar nada, asi que Nova daba por
+    # hecho que no habia nadie y aparcaba avisos con el delante.
+    #
+    # VA AL FINAL Y RECORTA, no compite con los otros dos. Esto mide 'cuanto llevo sin ver a
+    # nadie', y si el mando se movio hace un minuto es que hace un minuto habia alguien: el
+    # resultado no puede ser mayor que eso, por mucho que digan el ocio de Windows o la presencia.
+    try {
+        $qm = [int](Get-QuietudMando)
+        if ($qm -ge 0) {
+            $mMando = [int][Math]::Floor($qm / 60.0)
+            if ($mMando -lt $res) { $res = $mMando }
+        }
+    } catch {}
+    return $res
 }
 # LA VARIEDAD (lo que pidio: "no siempre igual porque se vuelve repetitivo"). El patron ya
 # estaba en casa -el relleno de la charla, que sortea filtrando la ultima dicha- con dos
@@ -22535,6 +22549,57 @@ if ([bool](Get-Cfg 'sensores' 'acelerometro' $false)) {
     } catch { $script:acelerometro = $null; Log "acelerometro: no disponible" }
 }
 
+# LA ORIENTACION (27/09, idea 69). SimpleOrientationSensor dice si la consola esta tumbada boca
+# arriba sin cuestas: medido hoy en esta Ally, PRESENTE, devuelve Faceup y cuesta 0,157 ms por
+# lectura (200 llamadas). El acelerometro, que daria lo mismo, cuesta 15,52 ms medidos -99 veces
+# mas- y por eso sigue apagado: nunca por GetCurrentReading dentro del bucle.
+#
+# NO HACE FALTA INTERRUPTOR EN config.json y es a proposito: a diferencia del acelerometro, este
+# sensor no bloquea, y ademas lleva la MISMA guarda -si la primera lectura tarda o viene vacia, se
+# apaga para siempre-. Un interruptor apagado por defecto lo dejaria muerto como esta el otro.
+$script:orientacion = $null
+$script:orientaProbado = $false
+$script:orientaCheck = 0
+$script:orientacionPlana = $false      # Faceup o Facedown: la consola esta tumbada
+$script:orientaPlanaEn = 0             # ms del bucle desde que esta asi
+try {
+    $null = [Windows.Devices.Sensors.SimpleOrientationSensor, Windows.Devices.Sensors, ContentType = WindowsRuntime]
+    $script:orientacion = [Windows.Devices.Sensors.SimpleOrientationSensor]::GetDefault()
+    if ($script:orientacion) { Log 'orientacion: sensor disponible (se probara la primera lectura)' } else { Log 'orientacion: no hay sensor' }
+} catch { $script:orientacion = $null; Log 'orientacion: no disponible' }
+
+function Watch-Orientacion {
+    if (-not $script:orientacion) { return }
+    try {
+        if (-not $script:orientaProbado) {
+            $script:orientaProbado = $true
+            # LA PRIMERA LECTURA NO VALE PARA MEDIR, y por poco mata el sensor: cazado por el
+            # banco el 27/09, cuesta 11,96 ms de estreno y 1,86 ms en caliente. Midiendo la
+            # primera, la guarda de abajo lo habria desactivado para siempre en la unica
+            # consola donde funciona. Se calienta con una lectura que no se mide -igual que se
+            # calento la medicion de 0,157 ms de la que sale el numero- y se juzga la segunda.
+            $o0 = $script:orientacion.GetCurrentOrientation()
+            $t = [System.Diagnostics.Stopwatch]::StartNew()
+            $o0 = $script:orientacion.GetCurrentOrientation()
+            # 5 ms es mas de treinta veces lo medido en caliente: si tarda eso, este sensor no
+            # es el que se midio y no se paga en cada vuelta. La misma guarda que el acelerometro.
+            if ($t.Elapsed.TotalMilliseconds -gt 5 -or $null -eq $o0) {
+                Log ('orientacion: lectura lenta o vacia (' + [Math]::Round($t.Elapsed.TotalMilliseconds, 2) + ' ms, nulo=' + ($null -eq $o0) + '); desactivada')
+                $script:orientacion = $null
+                return
+            }
+            Log ('orientacion: lecturas OK (' + [Math]::Round($t.Elapsed.TotalMilliseconds, 3) + ' ms, ' + [string]$o0 + ')')
+        }
+        $o = $script:orientacion.GetCurrentOrientation()
+        if ($null -eq $o) { return }
+        $plana = ([string]$o -eq 'Faceup' -or [string]$o -eq 'Facedown')
+        if ($plana -ne $script:orientacionPlana) {
+            $script:orientacionPlana = $plana
+            $script:orientaPlanaEn = $sw.ElapsedMilliseconds
+            Log ('orientacion: ' + $(if ($plana) { 'tumbada (' + [string]$o + ')' } else { 'en la mano (' + [string]$o + ')' }))
+        }
+    } catch { $script:orientacion = $null }
+}
 $script:acelProbado = $false
 function Watch-Acelerometro {
     if (-not $script:acelerometro) { return }
@@ -24366,16 +24431,26 @@ function Add-TrabajoTiempo([string]$clave, [int]$ms) {
 # Percentil por el metodo del mas cercano, igual que Get-NubePercentil: con pocos datos,
 # interpolar es inventarse precision que no hay. Devuelve 0 si aun no hay bastantes muestras,
 # que es como se dice 'no me preguntes todavia'.
-function Get-TrabajoPercentil([string]$clave, [int]$pct = 75) {
-    # se ASIGNA primero y se ordena despues, en dos pasos: el 'return ,$l' de arriba hace que
-    # un pipe directo reciba la LISTA entera como un solo objeto en vez de sus numeros
-    $lista = Get-TrabajoTiempos $clave
+# EL PERCENTIL DE UNA LISTA, en un solo sitio (27/09, idea 69). Estaba dentro de
+# Get-TrabajoPercentil y la quietud del mando necesitaba el mismo calculo; la tercera copia de una
+# cuenta es como se separan. Metodo del mas cercano, igual que Get-NubePercentil: con pocos datos,
+# interpolar es inventarse precision que no hay.
+function Get-PercentilLista($lista, [int]$pct) {
     $v = @($lista | Sort-Object)
-    if ($v.Count -lt $TrabajoTiemposMin) { return 0 }
+    if ($v.Count -eq 0) { return 0 }
     $i = [int][Math]::Ceiling(($pct / 100.0) * $v.Count) - 1
     if ($i -lt 0) { $i = 0 }
     if ($i -ge $v.Count) { $i = $v.Count - 1 }
     return [int]$v[$i]
+}
+
+# Devuelve 0 si aun no hay bastantes muestras, que es como se dice 'no me preguntes todavia'.
+function Get-TrabajoPercentil([string]$clave, [int]$pct = 75) {
+    # se ASIGNA primero y se pasa despues, en dos pasos: el 'return ,$l' de arriba hace que un
+    # pipe directo reciba la LISTA entera como un solo objeto en vez de sus numeros
+    $lista = Get-TrabajoTiempos $clave
+    if (@($lista).Count -lt $TrabajoTiemposMin) { return 0 }
+    return (Get-PercentilLista $lista $pct)
 }
 
 # Lo que la barra da por bueno para ESTE trabajo: lo medido si hay bastante, y si no, lo
@@ -29500,8 +29575,73 @@ function Complete-Eleccion([int]$n) {
 # LA PISTA, que es la mitad de esta funcion. Con un juego delante A y B son del juego y
 # aqui solo valen con ≡ apretado; fuera del juego valen solos. Y en una pregunta peligrosa
 # A NO vale nunca (esa regla es del 13/09 y no se toca): ahi la pista solo ofrece el no.
+# LA QUIETUD DEL MANDO Y LA MESA (27/09, idea 69)
+#
+# EL UMBRAL NO LO ESCRIBE NADIE: 'quieto de verdad' es el percentil 90 de los huecos que de verdad
+# hace braya entre movimiento y movimiento. Un hueco mas largo que el 90 % de los suyos ya no es
+# una pausa de partida: es que ha soltado el mando. Con menos de MandoHuecosMin muestras se
+# devuelve 0, que es como se dice 'todavia no lo se' -y entonces Get-EnLaMesa no afirma nada-.
+$MandoHuecosJson = Join-Path $MemoriaDir 'mando-huecos.json'
+$MandoHuecosMax = 300           # huecos guardados; a ~7 dias de uso sobra
+$MandoHuecosMin = 20            # menos que esto y no hay percentil que valga
+$MandoQuietoPct = 90
+function Get-HuecosMando {
+    $l = New-Object System.Collections.ArrayList
+    if (Test-Path -LiteralPath $MandoHuecosJson) {
+        try {
+            $j = Get-Content -LiteralPath $MandoHuecosJson -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($v in @($j.huecos)) {
+                $n = 0
+                if ([int]::TryParse([string]$v, [ref]$n) -and $n -gt 0) { [void]$l.Add($n) }
+            }
+        } catch { }
+    }
+    return ,$l   # la coma no sobra: una lista vacia desenrollada se queda en $null
+}
+
+function Add-HuecoMando([int]$segundos) {
+    if ($segundos -le 0) { return $false }
+    try {
+        $l = Get-HuecosMando
+        [void]$l.Add($segundos)
+        while ($l.Count -gt $MandoHuecosMax) { $l.RemoveAt(0) }
+        Write-Atomico $MandoHuecosJson (ConvertTo-Json @{ huecos = @($l); visto = (Get-Date -Format 's') } -Compress)
+        return $true
+    } catch { return $false }
+}
+
+# Segundos desde que el mando se movio por ultima vez. -1 si no se ha visto moverse nunca en esta
+# sesion (recien arrancada, o el mando no esta): eso NO es quietud, es no saber.
+function Get-QuietudMando {
+    if (-not $script:mandoHay -or $script:mandoMovidoEn -le 0) { return -1 }
+    return [int](($sw.ElapsedMilliseconds - $script:mandoMovidoEn) / 1000)
+}
+
+function Get-UmbralQuietud {
+    $l = Get-HuecosMando
+    if (@($l).Count -lt $MandoHuecosMin) { return 0 }
+    return (Get-PercentilLista $l $MandoQuietoPct)
+}
+
+# ¿ESTA EN LA MESA? Plana Y el mando quieto mas que su propio umbral. Las dos cosas, porque cada
+# una sola se equivoca: tumbada en la cama jugando tambien da Faceup, y el mando quieto un rato
+# largo pasa leyendo un dialogo. Si falta cualquiera de las dos senales -sensor apagado o umbral
+# sin aprender- devuelve $false: no se inventa una certeza que no hay.
+function Get-EnLaMesa {
+    if (-not $script:orientacionPlana) { return $false }
+    $q = Get-QuietudMando
+    if ($q -lt 0) { return $false }
+    $u = Get-UmbralQuietud
+    if ($u -le 0) { return $false }
+    return ($q -gt $u)
+}
 function Get-PistaMando([string]$tipo) {
     if (-not $script:mandoHay) { return '' }
+    # Y SI ESTA EN LA MESA, NO ES UNA VIA REAL (27/09, idea 69). En los dos registros hay 41
+    # lineas CONFIRMAR -20 preguntas-, cinco murieron por plazo y NINGUNA se contesto con el
+    # mando. Ofrecer 'A si / B no' con el mando en la mesa gasta sitio en la capsula y ensena
+    # un camino que no existe; sin la pista, la pregunta se contesta hablando, que si funciona.
+    if (Get-EnLaMesa) { return '' }
     $pre = if ($script:juegoActivo) { [string][char]0x2261 + '+' } else { '' }
     if ($tipo -eq 'peligrosa') { return "   ${pre}B no" }
     return "   ${pre}A si  ${pre}B no"
@@ -29526,6 +29666,19 @@ $script:mandoRespondioEn = -100000
 # dobla hasta 4 s cada vez que un repaso sale vacio, y vuelve a 1 s en cuanto aparece un mando.
 # Un puerto que ya contesto se pregunta en todas las vueltas mientras siga contestando; si deja
 # de hacerlo mas tiempo que el tope del repaso, vuelve a la cola de los aplazados.
+# EL PAQUETE DEL MANDO, QUE SE LEIA Y SE TIRABA (27/09, idea 69). XInput sube dwPacketNumber solo
+# cuando el mando cambia de estado, asi que sale gratis saber cuanto lleva braya sin tocarlo:
+# el estado ya se lee cada 30 ms y de la struct solo se usaba wButtons (dwPacketNumber no aparecia
+# NI UNA VEZ en las 31.000 lineas del script). Comprobado hoy en esta Ally: puerto 0 ret=0,
+# paquete 11481, y 700 ms despues sin tocarlo sigue en 11481; las setas tienen valor en reposo
+# (LX=0 LY=-1) asi que cualquier roce lo mueve.
+#
+# PARA QUE SIRVE, y es lo que la idea no decia: GetLastInputInfo -la unica senal de presencia que
+# habia- NO cuenta el mando. Jugando con el mando una hora, para Windows braya lleva una hora sin
+# tocar nada, asi que Nova puede dar por hecho que no hay nadie y aparcar avisos con el delante.
+$script:mandoPaquete = -1          # ultimo dwPacketNumber visto en el puerto 0
+$script:mandoMovidoEn = -100000    # ms del bucle cuando cambio por ultima vez
+
 $RescanMandoMin = 1000
 $RescanMandoTope = 4000
 $script:puertoVisto = @{}          # puerto -> ms del ultimo ret=0
@@ -29575,6 +29728,19 @@ while ($true) {
             $r = [AX]::XInputGetState([uint32]$u, [ref]$state)
             if ($r -eq 0) {
                 $botones = $botones -bor [int]$state.Gamepad.wButtons; $script:mandoHay = $true
+                # ¿SE HA MOVIDO? (idea 69). Solo el puerto 0, que es el mando de la consola.
+                if ($u -eq 0) {
+                    $pq = [int]$state.dwPacketNumber
+                    if ($script:mandoPaquete -ge 0 -and $pq -ne $script:mandoPaquete) {
+                        # el HUECO que acaba de cerrarse, para aprender que es 'quieto de verdad'
+                        if ($script:mandoMovidoEn -gt 0) {
+                            $huecoS = [int](($sw.ElapsedMilliseconds - $script:mandoMovidoEn) / 1000)
+                            if ($huecoS -gt 0) { [void](Add-HuecoMando $huecoS) }
+                        }
+                        $script:mandoMovidoEn = $sw.ElapsedMilliseconds
+                    }
+                    $script:mandoPaquete = $pq
+                }
                 if ($u -gt 0 -and $null -eq $script:puertoVisto[$u]) { $mandoNuevo = $true; Log "mando: aparecio uno en el puerto $u" }
                 $script:puertoVisto[$u] = $sw.ElapsedMilliseconds
             }
@@ -31367,6 +31533,9 @@ while ($true) {
 
     # --- acelerometro (cada 250 ms) y logros de Steam (con el juego) ---
     if ($script:acelerometro -and ($sw.ElapsedMilliseconds - $script:acelCheck) -ge 250) { $script:acelCheck = $sw.ElapsedMilliseconds; Watch-Acelerometro }
+    # la orientacion, una vez por segundo: cuesta 0,157 ms medidos y no cambia mas deprisa que
+    # se mueve una consola en una mesa (idea 69)
+    if ($script:orientacion -and ($sw.ElapsedMilliseconds - $script:orientaCheck) -ge 1000) { $script:orientaCheck = $sw.ElapsedMilliseconds; Watch-Orientacion }
 
     # --- carga de CPU (cada 30 s): la capsula se agita si va al limite ---
     if (($sw.ElapsedMilliseconds - $script:cargaCheck) -ge 30000) {
