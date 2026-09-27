@@ -222,20 +222,29 @@ Comp 'y se acuerda entre reinicios (habitos.json)' ((Get-Habitos).sinDatosVisto 
 Write-Host "--- tu ritmo al hablar y la precarga de la charla ---"
 $script:habitos = $null; Remove-Item (Join-Path $MemoriaDir 'habitos.json') -ErrorAction SilentlyContinue
 $SeguimientoMs = 2500; $ConversacionEsperaMs = 7000; $ConversacionOn = $true; $TmpDir = $MemoriaDir
+$RitmoTopeDia = 10   # como en assistant.ps1 (idea 61)
 function Dicho($s) { [System.IO.File]::WriteAllText((Join-Path $TmpDir 'seguimiento-voz.txt'), $s); Add-RitmoSeguimiento }
 Comp 'sin datos, las ventanas de siempre' ((Get-VentanaSeguimiento $false) -eq 2500 -and (Get-VentanaSeguimiento $true) -eq 7000)
-foreach ($s in '1.0', '1.2', '0.8', '1.1', '3.0', '1.0') { Dicho $s }
-Comp 'apunta lo que tardas en empezar a hablar' ((Get-Habitos).ritmo.Count -eq 6)
+# IDEA 61: cada muestra lleva fecha y no mas de 10 al dia; una sola tarde no llena la memoria
+foreach ($i in 1..12) { Dicho '1.0' }
+Comp 'no mas de 10 muestras el mismo dia (tope por dia)' ((Get-Habitos).ritmo.Count -eq $RitmoTopeDia) "$((Get-Habitos).ritmo.Count)"
+Comp 'y todas llevan su fecha' (@((Get-Habitos).ritmo | Where-Object { [string]$_.f }).Count -eq $RitmoTopeDia) ''
+Dicho '45'
+Comp 'un disparate (mas de 30 s) no cuenta' ((Get-Habitos).ritmo.Count -eq $RitmoTopeDia)
+$script:habitos = $null
+Comp 'sobrevive a releer el archivo con la fecha' (@((Get-Habitos).ritmo | Where-Object { [string]$_.f }).Count -eq $RitmoTopeDia)
+# con UN solo dia (hoy), aunque haya muestras, se queda en el valor por defecto: 3 dias distintos
+Comp 'con un solo dia, sigue el valor por defecto' ((Get-VentanaSeguimiento $true) -eq 7000 -and (Get-VentanaSeguimiento $false) -eq 2500)
+# se inyectan muestras de 3 dias distintos (Add usa la fecha de HOY; aqui se ponen a mano)
+$rit = (Get-Habitos).ritmo; $rit.Clear()
+foreach ($d in '2026-09-23', '2026-09-24', '2026-09-25') { foreach ($v in 1.0, 1.2, 0.8) { [void]$rit.Add(@{ s = $v; f = $d }) } }
 $vc = Get-VentanaSeguimiento $true
-Comp 'si contestas rapido, la charla espera menos (sin bajar de 4 s)' ($vc -ge 4000 -and $vc -lt 7000) $vc
+Comp 'con 3 dias, si contestas rapido la charla espera menos (sin bajar de 4 s)' ($vc -ge 4000 -and $vc -lt 7000) $vc
 Comp 'las ordenes nunca por debajo de lo configurado' ((Get-VentanaSeguimiento $false) -eq 2500)
-foreach ($i in 1..6) { Dicho '5.5' }
+$rit.Clear()
+foreach ($d in '2026-09-23', '2026-09-24', '2026-09-25') { foreach ($v in 5.5, 5.5, 6.0) { [void]$rit.Add(@{ s = $v; f = $d }) } }
 $vc2 = Get-VentanaSeguimiento $true
 Comp 'si tardas, espera mas (con tope de 12 s)' ($vc2 -gt 7000 -and $vc2 -le 12000) $vc2
-Dicho '45'
-Comp 'un disparate (mas de 30 s) no cuenta' ((Get-Habitos).ritmo.Count -eq 12)
-$script:habitos = $null
-Comp 'sobrevive a releer el archivo' ((Get-Habitos).ritmo.Count -eq 12)
 
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
 $script:charlaUltima = -99999999; $script:juegoActivo = $null

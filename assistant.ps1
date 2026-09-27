@@ -9902,7 +9902,14 @@ function Get-Habitos {
                 $script:habitos.presencia['saludo'] = [string]$crudoH.presencia.saludo
                 $script:habitos.presencia['frases'] = @(@($crudoH.presencia.frases) | Where-Object { $_ } | ForEach-Object { [string]$_ })
             }
-            foreach ($x in @($crudoH.ritmo)) { if ($null -ne $x) { [void]$script:habitos.ritmo.Add([double]$x) } }
+            # IDEA 61: ritmo pasa de numeros pelados a {s, f} (segundos, fecha). El lector viejo se
+            # sigue aceptando -como con juegos.json-: un numero suelto entra con fecha vacia (no cuenta
+            # para los 3 dias, pero no se pierde el dato).
+            foreach ($x in @($crudoH.ritmo)) {
+                if ($null -eq $x) { continue }
+                if ($x.PSObject.Properties.Name -contains 's') { [void]$script:habitos.ritmo.Add(@{ s = [double]$x.s; f = [string]$x.f }) }
+                else { try { [void]$script:habitos.ritmo.Add(@{ s = [double]$x; f = '' }) } catch {} }
+            }
             if ($crudoH.charlaHoras) { foreach ($pf in $crudoH.charlaHoras.PSObject.Properties) { $script:habitos.charlaHoras[$pf.Name] = [int]$pf.Value } }
             if ($crudoH.variedad) { foreach ($pV in $crudoH.variedad.PSObject.Properties) { $script:habitos.variedad[$pV.Name] = @($pV.Value) } }
         } catch { Log ("habitos: no pude leerlos: " + $_.Exception.Message); Save-Corrupto $rutaH 'habitos' }
@@ -24572,6 +24579,10 @@ $script:progresoCharla = $false     # la linea de la capsula marca la espera de 
 # EL RITMO DE BRAYA (M8): cuanto tardas en empezar a hablar cuando Nova te deja
 # la ventana abierta. Lo mide el worker de escucha; con los ultimos 30, la
 # ventana se ajusta: ni tan corta que te corte ni tan larga que escuche de mas.
+# IDEA 61: 30/3 = 10. Con el tope de 10 muestras al dia y los 3 dias distintos que exige
+# Get-VentanaSeguimiento, tres tardes ya dan las 30 muestras y encima repartidas: una sola tarde
+# (86 el 25/09) no reescribe la memoria entera. Numero estructural, no medido.
+$RitmoTopeDia = 10
 function Add-RitmoSeguimiento {
     $rutaR = Join-Path $TmpDir 'seguimiento-voz.txt'
     if (-not (Test-Path -LiteralPath $rutaR)) { return }
@@ -24580,14 +24591,22 @@ function Add-RitmoSeguimiento {
     Remove-Item -LiteralPath $rutaR -Force -ErrorAction SilentlyContinue
     if ($s -lt 0 -or $s -gt 30 -or $script:invitado) { return }
     $hbR = Get-Habitos
-    [void]$hbR.ritmo.Add([Math]::Round($s, 2))
+    # IDEA 61: cada muestra lleva su fecha, y no mas de $RitmoTopeDia al dia (una tarde no llena
+    # la lista entera). El p80 lo decidia una sola sesion; ahora hacen falta 3 dias distintos.
+    $hoyR = (Get-Date).ToString('yyyy-MM-dd')
+    if (@($hbR.ritmo | Where-Object { [string]$_.f -eq $hoyR }).Count -ge $RitmoTopeDia) { return }
+    [void]$hbR.ritmo.Add(@{ s = [Math]::Round($s, 2); f = $hoyR })
     while ($hbR.ritmo.Count -gt 30) { $hbR.ritmo.RemoveAt(0) }
     Save-Habitos
 }
 function Get-VentanaSeguimiento([bool]$charla = $false) {
     $hbV = Get-Habitos
-    if ($hbV.ritmo.Count -lt 5) { if ($charla) { return $ConversacionEsperaMs } else { return $SeguimientoMs } }
-    $orden = @($hbV.ritmo | Sort-Object)
+    # IDEA 61: la misma guarda de datos repartidos que las otras decisiones propias: 5 muestras y
+    # 3 dias distintos antes de salir del valor por defecto. Las muestras viejas (sin fecha) no
+    # cuentan para los dias, asi que tras migrar se vuelve al defecto unos dias hasta rehacerlas.
+    $diasR = @($hbV.ritmo | Where-Object { [string]$_.f } | ForEach-Object { [string]$_.f } | Select-Object -Unique)
+    if ($hbV.ritmo.Count -lt 5 -or $diasR.Count -lt 3) { if ($charla) { return $ConversacionEsperaMs } else { return $SeguimientoMs } }
+    $orden = @($hbV.ritmo | ForEach-Object { [double]$_.s } | Sort-Object)
     $p80 = [double]$orden[[int][Math]::Floor(($orden.Count - 1) * 0.8)]
     if ($charla) { return [int][Math]::Min(12000, [Math]::Max(4000, $p80 * 1600 + 1500)) }
     return [int][Math]::Min(6000, [Math]::Max($SeguimientoMs, $p80 * 1300 + 800))
