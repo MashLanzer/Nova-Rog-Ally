@@ -1616,6 +1616,9 @@ def principal():
         # es el disyuntor diciendo que NO ha tocado nada porque el filtro se estaba
         # comiendo mas de la mitad de la memoria. La regla 2 de la casa: el modo que no
         # actua tiene que decirlo, no callarse.
+        _af = getattr(cerebro, "aclaraciones_fuera", 0)
+        if _af:
+            salida("info", texto="memoria: %d respuesta(s) que en realidad eran preguntas mias, fuera" % _af)
         _rf = getattr(cerebro, "recuerdos_fuera", 0)
         if _rf > 0:
             salida("info", texto="memoria: %d recuerdo(s) que hablaban de mi, fuera del contexto" % _rf)

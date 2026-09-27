@@ -86,6 +86,73 @@ try:
     comp("lo que caduca NO se guarda", c.guardar_respuesta("¿quién ganó el partido de hoy?", "El Madrid.", "firme", "api") is None)
     comp("lo sensible NO se guarda", c.guardar_respuesta("¿cuál es el pin de la tarjeta?", "1234", "firme", "api") is None)
 
+    # CUANDO NOVA PREGUNTA, NO ESTA RESPONDIENDO (26/09, idea 33 de las 121).
+    # EL CASO REAL: de las tres respuestas en estado "firme" del cerebro, UNA era el recuerdo
+    # 117: pregunta "¿Como se llama", respuesta "¿Como se llama que? Completa que no me quedo
+    # claro.". Firme, o sea que respuesta_directa la soltaba TAL CUAL cada vez, sin modelo.
+    comp("una peticion de aclaracion NO se guarda",
+         c.guardar_respuesta("¿Cómo se llama", "¿Cómo se llama qué? Completa que no me quedó claro.",
+                             "firme", "api") is None)
+    # EL GEMELO OBLIGATORIO: sin el, un guardar_respuesta que devolviera None SIEMPRE saldria
+    # verde en el caso de arriba.
+    comp("  pero la misma pregunta con una respuesta de verdad SI",
+         c.guardar_respuesta("¿Cómo se llama la capital de Francia", "Es París.", "firme", "api") is not None)
+    # Y LOS CUATRO QUE NO PUEDEN CAER, todos sacados del registro de verdad:
+    comp("  una respuesta que acaba ofreciendo algo SI entra",
+         c.guardar_respuesta("¿quién pintó el Guernica", "Lo pintó Picasso. ¿Te interesa saber más?",
+                             "firme", "api") is not None)
+    comp("  con una afirmacion delante y coma, tambien",
+         c.guardar_respuesta("¿cuándo se fundó Roma",
+                             "Se fundó en el 753 antes de Cristo, pero dame más detalles: ¿qué periodo quieres saber, la fecha completa o algo más?",
+                             "firme", "api") is not None)
+    comp("  y la palabra completa en medio no es una aclaracion",
+         c.guardar_respuesta("¿qué juegos tengo",
+                             "No tengo acceso a la lista completa de nombres de tus juegos instalados.",
+                             "firme", "api") is not None)
+    comp("  pero una oferta pura tampoco entra",
+         c.guardar_respuesta("¿abro google", "¿Quieres que abra Google?", "firme", "api") is None)
+    # TRES MAS, Y LOS TRES LOS DESTAPARON ROTURAS QUE SALIERON VERDES:
+    # una pregunta seguida de una AFIRMACION ya no es solo una peticion de aclaracion.
+    comp("  una pregunta con una afirmacion EN MEDIO SI entra",
+         c.guardar_respuesta("¿abro el navegador",
+                             "¿Quieres que abra Google? Lo tengo a mano. ¿O prefieres Edge?",
+                             "firme", "api") is not None)
+    # y una respuesta larga, aunque sean todo preguntas, no es una peticion de aclaracion:
+    # las de verdad son cortas, y las dos largas que hay en el registro las caza el patron.
+    comp("  y una respuesta larga de puras preguntas, tambien",
+         c.guardar_respuesta("¿qué opciones hay",
+                             "¿Prefieres que te lo ordene por fecha, por nombre, por tamaño o por lo que más usas durante la semana pasada y la anterior?",
+                             "firme", "api") is not None)
+
+    print("--- y lo que ya estaba guardado se repasa (idea 33) ---")
+    # EL CASO REAL: en el cerebro de hoy la 117 estaba en firme desde antes de que existiera
+    # esta regla. Una regla que solo mira lo que entra deja armado lo que entro antes.
+    import tempfile as _tf, shutil as _sh, json as _js, io as _io, os as _os
+    _b = _tf.mkdtemp(prefix="acl33-")
+    try:
+        _d = {"recuerdos": [
+            {"id": 1, "tipo": "respuesta", "pregunta": "¿Cómo se llama",
+             "respuesta": "¿Cómo se llama qué? Completa que no me quedó claro.",
+             "estado": "firme", "origen": "api", "creada": 1790000000, "usada": 1790000000, "usos": 0},
+            {"id": 2, "tipo": "respuesta", "pregunta": "¿cuál es la capital de Francia",
+             "respuesta": "Es París.", "estado": "firme", "origen": "api",
+             "creada": 1790000000, "usada": 1790000000, "usos": 0},
+            {"id": 3, "tipo": "episodio", "pregunta": "¿qué hago con esto",
+             "respuesta": "¿Y esto qué es? No me quedó claro.", "estado": "firme", "origen": "charla",
+             "creada": 1790000000, "usada": 1790000000, "usos": 0}],
+            "estilo": [], "temas": {}, "proximo": 4}
+        _io.open(_os.path.join(_b, "cerebro.json"), "w", encoding="utf-8").write(_js.dumps(_d, ensure_ascii=False))
+        _c = cm.Cerebro(_b)
+        _R = _c.datos["recuerdos"]
+        comp("la que ya estaba guardada se aparta", _R[0]["estado"] == "rechazada")
+        comp("  y el contador lo dice", _c.aclaraciones_fuera == 1, str(_c.aclaraciones_fuera))
+        comp("  pero la respuesta de verdad se queda", _R[1]["estado"] == "firme")
+        # SOLO EL TIPO "respuesta": un episodio se guarda por otro camino y no paso por aqui.
+        comp("  y un episodio no se toca, aunque lo parezca", _R[2]["estado"] == "firme",
+             "ese tipo nunca paso por guardar_respuesta")
+    finally:
+        _sh.rmtree(_b, ignore_errors=True)
+
     print("--- lo del modelo local, provisional hasta revisarlo ---")
     j2 = c.aprender_turno("¿Cuánto duerme un oso polar?", "El oso polar puede vivir sin dormir.", "local")
     comp("entra provisional", c.balance()["provisionales"] == 1)

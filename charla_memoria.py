@@ -54,6 +54,14 @@ MAX_ESTILO = 12
 TOPE_REPASO_RECUERDOS = 0.5
 MAX_TEMAS = 30
 MAX_VARIANTES = 10
+# CUANDO NOVA PREGUNTA, NO ESTA RESPONDIENDO (26/09, idea 33 de las 121). Ver es_aclaracion.
+# EL CORTE SALE DE UNA MESETA, no de un filo: sobre las 249 respuestas de Nova agrupadas de los
+# dos registros, la rama de "esto es toda una pregunta" caza 2 con corte 60, 3 con 80, 4 con
+# 100, 5 con 120 y 7 sin corte. Los largos reales son 25, 51, 64, 99, 101, 123 y 124: cualquier
+# corte entre 102 y 123 da exactamente las mismas cinco, asi que 120 cae en mitad del llano.
+# Y las dos que quedan fuera por largas (123 y 124) son aclaraciones de verdad, pero las caza
+# igual la rama del patron: el corte no pierde ninguna.
+ACLARACION_MAX_LETRAS = 120
 
 VACIAS = set("""
 a al algo algun alguna algunas alguno algunos ante antes asi aun bien cada con contra de del desde el ella
@@ -98,6 +106,17 @@ RE_SENSIBLE = re.compile(r"contrase|password|\bclave\b|\bpin\b|tarjeta|\bbanco\b
 # Las otras dos reglas del perfil -la queja y la deduccion- no se copian: sobre esos
 # 50 episodios cazan 0 y 0, y no se paga complejidad sin dato.
 RE_SOBRE_NOVA = re.compile(r"\b(?:nova|asistente|la ia|el modelo)\b")
+# LO QUE DICE NOVA CUANDO NO ENTENDIO (26/09, idea 33). En cadena CRUDA como todas sus
+# hermanas: sin la r, el \b de Python es un BACKSPACE, y hay un banco que barre este
+# fichero buscando caracteres de control justo por eso.
+# "completa" VA ANCLADA AL PRINCIPIO DE FRASE, y no es gusto: sobre las 249 respuestas del
+# registro, suelta caza 7 y TRES son falsas ("completamente", "un reino completo"); con
+# \bcompleta\b caza 4 y dos siguen siendo buenas ("la fecha completa", "la lista completa
+# de nombres de tus juegos"); anclada al principio de frase caza 2 y las dos son de verdad.
+RE_ACLARACION = re.compile(
+    r"no te entend|no te he entendido|no entiendo bien|a que te refier|"
+    r"no me quedo claro|no me ha quedado claro|me (?:lo )?repites|"
+    r"(?:^|[.!?¿]\s*)complet(?:a|alo|ala)\b")
 
 
 def plano(texto):
@@ -157,6 +176,42 @@ def es_personal(texto):
 def es_pregunta_general(texto):
     q = sin_cortesia(plano(texto))
     return bool(RE_PREGUNTA_GENERAL.match(q)) and not caduca(texto) and not es_seguimiento(texto) and not es_personal(texto)
+
+
+def es_aclaracion(texto):
+    """Si esto es Nova PIDIENDO que le aclaren algo, y no una respuesta.
+
+    EL CASO, en el cerebro de hoy: de las tres respuestas en estado "firme", UNA es el recuerdo
+    117: pregunta "¿Como se llama", respuesta "¿Como se llama que? Completa que no me quedo
+    claro.". Esta FIRME, o sea que respuesta_directa la suelta TAL CUAL, sin pasar por el
+    modelo. Comprobado ejecutandolo: preguntando "Como se llama" Nova contesta con esa peticion
+    de aclaracion, para siempre, cada vez.
+
+    DOS CAMINOS, y el segundo lleva su guarda dentro:
+      - el patron de mas arriba, que caza las formas de decirlo;
+      - o que el texto sea TODA una pregunta: corto, empezando por el signo de apertura y con
+        todas sus frases acabando en interrogacion.
+    EL "EMPIEZA POR EL SIGNO" ES LA GUARDA, y esta medida: partiendo solo por frases se cazan 16
+    de 249 y entre ellas cae una respuesta buena -"Hoy es un dia normal, pero dame mas detalles:
+    ¿que dia especifico quieres saber...?"-, porque su afirmacion va separada por coma y dos
+    puntos, no por punto. Exigiendo que empiece por el signo se cazan 5 y las cinco lo son.
+    """
+    t = (texto or "").strip()
+    if not t:
+        return False
+    if RE_ACLARACION.search(plano(t)):
+        return True
+    if len(t) >= ACLARACION_MAX_LETRAS:
+        return False
+    if not t.startswith("¿") or not t.endswith("?"):
+        return False
+    # y TODAS sus frases tienen que ser preguntas: una afirmacion delante y esto ya no es
+    # solo una peticion de aclaracion
+    for trozo in re.split(r"(?<=[.!?])\s+", t):
+        trozo = trozo.strip()
+        if trozo and not trozo.endswith("?"):
+            return False
+    return True
 
 
 def sensible(texto):
@@ -226,6 +281,7 @@ class Cerebro:
 
     estilo_fuera = 0      # cuantas entradas de estilo tiro el repaso al cargar
     recuerdos_fuera = 0   # y cuantos recuerdos aparto el repaso (negativo: no toco nada)
+    aclaraciones_fuera = 0  # y cuantas 'respuestas' eran en realidad preguntas suyas
 
     def cargar(self):
         with self.lock:
@@ -257,6 +313,11 @@ class Cerebro:
                 self.recuerdos_fuera = self.repasar_recuerdos()
             except Exception:  # noqa: BLE001
                 self.recuerdos_fuera = 0
+            # Y LAS QUE SE GUARDARON SIENDO PREGUNTAS (26/09, idea 33).
+            try:
+                self.aclaraciones_fuera = self.repasar_aclaraciones()
+            except Exception:  # noqa: BLE001
+                self.aclaraciones_fuera = 0
             self.vec = {}
             if np is not None and self.embedder is not None and os.path.exists(self.ruta_vec):
                 try:
@@ -499,8 +560,14 @@ class Cerebro:
     def guardar_respuesta(self, pregunta, respuesta, estado, origen, vector=None):
         pregunta = limpio(pregunta, 200)
         respuesta = limpio(respuesta, 600)
+        # UN SOLO SITIO PARA LOS DOS CAMINOS (26/09, idea 33): aqui llegan tanto aprender_turno
+        # -donde lo de la API entra en firme- como aplicar_revision, o sea lo que el revisor da
+        # por bueno. Poner la guarda en guardar_respuesta los cubre a los dos; un segundo filtro
+        # en aplicar_revision seria la misma regla en dos sitios.
         if not pregunta or not respuesta or caduca(pregunta) or sensible(pregunta + " " + respuesta):
             return None
+        if es_aclaracion(respuesta):
+            return None      # eso no es una respuesta: es Nova pidiendo que le aclaren
         inter = interrogativo(pregunta)
         with self.lock:
             # la misma respuesta que ya se rechazo no vuelve a entrar
@@ -720,6 +787,25 @@ class Cerebro:
         for e in viejas:
             self._estilo(e)
         return len(viejas) - len(self.datos.get("estilo", []))
+
+    def repasar_aclaraciones(self):
+        """Aparta las respuestas guardadas que en realidad eran peticiones de aclaracion.
+
+        Igual que repasar_estilo y repasar_recuerdos: una regla que solo mira lo que entra deja
+        armado para siempre lo que entro antes de escribirla. En el cerebro de hoy hay UNA, el
+        recuerdo 117, y NO se escribe su id a mano: se cae sola con la regla, que es lo que hay
+        que arreglar.
+        """
+        fuera = 0
+        for r in (self.datos.get("recuerdos") or []):
+            if r.get("tipo") != "respuesta" or r.get("estado") == "rechazada":
+                continue
+            if not es_aclaracion(r.get("respuesta", "")):
+                continue
+            r["estado"] = "rechazada"
+            r["repasado"] = time.time()
+            fuera += 1
+        return fuera
 
     def repasar_recuerdos(self):
         r"""Pasa la regla de entrada por los recuerdos que YA estaban guardados.
