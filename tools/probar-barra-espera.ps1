@@ -166,7 +166,7 @@ foreach ($c in @(@('plan', 1600), @('pregunta', 6600), @('traducir', 2200))) {
     $esc = [int]$DURACION_ESPERADA[$c[0]]
     Comp ("'{0}' escrito {1} ms, medido {2}" -f $c[0], $esc, $c[1]) ($esc -eq $c[1])
 }
-Comp "'charla' sigue en 5000 (no hay ni una medida)" ([int]$DURACION_ESPERADA['charla'] -eq 5000)
+Comp "'charla' YA NO esta en DURACION_ESPERADA (idea 37: se mide sola en charla-tiempos.json)" (-not $DURACION_ESPERADA.ContainsKey('charla'))
 Comp "'accion' de opencode sigue en 60000" ([int]$DURACION_ESPERADA['accion'] -eq 60000)
 # EL P75 REPRODUCE LO QUE SI SE PENSO EL 18/09, que es la prueba de que es el liston bueno:
 # traducir 2.200 frente a 2.500 y accion 23.500 frente a 25.000. Solo mueve los dos que

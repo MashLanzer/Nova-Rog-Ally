@@ -2470,6 +2470,73 @@ function Get-VozPlazoMs([int]$letras, $muestras, [int]$minIntentos, [int]$sueloM
     return $ms
 }
 
+# CUANTO TARDA LA CHARLA EN SOLTAR LA PRIMERA FRASE (26/09, idea 37 de las 121). Igual que
+# voz-tiempos: un numero (los ms) por respuesta en un json de 200, y de ahi salen los cuatro
+# umbrales de espera que hasta hoy estaban a fuego (5.000 / 2.000 / 5.000 / 16.000 ms).
+#
+# DOS LISTAS, NO UNA, y esta es la correccion de fondo. Emparejando en el registro cada
+# "primera frase en N s" con su "charla: contesto (X)" (251 pares): la API contesta el 90,7 %
+# en 1,0 s de mediana (p95 = 2,9 s) y el modelo local el 9,3 % en 16,5 s (max 33 s). Meterlos en
+# UNA sola lista da un p85 de 2,1 s que no es de nadie: es la api con un 9 % de cola local
+# pegada encima -promediar dos cosas que se diferencian en 10x es justo lo que prohibe la regla
+# 3-. Por eso api y local van separadas.
+$CharlaTiemposJson = Join-Path $MemoriaDir 'charla-tiempos.json'
+$CharlaTiemposMax = 200
+function Get-CharlaTiempos([string]$origen) {
+    # sin cache, como Get-VozTiempos: cada funcion sacada del archivo tiene su propio ambito y
+    # con cache el banco no podria probarla.
+    $l = New-Object System.Collections.ArrayList
+    if (Test-Path -LiteralPath $CharlaTiemposJson) {
+        try {
+            $j = Get-Content -LiteralPath $CharlaTiemposJson -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($v in @($j.$origen)) {
+                $d = 0.0
+                if ([double]::TryParse([string]$v, [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$d) -and $d -gt 0) { [void]$l.Add($d) }
+            }
+        } catch {}
+    }
+    return , $l
+}
+function Add-CharlaTiempo([int]$ms, [string]$origen) {
+    if ($ms -le 0) { return $false }
+    if ($origen -ne 'api' -and $origen -ne 'local') { return $false }   # solo los dos motores; ni memoria, ni trivia, ni parado
+    if ($script:invitado) { return $false }
+    try {
+        # se reescribe el fichero ENTERO respetando la otra clave (patron de Add-TrabajoTiempo).
+        # Se capturan los ArrayList directamente y se les hace .Add, como Add-VozTiempo: envolver
+        # en @() el resultado de Get-CharlaTiempos (que devuelve ,$l) lo anida ([[1000],1600]).
+        $lApi = Get-CharlaTiempos 'api'
+        $lLocal = Get-CharlaTiempos 'local'
+        if ($origen -eq 'api') { [void]$lApi.Add([double]$ms) } else { [void]$lLocal.Add([double]$ms) }
+        while ($lApi.Count -gt $CharlaTiemposMax) { $lApi.RemoveAt(0) }
+        while ($lLocal.Count -gt $CharlaTiemposMax) { $lLocal.RemoveAt(0) }
+        $o = [ordered]@{ api = @($lApi); local = @($lLocal); hasta = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') }
+        [System.IO.File]::WriteAllText($CharlaTiemposJson, ($o | ConvertTo-Json -Depth 4 -Compress), (New-Object System.Text.UTF8Encoding $false))
+        return $true
+    } catch { return $false }
+}
+# EL PERCENTIL, puro y todo por parametro (como Get-VozPlazoMs) para que el banco le meta 224
+# numeros en un milisegundo. Metodo del mas cercano, igual que Get-TrabajoPercentil. Devuelve 0
+# con menos de $minIntentos muestras: "no me preguntes todavia". Las muestras ya son ms.
+function Get-CharlaPercentil([int]$pct, $muestras, [int]$minIntentos) {
+    $v = @($muestras)
+    if ($v.Count -lt $minIntentos) { return 0 }
+    $ord = @($v | Sort-Object)
+    $i = [int][Math]::Ceiling($pct / 100.0 * $ord.Count) - 1
+    if ($i -lt 0) { $i = 0 }
+    if ($i -ge $ord.Count) { $i = $ord.Count - 1 }
+    return [int][double]$ord[$i]
+}
+# EL UMBRAL: si no hay con que decidir devuelve el escrito, y si el dato sale MAYOR que el
+# escrito tambien -el dato solo BAJA la espera, nunca la sube-, exactamente la regla de
+# Get-VozPlazoMs. Con 24 muestras de local no se le sube a nadie la espera de golpe.
+function Get-CharlaEsperaMs([int]$pct, [int]$escrito, $muestras, [int]$minIntentos) {
+    $p = Get-CharlaPercentil $pct $muestras $minIntentos
+    if ($p -le 0) { return $escrito }
+    if ($p -gt $escrito) { return $escrito }
+    return $p
+}
+
 function Get-NubeTiempos {
     # SIN CACHE A PROPOSITO (20/09). La primera version guardaba la lista en
     # $script:nubeMs para no releer el fichero... y eso la hacia imposible de probar: las
@@ -23262,9 +23329,10 @@ $HERRAMIENTAS_ES = @{
 # ESPERA SE LA MIDE ELLA, unas lineas mas abajo). Y se ponen al dia con sus 141 trabajos
 # medidos: 'plan' 3.000 -> 1.600 (p75 de 15) y 'pregunta' 4.000 -> 6.600 (p75 de 11), que
 # eran los dos que mentian. 'traducir' 2.500 -> 2.200, que es practicamente lo que ya habia
-# (n=104). 'charla' se queda en 5.000 porque no hay ni una charla medida todavia, y el
-# 'accion' de 60 s es el de opencode, que no ha corrido ni una vez desde que se mide.
-$DURACION_ESPERADA = @{ 'pregunta' = 6600; 'traducir' = 2200; 'plan' = 1600; 'charla' = 5000; 'accion' = 60000 }
+# (n=104). El 'accion' de 60 s es el de opencode, que no ha corrido ni una vez desde que se mide.
+# 'charla' YA NO ESTA (26/09, idea 37): era codigo muerto -19 lineas BARRA en todo el registro,
+# ni una con modo=charla- y la espera de la charla ya se mide sola en charla-tiempos.json.
+$DURACION_ESPERADA = @{ 'pregunta' = 6600; 'traducir' = 2200; 'plan' = 1600; 'accion' = 60000 }
 # con Claude Code, medido el 13/09: arrancar cuesta ~2-3 s y una tarea corta con
 # herramientas unos 14
 # traducir sube de 4.000 a 6.000 porque esa es la mediana medida (n=30). Subirlo RETRASA el
@@ -23826,6 +23894,15 @@ $CerebroDir = Join-Path $MemoriaDir 'cerebro'
 $script:charlaProc = $null
 $script:charlaLectura = $null
 $script:charlaId = 0
+# LA MUESTRA A MEDIAS Y LOS CUATRO UMBRALES DE ESPERA (26/09, idea 37 de las 121). charlaMsPend
+# nace en -1, NO en $null: $null vale 0 en comparacion numerica y se colaria como muestra buena
+# de 0 ms en cada frase. Los cuatro umbrales arrancan con lo que estaba escrito y se recalculan
+# una vez por respuesta en Send-Charla (regla 4: no en el bucle, que corre cada ~600 ms).
+$script:charlaMsPend = -1
+$script:charlaUmbralMuletilla = 5000
+$script:charlaUmbralBarra = 2000
+$script:charlaEscalaCaliente = 5000
+$script:charlaEscalaFria = 16000
 $script:charlaTexto = ''
 $script:charlaEsperando = $false
 $script:charlaFrases = New-Object System.Collections.Queue
@@ -24141,6 +24218,19 @@ function Send-Charla([string]$text, [bool]$duda = $false, [string]$op = 'hablar'
     $script:charlaFrases.Clear()
     $script:charlaEsperando = $true
     $script:charlaDesde = $sw.ElapsedMilliseconds
+    # LOS CUATRO UMBRALES DE ESPERA, UNA VEZ POR RESPUESTA (26/09, idea 37). No en el bucle, que
+    # abre fichero cada ~600 ms (regla 4; el mismo cuidado de $script:jobEspMs). Salen de la
+    # lista 'api' -el 90,7 % de los casos- salvo la escala fria, que es el unico de los cuatro
+    # sitios que ya distingue frio de caliente por su cuenta y usa 'local'. Solo BAJAN el
+    # numero escrito, nunca lo suben (Get-CharlaEsperaMs), y hasta 20 muestras de esa clave
+    # mandan los de siempre.
+    $script:charlaMsPend = -1
+    $msApi = Get-CharlaTiempos 'api'
+    $msLocal = Get-CharlaTiempos 'local'
+    $script:charlaUmbralMuletilla = Get-CharlaEsperaMs 95 5000 $msApi $DecisionMinIntentos
+    $script:charlaUmbralBarra = Get-CharlaEsperaMs 75 2000 $msApi $DecisionMinIntentos
+    $script:charlaEscalaCaliente = Get-CharlaEsperaMs 90 5000 $msApi $DecisionMinIntentos
+    $script:charlaEscalaFria = Get-CharlaEsperaMs 50 16000 $msLocal $DecisionMinIntentos
     $script:charlaRelleno = $false
     $script:charlaDescargada = $false
     $script:charlaSilencios = 0
@@ -24213,6 +24303,7 @@ function Stop-Charla {
     }
     $script:charlaEsperando = $false
     $script:charlaFrases.Clear()
+    $script:charlaMsPend = -1   # una respuesta cortada no deja medio dato colgando para la siguiente
 }
 
 # Lo que va diciendo el worker, sin bloquear el bucle
@@ -24242,7 +24333,21 @@ function Receive-Charla {
         $ev = $null
         try { $ev = $linea | ConvertFrom-Json } catch { $ev = $null }
         if (-not $ev) { continue }
-        if ($ev.ev -eq 'info') { Log "charla: $($ev.texto)"; continue }
+        if ($ev.ev -eq 'info') {
+            # LA PRIMERA FRASE YA VIENE CRONOMETRADA (26/09, idea 37): el worker manda "primera
+            # frase en N s". Se guarda el numero AQUI, pero el motor (api/local) NO se sabe
+            # todavia; llega en el 'frase' que viene justo detras, ya pasado el filtro de id. Por
+            # eso aqui se comprueba el id a mano (este bloque corre ANTES del filtro de 24274) y
+            # solo se guarda el ms; la muestra se confirma en el 'frase'. InvariantCulture porque
+            # Python escribe "1.2" con punto y esta maquina podria tener otra cultura.
+            if ([int]$ev.id -eq $script:charlaId -and [string]$ev.texto -match 'primera frase en (\d+(?:[.,]\d+)?) s') {
+                $seg = 0.0
+                if ([double]::TryParse($Matches[1].Replace(',', '.'), [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$seg) -and $seg -ge 0) {
+                    $script:charlaMsPend = [int]($seg * 1000)
+                }
+            }
+            Log "charla: $($ev.texto)"; continue
+        }
         # EL BANCO DE TRIVIA YA ESTA (23/09, idea 8). NO toca la voz ni lo que Nova estuviera
         # diciendo: solo apunta que llego y tira la cache para releerlo.
         if ($ev.ev -eq 'banco') {
@@ -24296,6 +24401,13 @@ $script:triviaGenerandoEn = 0
             continue
         }
         if ($ev.ev -eq 'frase') {
+            # LA MUESTRA DE TIEMPO, CON SU MOTOR (26/09, idea 37): el ms se guardo en el 'info';
+            # el motor (api/local) esta aqui. Solo la PRIMERA frase deja muestra -el -1 la
+            # cierra-, y aqui ya paso el filtro de id, asi que una respuesta cortada no la deja.
+            if ($script:charlaMsPend -ge 0) {
+                [void](Add-CharlaTiempo $script:charlaMsPend ([string]$ev.origen))
+                $script:charlaMsPend = -1
+            }
             $script:charlaFrases.Enqueue(@{ t = [string]$ev.texto; o = [string]$ev.origen })
             # la primera suena ya; las que vienen detras se preparan (ver VOZ PREPARADA)
             if ($script:charlaFrases.Count -gt 1 -or $script:vozFinReal -gt $sw.ElapsedMilliseconds) {
@@ -28831,9 +28943,9 @@ while ($true) {
     # EN FRIO el modelo tarda en cargar (~12-16 s medido): pasados 5 s sin nada,
     # una palabra corta para que no parezca colgada. Una vez por respuesta.
     if ($script:charlaEsperando -and -not $script:charlaRelleno -and $script:charlaFrases.Count -eq 0 -and -not $script:armed -and
-        ($sw.ElapsedMilliseconds - $script:charlaDesde) -gt 5000 -and $sw.ElapsedMilliseconds -ge $script:pausaHasta) {
+        ($sw.ElapsedMilliseconds - $script:charlaDesde) -gt $script:charlaUmbralMuletilla -and $sw.ElapsedMilliseconds -ge $script:pausaHasta) {
         $script:charlaRelleno = $true
-        Log "charla: tarda mas de 5 s, digo algo mientras"
+        Log "charla: tarda mas de $($script:charlaUmbralMuletilla) ms, digo algo mientras"
         # variadas y NUNCA la misma dos veces seguidas (14/09): con tres, se repetian
         $rellenosC = @('Deja que lo piense.', 'A ver...', 'Un segundito.', 'Mmm, buena pregunta.', 'Dame un momento.',
                        'Espera, que lo pienso.', 'Vale, a ver.', 'Uy, eso tiene miga.')
@@ -28843,11 +28955,11 @@ while ($true) {
     }
     # LA ESPERA SE VE (D3): si la charla tarda mas de 2 s, la linea de la capsula se
     # va llenando (en frio son 12-16 s); al llegar la primera frase, se vacia
-    $esperaC = ($script:charlaEsperando -and $script:charlaFrases.Count -eq 0 -and ($sw.ElapsedMilliseconds - $script:charlaDesde) -gt 2000)
+    $esperaC = ($script:charlaEsperando -and $script:charlaFrases.Count -eq 0 -and ($sw.ElapsedMilliseconds - $script:charlaDesde) -gt $script:charlaUmbralBarra)
     if ($esperaC) {
         # la escala, la de lo que va a tardar DE VERDAD (14/09): con el modelo caliente
         # o recien precargado contesta en 2-3 s, y la linea de 16 s apenas se movia
-        $escalaE = if ((Test-CharlaCaliente) -or ($sw.ElapsedMilliseconds - $script:precargaEn) -lt 110000) { 5000.0 } else { 16000.0 }
+        $escalaE = if ((Test-CharlaCaliente) -or ($sw.ElapsedMilliseconds - $script:precargaEn) -lt 110000) { [double]$script:charlaEscalaCaliente } else { [double]$script:charlaEscalaFria }
         $frE = [Math]::Min(0.9, ($sw.ElapsedMilliseconds - $script:charlaDesde) / $escalaE)
         if (-not $script:progresoCharla -or ($frE - $script:uiProgreso) -ge 0.04) { $script:progresoCharla = $true; $script:uiProgreso = $frE; Refresh-UI }
     } elseif ($script:progresoCharla) {

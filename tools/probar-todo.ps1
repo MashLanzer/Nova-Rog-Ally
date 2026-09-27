@@ -1997,6 +1997,15 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n205. Las charlas ya medidas que se tiraban, y cuatro umbrales que salen de ellas (idea 37 de las 121)"
+# La primera frase de cada charla llegaba cronometrada al log ("primera frase en N s") y se
+# tiraba: 265 medidas que no alimentaban nada, con cuatro umbrales de espera a fuego. Ahora se
+# guardan en charla-tiempos.json -en DOS listas, api y local, porque contestan en 1 s vs 16 s- y
+# de ahi salen los umbrales, que solo BAJAN la espera, nunca la suben. Y se borra 'charla' de
+# DURACION_ESPERADA, que era codigo muerto (cero lineas BARRA con modo=charla en el registro).
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-charla-tiempos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:las charlas medidas ya no se tiran)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n204. Los toques sueltos del mando ya no se pierden: ensenan un vistazo (idea 36 de las 121)"
 # Un toque corto en el boton de menu no hacia NADA (solo el DOBLE toque abria el panel). MEDIDO:
 # 62 toques sueltos apuntados que se tragaba el vacio, ninguno mitad de un doble. Ahora, pasados
