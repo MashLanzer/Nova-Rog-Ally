@@ -11999,6 +11999,51 @@ $EntornoGmailLleno = [bool](Get-Cfg 'entorno' 'gmailLleno' $false)
 $VueltaOn = [bool](Get-Cfg 'entorno' 'saludoVuelta' $true)
 $VueltaMin = [int](Get-Cfg 'entorno' 'vueltaMin' 45)          # a partir de aqui, capsula
 $VueltaVozMin = [int](Get-Cfg 'entorno' 'vueltaVozMin' 180)   # y a partir de aqui, ademas voz
+# EL "HAS VUELTO" GUARDABA LOS MINUTOS CUANDO LO QUE QUISO GUARDAR ERA EL RITMO
+# (27/09, idea 104 de las 121)
+#
+# LOS 45 MINUTOS SE ELIGIERON para que saliera "poco mas de un saludo al dia". Lo que hay que
+# guardar es ese "uno al dia", no los 45: los huecos de braya cambian y sobre todo Nova se reinicia
+# mucho, y un reinicio se come el saludo (el hueco tiene que tenerla viva de punta a punta).
+#
+# MEDIDO sobre los dos registros -2.028 interacciones en 18 dias y 258 arranques, 14,3 al dia-,
+# contando los huecos con Nova viva de punta a punta:
+#     15 min -> 1,78 saludos/dia      45 min -> 0,83   (el de hoy)
+#     20 min -> 1,44                  60 min -> 0,61
+#     30 min -> 0,94                  90 min -> 0,39
+# Con el objetivo de ~1 al dia, el que mas se acerca es TREINTA, no 45. (La ficha decia 0,31 al dia
+# con 45 minutos; medido con 18 dias sale 0,83. El problema es real pero menor de lo que decia.)
+#
+# Y PARA LA VOZ, que es la que de verdad interrumpe, con su propio ritmo pedido (0,3 al dia):
+#     60 min -> 0,61    90 -> 0,39    120 -> 0,28    180 -> 0,22 (el de hoy)    360 -> 0,17
+# El mas cercano a 0,3 es CIENTO VEINTE.
+#
+# EL MAS CERCANO AL RITMO PEDIDO, y no "el mas grande que llegue" como decia la ficha: con 1,0 al
+# dia, "el mas grande que llegue" da 20 minutos (1,44 saludos), y 30 da 0,94, que se pasa por 0,06
+# en vez de por 0,44. Acercarse es mejor que pasarse.
+$VueltaAlDia = [double](Get-Cfg 'entorno' 'vueltaAlDia' 1.0)
+$VueltaVozAlDia = [double](Get-Cfg 'entorno' 'vueltaVozAlDia' 0.3)
+$VueltaUmbrales = @(15, 20, 30, 45, 60, 90)
+$VueltaVozUmbrales = @(60, 90, 120, 180, 240, 360)
+$VueltaDiasMin = 5              # sin cinco dias de registro no se decide nada
+$script:vueltaMedido = $false
+
+# PURA Y CON TODO POR PARAMETRO: el banco le pasa cualquier reparto de huecos.
+#   $porUmbral = @{ 15 = 32; 20 = 26; ... }  (huecos CON NOVA VIVA, no huecos a secas)
+# Devuelve el umbral cuyo ritmo mas se acerca al pedido, o 0 si no hay con que decidir.
+function Get-VueltaMinMedido($porUmbral, [int]$dias, [double]$alDia, [int]$diasMin, [int]$sueloMin) {
+    if ($dias -lt $diasMin -or $alDia -le 0) { return 0 }
+    $mejor = 0; $dif = [double]::MaxValue
+    foreach ($u in @($porUmbral.Keys | Sort-Object)) {
+        if ([int]$u -lt $sueloMin) { continue }      # por debajo del suelo no se baja nunca
+        $ritmo = [double]$porUmbral[$u] / [double]$dias
+        $d = [Math]::Abs($ritmo - $alDia)
+        # EN EMPATE, EL UMBRAL MAS GRANDE: molesta menos, y los Keys vienen ordenados de menor a
+        # mayor, asi que basta con no quedarse con el primero cuando la diferencia es la misma.
+        if ($d -le $dif) { $dif = $d; $mejor = [int]$u }
+    }
+    return $mejor
+}
 $EntornoNocheDesde = [int](Get-Cfg 'entorno' 'nocheDesde' 23)
 $EntornoNocheHasta = [int](Get-Cfg 'entorno' 'nocheHasta' 8)
 # LA NOCHE ES LA TUYA, NO LAS ONCE (25/09, idea 8).
@@ -12218,6 +12263,111 @@ $script:avisosMirar = New-Object System.Collections.ArrayList
 # seria doblar todas las cuentas.
 $SeedVentanaMs = 300000          # la misma ventana de 5 min que usa la regla en vivo
 $RE_SEED_ACTIVIDAD = '(?:\[escucha\] ACTIVADO|DICTADO \(|ORDEN ESCRITA|TOQUE CORTO)'
+# LOS HUECOS DE VERDAD, LEIDOS DEL REGISTRO (27/09, idea 104). Una sola vez por sesion, con el
+# mismo patron exacto que Seed-ReaccionesAviso de aqui abajo: ReadLines sobre los dos registros
+# -6 MB- en el arranque, nunca en el bucle.
+#
+# UN HUECO SOLO CUENTA SI NOVA ESTUVO VIVA DE PUNTA A PUNTA, y eso es lo que la idea viene a
+# arreglar: con 258 arranques en 18 dias (14,3 al dia), la mayoria de los huecos largos tienen un
+# reinicio en medio y el saludo no puede salir. Contar los huecos a secas daria 67 con 45 minutos;
+# contando solo los que la tienen viva, QUINCE.
+function Update-VueltaMin {
+    if ($script:vueltaMedido) { return $false }
+    $script:vueltaMedido = $true
+    # UNA VEZ AL DIA Y NO EN CADA ARRANQUE: leer los dos registros cuesta 811 ms medidos, y Nova
+    # nace 14,3 veces al dia, o sea once segundos diarios tirados en releer lo mismo. El dia se
+    # guarda en config.json, que es donde ya se guarda todo lo que sobrevive a un reinicio.
+    # FUERA DEL try, porque se usa mas abajo: si el try se cayera antes de asignarla, el dia se
+    # marcaria como cadena vacia y esto volveria a medir en cada arranque.
+    $hoyV = (Get-Date).ToString('yyyy-MM-dd')
+    try {
+        if ([string](Get-Cfg 'entorno' 'vueltaMedidoDia' '') -eq $hoyV) { return $false }
+    } catch {}
+    # Y SI BRAYA LO DESHIZO HABLANDO, NO SE LE VUELVE A PONER: el mismo freno que el resto de las
+    # decisiones propias. Sin esto, "deshaz eso" duraria hasta el dia siguiente.
+    try {
+        if ((Test-DecisionDevuelta 'entorno' 'vueltaMin') -or (Test-DecisionDevuelta 'entorno' 'vueltaVozMin')) {
+            Log 'saludo de vuelta: me lo devolviste hace poco, no lo vuelvo a tocar'
+            return $false
+        }
+    } catch {}
+    try {
+        $actos = New-Object System.Collections.ArrayList
+        $naces = New-Object System.Collections.ArrayList
+        foreach ($log in @((Join-Path $LogDir 'assistant.log.1'), (Join-Path $LogDir 'assistant.log'))) {
+            if (-not (Test-Path -LiteralPath $log)) { continue }
+            foreach ($linea in [System.IO.File]::ReadLines($log)) {
+                if ($linea.Length -lt 20) { continue }
+                $cuando = [datetime]::MinValue
+                if (-not [datetime]::TryParseExact($linea.Substring(0, 19), 'yyyy-MM-dd HH:mm:ss', [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$cuando)) { continue }
+                if ($linea -match 'VoiceAssistant iniciado') { [void]$naces.Add($cuando); continue }
+                # LA MISMA LISTA DE "braya hizo algo" QUE USA LA SIEMBRA: una sola idea de que es
+                # una interaccion, no dos que se separen con el tiempo.
+                if ($linea -match $RE_SEED_ACTIVIDAD) { [void]$actos.Add($cuando) }
+            }
+        }
+        if ($actos.Count -lt 20) { return $false }
+        $actos = @($actos | Sort-Object)
+        $naces = @($naces | Sort-Object)
+        $dias = @($actos | ForEach-Object { $_.ToString('yyyy-MM-dd') } | Select-Object -Unique).Count
+        if ($dias -lt $VueltaDiasMin) {
+            Log ("saludo de vuelta: solo " + $dias + " dias de registro, hacen falta " + $VueltaDiasMin + "; me quedo con " + $VueltaMin + " min")
+            return $false
+        }
+        # los huecos, contados una vez y repartidos entre TODOS los umbrales de las dos listas
+        $todos = @(@($VueltaUmbrales) + @($VueltaVozUmbrales) | Select-Object -Unique | Sort-Object)
+        $cuenta = @{}
+        foreach ($u in $todos) { $cuenta[$u] = 0 }
+        $iN = 0
+        for ($i = 0; $i -lt ($actos.Count - 1); $i++) {
+            $a = $actos[$i]; $b = $actos[$i + 1]
+            $min = ($b - $a).TotalMinutes
+            if ($min -lt $todos[0]) { continue }
+            # ¿ALGUN ARRANQUE EN MEDIO? La lista esta ordenada, asi que se avanza sin volver atras:
+            # con 258 arranques y 2.028 huecos, mirarlos todos contra todos seria medio millon de
+            # comparaciones en el arranque.
+            while ($iN -lt $naces.Count -and $naces[$iN] -le $a) { $iN++ }
+            $roto = ($iN -lt $naces.Count -and $naces[$iN] -lt $b)
+            if ($roto) { continue }
+            foreach ($u in $todos) { if ($min -ge $u) { $cuenta[$u]++ } }
+        }
+        # y se decide cada uno con SU lista, SU ritmo y SU suelo
+        $capsula = @{}; foreach ($u in @($VueltaUmbrales)) { $capsula[$u] = $cuenta[$u] }
+        $voz = @{}; foreach ($u in @($VueltaVozUmbrales)) { $voz[$u] = $cuenta[$u] }
+        $nuevoC = Get-VueltaMinMedido $capsula $dias $VueltaAlDia $VueltaDiasMin 15
+        $nuevoV = Get-VueltaMinMedido $voz $dias $VueltaVozAlDia $VueltaDiasMin 60
+        $cambio = @()
+        if ($nuevoC -gt 0 -and $nuevoC -ne $VueltaMin) {
+            $cambio += ("la capsula de " + $VueltaMin + " a " + $nuevoC + " min")
+            # SE APUNTA ANTES DE CAMBIARLO, con el valor de antes: asi "deshaz lo que has cambiado"
+            # sabe a que volver, y sobrevive a un reinicio.
+            try { [void](Save-DecisionPropia 'entorno' 'vueltaMin' ([string]$VueltaMin) ("saludarte al volver tras " + $nuevoC + " minutos")) } catch {}
+            $script:VueltaMin = $nuevoC
+            try { [void](Set-Cfg 'entorno' 'vueltaMin' $nuevoC) } catch {}
+        }
+        if ($nuevoV -gt 0 -and $nuevoV -ne $VueltaVozMin) {
+            $cambio += ("la voz de " + $VueltaVozMin + " a " + $nuevoV + " min")
+            try { [void](Save-DecisionPropia 'entorno' 'vueltaVozMin' ([string]$VueltaVozMin) ("saludarte en voz alta tras " + $nuevoV + " minutos")) } catch {}
+            $script:VueltaVozMin = $nuevoV
+            try { [void](Set-Cfg 'entorno' 'vueltaVozMin' $nuevoV) } catch {}
+        }
+        # EL DIA SE MARCA AUNQUE NO CAMBIE NADA: lo que cuesta son los 811 ms de leer, y esos se
+        # pagan igual. Si no se marcara, el caso "ya esta bien" releeria los 6 MB en cada arranque.
+        try { [void](Set-Cfg 'entorno' 'vueltaMedidoDia' $hoyV) } catch {}
+        if ($cambio.Count -eq 0) {
+            Log ("saludo de vuelta: con " + $dias + " dias de datos, los minutos de ahora son los que mejor dan el ritmo pedido")
+            return $false
+        }
+        # SE APUNTA COMO DECISION PROPIA, que es lo que permite deshacerla hablando.
+        Log ("saludo de vuelta: " + ($cambio -join ' y ') + " para llegar a " + $VueltaAlDia + " al dia (medido en " + $dias + " dias)")
+        try { Add-Estadistica 'auto-ajuste' ("saludo de vuelta: " + ($cambio -join ' y ')) } catch {}
+        return $true
+    } catch {
+        Log ('saludo de vuelta: no pude medirlo (' + $_.Exception.Message + ')')
+        return $false
+    }
+}
+
 function Seed-ReaccionesAviso {
     try {
         $s = Get-Estadisticas
@@ -25445,6 +25595,9 @@ Initialize-Escucha
 # LA SIEMBRA DE LA ESPERA APRENDIDA (27/09, idea 73). UNA sola vez en la vida, aqui y no en el
 # bucle: son 6 MB de registro entre los dos ficheros. Si ya se hizo, vuelve sola en seguida.
 try { [void](Seed-ReaccionesAviso) } catch { Log ('siembra de reacciones: ' + $_.Exception.Message) }
+# y los minutos del saludo de vuelta, medidos de sus propios huecos (idea 104). Aqui y no en el
+# bucle: lee los dos registros enteros.
+try { [void](Update-VueltaMin) } catch { Log ('saludo de vuelta: ' + $_.Exception.Message) }
 # y los testigos de oido que Vosk ya dejo en el registro de uso (idea 87). Tambien una vez.
 try { [void](Read-TestigosVosk) } catch { Log ('testigos de oido: ' + $_.Exception.Message) }
 # gestos propios (config.json -> ui.gestos): la capsula los lee de tmp\gestos.txt

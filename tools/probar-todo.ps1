@@ -2089,6 +2089,18 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n254. El saludo de vuelta guarda el ritmo, no los minutos (idea 104 de las 121)"
+# Los 45 minutos se eligieron para que saliera 'poco mas de un saludo al dia'. Lo que hay que
+# guardar es ese 'uno al dia': los huecos de braya cambian y sobre todo Nova se reinicia mucho, y
+# un reinicio se come el saludo -el hueco tiene que tenerla viva de punta a punta-. MEDIDO sobre
+# 2.028 interacciones en 18 dias y 258 arranques (14,3 al dia): 15 min dan 1,78 saludos/dia, 20
+# dan 1,44, 30 dan 0,94, los 45 de hoy dan 0,83, 60 dan 0,61 y 90 dan 0,39. Con el objetivo de ~1
+# al dia el que mas se acerca es TREINTA; y para la voz, con su propio ritmo (0,3), CIENTO VEINTE
+# en vez de 180. EL MAS CERCANO Y NO 'el mas grande que llegue' como decia la ficha: ese daria 20
+# minutos (1,44), que se pasa por 0,44 en vez de por 0,06. Se mide una vez al dia (811 ms) y se
+# puede deshacer hablando, con Save-DecisionPropia y Test-DecisionDevuelta.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-vuelta-ritmo.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el saludo de vuelta guarda el ritmo pedido)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n253. La temperatura, que es la que explica el ruido del ventilador (idea 103 de las 121)"
 # Nova decia 'hay un ruido de fondo, si puedes quitalo' SIN SABER si el ruido era suyo: 36 veces en
 # 17 dias, mas 1.649 aparcadas. Y no habia mirado nunca lo caliente que estaba: cero apariciones de
