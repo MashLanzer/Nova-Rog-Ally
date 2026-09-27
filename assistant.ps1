@@ -2669,8 +2669,11 @@ $DestinosSecos = @('descarte', 'ruido', 'error', 'recitado')
 # LO QUE ES UN FALLO AUNQUE NADIE LO DENUNCIE (20/09). Son los destinos de $DestinosUso
 # que significan "no hizo nada con la frase", y coinciden con el $UsoMal de
 # Get-ComoTeEntendi (2118) y el MAL de tools\analizar-uso.py a proposito.
-# OJO: NO es $DestinosSecos. 'recitado' es seco -no encadena- pero cuenta como ACIERTO
-# en las dos listas de arriba, y meterlo aqui apuntaria como fallo algo que salio bien.
+# OJO: NO es $DestinosSecos. 'recitado' es seco -no encadena- y desde el 26/09 (idea 32)
+# tampoco es un acierto: vive en $UsoNeutro, porque lo que Whisper se inventa con el pico
+# a 0,000 no es que acertara, es que no hubo orden.
+# PERO TAMPOCO ES UN FALLO, y por eso no entra aqui: apuntaria contra braya una orden que
+# nunca llego a decir, y ademas desincronizaria la cuenta de fallos deducidos con $UsoMal.
 $DestinosFallo = @('descarte', 'ruido', 'error')
 # EL DESCARTE LOCAL NO ES UN DESENLACE, ES UNA PARADA (19/09). Medido en el log del 18/09:
 # de las 14 ordenes apuntadas como 'descarte', TRES acabaron BIEN y quedaron contadas como
@@ -3796,9 +3799,17 @@ function Get-QueHeHecho {
 # EVENTOS (584 lineas frente a 236) que habria que agrupar por id, y esto se contesta
 # hablando. Lo unico que aportaba se replica abajo con una linea (el dictado vacio), y el
 # resultado se ha cruzado con el analisis del 18/09: 58 de 77, 75 %, los dos igual.
-$UsoBien   = @('local', 'aprendida', 'memoria', 'traducida', 'receta', 'recitado')
+$UsoBien   = @('local', 'aprendida', 'memoria', 'traducida', 'receta')
 $UsoMal    = @('error', 'descarte', 'ruido')
-$UsoNeutro = @('charla', 'traducir', 'plan', 'accion', 'pregunta')
+# Y 'recitado' ESTA AQUI DESDE EL 26/09 (idea 32 de las 121), no en $UsoBien. Un recitado es lo
+# que Whisper se inventa cuando casi no hay audio: devuelve las frases de ejemplo de su propio
+# entrenamiento. Eso NO es que Nova acertara, es que no hubo orden que entender, y contarlo como
+# acierto infla justo el numero con el que se mide la meta de entenderle siempre.
+# MEDIDO sobre destinos.jsonl: 7 recitados en catorce dias mueven la meta de 74,7 % a 73,5 %. Por
+# dia, el 21/09 pasa de 62,5 % a 57,1 %. La meta BAJA 1,2 puntos, y esa bajada ES la correccion.
+# OJO CON SACARLO SIN METERLO AQUI: si 'recitado' se cae de $UsoBien y no entra en ninguna lista,
+# sigue contando en el denominador y la meta se hunde a 70,3 %, que tampoco es verdad.
+$UsoNeutro = @('charla', 'traducir', 'plan', 'accion', 'pregunta', 'recitado')
 # EL NUMERO DE LA META, DIA A DIA (C19, 21/09). Get-ComoTeEntendi de aqui abajo contesta
 # con una frase para decirla en voz alta, y eso solo sirve si preguntas. Esto devuelve los
 # NUMEROS, un dia por fila, para la tabla de memoria\estadisticas.md: el sitio donde braya

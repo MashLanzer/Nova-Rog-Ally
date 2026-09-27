@@ -57,6 +57,9 @@ $lineas = @(
     "{`"id`":`"$hoy-090004`",`"hizo`":`"error`",`"detalle`":`"algo salio mal`"}",
     "{`"id`":`"$hoy-090005`",`"hizo`":`"charla`"}",
     "{`"id`":`"$hoy-090006`",`"hizo`":`"error`",`"detalle`":`"dictado vacio`"}",
+    # UN RECITADO (26/09, idea 32): lo que Whisper se inventa cuando casi no hay audio. Ni
+    # suma acierto ni entra en el denominador: no hubo orden que entender.
+    "{`"id`":`"$hoy-090007`",`"hizo`":`"recitado`"}",
     # ayer: 1 bien y 1 que dijiste tu que estaba mal
     "{`"id`":`"$ayer-200001`",`"hizo`":`"local`"}",
     "{`"id`":`"$ayer-200002`",`"hizo`":`"local`"}",
@@ -70,7 +73,16 @@ $m = Get-MetaDias 14 $dest $ahora
 Comp 'salen los dos dias' ($m.Count -eq 2) ("$($m.Count) dias")
 Comp 'hoy: 3 bien' ([int]$m[$hoy].bien -eq 3) ("bien=$($m[$hoy].bien)")
 Comp 'hoy: 1 equivocada' ([int]$m[$hoy].mal -eq 1) ("mal=$($m[$hoy].mal)")
-Comp 'la charla no cuenta como acierto ni como fallo' ([int]$m[$hoy].neutras -eq 1) ("neutras=$($m[$hoy].neutras)")
+# EL RECITADO NO ENTRA EN NINGUNO DE LOS DOS LADOS (26/09, idea 32). Si volviera a $UsoBien,
+# 'bien' saldria 4; si alguien lo metiera en $DestinosFallo, 'mal' saldria 2. Y si se cayera de
+# las dos listas sin entrar en $UsoNeutro, el denominador subiria a 5.
+Comp 'hoy: el recitado no suma acierto' ([int]$m[$hoy].bien -eq 3) ("bien=$($m[$hoy].bien)")
+Comp '  ni cuenta como fallo' ([int]$m[$hoy].mal -eq 1) ("mal=$($m[$hoy].mal)")
+Comp '  y no entra en el denominador' (([int]$m[$hoy].bien + [int]$m[$hoy].mal) -eq 4) (
+    "bien+mal=$([int]$m[$hoy].bien + [int]$m[$hoy].mal); con el recitado dentro saldria 5")
+# DOS NEUTRAS DESDE EL 26/09: la charla de siempre y el recitado de la idea 32. Que el recitado
+# aparezca AQUI y no en bien ni en mal es justamente lo que se cambio.
+Comp 'la charla y el recitado no cuentan ni como acierto ni como fallo' ([int]$m[$hoy].neutras -eq 2) ("neutras=$($m[$hoy].neutras)")
 # el boton pulsado sin hablar NO es que no te entienda: medido el 19/09, y sin esta
 # exclusion la frase decia 72 % donde el analisis decia 75 %
 Comp 'el boton pulsado sin hablar se deja fuera' (([int]$m[$hoy].bien + [int]$m[$hoy].mal + [int]$m[$hoy].otras) -eq 4) `

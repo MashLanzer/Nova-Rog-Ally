@@ -27,12 +27,15 @@ RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 USO = os.path.join(RAIZ, "pruebas", "audio", "uso")
 
 # lo que cuenta como que Nova ACERTO, y lo que cuenta como que fallo
-BIEN = ("local", "aprendida", "memoria", "traducida", "receta", "recitado")
+BIEN = ("local", "aprendida", "memoria", "traducida", "receta")
 MAL = ("error", "descarte", "ruido")
 # NI ACIERTO NI FALLO (18/09): lo que Nova hizo con la frase, no si acerto. Mas de la mitad del
 # uso real es esto y hasta hoy no dejaba rastro ninguno. No pueden entrar en el porcentaje: si
 # lo hicieran, el denominador crece y los aciertos bajan solos sin que Nova falle ni una vez.
-NEUTRO = ("charla", "traducir", "plan", "accion", "pregunta")
+# "recitado" ENTRA AQUI EL 26/09 (idea 32): lo que Whisper se inventa cuando casi no hay audio
+# no es un acierto -no hubo orden que entender- pero tampoco es un fallo de braya. Tiene que
+# ir en la MISMA lista que en assistant.ps1, y probar-meta compara las dos.
+NEUTRO = ("charla", "traducir", "plan", "accion", "pregunta", "recitado")
 
 
 def leer(nombre):

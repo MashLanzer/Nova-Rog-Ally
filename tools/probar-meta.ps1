@@ -114,6 +114,18 @@ Dice 'el dictado vacio ni suma ni resta' @('1 de 2', '50 por ciento') @('1 de 3'
 Pon @((L '20260919-100000' 'local' 'abre steam'), 'esto no es json', (L '20260919-100100' 'local' 'pausa'))
 Dice 'una linea rota se salta' @('2 de 2') @()
 
+# UN RECITADO NO ES UN ACIERTO NI ES UN FALLO (26/09, idea 32 de las 121). Es lo que Whisper se
+# inventa cuando casi no hay audio: devuelve las frases de ejemplo de su propio entrenamiento.
+# Contarlo como acierto inflaba justo el numero con el que se mide la meta de entenderle
+# siempre. MEDIDO sobre destinos.jsonl: 7 recitados en catorce dias movian la meta de 74,7 % a
+# 73,5 %, y el 21/09 de 62,5 % a 57,1 %.
+# Y NO BASTA CON QUE LAS DOS LISTAS COINCIDAN: si alguien lo quita de BIEN en los dos ficheros
+# y no lo mete en NEUTRO, la comparacion de listas sigue verde y la meta se hunde a 70,3 %,
+# que tampoco es verdad. Este caso es el unico que caza eso.
+Pon @((L '20260919-100000' 'local' 'abre steam'), (L '20260919-100100' 'local' 'pausa'),
+      (L '20260919-100200' 'recitado' 'Que hora es, Que hora es'))
+Dice 'un recitado no suma acierto ni resta' @('2 de 2', '100 por ciento') @('3 de 3', '2 de 3', '67 por ciento')
+
 Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ''
 if ($mal) { Write-Host "$mal casos MAL"; exit 1 }
