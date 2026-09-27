@@ -2072,6 +2072,15 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n234. Abrir un juego era lo unico que Nova nunca comprobaba (idea 81 de las 121)"
+# SILENT BREATH se mando abrir CINCO veces el 11/09 y el detector no lo vio arrancar ni una vez;
+# Little Nightmares 7 ordenes y 3 arranques, Outlast 2 y 1. Los juegos estaban excluidos A PROPOSITO
+# de la comprobacion de aperturas porque tardan mas que los 10 s de las apps. Ahora van por su
+# propia lista, contra el detector de juegos que ya existia, y con el plazo que tarda ESE juego
+# (p90 de sus medidas x2, tope 10 min). Guarda: sin tres medidas propias NO se vigila y Nova se
+# calla, que es el comportamiento de hoy; lo que tarda se apunta siempre, y asi se aprende.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-juego-abre.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:abrir un juego ya se comprueba)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n233. Los errores que Nova se traga, leidos gratis en $Error (idea 80 de las 121)"
 # 470 de los 897 catch de assistant.ps1 estan VACIOS (52,4 %): cuando algo revienta se lo traga y
 # no habia ni un dato de cuales disparan. PowerShell ya mete toda excepcion capturada en $Error con

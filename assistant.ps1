@@ -16676,7 +16676,12 @@ function Invoke-FastCommand([string]$text) {
                         if ($a.target -match '^ms-[a-z-]+:') { Start-Process 'explorer.exe' $a.target -ErrorAction Stop }
                         else { $pr = Start-Process $a.target -PassThru -ErrorAction Stop }
                         # ¿se abrira de verdad? se apunta y se mira luego, sin bloquear
-                        if (-not $esJuego) { [void](Add-AperturaPendiente $comoSeLlama) }
+                        # Y LOS JUEGOS TAMBIEN (27/09, idea 81): eran lo unico que no se comprobaba,
+                        # y son las aperturas que mas fallan (SILENT BREATH, cinco ordenes y cero
+                        # arranques vistos). Van por su propia lista porque no se vigila un nombre de
+                        # proceso sino el detector de juegos, y con su propio plazo aprendido.
+                        if ($esJuego) { [void](Add-JuegoPedido $comoSeLlama) }
+                        else { [void](Add-AperturaPendiente $comoSeLlama) }
                         # AVISO DE ACTUALIZACION (13/09): si Steam marca el juego con
                         # una actualizacion pendiente (StateFlags bit 2), se dice ya,
                         # antes de encontrarse la descarga al arrancar
@@ -29805,6 +29810,82 @@ $script:aperturas = New-Object System.Collections.ArrayList
 
 # Apunta que deberia aparecer un proceso. Devuelve $true si se vigila, $false si no se sabe
 # comprobar (y entonces nadie dira nada: callar es mejor que inventar).
+# ABRIR UN JUEGO ERA LO UNICO QUE NOVA NUNCA COMPROBABA (27/09, idea 81)
+#
+# EL DATO: SILENT BREATH se mando abrir CINCO veces el 11/09 -15:24, 17:33, 18:10, 19:21 y 20:15,
+# dos de ellas contestando 'si' a una pregunta de Nova- y el detector de juegos no lo vio arrancar
+# ni una sola vez. Little Nightmares: 7 ordenes, 3 arranques vistos. Outlast: 2 y 1. Que braya
+# repita la misma orden cinco veces en cinco horas es la firma de que no pasaba nada, y Nova daba
+# por hecho que se habia abierto porque los juegos estaban excluidos A PROPOSITO de la
+# comprobacion de aperturas (el comentario decia 'SOLO APPS, NO JUEGOS').
+#
+# LAS DOS MITADES YA EXISTIAN: la orden que pide abrir, y el detector que ve entrar un juego -ha
+# visto 11 distintos-. Lo que no existia era el cable entre ellas.
+#
+# EL PLAZO NO PUEDE SER EL DE LAS APPS (10 s): un juego de Steam tarda mucho mas, y ESE es el
+# motivo por el que se excluyeron. Se aprende por juego, midiendo lo que tarda de verdad desde la
+# orden hasta que el detector lo ve, y se usa su p90 con margen. HASTA QUE UN JUEGO NO TIENE SUS
+# PROPIAS MEDIDAS NO SE VIGILA y Nova se calla, que es exactamente lo que hace hoy.
+$JuegoAbreMinMuestras = 3        # menos que esto y no se vigila: no hay plazo que valga
+$JuegoAbreMargen = 2.0          # el doble del p90: un juego no es una calculadora
+$JuegoAbreTopeMs = 600000       # y nunca mas de 10 minutos esperando
+$script:juegosPedidos = New-Object System.Collections.ArrayList   # @{ juego; desde; vence }
+
+function Get-PlazoJuegoAbre([string]$juego) {
+    # ms que se le dan a ESE juego para aparecer, o 0 si todavia no se sabe (y entonces no se vigila)
+    if (-not $juego) { return 0 }
+    $l = Get-TrabajoTiempos ('abre-juego:' + (ConvertTo-Plain $juego))
+    if (@($l).Count -lt $JuegoAbreMinMuestras) { return 0 }
+    $p90 = Get-PercentilLista $l 90
+    if ($p90 -le 0) { return 0 }
+    return [int][Math]::Min($JuegoAbreTopeMs, $p90 * $JuegoAbreMargen)
+}
+
+function Add-JuegoPedido([string]$juego) {
+    if (-not $juego) { return $false }
+    # si ya esta delante, la orden no cambia nada y no hay nada que comprobar
+    if ($script:juegoActivo -and (ConvertTo-Plain $script:juegoActivo) -eq (ConvertTo-Plain $juego)) { return $false }
+    $plazo = Get-PlazoJuegoAbre $juego
+    # SIN PLAZO APRENDIDO SE APUNTA IGUAL, pero solo para MEDIR: vence a 0 quiere decir 'no vigiles,
+    # solo mira cuanto tarda'. Asi el segundo intento de ese juego ya tiene con que compararse.
+    [void]$script:juegosPedidos.Add(@{ juego = [string]$juego; desde = $sw.ElapsedMilliseconds
+                                      vence = $(if ($plazo -gt 0) { $sw.ElapsedMilliseconds + $plazo } else { 0 }) })
+    while ($script:juegosPedidos.Count -gt 5) { $script:juegosPedidos.RemoveAt(0) }
+    return $true
+}
+
+# Lo llama el bucle. Si el detector ve el juego, se apunta lo que tardo (eso es lo que hace
+# aprender el plazo) y fuera. Si vence sin verse, se dice UNA vez. Devuelve los avisos.
+function Test-JuegosPedidos {
+    $avisos = @()
+    if ($script:juegosPedidos.Count -eq 0) { return $avisos }
+    for ($i = $script:juegosPedidos.Count - 1; $i -ge 0; $i--) {
+        $jp = $script:juegosPedidos[$i]
+        $llego = ($script:juegoActivo -and (ConvertTo-Plain $script:juegoActivo) -eq (ConvertTo-Plain $jp.juego))
+        if ($llego) {
+            $tardo = [int]($sw.ElapsedMilliseconds - [double]$jp.desde)
+            $script:juegosPedidos.RemoveAt($i)
+            if ($tardo -gt 0) {
+                [void](Add-TrabajoTiempo ('abre-juego:' + (ConvertTo-Plain $jp.juego)) $tardo)
+                Log ('JUEGO: ' + $jp.juego + ' tardo ' + [int]($tardo / 1000) + ' s en aparecer')
+            }
+            continue
+        }
+        # el que no se vigila (sin plazo aprendido) se cae solo al llegar al tope, sin decir nada
+        if ([double]$jp.vence -le 0) {
+            if (($sw.ElapsedMilliseconds - [double]$jp.desde) -ge $JuegoAbreTopeMs) { $script:juegosPedidos.RemoveAt($i) }
+            continue
+        }
+        if ($sw.ElapsedMilliseconds -ge [double]$jp.vence) {
+            $script:juegosPedidos.RemoveAt($i)
+            $seg = [int](($sw.ElapsedMilliseconds - [double]$jp.desde) / 1000)
+            Log ('NO SE ABRIO: ' + $jp.juego + ' (no lo vi entrar en ' + $seg + ' s, y suele tardar menos)')
+            try { Add-Estadistica 'no-surtio-efecto' ('abrir ' + $jp.juego + ': no lo vi entrar') } catch {}
+            $avisos += ('Oye, mande abrir ' + $jp.juego + ' y no lo he visto arrancar.')
+        }
+    }
+    return $avisos
+}
 function Add-AperturaPendiente([string]$queAbro) {
     if (-not $queAbro) { return $false }
     $pr = $null
@@ -32010,10 +32091,12 @@ while ($true) {
         $script:motoresCheck = $sw.ElapsedMilliseconds
         try { $script:motoresQuedan = Step-MotorVeredicto } catch { Log ('motores: ' + $_.Exception.Message); $script:motoresQuedan = 0 }
     }
-    if ($script:aperturas.Count -gt 0 -and ($sw.ElapsedMilliseconds - $script:aperturaCheck) -ge 2000) {
+    if (($script:aperturas.Count -gt 0 -or $script:juegosPedidos.Count -gt 0) -and ($sw.ElapsedMilliseconds - $script:aperturaCheck) -ge 2000) {
         $script:aperturaCheck = $sw.ElapsedMilliseconds
         try {
             foreach ($avisoAp in (Test-AperturasPendientes)) { Send-Aviso $avisoAp 'error' }
+            # y los juegos, que hasta hoy no se comprobaban (idea 81)
+            foreach ($avisoJ in (Test-JuegosPedidos)) { Send-Aviso $avisoJ 'error' }
         } catch { Log ("aperturas: " + $_.Exception.Message) }
     }
 
