@@ -2089,6 +2089,20 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n261. Lo que Nova ocupa de la consola, medido por ella misma (idea 111 de las 121)"
+# La regla 5 de la casa dice que nada residente se coma la RAM ni un nucleo que le hace falta al
+# juego, y NO HABIA NI UNA MEDICION DE ESO: TotalProcessorTime no aparecia ni una vez en el
+# assistant, wake_vosk ni charla_worker, y WorkingSet64 solo salia dentro de Get-RamResumen, que
+# corre unicamente cuando braya lo pregunta en voz alta. Ahora se mide un proceso por vuelta dentro
+# del bloque del minuto -4 ms medidos, contra los 500-740 que cuesta recorrer los 200 procesos de
+# la maquina- y el liston sale de su propia serie: percentil 90 mas lo que la serie se mueve, sin
+# ni un numero escrito a mano. La trampa que aparecio midiendo y la ficha no dice: un proceso
+# MUERTO no tira excepcion, da 0 megas y la CPU congelada, y la casa guarda .Handle a proposito.
+# SE MIDE Y SE DICE, NO SE REINICIA NADA: la ficha proponia reiniciar el worker hinchado y con cero
+# muestras eso es un numero inventado. Ocho roturas tumban el banco.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-consumo-propio.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:Nova ya sabe lo que ocupa)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n260. El oido se moria sin decir de que (idea 110 de las 121)"
 # 28 relanzamientos del worker de escucha en el registro -25 al primer intento, 2 al segundo y 1 al
 # tercero- y NI UNA autopsia: la linea decia "murio; relanzando" y nada mas. Mientras la capsula SI

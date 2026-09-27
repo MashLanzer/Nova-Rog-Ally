@@ -1951,7 +1951,11 @@ function Get-RamResumen([string]$que) {
             $b = 0.0
             foreach ($pr in $procs) { if ($RAM_NOVA -contains $pr.Name.ToLowerInvariant()) { $b += [double]$pr.WorkingSet64 } }
             try { $b += [double](Get-Process -Id $PID -ErrorAction Stop).WorkingSet64 } catch {}
-            $partes += ('yo llevo ' + (Format-Gigas $b))
+            # Y CON SU LINEA BASE AL LADO (27/09, idea 111): 'yo llevo 675 megas' no dice si eso
+            # esta bien o mal; 'y de eso el oido son 281, lo normal en el' si lo dice.
+            $mio = 'yo llevo ' + (Format-Gigas $b)
+            try { $cM = Get-ConsumoResumen; if ($cM) { $mio += $cM } } catch {}
+            $partes += $mio
             continue
         }
         # 'elden ring' es el proceso 'eldenring': se prueba tambien sin espacios
@@ -32093,6 +32097,202 @@ function Get-CargaCPU {
         return [int]$v
     } catch { $script:cargaSonda = 'no'; return $null }
 }
+
+# LO QUE NOVA OCUPA DE LA CONSOLA, MEDIDO POR ELLA MISMA (27/09, idea 111 de las 121)
+#
+# EL DATO: la regla 5 de la casa dice que nada residente se coma la RAM ni un nucleo que le hace
+# falta al juego, y NO HAY NI UNA MEDICION DE ESO. Comprobado: TotalProcessorTime no aparece ni una
+# sola vez en assistant.ps1, wake_vosk.py ni charla_worker.py; WorkingSet64 solo sale dentro de
+# Get-RamResumen, que corre UNICAMENTE cuando braya lo pregunta en voz alta (la accion 'ram', su
+# unico llamador). Y la sonda que si existe, Get-CargaCPU, mide el _Total de la maquina para pintar
+# una insignia: no lo que gasta ella. El fichero del pulso lo confirma: 3.805 lineas [escucha], 18
+# [bateria] y cero de consumo propio.
+#
+# POR QUE ESTO SE PUEDE Y Get-RamResumen NO PODIA: aquella recorre los ~200 procesos de la maquina,
+# y eso cuesta de 500 a 740 ms (medido el 21/09, esta escrito en su propio comentario). Esto es un
+# Get-Process -Id de UNO: medido aqui, 4,3 ms creando el objeto y 3,8 ms con el handle ya guardado
+# mas Refresh(). La ficha decia 5,7 ms y su verificador la corrigio a 9,5; los dos de mas.
+#
+# UNO POR VUELTA Y DENTRO DEL BLOQUE DEL MINUTO, no en un reloj nuevo: con cuatro procesos cada uno
+# se mide cada cuatro minutos, y esa ventana larga es justo lo que hace estable la cuota de nucleo,
+# que es una resta de CPU partida por una resta de reloj.
+#
+# LA TRAMPA QUE APARECIO MIDIENDO, Y QUE LA FICHA NO DICE: un proceso MUERTO no tira excepcion.
+# Refresh() pasa, WorkingSet64 devuelve 0 y TotalProcessorTime se queda congelado en el ultimo
+# valor. Se vio al medir el arranque del cerebro: 168 MB, 224 MB y desde ahi 0, 0, 0 con la CPU
+# clavada en 2,08 s. Sin preguntar por HasExited, la linea base se llenaria de ceros y el dia que
+# Nova se hinchara de verdad el liston estaria por los suelos. Y la casa guarda .Handle de los tres
+# workers a proposito, asi que el objeto sobrevive a su proceso: esto pasaria de verdad.
+#
+# SE MIDE Y SE DICE, NO SE REINICIA NADA. La ficha proponia reiniciar el worker que se hinche, y eso
+# hoy no se puede justificar: no hay ni una muestra de la que sacar el liston. Reiniciar el oido por
+# un numero que nunca se ha medido es exactamente el fallo que braya llama 'numero fijo'. Primero la
+# serie; la decision tendra con que tomarse cuando haya con que.
+$ConsumoTopeMs = [int](Get-Cfg 'ui' 'consumoTopeMs' 60)   # si la sonda cuesta mas, se apaga sola
+$ConsumoMinMuestras = 20         # el mismo liston que $DecisionMinIntentos: antes de eso no se opina
+$ConsumoPercentil = 90
+$ConsumoAvisoMin = 60            # como mucho una linea por hora y por cosa medida
+$ConsumoNombres = @{ cerebro = 'el cerebro'; oido = 'el oido'; capsula = 'la capsula'; charla = 'la charla' }
+$script:consumoSonda = ''        # '' = sin probar, 'si', 'no' = apagada
+$script:consumoTurno = -1
+$script:consumoLeidas = 0
+$script:consumoAntes = @{}       # nombre -> @{ cpu = segundos; reloj = ms }
+$script:consumoUltimo = @{}      # nombre -> @{ mb; cuota }, para que Get-RamResumen lo pueda contar
+$script:consumoAvisoEn = @{}
+$script:yoProc = $null
+
+# Los procesos de Nova que estan VIVOS ahora. Los tres workers son los handles que la casa ya
+# guarda con -PassThru; el cerebro es este mismo proceso.
+function Get-ProcesosNova {
+    $l = New-Object System.Collections.ArrayList
+    if (-not $script:yoProc) { try { $script:yoProc = Get-Process -Id $PID -ErrorAction Stop } catch {} }
+    foreach ($par in @(@('cerebro', $script:yoProc), @('oido', $script:wakeProc),
+                       @('capsula', $script:uiProc), @('charla', $script:charlaProc))) {
+        $pr = $par[1]
+        if (-not $pr) { continue }
+        # AQUI ESTA LA GUARDA: un muerto contesta 0 megas y no se queja
+        try { if ($pr.HasExited) { continue } } catch { continue }
+        [void]$l.Add(@{ nombre = [string]$par[0]; proc = $pr })
+    }
+    # LA COMA NO SOBRA Y EL LLAMADOR NO DEBE PONER @(), que es la convencion de Get-Recetas: la
+    # coma impide que PowerShell desenrolle lo que devuelve una funcion, y el @() de dentro
+    # convierte el ArrayList en un array de verdad. MEDIDO AQUI con 0, 1, 2 y 3 elementos: sin @()
+    # en el llamador sale 0, 1, 2 y 3; CON @() sale 1 siempre, un array de uno con la lista dentro.
+    # Su banco lo canto: con un solo proceso vivo parecia funcionar -PowerShell saca la propiedad
+    # del unico elemento- y con tres se medía el mismo tres veces.
+    return ,@($l)
+}
+
+# Lo que ocupa UN proceso: megas y cuota de nucleo en MILESIMAS (262 = 26,2 % de un nucleo). La
+# cuota necesita la lectura anterior del mismo proceso; sin ella sale -1, que es 'todavia no se'.
+# Devuelve $null si no se pudo leer, que incluye el proceso muerto y el Access denied de uno elevado.
+function Get-ConsumoProceso($proc, $antes, [double]$relojMs) {
+    if (-not $proc) { return $null }
+    $mb = 0; $cpuS = 0.0
+    try {
+        $proc.Refresh()
+        if ($proc.HasExited) { return $null }
+        $mb = [int]([double]$proc.WorkingSet64 / 1MB)
+        $cpuS = [double]$proc.TotalProcessorTime.TotalSeconds
+    } catch { return $null }
+    if ($mb -le 0) { return $null }
+    $cuota = -1
+    if ($antes -and [double]$antes.reloj -gt 0 -and $relojMs -gt [double]$antes.reloj) {
+        $dt = ($relojMs - [double]$antes.reloj) / 1000.0
+        $dc = $cpuS - [double]$antes.cpu
+        # LA RESTA NEGATIVA NO ES UN DATO: pasa si el proceso se relanzo entre dos turnos y el
+        # handle ya es otro. Se tira la cuota y se guarda el punto nuevo, que es de donde sale la
+        # siguiente.
+        if ($dc -ge 0 -and $dt -gt 0) { $cuota = [int][Math]::Round(($dc / $dt) * 1000.0) }
+    }
+    return @{ mb = $mb; cuota = $cuota; cpu = $cpuS; reloj = $relojMs }
+}
+
+# EL LISTON SALE DE SU PROPIA SERIE Y NO LLEVA NI UN NUMERO ESCRITO A MANO: el percentil 90 dice
+# donde vive normalmente y la distancia del 90 al 50 dice cuanto se mueve normalmente. Salirse es
+# pasar del 90 MAS lo que se mueve. Con el percentil 90 a secas esto saltaria una de cada diez veces
+# por definicion, que es ruido y no aviso; y con una serie estrecha -Nova quieta- el liston se queda
+# pegado al 90, que es justo lo que se quiere.
+function Get-ConsumoListon([string]$clave) {
+    $l = Get-TrabajoTiempos $clave
+    if (-not $l -or $l.Count -lt $ConsumoMinMuestras) { return 0 }
+    $p90 = [int](Get-PercentilLista $l $ConsumoPercentil)
+    $p50 = [int](Get-PercentilLista $l 50)
+    if ($p90 -le 0) { return 0 }
+    $mueve = $p90 - $p50
+    if ($mueve -lt 0) { $mueve = 0 }
+    return [int]($p90 + $mueve)
+}
+
+function Test-ConsumoSalido([string]$clave, [int]$valor, [string]$nom, [string]$unidad) {
+    $lim = Get-ConsumoListon $clave
+    if ($lim -le 0 -or $valor -le $lim) { return $false }
+    # UNA LINEA POR HORA Y POR COSA: un tramo hinchado escribiria una por minuto, que es el fallo
+    # que ya hubo que arreglar en el aviso de la vuelta lenta.
+    $ahoraC = [double]$sw.ElapsedMilliseconds
+    if ($script:consumoAvisoEn.ContainsKey($clave)) {
+        if (($ahoraC - [double]$script:consumoAvisoEn[$clave]) -lt ($ConsumoAvisoMin * 60000)) { return $false }
+    }
+    $script:consumoAvisoEn[$clave] = $ahoraC
+    $quien = [string]$ConsumoNombres[$nom]
+    if (-not $quien) { $quien = $nom }
+    Log ("CONSUMO: " + $quien + " va por " + $valor + " " + $unidad + " y lo suyo son " + $lim +
+         " (" + $clave + ")" + $(if ($script:juegoActivo) { ", con " + $script:juegoActivo + " delante" } else { "" }))
+    return $true
+}
+
+# EL TURNO: un proceso por vuelta. Va colgado del bloque que ya corre cada minuto.
+function Update-Consumo {
+    if ($script:consumoSonda -eq 'no') { return $false }
+    $vivos = Get-ProcesosNova     # sin @(): ver el comentario de su return
+    if ($vivos.Count -eq 0) { return $false }
+    $tC = [System.Diagnostics.Stopwatch]::StartNew()
+    # EL TURNO SE CUENTA SOBRE LOS VIVOS: si la charla se abre o se cierra, nadie se queda sin medir
+    $script:consumoTurno = ($script:consumoTurno + 1) % $vivos.Count
+    $q = $vivos[$script:consumoTurno]
+    $nom = [string]$q.nombre
+    $relojMs = [double]$sw.ElapsedMilliseconds
+    $antes = $null
+    if ($script:consumoAntes.ContainsKey($nom)) { $antes = $script:consumoAntes[$nom] }
+    $m = Get-ConsumoProceso $q.proc $antes $relojMs
+    if ($null -eq $m) { $script:consumoAntes.Remove($nom); return $false }
+    $script:consumoAntes[$nom] = @{ cpu = $m.cpu; reloj = $m.reloj }
+    $script:consumoUltimo[$nom] = @{ mb = [int]$m.mb; cuota = [int]$m.cuota }
+    # CON JUEGO DELANTE Y SIN EL SON DOS MUNDOS, y mezclarlos daria un liston que no vale para
+    # ninguno de los dos: con el juego delante Windows reparte el nucleo de otra manera.
+    $conJ = $(if ($script:juegoActivo) { ':juego' } else { '' })
+    $clR = 'ram:' + $nom + $conJ
+    [void](Add-TrabajoTiempo $clR ([int]$m.mb))
+    [void](Test-ConsumoSalido $clR ([int]$m.mb) $nom 'megas')
+    if ([int]$m.cuota -ge 0) {
+        # ADD-TRABAJOTIEMPO RECHAZA EL CERO (su contrato es ms > 0), y un minuto de verdad ocioso
+        # vale tanto como uno cargado: sin esto la serie solo tendria los minutos activos y el
+        # liston subiria solo. Se guarda 1, que es una milesima de nucleo, muy por debajo de la
+        # resolucion de cualquier decision que se vaya a tomar con esto.
+        $clC = 'cpu:' + $nom + $conJ
+        [void](Add-TrabajoTiempo $clC ([Math]::Max(1, [int]$m.cuota)))
+        [void](Test-ConsumoSalido $clC ([int]$m.cuota) $nom 'milesimas de nucleo')
+    }
+    # LA SONDA SE CRONOMETRA A SI MISMA, como Get-CargaCPU y como la de temperatura. Y LA PRIMERA
+    # NO SE JUZGA: esa paga el Get-Process del cerebro y no tiene lectura anterior con la que
+    # comparar, asi que es la mas cara de todas y no representa a ninguna.
+    $script:consumoLeidas++
+    if (-not $script:consumoSonda -and $script:consumoLeidas -ge 2) {
+        $msC = [int]$tC.ElapsedMilliseconds
+        if ($msC -gt $ConsumoTopeMs) {
+            Log ("consumo: la sonda cuesta " + $msC + " ms (tope " + $ConsumoTopeMs + "); la apago, dejo de medirme")
+            try { Add-Estadistica 'auto-ajuste' ("sonda de consumo off: " + $msC + " ms de " + $ConsumoTopeMs) } catch {}
+            $script:consumoSonda = 'no'
+            return $false
+        }
+        $script:consumoSonda = 'si'
+        Log ("consumo: me miro a mi misma, un proceso por minuto (" + $msC + " ms por vuelta)")
+    }
+    return $true
+}
+
+# Y LO QUE LLEVA MEDIDO, CONTADO CUANDO SE LO PREGUNTAN (27/09, idea 111). Sin esto la serie seria
+# otro contador que no lee nadie, que es justo el pecado que las ideas 99 y 100 tuvieron que
+# arreglar. UNO SOLO Y CORTO: esto sale por el altavoz detras de Get-RamResumen.
+function Get-ConsumoResumen {
+    $peor = ''; $peorMb = 0
+    foreach ($nom in @($script:consumoUltimo.Keys)) {
+        $mb = [int]$script:consumoUltimo[$nom].mb
+        if ($mb -gt $peorMb) { $peorMb = $mb; $peor = [string]$nom }
+    }
+    if (-not $peor -or $peorMb -le 0) { return '' }
+    $quien = [string]$ConsumoNombres[$peor]
+    if (-not $quien) { $quien = $peor }
+    $base = ', y de eso ' + $quien + ' son ' + $peorMb + ' megas'
+    $cl = 'ram:' + $peor + $(if ($script:juegoActivo) { ':juego' } else { '' })
+    $l = Get-TrabajoTiempos $cl
+    if (-not $l -or $l.Count -lt $ConsumoMinMuestras) { return $base }
+    $p50 = [int](Get-PercentilLista $l 50)
+    if ($p50 -le 0) { return $base }
+    $lim = Get-ConsumoListon $cl
+    if ($lim -gt 0 -and $peorMb -gt $lim) { return ($base + ', mas de lo suyo, que son ' + $p50) }
+    return ($base + ', lo normal en el')
+}
 $script:minutoVisto = ''
 $script:diaVisto = Get-Date -Format 'yyyy-MM-dd'
 # al arrancar: fechas de hoy y nota de la semana pasada (si toca)
@@ -34852,6 +35052,10 @@ while ($true) {
                         [System.IO.File]::AppendAllText($PulsoPath, $lineaT + "`r`n", (New-Object System.Text.UTF8Encoding $false))
                     }
                 } catch {}
+                # Y LO QUE ELLA MISMA OCUPA (27/09, idea 111). Aqui por lo mismo que la temperatura:
+                # este bloque ya corre una vez por minuto y no hace falta estrenar reloj. Un proceso
+                # por vuelta, 4 ms medidos, y la sonda se apaga sola si algun dia cuesta mas.
+                try { [void](Update-Consumo) } catch {}
                 if (-not $cargando) { Invoke-Reglas 'bateria' ([string]$pc) }
                 # CARGADOR: solo en el FLANCO, cuando cambia. Por estado se
                 # repetiria cada minuto mientras siguiera enchufado.
