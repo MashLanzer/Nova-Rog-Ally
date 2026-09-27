@@ -2089,6 +2089,22 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n267. El inventario de sus fallos ya lo lee alguien, y dice la verdad (idea 117 de las 121)"
+# memoria\cerebro\importante.jsonl lo escribe el worker en modo 'a' -su comentario dice que NO se
+# poda nunca- y no lo leia nadie. Al abrirlo: cinco lineas, las cinco con por='correccion', y ninguna
+# es una correccion; son frases que el oido entendio mal en una charla ("No, porque se destilada la
+# camera con anadir con la contable"), que entran por "empieza con no y tiene cinco palabras". Por eso
+# agujeros.json no habia nacido: todo se etiquetaba de correccion. Se estrena el motivo 'no-entendi',
+# que mira la RESPUESTA de Nova -si ella dijo que no entendio, ese turno no ensena nada- y va delante
+# de la negacion larga. Lo que la ficha pedia y NO se hace: meter las correcciones en el prompt, que
+# con cinco de cinco siendo ruido es justo el riesgo que ella misma nombra. Son DOS bancos, uno por
+# lado, y el de Python EJECUTA por_que_importa del fichero: la primera version replicaba el orden de
+# los 'if' a mano y mover uno no ponia rojo nada. Nueve roturas tumban uno o el otro.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-lo-importante.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el inventario de sus fallos ya lo lee alguien)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+python (Join-Path $PSScriptRoot 'probar-lo-importante.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el orden es el que es)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n266. Su saldo ya no sale de casa por el altavoz (idea 116 de las 121)"
 # Con voz.motor = online, el texto de CADA frase que Nova dice se POSTea a los servidores de
 # Microsoft. De las 220 frases dichas, CINCO llevan datos privados de verdad y las cinco salen del

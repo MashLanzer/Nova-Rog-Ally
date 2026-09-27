@@ -1131,6 +1131,36 @@ RE_AGUJERO = re.compile(
 RE_NEGACION = re.compile(r"(?i)^\s*no[,.]?\s")
 NEGACION_PALABRAS = 5
 
+# LO QUE NOVA NO ENTENDIO NO ES UNA CORRECCION (27/09, idea 117 de las 121)
+#
+# EL DATO, despues de dos dias de uso real: importante.jsonl tiene CINCO lineas y las cinco dicen
+# por='correccion'. Y ninguna es una correccion:
+#     "No hay nada mas, eh? Mira yo"
+#     "No, yo subi, pero ten cuidado cuando suba, Es tipo ese de arriba, Es que.., Es que nunca atras"
+#     "No, porque se destilada la camera con anadir con la contable"
+#     "No lo es, Es mas enterada, Es de aca, Encerno? Hasta que es cheap media"
+#     "No, no, no, no, no, no, no"
+# Son frases que el oido entendio mal en mitad de una charla. Todas entran por RE_NEGACION -empieza
+# por "no" y tiene cinco palabras o mas-, y el comentario de arriba mide bien sobre el log escrito
+# ("No, no te pedi la hora, dije si es Steam"): el patron no esta mal, es que en una charla POR VOZ
+# lo que empieza por "no" y no se entiende suele ser ruido de reconocimiento.
+#
+# LO QUE LO SEPARA ES LA RESPUESTA DE NOVA: si ella contesto que no entendio, ese turno no puede ser
+# una correccion que aprender, porque no hay nada que aprender ahi. Las cinco respuestas de verdad,
+# copiadas del fichero: "te sigo a medias pero me pierdo un poco", "creo que no te he entendido
+# bien", "la verdad es que no te sigo. Puedes empezar desde el principio?".
+#
+# Y NO ES LO MISMO QUE UN AGUJERO: RE_AGUJERO es "no lo se", "no tengo acceso" -Nova sabe de que le
+# hablan y le falta el dato-. Esto es que no ha entendido la frase, que es un fallo del oido. Tres
+# motivos distintos y tres contadores distintos, que es de lo que sirve la etiqueta.
+#
+# SE MIRA ANTES QUE LA NEGACION a proposito: el turno se sigue guardando igual -el fichero no pierde
+# ni una linea-, pero con el motivo que le toca.
+RE_NO_ENTENDI = re.compile(
+    r"(?i)(?:no te he entendido|no te entend[ií]|no te sigo|me pierdo|no me ha quedado claro|"
+    r"me lo explicas|me lo repites|me repites eso|puedes empezar desde el principio|"
+    r"no he pillado|no me entero)")
+
 # QUE CORREGIR A NOVA HABLANDO SIRVA DE ALGO (26/09, idea 11 de las 121).
 #
 # Nova ya sabe reconocer una correccion -por_que_importa la caza para guardar el turno-, pero
@@ -1157,9 +1187,24 @@ def por_que_importa(texto, respuesta):
     cada linea: dentro de un mes, saber si algo se guardo por una correccion o por un agujero
     es justo lo que deja contarlos por separado."""
     try:
+        # UNA CORRECCION EXPLICITA LO ES AUNQUE NO SE ENTIENDA DEL TODO: "no te pedi la hora, dije
+        # si es Steam" dice QUE estaba mal, y eso se aprende.
         if texto and RE_CORRIGE.search(texto):
             return "correccion"
+        # PERO SI NOVA CONTESTO QUE NO ENTENDIO, ese turno no ensena nada (idea 117). Va delante de
+        # la negacion larga porque es la que se comia estos cinco: ver el comentario de
+        # RE_NO_ENTENDI. El turno se guarda igual, con el motivo que le toca.
+        if respuesta and RE_NO_ENTENDI.search(respuesta):
+            return "no-entendi"
         if texto and RE_NEGACION.match(texto) and len(texto.split()) >= NEGACION_PALABRAS:
+            # PERO "no, no, no, no, no, no, no" NO CORRIGE NADA, y es una de las cinco lineas que
+            # hay en el fichero: cumple lo de "empieza por no y tiene cinco palabras o mas" y no
+            # dice absolutamente nada. Esto no es un umbral que revisar, es un hecho: sin dos
+            # palabras distintas no hay frase que aprender.
+            distintas = {w.strip(".,;:!?¡¿").lower() for w in texto.split()}
+            distintas.discard("")
+            if len(distintas) < 2:
+                return "no-entendi"
             return "correccion"
         if respuesta and RE_AGUJERO.search(respuesta):
             return "agujero"

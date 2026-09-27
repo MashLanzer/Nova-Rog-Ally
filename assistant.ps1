@@ -25632,6 +25632,89 @@ function Get-AgujerosSemana {
     } catch { return $null }
 }
 
+# LEER EL FICHERO DE LAS CORRECCIONES (27/09, idea 117 de las 121)
+#
+# EL AGUJERO QUE QUEDABA: la idea 79 ya lee los AGUJEROS, que el worker agrupa en agujeros.json. Lo
+# que seguia sin lector es el fichero de donde salen: memoria\cerebro\importante.jsonl, que el
+# worker escribe en modo 'a' y que su propio comentario dice que "NO se poda nunca".
+#
+# Y AL ABRIRLO, LA SORPRESA: cinco lineas, las cinco con por='correccion', y ninguna es una
+# correccion. Son frases que el oido entendio mal en mitad de una charla -"No, porque se destilada
+# la camera con anadir con la contable"-, y entran porque empiezan por "no" y tienen cinco palabras.
+# Por eso agujeros.json no existia todavia: todo se etiquetaba de correccion y nada llegaba a ser un
+# agujero.
+#
+# LO QUE LA FICHA PEDIA Y NO SE HACE: meter esas correcciones en el prompt de la charla. Con cinco
+# de cinco siendo ruido de reconocimiento, eso es exactamente el riesgo que la propia ficha nombra
+# -"que ensucie el prompt"-, y no hay ni una correccion de verdad con la que probar que ayuda.
+# Primero que haya correcciones; el dia que las haya, la decision tendra con que tomarse.
+#
+# LO QUE SI SE HACE, que es el nucleo de la idea: leerlo y decir lo que de verdad dice. Con el
+# motivo nuevo 'no-entendi' que el worker estrena hoy, el fichero pasa a medir algo que no se media
+# en ningun sitio: cuantos turnos de charla se pierden porque Nova no entendio la frase.
+$ImportanteJsonl = Join-Path $MemoriaDir 'cerebro\importante.jsonl'
+function Get-Importante([int]$dias = 7, [datetime]$hoy = (Get-Date)) {
+    # Una linea por objeto, asi que se lee suelta y una linea rota no se lleva el fichero.
+    $l = New-Object System.Collections.ArrayList
+    try {
+        if (-not (Test-Path -LiteralPath $ImportanteJsonl)) { return ,@($l) }
+        $desde = $hoy.Date.AddDays(-$dias).ToString('yyyy-MM-dd')
+        foreach ($ln in [System.IO.File]::ReadAllLines($ImportanteJsonl, [System.Text.Encoding]::UTF8)) {
+            if (-not $ln -or $ln.Length -lt 10) { continue }
+            $o = $null
+            try { $o = $ln | ConvertFrom-Json } catch { continue }
+            if (-not $o) { continue }
+            $d = [string]$o.d
+            if ($d -and $d -lt $desde) { continue }
+            [void]$l.Add(@{ dia = $d; hora = [string]$o.h; por = [string]$o.por
+                            braya = [string]$o.braya; nova = [string]$o.nova })
+        }
+    } catch { Log ('lo importante: no pude leerlo (' + $_.Exception.Message + ')') }
+    return ,@($l)
+}
+
+# PURA: dada la lista, los cuenta por motivo. Aparte para que su banco le pase las cinco de verdad.
+function Get-ImportanteResumen($lineas) {
+    $r = @{ total = 0; correccion = 0; agujero = 0; noEntendi = 0; ultima = '' }
+    foreach ($x in @($lineas)) {
+        if (-not $x) { continue }
+        $r.total++
+        switch ([string]$x.por) {
+            'correccion' { $r.correccion++ }
+            'agujero'    { $r.agujero++ }
+            'no-entendi' { $r.noEntendi++ }
+        }
+        if ([string]$x.dia -gt [string]$r.ultima) { $r.ultima = [string]$x.dia }
+    }
+    return $r
+}
+
+# La frase para el parte semanal. Vacia si no hay nada: un parte que dice "no paso nada" cansa.
+function Get-ParrafoImportante {
+    try {
+        $rs = Get-ImportanteResumen (Get-Importante 7)
+        # SALIDA TEMPRANA, NO UNA GUARDA, y se dice para que nadie la confunda: quitarla no cambia
+        # ninguna respuesta -el '$partes.Count -eq 0' de abajo tambien devuelve vacio- y su banco lo
+        # comprobo. Vale para no montar frases cuando no hay ni una linea.
+        if ([int]$rs.total -eq 0) { return '' }
+        $partes = @()
+        # LO QUE MAS IMPORTA VA PRIMERO: los turnos que se perdieron por el oido, que es lo que
+        # nadie medía. Y se dice en turnos de charla, no en porcentajes, que es como se nota.
+        if ([int]$rs.noEntendi -gt 0) {
+            $v = [int]$rs.noEntendi
+            $partes += ('Esta semana hubo ' + $v + ' ' + $(if ($v -eq 1) { 'rato' } else { 'ratos' }) +
+                        ' en que me hablaste y no te entendi, y ' +
+                        $(if ($v -eq 1) { 'se quedo' } else { 'se quedaron' }) + ' sin contestar de verdad.')
+        }
+        if ([int]$rs.correccion -gt 0) {
+            $v = [int]$rs.correccion
+            $partes += ('Y me corregiste ' + $v + ' ' + $(if ($v -eq 1) { 'vez' } else { 'veces' }) + '.')
+        }
+        if ($partes.Count -eq 0) { return '' }
+        return ($partes -join ' ')
+    } catch { return '' }
+}
+
 # La frase para el resumen semanal. Vacia si no hay agujeros repetidos: sin eso no hay noticia.
 function Get-ParrafoAgujeros {
     $ag = Get-AgujerosSemana
@@ -25800,6 +25883,10 @@ function Write-NotaSemanal {
         $parrafoAg = ''
         try { $parrafoAg = Get-ParrafoAgujeros } catch { $parrafoAg = '' }
         if ($parrafoAg) { [void]$sb.AppendLine(""); [void]$sb.AppendLine($parrafoAg) }
+        # Y LO QUE APUNTA EN importante.jsonl (27/09, idea 117). Aqui al lado del de los agujeros
+        # porque salen del mismo fichero: aquel lee los agrupados y este el bruto.
+        try { $parrafoIm = Get-ParrafoImportante } catch { $parrafoIm = '' }
+        if ($parrafoIm) { [void]$sb.AppendLine(""); [void]$sb.AppendLine($parrafoIm) }
         if ($gestos.Count -gt 0) {
             $top = @($gestos.GetEnumerator() | Sort-Object -Property Value -Descending | Select-Object -First 4 | ForEach-Object { "$($_.Key) ×$($_.Value)" })
             [void]$sb.AppendLine(""); [void]$sb.AppendLine("Lo que más me dijiste, según mis gestos: " + ($top -join ', ') + ".")
