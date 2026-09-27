@@ -13963,7 +13963,68 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
 # Va aparte de Get-AvisoSinDatos para que la prueba pueda mirar el texto sin tocar el mundo.
 # Devuelve $false siempre: avisar NO es decidir, y Test-RevisionPropia informa de si decidio.
 $script:parteSinDatos = ''
+# LO QUE LE FALTA PARA PODER DECIDIR (27/09, idea 75)
+#
+# EL AGUJERO: Nova evalua cinco decisiones propias cada dia y, cuando alguna no llega al liston,
+# sale EN SILENCIO. Get-AvisoSinDatos ya avisa de una de las formas de no llegar -que los datos
+# esten amontonados en un solo dia- pero se calla justo en la que frena a las cinco hoy: que
+# FALTEN INTENTOS. Medido en los 14 dias de estadisticas.json: cero 'auto-ajuste', cero
+# 'auto-deshecho', la lista 'decisiones' vacia, y nueve sitios del codigo que escribirian
+# 'auto-ajuste' sin haberlo escrito nunca. Simulado con sus datos: al oido fino le faltan 34
+# repasos para poder juzgarse (56 de los 90 que pide Test-DecisionSolida con 7 aciertos netos), y a
+# canary y base 15 cada uno. Cinco decisiones frenadas por falta de dato y ni una linea que lo diga.
+#
+# NO SE TOCAN LAS CONDICIONES. Los 'if' de Test-RevisionPropia son la parte delicada -deciden
+# apagar cosas del oido-; aqui solo se lee lo que ya esta calculado ($numR) y se dice lo que falta.
+$AvisoFaltaSemanaMin = 10080     # se HABLA como mucho una vez por semana y por decision
+function Get-QueMeFalta($num) {
+    # Devuelve una lista de @{ clave; que; falta; intentos } con lo que le falta a cada decision
+    # para poder juzgarse. Vacia si no falta nada o si la decision ya aporta: entonces no hay
+    # noticia que dar.
+    $fuera = New-Object System.Collections.ArrayList
+    try {
+        foreach ($c in @(
+            @{ clave = 'turbo'; intentos = 'turbo'; utiles = 'turbo-sirvio'; que = 'mi ultimo recurso del oido'
+               encendido = [bool]$WhisperUltimo; cosa = 'repasos' },
+            @{ clave = 'nube'; intentos = 'nube-intento'; utiles = 'nube-sirvio'; que = 'la segunda opinion de la nube'
+               encendido = [bool]$NubeOir; cosa = 'consultas' },
+            @{ clave = 'fino'; intentos = 'fino'; utiles = 'fino-sirvio'; contra = 'fino-invento'
+               que = 'mi oido fino'; encendido = [bool]$WhisperPreciso; cosa = 'repasos' })) {
+            if (-not $c.encendido) { continue }              # lo apagado no se anuncia
+            $tot = [int]$num[$c.intentos]
+            $netos = [int]$num[$c.utiles]
+            if ($c.contra) { $netos -= [int]$num[$c.contra] } # el acierto NETO, como la decision de verdad
+            if ($netos -lt 0) { $netos = 0 }
+            # SI YA APORTA, NO HAY DECISION PENDIENTE y no falta nada que contar.
+            if ($tot -gt 0 -and $netos -ge (Get-DecisionMinimo $tot)) { continue }
+            # los intentos que pide Test-DecisionSolida con esos aciertos netos
+            $pide = [Math]::Max([int]$DecisionMinIntentos, [int]$DecisionMinIntentos + ([int]$DecisionPorAcierto * $netos))
+            $falta = $pide - $tot
+            if ($falta -le 0) { continue }                   # lo que frena es otra cosa, no el dato
+            [void]$fuera.Add(@{ clave = $c.clave; que = $c.que; falta = $falta; intentos = $tot; pide = $pide; cosa = $c.cosa })
+        }
+    } catch { return @() }
+    return @($fuera)
+}
+
+function Set-AvisoQueMeFalta($num, [datetime]$ahora = (Get-Date)) {
+    $faltan = @(Get-QueMeFalta $num)
+    if ($faltan.Count -eq 0) { return $false }
+    # el contador se escribe SIEMPRE, aunque no se hable: asi se puede contar cuantos dias lleva
+    # frenada cada decision, que es lo que hoy no se podia saber.
+    foreach ($f in $faltan) { Add-Estadistica ('auto-frenado:' + $f.clave + ':pocos-datos') ([string]$f.intentos + ' de ' + [string]$f.pide) }
+    # Y SE HABLA DE UNA SOLA, la que mas cerca esta de poder juzgarse: si le faltan cosas a las
+    # tres, decirlas todas es una queja, no una noticia.
+    $elegida = @($faltan | Sort-Object { [int]$_.falta })[0]
+    $texto = 'Me faltan ' + $elegida.falta + ' ' + $elegida.cosa + ' para poder juzgar ' + $elegida.que + '.'
+    return [bool](Send-AvisoEntorno ('auto-falta:' + $elegida.clave) $texto 'medio' $AvisoFaltaSemanaMin)
+}
 function Set-AvisoSinDatos($stats, $num, [datetime]$ahora = (Get-Date)) {
+    # LO QUE LE FALTA, ANTES DE NADA (27/09, idea 75). Esta funcion es por donde salen todas las
+    # decisiones que no llegan al liston, asi que es el sitio donde se sabe que se ha frenado sin
+    # tocar ni una de sus condiciones. Va aparte del aviso de abajo porque hablan de dos cosas
+    # distintas: ese dice 'tus datos estan amontonados en un dia', este 'aun no tengo bastantes'.
+    try { [void](Set-AvisoQueMeFalta $num $ahora) } catch {}
     try {
         $t = Get-AvisoSinDatos $stats $num $ahora
         if ($t -and $t -ne $script:parteSinDatos) {

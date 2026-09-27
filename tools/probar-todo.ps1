@@ -2072,6 +2072,15 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n228. Apuntar la decision que NO se tomo, y que le falta para tomarla (idea 75 de las 121)"
+# Cinco decisiones propias se evaluaban cada dia y salian EN SILENCIO cuando no llegaban al
+# liston: cero 'auto-ajuste' en 14 dias con nueve sitios que lo escribirian. Get-AvisoSinDatos ya
+# avisaba de una forma de no llegar -datos amontonados en un dia- y se callaba en la que las frena
+# a las cinco: faltan intentos. Ahora se apunta 'auto-frenado:<clave>:pocos-datos' SIEMPRE y se
+# habla de UNA sola (la que menos le falta), en nivel medio y una vez por semana. Sin tocar ni una
+# condicion de Test-RevisionPropia: se lee lo que ya esta calculado.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-que-me-falta.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:Nova dice que le falta para poder decidir)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n227. Los tres silencios que cierran la frase, medidos de su uso real (idea 74 de las 121)"
 # Los tres numeros salian de 100 grabaciones LEIDAS del 14/09, y del tercero el propio comentario
 # decia 'provisional y razonado, no medido'. Medidas las 574 grabaciones de uso con el MISMO
