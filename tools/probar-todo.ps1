@@ -2080,6 +2080,15 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n246. Nova no sabia que version de si misma estaba corriendo (idea 95 de las 121)"
+# 648 commits sobre Nova entre el 10 y el 27/09, unos 36 al dia, y 259 lineas 'VoiceAssistant
+# iniciado' SIN UNA SOLA marca de version. Cuando un numero suyo empeora no habia forma de decir
+# desde cuando. Ahora la linea de arranque lleva hash + tamano + fecha, y las versiones tienen su
+# propia lista en las estadisticas (una por VERSION, no por arranque). TRES COSAS Y NO UNA porque
+# el hash de HEAD NO identifica el codigo: aqui lo normal es tener cambios sin commitear. Y sin
+# lanzar git -leyendo .git a mano-: medido, 152 ms contra 3,94 de media.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-version.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:Nova sabe que version de si misma)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n245. Dos de las cinco lineas de temas del prompt decian lo mismo (idea 94 de las 121)"
 # En el prompt de cada charla viajan los cinco temas mas contados, y eran videojuegos (63),
 # comunicacion (26), clarificacion (10), steam (10) y videojuego (10): una plaza gastada en repetir

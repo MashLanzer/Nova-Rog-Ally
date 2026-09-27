@@ -3136,9 +3136,79 @@ function Get-FraseNubeTiempo {
             "La espero hasta $([Math]::Round($NubeTopeMs / 1000.0, 1)) segundos.")
 }
 
+# NOVA NO SABIA QUE VERSION DE SI MISMA ESTABA CORRIENDO (27/09, idea 95 de las 121)
+#
+# EL DATO: 648 commits sobre Nova entre el 10 y el 27/09, unos 36 al dia, y 259 lineas
+# "VoiceAssistant iniciado" en los dos registros SIN UNA SOLA marca de version: apuntan PID,
+# trigger y cerebro, y nada mas. Cuando un numero suyo empeora no hay forma de decir desde cuando,
+# y con 36 cambios al dia eso es no poder atribuir nada a nada.
+#
+# TRES COSAS Y NO UNA, y aqui la ficha se quedaba corta: EL HASH DE HEAD NO IDENTIFICA EL CODIGO
+# QUE CORRE. En este repositorio lo normal es tener cambios sin commitear -es como se trabaja-, asi
+# que dos arranques con el mismo hash pueden llevar codigo distinto. El tamano y la fecha de
+# modificacion de assistant.ps1 SI cambian con cada edicion, no cuestan una llamada a nada y
+# distinguen esos dos arranques. Van las tres juntas.
+#
+# Y NO ALARGA EL ARRANQUE: una sola vez por arranque, cacheada, con la ruta de git resuelta y tope
+# de tiempo; si git tarda o no esta, se queda el tamano y la fecha, que siempre estan.
+# Y SIN LANZAR GIT, LEYENDO .git A MANO. Medido: con `git rev-parse --short HEAD` en un proceso
+# aparte son 152 ms del arranque; leyendo los dos ficheros son menos de 2 ms, no hace falta que git
+# este instalado y no hay proceso hijo que pueda colgarse. La ficha pedia la llamada con tope de
+# tiempo; esto hace lo mismo sin tope porque no hay nada que esperar.
+$script:versionNova = ''
+function Get-VersionNova {
+    if ($script:versionNova) { return $script:versionNova }
+    $partes = @()
+    try {
+        $gd = Join-Path $LogDir '.git'
+        $cab = Join-Path $gd 'HEAD'
+        if (Test-Path -LiteralPath $cab) {
+            $h = ''
+            $txtC = ([IO.File]::ReadAllText($cab)).Trim()
+            if ($txtC -match '^ref:\s*(\S+)$') {
+                # la rama: primero la referencia suelta, que es la que escribe cada commit
+                $ref = $Matches[1]
+                # SIN CAMBIAR LAS BARRAS: Windows acepta 'refs/heads/main' tal cual, y un -replace
+                # con barra invertida aqui es la forma mas facil de escribir un escape roto.
+                $rutaR = Join-Path $gd $ref
+                if (Test-Path -LiteralPath $rutaR) {
+                    $h = ([IO.File]::ReadAllText($rutaR)).Trim()
+                } else {
+                    # y si un `git gc` la empaqueto, en packed-refs
+                    $pk = Join-Path $gd 'packed-refs'
+                    if (Test-Path -LiteralPath $pk) {
+                        # ReadAllLines Y NO ReadLines: ReadLines es perezoso y el 'break' de abajo
+                        # deja el fichero ABIERTO hasta que pase el recolector, asi que un
+                        # 'git gc' o un 'git pack-refs' se encontraria packed-refs bloqueado.
+                        # Lo canto su propio banco, al no poder borrar la carpeta de prueba.
+                        # Los otros cuatro ReadLines del fichero usan 'continue', que agota el
+                        # enumerador y lo cierra bien; este era el unico con 'break'.
+                        foreach ($l in [IO.File]::ReadAllLines($pk)) {
+                            if ($l -match ('^([0-9a-f]{40})\s+' + [regex]::Escape($ref) + '$')) { $h = $Matches[1]; break }
+                        }
+                    }
+                }
+            } elseif ($txtC -match '^[0-9a-f]{40}$') {
+                $h = $txtC        # cabeza suelta (detached), el hash esta ahi mismo
+            }
+            if ($h -match '^[0-9a-f]{7,40}$') { $partes += $h.Substring(0, 7) }
+        }
+    } catch {}
+    # EL RESPALDO QUE NUNCA FALLA, y que ademas es el que distingue dos arranques con el mismo
+    # commit y cambios sin guardar encima.
+    try {
+        $fi = Get-Item -LiteralPath (Join-Path $LogDir 'assistant.ps1') -ErrorAction Stop
+        $partes += ([string][int]($fi.Length / 1024) + 'k')
+        $partes += $fi.LastWriteTime.ToString('MMdd-HHmm')
+    } catch {}
+    if ($partes.Count -eq 0) { $partes = @('sin-version') }
+    $script:versionNova = ($partes -join ' ')
+    return $script:versionNova
+}
+
 function Get-Estadisticas {
     if ($null -ne $script:stats) { return $script:stats }
-    $script:stats = @{ dias = @{}; descartes = @(); recientes = @(); decisiones = @() }
+    $script:stats = @{ dias = @{}; descartes = @(); recientes = @(); decisiones = @(); versiones = @() }
 # LO QUE YA SE RESUELVE, CALCULADO UNA VEZ (18/09). La lista de descartes se reescribe desde
 # Add-Estadistica, o sea en CADA orden: preguntarle a la capa local por las 30 frases cada vez
 # seria tiempo tirado. Son siempre las mismas, asi que la respuesta se guarda aqui.
@@ -3157,6 +3227,11 @@ $script:descarteYaVa = @{}
             # la traen, y entonces se queda vacia y se va llenando. Nada que migrar.
             if ($j.PSObject.Properties['decisiones']) {
                 $script:stats.decisiones = @($j.decisiones | ForEach-Object { [string]$_ })
+            }
+            # Y LAS VERSIONES (27/09, idea 95), igual: un estadisticas.json de ayer no las trae y
+            # entonces la lista empieza vacia. Nada que migrar.
+            if ($j.PSObject.Properties['versiones']) {
+                $script:stats.versiones = @($j.versiones | ForEach-Object { [string]$_ })
             }
         } catch { Log ("estadisticas: no pude leerlas (" + $_.Exception.Message + ")"); Save-Corrupto $EstadisticasJson 'estadisticas' }
     }
@@ -3752,6 +3827,15 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '', [bool]$deCamino =
         if ($d.Length -gt 90) { $d = $d.Substring(0, 87) + '...' }
         if ($ruta -eq 'descarte' -and $d) {
             $s.descartes = @(@("$dia  $d") + @($s.descartes | Where-Object { $_ -notmatch ('  ' + [regex]::Escape($d) + '$') }) | Select-Object -First 30)
+        } elseif ($ruta -eq 'version' -and $d) {
+            # SU PROPIA LISTA Y NO "recientes" (27/09, idea 95): hay unos 16 arranques al dia y
+            # recientes tiene 40 plazas, asi que por ahi las versiones se comerian el sitio de todo
+            # lo demas en dos dias. Y UNA LINEA POR VERSION, NO POR ARRANQUE: si el codigo no ha
+            # cambiado, reabrir Nova cinco veces no son cinco versiones.
+            if (-not $s.ContainsKey('versiones')) { $s.versiones = @() }
+            if (@($s.versiones).Count -eq 0 -or @($s.versiones)[0] -notmatch ([regex]::Escape($d) + '$')) {
+                $s.versiones = @(@((Get-Date -Format 'yyyy-MM-dd HH:mm') + '  ' + $d) + @($s.versiones) | Select-Object -First 40)
+            }
         } elseif ($d) {
             $fila = (Get-Date -Format 'yyyy-MM-dd HH:mm') + "  [$ruta]  $d"
             $s.recientes = @(@($fila) + $s.recientes | Select-Object -First 40)
@@ -3784,6 +3868,7 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '', [bool]$deCamino =
         $o | Add-Member -NotePropertyName descartes -NotePropertyValue @($s.descartes)
         $o | Add-Member -NotePropertyName recientes -NotePropertyValue @($s.recientes)
         $o | Add-Member -NotePropertyName decisiones -NotePropertyValue @($s.decisiones)
+        $o | Add-Member -NotePropertyName versiones -NotePropertyValue @($s.versiones)
         $enc = New-Object System.Text.UTF8Encoding($false)
         if (-not (Test-Path -LiteralPath $MemoriaDir)) { New-Item -ItemType Directory -Force -Path $MemoriaDir | Out-Null }
         Write-Atomico $EstadisticasJson ($o | ConvertTo-Json -Depth 6)
@@ -24938,7 +25023,12 @@ if (-not (Test-Path -LiteralPath $TmpDir)) {
     try { New-Item -ItemType Directory -Path $TmpDir -Force | Out-Null } catch {}
 }
 
-Log "VoiceAssistant iniciado PID=$PID (trigger: mantener ≡ $([Math]::Round($HOLD_MS/1000,1)) s; cerebro: $([string](Get-Cfg 'modelo' 'cerebro' 'claude-code')))."
+# LA VERSION VA EN LA MISMA LINEA QUE YA SE ESCRIBIA (27/09, idea 95): asi las 259 lineas de
+# arranque que ya hay en los registros y todas las que vengan se pueden comparar entre ellas, y un
+# numero que empeora se puede atribuir a un cambio concreto.
+$verNova = Get-VersionNova
+Log "VoiceAssistant iniciado PID=$PID (version: $verNova; trigger: mantener ≡ $([Math]::Round($HOLD_MS/1000,1)) s; cerebro: $([string](Get-Cfg 'modelo' 'cerebro' 'claude-code')))."
+try { Add-Estadistica 'version' $verNova } catch {}
 # Y UNA LINEA AL CERRAR (18/09). Habia 188 "iniciado" en el registro y ninguna de salida, asi
 # que no habia forma de distinguir "braya lo cerro" de "se murio" -el unico rastro era la marca
 # huerfana de la sesion siguiente, que solo aparece cuando acabo mal-.
