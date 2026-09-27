@@ -27977,6 +27977,42 @@ function Close-PanelRapido([bool]$tocarUI = $true) {
     Log "PANEL RAPIDO: cerrado"
     if ($tocarUI) { Set-UI 'reposo' }
 }
+function Show-Vistazo {
+    # EL TOQUE SUELTO DEL MANDO YA NO SE PIERDE (26/09, idea 36 de las 121). Un toque corto en
+    # el boton de menu no hacia NADA: medido, 62 toques sueltos apuntados en el registro (ni la
+    # mitad de un doble toque: cero pares en el mismo segundo). Ahora, pasados 450 ms sin segundo
+    # toque -o sea que no era doble toque-, pinta en la capsula lo que Nova sabe y se calla
+    # -hora, bateria y el aviso aparcado si lo hay-, 2,5 s, y se va sola. Es el gemelo del
+    # Vistazo() del raton (nova_ui.cs:1685), que en una consola de mano no se dispara: no hay raton.
+    #
+    # SOLO TEXTO: ni Say ni Start-Vibracion. El boton de menu lo usan tambien los juegos y la
+    # mediana de esos toques es 158 ms, o sea que muchos son dentro de un juego; si esto hablara
+    # o vibrara, un toque accidental se sentiria como una orden ejecutada (regla 1). El panel
+    # rapido si vibra, asi que darle voz o vibracion volveria los dos gestos indistinguibles.
+    if ($script:panel) { return $false }                                            # el panel manda en la capsula
+    if ($script:armed -or $script:pendiente -or $script:busy) { return $false }     # las mismas tres de Open-PanelRapido
+    if ($script:capsulaCiega) { return $false }                                     # juego a pantalla completa exclusiva: no se veria
+    if ($script:uiRetirada) { return $false }                                       # Nova escondida: Set-UI 'reposo' se vuelve 'retirada'
+    if ($script:uiTexto -or $script:uiHasta -gt $sw.ElapsedMilliseconds) { return $false }  # ya hay algo puesto: no lo pises
+    $linea = (Get-Date).ToString('H:mm') + ' · ' + "$($script:uiBateria)%"
+    if ($script:uiCargando -eq 1) { $linea += ' ' + [char]0x26A1 }
+    # EL AVISO APARCADO, SI SIGUE VIVO. Se MIRA, no se consume: de decirlo tarde ya se encarga
+    # Send-AvisoEsperaSuelta (idea 5 del 25/09). [void](Get-AvisoEspera) y luego leer
+    # $script:avisoEspera directo, porque Get-AvisoEspera devuelve el ArrayList y PowerShell lo
+    # desenvuelve: con un solo aviso, un .Count a la salida daria las 5 claves del hashtable, no 1.
+    [void](Get-AvisoEspera)
+    $ahora = Get-Date
+    foreach ($a in $script:avisoEspera) {
+        $v = $null; try { $v = [datetime]::Parse([string]$a.vence) } catch { continue }
+        if ($v -gt $ahora -and [string]$a.texto) { $linea += ' · ' + [string]$a.texto; break }
+    }
+    if ($linea.Length -gt 70) { $linea = $linea.Substring(0, 67) + '...' }
+    Log "VISTAZO: $linea"
+    Add-Estadistica 'vistazo'
+    Set-UI 'reposo' $linea 2500
+    $script:toqueEn = 0   # consumido: sin esto el bucle lo repintaria cada vuelta (modo sin salida, regla 2)
+    return $true
+}
 function Show-PanelRapido {
     if (-not $script:panel) { return }
     $item = $PanelItems[$script:panel.i]
@@ -28550,6 +28586,16 @@ while ($true) {
         } else {
             $script:toqueEn = $sw.ElapsedMilliseconds
         }
+    }
+    # TOQUE SUELTO (idea 36 de las 121): si paso un toque y ya no hay boton apretado y han
+    # cruzado los 450 ms sin segundo toque, no era un doble toque -> vistazo. El '-not $startNow'
+    # es obligatorio: sin el, un toque seguido de mantener para dictar abriria el vistazo a los
+    # 450 ms con el boton todavia apretado. El '-gt 450' es complementario del '-le 450' del
+    # panel: en el borde manda el panel. El $script:toqueEn = 0 se repite aqui (cinturon y
+    # tirantes): aunque una guarda de Show-Vistazo devuelva $false, el toque queda consumido.
+    if ($script:toqueEn -gt 0 -and -not $startNow -and ($sw.ElapsedMilliseconds - $script:toqueEn) -gt 450) {
+        try { [void](Show-Vistazo) } catch { Log ("vistazo: " + $_.Exception.Message) }
+        $script:toqueEn = 0
     }
     if ($startNow -and -not $startPrev) {
         $downSince = $sw.ElapsedMilliseconds

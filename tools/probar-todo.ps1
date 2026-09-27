@@ -1997,6 +1997,14 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n204. Los toques sueltos del mando ya no se pierden: ensenan un vistazo (idea 36 de las 121)"
+# Un toque corto en el boton de menu no hacia NADA (solo el DOBLE toque abria el panel). MEDIDO:
+# 62 toques sueltos apuntados que se tragaba el vacio, ninguno mitad de un doble. Ahora, pasados
+# 450 ms sin segundo toque, se pinta un vistazo -hora, bateria y el aviso aparcado si lo hay-,
+# 2,5 s y se va solo. Solo texto: ni Say ni vibracion (regla 1: un toque no es una orden).
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-vistazo-toque.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el toque suelto del mando ya no se pierde)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n203. Al cancelar un dictado a los 50 s, mira si el oido sigue vivo (idea 35 de las 121)"
 # La rama que corta el dictado a los 50 s cancelaba igual los 59 casos del registro, sin mirar.
 # MEDIDO: en 58 el worker seguia vivo y solo mudo, en 1 (1,7 %) habia muerto. Ahora mira: MUERTO
