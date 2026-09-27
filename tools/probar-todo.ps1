@@ -1997,6 +1997,15 @@ Titulo "2n173. El cuaderno de la Ally: que se hace con ella, hable braya o no"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apunta lo que se hace con la Ally)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n207. El oido apunta sus propios fallos en vez de olvidarlos (idea 40 de las 121)"
+# El 25/09 el bucle del oido fallo 3 veces con el mismo texto, rehizo el reconocedor las 3, y la
+# orden se perdio entera y en silencio. El worker cuenta ahora el mismo fallo repetido (sin
+# umbral nuevo, el mismo _mismo de la idea 5), lo publica en escucha-estado.txt, y el asistente
+# lo APUNTA en el diario. Y se resucita el canal PERDIDO que la idea 5 dejo muerto (escribia en
+# RUTA_DICTADO, que no existe, dentro de un except mudo).
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-fallo-bucle.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el oido apunta sus propios fallos)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n206. Decir el nombre del juego, no el de la carpeta (idea 38 de las 121)"
 # El campo 'dir' (el installdir de Steam) se leia y no lo usaba nadie. Cuando la carpeta no se
 # parece al titulo -CatQuest_Purribean es "Cat Quest III"- Nova decia el nombre de la CARPETA

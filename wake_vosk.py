@@ -728,6 +728,11 @@ UMBRAL_ALTAVOZ_FUERTE = 0.35
 # sobra un dictado entero -el tope duro son 30 s- sin llegar a juntar dos dictados distintos.
 FALLO_REPETIDO_SEG = 30.0
 _ultimo_fallo = ["", 0.0]
+# EL MISMO FALLO, CUANTAS VECES SEGUIDAS (26/09, idea 40 de las 121). [texto, veces]. No es un
+# umbral nuevo: es el mismo "_mismo" de FALLO_REPETIDO_SEG. Se publica en escucha-estado.txt para
+# que el asistente lo APUNTE (Nova escribia sus fallos en el log y no los leia nunca). Muere con
+# el worker: un worker nuevo es un intento nuevo.
+_fallo_bucle = ["", 0]
 # El modelo preciso solo corre a rachas y con prioridad baja: puede permitirse
 # mas hilos que el rapido, que va en el camino de cada orden.
 HILOS_PRECISO = 8
@@ -3544,10 +3549,14 @@ def decir_estado(ref=0.0):
     # como todos desde el quinto: assistant.ps1 lee este fichero POR INDICE en varios sitios y
     # meter un campo en medio les cambia el significado a todos a la vez y en silencio.
     # Es -1 mientras no haya ni un pulso contado, nunca 0.
-    return "%.1f|%s|%.3f|%d|%d|%d|%d|%s|%d|%d" % (
+    # UNDECIMO CAMPO (26/09, idea 40): "veces:texto" del fallo del bucle que se repite, o "-".
+    # Va AL FINAL como todos los nuevos. El texto se recorta a 60 y se le quitan las "|" porque
+    # el separador del fichero es "|" y una excepcion de Python puede traerlas.
+    fallo_b = ("%d:%s" % (_fallo_bucle[1], _fallo_bucle[0][:60].replace("|", " "))) if _fallo_bucle[1] >= 2 else "-"
+    return "%.1f|%s|%.3f|%d|%d|%d|%d|%s|%d|%d|%s" % (
         ganancia, ("%.4f" % ref) if ref else "0",
         salida, bloques_voz, 1 if ruido_de_fuera else 0, recientes, desde_recorte,
-        repaso_perdido or "-", desc_recientes, ram_justa_pct())
+        repaso_perdido or "-", desc_recientes, ram_justa_pct(), fallo_b)
 # Mientras exista esta marca no se evalua la palabra de activacion: solo el
 # boton. La crea el asistente cuando hay un juego en primer plano. El dictado
 # y la confirmacion siguen funcionando con normalidad.
@@ -4759,17 +4768,28 @@ try:
                 _ultimo_fallo[0] = _txt_fallo
                 _ultimo_fallo[1] = ahora
                 if _mismo:
+                    _fallo_bucle[1] += 1   # el mismo fallo otra vez: se cuenta (idea 40)
                     # NO SE REHACE, Y SOBRE TODO NO SE CALLA: el asistente lee esta marca por el
                     # mismo camino que el dictado vacio, pero sabiendo que hubo un fallo puede
                     # decir "se me ha ido, repitemelo" en vez de tratarlo como si braya no
                     # hubiera dicho nada. Un turno perdido que se sabe perdido no es lo mismo
                     # que un turno perdido en silencio.
                     anota("el mismo fallo otra vez (%s): no rehago el reconocedor, marco el turno como perdido" % _txt_fallo)
-                    try:
-                        escribir(RUTA_DICTADO, "PERDIDO")
-                    except Exception:  # noqa: BLE001
-                        pass
+                    # EL CANAL ESTABA MUERTO (26/09, idea 40): la idea 5 escribio aqui
+                    # escribir(RUTA_DICTADO, "PERDIDO"), pero RUTA_DICTADO no existe -> NameError,
+                    # que el except mudo de abajo se tragaba, asi que la marca PERDIDO no se
+                    # escribia NUNCA y la rama de assistant.ps1 no corria jamas. El fichero del
+                    # dictado es TEXTO (sys.argv[7]); puede venir vacio, de ahi la guarda.
+                    if TEXTO:
+                        try:
+                            escribir(TEXTO, "PERDIDO")
+                        except Exception as _e_p:  # noqa: BLE001
+                            anota("no pude marcar el turno como perdido: %s" % _e_p)
                     continue
+                # fallo NUEVO: el contador empieza de 1 y se rehace el reconocedor (para los json
+                # raros de Vosk, que es para lo que este except se escribio)
+                _fallo_bucle[0] = _txt_fallo
+                _fallo_bucle[1] = 1
                 try:
                     rec = nuevo_reconocedor()
                 except Exception as _e_rec:  # noqa: BLE001

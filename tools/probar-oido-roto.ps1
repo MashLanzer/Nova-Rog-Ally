@@ -75,7 +75,14 @@ Comp '  y avisa en el log de que no lo rehace' ($tp -match 'no rehago el reconoc
 
 Write-Host ''
 Write-Host '-- 3. y el turno perdido se dice, no se calla --'
-Comp 'el oido escribe la marca PERDIDO' ($pySin -match 'escribir\(RUTA_DICTADO, "PERDIDO"\)') ''
+# EL CANAL TIENE QUE ESCRIBIR EN UN NOMBRE DEFINIDO (26/09, idea 40). Antes esto casaba
+# 'escribir(RUTA_DICTADO, "PERDIDO")', pero RUTA_DICTADO no existe: en ejecucion lanzaba
+# NameError y el except mudo se lo tragaba, asi que la marca no se escribia NUNCA y el banco
+# salia verde sobre una llamada muerta. Ahora se exige el fichero del dictado (TEXTO, sys.argv[7])
+# Y que ESE nombre este definido, no solo que la llamada exista.
+Comp 'el oido escribe PERDIDO en el fichero del dictado' ($pySin -match 'escribir\(TEXTO, "PERDIDO"\)') 'RUTA_DICTADO no existia: NameError mudo'
+Comp '  y TEXTO esta definido (no un nombre inventado)' ($tp -match '(?m)^TEXTO = sys\.argv') 'sys.argv[7], el fichero del dictado'
+Comp '  y el fallo al marcarlo ya no se traga' ($pySin -match 'no pude marcar el turno como perdido') 'antes era except: pass'
 Comp 'el asistente la reconoce' ($aSin -match "\`$text -eq 'PERDIDO'") ''
 # LO QUE IMPORTA: que NO caiga en el camino del dictado vacio, que dice "No te escuche" -una
 # mentira- y encima lo apunta como 'error', que es lo que hunde el animo.

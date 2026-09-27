@@ -11887,6 +11887,33 @@ function Test-AvisarSinRepaso([string]$que, [int]$mb, [bool]$yaAvisado) {
     return $true
 }
 
+function Get-FalloBucle {
+    # @{ veces; texto } del fallo del bucle del oido que se REPITE, o $null (26/09, idea 40).
+    # Mismas cuatro guardas y en el mismo orden que Get-RepasoPerdido. El campo es el undecimo
+    # (indice 10) de escucha-estado.txt; devuelve $null -no un hash con veces=0- cuando no hay
+    # nada, porque $null -lt 2 es $true y avisaria en silencio.
+    if (-not (Test-Path -LiteralPath $RutaEstado)) { return $null }
+    if (-not (Test-EstadoFresco)) { return $null }
+    try {
+        $st = ([System.IO.File]::ReadAllText($RutaEstado).Trim()) -split '\|'
+        if ($st.Count -lt 11) { return $null }
+        $v = [string]$st[10].Trim()
+        if (-not $v -or $v -eq '-') { return $null }
+        # por el PRIMER ':' unicamente: un mensaje de Python ("KeyError: 'x'") trae mas de uno
+        $i = $v.IndexOf(':')
+        if ($i -lt 1) { return $null }
+        return @{ veces = [int]$v.Substring(0, $i); texto = [string]$v.Substring($i + 1) }
+    } catch { return $null }
+}
+function Test-AvisarFalloBucle([int]$veces, [string]$texto, [bool]$yaAvisado) {
+    # Pura, para que el banco la corra sin disco. El umbral NO es nuevo: 'veces >= 2' es el mismo
+    # caso que ya dispara la marca PERDIDO (el mismo texto dentro de FALLO_REPETIDO_SEG).
+    if ($yaAvisado) { return $false }
+    if (-not $texto) { return $false }
+    if ($veces -lt 2) { return $false }
+    return $true
+}
+
 # CUANTAS LLAMADAS SE HAN CAIDO EN LA ULTIMA MEDIA HORA (26/09, idea 13 de las 121).
 # -1 significa "no se sabe" -oido viejo, estado rancio o sin fichero- y NO es lo mismo que
 # cero: con -1 el aviso se comporta como hasta hoy, que es lo unico seguro sin dato.
@@ -12033,6 +12060,7 @@ function Test-AvisarMudo([int]$segMudo, [bool]$workerVivo, [long]$ahoraMs) {
 $FlojoRachaMinima = [int](Get-Cfg 'escucha' 'flojoRachaMinima' 3)
 $script:flojoAvisado = $false     # ya se dijo en esta racha
 $script:sinRepasoAvisado = $false   # idea 9: ya dije que me falta un repaso
+$script:falloBucleAvisado = $false   # idea 40: ya apunte que el oido se rompe por dentro
 $script:ramJustaApuntada = $false  # idea 17: ya apunte con cuanta memoria estuvo oyendo
 # Pura igual que Test-AvisarRuido y Test-AvisarMudo: recibe la cuenta y devuelve si toca
 # hablar, para que el banco pueda correr un dia entero de rachas en un milisegundo.
@@ -12321,6 +12349,22 @@ function Watch-Entorno([int]$botones = 0) {
             if (Send-AvisoEntorno 'oido-sin-repaso' `
                 "Me he quedado sin $comoSeLlama por falta de memoria, me faltan $($rp.mb) megas. Te voy a entender algo peor hasta que cierres algo; con el boton me llega igual." 'medio' 720) {
                 $script:sinRepasoAvisado = $true
+            }
+        }
+    } catch {}
+
+    # NOVA ESCRIBE SUS FALLOS Y NO LOS LEE NUNCA (26/09, idea 40 de las 121). Va el ULTIMO de los
+    # cinco del oido: el turno concreto ya se contesta por la marca PERDIDO; esto es el APUNTE
+    # para la tanda siguiente. NO relanza nada -de eso ya se encarga la vigilancia con sus 3
+    # intentos- y NO habla dos veces del mismo turno. La bandera solo se marca si el aviso SALIO
+    # (jugando el 'medio' se calla y se reintenta al cerrar), igual que los cuatro de arriba.
+    try {
+        $fb = Get-FalloBucle
+        if ($fb -and (Test-AvisarFalloBucle $fb.veces $fb.texto $script:falloBucleAvisado)) {
+            if (Send-AvisoEntorno 'oido-fallo-bucle' `
+                "Me estoy rompiendo por dentro al escuchar y ya van $($fb.veces) veces con el mismo fallo. Lo dejo apuntado; mientras tanto usame con el boton." 'medio' 720) {
+                $script:falloBucleAvisado = $true
+                Add-Memoria "El oido se rompio $($fb.veces) veces con el mismo fallo: $($fb.texto)"
             }
         }
     } catch {}
