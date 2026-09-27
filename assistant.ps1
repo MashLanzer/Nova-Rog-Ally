@@ -29453,6 +29453,40 @@ $XINPUT_B = 0x2000
 $script:botonesPrev = 0
 $script:mandoRespondioEn = -100000
 
+# LOS PUERTOS QUE NUNCA HAN TENIDO NADA NO SE PREGUNTAN EN CADA VUELTA (27/09, idea 66).
+# MEDIDO HOY en esta Ally con la clase AX del proyecto, 300 llamadas por puerto: puerto 0 (el
+# mando de la consola, ret=0) 0,1534 ms; puertos 1, 2 y 3, todos 1167 -no conectado-, 0,3592 /
+# 0,3876 / 0,3944 ms. De los 1,2946 ms que cuesta una vuelta, 1,1412 se van en puertos vacios:
+# el 88,2 %. A 33 vueltas por segundo son 42,7 ms de CPU por segundo, de los que 37,7 se tiran.
+# El puerto 0 contesto en los 130 arranques de los dos registros.
+#
+# EL PUERTO 0 NO ENTRA AQUI NUNCA: es el mando fisico de la consola y el que dispara el gatillo.
+# El plazo del repaso NO lo escribe nadie a mano en el sentido que importa: empieza en 1 s, se
+# dobla hasta 4 s cada vez que un repaso sale vacio, y vuelve a 1 s en cuanto aparece un mando.
+# Un puerto que ya contesto se pregunta en todas las vueltas mientras siga contestando; si deja
+# de hacerlo mas tiempo que el tope del repaso, vuelve a la cola de los aplazados.
+$RescanMandoMin = 1000
+$RescanMandoTope = 4000
+$script:puertoVisto = @{}          # puerto -> ms del ultimo ret=0
+$script:rescanMandoMs = $RescanMandoMin
+$script:rescanMandoEn = 0          # cuando toca el proximo repaso de los vacios
+
+# ¿Se pregunta a este puerto en esta vuelta? Aparte del bucle (que no se puede extraer) para que
+# el banco la ejecute de verdad en vez de mirar el texto: ver tools\probar-mando-puertos.ps1.
+function Test-SondearPuerto([int]$u, [bool]$repasa, [double]$ahora) {
+    if ($u -le 0) { return $true }            # el puerto 0 siempre: es el mando de la consola
+    if ($repasa) { return $true }             # en el repaso entran todos
+    $vistoEn = $script:puertoVisto[$u]
+    if ($null -eq $vistoEn) { return $false } # nunca contesto
+    return (($ahora - [double]$vistoEn) -le $RescanMandoTope)   # dejo de contestar: a la cola
+}
+
+# El plazo del proximo repaso, a la vista de lo que encontro este.
+function Get-RescanMandoMs([bool]$mandoNuevo, [double]$msAhora) {
+    if ($mandoNuevo) { return $RescanMandoMin }
+    return [Math]::Min($RescanMandoTope, $msAhora * 2)
+}
+
 # EL MODO INVITADO, SI VENIA DE ANTES (24/09, repaso). Va aqui, justo antes del bucle, para
 # que ni una sola vuelta corra creyendo que el que habla es braya.
 try { Restore-Invitado } catch {}
@@ -29470,11 +29504,19 @@ while ($true) {
     # tras un fallo de XInput se espera 5 s SIN bloquear el bucle: el resto
     # (escucha, popups, trabajos) tiene que seguir atendiendose
     $saltarPoll = ($script:pollReintento -gt 0 -and $sw.ElapsedMilliseconds -lt $script:pollReintento)
+    # ver LOS PUERTOS QUE NUNCA HAN TENIDO NADA: en esta vuelta, ¿toca repasar los vacios?
+    $repasaMando = ($sw.ElapsedMilliseconds -ge $script:rescanMandoEn)
+    $mandoNuevo = $false
     for ($u = 0; (-not $saltarPoll) -and $u -lt 4; $u++) {
+        if (-not (Test-SondearPuerto $u $repasaMando $sw.ElapsedMilliseconds)) { continue }
         try {
             $state = New-Object AX+XINPUT_STATE
             $r = [AX]::XInputGetState([uint32]$u, [ref]$state)
-            if ($r -eq 0) { $botones = $botones -bor [int]$state.Gamepad.wButtons; $script:mandoHay = $true }
+            if ($r -eq 0) {
+                $botones = $botones -bor [int]$state.Gamepad.wButtons; $script:mandoHay = $true
+                if ($u -gt 0 -and $null -eq $script:puertoVisto[$u]) { $mandoNuevo = $true; Log "mando: aparecio uno en el puerto $u" }
+                $script:puertoVisto[$u] = $sw.ElapsedMilliseconds
+            }
             if ($r -eq 0 -and (($state.Gamepad.wButtons -band $TRIGGER) -eq $TRIGGER)) {
                 $startNow = $true
                 break
@@ -29503,6 +29545,15 @@ while ($true) {
     # de los cinco primeros no llegaba a aplicarse nunca, que era justo para lo que se
     # puso. Un mando desconectado llenaba assistant.log el solo.
     if ($pollOk -and -not $saltarPoll) { $pollErrs = 0 }
+
+    # EL PLAZO DEL REPASO, a la vista de lo que encontro (idea 66). Al primer mando nuevo vuelve a
+    # 1 s para que enchufar otro se note enseguida; si el repaso sale vacio se dobla hasta 4 s.
+    # y NO si el gatillo corto el for a medias ($startNow): ese repaso no llego a mirar los
+    # puertos de atras, y darlo por hecho aplazaria el siguiente sin haber visto nada.
+    if ($repasaMando -and -not $saltarPoll -and -not $startNow) {
+        $script:rescanMandoMs = Get-RescanMandoMs $mandoNuevo $script:rescanMandoMs
+        $script:rescanMandoEn = $sw.ElapsedMilliseconds + $script:rescanMandoMs
+    }
 
     # RESPONDER CON EL MANDO (13/09): con una pregunta de si/no esperando, A es
     # si y B es no. Solo mientras hay pregunta: el resto del tiempo A y B son

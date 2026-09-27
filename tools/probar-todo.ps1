@@ -2068,6 +2068,14 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n220. Los tres puertos de mando que no existen se llevaban el 86 % del sondeo (idea 66 de las 121)"
+# Medido en esta Ally con AX y 300 llamadas por puerto: el 0 (conectado) 0,15 ms; los 1, 2 y 3
+# (ret=1167) 0,36 / 0,39 / 0,39. De 1,29 ms por vuelta, 1,14 en puertos que nunca tuvieron nada,
+# 33 vueltas por segundo. Ahora un puerto que nunca contesto solo entra en el repaso, cuyo plazo
+# sube solo de 1 s a 4 s y vuelve a 1 s al aparecer un mando; el puerto 0 nunca se aplaza y el
+# gatillo no se gasta el repaso. El banco ejecuta las dos funciones y MIDE el ahorro en vivo.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-mando-puertos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:los puertos vacios ya no se preguntan en cada vuelta)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
 Titulo "2n219. Las copias de seguridad resucitaban 73 datos que el perfil ya habia tirado (idea 65 de las 121)"
 # Juntando el perfil.md de los 13 zips salian 94 datos distintos frente a los 38 del vivo, entre
 # ellos 'Braya considera que Nova se equivoca frecuentemente'. Al hacer la copia del dia se poda
