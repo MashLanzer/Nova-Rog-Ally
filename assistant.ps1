@@ -10687,6 +10687,39 @@ function Get-NocheDesde {
         return $h
     } catch { return $EntornoNocheDesde }
 }
+# LA NOCHE EMPIEZA DONDE ACABA LA HORA, NO DONDE PARAS TU (26/09, idea 39 de las 121).
+# Get-NocheDesde trunca a la hora en punto y SIEMPRE hacia abajo: con la mediana de hoy (1464
+# min = 00:24) devuelve 0, o sea que el silencio arranca 24 minutos ANTES de que braya pare. El
+# sesgo va de 0 a 59 min segun el dia. Medido sobre las 784 ordenes reales de los dos registros:
+# 177 caen dentro del silencio tal como se calcula hoy y solo 82 con minutos + el margen de
+# siempre; 95 ordenes (12,1 %) dejan de pillarla muda, en 3 dias. Get-NocheDesde NO se toca
+# (tiene otro cliente, Test-VueltaSaludo, que compara horas); estas dos funciones son aparte.
+# EL MARGEN NO ES NUEVO: es entorno.margenDormirMin (30), el que Get-AvisoHoraDormir ya usa para
+# la MISMA pregunta -cuanto hay que pasarse de tu hora para que sea noticia-.
+function Get-InicioNocheMin {
+    $hastaMin = [int]$EntornoNocheHasta * 60
+    $respaldo = [int]$EntornoNocheDesde * 60
+    try {
+        $mN = Get-HoraFinHabitual
+        if ($mN -lt 0 -or $mN -gt (29 * 60)) { return $respaldo }   # la misma validacion de Get-NocheDesde
+        $ini = ($mN + [int](Get-Cfg 'entorno' 'margenDormirMin' 30)) % 1440
+        if ($ini -lt 0) { return $respaldo }
+        # GUARDA DEL CASO DEGENERADO: si el margen empuja el inicio JUSTO por delante de la hora
+        # de levantarse, la ventana se da la vuelta y el silencio pasaria a durar casi 24 h. Ahi
+        # se deja pegado a $hastaMin -ventana vacia-, que es lo que ya hace hoy el truncado cuando
+        # la hora sale igual a $EntornoNocheHasta. No inventa numero: usa el propio margen como
+        # anchura de la guarda (el caso no ha ocurrido nunca; el minimo de 'fin' visto es 1044).
+        if ($ini -gt $hastaMin -and $ini -le ($hastaMin + [int](Get-Cfg 'entorno' 'margenDormirMin' 30))) { return $hastaMin }
+        return $ini
+    } catch { return $respaldo }
+}
+function Test-EsNocheAviso([datetime]$ahora = (Get-Date)) {
+    $iniN = Get-InicioNocheMin
+    $hastaN = [int]$EntornoNocheHasta * 60
+    $mAhora = $ahora.Hour * 60 + $ahora.Minute
+    if ($iniN -gt $hastaN) { return ($mAhora -ge $iniN -or $mAhora -lt $hastaN) }   # la madrugada que envuelve
+    return ($mAhora -ge $iniN -and $mAhora -lt $hastaN)
+}
 $script:entornoAvisos = New-Object System.Collections.ArrayList   # cuando salio cada uno
 # clave -> cuando salio, en HORA DE RELOJ (no en ms del cronometro, que se reinicia con
 # Nova). Se guarda en disco: si no, cada reinicio vuelve a avisar de todo.
@@ -10820,11 +10853,10 @@ function Test-PuedoAvisar([string]$clave, [string]$nivel = 'medio', [int]$cadaMi
     if ($nivel -ne 'alto') {
         # JUGANDO, SILENCIO: es cuando mas molesta y cuando menos caso se hace
         if ($script:juegoActivo) { return $false }
-        $hE = (Get-Date).Hour
-        # LA HORA DE EMPEZAR SALE DE SUS HABITOS (25/09, idea 8). Ver Get-NocheDesde.
-        $nocheDesde = Get-NocheDesde
-        $esNocheE = if ($nocheDesde -gt $EntornoNocheHasta) { ($hE -ge $nocheDesde -or $hE -lt $EntornoNocheHasta) }
-                    else { ($hE -ge $nocheDesde -and $hE -lt $EntornoNocheHasta) }
+        # EN MINUTOS, NO EN HORAS (26/09, idea 39). El silencio empieza donde acaba TU hora (mas
+        # el margen de siempre), no en la hora en punto: con la mediana de hoy pasa de las 00:00 a
+        # las 00:54. La hora la sigue sacando Nova de sus habitos. Ver Test-EsNocheAviso.
+        $esNocheE = Test-EsNocheAviso
         # 'noche' es el aviso que SOLO tiene sentido de noche (la hora de dormir):
         # se salta el silencio nocturno y nada mas. Jugando sigue callado, y cuenta
         # para el tope por hora como cualquier otro.

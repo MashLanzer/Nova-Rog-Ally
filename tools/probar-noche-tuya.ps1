@@ -82,6 +82,58 @@ $script:finHabitual = 1740   # 29 h, el maximo que puede devolver de verdad
 Comp 'y el maximo real si vale' ((Get-NocheDesde) -eq 5) '29 h son las 5 de la madrugada'
 
 Write-Host ''
+Write-Host '-- 3. EN MINUTOS: la noche empieza donde acaba TU hora, no en la hora en punto (idea 39) --'
+# los dobles que faltan para las funciones nuevas. Get-Cfg devuelve el defecto, asi que
+# margenDormirMin = 30 (el valor vivo, que no esta en config.json).
+$EntornoNocheHasta = 8
+function Get-Cfg([string]$s, [string]$k, $d) { return $d }
+Comp 'las dos constantes de la noche estan puestas' ($EntornoNocheHasta -eq 8 -and $EntornoNocheDesde -eq 23) 'sin ellas, [int]$null*60 = 0 y la ventana se da la vuelta'
+$dIni = $ast.Find({ param($x) $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq 'Get-InicioNocheMin' }, $true)
+$dNoc = $ast.Find({ param($x) $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq 'Test-EsNocheAviso' }, $true)
+Comp 'existen Get-InicioNocheMin y Test-EsNocheAviso' ($dIni -and $dNoc) ''
+Invoke-Expression $dIni.Extent.Text
+Invoke-Expression $dNoc.Extent.Text
+
+# 1. el corazon: 00:24 + 30 de margen = 00:54, no las 00:00 del truncado
+$script:finHabitual = 1464
+Comp 'apaga a las 00:24 -> el silencio empieza a las 00:54' ((Get-InicioNocheMin) -eq 54) 'truncar daria 0; sin margen, 24'
+# 2. el modulo 1440: pasada la medianoche no se dispara al dia siguiente
+$script:finHabitual = 1500
+Comp 'apaga a la 01:00 -> 01:30' ((Get-InicioNocheMin) -eq 90) 'sin % 1440 daria 1530'
+$script:finHabitual = 1320
+Comp 'apaga a las 22:00 -> 22:30' ((Get-InicioNocheMin) -eq 1350) ''
+# 3. y 4. el respaldo con *60, y la validacion de entrada
+$script:finHabitual = -1
+Comp 'sin datos, el respaldo es 23:00 EN MINUTOS (1380)' ((Get-InicioNocheMin) -eq 1380) 'return 0 o return 23 (sin *60) romperia esto'
+$script:finHabitual = 99999
+Comp 'un valor absurdo cae al respaldo, no a una hora inventada' ((Get-InicioNocheMin) -eq 1380) '99999 % 1440 daria las 10:39'
+
+# 5. el conductual, con fin = 1464 (inicio 00:54): lo que de verdad recupera 95 ordenes
+$script:finHabitual = 1464
+Comp 'a las 00:30 YA NO es de noche (aviso recuperado)' (-not (Test-EsNocheAviso ([datetime]'2026-09-27 00:30'))) 'antes del cambio era silencio'
+Comp '  ni a las 00:53' (-not (Test-EsNocheAviso ([datetime]'2026-09-27 00:53'))) ''
+Comp '  pero a las 00:54 si, en el borde exacto' (Test-EsNocheAviso ([datetime]'2026-09-27 00:54')) ''
+Comp '  y a las 01:10 tambien' (Test-EsNocheAviso ([datetime]'2026-09-27 01:10')) ''
+Comp '  a las 07:59 sigue siendo noche' (Test-EsNocheAviso ([datetime]'2026-09-27 07:59')) ''
+Comp '  y a las 08:00 la manana (no se movio)' (-not (Test-EsNocheAviso ([datetime]'2026-09-27 08:00'))) ''
+# 6. la madrugada que envuelve, con fin = 1358 (22:38 -> inicio 23:08)
+$script:finHabitual = 1358
+Comp 'apaga a las 22:38 -> silencio desde las 23:08' ((Get-InicioNocheMin) -eq 1388) ''
+Comp '  a las 23:20 es de noche (rama envolvente)' (Test-EsNocheAviso ([datetime]'2026-09-27 23:20')) 'sin la rama -gt, hablaria toda la noche'
+Comp '  y a las 22:50 todavia no' (-not (Test-EsNocheAviso ([datetime]'2026-09-27 22:50'))) ''
+# 7. el degenerado: el margen no puede empujar el inicio por delante de la hora de levantarse
+$script:finHabitual = 470
+Comp 'apaga a las 07:50 -> el silencio NO da la vuelta al reloj' (-not (Test-EsNocheAviso ([datetime]'2026-09-27 12:00'))) 'sin la guarda, silencio de 08:20 a 08:00: casi 24 h'
+
+# 8. EL ENGANCHE, sobre el texto real de Test-PuedoAvisar: que la llame y ya no compare horas
+$dP = $ast.Find({ param($x) $x -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $x.Name -eq 'Test-PuedoAvisar' }, $true)
+$txtP = if ($dP) { $dP.Extent.Text } else { '' }
+Comp 'Test-PuedoAvisar llama a Test-EsNocheAviso' ($txtP -match 'Test-EsNocheAviso') 'escribir las funciones y no engancharlas dejaria esto verde'
+Comp '  y ya no trunca con (Get-Date).Hour' ($txtP -notmatch '\(Get-Date\)\.Hour') 'esa era la comparacion vieja, en horas'
+# Y Get-NocheDesde NO se toca: sigue devolviendo horas para su otro cliente (Test-VueltaSaludo)
+Comp 'Get-NocheDesde sigue devolviendo horas (su otro cliente)' ($dN.Extent.Text -match 'Floor\(\$m / 60\) % 24') 'Test-VueltaSaludo compara con .Hour'
+
+Write-Host ''
 if ($mal -gt 0) { Write-Host "  $mal MAL"; exit 1 }
 Write-Host '  la noche es la tuya'
 exit 0
