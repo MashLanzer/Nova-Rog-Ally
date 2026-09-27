@@ -8045,7 +8045,12 @@ function Get-PapeleraResumen {
         return "en la papelera hay $cuantas`: " + ($nombres -join ', ') + $mas
     } catch { return 'no pude mirar la papelera' }
 }
+# Y EL CORREO MARCA PRIVADO, QUE ERA EL HUECO (27/09, idea 116). $script:respuestaPrivada la
+# levantaban seis caminos -mensajes, ficheros, amigos, citas- y el correo NO, cuando es justo el que
+# trae los asuntos y los remitentes de terceros: las cinco frases con datos privados de las 220 que
+# Nova ha dicho salen de aqui. Con la marca puesta, ni se escriben en el registro ni se dicen fuera.
 function Invoke-Correo($a) {
+    $script:respuestaPrivada = $true
     if (-not (Test-CorreoListo)) {
         return 'Todavia no tengo tu correo configurado. Hace falta una contrasena de aplicacion de Google.'
     }
@@ -9828,6 +9833,55 @@ $PerfilMax = 60
 # que entra en el perfil VIAJA CON CADA PETICION al modelo, mientras que el cerebro de la
 # charla solo sale cuando algo se le parece.
 $RE_DATO_SENSIBLE = '(?i)contrase|password|\bclave\b|\bpin\b|tarjeta|\bbanco\b|bancari|cuenta bancaria|\bdinero\b|sueldo|\bdni\b|pasaporte|seguro social|\bsalud\b|enfermedad|medicament|diagnostic'
+
+# EL SALDO DE SU BANCO LO DIJO LA VOZ DE MICROSOFT (27/09, idea 116 de las 121)
+#
+# EL DATO: con voz.motor = online, el texto de CADA frase que Nova dice se POSTea a los servidores
+# de Microsoft (edge-tts, es-MX-DaliaNeural). De las 220 frases que ha dicho en voz alta, CINCO
+# llevan datos privados de verdad, y las cinco son del correo:
+#   15/09 14:25  'tienes 10940 no leidos, y hoy destacan una alerta de Chase de saldo bajo
+#                 (7.23 dolares), una transferencia devuelta de 25 dolares'
+#   15/09 15:44  'casi once mil correos sin leer'
+#   19/09 09:20  'Tienes 5 correos nuevos. PetSmart... Chase, Recibiste dinero con Zelle'
+#   22/09 08:35  'Chase, El saldo disponible de tu cuenta esta por debajo de tu limite de $50.00'
+#   23/09 10:32  'uno de Canva, uno de Chase, uno de Experian'
+# Su saldo bancario, dicho por un servicio de terceros.
+#
+# EL PATRON QUE YA HABIA NO SERVIA, Y ESO LO CORRIGIO EL VERIFICADOR DE LA FICHA: $RE_DATO_SENSIBLE
+# caza 2 de las 220 y NO caza la peor de las cinco. Es normal: ese patron se escribio para decidir
+# que NO se guarda en el perfil, y ahi las frases son de braya; aqui el texto es de TERCEROS -asuntos
+# de correo, nombres de remitentes- y no se puede predecir. Asi que este patron se ha construido con
+# las cinco frases reales delante, no de memoria.
+#
+# Y NO SE TOCA EL DE ARRIBA: cambiar $RE_DATO_SENSIBLE moveria lo que Nova guarda en su perfil, que
+# es otra decision. Aqui se suman los dos.
+#
+# MEDIDO CON LAS 220: el patron nuevo mas el viejo cazan SEIS, el 2,7 %. Las cinco buenas y un falso
+# positivo -'...y 15 de dinero', de un juego de Roblox-, que viene del \bdinero\b heredado. O sea que
+# braya oira la voz local una frase de cada treinta y siete, y una de esas seis sin necesidad.
+#
+# A BRAYA NO LE GUSTAN LAS VOCES ROBOTICAS, y esto le pone Piper en esas seis. Se hace igual porque
+# un saldo bancario viajando a un tercero es un fallo y no un gusto, pero se deja apagable en
+# config.json -voz.localSensible- y se limita a lo medido: dinero, banco, correo y salud. No a todo
+# lo personal.
+#
+# Y SI PIPER NO RESPONDE, SE SIGUE COMO HOY: Say-Piper devuelve $false y la cadena continua por la
+# voz en linea. Callarse seria peor que decirlo.
+$VozLocalSensible = [bool](Get-Cfg 'voz' 'localSensible' $true)
+$RE_VOZ_LOCAL = '(?i)\bsaldo\b|\bd[oó]lares?\b|\$\s?\d|\btransferencia\b|\bzelle\b|\bno le[ií]dos\b|\bsin leer\b|\btienes \d+ correos?\b|\bcorreos? nuevos?\b'
+
+# PURA: dice si esta frase se tiene que decir con la voz de casa.
+function Test-VozLocal([string]$texto, [bool]$privada = $false) {
+    if (-not $VozLocalSensible) { return $false }
+    # LA BANDERA QUE YA EXISTE: $script:respuestaPrivada la levantan los caminos que devuelven cosas
+    # de personas -un mensaje privado, los nicks de sus amigos, los nombres de sus ficheros-. Si eso
+    # ya no se escribe en el registro, tampoco tiene por que salir de casa por el altavoz.
+    if ($privada) { return $true }
+    if (-not $texto) { return $false }
+    if ($texto -match $RE_VOZ_LOCAL) { return $true }
+    if ($texto -match $RE_DATO_SENSIBLE) { return $true }
+    return $false
+}
 
 $CcInstruccionDato = @'
 
@@ -21812,6 +21866,16 @@ function Say([string]$texto, [string]$emo = '') {
         $script:uiAudio = ''
         Set-UI 'hablando' $t ([Math]::Max($estimado, 2500))
     } catch {}
+    # LO QUE LLEVA DATOS SUYOS NO SALE DE CASA (27/09, idea 116). Va ANTES de la eleccion de motor
+    # y se prueba Piper primero; si Piper no puede -no esta, no arranca, no contesta-, la cadena de
+    # abajo sigue igual que siempre, porque callarse seria peor que decirlo.
+    if (Test-VozLocal $t ([bool]$script:respuestaPrivada)) {
+        if (Say-Piper $t) {
+            Log 'voz: esta frase lleva datos tuyos, la digo con mi voz de casa'
+            return
+        }
+        Log 'voz: queria decir esto con la voz de casa y Piper no pudo; va por la de fuera'
+    }
     # cadena de respaldo: si la red falla, sigue habiendo voz
     if ($script:ttsProc) { if (Say-Online $t $emo) { return } }
     # PIPER NO ARRANCABA NUNCA, Y ESTE RESPALDO NO EXISTIA (21/09). $script:piperProc

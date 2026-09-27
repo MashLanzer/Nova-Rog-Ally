@@ -2089,6 +2089,19 @@ Titulo "2n217. El cuaderno de la Ally se quedaba a medias en cada apagada (idea 
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-ally-volcado.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el cuaderno de la Ally se vuelca al salir y por reloj)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n266. Su saldo ya no sale de casa por el altavoz (idea 116 de las 121)"
+# Con voz.motor = online, el texto de CADA frase que Nova dice se POSTea a los servidores de
+# Microsoft. De las 220 frases dichas, CINCO llevan datos privados de verdad y las cinco salen del
+# correo; la peor: 'tienes 10940 no leidos, y hoy destacan una alerta de Chase de saldo bajo (7.23
+# dolares), una transferencia devuelta de 25 dolares'. El patron que ya habia caza 2 de las 220 y NO
+# caza esa, porque se escribio para decidir que se guarda en el perfil -alli el texto es de braya y
+# aqui es de TERCEROS: asuntos y remitentes-. El nuevo se construyo con las cinco frases delante y
+# los dos juntos cazan SEIS, el 2,7 %, con un solo falso positivo que viene del dinero heredado.
+# A braya no le gustan las voces roboticas, asi que se limita a lo medido y se puede apagar en
+# config. Si Piper no puede, se sigue por fuera: callarse seria peor. Nueve roturas tumban el banco.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-voz-local-sensible.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:su saldo ya no sale de casa)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n265. Nova se da cuenta cuando uno de sus cuadernos se queda parado (idea 115 de las 121)"
 # La vigilancia de costumbres miraba TRES carpetas y nadie miraba los ficheros sueltos. Contado en
 # disco: el codigo nombra 41 .json dentro de memoria\ y existen 20, y cuatro de los veinte llevan
