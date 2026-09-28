@@ -175,3 +175,9 @@ memoria/mando-huecos.json
 # demostrar el fallo con datos reales. Este repositorio es publico (idea 1 de las 121), asi que
 # la nota se queda en el disco: es de trabajo, no de entrega.
 REVISION-40-FALLOS-*.md
+# TU BIBLIOTECA NO SE PUBLICA (28/09). memoria/juegos-fuera.json llevaba COMMITEADO desde el 5cb104c
+# con 8 appids de Steam, sus bytes instalados y la ruta de tu disco (E:\SteamLibrary). Es el mismo
+# dato por el que memoria/juegos-dos.json ya estaba ignorado ("sale de tu biblioteca: es la lista de
+# lo que tienes"), y este repositorio es publico. Y era peor por estar rastreado: cualquier
+# "git commit -a" subia su contenido nuevo cada vez que Nova lo reescribia.
+memoria/juegos-fuera.json

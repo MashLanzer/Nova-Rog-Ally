@@ -148,9 +148,14 @@ Comp '  y alguien la llama de verdad' ($llam -ge 1) "$llam llamada(s) fuera de s
 Comp '  no toca git con un juego delante' ($defM -and $defM.Extent.Text -match 'juegoActivo') 'regla 5'
 Comp '  una vez al dia como mucho' ($defM -and $defM.Extent.Text -match 'ignoradasMiradas') ''
 # LO QUE NUNCA PUEDE HACER: quitar lineas del .gitignore ni commitear. Anadir, si.
-Comp '  solo ANADE al .gitignore' ($defM -and $defM.Extent.Text -match 'Add-Content' -and
-                                   $defM.Extent.Text -notmatch 'Set-Content' -and
-                                   $defM.Extent.Text -notmatch 'git\s+(commit|add)') 'nunca quita ni commitea'
+# SIN LOS COMENTARIOS, que es la manera 1 de la casa (28/09). Esto miraba el texto ENTERO de la
+# funcion, comentarios incluidos, asi que un comentario que explicase por que un commit de todo es
+# peligroso ponia el caso en rojo con el codigo perfecto. Paso literalmente al documentar lo de
+# memoria/juegos-fuera.json, que llevaba subido desde el 5cb104c.
+$defMsc = (($defM.Extent.Text -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) -join "`n"
+Comp '  solo ANADE al .gitignore' ($defM -and $defMsc -match 'Add-Content' -and
+                                   $defMsc -notmatch 'Set-Content' -and
+                                   $defMsc -notmatch 'git\s+(commit|add)') 'nunca quita ni commitea'
 
 # LA FUNCION, EJECUTADA DE VERDAD sobre un repositorio de mentira (manera 14: se doblan las
 # dependencias -por donde sale la voz y de donde salen las rutas-, no la pieza que se prueba).

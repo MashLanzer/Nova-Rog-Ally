@@ -13765,9 +13765,32 @@ function Test-MemoriaIgnorada([string]$fuente = $PSCommandPath, [string]$donde =
         try {
             $null = & git rev-parse --is-inside-work-tree 2>$null
             if ($LASTEXITCODE -ne 0) { return $false }   # aqui no hay repositorio: nada que proteger
-            # lo que git ya sigue a proposito (memoria\README.md) no es un escape
+            # LA LISTA BLANCA ES EXPLICITA, NO "LO QUE GIT YA SIGUE" (28/09, tras la revision). Esto
+            # decia "lo que git ya sigue a proposito (hoy solo memoria\README.md) no es un escape", y
+            # ese "hoy" caduco: el 5cb104c commiteo memoria/juegos-fuera.json, con 8 appids de Steam,
+            # sus bytes instalados y la ruta del disco de braya. Y como la lista blanca era "lo que ya
+            # esta commiteado", el guardian se saltaba justo el UNICO caso que existe para cazar: un
+            # fichero privado que YA se colo. Es el mismo dato por el que memoria/juegos-dos.json si
+            # estaba ignorado, con su motivo escrito al lado.
+            # Y por estar rastreado era peor que suelto: cualquier "git commit -a" subia su contenido
+            # nuevo sin avisar, y Nova lo reescribe cada vez que mira la biblioteca.
+            # A PARTIR DE AHORA: en blanco solo lo que se publica a proposito, y lo demas que git
+            # siga se canta APARTE, porque ya no es "se puede escapar" sino "ya se escapo".
+            $blancos = @{ 'memoria/README.md' = $true }
             $sigue = @{}
-            foreach ($l in @(& git ls-files memoria 2>$null)) { if ($l) { $sigue[$l.Trim()] = $true } }
+            $yaSubidos = @()
+            foreach ($l in @(& git ls-files memoria 2>$null)) {
+                $t = [string]$l
+                if (-not $t.Trim()) { continue }
+                $t = $t.Trim()
+                if ($blancos.ContainsKey($t)) { $sigue[$t] = $true } else { $yaSubidos += $t }
+            }
+            if ($yaSubidos.Count -gt 0) {
+                Log ("GITIGNORE: " + $yaSubidos.Count + " fichero(s) mio(s) YA ESTAN en el repositorio, no solo sin tapar: " + ($yaSubidos -join ', '))
+                $frY = if ($yaSubidos.Count -eq 1) { "Hay un fichero mio que ya esta subido al repositorio, y es publico. Saldria con: git rm --cached " + $yaSubidos[0] }
+                       else { "Hay $($yaSubidos.Count) ficheros mios ya subidos al repositorio, y es publico. Te los he apuntado en el registro." }
+                [void](Send-AvisoEntorno 'gitignore-subido' $frY 'alto' 1440)
+            }
             $mirar = @()
             foreach ($m in [regex]::Matches([IO.File]::ReadAllText($fuente, [Text.Encoding]::UTF8),
                                             "Join-Path\s+\`$MemoriaDir\s+['`"]([A-Za-z0-9_.\\-]+)['`"]")) {
