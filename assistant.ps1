@@ -28490,6 +28490,16 @@ $TrabajoTecho = 2.0             # ni por encima del doble
 # sobreviva entre sesiones.
 $VueltasMemoria = 2000           # ~60 s de vueltas a 30 ms; con 8 bytes por double no es nada
 $VueltasMin = 200               # menos que esto y no hay percentil que valga
+# LO QUE DUERME CADA VUELTA, EN UN SOLO SITIO (28/09). Estaba escrito a mano al final del bucle y
+# ademas es la referencia de la que sale el liston de abajo: si la vuelta mediana se parece al
+# sueno, el bucle esta ocioso, que es lo que se quiere; si lo dobla y lo triplica, el trabajo manda
+# y Nova pasa mas tiempo ocupada que escuchando.
+$BucleSuenoMs = 30
+# Y EL LISTON DEL NIVEL SALE DE AHI, no de un numero nuevo: tres veces el sueno significa que por
+# cada 30 ms de descanso hay 60 de trabajo. Se avisa UNA VEZ por sesion; repetirlo cada minuto seria
+# ruido, y un aviso que sale siempre se aprende a ignorar.
+$VueltaNivelFactor = 3
+$script:vueltaNivelDicho = $false
 $VueltaPercentil = 99
 $VueltaAvisoMs = 60000          # como mucho una linea por minuto, aunque haya cien vueltas malas
 $script:vueltas = New-Object System.Collections.ArrayList
@@ -28523,6 +28533,28 @@ function Add-VueltaMedida([int]$ms) {
         $script:vueltaVolcadoEn = $ahoraV
         if ($script:vueltaPeorMinuto -gt 0) { [void](Add-TrabajoTiempo 'vuelta' $script:vueltaPeorMinuto) }
         $script:vueltaPeorMinuto = 0
+        # EL NIVEL, NO SOLO EL PICO (28/09, medido con Nova delante y braya preguntando por que no
+        # le escuchaba). Todo lo de aqui abajo mira si UNA vuelta se sale de lo normal EN ESTA
+        # SESION, o sea la variacion; y por eso no puede ver el caso que mas importa, que es que
+        # TODAS sean lentas: si la mediana se va a 600 ms, ninguna destaca sobre el p99 de las
+        # demas y no se escribe ni una linea. Medido el 28/09: 92-98 % de un nucleo sostenido, el
+        # hilo del bucle en Running sin parar, y CERO lineas SORDA en media hora. El medidor de la
+        # idea 72 nacio para vigilar el pulso y era ciego justo para lo peor que puede pasarle.
+        # La mediana se compara con lo unico que no admite discusion: lo que el bucle DUERME. Si
+        # cada vuelta cuesta el triple de lo que descansa, Nova pasa mas tiempo ocupada que
+        # escuchando, y mientras una vuelta dura no oye. Eso es la regla 5 y es lo que se dice.
+        if ($script:vueltas.Count -ge $VueltasMin) {
+            $medV = Get-PercentilLista $script:vueltas 50
+            if ($medV -gt 0) {
+                [void](Add-TrabajoTiempo 'vuelta-mediana' $medV)
+                if ($medV -gt ($BucleSuenoMs * $VueltaNivelFactor) -and -not $script:vueltaNivelDicho) {
+                    $script:vueltaNivelDicho = $true
+                    Log ("LENTA: la vuelta mediana son " + $medV + " ms y el bucle solo duerme " + $BucleSuenoMs +
+                         "; estoy dando " + [Math]::Round(1000.0 / $medV, 1) + " vueltas por segundo en vez de " +
+                         [Math]::Round(1000.0 / $BucleSuenoMs, 1) + ", y mientras una vuelta dura no oigo")
+                }
+            }
+        }
     }
     # Y LA LINEA, solo cuando la vuelta se sale de lo normal EN ESTA SESION y como mucho una por
     # minuto. Sin el freno, un tramo lento escribiria cien lineas iguales.
@@ -37054,5 +37086,5 @@ while ($true) {
         try { Set-UI 'reposo' } catch {}
         Start-Sleep -Milliseconds 300
     }
-    Start-Sleep -Milliseconds 30
+    Start-Sleep -Milliseconds $BucleSuenoMs
 }

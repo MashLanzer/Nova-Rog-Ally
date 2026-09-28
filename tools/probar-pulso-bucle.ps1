@@ -43,6 +43,16 @@ Comp 'la memoria de vueltas es 2000' ($txt -match '\$VueltasMemoria = 2000') '~6
 Comp 'el minimo para opinar son 200' ($txt -match '\$VueltasMin = 200') ''
 Comp 'el liston es su p99' ($txt -match '\$VueltaPercentil = 99') ''
 Comp 'y el freno de la linea, un minuto' ($txt -match '\$VueltaAvisoMs = 60000') ''
+# LAS DOS DEL NIVEL SE SACAN DEL FICHERO, no se copian (28/09): son las que deciden el liston, y un
+# banco con su propia copia prueba su numero y no el de Nova. Si alli cambian, aqui cambia solo.
+$mSueno = [regex]::Match($txt, '(?m)^\$BucleSuenoMs = (\d+)')
+$mFactor = [regex]::Match($txt, '(?m)^\$VueltaNivelFactor = (\d+)')
+Comp 'el sueno del bucle sale del archivo' $mSueno.Success ($(if ($mSueno.Success) { $mSueno.Groups[1].Value + ' ms' } else { 'no esta' }))
+Comp 'y el factor del nivel tambien' $mFactor.Success ($(if ($mFactor.Success) { 'x' + $mFactor.Groups[1].Value } else { 'no esta' }))
+$BucleSuenoMs = if ($mSueno.Success) { [int]$mSueno.Groups[1].Value } else { 30 }
+$VueltaNivelFactor = if ($mFactor.Success) { [int]$mFactor.Groups[1].Value } else { 3 }
+# y que el bucle duerma ESA constante y no un numero suelto
+Comp 'el bucle duerme esa constante' ($txt -match 'Start-Sleep -Milliseconds \$BucleSuenoMs') 'no un 30 escrito a mano'
 
 # los dobles, DESPUES de cargar las funciones de verdad
 $script:logs = @()
@@ -114,14 +124,50 @@ for ($i = 0; $i -lt 500; $i++) { $script:msFalsos = $i * 30; Add-VueltaMedida 31
 Comp '4a. 500 vueltas en 15 s: ninguna escritura' (@($script:aDisco).Count -eq 0) ([string]@($script:aDisco).Count + ' escrituras')
 $script:msFalsos = 61000
 Add-VueltaMedida 900
-Comp '4b. pasado el minuto, UNA sola' (@($script:aDisco).Count -eq 1) ([string]@($script:aDisco).Count)
+# LA CUENTA ES POR CLAVE DESDE EL 28/09: al minuto se guardan DOS cosas distintas y cada una tiene
+# su almacen, el peor de la vuelta ('vuelta') y la mediana ('vuelta-mediana'). Lo que este caso
+# vigila -que no se escriba mas de una vez por minuto- sigue igual, pero mirando la suya.
+$peores = @($script:aDisco | Where-Object { $_.clave -eq 'vuelta' })
+$medianas = @($script:aDisco | Where-Object { $_.clave -eq 'vuelta-mediana' })
+Comp '4b. pasado el minuto, UNA sola' ($peores.Count -eq 1) ([string]$peores.Count)
 # el peor del minuto que se cierra, incluida la vuelta que lo cierra: los 900 ms de esta, no los
 # 31 de las quinientas normales. Guardar la mediana seria guardar los 30 ms de dormir, que ya se saben.
-Comp '4c. y lo que se guarda es el PEOR del minuto' (@($script:aDisco)[0].ms -eq 900) ([string]@($script:aDisco)[0].ms + ' ms')
-Comp '4d. con la clave "vuelta"' (@($script:aDisco)[0].clave -eq 'vuelta') 'el almacen que ya existia'
+Comp '4c. y lo que se guarda es el PEOR del minuto' ($peores[0].ms -eq 900) ([string]$peores[0].ms + ' ms')
+Comp '4d. con la clave "vuelta"' ($peores[0].clave -eq 'vuelta') 'el almacen que ya existia'
+# Y EL NIVEL, QUE ES LO QUE FALTABA (28/09, #41 de la revision). El peor del minuto dice si hubo un
+# PICO; no dice nada si TODAS las vueltas son lentas, que es lo que le paso a Nova el 28/09: 92-98 %
+# de un nucleo sostenido y cero lineas SORDA, porque ninguna vuelta destacaba sobre el p99 de las
+# demas. Sin esta mediana, el medidor del pulso es ciego justo para lo peor que puede pasarle.
+Comp '4c2. y ademas se guarda la MEDIANA del minuto' ($medianas.Count -eq 1) ([string]$medianas.Count + ' con clave vuelta-mediana')
+Comp '4c3. que es el nivel, no el pico' (($medianas.Count -eq 1) -and ($medianas[0].ms -lt 900) -and ($medianas[0].ms -gt 0)) $(if ($medianas.Count) { [string]$medianas[0].ms + ' ms frente a los 900 del pico' } else { 'no hay' })
 $script:msFalsos = 62000
 Add-VueltaMedida 40
-Comp '4e. y no se vuelve a escribir hasta el minuto siguiente' (@($script:aDisco).Count -eq 1) ''
+Comp '4e. y no se vuelve a escribir hasta el minuto siguiente' (@($script:aDisco | Where-Object { $_.clave -eq 'vuelta' }).Count -eq 1) ''
+
+Write-Host ''
+Write-Host '-- 4b. Y SI TODAS SON LENTAS, SE DICE (el caso que el pico no ve) --'
+# Con quinientas vueltas de 600 ms no hay ni un pico: la 501 tambien son 600, o sea que no supera
+# el p99 de las demas y por ahi no sale nada. Lo unico que lo puede cazar es el nivel.
+Reset
+$script:vueltaNivelDicho = $false
+for ($i = 0; $i -lt 500; $i++) { $script:msFalsos = 1000 + ($i * 600); Add-VueltaMedida 600 }
+$script:msFalsos = $script:msFalsos + 61000
+Add-VueltaMedida 600
+$lentas = @($script:logs | Where-Object { $_ -match '^LENTA' })
+Comp '4f. con todas las vueltas a 600 ms, lo dice' ($lentas.Count -eq 1) ([string]$lentas.Count + ' linea(s)')
+Comp '4g. y dice cuantas vueltas por segundo esta dando' (($lentas.Count -eq 1) -and ($lentas[0] -match 'vueltas por segundo')) $(if ($lentas.Count) { ([string]$lentas[0]).Substring(0, [Math]::Min(96, ([string]$lentas[0]).Length)) } else { '' })
+Comp '4h. ni una linea SORDA en todo eso' (@($script:logs | Where-Object { $_ -match '^SORDA' }).Count -eq 0) 'ningun pico: por eso hacia falta el nivel'
+# y UNA sola por sesion: repetirlo cada minuto seria ruido
+$script:msFalsos = $script:msFalsos + 61000
+Add-VueltaMedida 600
+Comp '4i. y no se repite al minuto siguiente' (@($script:logs | Where-Object { $_ -match '^LENTA' }).Count -eq 1) 'una por sesion'
+# EL CASO NEGATIVO, que es el que dice que esto vigila de verdad: con el bucle ocioso, callado.
+Reset
+$script:vueltaNivelDicho = $false
+for ($i = 0; $i -lt 500; $i++) { $script:msFalsos = 1000 + ($i * 31); Add-VueltaMedida 31 }
+$script:msFalsos = $script:msFalsos + 61000
+Add-VueltaMedida 31
+Comp '4j. pero con el bucle ocioso (31 ms) no dice nada' (@($script:logs | Where-Object { $_ -match '^LENTA' }).Count -eq 0) 'el liston es 3 veces lo que duerme'
 
 Write-Host ''
 Write-Host '-- 5. LA MEMORIA NO CRECE SIN FIN --'
