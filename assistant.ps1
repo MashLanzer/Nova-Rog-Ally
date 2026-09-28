@@ -13306,7 +13306,27 @@ function Get-ProcesosResidentes {
         foreach ($v in @(Get-Variable -Scope Script -ErrorAction SilentlyContinue)) {
             if ($v.Name -notlike '*Proc') { continue }
             $p = $v.Value
-            if ($p -is [System.Diagnostics.Process]) { $fuera += $p }
+            if ($p -isnot [System.Diagnostics.Process]) { continue }
+            # NI UNA VARIABLE QUE APUNTE A NOVA MISMA (27/09, tras la revision). El 27/09 entro
+            # $script:yoProc -idea 111, lo que ocupa cada pieza-, que acaba en 'Proc' y es un
+            # [Process] de verdad: el del propio asistente. El unico llamador de esto es el parar
+            # limpio, que hace Kill() de todo lo que sale de aqui y DESPUES exit 0; o sea que Nova
+            # se mataba a si misma antes del exit y se perdia entero lo que cuelga de
+            # PowerShell.Exiting: la linea 'cerrado', la estadistica 'cierre-limpio', Save-UsoAlly,
+            # Save-TiempoJuego y Set-Reloj 'charla'. Y ademas parar-nova.ps1 -que solo comprueba que
+            # el proceso ya no exista- imprimia 'Cerrada limpiamente' justo cuando no lo fue, y el
+            # arranque siguiente veia un 'iniciado' sin su 'cerrado' y soltaba un aviso 'me-cai'
+            # falso. Pasaba en cualquier sesion de mas de un minuto, que es cuando Update-Consumo
+            # rellena yoProc.
+            # SE FILTRA POR EL PID, no por el nombre de la variable: asi vale tambien para la
+            # siguiente que a alguien se le ocurra llamar algoProc. Y el .Id va en su try porque un
+            # proceso ya muerto puede lanzar al preguntarle (ver la manera 10 de salir verde
+            # mintiendo): si no se puede saber, se deja pasar, que es el lado seguro para todos
+            # menos para uno -y ese uno es el que se comprueba aparte-.
+            $idP = 0
+            try { $idP = [int]$p.Id } catch {}
+            if ($idP -eq $PID) { continue }
+            $fuera += $p
         }
     } catch {}
     return $fuera
@@ -28392,10 +28412,25 @@ function Add-VueltaMedida([int]$ms) {
     }
     # Y LA LINEA, solo cuando la vuelta se sale de lo normal EN ESTA SESION y como mucho una por
     # minuto. Sin el freno, un tramo lento escribiria cien lineas iguales.
+    #
+    # EL FRENO VA PRIMERO, Y NO ES UN DETALLE DE ESTILO (27/09, tras la revision). El p99 estaba
+    # DELANTE, y calcularlo cuesta un Sort-Object de las 2.000 muestras de $script:vueltas: 22,5 ms
+    # MEDIDOS, treinta y tres veces por segundo, para decidir si se escribe una linea que sale como
+    # mucho UNA VEZ AL MINUTO. O sea que el medidor del pulso se comia el 70 % del pulso que mide
+    # (21,6 ms de los 31 de la vuelta; 697 ms de CPU por segundo), y encima se envenenaba solo: al
+    # entrar su propio coste en las muestras, el p99 subia hasta declarar "lo normal en mi" 146 ms
+    # cuando el pulso de verdad son 31. Medido por tramos con el bucle VACIO de todo lo demas:
+    # 38,7 ms las primeras cien vueltas y 84,5 ms pasadas las 2.000, que es el tope de muestras.
+    # Rompia la regla 5 -nada residente se come un nucleo que le hace falta al juego- y empeoraba
+    # justo lo que la idea 72 venia a medir, porque mientras una vuelta dura Nova NO OYE.
+    # LAS TRES GUARDAS SON PURAS y se pueden conmutar sin cambiar ni una de las lineas que se
+    # escriben: $script:vueltaAvisoEn solo se mueve cuando se escribe, asi que el conjunto de
+    # lineas del log es identico. Lo unico que cambia es que el Sort-Object pasa de treinta y tres
+    # por segundo a uno por minuto.
+    if (($ahoraV - $script:vueltaAvisoEn) -lt $VueltaAvisoMs) { return }
     $p99 = Get-VueltaP99
     if ($p99 -le 0) { return }
     if ($ms -le $p99) { return }
-    if (($ahoraV - $script:vueltaAvisoEn) -lt $VueltaAvisoMs) { return }
     $script:vueltaAvisoEn = $ahoraV
     $que = if ($script:ultimoLog) { $script:ultimoLog } else { 'no se que' }
     Log ("SORDA " + [Math]::Round($ms / 1000.0, 2) + " s en una vuelta (lo normal en mi son " + $p99 + " ms): " + $que)

@@ -170,3 +170,8 @@ memoria/firmas.json
 memoria/bateria-windows.json
 memoria/confirmacion-tiempos.json
 memoria/mando-huecos.json
+# LA REVISION DEL 27/09 NO SE PUBLICA. Son 40 fallos confirmados de toda Nova, y varios citan
+# nicks de los amigos de braya, appids de su biblioteca de Steam y rutas de sus discos para
+# demostrar el fallo con datos reales. Este repositorio es publico (idea 1 de las 121), asi que
+# la nota se queda en el disco: es de trabajo, no de entrega.
+REVISION-40-FALLOS-*.md
