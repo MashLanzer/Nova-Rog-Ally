@@ -116,11 +116,31 @@ $null = Get-CorteDia $hoy
 $leido1 = $script:vecesLeido
 for ($i = 0; $i -lt 50; $i++) { $null = Get-DiaJuego $hoy.AddMinutes($i) }
 Comp '5a. cincuenta llamadas y una sola lectura' ($script:vecesLeido -eq $leido1) ([string]$script:vecesLeido + ' lecturas para 51 llamadas')
+# Y CON DIAS DISTINTOS, QUE ES COMO LO LLAMA EL CODIGO DE VERDAD (28/09). El 5a de arriba hace las
+# cincuenta llamadas con el MISMO dia, y asi no puede ver el fallo que se comio un nucleo entero: el
+# sello de la cache salia de la fecha que le PREGUNTAN, y Get-DiaJuego se llama con otros dias -hay
+# un bucle de ocho en Get-RupturaRitmo, mas Get-DiaJuego $hoy.AddDays(-10) y $hoy.AddDays(1)-. Cada
+# llamada con otro dia invalidaba la cache, recalculaba todo y la dejaba apuntando a ESE dia; la
+# siguiente con hoy recalculaba otra vez. Medido en la Nova de produccion: 161 lineas FRANJA MUERTA
+# en 96 minutos y 1.000 ms de CPU por segundo, plano. Es la manera 17 de salir verde mintiendo: un
+# caso que no toca lo que dice vigilar.
+$leido2 = $script:vecesLeido
+foreach ($d in 1, -9, -10, -3, -5, -7, -2, -8, -4, -6) { $null = Get-DiaJuego $hoy.AddDays($d) }
+$null = Get-NocheHasta $hoy.AddDays(-4)
+Comp '5a2. y con diez dias DISTINTOS, tambien una sola' ($script:vecesLeido -eq $leido2) ([string]($script:vecesLeido - $leido2) + ' lecturas de mas')
+Comp '5a3. y el corte es el mismo para cualquier dia' (((Get-CorteDia $hoy.AddDays(-10)) -eq (Get-CorteDia $hoy)) -and ((Get-CorteDia $hoy.AddDays(1)) -eq (Get-CorteDia $hoy))) 'hay UNA franja vigente, no una por dia'
 # y aunque los datos cambien a media sesion, el corte del dia NO se mueve
 $corteAntes = Get-CorteDia $hoy
 $script:horasFalsas = @{ 3 = 9; 4 = 9; 5 = 9 }      # de golpe madruga
 Comp '5b. el corte no cambia en el mismo dia' ((Get-CorteDia $hoy.AddHours(3)) -eq $corteAntes) 'cambiarlo a media sesion deja dos mitades que no cuadran'
-Comp '5c. y al dia siguiente si se recalcula' ((Get-CorteDia $hoy.AddDays(1)) -ne $corteAntes) ''
+# EL CAMBIO DE DIA SE PRUEBA MOVIENDO EL SELLO, NO PASANDO UNA FECHA FUTURA (28/09). Antes este caso
+# hacia Get-CorteDia $hoy.AddDays(1) y daba por bueno que eso recalculara: o sea que daba por bueno
+# justo el fallo -que la fecha preguntada decidiera la cache-. Lo que se quiere vigilar es que al
+# cambiar el dia DE VERDAD se vuelva a calcular, y eso es el sello.
+$script:franjaCalculadaDia = (Get-Date).AddDays(-1).ToString('yyyy-MM-dd')
+$leido3 = $script:vecesLeido
+$corteNuevo = Get-CorteDia $hoy
+Comp '5c. y al cambiar el dia de verdad si se recalcula' (($script:vecesLeido -eq ($leido3 + 1)) -and ($corteNuevo -ne $corteAntes)) ('1 lectura nueva y el corte pasa de las ' + [string]$corteAntes + ' a las ' + [string]$corteNuevo)
 
 Write-Host ''
 Write-Host '-- 6. EL CABLEADO --'

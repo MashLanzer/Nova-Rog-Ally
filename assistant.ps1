@@ -17501,7 +17501,17 @@ function Get-HorasConActividad([datetime]$ahora = (Get-Date)) {
 function Get-FranjaMuerta([datetime]$ahora = (Get-Date)) {
     # La racha mas larga de horas seguidas con CERO actividad, mirando el reloj como un circulo
     # (las 23 estan pegadas a las 0). $null si no hay bastante o si es demasiado corta.
-    $hoyF = $ahora.ToString('yyyy-MM-dd')
+    # EL SELLO ES EL DIA DE HOY, NO EL QUE TE PREGUNTEN (28/09, la causa del nucleo entero). Con el
+    # sello sacado de $ahora, una llamada con otra fecha -y hay varias: Get-DiaJuego $hoy.AddDays(-10)
+    # y un bucle de ocho dias en Get-RupturaRitmo- invalidaba la cache, recalculaba todo esto y la
+    # dejaba apuntando a ESE dia; la siguiente llamada con hoy recalculaba otra vez. Se pisaban la una
+    # a la otra y no habia cache: 161 recalculos en 96 minutos, cada uno leyendo habitos.json y el
+    # activaciones.jsonl entero. Nova se comia un nucleo entero, plano, y lo decia sin que nadie la
+    # leyera: 13 lineas SORDA con "haciendo: FRANJA MUERTA" y 6 de "EN BUCLE: llevo N veces lo mismo".
+    # Y NO ES SOLO VELOCIDAD: hay UNA franja muerta vigente, la de los ultimos catorce dias. El corte
+    # del dia no depende del dia por el que preguntes, asi que sellar por $ahora era incorrecto ademas
+    # de caro.
+    $hoyF = (Get-Date).ToString('yyyy-MM-dd')
     if ($script:franjaCalculadaDia -eq $hoyF) { return $script:franjaMuerta }
     $script:franjaCalculadaDia = $hoyF
     $script:franjaMuerta = $null
@@ -17538,13 +17548,17 @@ function Get-FranjaMuerta([datetime]$ahora = (Get-Date)) {
 
 # La hora a la que parte el dia de braya. Cacheada: Get-DiaJuego la llama desde el bucle.
 function Get-CorteDia([datetime]$ahora = (Get-Date)) {
-    if ($script:franjaCalculadaDia -ne $ahora.ToString('yyyy-MM-dd')) { [void](Get-FranjaMuerta $ahora) }
+    # SIN PASAR $ahora (28/09): el corte vigente es uno solo y se calcula una vez al dia de verdad.
+    # $ahora se queda en la firma porque Get-DiaJuego lo pasa para las fechas que convierte, pero no
+    # decide nada aqui: era lo que rompia la cache en cada llamada con otro dia.
+    if ($script:franjaCalculadaDia -ne (Get-Date).ToString('yyyy-MM-dd')) { [void](Get-FranjaMuerta) }
     return [int]$script:corteDia
 }
 
 # Y la hora en que se acaba el silencio de la noche: el final de la franja, o el 8 escrito.
 function Get-NocheHasta([datetime]$ahora = (Get-Date)) {
-    $f = Get-FranjaMuerta $ahora
+    # sin $ahora, por lo mismo que Get-CorteDia: la franja vigente es una
+    $f = Get-FranjaMuerta
     if ($null -eq $f) { return [int]$EntornoNocheHasta }
     return [int]$f.a
 }
