@@ -181,3 +181,11 @@ REVISION-40-FALLOS-*.md
 # lo que tienes"), y este repositorio es publico. Y era peor por estar rastreado: cualquier
 # "git commit -a" subia su contenido nuevo cada vez que Nova lo reescribia.
 memoria/juegos-fuera.json
+# Y LOS .tmp QUE NO SON .json (28/09). La linea *.json.tmp de arriba lleva escrito el motivo
+# -"lo que queda a medias si se va la luz justo al guardar, ver Write-Atomico"- pero solo tapaba
+# los .json. De los 50 destinos de Write-Atomico, los dos que no son .json ni viven en una
+# carpeta ya ignorada son memoria/perfil-todo.md y memoria/perfil-caidos.md: los dos ficheros mas
+# privados del proyecto, los que se anadieron a mano el 25/09 porque "llevan lo mismo que
+# perfil.md: donde vive braya, con quien, que mascota tiene".
+*.md.tmp
+memoria/*.tmp

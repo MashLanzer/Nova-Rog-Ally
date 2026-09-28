@@ -978,7 +978,24 @@ function Write-Atomico([string]$ruta, [string]$texto, [bool]$bom = $false) {
     if (Test-Path -LiteralPath $ruta) {
         try { [System.IO.File]::Replace($tmp, $ruta, $null); return } catch {}
     }
-    Move-Item -LiteralPath $tmp -Destination $ruta -Force
+    # SI NO SE PUDO PONER EN SU SITIO, EL .tmp NO SE QUEDA AHI (28/09, tras la revision). Si el
+    # Replace y el Move fallan los dos -el destino abierto por otro: Obsidian, el antivirus,
+    # OneDrive- el .tmp se quedaba en disco CON EL CONTENIDO NUEVO y no lo barria nadie:
+    # Clear-TmpViejo solo recorre tmp\, y en memoria\ no habia un solo Remove-Item de *.tmp. De los
+    # 50 destinos de esta funcion, los dos que no son .json ni viven en una carpeta ya ignorada son
+    # memoria\perfil-todo.md y memoria\perfil-caidos.md, o sea los dos ficheros mas privados del
+    # proyecto: los mismos que el 25/09 se anadieron a mano al .gitignore con el motivo escrito
+    # -"llevan lo mismo que perfil.md: donde vive braya, con quien, que mascota tiene"-. Y el
+    # .gitignore solo tapaba *.json.tmp, asi que esos dos .md.tmp no estaban cubiertos.
+    # Y LOS DOS LLAMANTES CIERRAN CON catch {}, asi que esto no dejaba ni una linea. Ahora si.
+    try {
+        Move-Item -LiteralPath $tmp -Destination $ruta -Force -ErrorAction Stop
+    } catch {
+        Log ('ESCRITURA: no pude poner en su sitio ' + (Split-Path -Leaf $ruta) + ' (' + $_.Exception.Message + '); tiro el temporal y dejo lo que habia')
+        # el destino sigue con lo viejo, asi que el .tmp no sirve para nada y ademas es un escape
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        throw
+    }
 }
 
 function Get-Distancia([string]$a, [string]$b) {
@@ -21599,6 +21616,14 @@ $TmpVivos = @(
     'huellas-ram.txt', 'idioma-dictado.txt', 'invitado.json', 'juego-brillo.json', 'llamada-en-juego.txt',
     'lotengo.txt', 'lupa.png', 'mi-voz.json', 'ocr.txt', 'oido-cargando.txt',
     'orden-escrita.txt', 'pantalla.png', 'rafagas.txt', 'reintentar.flag', 'reintento.txt',
+    # red.json y relojes.json NACIERON DESPUES DE ESTA LISTA (28/09) y por eso faltaban: red.json
+    # lo escribe la ronda de red y lo lee tambien el worker de la charla, y relojes.json guarda
+    # cuando se hizo cada cosa por ultima vez. Los dos los nombra el codigo con su $TmpDir, los dos
+    # existen en disco, y el barrido se los habria llevado a los 7 dias. Salieron en cuanto Nova
+    # llevaba un rato encendida: el banco solo cuenta los que estan de verdad, asi que hasta hoy no
+    # habia nada que contar. Es la misma historia que ui-visible.txt de ayer, y la misma leccion:
+    # una lista escrita a mano caduca sola.
+    'red.json', 'relojes.json',
     'salir.flag', 'seguimiento-voz.txt', 'solo-boton.flag', 'tokens.txt',
     'transcribiendo.flag', 'ui-error.log', 'ui-estado.json', 'ui-nivel.txt',
     # ui-visible.txt NACIO DESPUES DE ESTA LISTA (27/09, idea 67) y por eso faltaba: es el latido
@@ -37064,11 +37089,35 @@ while ($true) {
         # siempre. El latido de ui-visible.txt lo delata. Solo cuenta si el fichero EXISTE: con
         # un nova_ui.exe viejo -que no lo escribe- su ausencia no puede valer de sintoma, o seria
         # un relanzamiento cada 30 s para siempre.
+        # EL TOPE TIENE QUE CONTAR TAMBIEN POR AQUI (28/09, tras la revision). Esta rama subia
+        # $script:uiIntentos, mataba la capsula y llamaba a Initialize-UI... y en la MISMA vuelta el
+        # 'elseif ($script:uiProc)' de mas abajo lo devolvia a cero, porque el if de enmedio exige
+        # '-not $colgada' y uiProc ya era el proceso NUEVO. O sea que el contador nunca acumulaba:
+        # una capsula que se cuelga viva se mataba y se relanzaba cada 30 segundos PARA SIEMPRE,
+        # con el registro diciendo "intento 1/3" cada vez, que es exactamente el "relanzamiento cada
+        # 30 s para siempre" que el comentario de aqui arriba dice estar evitando. Comprobado
+        # ejecutando el bloque real seis veces: seis relanzos, uiIntentos = 0 en todas, y el
+        # "no se sostiene" inalcanzable. Por la via de MUERTE el tope si funcionaba.
+        # Y AL AGOTARSE, SE BAJA A LA BARRA ANTIGUA como en la otra via: si no, tras tres intentos
+        # la guarda dejaba de entrar y la capsula se quedaba colgada para siempre sin salida, que es
+        # la regla 2. Se mata ademas, o quedaria una ventana fantasma encima.
         $colgada = $false
-        if ($script:uiProc -and -not $script:uiProc.HasExited -and $script:uiIntentos -lt 3) {
+        if ($script:uiProc -and -not $script:uiProc.HasExited) {
             try {
                 $vLat = Get-UiVisible
-                if ($vLat -and $vLat.hace -gt (6 * $vLat.cada)) {
+                if ($vLat -and $vLat.hace -gt (6 * $vLat.cada) -and $script:uiIntentos -ge 3) {
+                    $colgada = $true
+                    if ($script:uiIntentos -eq 3) {
+                        $script:uiIntentos++
+                        Log "ERROR: la interfaz se queda colgada y no se sostiene; vuelve la barra antigua"
+                        $script:UiNuevaOn = $false
+                        $capture.Opacity = 1
+                        try { $script:uiProc.Kill() } catch {}
+                        try { $script:uiProc.Dispose() } catch {}
+                        $script:uiProc = $null
+                    }
+                }
+                elseif ($vLat -and $vLat.hace -gt (6 * $vLat.cada)) {
                     $colgada = $true
                     Log ("WARN: la interfaz lleva " + [int]($vLat.hace / 1000) + " s sin latir (su cadencia son " + [int]($vLat.cada / 1000) + " s); relanzando (intento " + ($script:uiIntentos + 1) + "/3)")
                     $script:uiIntentos++
@@ -37105,7 +37154,9 @@ while ($true) {
                 $script:UiNuevaOn = $false
                 $capture.Opacity = 1
             }
-        } elseif ($script:uiProc) {
+        } elseif (-not $colgada -and $script:uiProc) {
+            # EL '-not $colgada' ES LO QUE FALTABA (28/09): sin el, la rama de colgada de arriba
+            # dejaba el contador a cero en su misma vuelta y el tope no llegaba a contar nunca.
             $script:uiIntentos = 0
         }
     }
