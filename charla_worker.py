@@ -266,6 +266,14 @@ trivia = {"r": None, "hasta": 0.0, "hechas": []}     # la pregunta de trivia que
 # No vale cerebro.ultimo_id: lo escribe tambien el hilo del revisor, de fondo y entre
 # turnos, asi que podia apuntar a un recuerdo que braya no ha oido en su vida.
 ultimo_dicho = None
+# LO QUE NOVA DIJO, NO SOLO SU id (28/09, tras la revision). ultimo_dicho guarda el id del recuerdo
+# para poder corregirlo o tacharlo, pero para DECIDIR si hay que tacharlo hace falta el TEXTO: el
+# filtro de la idea 117 -RE_NO_ENTENDI- mira la respuesta de Nova, y el camino que tacha lo llamaba
+# con la respuesta vacia porque corre ANTES de contestar. Con "" ese filtro no puede dispararse
+# nunca, asi que acababa protegiendo el fichero que solo APUNTA (importante.jsonl) y dejando sin
+# proteger el que DESTRUYE. Medido sobre las cinco frases reales guardadas: con la respuesta delante
+# pasa una; con la respuesta vacia pasan cuatro.
+ultimo_dicho_texto = ""
 # lo que hace que una orden no se entienda suelta: pronombres pegados ("recuerdamelo",
 # "bajalo") o palabras que remiten a lo hablado
 RE_DEIXIS = re.compile(r"\b(\w{2,}(?:me|te|se)?(?:lo|la|los|las|le|les)|eso|esto|esa|ese|ahi|alli|luego|despues)\b")
@@ -665,7 +673,7 @@ def responder(p):
     # ultimo_dicho: sin este 'global', las dos asignaciones de mas abajo crearian una
     # variable LOCAL y la lectura de "eso no es verdad" reventaria con UnboundLocalError
     # en mitad de la charla. Python no avisa de esto hasta que se ejecuta.
-    global ultima_charla, ultimo_dicho
+    global ultima_charla, ultimo_dicho, ultimo_dicho_texto
     idp = p.get("id", 0)
     texto = (p.get("texto") or "").strip()
     if not texto:
@@ -725,7 +733,8 @@ def responder(p):
     # Y NO SE CONTESTA AQUI: el turno sigue su camino y Nova responde a lo que le acaban de
     # decir. Marcar no es responder.
     if (cerebro is not None and not invitado and not duda and ultimo_dicho is not None
-            and hueco <= CORRIGE_VENTANA_S and por_que_importa(texto, "") == "correccion"):
+            and hueco <= CORRIGE_VENTANA_S
+            and por_que_importa(texto, ultimo_dicho_texto) == "correccion"):
         try:
             hecho = None
             m = RE_PAR_CORRIGE.search(texto)
@@ -745,6 +754,7 @@ def responder(p):
             # mismo dos veces, y la segunda podria pillar uno que no tiene culpa.
             if hecho:
                 ultimo_dicho = None
+                ultimo_dicho_texto = ""
         except Exception as e:  # noqa: BLE001
             salida("info", idp, origen="memoria", texto="memoria: no pude corregir (%s)" % e)
 
@@ -796,6 +806,7 @@ def responder(p):
                     # esto SI es "lo ultimo que Nova dijo": es la respuesta que acaba de
                     # salir por la voz, no lo que el revisor guarde de fondo
                     ultimo_dicho = sabida["id"]
+                    ultimo_dicho_texto = str(sabida.get("respuesta") or sabida.get("texto") or "")
                     salida("fin", idp, origen="memoria")
                     return
         except Exception as e:  # noqa: BLE001
@@ -895,6 +906,7 @@ def responder(p):
                     # verdad": es la respuesta que braya acaba de oir
                     if rAp and rAp.get("recuerdo"):
                         ultimo_dicho = rAp["recuerdo"]
+                        ultimo_dicho_texto = str(respuesta or "")
                 except Exception as e:  # noqa: BLE001
                     salida("info", idp, texto="memoria: no pude aprender (%s)" % e)
             return

@@ -4102,6 +4102,40 @@ anota("worker Vosk en marcha: nombre='%s' dispositivo='%s' ganancia=%s"
       % (NOMBRE, dispositivo, "auto" if automatica else ganancia))
 
 ultimo_pulso = time.time()
+# EL LATIDO MINIMO, QUE TIENE QUE CORRER SIEMPRE (28/09, tras la revision)
+#
+# El bloque del pulso del final es el UNICO sitio que (a) refresca tmp/escucha-estado.txt y (b)
+# comprueba padre_vivo() para soltar el microfono si el asistente murio. Pero la rama de pausa hacia
+# 'ultimo_pulso = ahora' en CADA vuelta y la de dictado lo adelantaba igual, asi que mientras hay
+# pausa o dictado el pulso NO CORRE NUNCA. En una conversacion el worker esta siempre en una de las
+# dos, asi que el fichero de estado se congelaba aunque el oido funcionase perfectamente; el
+# asistente lee su LastWriteTime con Get-OidoMudoDesde y a los 90 s suelta el aviso de nivel 'alto'
+# -habla incluso jugando- "llevo un rato sin oir nada por el microfono". CASO REAL del 26/09: entre
+# las 16:55:42 y las 16:58:12 no hubo ni un pulso y se entregaron CUATRO dictados; a las 16:57:38
+# Nova dijo que estaba sorda. Es mentira, y de las tres veces que lo ha dicho, una era falsa.
+# Y EL OTRO LADO: con la pausa puesta nadie miraba si el padre sigue vivo, asi que un worker cuyo
+# asistente murio se quedaba sujetando el microfono sin plazo. La pausa mas larga medida son 343 s.
+#
+# LO QUE SE HACE AQUI ES EL MINIMO: decir que se sigue vivo y mirar si el padre lo esta. NO se
+# recalibra la ganancia -para eso hace falta oir, y en pausa lo que entra son los altavoces-, que es
+# justo lo que el 'ultimo_pulso = ahora' queria evitar y sigue evitando.
+ultimo_latido = time.time()
+
+
+def latido_minimo(ahora):
+    """Refresca el estado y comprueba el padre. Devuelve False si hay que salir."""
+    global ultimo_latido
+    if ahora - ultimo_latido < INTERVALO_PULSO:
+        return True
+    ultimo_latido = ahora
+    if not padre_vivo():
+        anota("el asistente ya no existe (PID %d); salgo y suelto el microfono" % PID_PADRE)
+        return False
+    try:
+        escribir(RUTA_ESTADO, decir_estado())
+    except Exception:  # noqa: BLE001
+        pass
+    return True
 ultimo_miro_micro = time.time()   # ver MIRAR_MICRO_CADA
 recortes = 0
 ultimo_aviso_recorte = 0.0
@@ -4199,6 +4233,10 @@ try:
                     picos = []
                     bloques_voz = 0
                     bloques_ventana = 0   # ver RUIDO_CONSTANTE
+                    # el pulso entero sigue sin correr aqui -no se recalibra con los altavoces
+                    # sonando- pero el latido minimo si: ver EL LATIDO MINIMO
+                    if not latido_minimo(ahora):
+                        sys.exit(0)
                     ultimo_pulso = ahora
                 elif pausado:
                     pausado = False
@@ -4819,6 +4857,9 @@ try:
                             rec = nuevo_reconocedor()
                         # en dictado no se evalua la palabra de activacion
                         if ahora - ultimo_pulso >= INTERVALO_PULSO:
+                            # dictando tampoco se recalibra, pero se sigue diciendo que se esta vivo
+                            if not latido_minimo(ahora):
+                                sys.exit(0)
                             ultimo_pulso = ahora
                         continue
 
