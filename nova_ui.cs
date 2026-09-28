@@ -2303,13 +2303,21 @@ public class NovaUI : Window
         {
             for (int i = 0; i < GESTOS_JUEGO.Length; i++)
             {
-                if (RX_JUEGO[i] != null && RX_JUEGO[i].IsMatch(p)) { Gesto(GESTOS_JUEGO[i][0]); return; }
+                // DE QUIEN ES, TAMBIEN AQUI (28/09, tras la revision): esta rama y la de abajo
+                // llamaban a Gesto() sin el 'quien', asi que entraba el '?' por defecto y el parte
+                // semanal -que por diseno no atribuye lo que no lleva marca- no los contaba como de
+                // braya. La rama 3 es el vocabulario general, o sea el grueso de lo que dice: 18
+                // patrones (gracias, carino, saludo, negar, asentir, prisa, paciencia, duda...).
+                // AnalizarTexto ya sabe de quien es -recibe el bool 'propio'-, asi que no hay nada
+                // que adivinar, que es lo que dice el comentario de AnotarGesto. La idea 101 se
+                // quedo a medias: solo la rama 1 lo pasaba.
+                if (RX_JUEGO[i] != null && RX_JUEGO[i].IsMatch(p)) { Gesto(GESTOS_JUEGO[i][0], propio ? 'y' : 't'); return; }
             }
         }
         // 3) el vocabulario general
         for (int i = 0; i < GESTOS_USUARIO.Length; i++)
         {
-            if (RX_USUARIO[i] != null && RX_USUARIO[i].IsMatch(p)) { Gesto(GESTOS_USUARIO[i][0]); return; }
+            if (RX_USUARIO[i] != null && RX_USUARIO[i].IsMatch(p)) { Gesto(GESTOS_USUARIO[i][0], propio ? 'y' : 't'); return; }
         }
     }
 
@@ -2494,7 +2502,33 @@ public class NovaUI : Window
                 // AL CONTADOR, NO AL DIARIO. Al cambiar el dia se empieza de cero: el fichero
                 // guarda la cuenta de hoy y la de ayer se la lleva la reescritura, igual que el
                 // diario se poda. Lo que importa es que quien lo lea sepa cuantas veces fue.
-                if (cuentaGestosDia != hoy) { cuentaGestos.Clear(); cuentaGestosDia = hoy; }
+                // LA CUENTA DEL DIA SOBREVIVE AL ARRANQUE (28/09, tras la revision). cuentaGestos es
+                // un Dictionary en memoria y el fichero se REESCRIBE entero, asi que una capsula
+                // recien arrancada empezaba con el diccionario vacio y en el primer gesto de ruido
+                // machacaba lo que hubiera del mismo dia. El comentario decia "el fichero guarda la
+                // cuenta de hoy" y el lector de assistant.ps1 escribe "Y hoy ... escucho xN": ese N
+                // no era del dia, era del ultimo arranque. Se relee lo que haya de hoy antes de
+                // sumar, que es barato -pasa una vez por arranque- y es la unica forma de que el
+                // numero signifique lo que dice.
+                if (cuentaGestosDia != hoy)
+                {
+                    cuentaGestos.Clear();
+                    cuentaGestosDia = hoy;
+                    try
+                    {
+                        string rutaVieja = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(rutaGestosLog), "gestos-cuenta.txt");
+                        if (File.Exists(rutaVieja))
+                        {
+                            foreach (string lv in File.ReadAllLines(rutaVieja))
+                            {
+                                string[] pz = lv.Split(' ');
+                                int nv;
+                                if (pz.Length == 3 && pz[0] == hoy && int.TryParse(pz[2], out nv)) { cuentaGestos[pz[1]] = nv; }
+                            }
+                        }
+                    }
+                    catch { }
+                }
                 cuentaGestos[nombre] = (cuentaGestos.ContainsKey(nombre) ? cuentaGestos[nombre] : 0) + 1;
                 var sbG = new StringBuilder();
                 foreach (var kv in cuentaGestos) { sbG.Append(hoy).Append(' ').Append(kv.Key).Append(' ').Append(kv.Value).Append("\r\n"); }

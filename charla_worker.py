@@ -246,6 +246,8 @@ def clave_api():
 
 
 historial = []
+# en que modo estaba el turno anterior, para cortar el hilo al cambiar (ver el modo invitado)
+modo_invitado_previo = False
 pedidos = queue.Queue()
 parar = threading.Event()
 # JUGANDO, EL REVISOR SE CALLA (17/09). No vale reutilizar 'parar': ese se activa en CADA
@@ -680,6 +682,20 @@ def responder(p):
         salida("fin", idp, origen="nada")
         return
     invitado = bool(p.get("invitado"))
+    # EL HILO SE CORTA AL ENTRAR Y AL SALIR DEL MODO INVITADO (28/09, tras la revision). El flag
+    # cortaba lo que se APRENDE y lo que se pone de contexto -cerebro.contexto solo con respuestas,
+    # sin estilo ni temas, sin perfil.md y sin los datos que manda el asistente- pero NO tocaba
+    # 'historial', que es justo lo que viaja en el campo messages de la peticion. Asi que el turno
+    # del invitado llevaba delante los turnos anteriores de braya tal cual, y al reves: lo que
+    # dijera el invitado se quedaba en el hilo de braya al volver. Lo unico que lo borraba eran los
+    # cinco minutos de OLVIDO_S, y la op 'olvidar' que el propio fichero documenta como "borra lo
+    # hablado" no la manda NADIE (cero usos en assistant.ps1).
+    # Se corta en los DOS sentidos, que es lo que hace que sirva de algo: entrar protege a braya y
+    # salir protege al invitado.
+    global modo_invitado_previo
+    if invitado != modo_invitado_previo:
+        historial.clear()
+        modo_invitado_previo = invitado
     duda = bool(p.get("duda"))
     buscar = bool(p.get("buscar"))     # ayuda con un juego: internet si o si
     ayuda = bool(p.get("ayuda"))
@@ -847,9 +863,9 @@ def responder(p):
     # (qwen2.5:1.5b, config.json -> conversacion.modeloLocal) queda para cuando no hay
     # internet o la API falla. Lo que contesta la API se sigue aprendiendo en la memoria.
     if api_disponible():
-        intentos = ["api", "local"]
+        intentos = ["api", "local", "local-sin-marca"]
     else:
-        intentos = ["local", "api", "local-sin-marca"] if not usar_api else ["api", "local"]
+        intentos = ["local", "api", "local-sin-marca"] if not usar_api else ["api", "local", "local-sin-marca"]
     motivos = []
     marca_api_vista = False
     for origen in intentos:
