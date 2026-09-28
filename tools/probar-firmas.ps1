@@ -57,7 +57,8 @@ Comp 'y trae lo que se espera' ($PALABRAS_VACIAS -contains 'que' -and $PALABRAS_
 
 $FirmasPalabrasMin = 2
 $FirmasMax = 40
-$FirmasCandidatosMax = 6
+$FirmasCandidatosMax = 6
+$FirmasDestinosMax = [int]([regex]::Match($txt, '(?m)^\$FirmasDestinosMax = (\d+)').Groups[1].Value)   # del archivo, no copiado (28/09)
 Comp 'el minimo de palabras sale del archivo' ($txt -match '\$FirmasPalabrasMin = 2') 'con una palabra esto seria un arma'
 Comp 'y el tope de firmas tambien' ($txt -match '\$FirmasMax = 40') ''
 

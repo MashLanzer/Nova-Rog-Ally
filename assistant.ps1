@@ -2210,7 +2210,25 @@ function Find-Juego([string]$t) {
             if (-not $nmF) { continue }          # sin nombre no se puede casar: no se inventa
             $plF = ConvertTo-Juego $nmF
             if (-not $plF) { continue }
-            if ($plF -eq $q -or $plF.Contains($q) -or $q.Contains($plF)) {
+            # LAS MISMAS CUATRO GUARDAS QUE Find-JuegoEn (28/09, tras la revision). Esto comparaba
+            # por subcadena cruda: sin minimo de letras, sin limite de palabra, sin cubrir un
+            # porcentaje del titulo y devolviendo el PRIMERO que casa en vez del mejor. Son
+            # exactamente las cuatro que Find-JuegoEn tiene documentadas veinte lineas mas arriba
+            # con sus casos reales -'ring' cabe en 'elden ring', 'el' casaba con ELDEN RING-. Con
+            # una sola letra se contestaba muy seguro de un juego que braya no habia nombrado: no
+            # abre el que no es -New-AbrirJuego devuelve un 'decir' para los de fuera- pero si suelta
+            # "X esta en un disco que no esta puesto" o "ya lo tienes, bajarlo seria tirar esos
+            # gigas" del juego equivocado. Y no marcaba $script:dudosa, asi que la confirmacion no
+            # saltaba: la regla 1 al reves.
+            if ($q.Length -lt 4) { continue }
+            $casaF = ($plF -eq $q)
+            if (-not $casaF -and $plF.Contains($q)) {
+                # que sea una palabra entera y que cubra un tercio del titulo, no un trozo suelto
+                $casaF = ($plF -match ('(^|\s)' + [regex]::Escape($q) + '($|\s)')) -and (($q.Length / [double]$plF.Length) -ge 0.34)
+            }
+            if ($casaF) {
+                # y si no fue exacto, se dice que hay duda: preguntar sale gratis y acertar no
+                if ($plF -ne $q) { $script:dudosa = $nmF }
                 return @{ id = [string]$jf.appid; nombre = $nmF; plano = $plF; fuera = $true
                           tamano = [double]$jf.bytes; donde = [string]$jf.donde
                           estado = 0; bajando = $false; descargado = 0; total = 0; ultimo = 0; dir = '' }
@@ -8929,6 +8947,10 @@ $FirmasPath = Join-Path $MemoriaDir 'firmas.json'
 $FirmasMax = 40                  # y la lista no crece sin fin
 $FirmasPalabrasMin = 2           # ver guarda 1: con una palabra esto seria un arma
 $FirmasCandidatosMax = 6         # lo que se recuerda de cada destino
+# Y CUANTOS DESTINOS DISTINTOS SE GUARDAN (28/09). Con los 21 pares reales de catorce dias salieron
+# 13, asi que 20 deja sitio de sobra para lo que la nube produce de verdad y corta el crecimiento
+# sin fin: el numero sale de lo medido, no de la nada.
+$FirmasDestinosMax = 20
 $script:firmas = $null
 # LA BANDERA QUE CORTA EL BUCLE. Una firma puede tener todas sus palabras dentro de su
 # propio destino -pasa con {abre, pantalla, pinterest, youtube}-, asi que ejecutar el destino
@@ -9041,6 +9063,24 @@ function Add-CandidatoFirma([string]$original, [string]$destino) {
         }
         [void]$g.candidatos[$d].Add($cl)
         while ($g.candidatos[$d].Count -gt $FirmasCandidatosMax) { $g.candidatos[$d].RemoveAt(0) }
+        # Y EL NUMERO DE DESTINOS TAMBIEN TIENE TOPE (28/09, tras la revision). $FirmasMax capa la
+        # lista de firmas y $FirmasCandidatosMax los casos de CADA destino, pero nada capaba cuantos
+        # destinos guarda $g.candidatos: Add-CandidatoFirma crea uno nuevo por cada destino que la
+        # nube produzca y solo se borraba pidiendo olvidar esa firma. Medido reponiendo los 21 pares
+        # reales de catorce dias: 13 destinos y un firmas.json de 8.986 bytes para UNA sola firma, a
+        # razon de ~690 bytes por destino y 0,9 destinos al dia. Eso son ~235 KB al ano releidos en
+        # cada arranque -quince al dia- y reescritos en cada traduccion de la nube. El comentario de
+        # $FirmasMax dice "y la lista no crece sin fin": la de firmas no, la de candidatos si.
+        # SE VA EL MAS VIEJO, que es el que lleva mas tiempo sin que nadie lo confirme.
+        # UN TOPE QUE NO SE PUDO LEER NO VACIA NADA (28/09): si $FirmasDestinosMax llega vacio -una
+        # funcion sacada por AST sin su constante, que es como trabajan los bancos- el '-gt' contra
+        # $null seria cierto y esto se llevaria por delante TODOS los candidatos. Lo canto
+        # probar-firmas.ps1 en cuanto se escribio, con cuatro rojos seguidos. El lado seguro es no
+        # podar; la manera 6 de la casa, al reves.
+        while ([int]$FirmasDestinosMax -gt 0 -and $g.candidatos.Keys.Count -gt [int]$FirmasDestinosMax) {
+            $viejoD = @($g.candidatos.Keys)[0]
+            [void]$g.candidatos.Remove($viejoD)
+        }
         $vieja = @($g.firmas | Where-Object { (ConvertTo-Plain ([string]$_.destino)) -eq $d })
         if ($g.candidatos[$d].Count -lt 2) { [void](Save-Firmas); return $false }
         # la interseccion de TODOS los casos
@@ -14179,8 +14219,15 @@ function Send-AvisoEsperaSuelta([datetime]$ahora = (Get-Date), [bool]$soloCaduca
     }
     $script:avisoEspera.Clear()
     if ($soloCaducar) {
+        # SOLO SE ESCRIBE SI DE VERDAD CADUCO ALGO (28/09, tras la revision). Esto rellenaba la cola
+        # y llamaba a Save-AvisoEspera SIN COMPARAR, y Watch-Entorno lo llama en cada tic de 30 s:
+        # mientras hubiera UN aviso aparcado, el fichero se reescribia cada medio minuto con
+        # contenido identico. 120 escrituras por hora que no hacen falta, dentro del bucle, que es
+        # la regla 4. Y contradecia la decision del 24/09, que puso el antirrebote en Add-AvisoEspera
+        # justo para no escribir cuando nada cambia: por este otro camino se escribia igual.
+        $habia = $script:avisoEspera.Count
         foreach ($v in $vivos) { [void]$script:avisoEspera.Add($v) }
-        Save-AvisoEspera
+        if ($habia -ne $script:avisoEspera.Count) { Save-AvisoEspera }
         return 0
     }
     # EL QUE NO SALE VUELVE A LA COLA (24/09, repaso). Antes la cola se vaciaba y se guardaba
@@ -18011,7 +18058,18 @@ $AccionesQueTocan = @('app', 'url', 'key', 'atajo', 'escribir', 'winkey', 'altf4
                       # salta de verdad, seis veces en los dos registros ("VOZ EXTRANA: 321 Hz
                       # frente a 121 Hz; se pregunta antes de: brillo al 100 por ciento").
                       # Entra tambien el encenderlo, y da igual: preguntar de mas aqui es gratis.
-                      'soloYo')
+                      'soloYo',
+                      # Y LA OTRA FORMA DE DECIR LO MISMO (28/09, tras la revision). El corte no
+                      # seguia el criterio que dice el comentario de arriba: faltaban kinds que
+                      # tocan tanto o mas que los que si estaban, y en varios casos son LA OTRA
+                      # FORMA DE DECIR una orden que ya estaba dentro. volumenPct estaba y
+                      # volumenRel no, y los dos salen del MISMO bloque -con numero sale uno y sin
+                      # numero el otro-: o sea que el "VOZ EXTRANA ... se pregunta antes de: volumen
+                      # al 70 por ciento" que hay en el registro no habria preguntado NADA si la voz
+                      # ajena hubiera dicho "sube el volumen". Igual ventanaApp, que minimiza,
+                      # maximiza y manda al otro monitor la ventana de otra app por su nombre,
+                      # mientras winkey, altf4 y otroMonitor si estaban.
+                      'volumenRel', 'volumenApp', 'silencio', 'salidaAudio', 'ventanaApp')
 
 # PONER EL VIDEO, NO SOLO BUSCARLO (15/09). "Reproduce la cancion de Pitbull Give Me
 # Everything en YouTube" abria la busqueda; braya se quejo y el agente tardo 83 s en
@@ -33991,8 +34049,12 @@ function Get-ConsumoListon([string]$clave) {
     return [int]($p90 + $mueve)
 }
 
-function Test-ConsumoSalido([string]$clave, [int]$valor, [string]$nom, [string]$unidad) {
-    $lim = Get-ConsumoListon $clave
+function Test-ConsumoSalido([string]$clave, [int]$valor, [string]$nom, [string]$unidad, [int]$listonYa = -1) {
+    # EL LISTON, SI YA LO TRAEN HECHO (28/09): Get-ConsumoListon vuelve a leer y parsear
+    # memoria	rabajo-tiempos.json entero, y el unico llamador de produccion acaba de pedirselo para
+    # compararlo ANTES de meter el dato de ahora. Sin argumento se comporta igual que siempre, que es
+    # lo que hacen sus bancos.
+    $lim = if ($listonYa -ge 0) { $listonYa } else { Get-ConsumoListon $clave }
     if ($lim -le 0 -or $valor -le $lim) { return $false }
     # UNA LINEA POR HORA Y POR COSA: un tramo hinchado escribiria una por minuto, que es el fallo
     # que ya hubo que arreglar en el aviso de la vuelta lenta.
@@ -34028,17 +34090,28 @@ function Update-Consumo {
     # CON JUEGO DELANTE Y SIN EL SON DOS MUNDOS, y mezclarlos daria un liston que no vale para
     # ninguno de los dos: con el juego delante Windows reparte el nucleo de otra manera.
     $conJ = $(if ($script:juegoActivo) { ':juego' } else { '' })
+    # UNA SOLA VISITA AL FICHERO POR MINUTO (28/09, tras la revision). Add-TrabajoTiempo lee
+    # memoria\trabajo-tiempos.json DOS veces -una en su Get-TrabajoTiempos y otra para respetar las
+    # demas claves- y lo reescribe entero; Test-ConsumoSalido vuelve a leerlo por dentro
+    # (Get-ConsumoListon -> Get-TrabajoTiempos, que no tiene cache a proposito). Con las dos claves,
+    # ram y cpu, eran SEIS lecturas y DOS reescrituras del mismo fichero cada minuto, para siempre,
+    # dentro del bucle. Y el comentario del llamador dice "un proceso por vuelta, 4 ms medidos": esos
+    # 4 ms son solo el Get-Process, la vuelta entera cuesta diez veces mas.
+    # EL LISTON SE PIDE ANTES DE ESCRIBIR, que ademas es lo correcto: comparar el dato de ahora con
+    # el historial de ANTES de meterlo. Y se le pasa ya hecho, para que no lo vuelva a leer.
     $clR = 'ram:' + $nom + $conJ
+    $lisR = Get-ConsumoListon $clR
     [void](Add-TrabajoTiempo $clR ([int]$m.mb))
-    [void](Test-ConsumoSalido $clR ([int]$m.mb) $nom 'megas')
+    [void](Test-ConsumoSalido $clR ([int]$m.mb) $nom 'megas' $lisR)
     if ([int]$m.cuota -ge 0) {
         # ADD-TRABAJOTIEMPO RECHAZA EL CERO (su contrato es ms > 0), y un minuto de verdad ocioso
         # vale tanto como uno cargado: sin esto la serie solo tendria los minutos activos y el
         # liston subiria solo. Se guarda 1, que es una milesima de nucleo, muy por debajo de la
         # resolucion de cualquier decision que se vaya a tomar con esto.
         $clC = 'cpu:' + $nom + $conJ
+        $lisC = Get-ConsumoListon $clC
         [void](Add-TrabajoTiempo $clC ([Math]::Max(1, [int]$m.cuota)))
-        [void](Test-ConsumoSalido $clC ([int]$m.cuota) $nom 'milesimas de nucleo')
+        [void](Test-ConsumoSalido $clC ([int]$m.cuota) $nom 'milesimas de nucleo' $lisC)
     }
     # LA SONDA SE CRONOMETRA A SI MISMA, como Get-CargaCPU y como la de temperatura. Y LA PRIMERA
     # NO SE JUZGA: esa paga el Get-Process del cerebro y no tiene lectura anterior con la que
