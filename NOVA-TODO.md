@@ -321,6 +321,27 @@ ni una comprobación en las 204 secciones. Se vio el 25/09 al colarse un banco n
 así: la batería entera pasó en verde sin decir nada. Ahora lo mira la **sección 2n171**, en
 rojo solo para el caso que se lee mal, y con trinquete para las 28 tildes que ya había.
 
+**La decimotercera, del 27/09: lanzar el banco con un intérprete al que le falta algo.** Es la
+más barata de todas — no hay que doblar ninguna pieza ni escribir un caso tramposo—. La batería
+lanza sus 43 bancos de Python con `python` a secas, y el `python` del PATH de esta consola es el
+3.11, sin `numpy` ni `httpx`; Nova arranca los suyos con el de `config.json` (`paths.python`), que
+sí los tiene. Tres morían en el import —por el intérprete, no por el código— y **dos salían con
+código 0**: Traceback por arriba y verde por abajo. `probar-audio.py` llevaba así desde que se
+escribió; al arreglarlo corrió entero por primera vez (20 de 20) y destapó que ni siquiera podía
+leer la frase de ejemplo. Ahora lo miran dos secciones: la **2n279** antes de correr —saca por AST
+los módulos de cada banco, sigue la cadena mientras se quede dentro del repo y pregunta por ellos
+con `find_spec` usando ese mismo intérprete— y la **sección 7** después, donde un
+`ModuleNotFoundError` ya no es amarillo sino rojo. A los imports dentro de un `try` no se les pide
+nada: ahí el patrón de la casa es degradar a propósito (regla 7), y un aviso que sale siempre se
+aprende a ignorar.
+
+**Y de paso, la pregunta que faltaba: ¿quién vigila al vigilante?** La sección 7 es la única que
+mira la salida de error de los 300 y pico bancos —o sea, la que caza a los que mueren a medias— y
+no la probaba nadie. Ahora la mira la **2n280**, que le saca el bloque por sangrado y le pasa
+ficheros de error de mentira: función sin traer → rojo, Python muerto → rojo, ruido → amarillo,
+nada → verde.
+
+
 **La undécima, y la aprendí de mis propias roturas el 25/09: un banco puede estar en verde
 porque sus casos negativos no llegan a tocar lo que dice vigilar.** Dos veces el mismo día. En
 el de los amigos, las dos frases que debían quedarse fuera decían *"mi novia"* y *"mi amiga"*, y
