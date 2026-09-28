@@ -1042,8 +1042,29 @@ function Get-Distancia([string]$a, [string]$b) {
 # dos juntas: 'sube el volumen' es del ejemplo viejo y tambien una orden de verdad, asi que
 # sumar las dos listas se comeria ordenes buenas de braya.
 $script:frasesEjemplo = $null
+$script:frasesEjemploSello = ''   # la fecha de tmp\prompt-ordenes.txt cuando se leyo (28/09)
 function Get-FrasesEjemplo {
-    if ($null -ne $script:frasesEjemplo) { return $script:frasesEjemplo }
+    # LA CACHE SE SUELTA SI EL FICHERO CAMBIO (28/09, tras la revision). wake_vosk.py fija
+    # PROMPT_ORDENES al IMPORTAR y no vuelve a leer tmp\prompt-ordenes.txt nunca; aqui se cacheaba
+    # en la primera llamada. Pero Update-PromptOrdenes REESCRIBE ese fichero desde
+    # Invoke-TareasDelDia, que corre en el primer minuto despues de haber arrancado ya el oido y
+    # otra vez al cambiar de dia. Resultado: la sesion en la que la frase cambia, Whisper recibe la
+    # VIEJA y Test-RecitaEjemplo / Test-EsFraseEjemplo comparan contra la NUEVA. El comentario de
+    # esta funcion dice que se lee de ahi "para no tener nunca una frase distinta de la que Whisper
+    # recibe de verdad", y con las listas distintas volvia a quedar sin freno el recitado del 15/09.
+    # Mirar la fecha del fichero cuesta una llamada al sistema y solo se paga en el camino del
+    # dictado; releerlo, solo cuando de verdad cambio. Lo que NO se puede arreglar desde aqui es que
+    # el oido siga con la vieja hasta que lo relancen: eso se dice en el log, que es la regla 3.
+    $selloFE = ''
+    try {
+        $rutaFE = Join-Path $TmpDir 'prompt-ordenes.txt'
+        if (Test-Path -LiteralPath $rutaFE) { $selloFE = [string](Get-Item -LiteralPath $rutaFE).LastWriteTimeUtc.Ticks }
+    } catch {}
+    if ($null -ne $script:frasesEjemplo -and $selloFE -eq $script:frasesEjemploSello) { return $script:frasesEjemplo }
+    if ($null -ne $script:frasesEjemplo -and $selloFE -ne $script:frasesEjemploSello) {
+        Log 'OIDO: la frase de ejemplo cambio en disco; la recargo. El oido seguira con la vieja hasta que se relance'
+    }
+    $script:frasesEjemploSello = $selloFE
     $script:frasesEjemplo = @()
     try {
         $rutaW = if ($RutaWakeVosk) { $RutaWakeVosk } else { Join-Path $PSScriptRoot 'wake_vosk.py' }
@@ -8639,7 +8660,10 @@ $CuarentenaSuelo = 10000        # menos que esto no da tiempo ni a oir la frase
 $CuarentenaTecho = 45000        # mas que esto es apostar a que Nova no muera antes
 $CuarentenaMinimas = 8          # hasta aqui, el de arranque
 $CorreccionTiemposJson = Join-Path $MemoriaDir 'correcciones-tiempos.json'
-$script:traduccionesCuarentena = New-Object System.Collections.ArrayList
+$script:traduccionesCuarentena = New-Object System.Collections.ArrayList
+# las que bajaron a disco sin que les tocara, porque Save-Traducciones escribe la tabla
+# entera: si luego se retiran, hay que reescribir el fichero (28/09, ver Flush-Cuarentena)
+$script:cuarentenaEnDisco = @{}
 $script:cuarentenaCheck = 0
 $script:motoresCheck = 0
 # Cuantos textos de repaso quedan por juzgar. No frena el tick -si lo hiciera, los repasos
@@ -8689,6 +8713,21 @@ function Flush-Cuarentena {
     try {
         [void](Save-Traducciones)
         foreach ($e in $listas) { Log ("APRENDIDO: '" + $e.original + "' = '" + $e.texto + "'") }
+        # LO QUE SIGUE EN CUARENTENA NO TENDRIA QUE HABER BAJADO (28/09, tras la revision).
+        # Save-Traducciones reescribe el fichero con TODA la tabla de RAM, y en la RAM estan tambien
+        # las que aun esperan -Add-Traduccion las mete desde el primer momento, a proposito-. Con dos
+        # entradas de plazos distintos, la segunda tocaba disco al vencer la primera, ANTES de su
+        # plazo. Y desde ahi no habia vuelta: Remove-Cuarentena solo quita de la RAM y de la cola, no
+        # reescribe el fichero ni apunta la clave, asi que el disco se la quedaba y el siguiente
+        # Save-Traducciones la RESUCITABA en la RAM por la fusion, que es justo lo que
+        # $traduccionesQuitadas existe para evitar. Mientras tanto el log decia "CUARENTENA: no
+        # aprendo 'X' = 'Y': lo corregiste 7 s despues". Es el agujero que la idea 15 venia a cerrar.
+        # AQUI NO SE PUEDE EVITAR QUE BAJEN -Save-Traducciones es de la tabla entera y partirla seria
+        # otro fallo-, asi que se apunta cuales bajaron sin querer: si una de esas se retira luego,
+        # Remove-Cuarentena sabe que TIENE que reescribir el fichero.
+        foreach ($q in @($script:traduccionesCuarentena)) {
+            if ($q -and $q.original) { $script:cuarentenaEnDisco[[string]$q.original] = $true }
+        }
         return $listas.Count
     } catch {
         Log ('no pude guardar lo aprendido: ' + $_.Exception.Message)
@@ -8697,6 +8736,13 @@ function Flush-Cuarentena {
 }
 # Y LO QUE BRAYA ACABA DE CORREGIR, FUERA ANTES DE ESCRIBIRSE. Devuelve cuantas ha quitado.
 function Remove-Cuarentena([string]$porque = '') {
+    # SI YA HABIA BAJADO A DISCO, HAY QUE SACARLA DE ALLI (28/09): ver el comentario de
+    # Flush-Cuarentena. Sin esto, quitarla de la RAM no bastaba y volvia sola en la siguiente fusion.
+    $bajoYa = $false
+    try {
+        $pend = @($script:traduccionesCuarentena)
+        foreach ($q in $pend) { if ($q -and $q.original -and $script:cuarentenaEnDisco.ContainsKey([string]$q.original)) { $bajoYa = $true } }
+    } catch {}
     if ($script:traduccionesCuarentena.Count -eq 0) { return 0 }
     $n = 0
     $t = Get-Traducciones
@@ -8708,8 +8754,15 @@ function Remove-Cuarentena([string]$porque = '') {
         Log ("CUARENTENA: no aprendo '" + $e.original + "' = '" + $e.texto + "': lo corregiste " +
              [int]($tardo / 1000) + " s despues" + $(if ($porque) { " ($porque)" } else { '' }))
         $n++
+        [void]$script:cuarentenaEnDisco.Remove([string]$e.original)
     }
     [void]$script:traduccionesCuarentena.Clear()
+    # Y SI ALGUNA HABIA BAJADO YA, EL FICHERO SE REESCRIBE SIN ELLA. Quitarla solo de la RAM dejaba
+    # el disco con la traduccion que braya acababa de corregir, y la siguiente fusion la resucitaba.
+    if ($bajoYa) {
+        [void](Save-Traducciones)
+        Log 'CUARENTENA: alguna ya habia bajado a disco al vencer otra; reescribo el fichero sin ella'
+    }
     return $n
 }
 function Add-Traduccion([string]$original, [string]$traducida) {
