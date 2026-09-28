@@ -2103,6 +2103,37 @@ Titulo "2n272. El @() sobre una lista envuelta, el fallo que ha vuelto cuatro ve
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-listas-envueltas.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ni un @\(\) sobre una lista envuelta)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n279. Los bancos de Python que se rendian por el interprete"
+# La bateria lanza sus 43 bancos de Python con "python" a secas, y el del PATH de esta consola es el
+# 3.11, que no tiene numpy ni httpx. Nova arranca sus workers con el de config.json (paths.python).
+# O sea que tres bancos morian en el import -por el interprete y no por el codigo- y DOS salian con
+# CODIGO 0: Traceback por arriba y verde por abajo. probar-audio.py llevaba asi desde que se
+# escribio; al arreglarlo corrio entero por primera vez (20 de 20) y destapo que ni podia leer la
+# frase de ejemplo. Es la manera mas barata de salir verde mintiendo: no hace falta doblar ninguna
+# pieza, basta con lanzarlo con un interprete al que le falta algo. Lo que se exige es lo unico que
+# no admite opinion -que ninguno importe A PELO un paquete que aqui no esta, salvo que se relance
+# con el Python de Nova-; los imports dentro de un try se listan en gris y no se les pide nada,
+# porque ahi el patron de la casa es degradar a proposito (regla 7) y un aviso que sale siempre se
+# aprende a ignorar. Y se prueba a si mismo con tres ficheros de mentira que solo se diferencian en
+# lo que decide el veredicto.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n280. Quien vigila al vigilante: la seccion 7 de esta misma bateria"
+# La seccion 7 de aqui abajo es la unica que mira la salida de error que van dejando los 300 y pico
+# bancos, o sea la pieza que caza a los que mueren a medias. Es la mas importante de la bateria y la
+# que menos se mira, porque no prueba ninguna funcion de Nova: prueba a los demas bancos. Si su
+# logica se rompe, no se cae una comprobacion, se queda sin vigilancia la bateria entera y nadie se
+# entera. Hoy ademas se le ha metido mano -un ModuleNotFoundError ya no es amarillo sino rojo-, que
+# es justo cuando conviene. Tiene que distinguir cuatro cosas: funcion sin traer (rojo), banco de
+# Python muerto en el import (rojo), ruido legitimo (amarillo) y nada (verde). El bloque se SACA de
+# este fichero por sangrado y se ejecuta con ficheros de error de mentira, asi que si manana cambia
+# ahi la logica, esto la mide sobre el codigo nuevo y no sobre una copia.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-bancos-muertos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el ruido de un banco muerto)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+
+
 Titulo "2n271. La pantalla no se apaga nunca, y Nova ya lo sabe (idea 121 de las 121, la ultima)"
 # Medido en esta consola: powercfg /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE da indice 0x00000000 en
 # corriente ALTERNA y en CONTINUA -"apagar la pantalla tras: nunca" en las dos- y el brillo esta a
@@ -3218,10 +3249,25 @@ if (Test-Path -LiteralPath $script:errBanco) {
     # parte solo por el ancho de la consola, asi que cualquier filtro fino se equivoca-:
     # basta con saber si quedo ALGO escrito ahi, y ensenarlo.
     $conAlgo = @($lineasErr | Where-Object { ([string]$_).Trim() })
-    if ($noExiste.Count -gt 0) {
+    # UN BANCO DE PYTHON QUE MUERE EN EL IMPORT NO ES RUIDO (27/09, tras la revision). Lo demas
+    # de aqui sale en amarillo a proposito -por esta salida cae ruido legitimo, avisos y barras
+    # de progreso-, pero un ModuleNotFoundError no tiene dos lecturas: ese banco no comprobo
+    # NADA. Y era invisible por partida doble: dos de los tres que lo hacian salian ademas con
+    # codigo 0, asi que su seccion se pintaba verde y esta linea amarilla era el unico rastro.
+    # La 2n279 lo vigila ANTES de correr, mirando los imports; esto lo caza DESPUES, que es
+    # cuando ya no queda excusa ninguna.
+    $muertoPy = @($lineasErr | Select-String -Pattern 'ModuleNotFoundError|ImportError')
+    if ($noExiste.Count -gt 0 -or $muertoPy.Count -gt 0) {
         $quienes = @($lineasErr | ForEach-Object { if ($_ -match "El t.rmino .([A-Za-z]+-[A-Za-z]+).") { $Matches[1] } } | Sort-Object -Unique)
-        Write-Host ("   MAL: " + $noExiste.Count + " llamada(s) a funciones que el banco no trajo: " + ($quienes -join ", ")) -ForegroundColor Red
-        Write-Host "   Ese banco NO esta probando lo que dice probar. Traela con Traer/TraerFn, o ponle un sustituto." -ForegroundColor Red
+        if ($noExiste.Count -gt 0) {
+            Write-Host ("   MAL: " + $noExiste.Count + " llamada(s) a funciones que el banco no trajo: " + ($quienes -join ", ")) -ForegroundColor Red
+            Write-Host "   Ese banco NO esta probando lo que dice probar. Traela con Traer/TraerFn, o ponle un sustituto." -ForegroundColor Red
+        }
+        if ($muertoPy.Count -gt 0) {
+            $quePy = @($muertoPy | ForEach-Object { if ($_ -match "No module named '([^']+)'") { $Matches[1] } } | Sort-Object -Unique)
+            Write-Host ("   MAL: " + $muertoPy.Count + " banco(s) de Python murieron en el import; falta: " + ($quePy -join ", ")) -ForegroundColor Red
+            Write-Host "   Ese banco no comprobo nada. Casi siempre es el interprete: la bateria lanza con 'python' y Nova usa el de config.json (ver 2n279)." -ForegroundColor Red
+        }
         $fallos++
     } else {
         if ($conAlgo.Count -eq 0) {
