@@ -148,6 +148,17 @@ $iV = -1
 # inversion de polaridad se cazaria por "no encuentro el bloque" -que es fragil: un renombrado lo
 # rompe igual- en vez de por lo que de verdad importa, que la frase del saldo acabe en internet.
 for ($i = 0; $i -lt $lin.Count; $i++) { if ($lin[$i] -match '^\s+if \(.{0,8}Test-VozLocal \$t ') { $iV = $i; break } }
+# Y LO QUE PREPARA LA DECISION, SI LO HAY (28/09). Desde hoy la bandera de lo privado se lee y se
+# baja en las lineas de justo encima del if -es de un solo uso, ver Say-, asi que el bloque empieza
+# ahi: sacar solo el if dejaria la variable vacia y el banco reventaria por su propio recorte, que
+# es lo que paso al aplicar el cambio. Se miran tres lineas hacia atras y ni una mas.
+if ($iV -ge 1) {
+    for ($k = 1; $k -le 3; $k++) {
+        $j = $iV - $k
+        if ($j -lt 0) { break }
+        if ($lin[$j] -match '\$privadaV\s*=') { $iV = $j; break }
+    }
+}
 Comp '5b0. se encuentra el bloque en Say' ($iV -ge 0) ('linea ' + ($iV + 1))
 $fV = -1
 if ($iV -ge 0) {
@@ -178,6 +189,21 @@ if ($fV -gt $iV) {
     $script:fue = ''; $script:piperPuede = $false; $script:logs = @()
     $r3 = Decidir $reales[0].t $false
     Comp '5b4. si Piper no puede, sigue a la de fuera' ($r3 -eq 'fuera') ''
+    # LA BANDERA, EJECUTADA Y NO MIRADA (28/09). Hasta hoy los casos 6a-6e comprobaban el cableado
+    # buscando texto en el fichero, y ninguno comprobaba lo unico que importa: que la bandera siga
+    # PUESTA cuando Say la lee. No lo estaba -el camino local la bajaba veinticinco lineas antes del
+    # Say-, asi que la mitad "bandera" del filtro no habia funcionado nunca y el banco salia verde.
+    # Aqui se usa una frase que NO casa con el patron, para que lo unico que pueda mandarla a casa
+    # sea la bandera: si alguien vuelve a bajarla antes de tiempo, esto se pone rojo.
+    $script:fue = ''; $script:piperPuede = $true
+    $r4 = Decidir 'Solo Gover esta conectado, jugando Rocket League.' $true
+    Comp '5b8. con la bandera puesta, una frase sin palabras de dinero se queda en casa' (($script:fue -eq 'casa') -and ($r4 -ne 'fuera')) ('fue por: ' + $(if ($script:fue) { $script:fue } else { 'la de fuera' }))
+    # y es de UN SOLO USO: la siguiente frase ya no la arrastra (la regla 2, ningun modo se queda
+    # puesto). Decidir vuelve a poner la bandera en cada llamada, asi que se mira la variable.
+    Comp '5b9. y la bandera queda bajada para la frase siguiente' (-not $script:respuestaPrivada) ('vale ' + [string]$script:respuestaPrivada)
+    $script:fue = ''
+    $r5 = Decidir 'Ya esta abierto Steam.' $false
+    Comp '5b10. y sin bandera, esa misma frase sale por la de fuera' (($script:fue -eq '') -and ($r5 -eq 'fuera')) ''
     Comp '5b5. y lo deja dicho en el log' (@($script:logs | Where-Object { $_ -match 'Piper no pudo' }).Count -eq 1) ''
     $script:piperPuede = $true
     # LA MARCA DE PRIVADO TAMBIEN MANDA, ejecutandola

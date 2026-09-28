@@ -12230,6 +12230,11 @@ function Receive-AmigoPregunta {
                       visible = ($null -ne $pP.personastate)
                       jugando = [string]$pP.gameextrainfo }
     }
+    # LOS NICKS DE SUS AMIGOS SON SUYOS, TAMBIEN POR ESTE CAMINO (28/09, tras la revision). La
+    # respuesta de Steam llega asincrona y la dice esta funcion, que no pasa por Invoke-FastCommand:
+    # era el unico camino de los siete que no levantaba la bandera ni sobre el papel, y es justo el
+    # que suelta la lista entera de nicks y a que estan jugando.
+    $script:respuestaPrivada = $true
     if ($listaP.Count -eq 0) { Say 'No veo a ningun amigo en tu lista de Steam.'; return }
     if ($finP -eq 'decir') { Say (Format-AmigosSteam $listaP); return }
     Say (Open-AmigoEleccion $listaP)
@@ -22282,7 +22287,28 @@ function Say([string]$texto, [string]$emo = '') {
     # LO QUE LLEVA DATOS SUYOS NO SALE DE CASA (27/09, idea 116). Va ANTES de la eleccion de motor
     # y se prueba Piper primero; si Piper no puede -no esta, no arranca, no contesta-, la cadena de
     # abajo sigue igual que siempre, porque callarse seria peor que decirlo.
-    if (Test-VozLocal $t ([bool]$script:respuestaPrivada)) {
+    # LA BANDERA DE LO PRIVADO SE LEE AQUI Y SE BAJA AQUI (28/09, tras la revision). Tenia dos
+    # fallos que son el mismo: se bajaba en el sitio equivocado.
+    #
+    # 1) LLEGABA SIEMPRE APAGADA. Los seis caminos que la levantan corren dentro de
+    #    Invoke-FastCommand -el correo, el texto de un mensaje privado, los nicks de los amigos de
+    #    Steam, los nombres de sus ficheros-, y el camino local la ponia a $false JUSTO DESPUES de
+    #    usarla para redactar la linea del registro, unas veinticinco lineas ANTES de llamar a Say.
+    #    O sea que la mitad "bandera" del filtro de la idea 116 no ha funcionado nunca: una
+    #    respuesta privada que no llevara palabras de dinero salia entera por edge-tts. De las 220
+    #    frases que Nova ha dicho en los dos registros, 214 salieron a internet, y entre ellas las
+    #    dos del 25/09 con los nicks de sus amigos y a que estaban jugando.
+    # 2) Y CUANDO SI SE LEVANTABA POR OTRO CAMINO, SE QUEDABA PUESTA. Complete-Confirmacion reentra
+    #    por Invoke-Correo, que la levanta en su primera linea, dice la frase y vuelve con return
+    #    sin bajarla: desde ese 'si' y hasta la siguiente orden local, TODO lo que dijera Nova -la
+    #    charla, un aviso, un 'vale'- se sintetizaba con Piper. Un modo que se queda puesto, que es
+    #    la regla 2, y encima poniendo la voz que braya no quiere.
+    # De un solo uso y en el unico sitio que la consume: quien la levanta ya no tiene que acordarse
+    # de bajarla, y si un camino se levanta y revienta antes de hablar, lo peor que pasa es que la
+    # frase siguiente se diga en casa. Ese es el lado bueno del error.
+    $privadaV = [bool]$script:respuestaPrivada
+    $script:respuestaPrivada = $false
+    if (Test-VozLocal $t $privadaV) {
         if (Say-Piper $t) {
             Log 'voz: esta frase lleva datos tuyos, la digo con mi voz de casa'
             return
@@ -26977,6 +27003,30 @@ function Test-SalidaJuego {
     # proceso el parpadeo seguiria igual. Mientras la ventana no venza, no se decide nada.
 
     if ($s.ventana -and ($sw.ElapsedMilliseconds - [double]$s.desdeMs) -lt [double]$s.ventana) { return }
+    # EL BRILLO VUELVE EN CUANTO VENCE LA VENTANA, VIVA EL PROCESO O NO (28/09, tras la revision).
+    # La idea 108 aplazo el Set-Brillo para no deshacerlo en un parpadeo, y eso estaba bien; lo que
+    # no tocaba es que quedara DETRAS del 'if (Test-JuegoVivo)'. Con el proceso vivo -o sea el
+    # alt-tab normal, que es el caso que la propia idea llama el corriente: minimizas el juego, que
+    # sigue corriendo, y te vas al escritorio o a Discord- no se restauraba NUNCA, y a las 2 h la
+    # rama de "sigue abierto" tiraba $script:juegoSalida sin llamar a Set-Brillo, asi que el 70 de
+    # braya se perdia del todo. Y Test-JuegoVivo devuelve $true cuando no puede leer la ruta del
+    # proceso, o sea que empuja hacia el lado de NO restaurar. Medido: 45 de las 56 entradas de los
+    # dos registros son vueltas a un juego ya visto, asi que la ventana existe casi siempre.
+    # AQUI YA SE SABE QUE ES UNA SALIDA: arriba se comprobo que el juego NO esta delante
+    # ($script:juegoActivo -ne $s.nombre) y la ventana medida ha vencido. Que el proceso siga vivo
+    # dice que el juego esta abierto, no que braya lo este mirando, y el brillo es de la pantalla
+    # que braya mira.
+    if ($s.brillo) {
+        try {
+            Set-Brillo ([int]$s.brillo)
+            Log "JUEGO: brillo restaurado a $($s.brillo) al salir de $($s.nombre) (tras la espera)"
+            try { Remove-Item -LiteralPath (Join-Path $TmpDir 'juego-brillo.json') -Force -ErrorAction SilentlyContinue } catch {}
+            $script:juegoBrilloAntes = $null
+        } catch {}
+        # Y NO SE REINTENTA: esto corre cada 10 s mientras el proceso siga vivo, y volver a poner el
+        # brillo cada diez segundos pisaria a braya si lo sube a mano despues de salir del juego.
+        $s.brillo = 0
+    }
     if (Test-JuegoVivo $s) {
         # dos horas con el juego abierto detras sin mirarlo: si se cierra ahora ya no
         # viene a cuento preguntar donde te quedaste, asi que se deja de vigilar
@@ -26987,15 +27037,6 @@ function Test-SalidaJuego {
             $script:juegoSesionSeg = 0
         }
         return
-    }
-    # LO QUE SE APLAZO, AHORA (27/09, idea 108): la salida es de verdad, asi que el brillo vuelve.
-    if ($s.brillo) {
-        try {
-            Set-Brillo ([int]$s.brillo)
-            Log "JUEGO: brillo restaurado a $($s.brillo) al salir de $($s.nombre) (tras la espera)"
-            try { Remove-Item -LiteralPath (Join-Path $TmpDir 'juego-brillo.json') -Force -ErrorAction SilentlyContinue } catch {}
-            $script:juegoBrilloAntes = $null
-        } catch {}
     }
     $script:juegoSalida = $null
     # los segundos ANTES de $minsS: hay un banco que exige < 240 caracteres entre esa linea y el
@@ -29767,8 +29808,20 @@ $script:triviaGenerandoEn = 0
             }
             continue
         }
-        if ([int]$ev.id -ne $script:charlaId) { continue }   # de una respuesta ya cortada
-        if ($ev.ev -eq 'recuerdo') {
+        # EL RECUERDO VA ANTES DEL FILTRO DE id (28/09, tras la revision). Se pide con id = 0 a
+        # proposito -no es una respuesta de charla que se pueda cortar a medias, ver la peticion
+        # de 'recordar'- y el worker contesta con ese mismo 0. Pero $script:charlaId sube en CADA
+        # hablar, trivia o resumir, asi que desde la primera charla de la sesion el filtro de
+        # abajo tiraba el recuerdo: ni voz, ni tarjeta, ni una linea de log, y la respuesta ya se
+        # habia vaciado a proposito esperando este evento. Rompia la regla 3: ni siquiera llegaba
+        # el camino honesto, el 'No me suena que hablaramos de eso'. Se nota en los datos: CERO
+        # lineas 'RECUERDO:' en los dos registros y cero estadisticas recuerdo-si/recuerdo-no,
+        # con la funcion escrita el 23/09. Antes de la primera charla (charlaId == 0) si
+        # funcionaba, que es por lo que se dio por bueno.
+        # LO QUE DECIDE QUE ESTO VALE ES QUE HAYA UNA PREGUNTA VIVA, no el id: $script:recuerdoPide
+        # lo pone quien pregunta y lo vacia la propia rama, asi que un recuerdo huerfano -de una
+        # sesion anterior del worker- sigue sin hablar.
+        if ($ev.ev -eq 'recuerdo' -and $script:recuerdoPide) {
             # LO QUE ENCONTRO EN SU MEMORIA (23/09, funcion 4). Si no llega al liston medido,
             # lo dice: "no me suena" es una respuesta honesta y "creo que dijiste algo de..."
             # es el principio de inventarse las cosas.
@@ -29791,6 +29844,8 @@ $script:triviaGenerandoEn = 0
             Set-UI 'reposo'
             continue
         }
+        if ([int]$ev.id -ne $script:charlaId) { continue }   # de una respuesta ya cortada
+
         if ($ev.ev -eq 'frase') {
             # LA MUESTRA DE TIEMPO, CON SU MOTOR (26/09, idea 37): el ms se guardo en el 'info';
             # el motor (api/local) esta aqui. Solo la PRIMERA frase deja muestra -el -1 la
@@ -33012,7 +33067,8 @@ function Process-Texto([string]$text) {
                 # para seguir un fallo.
                 if ($script:respuestaPrivada) { Log ("LOCAL: $text -> (" + ([string]$fast).Length + " caracteres, no los escribo)") }
                 else { Log "LOCAL: $text -> $fast" }
-                $script:respuestaPrivada = $false
+                # AQUI YA NO SE BAJA: la baja Say, que es quien la usa (28/09). Bajarla aqui era
+                # dejarla apagada en las veinticinco lineas que faltan hasta el Say de abajo.
                 Set-UltimaOrden $text ([string]$fast)
                 if ($script:intentoActual) { $script:intentoActual.llego = 'local' }   # idea 24
                 $script:noEntendiSeguidos = 0
