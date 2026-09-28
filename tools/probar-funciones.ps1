@@ -23,6 +23,19 @@ function Traer([string]$nombre) {
     return $fn.Extent.Text
 }
 
+# igual que Traer pero para una constante del archivo: se trae la ASIGNACION de verdad, para que
+# el banco no mida contra un numero copiado a mano que un dia deje de ser el del archivo.
+# Estaba definida mas abajo, justo antes de Test-Charla; la subo aqui porque ahora tambien la
+# necesita el bloque de Get-Atragantos, que va antes (27/09).
+function TraerVariable([string]$nombre) {
+    $asig = $ast.Find({ param($n)
+        $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+        $n.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and
+        $n.Left.VariablePath.UserPath -eq $nombre }, $true)
+    if (-not $asig) { throw "no encuentro `$$nombre" }
+    return $asig.Extent.Text
+}
+
 # dependencias minimas
 $script:juegoActivo = $null
 $ZombiMinutos = 20
@@ -35,6 +48,17 @@ function Get-Estadisticas { return $script:stats }
 Invoke-Expression (Traer 'ConvertTo-Plain')
 Invoke-Expression (Traer 'Test-MismoAudio')
 Invoke-Expression (Traer 'Get-JuegosZombis')
+# LO QUE LE FALTABA AL BANCO (27/09): Get-Atragantos ya no agrupa por texto identico, agrupa por
+# PARECIDO (idea 88), y para eso llama por dentro a las dos distancias que Nova ya tenia. Sin
+# traerlas, el banco moria con "El termino 'Get-Distancia' no se reconoce". Van tambien sus dos
+# dependencias en cadena: Get-DistanciaFon llama a Test-MismoSonido, que lee $script:GruposFon.
+# Y el tope se trae del archivo en vez de escribirlo aqui, para que el banco no se quede midiendo
+# contra un 0,34 copiado si manana el archivo usa otro.
+Invoke-Expression (TraerVariable 'script:GruposFon')
+Invoke-Expression (TraerVariable 'AtraganteDistMax')
+Invoke-Expression (Traer 'Get-Distancia')
+Invoke-Expression (Traer 'Test-MismoSonido')
+Invoke-Expression (Traer 'Get-DistanciaFon')
 Invoke-Expression (Traer 'Get-Atragantos')
 Invoke-Expression (Traer 'Get-Trozo')
 Invoke-Expression (Traer 'Test-MereceRepaso')
@@ -113,13 +137,41 @@ $script:stats = @{
     )
 }
 $at = @(Get-Atragantos)
+# LA RAMA FONETICA AGRUPA DE VERDAD (27/09, tras la revision). Get-DistanciaFon cobra 2 por edicion
+# entera, asi que dividiendo por el largo SIN doblar dFon sale >= dLetras para cualquier par y el
+# Min se queda siempre con las letras: la mitad fonetica de Get-Atragantos no agrupaba nada. Estas
+# dos formas de la misma orden lo ensenan: por letras 0,412 -fuera del tope- y por fonetica 0,206
+# -dentro-. Si alguien vuelve a quitar el doble, esto se pone rojo.
+#
+# SE CALCULA AQUI Y NO DENTRO DEL ARRAY: Get-Atragantos escribe por su cuenta, y metida en un
+# '& { }' dentro de @(...) su salida se cuela como un elemento mas y desarma el par
+# etiqueta/valor (salia un 'MAL True' sin etiqueta). Y va DESPUES de los demas casos porque
+# cambia $script:stats.
+$statsAntesFon = $script:stats
+$script:stats = @{ dias = @{}; descartes = @('2026-09-12  pon el modo noche', '2026-09-11  bun il mudu nuchi'); recientes = @() }
+$gFon = @(Get-Atragantos)
+$foneticaAgrupa = ($gFon.Count -eq 1 -and [int]$gFon[0].veces -eq 2)
+$script:stats = $statsAntesFon
+
 $casosA = @(
     @('la que mas falla va primera', ($at.Count -gt 0 -and (ConvertTo-Plain $at[0].frase) -eq 'pon musica')),
     @('y cuenta las tres veces',     ($at.Count -gt 0 -and $at[0].veces -eq 3)),
     @('junta descarte y modelo',     ($at.Count -gt 0 -and $at[0].rutas.Count -eq 2)),
-    @('el error tambien cuenta',     (@($at | Where-Object { (ConvertTo-Plain $_.frase) -eq 'cierra el juego' -and $_.veces -eq 2 }).Count -eq 1)),
+    # EL DATO CAMBIO, NO EL BANCO SE ROMPIO (27/09). Este caso era 'el error tambien cuenta' y
+    # esperaba ver 'cierra el juego' con veces=2 desde las dos lineas [error]. El archivo decidio
+    # lo contrario (idea 88): 'error' YA NO ENTRA, porque en [error] el texto que se guarda es la
+    # etiqueta interna del contador ('dictado vacio', 'cancelado', 'timeout') y no algo que braya
+    # dijera, asi que la tabla acababa pidiendole ensenarle a Nova la frase 'dictado vacio'.
+    # ANTES: se esperaba 1 grupo con veces=2. AHORA: se espera CERO grupos desde [error].
+    # Las dos lineas [error] del apano se quedan puestas a proposito: pasan todos los demas
+    # filtros (mas de 3 letras, dos palabras), asi que si alguien devuelve 'error' al switch este
+    # caso se pone rojo. Es lo unico que vigila que la decision siga tomada.
+    @('el error NO cuenta (idea 88)', (@($at | Where-Object { (ConvertTo-Plain $_.frase) -eq 'cierra el juego' }).Count -eq 0)),
     @('una orden que fue bien no sale', (@($at | Where-Object { (ConvertTo-Plain $_.frase) -eq 'abre steam' }).Count -eq 0)),
-    @('el ruido de una palabra no sale', (@($at | Where-Object { (ConvertTo-Plain $_.frase) -eq 'eh' }).Count -eq 0))
+    # LA COMA NO SOBRA: sin ella PowerShell APLANA los dos arrays en uno y el bucle de abajo acaba
+    # iterando sobre cadenas sueltas, donde $c[0] es el primer CARACTER. Salia 'OK y' y 'MAL True'.
+    @('el ruido de una palabra no sale', (@($at | Where-Object { (ConvertTo-Plain $_.frase) -eq 'eh' }).Count -eq 0)),
+    @('y la fonetica agrupa lo que las letras no', $foneticaAgrupa)
 )
 foreach ($c in $casosA) {
     if (-not $c[1]) { $mal++ }
@@ -193,14 +245,7 @@ Write-Host ""
 Write-Host "--- Test-Charla: conversacion de fondo vs ordenes largas de verdad ---"
 # las listas tambien salen del archivo real: si alguien quita un verbo de
 # $VERBOS, esta prueba tiene que notarlo
-function TraerVariable([string]$nombre) {
-    $asig = $ast.Find({ param($n)
-        $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and
-        $n.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and
-        $n.Left.VariablePath.UserPath -eq $nombre }, $true)
-    if (-not $asig) { throw "no encuentro `$$nombre" }
-    return $asig.Extent.Text
-}
+# (TraerVariable esta arriba, junto a Traer: ahora la usan los dos bloques)
 foreach ($v in @('VERBOS', 'VERBOS_LISTA', 'VERBOS_OIDOS', 'INICIO_ORDEN', 'INGLES_COMUN', 'ESPANOL_COMUN')) { Invoke-Expression (TraerVariable $v) }
 $script:Juegos = @(@{ nombre = 'The Last of Us Part I' }, @{ nombre = 'Hollow Knight' })
 Invoke-Expression (Traer 'Test-Charla')

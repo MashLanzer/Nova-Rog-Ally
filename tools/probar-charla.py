@@ -8,11 +8,57 @@ import sys
 import json
 import time
 import shutil
+import subprocess
 import tempfile
 
 sys.stdout.reconfigure(encoding="utf-8")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import charla_worker as cw  # noqa: E402
+
+
+# ESTE BANCO SE CORRE CON EL PYTHON DE NOVA, NO CON EL PRIMERO DEL PATH (27/09)
+#
+# charla_worker.py importa httpx arriba del fichero (su cliente unico de la API, 18/09). Nova
+# lanza los workers con $PyExe -paths.python de config.json y, si no esta puesto,
+# %LOCALAPPDATA%\Programs\Python\Python312\python.exe (assistant.ps1, linea ~20926)-, y ese SI
+# tiene httpx. Pero tools\probar-todo.ps1 lanza este banco con "python" a secas, y en esta
+# maquina eso resuelve a C:\Program Files\Python311\python.exe, que NO lo tiene. Resultado
+# medido antes de arreglarlo: el banco moria en la linea del import, antes de la PRIMERA
+# comprobacion ("ModuleNotFoundError: No module named 'httpx'"), y la seccion 2t se contaba
+# roja sin haber probado nada. El codigo estaba bien; el interprete era el equivocado.
+#
+# Asi que si el interprete que nos toco no puede cargar el worker por una dependencia que le
+# falta, nos volvemos a lanzar UNA vez con el de Nova (la marca NOVA_BANCO_RELANZADO corta la
+# recursion) y devolvemos su codigo tal cual. Si el de Nova tampoco esta, o tampoco la tiene,
+# se DICE y se sale con 1: aqui no se salta ni una comprobacion en silencio.
+def _python_de_nova():
+    raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    ruta = ""
+    try:
+        with open(os.path.join(raiz, "config.json"), encoding="utf-8") as f:
+            ruta = str(((json.load(f) or {}).get("paths") or {}).get("python") or "")
+    except Exception:
+        ruta = ""
+    if not ruta:
+        ruta = os.path.join(
+            os.environ.get("LOCALAPPDATA") or "", "Programs", "Python", "Python312", "python.exe"
+        )
+    return os.path.expandvars(ruta)
+
+
+try:
+    import charla_worker as cw  # noqa: E402
+except ModuleNotFoundError as _e:
+    _falta = getattr(_e, "name", None) or "una dependencia"
+    if os.environ.get("NOVA_BANCO_RELANZADO"):
+        print("MAL   al python de Nova tambien le falta %s: pip install %s" % (_falta, _falta))
+        sys.exit(1)
+    _py = _python_de_nova()
+    if not os.path.isfile(_py):
+        print("MAL   falta %s y no encuentro el python de Nova en %s" % (_falta, _py))
+        sys.exit(1)
+    _ent = dict(os.environ)
+    _ent["NOVA_BANCO_RELANZADO"] = "1"
+    sys.exit(subprocess.call([_py, os.path.abspath(__file__)] + sys.argv[1:], env=_ent))
 
 # LA MEMORIA DE BRAYA NO SE TOCA (18/09). apuntar_charla() escribe en la global
 # CARPETA_CEREBRO, y hasta hoy solo se redirigia a mitad del fichero (linea ~369): todo lo

@@ -1,4 +1,4 @@
-﻿# EN LA MESA O EN LAS MANOS (27/09, idea 69 de las 121)
+# EN LA MESA O EN LAS MANOS (27/09, idea 69 de las 121)
 #
 # DOS SENALES QUE NO COSTABAN NADA Y NO SE USABAN:
 #   1. dwPacketNumber del mando. XInput solo lo sube cuando el mando cambia de estado, y el estado
@@ -140,7 +140,7 @@ try {
     } else {
         $script:logs = @()
         # EL ESTRENO CUESTA (cazado aqui el 27/09): la PRIMERA GetCurrentOrientation de la sesion
-        # tarda 11,96 ms y en caliente 1,86. La guarda de Watch-Orientacion medía la primera, asi
+        # tarda 11,96 ms y en caliente 1,86. La guarda de Watch-Orientacion media la primera, asi
         # que desactivaba el sensor para siempre en la unica consola donde funciona. Ahora calienta
         # con una lectura que no cuenta y juzga la segunda; este caso es el que lo vigila.
         $cron = [Diagnostics.Stopwatch]::StartNew()

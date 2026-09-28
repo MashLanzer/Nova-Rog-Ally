@@ -27,7 +27,13 @@ RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 USO = os.path.join(RAIZ, "pruebas", "audio", "uso")
 
 # lo que cuenta como que Nova ACERTO, y lo que cuenta como que fallo
-BIEN = ("local", "aprendida", "memoria", "traducida", "receta")
+# "firma" ENTRA AQUI EL 27/09 (idea 89): es un destino propio y no 'local' a secas -las firmas
+# se ganan para ahorrar llamadas a la nube y asi se ve si el ahorro crece-, pero es un ACIERTO
+# igual que 'local' o 'receta': la orden se resolvio aqui y se ejecuto. Estaba en $UsoBien de
+# assistant.ps1 y no aqui, y eso es lo que canto probar-meta. OJO: un destino que no aparece en
+# ninguna de las tres listas cuenta en el denominador y no en los aciertos, o sea que hunde
+# justo el numero con el que se mide la meta.
+BIEN = ("local", "aprendida", "firma", "memoria", "traducida", "receta")
 MAL = ("error", "descarte", "ruido")
 # NI ACIERTO NI FALLO (18/09): lo que Nova hizo con la frase, no si acerto. Mas de la mitad del
 # uso real es esto y hasta hoy no dejaba rastro ninguno. No pueden entrar en el porcentaje: si

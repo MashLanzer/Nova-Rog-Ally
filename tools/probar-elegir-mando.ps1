@@ -61,6 +61,16 @@ $script:confirmaFin = 0; $script:confirmaTotal = 0
 $script:panel = $null; $script:pendiente = $null; $script:busy = $false
 $script:juegoActivo = $false
 $script:relojFalso = 0
+# LA MESA (27/09, idea 69): Get-PistaMando empezo a preguntar si el mando esta en la mesa, y
+# esta cadena entera le hacia falta al banco. Estos tres son ESTADO, no piezas que se prueben:
+# el sensor apagado y el mando sin haberse movido son el arranque de verdad, y con eso
+# Get-EnLaMesa devuelve $false -"no lo se"- que es justo lo que pasa en una sesion nueva.
+$script:orientacionPlana = $false
+$script:mandoMovidoEn = 0
+# el fichero de los huecos vive en la memoria de Nova; aqui apunta a uno nuestro que empieza
+# sin existir, asi que el umbral no se ha aprendido todavia.
+$MandoHuecosJson = Join-Path ([System.IO.Path]::GetTempPath()) ('nova-huecos-banco-' + $PID + '.json')
+if (Test-Path -LiteralPath $MandoHuecosJson) { Remove-Item -LiteralPath $MandoHuecosJson -Force }
 function Log([string]$m) { $script:logs += $m }
 function Set-UI([string]$estado, [string]$texto = '', [int]$ms = 0) {
     $script:uiEstado = $estado; $script:uiTexto = $texto; $script:uiMs = $ms
@@ -71,7 +81,10 @@ function Invoke-AjedrezPy([string[]]$a) { return @{ decir = ('jugada ' + ($a -jo
 $sw = [pscustomobject]@{}
 $sw | Add-Member -MemberType ScriptProperty -Name ElapsedMilliseconds -Value { $script:relojFalso }
 foreach ($v in @('EleccionMs', 'XINPUT_ARR', 'XINPUT_ABA', 'XINPUT_IZQ', 'XINPUT_DER',
-                 'XINPUT_A', 'XINPUT_B', 'XINPUT_START', 'TRIGGER')) { Invoke-Expression (TraerVar $v) }
+                 'XINPUT_A', 'XINPUT_B', 'XINPUT_START', 'TRIGGER',
+                 # los dos de la quietud del mando (27/09, idea 69): el minimo de muestras y el
+                 # percentil. Se traen del fichero para que el banco no se invente el umbral.
+                 'MandoHuecosMin', 'MandoQuietoPct')) { Invoke-Expression (TraerVar $v) }
 $XINPUT_LB = 0x0100        # un boton que el selector NO consume, para el caso del plazo
 # LAS DOS GUARDAS DEL MANDO SE TRAEN DEL FICHERO, no se copian: son exactamente lo que
 # faltaba en el selector y lo que este banco no probaba. Se evaluan en cada vuelta, igual
@@ -80,8 +93,32 @@ $txtConMenu = TraerVar 'conMenu'
 $txtMandoVale = TraerVar 'mandoVale'
 $script:pausaHasta = 0
 $script:uiHasta = 0
-foreach ($f in @('Show-Eleccion', 'Open-Eleccion', 'Close-Eleccion', 'Complete-Eleccion',
-                 'Get-PistaMando')) { Invoke-Expression (Traer $f) }
+# FALTABAN CINCO (27/09). Get-PistaMando dejo de ser una funcion suelta: ahora pregunta
+# Get-EnLaMesa, que pregunta Get-QuietudMando y Get-UmbralQuietud, que pregunta Get-HuecosMando
+# y Get-PercentilLista. Era una cadena de cinco y el banco moria en la primera ('El termino
+# Get-EnLaMesa no se reconoce'). Se traen TODAS del fichero: doblar cualquiera de ellas seria
+# probar el doble y no la regla.
+$piezas = @('Show-Eleccion', 'Open-Eleccion', 'Close-Eleccion', 'Complete-Eleccion',
+            'Get-PercentilLista', 'Get-HuecosMando', 'Get-QuietudMando',
+            'Get-UmbralQuietud', 'Get-EnLaMesa', 'Get-PistaMando')
+foreach ($f in $piezas) { Invoke-Expression (Traer $f) }
+# Y QUE NINGUNA SEA UN DOBLE (manera 15 de salir verde mintiendo). Con diez piezas traidas del
+# fichero es facil que un dia una de ellas se llame igual que un andamio de aqui arriba y el
+# andamio la tape sin decir nada. Se comprueba mirando ESTE fichero: si el banco define una
+# funcion con el nombre de una pieza que trae, esa pieza no se esta probando.
+$astBanco = [System.Management.Automation.Language.Parser]::ParseFile($PSCommandPath, [ref]$null, [ref]$null)
+$mias = @($astBanco.FindAll({ param($x)
+    $x -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true) | ForEach-Object { $_.Name })
+foreach ($f in $piezas) {
+    if ($mias -contains $f) {
+        Write-Host "  MAL  el banco define ${f}: esta doblando la pieza que prueba" -ForegroundColor Red
+        exit 1
+    }
+    if (-not (Get-Command $f -CommandType Function -ErrorAction SilentlyContinue)) {
+        Write-Host "  MAL  $f no llego a cargarse del fichero" -ForegroundColor Red
+        exit 1
+    }
+}
 $script:eleccion = $null; $script:mandoHay = $false
 # una vuelta del bucle con estos botones recien pulsados. $botones son los que estan
 # APRETADOS en esta vuelta (para $conMenu) y $pulsados los que acaban de bajar.
@@ -117,6 +154,46 @@ Comp 'con un juego delante: hace falta el menu' (($p2 -match ([string][char]0x22
 $script:juegoActivo = $false
 $p3 = Get-PistaMando 'peligrosa'
 Comp 'en una peligrosa, A no se ofrece' (($p3 -notmatch 'A si') -and ($p3 -match 'B no')) $p3.Trim()
+
+Write-Host ''
+Write-Host '-- Y CON EL MANDO EN LA MESA NO SE OFRECE NADA (27/09, idea 69) --'
+# La cadena entera -Get-EnLaMesa, Get-QuietudMando, Get-UmbralQuietud, Get-HuecosMando y
+# Get-PercentilLista- se trae del fichero, asi que aqui se prueba la regla de verdad y no una
+# copia. Lo que se vigila: que NO afirme la mesa cuando le falta una senal (es la mitad de la
+# regla: cada senal sola se equivoca) y que el umbral no se lo invente nadie.
+function Poner-Huecos([int]$cuantos, [int]$segundos) {
+    $h = @(1..$cuantos | ForEach-Object { $segundos })
+    [System.IO.File]::WriteAllText($MandoHuecosJson,
+        (ConvertTo-Json @{ huecos = $h; visto = 'banco' } -Compress), [System.Text.UTF8Encoding]::new($false))
+}
+$script:juegoActivo = $false
+$script:relojFalso = 61000
+$script:mandoMovidoEn = 1000            # 60 s sin tocarlo
+$script:orientacionPlana = $true
+# 1) todavia no ha aprendido cuanto es 'quieto de verdad': no se inventa la certeza
+Comp 'sin umbral aprendido, la pista sigue' ((Get-PistaMando '') -match 'A si') 'no se afirma lo que no se sabe'
+# 2) con menos muestras que el minimo del fichero, tampoco
+Poner-Huecos ($MandoHuecosMin - 1) 10
+Comp "con $($MandoHuecosMin - 1) huecos tampoco (el minimo es $MandoHuecosMin)" ((Get-PistaMando '') -match 'A si')
+# 3) con el minimo justo, el umbral sale y 60 s lo pasan de largo
+Poner-Huecos $MandoHuecosMin 10
+Comp 'plano y quieto de mas: la pista desaparece' ((Get-PistaMando '') -eq '') "quieto 60 s, umbral $(Get-UmbralQuietud) s"
+Comp 'y en una peligrosa tampoco se ofrece el no' ((Get-PistaMando 'peligrosa') -eq '')
+# 4) las dos senales, no una: tumbado en la cama jugando tambien da plano
+$script:orientacionPlana = $false
+Comp 'sin el sensor plano no se afirma la mesa' ((Get-PistaMando '') -match 'A si') 'plano solo no basta'
+$script:orientacionPlana = $true
+# 5) ni un mando que acaba de moverse
+$script:mandoMovidoEn = 59000           # 2 s
+Comp 'un mando recien tocado no esta en la mesa' ((Get-PistaMando '') -match 'A si') 'quieto 2 s'
+# 6) ni uno que no se ha visto moverse nunca en esta sesion: eso es no saber, no quietud
+$script:mandoMovidoEn = 0
+Comp 'y si nunca se le vio moverse, no se supone nada' ((Get-PistaMando '') -match 'A si') 'sesion recien arrancada'
+# se deja como estaba para los casos de abajo
+$script:orientacionPlana = $false
+$script:mandoMovidoEn = 0
+$script:relojFalso = 0
+Remove-Item -LiteralPath $MandoHuecosJson -Force -ErrorAction SilentlyContinue
 # y la regla de verdad, la del 13/09, sigue en el codigo. Esto es lo unico que se puede
 # mirar por texto: ese camino es el de la pregunta de si/no, que este banco no monta.
 # La regla del ≡ EN EL SELECTOR se prueba ejecutandolo, mas abajo.
@@ -270,8 +347,27 @@ Comp 'y se apunta en el log' ($oe -match 'Log \(')
 
 Write-Host ''
 Write-Host '-- y "hay mando" no se da por supuesto --'
+# ESTO SE MIRABA POR TEXTO Y SE ROMPIO (27/09). El caso pedia la linea entera de un tiron:
+#   if ($r -eq 0) { $botones = $botones -bor [int]$state.Gamepad.wButtons; $script:mandoHay = $true }
+# y la idea 69 metio dentro de ese if el bloque del dwPacketNumber, asi que el if dejo de caber
+# en una linea y el caso se puso rojo con el codigo bien. Lo que de verdad importa no es la
+# forma de la linea: es que $script:mandoHay = $true este DENTRO del if que comprueba el codigo
+# de XInput. Eso se pregunta al AST y aguanta que el bloque siga creciendo.
+$asigMando = @($ast.FindAll({ param($x)
+    $x -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+    $x.Left.Extent.Text -eq '$script:mandoHay' -and
+    $x.Right.Extent.Text -eq '$true' }, $true))
+$dentroDelSi = $false
+foreach ($a in $asigMando) {
+    $p = $a.Parent
+    while ($null -ne $p) {
+        if ($p -is [System.Management.Automation.Language.IfStatementAst] -and
+            $p.Clauses[0].Item1.Extent.Text -replace '\s', '' -eq '$r-eq0') { $dentroDelSi = $true; break }
+        $p = $p.Parent
+    }
+}
 Comp 'se marca solo si XInput contesta que si' `
-    ($fuente -match "if \(\`$r -eq 0\) \{ \`$botones = \`$botones -bor \[int\]\`$state\.Gamepad\.wButtons; \`$script:mandoHay = \`$true \}") 'codigo 0 = conectado'
+    (($asigMando.Count -eq 1) -and $dentroDelSi) "codigo 0 = conectado; $($asigMando.Count) sitio(s) lo marcan"
 
 Write-Host ''
 if ($fallos) { Write-Host "  $fallos caso(s) MAL"; exit 1 }

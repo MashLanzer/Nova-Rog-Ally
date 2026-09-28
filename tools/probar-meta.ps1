@@ -1,4 +1,4 @@
-# EL CONTADOR DE LA META, PROBADO SIN MICROFONO (19/09, idea 3 de MEJORAS.md).
+﻿# EL CONTADOR DE LA META, PROBADO SIN MICROFONO (19/09, idea 3 de MEJORAS.md).
 #
 # Get-ComoTeEntendi es el unico numero que mide la meta de braya -que Nova le entienda
 # siempre-, asi que lo peor que puede hacer es dar un porcentaje bonito y falso. Aqui se le
@@ -125,6 +125,16 @@ Dice 'una linea rota se salta' @('2 de 2') @()
 Pon @((L '20260919-100000' 'local' 'abre steam'), (L '20260919-100100' 'local' 'pausa'),
       (L '20260919-100200' 'recitado' 'Que hora es, Que hora es'))
 Dice 'un recitado no suma acierto ni resta' @('2 de 2', '100 por ciento') @('3 de 3', '2 de 3', '67 por ciento')
+
+# UNA FIRMA SI ES UN ACIERTO (27/09, idea 89). 'firma' es un destino propio -no 'local' a
+# secas, para poder ver si el ahorro de llamadas a la nube crece con el uso-, pero la orden se
+# resolvio aqui y se EJECUTO: cuenta como entendida. Igual que con 'recitado', que las dos
+# listas coincidan no basta: el 27/09 'firma' estaba en $UsoBien y no en el BIEN del .py, y si
+# manana se cayera de los dos a la vez la comparacion de arriba seguiria verde mientras la meta
+# se hunde sola (un destino que no esta en ninguna lista suma en el denominador y no en los
+# aciertos). Este caso es el que lo caza.
+Pon @((L '20260919-100000' 'local' 'abre steam'), (L '20260919-100100' 'firma' 'pon modo noche'))
+Dice 'una firma cuenta como entendida' @('2 de 2', '100 por ciento') @('1 de 2', '50 por ciento', 'me equivoque')
 
 Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ''

@@ -12,11 +12,70 @@ Nova contesta cualquier cosa parecida y eso es inventar; si esta alto, dice que 
 de cosas que si sabe. Se mide contra SU memoria de verdad, no contra ejemplos.
 """
 import io
+import json
 import os
+import subprocess
 import sys
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, RAIZ)
+
+# La consola de Nova no siempre es UTF-8, y aqui se imprimen recuerdos SUYOS tal cual (llevan
+# acentos: "8 dolares", "musica electronica"). Con la cp1252 de PowerShell un solo caracter
+# raro tiraba el banco por UnicodeEncodeError a mitad de la tabla, y eso se cuenta rojo sin
+# que falle nada de lo que se vigila.
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:      # noqa: BLE001
+    pass
+
+
+# ESTE BANCO SE CORRE CON EL PYTHON DE NOVA, NO CON EL PRIMERO DEL PATH (27/09)
+#
+# Aqui el liston se mide contra la memoria DE VERDAD, y para eso hace falta el embebedor:
+# "from charla_worker import EmbedOllama" (mas abajo). charla_worker.py importa httpx arriba
+# del fichero -su cliente unico de la API, 18/09-, y el python con el que Nova lanza sus
+# workers (paths.python de config.json y, si no esta puesto,
+# %LOCALAPPDATA%\Programs\Python\Python312\python.exe) SI lo tiene. Pero
+# tools\probar-todo.ps1 lanza este banco con "python" a secas, y en esta maquina eso resuelve
+# a C:\Program Files\Python311\python.exe, que NO lo tiene.
+# Medido antes de arreglarlo: el try de mas abajo cazaba ese ModuleNotFoundError y el banco
+# imprimia "MAL  no puedo abrir su memoria: No module named 'httpx'" y salia con 1 sin haber
+# medido NADA -ni un acierto, ni un falso, ni el hueco-, asi que la seccion 2n100 se contaba
+# roja con el codigo bien. El interprete era el equivocado, no el liston.
+#
+# Se hace igual que en tools\probar-charla.py: si al interprete que nos toco le falta una
+# dependencia del worker, nos volvemos a lanzar UNA vez con el de Nova (la marca
+# NOVA_BANCO_RELANZADO corta la recursion) y se devuelve su codigo tal cual. Si el de Nova
+# tampoco esta, o tampoco la tiene, se DICE y se sale con 1: aqui no se salta ni una
+# comprobacion en silencio. Y va ANTES del primer print, para no imprimir la tabla dos veces.
+def _python_de_nova():
+    ruta = ""
+    try:
+        with io.open(os.path.join(RAIZ, "config.json"), encoding="utf-8-sig") as f:
+            ruta = str(((json.load(f) or {}).get("paths") or {}).get("python") or "")
+    except Exception:      # noqa: BLE001
+        ruta = ""
+    if not ruta:
+        ruta = os.path.join(os.environ.get("LOCALAPPDATA") or "",
+                            "Programs", "Python", "Python312", "python.exe")
+    return os.path.expandvars(ruta)
+
+
+try:
+    import charla_worker      # noqa: F401  (solo para ver si ESTE python puede cargarlo)
+except ModuleNotFoundError as _e:
+    _falta = getattr(_e, "name", None) or "una dependencia"
+    if os.environ.get("NOVA_BANCO_RELANZADO"):
+        print("  MAL  al python de Nova tambien le falta %s: pip install %s" % (_falta, _falta))
+        sys.exit(1)
+    _py = _python_de_nova()
+    if not os.path.isfile(_py):
+        print("  MAL  falta %s y no encuentro el python de Nova en %s" % (_falta, _py))
+        sys.exit(1)
+    _ent = dict(os.environ)
+    _ent["NOVA_BANCO_RELANZADO"] = "1"
+    sys.exit(subprocess.call([_py, os.path.abspath(__file__)] + sys.argv[1:], env=_ent))
 
 fallos = 0
 

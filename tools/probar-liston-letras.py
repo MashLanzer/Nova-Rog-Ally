@@ -17,13 +17,54 @@
 #
 #   python tools/probar-liston-letras.py
 import io
+import json
 import os
 import re
+import subprocess
 import sys
 
-import numpy as np
-
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# EL BANCO TIENE QUE CORRER CON EL PYTHON DE NOVA (27/09). La bateria (probar-todo.ps1) lanza
+# los bancos de Python con el "python" del PATH, que en esta consola es 3.11 y NO tiene numpy;
+# Nova arranca sus workers con el de config.json paths.python -por defecto
+# %LOCALAPPDATA%\Programs\Python\Python312\python.exe, ver $PyExe en assistant.ps1-, que SI lo
+# tiene. Y aqui numpy no es un adorno del banco: la propia segundos_de_voz que se extrae de
+# wake_vosk.py hace np.sqrt / np.percentile / np.where sobre el audio, asi que sin numpy el banco
+# no llegaba ni al primer caso: se caia con "ModuleNotFoundError: No module named 'numpy'", el
+# traceback se iba al fichero de errores y la seccion 2n61 se pintaba VACIA en rojo, por el
+# interprete y no por el codigo. Ni se dobla numpy -seria meter una dependencia de mentira por
+# debajo de la pieza que se prueba- ni se salta ningun caso: se vuelve a lanzar con el interprete
+# de Nova, que es el que la corre de verdad. Y si ese interprete no aparece o tampoco lo tiene,
+# se dice y se sale en rojo.
+
+
+def _python_de_nova():
+    exe = ""
+    try:
+        with io.open(os.path.join(RAIZ, "config.json"), encoding="utf-8-sig") as f:
+            exe = ((json.load(f).get("paths") or {}).get("python") or "").strip()
+    except Exception:  # noqa: BLE001
+        exe = ""
+    if not exe:
+        exe = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Python", "Python312", "python.exe")
+    exe = os.path.expandvars(exe)
+    return exe if os.path.isfile(exe) else ""
+
+
+try:
+    import numpy as np
+except Exception:  # noqa: BLE001
+    _exe = _python_de_nova()
+    if _exe and os.path.normcase(_exe) != os.path.normcase(sys.executable) and not os.environ.get("NOVA_LISTON_RELANZADO"):
+        os.environ["NOVA_LISTON_RELANZADO"] = "1"
+        sys.exit(subprocess.call([_exe, os.path.abspath(__file__)] + sys.argv[1:]))
+    if _exe:
+        print("  MAL  el Python de Nova (%s) tampoco tiene numpy: no se puede EJECUTAR segundos_de_voz" % (_exe,))
+    else:
+        print("  MAL  falta numpy y no encuentro el Python de Nova: no se puede EJECUTAR segundos_de_voz")
+    sys.exit(1)
+
 # NO se importa wake_vosk: importarlo arranca el microfono. Se extrae el codigo con regex.
 SRC = io.open(os.path.join(RAIZ, "wake_vosk.py"), encoding="utf-8").read()
 

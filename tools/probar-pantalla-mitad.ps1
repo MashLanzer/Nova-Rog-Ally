@@ -1,4 +1,4 @@
-# "X EN LA MITAD Y EN LA OTRA MITAD Y" (22/09 por la noche, idea 9).
+﻿# "X EN LA MITAD Y EN LA OTRA MITAD Y" (22/09 por la noche, idea 9).
 #
 # En catorce dias la pantalla dividida NO se ejecuto bien ni una sola vez por voz: cero de
 # once intentos. Y la forma que braya usa de verdad -"abre X en la mitad y en la otra mitad
@@ -50,15 +50,47 @@ function TraerVar([string]$nombre) {
 # y el sintoma no era un error: con $FILLER_GLOBAL vacio, el -replace casa en CADA posicion
 # de la cadena y mete el reemplazo entre letra y letra. La frase salia como
 # "a b r e y o u t u b e ..." y TODAS las comprobaciones rojas, con el codigo bien.
+# Y $OidoTestigosMin (27/09): lo lee Get-VerbosAprendidos para decidir que entrada aprendida
+# ya vale. Sin sacarlo valdria $null (= 0) y cualquier entrada a medias contaria.
 foreach ($nv in @('VERBOS', 'VERBOS_IMPERATIVO', 'VERBOS_OIDOS', 'VERBOS_LISTA', 'LOCATIVO', 'VENTANA',
-                  'FILLER_INI', 'FILLER_FIN', 'FILLER_GLOBAL', 'VERBOS_CORTE', 'VERBOS_TEXTO')) {
+                  'FILLER_INI', 'FILLER_FIN', 'FILLER_GLOBAL', 'VERBOS_CORTE', 'VERBOS_TEXTO',
+                  'OidoTestigosMin')) {
     Invoke-Expression (TraerVar $nv)
 }
-foreach ($fn in @('ConvertTo-Plain', 'Get-Distancia', 'Repair-Verb', 'Repair-Words',
+# LA CADENA DE Repair-Verb, COMPLETA (27/09). Repair-Verb paso a consultar lo aprendido del uso
+# (idea 87) y llama a Get-VerbosAprendidos, que a su vez llama a Get-OidoAprendido. Sin las dos el
+# banco reventaba en la PRIMERA frase: "El termino 'Get-VerbosAprendidos' no se reconoce". Se
+# extraen las de verdad, no una copia, y en este orden porque asi las encuentra quien las llama.
+foreach ($fn in @('ConvertTo-Plain', 'Get-Distancia', 'Get-OidoAprendido', 'Get-VerbosAprendidos',
+                  'Repair-Verb', 'Repair-Words',
                   'Remove-Filler', 'Test-NombreConocido', 'Add-CortesSinConector',
                   'Split-Compound', 'Split-Ordenes')) {
     Invoke-Expression (Traer $fn)
 }
+# LA RUTA DE LO APRENDIDO, A UNA CARPETA TEMPORAL Y DESPUES DE CARGAR LAS PIEZAS (27/09). Es lo
+# unico de mentira que hay aqui, y hace falta: sin tocarla, este banco leeria el oido-aprendido.json
+# de verdad de la consola y sus resultados cambiarian solos segun lo que braya hubiera corregido ese
+# dia. Tiene que ser una ruta VALIDA que NO exista, no $null: con $null el Test-Path de dentro de
+# Get-OidoAprendido revienta y su catch se traga el error devolviendo la lista vacia, que es
+# justo la respuesta que esperan las pruebas. Esa es la manera 10 de salir verde mintiendo.
+$tmpOido = Join-Path ([IO.Path]::GetTempPath()) ('nova-mitad-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
+New-Item -ItemType Directory -Path $tmpOido -Force | Out-Null
+$OidoAprendidoPath = Join-Path $tmpOido 'oido-aprendido.json'
+# Y QUE LA CADENA ESTA VIVA DE VERDAD, no tragada por un catch. Comprobar que Get-VerbosAprendidos
+# responde "una tabla" no vale: una tabla vacia es exactamente lo que devuelve su catch cuando algo
+# se rompe. Asi que se le pone una entrada con los testigos que pide y se mira si Repair-Verb la
+# aplica; y luego se quita, porque el resto del banco tiene que correr con la lista vacia (que es el
+# estado normal) y no depender de lo que braya haya corregido hoy.
+function Oido-Vacia { $script:oidoAprendido = $null }
+Write-Host ''
+Write-Host '-- las piezas de verdad, cargadas y vivas --'
+'{"haben":{"bueno":"abre","testigos":' + $OidoTestigosMin + ',"visto":"2026-09-27"}}' |
+    Set-Content -LiteralPath $OidoAprendidoPath -Encoding UTF8
+Oido-Vacia
+Comp 'la cadena del oido aprendido esta viva' ((Repair-Verb 'haben steam') -eq 'abre steam') "$OidoTestigosMin testigos -> se repara"
+Remove-Item -LiteralPath $OidoAprendidoPath -Force
+Oido-Vacia
+Comp 'y sin fichero la lista queda vacia' ((Get-VerbosAprendidos).Count -eq 0) 'el resto del banco corre con lo aprendido a cero'
 
 # OJO CON EL RESULTADO: Split-Ordenes devuelve la lista de fragmentos, y envolverla con
 # @() y unirla con ' | ' partia la cadena en caracteres sueltos ("d i v i d i r ..."), asi
@@ -129,7 +161,6 @@ Write-Host '-- y la cola no es glotona --'
 # busqueda entera y Resolve-Target fallaba: cero ganancia en el caso con mas peligro.
 $g = Uno 'abre YouTube en la mitad y en la otra mitad abre el navegador'
 Comp 'el segundo destino es solo la app' ($g -match 'con el navegador$') $g
-Comp 'el patron corta en la barra' ($fuente -match '\(\[\^\|\]\+\?\)') 'que es el separador que respeta Split-Compound'
 # LO QUE DE VERDAD SEPARA ESTO DEL VOLUMEN: que haga falta "la otra mitad". Si alguien deja
 # el patron en "X a la mitad" a secas, "pon el volumen a la mitad" se volveria una pantalla
 # dividida, y eso si seria una orden que braya no dio.
@@ -146,6 +177,12 @@ if ($lineaM) {
     }
 }
 Comp 'el patron nuevo se puede leer del fichero' ($patM.Length -gt 0) "$($patM.Length) caracteres"
+# LA COLA NO GLOTONA, ANCLADA AL PATRON Y NO AL FICHERO (27/09). Antes esto se comprobaba con un
+# -match de '([^|]+?)' sobre assistant.ps1 ENTERO, y ese mismo trozo sale tambien en la otra rama
+# de la pantalla dividida (la de "la mitad de la pantalla en X y la otra mitad en Y"): quitandole
+# la cola no glotona a ESTA linea, la comprobacion seguia verde por la de al lado. Ahora se mira
+# dentro del patron que se acaba de leer, que es la linea de verdad.
+Comp 'el patron corta en la barra' ($patM.Contains('([^|]+?)')) 'que es el separador que respeta Split-Compound'
 Comp 'y exige "la otra mitad"' ($patM.Contains('otra')) 'es lo que lo separa del volumen'
 Comp 'el volumen a secas NO casa' (-not ('pon el volumen a la mitad' -match $patM)) 'aunque se quitara la guarda'
 Comp 'ni el brillo' (-not ('pon el brillo a la mitad' -match $patM))
@@ -159,6 +196,7 @@ Comp 'la forma "en pantalla dividida"' ($y2 -match 'dividir pantalla steam con e
 $y3 = Uno 'abre Steam a pantalla dividida'
 Comp 'y la de una sola app' ($y3 -match 'dividir pantalla con steam') $y3
 
+Remove-Item -LiteralPath $tmpOido -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ''
 if ($fallos -gt 0) { Write-Host "  $fallos caso(s) MAL"; exit 1 }
 Write-Host '  "en la mitad y en la otra mitad" ya es una pantalla dividida'

@@ -132,7 +132,15 @@ Comp 'y con margen (al menos 1 s)' (($workerSeg * 1000 - $esperaMs) -ge 1000) ''
 # bloque de la confirmacion pendiente del bucle
 $iConf = $txt.IndexOf('--- CONFIRMACION PENDIENTE (si / no / plazo) ---')
 $trozoConf = if ($iConf -ge 0) { $txt.Substring($iConf, [Math]::Min(4500, $txt.Length - $iConf)) } else { '' }
-Comp 'el plazo se rearma al pasar a confirmando' ($trozoConf -match '\$script:pendiente\.vence = \$sw\.ElapsedMilliseconds \+ \$ConfirmacionMs') ''
+# 27/09: EL REARME YA NO SUMA LA CONSTANTE A PELO, SUMA EL PLAZO MEDIDO (idea 102). La linea
+# decia "+ $ConfirmacionMs" y esta comprobacion buscaba ese texto; ahora dice
+# "+ (Get-PlazoConfirmacion)", que es el calculo compartido con techo $ConfirmacionMs. El codigo
+# esta bien: lo desfasado era el banco. Se ancla a la llamada real, no a la constante suelta.
+Comp 'el plazo se rearma al pasar a confirmando' ($trozoConf -match '\$script:pendiente\.vence = \$sw\.ElapsedMilliseconds \+ \(Get-PlazoConfirmacion\)') ''
+# Y NADIE VUELVE A ESCRIBIR EL PLAZO A MANO AHI (es de lo que va esta seccion): ninguna
+# asignacion de .vence dentro del bloque puede llevar un numero de tres cifras o mas.
+$aManoV = [regex]::Matches($trozoConf, '\$script:pendiente\.vence = .*[0-9]{3}')
+Comp 'y sin numeros a mano en el vencimiento' ($aManoV.Count -eq 0) "a mano=$($aManoV.Count)"
 # Y LO QUE DE VERDAD PROTEGE (18/09, 20:15): el rearme de arriba paso la prueba y fallo en
 # vivo, porque el plazo vencia ANTES de que la capsula pasara a 'confirmando' (la voz seguia
 # sonando). Mientras hable, el vencimiento tiene que empujarse a "fin de la voz + plazo".

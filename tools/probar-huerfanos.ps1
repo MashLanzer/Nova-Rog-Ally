@@ -139,8 +139,59 @@ New-Item -ItemType Directory -Path $tmp -Force | Out-Null
 $marca  = Join-Path $tmp 'dictar.flag'
 $salida = Join-Path $tmp 'oido.txt'
 $logW   = Join-Path $tmp 'worker.log'
-$pyExe = 'pythonw.exe'
-try { $null = Get-Command pythonw.exe -ErrorAction Stop } catch { $pyExe = 'python.exe' }
+# EL MISMO PYTHON QUE USA NOVA, NO EL DEL PATH (27/09). Esta seccion decia "el worker no
+# arranco" y no era el worker: el banco lo lanzaba con el pythonw.exe del PATH, que en esta
+# maquina es C:\Program Files\Python311 y NO tiene winsdk. voz_windows.py importa winsdk en
+# preparar(), asi que moria al instante y el banco lo contaba como fallo del codigo.
+# assistant.ps1 no usa el PATH: lee paths.python de config.json (por defecto
+# %LOCALAPPDATA%\Programs\Python\Python312\python.exe) y prefiere el pythonw.exe de al lado
+# (ver $PyExe / $PyWorker, linea ~20926). Aqui se resuelve IGUAL, para probar lo que corre de
+# verdad y no un interprete que Nova nunca usa.
+$pyExe  = ''
+$pyCfg  = ''
+try {
+    $rutaCfg = Join-Path $Raiz 'config.json'
+    if (Test-Path -LiteralPath $rutaCfg) {
+        $cfgJson = [IO.File]::ReadAllText($rutaCfg) | ConvertFrom-Json
+        if ($cfgJson.paths -and $cfgJson.paths.python) { $pyCfg = [string]$cfgJson.paths.python }
+    }
+} catch {}
+if (-not $pyCfg) { $pyCfg = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe' }
+if (Test-Path -LiteralPath $pyCfg) {
+    $pyExe = $pyCfg
+    try {
+        $pyw = Join-Path (Split-Path -Parent $pyCfg) 'pythonw.exe'
+        if (Test-Path -LiteralPath $pyw) { $pyExe = $pyw }
+    } catch {}
+}
+if (-not $pyExe) {
+    # ultimo recurso. NO es el que usa Nova, asi que se dice en voz alta en vez de callarlo.
+    $pyExe = 'pythonw.exe'
+    try { $null = Get-Command pythonw.exe -ErrorAction Stop } catch { $pyExe = 'python.exe' }
+    Write-Host "       (ojo: no encontre el python de Nova, voy con el del PATH: $pyExe)"
+}
+# Y QUE ESE PYTHON TENGA winsdk. Sin winsdk el worker muere al importar y las cuatro
+# comprobaciones de abajo salen rojas por un motivo que NO es el que vigilan; ademas el
+# dictado de Windows no funcionaria en Nova tampoco, asi que es un fallo de verdad.
+# Se pregunta con el python de consola (pythonw no devuelve nada por donde mirar) y con
+# Start-Process, que no convierte el stderr del .exe en error de PowerShell.
+$pyConsola = $pyExe -replace 'pythonw\.exe$', 'python.exe'
+$errSdk = Join-Path $tmp 'winsdk.txt'
+$okSdk = $false
+try {
+    # LAS COMILLAS SON OBLIGATORIAS: Start-Process pega los argumentos con espacios sin
+    # entrecomillar nada, asi que sin ellas a python le llega "-c import" + "winsdk" y
+    # contesta SyntaxError. El banco lo daba por "no tiene winsdk" teniendolo.
+    $pSdk = Start-Process -FilePath $pyConsola -ArgumentList @('-c', '"import winsdk"') `
+            -WindowStyle Hidden -Wait -PassThru -RedirectStandardError $errSdk
+    $okSdk = ($pSdk.ExitCode -eq 0)
+} catch { $okSdk = $false }
+$dSdk = if ($okSdk) { Split-Path -Leaf $pyExe } else {
+    $m = ''
+    if (Test-Path -LiteralPath $errSdk) { $m = ((Get-Content -LiteralPath $errSdk -Tail 1) -join ' ').Trim() }
+    "$pyConsola -> $m"
+}
+Comp 'el python de Nova tiene winsdk' $okSdk $dSdk
 
 function Arrancar-Worker([int]$pidPadre) {
     $antes = $env:NOVA_PID_PADRE

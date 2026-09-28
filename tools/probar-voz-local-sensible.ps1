@@ -145,7 +145,7 @@ Write-Host '-- 5b. EL CAMINO DE VERDAD, EJECUTADO (no mirado) --'
 $lin = [IO.File]::ReadAllLines($PS1)
 $iV = -1
 # EL ANCLA ES LAXA A PROPOSITO: acepta tambien un '-not' delante. Si exigiera el texto exacto, la
-# inversion de polaridad se cazaria por "no encuentro el bloque" -que es frágil: un renombrado lo
+# inversion de polaridad se cazaria por "no encuentro el bloque" -que es fragil: un renombrado lo
 # rompe igual- en vez de por lo que de verdad importa, que la frase del saldo acabe en internet.
 for ($i = 0; $i -lt $lin.Count; $i++) { if ($lin[$i] -match '^\s+if \(.{0,8}Test-VozLocal \$t ') { $iV = $i; break } }
 Comp '5b0. se encuentra el bloque en Say' ($iV -ge 0) ('linea ' + ($iV + 1))

@@ -32,12 +32,35 @@ function Log([string]$m) { }
 $EntornoNocheDesde = 23
 $BandaFinPctBajo = if ($fuente -match '(?m)^\$BandaFinPctBajo\s*=\s*(\d+)') { [int]$Matches[1] } else { -1 }
 $BandaFinPctAlto = if ($fuente -match '(?m)^\$BandaFinPctAlto\s*=\s*(\d+)') { [int]$Matches[1] } else { -1 }
+# LO QUE FALTABA (27/09): la idea 86 quito el AddHours(-5) escrito a mano y ahora Get-BandaFinHabitual
+# y Test-RecordarCarga llaman a Get-DiaJuego para saber donde parte el dia. Hay que traer la CADENA
+# entera -Get-DiaJuego -> Get-CorteDia -> Get-FranjaMuerta -> Get-HorasConActividad-, no un doble:
+# de lo contrario el banco daria por fijo el corte que precisamente ya no es fijo. Sus tres numeros
+# tambien se leen del archivo, por lo mismo.
+$FranjaHorasMin = if ($fuente -match '(?m)^\$FranjaHorasMin\s*=\s*(\d+)') { [int]$Matches[1] } else { -1 }
+$FranjaDiasMin = if ($fuente -match '(?m)^\$FranjaDiasMin\s*=\s*(\d+)') { [int]$Matches[1] } else { -1 }
+$CorteDiaPorDefecto = if ($fuente -match '(?m)^\$CorteDiaPorDefecto\s*=\s*(\d+)') { [int]$Matches[1] } else { -1 }
+$script:franjaCalculadaDia = ''
+$script:franjaMuerta = $null
+$script:corteDia = $CorteDiaPorDefecto
+# en el mundo del banco no hay cuaderno de activaciones ni usos: la franja se queda sin datos y el
+# corte cae al respaldo. Eso es lo que anclan los casos 0b y 0c, de los que cuelgan TODAS las ventanas.
+$ActivacionesJsonl = Join-Path $raiz 'pruebas\no-hay-cuaderno-en-el-banco.jsonl'
+Invoke-Expression (Traer 'Get-HorasConActividad')
+Invoke-Expression (Traer 'Get-FranjaMuerta')
+Invoke-Expression (Traer 'Get-CorteDia')
+Invoke-Expression (Traer 'Get-DiaJuego')
 Invoke-Expression (Traer 'Get-BandaFinHabitual')
 Invoke-Expression (Traer 'Get-HoraFinHabitual')
 Invoke-Expression (Traer 'Test-RecordarCarga')
 Invoke-Expression (Traer 'Get-AvisoHoraDormir')
 
 Comp '0. los cuartiles se leen del archivo y son 25 y 75' ($BandaFinPctBajo -eq 25 -and $BandaFinPctAlto -eq 75) "bajo=$BandaFinPctBajo alto=$BandaFinPctAlto"
+# LA PREMISA DE TODOS LOS CASOS DE ABAJO: la ventana de la banda es [hoy-14d, Get-DiaJuego(hoy)), y
+# cada caso esta elegido contando con que el dia parte a las 5. Si el respaldo del corte cambiase,
+# estos dos casos lo dicen a la cara en vez de dejar que fallen siete casos sin explicar por que.
+Comp '0b. el corte del dia en el mundo del banco es 5' ((Get-CorteDia([datetime]'2026-09-26 18:00')) -eq 5) "corte=$(Get-CorteDia([datetime]'2026-09-26 18:00'))"
+Comp '0c. y Get-DiaJuego lo aplica: 04:00 es del dia de ayer, 05:00 ya del de hoy' (((Get-DiaJuego([datetime]'2026-09-26 04:00')) -eq '2026-09-25') -and ((Get-DiaJuego([datetime]'2026-09-26 05:00')) -eq '2026-09-26')) ''
 
 function PonNoches($pares) {
     $script:hb.fin = @{}

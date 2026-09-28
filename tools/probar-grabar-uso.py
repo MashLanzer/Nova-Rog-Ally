@@ -45,6 +45,16 @@ def comp(etiqueta, ok, detalle=""):
 # REGLA (aprendida cuatro veces ya): si llamas a una funcion desde aqui, TIENE que estar
 # en esta lista. Si falta, la prueba revienta o -peor- pasa en verde sin probar nada.
 QUIERO = ("segundos_de_voz", "modo_grabar_uso", "grabar_uso_activo", "guardar_uso", "apuntar_uso")
+# Y LO MISMO VALE PARA LAS CONSTANTES: TASA FALTABA Y ESTO SALIA VERDE MINTIENDO
+# (27/09). guardar_uso hace w.setframerate(TASA); sin TASA en el namespace eso revienta
+# DENTRO de su try y el except se lo traga con un "WARN: no pude guardar el uso
+# (sampling rate not specified)"... pero wave.open ya habia CREADO el fichero en el
+# disco, asi que el contador de wav veia 1 y los tres casos positivos pasaban. El wav
+# era de 0 bytes, apuntar_uso no llegaba a correr y _uso['id'] se quedaba en None: de lo
+# que dice la seccion -que el disco SI se abre para tu voz- no se probaba nada. Ahora
+# TASA sale del archivo igual que el umbral, y en cuantos() hay una guarda para que un
+# WARN de guardar_uso no vuelva a pasar por un OK.
+CONSTANTES = ("VOZ_MIN_GUARDAR", "TASA")
 fuente = io.open(os.path.join(RAIZ, "wake_vosk.py"), encoding="utf-8").read()
 arbol = ast.parse(fuente)
 
@@ -54,8 +64,8 @@ ns = {"np": np, "os": os, "time": time, "json": json, "sys": sys,
 for n in arbol.body:
     if isinstance(n, ast.FunctionDef) and n.name in QUIERO:
         exec(compile(ast.Module(body=[n], type_ignores=[]), "<wake_vosk>", "exec"), ns)
-    # y las constantes que usan
-    if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") in ("VOZ_MIN_GUARDAR",):
+    # y las constantes que usan (ver CONSTANTES arriba: TASA no estaba)
+    if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") in CONSTANTES:
         exec(compile(ast.Module(body=[n], type_ignores=[]), "<wake_vosk>", "exec"), ns)
 
 faltan = [q for q in QUIERO if q not in ns]
@@ -64,6 +74,8 @@ if faltan:
     sys.exit(1)
 comp("el umbral sale del archivo, no de aqui", "VOZ_MIN_GUARDAR" in ns,
      "VOZ_MIN_GUARDAR = %s" % ns.get("VOZ_MIN_GUARDAR"))
+comp("y la tasa tambien (sin ella el wav se quedaba en 0 bytes)", "TASA" in ns,
+     "TASA = %s" % ns.get("TASA"))
 
 # --- un escenario aislado: ni se toca la carpeta de uso de verdad ---
 base = tempfile.mkdtemp(prefix="grabar-uso-")
@@ -82,7 +94,13 @@ def modo(m):
 
 
 def wavs():
-    return sorted(f for f in os.listdir(ns["USO_DIR"])) if os.path.isdir(ns["USO_DIR"]) else []
+    """SOLO los .wav. registro.jsonl vive en la MISMA carpeta (27/09): mientras a la
+    prueba le faltaba TASA, apuntar_uso nunca llegaba a correr y ese jsonl no existia,
+    asi que un os.listdir pelado colaba. Con TASA puesto el primer guardado deja wav Y
+    jsonl, y 'una orden normal se guarda' habria contado 2 en vez de 1."""
+    if not os.path.isdir(ns["USO_DIR"]):
+        return []
+    return sorted(f for f in os.listdir(ns["USO_DIR"]) if f.lower().endswith(".wav"))
 
 
 def bloques(segundos, con_voz):
@@ -97,9 +115,19 @@ def bloques(segundos, con_voz):
 
 
 def cuantos(**campos):
-    """Llama a guardar_uso y devuelve cuantos wav hay despues."""
+    """Llama a guardar_uso y devuelve cuantos wav hay despues.
+
+    Y UN WARN DE GUARDAR_USO ES UN MAL (27/09). guardar_uso escribe dentro de un try, y
+    su except solo anota "WARN: no pude guardar el uso (...)". Pero para entonces
+    wave.open ya ha creado el fichero, asi que contar ficheros da 1 igual y el caso pasa
+    aunque no se haya escrito ni una muestra. Esa es la manera (10) de salir verde
+    mintiendo: el catch responde la pregunta. Aqui se caza."""
     antes = len(wavs())
+    marca = len(anotado)
     ns["guardar_uso"](campos.pop("bloques"), **campos)
+    for a in anotado[marca:]:
+        if a.startswith("WARN"):
+            comp("guardar_uso no sale por su except", False, a)
     time.sleep(0.02)   # el nombre lleva los segundos: dos seguidos no se pisan
     return len(wavs()) - antes
 
@@ -117,6 +145,28 @@ modo("ordenes")
 comp('el modo se lee bien', ns["modo_grabar_uso"]() == "ordenes", ns["modo_grabar_uso"]())
 comp("una orden normal se guarda",
      cuantos(bloques=bloques(1.5, True), entregado="abre steam", origen="nombre") == 1)
+
+# Y QUE LO GUARDADO SEA UN WAV, NO UN FICHERO VACIO (27/09). Contar ficheros no basta:
+# wave.open crea el fichero antes de escribir nada, asi que un guardado roto tambien
+# suma 1. Aqui se abre el que acaba de dejar y se mira que tenga las muestras dentro, a
+# la tasa del archivo, y que la linea de registro.jsonl lleve su mismo id: si alguna de
+# esas tres cosas falla, de lo que dice la seccion -que el disco SI se abre para tu
+# voz- no se ha probado nada.
+ultimo = wavs()[-1] if wavs() else ""
+canales = ancho = tasa_wav = tramas = 0
+if ultimo:
+    with wave.open(os.path.join(ns["USO_DIR"], ultimo), "rb") as w:
+        canales, ancho, tasa_wav, tramas = w.getnchannels(), w.getsampwidth(), w.getframerate(), w.getnframes()
+comp("y es un wav de verdad: mono, 16 bits, a su tasa y con muestras",
+     canales == 1 and ancho == 2 and tasa_wav == ns["TASA"] and tramas == int(16000 * 1.5),
+     "%d canal, %d bits, %d Hz, %d tramas" % (canales, ancho * 8, tasa_wav, tramas))
+linea = {}
+_reg = os.path.join(ns["USO_DIR"], "registro.jsonl")
+if os.path.isfile(_reg):
+    linea = json.loads(io.open(_reg, encoding="utf-8").read().splitlines()[-1])
+comp("y deja su linea en registro.jsonl, colgada de ese mismo wav",
+     linea.get("id") == ultimo[:-4] == ns["_uso"]["id"] and linea.get("entregado") == "abre steam",
+     "id=%s dur=%s" % (linea.get("id"), linea.get("dur")))
 comp("la activacion que murio en silencio NO se guarda",
      cuantos(bloques=bloques(2.0, False), entregado="", origen="nombre") == 0)
 comp('pero "le hable y no me entendio" SI se guarda',

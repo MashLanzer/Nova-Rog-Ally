@@ -14,7 +14,7 @@
 # braya lo pidio para el liston de letras y vale igual aqui: "todo deberia ser ajustable por
 # ella". Asi que el numero deja de estar escrito y sale de lo que tarda de verdad.
 #
-# REGLA DEL BANCO (van diecinueve): las cuatro funciones y las dos tablas se TRAEN de
+# REGLA DEL BANCO (van diecinueve): las cinco funciones y las dos tablas se TRAEN de
 # assistant.ps1. El unico cambio es a donde apunta el fichero, que aqui va a una carpeta
 # temporal para no tocar la memoria de verdad.
 $ErrorActionPreference = 'Stop'
@@ -31,7 +31,11 @@ function Comp($etiqueta, $ok, $detalle = '') {
     if (-not $ok) { $script:fallos++ }
 }
 
-foreach ($fn in @('Get-TrabajoTiempos', 'Add-TrabajoTiempo', 'Get-TrabajoPercentil', 'Get-DuracionEsperada')) {
+# Get-PercentilLista FALTABA: el 27/09 (idea 69) el calculo del percentil salio de dentro de
+# Get-TrabajoPercentil a una funcion suya, porque la quietud del mando necesitaba la misma cuenta.
+# El banco seguia extrayendo solo las cuatro de antes, asi que Get-TrabajoPercentil llamaba a algo
+# que aqui no existia y el banco reventaba. Va PRIMERA, que es a quien llaman las otras.
+foreach ($fn in @('Get-PercentilLista', 'Get-TrabajoTiempos', 'Add-TrabajoTiempo', 'Get-TrabajoPercentil', 'Get-DuracionEsperada')) {
     $m = [regex]::Match($fuente, ('(?ms)^function {0}[ (\[].*?^\}}' -f [regex]::Escape($fn)))
     if (-not $m.Success) { Write-Host ('  MAL  no encuentro {0} en assistant.ps1' -f $fn); exit 1 }
     . ([scriptblock]::Create($m.Value))

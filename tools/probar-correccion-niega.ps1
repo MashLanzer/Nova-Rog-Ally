@@ -54,9 +54,50 @@ foreach ($v in @('VERBOS_OIDOS', 'VERBOS_IMPERATIVO')) {
     if (-not $txt) { Write-Host "  MAL  no encuentro la tabla $v"; exit 1 }
     Invoke-Expression $txt
 }
+# LA LISTA PLANA DE VERBOS Y LA DISTANCIA, del archivo (27/09). Repair-Verb las usa en su
+# ultimo paso -el verbo que esta a una letra de uno de verdad-. Sin ellas se probaba media
+# funcion: $VERBOS_LISTA valia $null, el foreach no daba ni una vuelta y ese paso no se media
+# nunca. Probar una pieza mutilada es la manera 15 de salir verde mintiendo.
+$VERBOS = Invoke-Expression (TraerVar 'VERBOS')
+$VERBOS_LISTA = (($VERBOS -replace '^\(\?:', '') -replace '\)$', '') -split '\|'
+# LOS TESTIGOS QUE HACEN FALTA, TAMBIEN DEL ARCHIVO. Get-VerbosAprendidos lo lee para decidir
+# que entrada aprendida vale ya; sin sacarlo valdria $null, que en una comparacion numerica es
+# 0, y cualquier entrada a medias contaria como buena.
+$mOT = [regex]::Match($fuente, '(?m)^\$OidoTestigosMin\s*=\s*(\d+)')
+if (-not $mOT.Success) { Write-Host '  MAL  no encuentro la variable OidoTestigosMin'; exit 1 }
+$OidoTestigosMin = [int]$mOT.Groups[1].Value
+# LA CADENA COMPLETA DE Repair-Verb (27/09). Repair-Verb paso a consultar lo aprendido del uso
+# (idea 87) y llama a Get-VerbosAprendidos, que a su vez llama a Get-OidoAprendido. Faltaban
+# las dos y el banco reventaba en la prueba 3 con "El termino 'Get-VerbosAprendidos' no se
+# reconoce": es la unica frase que llega tan abajo, porque las otras salen antes por las dos
+# tablas escritas a mano. Se extraen las de verdad, no una copia.
+Invoke-Expression (Traer 'Get-Distancia')
+Invoke-Expression (Traer 'Get-OidoAprendido')
+Invoke-Expression (Traer 'Get-VerbosAprendidos')
 Invoke-Expression (Traer 'Repair-Verb')
 $reNiegaDoble = Invoke-Expression (TraerVar 'reNiegaDoble')
 $reNiegaPedi  = Invoke-Expression (TraerVar 'reNiegaPedi')
+
+# LA RUTA DE LO APRENDIDO, A UNA CARPETA TEMPORAL Y DESPUES DE CARGAR LAS PIEZAS DE VERDAD.
+# Y tiene que ser una ruta VALIDA que no exista, no $null: con $null el Test-Path de dentro de
+# Get-OidoAprendido revienta y su catch devuelve la lista vacia, que es justo la respuesta que
+# esperan las pruebas. Esa es la manera 10 de salir verde mintiendo; asi no se traga nada.
+$tmpOido = Join-Path ([IO.Path]::GetTempPath()) ('nova-niega-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
+New-Item -ItemType Directory -Path $tmpOido -Force | Out-Null
+$OidoAprendidoPath = Join-Path $tmpOido 'oido-aprendido.json'
+function Poner-Aprendido([string]$malo, [string]$bueno, [int]$testigos) {
+    $j = '{"' + $malo + '":{"bueno":"' + $bueno + '","testigos":' + $testigos + ',"visto":"2026-09-27"}}'
+    [IO.File]::WriteAllText($OidoAprendidoPath, $j, (New-Object Text.UTF8Encoding($false)))
+    $script:oidoAprendido = $null   # la funcion real cachea: hay que soltar la cache
+}
+function Quitar-Aprendido {
+    if (Test-Path -LiteralPath $OidoAprendidoPath) { Remove-Item -LiteralPath $OidoAprendidoPath -Force }
+    $script:oidoAprendido = $null
+}
+function Limpiar-Tmp {
+    if (Test-Path -LiteralPath $tmpOido) { Remove-Item -LiteralPath $tmpOido -Recurse -Force -ErrorAction SilentlyContinue }
+}
+Quitar-Aprendido
 
 # EL BLOQUE DE VERDAD, sacado del archivo y no reescrito aqui. Va desde la linea que declara
 # el primer patron hasta la llave que cierra el if: si alguien lo cambia, este banco mide el
@@ -134,6 +175,24 @@ Comp 'aunque lo corregido no se entienda, SE DESHACE' ($r3 -and $r3[0].kind -eq 
 Comp 'y no se ejecuta nada mas' ($r3.Count -eq 1) "$($r3.Count) accion(es)"
 
 Write-Host ''
+Write-Host '-- 3b. Y QUE EL VERBO CORREGIDO PASE POR LO APRENDIDO DE OIDO (idea 87) --'
+# NO ES DECORADO: es lo que prueba que Get-VerbosAprendidos esta VIVA aqui dentro. Repair-Verb
+# la llama desde el 27/09, y este banco reventaba justo ahi. Si la cadena se quedase a medias
+# -la lista vacia porque alguien se traga el error-, estos dos casos lo cantan.
+$script:pedidas = @()
+Poner-Aprendido 'haben' 'abre' $OidoTestigosMin
+$r4 = @(Probar-Correccion 'no dije discord dije haben steam')
+Comp 'un verbo aprendido del uso tambien se repara' ($script:pedidas -contains 'abre steam') "pidio resolver: $($script:pedidas -join ' / ')"
+Comp 'y entonces se deshace Y se hace lo corregido' ($r4.Count -eq 2 -and $r4[0].kind -eq 'noEraEso' -and $r4[1].kind -eq 'app') "$($r4.Count) acciones"
+
+$script:pedidas = @()
+Poner-Aprendido 'haben' 'abre' ($OidoTestigosMin - 1)
+$r5 = @(Probar-Correccion 'no dije discord dije haben steam')
+Comp 'con un testigo de menos no se repara' (-not ($script:pedidas -contains 'abre steam')) "pidio resolver: $($script:pedidas -join ' / ')"
+Comp 'pero el deshacer sigue saliendo igual' ($r5.Count -eq 1 -and $r5[0].kind -eq 'noEraEso') "$($r5.Count) accion(es)"
+Quitar-Aprendido
+
+Write-Host ''
 Write-Host '-- 4. QUE LOS PATRONES SEAN LOS DE NOVA, NO LOS MIOS --'
 Comp 'el patron doble sale del archivo' ($reNiegaDoble -like '*dije*queria*quise decir*')
 Comp 'el patron de "no te pedi" tambien' ($reNiegaPedi -like '*pedi*')
@@ -142,6 +201,7 @@ Comp 'y ninguno lleva un caracter invisible dentro' `
     'el 0x08 de un \b mal escrito no se ve al leerlo'
 
 Write-Host ''
+Limpiar-Tmp
 if ($fallos) { Write-Host "$fallos casos MAL"; exit 1 }
 Write-Host 'la correccion que niega deshace, olvida y no se inventa el verbo'
 exit 0

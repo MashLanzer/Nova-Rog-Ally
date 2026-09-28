@@ -14,6 +14,7 @@ comprobarlo-, sino las tres cosas que son de Nova y pueden fallarle a braya:
      memoria se pierde diecisiete veces al dia.
 """
 import io
+import json
 import os
 import shutil
 import subprocess
@@ -33,9 +34,52 @@ def comp(etiqueta, ok, detalle=""):
         fallos += 1
 
 
+# ESTE BANCO SE CORRE CON EL PYTHON DE NOVA, NO CON EL PRIMERO DEL PATH (27/09)
+#
+# ajedrez.py importa python-chess arriba del fichero, y Nova lanza ajedrez_turno.py con
+# $PyExe -paths.python de config.json y, si no esta puesto,
+# %LOCALAPPDATA%\Programs\Python\Python312\python.exe (assistant.ps1, linea ~20926)-, que SI
+# tiene python-chess. Pero tools\probar-todo.ps1 lanza este banco con "python" a secas, y en
+# esta maquina eso resuelve a C:\Program Files\Python311\python.exe (va primero en el PATH),
+# que NO lo tiene. Resultado medido antes de arreglarlo: el banco moria en el import, antes de
+# la PRIMERA comprobacion ("MAL no puedo importar: No module named 'chess'"), y la seccion
+# 2n95 se contaba roja sin haber probado nada, mientras que con el python de Nova salian las
+# 47 comprobaciones en verde. El codigo estaba bien; el interprete era el equivocado.
+#
+# Asi que si el interprete que nos toco no tiene la dependencia, nos volvemos a lanzar UNA vez
+# con el de Nova (la marca NOVA_BANCO_RELANZADO corta la recursion) y devolvemos su codigo tal
+# cual. Es el mismo remedio que ya llevan tools\probar-charla.py y tools\probar-memoria.py. Si
+# el de Nova tampoco esta, o tampoco la tiene, se DICE y se sale con 1: aqui no se salta ni
+# una comprobacion en silencio.
+def _python_de_nova():
+    ruta = ""
+    try:
+        with io.open(os.path.join(RAIZ, "config.json"), encoding="utf-8-sig") as f:
+            ruta = str(((json.load(f) or {}).get("paths") or {}).get("python") or "")
+    except Exception:       # noqa: BLE001
+        ruta = ""
+    if not ruta:
+        ruta = os.path.join(
+            os.environ.get("LOCALAPPDATA") or "", "Programs", "Python", "Python312", "python.exe"
+        )
+    return os.path.expandvars(ruta)
+
+
 try:
     import chess
     import ajedrez
+except ModuleNotFoundError as _e:
+    _falta = getattr(_e, "name", None) or "una dependencia"
+    if os.environ.get("NOVA_BANCO_RELANZADO"):
+        print("  MAL  al python de Nova tambien le falta %s: pip install %s" % (_falta, _falta))
+        sys.exit(1)
+    _py = _python_de_nova()
+    if not os.path.isfile(_py):
+        print("  MAL  falta %s y no encuentro el python de Nova en %s" % (_falta, _py))
+        sys.exit(1)
+    _ent = dict(os.environ)
+    _ent["NOVA_BANCO_RELANZADO"] = "1"
+    sys.exit(subprocess.call([_py, os.path.abspath(__file__)] + sys.argv[1:], env=_ent))
 except Exception as e:      # noqa: BLE001
     print("  MAL  no puedo importar: %s" % e)
     sys.exit(1)

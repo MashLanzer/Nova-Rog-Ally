@@ -1,9 +1,9 @@
 # LA TABLA DE LO QUE MAS SE LE ATRAGANTA TENIA TRES FILAS Y NINGUNA ERA UNA ORDEN (27/09, idea 88)
 #
-# LAS TRES FILAS QUE HABIA en memoria\estadisticas.md: «avisame cuando la descarga de Steam termino»
-# -que llegaba a 2 solo porque una tilde hizo que la lista de descartes guardara dos copias-, «dictado
-# vacio» -que es la ETIQUETA interna del contador 'error', no algo que braya dijera, y la tabla le
-# pedia que se lo ensenara a Nova- y «maar die dog komen beheer», holandes de un video de fondo.
+# LAS TRES FILAS QUE HABIA en memoria\estadisticas.md: "avisame cuando la descarga de Steam termino"
+# -que llegaba a 2 solo porque una tilde hizo que la lista de descartes guardara dos copias-, "dictado
+# vacio" -que es la ETIQUETA interna del contador 'error', no algo que braya dijera, y la tabla le
+# pedia que se lo ensenara a Nova- y "maar die dog komen beheer", holandes de un video de fondo.
 #
 # Y NO ERA MALA SUERTE: por texto exacto no hay nada que encontrar. La lista 'recientes' cubre TREINTA
 # Y OCHO MINUTOS (25/09 de 23:16 a 23:54), la de descartes borra la entrada identica al reanadir -asi

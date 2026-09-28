@@ -44,10 +44,14 @@ foreach ($c in @('RupturaMinOrdenesDia', 'RupturaDiasNuevos', 'RupturaMinDiasRef
 # EL SUELO CAE EN EL TRAMO PLANO: con 5, 8, 10 y 12 el resultado es identico.
 Comp 'el suelo de ordenes cae en el tramo plano' ($RupturaMinOrdenesDia -ge 5 -and $RupturaMinOrdenesDia -le 12) (
     "$RupturaMinOrdenesDia; con 5, 8, 10 y 12 sale lo mismo, y sin suelo salen dos falsos")
-# Y EL DE DIAS DE REFERENCIA NO ES NUEVO: es el que Get-HoraFinHabitual ya lleva escrito.
+# Y EL DE DIAS DE REFERENCIA NO ES NUEVO: es el que la hora de dormir ya lleva escrito.
+# 27/09: la idea 46 partio Get-HoraFinHabitual en dos y la VENTANA se mudo a Get-BandaFinHabitual,
+# que es de donde ahora sale la mediana. El suelo de cuatro dias vive ahi; Get-HoraFinHabitual ya
+# solo pide la banda y devuelve su mediana. El numero no ha cambiado, solo la funcion que lo lleva.
 $cuerpoF = Traer 'Get-HoraFinHabitual'
+$cuerpoB = Traer 'Get-BandaFinHabitual'
 Comp 'el suelo de dias es el que ya usaba la hora de dormir' (
-    $RupturaMinDiasRef -eq 4 -and $cuerpoF -match '\$mins\.Count -lt 4') 'no se estrena ningun numero'
+    $RupturaMinDiasRef -eq 4 -and $cuerpoB -match '\$mins\.Count -lt 4' -and $cuerpoF -match 'Get-BandaFinHabitual') 'no se estrena ningun numero'
 # NO HAY UMBRAL FIJO, y esa es la gracia.
 $cuerpoR = Traer 'Get-RupturaHorario'
 Comp 'no hay umbral fijo de minutos' ($cuerpoR -match '\$iqr = \$p75 - \$p25' -and $cuerpoR -match '-le \$iqr') (
@@ -88,6 +92,16 @@ foreach ($d in $DIAS.Keys) {
     }
 }
 function Get-Habitos { return $script:habitos }
+# IDEA 86 (27/09): Get-RupturaHorario ya no arma las fechas de la ventana a mano, se las pide a
+# Get-DiaJuego, y esa pregunta a Get-CorteDia a que hora parte el dia. FALTABA AQUI, y el catch de
+# Get-RupturaHorario se comia el "no se reconoce" devolviendo $null: el banco veia "ninguna ruptura"
+# y cantaba MAL en la semana del cambio sin decir por que. Doble sencillo con el corte de siempre
+# (5), como en probar-parte-y-dormir.ps1: traer el de verdad arrastraria Get-FranjaMuerta y con ella
+# el registro, y este banco existe precisamente para no depender del log. De Get-CorteDia ya
+# responde probar-franja-muerta.ps1.
+# Y VA DESPUES de las piezas reales, que es el orden de la casa: ningun doble tapa a una buena.
+function Get-CorteDia([datetime]$ahora = (Get-Date)) { return 5 }
+function Get-DiaJuego([datetime]$t = (Get-Date)) { return $t.AddHours(-5).ToString('yyyy-MM-dd') }
 
 # LA MEDIANA DE CADA SEMANA, que es el dato que sostiene la idea entera.
 $s1 = Get-MedianaMomento $script:habitos.horas '2026-09-10' '2026-09-17' $RupturaMinOrdenesDia
@@ -100,22 +114,44 @@ Comp '  con un salto de horas, no de minutos' (($s2 - $s1) -ge 240) "$($s2 - $s1
 
 Write-Host ''
 Write-Host '-- 3. la ruptura cae donde cambio el horario, y solo ahi --'
-$vistos = @()
-foreach ($d in @('2026-09-18', '2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25')) {
-    $r = Get-RupturaHorario ([datetime]($d + ' 23:30'))
-    if ($r) { $vistos += $d }
+function Barrido() {
+    # los ocho dias de la segunda semana, preguntados uno a uno con el suelo que este puesto
+    $v = @()
+    foreach ($d in @('2026-09-18', '2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25')) {
+        if (Get-RupturaHorario ([datetime]($d + ' 23:30'))) { $v += $d }
+    }
+    return $v
 }
+$vistos = @(Barrido)
 Write-Host ("       canta ruptura los dias: " + $(if ($vistos) { $vistos -join ', ' } else { 'ninguno' }))
 Comp 'canta en la semana del cambio' (@($vistos | Where-Object { $_ -ge '2026-09-21' -and $_ -le '2026-09-23' }).Count -ge 1) ''
 # LOS DOS FALSOS DEL LADO CONTRARIO: sin el suelo de ordenes, el 18 y el 19 cantan.
 Comp 'y NO el 18/09' (-not ($vistos -contains '2026-09-18')) 'sin el suelo de ordenes, este canta con dif -243'
 Comp 'ni el 19/09' (-not ($vistos -contains '2026-09-19')) 'ese dia solo hubo cuatro ordenes'
-# Y NO CANTA TODOS LOS DIAS: con un umbral fijo de 120 min, el 23, 24 y 25 cantarian tambien.
-Comp 'y no canta toda la segunda semana' ($vistos.Count -le 5) (
-    "$($vistos.Count) de 8 dias; con un umbral fijo cantarian los ocho")
+# Y NO CANTA TODOS LOS DIAS. 27/09: el comentario de antes decia "con un umbral fijo cantarian los
+# OCHO" y el liston estaba en "<= 5". Medido ahora, ejecutando la pieza: con el IQR cantan CUATRO
+# (20 a 23/09) y con un umbral fijo de 120 cantan CINCO -se suma el 24/09-, asi que un liston de 5
+# dejaba pasar justo la rotura que este caso existe para cazar. Cuatro es lo que consigue el IQR.
+Comp 'y no canta toda la segunda semana' ($vistos.Count -le 4) (
+    "$($vistos.Count) de 8 dias; con un umbral fijo de 120 serian 5, y con la dispersion son 4")
 Comp '  y los que canta van seguidos' (
     $vistos.Count -eq 0 -or (([datetime]$vistos[-1] - [datetime]$vistos[0]).TotalDays -lt $vistos.Count)) (
     'son el mismo cambio visto desde dias distintos, no cambios distintos')
+# EL TRAMO PLANO, EJECUTADO Y NO PROMETIDO (27/09). El caso de arriba solo mira que el numero caiga
+# entre 5 y 12; eso no comprueba nada del codigo. Aqui se vuelve a preguntar los ocho dias con cada
+# suelo, que es lo que hace de verdad que los dos casos de arriba (el 18 y el 19) tengan gracia: con
+# suelo cero esos dos dias SI cantan, de dos y cuatro ordenes.
+$sueloReal = $RupturaMinOrdenesDia
+foreach ($s in @(5, 8, 12)) {
+    Set-Variable -Name RupturaMinOrdenesDia -Value $s -Scope Script
+    Comp ("  con un suelo de $s sale lo mismo") ((@(Barrido) -join ',') -eq ($vistos -join ',')) 'el 10 es el centro de un tramo plano, no un numero con suerte'
+}
+Set-Variable -Name RupturaMinOrdenesDia -Value 0 -Scope Script
+$sinSuelo = @(Barrido)
+Comp '  y SIN suelo aparecen los dos falsos' (
+    ($sinSuelo -contains '2026-09-18') -and ($sinSuelo -contains '2026-09-19')) (
+    "sin suelo cantan " + $sinSuelo.Count + " dias: " + ($sinSuelo -join ', '))
+Set-Variable -Name RupturaMinOrdenesDia -Value $sueloReal -Scope Script
 
 Write-Host ''
 Write-Host '-- 3 bis. UN CAMBIO, UN AVISO --'
@@ -157,6 +193,12 @@ Write-Host '-- 5. EL RECORTE, con su guarda de cuatro dias --'
 # ESTA ES LA COMPROBACION QUE IMPIDE LA REGRESION. Recortar al dia de la ruptura sin mas deja a
 # Get-HoraFinHabitual con 0, 1, 2 y 3 dias los cuatro dias siguientes, devuelve -1, y la noche
 # vuelve a las 23:00 cuatro dias seguidos. Es la regresion que la idea 8 del 25/09 arreglo.
+# IDEA 46: el recorte por ruptura se aplica dentro de Get-BandaFinHabitual, y Get-HoraFinHabitual
+# le pide la mediana. Hay que traer las DOS piezas de verdad, mas los dos percentiles de la banda
+# sacados del propio fichero (si alguien los cambia, el banco se mueve con ellos).
+Invoke-Expression ('$BandaFinPctBajo = ' + $(if ($fuente -match '(?m)^\$BandaFinPctBajo = (\d+)') { $Matches[1] } else { '25' }))
+Invoke-Expression ('$BandaFinPctAlto = ' + $(if ($fuente -match '(?m)^\$BandaFinPctAlto = (\d+)') { $Matches[1] } else { '75' }))
+Invoke-Expression $cuerpoB
 Invoke-Expression $cuerpoF
 $script:habitos = @{ horas = @{}; ruptura = @{ desde = ''; dicha = '' }; fin = @{} }
 foreach ($d in @('2026-09-14', '2026-09-15', '2026-09-16', '2026-09-17', '2026-09-18')) { $script:habitos.fin[$d] = '16:00' }

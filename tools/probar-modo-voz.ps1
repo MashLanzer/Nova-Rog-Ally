@@ -28,8 +28,20 @@ foreach ($v in 'VERBOS') {
 $VERBOS_LISTA = (($VERBOS -replace '^\(\?:', '') -replace '\)$', '') -split '\|'
 if ($txt -match '(?ms)^\$VERBOS_OIDOS = @\{.*?^\}') { Invoke-Expression $Matches[0] }
 if ($txt -match '(?ms)^\$VERBOS_IMPERATIVO = @\{.*?^\}') { Invoke-Expression $Matches[0] }
+# El tope de testigos se lee del fichero, no se escribe a mano: si braya lo cambia,
+# el banco lo sigue solo (27/09).
+if ($txt -notmatch '(?m)^\$OidoTestigosMin\s*=\s*(\d+)') { throw "no encuentro OidoTestigosMin" }
+$OidoTestigosMin = [int]$Matches[1]
+$script:oidoAprendido = $null
 Invoke-Expression (Traer 'ConvertTo-Plain')
 Invoke-Expression (Traer 'Get-Distancia')
+# FALTABAN ESTAS DOS (27/09): Repair-Verb dejo de ser autonoma cuando se le puso la idea 87
+# -corregir tambien con los verbos APRENDIDOS del uso-, y desde entonces llama por dentro a
+# Get-VerbosAprendidos, que a su vez llama a Get-OidoAprendido. Sin extraerlas, el banco moria
+# al cuarto caso con "El termino 'Get-VerbosAprendidos' no se reconoce". Se cargan las de
+# verdad, no un doble: asi el banco se rompe otra vez si esa cadena vuelve a cambiar.
+Invoke-Expression (Traer 'Get-OidoAprendido')
+Invoke-Expression (Traer 'Get-VerbosAprendidos')
 Invoke-Expression (Traer 'Repair-Verb')
 Invoke-Expression (Traer 'Test-Prop')
 Invoke-Expression (Traer 'Resolve-ModoPorVoz')
@@ -42,6 +54,11 @@ function Edit-PerfilPorVoz([string]$t) {
 }
 
 # --- el mundo de mentira: un commands.json con los modos de verdad ---
+# Nova recien instalada no tiene nada aprendido de oido: la ruta apunta a un fichero que no
+# existe, asi que Get-OidoAprendido -la de verdad- devuelve la tabla vacia y Repair-Verb no
+# corrige por aprendidos. Aqui no se prueba el oido aprendido (eso es probar-oido-aprendido),
+# y leer el fichero real del usuario haria el banco distinto cada dia.
+$OidoAprendidoPath = Join-Path $env:TEMP 'nova-banco-modo-voz-sin-oido-aprendido.json'
 $script:guardado = $null
 function Add-Perfil([string]$nombre, [string[]]$ordenes) {
     $script:guardado = @{ nombre = $nombre; ordenes = @($ordenes) }

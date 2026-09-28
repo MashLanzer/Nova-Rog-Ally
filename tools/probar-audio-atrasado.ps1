@@ -28,6 +28,10 @@
 #
 # Y TODO SE EJECUTA. vaciar_cola y atender_reintento se sacan en caliente de wake_vosk.py y
 # se corren de verdad, con una cola de mentira que se llena mientras el modelo "trabaja".
+# Y CON ELLAS SU CADENA ENTERA (27/09, idea 71): cabe_el_repaso, ritmo_motor, apuntar_ritmo,
+# mediana, cargar_lista, guardar_lista y ruta_ritmo. Cuando faltaban, atender_reintento lanzaba
+# NameError dentro de su propio try, el except lo apuntaba como "WARN: fallo el oido fino" y los
+# ocho caminos salian "avisando" sin haber cargado un modelo ni descartado un solo bloque.
 # Solo las tres ultimas comprobaciones miran texto, porque son sitios del bucle grande de
 # wake_vosk.py que no se pueden arrancar sueltos.
 $ErrorActionPreference = 'Stop'
@@ -53,6 +57,16 @@ function Sacar([string]$nombre, [string]$patron) {
     $m = [regex]::Match($oido, $patron)
     if (-not $m.Success) { Write-Host "  MAL  no encuentro $nombre en wake_vosk.py"; exit 1 }
     return $m.Value
+}
+# POR NOMBRE, sin anclar al ultimo return. cabe_el_repaso tiene TRES 'return True, ""' y un
+# patron perezoso hasta el primero se habria traido media funcion: se coge la linea del def y
+# todo lo que venga sangrado o en blanco detras, que es donde acaba una funcion de Python.
+function SacarDef([string]$nombre) {
+    return (Sacar $nombre ('(?m)^def ' + [regex]::Escape($nombre) + '\(.*\n(?:[ \t].*\n|[ \t]*\n)+'))
+}
+# y una constante de las de arriba del fichero, tal cual esta escrita
+function SacarVar([string]$nombre) {
+    return (Sacar $nombre ('(?m)^' + [regex]::Escape($nombre) + ' = [^\n]+'))
 }
 
 Write-Host ''
@@ -82,6 +96,13 @@ New-Item -ItemType Directory -Force -Path $sitio | Out-Null
 try {
     $fnVaciar = Sacar 'vaciar_cola' '(?ms)^def vaciar_cola\(motivo\):.*?^    return n$'
     $fnAtender = Sacar 'atender_reintento' '(?ms)^def atender_reintento\(ultimo_audio\):.*?^    return True$'
+    # LO QUE atender_reintento LLAMA POR DENTRO. Ninguna se escribe aqui: si manana cambia el
+    # tope, el margen o la forma de estimar, este banco lo prueba con el codigo nuevo.
+    $fnRitmo = (@('mediana', 'ritmo_motor', 'apuntar_ritmo', 'cabe_el_repaso',
+                  'guardar_lista', 'cargar_lista', 'ruta_ritmo') |
+                ForEach-Object { SacarDef $_ }) -join "`n"
+    $varRitmo = (@('RITMO_MEMORIA', 'RITMO_MIN', 'RITMO_MARGEN', '_ritmo') |
+                 ForEach-Object { SacarVar $_ }) -join "`n"
     $mRepaso = [regex]::Match($oido, '(?m)^REPASO_MAX = ([\d.]+)')
     $mRepasoB = [regex]::Match($oido, '(?m)^REPASO_MAX_BASE = ([\d.]+)')
     Comp 'REPASO_MAX y REPASO_MAX_BASE siguen ahi' ($mRepaso.Success -and $mRepasoB.Success) `
@@ -92,6 +113,7 @@ try {
 # -*- coding: utf-8 -*-
 # Generado por probar-audio-atrasado.ps1. Las dos funciones de abajo son las de
 # wake_vosk.py, sacadas EN CALIENTE de ese fichero, no escritas aqui.
+import glob
 import io
 import json
 import os
@@ -112,6 +134,11 @@ cola = queue.Queue()
 
 __VACIAR__
 
+# --- Y LA CADENA DE atender_reintento, TAMBIEN DE wake_vosk.py, NO ESCRITA AQUI ---
+__RITMO_VAR__
+
+__RITMO__
+
 # --- lo que atender_reintento necesita, todo de mentira menos ella misma ---
 REINTENTO = os.path.join(SITIO, "reintento.flag")
 REINTENTO_TEXTO = os.path.join(SITIO, "reintento.txt")
@@ -120,6 +147,11 @@ REPASO_MAX = __REPASO_MAX__
 REPASO_MAX_BASE = __REPASO_MAX_BASE__
 MODELO_ULTIMO = "modelo-turbo"
 whisper = "modelo-base"
+# EL MICROFONO DE MENTIRA, y solo el. guardar_lista y cargar_lista atan lo aprendido al nombre
+# del dispositivo -lo que mide un micro no vale para otro- y ruta_ritmo cuelga los ficheros de la
+# carpeta de NIVEL. Aqui los dos apuntan al sitio de pruebas, que se borra al terminar.
+dispositivo = "microfono de pruebas"
+NIVEL = os.path.join(SITIO, "nivel.txt")
 
 
 # DESDE EL 24/09 (ideas 14 y 15) Whisper carga en un hilo y el dictado espera con
@@ -204,6 +236,11 @@ def limpiar():
     del cargados[:]
     LLEGAN[0] = 0
     REVIENTA[0] = False
+    # el ritmo aprendido, fuera: vive en un dict de modulo Y en un fichero, y si se quedara de un
+    # caso al siguiente, un repaso que si cabia dejaria de caber por lo que aprendio el anterior.
+    _ritmo.clear()
+    for r in glob.glob(os.path.join(SITIO, "ritmo-*.txt")):
+        os.remove(r)
     for r in (REINTENTO, REINTENTO_TEXTO):
         if os.path.exists(r):
             os.remove(r)
@@ -240,8 +277,12 @@ def caso_cola(nombre, bloques, motivo):
                        cola=cola.qsize(), registro=list(registro)))
 
 
-def caso(nombre, pedido, segundos, llegan, revienta=False, ya=0, sin_marca=False):
+def caso(nombre, pedido, segundos, llegan, revienta=False, ya=0, sin_marca=False, ritmo=None):
     limpiar()
+    if ritmo:
+        # sembrado con el guardar_lista DE VERDAD, para que cargar_lista lo acepte con sus
+        # propias reglas (el nombre del microfono incluido) en vez de con un fichero a mano
+        guardar_lista(ruta_ritmo(ritmo[0]), ritmo[1])
     if not sin_marca:
         escribir(REINTENTO, pedido)
     LLEGAN[0] = llegan
@@ -283,12 +324,20 @@ caso("oido fino", "", 1.0, 10)
 caso("demasiado largo", "", 19.8, 0, ya=8)
 caso("sin audio", "", 0, 0, ya=6)
 caso("el modelo revienta", "", 1.0, 16, revienta=True)
+# LOS DOS CAMINOS QUE ABRIO LA IDEA 71 (27/09): el asistente manda su plazo detras del motor
+# ("small|15000") y, si lo medido dice que no cabe, no se carga modelo y no se transcribe. El
+# hilo no se queda sordo por el repaso, pero la cola trae el audio de ANTES y hay que vaciarla
+# igual: son dos salidas nuevas de la funcion y por las dos se tiene que pasar por el vaciado.
+# 5 s de CPU por segundo de audio x 1 s de audio = 5 s estimados contra un plazo de 1 s: no cabe.
+caso("plazo corto", "|1000", 1.0, 0, ya=8, ritmo=("small", [5.0, 5.0, 5.0, 5.0]))
+caso("plazo corto canary", "canary|1000", 1.0, 0, ya=12, ritmo=("canary", [5.0, 5.0, 5.0, 5.0]))
 caso("sin marca", "", 1.0, 0, ya=8, sin_marca=True)
 
 sys.stdout.write(json.dumps(salida))
 '@
 
     $py = $plantilla.Replace('__VACIAR__', $fnVaciar).Replace('__ATENDER__', $fnAtender)
+    $py = $py.Replace('__RITMO_VAR__', $varRitmo).Replace('__RITMO__', $fnRitmo)
     $py = $py.Replace('__TASA__', [string]$TASA)
     $py = $py.Replace('__REPASO_MAX__', $mRepaso.Groups[1].Value).Replace('__REPASO_MAX_BASE__', $mRepasoB.Groups[1].Value)
 
@@ -363,7 +412,7 @@ sys.stdout.write(json.dumps(salida))
     Comp 'lo que entra por el microfono DESPUES sigue en la cola' (($desp.termino -eq $true) -and ($desp.cola -eq 4)) "quedan $($desp.cola) de 4"
 
     Write-Host ''
-    Write-Host '-- 4. LOS OCHO CAMINOS DEL OIDO FINO, y los ocho vacian la cola --'
+    Write-Host '-- 4. LOS DIEZ CAMINOS DEL OIDO FINO, y los diez vacian la cola --'
     # atender_reintento se llama en cada vuelta del bucle. Cuando el asistente pide repaso,
     # bloquea el hilo mientras carga y corre un modelo, y al terminar TIENE que vaciar.
     # El comentario del codigo lo dice con todas las letras: ni return ni break, porque si
@@ -377,7 +426,9 @@ sys.stdout.write(json.dumps(salida))
         @{ n = 'oido fino';         s = 2.5;   m = 'oido fino'; mod = 'small' },
         @{ n = 'demasiado largo';   s = 2.0;   m = 'oido fino'; mod = '' },
         @{ n = 'sin audio';         s = 1.5;   m = 'oido fino'; mod = 'small' },
-        @{ n = 'el modelo revienta'; s = 4.0;  m = 'oido fino'; mod = 'small' }
+        @{ n = 'el modelo revienta'; s = 4.0;  m = 'oido fino'; mod = 'small' },
+        @{ n = 'plazo corto';        s = 2.0;  m = 'oido fino'; mod = '' },
+        @{ n = 'plazo corto canary'; s = 3.0;  m = 'canary';    mod = '' }
     )
     foreach ($k in $caminos) {
         $c = Caso $k.n
@@ -403,6 +454,16 @@ sys.stdout.write(json.dumps(salida))
     Comp 'si el modelo se cae, avisa' ((@($cR.registro) -join ' ') -like '*WARN: fallo el oido fino*') ''
     Comp '   y vacia igual: el hilo estuvo sordo lo mismo' ((Descartes $cR).Count -eq 1) 'vaciar dentro del try seria el fallo'
     Comp '   y contesta vacio en vez de dejar al asistente esperando' ($cR.texto -eq '') "'$($cR.texto)'"
+
+    # LOS DOS DEL PLAZO: lo que se gana con la idea 71 es NO quemar CPU en un repaso que va a
+    # llegar tarde, asi que si cargaran el modelo no se habria ganado nada. Y el motivo del
+    # descarte tiene que seguir siendo el de su rama, que es como se cuentan en el registro.
+    foreach ($n in @('plazo corto', 'plazo corto canary')) {
+        $cp = Caso $n
+        Comp "$($n): no carga ningun modelo" ((@($cp.cargados)).Count -eq 0) "$(@($cp.cargados) -join ',')"
+        Comp "   y dice por que no lo repasa" `
+            ((@($cp.registro) -join ' ') -like '*no lo repaso, 1.0 s de audio x 5.00 s/s = 5.0 s estimados, y el plazo son 1.0 s*') ''
+    }
 
     Write-Host ''
     Write-Host '-- 5. SIN QUE SE LO PIDAN NO TOCA LA COLA --'

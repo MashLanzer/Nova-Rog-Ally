@@ -119,10 +119,25 @@ Comp 'lista vacia: devuelve vacio' ((Test-AperturasPendientes).Count -eq 0) ''
 Write-Host '  -- y el ejecutor y el bucle lo usan --'
 $txt = [System.IO.File]::ReadAllText($rutaA, [System.Text.Encoding]::UTF8)
 Comp 'al abrir una app se apunta' ($txt -match 'Add-AperturaPendiente \$comoSeLlama') ''
-Comp 'y solo si NO es un juego' ($txt -match 'if \(-not \$esJuego\) \{ \[void\]\(Add-AperturaPendiente') ''
+# ACTUALIZADO 27/09 (idea 81): antes esto era "if (-not $esJuego) { [void](Add-AperturaPendiente".
+# Los juegos ya SI se vigilan, pero por su propia lista (Add-JuegoPedido), porque no se mira un
+# nombre de proceso sino el detector de juegos. La intencion no cambia -una apertura pendiente
+# solo se apunta si NO es un juego- y se sigue exigiendo igual de fuerte: que la llamada viva en
+# la rama ELSE del if ($esJuego), no suelta por ahi.
+Comp 'y solo si NO es un juego' ($txt -match 'if \(\$esJuego\) \{ \[void\]\(Add-JuegoPedido \$comoSeLlama\) \}\s*else \{ \[void\]\(Add-AperturaPendiente \$comoSeLlama\) \}') ''
 Comp 'el bucle lo revisa' ($txt -match 'foreach \(\$avisoAp in \(Test-AperturasPendientes\)\)') ''
 # que no cueste nada cuando no hay nada que mirar, que es el 99 % del tiempo
-Comp 'y solo si hay algo apuntado' ($txt -match '\$script:aperturas\.Count -gt 0 -and') ''
+# ACTUALIZADO 27/09 (idea 81): la guarda era "$script:aperturas.Count -gt 0 -and"; ahora el
+# bucle tambien despierta por los juegos pedidos, asi que es "($script:aperturas.Count -gt 0 -or
+# $script:juegosPedidos.Count -gt 0) -and". Y de paso se deja de buscar la cadena suelta en las
+# 36.800 lineas (manera 17 de salir verde mintiendo: una cadena que aparece en otro sitio): se
+# coge por AST el if MAS INTERNO que envuelve la llamada real y se mira SU condicion, que es la
+# que de verdad decide si se hace el trabajo.
+$ifsAp = @(@($ast.FindAll({ param($x) $x -is [System.Management.Automation.Language.IfStatementAst] -and $x.Extent.Text -match 'foreach \(\$avisoAp in \(Test-AperturasPendientes\)\)' }, $true)) |
+    Sort-Object { $_.Extent.EndOffset - $_.Extent.StartOffset })
+$condAp = ''
+if ($ifsAp.Count -gt 0) { $condAp = ($ifsAp[0].Clauses[0].Item1.Extent.Text -replace '\s+', ' ') }
+Comp 'y solo si hay algo apuntado' ($condAp -match '\$script:aperturas\.Count -gt 0') $condAp
 Comp 'sin bloquear el bucle (nada de Start-Sleep)' ($txt -notmatch 'Add-AperturaPendiente[\s\S]{0,400}Start-Sleep') ''
 
 Write-Host ''

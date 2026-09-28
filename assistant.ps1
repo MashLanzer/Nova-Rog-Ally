@@ -4515,7 +4515,18 @@ function Get-Atragantos {
             if ($largo -le 0) { continue }
             $dLetras = (Get-Distancia $k $otra) / [double]$largo
             $dFon = 1.0
-            try { $dFon = (Get-DistanciaFon $k $otra) / [double]$largo } catch { $dFon = 1.0 }
+            # LA ESCALA DOBLADA (27/09, tras la revision): Get-DistanciaFon cobra 2 por edicion
+            # entera y 1 por sonido parecido, asi que hay que dividir por el DOBLE del largo para
+            # dejarla en la misma escala 0..1 que la de letras. Sin esto dFon era >= dLetras para
+            # CUALQUIER par -borrar e insertar cuestan 2 en vez de 1, y sustituir 1 o 2 en vez de
+            # 1-, el Min de abajo se quedaba SIEMPRE con dLetras y la mitad fonetica de "agrupar
+            # por parecido" no agrupaba nada: una matriz de Levenshtein por pareja tirada a la
+            # basura. Medido: 'pon el modo noche' contra 'bun il mudu nuchi' da 0,412 por letras
+            # -fuera del tope- y 0,206 por fonetica -dentro-, que es exactamente el caso para el
+            # que se escribio la rama ("stein" por "steam"). Find-Aproximado ya lo hacia bien y lo
+            # dice en su linea 1180 ("tope en la misma escala doblada que Get-DistanciaFon"); aqui
+            # se habia quedado sin doblar.
+            try { $dFon = (Get-DistanciaFon $k $otra) / (2.0 * [double]$largo) } catch { $dFon = 1.0 }
             if ([Math]::Min($dLetras, $dFon) -le $AtraganteDistMax) { $grupo = $otra; break }
         }
         if (-not $cuenta.ContainsKey($grupo)) {
@@ -21479,6 +21490,14 @@ $TmpVivos = @(
     'orden-escrita.txt', 'pantalla.png', 'rafagas.txt', 'reintentar.flag', 'reintento.txt',
     'salir.flag', 'seguimiento-voz.txt', 'solo-boton.flag', 'tokens.txt',
     'transcribiendo.flag', 'ui-error.log', 'ui-estado.json', 'ui-nivel.txt',
+    # ui-visible.txt NACIO DESPUES DE ESTA LISTA (27/09, idea 67) y por eso faltaba: es el latido
+    # que la capsula escribe cada 5 s y que Get-UiVisible lee para saber si se la ve y si sigue
+    # viva. O sea que el barrido de temporales se lo habria llevado. Es justo el caso que su banco
+    # vigila: una lista escrita a mano caduca sola.
+    # (Los comentarios de dentro de esta lista van SIN comillas simples a proposito: el banco saca
+    # los nombres con el regex de las comillas sobre el bloque entero, y una comilla aqui le
+    # colaria un nombre inventado.)
+    'ui-visible.txt',
     'ultima-orden.wav', 'velocidad.txt', 'vocabulario.txt', 'voces.json', 'voz', 'voz.wav',
     'wake-err.log', 'wake-worker.lock'
 )

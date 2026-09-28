@@ -1,8 +1,8 @@
-﻿# LOS AGUJEROS QUE NO LO ERAN (27/09, idea 79 de las 121), la mitad del asistente
+# LOS AGUJEROS QUE NO LO ERAN (27/09, idea 79 de las 121), la mitad del asistente
 #
 # El worker lee importante.jsonl y agrupa (ver probar-agujeros.py); aqui se hace lo que el worker NO
 # puede hacer: probar EN SECO si eso que Nova dijo que no sabia es algo que SI sabe. De los 8
-# agujeros contados en los dos registros, TRES eran falsos: dos veces '¿que hora es?' -contesto 'no
+# agujeros contados en los dos registros, TRES eran falsos: dos veces 'que hora es?' -contesto 'no
 # tengo acceso a la hora actual de tu consola'- y una el clima, que se arreglo a mano el 15/09 y el
 # comentario de assistant.ps1 lo dice con estas palabras: 'cual es el clima para hoy iba a la charla,
 # que decia que no tenia el clima'.
@@ -82,7 +82,7 @@ try {
     $p3 = Get-ParrafoAgujeros
     Comp '3d. el parrafo dice cuantas y cuantas de lo mismo' ($p3 -match 'no supe contestarte 8' -and $p3 -match '2 eran de lo mismo') $p3
     Comp '3e. nombra lo que de verdad le falta' ($p3 -match 'mascota') ''
-    Comp '3f. y avisa de lo que SI sabia' ($p3 -match 'si la sé y te dije que no' -and $p3 -match 'hora') ''
+    Comp '3f. y avisa de lo que SI sabia' ($p3 -match ('si la s' + [char]0xE9 + ' y te dije que no') -and $p3 -match 'hora') ''
 
     Write-Host ''
     Write-Host '-- 4. EN SECO DE VERDAD: NADA SE EJECUTA --'

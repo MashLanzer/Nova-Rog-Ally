@@ -109,6 +109,16 @@ $EXENTAS = @{
     # ficha de A Way Out pone "cooperativo" tenga braya un invitado delante o no. Es el mismo
     # motivo por el que ya estaban exentas Add-DescargaHecha y Save-DescargasEstado.
     'Save-JuegosDos'          = 'las categorias de la tienda de los juegos instalados: salen de Steam, no de quien hable'
+    # EL DISCO QUE NO ESTA PUESTO (27/09, idea 107). Este trinquete la cazo el dia que nacio, que
+    # para eso esta. Guarda en memoria\juegos-fuera.json el appid, los bytes y la ruta de los juegos
+    # que una biblioteca de Steam declara y cuyo disco hoy no esta conectado, y TODO eso se lee de
+    # steamapps\libraryfolders.vdf (el nombre, cuando se sabe, sale de Get-JuegosDos, que ya esta
+    # exenta aqui arriba por lo mismo). Nadie lo dice en voz alta: es el inventario de la instalacion
+    # de Steam, igual que Save-JuegosDos y Save-DescargasEstado, y sale identico hable quien hable.
+    # Y ponerle la guarda si haria dano: la llama Get-JuegosSteam, que se relee cada minuto, asi que
+    # con una visita delante Nova dejaria de saber que hay en el disco de fuera sin tapar por eso ni
+    # un dato de nadie.
+    'Save-JuegosFuera'        = 'appid, bytes y ruta leidos del libraryfolders.vdf de Steam: del equipo y no de quien hable'
     # LA LAPIDA DEL PERFIL (24/09, idea 12). Comprobado con grep: el UNICO sitio que la llama
     # es la poda de Add-DatoPerfil (linea 8119), y Add-DatoPerfil se va en su primera linea
     # con el modo invitado puesto. O sea que con alguien delante no se llega ni a la poda.

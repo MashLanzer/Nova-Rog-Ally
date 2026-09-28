@@ -11,6 +11,7 @@ frases, y a Whisper le llegaban ~4 s de braya y ~11 del juego.
 Este banco NO mira como esta escrito: saca la condicion del fichero de verdad, la compila, y
 le pasa situaciones -la de esa noche entre ellas- para ver a que segundo habria cerrado.
 """
+import ast
 import io
 import os
 import re
@@ -41,8 +42,35 @@ SIN_PALABRA = num("SILENCIO_SIN_PALABRA")
 DICTADO_MAX = num("DICTADO_MAX")
 UMBRAL_ALTAVOZ = num("UMBRAL_ALTAVOZ", 0.02)
 
+# LA PIEZA QUE LA CONDICION LLAMA POR DENTRO (27/09). Hasta la idea 74 el corte comparaba
+# contra la constante SILENCIO_SIN_PALABRA; ahora pregunta a silencio_medido por el percentil
+# de las pausas reales de braya, y este banco moria al evaluar la condicion con
+# "NameError: name 'silencio_medido' is not defined". Faltaba extraerla, con sus numeros. Se
+# trae la funcion DE VERDAD del fichero con ast, nunca una copia escrita aqui.
+#
+# "pausas" se queda VACIA a proposito, y eso no deja nada sin mirar: silencio_medido devuelve
+# max(suelo, min(escrito, percentil)), o sea que NUNCA pasa del numero escrito. Con la lista
+# vacia manda ese numero escrito (3,2 s), que es el PEOR caso: el cierre mas tardio posible.
+# Cualquier valor que salga de sus pausas reales cierra ANTES que lo que se mide aqui. Lo que
+# el suelo podria romper -cortar una pausa normal a media- se vigila abajo contra su pausa mas
+# larga medida, y el camino del percentil entero lo prueba tools/probar-pausas-medidas.py.
+_arbol = ast.parse(fuente)
+_NECESITO = ("silencio_medido", "pausas", "PAUSAS_MINIMAS", "PAUSAS_PCT_ALTAVOCES",
+             "SILENCIO_SIN_PALABRA", "SILENCIO_SIN_PALABRA_SUELO")
+ns = {}
+_traidos = []
+for _n in _arbol.body:
+    _nombre = (_n.targets[0].id if isinstance(_n, ast.Assign) and len(_n.targets) == 1
+               and isinstance(_n.targets[0], ast.Name) else getattr(_n, "name", None))
+    if _nombre in _NECESITO:
+        exec(compile(ast.Module(body=[_n], type_ignores=[]), "wake_vosk.py", "exec"), ns)
+        _traidos.append(_nombre)
+
 print("")
 print("-- los numeros salen del fichero, no de aqui --")
+comp("las piezas del corte se traen del fichero de verdad",
+     sorted(_traidos) == sorted(_NECESITO),
+     "falta: " + (", ".join(sorted(set(_NECESITO) - set(_traidos))) or "nada"))
 comp("SILENCIO_FIN existe", SILENCIO_FIN is not None, str(SILENCIO_FIN))
 comp("SILENCIO_SIN_PALABRA existe", SIN_PALABRA is not None, str(SIN_PALABRA))
 comp("y es mas del doble de su pausa mas larga (1,44 s)", SIN_PALABRA and SIN_PALABRA >= 2.9,
@@ -70,6 +98,10 @@ def cierra(t, hay_algo, altavoz, desde_palabra, desde_voz):
         "ultima_voz": t - desde_voz,
         "SILENCIO_SIN_PALABRA": SIN_PALABRA,
         "fin_silencio": SILENCIO_FIN,
+        # las tres de la idea 74: la funcion de verdad del fichero y sus dos numeros
+        "silencio_medido": ns["silencio_medido"],
+        "PAUSAS_PCT_ALTAVOCES": ns["PAUSAS_PCT_ALTAVOCES"],
+        "SILENCIO_SIN_PALABRA_SUELO": ns["SILENCIO_SIN_PALABRA_SUELO"],
     }
     if (desde_voz >= SILENCIO_FIN and hay_algo):
         return "silencio de siempre"
@@ -129,6 +161,11 @@ for decima in range(0, 200):
         corto2 = t
         break
 comp("ni con su pausa mas larga medida", corto2 is None, "1,44 s entre palabras")
+# Y ESO TIENE QUE SEGUIR SIENDO VERDAD CUANDO EL NUMERO LO PONGAN SUS PAUSAS (idea 74): por ese
+# camino el corte puede bajar hasta el suelo, y por debajo de 1,44 s cortaria una pausa normal
+# a media. El caso de arriba, con la lista vacia, no lo veria.
+comp("y el suelo sigue por encima de esa pausa", ns["SILENCIO_SIN_PALABRA_SUELO"] > 1.44,
+     "suelo %.1f s" % ns["SILENCIO_SIN_PALABRA_SUELO"])
 
 print("")
 print("-- y no se cuela sin texto ni sin altavoces --")
@@ -148,10 +185,24 @@ print("")
 print("-- y de propina: el tope se mira ANTES de cargar el modelo --")
 # A las 21:45:31 Nova cargo small durante 3,7 s y acto seguido dijo "30.0 s de audio es
 # demasiado para repasar". El tope estaba despues de elegir modelo.
-i_tope = fuente.find("if duracion > tope_repaso:")
-i_carga = min([x for x in (fuente.find("m = modelo_ultimo()"), fuente.find("m = modelo_preciso()")) if x > 0] or [0])
+#
+# EL TOPE YA NO ES UN "if" SUELTO (27/09, idea 71): ahora lo decide cabe_el_repaso(motor,
+# duracion, plazo, ultimo), que estima con el ritmo medido y el plazo que manda el asistente y
+# se cae al tope de segundos de siempre si le falta alguno de los dos. La linea que buscaba este
+# banco ya no existe. ANTES: "if duracion > tope_repaso:". AHORA: la llamada a cabe_el_repaso.
+# Se ancla a la LLAMADA de verdad y no a la cadena suelta, porque lo que se vigila es que se
+# pregunte ANTES de cargar, no como este escrito el tope por dentro.
+i_tope = fuente.find("cabe, por_que = cabe_el_repaso(motor_nombre")
+i_carga = min([x for x in (fuente.find("m = modelo_ultimo()"), fuente.find("m = modelo_preciso()"),
+                           fuente.find("m = whisper")) if x > 0] or [0])
 comp("el tope se mira antes de cargar nada", i_tope > 0 and i_tope < i_carga,
      "tope en %d, carga en %d" % (i_tope, i_carga))
+# Y EN LA RAMA DE CANARY/OMNI TAMBIEN, que hasta la idea 71 salia por su lado sin mirar ningun
+# tope: un audio de un minuto se repasaba entero aunque el asistente ya no estuviera esperando.
+i_tope2 = fuente.find("cabe, por_que = cabe_el_repaso(pedido")
+i_carga2 = fuente.find("m = modelo_canary()")
+comp("y tambien antes de cargar canary u omni", i_tope2 > 0 and i_tope2 < i_carga2,
+     "tope en %d, carga en %d" % (i_tope2, i_carga2))
 # Y NO con un return: al final de esa funcion se escribe el texto del repaso, se borra la
 # marca REINTENTO y se vacia la cola. Saltarse eso deja al asistente esperando un repaso que
 # no llega. Con m en None, el bloque de transcribir no entra y el resto sigue igual.

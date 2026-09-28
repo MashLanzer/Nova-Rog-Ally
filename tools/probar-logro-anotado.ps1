@@ -42,21 +42,43 @@ function Cuerpo([string]$todo, [string]$firma) {
     if ($j -lt 0) { $j = $todo.Length }
     return $todo.Substring($i, $j - $i)
 }
-$cuerpoE = Cuerpo $sinCom 'void Evento(string nombre)'
-$cuerpoG = Cuerpo $sinCom 'void Gesto(string nombre)'
+# LA FIRMA SIN EL PARENTESIS DE CIERRE (27/09). Este banco buscaba 'void Gesto(string nombre)'
+# literal y desde entonces Gesto() gano un segundo parametro: hoy es
+# 'void Gesto(string nombre, char quien = '?')' -el 'quien' que separa lo que dijo braya de lo
+# que Nova se dice a si misma-. Con la firma cerrada, Cuerpo() no la encontraba, $cuerpoG salia
+# vacio y las CUATRO comprobaciones de la seccion 2 salian rojas sin que nada estuviera mal.
+# Antes: 'void Gesto(string nombre)'   Ahora: 'void Gesto(string nombre' (abierta, aguanta que
+# manana le pongan un tercer parametro; lo que se vigila es el cuerpo, no la lista de argumentos).
+$cuerpoE = Cuerpo $sinCom 'void Evento(string nombre'
+$cuerpoG = Cuerpo $sinCom 'void Gesto(string nombre'
+
+# LOS DOS PATRONES QUE IMPORTAN, ESCRITOS UNA SOLA VEZ, porque el detector de la seccion 3 tiene
+# que probar EL MISMO patron que se usa de verdad arriba: dos copias que se separan hacen que el
+# detector certifique un patron que ya no vigila nada (esa es la manera 15 de salir verde
+# mintiendo, doblar la pieza que se prueba).
+# LA LLAMADA BUENA, con los argumentos que traiga: el 26/09 la idea 101 le puso el segundo
+# -case "logro": Gesto("logro", 't') , la 't' de "esto lo saco el jugando"- y este banco, que
+# exigia Gesto("logro") a pelo, se puso rojo con el codigo YA arreglado.
+# Antes: 'case\s+"logro":\s*Gesto\("logro"\)'   Ahora: admite ', <lo que sea>' detras.
+$reBuena = 'case\s+"logro":\s*Gesto\("logro"\s*(,[^)]*)?\)'
+# LA LLAMADA PROHIBIDA EN Evento(): la que pinta el oro y se salta el apunte.
+$reMala = 'case\s+"logro":\s*Logro\(\)'
 
 Write-Host '-- 1. el evento del logro entra por la puerta que apunta --'
 Comp 'se encuentra Evento()' ($cuerpoE -ne '') ''
-Comp 'el evento "logro" llama a Gesto' ($cuerpoE -match 'case\s+"logro":\s*Gesto\("logro"\)') ''
+Comp 'el evento "logro" llama a Gesto' ($cuerpoE -match $reBuena) 'hoy con la "t" de la idea 101: lo saco el jugando'
 # LO QUE SE PROHIBE, por su nombre: la llamada directa que se salta el apunte, EN Evento().
-Comp '  y ya no llama a Logro() por la puerta de atras' ($cuerpoE -notmatch 'case\s+"logro":\s*Logro\(\)') 'esa era la linea que se saltaba el diario'
+Comp '  y ya no llama a Logro() por la puerta de atras' ($cuerpoE -notmatch $reMala) 'esa era la linea que se saltaba el diario'
 
 Write-Host ''
 Write-Host '-- 2. y esa puerta sigue haciendo las tres cosas --'
 # NO BASTA CON QUE LA LLAMADA EXISTA: si Gesto() dejara de apuntar, o dejara de llamar a
 # Logro(), el cambio de arriba seria peor que el fallo -se perderia hasta el oro-.
 Comp 'se encuentra Gesto()' ($cuerpoG -ne '') ''
-Comp '  Gesto apunta en el diario' ($cuerpoG -match 'AnotarGesto\(nombre\)') 'sin esto, el logro seguiria sin contarse'
+# AnotarGesto TAMBIEN GANO EL 'quien' (27/09): hoy la linea es 'AnotarGesto(nombre, quien);'.
+# Antes se exigia 'AnotarGesto(nombre)' exacto. Se sigue exigiendo que le pase el NOMBRE del
+# gesto -si le pasara otra cosa, el diario apuntaria mal- y se admite lo que venga detras.
+Comp '  Gesto apunta en el diario' ($cuerpoG -match 'AnotarGesto\(nombre\s*(,[^)]*)?\)') 'sin esto, el logro seguiria sin contarse'
 Comp '  Gesto pinta el oro del logro' ($cuerpoG -match 'case\s+"logro":\s*[\r\n\s]*Logro\(\)') 'se ve y suena igual que antes'
 Comp '  y le pone el humor contenta' ($cuerpoG -match '"logro"[^\r\n]*Humor\("contenta"' -or $cuerpoG -match 'Humor\("contenta"[^\r\n]*"logro"') 'lo que nunca llego a pasar'
 
@@ -65,7 +87,18 @@ Write-Host '-- 3. y el detector detecta (si no, esto seria decoracion) --'
 # LA UNICA FORMA DE SABER QUE UN DETECTOR FUNCIONA sin esperar a que pase la desgracia: se le
 # pone delante el codigo VIEJO, el que tenia el fallo, y tiene que cazarlo.
 $viejo = '            case "destello": Destello(); break;' + "`n" + '            case "logro": Logro(); break;'
-Comp 'con el codigo de ayer delante, lo caza' (($viejo -match 'case\s+"logro":\s*Logro\(\)') -and ($viejo -notmatch 'case\s+"logro":\s*Gesto\("logro"\)')) 'el que dejaba el diario a cero'
+Comp 'con el codigo de ayer delante, lo caza' (($viejo -match $reMala) -and ($viejo -notmatch $reBuena)) 'el que dejaba el diario a cero'
+# Y QUE LA TOLERANCIA A LOS ARGUMENTOS NO SE HAYA COMIDO LA COMPROBACION (27/09). Al admitir
+# 'Gesto("logro", <lo que sea>)' hay que demostrar que el patron sigue diciendo NO a lo que no
+# es: otro gesto en esa rama, u otra funcion con nombre parecido. Sin esto, relajar el patron
+# seria bajar el liston a escondidas.
+$falso1 = '            case "logro": Gesto("orgullo", ''t''); break;'
+$falso2 = '            case "logro": GestoFalso("logro", ''t''); break;'
+Comp '  y no se traga otro gesto en esa rama' ($falso1 -notmatch $reBuena) 'Gesto("orgullo") no es apuntar el logro'
+Comp '  ni una funcion que solo se parece' ($falso2 -notmatch $reBuena) 'GestoFalso() no apunta en el diario'
+# LO MISMO PARA EL APUNTE: 'AnotarGesto("logro")' -un literal en vez de la variable- dejaria de
+# apuntar los otros veinte gestos, asi que el patron tiene que rechazarlo.
+Comp '  y el apunte exige la variable nombre' ('AnotarGesto("logro", quien);' -notmatch 'AnotarGesto\(nombre\s*(,[^)]*)?\)') 'un literal ahi romperia los otros gestos'
 
 Write-Host ''
 Write-Host '-- 4. y el diario, como esta hoy (informativo, no es un rojo) --'

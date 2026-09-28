@@ -1,4 +1,4 @@
-﻿# EL DIARIO DE GESTOS NO DECIA QUIEN LO PROVOCO, Y EL RESUMEN LO CONTABA AL REVES
+# EL DIARIO DE GESTOS NO DECIA QUIEN LO PROVOCO, Y EL RESUMEN LO CONTABA AL REVES
 # (27/09, idea 101 de las 121)
 #
 # LO QUE ESTABA ESCRITO: memoria\semanas\2026-W37.md dice "Lo que mas me dijiste, segun mis gestos:
@@ -125,7 +125,7 @@ try {
     $r2 = Contar ((Get-Date).AddDays(-1)) ((Get-Date).AddDays(1))
     Comp '2g. una semana entera sin marcas no afirma nada' (@($r2.g.Keys).Count -eq 0) ([string]@($r2.g.Keys).Count)
     Comp '2h. pero se sabe cuantas eran' ($r2.sin -eq 3) ([string]$r2.sin)
-    Comp '2i. y el resumen lo dice en vez de callarse' ($sinCom -match 'no sé cuáles fueron cosa tuya') 'la regla 2 de la casa'
+    Comp '2i. y el resumen lo dice en vez de callarse' ($sinCom -match ('no s' + [char]0xE9 + ' cu' + [char]0xE1 + 'les fueron cosa tuya')) 'la regla 2 de la casa'
     # y fuera de la ventana no entra nada
     [IO.File]::WriteAllLines($gl, [string[]]@('2020-01-01 12:00:00 grito t'), $enc)
     $r3 = Contar ((Get-Date).AddDays(-7)) (Get-Date)

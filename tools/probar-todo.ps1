@@ -2622,7 +2622,10 @@ Titulo "2n225. El pulso del bucle, que nadie habia medido nunca (idea 72 de las 
 # ficheros, y la ficha de la idea pedia justo una escritura por vuelta.
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-pulso-bucle.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:Nova mide su propio pulso)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
-Titulo "2n224. El oido sabe cuanto tarda cada motor, asi que no empieza lo que no llega (idea 71 de las 121)"
+# ETIQUETAS: estas seis (ideas 65..71) nacieron como 2n219..2n224 y esos numeros ya eran de las
+# ideas 54..60, escritas unas horas antes; con dos secciones iguales, decir el nombre del fallo no
+# identificaba cual. Se renumeraron aqui a 2n273..2n278, que estaban libres. Lo caza 2n76.
+Titulo "2n278. El oido sabe cuanto tarda cada motor, asi que no empieza lo que no llega (idea 71 de las 121)"
 # Medido sobre los 477 repasos de registro.jsonl, segundos por segundo de audio: base 0,32,
 # canary 0,43, small 0,93, omni 1,05, turbo 2,97. En los 15 s de plazo a base le caben 46 s de
 # audio y a turbo 5, y el tope era 8 para los dos: turbo se paso del plazo en 17 de sus 23 usos,
@@ -2633,7 +2636,7 @@ python (Join-Path $PSScriptRoot 'probar-repaso-cabe.py') 2>>$script:errBanco | S
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-repaso-cabe.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:el plazo viaja con el pedido)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
-Titulo "2n223. El historial de energia que Windows guarda de los dias que Nova no estaba (idea 70 de las 121)"
+Titulo "2n277. El historial de energia que Windows guarda de los dias que Nova no estaba (idea 70 de las 121)"
 # Nova arranco 259 veces en 17 dias y su serie de bateria son 18 lineas. Windows guarda dia a dia
 # cuanto estuvo la consola despierta con cargador y sin el: 248 ms el informe, 12 dias validos.
 # Del 15 al 26/09, enchufada casi 24 h CADA dia y 14 min/dia sin cargador, cinco dias a cero: por
@@ -2642,7 +2645,7 @@ Titulo "2n223. El historial de energia que Windows guarda de los dias que Nova n
 # NUNCA desde el bucle. La rama que avisa se prueba con datos inyectados: aqui no salta sola.
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-bateria-windows.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:Nova lee lo que Windows apunto)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
-Titulo "2n222. En la mesa o en las manos: el paquete del mando y el sensor de orientacion (idea 69 de las 121)"
+Titulo "2n276. En la mesa o en las manos: el paquete del mando y el sensor de orientacion (idea 69 de las 121)"
 # Dos senales que ya estaban y no se usaban: dwPacketNumber -que XInput solo sube cuando el mando
 # cambia, y aparecia CERO veces en el script- y SimpleOrientationSensor (0,157 ms en caliente
 # frente a los 15,52 del acelerometro, que sigue apagado). Get-EnLaMesa exige las DOS cosas y
@@ -2651,7 +2654,7 @@ Titulo "2n222. En la mesa o en las manos: el paquete del mando y el sensor de or
 # GetLastInputInfo no ve. El banco lee el sensor de verdad y mide lo que cuesta.
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-mesa-o-manos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:Nova sabe si la consola esta en la mesa)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
-Titulo "2n221. Que la capsula diga si se la ve, en vez de adivinarlo por la resolucion (idea 67 de las 121)"
+Titulo "2n275. Que la capsula diga si se la ve, en vez de adivinarlo por la resolucion (idea 67 de las 121)"
 # 'CAPSULA CIEGA' salia CERO veces en 58.636 lineas de registro con 19,9 h de juego dentro: los
 # juegos de hoy usan pantalla completa SIN cambiar de resolucion, asi que la cuenta que decidia
 # siempre dijo 'se ve' y Send-AvisoVibrado no disparo nunca. Ahora la capsula escribe en
@@ -2660,7 +2663,7 @@ Titulo "2n221. Que la capsula diga si se la ve, en vez de adivinarlo por la reso
 # fichero, vacio, ilegible o viejo- se supone visible. El banco arranca el exe de verdad.
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-capsula-visible.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la capsula dice si se la ve)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
-Titulo "2n220. Los tres puertos de mando que no existen se llevaban el 86 % del sondeo (idea 66 de las 121)"
+Titulo "2n274. Los tres puertos de mando que no existen se llevaban el 86 % del sondeo (idea 66 de las 121)"
 # Medido en esta Ally con AX y 300 llamadas por puerto: el 0 (conectado) 0,15 ms; los 1, 2 y 3
 # (ret=1167) 0,36 / 0,39 / 0,39. De 1,29 ms por vuelta, 1,14 en puertos que nunca tuvieron nada,
 # 33 vueltas por segundo. Ahora un puerto que nunca contesto solo entra en el repaso, cuyo plazo
@@ -2668,7 +2671,7 @@ Titulo "2n220. Los tres puertos de mando que no existen se llevaban el 86 % del 
 # gatillo no se gasta el repaso. El banco ejecuta las dos funciones y MIDE el ahorro en vivo.
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-mando-puertos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:los puertos vacios ya no se preguntan en cada vuelta)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
-Titulo "2n219. Las copias de seguridad resucitaban 73 datos que el perfil ya habia tirado (idea 65 de las 121)"
+Titulo "2n273. Las copias de seguridad resucitaban 73 datos que el perfil ya habia tirado (idea 65 de las 121)"
 # Juntando el perfil.md de los 13 zips salian 94 datos distintos frente a los 38 del vivo, entre
 # ellos 'Braya considera que Nova se equivoca frecuentemente'. Al hacer la copia del dia se poda
 # el perfil.md de las anteriores dejando solo lo que sigue vivo: cada zip en su .tmp y al sitio

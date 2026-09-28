@@ -6,12 +6,52 @@
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import zlib
 
 sys.stdout.reconfigure(encoding="utf-8")
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# EL BANCO TIENE QUE CORRER CON EL PYTHON DE NOVA (27/09). La bateria lanza los bancos de
+# Python con el "python" del PATH, que en esta consola es 3.11 y NO tiene numpy; Nova arranca
+# sus workers con el de config.json paths.python -por defecto
+# %LOCALAPPDATA%\Programs\Python\Python312\python.exe, ver $PyExe en assistant.ps1-, que SI lo
+# tiene. Y sin numpy charla_memoria se queda con np = None y apaga la via por significado
+# entera (vector() devuelve None siempre), asi que los tres casos del bloque "por significado"
+# salian MAL por el interprete, no por el codigo. Antes de bajar ningun liston: si al banco le
+# falta numpy se vuelve a lanzar con el interprete de Nova, que es el que se prueba de verdad.
+# Y si ese interprete no aparece, se dice y se sale en rojo; nunca se salta el bloque.
+
+
+def _python_de_nova():
+    exe = ""
+    try:
+        with open(os.path.join(RAIZ, "config.json"), encoding="utf-8-sig") as f:
+            exe = ((json.load(f).get("paths") or {}).get("python") or "").strip()
+    except Exception:  # noqa: BLE001
+        exe = ""
+    if not exe:
+        exe = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Python", "Python312", "python.exe")
+    exe = os.path.expandvars(exe)
+    return exe if os.path.isfile(exe) else ""
+
+
+try:
+    import numpy  # noqa: F401
+except Exception:  # noqa: BLE001
+    _exe = _python_de_nova()
+    if _exe and os.path.normcase(_exe) != os.path.normcase(sys.executable) and not os.environ.get("NOVA_MEMORIA_RELANZADO"):
+        os.environ["NOVA_MEMORIA_RELANZADO"] = "1"
+        sys.exit(subprocess.call([_exe, os.path.abspath(__file__)] + sys.argv[1:]))
+    if _exe:
+        print("  MAL   el Python de Nova (%s) tampoco tiene numpy: la via por significado no se puede probar" % (_exe,))
+    else:
+        print("  MAL   falta numpy y no encuentro el Python de Nova: la via por significado no se puede probar")
+    sys.exit(1)
+
+sys.path.insert(0, RAIZ)
 import charla_memoria as cm  # noqa: E402
 
 mal = 0

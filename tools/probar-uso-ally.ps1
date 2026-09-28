@@ -56,7 +56,25 @@ function Save-Corrupto([string]$a, [string]$b) { }
 $script:invitado = $false
 $script:usoAllyPend = @{}
 $script:usoAlly = $null
-foreach ($f in @('Get-UsoAlly', 'Add-UsoAlly', 'Save-UsoAlly', 'Get-DiaJuego')) { Invoke-Expression (Traer $f) }
+# FALTABAN TRES EN CADENA (27/09, idea 86): Get-DiaJuego ya no lleva el 5 escrito dentro, se lo
+# pregunta a Get-CorteDia; esa sale de Get-FranjaMuerta, y esa de Get-HorasConActividad. Sin las
+# tres el banco moria en el caso 1 con "el termino 'Get-CorteDia' no se reconoce". Se traen de
+# verdad, no se doblan: la hora a la que parte el dia tiene que ser la misma que en Nova.
+foreach ($f in @('Get-UsoAlly', 'Add-UsoAlly', 'Save-UsoAlly',
+        'Get-HorasConActividad', 'Get-FranjaMuerta', 'Get-CorteDia', 'Get-DiaJuego')) { Invoke-Expression (Traer $f) }
+# y los numeros de la franja, del archivo tambien: una copia aqui probaria los mios (manera 4)
+foreach ($v in @('FranjaHorasMin', 'FranjaDiasMin', 'CorteDiaPorDefecto')) {
+    Invoke-Expression ('$' + $v + ' = ' + (TraerVar $v))
+}
+$script:franjaCalculadaDia = ''
+$script:franjaMuerta = $null
+$script:corteDia = $CorteDiaPorDefecto
+# LAS DOS FUENTES DE ACTIVIDAD, VACIAS AQUI, y el doble va DESPUES de cargar las piezas buenas para
+# que no tape a ninguna. Este banco no prueba la franja -eso es probar-franja-muerta.ps1- y el
+# cuaderno de braya no se toca. Sin datos, Get-FranjaMuerta hace lo que hace en la consola cuando
+# aun no hay $FranjaDiasMin dias: no opina, y el dia parte en $CorteDiaPorDefecto, que es el real.
+function Get-Habitos { return @{ usos = @() } }
+$ActivacionesJsonl = Join-Path $tmpU 'activaciones-que-aqui-no-hay.jsonl'
 $hoy = [datetime]'2026-09-25 14:00'
 
 try {
@@ -107,10 +125,15 @@ Comp 'con un invitado delante no se apunta nada' (-not $u[$dia].ContainsKey('val
 
 Write-Host ''
 Write-Host '-- 5. NO CRECE PARA SIEMPRE --'
-for ($i = 1; $i -le ($UsoAllyMax + 12); $i++) { Add-UsoAlly ("app$i") $i 1 }
-Save-UsoAlly $hoy
+# EL SAVE VA DENTRO DEL BUCLE A PROPOSITO (27/09): Add-UsoAlly se guarda ella sola cuando lo
+# pendiente pasa de 300 s, y ahi llama a Save-UsoAlly SIN dia, o sea con Get-Date, el dia de
+# verdad. Con las apps sumando 1, 2, 3... segundos ese disparo salta en la app 24 y de las 52 solo
+# dos acababan en el dia de la prueba: el tope de 40 se comprobaba sobre 5 apps y no tocaba nada
+# (manera 17), y "la de un segundo ya no" salia verde porque app1 estaba en OTRO dia, no por la
+# poda. Guardando cada vuelta lo pendiente nunca llega a 300 y las 52 caen en el dia que se mira.
+for ($i = 1; $i -le ($UsoAllyMax + 12); $i++) { Add-UsoAlly ("app$i") $i 1; Save-UsoAlly $hoy }
 $u = Get-UsoAlly
-Comp "no guarda mas de $UsoAllyMax apps en un dia" ($u[$dia].Count -le $UsoAllyMax) "$($u[$dia].Count) apps"
+Comp "no guarda mas de $UsoAllyMax apps en un dia" ($u[$dia].Count -eq $UsoAllyMax) "$($u[$dia].Count) apps, con $($UsoAllyMax + 15) metidas"
 # y las que caen son las de MENOS tiempo, que son las que no dicen nada
 Comp 'y la que mas tiempo tiene sigue estando' ($u[$dia].ContainsKey("app$($UsoAllyMax + 12)")) ''
 Comp 'y la de un segundo ya no' (-not $u[$dia].ContainsKey('app1')) ''

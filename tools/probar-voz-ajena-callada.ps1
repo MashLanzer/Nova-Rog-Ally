@@ -1,4 +1,4 @@
-﻿# LO QUE DICE OTRA PERSONA NO SE ESCRIBE EN EL REGISTRO (27/09, idea 90 de las 121)
+# LO QUE DICE OTRA PERSONA NO SE ESCRIBE EN EL REGISTRO (27/09, idea 90 de las 121)
 #
 # EL DATO: con la voz ajena Nova ya hacia lo correcto TRES veces -no guarda el wav, no lo manda
 # al agente y no aprende nada- y acto seguido la escribia ENTERA. ONCE lineas de conversacion de
@@ -36,7 +36,7 @@ Comp 'assistant.ps1 se parsea entero' ($err.Count -eq 0) ([string]$err.Count + '
 
 # EL BLOQUE DE VERDAD, SACADO DEL FICHERO. No esta en una funcion propia -vive dentro de
 # Process-Texto, que tiene miles de lineas-, asi que se corta por llaves desde su 'if' y se
-# ejecuta tal cual. Con tope de tamano: si un dia el bloque crece de golpe es que el corte casó
+# ejecuta tal cual. Con tope de tamano: si un dia el bloque crece de golpe es que el corte caso
 # donde no debia, y eso es lo que un dia movio 14.000 lineas de sitio.
 $lineas = [IO.File]::ReadAllLines($PS1)
 $ini = -1
