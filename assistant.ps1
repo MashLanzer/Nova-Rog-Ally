@@ -5950,6 +5950,27 @@ function Resolve-Fragment([string]$f) {
     # aunque braya lo pida claro: lo que se borra por un malentendido no vuelve solo.
     if ($f -match '^(?:borra|borrame|elimina|eliminame|quita|manda|mandame|tira|echa)\s+(?:a\s+la\s+papelera\s+)?(?:la\s+|el\s+|los\s+|las\s+)?(?:carpeta|carpetas|archivo|archivos|fichero|ficheros)\s+(?:llamad[oa]s?\s+)?(.+?)(?:\s+(?:a|en)\s+la\s+papelera)?$') {
         $quePap = $Matches[1].Trim()
+        # LAS DOS CARPETAS DE LA FRASE DEL 20/09 (28/09, tras la revision). Este bloque se escribio
+        # para el caso real de aquel dia -"borra la carpeta prueba y la carpeta prueba 2", las dos
+        # seguian en el escritorio creadas por ella misma diez minutos antes- y la parte de no
+        # inventarse el motivo si quedo arreglada, pero la captura final (.+?) no corta por la "y" y
+        # Split-Ordenes no parte la frase porque lo que sigue no empieza por un verbo. Resultado:
+        # $quePap salia como 'prueba y la carpeta prueba 2', un nombre de 28 caracteres que no
+        # existe, y Nova contestaba "No encuentro nada que se llame prueba y la carpeta prueba 2".
+        # Es la UNICA frase de este tipo que hay en los datos reales (destinos.jsonl) y sigue sin
+        # funcionar.
+        # SE PARTE POR LA "Y" cuando lo de despues vuelve a nombrar una carpeta o un fichero, o
+        # cuando son dos nombres cortos sin verbo: asi "borra la carpeta notas y apuntes" -que puede
+        # ser UNA carpeta que se llama asi- se queda entera, y la del 20/09 se parte en dos. Ante la
+        # duda, una sola: preguntar por la que no es sale mas barato que borrar de mas, y esto SIEMPRE
+        # pregunta antes.
+        $papTrozos = @()
+        if ($quePap -match '^(.+?)\s+y\s+(?:la\s+|el\s+|los\s+|las\s+)?(?:carpeta|carpetas|archivo|archivos|fichero|ficheros)\s+(.+)$') {
+            $papTrozos = @($Matches[1].Trim(), $Matches[2].Trim())
+        }
+        if ($papTrozos.Count -eq 2 -and $papTrozos[0] -and $papTrozos[1]) {
+            return @($papTrozos | ForEach-Object { @{ kind = 'aPapelera'; que = $_; desc = "mandar $_ a la papelera" } })
+        }
         if ($quePap) { return @(@{ kind = 'aPapelera'; que = $quePap; desc = "mandar $quePap a la papelera" }) }
     }
     # --- recetas aprendidas: verlas y olvidarlas ---
@@ -24034,6 +24055,8 @@ $ExesJuegoMax = 40
 $ExesJuegoMinSeg = 600
 $script:exesJuego = $null
 $script:exeSinJuego = ''
+# el exe que quedo sin aclarar, esperando a que Steam selle su LastPlayed al cerrarse (28/09)
+$script:exePendiente = $null
 $script:exeSinJuegoDesde = 0
 function Get-ExesJuego {
     if ($null -ne $script:exesJuego) { return $script:exesJuego }
@@ -34834,6 +34857,8 @@ function Get-HuecosMando {
     return ,$l   # la coma no sobra: una lista vacia desenrollada se queda en $null
 }
 
+# los huecos que se juntan entre volcado y volcado: ver la llamada en el bloque del minuto (28/09)
+$script:huecosMandoRam = New-Object System.Collections.ArrayList
 function Add-HuecoMando([int]$segundos) {
     if ($segundos -le 0) { return $false }
     try {
@@ -34978,7 +35003,18 @@ while ($true) {
                         # el HUECO que acaba de cerrarse, para aprender que es 'quieto de verdad'
                         if ($script:mandoMovidoEn -gt 0) {
                             $huecoS = [int](($sw.ElapsedMilliseconds - $script:mandoMovidoEn) / 1000)
-                            if ($huecoS -gt 0) { [void](Add-HuecoMando $huecoS) }
+                            # AL MINUTO, NO EN CADA ROCE (28/09, tras la revision). Add-HuecoMando
+                            # lee memoria\mando-huecos.json entero, le anade uno y lo reescribe con
+                            # Write-Atomico: 19 ms medidos por escritura, DENTRO del sondeo del mando
+                            # y sin reloj ni freno. Se dispara cada vez que el paquete de XInput
+                            # cambia tras un hueco de un segundo o mas, o sea cada vez que braya toca
+                            # el mando despues de dejarlo quieto un rato; y el propio comentario de
+                            # Add-HuecoMando avisa de que "las setas tienen valor en reposo, asi que
+                            # cualquier roce lo mueve": navegando menus son varias veces por minuto.
+                            # Es un fichero dentro del bucle que se puede evitar (regla 4), y el
+                            # patron de acumular en RAM y volcar al minuto ya esta en casa: es lo que
+                            # hace el pulso de la vuelta.
+                            if ($huecoS -gt 0) { [void]$script:huecosMandoRam.Add($huecoS) }
                         }
                         $script:mandoMovidoEn = $sw.ElapsedMilliseconds
                     }
@@ -36836,6 +36872,15 @@ while ($true) {
     # --- reglas por hora y periodicas; fechas; nota semanal (cada minuto) ---
     $minutoAhora = Get-Date -Format 'HH:mm'
     if ($minutoAhora -ne $script:minutoVisto) {
+        # LOS HUECOS DEL MANDO, UNA VEZ AL MINUTO (28/09, ver Add-HuecoMando). Se juntan en RAM
+        # durante el sondeo -donde escribir el json costaba 19 ms por roce- y bajan aqui. Al
+        # minuto y no al dia: si Nova se reinicia, como mucho se pierde lo del ultimo minuto.
+        try {
+            if ($script:huecosMandoRam.Count -gt 0) {
+                foreach ($hM in @($script:huecosMandoRam)) { [void](Add-HuecoMando ([int]$hM)) }
+                [void]$script:huecosMandoRam.Clear()
+            }
+        } catch { Log ('huecos del mando: ' + $_.Exception.Message) }
         $script:minutoVisto = $minutoAhora
         try { Invoke-Reglas 'hora' $minutoAhora; Invoke-Reglas 'cada' } catch {}
         # Y SI REVIENTA, SE DICE (24/09). Este catch estaba vacio, asi que un fallo dentro de
@@ -36932,6 +36977,7 @@ while ($true) {
             # lo que Windows apunto de los dias que Nova no estaba (idea 70). Una vez al dia y
             # nunca en el bucle: el informe cuesta ~248 ms.
             try { [void](Update-BateriaWindows) } catch { Log ('bateria de Windows: ' + $_.Exception.Message) }
+
             try { Write-NotaSemanal } catch {}
         }
         # micro-charla: un comentario si viene a cuento, una vez al dia
