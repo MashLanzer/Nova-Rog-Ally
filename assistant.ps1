@@ -2634,7 +2634,17 @@ function Add-Memoria([string]$texto) {
 # local lo hablado cada dia y aqui se anade al diario de ESE dia, bajo su titulo.
 # Asi "¿de que hablamos ayer?" lo encuentra la busqueda en tus notas.
 function Add-DiarioResumen([string]$fecha, [string]$texto, [bool]$crudo = $false) {
-    if ($script:invitado) { return }   # MODO INVITADO: lo que diga otro no se queda (17/09)
+    # EL MODO INVITADO SOLO TAPA EL DIA DE HOY (28/09, tras la revision). Antes tapaba cualquier
+    # fecha, y eso perdia dias ENTEROS para siempre: resumir_dias_pasados manda el resumen y ACTO
+    # SEGUIDO hace os.remove() del charla-<dia>.jsonl, sin esperar confirmacion, asi que si el
+    # evento llegaba con el modo invitado puesto las vinetas se tiraban aqui y el bruto ya no
+    # existia; ni al salir del modo volvia. Y no hay segunda via: el volcado en bruto de la idea 60
+    # solo entra si el dia lleva 6 h SIN resumirse, y ese se resumio. La ventana es real: el modo
+    # dura 30 min y el revisor del worker pasa cada 60 s.
+    # Y TAPAR AYER NO PROTEGIA NADA, que es lo que lo decide: el worker no sabe del modo invitado,
+    # asi que lo que dijera el invitado ya entro en el bruto de su dia. Lo unico que se conseguia
+    # era perder el resumen. Lo de hoy si se sigue tirando, que es para lo que se escribio (17/09).
+    if ($script:invitado -and $fecha -eq (Get-Date -Format 'yyyy-MM-dd')) { return }
     if ($fecha -notmatch '^\d{4}-\d{2}-\d{2}$' -or -not $texto.Trim()) { return }
     if (-not (Test-Path -LiteralPath $DiarioDir)) { New-Item -ItemType Directory -Force -Path $DiarioDir | Out-Null }
     $notaD = Join-Path $DiarioDir ($fecha + '.md')
@@ -5846,9 +5856,20 @@ function Resolve-Fragment([string]$f) {
             'ocho' = 8; 'nueve' = 9; 'diez' = 10; 'once' = 11; 'doce' = 12; 'quince' = 15; 'veinte' = 20
             'treinta' = 30; 'cuarenta' = 40; 'sesenta' = 60; 'media' = 30
         }
-        $cantO = $Matches[1]
+        # LOS DOS GRUPOS SE COPIAN ANTES DE NADA (28/09, tras la revision). $Matches es global y lo
+        # pisa CUALQUIER -match posterior: el de la linea de abajo casa -la cantidad ya viene en
+        # cifras, porque ConvertTo-Digitos corre en la primera linea de Resolve-Fragment- y deja
+        # $Matches con una sola clave. Asi que $Matches[2] valia $null, el "hora*" no casaba nunca y
+        # la multiplicacion por 60 no se hacia: "olvida las ultimas dos horas" borraba DOS MINUTOS y
+        # encima lo anunciaba ("He borrado N rastros de los ultimos 2 minutos"). En la unica orden
+        # que existe para quitar conversacion privada del disco, y justo al reves de lo que dice el
+        # comentario de aqui arriba: borrar de mas es el error bueno.
+        # Solo se salvaba "media hora", porque 'media' no se convierte a cifra y el -match falla.
+        # Sus dos hermanas gemelas -esconderTiempo y foco- ya copiaban los grupos primero.
+        $cantO = [string]$Matches[1]
+        $unidO = [string]$Matches[2]
         $nO = if ($cantO -match '^\d+$') { [int]$cantO } elseif ($palO.ContainsKey($cantO)) { $palO[$cantO] } else { 10 }
-        if ($Matches[2] -like 'hora*' -and $cantO -ne 'media') { $nO = $nO * 60 }
+        if ($unidO -like 'hora*' -and $cantO -ne 'media') { $nO = $nO * 60 }
         return @(@{ kind = 'olvidoRato'; minutos = $nO; desc = "olvidar los ultimos $nO minutos" })
     }
     # y la forma sin numero: "olvida lo de hace un rato", "borra lo que acabo de decir"
@@ -14196,7 +14217,22 @@ function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'med
     Log "ENTORNO ($clave, $nivel): $texto"
     Add-Estadistica 'aviso-entorno' $clave
     $script:uiMia = $true   # idea 54: un aviso de entorno lo decidio Nova, no lo pediste (linea suelta, sin funcion nueva)
-    Show-Popup $texto
+    # LA TARJETA NO PUEDE LLEVARSE EL AVISO POR DELANTE (28/09, tras la revision). Show-Popup se
+    # define en la linea ~27850 y las cinco miradas del arranque -Test-CostumbresPropias,
+    # Test-AnimoQueSeCuenta, Test-MemoriaIgnorada, Clear-TmpViejo y Test-JuegoSinEstrenar- corren
+    # ANTES, sobre la 27380. En PowerShell una funcion no existe hasta que su definicion se ejecuta,
+    # asi que ahi esto reventaba. Y el orden hacia el dano: $script:entornoVistos[$clave] y
+    # Save-EntornoVistos ya habian corrido, o sea que el aviso quedaba APUNTADO COMO DADO y no se
+    # decia -lo que queda detras es la cola de voz, 'aviso-dicho' y la observacion de la reaccion-.
+    # Es exactamente lo que la cabecera de esta funcion dice que hay que evitar. CASO REAL del
+    # 27/09: "SECRETO EN CLARO: clave.txt llevaba mas de 7 dias en tmp; hay que rotar esa clave"
+    # quedo en tmp\avisos-vistos.json y NO en la cola; con su cadaMin de 30 dias, braya no se
+    # habria enterado hasta el 27/10. Y el catch del llamador mentia: el registro decia "tmp: no
+    # pude barrer" cuando SI habia barrido 100 ficheros y 13,4 MB.
+    # En el arranque temprano no hay capsula que pintar todavia, asi que perder la tarjeta no
+    # importa; lo que no se puede perder es que SUENE. Regla 7: que un fallo no se lleve a los que
+    # vienen detras.
+    try { Show-Popup $texto } catch { Log ('aviso ' + $clave + ': no pude pintar la tarjeta (' + $_.Exception.Message + '); lo digo igual') }
     # los de poca monta NO se dicen: se ven y ya. Hablar por todo es lo que cansa.
     # Y POR ESO NO SON LA ULTIMA RESPUESTA (21/09). ultimaRespuesta es lo que contesta
     # 'repite', y se ponia aqui arriba para TODOS los avisos, nivel 'bajo' incluido: o
@@ -17903,7 +17939,20 @@ function Test-SoloPregunta([string]$frase) {
 # (una voz que no es la tuya puede preguntar la hora; no puede cerrar el juego).
 $AccionesQueTocan = @('app', 'url', 'key', 'atajo', 'escribir', 'winkey', 'altf4', 'alttab', 'otroMonitor', 'crearAlgo',
                       'enfocar', 'enfocarJuego', 'buscarEquipo', 'winprt', 'winaltg',
-                      'volumenPct', 'brillo', 'lock', 'cerrarApp', 'cerrarJuego', 'cerrarTodo')
+                      'volumenPct', 'brillo', 'lock', 'cerrarApp', 'cerrarJuego', 'cerrarTodo',
+                      # EL CANDADO NO SE PUEDE ABRIR DESDE FUERA (28/09, tras la revision). 'soloYo'
+                      # faltaba, y es la accion mas peligrosa de la lista: "escucha a todos" /
+                      # "obedece a todos" / "da igual quien hable" apagan "hazme caso solo a mi".
+                      # Al no estar aqui, la guarda de voz extrana no preguntaba, el ejecutor hacia
+                      # Set-Cfg 'escucha' 'soloYo' $false -y Set-Cfg es la unica funcion que escribe
+                      # estado de braya sin mirar $script:invitado- y Test-VozExtrana empieza con
+                      # "if (-not $SoloYoOn) { return $false }". O sea: una voz ajena podia apagar
+                      # la defensa contra voces ajenas, sin un solo "seguro?", y quedaba escrito en
+                      # config.json para todos los arranques siguientes. La guarda no es teorica:
+                      # salta de verdad, seis veces en los dos registros ("VOZ EXTRANA: 321 Hz
+                      # frente a 121 Hz; se pregunta antes de: brillo al 100 por ciento").
+                      # Entra tambien el encenderlo, y da igual: preguntar de mas aqui es gratis.
+                      'soloYo')
 
 # PONER EL VIDEO, NO SOLO BUSCARLO (15/09). "Reproduce la cancion de Pitbull Give Me
 # Everything en YouTube" abria la busqueda; braya se quejo y el agente tardo 83 s en
@@ -26676,7 +26725,19 @@ function Enter-Juego([string]$nombre) {
                 $cB = [datetime]::MinValue
                 if ([datetime]::TryParse([string]$gB.cuando, [ref]$cB)) { $frescoB = ((Get-Date) - $cB).TotalHours -lt 12 }
             }
-            if ($gB -and $frescoB -and (Test-JuegoVivo $gB)) {
+            # LA LLAVE ES EL JUEGO, NO EL PID (28/09, tras la revision). Test-JuegoVivo pregunta por el
+            # PID guardado, y el PID cambia cada vez que el juego parpadea: los siete ciclos del
+            # 25/09 con ELDEN RING y NIGHTREIGN duraron de 8 a 21 s cada uno. Al fallar esa llave se
+            # borraba el respaldo BUENO, se leia el panel -que sigue al 100 que puso el perfil,
+            # porque la salida esta aplazada y el brillo no se ha restaurado- y se guardaba 100 como
+            # "el brillo de antes". A partir de ahi el 70 de braya no existia en ningun sitio y la
+            # restauracion era un no-op: en el registro, las 12 lineas "JUEGO: brillo restaurado a"
+            # son 12 de 12 "a 100", y la ultima vez que restauro 70 fue el 20/09 a las 12:55.
+            # El caso que las dos llaves protegian -el del 20/09: It Takes Two a las 15:44, reinicio
+            # a las 18:53 y ELDEN RING a las 18:59- lo cubre igual de bien el nombre del juego, y
+            # mejor: no depende de que el proceso siga siendo el mismo. Las 12 horas se quedan.
+            $mismoJuegoB = ($gB.juego -and ([string]$gB.juego -eq [string]$nombre))
+            if ($gB -and $frescoB -and ($mismoJuegoB -or (Test-JuegoVivo $gB))) {
                 $script:juegoBrilloAntes = [int]$gB.brillo
                 Log "JUEGO: recupero el brillo de antes ($($gB.brillo)) del disco; Nova reinicio con el juego delante"
             } else {
@@ -29496,7 +29557,16 @@ function Add-HiloPendiente([string]$texto, [string]$hecho) {
         $ruta = Join-Path $carp 'hilo-pendiente.jsonl'
         $linea = ConvertTo-Json @{ d = (Get-Date -Format 'yyyy-MM-dd'); h = (Get-Date -Format 'HH:mm');
                                    texto = $texto; hecho = $hecho } -Compress
-        Add-Content -LiteralPath $ruta -Value $linea -Encoding UTF8
+        # UTF-8 SIN BOM, COMO destinos.jsonl (28/09, tras la revision). 'Add-Content -Encoding UTF8'
+        # en PowerShell 5.1 escribe el preambulo EF BB BF al CREAR el fichero, y charla_worker.py lo
+        # lee con open(ruta, encoding="utf-8") + json.loads linea a linea: la primera revienta con
+        # "Unexpected UTF-8 BOM" y cae en su 'except ValueError: continue', o sea que se descarta
+        # sin avisar. Y el worker BORRA el fichero justo despues de leerlo, asi que PS lo vuelve a
+        # crear con BOM: no es la primera linea de la vida, es la primera de CADA tanda. Lo que se
+        # perdia es justo lo que la idea 68 venia a salvar, las correcciones dichas con la charla
+        # apagada. El mismo fallo esta documentado en la linea ~3620 para destinos.jsonl, y alli se
+        # arreglo asi.
+        [System.IO.File]::AppendAllText($ruta, ($linea + "`r`n"), (New-Object System.Text.UTF8Encoding($false)))
         # el tope, solo cuando toca: leer el fichero en cada orden seria pagarlo siempre
         $n = 0
         try { $n = @(Get-Content -LiteralPath $ruta -ErrorAction SilentlyContinue).Count } catch {}
