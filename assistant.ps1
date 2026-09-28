@@ -4487,7 +4487,15 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '', [bool]$deCamino =
                         if (Test-Path -LiteralPath $rcG) {
                             $cuentasG = @()
                             foreach ($lc in [System.IO.File]::ReadAllLines($rcG, [System.Text.Encoding]::UTF8)) {
-                                if ($lc -match '^(\d{4}-\d{2}-\d{2}) (\S+) (\d+)$') { $cuentasG += ($Matches[2] + ' ×' + $Matches[3]) }
+                                # LA FECHA SE MIRA, NO SE SUPONE (28/09, tras la revision). El
+                                # regex capturaba el dia en $Matches[1] y NADIE lo comparaba con hoy,
+                                # mientras la palabra "hoy" iba a pelo en el texto de abajo. La
+                                # capsula solo reescribe ese fichero cuando dispara un gesto de
+                                # ruido, asi que si Nova estuvo callada hoy -o acaba de arrancar y
+                                # todavia no ha habido ninguno- el fichero conserva la fecha y las
+                                # cuentas de OTRO dia y el markdown las presentaba como de hoy. Eso
+                                # es afirmar lo que no se sabe, que es la regla 3.
+                                if ($lc -match '^(\d{4}-\d{2}-\d{2}) (\S+) (\d+)$' -and $Matches[1] -eq (Get-Date -Format 'yyyy-MM-dd')) { $cuentasG += ($Matches[2] + ' ×' + $Matches[3]) }
                             }
                             if ($cuentasG.Count -gt 0) {
                                 [void]$sb.AppendLine("")
@@ -10946,6 +10954,15 @@ function Read-InformeBateria {
 }
 
 # La media de minutos al dia SIN cargador, de lo que guarda Windows. -1 es 'no lo se'.
+# LO QUE SE GUARDA TIENE QUE LEERLO ALGUIEN (28/09, tras la revision). Esta es la unica lectora de
+# memoria\bateria-windows.json, y no la llamaba NADIE fuera de su propio banco: el fichero se escribia
+# una vez al dia y su contenido no decidia nada -el aviso y el Log que van detras de la escritura
+# recalculan la media sobre la lectura fresca de powercfg-. Es el pecado que el propio codigo tiene
+# documentado dos veces, en senales-fallo.jsonl ("Cero lecturas") y en activaciones.jsonl ("Ni un
+# lector"), los dos arreglados el 27/09; este era el que quedaba vivo de la familia.
+# QUIEN LA LLAMA AHORA: el propio Update-BateriaWindows, justo despues de escribir el fichero, para
+# que la media que dice y la que guarda sean EL MISMO NUMERO leido de un solo sitio en vez de dos
+# cuentas paralelas que pueden divergir. Y de paso, si la escritura fallo se nota ese dia.
 function Get-MinutosSinCargador {
     try {
         if (-not (Test-Path -LiteralPath $BateriaWindowsJson)) { return -1 }
@@ -10977,6 +10994,16 @@ function Update-BateriaWindows {
         Write-Atomico $BateriaWindowsJson (ConvertTo-Json @{ visto = (Get-Date -Format 's'); dias = $nD;
             dcMinTotal = $dcTot; acMinTotal = $acTot; diasSinSoltar = $cero; ms = [int]$inf.ms } -Compress)
     } catch {}
+    # Y LA MEDIA QUE SE DICE SALE DE LEER LO GUARDADO (28/09, tras la revision). Antes esto se
+    # escribia y nadie volvia a abrirlo: Get-MinutosSinCargador era su unica lectora y no la llamaba
+    # nadie fuera de su banco, asi que el contenido del fichero no decidia NADA -el aviso de abajo y
+    # esta linea recalculaban la media sobre $inf, la lectura fresca de powercfg-. Es el pecado que
+    # el propio codigo tiene documentado dos veces, en senales-fallo.jsonl ("Cero lecturas") y en
+    # activaciones.jsonl ("Ni un lector"); este era el que quedaba vivo de la familia.
+    # Leyendolo, ademas, lo guardado y lo dicho no pueden divergir: son el mismo numero. Y si la
+    # escritura fallo, se nota aqui en vez de dentro de un mes.
+    $mediaG = Get-MinutosSinCargador
+    if ($mediaG -ge 0) { $media = $mediaG } else { Log 'bateria de Windows: no pude releer lo que acabo de guardar; uso la cuenta de ahora' }
     Log ('bateria de Windows: ' + $nD + ' dias, ' + $media + ' min/dia sin cargador (' + $cero + ' dias a cero), informe en ' + $inf.ms + ' ms')
     # Y LO QUE ESO SIGNIFICA PARA LO QUE NOVA INTENTA APRENDER. El tramo minimo que exige
     # Update-BateriaJuego son 10 minutos seguidos sin cargador; si la media del dia entero no llega
@@ -14619,7 +14646,8 @@ function Get-OidoConRuido {
 # seguridad (dos horas), por si el ruido va y viene.
 # Es la misma guarda de idempotencia que Test-ParteManana, aplicada a un aviso que se
 # rearmaba solo.
-$script:ruidoAvisado = $false     # ya se dijo en el episodio de ruido en curso
+$script:ruidoAvisado = $false     # ya se dijo en el episodio de ruido en curso
+$script:ruidoFrase = ''   # la frase elegida mientras el aviso del ruido siga aparcado (28/09)
 $script:ruidoLimpioDesde = 0      # desde cuando el oido esta limpio (0 = ahora mismo no lo esta)
 # Pura a proposito: recibe el estado y el reloj y no toca nada mas, para que el banco pueda
 # correr un dia entero de ruido en un milisegundo.
@@ -14999,9 +15027,23 @@ function Watch-Entorno([int]$botones = 0) {
                     ('Ese zumbido creo que soy yo: mi zona termica marca ' + [int]$tRuido.c + ' grados y me estoy frenando por calor. No hace falta que busques nada.'),
                     ('El ruido es mi ventilador, que va a tope: ' + [int]$tRuido.c + ' grados en la zona termica. Se me pasara solo.'))
             }
+            # LA FRASE SE ELIGE UNA VEZ Y SE GUARDA (28/09, tras la revision). Aqui se le pasaba
+            # (Get-FraseVariada 'oido-ruido' $frasesRuido) directamente, y esa funcion devuelve una
+            # frase DISTINTA en cada llamada por construccion: guarda las dos ultimas y sortea entre
+            # las que quedan, asi que la recien elegida entra en la memoria y no puede repetirse a la
+            # vuelta siguiente. Con eso el $igual de Add-AvisoEspera -que compara clave + texto +
+            # nivel- era falso SIEMPRE y su 'if ($igual) { return $false }' no frenaba nada: cada
+            # pasada de Watch-Entorno, o sea cada 30 s, escribia una linea 'ENTORNO aparcado', un
+            # Save-AvisoEspera y un Send-PrepVoz. Medido: 44 lineas y 44 escrituras en 22 minutos.
+            # Y Get-FraseVariada llama a Save-Habitos sin condicion, o sea otra escritura de 10 KB
+            # cada medio minuto. Es el mismo fallo del 24/09, por otra puerta.
+            # Mientras el aviso siga sin decirse, la frase es la misma; cuando por fin suena, se
+            # suelta y la proxima vez vuelve a variar, que es para lo que se hizo variada.
+            if (-not $script:ruidoFrase) { $script:ruidoFrase = Get-FraseVariada 'oido-ruido' $frasesRuido }
             if (Send-AvisoEntorno 'oido-ruido' `
-                (Get-FraseVariada 'oido-ruido' $frasesRuido) 'medio' 120) {
+                $script:ruidoFrase 'medio' 120) {
                 $script:ruidoAvisado = $true
+                $script:ruidoFrase = ''      # dicho: la proxima vez se vuelve a variar
             }
         }
     } catch {}
