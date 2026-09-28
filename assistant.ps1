@@ -21349,7 +21349,22 @@ function Initialize-Piper {
         $psi.Arguments = "--model `"$PiperModelo`" --output_dir `"$PiperSalida`""
         $psi.UseShellExecute = $false
         $psi.RedirectStandardInput = $true
-        $psi.RedirectStandardError = $true
+        # EL stderr DE PIPER NO SE REDIRIGE (28/09, tras la revision). Estaba en $true y NADIE leia
+        # $script:piperProc.StandardError: comprobado con grep, las unicas apariciones de piperProc
+        # son el $null inicial, el Start, el Log, los dos Write a StandardInput y el Kill del parar
+        # limpio. Piper escribe una linea por frase sintetizada (~144 bytes, "Real-time factor"), asi
+        # que la tuberia de 4 KB se llena y piper SE BLOQUEA ESCRIBIENDO. Medido con el piper.exe y
+        # el modelo de la casa: ATASCO EN LA FRASE 29, y de ahi no sale solo nunca -HasExited sigue
+        # en False, asi que Say-Piper no lo da por muerto ni lo relanza: entra en su espera de 8 s,
+        # no encuentra wav y cae a la voz de Windows-. Repetido hasta la frase 34: cinco atascos
+        # seguidos, 29 wavs producidos. O sea que a partir de la frase 29 Nova pierde la voz de casa
+        # Y cada frase le cuesta 8 segundos de bucle parado. Y Piper es la SEGUNDA VIA de la voz
+        # (regla 7): lo que salva cuando se cae la red, y la voz principal si voz.motor deja de ser
+        # 'online'.
+        # SIN REDIRIGIR, esas lineas van a la consola de Nova y se las lleva el viento, que es
+        # exactamente lo que hacian antes: nadie las leia. Si algun dia hacen falta, hay que LEERLAS
+        # de verdad (BeginErrorReadLine con su manejador), no dejarlas en la tuberia.
+        $psi.RedirectStandardError = $false
         $psi.CreateNoWindow = $true
         $psi.WorkingDirectory = $PiperDir
         $script:piperProc = [System.Diagnostics.Process]::Start($psi)
@@ -35487,7 +35502,26 @@ while ($true) {
         # el plazo vaciandose. Sin esto se queda igual que en reposo y nadie sabe
         # que le estan preguntando algo, que es justo como el silencio acababa
         # cancelando ordenes buenas.
-        if ($script:uiEstado -ne 'confirmando' -and -not $script:busy -and $script:uiHasta -le $sw.ElapsedMilliseconds) {
+        # UNA VEZ POR PREGUNTA, TAMBIEN CON LA CAPSULA APAGADA (28/09, tras la revision). Set-UI
+        # empieza con 'if (-not $UiNuevaOn) { return }', asi que con la capsula apagada NUNCA toca
+        # $script:uiEstado ni $script:uiHasta: las tres condiciones de aqui abajo se cumplen SIEMPRE y
+        # el bloque entero se repetia en cada vuelta mientras hubiera pregunta. Cuatro danos, y el
+        # primero es de los gordos: (1) el 'vence' se reescribia cada 30 ms, asi que
+        # Complete-Confirmacion 'plazo' era INALCANZABLE y la pregunta se quedaba puesta hasta que
+        # braya contestara -la regla 2, ningun modo se queda puesto-; (2) el zumbido se relanzaba en
+        # cuanto se vaciaba la cola de vibracion, unas tres veces por segundo y sin fin, porque la
+        # guarda $p.zumbo se rearma DENTRO de este mismo bloque tres lineas mas abajo y no guardaba
+        # nada; (3) 'nace' se reescribia igual, asi que Add-ZumbidoTiempo apuntaba ~30 ms en vez de
+        # lo que tardo braya, y el numero adaptativo que decide si el zumbido sirve se alimentaba de
+        # datos falsos; (4) Get-ZumbidoTiempos leia memoria\zumbido-tiempos.json del disco una vez
+        # por vuelta, que es la regla 4. Medido ejecutando el bloque real con la capsula apagada: 424
+        # vueltas en 20 s, 61 zumbidos, el vence empujado 26 s y 424 lecturas del fichero.
+        # $UiNuevaOn es false en tres casos reales: ui.nueva = false en config, falta nova_ui.exe sin
+        # compilar, y despues de tres relanzos fallidos de la capsula, que lo pone el propio bucle.
+        # LA MARCA VA EN $script:pendiente, que nace de cero en cada pregunta (son todas @{}), asi
+        # que no hay que acordarse de limpiarla en ningun sitio.
+        if (-not $script:pendiente.arrancada -and $script:uiEstado -ne 'confirmando' -and -not $script:busy -and $script:uiHasta -le $sw.ElapsedMilliseconds) {
+            $script:pendiente.arrancada = $true
             # EL PLAZO EMPIEZA AQUI, cuando de verdad termina de hablar (18/09). Hasta hoy
             # empezaba al hacer la pregunta, con una ESTIMACION de lo que iba a durar la voz:
             # si la frase real tardaba mas, el plazo se comia hablando. Caso de las 18:47:
@@ -35500,7 +35534,6 @@ while ($true) {
             $script:confirmaTotal = [Math]::Max(1, $queda)
             # Y AQUI SE DICE QUE EL MANDO VALE (23/09, funcion 10). En catorce dias se uso
             # cero veces para contestar, teniendolo en las manos: nadie se lo habia dicho.
-            Set-UI 'confirmando' ($script:uiTexto + (Get-PistaMando ([string]$script:pendiente.tipo)))
             # ZUMBIDO AL NACER LA PREGUNTA (26/09, idea 42): la segunda via del mando. Puerta = HAY
             # MANDO (no juego). Dos guardas obligatorias porque con la capsula apagada este bloque
             # se repite cada vuelta: la marca $p.zumbo y la cola de vibracion libre. Se mide en Complete-Confirmacion.
@@ -35511,6 +35544,13 @@ while ($true) {
                 Start-Vibracion @(70, 90, 70) 16000
                 $script:pendiente.zumbo = $true
             }
+        }
+        # PINTAR SI QUE ES CADA VEZ QUE HAGA FALTA (28/09): arrancar la pregunta es una sola vez -el
+        # plazo, el reloj de la medida y el zumbido- pero volver a poner la capsula en 'confirmando'
+        # hay que hacerlo tambien si una voz de por medio la paso a 'hablando'. Con la capsula
+        # apagada no se paga nada: ni Set-UI, que saldria por su primera linea, ni Get-PistaMando.
+        if ($UiNuevaOn -and $script:uiEstado -ne 'confirmando' -and -not $script:busy -and $script:uiHasta -le $sw.ElapsedMilliseconds) {
+            Set-UI 'confirmando' ($script:uiTexto + (Get-PistaMando ([string]$script:pendiente.tipo)))
         }
         $resp = ''
         if (Test-Path -LiteralPath $RutaConfirmacion) {
