@@ -24516,6 +24516,18 @@ function New-CopiaSeguridad([string]$motivo = 'a mano') {
 #
 # CADA UNA EN SU try, como estaban, para que la que pete no se lleve a las seis siguientes (regla 7).
 function Invoke-TareasDelDia {
+    # UNA VEZ AL DIA DE VERDAD, NO EN CADA ARRANQUE (28/09, visto con Nova delante). El 27/09 estas
+    # siete salieron del try de la copia -eso estaba bien- pero salieron TAMBIEN del
+    # 'if (Test-CopiaPendiente)', y ahi perdieron lo unico que las limitaba a una vez al dia. Nova
+    # arranca mucho -235 veces en catorce dias- y cada arranque repetia las siete enteras: la poda
+    # de las 28 copias, las correcciones, los juegos ciegos... MEDIDO EN VIVO el 28/09: de las
+    # 00:18 a las 00:35 y subiendo, mas de media hora con el bucle bloqueado y Nova sin escuchar.
+    # El sello va en config.json como el de la vuelta (entorno.vueltaMedidoDia), y se pone ANTES de
+    # empezar: si una tarea revienta, se hara manana. Perder un dia de mantenimiento es barato;
+    # repetirlo en cada arranque, no.
+    $hoyT = Get-Date -Format 'yyyy-MM-dd'
+    if ([string](Get-Cfg 'auto' 'tareasDelDia' '') -eq $hoyT) { return 0 }
+    Set-Cfg 'auto' 'tareasDelDia' $hoyT
     $hechas = 0
     foreach ($t in @(
         @{ n = 'COPIA poda';    f = { Invoke-PodaCopias } }
@@ -36431,12 +36443,26 @@ while ($true) {
                     }
                 }
             } catch {}
-            # LAS TAREAS DEL DIA VAN APARTE Y SIEMPRE (27/09, arreglado tras la revision): colgaban
-            # dentro del try de la copia y detras de su Compress-Archive, asi que un zip fallido
-            # -disco lleno, que es lo que Nova vigila- se llevaba las siete en silencio. Y aqui
-            # fuera del 'if (Test-CopiaPendiente)' tambien a proposito: que la copia de hoy ya
-            # estuviera hecha no es motivo para no repasar lo demas.
-            try { [void](Invoke-TareasDelDia) } catch { Log ('DIA: ' + $_.Exception.Message) }
+            # LAS TAREAS DEL DIA VAN APARTE (27/09): colgaban dentro del try de la copia y detras de
+            # su Compress-Archive, asi que un zip fallido -disco lleno, que es lo que Nova vigila-
+            # se llevaba las siete en silencio. Fuera del 'if (Test-CopiaPendiente)' tambien a
+            # proposito: que la copia de hoy ya estuviera hecha no es motivo para no repasar lo demas.
+            #
+            # PERO SI DENTRO DEL BUEN RATO (28/09, corregido con Nova delante). Al sacarlas de la
+            # copia se las saco tambien de Test-BuenRatoParaTrabajo, y eso no tocaba: las siete son
+            # LO MAS PESADO que hace Nova -la poda recomprime las 28 copias- y corren SINCRONAS en
+            # el bucle, o sea que mientras duran Nova no oye. Medido en vivo el 28/09: mas de media
+            # hora sorda desde el arranque, con braya delante preguntando que le pasaba.
+            # La guarda ya existia y es la misma que usa la copia: sin juego delante y sin nadie
+            # desde hace un rato, salvo que lleven demasiado esperando (ahi el plazo manda, que es
+            # la regla 2: nada se queda sin hacerse para siempre).
+            try {
+                $ausT = 999
+                try { $ausT = [int](Get-AusenciaMin) } catch {}
+                if (Test-BuenRatoParaTrabajo $ausT ([bool]$script:juegoActivo) (Get-CopiaHorasEsperando)) {
+                    [void](Invoke-TareasDelDia)
+                }
+            } catch { Log ('DIA: ' + $_.Exception.Message) }
         }
         $diaAhora = Get-Date -Format 'yyyy-MM-dd'
         if ($diaAhora -ne $script:diaVisto) {
@@ -36455,12 +36481,26 @@ while ($true) {
                     }
                 }
             } catch {}
-            # LAS TAREAS DEL DIA VAN APARTE Y SIEMPRE (27/09, arreglado tras la revision): colgaban
-            # dentro del try de la copia y detras de su Compress-Archive, asi que un zip fallido
-            # -disco lleno, que es lo que Nova vigila- se llevaba las siete en silencio. Y aqui
-            # fuera del 'if (Test-CopiaPendiente)' tambien a proposito: que la copia de hoy ya
-            # estuviera hecha no es motivo para no repasar lo demas.
-            try { [void](Invoke-TareasDelDia) } catch { Log ('DIA: ' + $_.Exception.Message) }
+            # LAS TAREAS DEL DIA VAN APARTE (27/09): colgaban dentro del try de la copia y detras de
+            # su Compress-Archive, asi que un zip fallido -disco lleno, que es lo que Nova vigila-
+            # se llevaba las siete en silencio. Fuera del 'if (Test-CopiaPendiente)' tambien a
+            # proposito: que la copia de hoy ya estuviera hecha no es motivo para no repasar lo demas.
+            #
+            # PERO SI DENTRO DEL BUEN RATO (28/09, corregido con Nova delante). Al sacarlas de la
+            # copia se las saco tambien de Test-BuenRatoParaTrabajo, y eso no tocaba: las siete son
+            # LO MAS PESADO que hace Nova -la poda recomprime las 28 copias- y corren SINCRONAS en
+            # el bucle, o sea que mientras duran Nova no oye. Medido en vivo el 28/09: mas de media
+            # hora sorda desde el arranque, con braya delante preguntando que le pasaba.
+            # La guarda ya existia y es la misma que usa la copia: sin juego delante y sin nadie
+            # desde hace un rato, salvo que lleven demasiado esperando (ahi el plazo manda, que es
+            # la regla 2: nada se queda sin hacerse para siempre).
+            try {
+                $ausT = 999
+                try { $ausT = [int](Get-AusenciaMin) } catch {}
+                if (Test-BuenRatoParaTrabajo $ausT ([bool]$script:juegoActivo) (Get-CopiaHorasEsperando)) {
+                    [void](Invoke-TareasDelDia)
+                }
+            } catch { Log ('DIA: ' + $_.Exception.Message) }
             # lo que Windows apunto de los dias que Nova no estaba (idea 70). Una vez al dia y
             # nunca en el bucle: el informe cuesta ~248 ms.
             try { [void](Update-BateriaWindows) } catch { Log ('bateria de Windows: ' + $_.Exception.Message) }

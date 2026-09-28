@@ -142,20 +142,42 @@ $tdd = Traer 'Invoke-TareasDelDia'
 Comp '7a. es una de las tareas del dia, con la poda de copias' (($tdd -match 'Invoke-CorreccionesDormidas') -and ($tdd -match 'Invoke-PodaCopias')) 'dentro de Invoke-TareasDelDia'
 $llTdd = @([regex]::Matches($sinCom, '(?<!function )Invoke-TareasDelDia'))
 Comp '7a2. y las tareas del dia se llaman en dos sitios, ni uno mas' ($llTdd.Count -eq 2) ([string]$llTdd.Count + ' llamadas')
-Comp '7a3. los dos detras de su guarda' (($sinCom -match '(?s)\$script:copiaMirada = \$true.{0,700}?Invoke-TareasDelDia') -and ($sinCom -match '(?s)\$script:diaVisto = \$diaAhora.{0,700}?Invoke-TareasDelDia')) 'una vez al dia, no en el bucle'
+Comp '7a3. los dos detras de su guarda' (($sinCom -match '(?s)\$script:copiaMirada = \$true.{0,1400}?Invoke-TareasDelDia') -and ($sinCom -match '(?s)\$script:diaVisto = \$diaAhora.{0,1400}?Invoke-TareasDelDia')) 'una vez al dia, no en el bucle'
 Comp '7b. y recarga la tabla viva al retirar' ($sinCom -match '\$script:cmds = Get-Content -LiteralPath \$cmdsPath') 'para que Repair-Words deje de pagarlas ya'
 Comp '7c. queda como decision propia' ($sinCom -match "Add-Estadistica 'auto-ajuste' \(""correcciones dormidas: ") ''
 $real = Get-Content -LiteralPath (Join-Path $Raiz 'commands.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $nReal = @($real.correcciones.PSObject.Properties).Count
+# LA TABLA ENTERA SON LAS VIVAS MAS LAS DORMIDAS (28/09). Nova retiro las 96 de verdad a las
+# 00:33:54 del 28/09 -"96 de 110 no se han oido en 11 dias de uso (1447 frases); a dormir. Quedan
+# 14"-, que es exactamente lo que la idea 109 venia a hacer. A partir de ahi, medir "cuantas se
+# retirarian" contra las 14 vivas da 0 y el banco se ponia rojo POR HABER FUNCIONADO el codigo.
+# Las dormidas no se borran, se mueven: la cuenta buena es la suma.
+$nDorm = 0
+$nombresTodas = @($real.correcciones.PSObject.Properties.Name)
+if ($real.PSObject.Properties.Name -contains 'correccionesDormidas' -and $real.correccionesDormidas) {
+    $nDorm = @($real.correccionesDormidas.PSObject.Properties).Count
+    $nombresTodas += @($real.correccionesDormidas.PSObject.Properties.Name)
+}
+$nTodas = $nombresTodas.Count
 Comp '7d. el commands.json de verdad no se ha tocado' ($nReal -ge 14) ([string]$nReal + ' correcciones; el banco trabaja en su carpeta')
 # y el cruce de verdad, sin escribir nada
 $LogDir = $Raiz
 $script:corpusUsoCache = $null; $script:corpusUsoSello = ''
 $coR = Get-CorpusUso
 if ([int]$coR.frases -gt 0) {
-    $dR = @(Get-CorreccionesDormidas ([string]$coR.texto) @($real.correcciones.PSObject.Properties.Name))
-    Comp '7e. y con los datos de hoy se retirarian casi todas' ($dR.Count -gt ($nReal / 2)) ([string]$dR.Count + ' de ' + [string]$nReal + ', con ' + [string]$coR.frases + ' frases de ' + [string]$coR.dias + ' dias')
-    Comp '7f. pero NO todas: quedan las que si se oyen' ($dR.Count -lt $nReal) ([string]($nReal - $dR.Count) + ' se quedan')
+    # CONTRA LA TABLA ENTERA, no solo contra las que quedan vivas: ver arriba.
+    $dR = @(Get-CorreccionesDormidas ([string]$coR.texto) $nombresTodas)
+    Comp '7e. y con los datos de hoy se retirarian casi todas' ($dR.Count -gt ($nTodas / 2)) ([string]$dR.Count + ' de ' + [string]$nTodas + ' (' + [string]$nReal + ' vivas + ' + [string]$nDorm + ' dormidas), con ' + [string]$coR.frases + ' frases de ' + [string]$coR.dias + ' dias')
+    Comp '7f. pero NO todas: quedan las que si se oyen' ($dR.Count -lt $nTodas) ([string]($nTodas - $dR.Count) + ' se quedan')
+    # Y EL CASO QUE FALTABA, que es el que de verdad protege ahora: retirar es MOVER, no borrar.
+    # Si algun dia la retirada se lleva una clave sin dejarla en correccionesDormidas, la suma baja
+    # y aqui se ve; con las dos tablas separadas nadie lo miraba.
+    Comp '7g. retirar es mover, no borrar: la tabla entera sigue estando' ($nTodas -ge 110) ([string]$nTodas + ' entre las dos tablas')
+    if ($nDorm -gt 0) {
+        # y las que se quedaron vivas tienen que ser justo las que SI se han oido
+        $vivasQueNoSeOyen = @(Get-CorreccionesDormidas ([string]$coR.texto) @($real.correcciones.PSObject.Properties.Name))
+        Comp '7h. y las vivas son las que se oyen de verdad' ($vivasQueNoSeOyen.Count -eq 0) ([string]$vivasQueNoSeOyen.Count + ' vivas que no se han oido nunca')
+    }
 } else {
     Write-Host '  --   no hay corpus de uso aqui, se salta'
 }
