@@ -27,6 +27,46 @@ import tempfile
 import time
 import wave
 
+RAIZ_INT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+# EL INTERPRETE DE NOVA, NO EL DEL PATH (27/09, tras la revision)
+#
+# La bateria lanza los bancos de Python con "python" a secas, y en esta consola ese es el 3.11, que
+# NO tiene numpy. Nova arranca sus workers con el de config.json (paths.python, por defecto
+# %LOCALAPPDATA%\Programs\Python\Python312\python.exe, ver $PyExe en assistant.ps1), que SI lo
+# tiene. Asi que este banco moria en el import de abajo -con un Traceback y saliendo con CODIGO 0,
+# o sea sin que nadie se enterara de que no comprobaba nada- por el interprete y no por el codigo.
+#
+# Si falta numpy se vuelve a lanzar con el interprete de Nova, que es el que se prueba de verdad. Y
+# si ese tampoco lo tiene, se DICE y se sale en rojo: nunca en silencio (regla 3).
+def _python_de_nova():
+    exe = ""
+    try:
+        with io.open(os.path.join(RAIZ_INT, "config.json"), encoding="utf-8-sig") as _f:
+            exe = ((json.load(_f).get("paths") or {}).get("python") or "").strip()
+    except Exception:  # noqa: BLE001
+        exe = ""
+    if not exe:
+        exe = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Python", "Python312", "python.exe")
+    exe = os.path.expandvars(exe)
+    return exe if os.path.isfile(exe) else ""
+
+
+try:
+    import numpy  # noqa: F401
+except Exception:  # noqa: BLE001
+    _exe = _python_de_nova()
+    if _exe and os.path.normcase(_exe) != os.path.normcase(sys.executable) and not os.environ.get("NOVA_GRABAR_RELANZADO"):
+        import subprocess
+        os.environ["NOVA_GRABAR_RELANZADO"] = "1"
+        sys.exit(subprocess.call([_exe, os.path.abspath(__file__)] + sys.argv[1:]))
+    if _exe:
+        print("  MAL   el Python de Nova (%s) tampoco tiene numpy: este banco no comprueba nada" % (_exe,))
+    else:
+        print("  MAL   falta numpy y no encuentro el Python de Nova: este banco no comprueba nada")
+    sys.exit(1)
+
 import numpy as np
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

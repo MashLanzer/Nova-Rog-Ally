@@ -61,6 +61,40 @@ AUDIO = os.path.join(RAIZ, "pruebas", "audio")
 
 import wave
 
+# EL INTERPRETE DE NOVA, ANTES DE RENDIRSE (27/09, tras la revision)
+#
+# La bateria lanza los bancos de Python con "python" a secas, y en esta consola ese es el 3.11, que
+# NO tiene numpy. Nova, en cambio, arranca sus workers con el de config.json (paths.python, por
+# defecto %LOCALAPPDATA%\Programs\Python\Python312\python.exe, ver $PyExe en assistant.ps1), que SI
+# lo tiene. O sea que este banco se rendia por el interprete y no por la maquina, y con el exit(0)
+# de abajo salia VERDE sin haber comprobado ni una cosa.
+#
+# NO SE TOCA LA DECISION DE ABAJO, que esta razonada y sigue valiendo: faltar un paquete de verdad
+# no es que el oido haya empeorado, asi que en una maquina recien montada esto avisa y sale bien.
+# Lo unico que se anade es probar primero con el interprete que Nova usa de verdad.
+def _python_de_nova():
+    exe = ""
+    try:
+        import json as _json
+        with open(os.path.join(RAIZ, "config.json"), encoding="utf-8-sig") as _f:
+            exe = ((_json.load(_f).get("paths") or {}).get("python") or "").strip()
+    except Exception:  # noqa: BLE001
+        exe = ""
+    if not exe:
+        exe = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Python", "Python312", "python.exe")
+    exe = os.path.expandvars(exe)
+    return exe if os.path.isfile(exe) else ""
+
+
+try:
+    import numpy  # noqa: F401
+except Exception:  # noqa: BLE001
+    _exe = _python_de_nova()
+    if _exe and os.path.normcase(_exe) != os.path.normcase(sys.executable) and not os.environ.get("NOVA_AUDIO_RELANZADO"):
+        import subprocess
+        os.environ["NOVA_AUDIO_RELANZADO"] = "1"
+        sys.exit(subprocess.call([_exe, os.path.abspath(__file__)] + sys.argv[1:]))
+
 try:
     import numpy as np
     from faster_whisper import WhisperModel
@@ -165,14 +199,31 @@ def vocabulario():
 
 
 def _prompt_de_la_escucha():
-    # la frase de ejemplo SE LEE de wake_vosk.py (no se copia): si cambia alli, la
-    # prueba mide lo nuevo sin que nadie tenga que acordarse de tocar esto
+    # la frase de ejemplo SE SACA de wake_vosk.py (no se copia): si cambia alli, la
+    # prueba mide lo nuevo sin que nadie tenga que acordarse de tocar esto.
+    #
+    # 27/09: desde la idea 118 PROMPT_ORDENES ya no es una cadena escrita a mano sino lo que
+    # devuelve _leer_prompt_ordenes(), que mira tmp\prompt-ordenes.txt (la frase que Nova
+    # escribio con tus verbos) y cae en la de siempre si no hay o no vale. Un literal_eval
+    # sobre eso revienta. Asi que se EXTRAE esa funcion tal cual y se ejecuta aqui, con el
+    # __file__ de wake_vosk.py, que es lo que decide de que carpeta tmp se lee. Copiar aqui la
+    # regla de los 20..300 caracteres habria dejado la prueba midiendo otra cosa el dia que
+    # alli cambie, que es justo lo que acaba de pasar.
     import ast
-    fuente = open(os.path.join(RAIZ, "wake_vosk.py"), encoding="utf-8").read()
-    for n in ast.parse(fuente).body:
-        if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name) and n.targets[0].id == "PROMPT_ORDENES":
-            return ast.literal_eval(n.value)
-    return None
+    ruta = os.path.join(RAIZ, "wake_vosk.py")
+    with open(ruta, encoding="utf-8") as f:
+        arbol = ast.parse(f.read())
+    piezas = [n for n in arbol.body
+              if (isinstance(n, ast.FunctionDef) and n.name == "_leer_prompt_ordenes")
+              or (isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name)
+                  and n.targets[0].id == "PROMPT_ORDENES_POR_DEFECTO")]
+    if len(piezas) != 2:
+        print("  MAL  no encuentro en wake_vosk.py de donde sale la frase de ejemplo "
+              "(PROMPT_ORDENES_POR_DEFECTO y _leer_prompt_ordenes): la prueba no mide lo que oye Nova")
+        return None
+    entorno = {"os": os, "__file__": ruta}
+    exec(compile(ast.Module(body=piezas, type_ignores=[]), ruta, "exec"), entorno)
+    return entorno["_leer_prompt_ordenes"]()
 
 
 PROMPT_ORDENES = _prompt_de_la_escucha()

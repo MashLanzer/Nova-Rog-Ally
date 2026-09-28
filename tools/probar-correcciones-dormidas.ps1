@@ -132,7 +132,17 @@ try {
 
 Write-Host ''
 Write-Host '-- 7. EL CABLEADO, Y EL commands.json DE VERDAD INTACTO --'
-Comp '7a. corre donde ya corre la copia del dia' ($sinCom -match '(?s)Invoke-PodaCopias\).{0,300}Invoke-CorreccionesDormidas') 'una vez al dia, no en el bucle'
+# EL 27/09 LAS SIETE TAREAS DEL DIA SALIERON DEL try DE LA COPIA a su propia Invoke-TareasDelDia,
+# asi que el 'Invoke-PodaCopias) ... Invoke-CorreccionesDormidas' pegados ya no existe. Se comprueba
+# lo mismo que protegia aquello, pero por donde vive ahora y en tres trozos, que es mas dificil de
+# dejar verde sin querer: (a) que esto sea UNA de las tareas del dia, al lado de la poda de copias;
+# (b) que esas tareas se llamen en DOS sitios y no mas; y (c) que los dos sean las guardas de una
+# vez -al arrancar y al cambiar de dia-, nunca el bucle.
+$tdd = Traer 'Invoke-TareasDelDia'
+Comp '7a. es una de las tareas del dia, con la poda de copias' (($tdd -match 'Invoke-CorreccionesDormidas') -and ($tdd -match 'Invoke-PodaCopias')) 'dentro de Invoke-TareasDelDia'
+$llTdd = @([regex]::Matches($sinCom, '(?<!function )Invoke-TareasDelDia'))
+Comp '7a2. y las tareas del dia se llaman en dos sitios, ni uno mas' ($llTdd.Count -eq 2) ([string]$llTdd.Count + ' llamadas')
+Comp '7a3. los dos detras de su guarda' (($sinCom -match '(?s)\$script:copiaMirada = \$true.{0,700}?Invoke-TareasDelDia') -and ($sinCom -match '(?s)\$script:diaVisto = \$diaAhora.{0,700}?Invoke-TareasDelDia')) 'una vez al dia, no en el bucle'
 Comp '7b. y recarga la tabla viva al retirar' ($sinCom -match '\$script:cmds = Get-Content -LiteralPath \$cmdsPath') 'para que Repair-Words deje de pagarlas ya'
 Comp '7c. queda como decision propia' ($sinCom -match "Add-Estadistica 'auto-ajuste' \(""correcciones dormidas: ") ''
 $real = Get-Content -LiteralPath (Join-Path $Raiz 'commands.json') -Raw -Encoding UTF8 | ConvertFrom-Json
