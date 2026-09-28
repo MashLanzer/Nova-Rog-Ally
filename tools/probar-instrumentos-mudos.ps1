@@ -40,7 +40,18 @@ Comp '1. se encuentran las claves literales en el fuente' ($literales.Count -ge 
 
 # 3. LAS CLAVES CON DATOS en estadisticas.json (todas las jornadas; PSObject, no hashtable en 5.1)
 $conDatos = @{}
-$rutaEst = Join-Path $raiz 'memoria\estadisticas.json'
+# EL FICHERO DE PRODUCCION NO PUEDE DECIDIR EL COLOR (28/09, tras la revision). Esto lee el
+# memoria\estadisticas.json DE VERDAD y exige que toda clave con datos este declarada en el fuente o
+# en la lista blanca de aqui abajo. Dos problemas, y los dos los tiene documentados el propio
+# proyecto en probar-logro-anotado.ps1 ("un rojo que depende de lo que haya en disco hoy no dice
+# nada del codigo; eso ya costo dos rojos falsos el 25/09"):
+#   - cualquier cosa que escriba una clave mientras el banco corre -otro banco, o Nova viva, que es
+#     lo normal ahora- lo pone rojo sin que el codigo haya cambiado;
+#   - y al reves, si ese dia el fichero no trae una clave, la comprobacion pasa por no tener nada
+#     que mirar, que es la manera 17.
+# SE PUEDE APUNTAR A OTRO FICHERO con la variable de entorno NOVA_ESTADISTICAS, que es lo que hace
+# el banco cuando quiere un caso fijo; sin ella sigue mirando el de verdad, que tambien informa.
+$rutaEst = if ($env:NOVA_ESTADISTICAS) { $env:NOVA_ESTADISTICAS } else { Join-Path $raiz 'memoria\estadisticas.json' }
 if (Test-Path -LiteralPath $rutaEst) {
     $j = Get-Content -LiteralPath $rutaEst -Raw -Encoding UTF8 | ConvertFrom-Json
     foreach ($dia in $j.dias.PSObject.Properties) {
@@ -54,9 +65,36 @@ Comp '   una clave muy usada (local) aparece con datos' ($conDatos.ContainsKey('
 
 # A. AUTOCALIBRADA: toda clave con datos tiene que estar en el fuente o declarada de otra via
 $declaradas = @{}; foreach ($k in $otraVia) { $declaradas[$k] = $true }
-$huerfanas = @($conDatos.Keys | Where-Object { -not $literales.ContainsKey($_) -and -not $declaradas.ContainsKey($_) })
-Comp 'A. toda clave con datos esta en el fuente (o declarada de otra via)' ($huerfanas.Count -eq 0) $(
-    if ($huerfanas.Count) { "SIN DECLARAR: " + ($huerfanas -join ', ') + " (anadela a \$otraVia con su via)" } else { 'ninguna suelta' })
+# LA CLAVE CON DETALLE CUENTA POR SU RAIZ (28/09, tras la revision). Add-Estadistica escribe
+# 'raiz:detalle' cuando se le pasa un detalle -aviso-nada:juego-cierra, aviso-sirvio:hora-dormir,
+# pete:979-, y el detalle sale de lo que pasa ese dia: no se puede enumerar. La lista blanca de
+# arriba intentaba enumerarlo y por eso crecia sola y se quedaba corta; con Nova encendida, cada
+# aviso nuevo ponia el banco rojo SIN QUE EL CODIGO HUBIERA CAMBIADO. Lo que hay que exigir es que
+# la RAIZ este declarada, que es lo que el fuente puede declarar.
+function RaizClave([string]$k) { if ($k -match '^([^:]+):') { return $Matches[1] } ; return $k }
+$huerfanas = @($conDatos.Keys | Where-Object {
+    -not $literales.ContainsKey($_) -and -not $declaradas.ContainsKey($_) -and
+    -not $literales.ContainsKey((RaizClave $_)) -and -not $declaradas.ContainsKey((RaizClave $_))
+})
+# EL VEREDICTO NO SALE DEL FICHERO DE PRODUCCION (28/09, tras la revision). Lo que hay hoy en
+# memoria\estadisticas.json lo escribe Nova mientras vive, asi que juzgar por ahi es juzgar por el
+# disco: con la consola encendida, cada aviso nuevo ponia esto rojo sin que el codigo hubiera
+# cambiado, y al reves -si ese dia el fichero no traia una clave, la comprobacion pasaba por no
+# tener nada que mirar, que es la manera 17-. El propio proyecto ya lo tiene documentado en
+# probar-logro-anotado.ps1: 'un rojo que depende de lo que haya en disco hoy no dice nada del
+# codigo; eso ya costo dos rojos falsos el 25/09'.
+# LO QUE SI SE JUZGA es el codigo, y esta justo debajo: que el regex saque los literales bien.
+# Lo del disco se ENSENA -que para eso sirve- pero en gris, y solo cuenta como fallo si se le
+# apunta a un fichero fijo con NOVA_ESTADISTICAS, que es cuando el contenido si lo elige el banco.
+if ($env:NOVA_ESTADISTICAS) {
+    Comp 'A. toda clave con datos esta en el fuente (o declarada de otra via)' ($huerfanas.Count -eq 0) $(
+        if ($huerfanas.Count) { "SIN DECLARAR: " + ($huerfanas -join ', ') } else { 'ninguna suelta' })
+} elseif ($huerfanas.Count) {
+    Write-Host ('  --   A. en el estadisticas.json de hoy hay ' + $huerfanas.Count + " clave(s) que el fuente no declara: " + (($huerfanas | Select-Object -First 6) -join ', ')) -ForegroundColor DarkGray
+    Write-Host '       (no es un fallo: lo escribe Nova mientras vive. Para juzgarlo, NOVA_ESTADISTICAS a un fichero fijo)' -ForegroundColor DarkGray
+} else {
+    Write-Host '  ok   A. ninguna clave del estadisticas.json de hoy se queda sin declarar'
+}
 # y sobre texto de mentira, que el regex hace lo que debe
 $fx = "Add-Estadistica 'pepe' ; Add-Estadistica ""juan"" ; Add-Estadistica `$modo `$text"
 $km = @([regex]::Matches($fx, "Add-Estadistica\s+['""]([^'""]+)['""]")) | ForEach-Object { $_.Groups[1].Value }
