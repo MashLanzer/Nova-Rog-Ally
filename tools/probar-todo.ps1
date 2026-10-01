@@ -2119,6 +2119,15 @@ Titulo "2n279. Los bancos de Python que se rendian por el interprete"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n301. Que una sola orden no escriba 39 destinos (idea 3 de las 20 nuevas)"
+# El 18/09 una sola orden escribio TREINTA Y NUEVE lineas de destino en 92 segundos alternando
+# 'charla' y 'traducir', y otra 31. Y lo peor no fue el espacio: esas dos son las que hacian creer
+# que braya repetia las ordenes el 26 % de las veces -era el bucle contandose a si mismo-, o sea un
+# dato que manda a buscar un fallo que no existe. El tope sale de medir: de 375 ids, el 78,9 % tiene
+# UNA linea, el 98,9 % cuatro o menos, y lo mas alto legitimo son 9. El salto siguiente son 31 y 39.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-en-bucle.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no puede llenar el corpus)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n300. Que dos ordenes distintas no compartan el mismo id (idea 2 de las 20 nuevas)"
 # La marca del id no se consume con los destinos neutros ('charla', 'traducir') -y eso esta bien-,
 # pero si la orden nunca llega a un destino de verdad, la marca se queda en disco y la SIGUIENTE la

@@ -3625,6 +3625,23 @@ $script:descarteYaVa = @{}
 # Write-DestinoUso, que es donde esta el motivo entero. Cinco minutos son los mismos que ya usa
 # Test-FalloUso para decidir si una queja habla de la orden de ahora.
 $UsoIdFrescoMin = [int](Get-Cfg 'uso' 'idFrescoMin' 5)
+# CUANTAS LINEAS PUEDE ESCRIBIR UNA SOLA ORDEN (1/10, idea 3 de las 20 nuevas).
+#
+# El 18/09 una sola orden escribio TREINTA Y NUEVE lineas de destino en 92 segundos -el id
+# 20260918-233533, "Este estado es cargando en Steam"- alternando 'charla' y 'traducir' dos veces
+# por segundo. Y otra escribio 31. Algo entro en bucle y el corpus se lleno de la misma frase.
+#
+# Y LO PEOR NO ES EL ESPACIO: esas dos son las que hacian creer que braya repetia las ordenes. Con
+# ellas dentro, el corpus dice que el 26,1 % de las ordenes se repiten en menos de un minuto, y no
+# es verdad: era el bucle contandose a si mismo. Un dato asi manda a buscar un fallo que no existe.
+#
+# EL NUMERO SALE DE MEDIR, no de elegirlo: de los 375 ids guardados, el 78,9 % tiene UNA linea, el
+# 98,9 % tiene cuatro o menos, y lo mas alto legitimo que hay son 7 y 9 (ordenes encadenadas). El
+# salto siguiente son 31 y 39, que son el bucle. Doce esta muy por encima de lo normal y muy por
+# debajo de lo roto.
+$UsoDestinosMax = [int](Get-Cfg 'uso' 'destinosMax' 12)
+$script:usoLineasId = ''        # de que orden es la cuenta de abajo
+$script:usoLineas = 0           # cuantas lineas lleva escritas ESA orden
 # ¿La marca que hay en disco es de la orden de AHORA? El id ES una hora ('yyyyMMdd-HHmmss', lo pone
 # guardar_uso en wake_vosk.py), asi que esto no abre el disco ni depende de ningun LastWriteTime,
 # que algo podria tocar.
@@ -3757,6 +3774,21 @@ function Write-DestinoUso([string]$ruta, [string]$detalle = '', [bool]$deCamino 
         # no se puede estropear porque algo le toque el LastWriteTime al fichero.
         # LOS CINCO MINUTOS SON LOS QUE YA USA Test-FalloUso mas abajo para lo mismo: pasados, esa
         # orden ya no es "la de ahora" para nadie.
+        # UNA SOLA ORDEN NO ESCRIBE TREINTA Y NUEVE LINEAS (1/10, idea 3 de las 20 nuevas). Ver
+        # $UsoDestinosMax: el 18/09 pasO, y no solo lleno el fichero -hizo creer que braya repetia
+        # las ordenes el 26 % de las veces, que era el bucle contandose a si mismo-.
+        # LA CUENTA VA POR ID, y se reinicia al cambiar de orden: asi no hace falta limpiarla nunca
+        # ni se queda un tope pegado de la orden anterior.
+        if ($script:usoLineasId -ne $idU) { $script:usoLineasId = $idU; $script:usoLineas = 0 }
+        if ($script:usoLineas -ge $UsoDestinosMax) {
+            # SE DICE UNA VEZ, en el que cruza el liston, y no en las 27 siguientes.
+            if ($script:usoLineas -eq $UsoDestinosMax) {
+                $script:usoLineas++
+                Log "uso: la orden $idU lleva $UsoDestinosMax destinos; dejo de apuntarlos (algo esta en bucle)"
+                Add-Estadistica 'uso-orden-en-bucle' $idU
+            }
+            return $false
+        }
         if (Test-MarcaUsoVieja $idU) {
             Log "uso: la marca del id es de hace mas de $UsoIdFrescoMin min ($idU); no la pego a esta orden"
             Add-Estadistica 'uso-id-caducado' $idU
@@ -3788,6 +3820,9 @@ function Write-DestinoUso([string]$ruta, [string]$detalle = '', [bool]$deCamino 
         [System.IO.File]::AppendAllText((Join-Path $dirU 'destinos.jsonl'),
             ((ConvertTo-Json -InputObject $oU -Compress) + [Environment]::NewLine),
             (New-Object System.Text.UTF8Encoding($false)))
+        # y una linea mas para esta orden (idea 3): se cuenta DESPUES de escribirla, para que el
+        # liston sea "doce escritas" y no "doce intentos"
+        $script:usoLineas++
         # se recuerda para poder corregirlo si braya dice que estuvo mal: cuando lo dice,
         # el id de la marca ya se ha consumido y no quedaria a que orden referirse
         $script:ultimoUsoId = $idU
