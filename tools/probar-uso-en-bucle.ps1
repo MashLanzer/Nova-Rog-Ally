@@ -133,7 +133,7 @@ Comp 'el freno esta dentro de Write-DestinoUso' ($iFreno -ge 0) ''
 Comp '  y ANTES de escribir' ($iFreno -ge 0 -and $iEscribe -ge 0 -and $iFreno -lt $iEscribe) "freno en $iFreno, escribe en $iEscribe"
 # LA CUENTA SUBE DESPUES DE ESCRIBIR, no antes: si subiera antes, el liston seria "doce intentos"
 $iSube = $sin.IndexOf('$script:usoLineas++', $iEscribe)
-Comp '  y la cuenta sube DESPUES de escribir' ($iSube -gt $iEscribe) 'si no, el liston serian intentos y no lineas'
+Comp '  y la cuenta sube DESPUES de escribir' ($iEscribe -ge 0 -and $iSube -gt $iEscribe) 'si no, el liston serian intentos y no lineas'
 $txt = [IO.File]::ReadAllText($PS1)
 Comp 'el tope sale de config.json' ($txt -match "Get-Cfg 'uso' 'destinosMax'") ''
 # Y EL NUMERO ESTA DEFENDIDO CON LA MEDICION, no elegido a dedo
