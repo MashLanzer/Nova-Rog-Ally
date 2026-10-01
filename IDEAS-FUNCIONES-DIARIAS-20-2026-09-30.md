@@ -272,3 +272,55 @@ Cinco, y todos míos. Van dentro de los bancos como casos, para que no vuelvan:
 Y uno que cazó el banco de colisiones de la batería, no el suyo: *"mueve spotify a la otra
 pantalla"* se lo comía el patrón de **mover un juego de disco** (función 3), en vez de ir al
 monitor. El destino ahora tiene que sonar a disco.
+
+## La 17 (subtítulos del audio del juego): lo que se midió antes de escribir una línea
+
+Es la más cara de las veinte y la única que gasta **un núcleo entero** mientras trabaja, así que
+se midió todo primero, en esta consola y con la batería de pruebas encima (números pesimistas):
+
+| | retraso | tiempo real | CPU |
+|---|---|---|---|
+| Capturar el audio del sistema (WASAPI loopback) | — | — | **8,7 %** de un núcleo |
+| Whisper tiny int8, trozos de 6 s, **1 hilo** | 1,8 s | x0,30 | **99 %** de un núcleo |
+| ídem, 2 hilos | 1,2 s | x0,20 | 197 % |
+| ídem, 4 hilos | 1,2 s | x0,20 | **385 %** |
+
+**Cuatro hilos es dinero tirado**: igual de rápido que dos y el doble de núcleos. Va con **uno**,
+porque el juego va delante (regla 5).
+
+**No traduce, y es la parte que más dolió.** Whisper solo sabe traducir *hacia* inglés. Para el
+español hay que pasar por el modelo local, y eso también se midió: **4,13 s** con `llama3.2:1b` y
+**5,04 s** con `qwen2.5:3b`. Encima de los 1,8 s de transcribir son **siete segundos** de retraso,
+y además traducía mal:
+
+| lo que dice el juego | lo que salía |
+|---|---|
+| *the top of the tower* | **el topo del castillo** |
+| *the bridge is out* | **El puente está fuera** |
+| *he sold us out* | **Se entregó a nosotros** |
+
+Un subtítulo que llega siete segundos tarde y mal no es un subtítulo. Así que la función se partió
+en dos piezas, cada una con el precio que puede pagar:
+
+1. **Subtítulos en vivo**, en el idioma del juego, 1,8 s. Para seguir el diálogo.
+2. **"¿qué ha dicho?"**, eso sí traducido al español sobre los últimos 30 s ya oídos. Ahí los 5 s
+   se pagan a gusto, porque braya lo ha pedido y está esperando.
+
+### Dos hallazgos del camino
+
+- **El loopback coge el sonido ANTES del volumen maestro**: con el volumen al 12 % el pico
+  capturado es idéntico al de siempre (0,9853). O sea que los subtítulos funcionan **con el sonido
+  bajado**, que es como se juega de noche.
+- **Con nada sonando el pico es exactamente 0,00000**, así que la puerta de "no hay nada que
+  subtitular" es gratis y exacta: no hace falta ningún VAD para eso.
+
+### Y dos fallos míos, uno de ellos mudo
+
+6. `m.transcribe()` devuelve `(segmentos, info)` y los segmentos son **perezosos**: `list(...)`
+   sobre la tupla hacía una lista de **dos cosas** sin transcribir nada, y la medición salía a
+   **x0,01**. Una medida que miente por no agotar un generador.
+7. `StandardInput.WriteLine` de PowerShell cuela **su preámbulo (BOM)** delante del primer `{`:
+   el worker recibía `\uFEFF{`, `json.loads` fallaba y el pedido se perdía **en silencio** —
+   "¿qué ha dicho?" no contestaba nunca y no quedaba ni una línea de error. `Send-CharlaPedido` ya
+   lo había resuelto el 13/09 escribiendo bytes UTF-8 al `BaseStream`; aquí se hace igual, y el
+   banco lo comprueba mirando que el primer byte sea `0x7B`.

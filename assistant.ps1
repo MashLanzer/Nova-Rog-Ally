@@ -6492,6 +6492,29 @@ function Resolve-Fragment([string]$f) {
         $f -match '^(?:mi\s+)?lista\s+de\s+deseos$') {
         return @(@{ kind = 'steamPregunta'; que = 'wishlist'; juego = ''; desc = 'la lista de deseos' })
     }
+    # --- SUBTITULOS DEL AUDIO DEL JUEGO (1/10, la 17 de las 20) ---
+    # "subtitula", "pon los subtitulos", "escribe lo que dicen" / "quita los subtitulos".
+    # Es la unica de las veinte que gasta un nucleo entero, asi que NO hay ninguna puerta que la
+    # encienda sola: se pide a mano o no se enciende.
+    if ($f -match '^(?:pon(?:me|le)?\s+(?:los\s+)?subtitulos|subtitula(?:me)?(?:\s+(?:el\s+juego|esto|la\s+escena))?|subtitulos|escribe\s+lo\s+que\s+dicen|pon\s+lo\s+que\s+dicen\s+en\s+pantalla)$') {
+        return @(@{ kind = 'subtitulos'; que = 'pon'; desc = 'subtitular el juego' })
+    }
+    if ($f -match '^(?:quita(?:me)?\s+(?:los\s+)?subtitulos|para\s+de\s+subtitular|deja\s+de\s+subtitular|ya\s+no\s+subtitules|sin\s+subtitulos|fuera\s+(?:los\s+)?subtitulos)$') {
+        return @(@{ kind = 'subtitulos'; que = 'quita'; desc = 'quitar los subtitulos' })
+    }
+    if ($f -match '^(?:estas\s+subtitulando|como\s+van\s+los\s+subtitulos|que\s+tal\s+(?:van\s+)?los\s+subtitulos|tienes\s+(?:los\s+)?subtitulos\s+puestos)$') {
+        return @(@{ kind = 'subtitulos'; que = 'parte'; desc = 'como van los subtitulos' })
+    }
+    # "QUE HA DICHO": la otra mitad de la 17, la que SI va traducida al espanol.
+    # LA GUARDA VA EN LA MISMA CONDICION, igual que el "que dice" de las notificaciones: sin
+    # subtitulos puestos esto NO resuelve y la frase sigue su camino.
+    # Y ESTO VA DESPUES DE ESE, a proposito: si acaba de llegar una notificacion, gana la
+    # notificacion. Leer un mensaje privado en voz alta por un falso positivo sigue siendo el peor
+    # fallo posible, y no deja de serlo porque haya un juego delante.
+    if (($f -match '^(?:que\s+(?:ha|han)\s+dicho|que\s+acaba\s+de\s+decir|que\s+(?:ha|han)\s+dicho\s+(?:eso|ahi)|traduce\s+(?:lo\s+que\s+(?:ha|han)\s+dicho|eso)|que\s+dijo)$') -and
+        $script:subProc -and -not $script:subProc.HasExited) {
+        return @(@{ kind = 'subtitulos'; que = 'ultimo'; desc = 'traducir lo ultimo que dijo el juego' })
+    }
     # --- VA BIEN EN LA ALLY? y QUE LOGRO ES EL MAS FACIL (1/10, las 15 y 14 de las 20) ---
     if ($f -match '^(?:va|funciona|tira|corre)\s+bien\s+(.+?)\s+en\s+(?:la\s+)?(?:ally|consola|portatil)$' -or
         $f -match '^(?:esta\s+)?verificado\s+(.+)$' -or
@@ -20663,6 +20686,24 @@ function Invoke-FastCommand([string]$text) {
                     $a.desc = Get-FraseAutonomia ([string]$a.juego)
                     $a.hecho = $true
                 }
+                # SUBTITULOS DEL AUDIO DEL JUEGO (1/10, la 17 de las 20). La mas cara de las
+                # veinte: un nucleo entero mientras transcribe (medido: 99 % con un hilo). Por eso
+                # se arranca a mano, se dice el precio al ponerla y se corta sola.
+                'subtitulos' {
+                    switch ([string]$a.que) {
+                        'pon' { $a.desc = Start-Subtitulos }
+                        'quita' { $a.desc = if (Stop-Subtitulos 'me lo has pedido') { 'Quitados.' } else { 'No los tenia puestos.' } }
+                        'parte' { $a.desc = Get-FraseSubtitulos }
+                        'ultimo' {
+                            # la respuesta llega asincrona por Receive-Subtitulos y de ahi pasa al
+                            # traductor: aqui solo se pide
+                            $rU = Request-UltimoSubtitulo
+                            $a.desc = if ($rU) { $rU } else { 'Un momento, que te lo traduzco.' }
+                        }
+                        default { $a.desc = 'No se que quieres que haga con los subtitulos.' }
+                    }
+                    $a.hecho = $true
+                }
                 # LAS DOS PREGUNTAS A STEAM (1/10, las 14 y 15 de las 20). La respuesta llega
                 # asincrona: aqui solo se pide y se dice que se esta preguntando. Sin juego dicho,
                 # se usa el que esta delante, que es lo que braya querra el 90 % de las veces.
@@ -27656,6 +27697,259 @@ function Get-AppIdDeJuego([string]$juego) {
         if ($c -eq $q -or $c.StartsWith($q)) { return @{ id = [string]$j.appid; nombre = [string]$j.nombre } }
     }
     return @{ id = ''; nombre = '' }
+}
+
+# =====================================================================
+# SUBTITULOS DEL AUDIO DEL JUEGO (1/10, la 17 de las 20 funciones)
+# =====================================================================
+# La mas cara de las veinte, y la unica que lleva un numero medido delante de cada decision,
+# porque aqui es facil prometer algo que se come la consola. Todo esto es del 1/10 en esta
+# maquina, y con la bateria de pruebas encima (o sea, numeros pesimistas):
+#
+#   capturar el audio del sistema (WASAPI loopback) ......  8,7 % de un nucleo
+#   Whisper tiny int8 sobre trozos de 6 s, 1 hilo .......  x0,30 real, 1,8 s, 99 % de UN nucleo
+#                                           2 hilos ....  x0,20 real, 1,2 s, 197 %
+#                                           4 hilos ....  x0,20 real, 1,2 s, 385 %
+#
+# Cuatro hilos es dinero tirado: igual de rapido que dos y el doble de nucleos. Va con UN hilo
+# (regla 5: el juego necesita los nucleos). Y con nada sonando el pico de amplitud es
+# EXACTAMENTE 0,00000, asi que la puerta de "no hay nada que subtitular" es gratis.
+#
+# NO TRADUCE, Y ES LA PARTE QUE MAS DOLIO: Whisper solo traduce HACIA ingles. Para el espanol
+# hay que pasar por el modelo local, y eso tambien se midio: 4,13 s con llama3.2:1b y 5,04 s
+# con qwen2.5:3b. Encima de los 1,8 s de transcribir son SIETE SEGUNDOS de retraso, y encima
+# traducia mal ("the top of the tower" -> "el topo del castillo", "the bridge is out" -> "El
+# puente esta fuera"). Un subtitulo que llega siete segundos tarde y mal no es un subtitulo.
+# Asi que los subtitulos salen EN EL IDIOMA DEL JUEGO, y para el espanol esta la otra mitad,
+# que SI puede pagar los 5 s porque braya la pide y espera: "que ha dicho".
+#
+# Y UN HALLAZGO QUE MEJORA LA FUNCION (medido con el volumen a 12 %): el loopback coge el
+# sonido ANTES del volumen maestro, asi que el pico capturado es el mismo a todo volumen que
+# casi callado. Los subtitulos funcionan con el sonido bajado, que es como se juega de noche.
+#
+# SE CORTA SOLA (regla 2, y no es negociable con algo que gasta un nucleo): por plazo, al
+# cerrarse el juego, y si la CPU ya va ahogada.
+$SubtitulosModelo = [string](Get-Cfg 'subtitulos' 'modelo' 'tiny')
+$SubtitulosTrozoSeg = [double](Get-Cfg 'subtitulos' 'trozoSeg' 6)
+# EL PLAZO: veinte minutos de dialogo es mucho mas de lo que dura una cinematica, y a los
+# veinte minutos ya no se esta "leyendo una escena", se esta gastando un nucleo por inercia.
+$SubtitulosMaxMin = [int](Get-Cfg 'subtitulos' 'maxMin' 20)
+# SI LA CPU YA VA AHOGADA, NO. Subtitular cuesta un nucleo entero mientras transcribe: con el
+# juego ya al 90 % lo unico que consigue es estropear la partida que se queria entender.
+$SubtitulosCpuMax = [int](Get-Cfg 'subtitulos' 'cpuMax' 88)
+$script:subProc = $null
+$script:subLectura = $null
+$script:subDesde = 0          # cuando se encendieron (reloj del bucle)
+$script:subIdioma = ''        # lo que habla el juego, ya fijado por el worker
+$script:subUltimo = ''        # el ultimo subtitulo que se pinto
+$script:subPideUltimo = $false   # hay un "que ha dicho" esperando la respuesta del worker
+$script:subPideEn = 0            # ...y desde cuando, para que no se quede esperando para siempre
+$script:subMsPeor = 0         # lo que mas tardo un subtitulo, para poder decirlo
+
+# QUE HACE FALTA PARA SUBTITULAR, dicho de una vez y en voz de persona. Se mira ANTES de
+# arrancar nada: prometer subtitulos y que luego el worker muera callado es lo peor de todo.
+function Get-EstorboSubtitulos {
+    if (-not (Test-Path -LiteralPath $PyExe)) { return 'me falta Python para eso' }
+    $w = Join-Path $LogDir 'subtitulos.py'
+    if (-not (Test-Path -LiteralPath $w)) { return 'me falta el trozo que oye el juego' }
+    return ''
+}
+
+function Start-Subtitulos {
+    if ($script:subProc -and -not $script:subProc.HasExited) {
+        return 'Ya los tengo puestos.'
+    }
+    $est = Get-EstorboSubtitulos
+    if ($est) { return "No puedo subtitular: $est." }
+    # LA CPU PRIMERO, Y LEIDA AHORA. $script:uiCarga valdria, pero el bucle solo lo actualiza
+    # cada 30 s y solo cuando se mueve diez puntos: aqui se decide si gastar un nucleo entero,
+    # y decidirlo con un numero de hace medio minuto no es decidir. Get-CargaCPU es un
+    # NextValue del contador de rendimiento, o sea gratis, y esto no corre en el bucle sino
+    # cuando braya lo pide (regla 4 intacta). Si la sonda esta apagada se usa lo que haya.
+    $cargaAhora = $null
+    try { $cargaAhora = Get-CargaCPU } catch {}
+    if ($null -eq $cargaAhora) { $cargaAhora = [int]$script:uiCarga }
+    if ([int]$cargaAhora -ge $SubtitulosCpuMax) {
+        return "Ahora no: la consola va al $([int]$cargaAhora) por ciento y subtitular se come un nucleo entero. Te estropearia la partida."
+    }
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = $PyWorker
+        $psi.Arguments = "-u `"$(Join-Path $LogDir 'subtitulos.py')`" $SubtitulosModelo $SubtitulosTrozoSeg"
+        $psi.UseShellExecute = $false
+        $psi.RedirectStandardInput = $true
+        $psi.RedirectStandardOutput = $true
+        $psi.CreateNoWindow = $true
+        $psi.WorkingDirectory = $LogDir
+        # DE QUIEN ES HIJO, igual que el oido y la voz desde el 13/09. Lo que quedaria huerfano
+        # aqui es un Whisper comiendose un nucleo entero (regla 5), asi que no basta con confiar
+        # en que al morir Nova se cierre la tuberia: el worker lo comprueba por su cuenta.
+        [void]$psi.EnvironmentVariables.Remove('NOVA_PID_PADRE')
+        [void]$psi.EnvironmentVariables.Add('NOVA_PID_PADRE', [string]$PID)
+        $script:subProc = [System.Diagnostics.Process]::Start($psi)
+        $script:subLectura = $null
+        $script:subDesde = $sw.ElapsedMilliseconds
+        $script:subIdioma = ''
+        $script:subUltimo = ''
+        $script:subMsPeor = 0
+        Log "subtitulos: worker PID=$($script:subProc.Id) ($SubtitulosModelo, trozos de $SubtitulosTrozoSeg s, 1 hilo)"
+    } catch {
+        $script:subProc = $null
+        Log ('subtitulos: no arranco: ' + $_.Exception.Message)
+        return 'No he podido ponerme a oir el juego.'
+    }
+    # SE DICE EL PRECIO Y EL PLAZO, las dos cosas: es la unica funcion de las veinte que gasta
+    # un nucleo, y braya tiene derecho a saberlo sin mirar el log.
+    return "Voy. Salen en pantalla en el idioma del juego, con un segundo y medio de retraso; traducir tardaria siete y lo haria mal. Me callo sola en $SubtitulosMaxMin minutos o cuando me digas."
+}
+
+# LA TUBERIA NO ES UTF-8 POR DEFECTO, y esto me costo una prueba colgada el 1/10: con
+# StandardInput.WriteLine, PowerShell cuela su preambulo delante del PRIMER mensaje, el worker
+# recibe "﻿{" en vez de "{", json.loads falla y el pedido se pierde EN SILENCIO. El "que
+# ha dicho" no contestaba nunca. Send-CharlaPedido ya lo resolvio el 13/09 escribiendo bytes
+# UTF-8 directos al BaseStream; aqui se hace igual, y por el mismo motivo.
+function Send-SubPedido([string]$json) {
+    if (-not $script:subProc -or $script:subProc.HasExited) { return $false }
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($json + "`n")
+        $flujo = $script:subProc.StandardInput.BaseStream
+        $flujo.Write($bytes, 0, $bytes.Length)
+        $flujo.Flush()
+        return $true
+    } catch { Log ('subtitulos: no pude escribir al worker: ' + $_.Exception.Message); return $false }
+}
+
+function Stop-Subtitulos([string]$porque = '') {
+    if (-not $script:subProc) { return $false }
+    # SE LE PIDE QUE SE VAYA Y SE LE ESPERA UN POCO; si no se va, se cierra la tuberia, que es
+    # lo que el worker mira para morirse solo. Matar a lo bruto dejaria el modelo a medio
+    # descargar y la grabadora del altavoz abierta.
+    [void](Send-SubPedido '{"op":"fin"}')
+    try { [void]$script:subProc.WaitForExit(700) } catch {}
+    try { if (-not $script:subProc.HasExited) { $script:subProc.StandardInput.Close() } } catch {}
+    try { if (-not $script:subProc.WaitForExit(500)) { $script:subProc.Kill() } } catch {}
+    try { $script:subProc.Dispose() } catch {}
+    $script:subProc = $null
+    $script:subLectura = $null
+    $script:subPideUltimo = $false
+    Log ("subtitulos: fuera" + $(if ($porque) { " ($porque)" } else { '' }))
+    return $true
+}
+
+# LO QUE VA DICIENDO EL WORKER, SIN BLOQUEAR EL BUCLE. Mismo patron que Receive-Charla:
+# ReadLineAsync y si no esta lista se vuelve en la siguiente vuelta.
+function Receive-Subtitulos {
+    if (-not $script:subProc) { return }
+    if ($script:subProc.HasExited) {
+        Log 'subtitulos: el worker se cerro'
+        $script:subProc = $null
+        $script:subLectura = $null
+        $script:subPideUltimo = $false
+        return
+    }
+    # Y EL "QUE HA DICHO" TAMPOCO SE QUEDA ESPERANDO PARA SIEMPRE (regla 2): el worker contesta
+    # en menos de un trozo -6 s-, asi que a los 15 ya no va a contestar y hay que decirlo en vez
+    # de contestar "ya voy con eso" el resto de la tarde.
+    if ($script:subPideUltimo -and ($sw.ElapsedMilliseconds - $script:subPideEn) -gt 15000) {
+        $script:subPideUltimo = $false
+        Say 'No he conseguido recuperar lo que dijo.'
+    }
+    # EL PLAZO, Y AQUI DENTRO a proposito: asi no hace falta acordarse de mirarlo en el bucle,
+    # y no hay forma de que los subtitulos se queden puestos si alguien olvida la guarda.
+    if (($sw.ElapsedMilliseconds - $script:subDesde) -gt ($SubtitulosMaxMin * 60000)) {
+        [void](Stop-Subtitulos 'se paso el plazo')
+        Say "Quito los subtitulos, que llevan $SubtitulosMaxMin minutos puestos. Dime y los vuelvo a poner."
+        return
+    }
+    # Y SI SE CIERRA EL JUEGO, tampoco hay nada que subtitular: subtitular el escritorio es
+    # gastar un nucleo en el silencio.
+    if (-not $script:juegoActivo -and ($sw.ElapsedMilliseconds - $script:subDesde) -gt 30000) {
+        [void](Stop-Subtitulos 'ya no hay juego delante')
+        return
+    }
+    for ($n = 0; $n -lt 12; $n++) {
+        if (-not $script:subLectura) { $script:subLectura = $script:subProc.StandardOutput.ReadLineAsync() }
+        if (-not $script:subLectura.IsCompleted) { return }
+        $linea = $script:subLectura.Result
+        $script:subLectura = $null
+        if ($null -eq $linea) { return }
+        $ev = $null
+        try { $ev = $linea | ConvertFrom-Json } catch { $ev = $null }
+        if (-not $ev) { continue }
+        switch ([string]$ev.ev) {
+            'listo' { Log 'subtitulos: oyendo' }
+            'idioma' {
+                $script:subIdioma = [string]$ev.idioma
+                Log ("subtitulos: el juego habla " + $script:subIdioma + " (al " + ([int]([double]$ev.conf * 100)) + ' %)')
+            }
+            'sub' {
+                $t = [string]$ev.texto
+                if (-not $t) { continue }
+                $script:subUltimo = $t
+                if ([int]$ev.ms -gt $script:subMsPeor) { $script:subMsPeor = [int]$ev.ms }
+                # SE LEE, NO SE OYE: repetir en voz alta lo que el juego acaba de decir, encima
+                # del juego, es absurdo. Van a la capsula y se van solas.
+                # Y EL ESTADO ES 'atenta', NO 'hablando': con 'hablando' la capsula se pinta del
+                # azul de "estoy contestando" y el subtitulo pareceria suyo. 'atenta' es el verde
+                # apagado de "sigo aqui, oyendo", que es exactamente lo que esta haciendo.
+                # 6,5 s y no 5: un trozo de 6 s con 1 s de solape trae subtitulo cada ~5 s, y con
+                # 5000 la capsula se quedaba en blanco justo antes del siguiente.
+                Set-UI 'atenta' $t 6500
+            }
+            'ultimo' {
+                $script:subPideUltimo = $false
+                $t = [string]$ev.texto
+                if (-not $t) { Say 'No he oido nada en los ultimos segundos.'; continue }
+                # AQUI SI SE TRADUCE, porque braya lo ha pedido y esta esperando: los cinco
+                # segundos del modelo local se pagan a gusto. Mismo camino que el traductor de
+                # conversacion, que ya existe desde el 16/09.
+                $script:respuestaSinTarjeta = $false
+                Submit-Command ("Traduce al espanol esto que acaba de decir un videojuego. Contesta SOLO con la traduccion, sin comillas ni comentarios: " + $t) 'pregunta'
+            }
+            'err' { Log ('subtitulos: ' + [string]$ev.texto) }
+            'info' { Log ('subtitulos: ' + [string]$ev.texto) }
+        }
+    }
+}
+
+# "QUE HA DICHO": la otra mitad de la 17, la que SI va en espanol.
+function Request-UltimoSubtitulo {
+    if (-not $script:subProc -or $script:subProc.HasExited) {
+        return 'No estoy oyendo el juego. Dime "subtitula" y luego te lo traduzco.'
+    }
+    if ($script:subPideUltimo) { return 'Ya voy con eso.' }
+    if (-not (Send-SubPedido '{"op":"ultimo"}')) { return 'No he podido preguntarle a mi propio oido.' }
+    $script:subPideUltimo = $true
+    $script:subPideEn = $sw.ElapsedMilliseconds
+    return ''
+}
+
+# EL PARTE, cuando se pregunta "estas subtitulando" o "como va eso"
+function Get-FraseSubtitulos {
+    if (-not $script:subProc -or $script:subProc.HasExited) {
+        $est = Get-EstorboSubtitulos
+        if ($est) { return "No estoy subtitulando, y no podria: $est." }
+        return 'No estoy subtitulando. Dime "subtitula" y me pongo.'
+    }
+    $min = [Math]::Floor(($sw.ElapsedMilliseconds - $script:subDesde) / 60000.0)
+    $t = 'Llevo ' + $(if ($min -lt 1) { 'menos de un minuto' } elseif ($min -eq 1) { 'un minuto' } else { "$min minutos" }) + ' subtitulando'
+    if ($script:subIdioma) { $t += ', y el juego habla ' + (Get-NombreIdioma $script:subIdioma) }
+    if ($script:subMsPeor -gt 0) { $t += '. Lo que mas ha tardado un subtitulo son ' + [Math]::Round($script:subMsPeor / 1000.0, 1) + ' segundos' }
+    $quedan = $SubtitulosMaxMin - $min
+    if ($quedan -gt 0) { $t += ". Me callo sola en $quedan" + $(if ($quedan -eq 1) { ' minuto' } else { ' minutos' }) }
+    return $t + '.'
+}
+
+# EL IDIOMA, EN CRISTIANO: "el juego habla en" y luego "en" no sirve de nada.
+$IDIOMAS_SUB = @{
+    'en' = 'ingles'; 'es' = 'espanol'; 'fr' = 'frances'; 'de' = 'aleman'; 'it' = 'italiano'
+    'pt' = 'portugues'; 'ja' = 'japones'; 'ko' = 'coreano'; 'zh' = 'chino'; 'ru' = 'ruso'
+    'pl' = 'polaco'; 'nl' = 'holandes'; 'sv' = 'sueco'; 'tr' = 'turco'; 'ar' = 'arabe'
+}
+function Get-NombreIdioma([string]$cod) {
+    $c = ([string]$cod).ToLowerInvariant()
+    if ($IDIOMAS_SUB.ContainsKey($c)) { return [string]$IDIOMAS_SUB[$c] }
+    return 'otro idioma'
 }
 
 # =====================================================================
@@ -37249,6 +37543,12 @@ while ($true) {
     # --- CONVERSACION: lo que contesta el worker, frase a frase (ver CONVERSACION DE VERDAD) ---
     # tambien solo con la voz preparada viva: Receive-Charla es quien la cierra
     if ($script:charlaProc -or $script:prepVozProc) { try { Receive-Charla } catch { Log ("charla: " + $_.Exception.Message) } }
+    # --- SUBTITULOS: lo que va oyendo del juego (1/10, la 17 de las 20) ---
+    # Solo si estan puestos: con $script:subProc a $null esto no entra ni a la funcion, asi que el
+    # 99,9 % del tiempo cuesta una comparacion. Y los tres plazos que la apagan viven DENTRO de
+    # Receive-Subtitulos a proposito, para que no haya forma de que se queden puestos si alguien
+    # olvida una guarda aqui (regla 2).
+    if ($script:subProc) { try { Receive-Subtitulos } catch { Log ("subtitulos: " + $_.Exception.Message) } }
     # EL MP3 ABIERTO ANTES DE HABLAR: mientras suena una frase de la charla, la voz
     # preparada ya le esta haciendo el mp3 a la siguiente. Abrirlo AHORA le quita los
     # 433 ms de Open al decirla (ver Open-VozAdelantada). Con la cola vacia no hace nada.

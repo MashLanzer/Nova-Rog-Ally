@@ -2119,6 +2119,17 @@ Titulo "2n279. Los bancos de Python que se rendian por el interprete"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n296. Subtitulos del audio del juego (funcion 17 de las 20, la mas cara)"
+# ES LA UNICA DE LAS VEINTE QUE GASTA UN NUCLEO ENTERO, asi que el banco no va de que los
+# subtitulos salgan: va de que se CALLEN. Medido antes de escribirla: capturar el audio del
+# sistema cuesta 8,7 % de un nucleo; Whisper tiny con UN hilo da x0,30 de tiempo real, 1,8 s de
+# retraso y 99 % de un nucleo, y con CUATRO hilos va exactamente igual que con dos gastando el
+# doble. No traduce porque traducir con el local cuesta 4-5 s mas y lo hace mal ("the top of the
+# tower" -> "el topo del castillo"): los subtitulos salen en el idioma del juego, y para el
+# espanol esta "que ha dicho", que SI puede pagar los 5 s porque braya los pide y espera.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-subtitulos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:subtitula el juego cuando se lo pides)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n295. La lista de deseos, y cuando baja de precio (funcion 12 de las 20)"
 # MEDIDO: su lista tiene 33 juegos. Y una trampa que costo un 400: appdetails solo acepta VARIOS
 # juegos de golpe con 'filters=price_overview', y con ese filtro NO devuelve el nombre; sin filtro

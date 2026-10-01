@@ -128,7 +128,7 @@ no por líneas.
 
 1. **Instalar lo que hace falta** (versiones exactas de esta máquina):
    - **Python 3.12.10** — la ruta está clavada a `Python312`, así que instala esa serie.
-   - `pip install vosk==0.3.45 sounddevice==0.5.6 numpy faster-whisper==1.2.1 sherpa-onnx-core edge-tts miniaudio comtypes httpx onnxruntime ctranslate2`
+   - `pip install vosk==0.3.45 sounddevice==0.5.6 numpy faster-whisper==1.2.1 sherpa-onnx-core edge-tts miniaudio comtypes httpx onnxruntime ctranslate2 soundcard==0.4.6`
    - **Git**, **Node** (para opencode), **Ollama**, y **ffmpeg** (`winget install Gyan.FFmpeg`).
    - *Lo imprescindible para que arranque son `vosk` y `sounddevice`.* Sin `sherpa_onnx` o sin
      `chess` Nova arranca igual: se capturan y degradan solas.

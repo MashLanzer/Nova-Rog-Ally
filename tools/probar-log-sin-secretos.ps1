@@ -97,8 +97,26 @@ $sinCom = (($fuente -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' 
 $iCarga = $sinCom.IndexOf("`nInitialize-Secretos")
 $iURL = $sinCom.IndexOf('key=$clave')
 Comp '9. Initialize-Secretos se llama a nivel de fichero, ANTES de las URL con la clave' ($iCarga -ge 0 -and $iURL -ge 0 -and $iCarga -lt $iURL) "carga en $iCarga, url en $iURL"
+# 10. LOS -replace DE LOS SITIOS QUE LLAMAN SIGUEN PUESTOS. Son el cinturon de encima del
+# tapado que ya hace Log, y estan porque la clave de Steam viaja DENTRO de la URL: cualquier
+# excepcion de red la arrastraria entera al registro.
+#
+# ESTO ESTABA ESCRITO COMO '$nViejos -eq 4' Y SE PUSO ROJO EL 01/10 SIN QUE NADIE LO ROMPIERA:
+# las funciones 13, 14 y 15 de las 20 anadieron dos sitios mas -los correctos, con su tapado
+# puesto- y pasaron a ser SEIS. Es la manera 14 de los bancos que mienten: un numero escrito a
+# mano dentro de un banco caduca en cuanto el codigo crece, y encima caduca hacia el ROJO, o sea
+# que gasta una tarde en algo que estaba bien. Lo que hay que exigir no es 'cuatro': es que TODO
+# sitio que registre una excepcion de la red de Steam la tape. Eso crece con el fichero solo.
+$lineasSteam = @(($fuente -split "`n") | Where-Object {
+    $_ -match '\$_\.Exception\.Message' -and $_ -match 'Log \("(?:steam|amigos|steam async|regla de amigo)'
+})
+$sinTapar = @($lineasSteam | Where-Object { $_ -notmatch 'key=\[\^&' })
+Comp '10. todo registro de un fallo de la red de Steam tapa la clave' ($lineasSteam.Count -ge 4 -and $sinTapar.Count -eq 0) "$($lineasSteam.Count) sitios, $($sinTapar.Count) sin tapar"
+foreach ($lS in $sinTapar) { Write-Host ('       ' + $lS.Trim()) -ForegroundColor Red }
+# Y EL TOTAL NO PUEDE BAJAR DE LOS CUATRO QUE HABIA: asi un borrado silencioso sigue cazandose,
+# que es para lo que se escribio esta comprobacion.
 $nViejos = @([regex]::Matches($fuente, 'key=\[\^&\\s\]\+')).Count
-Comp '10. los 4 -replace viejos siguen (probar-huerfanas los vigila)' ($nViejos -eq 4) "$nViejos"
+Comp '    y no son menos que los cuatro de cuando se escribio esto' ($nViejos -ge 4) "$nViejos"
 
 Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ''
