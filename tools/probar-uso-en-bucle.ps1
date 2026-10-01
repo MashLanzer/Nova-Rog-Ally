@@ -98,7 +98,7 @@ try {
 
     Write-Host ''
     Write-Host '-- 3. la cuenta es POR ORDEN, no global --'
-    # Si fuera global, la orden siguiente nacería con el tope ya gastado y no se apuntaria nunca mas.
+    # Si fuera global, la orden siguiente naceria con el tope ya gastado y no se apuntaria nunca mas.
     # Esto es lo que hace que el freno no se convierta en una mordaza.
     # LOS DOS IDS, DISTINTOS A LA FUERZA. Primer intento de esta linea: puse AddSeconds(-1) y los
     # dos ids salieron IGUALES, porque entre la primera linea del banco y esta ya habia pasado un
