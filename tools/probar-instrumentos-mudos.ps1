@@ -152,7 +152,19 @@ Comp '   y sigue muda (si ya cuenta, quita la excepcion)' (-not $conDatos.Contai
 $rutasMem = @{}
 foreach ($m in [regex]::Matches($fuente, "Join-Path\s+\`$MemoriaDir\s+['""]([^'""]+)['""]")) { $rutasMem[$m.Groups[1].Value] = $true }
 $noExisten = @($rutasMem.Keys | Where-Object { -not (Test-Path -LiteralPath (Join-Path $raiz (Join-Path 'memoria' $_))) })
-Comp 'F. arranque-oido.json y guia-tiempos.json salen como almacenes vacios' (($noExisten -contains 'arranque-oido.json') -and ($noExisten -contains 'guia-tiempos.json')) "$($noExisten.Count) rutas sin crear"
+# EL DETECTOR SE PRUEBA CON UNA RUTA INVENTADA, NO CON FICHEROS DE VERDAD (1/10/2026).
+#
+# Esto nombraba a mano 'arranque-oido.json' y 'guia-tiempos.json' como ejemplos de almacen vacio, y
+# el 1/10 se puso ROJO sin que nadie tocara una linea: arranque-oido.json se CREO ese dia, al
+# arrancar el oido. O sea un banco que exige que un fichero siga sin existir cuando el uso normal
+# lo llena solo: es estado vivo tratado como constante, y ademas una lista escrita a mano.
+#
+# Lo que esta seccion quiere saber es si el DETECTOR detecta, y eso se prueba con una ruta que no
+# puede existir nunca. Asi no depende de lo que Nova haya usado hoy.
+$inventada = 'no-existe-jamas-' + [guid]::NewGuid().ToString('N') + '.json'
+$pruebaMem = @($rutasMem.Keys) + @($inventada)
+$noExistenP = @($pruebaMem | Where-Object { -not (Test-Path -LiteralPath (Join-Path $raiz (Join-Path 'memoria' $_))) })
+Comp 'F. el detector encuentra un almacen que no existe' ($noExistenP -contains $inventada) "$($noExisten.Count) rutas del fuente sin crear"
 Comp '   y estadisticas.json, que SI existe, no sale' (-not ($noExisten -contains 'estadisticas.json')) ''
 
 # 7. LA LISTA REAL, con fecha, para que braya la lea (no falla si es larga: es informativa)
