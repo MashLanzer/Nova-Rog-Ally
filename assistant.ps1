@@ -268,14 +268,25 @@ function Log([string]$msg) {
     # IDEA 72: lo ultimo que Nova apunto, para que 'me quede sorda 1,4 s' pueda decir HACIENDO
     # QUE. Va aqui porque Log es el embudo por el que pasa todo lo que hace, y cuesta una
     # asignacion de cadena; poner la etiqueta a mano en cincuenta sitios se habria quedado viejo.
-    # PERO EL MEDIDOR NO PUEDE SER SU PROPIA CAUSA (1/10, y era un bucle que se alimentaba solo).
-    # MEDIDO en una sesion de 40 min: 1.015 lineas SORDA, y las largas decian
+    # PERO EL MEDIDOR NO PUEDE SER SU PROPIA CAUSA (1/10), Y COSTABA DOCE SEGUNDOS POR VUELTA.
+    #
+    # LO QUE SE VEIA: las lineas largas decian
     #   "SORDA 12.22 s en una vuelta (...): SORDA 0.14 s en una vuelta (...): SORDA 0.16 s..."
-    # o sea que el "haciendo QUE" era la linea SORDA ANTERIOR. Cada una se metia dentro de la
-    # siguiente, las lineas crecian concatenandose, y escribir lineas cada vez mas largas al log
-    # es lo que tardaba: aparecieron vueltas de 12,2 / 12,88 / 13,32 / 18,18 segundos, justo lo
-    # que esta linea existe para detectar. El medidor volvia a comerse el pulso que mide, como ya
-    # paso el 27/09 con su p99.
+    # o sea que el "haciendo QUE" era la linea SORDA ANTERIOR. Inutil para diagnosticar, que es
+    # justo para lo que existe.
+    #
+    # LO QUE COSTABA, Y NO ES LO QUE PARECE: las lineas NO crecen sin fin -esto trunca a 80 y la
+    # mas larga del log son 158 caracteres-. El coste estaba en Add-LogRepe, tres lineas mas abajo:
+    # al anidarse, CADA linea SORDA era distinta de todas las demas, asi que cada una creaba una
+    # CLAVE NUEVA en su tabla; con la tabla llena, cada clave nueva dispara un Sort-Object de la
+    # tabla ENTERA para tirar las mas viejas. Eso, dentro de Log, que es el embudo por el que pasa
+    # todo. De ahi las vueltas de 12,2 / 12,4 / 12,88 / 13,32 / 18,18 s y su crecimiento: el
+    # medidor del pulso comiendose el pulso que mide, igual que el 27/09 con su p99.
+    # MEDIDO antes y despues, seis minutos cada uno: de 430 lineas SORDA y una peor de 18,18 s, a
+    # SIETE lineas y una peor de 1,71 s. Cero vueltas de mas de 5 s. Y la CPU de 36 % a 29 %.
+    # QUEDA UNA BOMBA ARMADA, y conviene saberlo: cualquier otra fuente de lineas IRREPETIBLES
+    # volveria a llenar esa tabla y a disparar el Sort-Object en cada linea. El disparador de hoy
+    # esta quitado, pero la poda de Add-LogRepe sigue ordenando toda la tabla para tirar la mitad.
     # SE FILTRA EN EL EMBUDO y no en quien escribe: asi vale para SORDA, para LENTA y para
     # cualquier otra linea del medidor que se anada manana.
     if ($msg -and $msg -notmatch '^(?:SORDA|LENTA:)') {

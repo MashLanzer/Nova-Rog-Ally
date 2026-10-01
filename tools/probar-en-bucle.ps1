@@ -150,6 +150,34 @@ Comp '7d. quien cuenta y avisa es el bucle, una vez por minuto' ($sinCom -match 
 Comp '7e. y solo habla de lo gordo (cuatro veces el liston)' ($sinCom -match '\[int\]\$rp\.veces -ge \(\$LogRepeListon \* 4\)') ''
 
 Write-Host ''
+Write-Host '-- 8. EL MEDIDOR DEL PULSO NO PUEDE ALIMENTAR ESTA TABLA (1/10) --'
+# EL CASO, y costo doce segundos por vuelta: las lineas 'SORDA' se citaban a si mismas -el
+# "haciendo QUE" era la linea SORDA anterior-, asi que CADA UNA era distinta de todas las demas y
+# creaba una CLAVE NUEVA aqui. Con la tabla llena, cada clave nueva dispara un Sort-Object de la
+# tabla ENTERA, y eso pasa dentro de Log, que es el embudo de todo. Medido: 430 lineas SORDA con una
+# peor de 18,18 s; con el filtro puesto, SIETE lineas y 1,71 s.
+# SE COMPRUEBA EN Log, que es donde esta el filtro, y con el texto de verdad del archivo: si alguien
+# lo quita, esto se pone rojo antes de que Nova vuelva a quedarse sorda doce segundos.
+Comp '8a. Log no guarda las lineas del medidor como "ultimo"' ($log -match "notmatch '\^\(\?:SORDA\|LENTA:\)'") 'si las guarda, se citan a si mismas'
+# Y QUE EL FILTRO DE VERDAD FILTRE, no solo que este escrito. Log entera arrastra media casa
+# -secretos, disco, Add-LogRepe-, asi que se saca SU condicion del archivo y se ejecuta esa: si
+# manana alguien cambia el regex, estos tres casos lo dicen.
+$mFil = [regex]::Match($log, "-notmatch\s+'(\^\(\?:[^']+)'")
+Comp '8b. se puede sacar su condicion del archivo' ($mFil.Success) ''
+if ($mFil.Success) {
+    $reFil = $mFil.Groups[1].Value
+    # el filtro guarda la linea solo si NO casa con ese patron: eso es lo que se prueba
+    $guarda = { param($m) return ($m -and $m -notmatch $reFil) }
+    Comp '8c.   una linea normal SI se guarda' (& $guarda 'JUEGO: abierto Elden Ring') ''
+    Comp '8d.   una SORDA no' (-not (& $guarda 'SORDA 12.22 s en una vuelta (lo normal en mi son 62 ms): JUEGO: abierto')) ''
+    Comp '8e.   una LENTA tampoco' (-not (& $guarda 'LENTA: la vuelta mediana son 600 ms y el bucle solo duerme 30')) ''
+    # Y NO SE PASA DE LISTO: una linea que solo MENCIONE la palabra si se guarda, porque el filtro
+    # esta anclado al principio. Si no, se perderia el "haciendo que" de cualquier linea que hable
+    # del medidor.
+    Comp '8f.   pero una que solo la menciona, si' (& $guarda 'el banco de SORDA dice que todo va bien') 'el filtro esta anclado al principio'
+}
+
+Write-Host ''
 if ($mal -gt 0) { Write-Host ([string]$mal + ' MAL') -ForegroundColor Red; exit 1 }
 Write-Host 'lo que se repite en bucle se cuenta y se dice' -ForegroundColor Green
 exit 0
