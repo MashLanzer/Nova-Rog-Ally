@@ -14972,6 +14972,8 @@ function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'med
         return $false
     }
     if (-not (Test-PuedoAvisar $clave $nivel $cadaMin)) { return $false }
+    # LO QUE HABIA AQUI ANTES, para no perder el hilo: $script:entornoVistos[$clave] y
+    # Save-EntornoVistos. Se marcaba como dado ANTES de intentar entregarlo.
     $script:entornoVistos[$clave] = (Get-Date).ToString('s')
     Save-EntornoVistos
     Log "ENTORNO ($clave, $nivel): $texto"
@@ -14992,7 +14994,38 @@ function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'med
     # En el arranque temprano no hay capsula que pintar todavia, asi que perder la tarjeta no
     # importa; lo que no se puede perder es que SUENE. Regla 7: que un fallo no se lleve a los que
     # vienen detras.
-    try { Show-Popup $texto } catch { Log ('aviso ' + $clave + ': no pude pintar la tarjeta (' + $_.Exception.Message + '); lo digo igual') }
+    # PARA UN AVISO 'bajo' LA TARJETA ES EL UNICO CANAL (1/10/2026, idea 11 de las 20 nuevas).
+    #
+    # El comentario de arriba dice que perder la tarjeta no importa porque "lo que no se puede perder
+    # es que SUENE". ESO ES FALSO PARA LOS DE NIVEL 'bajo', que son precisamente los que NO suenan:
+    # se ven y ya. Si la tarjeta falla, ese aviso se pierde ENTERO, y encima queda marcado como dado
+    # cinco lineas mas arriba, asi que no vuelve a intentarse hasta que pase su cadaMin.
+    #
+    # CASO REAL del 30/09 a las 20:18, en el registro: "ENTORNO (estreno-animo, bajo)" fallo la
+    # tarjeta y se perdio del todo. Ese mismo minuto fallaron 'me-olvide' y 'me-cai', pero esos son
+    # 'medio' y si se dijeron: el unico que se perdio fue el de nivel 'bajo'.
+    #
+    # Y EL AGUJERO IBA A CRECER HOY MISMO: la idea 9 baja a 'bajo' los avisos que nunca sirven, o sea
+    # mas avisos cuyo unico canal es la tarjeta.
+    #
+    # POR QUE AQUI Y NO MOVIENDO Show-Popup 476 LINEAS MAS ARRIBA, que era la idea original: esto
+    # cubre MAS casos -la capsula muerta, un fallo de la tarjeta a media sesion- y son cinco lineas
+    # en vez de un diff de dos mil quinientas en el fichero mas delicado del proyecto. La causa de
+    # aquel dia era el orden de las definiciones; la consecuencia que dolia es esta, y es la que se
+    # arregla.
+    $pintada = $true
+    try { Show-Popup $texto } catch {
+        $pintada = $false
+        Log ('aviso ' + $clave + ': no pude pintar la tarjeta (' + $_.Exception.Message + ')' + $(if ($nivel -eq 'bajo') { '; es de los que no suenan, asi que lo dejo SIN DAR para reintentarlo' } else { '; lo digo igual' }))
+    }
+    if (-not $pintada -and $nivel -eq 'bajo') {
+        # SE DESHACE EL MARCADO: sin esto el aviso queda dado sin haberse entregado por ningun lado.
+        # Se quita de la tabla Y del disco, que es de donde se lee tras un reinicio.
+        [void]$script:entornoVistos.Remove($clave)
+        Save-EntornoVistos
+        Add-Estadistica 'aviso-perdido' $clave
+        return $false
+    }
     # los de poca monta NO se dicen: se ven y ya. Hablar por todo es lo que cansa.
     # Y POR ESO NO SON LA ULTIMA RESPUESTA (21/09). ultimaRespuesta es lo que contesta
     # 'repite', y se ponia aqui arriba para TODOS los avisos, nivel 'bajo' incluido: o

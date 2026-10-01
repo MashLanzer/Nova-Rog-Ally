@@ -2119,6 +2119,16 @@ Titulo "2n279. Los bancos de Python que se rendian por el interprete"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n306. Un aviso que solo se ve, si no se ve, se pierde entero (idea 11 de las 20 nuevas)"
+# Send-AvisoEntorno marca el aviso como dado y DESPUES intenta pintar la tarjeta. El comentario que
+# habia alli decia que perder la tarjeta no importa "porque lo que no se puede perder es que SUENE",
+# y eso es FALSO para los de nivel 'bajo', que son los que NO suenan: para ellos la tarjeta es el
+# unico canal. Caso real del 30/09 a las 20:18: "ENTORNO (estreno-animo, bajo)" fallo la tarjeta y se
+# perdio del todo, marcado como dado. Y el agujero crecio el mismo dia con la idea 9, que baja a
+# 'bajo' los avisos que nunca sirven.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-aviso-solo-capsula.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no se da por dado si no se ha podido ver)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n305. Los 158 avisos caducados eran anonimos (idea 10 de las 20 nuevas)"
 # Add-Estadistica usa el PRIMER argumento como nombre del contador y el segundo va a $s.recientes,
 # que tiene 40 plazas y se vacia sola: la linea de los caducados pasaba la clave como SEGUNDO, asi
