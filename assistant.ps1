@@ -392,7 +392,20 @@ $FILLER_GLOBAL = '\b(?:tambien|ademas|porfa|porfavor|por favor|okey|dale(?!\s+al
 # mitad de la frase: "busca cuanto vale una ps5" acabaria buscando "cuanto una ps5".
 # "mira" SOLO delante de un verbo de orden (18/09): "mira, ponme un temporizador de 5 minutos"
 # se descarto entero. "mira si hay algo colgado" sigue siendo orden: el lookahead no la toca.
-$FILLER_INI = '^(?:(?:y|luego|despues|ahora|entonces|a mi|ami|ya me|me|pues|este|hey|ey|hola|nova|ok|okey|okay|vale|bueno|oye|gracias|a ver|mira(?=\s+(?:pon|ponme|abre|abreme|cierra|sube|baja|pausa|reproduce|busca|buscame|quita|activa|desactiva|lanza|dime|di)\b)|ya(?=\s+(?:pon|ponme|abre|abreme|cierra|cierralo|sube|baja|pausa|reproduce|busca|buscame|quita|activa|desactiva|lanza|dime|di|apaga|enciende)\b)|ahorita(?=\s+(?:pon|ponme|abre|abreme|cierra|cierralo|sube|baja|pausa|reproduce|busca|buscame|quita|activa|desactiva|lanza|dime|di|apaga|enciende)\b)|sabes?\s+que(?=\s+(?:pon|ponme|abre|abreme|cierra|sube|baja|pausa|reproduce|busca|buscame|quita|activa|desactiva|lanza|dime|di)\b))\s+)+'
+# 'ESTE' SOLO ES MULETILLA SI DETRAS VIENE UN VERBO (1/10/2026, idea 4 de las 20 nuevas).
+#
+# En mexicano "este..." es un titubeo ("este, abre Steam"), y por eso entro en esta lista. Pero
+# 'este' es TAMBIEN el demostrativo, y aqui se lo comia siempre: "este esta descargando" llegaba a
+# los patrones como "esta descargando", SIN SUJETO, y se iba al agente. Me costo media hora de
+# diagnosticos encontrarlo, porque desde fuera parecia que faltaba un patron.
+#
+# MEDIDO sobre las 609 ordenes reales de braya: 39 lineas empiezan por "este ", son UNA sola frase
+# distinta, y es DEMOSTRATIVO. Titubeos al principio: CERO. Asi que el lookahead no quita nada que
+# se use y devuelve el sujeto a lo que si se usa.
+#
+# Es el mismo candado que ya llevan 'mira', 'ya' y 'ahorita' en esta misma lista, y por la misma
+# razon: palabras que son muletilla o no segun lo que venga detras.
+$FILLER_INI = '^(?:(?:y|luego|despues|ahora|entonces|a mi|ami|ya me|me|pues|este(?=\s+(?:pon|ponme|abre|abreme|cierra|cierralo|sube|baja|pausa|reproduce|busca|buscame|quita|activa|desactiva|lanza|dime|di|apaga|enciende)\b)|hey|ey|hola|nova|ok|okey|okay|vale|bueno|oye|gracias|a ver|mira(?=\s+(?:pon|ponme|abre|abreme|cierra|sube|baja|pausa|reproduce|busca|buscame|quita|activa|desactiva|lanza|dime|di)\b)|ya(?=\s+(?:pon|ponme|abre|abreme|cierra|cierralo|sube|baja|pausa|reproduce|busca|buscame|quita|activa|desactiva|lanza|dime|di|apaga|enciende)\b)|ahorita(?=\s+(?:pon|ponme|abre|abreme|cierra|cierralo|sube|baja|pausa|reproduce|busca|buscame|quita|activa|desactiva|lanza|dime|di|apaga|enciende)\b)|sabes?\s+que(?=\s+(?:pon|ponme|abre|abreme|cierra|sube|baja|pausa|reproduce|busca|buscame|quita|activa|desactiva|lanza|dime|di)\b))\s+)+'
 # LA CONDICION DEL FINAL (19/09): "cierra el explorador de archivos si esta abierto" se fue
 # a la API a traducir y volvio como 'cierra explorador'; la coletilla sobraba entera, porque
 # cerrar lo que no esta abierto ya no hace nada. Va anclada al final y solo si queda orden
@@ -6487,7 +6500,19 @@ function Resolve-Fragment([string]$f) {
     # "HAY ALGUNA ACTUALIZACION" (18/09): el sustantivo, no solo el gerundio. braya lo pregunto
     # once veces seguidas y las once acabaron en la charla, que no puede mirar Steam.
     if ($f -match '^(?:hay|tengo|queda|hay que hacer)\s+(?:alguna|algun|alguna que otra|una|nueva|nuevas|algunas)?\s*(?:actualizacion(?:es)?|descarga(?:s)?|update(?:s)?)(?:\s+(?:pendiente(?:s)?|nueva(?:s)?|de\s+(?:steam|los\s+juegos|mis\s+juegos|algun\s+juego|este|esto)))?(?:\s+en\s+steam)?$' -or
-        $f -match '^(?:hay|tengo)\s+(?:algo|algun\s+juego|juegos)\s+(?:que|por|para)\s+actualizar(?:\s+en\s+steam)?$') {
+        $f -match '^(?:hay|tengo)\s+(?:algo|algun\s+juego|juegos)\s+(?:que|por|para)\s+actualizar(?:\s+en\s+steam)?$' -or
+        # LAS FORMAS QUE BRAYA USA DE VERDAD (1/10/2026, idea 4 de las 20 nuevas).
+        # Se midio con su propio corpus y con el -Probar del fichero real: de seis formas naturales
+        # de preguntar esto, TRES se iban al agente. Y no son formas raras: son las que mas repitio.
+        #   "hay alguna actualizacion de este JUEGO"  -> al agente (el patron de arriba pide 'de
+        #                                                este' SIN nada detras)
+        #   "este esta descargando en steam"          -> al agente, y la dijo VEINTE veces
+        #   "se esta descargando esto"                -> al agente
+        # Las tres son la misma pregunta y la respuesta ya estaba escrita: lo unico que faltaba era
+        # entenderlas. Ir al agente cuesta segundos y braya pone la velocidad por delante de todo.
+        $f -match '^(?:hay|tengo|queda)\s+(?:alguna|algun|una|nueva|nuevas|algunas)?\s*(?:actualizacion(?:es)?|descarga(?:s)?|update(?:s)?)\s+(?:de\s+)?(?:este|esta|ese|esa|esto|eso)(?:\s+(?:juego|jueguito|titulo))?(?:\s+en\s+steam)?$' -or
+        $f -match '^(?:este|esta|ese|esa|esto|eso)(?:\s+(?:juego|jueguito))?\s+(?:se\s+)?(?:esta|estan)\s+(?:descargando(?:se)?|bajando(?:se)?|instalando(?:se)?|actualizando(?:se)?)(?:\s+en\s+steam)?$' -or
+        $f -match '^(?:se\s+)?(?:esta|estan)\s+(?:descargando(?:se)?|bajando(?:se)?|instalando(?:se)?|actualizando(?:se)?)\s+(?:este|esta|ese|esa|esto|eso)(?:\s+(?:juego|jueguito))?(?:\s+en\s+steam)?$') {
         return @(@{ kind = 'descargas'; desc = 'estado de las descargas' })
     }
     if ($f -match '^(?:revisa\s+(?:ahora\s+)?)?(?:hay\s+)?algo\s+(?:que\s+se\s+(?:este|esta)\s+)?(?:descargando(?:se)?|bajando(?:se)?|instalando(?:se)?|actualizando(?:se)?)(?:\s+en\s+steam)?$' -or
@@ -29769,7 +29794,12 @@ if ($Probar) {
         $r = $false; $via = ''
         try { if (Invoke-ReglaVoz $t) { $r = $true; $via = 'regla' } } catch { $via = 'REGLA ROTA' ; $r = $false }
         if (-not $r) { try { if (Invoke-RecordatorioVoz $t) { $r = $true; $via = 'recordatorio' } } catch { $via = 'RECORDATORIO ROTO' } }
-        if (-not $r) { try { $r = Test-FastCommand $t } catch { $r = $false } }
+        # Y SI Test-FastCommand LANZA, SE DICE (1/10/2026). Este catch se tragaba la excepcion y la
+        # frase salia como '->IA' sin una palabra, que es indistinguible de "ningun patron la coge".
+        # Me costo media hora de diagnosticos para "este esta descargando": no era que faltara un
+        # patron, era que algo reventaba antes de llegar a los patrones.
+        $porRoto = ''
+        if (-not $r) { try { $r = Test-FastCommand $t } catch { $r = $false; $porRoto = '   [REVIENTA: ' + $_.Exception.Message + ']' } }
         if ($r) {
             $ok++
             # QUE haria, no solo si lo reconoce. Sin esto, el banco decia 'OK'
@@ -29790,7 +29820,42 @@ if ($Probar) {
             } catch {} }
             Write-Output ("  OK    " + $t.PadRight(38) + $comoQue)
         }
-        else    { $no++; Write-Output ("  ->IA  " + $t) }
+        else {
+            $no++
+            # EN QUE TROZOS LA PARTIO (1/10/2026). Sin esto, un '->IA' no dice NADA: una frase puede
+            # irse al agente porque ningun patron la coge, o porque Split-Ordenes la partio en dos y
+            # uno de los trozos no resuelve, y son dos arreglos distintos. Me costo media hora
+            # averiguarlo a mano para "este esta descargando" -que se partia en 'este' + el resto-,
+            # con cinco scripts de diagnostico que no hacian falta. Solo se imprime cuando hay mas
+            # de un trozo: para uno solo, el trozo ES la frase y la linea seria ruido.
+            $porQue = ''
+            try {
+                $frT = @(Split-Ordenes $t)
+                if ($frT.Count -eq 0) { $porQue = '   [Split-Ordenes no devolvio NINGUN trozo]' }
+                # UN SOLO TROZO SOLO SE DICE SI NO ES LA FRASE: si coincide no aporta nada y seria
+                # ruido en todas las lineas. Cuando NO coincide es la pista que importa, y es la que
+                # resolvio lo de hoy: "este esta descargando" llegaba a los patrones como "esta
+                # descargando", sin sujeto, porque 'este' estaba en la lista de muletillas.
+                elseif ($frT.Count -eq 1 -and ([string]$frT[0]).Trim() -ne (ConvertTo-Plain $t).Trim()) {
+                    $porQue = "   [llega como: '" + $frT[0] + "']"
+                }
+                elseif ($frT.Count -gt 1) {
+                    $cuales = @($frT | ForEach-Object {
+                        $aT = $null
+                        try { $aT = Resolve-Fragment $_ } catch { $aT = $null }
+                        $_ + $(if ($aT) { '' } else { ' <-- este no' })
+                    })
+                    $porQue = '   [' + $frT.Count + ' trozos: ' + ($cuales -join ' | ') + ']'
+                }
+            } catch {}
+            # LA LINEA '->IA' NO SE TOCA, Y EL PORQUE VA DEBAJO. probar-destinos.ps1 lee esta salida y
+            # usa LA FRASE COMO CLAVE ('^\s*->IA\s+(.*)$'), asi que cualquier cosa anadida detras -relleno
+            # o diagnostico- la convierte en otra clave y el banco deja de reconocerla. Salieron 24 casos
+            # MAL de golpe y ninguno era del codigo. En su propia linea no estorba a nadie: no empieza
+            # por 'OK' ni por '->IA'.
+            Write-Output ("  ->IA  " + $t)
+            if ($porRoto -or $porQue) { Write-Output ("          " + ($porRoto + $porQue).Trim()) }
+        }
     }
     Write-Output ""
     Write-Output ("reconocidas en local: $ok de " + ($ok + $no))

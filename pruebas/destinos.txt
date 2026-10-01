@@ -307,3 +307,20 @@ a ver abre steam => abrir steam
 abre la configuracion en el apartado de bluetooth => abrir bluetooth en ajustes
 # Y lo que NO debe moverse: sin seccion, se abre la pagina principal.
 abre los ajustes => abrir ajustes
+
+# 'ESTE' ES MULETILLA O DEMOSTRATIVO, Y SE DECIDE POR LO QUE VIENE DETRAS (1/10, idea 4 de las 20
+# nuevas). En mexicano "este..." es un titubeo, y por eso 'este' estaba en la lista de muletillas
+# iniciales; pero se lo comia SIEMPRE, asi que "este esta descargando" llegaba a los patrones como
+# "esta descargando", sin sujeto, y se iba al agente. Medido sobre las 609 ordenes reales: 39 lineas
+# empiezan por "este ", son UNA frase distinta, y es demostrativo. Titubeos: cero.
+# LAS DOS CARAS SE PRUEBAN AQUI, que es lo que impide arreglar una rompiendo la otra (me paso: con
+# el candado puesto gane el demostrativo y perdi los dos titubeos, y este banco lo canto).
+este abre steam => abrir steam
+este pon modo noche => modo noche + brillo al 15 por ciento + volumen al 25 por ciento
+este cierra discord => cerrar discord
+# y el demostrativo, que es la pregunta que braya repitio mas que ninguna
+este esta descargando => estado de las descargas
+este esta descargando en steam => estado de las descargas
+este juego se esta descargando => estado de las descargas
+hay alguna actualizacion de este juego => estado de las descargas
+se esta descargando esto => estado de las descargas
