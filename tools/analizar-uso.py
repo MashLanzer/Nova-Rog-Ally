@@ -99,6 +99,30 @@ def main():
                 except (TypeError, ValueError):
                     pass
 
+    # UN ID CON DOS TEXTOS DISTINTOS ES UN ID CONTAMINADO (1/10/2026, idea 2 de las 20 nuevas).
+    # El bucle de abajo se queda con el ULTIMO 'hizo' de cada id, asi que si dos ordenes
+    # distintas comparten id, el destino de una le PISA el de la otra y este analisis miente.
+    # Medido el 1/10 sobre las 609 lineas que habia: 79 ids repetidos y 57 de ellos con ordenes
+    # distintas dentro. La causa estaba en Write-DestinoUso -la marca del id no caducaba- y se
+    # arreglo ese dia; esto es el detector, para que si vuelve a pasar se vea en vez de falsear
+    # el porcentaje en silencio.
+    textosPorId = collections.defaultdict(set)
+    for d in destinos:
+        ident = txt(d, "id")
+        det = (txt(d, "detalle") or "").strip().lower()[:40]
+        if ident and det and txt(d, "hizo") != "fallo-dicho-por-ti":
+            textosPorId[ident].add(det)
+    sucios = sorted(i for i, s in textosPorId.items() if len(s) > 1)
+    if sucios:
+        print("")
+        print("!! CUIDADO: %d ids llevan ORDENES DISTINTAS dentro, de %d con texto." % (len(sucios), len(textosPorId)))
+        print("   Lo de abajo se queda con el ULTIMO destino de cada id, asi que esos cuentan mal.")
+        for i in sucios[:6]:
+            print("     %s  ->  %s" % (i, " | ".join(sorted(textosPorId[i]))[:96]))
+        if len(sucios) > 6:
+            print("     ...y %d mas" % (len(sucios) - 6))
+        print("   Si son de antes del 1/10/2026 es la marca del id que no caducaba, ya arreglado.")
+
     for d in destinos:
         ident = txt(d, "id")
         if ident not in ordenes:

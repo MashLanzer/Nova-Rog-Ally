@@ -2119,6 +2119,16 @@ Titulo "2n279. Los bancos de Python que se rendian por el interprete"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n300. Que dos ordenes distintas no compartan el mismo id (idea 2 de las 20 nuevas)"
+# La marca del id no se consume con los destinos neutros ('charla', 'traducir') -y eso esta bien-,
+# pero si la orden nunca llega a un destino de verdad, la marca se queda en disco y la SIGUIENTE la
+# hereda. Medido: de 609 ordenes, 79 ids repetidos y 57 de ellos con ORDENES DISTINTAS dentro. Y
+# Get-ComoTeEntendi y analizar-uso.py se quedan con la ULTIMA linea de cada id, asi que el destino
+# de una PISA el de la otra: es lo que falsea el 70,4 % de la meta. El id lleva su propia hora
+# dentro ('yyyyMMdd-HHmmss'), asi que caducarlo no cuesta ni un acceso a disco.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-uso-id.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no comparten el mismo id)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n299. Que Nova lea su propio contador de errores tragados (idea 1 de las 20 nuevas)"
 # Nova llevaba desde el 27/09 contando los errores que se comen los catch vacios CON SU NUMERO DE
 # LINEA, y el mecanismo funcionaba. El 1/10 aparecieron 'pete:979' con 987 veces y 'pete:1002' con

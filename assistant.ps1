@@ -3620,6 +3620,26 @@ $script:descarteYaVa = @{}
 # worker a proposito: el oido fino apunta su linea segundos despues, y dos procesos
 # haciendo append al mismo archivo es pedir una carrera justo en lo que existe para
 # medir bien.
+# CUANTO VALE LA MARCA DEL ID (1/10, idea 2 de las 20 nuevas). Pasados estos minutos, la marca que
+# quedo en disco NO es de la orden que se esta apuntando ahora: ver LA MARCA CADUCA en
+# Write-DestinoUso, que es donde esta el motivo entero. Cinco minutos son los mismos que ya usa
+# Test-FalloUso para decidir si una queja habla de la orden de ahora.
+$UsoIdFrescoMin = [int](Get-Cfg 'uso' 'idFrescoMin' 5)
+# ¿La marca que hay en disco es de la orden de AHORA? El id ES una hora ('yyyyMMdd-HHmmss', lo pone
+# guardar_uso en wake_vosk.py), asi que esto no abre el disco ni depende de ningun LastWriteTime,
+# que algo podria tocar.
+# ANTE LA DUDA, VALE: si el id no tiene la forma esperada -otro worker, otro formato maniana- se
+# devuelve $false y la orden se apunta como siempre. Tirar un dato bueno por no saber leerlo seria
+# peor que el fallo que esto viene a arreglar.
+function Test-MarcaUsoVieja([string]$id) {
+    if (-not $id) { return $false }
+    try {
+        $h = [datetime]::MinValue
+        if (-not [datetime]::TryParseExact($id, 'yyyyMMdd-HHmmss', [Globalization.CultureInfo]::InvariantCulture,
+                                           [Globalization.DateTimeStyles]::None, [ref]$h)) { return $false }
+        return (((Get-Date) - $h).TotalMinutes -gt $UsoIdFrescoMin)
+    } catch { return $false }
+}
 # 'firma' ES UN DESTINO PROPIO (27/09, idea 89) y no 'local' a secas: las firmas se ganan para
 # ahorrar llamadas a la nube, y medido sobre las 58 del registro se habria ahorrado UNA. Si se
 # apuntaran como 'local' no habria manera de saber nunca si el numero crece con el uso o no.
@@ -3714,6 +3734,35 @@ function Write-DestinoUso([string]$ruta, [string]$detalle = '', [bool]$deCamino 
         # Y $deCamino tampoco (19/09): el descarte local es una parada, no una llegada.
         if (-not $neutroU -and -not $deCamino) { Remove-Item -LiteralPath $marca -Force -ErrorAction SilentlyContinue }
         if (-not $idU) { return $false }
+        # LA MARCA CADUCA, Y ESTO ERA UN AGUJERO DE VERDAD (1/10/2026, idea 2 de las 20 nuevas).
+        #
+        # La marca NO se consume con los destinos neutros ('charla', 'traducir'), y eso esta bien:
+        # se apuntan ANTES de saber el destino de verdad, y comersela ahi dejaria a la orden real
+        # sin id. Pero si la orden NUNCA llega a un destino de verdad -se queda en charla y se
+        # acabo-, la marca se queda en disco. Y la orden SIGUIENTE, si no trae marca nueva, lee la
+        # vieja: dos ordenes distintas con el mismo id.
+        #
+        # MEDIDO sobre las 609 ordenes guardadas: 375 ids distintos, 79 repetidos, y 57 DE ESOS 79
+        # LLEVAN ORDENES DISTINTAS DENTRO. Ejemplo real: el id 20260920-225247 tiene "Ya estoy
+        # uniendo, man" a las 22:52:47 y "regla: cuando abra elden ring pon modo noche" a las
+        # 22:54:39, dos minutos despues.
+        #
+        # Y NO ES UN DETALLE: Get-ComoTeEntendi y tools\analizar-uso.py se quedan con la ULTIMA
+        # linea de cada id, asi que el destino de una orden le PISA el de la otra. Es exactamente
+        # lo que falsea el 70,4 % con el que se mide la meta del 100 %, que es lo que mas le
+        # importa a braya.
+        #
+        # SE MIRA EL ID, NO LA FECHA DEL FICHERO: el id ES una hora ('yyyyMMdd-HHmmss', lo pone
+        # guardar_uso en wake_vosk.py), asi que caducarlo no cuesta ni un acceso a disco de mas y
+        # no se puede estropear porque algo le toque el LastWriteTime al fichero.
+        # LOS CINCO MINUTOS SON LOS QUE YA USA Test-FalloUso mas abajo para lo mismo: pasados, esa
+        # orden ya no es "la de ahora" para nadie.
+        if (Test-MarcaUsoVieja $idU) {
+            Log "uso: la marca del id es de hace mas de $UsoIdFrescoMin min ($idU); no la pego a esta orden"
+            Add-Estadistica 'uso-id-caducado' $idU
+            Remove-Item -LiteralPath $marca -Force -ErrorAction SilentlyContinue
+            return $false
+        }
         $dirU = Join-Path $LogDir 'pruebas\audio\uso'
         if (-not (Test-Path -LiteralPath $dirU)) { return $false }   # sin grabaciones no hay nada que emparejar
         $dU = ($detalle -replace '\s+', ' ').Trim()
