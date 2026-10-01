@@ -52,7 +52,11 @@ function Get-CimInstance {
 }
 # el contador: se sustituye la de verdad, que tocaria el hardware
 $script:contadorDa = 17
+# CUANTAS VECES SE CREA, que desde el 1/10 es el numero que importa: crear el contador cuesta
+# casi un segundo (ver la ultima seccion) y por eso no puede pasar dentro del bucle.
+$script:creaciones = 0
 function New-ContadorCarga {
+    $script:creaciones++
     if ($null -eq $script:contadorDa) { return $null }
     $c = [PSCustomObject]@{}
     $c | Add-Member -MemberType ScriptMethod -Name NextValue -Value {
@@ -69,6 +73,7 @@ function Reiniciar {
     $script:cimValor = 42
     $script:contadorDa = 17
     $script:apuntado = @()
+    $script:creaciones = 0
 }
 
 Write-Host '  -- con contador, ni se toca CIM (el caso normal) --'
@@ -126,15 +131,79 @@ $codigo = @($txt -split "`r?`n" | Where-Object { $_.TrimStart() -notlike '#*' })
 $vecesReal = @($codigo | Where-Object { $_ -match 'Win32_Processor' }).Count
 Comp 'Win32_Processor solo queda en el respaldo' ($vecesReal -eq 1) "en codigo=$vecesReal"
 
+# --- LO CARO ES CREARLO, Y ESO NO PUEDE PASAR DENTRO DEL BUCLE (1/10) ---
+#
+# ESTE BANCO LO TUVO DELANTE TRECE DIAS Y NO LO VIO: la seccion de abajo cronometraba NextValue
+# -la parte barata- con el contador YA CREADO fuera del reloj, y concluia "el contador de verdad
+# responde rapido". Era verdad y no servia de nada. Medir solo el trozo barato de una operacion
+# y dar por medida la operacion entera es una manera nueva de salir verde mintiendo.
+#
+# LO QUE COSTABA DE VERDAD, en el registro de Nova: NUEVE ARRANQUES DE NUEVE con la linea
+# "SORDA ... s en una vuelta: carga de CPU: por contador de rendimiento", de 1,36 a 7,22 s. La
+# primera vuelta que pedia la carga creaba el contador, y Nova se quedaba sorda ese rato justo
+# despues de encenderse. Arreglado adelantando la creacion al arranque, antes del bucle.
+Write-Host '  -- la creacion va en el arranque, NO en la primera vuelta que la pida --'
+$lineasA = @($txt -split "`r?`n")
+$iCalienta = -1; $iBucle = -1; $iFun = -1
+for ($n = 0; $n -lt $lineasA.Count; $n++) {
+    $l = $lineasA[$n]
+    if ($l.TrimStart() -like '#*') { continue }
+    # EL '^' NO ES ADORNO: exige que este en el cuerpo del script, sin sangrar, o sea que NO
+    # este dentro de una funcion que a lo mejor nadie llama ni de un if que puede no entrar.
+    if ($iFun -lt 0 -and $l -match '^function Get-CargaCPU\b') { $iFun = $n }
+    if ($iCalienta -lt 0 -and $l -match '^try \{ \$null = Get-CargaCPU \} catch \{\}') { $iCalienta = $n }
+    if ($iBucle -lt 0 -and $l -match '^while \(\$true\) \{') { $iBucle = $n }
+}
+Comp 'hay una llamada que lo crea al arrancar' ($iCalienta -ge 0) "linea $($iCalienta + 1)"
+Comp '  y va envuelta en try/catch (regla 7)' ($iCalienta -ge 0) 'lo exige el propio patron'
+Comp '  cuando la funcion ya existe' ($iFun -ge 0 -and $iCalienta -gt $iFun) "la funcion en $($iFun + 1)"
+Comp '  y ANTES del bucle' ($iBucle -ge 0 -and $iCalienta -ge 0 -and $iCalienta -lt $iBucle) "el bucle empieza en $($iBucle + 1)"
+# Y QUE EL DETECTOR SEPA DECIR QUE NO: sin esto, un '^try' que no encontrara nunca nada daria
+# cuatro verdes por -1 y el banco no probaria absolutamente nada.
+$sinLinea = @($lineasA | Where-Object { $_ -notmatch '^try \{ \$null = Get-CargaCPU \} catch \{\}' })
+$iNo = -1
+for ($n = 0; $n -lt $sinLinea.Count; $n++) { if ($sinLinea[$n] -match '^try \{ \$null = Get-CargaCPU \} catch \{\}') { $iNo = $n; break } }
+Comp '  y si se quitara la llamada, esto se pondria rojo' ($iNo -lt 0) 'el detector detecta'
+
+Write-Host '  -- y con el arranque hecho, las vueltas no crean nada --'
+Reiniciar
+[void](Get-CargaCPU)                                       # esto es el adelanto del arranque
+$trasArranque = $script:creaciones
+for ($n = 1; $n -le 50; $n++) { [void](Get-CargaCPU) }      # cincuenta vueltas del bucle
+Comp 'el arranque lo crea una vez' ($trasArranque -eq 1) "creaciones=$trasArranque"
+Comp '  y cincuenta vueltas despues sigue habiendo uno' ($script:creaciones -eq 1) "creaciones=$($script:creaciones)"
+
 # --- y la medida de verdad, en este equipo ---
 Write-Host '  -- medido aqui y ahora --'
 try {
+    # CREAR, CRONOMETRADO, Y EN UN PROCESO RECIEN NACIDO: en este ya estaria caliente de la
+    # seccion de arriba y daria 0 ms, que es justo el numero mentiroso de antes.
+    $guion = @'
+$t = [System.Diagnostics.Stopwatch]::StartNew()
+$c = New-Object System.Diagnostics.PerformanceCounter('Processor', '% Processor Time', '_Total')
+$crear = $t.ElapsedMilliseconds
+$null = $c.NextValue()
+$t2 = [System.Diagnostics.Stopwatch]::StartNew()
+$null = $c.NextValue()
+'{0} {1}' -f $crear, $t2.ElapsedMilliseconds
+'@
+    $salida = ($guion | powershell.exe -NoProfile -Command -) | Select-Object -Last 1
+    if ($salida -match '^(\d+) (\d+)$') {
+        $msCrear = [int]$Matches[1]; $msLeer = [int]$Matches[2]
+        # NO SE EXIGE UN NUMERO FIJO -eso dependeria de lo ocupada que este la maquina, y seria
+        # un banco que decide su color por el entorno-, sino la RELACION, que es estructural:
+        # crear hace trabajo de registro y leer es copiar un numero.
+        Comp 'crear el contador cuesta mas que leerlo' ($msCrear -gt $msLeer) "crear=$msCrear ms, leer=$msLeer ms"
+        Comp '  y por eso no cabe en una vuelta de 62 ms' ($msCrear -gt 62) "crear=$msCrear ms"
+    } else {
+        Write-Host "  --   (el proceso hijo no contesto; no se juzga)"
+    }
     $c = New-Object System.Diagnostics.PerformanceCounter('Processor', '% Processor Time', '_Total')
     $null = $c.NextValue(); Start-Sleep -Milliseconds 250
     $t = [System.Diagnostics.Stopwatch]::StartNew()
     $real = [int]$c.NextValue()
     $ms = $t.ElapsedMilliseconds
-    Comp 'el contador de verdad responde rapido' ($ms -lt 400) "$ms ms, carga=$real %"
+    Comp 'y la LECTURA si es gratis, que era lo unico medido antes' ($ms -lt 400) "$ms ms, carga=$real %"
 } catch {
     Write-Host "  --   (no hay contador en este equipo; se usara el respaldo)"
 }

@@ -37449,6 +37449,27 @@ function Get-RescanMandoMs([bool]$mandoNuevo, [double]$msAhora) {
 # que ni una sola vuelta corra creyendo que el que habla es braya.
 try { Restore-Invitado } catch {}
 
+# EL CONTADOR DE CARGA SE CREA AQUI, NO EN LA PRIMERA VUELTA QUE LO PIDA (1/10).
+#
+# Get-CargaCPU crea el PerformanceCounter la primera vez que alguien lo llama, y lo caro es
+# justo ESA CREACION, no la lectura: medido en cuatro procesos recien nacidos y en reposo,
+# 704 / 868 / 929 / 790 ms para crearlo y 0 ms cada lectura posterior. El comentario de la
+# sonda ya decia "se crea una sola vez"; lo que no decia es que esa vez salia dentro del bucle.
+#
+# EN EL REGISTRO ESTA NUEVE ARRANQUES DE NUEVE, con la linea "SORDA ... s en una vuelta: carga
+# de CPU: por contador de rendimiento": 1,36 / 1,71 / 5,2 / 5,56 / 6,06 / 6,14 / 6,18 / 6,29 y
+# 7,22 s. Fuera de reposo cuesta mucho mas que los 0,8 s porque al arrancar la maquina esta
+# ocupada cargando el oido, y son segundos de sordera justo cuando braya acaba de encenderla.
+#
+# Y NO ERA SOLO EL BUCLE: Start-Subtitulos llama a Get-CargaCPU para decidir si cabe otro
+# nucleo, asi que si era la primera llamada braya esperaba ese segundo -o esos seis- antes de
+# oir la respuesta.
+#
+# AQUI NO SE NOTA: el arranque ya tarda diecinueve segundos por la biblioteca de Steam y el
+# oido todavia no escucha. Y es la MISMA llamada de siempre, solo adelantada: la sonda conserva
+# intacto su criterio de apagarse sola si el respaldo por CIM resulta caro.
+try { $null = Get-CargaCPU } catch {}
+
 $script:erroresBucle = 0
 while ($true) {
     # RED DEL BUCLE (auditoria del 13/09): con $ErrorActionPreference = Stop, una
