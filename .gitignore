@@ -206,3 +206,7 @@ memoria/planes-juego.json
 # Guarda la VRAM que vio la ultima vez, para avisar cuando cambia. El repositorio es
 # publico (idea 1 de las 121), y esto lo cazo su propio banco 2n175.
 memoria/vram-vista.json
+
+# 1/10/2026: la foto de los precios de su lista de deseos, para saber que ha bajado. Son
+# sus gustos de compra y el repositorio es publico (idea 1 de las 121).
+memoria/wishlist-precios.json

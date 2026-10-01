@@ -2119,6 +2119,15 @@ Titulo "2n279. Los bancos de Python que se rendian por el interprete"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n295. La lista de deseos, y cuando baja de precio (funcion 12 de las 20)"
+# MEDIDO: su lista tiene 33 juegos. Y una trampa que costo un 400: appdetails solo acepta VARIOS
+# juegos de golpe con 'filters=price_overview', y con ese filtro NO devuelve el nombre; sin filtro
+# acepta UNO solo. Asi que no se recitan appids -no sirven a nadie en voz alta- y se abre la lista en
+# Steam, que es donde estan los nombres. La noticia es la BAJADA respecto a la ultima vez, no la
+# lista; por eso la foto de precios se guarda siempre, tambien la primera vez.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-wishlist.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:lista de deseos baja de precio)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n294. Un amigo acaba de empezar tu juego (funcion 13 de las 20)"
 # Es un FINAL NUEVO de la maquina de amigos que ya existe, no una maquina nueva: ella ya hace los dos
 # pasos y ya trae a que juega cada uno, y duplicarla serian dos listas que se separan (la manera 4).

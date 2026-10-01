@@ -6484,6 +6484,14 @@ function Resolve-Fragment([string]$f) {
     # "pon el perfil turbo", "pon el rendimiento al maximo", "que perfil de energia tengo".
     # Se dice PERFIL y no MODO a proposito: 'modo ahorro' y los demas modos de la casa son otra cosa
     # y pisarlos seria cambiar lo que braya ya tiene aprendido.
+    # --- LA LISTA DE DESEOS Y SUS PRECIOS (1/10, la 12 de las 20) ---
+    # "ha bajado algo de mi lista", "mira mi lista de deseos", "hay ofertas de lo que quiero".
+    if ($f -match '^(?:ha\s+bajado|bajo)\s+(?:algo|alguno|algun)\s*(?:de\s+)?(?:mi\s+)?(?:lista|deseos)?' -or
+        $f -match '^(?:mira|revisa|comprueba)\s+(?:mi\s+)?lista\s+de\s+deseos$' -or
+        $f -match '^(?:hay\s+)?ofertas?\s+(?:de\s+)?(?:mi\s+)?(?:lista|deseos|lo\s+que\s+quiero)' -or
+        $f -match '^(?:mi\s+)?lista\s+de\s+deseos$') {
+        return @(@{ kind = 'steamPregunta'; que = 'wishlist'; juego = ''; desc = 'la lista de deseos' })
+    }
     # --- VA BIEN EN LA ALLY? y QUE LOGRO ES EL MAS FACIL (1/10, las 15 y 14 de las 20) ---
     if ($f -match '^(?:va|funciona|tira|corre)\s+bien\s+(.+?)\s+en\s+(?:la\s+)?(?:ally|consola|portatil)$' -or
         $f -match '^(?:esta\s+)?verificado\s+(.+)$' -or
@@ -20659,6 +20667,14 @@ function Invoke-FastCommand([string]$text) {
                 # asincrona: aqui solo se pide y se dice que se esta preguntando. Sin juego dicho,
                 # se usa el que esta delante, que es lo que braya querra el 90 % de las veces.
                 'steamPregunta' {
+                    # LA LISTA DE DESEOS NO VA DE UN JUEGO, asi que no se le pide ninguno: es la
+                    # unica de las tres que no necesita appid.
+                    if ([string]$a.que -eq 'wishlist') {
+                        $rW = Start-SteamPregunta 'wishlist' '' ''
+                        $a.desc = if ($rW) { $rW } else { 'Un momento, que miro tu lista en Steam.' }
+                        $a.hecho = $true
+                        break
+                    }
                     $jS = [string]$a.juego
                     if (-not $jS -and $script:juegoActivo) { $jS = [string]$script:juegoActivo }
                     if (-not $jS) {
@@ -27450,12 +27466,15 @@ function Start-SteamPregunta([string]$que, [string]$appid, [string]$comoSeLlama)
         # tapar en el registro ni nada privado que viaje.
         'deck'   { 'https://store.steampowered.com/saleaction/ajaxgetdeckappcompatibilityreport?nAppID=' + $appid + '&l=spanish' }
         'logros' { 'https://api.steampowered.com/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/?gameid=' + $appid }
+        # LA LISTA DE DESEOS SI LLEVA SU STEAMID, que es publico y esta en la carpeta de Steam del
+        # disco; la clave de la API no hace falta para este.
+        'wishlist' { $y = Get-YoSteam; if (-not $y) { '' } else { 'https://api.steampowered.com/IWishlistService/GetWishlist/v1/?steamid=' + $y } }
         default  { '' }
     }
     if (-not $url) { return 'No se preguntarle eso a Steam.' }
     if (-not (Start-SteamAsync $url)) { return 'No he podido preguntarle a Steam.' }
     $script:steamPide = @{ que = $que; appid = [string]$appid; juego = [string]$comoSeLlama
-                           en = $sw.ElapsedMilliseconds }
+                           paso = 'uno'; en = $sw.ElapsedMilliseconds }
     return ''      # vacio = la respuesta se dice cuando llegue, no ahora
 }
 
@@ -27479,6 +27498,26 @@ function Receive-SteamPregunta {
     if (-not $o) { Say 'Steam me ha contestado algo que no entiendo.'; return }
     if ($pide.que -eq 'deck') { Say (Format-DeckVerified $o ([string]$pide.juego)); return }
     if ($pide.que -eq 'logros') { Say (Format-LogrosFaciles $o ([string]$pide.juego)); return }
+    # LA LISTA DE DESEOS SON DOS PASOS: primero los appids, despues sus precios. Igual que la maquina
+    # de los amigos, avanza UNA vuelta del bucle cada vez y nunca espera a nada.
+    if ($pide.que -eq 'wishlist') {
+        if ($pide.paso -eq 'uno') {
+            $ids = @()
+            try { $ids = @($o.response.items | ForEach-Object { [string]$_.appid }) } catch {}
+            if ($ids.Count -eq 0) { Say 'No veo nada en tu lista de deseos.'; return }
+            # SOLO LOS PRIMEROS: appdetails acepta varios de golpe, pero pedir treinta y tres de una
+            # vez es una respuesta enorme para una frase hablada. Con doce ya se ve si hay ofertas.
+            $trozo = @($ids | Select-Object -First $WishlistMiraMax)
+            $url2 = 'https://store.steampowered.com/api/appdetails?appids=' + ($trozo -join ',') + '&filters=price_overview'
+            # OJO: el filtro NO puede ir junto con 'cc' ni 'l'. Medido: appdetails devuelve 400.
+            if (-not (Start-SteamAsync $url2)) { Say 'No he podido mirar los precios.'; return }
+            $script:steamPide = @{ que = 'wishlist'; paso = 'dos'; ids = $trozo; total = $ids.Count
+                                   en = $sw.ElapsedMilliseconds }
+            return
+        }
+        Say (Format-WishlistPrecios $o ([string[]]$pide.ids) ([int]$pide.total))
+        return
+    }
 }
 
 # ¿ESTE JUEGO VA BIEN EN LA ALLY? (1/10, la 15 de las 20)
@@ -27519,6 +27558,91 @@ function Format-LogrosFaciles($o, [string]$juego) {
     $t += (($faciles | ForEach-Object { [string]$_.name + ' (el ' + [Math]::Round([double]$_.percent, 0) + ' por ciento)' }) -join ', ')
     $t += '. No se cuales tienes tu: tu perfil de Steam esta en privado y no me deja verlos.'
     return $t
+}
+
+# =====================================================================
+# LA LISTA DE DESEOS, Y CUANDO BAJA DE PRECIO (1/10, la 12 de las 20 funciones)
+# =====================================================================
+# MEDIDO al escribirla: la lista de braya tiene 33 juegos, y los precios salen de
+# 'appdetails?appids=A,B&filters=price_overview'. OJO con una trampa que costo un 400: ese filtro NO
+# se puede combinar con 'cc' ni con 'l'; con el filtro solo, funciona.
+# LO QUE DE VERDAD HACIA FALTA no es la lista -eso ya lo ve en Steam- es que avise CUANDO ALGO BAJA,
+# que es lo que no se puede mirar a mano todos los dias. Asi que se guarda lo que costaba cada uno la
+# ultima vez y se compara: lo que baja se dice, lo que no, se calla.
+$WishlistMiraMax = 12            # cuantos precios se piden de una vez
+$WishlistBajaMin = 10            # por debajo de este % de rebaja no es noticia
+$WishlistPath = Join-Path $MemoriaDir 'wishlist-precios.json'
+
+function Get-WishlistPrecios {
+    try {
+        if (Test-Path -LiteralPath $WishlistPath) {
+            $j = Get-Content -LiteralPath $WishlistPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            $h = @{}
+            foreach ($p in $j.PSObject.Properties) { $h[$p.Name] = [double]$p.Value }
+            return $h
+        }
+    } catch {}
+    return @{}
+}
+
+function Format-WishlistPrecios($o, [string[]]$ids, [int]$total) {
+    $antes = Get-WishlistPrecios
+    $ahora = @{}
+    $bajadas = @()
+    $ofertas = @()
+    foreach ($id in @($ids)) {
+        $d = $null
+        try { $d = $o.$id } catch { $d = $null }
+        if (-not $d -or -not $d.success) { continue }
+        $po = $null
+        try { $po = $d.data.price_overview } catch {}
+        if (-not $po) { continue }                      # gratis, o sin precio en esta region
+        $final = 0.0
+        try { $final = [double]$po.final / 100.0 } catch {}
+        if ($final -le 0) { continue }
+        $desc = 0
+        try { $desc = [int]$po.discount_percent } catch {}
+        $txt = [string]$po.final_formatted
+        $ahora[$id] = $final
+        # ¿BAJO DESDE LA ULTIMA VEZ? Eso es lo que no se puede mirar a mano todos los dias.
+        if ($antes.ContainsKey($id) -and $antes[$id] -gt 0) {
+            $baja = [int][Math]::Round(((($antes[$id] - $final) / $antes[$id]) * 100))
+            if ($baja -ge $WishlistBajaMin) { $bajadas += @{ id = $id; txt = $txt; baja = $baja } }
+        }
+        if ($desc -ge $WishlistBajaMin) { $ofertas += @{ id = $id; txt = $txt; desc = $desc } }
+    }
+    # SE GUARDA SIEMPRE QUE HAYA ALGO, tambien la primera vez: sin la foto de hoy no hay con que
+    # comparar manana, y entonces esta funcion no sirve para nada.
+    if ($ahora.Count -gt 0) {
+        try {
+            $oG = New-Object PSObject
+            foreach ($k in $ahora.Keys) { $oG | Add-Member -NotePropertyName $k -NotePropertyValue $ahora[$k] -Force }
+            Write-Atomico $WishlistPath ($oG | ConvertTo-Json -Depth 3)
+        } catch {}
+    }
+    if ($ahora.Count -eq 0) { return 'Steam no me ha dado los precios de tu lista.' }
+    $mirados = $ahora.Count
+    $deCuantos = if ($total -gt $mirados) { ' He mirado ' + $mirados + ' de los ' + $total + ' de tu lista.' } else { '' }
+    # NO SE DICEN LOS APPID, Y NO ES POR GUSTO (1/10, medido): 'appdetails' solo acepta VARIOS juegos
+    # de golpe si se le pone 'filters=price_overview', y con ese filtro NO devuelve el nombre; sin
+    # filtro acepta UNO solo -con seis ids y sin filtro, 400-. Pedir doce nombres serian doce
+    # llamadas, y el canal de Steam es uno.
+    # ASI QUE SE DICE LO QUE IMPORTA -que algo bajo y cuanto- y se ABRE LA LISTA en Steam, que es
+    # donde estan los nombres y las caratulas. Recitar "el appid 39210" en voz alta no sirve a nadie.
+    if ($bajadas.Count -gt 0) {
+        $b = @($bajadas | Sort-Object -Property @{ Expression = { $_.baja }; Descending = $true } | Select-Object -First 3)
+        $t = if ($bajadas.Count -eq 1) { 'Ha bajado uno de tu lista de deseos' } else { 'Han bajado ' + $bajadas.Count + ' de tu lista de deseos' }
+        $t += ': ' + (($b | ForEach-Object { 'un ' + $_.baja + ' por ciento, a ' + $_.txt }) -join '; ')
+        $t += '. Te abro la lista para que veas cuales.' + $deCuantos
+        try { Start-Process 'steam://url/WishlistPage' | Out-Null } catch {}
+        return $t
+    }
+    if ($ofertas.Count -gt 0) {
+        $f = @($ofertas | Sort-Object -Property @{ Expression = { $_.desc }; Descending = $true } | Select-Object -First 1)
+        return ('No ha bajado nada desde la ultima vez, pero tienes ' + $ofertas.Count +
+                ' en oferta, el mejor al ' + $f[0].desc + ' por ciento, a ' + $f[0].txt + '.' + $deCuantos)
+    }
+    return 'Nada de tu lista ha bajado de precio desde la ultima vez.' + $deCuantos
 }
 
 # El appid de un juego por su nombre, del indice que Nova ya tiene del disco.
