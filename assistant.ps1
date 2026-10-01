@@ -4417,7 +4417,18 @@ function Add-Estadistica([string]$ruta, [string]$detalle = '', [bool]$deCamino =
         # agrupadas y contadas. Sin contar, una frase que falla cinco veces se leia igual
         # que una que fallo una vez y nunca mas.
         try {
-            $at = @(Get-Atragantos | Where-Object { $_.veces -ge 2 } | Select-Object -First 12)
+            # LA TABLA CARA NO SE CALCULA AQUI (30/09): se coge si ya esta hecha, y si no se deja
+            # para el buen rato. Ver Get-Atragantos. En el camino caliente costaba 15 s -antes del
+            # prefiltro, 50- y es lo que dejaba a Nova sorda mas de la mitad del tiempo.
+            # EL BUEN RATO ES EL QUE YA DECIDE EL RESTO DEL TRABAJO PESADO (idea 27): sin nadie
+            # delante y sin juego. Asi la tabla se rehace sola cuando no molesta, y el fichero
+            # mientras tanto se queda con la de antes, que es exactamente lo que ya pasaba con el
+            # freno de un minuto.
+            $puedoTardar = $false
+            try {
+                $puedoTardar = (Test-BuenRatoParaTrabajo ([int](Get-NadieMin)) ([bool]$script:juegoActivo) 0.0)
+            } catch { $puedoTardar = $false }
+            $at = @(Get-Atragantos (-not $puedoTardar) | Where-Object { $_.veces -ge 2 } | Select-Object -First 12)
             if ($at.Count -gt 0) {
                 [void]$sb.AppendLine("## Lo que más se me atraganta")
                 [void]$sb.AppendLine("")
@@ -4570,8 +4581,56 @@ function Get-Ojeada([string]$t) {
 # por PARECIDO con las funciones de distancia que Nova ya tiene, no por texto identico.
 $AtraganteDistMax = 0.34        # a un tercio de la frase de distancia, es la misma orden mal oida
 
-function Get-Atragantos {
+$script:atragantosCache = $null
+$script:atragantosSello = ''
+
+function Get-Atragantos([bool]$soloSiEstaHecho = $false) {
     $s = Get-Estadisticas
+    # ====================================================================================
+    # ESTA FUNCION SE COMIA CINCUENTA SEGUNDOS DEL BUCLE (30/09)
+    # ====================================================================================
+    # EL CASO: braya la llamo, pulso el boton, y Nova tardo TREINTA SEGUNDOS en activarse. Medido
+    # sobre el log: una vuelta de ~51 s cada ~82 s, o sea SORDA EL 63 % DEL TIEMPO, con la vuelta
+    # mediana en 47 ms. El disparador era la cola de avisos caducados girando cada 30 s (arreglado
+    # aparte, en Send-AvisoEsperaSuelta), que llamaba a Add-Estadistica; y Add-Estadistica rehace el
+    # markdown una vez por minuto, y ahi dentro llama aqui.
+    # EL COSTE, reproducido con los datos reales (30 descartes y 40 recientes): 49.859 ms, 343
+    # parejas comparadas. El agrupado "por parecido" es O(n^2) y por cada pareja arma DOS matrices
+    # de Levenshtein en PowerShell interpretado; Get-DistanciaFon llama a Test-MismoSonido una vez
+    # POR CELDA. Medido por pareja: 110x110 cuesta 1.750 ms la fonetica y 32 ms la de letras.
+    # Y CRECIO SOLO: el coste es O(largoA x largoB), y hoy entraron dos frases de 100 y 102
+    # caracteres ("es lo unico que pasa ah no no lo tengo disponible no va abreme buscame terraria
+    # en Steam"). De 32 s por la manana a 51 s por la noche, sin tocar una linea.
+    #
+    # LA CACHE, SELLADA POR LO QUE DE VERDAD LA CAMBIA. La tabla solo cambia cuando entra un
+    # descarte o una frase nueva, y eso pasa unas pocas veces al dia; se recalculaba CADA MINUTO.
+    # El sello es el numero de entradas de las dos listas mas su ultimo elemento: si no se ha
+    # anadido nada, el resultado anterior es identico por construccion. Sin esto, el segundo
+    # llamador -la tabla que braya pide en voz alta, linea 19985- tambien paga los 50 s delante de el.
+    # EL SELLO ES UN HASH DEL CONTENIDO, NO "cuantas hay y la ultima" (30/09, escribiendolo). Ese
+    # atajo valdria en produccion -las listas solo crecen por el final- pero NO es exacto: dos
+    # conjuntos distintos con el mismo numero de entradas y el mismo ultimo elemento comparten
+    # sello, y entonces la cache devuelve la tabla de otro. Pasa en cuanto algo poda la lista por
+    # el medio, y pasa seguro en los bancos, que llenan las listas a mano. Hashear 70 frases cuesta
+    # ~1 ms y lo que evita son 15.000: no hay nada que optimizar aqui.
+    $selloA = ''
+    try {
+        $plano = ((@($s.descartes) -join "`n") + "`n--`n" + (@($s.recientes) -join "`n"))
+        $md5 = [System.Security.Cryptography.MD5]::Create()
+        try {
+            $selloA = [BitConverter]::ToString($md5.ComputeHash([Text.Encoding]::UTF8.GetBytes($plano)))
+        } finally { $md5.Dispose() }
+    } catch { $selloA = '' }
+    if ($selloA -and $selloA -eq $script:atragantosSello -and $null -ne $script:atragantosCache) {
+        return $script:atragantosCache
+    }
+    # Y SI QUIEN PREGUNTA NO PUEDE ESPERAR, NO SE CALCULA (30/09). El markdown de las estadisticas
+    # pedia esta tabla EN EL CAMINO CALIENTE -entre que Nova hace la orden y te contesta-, y ese
+    # fichero no lo lee el codigo: es para mirarlo braya. Pagar 15 s ahi es lo que le hacia tardar
+    # treinta segundos en activarse. Con esto, el markdown se lleva la tabla cuando ya esta hecha
+    # (1 ms) y, si no, la deja para el buen rato; quien la pide hablando si se espera, porque
+    # entonces es lo que ha pedido y Nova le avisa de que tarda.
+    if ($soloSiEstaHecho) { return $null }
     $cuenta = @{}; $rutasDe = @{}; $comoSeDijo = @{}; $variantes = @{}
     $apuntar = {
         param($frase, $ruta)
@@ -4587,6 +4646,17 @@ function Get-Atragantos {
         foreach ($otra in @($cuenta.Keys)) {
             $largo = [Math]::Max($k.Length, $otra.Length)
             if ($largo -le 0) { continue }
+            # LO QUE NO PUEDE CABER NO SE CALCULA (30/09). La distancia de Levenshtein entre dos
+            # cadenas NUNCA es menor que la diferencia de sus largos -hacen falta al menos tantas
+            # inserciones o borrados como letras de diferencia-, asi que si esa diferencia dividida
+            # por el largo ya pasa del tope, NINGUNA de las dos distancias puede quedar por debajo.
+            # La fonetica tampoco: cobra 2 por edicion entera y se divide por el doble del largo,
+            # o sea que su suelo es el mismo. Se descarta la pareja con UNA RESTA en vez de armar
+            # dos matrices.
+            # ES EXACTO, NO UNA APROXIMACION: no cambia ni un grupo, solo deja de calcular lo que
+            # ya se sabe que no pasa el filtro. Eso es lo que lo hace seguro aqui: agrupar distinto
+            # cambiaria la tabla que braya mira para ensenarle ordenes a Nova.
+            if (([Math]::Abs($k.Length - $otra.Length) / [double]$largo) -gt $AtraganteDistMax) { continue }
             $dLetras = (Get-Distancia $k $otra) / [double]$largo
             $dFon = 1.0
             # LA ESCALA DOBLADA (27/09, tras la revision): Get-DistanciaFon cobra 2 por edicion
@@ -4639,7 +4709,9 @@ function Get-Atragantos {
         $lista += @{ frase = $comoSeDijo[$k]; veces = $cuenta[$k]; rutas = $rutasDe[$k]
                      variantes = @($variantes[$k]) }
     }
-    return @($lista | Sort-Object -Property @{ Expression = { $_.veces }; Descending = $true }, @{ Expression = { $_.frase } })
+    $res = @($lista | Sort-Object -Property @{ Expression = { $_.veces }; Descending = $true }, @{ Expression = { $_.frase } })
+    if ($selloA) { $script:atragantosSello = $selloA; $script:atragantosCache = $res }
+    return $res
 }
 
 # La bateria, dicha como se dice. Estaba dentro del patron de "cuanta bateria";
@@ -13395,8 +13467,15 @@ function Get-AvisoEspera {
             $j = Get-Content -LiteralPath $AvisoEsperaPath -Raw -Encoding UTF8 | ConvertFrom-Json
             foreach ($x in $j) {
                 if ($null -eq $x -or -not [string]$x.clave) { continue }
+                # 'hecho' TAMBIEN VUELVE DEL DISCO (30/09). Se quedaba fuera al releer y al guardar,
+                # y es lo que la idea 119 anadio para no soltar un aviso cuyo dato ya no es verdad:
+                # Get-AvisoAlDia hace 'if (-not $h) { return $r }' con vale=$true, o sea que sin
+                # 'hecho' el aviso pasa SIN COMPROBAR NADA. Nova diria "te quedan 10,2 gigas" con 43
+                # libres. Solo se notaba en los avisos que sobreviven a un reinicio, y Nova arranca
+                # unas doce veces al dia, asi que es el caso normal, no el raro.
                 [void]$script:avisoEspera.Add(@{ clave = [string]$x.clave; texto = [string]$x.texto
-                                                 nivel = [string]$x.nivel; cada = [int]$x.cada; vence = [string]$x.vence })
+                                                 nivel = [string]$x.nivel; cada = [int]$x.cada; vence = [string]$x.vence
+                                                 hecho = $x.hecho })
             }
         }
     } catch {}
@@ -13408,7 +13487,9 @@ function Save-AvisoEspera {
         $lista = @()
         foreach ($x in $script:avisoEspera) {
             $o = New-Object PSObject
-            foreach ($k in 'clave', 'texto', 'nivel', 'cada', 'vence') { $o | Add-Member -NotePropertyName $k -NotePropertyValue $x[$k] }
+            # 'hecho' VA EN LA LISTA (30/09): es lo que permite comprobar al soltarlo que el dato
+            # sigue siendo verdad. Sin el, un aviso aparcado vuelve del disco sin su comprobacion.
+            foreach ($k in 'clave', 'texto', 'nivel', 'cada', 'vence', 'hecho') { $o | Add-Member -NotePropertyName $k -NotePropertyValue $x[$k] }
             $lista += $o
         }
         $json = if ($lista.Count -eq 0) { '[]' } else { ConvertTo-Json -InputObject @($lista) -Depth 3 }
@@ -14326,9 +14407,23 @@ function Send-AvisoEsperaSuelta([datetime]$ahora = (Get-Date), [bool]$soloCaduca
         # contenido identico. 120 escrituras por hora que no hacen falta, dentro del bucle, que es
         # la regla 4. Y contradecia la decision del 24/09, que puso el antirrebote en Add-AvisoEspera
         # justo para no escribir cuando nada cambia: por este otro camino se escribia igual.
-        $habia = $script:avisoEspera.Count
+        #
+        # PERO LA CONDICION MIRABA UNA LISTA QUE ACABA DE VACIARSE (30/09, y llevaba DOS DIAS
+        # girando). '$habia' pretendia ser "cuantos habia antes", y se leia UNA LINEA DESPUES del
+        # Clear() de arriba: valia 0 siempre. O sea que la comparacion era '0 -ne $vivos.Count', y
+        # cuando caducaba el ULTIMO de la cola -con $vivos vacio- salia '0 -ne 0', falso, y el
+        # fichero NO SE TOCABA NUNCA. Nova lo releia a los 30 s, volvia a declararlos caducados,
+        # los tiraba de memoria y no de disco, y otra vez: un bucle eterno.
+        # MEDIDO el 30/09: tmp\avisos-esperando.json con fecha del 28/09 a las 09:58 y dos avisos
+        # vencidos el 28 a las 11:43 y 11:56; entre las 20:00 y las 21:04, SETENTA Y NUEVE
+        # 'gmail-lleno' y SESENTA 'en-bucle' en el log. Y solo se cortaba si braya tocaba el mando,
+        # porque el unico Save-AvisoEspera sin condicion cuelga del camino de los botones.
+        # LA PREGUNTA BUENA ES "¿se ha ido alguno?", no "¿cuantos quedan?": si algo caduco, el disco
+        # tiene que enterarse, y si no caduco nada la cola de disco sigue valiendo y no se escribe.
+        # Asi se cumple lo que esta decision queria -no reescribir cada 30 s- sin dejar el fichero
+        # envenenado para siempre.
         foreach ($v in $vivos) { [void]$script:avisoEspera.Add($v) }
-        if ($habia -ne $script:avisoEspera.Count) { Save-AvisoEspera }
+        if ($caducados.Count -gt 0) { Save-AvisoEspera }
         return 0
     }
     # EL QUE NO SALE VUELVE A LA COLA (24/09, repaso). Antes la cola se vaciaba y se guardaba
@@ -27031,7 +27126,146 @@ function Write-NotaSemanal {
     } catch { Log ("nota semanal: " + $_.Exception.Message) }
 }
 
+# =====================================================================
+# LA COPIA DE LA PARTIDA GUARDADA, ANTES DE JUGAR (30/09, la 1 de las 20 funciones)
+# =====================================================================
+# LO QUE SE RESPALDABA HASTA HOY ERA LO QUE NOVA APRENDE, no lo que braya juega: la copia del dia
+# se lleva memoria\, commands.json y config.json, y de las partidas no habia nada. Un parche que
+# rompe un guardado o una corrupcion y no hay vuelta atras.
+#
+# MEDIDO EN ESTA CONSOLA, y es lo que decide el diseno:
+#   - Steam Cloud NO sirve: de las 26 carpetas de userdata solo 6 tienen 'remote', y ocupan entre
+#     0 y 9 KB. Los juegos que importan no estan ahi.
+#   - Las carpetas de verdad se encuentran por el nombre del juego sin espacios:
+#     %APPDATA%\EldenRing, %LOCALAPPDATA%\UnravelTwo, %LOCALAPPDATA%\REANIMAL, SilentBreath.
+#   - Y pesan muy distinto: ELDEN RING son 110,51 MB en 6 ficheros; Unravel Two, 0,01 MB.
+#
+# POR ESO NO SE COPIA SIEMPRE NI SE COPIA AQUI:
+#   1. Solo si el guardado CAMBIO desde la ultima copia. Con 27 GB libres de 476, copiar 110 MB en
+#      cada alt-tab llena el disco en una tarde. El sello es cuantos ficheros, cuanto pesan y la
+#      fecha del mas reciente: si no se ha jugado, no hay nada que copiar.
+#   2. La copia se lanza APARTE, no en el bucle. Lo de hoy ya ensena lo que cuesta pagar 15 s en el
+#      camino caliente: Nova tardaba treinta segundos en activarse. Aqui se lanza un robocopy y no
+#      se espera; si tarda, tarda fuera.
+#   3. Y rota: se quedan las ultimas $SavesCopiasMax. Un respaldo que llena el disco es un fallo,
+#      no un respaldo.
+$SavesCopiasMax = 3            # cuantas copias por juego se quedan
+$SavesTopeMB = 600             # mas que esto no se copia: se dice y se deja decidir a braya
+
+# Los sitios donde los juegos de Windows guardan, de mas probable a menos. Se resuelven al
+# llamar y no antes: en una maquina nueva las variables de entorno son otras.
+function Get-SitiosGuardado {
+    $l = @()
+    foreach ($p in @($env:APPDATA, $env:LOCALAPPDATA,
+                     (Join-Path $env:USERPROFILE 'Documents\My Games'),
+                     (Join-Path $env:USERPROFILE 'Saved Games'),
+                     (Join-Path $env:USERPROFILE 'Documents'))) {
+        if ($p -and (Test-Path -LiteralPath $p)) { $l += $p }
+    }
+    return $l
+}
+
+# EL NOMBRE DEL JUEGO NO ES EL DE LA CARPETA: 'ELDEN RING' guarda en 'EldenRing'. Se comparan los
+# dos sin espacios, sin tildes y en minusculas, que es lo que ya hace ConvertTo-Plain para todo lo
+# demas en esta casa.
+function Get-CarpetaGuardado([string]$nombre) {
+    if (-not $nombre) { return '' }
+    $clave = (ConvertTo-Plain $nombre) -replace '[^a-z0-9]', ''
+    if ($clave.Length -lt 3) { return '' }      # un nombre de dos letras casaria con cualquier cosa
+    foreach ($sitio in (Get-SitiosGuardado)) {
+        try {
+            foreach ($d in @(Get-ChildItem -LiteralPath $sitio -Directory -ErrorAction SilentlyContinue)) {
+                $c = (ConvertTo-Plain $d.Name) -replace '[^a-z0-9]', ''
+                if (-not $c) { continue }
+                # IGUAL, O UNO DENTRO DEL OTRO, pero nunca por una sola letra en comun: 'peak'
+                # no puede casar con 'speakers'. Por eso se exige que empiece igual.
+                if ($c -eq $clave -or $c.StartsWith($clave) -or $clave.StartsWith($c)) {
+                    return $d.FullName
+                }
+            }
+        } catch { continue }
+    }
+    return ''
+}
+
+# El sello de un guardado: cuantos ficheros, cuanto pesan y cuando se toco el ultimo. Si los tres
+# son iguales que en la ultima copia, no se ha jugado y no hay nada que respaldar.
+function Get-SelloGuardado([string]$carpeta) {
+    if (-not $carpeta -or -not (Test-Path -LiteralPath $carpeta)) { return $null }
+    try {
+        $f = @(Get-ChildItem -LiteralPath $carpeta -Recurse -File -ErrorAction SilentlyContinue)
+        if ($f.Count -eq 0) { return $null }
+        $bytes = ($f | Measure-Object -Property Length -Sum).Sum
+        $ultimo = ($f | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1).LastWriteTimeUtc
+        return @{ n = $f.Count; bytes = [long]$bytes; ultimo = $ultimo.ToString('o')
+                  sello = ('' + $f.Count + '|' + [long]$bytes + '|' + $ultimo.ToString('o')) }
+    } catch { return $null }
+}
+
+$SavesEstadoPath = Join-Path $MemoriaDir 'saves-copias.json'
+
+function Get-SavesEstado {
+    try {
+        if (Test-Path -LiteralPath $SavesEstadoPath) {
+            $j = Get-Content -LiteralPath $SavesEstadoPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            $h = @{}
+            foreach ($p in $j.PSObject.Properties) { $h[$p.Name] = [string]$p.Value }
+            return $h
+        }
+    } catch {}
+    return @{}
+}
+
+function Backup-GuardadoJuego([string]$nombre) {
+    if (-not $nombre) { return 'sin nombre' }
+    $carpeta = Get-CarpetaGuardado $nombre
+    if (-not $carpeta) { return 'no encuentro donde guarda' }
+    $s = Get-SelloGuardado $carpeta
+    if ($null -eq $s) { return 'la carpeta esta vacia' }
+    $estado = Get-SavesEstado
+    $clave = (ConvertTo-Plain $nombre) -replace '[^a-z0-9]', ''
+    if ($estado.ContainsKey($clave) -and $estado[$clave] -eq $s.sello) { return 'ya estaba copiado' }
+    # EL TOPE SE COMPARA EN BYTES, NO EN LOS MB REDONDEADOS (30/09, lo cazo su banco al escribirlo).
+    # Aqui habia '$mb -gt $SavesTopeMB' con $mb ya redondeado a dos decimales: un guardado de 41
+    # bytes da 0,00 y no supera NINGUN tope, asi que la guarda no se podia ni probar. En produccion
+    # solo afectaba por debajo de 10 KB, pero una guarda que no se puede ejercitar es una guarda que
+    # nadie sabe si funciona.
+    $mb = [Math]::Round($s.bytes / 1MB, 2)
+    if ($s.bytes -gt ($SavesTopeMB * 1MB)) {
+        Log ("SAVES: " + $nombre + " ocupa " + $mb + " MB y el tope son " + $SavesTopeMB + "; no lo copio")
+        return 'pesa demasiado'
+    }
+    $destino = Join-Path (Join-Path $CopiasDir 'saves') ($clave + '\' + (Get-Date -Format 'yyyy-MM-dd_HHmm'))
+    try {
+        if (-not (Test-Path -LiteralPath $destino)) { New-Item -ItemType Directory -Force -Path $destino | Out-Null }
+        # ROBOCOPY Y SIN ESPERARLO: 110 MB dentro del bucle son 110 MB de sordera. /NFL /NDL /NJH
+        # /NJS para que no escriba una linea por fichero, /R:1 /W:1 para que un fichero abierto por
+        # el juego no lo deje reintentando treinta veces.
+        $args = @('"' + $carpeta + '"', '"' + $destino + '"', '/E', '/NFL', '/NDL', '/NJH', '/NJS', '/R:1', '/W:1')
+        Start-Process -FilePath 'robocopy.exe' -ArgumentList $args -WindowStyle Hidden | Out-Null
+        $estado[$clave] = $s.sello
+        $o = New-Object PSObject
+        foreach ($k in $estado.Keys) { $o | Add-Member -NotePropertyName $k -NotePropertyValue $estado[$k] -Force }
+        Write-Atomico $SavesEstadoPath ($o | ConvertTo-Json -Depth 3)
+        Log ("SAVES: copio la partida de " + $nombre + " (" + $s.n + " ficheros, " + $mb + " MB) a copias\saves")
+        # Y SE PODAN LAS VIEJAS, que si no el respaldo se come el disco que venia a proteger
+        try {
+            $padre = Split-Path $destino -Parent
+            $viejas = @(Get-ChildItem -LiteralPath $padre -Directory -ErrorAction SilentlyContinue |
+                        Sort-Object Name -Descending | Select-Object -Skip $SavesCopiasMax)
+            foreach ($v in $viejas) { Remove-Item -LiteralPath $v.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+        } catch {}
+        return 'copiada'
+    } catch {
+        Log ('SAVES: no pude copiar la partida de ' + $nombre + ': ' + $_.Exception.Message)
+        return 'fallo'
+    }
+}
+
 function Enter-Juego([string]$nombre) {
+    # LA COPIA DE LA PARTIDA, LO PRIMERO (30/09): antes de que el juego escriba nada. No bloquea
+    # -lanza un robocopy y sigue- y no copia si no se ha jugado desde la ultima.
+    try { [void](Backup-GuardadoJuego $nombre) } catch {}
     # IDEA 11: el juego tiene algo pendiente. En los manifiestos de Steam, StateFlags 4
     # es "instalado y listo"; cualquier otra cosa (6, 550, 1026...) es actualizacion o
     # descarga a medias. Mejor saberlo AHORA que cuando el juego no arranca.

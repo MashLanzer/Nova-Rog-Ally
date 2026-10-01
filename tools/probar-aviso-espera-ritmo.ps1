@@ -150,6 +150,60 @@ if ($fn.Count -eq 1) {
     $lineas3 = @($script:dichos | Where-Object { $_ -match 'no cabian ahora' })
     Comp 'cuando salen todos, no dice nada' ($lineas3.Count -eq 0) "$($lineas3.Count)"
     Comp 'y la cola queda vacia' ($script:avisoEspera.Count -eq 0) "$($script:avisoEspera.Count)"
+
+    # ===================================================================================
+    # LO QUE CADUCA SE VA TAMBIEN DEL DISCO (30/09, y este banco no lo miraba)
+    # ===================================================================================
+    # TODO lo de arriba usa 'vence = manana', asi que NADA caduca nunca y el camino de la
+    # caducidad -el de '$soloCaducar'- no se ejercitaba en ninguna comprobacion. Es la manera 12
+    # de salir verde mintiendo: el banco estaba lleno de casos buenos y le faltaba el unico que
+    # decide. Mientras este fichero decia "lo que espera ya no se reintenta sin parar", Nova
+    # llevaba DOS DIAS releyendo tmp\avisos-esperando.json cada 30 s: 79 'gmail-lleno' y 60
+    # 'en-bucle' en una hora de log, con el fichero sellado el 28/09 a las 09:58.
+    # EL FALLO ERA '$habia = $script:avisoEspera.Count' leido DESPUES del Clear(): valia 0, asi que
+    # '0 -ne $vivos.Count' con $vivos vacio daba falso y no se guardaba nunca.
+    # SE PRUEBA CON UN DISCO DE MENTIRA, porque el bucle solo se ve en la SEGUNDA pasada: lo que
+    # falla no es caducar, es que el disco no se entere y repong a los mismos al releerlo.
+    # el camino de la caducidad llama a esta para armar la frase del "se me paso decirte";
+    # aqui no se juzga esa frase (la prueba su propio banco), solo que no reviente el camino
+    function Get-FraseCaducados { param($c) return 'se me paso decirte algo' }
+    $script:dichos = @()
+    $script:guardados = 0
+    $ayer = (Get-Date).AddDays(-1).ToString('o')
+    $script:discoFalso = @(
+        @{ clave = 'en-bucle';    texto = 'algo'; nivel = 'medio'; cada = 360;   vence = $ayer },
+        @{ clave = 'gmail-lleno'; texto = 'algo'; nivel = 'medio'; cada = 10080; vence = $ayer })
+    # el doble imita al de verdad: si la cola en memoria esta vacia, la repone DEL DISCO
+    function Get-AvisoEspera {
+        if ($script:avisoEspera.Count -eq 0) {
+            foreach ($d in $script:discoFalso) { [void]$script:avisoEspera.Add($d) }
+        }
+        return $script:avisoEspera
+    }
+    # y guardar vuelca la cola de memoria al disco, como Write-Atomico
+    function Save-AvisoEspera {
+        $script:guardados++
+        $script:discoFalso = @($script:avisoEspera)
+    }
+    $script:avisoEspera.Clear()
+    [void](Send-AvisoEsperaSuelta (Get-Date) $true)
+    $cad1 = @($script:dichos | Where-Object { $_ -match 'caducado sin decirse' })
+    Comp 'los dos vencidos caducan en la primera pasada' ($cad1.Count -eq 2) "$($cad1.Count) de 2"
+    Comp '  y el disco se entera (se guarda)' ($script:guardados -ge 1) "Save-AvisoEspera llamado $($script:guardados) vez/veces"
+    Comp '  y el disco queda sin ellos' ($script:discoFalso.Count -eq 0) "quedan $($script:discoFalso.Count) en disco"
+    # LA SEGUNDA PASADA ES LA QUE CAZA EL BUCLE: con el fallo puesto, vuelve a caducar los mismos
+    $script:dichos = @()
+    $script:avisoEspera.Clear()
+    [void](Send-AvisoEsperaSuelta (Get-Date) $true)
+    $cad2 = @($script:dichos | Where-Object { $_ -match 'caducado sin decirse' })
+    Comp 'y la segunda pasada NO vuelve a caducarlos' ($cad2.Count -eq 0) "$($cad2.Count) (con el fallo salian 2 otra vez, para siempre)"
+    # y lo que NO ha vencido no se toca ni se escribe de mas
+    $script:dichos = @(); $script:guardados = 0
+    $script:discoFalso = @(@{ clave = 'vivo'; texto = 'algo'; nivel = 'medio'; cada = 60; vence = $manana })
+    $script:avisoEspera.Clear()
+    [void](Send-AvisoEsperaSuelta (Get-Date) $true)
+    Comp 'lo que no ha vencido se queda' ($script:avisoEspera.Count -eq 1) "$($script:avisoEspera.Count)"
+    Comp '  y sin caducar nada NO se escribe' ($script:guardados -eq 0) "Save llamado $($script:guardados) veces (era la regla 4)"
 }
 
 Write-Host ''

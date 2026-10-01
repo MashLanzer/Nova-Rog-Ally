@@ -2119,6 +2119,15 @@ Titulo "2n279. Los bancos de Python que se rendian por el interprete"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n281. La copia de la partida guardada, antes de jugar (funcion 1 de las 20)"
+# LA PRIMERA DE LAS VEINTE FUNCIONES NUEVAS (30/09). Hasta hoy se respaldaba lo que Nova APRENDE y
+# no lo que braya JUEGA. El banco prueba lo que hace que el respaldo sirva: que encuentre donde
+# guarda cada juego -'ELDEN RING' guarda en 'EldenRing'-, que NO copie si no se ha jugado (los
+# 110,51 MB de Elden Ring en cada alt-tab se comen los 27 GB libres), que no case por una letra en
+# comun, y que no espere a robocopy dentro del bucle.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-saves.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se respalda antes de jugar)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n280. Quien vigila al vigilante: la seccion 7 de esta misma bateria"
 # La seccion 7 de aqui abajo es la unica que mira la salida de error que van dejando los 300 y pico
 # bancos, o sea la pieza que caza a los que mueren a medias. Es la mas importante de la bateria y la
