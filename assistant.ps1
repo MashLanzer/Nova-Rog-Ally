@@ -998,8 +998,28 @@ function Write-Atomico([string]$ruta, [string]$texto, [bool]$bom = $false) {
     if (-not $ruta) { Log 'ESCRITURA: me han pedido guardar en una ruta vacia; no escribo nada'; return }
     $tmp = "$ruta.tmp"
     [System.IO.File]::WriteAllText($tmp, $texto, (New-Object System.Text.UTF8Encoding($bom)))
+    # [NullString]::Value Y NO $null, Y ESTO ES EL FALLO MAS GORDO QUE HA TENIDO ESTA FUNCION
+    # (1/10/2026). PowerShell convierte $null en CADENA VACIA al pasarlo a un parametro [string],
+    # y "" no es una ruta valida: File::Replace lanzaba "La ruta de acceso no tiene un formato
+    # valido" SIEMPRE, en todos los casos, tambien en el mas simple. Medido en una carpeta limpia,
+    # con el destino existiendo y sin nadie tocandolo: falla. O sea que el camino ATOMICO de la
+    # escritura atomica NUNCA se ha ejecutado en este proyecto, y las ~50 rutas que pasan por aqui
+    # -incluidos memoria\perfil-todo.md y memoria\perfil-caidos.md, los dos ficheros mas privados-
+    # han estado yendo por el Move-Item de abajo, que NO es atomico: borra y renombra, asi que un
+    # corte entre los dos pasos deja a braya sin el fichero.
+    #
+    # Y ERA MUDO POR PARTIDA DOBLE: el catch de aqui no dice nada, y el Log que se anadio el 28/09
+    # para el otro camino no saltaba nunca porque el Move-Item SI funciona. Desde fuera se veia una
+    # escritura atomica que funciona de maravilla.
+    #
+    # MEDIDO CON EL ARREGLO: Replace funciona, y funciona INCLUSO con el fichero abierto por otro
+    # si quien lo lee comparte el borrado -que es exactamente como lo lee Nova desde el 22/09
+    # (FileShare.Delete)-. Donde Replace sigue sin poder (abierto para leer sin compartir borrado,
+    # o bloqueado para escritura) el Move-Item TAMPOCO puede, asi que ahi se cae al throw de abajo,
+    # que es lo correcto. El Move-Item se queda como ultimo recurso para lo que Replace no cubre
+    # por diseno: un destino en OTRO volumen.
     if (Test-Path -LiteralPath $ruta) {
-        try { [System.IO.File]::Replace($tmp, $ruta, $null); return } catch {}
+        try { [System.IO.File]::Replace($tmp, $ruta, [NullString]::Value); return } catch {}
     }
     # SI NO SE PUDO PONER EN SU SITIO, EL .tmp NO SE QUEDA AHI (28/09, tras la revision). Si el
     # Replace y el Move fallan los dos -el destino abierto por otro: Obsidian, el antivirus,

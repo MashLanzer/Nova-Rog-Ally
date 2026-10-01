@@ -141,7 +141,8 @@ Comp 'la funcion consulta la tabla aprendida' ($iApr -ge 0) ''
 Comp '  pero DESPUES de la lista escrita a mano' ($iMano -ge 0 -and $iApr -gt $iMano) 'lo escrito a mano manda'
 # Y LO APRENDIDO PASA POR LOS MISMOS FILTROS: no se salta ninguno.
 $iRet = $cuerpoJ.IndexOf('if (-not $carpeta) { return $null }')
-Comp '  y delante de los filtros de siempre' ($iRet -gt $iApr) ''
+# LOS DOS, no uno (manera 18): si $iApr fuera -1 esta linea saldria verde sin haber visto nada.
+Comp '  y delante de los filtros de siempre' ($iApr -ge 0 -and $iRet -ge 0 -and $iRet -gt $iApr) ''
 foreach ($f in @('CARPETA_NO_JUEGO', '_CommonRedist', 'Get-NombreJuegoLimpio', 'Find-Juego')) {
     Comp ("  el filtro de $f sigue detras") ($cuerpoJ.IndexOf($f) -gt $iApr) ''
 }

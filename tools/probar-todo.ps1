@@ -2119,6 +2119,27 @@ Titulo "2n279. Los bancos de Python que se rendian por el interprete"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n298. Que ningun banco decida el ORDEN con un indice que podria ser -1 (manera 18)"
+# ESTA NO ES UN BANCO MAS: VIGILA A LOS BANCOS, como las secciones 7 y 9. IndexOf devuelve -1 cuando
+# no encuentra, y -1 es MENOR que cualquier indice valido, asi que "$iEmpuje -lt $iDecide" sale en
+# VERDE justo cuando ha dejado de ver lo que vigila. Paso de verdad el 30/09 en probar-umbrales y en
+# probar-brillo-y-disco, y los dos llevaban dias mintiendo. Reconoce las tres formas legitimas de
+# cubrirlo -a la cara, por cadena transitiva y con el sentido invertido-, asi que no pide cambiar
+# codigo que ya esta bien. Al escribirla: 82 comparaciones, 76 cubiertas y SEIS que no; arregladas.
+python (Join-Path $PSScriptRoot 'probar-orden-indexof.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ningun banco decide el orden)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n297. Que la escritura atomica sea atomica de verdad"
+# EL FALLO MAS GORDO QUE HA TENIDO Write-Atomico, y era mudo: pasaba $null como tercer argumento de
+# File::Replace, y PowerShell convierte $null en CADENA VACIA al pasarlo a un parametro [string].
+# "" no es una ruta valida, asi que Replace lanzaba SIEMPRE -tambien en el caso mas simple- y el
+# camino ATOMICO nunca se ejecuto: las ~50 rutas que pasan por ahi, incluidos los dos ficheros mas
+# privados del proyecto, han estado yendo por el Move-Item de respaldo, que borra y renombra. Mudo
+# por partida doble, porque el catch no dice nada y el Log del otro camino no saltaba al funcionar
+# el respaldo. La comprobacion que lo caza TAPA EL RESPALDO y exige que el camino atomico baste.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-escritura-atomica.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:atomica es atomica de verdad)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n296. Subtitulos del audio del juego (funcion 17 de las 20, la mas cara)"
 # ES LA UNICA DE LAS VEINTE QUE GASTA UN NUCLEO ENTERO, asi que el banco no va de que los
 # subtitulos salgan: va de que se CALLEN. Medido antes de escribirla: capturar el audio del

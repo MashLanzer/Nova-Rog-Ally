@@ -227,9 +227,12 @@ Comp 'y el bloque va DELANTE del de F7' ($iGuarda -gt 0 -and $iF7 -gt $iGuarda) 
 # el marcador no gasta la pregunta
 $iMarc = $dentro.IndexOf('Get-MarcadorTrivia')
 $iResp = $dentro.IndexOf('Complete-Trivia 1')
-Comp 'el marcador no gasta la pregunta viva' ($iMarc -lt $iResp -and $dentro.Substring($iMarc, [Math]::Min(120, $dentro.Length - $iMarc)) -notmatch 'Complete-Trivia') '"como voy" no es una respuesta'
+# LOS DOS INDICES SE EXIGEN (manera 18): un -1 es MENOR que cualquier indice valido, asi que
+# '$iMarc -lt $iResp' con el marcador desaparecido saldria VERDE. Aqui el Substring de detras
+# habria reventado con -1 -y eso sale rojo-, pero depender de que algo reviente no es una guarda.
+Comp 'el marcador no gasta la pregunta viva' ($iMarc -ge 0 -and $iResp -ge 0 -and $iMarc -lt $iResp -and $dentro.Substring($iMarc, [Math]::Min(120, $dentro.Length - $iMarc)) -notmatch 'Complete-Trivia') '"como voy" no es una respuesta'
 $iSal = $dentro.IndexOf("Stop-Trivia 'voz'")
-Comp 'y la salida va la primera de todas' ($iSal -lt $iMarc) 'una salida nunca va detras de nada'
+Comp 'y la salida va la primera de todas' ($iSal -ge 0 -and $iMarc -ge 0 -and $iSal -lt $iMarc) 'una salida nunca va detras de nada'
 
 Write-Host ''
 Write-Host '-- 7. pedir preguntas: cuando si y cuando no --'

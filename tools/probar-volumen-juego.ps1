@@ -107,7 +107,8 @@ $iPop = $sinComent.IndexOf('Pop-VolumenJuego }')
 $iWatch = $sinComent.IndexOf('function Watch-Entorno')
 $iPopup = $sinComent.IndexOf('$script:popupUntil -gt 0')
 Comp 'la devolucion se encuentra' ($iPop -gt 0)
-Comp 'y NO esta dentro de Watch-Entorno' ($iPop -gt $iWatch + 60000) 'esa funcion sale sola cada 30 s'
+# CON LOS DOS INDICES EXIGIDOS (manera 18): un $iWatch a -1 dejaria el liston en 59.999.
+Comp 'y NO esta dentro de Watch-Entorno' ($iWatch -ge 0 -and $iPop -ge 0 -and $iPop -gt $iWatch + 60000) 'esa funcion sale sola cada 30 s'
 Comp 'sino en el bucle, con el cierre de la tarjeta' ([Math]::Abs($iPop - $iPopup) -lt 3000) 'el bucle duerme 30 ms'
 Write-Host ''
 if ($fallos -gt 0) { Write-Host "  $fallos caso(s) MAL"; exit 1 }

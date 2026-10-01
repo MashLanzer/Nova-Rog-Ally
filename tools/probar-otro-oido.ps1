@@ -102,7 +102,10 @@ $iRec = $sinCom.IndexOf('$recInc = $null')
 Comp '  y detras de las traducciones y las recetas' ($iRec -ge 0 -and $iB -gt $iRec) (
     'lo que braya enseno a mano vale mas que la adivinanza de otro motor')
 $iRuido = $sinCom.IndexOf('Log "RUIDO descartado (no llega al agente)')
-Comp '  pero DELANTE del filtro de ruido' ($iRuido -ge 0 -and $iB -lt $iRuido) (
+# EL $iB TAMBIEN SE EXIGE (manera 18): si el bloque dejara de existir, $iB seria -1, y -1 es MENOR
+# que cualquier indice valido, asi que esta linea saldria VERDE justo cuando ha dejado de ver lo que
+# vigila. Al comparar orden hacen falta los DOS indices, no solo uno.
+Comp '  pero DELANTE del filtro de ruido' ($iRuido -ge 0 -and $iB -ge 0 -and $iB -lt $iRuido) (
     'puesto detras se pierden 3 de los 17, el 18 %')
 
 Write-Host ''

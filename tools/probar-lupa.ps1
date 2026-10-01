@@ -212,7 +212,9 @@ $iL = $codigoTodo.IndexOf('$script:lupaUntil) { Close-Lupa }')
 $iW = $codigoTodo.IndexOf('function Watch-Entorno')
 $iF = $codigoTodo.IndexOf('$script:popupUntil -gt 0')
 Comp 'el cierre por plazo se encuentra' ($iL -gt 0)
-Comp 'y NO esta dentro de Watch-Entorno' ($iL -gt $iW + 60000) 'esa funcion sale sola cada 30 s'
+# CON LOS DOS INDICES EXIGIDOS (manera 18): sin esto, un $iW a -1 convierte el liston en 59.999 y
+# la linea decide por un numero que no significa nada.
+Comp 'y NO esta dentro de Watch-Entorno' ($iW -ge 0 -and $iL -ge 0 -and $iL -gt $iW + 60000) 'esa funcion sale sola cada 30 s'
 Comp 'sino pegado al cierre de la tarjeta' ([Math]::Abs($iL - $iF) -lt 2500) 'el bucle duerme 30 ms'
 
 Write-Host '-- y la captura no se saca una foto de la lupa --'
