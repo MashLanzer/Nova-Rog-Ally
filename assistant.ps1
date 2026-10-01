@@ -6427,7 +6427,7 @@ function Resolve-Fragment([string]$f) {
         $f -match '^(?:que|cual)\s+(?:juego\s+)?(?:me\s+)?ocupa\s+mas\b' -or
         $f -match '^(?:como\s+)?(?:hago|hacer)\s+sitio\b' -or
         $f -match '^que\s+(?:juegos?\s+)?(?:no\s+)?(?:juego|uso)\s+(?:ya|nunca)\b') {
-        return @(@{ kind = 'queBorrar'; desc = 'que borrar para hacer sitio' })
+        return @(@{ kind = 'queBorrar'; juego = ''; desc = 'que borrar para hacer sitio' })
     }
     if ($f -match '^cuanto\s+(?:espacio\s+)?(?:libero|recupero|gano)\s+(?:si\s+)?(?:borro|quito|desinstalo)\s+(.+)$') {
         return @(@{ kind = 'queBorrar'; juego = $Matches[1].Trim(); desc = 'cuanto libera ese juego' })
@@ -6473,13 +6473,13 @@ function Resolve-Fragment([string]$f) {
     # no se pisa con el volumen de siempre; y se pone antes que aquel para que no se lo coma.
     if ($f -match '^(?:como\s+(?:esta|va)|que\s+tal)\s+(?:el\s+)?(?:microfono|micro)\b' -or
         $f -match '^(?:cuanto\s+)?volumen\s+(?:tiene\s+|hay\s+en\s+)?(?:el\s+)?(?:microfono|micro)\b') {
-        return @(@{ kind = 'volumenMicro'; que = 'ver'; desc = 'el volumen del microfono' })
+        return @(@{ kind = 'volumenMicro'; que = 'ver'; pct = 0; desc = 'el volumen del microfono' })
     }
     if ($f -match '^(?:sube|subeme|aumenta)\s+(?:el\s+)?(?:volumen\s+del\s+)?(?:microfono|micro)\b') {
-        return @(@{ kind = 'volumenMicro'; que = 'sube'; desc = 'subir el microfono' })
+        return @(@{ kind = 'volumenMicro'; que = 'sube'; pct = 0; desc = 'subir el microfono' })
     }
     if ($f -match '^(?:baja|bajame|reduce)\s+(?:el\s+)?(?:volumen\s+del\s+)?(?:microfono|micro)\b') {
-        return @(@{ kind = 'volumenMicro'; que = 'baja'; desc = 'bajar el microfono' })
+        return @(@{ kind = 'volumenMicro'; que = 'baja'; pct = 0; desc = 'bajar el microfono' })
     }
     if ($f -match '^(?:pon|ponme|deja)\s+(?:el\s+)?(?:volumen\s+del\s+)?(?:microfono|micro)\s+(?:a|al|en)\s+(\d{1,3})\b') {
         return @(@{ kind = 'volumenMicro'; que = 'pon'; pct = [int]$Matches[1]; desc = "poner el microfono al $($Matches[1])" })
@@ -6511,7 +6511,7 @@ function Resolve-Fragment([string]$f) {
     }
     if ($f -match '^(?:que|cual)\s+perfil\s+(?:de\s+energia\s+)?(?:tengo|hay|esta)\b' -or
         $f -match '^(?:en\s+)?que\s+perfil\s+(?:de\s+energia\s+)?(?:estoy|voy)\b') {
-        return @(@{ kind = 'perfilEnergia'; que = 'ver'; desc = 'que perfil de energia hay' })
+        return @(@{ kind = 'perfilEnergia'; que = 'ver'; plan = ''; desc = 'que perfil de energia hay' })
     }
     if ($f -match '^(?:pon|ponme|cambia\s+a|activa)\s+(?:el\s+)?perfil\s+(?:de\s+energia\s+)?(.+)$' -or
         $f -match '^(?:pon|ponme)\s+(?:el\s+)?(?:rendimiento|energia)\s+(?:en|a|al)\s+(.+)$') {
@@ -22088,6 +22088,13 @@ $TmpVivos = @(
     # esperar: si el barrido se lo lleva a los 7 dias, vuelve a aprenderlos desde cero. El banco
     # de 2n183 lo canto en cuanto el fichero existio en disco, que es la tercera vez que esta
     # lista a mano caduca sola.
+    # Y SUS DOS HERMANOS, POR LO MISMO (1/10): 'acuerdos.txt' y 'gestos-cuenta.txt' tambien los
+    # escribe y los lee el oido en Python (guardar_lista / cargar_lista), no assistant.ps1, asi que
+    # se colaron por la misma puerta que pausas.txt. El primero guarda cuanto se parecen entre si los
+    # motores cuando aciertan -de ahi sale su percentil- y el segundo la cuenta de gestos del dia.
+    # Cuarta, quinta y sexta vez que esta lista a mano caduca sola: si el dia que alguien anada un
+    # fichero nuevo al oido no se acuerda de venir aqui, el barrido se lo lleva a los 7 dias.
+    'acuerdos.txt', 'gestos-cuenta.txt',
     'pausas.txt', 'rafagas.txt', 'reintentar.flag', 'reintento.txt',
     # red.json y relojes.json NACIERON DESPUES DE ESTA LISTA (28/09) y por eso faltaban: red.json
     # lo escribe la ronda de red y lo lee tambien el worker de la charla, y relojes.json guarda
@@ -27843,6 +27850,11 @@ function Get-PlanesJuego {
 # de ese juego: no hay que preguntarle nada ni abrir un fichero a mano.
 function Save-PlanJuego([string]$juego, [string]$plan) {
     if (-not $juego -or -not $plan) { return }
+    # EN MODO INVITADO NO SE APRENDE (1/10, lo cazo el banco 2n18). A cuantos vatios se juega a cada
+    # cosa es GUSTO DE BRAYA: si un amigo coge la consola, pide turbo y Nova se lo queda como el
+    # perfil de ese juego, le ha cambiado una preferencia suya por la de otro. El perfil SI se
+    # cambia -lo ha pedido quien esta delante- pero no se apunta.
+    if ($script:invitado) { Log 'ENERGIA: modo invitado, no me quedo con este perfil'; return }
     try {
         $h = Get-PlanesJuego
         $clave = (ConvertTo-Plain $juego) -replace '[^a-z0-9]', ''

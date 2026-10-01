@@ -1,4 +1,4 @@
-# EL RELOJ DEL REEMBOLSO (1/10, la 11 de las 20 funciones nuevas) — LA MITAD QUE SE PUEDE
+# EL RELOJ DEL REEMBOLSO (1/10, la 11 de las 20 funciones nuevas) - LA MITAD QUE SE PUEDE
 #
 # Steam devuelve el dinero con menos de DOS HORAS jugadas y menos de CATORCE DIAS desde la compra.
 # MEDIDO: la fecha de compra NO existe en ningun sitio al que Nova pueda llegar. 'PurchaseTime',

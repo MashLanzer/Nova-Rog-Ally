@@ -41,7 +41,7 @@ try {
     function Send-AvisoEntorno { param($c, $t, $n, $cada, $forzar) $script:avisos += ($c + '|' + $t); return $true }
     $script:juegoActivo = ''
 
-    # las cachés de pega: una gorda, una pequena y una que no existe
+    # las caches de pega: una gorda, una pequena y una que no existe
     $env:LOCALAPPDATA = $tmp
     foreach ($par in @(@('AMD\DxcCache', 9), @('AMD\DxCache', 3))) {
         $d = Join-Path $tmp $par[0]
@@ -52,7 +52,7 @@ try {
     }
 
     Write-Host ''
-    Write-Host '-- 1. encuentra las cachés y las ordena por tamano --'
+    Write-Host '-- 1. encuentra las caches y las ordena por tamano --'
     $l = @(Get-CacheShaders)
     Comp 'encuentra las dos que existen' ($l.Count -eq 2) "$($l.Count) (la tercera no existe y no se inventa)"
     Comp '  y la gorda va primero' ($l[0].nombre -eq 'DxcCache') "$($l[0].nombre)"

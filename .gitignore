@@ -189,3 +189,20 @@ memoria/juegos-fuera.json
 # perfil.md: donde vive braya, con quien, que mascota tiene".
 *.md.tmp
 memoria/*.tmp
+
+# 
+30/09/2026
+: esto lo anadio Nova sola al ver que podia escribirlo
+# y que no estaba cubierto. El repositorio es publico (idea 1 de las 121).
+memoria/saves-copias.json
+
+# 
+30/09/2026
+: esto lo anadio Nova sola al ver que podia escribirlo
+# y que no estaba cubierto. El repositorio es publico (idea 1 de las 121).
+memoria/planes-juego.json
+
+# 1/10/2026: lo anadi yo al escribir la funcion 10 de las 20 (la cache de shaders).
+# Guarda la VRAM que vio la ultima vez, para avisar cuando cambia. El repositorio es
+# publico (idea 1 de las 121), y esto lo cazo su propio banco 2n175.
+memoria/vram-vista.json

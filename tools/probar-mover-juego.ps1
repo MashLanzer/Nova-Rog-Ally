@@ -24,7 +24,10 @@ function Traer([string]$n) {
     if (-not $d) { Comp ('se encuentra ' + $n) $false ''; return '' }
     return $d.Extent.Text
 }
-$LogDir = 'C:\Users\braya\Documents\voice-ctrl'
+# LA RAIZ SALE DE $PSScriptRoot, NO A FUEGO (1/10, lo cazo el banco 2n78). Aqui estaba escrita la
+# ruta de la consola de braya: en otra maquina -o si mueve la carpeta- este banco mediria un repo que
+# no es este. Es la misma regla que siguen los demas bancos de la casa.
+$LogDir = $Raiz
 foreach ($n in @('ConvertTo-Plain', 'Get-EspacioPorJuego', 'Get-FraseMoverJuego')) { Invoke-Expression (Traer $n) }
 function Log([string]$m) { }
 function Get-JuegosMem { return ([pscustomobject]@{}) }

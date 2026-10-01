@@ -110,7 +110,15 @@ Comp '5e. ni un reloj adelantado tres anos' ($lejos -lt 0) ('sin la guarda seria
 
 Write-Host ''
 Write-Host '-- 6. NO QUEDA NADA PUESTO --'
-Comp '6a. no se toca ninguna opcion de energia' (-not ($sinCom -match 'powercfg /(setac|setdc|change|s\b)')) 'solo se LEE con /query'
+# CAMBIAR DE PLAN NO ES CAMBIAR UN PLAN (1/10, con la funcion 5 de las 20). Esto prohibia cualquier
+# 'powercfg /setac...', y desde hoy existe Set-PlanEnergia, que hace '/setactive' A PROPOSITO: braya
+# pide "pon el perfil turbo" y la consola expone sus perfiles como planes de Windows.
+# LA DIFERENCIA ES LA QUE IMPORTA AQUI, que es de lo que va esta seccion -"no queda nada puesto"-:
+#   - '/setacvalueindex', '/setdcvalueindex' y '/change' cambian valores DENTRO de un plan. Eso queda
+#     puesto, es invisible y nadie lo deshace: sigue prohibido.
+#   - '/setactive' cambia de plan, y eso se VE en Windows, lo pide braya y lo puede devolver con una
+#     frase. No es algo que se quede puesto a su espalda.
+Comp '6a. no se cambia ningun VALOR de energia' (-not ($sinCom -match 'powercfg /(setacvalueindex|setdcvalueindex|change|s\b)')) 'cambiar de plan si (funcion 5); cambiar sus valores no'
 Comp '6b. la pantalla se enciende con el mismo sitio' ($sinCom -match 'function Set-PantallaApagada\(\[bool\]\$apagar = \$true\)') 'apagar y encender, una sola pieza'
 Comp '6c. y encender es el -1 de lParam' ($sinCom -match '\$lp = if \(\$apagar\) \{ \[IntPtr\]2 \} else \{ \[IntPtr\]\(-1\) \}') ''
 # EL BLOQUE DEL Add-Type, POR SU CIERRE DE VERDAD: el here-string va de @' a '@, y ahi estan sus
