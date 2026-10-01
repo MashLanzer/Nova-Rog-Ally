@@ -2119,6 +2119,16 @@ Titulo "2n279. Los bancos de Python que se rendian por el interprete"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n307. Esa regla ya la tienes, y las copias viejas se barren (ideas 20 y 18 de las 20)"
+# MEDIDO sobre las 609 ordenes reales: braya dicto A MANO "regla: cuando abra elden ring pon modo
+# noche" ONCE veces, y otras dos reglas cinco veces cada una. Veintiuna dictadas de TRES reglas, y
+# cada una creaba una NUEVA con otro id: reglas.json acababa con once copias de lo mismo, once
+# disparos iguales y once ids que habria que borrar uno a uno. Ahora se dice "esa ya la tienes, es la
+# N" con su id, para poder borrarla. Y de paso (idea 18) las copias '.antes-*' de memoria, que se
+# creaban y no las barria nadie, caducan a la semana.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-regla-repetida.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ya tienes no se crea otra vez)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n306. Un aviso que solo se ve, si no se ve, se pierde entero (idea 11 de las 20 nuevas)"
 # Send-AvisoEntorno marca el aviso como dado y DESPUES intenta pintar la tarjeta. El comentario que
 # habia alli decia que perder la tarjeta no importa "porque lo que no se puede perder es que SUENE",

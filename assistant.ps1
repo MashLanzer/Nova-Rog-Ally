@@ -22606,6 +22606,33 @@ function Clear-TmpViejo([string]$donde = '') {
         if ($r.ficheros -gt 0) {
             Log ("TMP: solte $($r.ficheros) fichero(s), $([Math]::Round($r.bytes / 1MB, 1)) MB: " + (($r.nombres | Select-Object -First 12) -join ', '))
         }
+        # Y LAS COPIAS '.antes-*' DE memoria\, QUE NADIE BARRE (1/10/2026, idea 18 de las 20 nuevas).
+        #
+        # Antes de una fusion arriesgada se guarda una copia -'juegos.json.antes-fusion-20260928-...'-
+        # y eso esta bien. Lo que no habia es quien las tire: el 1/10 seguia ahi una del 28/09, 2.510
+        # bytes. Pequenio, pero es el mismo escape que el '.tmp' que aparecio en la raiz del
+        # repositorio el 27/09: un fichero con datos de braya que nadie recoge.
+        #
+        # UNA SEMANA, Y NO LOS DIAS DE tmp: estas no son temporales, son la red de seguridad de una
+        # fusion. Si algo salio mal se nota en horas o en un par de dias; a la semana, si nadie la ha
+        # necesitado, no la va a necesitar. Y la copia de hoy se queda.
+        #
+        # AQUI Y NO EN UNA FUNCION NUEVA: este barrido ya corre una vez al dia, ya sabe mirar fechas y
+        # ya cuenta lo que suelta. Estrenar un reloj para tres ficheros al mes seria regla 4.
+        try {
+            $limiteA = (Get-Date).AddDays(-7)
+            $viejasA = @(Get-ChildItem -LiteralPath $MemoriaDir -File -Filter '*.antes-*' -ErrorAction SilentlyContinue |
+                         Where-Object { $_.LastWriteTime -lt $limiteA })
+            foreach ($vA in $viejasA) {
+                $r.ficheros++
+                $r.bytes += [int64]$vA.Length
+                $r.nombres += $vA.Name
+                Remove-Item -LiteralPath $vA.FullName -Force -ErrorAction SilentlyContinue
+            }
+            if ($viejasA.Count -gt 0) {
+                Log ("COPIAS VIEJAS: solte $($viejasA.Count) copia(s) de seguridad de memoria de mas de 7 dias: " + (($viejasA.Name | Select-Object -First 6) -join ', '))
+            }
+        } catch { Log ('copias viejas: no pude barrerlas: ' + $_.Exception.Message) }
         if ($secretos.Count -gt 0) {
             Log ("SECRETO EN CLARO: " + ($secretos -join ', ') + " llevaba(n) mas de $TmpVidaDias dias en tmp; lo he borrado, pero hay que rotar esa clave")
             [void](Send-AvisoEntorno 'secreto-en-claro' `
@@ -26368,6 +26395,36 @@ function Invoke-ReglaVoz([string]$text) {
         $hastaR = (Get-Date).ToString('yyyy-MM-dd')
     }
     $r = @{ id = $id; tipo = $tipo; valor = $valor; accion = $accion; ultima = ''; cond = $condR; hasta = $hastaR }
+    # ESA REGLA YA LA TIENES (1/10/2026, idea 20 de las 20 nuevas).
+    #
+    # MEDIDO sobre las 609 ordenes reales de braya: dicto A MANO la MISMA regla una y otra vez.
+    #     "regla: cuando abra elden ring pon modo noche"        ONCE veces
+    #     "regla: a las diez y media de la noche pon modo noche"  CINCO
+    #     "regla: avisame cuando la descarga de steam termino"    CINCO
+    # Veintiuna dictadas de TRES reglas. Y cada una creaba una regla NUEVA con otro id, asi que
+    # reglas.json acababa con once copias de la misma cosa, once veces el mismo disparo, y once
+    # ids distintos que braya tendria que borrar uno a uno si se cansara.
+    #
+    # LO QUE SE COMPARA es lo que de verdad hace una regla igual: el tipo, el valor que la dispara y
+    # la accion. El id no, que es lo unico que cambia; ni 'hasta', que es si caduca hoy o se queda
+    # (si dictas la misma regla y ahora la quieres "siempre", eso SI es un cambio y se deja pasar).
+    #
+    # Y SE DICE CUAL ES, con su id: sin el numero, "esa ya la tienes" no sirve para borrarla.
+    $igualR = @($g | Where-Object {
+        [string]$_.tipo -eq [string]$tipo -and
+        [string]$_.valor -eq [string]$valor -and
+        [string]$_.accion -eq [string]$accion -and
+        [string]$_.cond -eq [string]$condR -and
+        [string]$_.hasta -eq [string]$hastaR
+    })
+    if ($igualR.Count -gt 0) {
+        $yaR = $igualR[0]
+        $script:ultimaRegla = @{ id = [string]$yaR.id; en = $sw.ElapsedMilliseconds }
+        Log ("REGLA REPETIDA: ya existe la " + $yaR.id + " con lo mismo; no creo otra")
+        Add-Estadistica 'regla-repetida' ("$text -> ya era la $($yaR.id)")
+        return ("Esa ya la tienes: es la regla " + $yaR.id + ", " + (Describe-Regla $yaR) +
+                ". Di 'borra la regla " + $yaR.id + "' si quieres quitarla.")
+    }
     [void]$g.Add($r); Save-Reglas
     # LA QUE ACABA DE NACER, para que "siempre" sepa a cual se refiere (24/09, repaso)
     $script:ultimaRegla = @{ id = $id; en = $sw.ElapsedMilliseconds }
