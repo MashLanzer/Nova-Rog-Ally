@@ -13277,6 +13277,19 @@ $AvisoEsperaMin = 30
 # Y LOS 120 SALEN DE LA MEDICION: el 56 % de las esperas medidas caben ahi. Mas alla la
 # noticia esta rancia, y soltarle a las tres horas la bateria de antes es peor que callarse.
 $AvisoEsperaCaducaMin = 120
+# EL PLAZO SE ALARGA SOLO PARA EL QUE SIEMPRE CADUCA (1/10/2026, idea 10 de las 20 nuevas).
+#
+# Hay 158 avisos caducados apuntados. Caducar no es un fallo en si -mas vale callarse que soltar la
+# bateria de hace tres horas- pero un aviso que caduca SIEMPRE esta mal CALIBRADO, no mal dicho: su
+# noticia dura mas de dos horas y el plazo generico se la come. 'gmail-lleno' es el ejemplo claro:
+# se aparco 1.652 veces en el registro y su plazo propio es de UNA SEMANA, o sea que la noticia
+# sigue siendo verdad al dia siguiente; caducarla a las dos horas es tirarla por nada.
+#
+# TRES VECES, NO UNA: una puede ser que braya no volviera ese dia. Tres es el patron.
+# Y EL MULTIPLICADOR TIENE TOPE, porque un plazo infinito es lo mismo que no tener plazo: de nuevo
+# estaria soltando noticias rancias, que es justo lo que los 120 minutos vienen a evitar.
+$AvisoCaducaAlargaDesde = 3
+$AvisoCaducaMaxMin = 1440      # un dia: pasado eso, la noticia de ayer ya no es noticia
 # LAS QUE NO SE APLAZAN NUNCA. Lista CERRADA y a la vista: las ocho son el flanco de algo que
 # braya acaba de hacer CON LAS MANOS -enchufar, ponerse los cascos, cerrar el juego-, asi que
 # ahi la presencia no hay que suponerla, esta probada.
@@ -14747,6 +14760,32 @@ function Get-AvisoAlDia($v, [double]$ahoraGb = -1, $hayRuido = $null, [double]$l
     return $r
 }
 
+# CUANTO AGUANTA APARCADO UN AVISO DE ESTA CLAVE (1/10, idea 10 de las 20 nuevas).
+#
+# Devuelve $AvisoEsperaCaducaMin de siempre, o el doble / el cuadruple si esa clave lleva caducando
+# una y otra vez, con tope. Se cuenta 'aviso-caducado:<clave>', el desglose que se empezo a apuntar
+# hoy: hasta ahora solo habia el total y los 158 caducados eran anonimos.
+#
+# ANTE LA DUDA, EL PLAZO DE SIEMPRE: si no se pueden leer las estadisticas se devuelve el generico.
+# Alargar un plazo a ciegas es la forma de acabar diciendo la bateria de hace tres horas.
+function Get-CaducaAviso([string]$clave) {
+    $base = [int]$AvisoEsperaCaducaMin
+    if (-not $clave) { return $base }
+    try {
+        $s = Get-Estadisticas
+        if (-not $s -or -not $s.dias) { return $base }
+        $n = 0
+        foreach ($d in @($s.dias.Keys)) {
+            if ($s.dias[$d].ContainsKey("aviso-caducado:$clave")) { $n += [int]$s.dias[$d]["aviso-caducado:$clave"] }
+        }
+        if ($n -lt [int]$AvisoCaducaAlargaDesde) { return $base }
+        # EL MISMO ESCALON QUE Get-EsperaAviso usa para lo suyo (x2 y x4), para no estrenar otra
+        # forma de decir "bastante" y "mucho" en la misma casa.
+        $factor = if ($n -ge ([int]$AvisoCaducaAlargaDesde * 2)) { 4 } else { 2 }
+        return [int][Math]::Min($base * $factor, [int]$AvisoCaducaMaxMin)
+    } catch { return $base }
+}
+
 function Add-AvisoEspera([string]$clave, [string]$texto, [string]$nivel, [int]$cada, [datetime]$ahora = (Get-Date)) {
     [void](Get-AvisoEspera)
     $viejos = @($script:avisoEspera | Where-Object { [string]$_.clave -eq $clave })
@@ -14756,9 +14795,13 @@ function Add-AvisoEspera([string]$clave, [string]$texto, [string]$nivel, [int]$c
     # que sacarlo no obliga a cambiar ni uno de los treinta llamadores de Send-AvisoEntorno.
     $hechoA = $null
     try { $hechoA = Get-HechoAviso $clave $texto } catch { $hechoA = $null }
+    # EL PLAZO, APRENDIDO POR CLAVE (1/10, idea 10 de las 20 nuevas). Ver $AvisoCaducaAlargaDesde:
+    # un aviso que ha caducado tres veces o mas no es que se diga mal, es que su noticia dura mas de
+    # dos horas y el plazo generico se la come. 'gmail-lleno' tiene plazo propio de UNA SEMANA y se
+    # aparco 1.652 veces: caducarla a las dos horas es tirarla por nada.
     [void]$script:avisoEspera.Add(@{ clave = $clave; texto = $texto; nivel = $nivel; cada = $cada
                                      hecho = $hechoA
-                                     vence = $ahora.AddMinutes($AvisoEsperaCaducaMin).ToString('s') })
+                                     vence = $ahora.AddMinutes((Get-CaducaAviso $clave)).ToString('s') })
     # EL PLAZO SI SE REFRESCA aunque el aviso sea el mismo -arriba se pone $ahora-, porque el
     # aviso sigue siendo verdad ahora mismo; lo que no se repite es la linea y el guardado.
     if ($igual) { return $false }
@@ -14800,6 +14843,19 @@ function Send-AvisoEsperaSuelta([datetime]$ahora = (Get-Date), [bool]$soloCaduca
         if ($ahora -gt $vence) {
             Log "ENTORNO caducado sin decirse: $($x.clave)"
             Add-Estadistica 'aviso-caducado' ([string]$x.clave)
+            # Y OTRO CON LA CLAVE DENTRO DEL NOMBRE (1/10/2026, idea 10 de las 20 nuevas).
+            #
+            # La linea de arriba pasa la clave, pero como DETALLE: Add-Estadistica usa el primer
+            # argumento como nombre del contador y el segundo va a $s.recientes, que tiene 40 plazas
+            # y se vacia sola. O sea que los 158 caducados que hay apuntados son ANONIMOS: se sabe
+            # cuantos, no CUALES. Y lo que hace falta saber es cuales: un aviso cuyo plazo vence
+            # antes de que braya vuelva esta mal CALIBRADO, no mal dicho, y para arreglarlo hay que
+            # saber de quien es el plazo.
+            #
+            # LA DE ARRIBA NO SE TOCA: tres bancos buscan ese literal, y el total sigue valiendo
+            # para la cuenta de siempre. Este es el desglose, con el mismo formato 'clave:valor' que
+            # ya usan 'aviso-nada:' y 'aviso-sirvio:', asi que se lee con el mismo codigo.
+            Add-Estadistica ('aviso-caducado:' + [string]$x.clave)
             # Y SE DICE, TARDE PERO SE DICE (25/09, idea 5). Ver Get-FraseCaducados.
             $caducados += $x
         } else { $vivos += $x }

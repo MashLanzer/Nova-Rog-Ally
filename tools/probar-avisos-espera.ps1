@@ -149,7 +149,14 @@ foreach ($v in @('AvisoEsperaMin', 'AvisoEsperaCaducaMin')) { Invoke-Expression 
 $mS = [regex]::Match($fuente, '(?ms)^\$AvisoSiempre = (@\(.*?\))\s*$')
 if (-not $mS.Success) { Write-Host '  MAL  no encuentro $AvisoSiempre'; exit 1 }
 $AvisoSiempre = Invoke-Expression $mS.Groups[1].Value
-foreach ($f in @('Test-AvisoAplazable', 'Get-AvisoEspera', 'Save-AvisoEspera', 'Add-AvisoEspera',
+# Get-CaducaAviso, Get-ReaccionesAviso y Get-NivelAviso entran desde el 1/10 (ideas 9 y 10): el plazo
+# de un aviso aparcado ya no es la constante a pelo, y Send-AvisoEntorno decide el nivel en su
+# primera linea. Sin ellas este banco revienta por dentro y TODO sale a cero, que fue justo lo que
+# paso: nueve comprobaciones en rojo y ninguna del codigo.
+$AvisoCaducaAlargaDesde = 3; $AvisoCaducaMaxMin = 1440
+$AvisoReaccionMin = 8; $AvisoReaccionCeroMin = 5; $AvisoMudoCeros = 8; $AvisoEsperaTope = 6
+foreach ($f in @('Get-CaducaAviso', 'Get-ReaccionesAviso', 'Get-NivelAviso',
+                 'Test-AvisoAplazable', 'Get-AvisoEspera', 'Save-AvisoEspera', 'Add-AvisoEspera',
                  'Send-AvisoEsperaSuelta', 'Send-AvisoEntorno')) { Invoke-Expression (Traer $f) }
 
 function Limpia {
@@ -253,7 +260,11 @@ Save-AvisoEspera
 $script:ausenciaMin = 0
 $n2 = Send-AvisoEsperaSuelta
 Comp 'un aviso de hace mas de dos horas no se dice' ($n2 -eq 0 -and $script:dichos.Count -eq 0) "$n2"
-Comp 'se tira, y se apunta que se tiro' (@($script:apuntes | Where-Object { $_ -match 'aviso-caducado' }).Count -eq 1) "$($script:apuntes -join ' ')"
+# DOS APUNTES DESDE EL 1/10 (idea 10): el total de siempre, y el desglose 'aviso-caducado:<clave>'.
+# El total no se toco porque tres bancos buscan ese literal; el desglose existe porque de los 158
+# caducados que habia apuntados no se sabia CUALES, y es lo unico que permite calibrar el plazo.
+Comp 'se tira, y se apunta que se tiro' (@($script:apuntes | Where-Object { $_ -match '^aviso-caducado\|' }).Count -eq 1) "$($script:apuntes -join ' ')"
+Comp '  y con la clave, para saber CUAL caduco' (@($script:apuntes | Where-Object { $_ -match '^aviso-caducado:oido-ruido\|' }).Count -eq 1) ''
 Comp 'y queda en el log' (@($script:logs | Where-Object { $_ -match 'caducado sin decirse' }).Count -eq 1) ''
 Comp 'y la cola queda limpia' (@(Get-AvisoEspera).Count -eq 0) "$(@(Get-AvisoEspera).Count)"
 Comp 'el plazo son dos horas, del 56 % de las esperas medidas' ($AvisoEsperaCaducaMin -eq 120) "$AvisoEsperaCaducaMin min"

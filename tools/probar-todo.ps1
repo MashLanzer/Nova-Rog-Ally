@@ -2119,6 +2119,16 @@ Titulo "2n279. Los bancos de Python que se rendian por el interprete"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n305. Los 158 avisos caducados eran anonimos (idea 10 de las 20 nuevas)"
+# Add-Estadistica usa el PRIMER argumento como nombre del contador y el segundo va a $s.recientes,
+# que tiene 40 plazas y se vacia sola: la linea de los caducados pasaba la clave como SEGUNDO, asi
+# que de los 158 se sabia cuantos pero no CUALES. Y cuales es lo que importa: un aviso cuyo plazo
+# vence antes de que braya vuelva esta mal CALIBRADO, no mal dicho. 'gmail-lleno' tiene plazo propio
+# de UNA SEMANA y se aparco 1.652 veces: caducarlo a las dos horas es tirarlo por nada. Ahora el
+# plazo se alarga solo para la clave que caduca tres veces o mas, con tope de un dia.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-caducado-por-clave.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:aguanta mas, y se sabe cual es)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n304. El aviso que nunca sirve se ve y no se oye (idea 9 de las 20 nuevas)"
 # El freno de la espera YA EXISTIA (Get-EsperaAviso, 25/09) y funciona; lo medido el 1/10 es que casi
 # nunca llega a activarse, porque pide OCHO reacciones por clave y solo DOS de dieciseis llegan. Dos
