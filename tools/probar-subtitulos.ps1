@@ -299,7 +299,7 @@ Comp '  y escribe solo ASCII' ($fuentePy -match 'ensure_ascii=True') 'PowerShell
 # Y LEE EL FLUJO BINARIO, NO EL DE TEXTO. Esto costo media tarde el 1/10 y es el fallo mas mudo de
 # todos: con 'for linea in sys.stdin', el pedido que manda PowerShell NO LLEGABA NUNCA -ni linea ni
 # error- porque el envoltorio de texto mete su propia lectura adelantada y no suelta nada hasta
-# tener de sobra. Y engañaba doble, porque el 'fin' parecia funcionar: al cerrarse la tuberia el
+# tener de sobra. Y enganaba doble, porque el 'fin' parecia funcionar: al cerrarse la tuberia el
 # bucle acababa igual. Medido con el arreglo: pedido en 0,02 s y contestado en 0,04 s.
 Comp '  y lee el flujo BINARIO de stdin' ($fuentePy -match 'for crudo in sys\.stdin\.buffer') 'con el de texto el pedido no llega nunca'
 Comp '    y no el de texto' ($fuentePy -notmatch 'for linea in sys\.stdin:') 'es el fallo mas mudo que hubo aqui'
