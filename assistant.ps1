@@ -6461,6 +6461,13 @@ function Resolve-Fragment([string]$f) {
     # "pon el perfil turbo", "pon el rendimiento al maximo", "que perfil de energia tengo".
     # Se dice PERFIL y no MODO a proposito: 'modo ahorro' y los demas modos de la casa son otra cosa
     # y pisarlos seria cambiar lo que braya ya tiene aprendido.
+    # --- EL RELOJ DEL REEMBOLSO (1/10, la 11 de las 20) ---
+    # "puedo devolver elden ring", "cuanto llevo jugado a X", "me lo devuelven todavia".
+    if ($f -match '^(?:puedo|podria)\s+(?:todavia\s+)?devolver\s+(.+)$' -or
+        $f -match '^(?:me\s+)?(?:lo\s+)?devuelven\s+(?:todavia\s+)?(.+)$' -or
+        $f -match '^(?:cuanto\s+)?(?:tiempo\s+)?llevo\s+jugado?\s+(?:a\s+|en\s+)?(.+)$') {
+        return @(@{ kind = 'reembolso'; juego = $Matches[1].Trim(); desc = 'si todavia se puede devolver' })
+    }
     # --- EL VOLUMEN DEL MICROFONO (1/10, la 19 de las 20) ---
     # "sube el microfono", "pon el micro al 80", "como esta el microfono". Nombra el MICRO, asi que
     # no se pisa con el volumen de siempre; y se pone antes que aquel para que no se lo coma.
@@ -20558,6 +20565,12 @@ function Invoke-FastCommand([string]$text) {
                     $a.desc = Get-FraseAutonomia ([string]$a.juego)
                     $a.hecho = $true
                 }
+                # EL RELOJ DEL REEMBOLSO (1/10, la 11 de las 20). Solo la mitad de las horas: la
+                # fecha de compra no existe en ningun sitio accesible, y se dice.
+                'reembolso' {
+                    $a.desc = Get-FraseReembolso ([string]$a.juego)
+                    $a.hecho = $true
+                }
                 # EL VOLUMEN DEL MICROFONO (1/10, la 19 de las 20). No es la ganancia del oido de
                 # Nova: esto es lo que oyen los demas en Discord.
                 'volumenMicro' {
@@ -26459,6 +26472,8 @@ function Watch-LogrosSteam {
             if (Test-LogroNuevo $antesL $script:logroStamp) {
                 $script:logroUltimo = $sw.ElapsedMilliseconds
                 Log "LOGRO (stats de Steam cambiaron mientras no miraba) en $($script:juegoActivo)"
+                # y se cuenta para el resumen de la sesion (1/10, la 20 de las 20)
+                $script:logrosSesion = [int]$script:logrosSesion + 1
                 Send-UIEvento 'logro'
             }
             return
@@ -26479,6 +26494,8 @@ function Watch-LogrosSteam {
             if (($sw.ElapsedMilliseconds - $script:logroUltimo) -ge 120000) {
                 $script:logroUltimo = $sw.ElapsedMilliseconds
                 Log "LOGRO (stats de Steam cambiaron) en $($script:juegoActivo)"
+                # y se cuenta para el resumen de la sesion (1/10, la 20 de las 20)
+                $script:logrosSesion = [int]$script:logrosSesion + 1
                 Send-UIEvento 'logro'
             }
         }
@@ -27293,6 +27310,124 @@ function Write-NotaSemanal {
         [System.IO.File]::WriteAllText($ruta, $sb.ToString(), (New-Object System.Text.UTF8Encoding($false)))
         Log "nota semanal escrita: $ruta"
     } catch { Log ("nota semanal: " + $_.Exception.Message) }
+}
+
+# =====================================================================
+# EL RELOJ DEL REEMBOLSO (1/10, la 11 de las 20 funciones) — LA MITAD QUE SE PUEDE
+# =====================================================================
+# STEAM DEVUELVE EL DINERO con menos de DOS HORAS jugadas y menos de CATORCE DIAS desde la compra.
+# MEDIDO: la fecha de compra NO EXISTE en ningun sitio al que Nova pueda llegar. 'PurchaseTime',
+# 'Licenses' y 'rt_purchase' dan CERO apariciones en localconfig.vdf; el appmanifest solo trae
+# 'LastPlayed'; y la API publica no la expone. Asi que los catorce dias no se pueden contar.
+# LAS DOS HORAS SI, y son el limite que de verdad se pasa por alto: Nova lleva los segundos jugados
+# por juego en memoria\juegos.json desde el 19/09. Medido ahi: It Takes Two 12,86 h, Spider-Man 3,38,
+# Unravel Two 0,16, ELDEN RING 0,10. Asi que avisa al acercarse a las dos horas y DICE lo que no
+# sabe, en vez de prometer un plazo que no puede calcular.
+$ReembolsoHoras = 2.0
+$ReembolsoAvisaMin = 95           # a hora y media y pico: da tiempo a decidir sin cortar la partida
+$script:reembolsoDicho = @{}
+
+function Get-HorasJugadas([string]$juego) {
+    try {
+        $clave = (ConvertTo-Plain $juego) -replace '[^a-z0-9]', ''
+        foreach ($p in (Get-JuegosMem).PSObject.Properties) {
+            if (((ConvertTo-Plain $p.Name) -replace '[^a-z0-9]', '') -ne $clave) { continue }
+            $seg = 0.0
+            try { foreach ($d in $p.Value.dias.PSObject.Properties) { $seg += [double]$d.Value } } catch {}
+            return [Math]::Round($seg / 3600.0, 2)
+        }
+    } catch {}
+    return -1
+}
+
+function Get-FraseReembolso([string]$juego) {
+    if (-not $juego) { return 'Dime de que juego.' }
+    $h = Get-HorasJugadas $juego
+    if ($h -lt 0) { return "No tengo apuntado tiempo de juego de $juego." }
+    $min = [int][Math]::Round($h * 60)
+    if ($h -ge $ReembolsoHoras) {
+        return ('En ' + $juego + ' llevas ' + [Math]::Round($h, 1) + ' horas, o sea que ya pasaste de las dos: ' +
+                'Steam ya no lo devuelve por el limite de tiempo.')
+    }
+    $quedan = [int][Math]::Round(($ReembolsoHoras * 60) - $min)
+    # Y SE DICE LO QUE NO SE SABE: sin la fecha de compra, la mitad de los catorce dias no se puede
+    # calcular, y callarselo haria creer que el plazo esta entero.
+    return ('En ' + $juego + ' llevas ' + $min + ' minutos, asi que te quedan ' + $quedan +
+            ' antes de pasar de las dos horas. Lo de los catorce dias desde la compra no lo se: ' +
+            'Steam no guarda esa fecha donde yo pueda verla.')
+}
+
+# Y EL AVISO, que es lo que hace que sirva: la ventana se pasa sola mientras juegas.
+function Watch-Reembolso([string]$juego) {
+    if (-not $juego) { return }
+    try {
+        $clave = (ConvertTo-Plain $juego) -replace '[^a-z0-9]', ''
+        if ($script:reembolsoDicho.ContainsKey($clave)) { return }
+        $h = Get-HorasJugadas $juego
+        if ($h -lt 0) { return }
+        $min = [int][Math]::Round($h * 60)
+        # SOLO EN LA VENTANA: por debajo no viene a cuento, y pasadas las dos horas ya no sirve de
+        # nada decirlo -el dinero ya no vuelve- y seria recordarle algo que no puede arreglar.
+        if ($min -lt $ReembolsoAvisaMin -or $min -ge ($ReembolsoHoras * 60)) { return }
+        $script:reembolsoDicho[$clave] = $true
+        $quedan = [int][Math]::Round(($ReembolsoHoras * 60) - $min)
+        [void](Send-AvisoEntorno ('reembolso-' + $clave) ('Llevas ' + $min + ' minutos en ' + $juego +
+              ' y a las dos horas Steam ya no te lo devuelve: te quedan ' + $quedan +
+              '. Si no te esta gustando, es ahora.') 'medio' 1440)
+    } catch {}
+}
+
+# =====================================================================
+# EL RESUMEN DE LA PARTIDA QUE ACABA (1/10, la 20 de las 20 funciones)
+# =====================================================================
+# Nova escribe el parte del dia y el resumen de la semana, pero de LA SESION QUE SE CIERRA no decia
+# nada, y es el momento en que apetece oirlo: acabas de soltar el mando.
+# TODO SALE DE LO QUE YA MIDE, sin apuntar nada nuevo: los minutos de la partida (juegoSesionMin), lo
+# jugado hoy (juegos.json), la bateria que se fue (el tramo de Update-BateriaJuego) y los logros que
+# cayeron (Nova ya los vigila). Si de algo no hay dato, esa parte no se dice en vez de rellenarse.
+# Y NO SE DICE NADA SI LA PARTIDA FUE CORTA: por debajo del minimo ni se llega aqui, y una frase por
+# cada rato de diez minutos acabaria siendo ruido.
+$script:sesionBatDesde = -1
+
+function Get-FraseResumenSesion([string]$juego, [int]$minutos, [int]$segundos) {
+    if (-not $juego -or $minutos -le 0) { return '' }
+    $piezas = @()
+    # 1. lo que ha durado, dicho como se dice
+    $dur = if ($minutos -ge 60) {
+        $h = [int][Math]::Floor($minutos / 60); $m = $minutos % 60
+        '' + $h + ' ' + $(if ($h -eq 1) { 'hora' } else { 'horas' }) + $(if ($m -gt 0) { ' y ' + $m + ' minutos' } else { '' })
+    } else { '' + $minutos + ' minutos' }
+    $piezas += ('Has jugado ' + $dur + ' a ' + $juego)
+    # 2. y cuanto llevas hoy EN TOTAL, que es el dato que no se tiene en la cabeza
+    try {
+        $hoyMin = [int](Get-MinutosJuegoHoy)
+        if ($hoyMin -gt $minutos + 5) {
+            $durH = if ($hoyMin -ge 60) {
+                $h2 = [int][Math]::Floor($hoyMin / 60); $m2 = $hoyMin % 60
+                '' + $h2 + ' h' + $(if ($m2 -gt 0) { ' ' + $m2 + ' min' } else { '' })
+            } else { '' + $hoyMin + ' min' }
+            $piezas += ('hoy llevas ' + $durH + ' en total')
+        }
+    } catch {}
+    # 3. la bateria que se ha ido, si se jugo sin cargador
+    try {
+        if ($script:sesionBatDesde -ge 0) {
+            $b = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($b) {
+                $ahoraB = [int]$b.EstimatedChargeRemaining
+                $gasto = $script:sesionBatDesde - $ahoraB
+                if ($gasto -ge 3) { $piezas += ('se han ido ' + $gasto + ' puntos de bateria') }
+            }
+        }
+    } catch {}
+    $script:sesionBatDesde = -1
+    # 4. y los logros que cayeron en esta partida, si los hubo
+    try {
+        $nL = [int]$script:logrosSesion
+        if ($nL -gt 0) { $piezas += ('y ' + $nL + ' ' + $(if ($nL -eq 1) { 'logro' } else { 'logros' })) }
+        $script:logrosSesion = 0
+    } catch {}
+    return (($piezas -join ', ') + '.')
 }
 
 # =====================================================================
@@ -28119,6 +28254,15 @@ function Enter-Juego([string]$nombre) {
         $planJ = Set-PlanDeEseJuego $nombre
         if ($planJ) { Log ('ENERGIA: ' + $nombre + ' se juega en ' + $planJ + ', lo pongo') }
     } catch {}
+    # Y LA BATERIA DE PARTIDA, PARA EL RESUMEN DE LA SESION (1/10, la 20 de las 20). Solo si no esta
+    # enchufado: con cargador no hay gasto que contar. Y solo la PRIMERA vez, no en cada alt-tab, o
+    # el resumen diria que se fue un punto cuando se fueron veinte.
+    try {
+        if ($script:sesionBatDesde -lt 0) {
+            $bE = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($bE -and [int]$bE.BatteryStatus -ne 2) { $script:sesionBatDesde = [int]$bE.EstimatedChargeRemaining }
+        }
+    } catch {}
     # Y SI HAY UNA DESCARGA ENCIMA, SE DICE AHORA (30/09, la 7 de las 20): jugar con Steam bajando
     # son tirones, y lo peor es no saber por que. Una vez por descarga, no en cada alt-tab.
     try { Watch-DescargaJugando $nombre } catch {}
@@ -28495,6 +28639,14 @@ function Test-SalidaJuego {
     }
     Clear-MuereAlArrancar $s.nombre   # partida de verdad: la racha de muertes se rompe (idea 47)
     Log "JUEGO: cerrado de verdad $($s.nombre) ($minsS min de partida)"
+    # EL RESUMEN DE LA PARTIDA QUE ACABA (1/10, la 20 de las 20 funciones). Nova tenia el parte del
+    # dia y el resumen de la semana, pero no el de la sesion que se cierra, que es el momento en que
+    # apetece oirlo. AQUI y no en Exit-Juego: aquel se dispara en cada alt-tab -cinco de once
+    # salidas del log duraron menos de dos minutos- y un resumen por alt-tab seria insoportable.
+    try {
+        $frS = Get-FraseResumenSesion $s.nombre $minsS $segS
+        if ($frS) { [void](Send-AvisoEntorno ('sesion-' + $s.nombre) $frS 'medio' 5) }
+    } catch {}
     # Y SI TE DEJO LA PANTALLA CAMBIADA (25/09, idea 6). Medido el 24/09: braya cerro A Way Out
     # a las 00:01:13 y VEINTE MINUTOS despues el escritorio seguia a 1280x720 con un panel de
     # 1920x1080. El juego no le devolvio su resolucion y nadie se lo dijo.
@@ -38329,6 +38481,9 @@ while ($true) {
                 # descarga no acaba en 30 ms y leer los manifiestos cuesta disco; y la guarda de las
                 # horas vive dentro, para que el modo no se quede puesto si la descarga se paro.
                 try { Watch-ApagarAlAcabar } catch {}
+                # Y EL RELOJ DEL REEMBOLSO (1/10, la 11 de las 20): la ventana de las dos horas se
+                # pasa sola mientras juegas, y es dinero. Solo con un juego delante.
+                if ($script:juegoActivo) { try { Watch-Reembolso ([string]$script:juegoActivo) } catch {} }
                 # Y LA PANTALLA, SI BRAYA LO HA ENCENDIDO (27/09, idea 121, cableada tras la
                 # revision). Nace apagado: con entorno.apagarPantalla en $false esto sale en la
                 # primera linea sin mirar nada. Aqui y no en el bucle porque la decision necesita

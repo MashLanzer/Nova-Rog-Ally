@@ -2119,6 +2119,23 @@ Titulo "2n279. Los bancos de Python que se rendian por el interprete"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n292. El reloj del reembolso (funcion 11 de las 20, la mitad que se puede)"
+# Steam devuelve con menos de DOS HORAS y menos de CATORCE DIAS desde la compra. MEDIDO: la fecha de
+# compra NO existe donde Nova pueda verla -PurchaseTime, Licenses y rt_purchase dan cero en
+# localconfig.vdf, el appmanifest solo trae LastPlayed, y la API publica no la expone-. Las dos horas
+# si se controlan. Lo que el banco defiende es que DIGA lo que no sabe: un aviso que haga creer que
+# vigila el plazo entero es peor que no avisar.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-reembolso.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:dos horas del reembolso)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n291. El resumen de la partida que acaba (funcion 20 de las 20)"
+# Nova tenia el parte del dia y el resumen de la semana, pero de la SESION que se cierra no decia
+# nada, y es cuando apetece oirlo. Todo sale de lo que ya mide; lo que el banco defiende es que si de
+# algo no hay dato, esa parte NO se dice: "se han ido 0 puntos de bateria" es peor que callarse. Y va
+# en el cierre DE VERDAD, no en Exit-Juego, que se dispara en cada alt-tab.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-resumen-sesion.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:resume la partida al cerrarla)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n290. El volumen del microfono (funcion 19 de las 20)"
 # Nova movia el volumen de salida y el de cada app, pero no el del micro, que es el que se toca
 # cuando te dicen que no se te oye. Es otro endpoint de Windows (eCapture, 1) y lleva sus propias
