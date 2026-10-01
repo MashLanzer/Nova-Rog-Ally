@@ -6512,6 +6512,12 @@ function Resolve-Fragment([string]$f) {
         $f -match '^(?:mi\s+)?lista\s+de\s+deseos$') {
         return @(@{ kind = 'steamPregunta'; que = 'wishlist'; juego = ''; desc = 'la lista de deseos' })
     }
+    # --- QUE SE TE ESTA ROMPIENDO (1/10, idea 1 de las 20 nuevas) ---
+    # "que se te esta rompiendo", "tienes algun error", "va todo bien por dentro". El dato lleva
+    # desde el 27/09 en estadisticas.json y no habia forma de preguntarlo.
+    if ($f -match '^(?:que\s+(?:se\s+te\s+)?(?:esta\s+)?(?:rompiendo|rompe)|tienes\s+(?:algun\s+)?(?:error|errores|fallo|fallos)|va\s+todo\s+bien\s+por\s+dentro|(?:te\s+)?falla\s+algo|como\s+estas\s+por\s+dentro)\??$') {
+        return @(@{ kind = 'petes'; desc = 'lo que se me rompe por dentro' })
+    }
     # --- SUBTITULOS DEL AUDIO DEL JUEGO (1/10, la 17 de las 20) ---
     # "subtitula", "pon los subtitulos", "escribe lo que dicen" / "quita los subtitulos".
     # Es la unica de las veinte que gasta un nucleo entero, asi que NO hay ninguna puerta que la
@@ -20706,6 +20712,12 @@ function Invoke-FastCommand([string]$text) {
                     $a.desc = Get-FraseAutonomia ([string]$a.juego)
                     $a.hecho = $true
                 }
+                # QUE SE TE ESTA ROMPIENDO (1/10, idea 1 de las 20 nuevas). El contador de errores
+                # tragados existe desde el 27/09 y no habia forma de leerlo hablando.
+                'petes' {
+                    $a.desc = Get-FrasePetes
+                    $a.hecho = $true
+                }
                 # SUBTITULOS DEL AUDIO DEL JUEGO (1/10, la 17 de las 20). La mas cara de las
                 # veinte: un nucleo entero mientras transcribe (medido: 99 % con un hilo). Por eso
                 # se arranca a mano, se dice el precio al ponerla y se corta sola.
@@ -24039,6 +24051,75 @@ $PetesPorVez = 60               # como mucho se leen 60 por pasada: esto corre e
 $script:erroresVistos = 0
 $script:petePeor = $null        # @{ linea; veces; que } para el parte
 $script:peteTabla = @{}         # linea -> veces en esta sesion
+
+# APUNTARLO NO SERVIA DE NADA: HAY QUE DECIRLO (1/10/2026, idea 1 de las 20 nuevas).
+#
+# Esto de arriba lleva desde el 27/09 contando los errores que se tragan los catch vacios, CON SU
+# NUMERO DE LINEA, y funcionaba perfectamente. El 1/10, mirando otra cosa, aparecio esto en
+# estadisticas.json:
+#
+#     pete:979   -> 987 veces
+#     pete:1002  -> 100 veces
+#
+# Y las dos eran EL MISMO FALLO: en el commit 5e63f34 el File::Replace de Write-Atomico estaba en
+# la linea 979 y en 15db768 en la 1002. O sea MIL OCHENTA Y SIETE errores tragados, todos iguales,
+# apuntados con nombre y numero durante cuatro dias, y nadie los leyo nunca. El fallo era gordo
+# -la escritura "atomica" no era atomica, ver Write-Atomico- y el dato estaba ahi desde el principio.
+#
+# APUNTAR ALGO QUE NADIE LEE CUESTA LO MISMO QUE NO APUNTARLO, y encima da la sensacion contraria.
+# Asi que ahora se dice. Y se dice del ACUMULADO DE TODOS LOS DIAS, no del de esta sesion: lo que
+# convierte un pete en noticia es que lleve 987 veces, no que haya salido 3 veces hoy.
+#
+# EL LISTON ES ALTO A PROPOSITO: un catch vacio que salta veinte veces puede ser un fichero que
+# todavia no existe en el arranque. Doscientas veces ya no es eso, es algo que lleva roto dias.
+$PeteAvisaDesde = [int](Get-Cfg 'registro' 'peteAvisaDesde' 200)
+$script:peteDicho = ''          # 'linea:veces' del ultimo avisado: no se repite la misma noticia
+
+# LO QUE LLEVA ROTO MAS TIEMPO, sumando TODOS los dias del fichero. Devuelve @{ linea; veces; dias }
+# o $null. Se usa para la frase y para el aviso, asi que la cuenta vive en UN solo sitio.
+function Get-PeorPeteHistorico {
+    try {
+        $s = Get-Estadisticas
+        if (-not $s -or -not $s.dias) { return $null }
+        $porLinea = @{}
+        $diasDe = @{}
+        foreach ($d in @($s.dias.Keys)) {
+            foreach ($k in @($s.dias[$d].Keys)) {
+                if (-not ([string]$k).StartsWith('pete:')) { continue }
+                $ln = ([string]$k).Substring(5)
+                if (-not $porLinea.ContainsKey($ln)) { $porLinea[$ln] = 0; $diasDe[$ln] = 0 }
+                $porLinea[$ln] += [int]$s.dias[$d][$k]
+                $diasDe[$ln]++
+            }
+        }
+        if ($porLinea.Count -eq 0) { return $null }
+        # EL MAXIMO A MANO Y NO CON Sort-Object: son cuatro claves y esto lo llama el bucle.
+        $mejor = ''; $max = -1
+        foreach ($ln in @($porLinea.Keys)) {
+            if ([int]$porLinea[$ln] -gt $max) { $max = [int]$porLinea[$ln]; $mejor = [string]$ln }
+        }
+        if (-not $mejor) { return $null }
+        return @{ linea = $mejor; veces = $max; dias = [int]$diasDe[$mejor] }
+    } catch { return $null }
+}
+
+# LA FRASE, para cuando braya pregunta "que se te esta rompiendo". Dice la linea A PROPOSITO:
+# braya lee el codigo conmigo, y "la linea 979" es lo unico que convierte la queja en algo que se
+# puede arreglar. Sin el numero seria "tengo un error", que no sirve para nada.
+function Get-FrasePetes {
+    $h = Get-PeorPeteHistorico
+    if (-not $h) { return 'Por dentro no se me ha roto nada que yo sepa.' }
+    if ([int]$h.veces -lt 10) { return 'Por dentro voy bien: lo poco que falla no se repite.' }
+    $t = 'Llevo ' + [string]$h.veces + ' veces el mismo error tragado, en la linea ' + [string]$h.linea
+    if ([int]$h.dias -gt 1) { $t += ', repartidas en ' + [string]$h.dias + ' dias' }
+    $t += '.'
+    # Y SI ADEMAS ESTA PASANDO AHORA, se dice: una cosa es un fallo viejo y otra uno vivo.
+    $ahora = Get-PeorPete
+    if ($ahora -and [int]$ahora.veces -ge 2) {
+        $t += ' Y en esta sesion va por ' + [string]$ahora.veces + ': ' + [string]$ahora.que
+    }
+    return $t
+}
 
 function Watch-ErroresTragados {
     # devuelve cuantos errores nuevos ha visto. NO usa Log para cada uno: serian cientos de lineas.
@@ -39075,6 +39156,26 @@ while ($true) {
             if ($petes -gt 0) {
                 $peor = Get-PeorPete
                 if ($peor) { Add-Estadistica ('pete:' + $peor.linea) ([string]$peor.veces + ' veces: ' + $peor.que) }
+                # Y SE DICE, QUE ES LO QUE FALTABA (1/10, idea 1 de las 20 nuevas). Ver
+                # Get-PeorPeteHistorico: 1.087 errores tragados apuntados cuatro dias y leidos por
+                # nadie. Aqui dentro porque el dato ya esta calculado y este bloque corre una vez
+                # por minuto; el Add-Estadistica de arriba va PRIMERO a proposito, para que la
+                # cuenta de hoy este dentro de la suma que mira el aviso.
+                $hist = Get-PeorPeteHistorico
+                if ($hist -and [int]$hist.veces -ge $PeteAvisaDesde) {
+                    # LA CLAVE LLEVA LA LINEA, no solo 'pete': si se arregla uno y empieza otro, es
+                    # otra noticia y tiene que poder salir. Y el 'veces' NO va en la clave -seria
+                    # una noticia nueva cada minuto-, va en $script:peteDicho con un tope: se
+                    # vuelve a decir solo si ha DOBLADO, igual que hace Add-LogRepe con las rachas.
+                    $marca = [string]$hist.linea + ':' + [string]$hist.veces
+                    $yaDicho = 0
+                    if ($script:peteDicho -match '^(\d+):(\d+)$' -and $Matches[1] -eq [string]$hist.linea) { $yaDicho = [int]$Matches[2] }
+                    if ($yaDicho -le 0 -or [int]$hist.veces -ge ($yaDicho * 2)) {
+                        $script:peteDicho = $marca
+                        $script:uiMia = $true   # idea 54: esto no lo ha preguntado nadie
+                        [void](Send-AvisoEntorno ('pete-' + [string]$hist.linea) (Get-FrasePetes) 'medio' 1440)
+                    }
+                }
             }
         } catch {}
         # LO QUE SE ESTA REPITIENDO EN BUCLE (27/09, idea 76). Log solo cuenta; aqui se recoge y

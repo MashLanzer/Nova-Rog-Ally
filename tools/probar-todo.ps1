@@ -2119,6 +2119,15 @@ Titulo "2n279. Los bancos de Python que se rendian por el interprete"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n299. Que Nova lea su propio contador de errores tragados (idea 1 de las 20 nuevas)"
+# Nova llevaba desde el 27/09 contando los errores que se comen los catch vacios CON SU NUMERO DE
+# LINEA, y el mecanismo funcionaba. El 1/10 aparecieron 'pete:979' con 987 veces y 'pete:1002' con
+# 100, y las dos eran EL MISMO FALLO (el File::Replace de Write-Atomico, que cambio de linea entre
+# dos commits): 1.087 errores tragados, apuntados cuatro dias, leidos por nadie. Apuntar algo que
+# nadie lee cuesta lo mismo que no apuntarlo. Ahora se dice, del ACUMULADO DE DIAS y con la linea.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-petes-dichos.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:lo que se le rompe por dentro)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n298. Que ningun banco decida el ORDEN con un indice que podria ser -1 (manera 18)"
 # ESTA NO ES UN BANCO MAS: VIGILA A LOS BANCOS, como las secciones 7 y 9. IndexOf devuelve -1 cuando
 # no encuentra, y -1 es MENOR que cualquier indice valido, asi que "$iEmpuje -lt $iDecide" sale en
