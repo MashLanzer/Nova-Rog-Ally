@@ -116,13 +116,26 @@ Comp 'y un nombre con guion dentro no se parte' ((Get-NombreDeTitulo 'Half-Life 
 
 Write-Host ''
 Write-Host '-- 7. POR QUE EL PASO VIVE EN Process-Texto Y NO EN Resolve-Fragment --'
-# Esta comprobacion no prueba el deictico: prueba el SITIO. $FILLER_INI lleva "este" en las
-# muletillas de cabeza, asi que si alguien mueve el bloque detras de Remove-Filler, las 20
-# frases de "este estado..." dejan de verse. Si esta se pone roja, ahi esta el motivo.
-Comp '"este" esta en las muletillas de cabeza' ('este estado es cargando en steam' -match $FILLER_INI) 'por eso Remove-Filler se lo come'
+# Esta comprobacion no prueba el deictico: prueba el SITIO.
+#
+# LO QUE DECIA HASTA EL 1/10/2026, y por que ya no: "$FILLER_INI lleva 'este' en las muletillas de
+# cabeza, asi que si alguien mueve el bloque detras de Remove-Filler, las 20 frases de 'este
+# estado...' dejan de verse". Era verdad y era un peligro real. La idea 4 de las 20 nuevas le puso a
+# 'este' un candado -solo es muletilla si detras viene un VERBO de orden-, asi que "este estado es
+# cargando en steam" ya NO se lo come nadie y ese peligro concreto desaparecio.
+#
+# PERO EL SITIO SIGUE IMPORTANDO, por el otro lado de la misma moneda: con el candado puesto,
+# "este abre steam" SI se limpia (ahi 'este' es un titubeo y detras va un verbo). Si el bloque del
+# deictico viviera DETRAS de Remove-Filler, una frase donde 'este' sea demostrativo y vaya seguida de
+# un verbo llegaria sin el sujeto. Asi que se comprueba lo mismo con la cara nueva: que el candado
+# esta puesto, que distingue las dos cosas, y que el bloque sigue corriendo sobre $plano.
+Comp 'el candado de "este" esta puesto' ($FILLER_INI -match 'este\(\?=') 'solo es muletilla si detras va un verbo'
 Invoke-Expression (Traer 'Remove-Filler')
-$rf = Remove-Filler 'este estado es cargando en steam'
-Comp 'y Remove-Filler se lo come de verdad' ($rf -notmatch '^este\b') "'$rf'"
+$rfDem = Remove-Filler 'este estado es cargando en steam'
+Comp 'el demostrativo YA NO se lo come' ($rfDem -match '^este\b') "'$rfDem'"
+$rfTit = Remove-Filler 'este abre steam'
+Comp 'pero el titubeo si se limpia' ($rfTit -notmatch '^este\b') "'$rfTit'"
+Comp '  y por eso el sitio sigue importando' ($rfDem -ne $rfTit) 'las dos caras de la misma palabra'
 Comp 'el bloque se llama sobre $plano, antes de eso' ($fuente -match 'DEICTICO, POR LA VENTANA DE DELANTE')
 
 Write-Host ''
