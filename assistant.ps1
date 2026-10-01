@@ -23394,6 +23394,13 @@ $RutaTranscribiendo = Join-Path $TmpDir "transcribiendo.flag"
 # $true en cuanto se ha visto esa marca en el dictado de ahora; Start-Dictado lo baja
 $script:dictaSordo = $false
 # la orden ya se entiende entera: la escucha cierra la frase antes (ver SILENCIO_FIN_LOTENGO)
+# CUANTOS DICTADOS VACIOS SEGUIDOS SON UNA AVERIA (1/10, idea 8 de las 20 nuevas). Uno suelto es
+# normal -braya pulsa el boton y no dice nada: 10 veces en 609 ordenes- y ya esta bien tratado, que
+# no cuenta como fallo de oido ni entra en la cuenta de la meta. Tres SEGUIDOS son otra cosa: el
+# micro tapado por la funda, el array desactivado en Windows u otro programa con el micro cogido en
+# exclusiva. Y el sintoma desde fuera es el peor de todos: suena el tic, se abre la capsula, y nada.
+$DictadoVaciosAvisa = [int](Get-Cfg 'escucha' 'vaciosAvisa' 3)
+$script:dictaVacios = 0
 $RutaLoTengo = Join-Path $TmpDir "lotengo.txt"
 $RutaEstado = Join-Path $TmpDir "escucha-estado.txt"
 # EL FICHERO DEL LATIDO (24/09, idea 19): lo escribe el oido con anota_latido, y desde la idea
@@ -34754,6 +34761,11 @@ function Process-Texto([string]$text) {
         if (Invoke-DictadoLargo $text) { $script:seguimientoPendiente = $false; return }
     }
     if ($text.Length -gt 0) {
+        # LA CUENTA DE VACIOS SEGUIDOS SE BORRA AQUI (1/10, idea 8 de las 20 nuevas). Si se oyo
+        # algo, el microfono funciona, y tres vacios repartidos en toda la tarde no son una averia:
+        # lo son tres SEGUIDOS. Va en la primera linea que sabe que hay texto, y no al final, porque
+        # lo de abajo tiene veinte salidas y en cualquiera de ellas la cuenta se quedaria colgada.
+        $script:dictaVacios = 0
         # has vuelto: el resumen de lo que paso (ver RESUMEN AL VOLVER) y tu hora
         # de uso de hoy (ver RECORDATORIO PARA CARGAR)
         if (-not $script:invitado) {
@@ -36031,6 +36043,25 @@ function Process-Texto([string]$text) {
         if (-not $UiNuevaOn) { Play-Sonido 'no-pude' ([System.Media.SystemSounds]::Hand) }
         Add-Estadistica 'error' 'dictado vacio'
         Show-Popup "No te escuche. Intenta de nuevo." 'error'
+        # TRES VACIOS SEGUIDOS NO SON TRES CASUALIDADES (1/10/2026, idea 8 de las 20 nuevas).
+        #
+        # Un dictado vacio suelto es normal y ya esta bien tratado: no cuenta como fallo de oido
+        # (Write-FalloDeducido lo excluye) ni entra en la cuenta de la meta, porque braya pulso el
+        # boton y no dijo nada. En el corpus hay 10 de esos entre 609 ordenes.
+        #
+        # PERO TRES SEGUIDOS SON OTRA COSA: el micro tapado por la funda, el array desactivado en
+        # Windows, otro programa con el micro cogido en exclusiva. Y el sintoma desde fuera es el
+        # peor de todos: suena el tic, la capsula se abre, y Nova no contesta nada. Con un aviso
+        # suelto por vuelta eso parece mala suerte tres veces; dicho de golpe, es una averia.
+        #
+        # LA CUENTA SE PONE A CERO EN CUANTO ENTRA UNA ORDEN DE VERDAD (ver Process-Texto), asi que
+        # tres repartidos en toda la tarde no dicen nada: tienen que ser tres SEGUIDOS.
+        $script:dictaVacios++
+        if ($script:dictaVacios -ge $DictadoVaciosAvisa) {
+            $script:dictaVacios = 0   # se dice una vez y la cuenta vuelve a empezar
+            $script:uiMia = $true     # idea 54: esto no lo ha preguntado nadie
+            [void](Send-AvisoEntorno 'micro-mudo' ("Te he abierto el microfono $DictadoVaciosAvisa veces seguidas y no he oido nada. Mira si esta tapado o si otro programa lo tiene cogido.") 'medio' 30)
+        }
     }
 }
 

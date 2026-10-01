@@ -2119,6 +2119,16 @@ Titulo "2n279. Los bancos de Python que se rendian por el interprete"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n303. Tres dictados vacios seguidos son una averia (idea 8 de las 20 nuevas)"
+# Un vacio suelto es normal -braya pulsa el boton y no dice nada: 10 en 609 ordenes- y ya estaba
+# bien tratado: no cuenta como fallo de oido ni entra en la cuenta de la meta. Lo que faltaba es que
+# TRES SEGUIDOS se digan: eso es el micro tapado por la funda, el array desactivado en Windows u
+# otro programa con el micro cogido, y el sintoma desde fuera es el peor de todos (suena el tic, se
+# abre la capsula, y nada). La cuenta se borra en cuanto se oye algo, asi que tres repartidos en la
+# tarde no dicen nada: tienen que ser seguidos.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-micro-mudo.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:en vez de parecer mala suerte)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n302. La ganancia del micro, una por franja del dia (idea 7 de las 20 nuevas)"
 # MEDIDO sobre 18.277 muestras de 'ganancia=xN.N' de 22 dias: la tarde (14-19) tiene mediana 4,10 y
 # la noche (20-23) 9,10, o sea 122 % de diferencia. Y por horas sueltas son SIETE VECES: 18:00 y
