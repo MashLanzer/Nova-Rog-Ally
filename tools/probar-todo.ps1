@@ -2119,6 +2119,23 @@ Titulo "2n279. Los bancos de Python que se rendian por el interprete"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n290. El volumen del microfono (funcion 19 de las 20)"
+# Nova movia el volumen de salida y el de cada app, pero no el del micro, que es el que se toca
+# cuando te dicen que no se te oye. Es otro endpoint de Windows (eCapture, 1) y lleva sus propias
+# funciones en el .cs, con su propio puntero: compartirlo con la salida mezclaria los dos aparatos.
+# Y no es la ganancia del oido de Nova, que es software y multiplica lo que ya le llega.
+# En el banco [AX] va doblado: dejarle el micro a cero por correr la bateria seria inaceptable.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-volumen-micro.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:sube y baja el microfono)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n289. La cache de shaders, que nadie vacia (funcion 10 de las 20)"
+# MEDIDO: 902 MB en DxcCache, 74,7 en DxCache, 3,2 en D3DSCache. Casi un giga con 27 GB libres. Y el
+# otro motivo: al cambiar la VRAM hay que vaciarla o los juegos petardean, y eso se olvida. Se puede
+# borrar sin preguntar porque se regenera sola, pero NO con un juego delante (sus ficheros pueden
+# estar en uso) y sin borrar las carpetas (si desaparecen, el driver deja de cachear).
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-shaders.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:cache de shaders, y avisa)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n288. Apaga la consola cuando acabe la descarga (funcion 8 de las 20)"
 # La mas barata de las veinte: Nova ya sabia apagar y ya sabia cuando acaba una descarga, solo
 # faltaba juntarlas. Y la que mas guardas necesita, porque APAGA LA CONSOLA: sin nada bajando no se

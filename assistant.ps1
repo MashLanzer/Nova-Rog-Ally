@@ -6435,7 +6435,12 @@ function Resolve-Fragment([string]$f) {
     # --- MOVER UN JUEGO A OTRO DISCO (30/09, la 3 de las 20) ---
     # "mueve elden ring a la tarjeta", "pasa black myth al disco de fuera", "mueve X al disco D".
     # El destino es opcional: sin el, se va al que mas sitio tenga.
-    if ($f -match '^(?:mueve|muever|pasa|cambia)\s+(?:el\s+juego\s+)?(.+?)\s+(?:a|al|a\s+la)\s+(?:disco\s+|unidad\s+)?(.+)$') {
+    # EL DESTINO TIENE QUE SONAR A DISCO (1/10, lo cazo el banco de colisiones 2n). Esto aceptaba
+    # CUALQUIER destino, y entonces "mueve spotify a la otra pantalla" se iba a mover un juego de
+    # disco en vez de mandar la ventana al otro monitor. Ahora el destino tiene que ser un disco:
+    # una letra sola, o la palabra disco/unidad/tarjeta/sd, o "el de fuera". Cualquier otra cosa
+    # -pantalla, monitor, escritorio- la siguen atendiendo los patrones que ya existian.
+    if ($f -match '^(?:mueve|muever|pasa|cambia)\s+(?:el\s+juego\s+)?(.+?)\s+(?:a|al|a\s+la)\s+(?:(?:disco|unidad)\s+)?([a-z]|(?:la\s+)?(?:tarjeta|micro\s*sd|sd)|(?:el\s+)?(?:de\s+fuera|externo|extraible)|(?:otro\s+)?disco|(?:otra\s+)?unidad)$') {
         return @(@{ kind = 'moverJuego'; juego = $Matches[1].Trim(); destino = $Matches[2].Trim()
                     desc = 'mover ese juego de disco' })
     }
@@ -6456,6 +6461,33 @@ function Resolve-Fragment([string]$f) {
     # "pon el perfil turbo", "pon el rendimiento al maximo", "que perfil de energia tengo".
     # Se dice PERFIL y no MODO a proposito: 'modo ahorro' y los demas modos de la casa son otra cosa
     # y pisarlos seria cambiar lo que braya ya tiene aprendido.
+    # --- EL VOLUMEN DEL MICROFONO (1/10, la 19 de las 20) ---
+    # "sube el microfono", "pon el micro al 80", "como esta el microfono". Nombra el MICRO, asi que
+    # no se pisa con el volumen de siempre; y se pone antes que aquel para que no se lo coma.
+    if ($f -match '^(?:como\s+(?:esta|va)|que\s+tal)\s+(?:el\s+)?(?:microfono|micro)\b' -or
+        $f -match '^(?:cuanto\s+)?volumen\s+(?:tiene\s+|hay\s+en\s+)?(?:el\s+)?(?:microfono|micro)\b') {
+        return @(@{ kind = 'volumenMicro'; que = 'ver'; desc = 'el volumen del microfono' })
+    }
+    if ($f -match '^(?:sube|subeme|aumenta)\s+(?:el\s+)?(?:volumen\s+del\s+)?(?:microfono|micro)\b') {
+        return @(@{ kind = 'volumenMicro'; que = 'sube'; desc = 'subir el microfono' })
+    }
+    if ($f -match '^(?:baja|bajame|reduce)\s+(?:el\s+)?(?:volumen\s+del\s+)?(?:microfono|micro)\b') {
+        return @(@{ kind = 'volumenMicro'; que = 'baja'; desc = 'bajar el microfono' })
+    }
+    if ($f -match '^(?:pon|ponme|deja)\s+(?:el\s+)?(?:volumen\s+del\s+)?(?:microfono|micro)\s+(?:a|al|en)\s+(\d{1,3})\b') {
+        return @(@{ kind = 'volumenMicro'; que = 'pon'; pct = [int]$Matches[1]; desc = "poner el microfono al $($Matches[1])" })
+    }
+    # --- LA CACHE DE SHADERS (1/10, la 10 de las 20) ---
+    # "cuanto ocupa la cache de shaders" / "vacia la cache de shaders". Son casi 1 GB medidos, y hay
+    # que vaciarla al cambiar la VRAM o los juegos petardean.
+    if ($f -match '^(?:vacia|limpia|borra|suelta)\s+(?:la\s+)?cach[ée]?\s*(?:de\s+)?(?:shaders|sombreadores|shader)\b' -or
+        $f -match '^(?:vacia|limpia|borra)\s+(?:los\s+)?shaders\b') {
+        return @(@{ kind = 'shaders'; que = 'vaciar'; desc = 'vaciar la cache de shaders' })
+    }
+    if ($f -match '^(?:cuanto\s+)?(?:ocupa|pesa|mide)\s+(?:la\s+)?cach[ée]?\s*(?:de\s+)?(?:shaders|sombreadores)\b' -or
+        $f -match '^(?:que\s+tal\s+)?(?:la\s+)?cach[ée]?\s+de\s+shaders\b') {
+        return @(@{ kind = 'shaders'; que = 'ver'; desc = 'cuanto ocupa la cache de shaders' })
+    }
     # --- APAGA CUANDO ACABE LA DESCARGA (30/09, la 8 de las 20) ---
     # "apaga cuando acabe la descarga", "apagate al terminar de descargar", "cuando acabe de bajar,
     # apaga". Va aqui y no con el apagado programado porque no lleva minutos: lleva una condicion.
@@ -20526,6 +20558,23 @@ function Invoke-FastCommand([string]$text) {
                     $a.desc = Get-FraseAutonomia ([string]$a.juego)
                     $a.hecho = $true
                 }
+                # EL VOLUMEN DEL MICROFONO (1/10, la 19 de las 20). No es la ganancia del oido de
+                # Nova: esto es lo que oyen los demas en Discord.
+                'volumenMicro' {
+                    $a.desc = switch ([string]$a.que) {
+                        'ver'  { Get-FraseVolumenMicro }
+                        'sube' { Set-VolumenMicro 0 'sube' }
+                        'baja' { Set-VolumenMicro 0 'baja' }
+                        default { Set-VolumenMicro ([int]$a.pct) '' }
+                    }
+                    $a.hecho = $true
+                }
+                # LA CACHE DE SHADERS (1/10, la 10 de las 20). Se puede borrar sin preguntar porque se
+                # regenera sola, pero NO con un juego delante: sus ficheros pueden estar en uso.
+                'shaders' {
+                    $a.desc = if ([string]$a.que -eq 'vaciar') { Clear-CacheShaders } else { Get-FraseCacheShaders }
+                    $a.hecho = $true
+                }
                 # APAGA CUANDO ACABE LA DESCARGA (30/09, la 8 de las 20). No arma nada si no hay
                 # descarga: "apaga cuando acabe" sin nada bajando apagaria al instante.
                 'apagarAlAcabar' {
@@ -27247,6 +27296,151 @@ function Write-NotaSemanal {
 }
 
 # =====================================================================
+# EL VOLUMEN DEL MICROFONO (1/10, la 19 de las 20 funciones)
+# =====================================================================
+# Nova controlaba el volumen de SALIDA y el de cada app, pero no el del micro, que es justo el que se
+# toca cuando entras a hablar con alguien y te dicen que no se te oye. El microfono es otro endpoint
+# de Windows -eCapture en vez de eRender-, asi que son dos funciones nuevas en el .cs y nada mas.
+# MEDIDO al anadirlo: salida al 70 %, micro al 54 %, y PonerVolumenMicro devuelve true.
+# OJO CON LA GANANCIA DEL OIDO, QUE NO ES ESTO: Nova lleva su propia ganancia de software (x9,5,
+# x26,4...) que multiplica lo que ya le llega. Esta funcion mueve el volumen del aparato en Windows,
+# que es lo que oyen los demas en Discord. Son dos cosas distintas y conviene no mezclarlas: subir
+# una no arregla lo que la otra estropea.
+function Get-FraseVolumenMicro {
+    $v = -1
+    try { $v = [int][AX]::LeerVolumenMicro() } catch {}
+    if ($v -lt 0) { return 'No puedo leer el volumen del microfono.' }
+    $t = 'El microfono esta al ' + $v + ' por ciento'
+    if ($v -eq 0) { $t += ': asi no te oye nadie' }
+    elseif ($v -lt 30) { $t += ', que es bajito' }
+    return $t + '.'
+}
+
+function Set-VolumenMicro([int]$pct, [string]$como = '') {
+    $antes = -1
+    try { $antes = [int][AX]::LeerVolumenMicro() } catch {}
+    if ($antes -lt 0) { return 'No puedo tocar el volumen del microfono.' }
+    # SUBIR Y BAJAR SON RELATIVOS AL DE AHORA, como en el volumen de salida: "sube el micro" no es
+    # "pon el micro al 100".
+    $nuevo = $pct
+    if ($como -eq 'sube') { $nuevo = [Math]::Min(100, $antes + 15) }
+    elseif ($como -eq 'baja') { $nuevo = [Math]::Max(0, $antes - 15) }
+    if ($nuevo -lt 0) { $nuevo = 0 }
+    if ($nuevo -gt 100) { $nuevo = 100 }
+    if ($nuevo -eq $antes) { return 'El microfono ya estaba al ' + $antes + ' por ciento.' }
+    $ok = $false
+    try { $ok = [bool][AX]::PonerVolumenMicro($nuevo) } catch {}
+    if (-not $ok) { return 'He pedido ' + $nuevo + ' y no me ha dejado.' }
+    # SE COMPRUEBA, no se presume (regla 1): el endpoint puede aceptar la llamada y no moverse.
+    $despues = -1
+    try { $despues = [int][AX]::LeerVolumenMicro() } catch {}
+    Log ('MICRO: volumen ' + $antes + ' -> ' + $despues)
+    if ([Math]::Abs($despues - $nuevo) -gt 2) {
+        return 'He pedido ' + $nuevo + ' y se ha quedado en ' + $despues + '.'
+    }
+    return 'Microfono al ' + $despues + ' por ciento.'
+}
+
+# =====================================================================
+# LA CACHE DE SHADERS, QUE NADIE VACIA (1/10, la 10 de las 20 funciones)
+# =====================================================================
+# MEDIDO EN ESTA CONSOLA: 902 MB en DxcCache, 74,7 en DxCache, 3,2 en D3DSCache y 0,6 en VkCache.
+# Casi un giga, con 27 GB libres de 476. Y hay un segundo motivo, que es el que lo pone en la lista:
+# al cambiar la VRAM hay que vaciarla o los juegos empiezan a petardear, y eso es algo que braya
+# tiene que ACORDARSE de hacer a mano.
+# SE REGENERA SOLA: borrar estas carpetas no pierde nada, el juego vuelve a compilar sus shaders la
+# primera vez que arranca (tarda un poco mas ese arranque y se acabo). Por eso es de las pocas cosas
+# que Nova puede borrar sin preguntar, y aun asi dice cuanto ha soltado.
+# NO CON UN JUEGO DELANTE: esos ficheros los puede tener abiertos el juego que esta corriendo, y
+# borrar por debajo de un proceso que lee es pedir un cuelgue.
+$ShadersSitios = @('AMD\DxCache', 'AMD\DxcCache', 'AMD\GLCache', 'AMD\VkCache', 'D3DSCache', 'NVIDIA\DXCache')
+$VramVistaPath = Join-Path $MemoriaDir 'vram-vista.json'
+
+function Get-CacheShaders {
+    $l = @()
+    foreach ($rel in $ShadersSitios) {
+        $p = Join-Path $env:LOCALAPPDATA $rel
+        if (-not (Test-Path -LiteralPath $p)) { continue }
+        try {
+            $f = @(Get-ChildItem -LiteralPath $p -Recurse -File -ErrorAction SilentlyContinue)
+            if ($f.Count -eq 0) { continue }
+            $b = ($f | Measure-Object -Property Length -Sum).Sum
+            $l += @{ ruta = $p; nombre = (Split-Path $rel -Leaf); n = $f.Count; bytes = [double]$b }
+        } catch { continue }
+    }
+    return @($l | Sort-Object -Property @{ Expression = { $_.bytes }; Descending = $true })
+}
+
+function Get-FraseCacheShaders {
+    $l = @(Get-CacheShaders)
+    if ($l.Count -eq 0) { return 'No encuentro cache de shaders que vaciar.' }
+    # MEASURE-OBJECT -Property NO VE LAS CLAVES DE UNA TABLA HASH (1/10, lo cazo su banco al
+    # escribirla): busca PROPIEDADES, y Get-CacheShaders devuelve hashtables, asi que lanzaba
+    # "el valor del argumento Property no es valido" y la frase no salia nunca. Se suman las claves
+    # a mano, que es lo que vale para las dos formas.
+    $tot = 0.0
+    foreach ($x in $l) { $tot += [double]$x.bytes }
+    $mb = [Math]::Round($tot / 1MB, 0)
+    $t = 'La cache de shaders ocupa ' + $mb + ' megas'
+    $gorda = $l[0]
+    if ($l.Count -gt 1) { $t += ', y ' + [Math]::Round($gorda.bytes / 1MB, 0) + ' son de ' + $gorda.nombre }
+    $t += '. Se regenera sola, asi que di "vacia la cache de shaders" y la suelto.'
+    return $t
+}
+
+function Clear-CacheShaders {
+    if ($script:juegoActivo) {
+        return 'Mejor no: esos ficheros los puede estar usando ' + $script:juegoActivo + '. Cierralo y te la vacio.'
+    }
+    $l = @(Get-CacheShaders)
+    if ($l.Count -eq 0) { return 'No hay cache de shaders que vaciar.' }
+    $antes = 0.0
+    foreach ($x in $l) { $antes += [double]$x.bytes }
+    $borrados = 0
+    foreach ($c in $l) {
+        try {
+            # SE BORRA EL CONTENIDO, NO LA CARPETA: si desaparece la carpeta, algunos drivers dejan
+            # de cachear hasta el siguiente reinicio y entonces TODO va mas lento, que es lo
+            # contrario de lo que se venia a hacer.
+            foreach ($f in @(Get-ChildItem -LiteralPath $c.ruta -Recurse -File -ErrorAction SilentlyContinue)) {
+                try { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop; $borrados++ } catch {}
+            }
+        } catch {}
+    }
+    $despues = 0.0
+    foreach ($x in @(Get-CacheShaders)) { $despues += [double]$x.bytes }
+    $soltado = [Math]::Round((($antes - $despues) / 1MB), 0)
+    Log ('SHADERS: cache vaciada, ' + $borrados + ' ficheros y ' + $soltado + ' MB')
+    if ($soltado -le 0) { return 'He podido borrar poco: los ficheros debian estar en uso.' }
+    return 'Cache de shaders vaciada: ' + $soltado + ' megas libres. El primer arranque de cada juego tardara un poco mas.'
+}
+
+# Y EL AVISO CUANDO LA VRAM CAMBIA, que es la mitad que de verdad hacia falta: ese es el momento en
+# que hay que vaciarla y el que se olvida. Se guarda la VRAM vista y se compara al arrancar.
+function Watch-VramCambiada {
+    try {
+        $vram = 0
+        try { $vram = [double](Get-CimInstance Win32_VideoController -ErrorAction Stop | Select-Object -First 1).AdapterRAM } catch {}
+        if ($vram -le 0) { return }
+        $antes = 0
+        try {
+            if (Test-Path -LiteralPath $VramVistaPath) {
+                $antes = [double](Get-Content -LiteralPath $VramVistaPath -Raw -Encoding UTF8 | ConvertFrom-Json).vram
+            }
+        } catch {}
+        if ($antes -gt 0 -and [Math]::Abs($vram - $antes) -gt 64MB) {
+            $gbA = [Math]::Round($antes / 1GB, 1); $gbN = [Math]::Round($vram / 1GB, 1)
+            Log ('VRAM: cambio de ' + $gbA + ' a ' + $gbN + ' GB')
+            [void](Send-AvisoEntorno 'vram-cambiada' ('Le has cambiado la VRAM, de ' + $gbA + ' a ' + $gbN +
+                  ' gigas. Conviene vaciar la cache de shaders o los juegos van a petardear: dime "vacia la cache de shaders".') 'medio' 120)
+        }
+        if ($antes -ne $vram) {
+            Write-Atomico $VramVistaPath (@{ vram = $vram; cuando = (Get-Date).ToString('s') } | ConvertTo-Json -Depth 3)
+        }
+    } catch {}
+}
+
+# =====================================================================
 # APAGA LA CONSOLA CUANDO ACABE LA DESCARGA (30/09, la 8 de las 20 funciones)
 # =====================================================================
 # LA MAS BARATA DE LAS VEINTE, Y SE NOTA: las dos piezas ya estaban enteras. Nova sabe apagar
@@ -28780,6 +28974,11 @@ try {
         [void](Send-AvisoEntorno 'me-cai' $fr 'medio' 720)
     }
 } catch {}
+# ¿LE HAN CAMBIADO LA VRAM? (1/10, la 10 de las 20). Aqui y una sola vez por arranque: la VRAM se
+# cambia en la BIOS o en Armoury y eso pide reiniciar, asi que mirarlo en el bucle seria mirar algo
+# que no puede cambiar mientras Nova corre. Y es justo el momento en que hay que vaciar la cache de
+# shaders, que es lo que se olvida.
+try { Watch-VramCambiada } catch {}
 Initialize-Voz
 Initialize-Escucha
 # LA SIEMBRA DE LA ESPERA APRENDIDA (27/09, idea 73). UNA sola vez en la vida, aqui y no en el

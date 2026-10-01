@@ -211,3 +211,64 @@ Las cuatro más baratas y que más se notan, en este orden:
 La **17** (subtítulos) es la más cara de todas y la dejaría para el final. La **5** (TDP) hay que
 medirla antes de prometerla: si este modelo no deja tocar los vatios por software, se queda en
 avisar.
+
+---
+
+# Lo que se midió al implementarlas (1/10/2026)
+
+Esta parte se escribió **después** de medir cada una contra la consola de verdad. Dos de las veinte
+ya existían, dos no se pueden hacer con los datos que hay, y una sale a medias. Lo demás está hecho.
+
+## Las que ya estaban (y se me escaparon al verificar)
+
+- **La 9** (avisar de la actualización pendiente al abrir un juego): está en `Enter-Juego` desde la
+  idea 11. Mi comprobación contó 4 ocurrencias de `actualiz.*juego` y las leí como "poco".
+- **La 16** (traducir lo que pone en pantalla): existe como *"qué dice aquí"* / *"qué pone en la
+  pantalla"* — hace OCR y lo traduce, y si el OCR no encuentra letras manda la captura a la API.
+  Mi comprobación buscó `traduc.*chat` y no la vio.
+
+## Las que NO se pueden hacer, con el dato que las tumba
+
+- **La 18 (limitar los FPS).** No hay por dónde: `HKCU:\Software\AMD\DVR` no existe,
+  `HKLM:\SOFTWARE\AMD\CN` tampoco, y el limitador vive en Adrenalin, que no expone nada. Lo que la
+  idea buscaba —alargar la batería— lo da la **función 5** (el perfil de energía), que sí funciona.
+- **La 11 (el reloj del reembolso), a medias.** Steam **no guarda la fecha de compra** en ningún
+  sitio accesible: `PurchaseTime`, `Licenses` y `rt_purchase` dan cero apariciones en
+  `localconfig.vdf`, el `appmanifest` solo trae `LastPlayed`, y la API pública no la expone. Así que
+  se puede avisar de las **2 horas jugadas** (que es el límite que más se pasa por alto) pero no de
+  los **14 días**. Se implementa esa mitad y se dice cuál falta.
+- **La 14 (qué logro te falta), a medias.** `GetPlayerAchievements` devuelve **403 Prohibido**: el
+  perfil de Steam está privado, así que Nova no puede leer tus logros conseguidos. Lo que sí
+  responde es `GetGlobalAchievementPercentagesForApp`, o sea **cuáles son los más fáciles del
+  juego** (medido en Black Myth: 81 logros, el más fácil lo tiene el 97,7 % de la gente), que es el
+  atajo real para el 100 %. Con el perfil en público la otra mitad entra sola.
+
+## Lo que se verificó que SÍ responde
+
+| | medido |
+|---|---|
+| Wishlist (12) | **33 juegos**, por `IWishlistService/GetWishlist` |
+| Precios (12) | `appdetails?appids=A,B&filters=price_overview` — el filtro combinado con `cc`/`l` da 400 |
+| Deck Verified (15) | responde; **Black Myth: Wukong sale "no soportado"** en portátil, con sus 139 GB |
+| Caché de shaders (10) | **902 MB** en `DxcCache`, 74,7 en `DxCache`, 3,2 en `D3DSCache`: casi 1 GB |
+| Perfiles de energía (5) | Turbo, PD Turbo, Performance, Equilibrado — `powercfg` los cambia |
+| Batería del mando (6) | el mando integrado da tipo 0 y nivel 0: **no tiene batería propia** |
+| Guardados (1) | Steam Cloud solo cubre 6 de 26 carpetas, con 0-9 KB; Elden Ring son 110,51 MB |
+| Juegos en disco (2) | **320,3 GB en 20 juegos**, con 27 GB libres de 476 |
+
+## Los fallos que cazaron sus propios bancos, al escribirlas
+
+Cinco, y todos míos. Van dentro de los bancos como casos, para que no vuelvan:
+
+1. El tope de tamaño de la copia se comparaba con los **MB ya redondeados**, así que un guardado
+   pequeño daba 0,00 y no superaba ningún tope: la guarda no se podía ni ejercitar.
+2. `[0]` sobre un `Sort-Object` de **un solo elemento** devuelve el primer **carácter**:
+   `'2026-09-28'[0]` es `'2'`, y el juego salía como "no lo has jugado". Con los juegos de braya no
+   se veía, porque los suyos tienen varios días.
+3. `[int]` **redondea** en PowerShell: 3,93 días se decían como "4 días". Hace falta `Floor`.
+4. El **apóstrofe tipográfico** de "Marvel's" rompía el cruce con el fichero de tiempos.
+5. El perfil de energía casaba **por subcadena**: *"hiperturbo galáctico"* activaba **Turbo**.
+
+Y uno que cazó el banco de colisiones de la batería, no el suyo: *"mueve spotify a la otra
+pantalla"* se lo comía el patrón de **mover un juego de disco** (función 3), en vez de ir al
+monitor. El destino ahora tiene que sonar a disco.

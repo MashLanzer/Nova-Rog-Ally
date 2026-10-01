@@ -89,6 +89,15 @@ $txt = [IO.File]::ReadAllText($PS1)
 $sinCom = (($txt -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) -join "`n"
 Comp 'hay un patron que saca moverJuego' ($sinCom -match "kind = 'moverJuego'") ''
 Comp '  y el ejecutor lo atiende' ($sinCom -match "'moverJuego' \{") ''
+# EL DESTINO TIENE QUE SONAR A DISCO (1/10, lo cazo el banco de colisiones 2n). El patron aceptaba
+# cualquier destino y "mueve spotify a la otra pantalla" se iba a mover un juego de disco en vez de
+# mandar la ventana al otro monitor. Se comprueba sobre el patron, que es donde estaba el fallo.
+# Se busca LA LINEA del patron, no un trozo de 400 caracteres a su alrededor: ahi caian los regex
+# de los patrones vecinos y la comprobacion decia cualquier cosa. Primer intento de escribirla.
+$lineaPat = @(($sinCom -split "`n") | Where-Object { $_ -match 'mueve\|muever\|pasa\|cambia' }) | Select-Object -First 1
+Comp '  se encuentra la linea del patron' ([bool]$lineaPat) ''
+Comp '  y el destino se limita a discos' ($lineaPat -match 'tarjeta' -and $lineaPat -match 'unidad') 'si no, se come "a la otra pantalla"'
+Comp '  y no acaba en un comodin que se lo coma todo' ($lineaPat -notmatch '\(\.\+\)\$') 'un (.+) final acepta "a la otra pantalla"'
 # Y NO MUEVE FICHEROS: ni Move-Item ni robocopy en este camino. Es la guarda de la seccion.
 $cuerpo = Traer 'Get-FraseMoverJuego'
 Comp 'la funcion NO mueve ni un fichero' (($cuerpo -notmatch 'Move-Item') -and ($cuerpo -notmatch 'robocopy') -and ($cuerpo -notmatch 'Copy-Item')) 'un movido a medias son 139 GB de redescarga'

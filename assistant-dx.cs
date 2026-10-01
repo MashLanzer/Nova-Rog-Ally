@@ -331,6 +331,82 @@ public class AX
         }
     }
 
+    // EL MICROFONO ES OTRO ENDPOINT (1/10, la 19 de las 20 funciones).
+    //
+    // Nova sabia subir y bajar el volumen de SALIDA y el de cada app, pero no el del micro,
+    // que es justo lo que se toca cuando entras a hablar con alguien y te dicen que no se te
+    // oye. GetDefaultAudioEndpoint lleva el sentido en el primer argumento: 0 es eRender
+    // (altavoces) y 1 es eCapture (microfono). Todo lo demas es identico, asi que esto es la
+    // misma funcion de arriba con el 1 y con su propia cache: son dos aparatos distintos y
+    // compartir el puntero los mezclaria.
+    static IAudioEndpointVolume _volMic;
+
+    static IAudioEndpointVolume VolumenMicro(bool rehacer)
+    {
+        if (_volMic != null && !rehacer) { return _volMic; }
+        if (_volMic != null)
+        {
+            try { Marshal.FinalReleaseComObject(_volMic); } catch { }
+            _volMic = null;
+        }
+        object enumerador = null, dispositivo = null;
+        try
+        {
+            var en = (IMMDeviceEnumerator)(new MMDeviceEnumeratorCom() as object);
+            enumerador = en;
+            IMMDevice dev;
+            if (en.GetDefaultAudioEndpoint(1, 0, out dev) != 0) { return null; }   // 1 = microfono
+            dispositivo = dev;
+            Guid iid = typeof(IAudioEndpointVolume).GUID;
+            object o;
+            if (dev.Activate(ref iid, 23, IntPtr.Zero, out o) != 0) { return null; }
+            _volMic = (IAudioEndpointVolume)o;
+            return _volMic;
+        }
+        catch { return null; }
+        finally
+        {
+            try { if (dispositivo != null && Marshal.IsComObject(dispositivo)) { Marshal.FinalReleaseComObject(dispositivo); } } catch { }
+            try { if (enumerador != null && Marshal.IsComObject(enumerador)) { Marshal.FinalReleaseComObject(enumerador); } } catch { }
+        }
+    }
+
+    /// Volumen del microfono, 0..100. Devuelve -1 si no se puede leer.
+    public static int LeerVolumenMicro()
+    {
+        for (int intento = 0; intento < 2; intento++)
+        {
+            var v = VolumenMicro(intento > 0);
+            if (v == null) { continue; }
+            try
+            {
+                float f;
+                if (v.GetMasterVolumeLevelScalar(out f) == 0) { return (int)Math.Round(f * 100.0); }
+            }
+            catch { }
+        }
+        return -1;
+    }
+
+    /// Pone el volumen del microfono (0..100). Devuelve false si no se pudo.
+    public static bool PonerVolumenMicro(int pct)
+    {
+        if (pct < 0) { pct = 0; }
+        if (pct > 100) { pct = 100; }
+        Guid ctx = Guid.Empty;
+        for (int intento = 0; intento < 2; intento++)
+        {
+            var v = VolumenMicro(intento > 0);
+            if (v == null) { continue; }
+            try
+            {
+                if (v.SetMasterVolumeLevelScalar(pct / 100.0f, ref ctx) == 0) { return true; }
+            }
+            catch { }
+        }
+        return false;
+    }
+
     /// Volumen actual, 0..100. Devuelve -1 si no se puede leer.
     public static int LeerVolumen()
     {
