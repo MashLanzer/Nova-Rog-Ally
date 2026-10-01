@@ -5539,7 +5539,10 @@ function Resolve-Fragment([string]$f) {
             $cul = New-Object System.Globalization.CultureInfo('es-MX')
             return @(@{ kind = 'decir'; desc = ("Hoy es " + (Get-Date).ToString('dddd d "de" MMMM', $cul)) })
         }
-        '^(?:cuanta bateria|cuanta pila|nivel de bateria|como esta la bateria|como esta la pila|cual es el estado de la bateria|estado de la bateria|cuanto le queda a la bateria|cuanta carga|como va la bateria|que tal la bateria)\b' {
+        # EL MANDO SE QUEDA FUERA (30/09, la 6 de las 20). "cuanta bateria tiene el mando" y "como va
+        # la bateria del mando" caian aqui y contestaban la de la CONSOLA, que no es lo que se
+        # pregunta. La bateria del mando la lleva su propio patron, mas abajo.
+        '^(?!.*\b(?:mando|control|gamepad)\b)(?:cuanta bateria|cuanta pila|nivel de bateria|como esta la bateria|como esta la pila|cual es el estado de la bateria|estado de la bateria|cuanto le queda a la bateria|cuanta carga|como va la bateria|que tal la bateria)\b' {
             $t = Get-FraseBateria
             if (-not $t) { return @(@{ kind = 'decir'; desc = "No pude leer la bateria" }) }
             return @(@{ kind = 'decir'; desc = $t })
@@ -6414,6 +6417,66 @@ function Resolve-Fragment([string]$f) {
         $f -match '^cuanto (?:espacio|sitio) (?:me )?(?:queda|hay|tengo)\b' -or
         $f -match '^(?:que|cuanto)\s+(?:espacio|sitio)\s+(?:libre\s+|disponible\s+)?(?:me\s+)?(?:queda|hay|tengo)(?:\s+(?:libre|disponible))?\b') {
         return @(@{ kind = 'disco'; desc = 'espacio libre' })
+    }
+    # --- QUE BORRAR PARA HACER SITIO (30/09, la 2 de las 20 funciones) ---
+    # "que puedo borrar", "que me sobra", "que juego ocupa mas", "cuanto libero si borro X".
+    # Es la pregunta que de verdad se hace con 27 GB libres de 476, y la que no tenia respuesta:
+    # Nova sabia cuanto queda, no QUE quitar.
+    if ($f -match '^(?:que|cual)\s+(?:juego\s+)?(?:puedo\s+|podria\s+)?borrar' -or
+        $f -match '^que\s+(?:me\s+)?(?:sobra|puedo\s+quitar|quito)\b' -or
+        $f -match '^(?:que|cual)\s+(?:juego\s+)?(?:me\s+)?ocupa\s+mas\b' -or
+        $f -match '^(?:como\s+)?(?:hago|hacer)\s+sitio\b' -or
+        $f -match '^que\s+(?:juegos?\s+)?(?:no\s+)?(?:juego|uso)\s+(?:ya|nunca)\b') {
+        return @(@{ kind = 'queBorrar'; desc = 'que borrar para hacer sitio' })
+    }
+    if ($f -match '^cuanto\s+(?:espacio\s+)?(?:libero|recupero|gano)\s+(?:si\s+)?(?:borro|quito|desinstalo)\s+(.+)$') {
+        return @(@{ kind = 'queBorrar'; juego = $Matches[1].Trim(); desc = 'cuanto libera ese juego' })
+    }
+    # --- MOVER UN JUEGO A OTRO DISCO (30/09, la 3 de las 20) ---
+    # "mueve elden ring a la tarjeta", "pasa black myth al disco de fuera", "mueve X al disco D".
+    # El destino es opcional: sin el, se va al que mas sitio tenga.
+    if ($f -match '^(?:mueve|muever|pasa|cambia)\s+(?:el\s+juego\s+)?(.+?)\s+(?:a|al|a\s+la)\s+(?:disco\s+|unidad\s+)?(.+)$') {
+        return @(@{ kind = 'moverJuego'; juego = $Matches[1].Trim(); destino = $Matches[2].Trim()
+                    desc = 'mover ese juego de disco' })
+    }
+    if ($f -match '^(?:mueve|pasa)\s+(?:el\s+juego\s+)?(.+?)\s+(?:de\s+disco|a\s+otro\s+disco)$') {
+        return @(@{ kind = 'moverJuego'; juego = $Matches[1].Trim(); destino = ''; desc = 'mover ese juego de disco' })
+    }
+    # --- CUANTO DURARA LA BATERIA (30/09, la 4 de las 20) ---
+    # "cuanto me dura la bateria", "cuanto puedo jugar", "cuanto aguanta la bateria con elden ring".
+    # OJO con no pisar "cuanta bateria queda", que ya existe y contesta el porcentaje: esta pregunta
+    # es por TIEMPO, asi que pide un verbo de duracion (dura, aguanta, puedo jugar).
+    if ($f -match '^cuanto\s+(?:tiempo\s+)?(?:me\s+)?(?:dura|durara|aguanta|aguantara)\s+(?:la\s+)?(?:bateria|carga)(?:\s+con\s+(.+))?$' -or
+        $f -match '^cuanto\s+(?:me\s+)?queda\s+de\s+(?:bateria|carga)\s+(?:para\s+)?(?:jugar|jugando)(?:\s+(?:a\s+)?(.+))?$' -or
+        $f -match '^cuanto\s+(?:puedo|podre)\s+(?:seguir\s+)?(?:jugar|jugando)(?:\s+(?:a\s+)?(.+))?$') {
+        $jB = if ($Matches.Count -gt 1 -and $Matches[1]) { $Matches[1].Trim() } else { '' }
+        return @(@{ kind = 'autonomia'; juego = $jB; desc = 'cuanto dura la bateria' })
+    }
+    # --- EL PERFIL DE ENERGIA (30/09, la 5 de las 20) ---
+    # "pon el perfil turbo", "pon el rendimiento al maximo", "que perfil de energia tengo".
+    # Se dice PERFIL y no MODO a proposito: 'modo ahorro' y los demas modos de la casa son otra cosa
+    # y pisarlos seria cambiar lo que braya ya tiene aprendido.
+    # --- APAGA CUANDO ACABE LA DESCARGA (30/09, la 8 de las 20) ---
+    # "apaga cuando acabe la descarga", "apagate al terminar de descargar", "cuando acabe de bajar,
+    # apaga". Va aqui y no con el apagado programado porque no lleva minutos: lleva una condicion.
+    if ($f -match '^(?:apaga|apagate|apagar)\s*(?:la\s+consola\s*)?(?:cuando|al)\s+(?:acabe|acaben|termine|terminen|acabar|terminar)\s*(?:de\s+)?(?:la\s+|las\s+)?(?:descarga|descargas|bajar|descargar|instalar)?' -or
+        $f -match '^cuando\s+(?:acabe|termine|acaben|terminen)\s+(?:de\s+)?(?:bajar|descargar|la\s+descarga|las\s+descargas)\s*,?\s*(?:apaga|apagate)') {
+        return @(@{ kind = 'apagarAlAcabar'; desc = 'apagar cuando acabe la descarga' })
+    }
+    # --- LA BATERIA DEL MANDO (30/09, la 6 de las 20) ---
+    # "cuanta bateria tiene el mando". Va ANTES del perfil de energia y despues de la bateria de la
+    # consola: nombra el mando, asi que no se pisa con "cuanta bateria queda".
+    if ($f -match '^(?:cuanta\s+)?bateria\s+(?:le\s+queda\s+|tiene\s+|hay\s+en\s+)?(?:a\s+)?(?:el\s+|del\s+|al\s+)?(?:mando|control|gamepad)\b' -or
+        $f -match '^(?:como\s+(?:va|esta)|que\s+tal)\s+(?:la\s+bateria\s+)?(?:de[l]?\s+)?(?:mando|control)\b') {
+        return @(@{ kind = 'bateriaMando'; desc = 'la bateria del mando' })
+    }
+    if ($f -match '^(?:que|cual)\s+perfil\s+(?:de\s+energia\s+)?(?:tengo|hay|esta)\b' -or
+        $f -match '^(?:en\s+)?que\s+perfil\s+(?:de\s+energia\s+)?(?:estoy|voy)\b') {
+        return @(@{ kind = 'perfilEnergia'; que = 'ver'; desc = 'que perfil de energia hay' })
+    }
+    if ($f -match '^(?:pon|ponme|cambia\s+a|activa)\s+(?:el\s+)?perfil\s+(?:de\s+energia\s+)?(.+)$' -or
+        $f -match '^(?:pon|ponme)\s+(?:el\s+)?(?:rendimiento|energia)\s+(?:en|a|al)\s+(.+)$') {
+        return @(@{ kind = 'perfilEnergia'; que = 'poner'; plan = $Matches[1].Trim(); desc = 'cambiar el perfil de energia' })
     }
     # --- cuanta RAM, y de quien (ver CUANTA RAM, Y DE QUIEN) ---
     # Lo que dijo: 'cuanta RAM esta ocupando Roblox y Nova, o sea, tu al mismo tiempo'.
@@ -20177,7 +20240,12 @@ function Invoke-FastCommand([string]$text) {
                 'descargasAbrir' {
                     try {
                         Start-Process 'steam://open/downloads'
+                        # Y SE DICE QUE SE ESTA BAJANDO (30/09, la 7 de las 20): abrir una ventana y
+                        # callarse el dato obliga a mirarla; con el dato delante ya se decide sin ella.
+                        $qD = ''
+                        try { $qD = Get-FraseDescargaJugando } catch { $qD = '' }
                         $a.desc = if ($a.pausar) { 'te abro las descargas de Steam; desde ahi se pausan' } else { 'abriendo las descargas de Steam' }
+                        if ($qD) { $a.desc += '. ' + ($qD -replace ' Di "pausa las descargas" y te abro donde se para\.', '') }
                     } catch { $a.desc = 'no pude abrir Steam' }
                 }
                 'amigosSteam' {
@@ -20445,6 +20513,58 @@ function Invoke-FastCommand([string]$text) {
                             $a.desc = $tC
                         }
                     }
+                }
+                # QUE BORRAR PARA HACER SITIO (30/09, la 2 de las 20). Va pegada a 'disco' porque es
+                # su continuacion natural: aquella dice cuanto queda, esta dice que quitar.
+                'queBorrar' {
+                    $a.desc = Get-FraseQueBorrar ([string]$a.juego)
+                    $a.hecho = $true
+                }
+                # CUANTO DURA LA BATERIA CON ESTE JUEGO (30/09, la 4 de las 20). El ritmo ya lo
+                # apuntaba Update-BateriaJuego desde el 13/09; lo que faltaba era la pregunta.
+                'autonomia' {
+                    $a.desc = Get-FraseAutonomia ([string]$a.juego)
+                    $a.hecho = $true
+                }
+                # APAGA CUANDO ACABE LA DESCARGA (30/09, la 8 de las 20). No arma nada si no hay
+                # descarga: "apaga cuando acabe" sin nada bajando apagaria al instante.
+                'apagarAlAcabar' {
+                    $a.desc = Start-ApagarAlAcabar
+                    $a.hecho = $true
+                }
+                # LA BATERIA DEL MANDO (30/09, la 6 de las 20). Con el mando integrado dice que no
+                # tiene bateria propia, que es la verdad medida, en vez de cantar un 0 %.
+                'bateriaMando' {
+                    $a.desc = Get-FraseBateriaMando
+                    $a.hecho = $true
+                }
+                # EL PERFIL DE ENERGIA (30/09, la 5 de las 20). Al ponerlo con un juego delante, se
+                # queda como el perfil de ESE juego: se aprende del uso y no hay nada que configurar.
+                'perfilEnergia' {
+                    if ([string]$a.que -eq 'ver') {
+                        $p = Get-PlanEnergiaActual
+                        $a.desc = if ($p) { 'Estas en el perfil ' + $p + '.' } else { 'Esta consola no me da sus perfiles de energia.' }
+                    } else {
+                        $r = Set-PlanEnergia ([string]$a.plan)
+                        $a.desc = [string]$r.texto
+                        if ($r.ok -and $script:juegoActivo -and $r.nombre) {
+                            Save-PlanJuego ([string]$script:juegoActivo) ([string]$r.nombre)
+                            $a.desc += ' Me lo quedo para ' + $script:juegoActivo + '.'
+                        }
+                    }
+                    $a.hecho = $true
+                }
+                # MOVER UN JUEGO DE DISCO (30/09, la 3 de las 20). Nova comprueba y abre Steam donde
+                # esta el boton; el ultimo paso lo da braya a proposito (ver Get-FraseMoverJuego).
+                'moverJuego' {
+                    $r = Get-FraseMoverJuego ([string]$a.juego) ([string]$a.destino)
+                    $a.desc = [string]$r.texto
+                    if ($r.abrir) {
+                        try { Start-Process ([string]$r.abrir) | Out-Null } catch {
+                            $a.desc += ' (no he podido abrir Steam: ' + $_.Exception.Message + ')'
+                        }
+                    }
+                    $a.hecho = $true
                 }
                 'disco' {
                     # TODAS las unidades (idea 41), con la de Steam delante y diciendo cual es la
@@ -27127,6 +27247,538 @@ function Write-NotaSemanal {
 }
 
 # =====================================================================
+# APAGA LA CONSOLA CUANDO ACABE LA DESCARGA (30/09, la 8 de las 20 funciones)
+# =====================================================================
+# LA MAS BARATA DE LAS VEINTE, Y SE NOTA: las dos piezas ya estaban enteras. Nova sabe apagar
+# (apagado programado, con su confirmacion y sus 30 s para arrepentirse) y sabe cuando una descarga
+# termina (BytesDownloaded contra BytesToDownload en el manifiesto). Lo unico que faltaba era
+# juntarlas, y es justo la orden que se pide para dejar algo gordo bajando e irse a dormir.
+#
+# TRES GUARDAS, Y LAS TRES SON REGLAS DE LA CASA:
+#  1. NO SE APAGA SI NO HABIA NADA BAJANDO: "apaga cuando acabe" sin descarga apagaria al instante,
+#     que no es lo que se ha pedido. Se dice y no se arma nada.
+#  2. NO SE QUEDA PUESTO PARA SIEMPRE (regla 2): si la descarga se para, se cancela o no acaba en
+#     $ApagarAlAcabarMaxH horas, el modo se suelta SOLO y Nova lo dice. Un modo que se queda puesto y
+#     apaga la consola tres dias despues es lo peor que puede hacer esta funcion.
+#  3. Y AVISA ANTES DE APAGAR, con los 30 s de siempre: el apagado nunca es una sorpresa.
+$ApagarAlAcabarMaxH = 8          # mas de una noche esperando es que la descarga se quedo parada
+$script:apagarAlAcabar = $false
+$script:apagarAlAcabarDesde = 0
+$script:apagarAlAcabarQue = ''
+
+function Start-ApagarAlAcabar {
+    $bajando = @()
+    try { $bajando = @(Get-JuegosSteam | Where-Object { $_.bajando -and ([double]$_.total -gt [double]$_.descargado) }) } catch {}
+    if ($bajando.Count -eq 0) {
+        return 'No hay ninguna descarga en marcha, asi que no hay nada que esperar.'
+    }
+    $script:apagarAlAcabar = $true
+    $script:apagarAlAcabarDesde = $sw.ElapsedMilliseconds
+    $script:apagarAlAcabarQue = [string]$bajando[0].nombre
+    $falta = [Math]::Round((([double]$bajando[0].total - [double]$bajando[0].descargado) / 1GB), 2)
+    Log ('APAGAR AL ACABAR: esperando a ' + $script:apagarAlAcabarQue + ' (' + $falta + ' GB)')
+    return ('Vale: cuando acabe de bajar ' + $script:apagarAlAcabarQue + ' (le faltan ' + $falta +
+            ' gigas) apago la consola. Di "cancela el apagado" si cambias de idea.')
+}
+
+function Stop-ApagarAlAcabar([string]$porque = '') {
+    if (-not $script:apagarAlAcabar) { return $false }
+    $script:apagarAlAcabar = $false
+    $script:apagarAlAcabarQue = ''
+    if ($porque) { Log ('APAGAR AL ACABAR: cancelado (' + $porque + ')') }
+    return $true
+}
+
+# Se mira en la ronda del minuto: una descarga no acaba en 30 ms y leer los manifiestos cuesta disco.
+function Watch-ApagarAlAcabar {
+    if (-not $script:apagarAlAcabar) { return }
+    try {
+        # LA GUARDA DEL TIEMPO VA PRIMERO: si la descarga se quedo parada, esto no puede seguir
+        # armado toda la noche y apagar la consola cuando braya este jugando al dia siguiente.
+        $horas = ($sw.ElapsedMilliseconds - $script:apagarAlAcabarDesde) / 3600000.0
+        if ($horas -ge $ApagarAlAcabarMaxH) {
+            $q = $script:apagarAlAcabarQue
+            [void](Stop-ApagarAlAcabar 'pasaron las horas de espera')
+            Say ('Llevo ' + [int]$horas + ' horas esperando a que acabe ' + $q + ' y no ha acabado: suelto el apagado.')
+            return
+        }
+        $bajando = @(Get-JuegosSteam | Where-Object { $_.bajando -and ([double]$_.total -gt [double]$_.descargado) })
+        if ($bajando.Count -gt 0) { return }
+        # Ya no baja nada: o acabo o se paro. Las dos cosas sueltan el modo, pero solo una apaga.
+        $q = $script:apagarAlAcabarQue
+        [void](Stop-ApagarAlAcabar 'la descarga termino')
+        Log ('APAGADO: ' + $q + ' acabo de bajar, apago en 60 s')
+        Say ('Ya acabo de bajar ' + $q + '. Apago la consola en un minuto; di "cancela el apagado" si estas ahi.')
+        try {
+            Start-Process -FilePath 'shutdown.exe' -ArgumentList @('/s', '/t', '60') -WindowStyle Hidden -Wait
+        } catch { Say 'Queria apagar y no he podido.' }
+    } catch {}
+}
+
+# =====================================================================
+# LA DESCARGA QUE TE ESTROPEA LA PARTIDA (30/09, la 7 de las 20 funciones)
+# =====================================================================
+# LO QUE SE PROMETIO: "pausar la descarga al ponerte a jugar y reanudarla al salir". LO QUE SE PUEDE,
+# medido: Steam NO deja pausar por software. No hay URL 'steam://' para pausar, y en
+# localconfig.vdf de esta cuenta no existen ni 'AllowDownloadsDuringGameplay' ni
+# 'DownloadThrottleWhileStreaming' -se buscaron las tres claves y ninguna esta-, asi que tocar esos
+# ficheros mientras Steam corre seria pelearse con un programa que los reescribe cuando quiere.
+# ASI QUE SE ENTREGA LO QUE SIRVE DE VERDAD: enterarte EN EL MOMENTO de que estas jugando con una
+# descarga encima -que es cuando vienen los tirones y no sabes por que- con el dato de que se baja y
+# cuanto le falta, y recordar que Steam tiene su propia casilla para que no vuelva a pasar. Avisar
+# con el dato exacto es poco, pero es verdad; prometer una pausa que no pasa seria peor.
+$script:descargaJugandoDicha = ''
+
+function Get-FraseDescargaJugando {
+    try {
+        $bajando = @(Get-JuegosSteam | Where-Object { $_.bajando })
+        if ($bajando.Count -eq 0) { return '' }
+        $d = $bajando[0]
+        $falta = [double]$d.total - [double]$d.descargado
+        if ($falta -le 0) { return '' }
+        $gb = [Math]::Round($falta / 1GB, 2)
+        $pct = 0
+        if ([double]$d.total -gt 0) { $pct = [int](([double]$d.descargado / [double]$d.total) * 100) }
+        $t = 'Ojo: Steam esta bajando ' + $d.nombre + ' (' + $pct + ' %, le faltan ' + $gb + ' gigas) y eso te va a dar tirones.'
+        $t += ' Di "pausa las descargas" y te abro donde se para.'
+        return $t
+    } catch { return '' }
+}
+
+# Y EL AVISO AL ENTRAR EN EL JUEGO, una sola vez por descarga: repetirlo en cada alt-tab seria
+# exactamente el fallo que se arreglo el 28/09 con el aviso de las dos horas.
+function Watch-DescargaJugando([string]$juego) {
+    try {
+        $bajando = @(Get-JuegosSteam | Where-Object { $_.bajando })
+        if ($bajando.Count -eq 0) { $script:descargaJugandoDicha = ''; return }
+        $quien = [string]$bajando[0].nombre
+        if ($script:descargaJugandoDicha -eq $quien) { return }
+        $script:descargaJugandoDicha = $quien
+        $fr = Get-FraseDescargaJugando
+        if ($fr) { [void](Send-AvisoEntorno 'descarga-jugando' $fr 'medio' 60) }
+    } catch {}
+}
+
+# =====================================================================
+# LA BATERIA DEL MANDO (30/09, la 6 de las 20 funciones)
+# =====================================================================
+# MEDIDO ANTES DE PROMETERLO, y el resultado cambia la funcion: el mando INTEGRADO de la Ally
+# contesta BatteryType=0 (desconectado) y BatteryLevel=0. No reporta bateria propia porque no la
+# tiene: es parte de la consola. Asi que "el mando esta al 0 %" seria mentir con un dato de verdad.
+# LO QUE HACE ENTONCES: con un mando EXTERNO inalambrico (tipo 2 pilas o 3 recargable) dice el nivel
+# y avisa cuando esta bajo; con el integrado dice que su bateria es la de la consola y manda a la
+# pregunta que si tiene respuesta. XInput no da porcentaje: son cuatro escalones, y se dicen como
+# escalones y no como un numero inventado.
+$MandoBatNiveles = @{ 0 = 'vacia'; 1 = 'baja'; 2 = 'media'; 3 = 'llena' }
+
+function Get-BateriaMando {
+    for ($u = 0; $u -lt 4; $u++) {
+        try {
+            $st = New-Object AX+XINPUT_STATE
+            if ([AX]::XInputGetState([uint32]$u, [ref]$st) -ne 0) { continue }
+            $b = New-Object AX+XINPUT_BATTERY_INFORMATION
+            if ([AX]::XInputGetBatteryInformation([uint32]$u, 0, [ref]$b) -ne 0) { continue }
+            return @{ puerto = $u; tipo = [int]$b.BatteryType; nivel = [int]$b.BatteryLevel
+                      propia = ([int]$b.BatteryType -eq 2 -or [int]$b.BatteryType -eq 3) }
+        } catch { continue }
+    }
+    return $null
+}
+
+function Get-FraseBateriaMando {
+    $m = Get-BateriaMando
+    if ($null -eq $m) { return 'No veo ningun mando conectado.' }
+    if (-not $m.propia) {
+        # EL CASO DE ESTA CONSOLA, y se dice sin rodeos para no dejar a braya pensando que su mando
+        # se va a quedar sin bateria a mitad de partida.
+        return 'El mando de la consola no tiene bateria propia: la suya es la de la consola. ' +
+               'Preguntame cuanto dura la bateria y te lo digo.'
+    }
+    $n = if ($MandoBatNiveles.ContainsKey($m.nivel)) { $MandoBatNiveles[$m.nivel] } else { 'no se sabe' }
+    $t = 'El mando tiene la bateria ' + $n
+    if ($m.tipo -eq 2) { $t += ' (son pilas)' }
+    $t += '.'
+    if ($m.nivel -le 1) { $t += ' Ve preparando el cable o las pilas.' }
+    return $t
+}
+
+# Y EL AVISO, que es para lo que sirve de verdad: enterarse ANTES de que se muera a mitad de partida.
+# Se mira en la ronda del minuto, no en cada vuelta: el nivel de un mando no cambia en 30 ms.
+$script:mandoBatAvisado = -1
+function Watch-BateriaMando {
+    try {
+        $m = Get-BateriaMando
+        if ($null -eq $m -or -not $m.propia) { return }
+        # SOLO AL BAJAR, Y UNA VEZ POR NIVEL: sin esto seria una linea por minuto hasta que lo cargue.
+        if ($m.nivel -le 1 -and $m.nivel -ne $script:mandoBatAvisado) {
+            $script:mandoBatAvisado = $m.nivel
+            $n = if ($MandoBatNiveles.ContainsKey($m.nivel)) { $MandoBatNiveles[$m.nivel] } else { 'baja' }
+            [void](Send-AvisoEntorno 'mando-bateria' ('El mando tiene la bateria ' + $n + '.') 'medio' 60)
+        } elseif ($m.nivel -ge 2) { $script:mandoBatAvisado = -1 }
+    } catch {}
+}
+
+# =====================================================================
+# EL PERFIL DE ENERGIA POR JUEGO (30/09, la 5 de las 20 funciones)
+# =====================================================================
+# LO QUE SE MIDIO ANTES DE PROMETER NADA, que es lo que la ficha pedia. En esta consola NO hay WMI de
+# ASUS accesible (ASUSWMI, AsusAtkWmi, ATKWMI: ninguna responde) y el TDP en vatios lo lleva Armoury
+# Crate por su cuenta. Pero la consola SI expone sus perfiles como PLANES DE ENERGIA de Windows:
+#   Turbo (activo), PD Turbo, Performance, Equilibrado
+# y 'powercfg /setactive' los cambia. Asi que no se tocan vatios -eso seria pelearse con Armoury-,
+# se cambia el perfil por el camino que la propia consola deja abierto, que es lo que de verdad
+# mueve el consumo. Si algun dia desaparecen esos planes, Nova lo dice y no inventa ninguno.
+$PlanesPath = Join-Path $MemoriaDir 'planes-juego.json'
+
+function Get-PlanesEnergia {
+    $l = @()
+    try {
+        foreach ($li in @(& powercfg /list 2>&1)) {
+            $m = [regex]::Match([string]$li, '([0-9a-fA-F-]{36})\s+\(([^)]+)\)(\s*\*)?')
+            if ($m.Success) {
+                $l += @{ guid = $m.Groups[1].Value; nombre = $m.Groups[2].Value.Trim()
+                         activo = [bool]$m.Groups[3].Value }
+            }
+        }
+    } catch {}
+    return @($l)
+}
+
+function Get-PlanEnergiaActual {
+    $a = @(Get-PlanesEnergia | Where-Object { $_.activo }) | Select-Object -First 1
+    if ($a) { return [string]$a.nombre }
+    return ''
+}
+
+# Se busca por lo que diria braya, no por el nombre exacto: "turbo", "rendimiento", "equilibrado",
+# "ahorro". Si lo que pide no existe en ESTA consola, se dice con los que si hay.
+function Set-PlanEnergia([string]$como) {
+    $planes = @(Get-PlanesEnergia)
+    if ($planes.Count -eq 0) { return @{ ok = $false; texto = 'Esta consola no me da sus perfiles de energia.' } }
+    $q = ConvertTo-Plain $como
+    $elegido = $null
+    # el mas largo primero: 'pd turbo' antes que 'turbo', o "pon pd turbo" se quedaria en Turbo
+    # POR PALABRAS COMPLETAS, NO POR SUBCADENA (30/09, lo cazo su banco al escribirla). Esto llevaba
+    # '$q.Contains($n)', y entonces "hiperturbo galactico" activaba TURBO, porque 'hiperturbo'
+    # contiene 'turbo': cualquier frase con el nombre de un perfil metido dentro de otra palabra le
+    # cambiaba el perfil a la consola sin que braya lo hubiera pedido. Con \b solo casa esa palabra.
+    foreach ($p in @($planes | Sort-Object { -([string]$_.nombre).Length })) {
+        $n = ConvertTo-Plain ([string]$p.nombre)
+        if (-not $n) { continue }
+        if ($n -eq $q -or ($q -match ('\b' + [regex]::Escape($n) + '\b'))) { $elegido = $p; break }
+    }
+    if (-not $elegido) {
+        # sinonimos de lo que braya dice de verdad
+        $mapa = @{ 'rendimiento' = 'performance'; 'maximo' = 'turbo'; 'potencia' = 'turbo'
+                   'ahorro' = 'equilibrado'; 'normal' = 'equilibrado'; 'medio' = 'equilibrado' }
+        foreach ($k in $mapa.Keys) {
+            if ($q.Contains($k)) {
+                $elegido = @($planes | Where-Object { (ConvertTo-Plain ([string]$_.nombre)).Contains($mapa[$k]) }) | Select-Object -First 1
+                if ($elegido) { break }
+            }
+        }
+    }
+    if (-not $elegido) {
+        return @{ ok = $false; texto = ('No tengo un perfil que se llame asi. Tienes: ' +
+                  ((@($planes | ForEach-Object { $_.nombre })) -join ', ') + '.') }
+    }
+    if ($elegido.activo) { return @{ ok = $true; texto = ('Ya estabas en ' + $elegido.nombre + '.'); nombre = [string]$elegido.nombre } }
+    try {
+        $null = & powercfg /setactive $elegido.guid 2>&1
+        # SE COMPRUEBA QUE DE VERDAD CAMBIO, no se presume: powercfg puede fallar sin decir nada y
+        # dar por hecho un cambio que no paso es la regla 1 de esta casa.
+        $ahora = Get-PlanEnergiaActual
+        if ((ConvertTo-Plain $ahora) -eq (ConvertTo-Plain ([string]$elegido.nombre))) {
+            Log ('ENERGIA: perfil cambiado a ' + $elegido.nombre)
+            return @{ ok = $true; texto = ('Perfil de energia en ' + $elegido.nombre + '.'); nombre = [string]$elegido.nombre }
+        }
+        return @{ ok = $false; texto = ('He pedido ' + $elegido.nombre + ' y la consola sigue en ' + $ahora + '.') }
+    } catch {
+        return @{ ok = $false; texto = ('No he podido cambiarlo: ' + $_.Exception.Message) }
+    }
+}
+
+function Get-PlanesJuego {
+    try {
+        if (Test-Path -LiteralPath $PlanesPath) {
+            $j = Get-Content -LiteralPath $PlanesPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            $h = @{}
+            foreach ($p in $j.PSObject.Properties) { $h[$p.Name] = [string]$p.Value }
+            return $h
+        }
+    } catch {}
+    return @{}
+}
+
+# SE APRENDE DEL USO, NO SE CONFIGURA. Si braya pide un perfil con un juego delante, ese es el perfil
+# de ese juego: no hay que preguntarle nada ni abrir un fichero a mano.
+function Save-PlanJuego([string]$juego, [string]$plan) {
+    if (-not $juego -or -not $plan) { return }
+    try {
+        $h = Get-PlanesJuego
+        $clave = (ConvertTo-Plain $juego) -replace '[^a-z0-9]', ''
+        if (-not $clave) { return }
+        if ($h[$clave] -eq $plan) { return }     # nada que escribir si no cambia (regla 4)
+        $h[$clave] = $plan
+        $o = New-Object PSObject
+        foreach ($k in $h.Keys) { $o | Add-Member -NotePropertyName $k -NotePropertyValue $h[$k] -Force }
+        Write-Atomico $PlanesPath ($o | ConvertTo-Json -Depth 3)
+        Log ('ENERGIA: me quedo con ' + $plan + ' para ' + $juego)
+    } catch {}
+}
+
+function Set-PlanDeEseJuego([string]$juego) {
+    if (-not $juego) { return '' }
+    $h = Get-PlanesJuego
+    $clave = (ConvertTo-Plain $juego) -replace '[^a-z0-9]', ''
+    if (-not $h.ContainsKey($clave)) { return '' }
+    $r = Set-PlanEnergia $h[$clave]
+    if ($r.ok) { return [string]$h[$clave] }
+    return ''
+}
+
+# =====================================================================
+# CUANTO DURARA LA BATERIA CON ESTE JUEGO (30/09, la 4 de las 20 funciones)
+# =====================================================================
+# EL DATO YA ESTABA Y NADIE LO PREGUNTABA. Update-BateriaJuego lleva desde el 13/09 apuntando el
+# ritmo de gasto POR JUEGO en %/h, con media movil y aviso si un tramo se sale de SU media. Lo que
+# no existia es la pregunta: Nova sabia el porcentaje -"te queda el 60 %"- y eso no dice nada en una
+# portatil, porque las horas que quedan dependen brutalmente del juego.
+# MEDIDO HOY: de nueve juegos con tiempos, solo UNO tiene ritmo apuntado (30 %/h, una muestra). Asi
+# que esta funcion empieza sabiendo poco y mejora jugando, y eso hay que DECIRLO en vez de inventar
+# un numero: de una sola muestra no sale una promesa.
+function Get-FraseAutonomia([string]$juego = '') {
+    $b = $null
+    try { $b = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue | Select-Object -First 1 } catch {}
+    if (-not $b) { return 'Esta consola no me dice nada de su bateria.' }
+    $pct = 0
+    try { $pct = [int]$b.EstimatedChargeRemaining } catch {}
+    $cargando = $false
+    try { $cargando = ([int]$b.BatteryStatus -eq 2) } catch {}
+    $quien = if ($juego) { $juego } elseif ($script:juegoActivo) { [string]$script:juegoActivo } else { '' }
+    if ($cargando) {
+        $t = 'Estas enchufado, al ' + $pct + ' %.'
+        if ($quien) { $t += ' Sin cargador, con ' + $quien + ' ' + (Get-TrozoAutonomia $pct $quien) }
+        return $t
+    }
+    if (-not $quien) {
+        # sin juego delante no hay a quien preguntarle el ritmo; se dice el porcentaje y se ofrece
+        return 'Te queda el ' + $pct + ' % y no hay ningun juego abierto, asi que no se a que ritmo se va. Preguntame con el juego puesto.'
+    }
+    return 'Te queda el ' + $pct + ' % y con ' + $quien + ' ' + (Get-TrozoAutonomia $pct $quien)
+}
+
+# El trozo que convierte "%/h de este juego" en tiempo. Aparte porque lo usan las dos ramas de
+# arriba, y porque es lo unico que de verdad hay que probar.
+function Get-TrozoAutonomia([int]$pct, [string]$juego) {
+    $ritmo = 0.0
+    $muestras = 0
+    $deQuien = ''
+    try {
+        $m = Get-JuegosMem
+        $clave = (ConvertTo-Plain $juego) -replace '[^a-z0-9]', ''
+        foreach ($p in $m.PSObject.Properties) {
+            if (((ConvertTo-Plain $p.Name) -replace '[^a-z0-9]', '') -ne $clave) { continue }
+            try { $ritmo = [double]$p.Value.ritmoBateria } catch {}
+            try { $muestras = [int]$p.Value.muestrasBateria } catch {}
+            if ($ritmo -gt 0) { $deQuien = 'suyo' }
+            break
+        }
+        # SI DE ESTE JUEGO NO SE SABE, SE USA LA MEDIA DE LOS DEMAS Y SE DICE QUE ES UNA MEDIA.
+        # Callarse seria mas honesto que inventar, pero menos util: una media de otros juegos es un
+        # dato de verdad, solo hay que decir de donde sale.
+        if ($ritmo -le 0) {
+            $otros = @()
+            foreach ($p in $m.PSObject.Properties) {
+                try { if ([double]$p.Value.ritmoBateria -gt 0) { $otros += [double]$p.Value.ritmoBateria } } catch {}
+            }
+            if ($otros.Count) { $ritmo = ($otros | Measure-Object -Average).Average; $deQuien = 'media' }
+        }
+    } catch {}
+    if ($ritmo -le 0) { return 'todavia no se cuanto gasta: lo aprendo jugando y te lo digo cuando lo sepa.' }
+    $horas = $pct / $ritmo
+    $min = [int][Math]::Floor($horas * 60)
+    $t = ''
+    if ($min -ge 120) { $t = 'te quedan unas ' + [Math]::Round($horas, 1) + ' horas' }
+    elseif ($min -ge 60) { $t = 'te queda algo mas de una hora (' + $min + ' minutos)' }
+    else { $t = 'te quedan ' + $min + ' minutos' }
+    if ($deQuien -eq 'media') { $t += ', contando la media de tus otros juegos porque de este todavia no tengo medidas' }
+    elseif ($muestras -le 1) { $t += ', aunque de una sola partida medida: el numero se afinara' }
+    return $t + '.'
+}
+
+# =====================================================================
+# MOVER UN JUEGO A OTRO DISCO, HABLANDO (30/09, la 3 de las 20 funciones)
+# =====================================================================
+# NOVA NO MUEVE LOS FICHEROS ELLA, Y ES A PROPOSITO. Mover un juego de Steam a mano es mover la
+# carpeta de 'steamapps\common', mover su appmanifest_*.acf y que Steam se entere; si algo sale a
+# medias, el juego queda roto y hay que volver a bajarlo -139,57 GB en el caso de Black Myth-. Con
+# 27 GB libres y una conexion normal, eso es una tarde perdida por una orden de voz.
+# LO QUE SI HACE ES TODO LO DEMAS, que es donde esta el trabajo de verdad: comprobar que el juego
+# existe, que el disco destino esta PUESTO -braya tiene una biblioteca en E: y esa unidad no esta
+# conectada ahora mismo-, que CABE, y abrir Steam donde esta el boton. Si no cabe o no esta, lo dice
+# y no abre nada: eso es la regla 1, no hacer a medias algo que se puede dejar sin empezar.
+function Get-FraseMoverJuego([string]$juego, [string]$destino = '') {
+    $l = @(Get-EspacioPorJuego)
+    if ($l.Count -eq 0) { return @{ texto = 'No tengo los tamanos de tus juegos todavia.'; abrir = '' } }
+    $clave = (ConvertTo-Plain $juego) -replace '[^a-z0-9]', ''
+    if ($clave.Length -lt 3) { return @{ texto = 'Dime el nombre del juego un poco mas largo.'; abrir = '' } }
+    $uno = @($l | Where-Object {
+        $c = (ConvertTo-Plain $_.nombre) -replace '[^a-z0-9]', ''
+        $c -eq $clave -or $c.StartsWith($clave) }) | Select-Object -First 1
+    if (-not $uno) { return @{ texto = "No encuentro $juego entre tus juegos instalados."; abrir = '' } }
+    $us = @(Get-Unidades)
+    $aqui = ''
+    try { $aqui = $LogDir.Substring(0, 1).ToUpper() } catch {}
+    # EL DESTINO: el que diga braya, o si no el que mas sitio tenga de los otros. 'la tarjeta' y
+    # 'el de fuera' son como lo dice el, asi que entran por nombre y no solo por letra.
+    $dest = $null
+    if ($destino -match '^[a-zA-Z]$') {
+        $dest = @($us | Where-Object { $_.letra -eq $destino.ToUpper() }) | Select-Object -First 1
+        if (-not $dest) { return @{ texto = "El disco $($destino.ToUpper()) no esta puesto ahora mismo."; abrir = '' } }
+    } elseif ($destino -match 'tarjeta|micro\s*sd|sd|fuera|extraible|externo') {
+        $dest = @($us | Where-Object { $_.tipo -eq 'extraible' } | Sort-Object bytesLibres -Descending) | Select-Object -First 1
+        if (-not $dest) { return @{ texto = 'No veo ninguna tarjeta ni disco de fuera puesto ahora mismo.'; abrir = '' } }
+    } else {
+        $dest = @($us | Where-Object { $_.letra -ne $aqui } | Sort-Object bytesLibres -Descending) | Select-Object -First 1
+        if (-not $dest) { return @{ texto = 'Solo tienes un disco puesto, no hay donde moverlo.'; abrir = '' } }
+    }
+    # ¿CABE? Con un margen: dejar el destino a cero es dejarlo inservible. El 5 % o 5 GB, el mayor.
+    $margen = [Math]::Max(5GB, $dest.bytesTotal * 0.05)
+    $libre = [double]$dest.bytesLibres
+    $necesita = [double]$uno.bytes
+    $gbLibre = [Math]::Round($libre / 1GB, 1)
+    if (($libre - $margen) -lt $necesita) {
+        return @{ texto = ('No cabe: ' + $uno.nombre + ' ocupa ' + $uno.gb + ' gigas y en ' +
+                           $dest.letra + ' solo quedan ' + $gbLibre + ', contando el margen que hay que dejar libre.')
+                  abrir = '' }
+    }
+    $t = $uno.nombre + ' ocupa ' + $uno.gb + ' gigas y en ' + $dest.letra + ' quedan ' + $gbLibre +
+         ': cabe. Te abro Steam en sus propiedades, y el boton de mover esta en "Archivos locales".'
+    # NO LO MUEVO YO, Y SE DICE: braya tiene que saber que el ultimo paso es suyo, porque si cree
+    # que ya esta movido y apaga la consola a medias, el que pierde el juego es el.
+    $url = ''
+    if ($uno.appid) { $url = 'steam://gameproperties/' + $uno.appid }
+    return @{ texto = $t; abrir = $url; gb = $uno.gb; destino = $dest.letra }
+}
+
+# =====================================================================
+# QUE BORRAR PARA HACER SITIO (30/09, la 2 de las 20 funciones)
+# =====================================================================
+# EL DATO QUE LA PIDE: 27 GB libres de 476, y 320,3 GB en veinte juegos. Black Myth: Wukong ocupa
+# 139,57 GB EL SOLO -el 43 % de todo lo instalado- y Spider-Man otros 65,96: entre los dos, 205 GB.
+# Nova ya sabia decir cuanto queda; lo que no sabia es QUE quitar, que es la pregunta de verdad.
+#
+# EL TAMANO SALE DEL MANIFIESTO DE STEAM, no de medir carpetas: 'SizeOnDisk' del appmanifest_*.acf
+# esta ahi ya contado y leerlo cuesta milisegundos. Medir 320 GB de carpetas a mano seria barrer el
+# disco entero por una pregunta que se contesta hablando.
+# Y LOS DIAS SIN JUGAR SALEN DE LO QUE NOVA YA APUNTA (memoria\juegos.json): sin eso la lista seria
+# solo "lo mas gordo", y lo mas gordo puede ser justo lo que esta jugando esta semana.
+function Get-EspacioPorJuego {
+    $fuera = @()
+    try {
+        $mem = @{}
+        try {
+            # las fechas en que se jugo cada uno, para saber cuanto lleva sin tocarse
+            #
+            # LA CLAVE SE APLASTA A LETRAS Y NUMEROS, no vale ConvertTo-Plain (30/09, lo canto la
+            # primera prueba). El manifiesto de Steam trae "Marvel's Spider-Man Remastered" con el
+            # apostrofe tipografico U+2019, y memoria\juegos.json lo guardo con otra forma: dos
+            # textos que son el mismo juego y no casaban, asi que Nova decia "no tengo apuntado que
+            # lo hayas jugado" de un juego que esta en su propio fichero de tiempos. Quitando todo
+            # lo que no es a-z0-9 el apostrofe deja de existir y el cruce funciona.
+            foreach ($p in (Get-JuegosMem).PSObject.Properties) {
+                $dias = @()
+                try { foreach ($d in $p.Value.dias.PSObject.Properties) { $dias += [string]$d.Name } } catch {}
+                if ($dias.Count) {
+                    $k = (ConvertTo-Plain $p.Name) -replace '[^a-z0-9]', ''
+                    # EL @() DE DELANTE NO SOBRA (30/09, lo cazo su banco). Con UN solo dia jugado,
+                    # 'Sort-Object' devuelve un escalar en vez de una lista, y el [0] sobre una
+                    # cadena coge su PRIMER CARACTER: '2026-09-28'[0] es '2', que no es una fecha y
+                    # deja el juego como "no tengo apuntado que lo hayas jugado". Con las pruebas
+                    # sobre los juegos de braya no se veia, porque los suyos tienen varios dias.
+                    # Es el mismo mordisco de PowerShell que ya esta fichado en esta casa dos veces.
+                    if ($k) { $mem[$k] = @($dias | Sort-Object -Descending)[0] }
+                }
+            }
+        } catch {}
+        $hoy = Get-Date
+        foreach ($j in @($script:Juegos)) {
+            $b = 0.0
+            foreach ($campo in @('bytes', 'tam', 'SizeOnDisk')) {
+                try { if ($j.$campo) { $b = [double]$j.$campo; break } } catch {}
+            }
+            if ($b -le 0) { continue }
+            $clave = (ConvertTo-Plain ([string]$j.nombre)) -replace '[^a-z0-9]', ''
+            $sin = -1
+            if ($mem.ContainsKey($clave)) {
+                try {
+                    # Y LA FECHA SE COMPRUEBA ANTES DE CREERLA: una clave que no sea una fecha de
+                    # verdad se convierte en el ano 1 y salen "739889 dias sin jugar", que es lo que
+                    # dijo en la primera prueba. Fuera de un rango razonable vale lo mismo que no
+                    # saberlo, y no saberlo ya se dice de otra manera.
+                    $f = [datetime]::MinValue
+                    if ([datetime]::TryParseExact($mem[$clave], 'yyyy-MM-dd', $null,
+                            [Globalization.DateTimeStyles]::None, [ref]$f)) {
+                        # FLOOR Y NO [int] (30/09, lo cazo su banco): [int] en PowerShell REDONDEA,
+                        # asi que un juego tocado hace tres dias a las 22:00 sale con 3,93 dias y se
+                        # decia "hace 4 dias". Lo que se cuenta son dias COMPLETOS sin abrirlo.
+                        $d = [int][Math]::Floor(($hoy - $f).TotalDays)
+                        if ($d -ge 0 -and $d -le 3650) { $sin = $d }
+                    }
+                } catch { $sin = -1 }
+            }
+            $fuera += @{ nombre = [string]$j.nombre; gb = [Math]::Round($b / 1GB, 2); bytes = $b
+                         dias = $sin; appid = [string]$j.appid }
+        }
+    } catch {}
+    return @($fuera | Sort-Object -Property @{ Expression = { $_.gb }; Descending = $true })
+}
+
+# La frase, dicha como se dice. Y el candidato NO es solo el mas gordo: es el mas gordo DE LOS QUE
+# no se tocan, porque recomendar borrar lo que esta jugando esta semana no es una recomendacion.
+function Get-FraseQueBorrar([string]$juego = '') {
+    $l = @(Get-EspacioPorJuego)
+    if ($l.Count -eq 0) { return 'No tengo los tamanos de tus juegos todavia.' }
+    if ($juego) {
+        $clave = ConvertTo-Plain $juego
+        $uno = @($l | Where-Object { (ConvertTo-Plain $_.nombre) -eq $clave -or (ConvertTo-Plain $_.nombre).StartsWith($clave) }) | Select-Object -First 1
+        if (-not $uno) { return "No encuentro $juego entre tus juegos instalados." }
+        $t = 'Si borras ' + $uno.nombre + ' recuperas ' + $uno.gb + ' gigas'
+        if ($uno.dias -ge 0) { $t += ', y no lo tocas desde hace ' + $uno.dias + ' ' + $(if ($uno.dias -eq 1) { 'dia' } else { 'dias' }) }
+        elseif ($uno.dias -lt 0) { $t += ', y no tengo apuntado que lo hayas jugado' }
+        return $t + '.'
+    }
+    # EL CANDIDATO: el mas gordo que lleve al menos una semana sin tocarse. Si todos son recientes,
+    # se dice el mas gordo igual pero avisando de que lo estas jugando, que no es lo mismo.
+    $quietos = @($l | Where-Object { $_.dias -ge 7 -or $_.dias -lt 0 })
+    $cand = if ($quietos.Count) { $quietos[0] } else { $l[0] }
+    $libreGb = 0
+    try { $libreGb = [Math]::Round(([System.IO.DriveInfo]::new($LogDir.Substring(0, 1)).AvailableFreeSpace) / 1GB, 1) } catch {}
+    $t = ''
+    if ($libreGb -gt 0) { $t = 'Te quedan ' + $libreGb + ' gigas. ' }
+    $t += 'Lo que mas te sobra es ' + $cand.nombre + ': ' + $cand.gb + ' gigas'
+    if ($cand.dias -ge 7) { $t += ' y llevas ' + $cand.dias + ' dias sin abrirlo' }
+    elseif ($cand.dias -lt 0) { $t += ' y no tengo apuntado que lo hayas jugado' }
+    else { $t += ', aunque lo jugaste hace ' + $cand.dias + ' ' + $(if ($cand.dias -eq 1) { 'dia' } else { 'dias' }) }
+    $t += '.'
+    # SI EL MAS GORDO NO ES EL CANDIDATO, SE DICE POR QUE (30/09). La primera version recomendaba
+    # borrar uno de 65 GB y acto seguido decia "detras van" uno de 139: incoherente de leer, y
+    # escondia justo el dato que decide. Si el mayor se ha jugado hace poco, eso es la informacion.
+    if ($l[0].nombre -ne $cand.nombre) {
+        $t += ' El mas gordo es ' + $l[0].nombre + ' con ' + $l[0].gb + ' gigas'
+        if ($l[0].dias -ge 0) { $t += ', pero lo jugaste hace ' + $l[0].dias + ' ' + $(if ($l[0].dias -eq 1) { 'dia' } else { 'dias' }) }
+        $t += '.'
+    }
+    # y los siguientes del MISMO criterio -los que tampoco tocas-, que es lo que sirve para decidir
+    $otros = @($l | Where-Object { $_.nombre -ne $cand.nombre -and $_.nombre -ne $l[0].nombre -and ($_.dias -ge 7 -or $_.dias -lt 0) } | Select-Object -First 2)
+    if ($otros.Count) {
+        $t += ' Detras van ' + (($otros | ForEach-Object { $_.nombre + ' con ' + $_.gb }) -join ' gigas y ') + ' gigas.'
+    }
+    return $t
+}
+
+# =====================================================================
 # LA COPIA DE LA PARTIDA GUARDADA, ANTES DE JUGAR (30/09, la 1 de las 20 funciones)
 # =====================================================================
 # LO QUE SE RESPALDABA HASTA HOY ERA LO QUE NOVA APRENDE, no lo que braya juega: la copia del dia
@@ -27266,6 +27918,16 @@ function Enter-Juego([string]$nombre) {
     # LA COPIA DE LA PARTIDA, LO PRIMERO (30/09): antes de que el juego escriba nada. No bloquea
     # -lanza un robocopy y sigue- y no copia si no se ha jugado desde la ultima.
     try { [void](Backup-GuardadoJuego $nombre) } catch {}
+    # Y SU PERFIL DE ENERGIA, SI LE HA PUESTO UNO (30/09, la 5 de las 20). Solo si braya se lo enseno
+    # antes pidiendolo con este juego delante: Nova no decide sola a cuantos vatios se juega a cada
+    # cosa, eso es gusto suyo. Sin perfil aprendido no se toca nada.
+    try {
+        $planJ = Set-PlanDeEseJuego $nombre
+        if ($planJ) { Log ('ENERGIA: ' + $nombre + ' se juega en ' + $planJ + ', lo pongo') }
+    } catch {}
+    # Y SI HAY UNA DESCARGA ENCIMA, SE DICE AHORA (30/09, la 7 de las 20): jugar con Steam bajando
+    # son tirones, y lo peor es no saber por que. Una vez por descarga, no en cada alt-tab.
+    try { Watch-DescargaJugando $nombre } catch {}
     # IDEA 11: el juego tiene algo pendiente. En los manifiestos de Steam, StateFlags 4
     # es "instalado y listo"; cualquier otra cosa (6, 550, 1026...) es actualizacion o
     # descarga a medias. Mejor saberlo AHORA que cuando el juego no arranca.
@@ -33130,6 +33792,10 @@ function Process-Texto([string]$text) {
         }
         if ($plano -match '^(?:cancela|anula|quita|para)\s+(?:el\s+)?(?:apagado|reinicio)$') {
             try { Start-Process -FilePath 'shutdown.exe' -ArgumentList '/a' -WindowStyle Hidden -Wait } catch {}
+            # Y TAMBIEN SUELTA EL "APAGA CUANDO ACABE" (30/09, la 8 de las 20): sin esto, 'shutdown /a'
+            # quitaba el apagado de AHORA y el modo seguia armado, asi que al acabar la descarga Nova
+            # volvia a apagar y braya ya habia dicho que no. Es la regla 2.
+            $habiaModo = Stop-ApagarAlAcabar 'braya lo cancelo'
             $script:seguimientoPendiente = $false
             Log "APAGADO: cancelado"
             Say 'Apagado cancelado.'
@@ -37456,6 +38122,14 @@ while ($true) {
                 # este bloque ya corre una vez por minuto y no hace falta estrenar reloj. Un proceso
                 # por vuelta, 4 ms medidos, y la sonda se apaga sola si algun dia cuesta mas.
                 try { [void](Update-Consumo) } catch {}
+                # Y LA BATERIA DEL MANDO (30/09, la 6 de las 20). Aqui y no en el bucle porque el
+                # nivel de un mando no cambia en 30 ms, y porque con el mando integrado de esta
+                # consola no hay nada que mirar: Watch-BateriaMando sale en la primera linea.
+                try { Watch-BateriaMando } catch {}
+                # Y SI HAY UN "APAGA CUANDO ACABE" ARMADO (30/09, la 8 de las 20). Aqui porque una
+                # descarga no acaba en 30 ms y leer los manifiestos cuesta disco; y la guarda de las
+                # horas vive dentro, para que el modo no se quede puesto si la descarga se paro.
+                try { Watch-ApagarAlAcabar } catch {}
                 # Y LA PANTALLA, SI BRAYA LO HA ENCENDIDO (27/09, idea 121, cableada tras la
                 # revision). Nace apagado: con entorno.apagarPantalla en $false esto sale en la
                 # primera linea sin mirar nada. Aqui y no en el bucle porque la decision necesita

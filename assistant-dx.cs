@@ -44,6 +44,26 @@ public class AX
     [DllImport("xinput1_4.dll")]
     public static extern int XInputGetState(uint dwUserIndex, ref XINPUT_STATE pState);
 
+    // LA BATERIA DEL MANDO (30/09, la 6 de las 20 funciones).
+    //
+    // MEDIDO EN ESTA CONSOLA ANTES DE USARLA: el mando integrado de la Ally contesta
+    // BatteryType=0 (DISCONNECTED) y BatteryLevel=0, o sea que NO reporta bateria propia
+    // -es parte de la consola, su bateria es la de la consola-. Asi que esto solo da algo
+    // util con un mando EXTERNO inalambrico, y la funcion que lo usa lo dice en vez de
+    // cantar "mando al 0 %", que seria mentir con un dato de verdad.
+    // BatteryType: 0 desconectado, 1 con cable, 2 pilas alcalinas, 3 recargable, 255 no se sabe.
+    // BatteryLevel: 0 vacia, 1 baja, 2 media, 3 llena. No hay porcentaje, son cuatro escalones.
+    [StructLayout(LayoutKind.Sequential)]
+    public struct XINPUT_BATTERY_INFORMATION
+    {
+        public byte BatteryType;
+        public byte BatteryLevel;
+    }
+
+    [DllImport("xinput1_4.dll")]
+    public static extern int XInputGetBatteryInformation(uint dwUserIndex, byte devType,
+        ref XINPUT_BATTERY_INFORMATION pBatteryInformation);
+
     // Vibracion del mando (eco tactil: al despertar, al confirmar, al acabar
     // una tarea larga). Devuelve 0 si el mando existe y acepto la orden.
     [StructLayout(LayoutKind.Sequential)]

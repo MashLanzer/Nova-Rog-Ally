@@ -2119,6 +2119,65 @@ Titulo "2n279. Los bancos de Python que se rendian por el interprete"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n288. Apaga la consola cuando acabe la descarga (funcion 8 de las 20)"
+# La mas barata de las veinte: Nova ya sabia apagar y ya sabia cuando acaba una descarga, solo
+# faltaba juntarlas. Y la que mas guardas necesita, porque APAGA LA CONSOLA: sin nada bajando no se
+# arma, a las 8 horas se suelta sola y lo dice (regla 2), y "cancela el apagado" suelta tambien el
+# modo y no solo el shutdown de ahora. En el banco, Start-Process va doblado: no se apaga nada.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-apagar-al-acabar.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:apaga cuando acaba la descarga)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n287. La descarga que te estropea la partida (funcion 7 de las 20)"
+# ALCANCE AJUSTADO CON UNA MEDICION: se prometio pausar la descarga al entrar en el juego, y Steam NO
+# deja pausar por software -no hay URL steam:// y en el localconfig.vdf de esta cuenta no existen
+# AllowDownloadsDuringGameplay ni DownloadThrottleWhileStreaming-. Lo que se entrega es enterarte en
+# el momento, con que se baja y cuanto falta, UNA vez por descarga. Y el banco comprueba que en
+# ningun sitio se dice "la he pausado", que seria prometer lo que no pasa.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-descarga-jugando.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:descarga que te da tirones)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n286. La bateria del mando (funcion 6 de las 20)"
+# MEDIDO ANTES DE PROMETERLO: el mando integrado de esta Ally contesta BatteryType=0 y nivel 0, o sea
+# que NO reporta bateria -es parte de la consola-. Decir "el mando al 0 %" seria mentir con un dato
+# de verdad, asi que hay dos caminos y el banco prueba los dos. XInput da cuatro escalones, no un
+# porcentaje. Y se comprueba que el patron viejo de "cuanta bateria" deja pasar las del mando.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-bateria-mando.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:la bateria del mando)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n285. El perfil de energia por juego (funcion 5 de las 20)"
+# MEDIDO ANTES DE PROMETERLO: aqui no hay WMI de ASUS accesible y el TDP en vatios lo lleva Armoury
+# Crate, pero la consola expone sus perfiles como planes de energia de Windows (Turbo, PD Turbo,
+# Performance, Equilibrado) y powercfg los cambia. El banco DOBLA powercfg -cambiar el perfil de la
+# consola por correr la bateria seria inaceptable- y lleva el fallo que cazo al escribirla:
+# "hiperturbo galactico" activaba Turbo porque casaba por subcadena.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-perfil-energia.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:perfil de energia de cada juego)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n284. Cuanto durara la bateria con este juego (funcion 4 de las 20)"
+# El ritmo en %/h por juego ya lo apuntaba Update-BateriaJuego desde el 13/09; lo que no existia era
+# la pregunta. Lo que vigila el banco es que NO se invente numeros: medido el 30/09, de nueve juegos
+# con tiempos solo UNO tiene ritmo apuntado, asi que los tres casos (lo se / lo se de otros / no lo
+# se) tienen que sonar distinto, y el tercero no puede soltar ninguna cifra de horas.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-autonomia.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:dura la bateria con ESE juego)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n283. Mover un juego a otro disco, hablando (funcion 3 de las 20)"
+# Lo que defiende: que Nova NO mueva los ficheros ella. Mover un juego de Steam a mano y dejarlo a
+# medias son 139,57 GB de redescarga. Comprueba que cabe -con margen, que un destino a cero es
+# inservible-, que el disco esta puesto (braya tiene una biblioteca en E: desconectada) y abre Steam
+# donde esta el boton, diciendo que el ultimo paso es suyo.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-mover-juego.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:cabe en el otro disco)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
+Titulo "2n282. Que borrar para hacer sitio (funcion 2 de las 20)"
+# 27 GB libres de 476 y 320,3 GB en veinte juegos, con uno de 139,57 GB. Nova sabia decir cuanto
+# queda; no sabia QUE quitar. El banco va con juegos de pega -nombrar uno suyo se pone rojo el dia
+# que lo desinstala- y lleva los tres fallos que cazo al escribirla: el apostrofe tipografico de
+# "Marvel's" que rompia el cruce con sus tiempos, una clave que no era fecha dando "739889 dias",
+# y el [0] sobre un Sort-Object de un solo elemento, que devolvia el primer CARACTER de la fecha.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-que-borrar.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:que borrar para hacer sitio)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n281. La copia de la partida guardada, antes de jugar (funcion 1 de las 20)"
 # LA PRIMERA DE LAS VEINTE FUNCIONES NUEVAS (30/09). Hasta hoy se respaldaba lo que Nova APRENDE y
 # no lo que braya JUEGA. El banco prueba lo que hace que el respaldo sirva: que encuentre donde
@@ -2565,7 +2624,8 @@ Titulo "2n235. Diez relojes de una-vez-cada-tanto nacian diciendo ya-puedes (ide
 # Las esperas se miden contra el cronometro del proceso, que empieza en cero. Diez variables de
 # sesion arrancan en un negativo de cuatro cifras -'hace muchisimo que no pasa'- y Nova arranca 15,2
 # veces al dia: una guarda de 'no repitas en diez minutos' podia dispararse quince veces. Ahora hay
-# tmpelojes.json con hora de pared y un par Get-Reloj/Set-Reloj, por LISTA BLANCA: solo relojes de
+# tmp
+elojes.json con hora de pared y un par Get-Reloj/Set-Reloj, por LISTA BLANCA: solo relojes de
 # 'no repitas' (charla, precarga, propuesta de invitado, aviso de suelta). Los de 'estoy callada' se
 # quedan fuera a proposito: si braya reinicia para que Nova hable, devolverle la sordina seria peor.
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-relojes.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:los relojes de no-repitas sobreviven)|MAL'
