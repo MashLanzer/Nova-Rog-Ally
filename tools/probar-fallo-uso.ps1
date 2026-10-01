@@ -15,6 +15,23 @@ $ErrorActionPreference = 'Stop'
 # aunque el script muera a mitad, asi que un banco que llama a una funcion que ya no existe
 # se daba por bueno. Paso dos veces el 23/09. Con esto, morir es un fallo.
 trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
+# LOS IDS VAN ANCLADOS AL RELOJ DE AHORA (1/10/2026, por la idea 2 de las 20 nuevas).
+#
+# Antes eran fijos ('20260917-010203'), y desde la idea 2 la marca del id CADUCA a los cinco minutos
+# para que dos ordenes distintas no compartan id (medido: 57 de 79 ids repetidos llevaban ordenes
+# DISTINTAS dentro, y eso falsea el 70,4 % de la meta). Con ids de septiembre no se pegaba nada y
+# este banco salia con trece rojos sin que el codigo estuviera mal.
+#
+# CADA UNO CON SU DESPLAZAMIENTO EN SEGUNDOS, porque lo que estos bancos comprueban es que el
+# destino va al id de SU orden y no al de otra: si todos fueran el mismo id, no probarian nada. Y
+# todos por debajo de cinco minutos, o volveria el mismo rojo.
+function IdDe([int]$seg) { return (Get-Date).AddSeconds(-$seg).ToString('yyyyMMdd-HHmmss') }
+$id_20260917_020000 = IdDe 80
+$id_20260917_030000 = IdDe 90
+$id_20260918_040000 = IdDe 100
+$id_20260918_050000 = IdDe 110
+$id_20260920_030000 = IdDe 120
+
 $raiz = Split-Path -Parent $PSScriptRoot
 $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $raiz 'assistant.ps1'), [ref]$null, [ref]$null)
 function Traer([string]$n) {
@@ -50,6 +67,17 @@ Invoke-Expression (Traer 'ConvertTo-Plain')
 $RE_REFERENCIA = Invoke-Expression (($ast.Find({ param($x)
     $x -is [System.Management.Automation.Language.AssignmentStatementAst] -and
     $x.Left.Extent.Text -eq '$RE_REFERENCIA' }, $true)).Right.Extent.Text)
+# Y LAS PIEZAS NUEVAS DE Write-DestinoUso (1/10/2026, ideas 2 y 3 de las 20 nuevas). Sin ellas la
+# funcion muere en su propio try/catch y NO ESCRIBE NADA: este banco salio con trece rojos y ninguno
+# era del codigo. Es el mismo tropiezo que con los bancos de avisos ese mismo dia.
+#   Test-MarcaUsoVieja  -> la marca del id caduca a los 5 min, para que dos ordenes distintas no
+#                          compartan id (medido: 57 de 79 ids repetidos llevaban ordenes DISTINTAS).
+#   $UsoDestinosMax     -> una sola orden no puede escribir mas de 12 destinos (el 18/09 una escribio 39).
+$UsoIdFrescoMin = 5
+$UsoDestinosMax = 12
+$script:usoLineasId = ''
+$script:usoLineas = 0
+Invoke-Expression (Traer 'Test-MarcaUsoVieja')
 Invoke-Expression (Traer 'Write-DestinoUso')
 # la llama Write-DestinoUso: sin traerla aqui el banco revienta con CommandNotFoundException
 Invoke-Expression (Traer 'Write-FalloDeducido')
@@ -61,18 +89,18 @@ $fDestinos = Join-Path $dirUso 'destinos.jsonl'
 $fMarca = Join-Path $TmpDir 'dictado-id.txt'
 
 Write-Host '  -- decir "no era eso" deja rastro --'
-[System.IO.File]::WriteAllText($fMarca, '20260917-020000')
+[System.IO.File]::WriteAllText($fMarca, $id_20260917_020000)
 $d1 = Write-DestinoUso 'local' 'abre outlast'
 $n1 = @([System.IO.File]::ReadAllLines($fDestinos)).Count
 if ($d1 -and $n1 -eq 1) { Write-Host '  OK   la orden queda apuntada' } else { Write-Host "  MAL  la orden queda apuntada (devolvio=$d1 lineas=$n1)"; $mal++ }
-if ($script:ultimoUsoId -eq '20260917-020000') { Write-Host '  OK   y su id queda recordado para poder corregirlo' } else { Write-Host "  MAL  el id no quedo recordado ('$($script:ultimoUsoId)')"; $mal++ }
+if ($script:ultimoUsoId -eq $id_20260917_020000) { Write-Host '  OK   y su id queda recordado para poder corregirlo' } else { Write-Host "  MAL  el id no quedo recordado ('$($script:ultimoUsoId)')"; $mal++ }
 
 $f1 = Write-FalloUso 'abre outlast 2'
 $lin = @([System.IO.File]::ReadAllLines($fDestinos))
 if ($f1 -and $lin.Count -eq 2) { Write-Host '  OK   decir que estuvo mal lo marca' } else { Write-Host "  MAL  decir que estuvo mal lo marca (devolvio=$f1 lineas=$($lin.Count))"; $mal++ }
 if ($lin.Count -ge 2) {
     $j = $lin[1] | ConvertFrom-Json
-    if ($j.id -eq '20260917-020000') { Write-Host '  OK   con el id de ESA orden, no de otra' } else { Write-Host "  MAL  id equivocado ($($j.id))"; $mal++ }
+    if ($j.id -eq $id_20260917_020000) { Write-Host '  OK   con el id de ESA orden, no de otra' } else { Write-Host "  MAL  id equivocado ($($j.id))"; $mal++ }
     if ($j.hizo -eq 'fallo-dicho-por-ti') { Write-Host '  OK   marcada como fallo dicho por ti' } else { Write-Host "  MAL  hizo=$($j.hizo)"; $mal++ }
     if ($j.detalle -eq 'abre outlast 2') { Write-Host '  OK   y guarda lo que querias de verdad' } else { Write-Host "  MAL  detalle=$($j.detalle)"; $mal++ }
 }
@@ -81,7 +109,7 @@ $n2 = @([System.IO.File]::ReadAllLines($fDestinos)).Count
 if ((-not $f2) -and $n2 -eq 2) { Write-Host '  OK   pero no se marca dos veces la misma' } else { Write-Host "  MAL  se marco dos veces (devolvio=$f2 lineas=$n2)"; $mal++ }
 
 Write-Host '  -- una queja tardia NO ensucia los datos --'
-[System.IO.File]::WriteAllText($fMarca, '20260917-030000')
+[System.IO.File]::WriteAllText($fMarca, $id_20260917_030000)
 [void](Write-DestinoUso 'local' 'pon el volumen al 30')
 $script:ultimoUsoEn = $sw.ElapsedMilliseconds - 400000   # como si hubieran pasado 6 minutos
 $n3 = @([System.IO.File]::ReadAllLines($fDestinos)).Count
@@ -98,7 +126,7 @@ $script:notifPendientes = New-Object System.Collections.ArrayList
 Invoke-Expression (Traer 'Set-HabloAhora')
 Invoke-Expression (Traer 'Test-ResumenAlVolver')
 
-[System.IO.File]::WriteAllText($fMarca, '20260918-040000')
+[System.IO.File]::WriteAllText($fMarca, $id_20260918_040000)
 [void](Write-DestinoUso 'local' 'abre spotify')
 $relojOrden = $script:ultimoUsoEn
 # pasan 6 minutos y, mientras tanto, el bucle mira si braya ha vuelto (lo hace cada 30 s)
@@ -114,7 +142,7 @@ $nB = @([System.IO.File]::ReadAllLines($fDestinos)).Count
 if ((-not $fA) -and $nB -eq $nA) { Write-Host '  OK   y pasados 6 min sigue sin marcar la orden vieja' } else { Write-Host "  MAL  marco una orden vieja pese a los 6 min (devolvio=$fA)"; $mal++ }
 
 # y al reves: si braya SI hablo hace poco, la queja si cuenta
-[System.IO.File]::WriteAllText($fMarca, '20260918-050000')
+[System.IO.File]::WriteAllText($fMarca, $id_20260918_050000)
 [void](Write-DestinoUso 'local' 'pon el brillo al 40')
 Set-HabloAhora
 $nC = @([System.IO.File]::ReadAllLines($fDestinos)).Count
@@ -139,7 +167,7 @@ Write-Host '  -- un fallo deducido: rastro aparte, y sin robarle el id a la quej
 $fSenales = Join-Path $dirUso 'senales-fallo.jsonl'
 $nDestAntes = @([System.IO.File]::ReadAllLines($fDestinos)).Count
 $script:ultimoDeducidoId = ''
-[System.IO.File]::WriteAllText($fMarca, '20260920-030000')
+[System.IO.File]::WriteAllText($fMarca, $id_20260920_030000)
 $dS = Write-DestinoUso 'descarte' 'pon la novena cancion'
 if (Test-Path -LiteralPath $fSenales) { Write-Host '  OK   el descarte deja su senal' } else { Write-Host '  MAL  el descarte no dejo senal'; $mal++ }
 if (Test-Path -LiteralPath $fSenales) {
@@ -148,7 +176,7 @@ if (Test-Path -LiteralPath $fSenales) {
     if ($lS.Count -eq 1) { Write-Host '  OK   una sola linea' } else { Write-Host "  MAL  lineas=$($lS.Count)"; $mal++ }
     if ($jS.senal -eq 'descarte') { Write-Host '  OK   con la senal, no con hizo' } else { Write-Host "  MAL  senal=$($jS.senal)"; $mal++ }
     if (-not $jS.hizo) { Write-Host "  OK   y sin 'hizo': no se confunde con lo que dice braya" } else { Write-Host "  MAL  trae hizo=$($jS.hizo)"; $mal++ }
-    if ($jS.id -eq '20260920-030000') { Write-Host '  OK   con el id de esa orden' } else { Write-Host "  MAL  id=$($jS.id)"; $mal++ }
+    if ($jS.id -eq $id_20260920_030000) { Write-Host '  OK   con el id de esa orden' } else { Write-Host "  MAL  id=$($jS.id)"; $mal++ }
     if ($jS.peso -eq 'alto') { Write-Host '  OK   y con peso alto' } else { Write-Host "  MAL  peso=$($jS.peso)"; $mal++ }
 }
 $nDestDespues = @([System.IO.File]::ReadAllLines($fDestinos)).Count

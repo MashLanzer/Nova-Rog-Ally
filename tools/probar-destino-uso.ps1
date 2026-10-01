@@ -16,6 +16,25 @@ $ErrorActionPreference = 'Stop'
 # aunque el script muera a mitad, asi que un banco que llama a una funcion que ya no existe
 # se daba por bueno. Paso dos veces el 23/09. Con esto, morir es un fallo.
 trap { Write-Host ("  MAL  el banco se rompio: " + $_.Exception.Message) -ForegroundColor Red; exit 1 }
+# LOS IDS VAN ANCLADOS AL RELOJ DE AHORA (1/10/2026, por la idea 2 de las 20 nuevas).
+#
+# Antes eran fijos ($id_20260917_010203), y desde la idea 2 la marca del id CADUCA a los cinco minutos
+# para que dos ordenes distintas no compartan id (medido: 57 de 79 ids repetidos llevaban ordenes
+# DISTINTAS dentro, y eso falsea el 70,4 % de la meta). Con ids de septiembre no se pegaba nada y
+# este banco salia con trece rojos sin que el codigo estuviera mal.
+#
+# CADA UNO CON SU DESPLAZAMIENTO EN SEGUNDOS, porque lo que estos bancos comprueban es que el
+# destino va al id de SU orden y no al de otra: si todos fueran el mismo id, no probarian nada. Y
+# todos por debajo de cinco minutos, o volveria el mismo rojo.
+function IdDe([int]$seg) { return (Get-Date).AddSeconds(-$seg).ToString('yyyyMMdd-HHmmss') }
+$id_20260917_010203 = IdDe 10
+$id_20260917_010500 = IdDe 20
+$id_20260917_011000 = IdDe 60
+$id_20260917_012000 = IdDe 70
+$id_20260918_020000 = IdDe 30
+$id_20260918_184632 = IdDe 50
+$id_20260918_191439 = IdDe 40
+
 $raiz = Split-Path -Parent $PSScriptRoot
 $ruta = Join-Path $raiz 'assistant.ps1'
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($ruta, [ref]$null, [ref]$null)
@@ -44,6 +63,17 @@ Invoke-Expression (Traer 'ConvertTo-Plain')
 $RE_REFERENCIA = Invoke-Expression (($ast.Find({ param($x)
     $x -is [System.Management.Automation.Language.AssignmentStatementAst] -and
     $x.Left.Extent.Text -eq '$RE_REFERENCIA' }, $true)).Right.Extent.Text)
+# Y LAS PIEZAS NUEVAS DE Write-DestinoUso (1/10/2026, ideas 2 y 3 de las 20 nuevas). Sin ellas la
+# funcion muere en su propio try/catch y NO ESCRIBE NADA: este banco salio con trece rojos y ninguno
+# era del codigo. Es el mismo tropiezo que con los bancos de avisos ese mismo dia.
+#   Test-MarcaUsoVieja  -> la marca del id caduca a los 5 min, para que dos ordenes distintas no
+#                          compartan id (medido: 57 de 79 ids repetidos llevaban ordenes DISTINTAS).
+#   $UsoDestinosMax     -> una sola orden no puede escribir mas de 12 destinos (el 18/09 una escribio 39).
+$UsoIdFrescoMin = 5
+$UsoDestinosMax = 12
+$script:usoLineasId = ''
+$script:usoLineas = 0
+Invoke-Expression (Traer 'Test-MarcaUsoVieja')
 Invoke-Expression (Traer 'Write-DestinoUso')
 # la llama Write-DestinoUso: sin traerla aqui el banco revienta con CommandNotFoundException
 Invoke-Expression (Traer 'Write-FalloDeducido')
@@ -80,7 +110,7 @@ function Lineas {
 function PonId([string]$v) { [System.IO.File]::WriteAllText($marca, $v) }
 
 Write-Host '  -- se apunta lo que hizo --'
-PonId '20260917-010203'
+PonId $id_20260917_010203
 # LA MARCA DE "APUNTA A LA ANTERIOR" (21/09). Hasta hoy este bloque de Write-DestinoUso
 # no se ejercitaba NUNCA: moria en su try/catch vacio porque faltaba ConvertTo-Plain aqui,
 # y ningun caso miraba el campo 'ref'. Sirve para saber que ordenes dependen de la de
@@ -114,7 +144,7 @@ foreach ($c in @(
 }
 # y el escenario se deja como estaba, que lo de abajo cuenta lineas
 Remove-Item -LiteralPath $destinos -Force -ErrorAction SilentlyContinue
-PonId '20260917-010203'
+PonId $id_20260917_010203
 
 $r = Write-DestinoUso 'local' 'abre steam'
 Comp 'una orden local se apunta' ($r -and (Lineas).Count -eq 1) ("lineas: " + (Lineas).Count)
@@ -122,7 +152,7 @@ Comp 'una orden local se apunta' ($r -and (Lineas).Count -eq 1) ("lineas: " + (L
 # ",$res" y el @() lo envuelve otra vez (medido: Count=1 y su elemento 0 es otro Object[]).
 # Aqui acertaba de milagro, porque en este punto solo hay una linea.
 $j = (Lineas)[0] | ConvertFrom-Json
-Comp 'con el id de esa orden' ($j.id -eq '20260917-010203') "id=$($j.id)"
+Comp 'con el id de esa orden' ($j.id -eq $id_20260917_010203) "id=$($j.id)"
 Comp 'y con lo que hizo' ($j.hizo -eq 'local' -and $j.detalle -eq 'abre steam') "hizo=$($j.hizo) detalle=$($j.detalle)"
 
 Write-Host '  -- el id se consume (lo que mas duele si falla) --'
@@ -131,7 +161,7 @@ $r2 = Write-DestinoUso 'local' 'otra cosa'
 Comp 'un segundo apunte YA no cuelga de esa orden' ((-not $r2) -and (Lineas).Count -eq 1) ("lineas: " + (Lineas).Count)
 
 Write-Host '  -- lo que es OIDO no es DESTINO --'
-PonId '20260917-010500'
+PonId $id_20260917_010500
 $r3 = Write-DestinoUso 'fino' 'lo repaso el oido fino'
 Comp "'fino' no se apunta como destino" ((-not $r3) -and (Lineas).Count -eq 1) ("lineas: " + (Lineas).Count)
 Comp 'y NO se come el id de la frase' (Test-Path -LiteralPath $marca) ''
@@ -141,12 +171,12 @@ Comp 'el destino de verdad si lo usa' ($r4 -and (Lineas).Count -eq 2) ("lineas: 
 Write-Host '  -- la charla y el agente dejan huella, sin comerse el id (18/09) --'
 # Mas de la mitad del uso real es charla, traduccion o agente, y no dejaba rastro: un "no era
 # eso" dicho tras una charla marcaba la ultima orden LOCAL, de hasta 300 s antes.
-PonId '20260918-020000'
+PonId $id_20260918_020000
 $nAnt = (Lineas).Count
 $rN = Write-DestinoUso 'charla' 'que es un volcan'
 Comp 'una charla se apunta' ($rN -and (Lineas).Count -eq ($nAnt + 1)) ("lineas: " + (Lineas).Count)
 Comp 'pero NO se come el id de la frase' (Test-Path -LiteralPath $marca) ''
-Comp 'y queda recordada por si dices que estuvo mal' ($script:ultimoUsoId -eq '20260918-020000') "id=$($script:ultimoUsoId)"
+Comp 'y queda recordada por si dices que estuvo mal' ($script:ultimoUsoId -eq $id_20260918_020000) "id=$($script:ultimoUsoId)"
 # y esto es lo que protege la medicion: el destino de verdad llega despues y SI lo consume
 $nAnt2 = (Lineas).Count
 $rR = Write-DestinoUso 'traducida' 'abre steam'
@@ -156,7 +186,7 @@ Comp 'el destino de verdad se apunta con el mismo id' ($rR -and (Lineas).Count -
 # vez de comparar: el caso sale verde diga lo que diga. Se indexa sobre una variable.
 $todasN = (Lineas)
 $jN = $todasN[$todasN.Count - 1] | ConvertFrom-Json
-Comp 'y es el que manda al contar' ($jN.hizo -eq 'traducida' -and $jN.id -eq '20260918-020000') "hizo=$($jN.hizo)"
+Comp 'y es el que manda al contar' ($jN.hizo -eq 'traducida' -and $jN.id -eq $id_20260918_020000) "hizo=$($jN.hizo)"
 Comp 'ahora si se consume el id' (-not (Test-Path -LiteralPath $marca)) ''
 
 Write-Host '  -- el descarte local es una PARADA, no un desenlace (19/09) --'
@@ -164,7 +194,7 @@ Write-Host '  -- el descarte local es una PARADA, no un desenlace (19/09) --'
 # ejecutando la RECETA 6. Como el descarte se comia el id, la receta no pudo apuntar su
 # linea: una orden que SALIO BIEN quedo contada como fallo, y con ella otras dos. Eso es lo
 # que hacia inservible elegir "las 3 peores del dia" por el destino.
-PonId '20260918-191439'
+PonId $id_20260918_191439
 $nD = (Lineas).Count
 $rD = Write-DestinoUso 'descarte' 'revisar mi agenda para manana' $true
 Comp 'la parada se apunta igual' ($rD -and (Lineas).Count -eq ($nD + 1)) ("lineas: " + (Lineas).Count)
@@ -174,12 +204,12 @@ Comp 'y el desenlace de verdad escribe detras' ($rD2 -and (Lineas).Count -eq ($n
 # se indexa sobre una variable, no sobre (Lineas)[-1]: ver la nota de mas arriba
 $todasD = (Lineas)
 $jD = $todasD[$todasD.Count - 1] | ConvertFrom-Json
-Comp 'la ultima es la que manda al contar' ($jD.hizo -eq 'receta' -and $jD.id -eq '20260918-191439') "hizo=$($jD.hizo)"
+Comp 'la ultima es la que manda al contar' ($jD.hizo -eq 'receta' -and $jD.id -eq $id_20260918_191439) "hizo=$($jD.hizo)"
 Comp 'y ESE si consume el id' (-not (Test-Path -LiteralPath $marca)) ''
 # LO QUE NO PUEDE CAMBIAR: una parada a la que no le llega nada detras sigue siendo un
 # fallo. 'cierra en la ring' (18/09 18:47) se tradujo a 'abre ELDEN RING en steam' y la
 # confirmacion vencio sin respuesta: nadie hizo nada, y eso cuenta.
-PonId '20260918-184632'
+PonId $id_20260918_184632
 $nD3 = (Lineas).Count
 [void](Write-DestinoUso 'descarte' 'cierra en la ring' $true)
 $todasD3 = (Lineas)
@@ -197,14 +227,14 @@ Comp 'sin id no apunta nada' ((-not $r5) -and (Lineas).Count -eq $nBase) ''
 PonId ''
 $r6 = Write-DestinoUso 'local' 'id vacio'
 Comp 'con el id vacio tampoco' ((-not $r6) -and (Lineas).Count -eq $nBase) ''
-PonId '20260917-011000'
+PonId $id_20260917_011000
 Remove-Item -LiteralPath $dirUso -Recurse -Force
 $r7 = Write-DestinoUso 'local' 'sin grabaciones'
 Comp 'si no se graba el uso, no inventa carpetas' ((-not $r7) -and -not (Test-Path -LiteralPath $destinos)) ''
 
 Write-Host '  -- el .jsonl se puede leer de verdad --'
 $null = New-Item -ItemType Directory -Path $dirUso -Force
-PonId '20260917-012000'
+PonId $id_20260917_012000
 [void](Write-DestinoUso 'receta' 'pon el modo juego')
 $bytes = [System.IO.File]::ReadAllBytes($destinos)
 $bom = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
