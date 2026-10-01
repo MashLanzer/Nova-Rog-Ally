@@ -44,12 +44,24 @@ Comp '   y las frases en bruto tampoco quedan sueltas' (-not $t2.Contains('no ci
 Comp '   el encabezado del dia sigue una sola vez' (([regex]::Matches($t2, '(?m)^# ')).Count -eq 1) ''
 
 Write-Host ''
-Write-Host '-- 3. con un invitado delante no se escribe nada --'
-$notaInv = Join-Path $DiarioDir '2026-09-20.md'
+Write-Host '-- 3. con un invitado delante no se escribe LO DE HOY (y lo de ayer si) --'
+# EL MODO INVITADO SOLO TAPA HOY DESDE EL 28/09, y este caso se quedo con una fecha pasada
+# (30/09). Usaba '2026-09-20' y esperaba que no se escribiera; ese dia el arreglo cambio la guarda
+# a proposito -'$script:invitado -and $fecha -eq hoy'- porque tapar dias pasados PERDIA el dia
+# entero para siempre: resumir_dias_pasados borra el charla-<dia>.jsonl justo despues de mandar el
+# resumen, asi que lo que se tiraba aqui no volvia ni al salir del modo. Y no protegia nada, que
+# es lo que lo decide: lo que dijera el invitado ya habia entrado en el bruto de SU dia.
+# Se prueban las DOS mitades, porque cada una tapa un agujero distinto y sin la segunda el arreglo
+# del 28/09 no tiene quien lo vigile: volver a tapar cualquier fecha dejaria esto verde.
+$hoyInv = Get-Date -Format 'yyyy-MM-dd'
+$notaHoy = Join-Path $DiarioDir ($hoyInv + '.md')
+$notaViejo = Join-Path $DiarioDir '2026-09-20.md'
 $script:invitado = $true
-Add-DiarioResumen '2026-09-20' 'algo' $true
+Add-DiarioResumen $hoyInv 'algo que dijo el invitado' $true
+Add-DiarioResumen '2026-09-20' 'el bruto de un dia pasado' $true
 $script:invitado = $false
-Comp '3. en modo invitado, ni el volcado crudo' (-not (Test-Path -LiteralPath $notaInv)) ''
+Comp '3. en modo invitado, lo de HOY no se escribe' (-not (Test-Path -LiteralPath $notaHoy)) 'es lo que el modo protege'
+Comp '   pero un dia pasado SI, o se perderia entero' (Test-Path -LiteralPath $notaViejo) 'lo del invitado ya entro en el bruto de su dia'
 
 Remove-Item -LiteralPath $DiarioDir -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ''

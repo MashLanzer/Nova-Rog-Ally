@@ -38,7 +38,17 @@ $AcelDeltasMemoria = 200
 $AcelDeltasMin = 40
 $AcelUmbralMin = 0.02
 $AcelRachaMin = 2
-Comp 'los cuatro numeros salen del archivo' (($txt -match '\$AcelDeltasMin = 40') -and ($txt -match '\$AcelUmbralMin = 0\.02') -and ($txt -match '\$AcelRachaMin = 2')) ''
+# LAS DOS DE LA GUARDA DE LECTURAS LENTAS (30/09, con el arreglo que apaga el sensor cuando TODAS
+# las lecturas tardan 5 s y no solo la primera). Si se olvidan aqui, llegan a la funcion como
+# $null y en PowerShell '22 -gt $null' es VERDAD: la guarda apagaria el sensor en la primera
+# lectura buena y este banco saldria rojo sin que el asistente tuviera nada mal. Paso al escribir
+# el arreglo.
+$AcelLecturaLentaMs = 150
+$AcelLentasMax = 2
+Comp 'los seis numeros salen del archivo' (($txt -match '\$AcelDeltasMin = 40') -and ($txt -match '\$AcelUmbralMin = 0\.02') -and ($txt -match '\$AcelRachaMin = 2') -and ($txt -match '\$AcelLecturaLentaMs = 150') -and ($txt -match '\$AcelLentasMax = 2')) ''
+# Y EL 150 NO PUEDE VOLVER A ESTAR ESCRITO DOS VECES: la guarda de la primera lectura lo tenia a
+# pelo, y el arreglo lo saco a constante justo para que las dos guardas no se separen.
+Comp '  y el de la lectura lenta esta en un solo sitio' ((@([regex]::Matches($txt, '-gt 150\b')).Count) -eq 0) 'las dos guardas usan $AcelLecturaLentaMs'
 # EL CHOQUE DE NOMBRES QUE CAZO ESTE BANCO: la constante se llamaba $AcelSeguidos y el contador
 # $script:acelSeguidos, y en PowerShell los nombres NO distinguen mayusculas, asi que eran LA MISMA
 # variable: el contador machacaba el minimo dejandolo en 1, y un golpe en la mesa contaba como braya.
@@ -157,10 +167,31 @@ if (-not $hay) {
     }
     $media = ($ms | Measure-Object -Average).Average
     Write-Host ('       20 vueltas del vigilante: media ' + [Math]::Round($media, 2) + ' ms, maximo ' + [Math]::Round(($ms | Measure-Object -Maximum).Maximum, 1) + ' ms')
-    Comp '6c. cuesta poco en caliente' ($media -lt 30) ([string][Math]::Round($media, 2) + ' ms de media')
-    Comp '6d. y ya tiene deltas de esta consola' ($script:acelDeltas.Count -ge 15) ([string]$script:acelDeltas.Count + ' medidas')
-    $uReal = Get-AcelUmbral
-    Write-Host ('       con ' + $script:acelDeltas.Count + ' medidas el umbral seria ' + $(if ($uReal -gt 0) { [string][Math]::Round($uReal, 4) + ' g' } else { 'todavia no lo se (hacen falta ' + $AcelDeltasMin + ')' }))
+    # UN SENSOR QUE ESTA PERO NO SIRVE ES UN TERCER CASO, y le faltaba camino (30/09). Este banco
+    # solo sabia de dos mundos: no hay acelerometro -y se salta- o hay uno que responde. En ESTA
+    # consola pasa lo tercero: la primera lectura contesta y todas las demas tardan 5 s y vuelven
+    # vacias. Medido aqui mismo: 5.015 ms de media las veinte. Pedirle deltas a eso es pedir lo
+    # imposible, y el rojo no decia nada del asistente.
+    # LO QUE HAY QUE EXIGIR ENTONCES ES LA GUARDA, que es lo que protege a braya: que Nova lo APAGUE
+    # en cuanto lo ve, que lo diga, y que a partir de ahi no cueste nada. Si el sensor si responde,
+    # se sigue exigiendo lo de siempre. Asi el banco vale en las dos maquinas y ninguna de las dos
+    # pasa de gratis.
+    $seApago = (-not $script:acelerometro)
+    $loDijo = @($script:logs | Where-Object { $_ -match 'lecturas seguidas lentas o vacias' }).Count -ge 1
+    if ($seApago) {
+        Write-Host '       este sensor responde la primera y se cuelga las demas: Nova tiene que apagarlo' -ForegroundColor DarkGray
+        Comp '6c. el sensor que no sirve se apaga solo' $seApago 'y no se come 5 s por vuelta para siempre'
+        Comp '6d.   y lo dice en el log' $loDijo ([string](@($script:logs) -join ' | '))
+        # y lo que de verdad importa: a partir de que se apaga, sale gratis. Las primeras lentas se
+        # pagan una vez; las ultimas diez tienen que ser ya de balde.
+        $ultimas = ($ms[10..19] | Measure-Object -Average).Average
+        Comp '6e.   y desde entonces sale gratis' ($ultimas -lt 30) ([string][Math]::Round($ultimas, 2) + ' ms de media las ultimas diez')
+    } else {
+        Comp '6c. cuesta poco en caliente' ($media -lt 30) ([string][Math]::Round($media, 2) + ' ms de media')
+        Comp '6d. y ya tiene deltas de esta consola' ($script:acelDeltas.Count -ge 15) ([string]$script:acelDeltas.Count + ' medidas')
+        $uReal = Get-AcelUmbral
+        Write-Host ('       con ' + $script:acelDeltas.Count + ' medidas el umbral seria ' + $(if ($uReal -gt 0) { [string][Math]::Round($uReal, 4) + ' g' } else { 'todavia no lo se (hacen falta ' + $AcelDeltasMin + ')' }))
+    }
 }
 
 Write-Host ''

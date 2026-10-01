@@ -282,6 +282,32 @@ def main():
         oido = transcribe(mr, audio, hw)
         oidas.append((nombre, esperado[nombre], oido, time.time() - t1))
 
+    # LO QUE OYO SE GUARDA, PORQUE NADIE MAS LO SABE (30/09)
+    #
+    # EL CASO: la poda de correcciones duerme lo que no se ha oido en once dias de uso, y su corpus
+    # son pruebas\audio\uso y ordenes-que-funcionaban.txt. Estas VEINTE grabaciones son la voz de
+    # braya de verdad, pero lo que Whisper oye de ellas se recalculaba cada vez y no quedaba en
+    # ningun fichero: 'esperado.json' guarda lo que DIJO, no lo que se oyo. Resultado: la poda
+    # durmio 'si arra'->cierra, 'moldo'->modo, 'descacando'->descargando y 'medio de hora'->media
+    # hora, y las cuatro salen aqui mismo, en esta prueba, en lo que el oido entiende de su voz.
+    # Y sin esto no habria arreglo que durara: despertarlas a mano no sirve de nada, porque el
+    # siguiente arranque de Nova volveria a dormirlas por el mismo motivo.
+    # SE GUARDA EN pruebas\audio\uso PARA QUE EL CORPUS LO ENCUENTRE, con el mismo formato jsonl
+    # que el resto de lo que hay ahi. Son veinte lineas: no pesa nada y se reescribe entero cada
+    # vez, que es lo que toca -no es un historico, es el retrato de como oye HOY-.
+    try:
+        usoDir = os.path.join(AUDIO, "uso")
+        if not os.path.isdir(usoDir):
+            os.makedirs(usoDir)
+        hoy = time.strftime("%Y%m%d")
+        with open(os.path.join(usoDir, "oido-grabaciones.jsonl"), "w", encoding="utf-8") as fg:
+            for nombre, dijo, oyo, _s in oidas:
+                fg.write(json.dumps({"id": hoy + "-" + nombre, "texto": oyo, "frase": dijo,
+                                     "de": "pruebas/audio/" + nombre}, ensure_ascii=False) + "\n")
+    except Exception as e:  # noqa: BLE001
+        # que no se pierda la medicion por no poder escribir un fichero de apoyo
+        print("  (no pude guardar lo oido: %s)" % e)
+
     acc = acciones_de([q for _, q, _, _ in oidas] + [o for _, _, o, _ in oidas])
 
     # SI LA CAPA LOCAL NO CONTESTA, ESTO NO MIDE NADA Y DABA 100 % (21/09).

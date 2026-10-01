@@ -26,14 +26,31 @@ function Comp($etiqueta, $ok, $detalle = '') {
 
 Write-Host ''
 Write-Host '-- el brillo de antes sobrevive a un reinicio de Nova --'
-$blq = [regex]::Match($fuente, '(?s)\$brilloGuardado = Join-Path \$TmpDir .juego-brillo\.json.(.{0,2600})').Groups[1].Value
+# EL BLOQUE SE CIERRA DONDE ACABA, NO A LOS 2600 CARACTERES (30/09). Esto cogia 2600 y el codigo
+# crecio: 'proc = [int]$script:juegoPid' quedo a +2593 -dentro por SIETE caracteres- y
+# 'exe = [string]$script:juegoExe' a +2656, o sea fuera. Dos comprobaciones rojas con el codigo
+# intacto y bien puesto. Un numero de caracteres a mano caduca solo; el cierre es el comentario
+# que abre lo siguiente, que se mueve con el fuente. Si no aparece, se coge TODO lo que queda:
+# quedarse corto es justo el fallo que se esta arreglando.
+$iBG = $fuente.IndexOf("`$brilloGuardado = Join-Path `$TmpDir 'juego-brillo.json'")
+$blq = ''
+if ($iBG -ge 0) {
+    $iBGfin = $fuente.IndexOf('# NO se abren apps del perfil al entrar solo en un juego', $iBG)
+    $largoBG = if ($iBGfin -gt $iBG) { $iBGfin - $iBG } else { $fuente.Length - $iBG }
+    $blq = $fuente.Substring($iBG, $largoBG)
+}
 Comp 'el respaldo existe y se delimita' ($blq.Length -gt 0) "$($blq.Length) caracteres"
 Comp 'se lee del disco antes de preguntarle a WMI' ($blq.IndexOf('Test-Path -LiteralPath $brilloGuardado') -lt $blq.IndexOf('WmiMonitorBrightness')) ''
 Comp 'y solo si el MISMO juego sigue vivo' ($blq -match 'Test-JuegoVivo \$gB') 'PID y ruta, no solo el fichero'
 Comp 'y no pasa de doce horas' ($blq -match 'TotalHours -lt 12') 'el caso del 20/09: otro juego seis horas despues'
 Comp 'si no vale, se borra y se pregunta a WMI' (($blq -match 'Remove-Item -LiteralPath \$brilloGuardado') -and ($blq -match 'WmiMonitorBrightness'))
 Comp 'se guarda el PID y la ruta del juego' (($blq -match 'proc = \[int\]\$script:juegoPid') -and ($blq -match 'exe = \[string\]\$script:juegoExe'))
-Comp 'y una sola vez por partida, no en cada alt-tab' ($blq.IndexOf('WriteAllText($brilloGuardado') -gt $blq.IndexOf('if ($null -eq $script:juegoBrilloAntes)')) 'dentro del if, no fuera'
+# Y LOS DOS TIENEN QUE ESTAR, no solo ir en orden: con un IndexOf a -1 el '-gt' decide solo, y
+# aqui el lado malo es que falte el 'if' -entonces -1 queda a la derecha y el verde no significa
+# que el guardado este dentro de nada-.
+$iEscribe = $blq.IndexOf('WriteAllText($brilloGuardado')
+$iUnaVez  = $blq.IndexOf('if ($null -eq $script:juegoBrilloAntes)')
+Comp 'y una sola vez por partida, no en cada alt-tab' (($iEscribe -ge 0) -and ($iUnaVez -ge 0) -and ($iEscribe -gt $iUnaVez)) "escribe=$iEscribe if=$iUnaVez"
 Comp 'al restaurar, el respaldo se borra' ($fuente -match "(?s)brillo restaurado a.{0,260}Remove-Item -LiteralPath \(Join-Path \`$TmpDir 'juego-brillo\.json'\)") 'no debe sobrevivir a la partida'
 
 Write-Host ''

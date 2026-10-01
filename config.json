@@ -1,142 +1,145 @@
 {
-  "paths": {
-    "opencodeCli": "C:\\Users\\braya\\AppData\\Roaming\\npm\\node_modules\\opencode-ai\\bin\\opencode.exe",
-    "nodeDir": "C:\\Program Files\\nodejs",
-    "workDir": "C:\\Users\\braya\\Documents",
-    "claudeCodeCli": "C:\\Users\\braya\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe"
-  },
-  "input": {
-    "dictadoLargoMinutos": 10,
-    "dictadoLargoMotor": "windows",
-    "motorOrdenes": "worker",
-    "holdMs": 1100,
-    "autoSubmitMs": 2500,
-    "dictado": "whisper",
-    "whisperModelo": "base",
-    "whisperModeloPreciso": "small",
-    "whisperModeloUltimo": "",
-    "vozWindows": false,
-    "seguimientoMs": 2500
-  },
-  "opencode": {
-    "timeoutMs": 240000
-  },
-  "ui": {
-    "popupMs": 8000,
-    "nueva": true,
-    "ticMicro": true,
-    "gestos": [
-      {
-        "gesto": "carino",
-        "patron": "\\b(novita|nova linda|nova bonita)\\b"
-      },
-      {
-        "gesto": "risa",
-        "patron": "\\b(que risa|me muero|jajaja)\\b"
-      }
-    ],
-    "escala": 1
-  },
-  "voz": {
-    "activada": true,
-    "motor": "online",
-    "vozOnline": "es-MX-DaliaNeural",
-    "preferencia": [
-      "Natural",
-      "es-MX",
-      "es-"
-    ],
-    "saludo": true
-  },
-  "logging": {
-    "maxLogBytes": 5242880,
-    "keepLogs": 3
-  },
-  "escucha": {
-    "activada": true,
-    "grabarUso": "ordenes",
-    "nombre": "nova",
-    "confianzaMinima": 0.55,
-    "confianzaLarga": 0.85,
-    "umbralAltavoz": 0.02,
-    "rafagaMinima": 0.03,
-    "juezNombre": "no",
-    "seguimientoTrasSeco": false,
-    "soloBotonEnJuego": true,
-    "autoSordina": true,
-    "autoSordinaRachas": 3,
-    "autoSordinaVentanaMin": 5,
-    "autoSordinaMinutos": 10,
-    "motor": "vosk",
-    "ganancia": "auto",
-    "soloYo": true,
-    "soloYoMargenHz": 42,
-    "soloYoMinimo": 12,
-    "nubeOir": "",
-    "nubeTopeMs": 7000,
-    "guardarUsoDias": 30,
-    "ambiente": "no",
-    "repasos": "canary,base",
-    "repasoMaxPalabras": 8
-  },
-  "modelo": {
-    "usarClaude": true,
-    "rapido": "claude-haiku-4-5",
-    "bueno": "claude-opus-5",
-    "cerebro": "claude-code",
-    "ccTraducir": "haiku",
-    "ccPregunta": "sonnet",
-    "ccAccion": "sonnet"
-  },
-  "avisos": {
-    "sinVoz": true,
-    "sinVozEnJuego": true,
-    "bateriaPct": 15
-  },
-  "juego": {
-    "ajedrez": true,
-    "perfilAlEntrar": "juego",
-    "restaurarAlSalir": true,
-    "avisoMinutos": 120
-  },
-  "confirmacion": {
-    "activada": true,
-    "esperaMs": 6000
-  },
-  "clima": {
-    "activada": true,
-    "lat": null,
-    "lon": null
-  },
-  "conversacion": {
-    "modeloLocal": "qwen2.5:3b"
-  },
-  "charla": {
-    "activada": true
-  },
-  "mando": {
-    "vibracion": true
-  },
-  "sensores": {
-    "acelerometro": true
-  },
-  "seguridad": {
-    "hashDll": "35B7D2737431CBB1C36848E456C6C89CD6F2A0F633481B37710057D512758B28"
-  },
-  "recetas": {
-    "activadas": true,
-    "confirmarVeces": 2
-  },
-  "auto": {
-    "datosDesde": "2026-09-20",
-    "ultimaDecision": "escucha|nubeOir|gemini|la segunda opinion de la nube"
-  },
-  "entorno": {
-    "avisos": true,
-    "porHora": 4,
-    "discoCriticoGb": 2,
-    "nocheDesde": 23,
-    "nocheHasta": 8,
-    "gmailLleno": true
-  }
+    "paths":  {
+                  "opencodeCli":  "C:\\Users\\braya\\AppData\\Roaming\\npm\\node_modules\\opencode-ai\\bin\\opencode.exe",
+                  "nodeDir":  "C:\\Program Files\\nodejs",
+                  "workDir":  "C:\\Users\\braya\\Documents",
+                  "claudeCodeCli":  "C:\\Users\\braya\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe"
+              },
+    "input":  {
+                  "dictadoLargoMinutos":  10,
+                  "dictadoLargoMotor":  "windows",
+                  "motorOrdenes":  "worker",
+                  "holdMs":  1100,
+                  "autoSubmitMs":  2500,
+                  "dictado":  "whisper",
+                  "whisperModelo":  "base",
+                  "whisperModeloPreciso":  "small",
+                  "whisperModeloUltimo":  "",
+                  "vozWindows":  false,
+                  "seguimientoMs":  2500
+              },
+    "opencode":  {
+                     "timeoutMs":  240000
+                 },
+    "ui":  {
+               "popupMs":  8000,
+               "nueva":  true,
+               "ticMicro":  true,
+               "gestos":  [
+                              {
+                                  "gesto":  "carino",
+                                  "patron":  "\\b(novita|nova linda|nova bonita)\\b"
+                              },
+                              {
+                                  "gesto":  "risa",
+                                  "patron":  "\\b(que risa|me muero|jajaja)\\b"
+                              }
+                          ],
+               "escala":  1
+           },
+    "voz":  {
+                "activada":  true,
+                "motor":  "online",
+                "vozOnline":  "es-MX-DaliaNeural",
+                "preferencia":  [
+                                    "Natural",
+                                    "es-MX",
+                                    "es-"
+                                ],
+                "saludo":  true
+            },
+    "logging":  {
+                    "maxLogBytes":  5242880,
+                    "keepLogs":  3
+                },
+    "escucha":  {
+                    "activada":  true,
+                    "grabarUso":  "ordenes",
+                    "nombre":  "nova",
+                    "confianzaMinima":  0.55,
+                    "confianzaLarga":  0.85,
+                    "umbralAltavoz":  0.02,
+                    "rafagaMinima":  0.03,
+                    "juezNombre":  "no",
+                    "seguimientoTrasSeco":  false,
+                    "soloBotonEnJuego":  true,
+                    "autoSordina":  true,
+                    "autoSordinaRachas":  3,
+                    "autoSordinaVentanaMin":  5,
+                    "autoSordinaMinutos":  10,
+                    "motor":  "vosk",
+                    "ganancia":  "auto",
+                    "soloYo":  true,
+                    "soloYoMargenHz":  42,
+                    "soloYoMinimo":  12,
+                    "nubeOir":  "",
+                    "nubeTopeMs":  7000,
+                    "guardarUsoDias":  30,
+                    "ambiente":  "no",
+                    "repasos":  "canary,base",
+                    "repasoMaxPalabras":  8
+                },
+    "modelo":  {
+                   "usarClaude":  true,
+                   "rapido":  "claude-haiku-4-5",
+                   "bueno":  "claude-opus-5",
+                   "cerebro":  "claude-code",
+                   "ccTraducir":  "haiku",
+                   "ccPregunta":  "sonnet",
+                   "ccAccion":  "sonnet"
+               },
+    "avisos":  {
+                   "sinVoz":  true,
+                   "sinVozEnJuego":  true,
+                   "bateriaPct":  15
+               },
+    "juego":  {
+                  "ajedrez":  true,
+                  "perfilAlEntrar":  "juego",
+                  "restaurarAlSalir":  true,
+                  "avisoMinutos":  120
+              },
+    "confirmacion":  {
+                         "activada":  true,
+                         "esperaMs":  6000
+                     },
+    "clima":  {
+                  "activada":  true,
+                  "lat":  null,
+                  "lon":  null
+              },
+    "conversacion":  {
+                         "modeloLocal":  "qwen2.5:3b"
+                     },
+    "charla":  {
+                   "activada":  true
+               },
+    "mando":  {
+                  "vibracion":  true
+              },
+    "sensores":  {
+                     "acelerometro":  true
+                 },
+    "seguridad":  {
+                      "hashDll":  "35B7D2737431CBB1C36848E456C6C89CD6F2A0F633481B37710057D512758B28"
+                  },
+    "recetas":  {
+                    "activadas":  true,
+                    "confirmarVeces":  2
+                },
+    "auto":  {
+                 "datosDesde":  "2026-09-20",
+                 "ultimaDecision":  "entorno|vueltaVozMin|180|saludarte en voz alta tras 120 minutos"
+             },
+    "entorno":  {
+                    "avisos":  true,
+                    "porHora":  4,
+                    "discoCriticoGb":  2,
+                    "nocheDesde":  23,
+                    "nocheHasta":  8,
+                    "gmailLleno":  true,
+                    "vueltaMin":  30,
+                    "vueltaVozMin":  120,
+                    "vueltaMedidoDia":  "2026-09-30"
+                }
 }

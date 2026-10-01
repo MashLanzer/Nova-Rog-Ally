@@ -149,7 +149,13 @@ try {
     Comp '5e. con un return antes del append, para no escribir las dos veces' ($iIf -ge 0 -and $iRet -gt $iIf -and $iApp -gt $iRet) ''
     Comp '5f. y los demas siguen yendo al diario' ($txtCs -match 'File\.AppendAllText\(rutaGestosLog') ''
     Comp '5g. el contador se reescribe, no crece' ($txtCs -match 'File\.WriteAllText\(rutaC') 'una linea por dia y gesto, no un append por gesto'
-    Comp '5h. y empieza de cero al cambiar el dia' ($txtCs -match 'if \(cuentaGestosDia != hoy\) \{ cuentaGestos\.Clear\(\)') ''
+    # EL FORMATO NO ES LA REGLA (30/09). Esto pedia el if y el Clear() en la MISMA linea, con la
+    # llave pegada, y el bloque crecio a estilo Allman -llave en su linea- al meterle dentro la
+    # relectura de lo que ya hay de hoy. Rojo por un salto de linea, con el codigo intacto. Se
+    # sigue exigiendo lo mismo -que el Clear() cuelgue de ese if y no ande suelto- pero sin
+    # mandar donde va la llave: el hueco es corto a proposito, para que no cuele un Clear() que
+    # este veinte lineas mas abajo y ya no dependa de la condicion.
+    Comp '5h. y empieza de cero al cambiar el dia' ($txtCs -match '(?s)if \(cuentaGestosDia != hoy\)\s*\{?\s*cuentaGestos\.Clear\(\)') ''
     $exeG = Join-Path $Raiz 'nova_ui.exe'
     if (Test-Path -LiteralPath $exeG) {
         Comp '5i. la capsula compilada esta al dia' ((Get-Item -LiteralPath $exeG).LastWriteTime -ge (Get-Item -LiteralPath $CS).LastWriteTime) 'si no, esto no corre todavia'

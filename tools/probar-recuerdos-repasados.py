@@ -199,15 +199,32 @@ else:
     base = tempfile.mkdtemp(prefix="rec31real-")
     try:
         shutil.copyfile(orig, os.path.join(base, "cerebro.json"))
+        # ESTO PEDIA QUE APARTARA >0 EN CADA PASADA, Y EL REPASO ES IDEMPOTENTE A PROPOSITO
+        # (30/09). El 26/09 apartaba 36 de 121 porque nadie habia repasado nunca; hoy el cerebro
+        # tiene 124 recuerdos con 38 ya en "rechazada" -los 36 y dos mas de despues-, y
+        # repasar_recuerdos saca de candidatos justo lo que ya esta rechazado, asi que la segunda
+        # pasada aparta CERO. O sea que el banco se puso rojo porque el arreglo funciono y se
+        # guardo, y habria seguido rojo para siempre. Igual que le paso a los temas en 2n245.
+        # LO QUE SE MIRA AHORA ES LA PROPIEDAD: que el trabajo este HECHO -ni un candidato que la
+        # regla rechazaria sigue firme- y que repasar otra vez no mueva nada. Que la regla siga
+        # viva, que aparte de verdad y que el disyuntor frene lo prueban las secciones 1 a 5 con
+        # cerebros propios, que no dependen de lo que Nova haya aprendido esta semana.
         antes = json.load(io.open(orig, encoding="utf-8"))
         c = cm.Cerebro(base)
         R = c.datos["recuerdos"]
         print("       %d recuerdos; el repaso aparta %d" % (len(R), c.recuerdos_fuera))
-        comp("en tu cerebro de verdad, aparta unos cuantos", c.recuerdos_fuera > 0,
-             "medidos 36 de 121 el 26/09")
+        quedan = [r for r in R
+                  if r.get("tipo") in ("contado", "episodio") and r.get("estado") != "rechazada"
+                  and cm.texto_no_entra(r.get("respuesta", ""))]
+        comp("en tu cerebro de verdad no queda ninguno por apartar", len(quedan) == 0,
+             "%d firmes que la regla rechazaria" % len(quedan))
+        comp("  y el trabajo esta hecho de antes", len([r for r in R if r.get("estado") == "rechazada"]) > 0,
+             "%d ya apartados" % len([r for r in R if r.get("estado") == "rechazada"]))
+        comp("  asi que repasar otra vez no mueve nada", c.recuerdos_fuera == 0,
+             "%s (el repaso es idempotente)" % c.recuerdos_fuera)
         comp("  y no borra ni uno", len(R) == len(antes.get("recuerdos") or []),
              "%d antes, %d despues" % (len(antes.get("recuerdos") or []), len(R)))
-        comp("  y se queda muy por debajo del disyuntor", c.recuerdos_fuera > 0,
+        comp("  y el disyuntor no ha saltado", c.recuerdos_fuera >= 0,
              "si saltara, saldria negativo")
         # EL ORIGINAL NO SE TOCA: esto es un banco, no una migracion.
         despues = json.load(io.open(orig, encoding="utf-8"))

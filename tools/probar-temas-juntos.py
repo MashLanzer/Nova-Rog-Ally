@@ -163,15 +163,36 @@ cer = os.path.join(RAIZ, "memoria", "cerebro", "cerebro.json")
 if not os.path.exists(cer):
     print("  --   no hay cerebro.json que mirar, se salta")
 else:
+    # ESTA SECCION AFIRMABA UN ESTADO QUE EL PROPIO ARREGLO BORRA (30/09). Pedia que en el cerebro
+    # real quedara EXACTAMENTE una pareja por juntar y que fuera ["videojuego", "videojuegos"].
+    # Hoy el cerebro tiene 30 temas y ni una pareja: el repaso hizo su trabajo y se quedo solo el
+    # plural. O sea que el banco se puso rojo PORQUE la idea 94 funciono, y habria seguido rojo
+    # para siempre. Un banco que mide el estado vivo del cerebro cambia de color cuando Nova
+    # aprende, sin que nadie se equivoque; es lo mismo que le paso a la lista del oido este mes.
+    # LO QUE SE MIRA AHORA ES LA PROPIEDAD, que es verdad hoy y lo seguira siendo: despues del
+    # repaso no puede quedar NINGUNA pareja sin juntar. Si el repaso deja de funcionar, aparece
+    # una y esto se pone rojo -que es para lo que existe-. Que la regla junte singular y plural
+    # cuando se le ponen los dos delante lo prueban las secciones de arriba con casos propios,
+    # que no dependen de lo que Nova haya aprendido esta semana.
     reales = (json.load(io.open(cer, encoding="utf-8-sig")).get("temas") or {})
     grupos = {}
     for k in reales:
         grupos.setdefault(clave_tema(k), []).append(k)
     juntan = [v for v in grupos.values() if len(v) > 1]
-    comp("7a. en los temas de verdad solo se junta una pareja", len(juntan) == 1, str(juntan))
-    comp("7b. y es la medida", len(juntan) == 1 and sorted(juntan[0]) == ["videojuego", "videojuegos"], str(juntan))
-    comp("7c. o sea que no junta de mas", len(grupos) == len(reales) - 1,
+    comp("7a. en el cerebro de verdad no queda ninguna pareja por juntar", len(juntan) == 0,
+         str(juntan) if juntan else "%d temas, %d claves" % (len(reales), len(grupos)))
+    comp("7b. o sea una clave por tema, ni una de menos", len(grupos) == len(reales),
          "%d grupos de %d temas" % (len(grupos), len(reales)))
+    # Y LA REGLA SIGUE VIVA, para que esto no pase en verde con un clave_tema que devuelva el
+    # nombre tal cual y no junte nada nunca: el 7a de arriba saldria verde igual con la regla
+    # muerta, porque sin juntar tampoco quedan parejas. Se prueba con el par que la idea midio y
+    # con uno del cerebro de verdad, escritos aqui: no se inventa el singular quitando la 's'
+    # -el de 'aplicaciones' es 'aplicacion', no 'aplicacione'-, que fue el primer intento y era
+    # una prueba que no medía el castellano sino mi ocurrencia.
+    comp("7c. y la regla sigue juntando singular y plural", clave_tema("videojuego") == clave_tema("videojuegos"),
+         "el par que midio la idea 94")
+    comp("7d.   y distingue dos temas que no son el mismo", clave_tema("steam") != clave_tema("roblox"),
+         "juntar de mas seria peor que no juntar")
 
 print("")
 if fallos:

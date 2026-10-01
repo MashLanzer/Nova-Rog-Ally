@@ -83,15 +83,38 @@ $dRes = $ast.Find({ param($x)
 Comp '  existe Get-ProcesosResidentes' ($null -ne $dRes) ''
 if ($dRes) {
     Invoke-Expression $dRes.Extent.Text
-    $yo = Get-Process -Id $PID
-    # los cinco de siempre MAS el que se descubrio el 24/09: si el barrido dejara de verlos,
-    # volveriamos a los 44 huerfanos de 1,3 GB
-    $script:wakeProc = $yo; $script:ttsProc = $yo; $script:prepVozProc = $yo
-    $script:piperProc = $yo; $script:vozWinProc = $yo; $script:guiaProc = $yo
-    $script:noEsUnProceso = 'una cadena'
-    $hallados = @(Get-ProcesosResidentes)
-    Comp '  y los encuentra a los seis' ($hallados.Count -ge 6) "$($hallados.Count) de 6"
-    Comp '  sin colar lo que no es un proceso' ((@($hallados | Where-Object { $_ -isnot [System.Diagnostics.Process] }).Count) -eq 0) ''
+    # EL CEBO NO PUEDE SER ESTE MISMO PROCESO (30/09). Aqui habia 'Get-Process -Id $PID' para las
+    # seis variables, y desde el arreglo 111 del 27/09 la funcion DESCARTA a proposito lo que
+    # apunte al PID propio -Nova se mataba a si misma en el parar limpio y se perdia entero lo que
+    # cuelga de PowerShell.Exiting-. O sea que el banco le daba de comer exactamente lo unico que
+    # la funcion tiene que tirar, y salia '0 de 6': un rojo del banco, no del asistente.
+    # Ahora el cebo es un proceso AJENO de verdad, que es lo que son los residentes.
+    $cebo = Start-Process -FilePath 'powershell.exe' `
+            -ArgumentList @('-NoProfile', '-Command', 'Start-Sleep -Seconds 60') `
+            -WindowStyle Hidden -PassThru
+    try {
+        # los cinco de siempre MAS el que se descubrio el 24/09: si el barrido dejara de verlos,
+        # volveriamos a los 44 huerfanos de 1,3 GB
+        $script:wakeProc = $cebo; $script:ttsProc = $cebo; $script:prepVozProc = $cebo
+        $script:piperProc = $cebo; $script:vozWinProc = $cebo; $script:guiaProc = $cebo
+        $script:noEsUnProceso = 'una cadena'
+        $hallados = @(Get-ProcesosResidentes)
+        Comp '  y los encuentra a los seis' ($hallados.Count -ge 6) "$($hallados.Count) de 6"
+        Comp '  sin colar lo que no es un proceso' ((@($hallados | Where-Object { $_ -isnot [System.Diagnostics.Process] }).Count) -eq 0) ''
+        # Y EL CASO NEGATIVO DEL ARREGLO 111, que no tenia quien lo vigilara: una variable que
+        # acabe en 'Proc' y apunte a Nova MISMA no puede salir de aqui, porque el unico llamador
+        # hace Kill() de todo lo que sale y despues exit 0. Sin esto, quitar el filtro del PID
+        # dejaba el banco igual de verde y Nova volvia a matarse antes de cerrar limpiamente.
+        $script:yoProc = Get-Process -Id $PID
+        $conYo = @(Get-ProcesosResidentes)
+        Comp '  y NO se cuela Nova misma' ((@($conYo | Where-Object { $_.Id -eq $PID }).Count) -eq 0) 'el parar limpio la mataria antes del exit'
+        Comp '  aunque siga viendo a los demas' ($conYo.Count -ge 6) "$($conYo.Count) de 6"
+        $script:yoProc = $null
+    } finally {
+        # el cebo se va SIEMPRE, aunque una comprobacion de arriba reviente: un banco que deja
+        # procesos vivos es justo el fallo que esta seccion existe para cazar
+        try { if ($cebo -and -not $cebo.HasExited) { $cebo.Kill() } } catch {}
+    }
     $script:wakeProc = $null; $script:ttsProc = $null; $script:prepVozProc = $null
     $script:piperProc = $null; $script:vozWinProc = $null; $script:guiaProc = $null
 }

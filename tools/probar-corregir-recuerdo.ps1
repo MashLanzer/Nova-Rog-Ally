@@ -29,7 +29,13 @@ $mSin = (($tm -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) -jo
 Write-Host '-- 1. el detector es el que YA habia, no uno nuevo --'
 # UN SEGUNDO DETECTOR se separaria del primero al mes siguiente y nadie se enteraria. Se usa
 # por_que_importa, el mismo que decide guardar el turno entero.
-Comp 'usa por_que_importa' ($wSin -match 'por_que_importa\(texto, ""\) == "correccion"') 'el mismo que decide guardar el turno'
+# EL SEGUNDO ARGUMENTO NO SE FIJA AQUI (30/09). Esto pedia literalmente
+# 'por_que_importa(texto, "") == "correccion"' y el codigo pasa ya 'ultimo_dicho_texto', que es
+# lo que Nova acaba de decir: MAS contexto para decidir, no menos. El banco se puso rojo por una
+# mejora, que es anclarse a como esta escrito en vez de a lo que hace. Lo que esta seccion
+# defiende es que el detector sea EL QUE YA HABIA, y eso es lo que se mira: la llamada a
+# por_que_importa comparada con "correccion", con el argumento que sea.
+Comp 'usa por_que_importa' ($wSin -match 'por_que_importa\(texto,[^)]*\) == "correccion"') 'el mismo que decide guardar el turno'
 Comp '  y no define otro patron de correccion' (@([regex]::Matches($wSin, 'RE_CORRIGE\s*=')).Count -eq 1) 'sigue habiendo uno solo'
 # NEGACION_PALABRAS = 5 NO SE TOCA: hay un banco que lo saca del archivo.
 Comp '  y NEGACION_PALABRAS sigue en 5' ($tw -match '(?m)^NEGACION_PALABRAS = 5') 'un banco lo saca del archivo'

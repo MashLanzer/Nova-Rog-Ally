@@ -122,15 +122,32 @@ $dRes = $ast.Find({ param($x)
 Comp '  y esa funcion existe' ($null -ne $dRes) ''
 if ($dRes) {
     Invoke-Expression $dRes.Extent.Text
-    # se le ponen delante variables *Proc con procesos DE VERDAD (este mismo), que es lo unico
+    # se le ponen delante variables *Proc con procesos DE VERDAD, que es lo unico
     # que distingue "barre las variables" de "devuelve una lista vacia y nadie se entera"
-    $yo = Get-Process -Id $PID
-    $script:wakeProc = $yo; $script:ttsProc = $yo; $script:prepVozProc = $yo
-    $script:piperProc = $yo; $script:vozWinProc = $yo; $script:guiaProc = $yo
-    $script:noEsProc = 'una cadena, no un proceso'
-    $hallados = @(Get-ProcesosResidentes)
-    Comp '  y los encuentra todos al ejecutarla' ($hallados.Count -ge 6) "$($hallados.Count) de 6"
-    Comp '  sin colar lo que no es un proceso' ((@($hallados | Where-Object { $_ -isnot [System.Diagnostics.Process] }).Count) -eq 0) 'noEsProc no debe entrar'
+    #
+    # Y EL CEBO NO PUEDE SER ESTE MISMO PROCESO (30/09). Aqui decia 'este mismo' y ponia
+    # 'Get-Process -Id $PID': desde el arreglo 111 del 27/09 la funcion DESCARTA a proposito lo que
+    # apunte al PID propio -si no, el parar limpio mataba a Nova antes de su exit y se perdia la
+    # linea 'cerrado' entera-. O sea que el cebo era justo lo unico que la funcion tiene que tirar,
+    # y salia '0 de 6'. El mismo fallo estaba en tools\probar-huerfanos.ps1, que prueba esta misma
+    # funcion; los dos se arreglaron a la vez.
+    $cebo = Start-Process -FilePath 'powershell.exe' `
+            -ArgumentList @('-NoProfile', '-Command', 'Start-Sleep -Seconds 60') `
+            -WindowStyle Hidden -PassThru
+    try {
+        $script:wakeProc = $cebo; $script:ttsProc = $cebo; $script:prepVozProc = $cebo
+        $script:piperProc = $cebo; $script:vozWinProc = $cebo; $script:guiaProc = $cebo
+        $script:noEsProc = 'una cadena, no un proceso'
+        $hallados = @(Get-ProcesosResidentes)
+        Comp '  y los encuentra todos al ejecutarla' ($hallados.Count -ge 6) "$($hallados.Count) de 6"
+        Comp '  sin colar lo que no es un proceso' ((@($hallados | Where-Object { $_ -isnot [System.Diagnostics.Process] }).Count) -eq 0) 'noEsProc no debe entrar'
+        # el caso negativo del arreglo 111: Nova misma no puede salir de aqui
+        $script:yoProc = Get-Process -Id $PID
+        Comp '  y no se cuela Nova misma' ((@(Get-ProcesosResidentes | Where-Object { $_.Id -eq $PID }).Count) -eq 0) 'el parar limpio la mataria antes del exit'
+        $script:yoProc = $null
+    } finally {
+        try { if ($cebo -and -not $cebo.HasExited) { $cebo.Kill() } } catch {}
+    }
     $script:wakeProc = $null; $script:ttsProc = $null; $script:prepVozProc = $null
     $script:piperProc = $null; $script:vozWinProc = $null; $script:guiaProc = $null
 }

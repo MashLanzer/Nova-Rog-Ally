@@ -121,7 +121,17 @@ try {
     Comp '5a. Get-NadieMin mira la quietud del mando' ($txt -match '\$qm = \[int\]\(Get-QuietudMando\)') ''
     Comp '5b. y RECORTA el resultado, no compite' ($txt -match 'if \(\$mMando -lt \$res\) \{ \$res = \$mMando \}') 'si se movio hace 1 min, no llevo 50 sin nadie'
     Comp '5c. el bucle lee el paquete solo del puerto 0' ($txt -match 'if \(\$u -eq 0\) \{') 'los otros tres estan aplazados (idea 66)'
-    Comp '5d. y guarda el hueco que se cierra' ($txt -match '\[void\]\(Add-HuecoMando \$huecoS\)') 'asi aprende su propio umbral'
+    # EL HUECO YA NO BAJA A DISCO DENTRO DEL SONDEO (30/09). Esto pedia
+    # '[void](Add-HuecoMando $huecoS)' ahi mismo, y el 28/09 eso se cambio a proposito: Add-HuecoMando
+    # relee memoria\mando-huecos.json entero y lo reescribe -19 ms medidos- y el sondeo se dispara
+    # en cada roce del mando, varias veces por minuto navegando menus. Es la regla 4, un fichero
+    # dentro del bucle que se puede evitar. Ahora se acumula en RAM y se vuelca al minuto, y el
+    # banco se quedo pidiendo la forma vieja: rojo por una mejora.
+    # SE VIGILAN LAS DOS MITADES, que es mas de lo que pedia antes: que el hueco se apunte al
+    # cerrarse, y que ACABE en Add-HuecoMando al volcar. Con solo la primera, dejar de volcar
+    # nunca se notaria y el umbral no aprenderia nada.
+    Comp '5d. y apunta el hueco que se cierra' ($txt -match '\[void\]\$script:huecosMandoRam\.Add\(\$huecoS\)') 'en RAM, que el sondeo no toca disco (regla 4)'
+    Comp '5d-bis. y al volcar llega a Add-HuecoMando' ($txt -match 'foreach \(\$hM in @\(\$script:huecosMandoRam\)\) \{ \[void\]\(Add-HuecoMando') 'asi aprende su propio umbral'
 
     Write-Host ''
     Write-Host '-- 6. EL SENSOR DE VERDAD, LEIDO AQUI --'

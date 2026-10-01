@@ -91,8 +91,8 @@ recuerdame en veinte minutos que saque la pizza => aviso en 20 minutos
 recuerdame en un minuto que mire el horno => aviso en 1 minuto
 recuerdame en media hora que llame => aviso en 30 minutos
 # lo que small oye de verdad en las grabaciones del 14/09 (correcciones de commands.json)
-seguidame en 20 minutos que saque la piscina => aviso en 20 minutos
-baja el brille => bajar brillo
+seguidame en 20 minutos que saque la piscina => aviso en 20 minutos   @si-corrige:seguidame
+baja el brille => bajar brillo   @si-corrige:brille
 dicta un correo => dictado largo
 ponme una cancion en spotify => Spotify
 
@@ -111,10 +111,10 @@ has jugado peak => <se va al modelo>
 hollow knight => Hollow Knight   @si-tienes:Hollow Knight
 steam => abrir steam
 # lo que el modelo rapido casi acierta (correcciones de commands.json)
-si arra el discord, si arra el discord => cerrar discord
-no me escuches en medio de ahora => media hora
-suer bolumen => subir volumen
-super volumen => subir volumen
+si arra el discord, si arra el discord => cerrar discord   @si-corrige:si arra
+no me escuches en medio de ahora => media hora   @si-corrige:medio de ahora
+suer bolumen => subir volumen   @si-corrige:bolumen
+super volumen => subir volumen   @si-corrige:super volumen
 con el juego, 80 => el juego al 80
 haz una captura => captura de pantalla
 
@@ -131,26 +131,26 @@ dime quien hizo outlast => <se va al modelo>
 di hola a todos => hola a todos
 
 # lo que salio de las 100 grabaciones (14/09)
-con el brillo de trinta => brillo al 30
+con el brillo de trinta => brillo al 30   @si-corrige:trinta
 pon el brillo del 30 => brillo al 30
 pon el volumen del 60 => volumen al 60
 pon el brillo => <se va al modelo>
 pon el brillo al maximo => brillo al maximo
 king is a hollow knight => <se va al modelo>
 abresteam => abrir steam
-subelbrio => subir brillo
+subelbrio => subir brillo   @si-corrige:subelbrio
 abre steam y pon un modo juego => modo juego
-pon el moldo noche => modo noche
+pon el moldo noche => modo noche   @si-corrige:moldo
 
 # lo que Whisper oyo mal en las 100 y se rescata sin riesgo (14/09)
-miniminista todo => mostrar el escritorio
-este esta descagando => estado de las descargas
-cancel el temporizado => cancelar temporizadores
-a que estoy rubando => juego actual
-cuanto espacio me quedo => espacio libre
-abre littlenimer3 en steam => Little Nightmares III   @si-tienes:Little Nightmares III
-con mollofoco => modo foco
-pon el volumen se denta => volumen al 70
+miniminista todo => mostrar el escritorio   @si-corrige:miniminista
+este esta descagando => estado de las descargas   @si-corrige:este esta descargando
+cancel el temporizado => cancelar temporizadores   @si-corrige:cancel el
+a que estoy rubando => juego actual   @si-corrige:rubando
+cuanto espacio me quedo => espacio libre   @si-corrige:espacio me quedo
+abre littlenimer3 en steam => Little Nightmares III   @si-tienes:Little Nightmares III   @si-corrige:littlenimer3
+con mollofoco => modo foco   @si-corrige:mollofoco
+pon el volumen se denta => volumen al 70   @si-corrige:se denta
 pon el brillo 40 => brillo al 40
 baja el volumen 2 veces => bajar volumen
 aqui estoy jugando con mi hermano => <se va al modelo>
@@ -163,21 +163,21 @@ abre contenguarme => Content Warning
 abre su animal => REANIMAL   @si-tienes:REANIMAL
 siempre steam => <se va al modelo>
 pon el juego el 30 => el juego al 30
-pon el volumen al ochente => volumen al 80
-abesame en 15 minutos => temporizador de 15 minutos
-aguete ruando => juego actual
+pon el volumen al ochente => volumen al 80   @si-corrige:ochente
+abesame en 15 minutos => temporizador de 15 minutos   @si-corrige:abesame
+aguete ruando => juego actual   @si-corrige:aguete
 
 # correcciones del agente (14/09)
-miniminiza todo => mostrar el escritorio
-aguete aguete => juego actual
-bofsa => play/pausa
-aufza => play/pausa
-pauza => play/pausa
-con malo noche => modo noche
-ahora esteñe y pon el modo juego => modo juego
-ahora gus gus dup => Goose Goose Duck   @si-tienes:Goose Goose Duck
-se respodify y abre steam => cerrar spotify
-busca gato hendito => buscar 'gatos' en youtube
+miniminiza todo => mostrar el escritorio   @si-corrige:miniminiza
+aguete aguete => juego actual   @si-corrige:aguete aguete
+bofsa => play/pausa   @si-corrige:bofsa
+aufza => play/pausa   @si-corrige:aufza
+pauza => play/pausa   @si-corrige:pauza
+con malo noche => modo noche   @si-corrige:con malo noche
+ahora esteñe y pon el modo juego => modo juego   @si-corrige:ahora estene
+ahora gus gus dup => Goose Goose Duck   @si-tienes:Goose Goose Duck   @si-corrige:gus gus dup
+se respodify y abre steam => cerrar spotify   @si-corrige:se respodify
+busca gato hendito => buscar 'gatos' en youtube   @si-corrige:gato hendito
 con mala noche no se duerme => <se va al modelo>
 si al resto le parece bien => <se va al modelo>
 todo el volumen es alto => <se va al modelo>

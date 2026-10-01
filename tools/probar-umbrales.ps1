@@ -130,8 +130,27 @@ Comp 'el worker escucha MAS de lo que el asistente espera' ($workerSeg * 1000 -g
 Comp 'y con margen (al menos 1 s)' (($workerSeg * 1000 - $esperaMs) -ge 1000) ''
 # y el plazo se REARMA cuando termina de hablar, no antes: la linea tiene que estar en el
 # bloque de la confirmacion pendiente del bucle
+#
+# EL BLOQUE SE CIERRA DONDE EMPIEZA EL SIGUIENTE, NO A LOS 4500 CARACTERES (30/09). Esto cogia
+# un trozo de 4500 y la proteccion que vigila -el empuje al fin de la voz- se fue a 5788 al
+# crecer el bloque con los arreglos: la comprobacion se quedo CIEGA y se puso roja con el codigo
+# intacto. Un numero de caracteres a mano caduca solo, igual que una lista a mano. Ahora el
+# final es el marcador del bloque siguiente, asi que el trozo crece con el codigo.
+# Y SI NO SE ENCUENTRA EL CIERRE, SE COGE TODO LO QUE QUEDA: nunca menos, porque quedarse corto
+# es justo el fallo que se esta arreglando.
 $iConf = $txt.IndexOf('--- CONFIRMACION PENDIENTE (si / no / plazo) ---')
-$trozoConf = if ($iConf -ge 0) { $txt.Substring($iConf, [Math]::Min(4500, $txt.Length - $iConf)) } else { '' }
+$trozoConf = ''
+if ($iConf -ge 0) {
+    $iFin = $txt.IndexOf('--- PALABRA DE ACTIVACION', $iConf)
+    $largo = if ($iFin -gt $iConf) { $iFin - $iConf } else { $txt.Length - $iConf }
+    $trozoConf = $txt.Substring($iConf, $largo)
+}
+# Y SIN LOS COMENTARIOS, PARA LO QUE MIRA ORDEN (30/09). La comprobacion de que el empuje va
+# ANTES de decidir el plazo comparaba dos IndexOf, y el de "Complete-Confirmacion 'plazo'" caia
+# en un COMENTARIO de 55 lineas mas arriba que lo nombra en prosa: comparaba codigo contra
+# comentario. Lo que mira orden usa este trozo; lo que solo mira presencia puede usar el de
+# arriba, porque ahi un comentario que nombre la linea buena no cambia el veredicto.
+$trozoConfCodigo = (($trozoConf -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) -join "`n"
 # 27/09: EL REARME YA NO SUMA LA CONSTANTE A PELO, SUMA EL PLAZO MEDIDO (idea 102). La linea
 # decia "+ $ConfirmacionMs" y esta comprobacion buscaba ese texto; ahora dice
 # "+ (Get-PlazoConfirmacion)", que es el calculo compartido con techo $ConfirmacionMs. El codigo
@@ -145,7 +164,14 @@ Comp 'y sin numeros a mano en el vencimiento' ($aManoV.Count -eq 0) "a mano=$($a
 # vivo, porque el plazo vencia ANTES de que la capsula pasara a 'confirmando' (la voz seguia
 # sonando). Mientras hable, el vencimiento tiene que empujarse a "fin de la voz + plazo".
 Comp 'mientras habla, el plazo NO corre (se empuja al fin de la voz)' ($trozoConf -match 'finVozC[\s\S]{0,300}\$script:pendiente\.vence = \$minimoC') ''
-Comp 'y el empuje va ANTES de decidir el plazo' (($trozoConf.IndexOf('$minimoC')) -lt ($trozoConf.IndexOf("Complete-Confirmacion 'plazo'"))) ''
+# Y LOS DOS TIENEN QUE ESTAR (30/09). Esto era un '-lt' pelado entre dos IndexOf, y cuando el
+# primero no se encontraba devolvia -1, que es MENOR QUE CUALQUIER indice valido: la comprobacion
+# pasaba en VERDE justo cuando habia dejado de ver lo que vigila. Es lo que llevaba pasando con la
+# ventana corta de arriba. Ahora se exige que los dos aparezcan, y luego el orden.
+$iEmpuje = $trozoConfCodigo.IndexOf('$minimoC')
+$iDecide = $trozoConfCodigo.IndexOf("Complete-Confirmacion 'plazo'")
+Comp 'el empuje y la decision del plazo estan los dos' (($iEmpuje -ge 0) -and ($iDecide -ge 0)) "empuje=$iEmpuje decide=$iDecide"
+Comp 'y el empuje va ANTES de decidir el plazo' (($iEmpuje -ge 0) -and ($iDecide -ge 0) -and ($iEmpuje -lt $iDecide)) "empuje=$iEmpuje decide=$iDecide"
 
 Write-Host ''
 if ($mal -gt 0) { Write-Host "$mal casos MAL" -ForegroundColor Red; exit 1 }

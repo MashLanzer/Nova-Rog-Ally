@@ -11,9 +11,38 @@ $raiz = Split-Path -Parent $PSScriptRoot
 $lista = Join-Path $raiz 'pruebas\destinos.txt'
 if (-not (Test-Path -LiteralPath $lista)) { Write-Host "falta $lista"; exit 1 }
 
+# LO QUE DEPENDE DE UNA CORRECCION QUE NOVA DURMIO (30/09). Nova poda sola la tabla del oido:
+# lo que no se ha oido en once dias de uso real se MUEVE a 'correccionesDormidas' del propio
+# commands.json, porque Repair-Words paga un regex por entrada en cada dictado (110 entradas son
+# 1,125 ms; 16 son 0,145). Veintiocho casos de esta lista dependian de una de esas, asi que el
+# banco se puso rojo el 30/09 SIN QUE NADIE TOCARA UNA LINEA DE CODIGO: su color lo decidia el
+# estado que Nova cambia sola, que es tan malo como salir verde sin merecerlo.
+# La marca '@si-corrige:<clave>' dice de que entrada depende el caso, y aqui se salta si esa
+# entrada esta dormida. Es reversible por los dos lados: si la clave se despierta, el caso vuelve
+# a probarse de verdad, y si se duerme otra, basta marcarla.
+# ESTA LA RESUELVE ESTE BANCO, no el -Probar del archivo real: assistant.ps1 no conoce la marca.
+$dormidas = @{}
+$conocidas = @{}
+$leiCommands = $false
+try {
+    $jc = Get-Content -LiteralPath (Join-Path $raiz 'commands.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($jc.PSObject.Properties['correccionesDormidas']) {
+        foreach ($pr in $jc.correccionesDormidas.PSObject.Properties) { $dormidas[$pr.Name] = $true; $conocidas[$pr.Name] = $true }
+    }
+    if ($jc.PSObject.Properties['correcciones']) {
+        foreach ($pr in $jc.correcciones.PSObject.Properties) { $conocidas[$pr.Name] = $true }
+    }
+    $leiCommands = $true
+} catch {
+    # SI NO SE PUEDE LEER, NO SE SALTA NADA: mejor rojo de mas que verde de menos.
+    Write-Host "  OJO  no pude leer commands.json; no salto ningun caso por correccion dormida" -ForegroundColor Yellow
+}
+
 $esperado = [ordered]@{}
 $conMarca = @{}
 $saltadas = @{}
+$sinCorreccion = [ordered]@{}
+$marcasMalas = 0
 foreach ($linea in (Get-Content -LiteralPath $lista -Encoding UTF8)) {
     $l = $linea.Trim()
     if (-not $l -or $l.StartsWith('#')) { continue }
@@ -24,6 +53,22 @@ foreach ($linea in (Get-Content -LiteralPath $lista -Encoding UTF8)) {
     # Steam. La marca '@si-tienes:<juego>' va al final del destino y la resuelve el
     # propio -Probar del archivo real, que es quien lee la biblioteca de verdad.
     $frD = $p[0].Trim(); $deD = $p[1].Trim()
+    # La de la correccion va PRIMERO porque en dos lineas van las dos juntas, y quitandola
+    # antes el '@si-tienes' vuelve a quedar al final, que es donde su regex lo busca.
+    $mCD = [regex]::Match($deD, '\s*@si-corrige:\s*(.+?)\s*$')
+    if ($mCD.Success) {
+        $claveCD = $mCD.Groups[1].Value.Trim()
+        $deD = $deD.Substring(0, $mCD.Index).Trim()
+        if ($dormidas.ContainsKey($claveCD)) { $sinCorreccion[$frD] = $claveCD }
+        # Y QUIEN VIGILA LA MARCA: una clave mal escrita aqui no existe en ninguna de las dos
+        # tablas, asi que nunca saltaria y nunca avisaria; el caso se quedaria probandose contra
+        # una correccion que nadie tiene y el dia que falle, el motivo estaria escondido en un
+        # typo. Con esto, equivocarse escribiendo la marca es rojo, no silencio.
+        elseif ($leiCommands -and -not $conocidas.ContainsKey($claveCD)) {
+            Write-Host ("  MAL  '@si-corrige:{0}' no existe en commands.json (ni viva ni dormida): {1}" -f $claveCD, $frD) -ForegroundColor Red
+            $marcasMalas++
+        }
+    }
     $mJD = [regex]::Match($deD, '\s*@si-tienes:\s*(.+)$')
     if ($mJD.Success) {
         $conMarca[$frD] = $frD + '   @si-tienes:' + $mJD.Groups[1].Value.Trim()
@@ -51,6 +96,10 @@ $fallos = 0
 foreach ($frase in $esperado.Keys) {
     if ($saltadas.ContainsKey($frase)) {
         Write-Host ("  SALTO {0,-31} (ese juego ya no esta instalado)" -f $frase) -ForegroundColor DarkGray
+        continue
+    }
+    if ($sinCorreccion.Contains($frase)) {
+        Write-Host ("  SALTO {0,-31} (Nova durmio '{1}': no se oyo en once dias)" -f $frase, $sinCorreccion[$frase]) -ForegroundColor DarkGray
         continue
     }
     $debe = $esperado[$frase]
@@ -91,5 +140,11 @@ foreach ($frase in $esperado.Keys) {
 }
 
 Write-Host ""
+# LO SALTADO SE DICE EN ALTO, y con el numero: un banco que se calla lo que no ha probado es un
+# banco que puede vaciarse solo, marca a marca, sin que el verde cambie nunca de color.
+if ($sinCorreccion.Count) {
+    Write-Host ("{0} casos SALTADOS porque su correccion esta dormida (de {1} en la lista). Despertarla en commands.json los vuelve a probar." -f $sinCorreccion.Count, $esperado.Count) -ForegroundColor DarkGray
+}
+$fallos += $marcasMalas
 if ($fallos) { Write-Host "$fallos casos MAL"; exit 1 }
 Write-Host "todo correcto"

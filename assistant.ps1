@@ -8681,7 +8681,7 @@ $CuarentenaSuelo = 10000        # menos que esto no da tiempo ni a oir la frase
 $CuarentenaTecho = 45000        # mas que esto es apostar a que Nova no muera antes
 $CuarentenaMinimas = 8          # hasta aqui, el de arranque
 $CorreccionTiemposJson = Join-Path $MemoriaDir 'correcciones-tiempos.json'
-$script:traduccionesCuarentena = New-Object System.Collections.ArrayList
+$script:traduccionesCuarentena = New-Object System.Collections.ArrayList
 # las que bajaron a disco sin que les tocara, porque Save-Traducciones escribe la tabla
 # entera: si luego se retiran, hay que reescribir el fichero (28/09, ver Flush-Cuarentena)
 $script:cuarentenaEnDisco = @{}
@@ -14720,7 +14720,7 @@ function Get-OidoConRuido {
 # seguridad (dos horas), por si el ruido va y viene.
 # Es la misma guarda de idempotencia que Test-ParteManana, aplicada a un aviso que se
 # rearmaba solo.
-$script:ruidoAvisado = $false     # ya se dijo en el episodio de ruido en curso
+$script:ruidoAvisado = $false     # ya se dijo en el episodio de ruido en curso
 $script:ruidoFrase = ''   # la frase elegida mientras el aviso del ruido siga aparcado (28/09)
 $script:ruidoLimpioDesde = 0      # desde cuando el oido esta limpio (0 = ahora mismo no lo esta)
 # Pura a proposito: recibe el estado y el reloj y no toca nada mas, para que el banco pueda
@@ -21804,7 +21804,14 @@ $TmpVivos = @(
     'escucha-pausa.flag', 'ganancia.txt', 'gestos.log', 'gestos.txt', 'guardar-audio.txt',
     'huellas-ram.txt', 'idioma-dictado.txt', 'invitado.json', 'juego-brillo.json', 'llamada-en-juego.txt',
     'lotengo.txt', 'lupa.png', 'mi-voz.json', 'ocr.txt', 'oido-cargando.txt',
-    'orden-escrita.txt', 'pantalla.png', 'rafagas.txt', 'reintentar.flag', 'reintento.txt',
+    'orden-escrita.txt', 'pantalla.png',
+    # pausas.txt ES DE wake_vosk.py, NO DE AQUI (30/09), y por eso se colo: esta lista se fue
+    # completando con lo que nombra assistant.ps1, y este lo escribe y lo lee el oido en Python
+    # (guardar_lista / cargar_lista, RUTA_PAUSAS, idea 74). Son los silencios que ha aprendido a
+    # esperar: si el barrido se lo lleva a los 7 dias, vuelve a aprenderlos desde cero. El banco
+    # de 2n183 lo canto en cuanto el fichero existio en disco, que es la tercera vez que esta
+    # lista a mano caduca sola.
+    'pausas.txt', 'rafagas.txt', 'reintentar.flag', 'reintento.txt',
     # red.json y relojes.json NACIERON DESPUES DE ESTA LISTA (28/09) y por eso faltaban: red.json
     # lo escribe la ronda de red y lo lee tambien el worker de la charla, y relojes.json guarda
     # cuando se hizo cada cosa por ultima vez. Los dos los nombra el codigo con su $TmpDir, los dos
@@ -24676,18 +24683,54 @@ $script:corpusUsoSello = ''
 
 # Todas las frases del uso real, en plano y en una sola cadena para poder buscar dentro.
 # Con cache por tamano, como Get-FalsasAlarmas: los dos ficheros solo crecen por el final.
+#
+# EL CORPUS NO SON SOLO LOS ONCE DIAS (30/09). Medido: de las 96 que esta poda durmio, DOS
+# -'sirra'->cierra y 'programan'->programas- se habian dicho de verdad, y se perdio la orden
+# "SIRRA, LOS PROGRAMAN" (cerrar los programas), que la seccion 3 del banco cazo bajando de 88 a 87.
+# La causa es el alcance del corpus: 'pruebas\audio\uso' empieza el 15/09, y
+# 'ordenes-que-funcionaban.txt' esta SACADO DEL LOG de antes de esa fecha (asi lo dice
+# pruebas\LEEME.md). O sea que el cero significaba "no en los once dias", no "nunca".
+# Por eso entra aqui, y SOLO ese: 'destinos.txt' y 'casos-nuevos.txt' se escriben a mano junto a
+# las correcciones, asi que usarlos seria preguntarle a la pieza que se prueba. Las otras 94 siguen
+# dormidas y el oido sigue costando 16 regex en vez de 110.
 function Get-CorpusUso([string]$dirUso = '') {
     if (-not $dirUso) { $dirUso = Join-Path $LogDir 'pruebas\audio\uso' }
     $rD = Join-Path $dirUso 'destinos.jsonl'
     $rR = Join-Path $dirUso 'registro.jsonl'
+    $rL = Join-Path $LogDir 'pruebas\ordenes-que-funcionaban.txt'
+    # Y LO QUE EL OIDO ENTIENDE DE SUS VEINTE GRABACIONES (30/09). Lo escribe
+    # tools\probar-audio.py cada vez que corre: es la voz de braya de verdad, transcrita por el
+    # mismo motor que usa Nova. Hasta hoy ese dato se recalculaba y se tiraba -'esperado.json'
+    # guarda lo que DIJO, no lo que se oyo-, asi que la poda durmio cuatro correcciones que salen
+    # justo ahi: 'si arra'->cierra, 'moldo'->modo, 'descacando'->descargando y 'medio de hora'->
+    # media hora. Son veinte lineas: no cuesta nada y cierra el agujero de raiz, porque sin esto
+    # despertarlas a mano no duraria ni un arranque.
+    $rG = Join-Path $dirUso 'oido-grabaciones.jsonl'
     $sello = ''
     try {
         $sello = $dirUso + '|' + $(if (Test-Path -LiteralPath $rD) { (Get-Item -LiteralPath $rD).Length } else { 0 }) +
-                 '|' + $(if (Test-Path -LiteralPath $rR) { (Get-Item -LiteralPath $rR).Length } else { 0 })
+                 '|' + $(if (Test-Path -LiteralPath $rR) { (Get-Item -LiteralPath $rR).Length } else { 0 }) +
+                 '|' + $(if (Test-Path -LiteralPath $rL) { (Get-Item -LiteralPath $rL).Length } else { 0 }) +
+                 '|' + $(if (Test-Path -LiteralPath $rG) { (Get-Item -LiteralPath $rG).Length } else { 0 })
     } catch { $sello = '' }
     if ($sello -and $sello -eq $script:corpusUsoSello -and $null -ne $script:corpusUsoCache) { return $script:corpusUsoCache }
     $frases = @{}
     $dias = @{}
+    # El log viejo, linea a linea: no es jsonl, es una frase por linea con comentarios y marcas.
+    # NO SUMA DIAS a proposito: la guarda de los 7 dias mide uso GRABADO, y esto es historico.
+    if (Test-Path -LiteralPath $rL) {
+        try {
+            foreach ($l in [System.IO.File]::ReadAllLines($rL, [System.Text.Encoding]::UTF8)) {
+                if (-not $l) { continue }
+                $t = $l.Trim()
+                if (-not $t -or $t.StartsWith('#')) { continue }
+                $t = ($t -replace '@si-tienes:.*$', '').Trim()
+                if ($t.Length -lt 2) { continue }
+                $pl = ConvertTo-Plain $t
+                if ($pl) { $frases[$pl] = $true }
+            }
+        } catch { }
+    }
     foreach ($r in @($rD, $rR)) {
         if (-not (Test-Path -LiteralPath $r)) { continue }
         try {
@@ -24706,6 +24749,26 @@ function Get-CorpusUso([string]$dirUso = '') {
                 }
             }
         } catch { continue }
+    }
+    # LAS VEINTE GRABACIONES, SIN SUMAR DIAS. Van aparte del bucle de arriba justo por eso: su 'id'
+    # lleva la fecha del dia que se corrio el banco y casaria con el mismo regex, metiendo dias que
+    # NO son de uso real en la guarda de los siete. Un corpus de banco no puede dar permiso para
+    # podar: el permiso lo dan los dias que braya hablo de verdad.
+    if (Test-Path -LiteralPath $rG) {
+        try {
+            foreach ($l in [System.IO.File]::ReadAllLines($rG, [System.Text.Encoding]::UTF8)) {
+                if (-not $l -or $l.Length -lt 10) { continue }
+                $o = $null
+                try { $o = $l | ConvertFrom-Json } catch { continue }
+                foreach ($c in @('texto', 'frase')) {
+                    $v = ''
+                    try { $v = [string]$o.$c } catch { $v = '' }
+                    if (-not $v -or $v.Trim().Length -lt 2) { continue }
+                    $pl = ConvertTo-Plain $v
+                    if ($pl) { $frases[$pl] = $true }
+                }
+            }
+        } catch { }
     }
     $res = @{ texto = (' || ' + (@($frases.Keys) -join ' || ') + ' || '); frases = $frases.Count; dias = $dias.Count }
     if ($sello) { $script:corpusUsoSello = $sello; $script:corpusUsoCache = $res }
@@ -26255,6 +26318,16 @@ $AcelUmbralMin = 0.02           # suelo: por debajo de esto es ruido en cualquie
 # contador la machacaba, dejando el minimo en 1: un golpe en la mesa contaba como braya.
 # Lo cazo el banco de esta idea. Nombres distintos a proposito.
 $AcelRachaMin = 2               # lecturas seguidas para llamarlo movimiento
+# LO QUE CUENTA COMO "LECTURA LENTA", EN UN SOLO SITIO (30/09). Este numero ya estaba escrito a
+# pelo dentro de Watch-Acelerometro para la primera lectura, y ahora lo usan las dos guardas: la
+# de la primera y la de todas las demas. Escrito dos veces se separarian el dia que alguien tocara
+# una, que es la manera 4 de salir verde mintiendo.
+# NO ES UN NUMERO QUE NOVA DEBA AJUSTAR: es el corte entre "el sensor responde" y "el sensor tarda
+# cinco segundos", y entre esas dos cosas no hay medio camino que aprender. En la Ally la lectura
+# buena tarda menos de 10 ms y la mala 5.015: cualquier corte entre medias vale igual.
+$AcelLecturaLentaMs = 150
+$AcelLentasMax = 2              # lentas o vacias SEGUIDAS antes de apagarlo; con 2 ya van 10 s
+$script:acelLentas = 0
 $script:acelMagAntes = 0.0
 $script:acelDeltas = New-Object System.Collections.ArrayList
 $script:acelRacha = 0
@@ -26463,15 +26536,36 @@ function Watch-Acelerometro {
             try { $script:acelerometro.ReportInterval = [Math]::Max(100, $script:acelerometro.MinimumReportInterval) } catch {}
             $t = [System.Diagnostics.Stopwatch]::StartNew()
             $r0 = $script:acelerometro.GetCurrentReading()
-            if ($t.ElapsedMilliseconds -gt 150 -or -not $r0) {
+            if ($t.ElapsedMilliseconds -gt $AcelLecturaLentaMs -or -not $r0) {
                 Log ("acelerometro: sin lecturas utiles (" + $t.ElapsedMilliseconds + " ms, nulo=" + ($null -eq $r0) + "); desactivado")
                 $script:acelerometro = $null
                 return
             }
             Log "acelerometro: lecturas OK"
         }
+        # Y LA GUARDA VALE PARA TODAS, NO SOLO PARA LA PRIMERA (30/09). Medido en esta consola con
+        # el banco de 2n236: la primera lectura pasa -"lecturas OK"- y las VEINTE siguientes tardan
+        # 5.015 ms de media y devuelven null, o sea exactamente el fallo que este comentario
+        # describe, pero por la puerta que la guarda no miraba. Se colaba entero: el 'if (-not $r)
+        # { return }' se lo tragaba en silencio, sin un delta y sin una linea de log, y el bucle se
+        # comia CINCO SEGUNDOS por vuelta. Es la misma forma del 41 -algo que cuesta lo que nadie
+        # midio porque nadie lo estaba mirando-.
+        # NO SE APAGA POR UN HIPO: hace falta una racha, porque una lectura lenta suelta puede ser
+        # el sistema ocupado y apagar el sensor es para siempre. Con dos seguidas ya van 10 s
+        # perdidos, asi que la racha es corta a proposito.
+        $tL = [System.Diagnostics.Stopwatch]::StartNew()
         $r = $script:acelerometro.GetCurrentReading()
-        if (-not $r) { return }
+        $tL.Stop()
+        if ($tL.ElapsedMilliseconds -gt $AcelLecturaLentaMs -or -not $r) {
+            $script:acelLentas++
+            if ($script:acelLentas -ge $AcelLentasMax) {
+                Log ("acelerometro: " + $script:acelLentas + " lecturas seguidas lentas o vacias (la ultima, " +
+                     $tL.ElapsedMilliseconds + " ms, nulo=" + ($null -eq $r) + "); desactivado para no frenar el bucle")
+                $script:acelerometro = $null
+            }
+            return
+        }
+        $script:acelLentas = 0
         $mag = [Math]::Sqrt($r.AccelerationX * $r.AccelerationX + $r.AccelerationY * $r.AccelerationY + $r.AccelerationZ * $r.AccelerationZ)
         # ¿SE ESTA MOVIENDO? (idea 83). Ver EL MOVIMIENTO, ADEMAS DEL SOBRESALTO.
         if ($script:acelMagAntes -gt 0) {
