@@ -2119,6 +2119,16 @@ Titulo "2n279. Los bancos de Python que se rendian por el interprete"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n304. El aviso que nunca sirve se ve y no se oye (idea 9 de las 20 nuevas)"
+# El freno de la espera YA EXISTIA (Get-EsperaAviso, 25/09) y funciona; lo medido el 1/10 es que casi
+# nunca llega a activarse, porque pide OCHO reacciones por clave y solo DOS de dieciseis llegan. Dos
+# cambios, ninguno toca el freno: (a) CERO DE CINCO ya es senal -con tasa real del 30 % la
+# probabilidad de cero aciertos es 0,7^5 = 17 %, mientras con cuatro es el 24 %-, solo para el cero
+# EXACTO; y (b) el que no ha servido JAMAS en ocho se baja a nivel 'bajo', que ya significa "solo se
+# ve en la capsula". Lo critico ('alto') y 'noche' no se bajan nunca.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-aviso-que-no-sirve.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se ve y no se oye)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n303. Tres dictados vacios seguidos son una averia (idea 8 de las 20 nuevas)"
 # Un vacio suelto es normal -braya pulsa el boton y no dice nada: 10 en 609 ordenes- y ya estaba
 # bien tratado: no cuenta como fallo de oido ni entra en la cuenta de la meta. Lo que faltaba es que

@@ -43,7 +43,7 @@ $script:ahoraMs = 600000
 $sw = [pscustomobject]@{}
 $sw | Add-Member -MemberType ScriptProperty -Name ElapsedMilliseconds -Value { $script:ahoraMs }
 $script:entornoVistos = @{}
-$script:entornoAvisos = New-Object System.Collections.ArrayList
+$script:entornoAvisos = New-Object System.Collections.ArrayList
 # LA LISTA DE AVISOS EN OBSERVACION (27/09, idea 91): antes era UNA variable a $null y ahora es
 # una lista a la que Send-AvisoEntorno le hace .Add(). Sin este doble el banco revienta con "no
 # se puede llamar a un metodo en una expresion con valor NULL".
@@ -100,7 +100,12 @@ function Get-EntornoVistos { return $script:entornoVistos }
 function Get-SueloPorAnimo([int]$suelo) { return $suelo }
 # EL FRENO DE VERDAD, sacado del archivo: es quien lee $script:entornoAvisos, y por eso este
 # banco lo trae en vez de doblarlo. Sin el, el caso del turno no probaria nada.
-foreach ($f in @('Test-CabeOtroAviso', 'Test-PuedoAvisar', 'Send-AvisoEntorno')) { Invoke-Expression (Traer $f) }
+# Get-NivelAviso y Get-ReaccionesAviso entran desde el 1/10 (idea 9): Send-AvisoEntorno decide el
+# nivel en su primera linea, asi que sin ellas este banco se rompe con un CommandNotFoundException.
+# Se traen de verdad en vez de doblarlas: doblar justo la pieza que decide el nivel seria la manera
+# 15, y este banco va de niveles.
+$AvisoReaccionMin = 8; $AvisoReaccionCeroMin = 5; $AvisoMudoCeros = 8; $AvisoEsperaTope = 6
+foreach ($f in @('Get-ReaccionesAviso', 'Get-NivelAviso', 'Test-CabeOtroAviso', 'Test-PuedoAvisar', 'Send-AvisoEntorno')) { Invoke-Expression (Traer $f) }
 
 function Limpia {
     $script:entornoVistos = @{}

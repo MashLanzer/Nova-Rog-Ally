@@ -13528,8 +13528,55 @@ function Seed-ReaccionesAviso {
     } catch { Log ('siembra de reacciones: ' + $_.Exception.Message); return $false }
 }
 $AvisoReaccionMin = 8
+# CERO DE CINCO YA ES SEÑAL (1/10/2026, idea 9 de las 20 nuevas).
+#
+# El freno de abajo pide OCHO reacciones por clave, y medido el 1/10 solo DOS de dieciseis claves
+# llegan: 'oido-ruido' (36) y 'hora-dormir' (12). Las otras catorce no frenan nunca, y entre ellas
+# estan las que NO HAN SERVIDO NI UNA VEZ:
+#
+#     disco-poco      0 de 4      (y aparcado 842 veces en el registro)
+#     gmail-lleno     0 de 3      (aparcado 1.652 veces)
+#     cargador-pone   0 de 1
+#     bateria-llena   0 de 1
+#
+# Esperar a ocho para algo que lleva CERO de cuatro es esperar por esperar. Y el numero no es a
+# dedo: si la tasa real fuera el 30 % -el liston de "aporta" de Get-EsperaAviso-, la probabilidad
+# de sacar cero aciertos seguidos es 0,7^N; con cuatro es el 24 % (todavia puede ser mala suerte),
+# con CINCO baja al 17 % y con seis al 12 %. Cinco es donde el cero deja de ser casualidad.
+#
+# SOLO PARA EL CERO EXACTO: con 1 de 5 la señal es floja y manda el listón de ocho, como siempre.
+$AvisoReaccionCeroMin = 5
 # El tope, en horas: ni con cien avisos seguidos sin reaccion se calla del todo.
 $AvisoEsperaTope = 6
+# Y EL QUE NO SIRVE NUNCA SE BAJA A LA CAPSULA (1/10, idea 9 de las 20 nuevas).
+#
+# Alargar la espera tiene un tope de seis horas a proposito -"ni con cien avisos seguidos sin
+# reaccion se calla del todo"-, asi que un aviso que no ha servido JAMAS sigue sonando cuatro veces
+# al dia para siempre. Bajarlo de nivel es mejor que callarlo: el nivel 'bajo' ya existe y significa
+# "solo se ve en la capsula, no suena" (ver el comentario de los niveles mas arriba), asi que el
+# dato sigue llegando y deja de interrumpir. Si algun dia sirve, vuelve a subir solo.
+#
+# HACEN FALTA MAS MUESTRAS QUE PARA ALARGAR LA ESPERA: alargar es reversible en una tarde; bajar de
+# nivel cambia COMO se entera braya, y eso merece estar mas seguro. Con 0,7^8 = 5,7 % de que sea
+# mala suerte, ocho ceros seguidos ya no son mala suerte.
+$AvisoMudoCeros = 8
+# EL AVISO QUE NO HA SERVIDO JAMAS SE BAJA A LA CAPSULA (1/10, idea 9 de las 20 nuevas).
+#
+# Devuelve el nivel que de verdad toca. Ver $AvisoMudoCeros para el numero y el motivo.
+# LO CRITICO NO SE TOCA NUNCA: 'alto' se salta todos los filtros de la casa a proposito -es lo que
+# hace que un aviso critico sea critico- y bajarlo seria romper eso por una estadistica. 'noche'
+# tampoco: ese nivel no habla de urgencia, habla de CUANDO se puede decir (es el unico que se salta
+# el silencio nocturno), asi que bajarlo lo dejaria sin su unica ventana.
+function Get-NivelAviso([string]$clave, [string]$nivel) {
+    if ($nivel -eq 'alto' -or $nivel -eq 'noche' -or $nivel -eq 'bajo') { return $nivel }
+    $r = @(Get-ReaccionesAviso $clave)
+    if ($r.Count -lt [Math]::Max(1, [int]$AvisoMudoCeros)) { return $nivel }
+    if (@($r | Where-Object { $_ }).Count -gt 0) { return $nivel }   # si sirvio alguna vez, sigue sonando
+    Log "AVISO A LA CAPSULA: '$clave' no me ha servido ni una vez en $($r.Count); lo dejo en la pantalla y no lo digo"
+    Add-Estadistica 'aviso-a-capsula' $clave
+    return 'bajo'
+}
+
 function Get-ReaccionesAviso([string]$clave) {
     # Lo apuntado hasta hoy para esta clave, como lista de si/no. Sale de las estadisticas de
     # siempre (dos contadores), no de un fichero nuevo.
@@ -13553,8 +13600,14 @@ function Get-EsperaAviso([string]$clave, [int]$base) {
     # 0 -NaN-, ningun -ge ni -lt casaria, y la espera acabaria siendo Min($base*2, 0) = CERO:
     # o sea que el aviso se repetiria sin descanso, justo lo contrario de lo que hace esta
     # funcion. Lo cazo un banco al traer esta funcion sin sus constantes.
-    if ($r.Count -lt [Math]::Max(1, [int]$AvisoReaccionMin)) { return $base }
     $si = @($r | Where-Object { $_ }).Count
+    # CERO DE CINCO YA ES SEÑAL (1/10, idea 9): con el liston de ocho, catorce de las dieciseis
+    # claves medidas no frenaban NUNCA, incluidas 'disco-poco' (0 de 4) y 'gmail-lleno' (0 de 3),
+    # que no han servido ni una vez. Ver $AvisoReaccionCeroMin para de donde sale el cinco.
+    # Y SOLO PARA EL CERO EXACTO: con 1 de 5 la señal es floja y manda el liston de siempre.
+    $minAqui = [Math]::Max(1, [int]$AvisoReaccionMin)
+    if ($si -eq 0 -and $r.Count -ge [Math]::Max(1, [int]$AvisoReaccionCeroMin)) { $minAqui = $r.Count }
+    if ($r.Count -lt $minAqui) { return $base }
     $tasa = $si / [double]$r.Count
     # UNO DE CADA TRES YA ES SERVIR: con 32 avisos y 2 reacciones (6 %) no hay duda, pero con
     # un tercio la senal es floja y no se toca nada.
@@ -14832,6 +14885,11 @@ function Send-AvisoEsperaSuelta([datetime]$ahora = (Get-Date), [bool]$soloCaduca
 # Avisa de algo. Devuelve $true si el aviso pasa el filtro (los normales se dicen unos
 # segundos despues, ver la idea 23 aqui arriba).
 function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'medio', [int]$cadaMin = 60, [bool]$yaEsperado = $false) {
+    # EL QUE NO HA SERVIDO JAMAS SE VE Y NO SE OYE (1/10, idea 9 de las 20 nuevas). Va en la PRIMERA
+    # linea de la funcion y no dentro de Test-PuedoAvisar, porque el nivel manda en mas sitios que
+    # ese filtro -el aplazado, la tarjeta, el tope por hora- y decidirlo en un solo punto es lo que
+    # evita que la mitad del camino crea que es 'medio' y la otra mitad que es 'bajo'.
+    $nivel = Get-NivelAviso $clave $nivel
     # SI NO HAY NADIE, SE GUARDA PARA CUANDO VUELVA (23/09, idea 20). Y va ARRIBA DEL TODO,
     # delante de Test-PuedoAvisar, a proposito: aqui NO se marca $script:entornoVistos ni se
     # gasta una plaza del tope por hora. Si se marcara, Nova se callaria el aviso Y ademas lo
