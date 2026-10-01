@@ -2119,6 +2119,16 @@ Titulo "2n279. Los bancos de Python que se rendian por el interprete"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n293. Preguntarle otras cosas a Steam, sin pisar a los amigos (funciones 14 y 15)"
+# LO QUE DEFIENDE: que estas preguntas NO pisen la vigilancia de amigos. El canal de red de Steam es
+# UNO y lo usaba Watch-AmigoConecta, que funciona; el acuerdo es que una variable dice de quien es la
+# respuesta, lo coge quien llega primero y nadie recoge lo que no ha pedido. Si eso se rompe, la
+# vigilancia se queda muda sin que nadie lo note.
+# Y las dos mitades medidas: GetPlayerAchievements da 403 (perfil privado) asi que no se pueden saber
+# los logros CONSEGUIDOS; los porcentajes globales si, o sea cuales son los mas faciles del juego.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-steam-pregunta.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:sin pisar la vigilancia de amigos)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n292. El reloj del reembolso (funcion 11 de las 20, la mitad que se puede)"
 # Steam devuelve con menos de DOS HORAS y menos de CATORCE DIAS desde la compra. MEDIDO: la fecha de
 # compra NO existe donde Nova pueda verla -PurchaseTime, Licenses y rt_purchase dan cero en

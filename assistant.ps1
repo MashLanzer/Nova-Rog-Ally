@@ -268,7 +268,19 @@ function Log([string]$msg) {
     # IDEA 72: lo ultimo que Nova apunto, para que 'me quede sorda 1,4 s' pueda decir HACIENDO
     # QUE. Va aqui porque Log es el embudo por el que pasa todo lo que hace, y cuesta una
     # asignacion de cadena; poner la etiqueta a mano en cincuenta sitios se habria quedado viejo.
-    if ($msg) { $script:ultimoLog = if ($msg.Length -gt 80) { $msg.Substring(0, 80) } else { $msg } }
+    # PERO EL MEDIDOR NO PUEDE SER SU PROPIA CAUSA (1/10, y era un bucle que se alimentaba solo).
+    # MEDIDO en una sesion de 40 min: 1.015 lineas SORDA, y las largas decian
+    #   "SORDA 12.22 s en una vuelta (...): SORDA 0.14 s en una vuelta (...): SORDA 0.16 s..."
+    # o sea que el "haciendo QUE" era la linea SORDA ANTERIOR. Cada una se metia dentro de la
+    # siguiente, las lineas crecian concatenandose, y escribir lineas cada vez mas largas al log
+    # es lo que tardaba: aparecieron vueltas de 12,2 / 12,88 / 13,32 / 18,18 segundos, justo lo
+    # que esta linea existe para detectar. El medidor volvia a comerse el pulso que mide, como ya
+    # paso el 27/09 con su p99.
+    # SE FILTRA EN EL EMBUDO y no en quien escribe: asi vale para SORDA, para LENTA y para
+    # cualquier otra linea del medidor que se anada manana.
+    if ($msg -and $msg -notmatch '^(?:SORDA|LENTA:)') {
+        $script:ultimoLog = if ($msg.Length -gt 80) { $msg.Substring(0, 80) } else { $msg }
+    }
     # IDEA 76: y si esta linea se esta repitiendo, se cuenta. Sin llamar a nada (ver LA MISMA
     # QUEJA VEINTISIETE VECES): dentro de Log una llamada que a su vez escriba seria recursion.
     if ($msg) { try { Add-LogRepe $msg $sw.ElapsedMilliseconds } catch {} }
@@ -6461,6 +6473,18 @@ function Resolve-Fragment([string]$f) {
     # "pon el perfil turbo", "pon el rendimiento al maximo", "que perfil de energia tengo".
     # Se dice PERFIL y no MODO a proposito: 'modo ahorro' y los demas modos de la casa son otra cosa
     # y pisarlos seria cambiar lo que braya ya tiene aprendido.
+    # --- VA BIEN EN LA ALLY? y QUE LOGRO ES EL MAS FACIL (1/10, las 15 y 14 de las 20) ---
+    if ($f -match '^(?:va|funciona|tira|corre)\s+bien\s+(.+?)\s+en\s+(?:la\s+)?(?:ally|consola|portatil)$' -or
+        $f -match '^(?:esta\s+)?verificado\s+(.+)$' -or
+        $f -match '^(?:como\s+va|que\s+tal\s+va)\s+(.+?)\s+en\s+(?:la\s+)?(?:ally|consola|portatil)$') {
+        return @(@{ kind = 'steamPregunta'; que = 'deck'; juego = $Matches[1].Trim(); desc = 'si ese juego va bien en portatil' })
+    }
+    if ($f -match '^(?:que|cual)\s+logro\s+(?:es\s+)?(?:el\s+)?mas\s+facil(?:\s+(?:de|en)\s+(.+))?$' -or
+        $f -match '^(?:que|cuantos)\s+logros\s+(?:tiene|hay\s+en)\s+(.+)$' -or
+        $f -match '^logros\s+(?:faciles|mas\s+faciles)(?:\s+(?:de|en)\s+(.+))?$') {
+        $jL = if ($Matches.Count -gt 1 -and $Matches[1]) { $Matches[1].Trim() } else { '' }
+        return @(@{ kind = 'steamPregunta'; que = 'logros'; juego = $jL; desc = 'los logros mas faciles' })
+    }
     # --- EL RELOJ DEL REEMBOLSO (1/10, la 11 de las 20) ---
     # "puedo devolver elden ring", "cuanto llevo jugado a X", "me lo devuelven todavia".
     if ($f -match '^(?:puedo|podria)\s+(?:todavia\s+)?devolver\s+(.+)$' -or
@@ -20565,6 +20589,25 @@ function Invoke-FastCommand([string]$text) {
                     $a.desc = Get-FraseAutonomia ([string]$a.juego)
                     $a.hecho = $true
                 }
+                # LAS DOS PREGUNTAS A STEAM (1/10, las 14 y 15 de las 20). La respuesta llega
+                # asincrona: aqui solo se pide y se dice que se esta preguntando. Sin juego dicho,
+                # se usa el que esta delante, que es lo que braya querra el 90 % de las veces.
+                'steamPregunta' {
+                    $jS = [string]$a.juego
+                    if (-not $jS -and $script:juegoActivo) { $jS = [string]$script:juegoActivo }
+                    if (-not $jS) {
+                        $a.desc = 'Dime de que juego, que no hay ninguno abierto.'
+                    } else {
+                        $idS = Get-AppIdDeJuego $jS
+                        if (-not $idS.id) {
+                            $a.desc = "No encuentro $jS entre tus juegos instalados."
+                        } else {
+                            $rS = Start-SteamPregunta ([string]$a.que) ([string]$idS.id) ([string]$idS.nombre)
+                            $a.desc = if ($rS) { $rS } else { 'Un momento, que le pregunto a Steam.' }
+                        }
+                    }
+                    $a.hecho = $true
+                }
                 # EL RELOJ DEL REEMBOLSO (1/10, la 11 de las 20). Solo la mitad de las horas: la
                 # fecha de compra no existe en ningun sitio accesible, y se dice.
                 'reembolso' {
@@ -27317,6 +27360,112 @@ function Write-NotaSemanal {
         [System.IO.File]::WriteAllText($ruta, $sb.ToString(), (New-Object System.Text.UTF8Encoding($false)))
         Log "nota semanal escrita: $ruta"
     } catch { Log ("nota semanal: " + $_.Exception.Message) }
+}
+
+# =====================================================================
+# PREGUNTARLE OTRAS COSAS A STEAM, SIN PISAR A LOS AMIGOS (1/10, funciones 14 y 15 de las 20)
+# =====================================================================
+# EL CANAL DE RED DE STEAM ES UNO SOLO: $script:steamTask, y Start-SteamAsync se va en su primera
+# linea si ya hay una peticion en vuelo. Lo usa la vigilancia de amigos, que FUNCIONA, y lo ultimo
+# que conviene hacer es meter mano ahi de cualquier manera.
+# ASI QUE SE RESPETA SU PROTOCOLO, que ya estaba inventado: una variable propia dice de quien es la
+# respuesta que viene ($script:amigoPide para los amigos, $script:steamPide para esto), el canal lo
+# coge quien llega primero, y NADIE recoge una respuesta que no ha pedido. Si el canal esta ocupado,
+# estas preguntas lo dicen y no insisten: son preguntas de braya, no vigilancias, y un segundo de
+# espera se nota menos que una vigilancia muda.
+$script:steamPide = $null
+
+function Start-SteamPregunta([string]$que, [string]$appid, [string]$comoSeLlama) {
+    if ($script:amigoPide -or $script:steamPide -or $script:steamTask) {
+        return 'Estoy preguntandole otra cosa a Steam, dame un segundo y repitelo.'
+    }
+    $url = switch ($que) {
+        # NI CLAVE NI STEAMID: estos dos endpoints son del juego, no tuyos, asi que no hay nada que
+        # tapar en el registro ni nada privado que viaje.
+        'deck'   { 'https://store.steampowered.com/saleaction/ajaxgetdeckappcompatibilityreport?nAppID=' + $appid + '&l=spanish' }
+        'logros' { 'https://api.steampowered.com/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/?gameid=' + $appid }
+        default  { '' }
+    }
+    if (-not $url) { return 'No se preguntarle eso a Steam.' }
+    if (-not (Start-SteamAsync $url)) { return 'No he podido preguntarle a Steam.' }
+    $script:steamPide = @{ que = $que; appid = [string]$appid; juego = [string]$comoSeLlama
+                           en = $sw.ElapsedMilliseconds }
+    return ''      # vacio = la respuesta se dice cuando llegue, no ahora
+}
+
+# Una vuelta del bucle = un IsCompleted, cero espera. Y NO toca el canal si la respuesta que viene
+# es de los amigos: ese es el acuerdo que hace que los dos puedan compartirlo.
+function Receive-SteamPregunta {
+    if (-not $script:steamPide) { return }
+    if ($script:amigoPide) { return }
+    if (($sw.ElapsedMilliseconds - [double]$script:steamPide.en) -gt $AmigoRedMs) {
+        $script:steamPide = $null
+        try { [void](Complete-SteamAsync) } catch {}
+        Say 'Steam no me ha contestado.'
+        return
+    }
+    $json = Complete-SteamAsync
+    if (-not $json) { return }
+    $pide = $script:steamPide
+    $script:steamPide = $null
+    $o = $null
+    try { $o = $json | ConvertFrom-Json } catch { $o = $null }
+    if (-not $o) { Say 'Steam me ha contestado algo que no entiendo.'; return }
+    if ($pide.que -eq 'deck') { Say (Format-DeckVerified $o ([string]$pide.juego)); return }
+    if ($pide.que -eq 'logros') { Say (Format-LogrosFaciles $o ([string]$pide.juego)); return }
+}
+
+# ¿ESTE JUEGO VA BIEN EN LA ALLY? (1/10, la 15 de las 20)
+# Las categorias de Steam para portatiles: 0 sin probar, 1 no soportado, 2 jugable, 3 verificado.
+# MEDIDO al escribirla: Black Myth: Wukong sale 1, "no soportado", con sus 139,57 GB instalados.
+function Format-DeckVerified($o, [string]$juego) {
+    # "NO HAY CATEGORIA" NO ES "CATEGORIA 0" (1/10, lo cazo su banco). '[int]$null' vale 0, asi que
+    # una respuesta sin el campo caia en la rama de "todavia no le han hecho la prueba", que es una
+    # afirmacion sobre Valve. Son dos cosas distintas: una es que Steam no me contesto.
+    $cat = -1
+    try {
+        $v = $o.results.resolved_category
+        if ($null -ne $v -and "$v" -ne '') { $cat = [int]$v }
+    } catch { $cat = -1 }
+    $comoSeLlama = if ($juego) { $juego } else { 'ese juego' }
+    switch ($cat) {
+        3 { return $comoSeLlama + ' esta verificado para portatiles: mandos y letra pensados para una pantalla asi.' }
+        2 { return $comoSeLlama + ' es jugable en portatil, pero con pegas: suele ser texto pequeno o que hay que tocar algo a mano.' }
+        1 { return $comoSeLlama + ' sale como NO soportado en portatiles. Puede tirar igual, pero Valve avisa de que algo no va bien.' }
+        0 { return 'A ' + $comoSeLlama + ' todavia no le han hecho la prueba de portatiles.' }
+        default { return 'Steam no me dice como va ' + $comoSeLlama + ' en portatil.' }
+    }
+}
+
+# QUE LOGRO ES EL MAS FACIL (1/10, la 14 de las 20) — LA MITAD QUE SE PUEDE
+# LO QUE NO SE PUEDE, medido: GetPlayerAchievements devuelve 403 porque el perfil de Steam de braya
+# esta PRIVADO, asi que Nova no puede saber cuales tiene ya. Lo que si responde sin permisos es el
+# porcentaje GLOBAL de cada logro, o sea cual tiene mas gente: ese es el atajo de verdad para quien
+# persigue el 100 %, y es informacion util aunque no sepamos cuales le faltan a el.
+# Y SE DICE QUE NO SE SABEN LOS SUYOS: si no, pareceria que le esta recomendando los que le quedan.
+function Format-LogrosFaciles($o, [string]$juego) {
+    $l = @()
+    try { $l = @($o.achievementpercentages.achievements) } catch {}
+    if ($l.Count -eq 0) { return 'Ese juego no tiene logros, o Steam no me los da.' }
+    $comoSeLlama = if ($juego) { $juego } else { 'ese juego' }
+    $faciles = @($l | Sort-Object -Property @{ Expression = { [double]$_.percent }; Descending = $true } | Select-Object -First 3)
+    $t = $comoSeLlama + ' tiene ' + $l.Count + ' logros. Los que mas gente consigue: '
+    $t += (($faciles | ForEach-Object { [string]$_.name + ' (el ' + [Math]::Round([double]$_.percent, 0) + ' por ciento)' }) -join ', ')
+    $t += '. No se cuales tienes tu: tu perfil de Steam esta en privado y no me deja verlos.'
+    return $t
+}
+
+# El appid de un juego por su nombre, del indice que Nova ya tiene del disco.
+function Get-AppIdDeJuego([string]$juego) {
+    if (-not $juego) { return @{ id = ''; nombre = '' } }
+    $q = (ConvertTo-Plain $juego) -replace '[^a-z0-9]', ''
+    if ($q.Length -lt 3) { return @{ id = ''; nombre = '' } }
+    foreach ($j in @($script:Juegos)) {
+        if (-not $j.appid) { continue }
+        $c = (ConvertTo-Plain ([string]$j.nombre)) -replace '[^a-z0-9]', ''
+        if ($c -eq $q -or $c.StartsWith($q)) { return @{ id = [string]$j.appid; nombre = [string]$j.nombre } }
+    }
+    return @{ id = ''; nombre = '' }
 }
 
 # =====================================================================
@@ -37992,6 +38141,10 @@ while ($true) {
     # LA RESPUESTA DE STEAM, SI YA LLEGO: un IsCompleted, cero espera. Va fuera de
     # Watch-AmigoConecta a proposito, porque esa se va en su primera linea cuando no hay
     # ninguna vigilancia armada, y esto pasa justo ANTES de que haya una.
+    # LAS PREGUNTAS SUELTAS A STEAM (1/10, las 14 y 15 de las 20), ANTES que las de los amigos y
+    # saliendose solas si la respuesta que viene es de ellos: el canal es uno y el acuerdo es que
+    # nadie recoge lo que no ha pedido.
+    try { Receive-SteamPregunta } catch { Log ("steam: " + ($_.Exception.Message -replace 'key=[^&\s]+', 'key=***')) }
     try { Receive-AmigoPregunta } catch { Log ("amigos: " + ($_.Exception.Message -replace 'key=[^&\s]+', 'key=***')) }
     try { Watch-AmigoConecta } catch { Log ("amigos: " + ($_.Exception.Message -replace 'key=[^&\s]+', 'key=***')) }
 
