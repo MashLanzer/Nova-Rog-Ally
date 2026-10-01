@@ -1,0 +1,213 @@
+# Veinte funciones nuevas para el uso diario — 30/09/2026
+
+Las 121 ideas de autonomía iban de que Nova **se porte** mejor. Estas van de que **haga cosas
+nuevas** que braya use a diario. Es la primera tanda de funciones desde que lo pidió, así que la
+regla de pulir-antes-que-añadir no aplica aquí: lo dijo él.
+
+**Todas están comprobadas contra el código antes de proponerlas.** Cada una lleva su cuenta de
+ocurrencias en `assistant.ps1` (0 = no existe nada). No hay ninguna que ya esté hecha con otro
+nombre, y no se repite nada de lo descartado con dato en `IDEAS-ESTADO-2026-09-25.md`.
+
+Los datos de la consola el 30/09, que es lo que ordena la lista:
+
+| | |
+|---|---|
+| Disco C: | **27 GB libres de 476** |
+| Juegos indexados | 21 |
+| RAM que ve Windows | 11,70 GB |
+| Batería | la de una Ally, y se juega enchufado y sin enchufar |
+
+---
+
+## A. Las que atacan algo que le pasa HOY
+
+### 1. La copia de la partida guardada, antes de jugar
+`copia.*partida|respaldo.*save` → **0 ocurrencias**
+
+Antes de abrir un juego, copiar su carpeta de guardado a `copias\saves\<juego>\<fecha>`. Si una
+partida se corrompe o un parche la rompe, hay vuelta atrás. Hoy no hay ninguna: lo único que se
+respalda es lo que Nova aprende, no lo que braya juega.
+
+**Reutiliza** todo lo que ya existe: `Enter-Juego` ya sabe cuándo empieza una partida, y la copia
+del día ya sabe comprimir y rotar. **Coste: bajo.**
+
+### 2. Qué libera borrar cada juego, y cuál sobra
+`liberar.*espacio|cuanto libera` → **0**
+
+Con 27 GB de 476, esto es la función más pertinente de la lista. Que diga "si borras X recuperas
+Y GB, y no lo tocas desde hace Z días" — cruzando el tamaño en disco con lo que ya mide de tiempo
+jugado. Decidir qué borrar es una pregunta que se hace de verdad cuando quedan 27 GB.
+
+**Reutiliza** el índice de Steam, `juegos.json` y los tiempos de juego. **Coste: bajo.**
+
+### 3. Mover un juego a otro disco, hablando
+`mover.*juego|mover.*disco` → **1** (una mención, sin función)
+
+"Mueve Elden Ring al disco de fuera". Steam lo soporta por biblioteca; hoy hay que hacerlo a mano
+por la interfaz. **Coste: medio** (hay que tocar las carpetas de biblioteca de Steam con cuidado).
+
+### 4. Cuánto durará la batería con ESTE juego
+`autonomia|durara la bateria` → **0**
+
+Nova ya sabe el porcentaje. Lo que no sabe es **cuánto dura**, y eso depende brutalmente del juego.
+Midiendo el gasto por minuto **por juego** puede decir "con Elden Ring te quedan 70 minutos; con
+Unravel Two, dos horas". Es un número que solo se puede aprender midiendo, que es como hace todo lo
+demás.
+
+**Reutiliza** el medidor de batería y `Enter-Juego`. **Coste: bajo**, y mejora con el uso.
+
+### 5. El perfil de energía por juego
+`TDP|watts|vatios` → **0**
+
+En una Ally el TDP manda más que los gráficos: a 15 W un indie va perfecto y a 25 W la batería dura
+la mitad. Que Nova recuerde con qué perfil juega cada juego y lo ponga al abrirlo. Hoy no hay nada
+de energía por vatios, solo el modo ahorro global.
+
+**Coste: medio** (hay que ver si el TDP se toca por software en este modelo; si no se puede, se queda
+en avisar, y eso se mide antes de prometerlo).
+
+### 6. La batería del mando
+`mando.*bateria|bateria.*mando` → **0**
+
+Nova ya lee el mando por XInput en cada vuelta, pero no su batería. Que avise **antes** de que se
+muera a mitad de partida, no cuando ya se murió.
+
+**Reutiliza** el sondeo de XInput que ya está en el bucle. **Coste: bajo.**
+
+### 7. La descarga se pausa cuando te pones a jugar
+`pausar.*descarga|descarga.*pausa` → **3** (sabe mirar las descargas, no pausarlas)
+
+Steam descargando mientras juegas es tirones garantizados. Que al entrar en un juego pause la
+descarga y al salir la reanude. Y que lo diga, porque si no parece que la descarga se ha colgado.
+
+**Reutiliza** el vigilante de descargas de Steam, que ya existe. **Coste: bajo.**
+
+### 8. Apaga la consola cuando acabe la descarga
+`apagar.*cuando.*termine|apaga al acabar` → **0**
+
+"Cuando termine de descargar, apaga". Para dejarla bajando algo grande y irse a dormir. Nova ya sabe
+apagar y ya sabe cuándo termina una descarga; lo que falta es juntarlo.
+
+**Reutiliza** las dos piezas enteras. **Coste: muy bajo.**
+
+### 9. Avisar de la actualización pendiente ANTES de abrir el juego
+`actualiz.*juego` → **4** (poco, y nada que avise antes)
+
+Abrir un juego y encontrarte 12 GB de parche es perder la sesión. Que al decir "abre X" avise
+primero si tiene actualización pendiente y cuánto pesa.
+
+**Coste: bajo** (sale del mismo sitio que las descargas).
+
+### 10. Vaciar la caché de shaders cuando toca
+`shader` → **1** (una mención, sin función)
+
+Al cambiar la VRAM hay que vaciar la caché de shaders de AMD o los juegos empiezan a petardear —
+está apuntado en la memoria del proyecto como algo que hay que acordarse de hacer. Que lo haga ella
+cuando detecte el cambio, en vez de que haya que recordarlo.
+
+**Coste: bajo.**
+
+---
+
+## B. Steam, el dinero y los amigos
+
+### 11. El reloj del reembolso
+`reembolso|devolver.*juego` → **0**
+
+Steam devuelve el dinero si no pasas de **2 horas jugadas y 14 días** desde la compra. Nova ya mide
+exactamente las dos cosas: tiempo jugado por juego y cuándo apareció en la biblioteca. Que avise
+"llevas 1 h 40 en X y te quedan 6 días: si no te está gustando, ahora puedes devolverlo". Es dinero
+real y la ventana se pasa sola.
+
+**Reutiliza** los tiempos de juego. **Coste: bajo.**
+
+### 12. La lista de deseos, y cuándo baja de precio
+`wishlist|lista de deseos|oferta` → **0**
+
+Lo de "qué juegos están en oferta" hoy lo contesta la IA buscando en la web, que no es lo mismo que
+vigilar **tu** lista. Que mire la wishlist y avise cuando algo baje del precio que le digas.
+
+**Coste: medio** (hay que leer la wishlist; la pública se puede consultar sin credenciales).
+
+### 13. Un amigo acaba de empezar tu juego
+`amigo.*empez|empez.*jugar.*amigo` → **0**
+
+Nova ya sabe quién está conectado y ya sabe vigilar a uno. Lo que falta es el cruce que importa: que
+alguien se ponga **al juego que tú estás jugando**, que es justo el momento de decirle algo.
+
+**Reutiliza** el vigilante de amigos entero. **Coste: bajo.**
+
+### 14. Qué logro te falta, y cuál es el más fácil
+`logro.*falta|cuantos logros` → **0** (sabe cuándo saltan, no cuáles quedan)
+
+Nova ya detecta logros al vuelo. Que sepa además cuántos faltan y cuál tiene el porcentaje global
+más alto, que es el atajo real para el que persigue el 100 %.
+
+**Reutiliza** la vigilancia de logros que ya está. **Coste: medio.**
+
+### 15. ¿Este juego va bien en la Ally?
+`deck.*verified|verificado` → **9** (hay algo, pero no para decidir una compra)
+
+Antes de comprar: si está verificado para mandos y pantalla pequeña, y qué dicen de los
+rendimientos. Es la pregunta que se hace cada vez que ve una oferta.
+
+**Coste: medio.**
+
+---
+
+## C. Durante la partida
+
+### 16. Traducir lo que pone en pantalla, en vivo
+`traduc.*chat|chat.*traduc` → **0**
+
+Nova ya hace OCR de la pantalla **y** ya traduce. Lo que no existe es juntarlo en una orden sola:
+"¿qué dice aquí?" en un juego que está en inglés o en japonés, sin salir de la partida.
+
+**Reutiliza las dos piezas completas.** **Coste: muy bajo**, y es de las que más se notan.
+
+### 17. Subtítulos de lo que suena
+`subtitulo` → **0**
+
+Para jugar con el volumen bajo o con alguien durmiendo al lado: transcribir lo que dicen los
+personajes. Nova ya tiene el oído montado; el trabajo está en separar el audio del juego del micro.
+
+**Coste: alto.** Lo pongo porque es útil, no porque sea barato.
+
+### 18. Limitar los FPS, hablando
+`fps|frames` → **0**
+
+Limitar a 30 FPS casi dobla la batería en portátil. Hoy hay que entrar en el menú de AMD.
+
+**Coste: medio.**
+
+### 19. El volumen del micro, por voz
+`volumen.*micro|ganancia.*micro` → **1**
+
+Nova controla el volumen de salida y el de cada app, pero no el del micro — y es lo que se toca
+cuando entras a hablar con alguien y te dicen que no se te oye.
+
+**Coste: muy bajo.**
+
+### 20. El resumen de la sesión al cerrar el juego
+Nova ya escribe el parte del día y el resumen semanal, pero no el de **la partida que acaba**:
+cuánto has jugado, qué logros cayeron, si subiste de nivel, cuánta batería se fue. Es el momento en
+que apetece oírlo y el único que no tiene su resumen.
+
+**Reutiliza** el diario, los logros y los tiempos. **Coste: bajo.**
+
+---
+
+## Por dónde empezar, si se mira el coste contra lo que se nota
+
+Las cuatro más baratas y que más se notan, en este orden:
+
+1. **La 8** (apaga al acabar la descarga) y **la 16** (traducir la pantalla): las dos son juntar dos
+   piezas que ya están enteras. Son horas, no días.
+2. **La 2** (qué libera borrar cada juego): con 27 GB libres, es la que resuelve algo de hoy.
+3. **La 1** (copia de la partida guardada): barata, y es la única de la lista que evita una pérdida
+   que no se puede deshacer.
+4. **La 11** (el reloj del reembolso): barata y es dinero.
+
+La **17** (subtítulos) es la más cara de todas y la dejaría para el final. La **5** (TDP) hay que
+medirla antes de prometerla: si este modelo no deja tocar los vatios por software, se queda en
+avisar.
