@@ -2119,6 +2119,17 @@ Titulo "2n279. Los bancos de Python que se rendian por el interprete"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n302. La ganancia del micro, una por franja del dia (idea 7 de las 20 nuevas)"
+# MEDIDO sobre 18.277 muestras de 'ganancia=xN.N' de 22 dias: la tarde (14-19) tiene mediana 4,10 y
+# la noche (20-23) 9,10, o sea 122 % de diferencia. Y por horas sueltas son SIETE VECES: 18:00 y
+# 19:00 median 2,10, las 23:00 median 15,50. El ruido lo explica: de 08:00 a 17:00 entre el 9 % y el
+# 21 % de las lineas son "esto no es voz, es ruido de fondo"; a las 23:00 es el 0,1 %. Hasta hoy se
+# guardaba UNA sola, asi que al cambiar de franja habia que reaprenderla persiguiendo el ruido.
+# El banco defiende sobre todo que el formato VIEJO siga leyendose y que las dos guardas que ya
+# existen (CABE_MAX y el techo aprendido) sigan mandando en el cambio de franja.
+python (Join-Path $PSScriptRoot 'probar-ganancia-franja.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se aprende por franja del dia)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n301. Que una sola orden no escriba 39 destinos (idea 3 de las 20 nuevas)"
 # El 18/09 una sola orden escribio TREINTA Y NUEVE lineas de destino en 92 segundos alternando
 # 'charla' y 'traducir', y otra 31. Y lo peor no fue el espacio: esas dos son las que hacian creer

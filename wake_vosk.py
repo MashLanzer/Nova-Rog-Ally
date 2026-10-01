@@ -4032,29 +4032,95 @@ TRANSCRIBIENDO = os.path.join(os.path.dirname(NIVEL), "transcribiendo.flag") if 
 # su sitio en unos pulsos, que es justo para lo que esta. El formato viejo (solo el numero)
 # se sigue leyendo, pero como 'de un micro desconocido': tampoco se hereda, y asi la
 # primera vez tras este cambio tambien recalibra.
+# LA GANANCIA BUENA NO ES UNA, SON CUATRO: UNA POR FRANJA DEL DIA (01/10/2026, idea 7 de las 20).
+#
+# MEDIDO sobre 18.277 muestras de 'ganancia=xN.N' de los dos registros, 22 dias:
+#
+#     franja              muestras   mediana     p90
+#     madrugada 00-07        5.262      8,00   20,80
+#     maniana   08-13        3.055      8,00   19,80
+#     tarde     14-19        5.731      4,10   15,60     <- el valle
+#     noche     20-23        4.229      9,10   28,20     <- el pico
+#
+# Son 122 % de diferencia entre la tarde y la noche. Y por horas sueltas es de SIETE VECES: a las
+# 18:00 y 19:00 la mediana es 2,10 y a las 23:00 es 15,50.
+#
+# Y EL RUIDO LO EXPLICA, no es casualidad: de 08:00 a 17:00 entre el 9 % y el 21 % de las lineas del
+# registro son "esto no es voz, es ruido de fondo"; a las 23:00 es el 0,1 %. De dia hay ruido y la
+# ganancia se hunde persiguiendolo; de noche la casa calla y sube. Los recortes van igual: 91 a las
+# 15:00, 10 a las 23:00.
+#
+# Hasta hoy se guardaba UNA sola, asi que al cambiar de franja habia que reaprenderla desde cero,
+# persiguiendo el ruido: eso es parte de los 985 recortes que hay en los registros.
+#
+# EL FORMATO VIEJO SE SIGUE LEYENDO. El fichero era 'ganancia|micro' y ahora puede llevar un tercer
+# campo 'franja:valor,franja:valor'. Un fichero viejo da la franja vacia y se usa el numero global,
+# que es exactamente lo de antes: esto no puede empeorar nada el primer dia.
+FRANJAS_GANANCIA = (("madrugada", 0, 8), ("maniana", 8, 14), ("tarde", 14, 20), ("noche", 20, 24))
+
+
+def franja_de_ahora(hora=None):
+    h = time.localtime().tm_hour if hora is None else int(hora)
+    for nombre, ini, fin in FRANJAS_GANANCIA:
+        if ini <= h < fin:
+            return nombre
+    return "noche"
+
+
 def ganancia_guardada(micro_actual=""):
+    """Devuelve (global, micro, {franja: ganancia}). El global es lo de siempre."""
     if not RUTA_GANANCIA:
-        return None, ""
+        return None, "", {}
     try:
         with open(RUTA_GANANCIA, "r", encoding="utf-8") as f:
             crudo = f.read().strip()
-        trozos = crudo.split("|", 1)
+        trozos = crudo.split("|")
         g = float(trozos[0])
         de_quien = trozos[1].strip() if len(trozos) > 1 else ""
+        # las franjas, si las hay. UNA MALA NO TIRA LAS DEMAS: se lee lo que se entienda.
+        porFranja = {}
+        if len(trozos) > 2:
+            for par in trozos[2].split(","):
+                if ":" not in par:
+                    continue
+                nom, val = par.split(":", 1)
+                nom = nom.strip()
+                if nom not in [f[0] for f in FRANJAS_GANANCIA]:
+                    continue
+                try:
+                    v = float(val)
+                except ValueError:
+                    continue
+                if GANANCIA_MIN <= v <= GANANCIA_MAX:
+                    porFranja[nom] = v
         if not (GANANCIA_MIN <= g <= GANANCIA_MAX):
-            return None, de_quien
-        # sin nombre guardado, o de otro micro: el numero no vale para este
+            return None, de_quien, {}
+        # sin nombre guardado, o de otro micro: NI el numero NI las franjas valen para este
         if not de_quien or (micro_actual and de_quien != micro_actual):
-            return None, de_quien
-        return g, de_quien
+            return None, de_quien, {}
+        return g, de_quien, porFranja
     except Exception:
         pass
-    return None, ""
+    return None, "", {}
+
+
+def guardar_ganancia(g, micro, porFranja):
+    """Escribe el global, el micro y las franjas en una sola linea."""
+    if not RUTA_GANANCIA:
+        return
+    partes = ",".join("%s:%.1f" % (k, v) for k, v in sorted(porFranja.items()))
+    escribir(RUTA_GANANCIA, "%.1f|%s|%s" % (g, micro, partes))
 
 
 ganancia = GANANCIA_INICIAL if automatica else float(GANANCIA_ARG)
+# SIEMPRE DEFINIDAS, tambien con la ganancia a mano: el bucle las mira sin preguntar si el modo
+# automatico esta puesto, y una variable que existe solo en una rama es un NameError esperando
+# -el mismo tropiezo que el 'callado' del 26/09, que mato el primer dictado de cada worker-.
+ganancia_franjas = {}
+franja_actual = franja_de_ahora()
 if automatica:
-    _g, _de_quien = ganancia_guardada(dispositivo)
+    _g, _de_quien, _porFranja = ganancia_guardada(dispositivo)
+    ganancia_franjas = dict(_porFranja)
     cargar_lo_aprendido()   # ritmo de habla y rafagas, si eran de este micro
     if _g is None and _de_quien and _de_quien != dispositivo:
         # EL MICRO HA CAMBIADO: se dice, y se recalibra desde cero
@@ -4062,6 +4128,14 @@ if automatica:
               % (_de_quien[:40], dispositivo[:40]))
     if _g is not None:
         ganancia_buena = _g   # lo guardado solo puede ser una calibracion buena (ver arriba)
+        # Y SI HAY UNA DE ESTA FRANJA, MANDA ELLA (idea 7): la medicion dice que la tarde y la
+        # noche se llevan 122 %, asi que arrancar de noche con la ganancia de la tarde es empezar
+        # sordo y tardar pulsos en subir. Si no hay ninguna de esta franja, se usa la global, que
+        # es exactamente lo que se hacia hasta hoy.
+        if ganancia_franjas.get(franja_actual):
+            ganancia_buena = ganancia_franjas[franja_actual]
+            anota("ganancia de la franja '%s': x%.1f (la global era x%.1f)"
+                  % (franja_actual, ganancia_buena, _g))
         # SE CONFIA EN LA CALIBRACION GUARDADA (16/09). Aqui habia una regla que
         # descartaba cualquier ganancia por debajo de x1.5 y empezaba en x8, porque
         # "la voz entra a 0.02-0.05 y hace falta amplificar entre x8 y x26". Eso era
@@ -5221,7 +5295,11 @@ try:
                             # la proxima sesion heredaria una ganancia hecha sobre ruido
                             # (paso: tmp/ganancia.txt llego a tener x3,1).
                             # Con el nombre del micro, que lo de un micro no vale para otro.
-                            escribir(RUTA_GANANCIA, "%.1f|%s" % (ganancia, dispositivo))
+                            # SE GUARDA EN SU FRANJA Y TAMBIEN COMO GLOBAL (idea 7): el global
+                            # es el respaldo de siempre para cuando la franja no tiene nada, y asi
+                            # un fichero nuevo sigue sirviendo a una version vieja del worker.
+                            ganancia_franjas[franja_actual] = ganancia
+                            guardar_ganancia(ganancia, dispositivo, ganancia_franjas)
                         escribir(RUTA_ESTADO, decir_estado(ref))
                     else:
                         anota_pulso("pulso: sin voz sostenida (%d bloques) ganancia=x%.1f decodificado=%d%% altavoces=%.3f"
@@ -5234,6 +5312,32 @@ try:
                     # tos) no deben sumarse hasta provocar una bajada espuria
                     recortes = 0
                     ultimo_pulso = ahora
+                    # Y SI SE HA CAMBIADO DE FRANJA, SE USA LA DE LA FRANJA NUEVA (idea 7 de las
+                    # 20 nuevas). Aqui y no en cada bloque de audio: la franja cambia una vez cada
+                    # varias horas y esto corre una vez por pulso, que es de sobra.
+                    #
+                    # SE RESPETAN LAS DOS GUARDAS QUE YA EXISTEN, y no es un detalle: CABE_MAX dice
+                    # si el fondo amplificado cabe, y techo_cabe si esa ganancia ya saturo hace
+                    # poco. Sin ellas, cambiar de franja a las 20:00 pondria la x15,5 de la noche
+                    # con la tele puesta y volveriamos al pin-pon de recortes que costo el 22/09.
+                    _franjaAhora = franja_de_ahora()
+                    if _franjaAhora != franja_actual:
+                        _antes = franja_actual
+                        franja_actual = _franjaAhora
+                        _gF = ganancia_franjas.get(franja_actual, 0.0)
+                        if _gF > 0 and abs(ganancia - _gF) > 0.2:
+                            _cabeF = (suelo_ruido <= 0 or suelo_ruido * _gF < CABE_MAX)
+                            if _cabeF and techo_cabe(_gF, ahora):
+                                anota("franja '%s' -> '%s': paso de x%.1f a la x%.1f que aprendi aqui"
+                                      % (_antes, franja_actual, ganancia, _gF))
+                                ganancia = _gF
+                                ganancia_buena = _gF
+                            else:
+                                anota("franja '%s' -> '%s': la x%.1f de esta franja no cabe ahora, sigo con x%.1f"
+                                      % (_antes, franja_actual, _gF, ganancia))
+                        else:
+                            anota("franja '%s' -> '%s': aun no he aprendido ganancia aqui, sigo con x%.1f"
+                                  % (_antes, franja_actual, ganancia))
             except Exception as e:
                 # Una vuelta que falle no se lleva el worker por delante: se
                 # anota y se sigue con la siguiente. Antes cualquier json.loads
