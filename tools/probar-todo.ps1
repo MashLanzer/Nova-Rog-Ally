@@ -2119,6 +2119,16 @@ Titulo "2n279. Los bancos de Python que se rendian por el interprete"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n294. Un amigo acaba de empezar tu juego (funcion 13 de las 20)"
+# Es un FINAL NUEVO de la maquina de amigos que ya existe, no una maquina nueva: ella ya hace los dos
+# pasos y ya trae a que juega cada uno, y duplicarla serian dos listas que se separan (la manera 4).
+# El banco defiende las cuatro cosas que importan: que no gaste red sin juego delante, que el canal
+# sea de quien llegue primero, que no hable dos veces del mismo amigo, y que los nicks salgan
+# marcados como privados. Y que el cruce vaya ANTES de la queja de la lista vacia: una vigilancia no
+# puede hablar para decir "no hay nadie".
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-amigo-mi-juego.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se pone a tu mismo juego)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n293. Preguntarle otras cosas a Steam, sin pisar a los amigos (funciones 14 y 15)"
 # LO QUE DEFIENDE: que estas preguntas NO pisen la vigilancia de amigos. El canal de red de Steam es
 # UNO y lo usaba Watch-AmigoConecta, que funciona; el acuerdo es que una variable dice de quien es la

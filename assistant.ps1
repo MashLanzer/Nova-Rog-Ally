@@ -12602,9 +12602,64 @@ function Receive-AmigoPregunta {
     # era el unico camino de los siete que no levantaba la bandera ni sobre el papel, y es justo el
     # que suelta la lista entera de nicks y a que estan jugando.
     $script:respuestaPrivada = $true
+    # UN AMIGO EN TU MISMO JUEGO (1/10, la 13 de las 20 funciones). Es un FINAL NUEVO de la maquina
+    # que ya existe, no una maquina nueva: la de los amigos ya hace los dos pasos y ya trae a que
+    # juega cada uno. Duplicarla serian dos listas que se separan el dia que alguien toque una, que
+    # es la manera 4 de salir verde mintiendo y en esta casa ya paso con la formula del animo.
+    # LA RESPUESTA DE ESTE FINAL NO SE DICE EN ALTO SI NO HAY NADA: es una vigilancia, no una
+    # pregunta, y hablar para decir "nadie" es lo que cansa.
+    if ($finP -eq 'cruzar') { Receive-AmigoEnMiJuego $listaP; return }
     if ($listaP.Count -eq 0) { Say 'No veo a ningun amigo en tu lista de Steam.'; return }
     if ($finP -eq 'decir') { Say (Format-AmigosSteam $listaP); return }
     Say (Open-AmigoEleccion $listaP)
+}
+
+# =====================================================================
+# UN AMIGO ACABA DE EMPEZAR TU JUEGO (1/10, la 13 de las 20 funciones)
+# =====================================================================
+# Nova ya sabia quien esta conectado y a que juega -viene en gameextrainfo- y ya sabia vigilar a uno
+# concreto. Lo que faltaba es el cruce que importa: que alguien se ponga AL JUEGO QUE TU ESTAS
+# JUGANDO, que es el momento exacto de decir algo.
+# SE PREGUNTA SOLO MIENTRAS JUEGA, y no mas de una vez cada $AmigoJuegoCadaMin: son DOS llamadas a
+# Steam por ronda y el canal es uno. Sin juego delante no gasta ni una.
+# Y UNA VEZ POR AMIGO Y JUEGO: si se queda jugando dos horas, se dice al empezar y se acabo.
+$AmigoJuegoCadaMin = 5
+$script:amigoJuegoEn = -999999
+$script:amigoJuegoDicho = @{}
+
+function Watch-AmigoEnMiJuego {
+    if (-not $script:juegoActivo) { return }
+    # El canal es de quien llegue primero: si hay algo en vuelo, esta ronda se salta y ya habra otra.
+    if ($script:amigoPide -or $script:steamPide -or $script:steamTask) { return }
+    if (($sw.ElapsedMilliseconds - $script:amigoJuegoEn) -lt ($AmigoJuegoCadaMin * 60000)) { return }
+    $script:amigoJuegoEn = $sw.ElapsedMilliseconds
+    [void](Start-AmigoPregunta 'cruzar')
+}
+
+function Receive-AmigoEnMiJuego($lista) {
+    $mio = [string]$script:juegoActivo
+    if (-not $mio) { return }
+    $clave = (ConvertTo-Plain $mio) -replace '[^a-z0-9]', ''
+    if (-not $clave) { return }
+    foreach ($a in @($lista)) {
+        if (-not $a.jugando) { continue }
+        $suyo = (ConvertTo-Plain ([string]$a.jugando)) -replace '[^a-z0-9]', ''
+        if (-not $suyo) { continue }
+        # EL MISMO JUEGO, aunque Steam lo escriba distinto de como lo tiene braya instalado: uno
+        # dentro del otro vale, pero no por una letra -de ahi el minimo de tres, como en todos los
+        # cruces de nombres de esta casa-.
+        $igual = ($suyo -eq $clave) -or (($suyo.Length -ge 3) -and ($clave.StartsWith($suyo) -or $suyo.StartsWith($clave)))
+        if (-not $igual) { continue }
+        $k = ([string]$a.id) + '|' + $clave
+        if ($script:amigoJuegoDicho.ContainsKey($k)) { continue }
+        $script:amigoJuegoDicho[$k] = $true
+        # LOS NICKS DE SUS AMIGOS SON SUYOS: esta respuesta no sale por el altavoz sin marcarla,
+        # igual que los otros seis caminos que los nombran.
+        $script:respuestaPrivada = $true
+        Log ('AMIGO EN TU JUEGO: ' + $a.nombre + ' en ' + $mio)
+        Say ($a.nombre + ' se acaba de poner a ' + $mio + '.')
+        return
+    }
 }
 
 function Format-AmigosSteam($lista) {
@@ -38158,6 +38213,9 @@ while ($true) {
     try { Receive-SteamPregunta } catch { Log ("steam: " + ($_.Exception.Message -replace 'key=[^&\s]+', 'key=***')) }
     try { Receive-AmigoPregunta } catch { Log ("amigos: " + ($_.Exception.Message -replace 'key=[^&\s]+', 'key=***')) }
     try { Watch-AmigoConecta } catch { Log ("amigos: " + ($_.Exception.Message -replace 'key=[^&\s]+', 'key=***')) }
+    # Y SI ALGUN AMIGO SE PONE A TU MISMO JUEGO (1/10, la 13 de las 20). Solo con un juego delante y
+    # como mucho cada cinco minutos: son dos llamadas por ronda y el canal es uno.
+    try { Watch-AmigoEnMiJuego } catch { Log ("amigos: " + ($_.Exception.Message -replace 'key=[^&\s]+', 'key=***')) }
 
     # --- juegos colgados: avisar, NUNCA cerrar por su cuenta ---
     # Solo avisa (y una vez por proceso): cerrar un juego a la fuerza pierde lo
