@@ -27825,7 +27825,10 @@ function Stop-Subtitulos([string]$porque = '') {
     # lo que el worker mira para morirse solo. Matar a lo bruto dejaria el modelo a medio
     # descargar y la grabadora del altavoz abierta.
     [void](Send-SubPedido '{"op":"fin"}')
-    try { [void]$script:subProc.WaitForExit(700) } catch {}
+    # 1,5 s Y NO 0,7: medido el 1/10, el cierre limpio tarda 0,71 s -lee el sonido a medio segundo
+    # y luego suelta el modelo-, asi que con 700 ms se le mataba justo en la raya. Matarlo deja la
+    # grabadora del altavoz abierta y el modelo a medio soltar.
+    try { [void]$script:subProc.WaitForExit(1500) } catch {}
     try { if (-not $script:subProc.HasExited) { $script:subProc.StandardInput.Close() } } catch {}
     try { if (-not $script:subProc.WaitForExit(500)) { $script:subProc.Kill() } } catch {}
     try { $script:subProc.Dispose() } catch {}

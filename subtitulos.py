@@ -106,19 +106,38 @@ def padre_vivo():
 
 
 def _stdin():
+    # SE LEE 'sys.stdin.buffer', EL FLUJO BINARIO, Y NO 'sys.stdin'. Esto costo media tarde el
+    # 1/10: con 'for linea in sys.stdin' el pedido que manda PowerShell NO LLEGABA NUNCA -ni una
+    # linea, ni un error-, porque el envoltorio de texto mete su propia lectura adelantada encima
+    # del bufer binario y no suelta la linea hasta tener de sobra o hasta el final del flujo. Y
+    # engañaba doble: el 'fin' parecia funcionar, porque al cerrarse la tuberia el bucle terminaba
+    # igual. charla_worker.py ya lee 'sys.stdin.buffer' desde el 13/09, por esto mismo.
+    #
     # REGLA 7: si el que lee stdin se cae, el worker no se puede quedar sordo a las ordenes. Y
     # si stdin se cierra -el asistente murio-, esto se acaba solo y no queda un Whisper
     # huerfano comiendose un nucleo (regla 5).
     try:
-        for linea in sys.stdin:
-            linea = linea.strip()
+        for crudo in sys.stdin.buffer:
+            try:
+                linea = crudo.decode("utf-8", "replace").strip()
+            except Exception:
+                continue
+            # Y SE LE QUITA EL PREAMBULO SI VIENE: PowerShell le cuela su BOM al primer mensaje si
+            # alguien escribe con StandardInput.WriteLine en vez de bytes al BaseStream. Nova
+            # escribe bytes (Send-SubPedido), pero esto cuesta nada y ahorra un fallo mudo.
+            linea = linea.lstrip("﻿")
             if not linea:
                 continue
             try:
                 d = json.loads(linea)
             except Exception:
                 continue
-            if str(d.get("op", "")) == "fin":
+            op = str(d.get("op", ""))
+            # SE APUNTA LO QUE LLEGA. No es adorno: el 1/10 hubo que averiguar si un pedido que no
+            # se contestaba no habia llegado o no se habia atendido, y sin esta linea las dos cosas
+            # se ven exactamente igual desde fuera.
+            di({"ev": "info", "texto": "pedido recibido: " + (op or "(sin op)")})
+            if op == "fin":
                 _fin.set()
                 return
             _pedidos.put(d)
@@ -179,74 +198,109 @@ def main():
 
     import numpy as np
     idioma = None          # se detecta UNA vez (2,7 s cada deteccion) y se fija
-    cola = np.zeros(0, dtype=np.float32)
     nSolape = int(SR * SOLAPE)
     nTrozo = int(SR * TROZO)
     dicho = ""             # el ultimo subtitulo, para no repetir el segundo solapado
-    di({"ev": "listo"})
+
+    # LA CAPTURA VA EN SU PROPIO HILO, Y ESTO TAMBIEN LO SACO UNA PRUEBA CON SONIDO DE VERDAD
+    # (1/10): con la captura y Whisper en el mismo bucle, mientras se transcribe un trozo -1,8 s-
+    # nadie vacia la grabadora, el anillo de WASAPI se desborda y soundcard avisa con "data
+    # discontinuity in recording". Se vio tal cual: de 16 s de audio solo salieron DOS subtitulos
+    # en vez de tres, y los que salian tenian agujeros. Un subtitulo con agujeros no sirve.
+    # Capturar cuesta 8,7 % de un nucleo medido, asi que este hilo es barato; el caro -Whisper, un
+    # nucleo- sigue siendo uno solo (regla 5 intacta).
+    # Y LA COLA TIENE TOPE: si Whisper se retrasara, el audio no puede crecer sin fin comiendose la
+    # RAM. Se tiran los trozos viejos, que es lo correcto: un subtitulo de hace medio minuto no
+    # sirve para nada, y es mejor saltarse un trozo que ir cada vez mas tarde.
+    _audio = []
+    _audioN = [0]
+    _candadoA = threading.Lock()
+    COLA_MAX = int(SR * TROZO * 4)      # cuatro trozos de margen
+
+    def _captura():
+        try:
+            with mic.recorder(samplerate=SR, channels=1, blocksize=2048) as rec:
+                di({"ev": "listo"})
+                while not _fin.is_set():
+                    d = rec.record(numframes=SR // 4)      # cuartos de segundo
+                    d = d[:, 0] if getattr(d, "ndim", 1) > 1 else d
+                    d = d.astype(np.float32)
+                    with _candadoA:
+                        _audio.append(d)
+                        _audioN[0] += len(d)
+                        while _audioN[0] > COLA_MAX and len(_audio) > 1:
+                            _audioN[0] -= len(_audio.pop(0))
+        except Exception as e:
+            di({"ev": "err", "texto": "se corto el sonido (%s)" % type(e).__name__})
+        _fin.set()
+
+    hiloCap = threading.Thread(target=_captura, daemon=True)
+    hiloCap.start()
+    cola = np.zeros(0, dtype=np.float32)
 
     try:
-        with mic.recorder(samplerate=SR, channels=1, blocksize=2048) as rec:
-            while not _fin.is_set():
-                _contesta_pedidos()
-                if not padre_vivo():
-                    di({"ev": "info", "texto": "el asistente ya no esta; me voy"})
-                    return
-                try:
-                    d = rec.record(numframes=max(2048, nTrozo - len(cola)))
-                except Exception as e:
-                    di({"ev": "err", "texto": "se corto el sonido (%s)" % type(e).__name__})
-                    return
-                d = d[:, 0] if getattr(d, "ndim", 1) > 1 else d
-                cola = np.concatenate([cola, d.astype(np.float32)])
-                if len(cola) < nTrozo:
-                    continue
-                trozo = cola[:nTrozo]
-                # el solape se queda para el siguiente: la frase partida se oye entera alli
-                cola = cola[nTrozo - nSolape:]
+        while not _fin.is_set():
+            _contesta_pedidos()
+            if not padre_vivo():
+                di({"ev": "info", "texto": "el asistente ya no esta; me voy"})
+                return
+            # SE ESPERA A QUE HAYA UN TROZO ENTERO, en siestas cortas: asi el "fin" y el "que
+            # ha dicho" se atienden en menos de un decimo (medido: 0,04 s) y no se queda nadie
+            # bloqueado dentro de una lectura de seis segundos, que es lo que pasaba antes.
+            with _candadoA:
+                if _audio:
+                    cola = np.concatenate([cola] + _audio)
+                    del _audio[:]
+                    _audioN[0] = 0
+            if len(cola) < nTrozo:
+                time.sleep(0.08)
+                continue
+            trozo = cola[:nTrozo]
+            # el solape se queda para el siguiente: la frase partida se oye entera alli
+            cola = cola[nTrozo - nSolape:]
 
-                # LA PUERTA GRATIS: sin esto, Whisper se come un nucleo entero para transcribir
-                # silencio y devolver lo que tiny inventa cuando no hay nada ("Gracias por ver
-                # el video"). Un maximo de numpy sobre 96.000 muestras cuesta microsegundos.
-                if float(np.abs(trozo).max()) < PICO_MIN:
-                    continue
+            # LA PUERTA GRATIS: sin esto, Whisper se come un nucleo entero para transcribir
+            # silencio y devolver lo que tiny inventa cuando no hay nada ("Gracias por ver
+            # el video"). Un maximo de numpy sobre 96.000 muestras cuesta microsegundos.
+            if float(np.abs(trozo).max()) < PICO_MIN:
+                continue
 
-                t0 = time.time()
-                try:
-                    if idioma is None:
-                        segs, inf = modelo.transcribe(trozo, beam_size=1, vad_filter=True)
-                        texto = " ".join(s.text.strip() for s in segs).strip()
-                        # EL IDIOMA SE FIJA SOLO SI SE OYO ALGO: detectarlo sobre un trozo sin
-                        # voz da "es al 44 %" (medido) y dejaria el worker fijado en el idioma
-                        # equivocado para toda la sesion.
-                        if texto:
-                            idioma = str(inf.language)
-                            di({"ev": "idioma", "idioma": idioma,
-                                "conf": round(float(inf.language_probability), 2)})
-                    else:
-                        segs, inf = modelo.transcribe(trozo, language=idioma, beam_size=1,
-                                                      vad_filter=True)
-                        texto = " ".join(s.text.strip() for s in segs).strip()
-                except Exception as e:
-                    di({"ev": "err", "texto": "no pude transcribir (%s)" % type(e).__name__})
-                    continue
+            t0 = time.time()
+            try:
+                if idioma is None:
+                    segs, inf = modelo.transcribe(trozo, beam_size=1, vad_filter=True)
+                    texto = " ".join(s.text.strip() for s in segs).strip()
+                    # EL IDIOMA SE FIJA SOLO SI SE OYO ALGO: detectarlo sobre un trozo sin
+                    # voz da "es al 44 %" (medido) y dejaria el worker fijado en el idioma
+                    # equivocado para toda la sesion.
+                    if texto:
+                        idioma = str(inf.language)
+                        di({"ev": "idioma", "idioma": idioma,
+                            "conf": round(float(inf.language_probability), 2)})
+                else:
+                    segs, inf = modelo.transcribe(trozo, language=idioma, beam_size=1,
+                                                  vad_filter=True)
+                    texto = " ".join(s.text.strip() for s in segs).strip()
+            except Exception as e:
+                di({"ev": "err", "texto": "no pude transcribir (%s)" % type(e).__name__})
+                continue
 
-                if not texto:
-                    continue
-                # EL SEGUNDO SOLAPADO SALDRIA DOS VECES: si el subtitulo nuevo empieza por
-                # donde acabo el anterior, se recorta esa parte.
-                if dicho:
-                    corte = _comun(dicho, texto)
-                    if corte > 6:
-                        texto = texto[corte:].strip()
-                if not texto:
-                    continue
-                dicho = texto
-                with _candado:
-                    _ultimo.append((time.time(), texto))
-                    del _ultimo[:-20]
-                di({"ev": "sub", "texto": texto, "idioma": idioma or "-",
-                    "ms": int((time.time() - t0) * 1000)})
+            if not texto:
+                continue
+            # EL SEGUNDO SOLAPADO SALDRIA DOS VECES: si el subtitulo nuevo empieza por
+            # donde acabo el anterior, se recorta esa parte.
+            if dicho:
+                corte = _comun(dicho, texto)
+                if corte > 6:
+                    texto = texto[corte:].strip()
+            if not texto:
+                continue
+            dicho = texto
+            with _candado:
+                _ultimo.append((time.time(), texto))
+                del _ultimo[:-20]
+            di({"ev": "sub", "texto": texto, "idioma": idioma or "-",
+                "ms": int((time.time() - t0) * 1000)})
     finally:
         _fin.set()
 

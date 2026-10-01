@@ -296,6 +296,31 @@ $blqArr = Traer 'Start-Subtitulos'
 # el regex pasa a buscar un numero que no esta escrito en ninguna parte.
 Comp '    y el arranque le dice de quien es hijo' ($blqArr -match "NOVA_PID_PADRE', \[string\]\`$PID") 'sin esto el hijo no sabe a quien mirar'
 Comp '  y escribe solo ASCII' ($fuentePy -match 'ensure_ascii=True') 'PowerShell romperia los acentos'
+# Y LEE EL FLUJO BINARIO, NO EL DE TEXTO. Esto costo media tarde el 1/10 y es el fallo mas mudo de
+# todos: con 'for linea in sys.stdin', el pedido que manda PowerShell NO LLEGABA NUNCA -ni linea ni
+# error- porque el envoltorio de texto mete su propia lectura adelantada y no suelta nada hasta
+# tener de sobra. Y engañaba doble, porque el 'fin' parecia funcionar: al cerrarse la tuberia el
+# bucle acababa igual. Medido con el arreglo: pedido en 0,02 s y contestado en 0,04 s.
+Comp '  y lee el flujo BINARIO de stdin' ($fuentePy -match 'for crudo in sys\.stdin\.buffer') 'con el de texto el pedido no llega nunca'
+Comp '    y no el de texto' ($fuentePy -notmatch 'for linea in sys\.stdin:') 'es el fallo mas mudo que hubo aqui'
+Comp '    y apunta cada pedido que llega' ($fuentePy -match 'pedido recibido') 'sin esto, "no llego" y "no se atendio" se ven igual'
+# Y EL PLAZO DEL CIERRE DA PARA EL CIERRE LIMPIO: medido 0,71 s, asi que 700 ms lo mataba en la raya.
+$blqStop = Traer 'Stop-Subtitulos'
+$msStop = 0
+if ($blqStop -match 'WaitForExit\((\d+)\)') { $msStop = [int]$Matches[1] }
+Comp '  y el cierre limpio tiene plazo de sobra' ($msStop -ge 1200) "$msStop ms, y tarda 710 medidos"
+# LA CAPTURA VA EN SU PROPIO HILO, y esto tambien lo saco una prueba con sonido de verdad: con la
+# captura y Whisper en el mismo bucle, mientras se transcribe un trozo nadie vacia la grabadora, el
+# anillo de WASAPI se desborda y soundcard avisa con "data discontinuity in recording". Medido con
+# 16 s de audio: ANTES 2 subtitulos y 4 avisos; DESPUES 4 subtitulos y CERO avisos.
+Comp '  la captura va en su propio hilo' ($fuentePy -match 'def _captura\(\)' -and $fuentePy -match 'Thread\(target=_captura') 'si no, el audio se pierde mientras transcribe'
+Comp '    y la cola de audio tiene tope' ($fuentePy -match 'COLA_MAX' -and $fuentePy -match '_audioN\[0\] > COLA_MAX') 'si Whisper se retrasa, la RAM no puede crecer sin fin'
+Comp '    y tira los trozos VIEJOS, no los nuevos' ($fuentePy -match '_audio\.pop\(0\)') 'un subtitulo de hace medio minuto no sirve'
+# Y EL 'listo' SALE CUANDO LA GRABADORA ESTA ABIERTA DE VERDAD, no antes: decirlo antes seria
+# prometer que ya oye cuando todavia no.
+$iListo = $fuentePy.IndexOf('"listo"', $fuentePy.IndexOf('def _captura'))
+$iRec = $fuentePy.IndexOf('mic.recorder(')
+Comp "    y el 'listo' sale con la grabadora ya abierta" ($iRec -gt 0 -and $iListo -gt $iRec) 'decirlo antes seria prometer que ya oye'
 # Y SE EJECUTA DE VERDAD: que el solape no salga dos veces.
 # OJO AL NOMBRE: esto NO puede llamarse $pyExe. En PowerShell los nombres de variable no
 # distinguen mayusculas, asi que $pyExe y el $PyExe que Get-EstorboSubtitulos necesita de mas

@@ -324,3 +324,23 @@ en dos piezas, cada una con el precio que puede pagar:
    "¿qué ha dicho?" no contestaba nunca y no quedaba ni una línea de error. `Send-CharlaPedido` ya
    lo había resuelto el 13/09 escribiendo bytes UTF-8 al `BaseStream`; aquí se hace igual, y el
    banco lo comprueba mirando que el primer byte sea `0x7B`.
+
+### Y tres fallos más que solo aparecieron al probarla viva
+
+Los bancos doblan el proceso, así que no podían ver nada de esto. Hicieron falta pruebas con el
+worker de verdad, con `pythonw` y con sonido saliendo por los altavoces:
+
+8. **`for linea in sys.stdin` no entregaba nunca el pedido.** El envoltorio de texto mete su
+   propia lectura adelantada encima del búfer binario y no suelta la línea hasta tener de sobra.
+   Y engañaba doble: el `fin` *parecía* funcionar, porque al cerrarse la tubería el bucle
+   terminaba igual. `charla_worker.py` ya leía `sys.stdin.buffer` desde el 13/09, por esto mismo.
+   Con el arreglo: pedido recibido en **0,02 s**, contestado en **0,04 s**.
+9. **El cierre limpio tardaba más de 8 s**, porque `record()` se quedaba dentro un trozo entero de
+   6 segundos. `Stop-Subtitulos` lo habría **matado** casi siempre, y matarlo deja la grabadora del
+   altavoz abierta y el modelo a medio soltar. Ahora se lee a cuartos de segundo: **0,71 s**.
+10. **`data discontinuity in recording`**: con la captura y Whisper en el mismo bucle, mientras se
+    transcribe un trozo nadie vacía la grabadora y el anillo de WASAPI se desborda. Medido con los
+    mismos 16 s de audio: **antes 2 subtítulos y 4 avisos; después 4 subtítulos y cero avisos.**
+    La captura vive ahora en su propio hilo (8,7 % de un núcleo), y el caro —Whisper— sigue siendo
+    uno solo. La cola de audio tiene tope y tira los trozos **viejos**: un subtítulo de hace medio
+    minuto no sirve, y es mejor saltarse un trozo que ir cada vez más tarde.
