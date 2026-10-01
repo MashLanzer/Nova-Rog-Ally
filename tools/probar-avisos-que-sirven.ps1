@@ -68,7 +68,9 @@ if (-not $d) {
 }
 Invoke-Expression $d.Extent.Text
 # y sus constantes, del archivo (manera 6: nunca una copia propia)
-foreach ($cte in @('AvisoReaccionMin', 'AvisoEsperaTope')) {
+# AvisoReaccionCeroMin entra el 1/10/2026 (idea 9 de las 20 nuevas): CERO de cinco ya es senal, y
+# sin traerla este banco frenaba con cuatro muestras y salia rojo.
+foreach ($cte in @('AvisoReaccionMin', 'AvisoEsperaTope', 'AvisoReaccionCeroMin')) {
     $m = [regex]::Match($txt, ('(?m)^\$' + $cte + '\s*=\s*(.+)$'))
     Comp ("se saca del archivo " + $cte) $m.Success ''
     if ($m.Success) { Invoke-Expression ('$' + $cte + ' = ' + $m.Groups[1].Value.Trim()) }
@@ -87,6 +89,14 @@ Comp 'sin datos, la espera no cambia' ((Get-EsperaAviso 'lo-que-sea' 60) -eq 60)
 # POCAS MUESTRAS: aunque no sirva ninguna, todavia no se toca
 $script:reacciones['pocas'] = @($false) * 4
 Comp 'con 4 muestras tampoco' ((Get-EsperaAviso 'pocas' 60) -eq 60) "minimo $AvisoReaccionMin"
+
+# CERO DE CINCO SI FRENA (1/10, idea 9). Con cuatro no -arriba-, con cinco si: si la tasa real fuera
+# el 30 %, la probabilidad de cero aciertos seguidos es 0,7^5 = 17 %, mientras con cuatro es el 24 %.
+$script:reacciones['cero5'] = @($false) * 5
+Comp 'pero CERO de cinco si frena' ((Get-EsperaAviso 'cero5' 60) -gt 60) "$(Get-EsperaAviso 'cero5' 60) min"
+# y UNA que sirva ya no es cero: con 1 de 5 manda el liston de ocho, como siempre
+$script:reacciones['uno5'] = @(@($true) + @($false) * 4)
+Comp '  pero UNA de cinco no' ((Get-EsperaAviso 'uno5' 60) -eq 60) "$(Get-EsperaAviso 'uno5' 60) min"
 
 # EL CASO REAL DE oido-ruido: 32 avisos, 2 reacciones (6 %)
 $script:reacciones['ruido'] = @(@($true) * 2 + @($false) * 30)

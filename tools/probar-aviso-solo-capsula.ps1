@@ -138,7 +138,10 @@ $iPinta = $sin.IndexOf('Show-Popup $texto')
 $iDes = $sin.IndexOf('$script:entornoVistos.Remove($clave)')
 Comp 'se marca como dado antes de pintar (como siempre)' ($iMarca -ge 0 -and $iPinta -gt $iMarca) "marca en $iMarca, pinta en $iPinta"
 Comp '  y se DESHACE despues, si hizo falta' ($iDes -gt $iPinta -and $iPinta -ge 0) "deshace en $iDes"
-Comp '  tocando el disco tambien' ($sin -match 'entornoVistos\.Remove\(\$clave\)[\s\S]{0,120}Save-EntornoVistos') 'si no, un reinicio lo daria por dado'
+# POR ORDEN Y NO POR DISTANCIA (ver probar-bancos-fragiles).
+$iQuita = $sin.IndexOf('entornoVistos.Remove($clave)')
+$iSave = $sin.IndexOf('Save-EntornoVistos', [Math]::Max(0, $iQuita))
+Comp '  tocando el disco tambien' ($iQuita -ge 0 -and $iSave -gt $iQuita) 'si no, un reinicio lo daria por dado'
 Comp '  y solo para los que no suenan' ($sin -match "-not \`$pintada -and \`$nivel -eq 'bajo'") ''
 
 Write-Host ''

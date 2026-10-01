@@ -175,6 +175,13 @@ Comp '  exige los minutos delante' ($blA -match '\$ExesJuegoMinSeg \* 1000') ''
 Comp '  y no aprende lo que ya sabe' ($blA -match '-not \$tbE\.ContainsKey\(\$procE\) -and -not \$EXES_JUEGO\.ContainsKey\(\$procE\)') ''
 Comp '  ni con un invitado delante' ($blA -match '-not \$script:invitado') ''
 # ESTO NO INTERRUMPE: ni una palabra hablada, ni un popup.
+# Get-NivelAviso y Get-ReaccionesAviso entran desde el 1/10/2026 (idea 9 de las 20 nuevas):
+# Send-AvisoEntorno decide el nivel en su PRIMERA linea, asi que sin ellas este banco revienta con un
+# CommandNotFoundException y todo sale a cero. Se traen de verdad y no dobladas: doblar justo la pieza
+# que decide el nivel seria la manera 15 de los bancos que mienten.
+$AvisoReaccionMin = 8; $AvisoReaccionCeroMin = 5; $AvisoMudoCeros = 8; $AvisoEsperaTope = 6
+Invoke-Expression (Traer 'Get-ReaccionesAviso')
+Invoke-Expression (Traer 'Get-NivelAviso')
 Comp '  y NO interrumpe' ($blA -notmatch 'Send-AvisoEntorno' -and $blA -notmatch 'Say ' -and $blA -notmatch 'Show-Popup') (
     'solo una linea en el log y una entrada en la tabla')
 # EL CANDIDATO SE GASTA PASE LO QUE PASE: si no, se reintentaria en cada vuelta.

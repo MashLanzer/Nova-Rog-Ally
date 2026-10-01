@@ -95,6 +95,13 @@ $iBl = $aSin.IndexOf('$fb = Get-FalloBucle')
 $iFinBl = if ($iBl -ge 0) { $aSin.IndexOf('} catch {}', $iBl) } else { -1 }
 $bl = if ($iBl -ge 0 -and $iFinBl -gt $iBl) { $aSin.Substring($iBl, $iFinBl - $iBl) } else { '' }
 Comp '9. la bandera solo se marca si el aviso SALIO' (EnOrden $bl 'if \(Send-AvisoEntorno' 'falloBucleAvisado = \$true') 'jugando el medio se calla y se reintenta al cerrar'
+# Get-NivelAviso y Get-ReaccionesAviso entran desde el 1/10/2026 (idea 9 de las 20 nuevas):
+# Send-AvisoEntorno decide el nivel en su PRIMERA linea, asi que sin ellas este banco revienta con un
+# CommandNotFoundException y todo sale a cero. Se traen de verdad y no dobladas: doblar justo la pieza
+# que decide el nivel seria la manera 15 de los bancos que mienten.
+$AvisoReaccionMin = 8; $AvisoReaccionCeroMin = 5; $AvisoMudoCeros = 8; $AvisoEsperaTope = 6
+Invoke-Expression (Traer 'Get-ReaccionesAviso')
+Invoke-Expression (Traer 'Get-NivelAviso')
 Comp '10. el bloque no habla dos veces del mismo turno' (($bl -notmatch 'Say ') -and ((@([regex]::Matches($bl, 'Send-AvisoEntorno')).Count) -eq 1)) 'el turno ya se contesta por PERDIDO'
 Comp '   y la rama PERDIDO sigue con su aviso oido-roto' ($aSin -match "'oido-roto'") 'no se toca'
 Comp '11. queda escrito para la tanda siguiente (Add-Memoria)' ($bl -match 'Add-Memoria') 'sin esto solo se habla y se olvida'

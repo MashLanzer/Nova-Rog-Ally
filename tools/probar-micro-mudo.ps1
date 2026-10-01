@@ -94,7 +94,10 @@ Comp '  y la cuenta de la meta tambien' (@([regex]::Matches($sinCom, "-eq 'dicta
 
 Write-Host ''
 Write-Host '-- 5. el cableado --'
-Comp 'el aviso sale donde se apunta el vacio' ($sinCom -match "Add-Estadistica 'error' 'dictado vacio'[\s\S]{0,400}micro-mudo") 'no se estrena ningun reloj'
+# POR ORDEN Y NO POR DISTANCIA (ver probar-bancos-fragiles).
+$iVacio = $sinCom.IndexOf("Add-Estadistica 'error' 'dictado vacio'")
+$iMudo = $sinCom.IndexOf('micro-mudo', [Math]::Max(0, $iVacio))
+Comp 'el aviso sale donde se apunta el vacio' ($iVacio -ge 0 -and $iMudo -gt $iVacio) 'no se estrena ningun reloj'
 Comp '  y la cuenta sube ahi mismo' ($sinCom -match '\$script:dictaVacios\+\+') ''
 # EL REINICIO VA EN LA PRIMERA LINEA QUE SABE QUE HAY TEXTO: Process-Texto tiene veinte salidas, y
 # al final de la funcion la cuenta se quedaria colgada en cualquiera de ellas.

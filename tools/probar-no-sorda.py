@@ -282,8 +282,18 @@ _i_vuelta = SRC.find("ganancia = ganancia_buena")
 _i_anota = SRC.find('("pulso: esto no es voz')
 comp("se vuelve antes de anotarlo", 0 < _i_vuelta < _i_anota)
 # solo la buena va al disco
-_i_marca = SRC.find("ganancia_buena = ganancia")
-_i_disco = SRC.find('escribir(RUTA_GANANCIA, "%.1f|%s"')
+# LA BUSQUEDA ES EXACTA, Y NO POR PREFIJO (1/10/2026). Esto era SRC.find("ganancia_buena =
+# ganancia") y la idea 7 anadio una linea que EMPIEZA IGUAL -"ganancia_buena =
+# ganancia_franjas[franja_actual]"-, mil lineas mas arriba. Asi que _i_marca pasaba a apuntar a la
+# linea equivocada: la comprobacion de debajo seguia en verde por suerte y la de la rama de calibrar
+# se puso roja con los dos rfind a -1. Un find por prefijo es una bomba de relojeria en un fichero que
+# crece. Se busca la linea ENTERA, con su final.
+_i_marca = SRC.find("ganancia_buena = ganancia" + chr(10))
+# EL GUARDADO SE LLAMA guardar_ganancia DESDE EL 1/10/2026 (idea 7 de las 20 nuevas): la ganancia
+# ya no es una, son cuatro -una por franja del dia, medidas 122 % de diferencia entre la tarde y la
+# noche- y escribirla en una linea suelta no cabia. Lo que esta seccion protege no cambia: que al
+# disco SOLO vaya la calibracion hecha con voz de verdad y un pulso limpio.
+_i_disco = SRC.find('guardar_ganancia(ganancia, dispositivo')
 comp("solo se guarda en disco la calibrada con voz de verdad", 0 < _i_marca < _i_disco,
      "se marca como buena justo antes de escribirla")
 # Y LO QUE FALLO AL ESTRENARLO POR SEGUNDA VEZ: el ruido pide RUIDO_PULSOS pulsos seguidos
@@ -292,10 +302,37 @@ comp("solo se guarda en disco la calibrada con voz de verdad", 0 < _i_marca < _i
 # marca buena; 07:45:32 ruido confirmado, y ya no habia a que volver.
 comp("solo un pulso SIN NADA de ruido cuenta como bueno",
      "if pulsos_ruidosos == 0:" in SRC)
-_i_guarda = SRC.find('if pulsos_ruidosos == 0:')
-_i_esc = SRC.find('escribir(RUTA_GANANCIA', _i_guarda)
-comp("y el disco va dentro de esa guarda", 0 < _i_guarda < _i_esc < _i_guarda + 700,
+# SE MIDE LA SANGRIA, NO LA DISTANCIA (1/10/2026). Esto comparaba caracteres -"_i_esc < _i_guarda +
+# 700"- y el comentario de la idea 7 anadio 110: paso a 812 y el banco se puso ROJO sin que nada
+# estuviera mal. Es la ventana fija de caracteres de siempre: el bloque crece y la comprobacion
+# miente, o por ciega o por roja. Lo que importa es que el guardado este DENTRO del if, y en Python
+# eso se lee en la sangria.
+def _dentro_del_bloque(fuente, cabecera, dentro):
+    """True si la linea 'dentro' esta en el bloque que abre 'cabecera' (mas sangrada, sin salir)."""
+    lineas = fuente.split(chr(10))
+    iCab = next((n for n, l in enumerate(lineas) if cabecera in l), -1)
+    if iCab < 0:
+        return False
+    sangCab = len(lineas[iCab]) - len(lineas[iCab].lstrip())
+    for l in lineas[iCab + 1:]:
+        if not l.strip() or l.lstrip().startswith("#"):
+            continue
+        sang = len(l) - len(l.lstrip())
+        if sang <= sangCab:
+            return False          # se salio del bloque sin encontrarlo
+        if dentro in l:
+            return True
+    return False
+
+
+comp("y el disco va dentro de esa guarda",
+     _dentro_del_bloque(SRC, "if pulsos_ruidosos == 0:", "guardar_ganancia(ganancia"),
      "si no, la proxima sesion hereda una ganancia hecha sobre ruido")
+# Y QUE EL DETECTOR DETECTE: con una cabecera que no existe, y con una linea que esta FUERA del
+# bloque, tiene que decir que no. Sin esto seria un verde que no prueba nada.
+comp("  y el detector sabe decir que NO",
+     (not _dentro_del_bloque(SRC, "if esto_no_existe_en_el_fichero:", "guardar_ganancia"))
+     and (not _dentro_del_bloque(SRC, "if pulsos_ruidosos == 0:", "def anota_latido")))
 comp("y esta dentro de la rama de calibrar, no fuera",
      SRC[:_i_marca].rfind("elif automatica and bloques_voz >= MIN_BLOQUES_VOZ and picos:") >
      SRC[:_i_marca].rfind("if automatica and ruido_constante:"))

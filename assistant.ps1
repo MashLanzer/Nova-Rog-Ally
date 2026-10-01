@@ -13619,7 +13619,13 @@ function Get-EsperaAviso([string]$clave, [int]$base) {
     # que no han servido ni una vez. Ver $AvisoReaccionCeroMin para de donde sale el cinco.
     # Y SOLO PARA EL CERO EXACTO: con 1 de 5 la señal es floja y manda el liston de siempre.
     $minAqui = [Math]::Max(1, [int]$AvisoReaccionMin)
-    if ($si -eq 0 -and $r.Count -ge [Math]::Max(1, [int]$AvisoReaccionCeroMin)) { $minAqui = $r.Count }
+    # EL RESPALDO CAE HACIA EL LADO SEGURO, y el primer intento de esta linea caia hacia el otro:
+    # tenia un [Math]::Max(1, ...) copiado de la linea de arriba, asi que si $AvisoReaccionCeroMin
+    # faltara, el minimo pasaria a ser UNO y un solo aviso sin reaccion ya frenaria la clave. Lo canto
+    # probar-avisos-que-sirven, que no traia la constante nueva. Sin ella no se aplica la regla del
+    # cero y manda el liston de siempre, que es exactamente lo que hacia antes de la idea 9.
+    $ceroMin = [int]$AvisoReaccionCeroMin
+    if ($ceroMin -ge 2 -and $si -eq 0 -and $r.Count -ge $ceroMin) { $minAqui = $r.Count }
     if ($r.Count -lt $minAqui) { return $base }
     $tasa = $si / [double]$r.Count
     # UNO DE CADA TRES YA ES SERVIR: con 32 avisos y 2 reacciones (6 %) no hay duda, pero con

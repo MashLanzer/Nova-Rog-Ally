@@ -107,7 +107,10 @@ $sinT = (($cuerpoT -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }
 Comp 'Clear-TmpViejo mira las copias de memoria' ($sinT -match "Filter '\*\.antes-\*'") ''
 Comp '  en memoria, no en tmp' ($sinT -match '\$MemoriaDir -File -Filter') ''
 Comp '  y solo las de mas de una semana' ($sinT -match 'AddDays\(-7\)') 'la de hoy se queda'
-Comp '  cuenta lo que suelta, como el resto' ($sinT -match '\$viejasA[\s\S]{0,200}\$r\.bytes \+=') ''
+# POR ORDEN Y NO POR DISTANCIA (ver probar-bancos-fragiles).
+$iViejas = $sinT.IndexOf('$viejasA')
+$iBytes = $sinT.IndexOf('$r.bytes +=', [Math]::Max(0, $iViejas))
+Comp '  cuenta lo que suelta, como el resto' ($iViejas -ge 0 -and $iBytes -gt $iViejas) ''
 Comp '  y lo dice' ($sinT -match 'COPIAS VIEJAS') ''
 # EN SU PROPIO try: que esto falle no puede tumbar el barrido de tmp (regla 7)
 $iCop = $sinT.IndexOf("Filter '*.antes-*'")

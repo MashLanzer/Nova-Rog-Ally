@@ -144,8 +144,14 @@ Write-Host '-- 6. el cableado --'
 $txt = [IO.File]::ReadAllText($PS1)
 $sinCom = (($txt -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) -join "`n"
 Comp 'hay un patron para preguntarlo' ($sinCom -match "kind = 'petes'") ''
-Comp '  y su ejecutor llama a la frase' ($sinCom -match "'petes' \{[\s\S]{0,120}Get-FrasePetes") ''
-Comp 'el aviso sale del bloque que ya calculaba el pete' ($sinCom -match 'Watch-ErroresTragados[\s\S]{0,700}Get-PeorPeteHistorico') 'no se estrena ningun reloj'
+# POR ORDEN Y NO POR DISTANCIA: una ventana de caracteres se rompe el dia que alguien escriba un
+# comentario en medio (ver probar-bancos-fragiles). Se exige que las dos partes ESTEN y en que orden.
+$iEjec = $sinCom.IndexOf("'petes' {")
+$iFrase = $sinCom.IndexOf('Get-FrasePetes', [Math]::Max(0, $iEjec))
+Comp '  y su ejecutor llama a la frase' ($iEjec -ge 0 -and $iFrase -gt $iEjec) ''
+$iWatch = $sinCom.IndexOf('Watch-ErroresTragados')
+$iHistB = $sinCom.IndexOf('Get-PeorPeteHistorico', [Math]::Max(0, $iWatch))
+Comp 'el aviso sale del bloque que ya calculaba el pete' ($iWatch -ge 0 -and $iHistB -gt $iWatch) 'no se estrena ningun reloj'
 # EL Add-Estadistica VA ANTES del aviso: si no, la cuenta de hoy se quedaria fuera de la suma que
 # decide, y el aviso iria siempre un minuto por detras de la realidad.
 $iAdd = $sinCom.IndexOf("Add-Estadistica ('pete:' + ")

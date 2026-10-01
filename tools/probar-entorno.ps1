@@ -167,6 +167,13 @@ Invoke-Expression (Traer 'Test-AvisoAplazable')
 Invoke-Expression (Traer 'Get-AvisoEspera')
 Invoke-Expression (Traer 'Save-AvisoEspera')
 Invoke-Expression (Traer 'Add-AvisoEspera')
+# Get-NivelAviso y Get-ReaccionesAviso entran desde el 1/10/2026 (idea 9 de las 20 nuevas):
+# Send-AvisoEntorno decide el nivel en su PRIMERA linea, asi que sin ellas este banco revienta con un
+# CommandNotFoundException y todo sale a cero. Se traen de verdad y no dobladas: doblar justo la pieza
+# que decide el nivel seria la manera 15 de los bancos que mienten.
+$AvisoReaccionMin = 8; $AvisoReaccionCeroMin = 5; $AvisoMudoCeros = 8; $AvisoEsperaTope = 6
+Invoke-Expression (Traer 'Get-ReaccionesAviso')
+Invoke-Expression (Traer 'Get-NivelAviso')
 Invoke-Expression (Traer 'Send-AvisoEntorno')
 Invoke-Expression (Traer 'Set-AvisosEntorno')
 

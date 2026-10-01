@@ -285,12 +285,18 @@ Comp '  y tiene puerta de silencio antes de Whisper' ($fuentePy -match 'np\.abs\
 $iPuerta = $fuentePy.IndexOf('np.abs(trozo).max()) < PICO_MIN')
 $iTrans = $fuentePy.IndexOf('modelo.transcribe(')
 Comp '  y la puerta va ANTES de transcribir' ($iPuerta -gt 0 -and $iTrans -gt $iPuerta) ''
-Comp '  y el idioma se fija solo si se oyo algo' ($fuentePy -match 'if texto:[\s\S]{0,120}idioma = str\(inf\.language\)') 'sobre silencio da "es al 44 %"'
+# POR ORDEN Y NO POR DISTANCIA (ver probar-bancos-fragiles): una ventana de caracteres se rompe el
+# dia que alguien escriba un comentario en medio.
+$iTexto = $fuentePy.IndexOf('if texto:')
+$iIdioma = $fuentePy.IndexOf('idioma = str(inf.language)', [Math]::Max(0, $iTexto))
+Comp '  y el idioma se fija solo si se oyo algo' ($iTexto -ge 0 -and $iIdioma -gt $iTexto) 'sobre silencio da "es al 44 %"'
 Comp '  y muere solo si se cierra la tuberia' ($fuentePy -match '_fin\.set\(\)' -and $fuentePy -match 'for linea in sys\.stdin') 'regla 5: ni un Whisper huerfano'
 # Y EL CINTURON DE ENCIMA: que mire si Nova sigue viva, como el oido y la voz. Aqui pesa mas que
 # en ninguno, porque lo que quedaria suelto es un Whisper comiendose un nucleo entero.
 Comp '  y tambien mira si Nova sigue viva' ($fuentePy -match 'NOVA_PID_PADRE' -and $fuentePy -match 'if not padre_vivo\(\)') ''
-Comp '    y ante la duda lo da por vivo' ($fuentePy -match 'except Exception:[\s\S]{0,60}return True') 'apagarse a media escena es peor'
+$iExc = $fuentePy.IndexOf('except Exception:', $fuentePy.IndexOf('def padre_vivo'))
+$iTrue = $fuentePy.IndexOf('return True', [Math]::Max(0, $iExc))
+Comp '    y ante la duda lo da por vivo' ($iExc -ge 0 -and $iTrue -gt $iExc) 'apagarse a media escena es peor'
 $blqArr = Traer 'Start-Subtitulos'
 # EL PATRON VA EN COMILLAS SIMPLES: entre dobles, PowerShell expande $PID al PID de este banco y
 # el regex pasa a buscar un numero que no esta escrito en ninguna parte.

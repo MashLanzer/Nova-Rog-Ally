@@ -48,6 +48,13 @@ $script:avisoMirar = $null
 $AvisoReaccionVentanaMs = 180000
 $sw = [pscustomobject]@{ ElapsedMilliseconds = 100000 }
 $script:uiMia = $false
+# Get-NivelAviso y Get-ReaccionesAviso entran desde el 1/10/2026 (idea 9 de las 20 nuevas):
+# Send-AvisoEntorno decide el nivel en su PRIMERA linea, asi que sin ellas este banco revienta con un
+# CommandNotFoundException y todo sale a cero. Se traen de verdad y no dobladas: doblar justo la pieza
+# que decide el nivel seria la manera 15 de los bancos que mienten.
+$AvisoReaccionMin = 8; $AvisoReaccionCeroMin = 5; $AvisoMudoCeros = 8; $AvisoEsperaTope = 6
+Invoke-Expression (TraerFn 'Get-ReaccionesAviso')
+Invoke-Expression (TraerFn 'Get-NivelAviso')
 Invoke-Expression (TraerFn 'Send-AvisoEntorno')
 
 Write-Host ''
