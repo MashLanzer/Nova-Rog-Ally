@@ -121,8 +121,11 @@ Comp 'la marca mira si hay sordina' ($fuente -match '\$voz -and \$InterrumpirOn 
 # LAS TRES LINEAS DEL if, no solo la primera. Cuando se puso la sordina-por-nombre (22/09)
 # el if paso a tener un elseif, y este banco seguia cogiendo UNA linea: ejecutaba un if sin
 # su elseif, la marca salia vacia y el caso de la sordina se ponia rojo con el codigo bien.
-$mM = [regex]::Match($fuente, '(?ms)^\s*\$marcaTxt = if \(.*?^\s*else \{[^
-]*\}')
+# EL SALTO DE LINEA VA COMO '\r?\n' Y NO LITERAL (1/10/2026). Un salto escrito dentro de la cadena es
+# el del FICHERO DEL BANCO -aqui CRLF-, asi que el patron solo casaba contra un fichero CRLF. Paso de
+# verdad ese dia con otro banco: en cuanto el fichero vigilado quedo en LF se puso rojo sin que nada
+# estuviera roto. Con '\r?\n' casa en las dos, aqui y tras un clon con autocrlf=false.
+$mM = [regex]::Match($fuente, '(?ms)^\s*\$marcaTxt = if \(.*?^\s*else \{[^\r\n]*\}')
 if (-not $mM.Success) { Comp 'encuentro la linea de la marca' $false } else {
     $linea = [scriptblock]::Create($mM.Value.Trim())
     $EscuchaNombre = 'nova'

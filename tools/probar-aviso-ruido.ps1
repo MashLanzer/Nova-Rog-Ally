@@ -105,8 +105,11 @@ Comp 'y el quinto campo es el del ruido' ($oido -match 'ruido_de_fuera = pulsos_
 Comp 'y los altavoces no cuentan como ruido' ($oido -match 'ruido_de_fuera = pulsos_ruidosos >= RUIDO_PULSOS and salida <= UMBRAL_ALTAVOZ') 'la musica no es un ventilador'
 # decir_estado escribe el campo de los altavoces Y decide el del ruido con el mismo numero:
 # si se midiera dos veces, podrian contradecirse dentro de la misma linea.
-$dEstado = [regex]::Match($oido, '(?ms)^def decir_estado\(.*?
-(?=\S)').Value
+# EL SALTO DE LINEA VA COMO '\r?\n' Y NO LITERAL (1/10/2026). Un salto escrito dentro de la cadena
+# es el del FICHERO DEL BANCO -aqui CRLF-, asi que el patron solo casaba contra un fichero CRLF; en
+# cuanto el fichero vigilado quedo en LF, este banco se puso rojo sin que nada estuviera roto. Con
+# '\r?\n' casa en las dos, aqui y tras un clon con autocrlf=false.
+$dEstado = [regex]::Match($oido, '(?ms)^def decir_estado\(.*?\r?\n(?=\S)').Value
 # SIN LOS COMENTARIOS (26/09): esto contaba 'nivel_salida()' sobre el texto crudo, y se puso
 # rojo cuando la idea 13 metio un comentario dentro de decir_estado que EXPLICA por que no hay
 # que volver a llamarla. O sea que se ponia rojo justo por escribir la razon de la regla que

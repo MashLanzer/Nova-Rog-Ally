@@ -137,8 +137,11 @@ $fuenteC4 = [System.IO.File]::ReadAllText($ruta)
 $declaraC4 = ([regex]::Matches($fuenteC4, '(?m)^\$(?:script:)?juegoSesionMin\s*=', 'IgnoreCase')).Count
 Comp 'el acumulador de minutos se declara una sola vez' ($declaraC4 -eq 1) "$declaraC4 declaraciones"
 Comp 'y el umbral tiene un nombre que no choca' ($fuenteC4 -match '\$JuegoMinimoPartida\s*=\s*\[int\]\(Get-Cfg')
-$usosViejo = @([regex]::Matches($fuenteC4, '(?m)^[^#
-]*\$JuegoSesionMin'))
+# EL SALTO DE LINEA VA COMO '\r?\n' Y NO LITERAL (1/10/2026). Un salto escrito dentro de la cadena es
+# el del FICHERO DEL BANCO -aqui CRLF-, asi que el patron solo casaba contra un fichero CRLF. Paso de
+# verdad ese dia con otro banco: en cuanto el fichero vigilado quedo en LF se puso rojo sin que nada
+# estuviera roto. Con '\r?\n' casa en las dos, aqui y tras un clon con autocrlf=false.
+$usosViejo = @([regex]::Matches($fuenteC4, '(?m)^[^#\r\n]*\$JuegoSesionMin'))
 Comp 'el nombre viejo solo queda en el comentario que lo explica' ($usosViejo.Count -eq 0) ("$($usosViejo.Count) usos fuera de comentario")
 
 # 2. y que la comparacion muerda de verdad
