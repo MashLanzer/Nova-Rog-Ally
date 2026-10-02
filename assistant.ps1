@@ -15921,6 +15921,17 @@ function Watch-Entorno([int]$botones = 0) {
             $script:sinUsoMirado = Get-Date
             $txtU = Get-AvisoSinUso
             if ($txtU) { [void](Send-AvisoEntorno 'sin-uso' $txtU 'medio' 1440) }
+            # Y SI SI LA USA, LO QUE NO LE PIDE NUNCA (2/10, ideas 14 y 15). Va en el MISMO bloque de
+            # media hora y no en un reloj nuevo: la unica cosa cara que hace es un Get-Item de tres
+            # ficheros, y asi queda claro que son mutuamente excluyentes -Get-FuncionDormida se calla
+            # si Get-AvisoSinUso tiene algo que decir-.
+            # NIVEL 'bajo' Y CUARENTA Y CINCO DIAS: esto no es una averia, es Nova ofreciendo algo
+            # que sabe hacer. Con un plazo corto seria exactamente la clase de maquina pesada que
+            # braya no quiere.
+            if (-not $txtU) {
+                $fd2 = Get-FuncionDormida
+                if ($fd2) { [void](Send-AvisoEntorno ([string]$fd2.clave) ([string]$fd2.texto) 'bajo' 64800) }
+            }
         }
     } catch {}
 
@@ -16094,6 +16105,65 @@ function Get-AvisoSinUso([string]$ruta = '', [datetime]$ahora = (Get-Date), [int
     if ($sinU -lt $dias) { return '' }
     return ("Llevo $sinU dias sin apuntar ni una orden tuya. Sin uso real no puedo medir si te entiendo " +
             "ni decidir nada. Si me has hablado estos dias, es que algo se ha roto en mi oido.")
+}
+
+# LO QUE NOVA SABE HACER Y BRAYA NO USA (2/10/2026, ideas 14 y 15)
+#
+# EL DATO QUE LO ABRE: 'memoria\recordatorios.json' esta VACIO -es '[]'- y lleva 20,2 dias sin
+# tocarse, mientras 'recordatorio' sale 67 veces en assistant.ps1 y tiene DOS bancos
+# (probar-recordatorio-vivo, probar-falsas-alarmas). La funcion esta escrita, probada... y sin usar.
+#
+# Y SE MIDIO POR QUE, que es lo que decide el arreglo: en las 609 ordenes del corpus de uso hay CERO
+# que suenen a recordatorio -ni 'recuerdame', ni 'avisame', ni 'dentro de N minutos'-. O sea que no
+# es que Nova no lo entienda: es que braya NO SABE QUE EXISTE. Son dos problemas distintos y se
+# arreglan distinto; sin esa medicion, lo normal habria sido tocar el oido para nada.
+#
+# Lo mismo con 'fechas.json' (104 bytes, 20,8 dias) y 'recetas.json' (5 KB, 7,1 dias, con 11 recetas
+# aprendidas en total).
+#
+# DOS FRENOS, porque esto puede volverse muy pesado muy rapido:
+#  1. solo si braya SI esta usando a Nova. Si no la usa, no es que no use ESTA funcion: es que no la
+#     usa a ella, y para eso ya esta Get-AvisoSinUso. Reganar por las dos cosas a la vez seria
+#     reganar dos veces por lo mismo.
+#  2. una sola funcion por aviso y con el plazo mas largo que hay. Una lista de cinco cosas que no
+#     usas no es un aviso, es una conferencia.
+#
+# Y LA FRASE LLEVA EL COMO, no solo el que: "no usas los recordatorios" no sirve de nada; "dime
+# recuerdame sacar la basura a las ocho" se puede repetir en voz alta tal cual.
+$FuncionDormidaDias = [int](Get-Cfg 'entorno' 'funcionDormidaDias' 14)
+$FUNCIONES_DORMIDAS = @(
+    @{ f = 'recordatorios.json'; que = 'los recordatorios'
+       como = 'dime "recuerdame sacar la basura a las ocho"' }
+    @{ f = 'recetas.json'; que = 'las ordenes encadenadas'
+       como = 'dime "cuando diga buenas noches, baja el brillo y pon modo noche"' }
+    @{ f = 'fechas.json'; que = 'las fechas que te importan'
+       como = 'dime "apunta que el cumple de mi madre es el tres de mayo"' }
+)
+# Devuelve @{ clave; texto } de UNA funcion dormida, o $null. Pura salvo por las fechas del disco.
+function Get-FuncionDormida([datetime]$ahora = (Get-Date), [int]$dias = 0) {
+    if ($dias -le 0) { $dias = $FuncionDormidaDias }
+    if ($dias -le 0) { return $null }
+    # FRENO 1: si no usa a Nova, esto no toca. Get-AvisoSinUso ya habla de eso.
+    try { if ((Get-AvisoSinUso $null $ahora) -ne '') { return $null } } catch { return $null }
+    $peor = $null
+    foreach ($fd in $FUNCIONES_DORMIDAS) {
+        try {
+            $p = Join-Path $MemoriaDir ([string]$fd.f)
+            # SIN FICHERO = nunca se uso, y eso cuenta: es el caso mas claro de "no sabe que existe"
+            $d = if (Test-Path -LiteralPath $p) {
+                     [int](($ahora.Date - ([datetime](Get-Item -LiteralPath $p).LastWriteTime).Date).TotalDays)
+                 } else { 9999 }
+            if ($d -lt $dias) { continue }
+            if ($null -eq $peor -or $d -gt [int]$peor.dias) {
+                $peor = @{ dias = $d; que = [string]$fd.que; como = [string]$fd.como; f = [string]$fd.f }
+            }
+        } catch {}
+    }
+    if ($null -eq $peor) { return $null }
+    $cuanto = if ([int]$peor.dias -ge 9999) { 'nunca' } else { 'desde hace ' + [string]$peor.dias + ' dias' }
+    return @{ clave = ('dormida-' + ($peor.f -replace '\.json$', ''))
+              texto = ('Se hacer ' + $peor.que + ' y no me lo pides ' + $cuanto +
+                       '. Si te sirve, ' + $peor.como + '. Y si no te interesa, dimelo y no vuelvo a mencionarlo.') }
 }
 
 # NOVA SE REVISA A SI MISMA (17/09). Hasta hoy sabia perfectamente lo que le pasaba
@@ -31503,6 +31573,32 @@ function Get-VueltaP99 {
     return (Get-PercentilLista $script:vueltas $VueltaPercentil)
 }
 
+# EL LISTON DEL AVISO NO ES EL P99: EL P99 SE PASA EL 1 % DE LAS VECES POR DEFINICION
+# (2/10/2026, idea 5)
+#
+# EL DATO: el 2/10 Nova corrio el dia entero sin que braya le dijera NI UNA palabra, y de las 706
+# lineas de su registro 569 -el 80,6 %- eran avisos de vuelta lenta. El 1/10 fueron 1.277 de 2.040.
+# No es que Nova fuera lenta: es que el aviso saltaba en cuanto una vuelta pasaba del percentil 99,
+# y eso le pasa a una de cada cien vueltas SIEMPRE, vaya bien o mal. Con el freno de un aviso por
+# minuto, eso son hasta 1.440 lineas al dia de "he ido mas lenta de lo normal", que es ruido.
+#
+# EL LISTON NUEVO: el p99 MAS lo que la serie se mueve (p99 - mediana). O sea "peor que lo peor
+# normal, y por mas de lo que esto varia de por si". No es un numero inventado ni un porcentaje
+# elegido a dedo: es el mismo patron que Get-ConsumoListon ya usa en este fichero desde el 28/09
+# (p90 + (p90 - p50)), y sale entero de los datos de la propia consola.
+#
+# Y SI LA SERIE ES PLANA -una consola donde todas las vueltas duran lo mismo- el margen vale 0 y el
+# liston se queda en el p99, que es el comportamiento de antes. No se pierde ningun aviso de verdad.
+function Get-VueltaListonAviso {
+    if ($script:vueltas.Count -lt $VueltasMin) { return 0 }
+    $p99 = [int](Get-PercentilLista $script:vueltas $VueltaPercentil)
+    if ($p99 -le 0) { return 0 }
+    $p50 = [int](Get-PercentilLista $script:vueltas 50)
+    $mueve = $p99 - $p50
+    if ($mueve -lt 0) { $mueve = 0 }
+    return ($p99 + $mueve)
+}
+
 function Add-VueltaMedida([int]$ms) {
     if ($ms -lt 0) { return }
     [void]$script:vueltas.Add($ms)
@@ -31562,7 +31658,12 @@ function Add-VueltaMedida([int]$ms) {
     if (($ahoraV - $script:vueltaAvisoEn) -lt $VueltaAvisoMs) { return }
     $p99 = Get-VueltaP99
     if ($p99 -le 0) { return }
-    if ($ms -le $p99) { return }
+    # EL LISTON, NO EL P99 (2/10, idea 5): ver Get-VueltaListonAviso. Con el p99 a secas, una de cada
+    # cien vueltas pasaba el corte POR DEFINICION y el registro se llenaba de avisos de lo normal:
+    # 569 de las 706 lineas del 2/10, 1.277 de las 2.040 del 1/10.
+    $liston = Get-VueltaListonAviso
+    if ($liston -le 0) { $liston = $p99 }
+    if ($ms -le $liston) { return }
     $script:vueltaAvisoEn = $ahoraV
     $que = if ($script:ultimoLog) { $script:ultimoLog } else { 'no se que' }
     Log ("SORDA " + [Math]::Round($ms / 1000.0, 2) + " s en una vuelta (lo normal en mi son " + $p99 + " ms): " + $que)
@@ -36875,7 +36976,7 @@ $ConsumoTopeMs = [int](Get-Cfg 'ui' 'consumoTopeMs' 60)   # si la sonda cuesta m
 $ConsumoMinMuestras = 20         # el mismo liston que $DecisionMinIntentos: antes de eso no se opina
 $ConsumoPercentil = 90
 $ConsumoAvisoMin = 60            # como mucho una linea por hora y por cosa medida
-$ConsumoNombres = @{ cerebro = 'el cerebro'; oido = 'el oido'; capsula = 'la capsula'; charla = 'la charla' }
+$ConsumoNombres = @{ cerebro = 'el cerebro'; oido = 'el oido'; capsula = 'la capsula'; charla = 'la charla'; voz = 'la voz' }
 $script:consumoSonda = ''        # '' = sin probar, 'si', 'no' = apagada
 $script:consumoTurno = -1
 $script:consumoLeidas = 0
@@ -36893,8 +36994,20 @@ $script:yoProc = $null
 function Get-ProcesosNova {
     $l = New-Object System.Collections.ArrayList
     if (-not $script:yoProc) { try { $script:yoProc = Get-Process -Id $PID -ErrorAction Stop } catch {} }
+    # Y LA VOZ, QUE FALTABA, PARA PODER DECIDIR SI MERECE LA PENA CERRARLA (2/10, idea 13)
+    #
+    # EL AGUJERO: 'voz preparada: 3 min sin charla, se cierra' sale 175 veces en el registro -56 el
+    # 1/10, 8 el 2/10- y cada reapertura cuesta ~1 s de bucle, o sea una vuelta sorda. El cierre esta
+    # ahi para ahorrar memoria... y NADIE HA MEDIDO CUANTA: la voz no entraba en este medidor, asi
+    # que no hay un solo numero en todo el proyecto que diga lo que ahorra.
+    #
+    # NO SE DECIDE NADA HOY: se mide. Cuando haya serie se podra comparar lo que ahorra contra los
+    # ~175 segundos de sordera que cuesta, y entonces el cierre se queda o se va con un dato detras.
+    # Son dos handles distintos porque hay dos voces (la de en linea y Piper), y solo una vive.
+    $vozPr = if ($script:ttsProc) { $script:ttsProc } else { $script:piperProc }
     foreach ($par in @(@('cerebro', $script:yoProc), @('oido', $script:wakeProc),
-                       @('capsula', $script:uiProc), @('charla', $script:charlaProc))) {
+                       @('capsula', $script:uiProc), @('charla', $script:charlaProc),
+                       @('voz', $vozPr))) {
         $pr = $par[1]
         if (-not $pr) { continue }
         # AQUI ESTA LA GUARDA: un muerto contesta 0 megas y no se queja

@@ -92,6 +92,15 @@ def ficheros_de(carpeta, exts):
     return [n.strip() for n in salida if n.strip().endswith(exts)]
 
 
+def ascii_seguro(s):
+    """Para IMPRIMIR: la consola de Windows va en cp1252 y un caracter raro del documento mata el
+    proceso entero con UnicodeEncodeError. Paso al cribar IDEAS-AUTONOMIA-121 por un '∿'."""
+    try:
+        return s.encode('ascii', 'replace').decode('ascii')
+    except Exception:
+        return '?'
+
+
 def soso(s):
     """Sin acentos, sin comillas raras y en minuscula: para comparar frases de verdad."""
     s = s.replace(u'’', "'").replace(u'“', '"').replace(u'”', '"')
@@ -684,12 +693,12 @@ def main():
             continue
         av = criba(t, c)
         hayF = any(x[0] == u'FUERTE' for x in av)
-        print('%s %2d. %s' % ('FUERTE ' if hayF else ('mira   ' if av else 'pasa   '),
-                              n, t[:86]))
+        print(ascii_seguro('%s %2d. %s' % ('FUERTE ' if hayF else ('mira   ' if av else 'pasa   '),
+                                           n, t[:86])))
         if not callado:
             for nivel, filtro, que, prueba in av:
-                print('        %-7s %-22s %s' % (nivel, filtro, que))
-                print('                %s' % prueba)
+                print(ascii_seguro('        %-7s %-22s %s' % (nivel, filtro, que)))
+                print(ascii_seguro('                %s' % prueba))
             if av:
                 print('')
         if av:

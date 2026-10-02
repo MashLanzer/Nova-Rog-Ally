@@ -152,6 +152,44 @@ $script:relojMs = 5 * 60000
 $r7 = Test-ConsumoSalido 'cpu:capsula' 400 'capsula' 'milesimas' 230
 Comp 'y el freno de tiempo sigue frenando aunque empeore' ($r7 -eq $false) "a los 5 min: $r7"
 
+
+Write-Host ''
+Write-Host '-- D. el liston del aviso no es el p99 (idea 5) --'
+# EL P99 SE PASA EL 1 % DE LAS VECES POR DEFINICION. Con el aviso atado al p99 a secas, una de cada
+# cien vueltas lo disparaba vaya Nova bien o mal: 569 de las 706 lineas del 2/10, y 1.277 de las
+# 2.040 del 1/10. El liston nuevo es el p99 MAS lo que la serie se mueve (p99 - mediana), que es el
+# mismo patron que Get-ConsumoListon usa en este fichero desde el 28/09.
+$VueltasMin = 20
+$VueltaPercentil = 99
+Invoke-Expression (Traer 'Get-PercentilLista')
+Invoke-Expression (Traer 'Get-VueltaP99')
+Invoke-Expression (Traer 'Get-VueltaListonAviso')
+# una serie con cola: noventa vueltas de 60 ms y diez de 300
+$script:vueltas = New-Object System.Collections.ArrayList
+1..90 | ForEach-Object { [void]$script:vueltas.Add(60) }
+1..10 | ForEach-Object { [void]$script:vueltas.Add(300) }
+$p99 = Get-VueltaP99
+$lis = Get-VueltaListonAviso
+Comp 'el liston esta por encima del p99' ($lis -gt $p99) "p99=$p99, liston=$lis"
+Comp '  y por el margen de la propia serie' ($lis -eq ($p99 + ($p99 - 60))) "esperado $($p99 + ($p99 - 60))"
+# UNA VUELTA QUE SOLO PASA EL P99 YA NO AVISA; una de verdad mala, SI
+Comp 'una vuelta justo por encima del p99 NO avisa' (($p99 + 1) -le $lis) "$($p99 + 1) ms contra liston $lis"
+Comp '  y una de verdad mala SI' ((2 * $lis) -gt $lis) "$(2 * $lis) ms"
+# SERIE PLANA: el margen vale 0 y se comporta como antes, sin perder avisos
+$script:vueltas = New-Object System.Collections.ArrayList
+1..100 | ForEach-Object { [void]$script:vueltas.Add(62) }
+$pp = Get-VueltaP99
+Comp 'con la serie plana, el liston es el p99 de siempre' ((Get-VueltaListonAviso) -eq $pp) "p99=$pp, liston=$(Get-VueltaListonAviso)"
+# SIN DATOS NO SE INVENTA NADA
+$script:vueltas = New-Object System.Collections.ArrayList
+1..3 | ForEach-Object { [void]$script:vueltas.Add(60) }
+Comp 'sin muestras suficientes, cero (no avisa)' ((Get-VueltaListonAviso) -eq 0) ''
+# Y EL CABLEADO: el que avisa usa el liston, no el p99
+$iLis = $sinCom.IndexOf('$liston = Get-VueltaListonAviso')
+$iCmp = $sinCom.IndexOf('if ($ms -le $liston) { return }', [Math]::Max(0, $iLis))
+Comp 'el aviso compara contra el liston' ($iLis -ge 0 -and $iCmp -gt $iLis) ''
+Comp '  y si el liston falla, cae al p99 y no se calla' ($sinCom -match 'if \(\$liston -le 0\) \{ \$liston = \$p99 \}') 'regla 7'
+
 Write-Host ''
 if ($mal -gt 0) { Write-Host ([string]$mal + ' MAL') -ForegroundColor Red; exit 1 }
 Write-Host 'el registro deja de hablar de si mismo' -ForegroundColor Green

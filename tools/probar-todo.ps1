@@ -2119,6 +2119,15 @@ Titulo "2n279. Los bancos de Python que se rendian por el interprete"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n312. Lo que Nova sabe hacer y braya no le pide (ideas 14 y 15)"
+# memoriaecordatorios.json esta VACIO y lleva 20,2 dias sin tocarse, mientras 'recordatorio' sale 67
+# veces en assistant.ps1 y tiene DOS bancos. Y se midio el POR QUE, que es lo que decidio el arreglo:
+# en las 609 ordenes del corpus hay CERO que suenen a recordatorio, asi que no es que Nova no lo
+# entienda, es que braya no sabe que existe. Dos frenos: se calla si braya no usa a Nova (de eso ya
+# habla Get-AvisoSinUso) y habla de UNA funcion, con la orden literal que puede repetir.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-funcion-dormida.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:ofrece lo que sabe hacer)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n311. Una sonda que se apaga por lenta tiene que acordarse (ideas 9 y 10)"
 # EL ACELEROMETRO: 359 lineas "disponible (se probara la primera lectura)" en el registro y solo 16
 # "lecturas OK". La guarda necesita DOS lecturas lentas seguidas para apagarlo y cada una son 5.015
