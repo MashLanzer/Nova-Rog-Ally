@@ -2119,6 +2119,17 @@ Titulo "2n279. Los bancos de Python que se rendian por el interprete"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n311. Una sonda que se apaga por lenta tiene que acordarse (ideas 9 y 10)"
+# EL ACELEROMETRO: 359 lineas "disponible (se probara la primera lectura)" en el registro y solo 16
+# "lecturas OK". La guarda necesita DOS lecturas lentas seguidas para apagarlo y cada una son 5.015
+# ms medidos: diez segundos de bucle parado -Nova sorda- en CADA arranque, y el 2/10 hubo nueve.
+# LA TEMPERATURA es el mismo caso: se apaga sola (auto-ajuste "1548 ms de 400") pero eso es un
+# contador, no un recuerdo, y su primera lectura puede costar 9.331 ms. Ahora las dos se apuntan en
+# memoria\sondas.json con su fecha, y el recuerdo CADUCA a los siete dias: dejar un sensor muerto
+# para siempre por una medicion vieja es el fallo que este mismo acelerometro ya tuvo hasta el 27/09.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-sondas-recordadas.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se acuerdan, y el recuerdo caduca)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n310. El registro se habia vuelto ruido: tres fuentes medidas el 2/10 (ideas 3, 4 y 7)"
 # EL 2/10 Nova corrio el dia entero sin que braya dijera NI UNA palabra, y el registro tiene 706
 # lineas: 569 son avisos de vuelta lenta, y 418 de ellas -el 59 % del dia- son "EXE DE JUEGO:

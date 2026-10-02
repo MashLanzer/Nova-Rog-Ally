@@ -27203,6 +27203,59 @@ function Watch-LogrosSteam {
     } catch {}
 }
 
+# QUE SE ACUERDE DE QUE LO APAGO, Y NO LO PAGUE EN CADA ARRANQUE (2/10/2026, idea 9)
+#
+# EL DATO: en el registro hay 359 lineas "acelerometro: disponible (se probara la primera lectura)" y
+# solo 16 "lecturas OK". Y "2 lecturas seguidas lentas o vacias (la ultima, 5021 ms, nulo=True);
+# desactivado para no frenar el bucle" sale 6 veces el 30/09 y 9 el 1/10 -o sea DESPUES de que la
+# guarda de la racha se escribiera el 30/09: no es un dato viejo-.
+#
+# LO QUE CUESTA: la guarda necesita DOS lecturas lentas seguidas para apagarlo, y cada una son 5.015
+# ms medidos. Son DIEZ SEGUNDOS de bucle parado -o sea de Nova sorda- en cada arranque, y el 2/10
+# hubo nueve arranques: un minuto y medio al dia tirado en volver a descubrir lo mismo.
+#
+# NO SE APAGA PARA SIEMPRE A CIEGAS: se recuerda con su fecha y se reintenta pasados
+# $AcelOlvidoDias, porque una actualizacion de Windows o del firmware puede arreglar el sensor y
+# dejarlo muerto para siempre por una medicion de hace un mes es justo el fallo que tenia este mismo
+# sensor antes del 27/09 (lo tenia apagado config.json por una medicion vieja).
+$AcelOlvidoDias = 7
+function Get-SondasPath { return (Join-Path $MemoriaDir 'sondas.json') }
+function Get-Sondas {
+    if ($null -ne $script:sondas) { return $script:sondas }
+    $script:sondas = @{}
+    try {
+        $p = Get-SondasPath
+        if (Test-Path -LiteralPath $p) {
+            $o = (Get-Content -LiteralPath $p -Raw -Encoding UTF8) | ConvertFrom-Json
+            foreach ($pr in $o.PSObject.Properties) { $script:sondas[$pr.Name] = [string]$pr.Value }
+        }
+    } catch { $script:sondas = @{} }
+    return $script:sondas
+}
+function Save-Sonda([string]$nombre, [string]$cuando) {
+    try {
+        $t = Get-Sondas
+        $t[$nombre] = $cuando
+        $o = New-Object PSObject
+        foreach ($k in $t.Keys) { Add-Member -InputObject $o -MemberType NoteProperty -Name $k -Value ([string]$t[$k]) }
+        Write-Atomico (Get-SondasPath) (ConvertTo-Json -InputObject $o -Depth 3)
+    } catch {}
+}
+# ¿Se apago hace poco? Devuelve los dias que lleva apagada, o -1 si no esta apagada o ya caduco.
+function Get-SondaApagadaDias([string]$nombre, [datetime]$ahora = (Get-Date)) {
+    try {
+        $v = [string](Get-Sondas)[$nombre]
+        if (-not $v) { return -1 }
+        $h = [datetime]::MinValue
+        if (-not [datetime]::TryParseExact($v, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture,
+                                           [Globalization.DateTimeStyles]::None, [ref]$h)) { return -1 }
+        $d = [int][Math]::Floor(($ahora.Date - $h.Date).TotalDays)
+        if ($d -lt 0 -or $d -ge $AcelOlvidoDias) { return -1 }
+        return $d
+    } catch { return -1 }
+}
+$script:sondas = $null
+
 # =====================================================================
 # ACELEROMETRO (WinRT): un golpe o sacudida de la consola sobresalta a la
 # capsula. Si el sensor no existe, no se hace nada.
@@ -27226,7 +27279,14 @@ if ([bool](Get-Cfg 'sensores' 'acelerometro' $true)) {
     try {
         $null = [Windows.Devices.Sensors.Accelerometer, Windows.Devices.Sensors, ContentType = WindowsRuntime]
         $script:acelerometro = [Windows.Devices.Sensors.Accelerometer]::GetDefault()
-        if ($script:acelerometro) { Log "acelerometro: disponible (se probara la primera lectura)" } else { Log "acelerometro: no hay sensor" }
+        # Y SI SE APAGO HACE POCO, NI SE INTENTA (2/10, idea 9): son 10 s de bucle parado en cada
+        # arranque -dos lecturas de 5.015 ms- para volver a descubrir lo mismo. Ver $AcelOlvidoDias.
+        $diasApag = Get-SondaApagadaDias 'acelerometro'
+        if ($script:acelerometro -and $diasApag -ge 0) {
+            $script:acelerometro = $null
+            Log ("acelerometro: lo apague hace $diasApag dia(s) por lento; no lo pruebo hasta que pasen $AcelOlvidoDias")
+        }
+        elseif ($script:acelerometro) { Log "acelerometro: disponible (se probara la primera lectura)" } else { Log "acelerometro: no hay sensor" }
     } catch { $script:acelerometro = $null; Log "acelerometro: no disponible" }
 }
 
@@ -27310,6 +27370,7 @@ $AcelRachaMin = 2               # lecturas seguidas para llamarlo movimiento
 $AcelLecturaLentaMs = 150
 $AcelLentasMax = 2              # lentas o vacias SEGUIDAS antes de apagarlo; con 2 ya van 10 s
 $script:acelLentas = 0
+
 $script:acelMagAntes = 0.0
 $script:acelDeltas = New-Object System.Collections.ArrayList
 $script:acelRacha = 0
@@ -27519,6 +27580,10 @@ function Watch-Acelerometro {
             $t = [System.Diagnostics.Stopwatch]::StartNew()
             $r0 = $script:acelerometro.GetCurrentReading()
             if ($t.ElapsedMilliseconds -gt $AcelLecturaLentaMs -or -not $r0) {
+                # Y SE APUNTA POR ESTA PUERTA TAMBIEN (2/10): las dos salidas apagan el sensor, asi
+                # que si solo una apuntara, el arranque siguiente volveria a pagar la lectura lenta
+                # justo en el caso que se descubre antes.
+                try { Save-Sonda 'acelerometro' ((Get-Date).ToString('yyyy-MM-dd')) } catch {}
                 Log ("acelerometro: sin lecturas utiles (" + $t.ElapsedMilliseconds + " ms, nulo=" + ($null -eq $r0) + "); desactivado")
                 $script:acelerometro = $null
                 return
@@ -27541,8 +27606,12 @@ function Watch-Acelerometro {
         if ($tL.ElapsedMilliseconds -gt $AcelLecturaLentaMs -or -not $r) {
             $script:acelLentas++
             if ($script:acelLentas -ge $AcelLentasMax) {
+                # SE APUNTA CON LA FECHA (2/10, idea 9): si no, el proximo arranque vuelve a pagar
+                # los 10 s de las dos lecturas lentas. Caduca a los $AcelOlvidoDias.
+                try { Save-Sonda 'acelerometro' ((Get-Date).ToString('yyyy-MM-dd')) } catch {}
                 Log ("acelerometro: " + $script:acelLentas + " lecturas seguidas lentas o vacias (la ultima, " +
-                     $tL.ElapsedMilliseconds + " ms, nulo=" + ($null -eq $r) + "); desactivado para no frenar el bucle")
+                     $tL.ElapsedMilliseconds + " ms, nulo=" + ($null -eq $r) + "); desactivado para no frenar el bucle" +
+                     ", y apuntado para no reintentarlo hasta que pasen $AcelOlvidoDias dias")
                 $script:acelerometro = $null
             }
             return
@@ -36554,6 +36623,17 @@ $script:tempApuntada = -999      # el ultimo grado que se escribio en la serie d
 
 function Get-Temperatura {
     if ($script:tempSonda -eq 'no') { return $null }
+    # Y SI SE APAGO HACE POCO, NI LA PRIMERA (2/10, idea 10): la primera lectura puede costar 9.331
+    # ms -esta medido en el comentario de arriba- y pagarla en cada arranque para descubrir lo mismo
+    # es la misma deuda que la del acelerometro. Ver $AcelOlvidoDias.
+    if (-not $script:tempSonda) {
+        $dT = Get-SondaApagadaDias 'temperatura'
+        if ($dT -ge 0) {
+            $script:tempSonda = 'no'
+            Log ("temperatura: la apague hace $dT dia(s) por lenta; no la pruebo hasta que pasen $AcelOlvidoDias")
+            return $null
+        }
+    }
     try {
         $t = [System.Diagnostics.Stopwatch]::StartNew()
         $z = @(Get-CimInstance Win32_PerfFormattedData_Counters_ThermalZoneInformation -ErrorAction SilentlyContinue)
@@ -36586,7 +36666,15 @@ function Get-Temperatura {
             # EL MISMO CRITERIO QUE EL ACELEROMETRO Y LA CARGA: el que no responde rapido, se apaga.
             # Pero a partir de la SEGUNDA lectura: ver LA PRIMERA LECTURA NO SE JUZGA.
             if ($ms -gt $TempTopeMs) {
-                Log ("temperatura: la sonda cuesta " + $ms + " ms (tope " + $TempTopeMs + "); la apago")
+                # SE RECUERDA, COMO EL ACELEROMETRO (2/10, idea 10). En estadisticas.json estaba
+                # "auto-ajuste = sonda de temperatura off: 1548 ms de 400", o sea que se apaga de
+                # verdad; pero eso es un CONTADOR, no un recuerdo, asi que el arranque siguiente
+                # volvia a pagar la lectura cara. Y la temperatura es la funcion que braya pidio
+                # para saber si el zumbido es su propio ventilador: si se queda apagada, el aviso
+                # del ruido sigue mandandole a buscar un ruido que es de la consola.
+                try { Save-Sonda 'temperatura' ((Get-Date).ToString('yyyy-MM-dd')) } catch {}
+                Log ("temperatura: la sonda cuesta " + $ms + " ms (tope " + $TempTopeMs + "); la apago" +
+                     ", y lo apunto para no reintentarlo hasta que pasen $AcelOlvidoDias dias")
                 try { Add-Estadistica 'auto-ajuste' ("sonda de temperatura off: " + $ms + " ms de " + $TempTopeMs) } catch {}
                 $script:tempSonda = 'no'
                 return $null

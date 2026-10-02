@@ -59,6 +59,14 @@ $script:logs = @()
 function Log([string]$m) { $script:logs += @($m) }
 function Add-Estadistica([string]$r, [string]$d = '', [bool]$c = $false) { }
 $sw = [Diagnostics.Stopwatch]::StartNew()
+# EL RECUERDO DE LA SONDA (2/10, idea 10): Get-Temperatura consulta si la apago hace poco antes de
+# pagar la primera lectura, que puede costar 9.331 ms (medido, esta en su comentario). Se dobla con
+# interruptor para poder probar las dos ramas sin tocar el disco de braya.
+$AcelOlvidoDias = 7
+$script:sondaApagadaDias = -1
+$script:sondasGuardadas = @()
+function Get-SondaApagadaDias([string]$n, [datetime]$a = (Get-Date)) { return $script:sondaApagadaDias }
+function Save-Sonda([string]$n, [string]$c) { $script:sondasGuardadas += "$n|$c" }
 $script:tempSonda = ''
 $script:tempUltima = $null
 $script:tempLeidas = 0
@@ -148,6 +156,33 @@ Comp '6c. y va en el bloque de la bateria' ($sinCom -match "(?s)\[bateria\] ' \+
 Comp '6d. diciendo si se estaba frenando' ($sinCom -match 'FRENANDO \(') ''
 Comp '6e. y a que jugaba' ($sinCom -match "(?s)\[temperatura\].{0,400}jugando a ' \+ \`$script:juegoActivo") 'para poder cruzar calor con juego'
 
+Write-Host ''
+Write-Host '-- 9. SI SE APAGO HACE POCO, NI SE INTENTA (2/10, idea 10) --'
+# Esta sonda se apaga sola cuando tarda -en estadisticas.json esta "auto-ajuste = sonda de
+# temperatura off: 1548 ms de 400"-, pero eso era un CONTADOR y no un recuerdo: el arranque
+# siguiente volvia a pagar la primera lectura, que puede costar 9.331 ms medidos.
+Reset
+# EL CONTADOR DE VERDAD: el banco no llevaba ninguno, asi que "NI TOCA el CIM" salia verde
+# comparando una variable que nadie incrementaba. Se dobla aqui, contando.
+function Get-CimInstance { param([string]$ClassName, $ErrorAction) $script:cimLlamadas++; return @([pscustomobject]@{ Name = '\_TZ.X'; Temperature = 320; ThrottleReasons = 0; PercentPassiveLimit = 100 }) }
+$script:sondaApagadaDias = 2
+$script:cimLlamadas = 0
+$r = Get-Temperatura
+Comp '9a. con el recuerdo puesto, no devuelve nada' ($null -eq $r) ''
+Comp '9b.   y NI TOCA el CIM caro' ($script:cimLlamadas -eq 0) "llamadas=$($script:cimLlamadas)"
+Comp '9c.   y lo dice una vez, con los dias' (@($script:logs | Where-Object { $_ -match 'la apague hace 2 dia' }).Count -eq 1) ($script:logs -join ' | ')
+# Y NO LO REPITE EN CADA VUELTA: la sonda queda en 'no' y las siguientes salen por el primer if
+$antes = $script:logs.Count
+[void](Get-Temperatura); [void](Get-Temperatura)
+Comp '9d.   y no lo repite cada vuelta' ($script:logs.Count -eq $antes) "$($script:logs.Count - $antes) lineas nuevas"
+# Y SIN RECUERDO, SE PRUEBA COMO SIEMPRE: sin esto el respaldo taparia la sonda para siempre
+Reset
+$script:sondaApagadaDias = -1
+$script:cimLlamadas = 0
+[void](Get-Temperatura)
+Comp '9e. sin recuerdo, SI mira el sensor' ($script:cimLlamadas -ge 1) "llamadas=$($script:cimLlamadas)"
+
+Write-Host ''
 Write-Host ''
 if ($mal -gt 0) { Write-Host ([string]$mal + ' MAL') -ForegroundColor Red; exit 1 }
 Write-Host 'Nova sabe si el zumbido es su propio ventilador' -ForegroundColor Green
