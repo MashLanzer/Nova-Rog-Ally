@@ -2119,6 +2119,16 @@ Titulo "2n279. Los bancos de Python que se rendian por el interprete"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n310. El registro se habia vuelto ruido: tres fuentes medidas el 2/10 (ideas 3, 4 y 7)"
+# EL 2/10 Nova corrio el dia entero sin que braya dijera NI UNA palabra, y el registro tiene 706
+# lineas: 569 son avisos de vuelta lenta, y 418 de ellas -el 59 % del dia- son "EXE DE JUEGO:
+# 'windowsterminal' lleva rato delante y no se cual es", cada una forzando la relectura entera de la
+# biblioteca de Steam. Aqui se tapan tres fuentes: los exes que nunca son juegos, el 'EN BUCLE:' que
+# se quedo fuera del filtro del 1/10 (94 lineas), y el aviso de consumo que repetia el MISMO numero
+# ocho veces. Y se dejan escritas las DOS que se cayeron al medirlas por la fecha del dato.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-ruido-registro.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:deja de hablar de si mismo)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n309. Llamar a una funcion antes de que exista: el barrido de la familia"
 # DOS VECES EN DOS DIAS, y las dos las cazo el contador de petes cuatro dias tarde: Show-Popup
 # (definida en la 30721, la llaman los siete avisos del arranque) y Get-QuietudMando (estaba en la

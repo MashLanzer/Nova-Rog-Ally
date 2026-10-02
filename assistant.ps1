@@ -289,7 +289,14 @@ function Log([string]$msg) {
     # esta quitado, pero la poda de Add-LogRepe sigue ordenando toda la tabla para tirar la mitad.
     # SE FILTRA EN EL EMBUDO y no en quien escribe: asi vale para SORDA, para LENTA y para
     # cualquier otra linea del medidor que se anada manana.
-    if ($msg -and $msg -notmatch '^(?:SORDA|LENTA:)') {
+    # Y 'EN BUCLE:' TAMBIEN, QUE SE QUEDO FUERA (2/10). El comentario de arriba decia que esto vale
+    # "para cualquier otra linea del medidor que se anada manana", y justo la que mas se repite no
+    # estaba en la lista: 'EN BUCLE: llevo N veces lo mismo' es del propio medidor de repeticiones,
+    # asi que al citarla se cita a si misma de rebote. MEDIDO en el registro del 2/10, con el filtro
+    # de SORDA ya puesto el 1/10: quedaban 94 lineas del tipo
+    #   "SORDA 0.08 s en una vuelta (...): EN BUCLE: llevo 10 veces lo mismo en 9 min: ..."
+    # una por minuto, todas iguales y todas inutiles para diagnosticar nada.
+    if ($msg -and $msg -notmatch '^(?:SORDA|LENTA:|EN BUCLE:)') {
         $script:ultimoLog = if ($msg.Length -gt 80) { $msg.Substring(0, 80) } else { $msg }
     }
     # IDEA 76: y si esta linea se esta repitiendo, se cuenta. Sin llamar a nada (ver LA MISMA
@@ -15827,8 +15834,18 @@ function Watch-Entorno([int]$botones = 0) {
         if ($script:exeSinJuego -and $script:exeSinJuegoDesde -gt 0 -and -not $script:invitado -and
             ($sw.ElapsedMilliseconds - $script:exeSinJuegoDesde) -ge ($ExesJuegoMinSeg * 1000)) {
             $procE = ([string]$script:exeSinJuego).ToLowerInvariant()
-            $tbE = Get-ExesJuego
-            if (-not $tbE.ContainsKey($procE) -and -not $EXES_JUEGO.ContainsKey($procE)) {
+            # LO QUE NUNCA ES UN JUEGO NO SE PREGUNTA (2/10). Ver $EXES_NO_JUEGO: 418 de las 706
+            # lineas del registro de hoy eran mi ventana de comandos, y cada una forzaba la
+            # relectura entera de la biblioteca de Steam (el trozo que mide 16 s en el arranque).
+            # Y lo que ya se pregunto tres veces sin aclararse, tampoco: la cuarta da lo mismo.
+            #
+            # NADA DE 'return' AQUI, Y ESTO IMPORTA: esto esta dentro de Watch-Entorno, que sigue
+            # veinte bloques mas abajo -el horario, el disco, la bateria, los avisos-. Un return se
+            # llevaria por delante todo eso, y encima en silencio, porque va dentro de un try.
+            $fueraE = ($EXES_NO_JUEGO.ContainsKey($procE) -or
+                       [int]$script:exeSinAclarar[$procE] -ge $ExeSinAclararMax)
+            $tbE = if ($fueraE) { @{} } else { Get-ExesJuego }
+            if (-not $fueraE -and -not $tbE.ContainsKey($procE) -and -not $EXES_JUEGO.ContainsKey($procE)) {
                 # la foto del ANTES, de lo que ya esta cargado: no cuesta ninguna lectura
                 $antesE = @{}
                 foreach ($jj in @($script:Juegos)) {
@@ -15839,8 +15856,14 @@ function Watch-Entorno([int]$botones = 0) {
                 $script:JuegosStamp = (Get-Date).AddMinutes(-5)
                 [void](Update-Juegos)
                 $cualE = Find-JuegoPorUltimoJugado $desdeE (Get-Date) $antesE
-                if ($cualE) { [void](Save-ExeJuego $procE $cualE) }
-                else { Log "EXE DE JUEGO: '$procE' lleva rato delante y no se cual es; Steam no lo aclara" }
+                if ($cualE) { [void](Save-ExeJuego $procE $cualE); [void]$script:exeSinAclarar.Remove($procE) }
+                else {
+                    # SE CUENTA, para no volver a pagar la relectura una cuarta vez (2/10)
+                    $script:exeSinAclarar[$procE] = [int]$script:exeSinAclarar[$procE] + 1
+                    $vecesE = [int]$script:exeSinAclarar[$procE]
+                    Log ("EXE DE JUEGO: '$procE' lleva rato delante y no se cual es; Steam no lo aclara" +
+                         $(if ($vecesE -ge $ExeSinAclararMax) { " (van $vecesE; no lo vuelvo a mirar en esta sesion)" } else { "" }))
+                }
             }
             # se gasta el candidato pase lo que pase: si no, se reintentaria cada vuelta
             $script:exeSinJuego = ''
@@ -24859,6 +24882,32 @@ $CARPETA_NO_JUEGO = @('launcher', 'epic games launcher', 'gamesave', 'directxred
 # protegidas y $p.Path puede saltar por permisos; antes eso era un 'no hay juego'.
 $EXES_JUEGO = @{ 'robloxplayerbeta' = 'Roblox'; 'minecraft' = 'Minecraft'
                  'minecraftlauncher' = 'Minecraft'; 'fortniteclient-win64-shipping' = 'Fortnite' }
+
+# LO QUE NUNCA ES UN JUEGO, Y CUANTO COSTABA NO SABERLO (2/10/2026)
+#
+# EL DATO, del registro de HOY con Nova corriendo el dia entero: de sus 706 lineas, 418 -el 59 %-
+# son "EXE DE JUEGO: 'windowsterminal' lleva rato delante y no se cual es; Steam no lo aclara", 368
+# de ellas dentro de una vuelta SORDA. Mas 61 de 'explorer' en el registro viejo. Nova tomaba mi
+# ventana de comandos por un juego desconocido.
+#
+# Y NO ERA SOLO UNA LINEA EN EL LOG: cada vez FUERZA la relectura de la biblioteca de Steam
+# ($script:JuegosStamp hacia atras + Update-Juegos), que es el trozo que mide 16 segundos en el
+# arranque. De ahi que casi todas esas lineas vengan con una vuelta sorda pegada.
+#
+# ESTOS SIETE NO SE PREGUNTAN NUNCA: son del sistema o del propio entorno de trabajo, y ninguno
+# puede estar en la biblioteca de Steam. No es una lista de gustos -eso seria un numero fijo de los
+# que braya no quiere-, es una propiedad del sistema operativo.
+$EXES_NO_JUEGO = @{ 'windowsterminal' = $true; 'explorer' = $true; 'powershell' = $true
+                    'pwsh' = $true; 'cmd' = $true; 'conhost' = $true; 'taskmgr' = $true
+                    'steamwebhelper' = $true; 'code' = $true; 'searchhost' = $true
+                    'shellexperiencehost' = $true; 'startmenuexperiencehost' = $true
+                    'applicationframehost' = $true; 'systemsettings' = $true }
+
+# Y LOS QUE SE PREGUNTARON Y STEAM NO ACLARO: una vez por sesion y por exe, no una cada diez
+# minutos. Si al tercer intento sigue sin aclararse, deja de intentarse del todo: insistir una
+# cuarta vez con la misma respuesta es gastar la relectura de la biblioteca para nada.
+$script:exeSinAclarar = @{}
+$ExeSinAclararMax = 3
 function Get-JuegoEnPrimerPlano {
     # MI PROPIA VENTANA DELANTE NO ES SALIR DEL JUEGO (21/09). Esto solo miraba si la
     # ventana de delante era de un juego; si no, devolvia $null y el bucle daba la
@@ -36638,6 +36687,10 @@ $script:consumoLeidas = 0
 $script:consumoAntes = @{}       # nombre -> @{ cpu = segundos; reloj = ms }
 $script:consumoUltimo = @{}      # nombre -> @{ mb; cuota }, para que Get-RamResumen lo pueda contar
 $script:consumoAvisoEn = @{}
+# y el ultimo valor avisado de cada cosa, para no repetir el mismo numero (2/10): ver
+# Test-ConsumoSalido. Vive en RAM a proposito -el freno es para una sesion- y por eso no entra en
+# la regla 4: no toca disco.
+$script:consumoAvisoVal = @{}
 $script:yoProc = $null
 
 # Los procesos de Nova que estan VIVOS ahora. Los tres workers son los handles que la casa ya
@@ -36716,6 +36769,18 @@ function Test-ConsumoSalido([string]$clave, [int]$valor, [string]$nom, [string]$
     if ($script:consumoAvisoEn.ContainsKey($clave)) {
         if (($ahoraC - [double]$script:consumoAvisoEn[$clave]) -lt ($ConsumoAvisoMin * 60000)) { return $false }
     }
+    # Y EL MISMO NUMERO NO ES NOTICIA DOS VECES (2/10). El freno de arriba es de TIEMPO, y con el
+    # puesto el registro del 2/10 tiene ocho lineas identicas -"la capsula va por 236 milesimas de
+    # nucleo y lo suyo son 230"-, mas siete del oido y cinco de tres cosas mas. Un 2,6 % por encima
+    # del liston, repetido cada hora, no dice nada que no dijera la primera.
+    #
+    # EL CRITERIO ES EL DE LOS PETES, que ya esta probado: vuelve a hablar cuando EMPEORA. Nada de
+    # porcentaje inventado: se compara con el ultimo valor que se aviso de esa misma clave, que es un
+    # dato real y propio de cada cosa. Si baja o se queda igual, la noticia ya se dio.
+    if ($script:consumoAvisoVal.ContainsKey($clave)) {
+        if ($valor -le [int]$script:consumoAvisoVal[$clave]) { return $false }
+    }
+    $script:consumoAvisoVal[$clave] = $valor
     $script:consumoAvisoEn[$clave] = $ahoraC
     $quien = [string]$ConsumoNombres[$nom]
     if (-not $quien) { $quien = $nom }

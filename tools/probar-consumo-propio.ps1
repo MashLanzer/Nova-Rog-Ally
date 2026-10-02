@@ -83,6 +83,11 @@ $script:consumoLeidas = 0
 $script:consumoAntes = @{}
 $script:consumoUltimo = @{}
 $script:consumoAvisoEn = @{}
+# Y EL ULTIMO VALOR AVISADO DE CADA COSA (2/10): Test-ConsumoSalido ya no repite el MISMO
+# numero, asi que sin esta tabla la llamaba sobre $null y el banco moria con "No se puede
+# llamar a un metodo en una expresion con valor NULL" -que desde fuera parece un fallo del
+# codigo y era del banco-.
+$script:consumoAvisoVal = @{}
 $script:yoProc = $null
 $script:wakeProc = $null; $script:uiProc = $null; $script:charlaProc = $null
 $script:juegoActivo = $null
@@ -169,7 +174,7 @@ $p50 = [int](Get-PercentilLista (Get-TrabajoTiempos 'ram:cerebro') 50)
 Comp '3d. una serie ancha abre el liston sola' ($lC -gt $p90) ('p90 ' + $p90 + ' + lo que se mueve ' + ($p90 - $p50) + ' = ' + $lC)
 Comp '3e. y no es un numero escrito a mano' ($lC -eq ($p90 + ($p90 - $p50))) ''
 # y esto es lo que evita el ruido: estar en el decil alto NO es salirse
-$script:consumoAvisoEn = @{}; $script:logs = @()
+$script:consumoAvisoEn = @{}; $script:consumoAvisoVal = @{}; $script:logs = @()
 Comp '3f. estar en el decil alto no es salirse' (-not (Test-ConsumoSalido 'ram:cerebro' $p90 'cerebro' 'megas')) ('el p90 son ' + $p90 + ' y el liston ' + $lC)
 Comp '3g. pero hincharse si' (Test-ConsumoSalido 'ram:cerebro' ($lC + 1) 'cerebro' 'megas') ''
 Comp '3h. y lo dice con nombre de casa' ($script:logs[-1] -match 'el cerebro') ([string]$script:logs[-1])
@@ -181,7 +186,13 @@ Comp '4a. el segundo aviso seguido se calla' (-not (Test-ConsumoSalido 'ram:cere
 Comp '4b. y no escribe nada' ($script:logs.Count -eq $antesL) 'un tramo hinchado escribiria una por minuto'
 # pasada la hora, vuelve a hablar
 $script:consumoAvisoEn['ram:cerebro'] = [double]$sw.ElapsedMilliseconds - ($ConsumoAvisoMin * 60000) - 1
-Comp '4c. pasada la hora, vuelve a decirlo' (Test-ConsumoSalido 'ram:cerebro' ($lC + 1) 'cerebro' 'megas') ''
+# PASADA LA HORA VUELVE A HABLAR, PERO SOLO SI EMPEORA (2/10). Antes bastaba con que pasara la
+# hora, y en el registro del 2/10 eso daba ocho lineas identicas: 'la capsula va por 236
+# milesimas de nucleo y lo suyo son 230', un 2,6 % por encima, repetido cada hora. El criterio
+# nuevo es el de los petes: la noticia es que EMPEORE, no que el reloj siga andando.
+Comp '4c. pasada la hora y PEOR, vuelve a decirlo' (Test-ConsumoSalido 'ram:cerebro' ($lC + 200) 'cerebro' 'megas') ''
+$script:consumoAvisoEn['ram:cerebro'] = [double]$sw.ElapsedMilliseconds - ($ConsumoAvisoMin * 60000) - 1
+Comp '4c2. pero con el MISMO numero, no' (-not (Test-ConsumoSalido 'ram:cerebro' ($lC + 200) 'cerebro' 'megas')) 'ocho lineas iguales el 2/10'
 # y el freno es POR CLAVE: que se hinche la RAM no calla el aviso de la CPU
 $script:series['cpu:cerebro'] = $script:series['ram:cerebro']
 Comp '4d. el freno es por cosa, no global' (Test-ConsumoSalido 'cpu:cerebro' ($lC + 1) 'cerebro' 'milesimas de nucleo') ''
@@ -237,7 +248,7 @@ Comp '6c. y no se pisan' (([int]$script:series['ram:cerebro'].Count -eq 1) -and 
 # y el aviso dice contra que juego
 $script:series['ram:cerebro:juego'] = New-Object System.Collections.ArrayList
 1..20 | ForEach-Object { [void]$script:series['ram:cerebro:juego'].Add(200) }
-$script:consumoAvisoEn = @{}; $script:logs = @()
+$script:consumoAvisoEn = @{}; $script:consumoAvisoVal = @{}; $script:logs = @()
 [void](Test-ConsumoSalido 'ram:cerebro:juego' 900 'cerebro' 'megas')
 Comp '6d. y el aviso dice con que juego delante' ($script:logs[-1] -match 'elden ring') ([string]$script:logs[-1])
 $script:juegoActivo = $null

@@ -158,7 +158,13 @@ Write-Host '-- 8. EL MEDIDOR DEL PULSO NO PUEDE ALIMENTAR ESTA TABLA (1/10) --'
 # peor de 18,18 s; con el filtro puesto, SIETE lineas y 1,71 s.
 # SE COMPRUEBA EN Log, que es donde esta el filtro, y con el texto de verdad del archivo: si alguien
 # lo quita, esto se pone rojo antes de que Nova vuelva a quedarse sorda doce segundos.
-Comp '8a. Log no guarda las lineas del medidor como "ultimo"' ($log -match "notmatch '\^\(\?:SORDA\|LENTA:\)'") 'si las guarda, se citan a si mismas'
+# EL 2/10 EL FILTRO GANO 'EN BUCLE:', que es justo la linea del medidor que mas se repetia: 94
+# lineas del 2/10 del tipo "SORDA (...): EN BUCLE: llevo 10 veces lo mismo en 9 min: ...". Se
+# comprueban las TRES claves por separado en vez de casar el regex entero con un literal, para que
+# anadir una cuarta manana no vuelva a poner este banco rojo con el codigo perfecto.
+foreach ($clave in @('SORDA', 'LENTA:', 'EN BUCLE:')) {
+    Comp ("8a. Log no guarda '" + $clave + "' como ultimo") ($log -match ("notmatch '\^\(\?:[^']*" + [regex]::Escape($clave))) 'si las guarda, se citan a si mismas'
+}
 # Y QUE EL FILTRO DE VERDAD FILTRE, no solo que este escrito. Log entera arrastra media casa
 # -secretos, disco, Add-LogRepe-, asi que se saca SU condicion del archivo y se ejecuta esa: si
 # manana alguien cambia el regex, estos tres casos lo dicen.
