@@ -24448,19 +24448,112 @@ $script:peteDicho = ''          # 'linea:veces' del ultimo avisado: no se repite
 
 # LO QUE LLEVA ROTO MAS TIEMPO, sumando TODOS los dias del fichero. Devuelve @{ linea; veces; dias }
 # o $null. Se usa para la frase y para el aviso, asi que la cuenta vive en UN solo sitio.
+# LA HUELLA DEL TEXTO DE CADA PETE, CON MEMORIA LARGA (2/10/2026, idea 16)
+#
+# POR QUE NO BASTA 'recientes': guarda 40 entradas y se llena en horas. El 2/10, de los TRES petes
+# del mismo fallo de Get-QuietudMando (17491, 17485 y 17223) solo quedaba el mensaje de uno, asi que
+# agrupar por texto leyendo solo 'recientes' habria servido hoy y no manana.
+#
+# LA HUELLA, Y POR QUE ASI: el mensaje con los numeros cambiados por N y cortado a 90 caracteres. Los
+# numeros fuera porque el propio mensaje puede traer un contador o una ruta con cifras, y 90 porque
+# ahi ya ha salido el nombre del termino o del metodo, que es lo que identifica el fallo.
+$PetesTextoMax = 60
+function Get-PetesTextoPath { return (Join-Path $MemoriaDir 'petes-texto.json') }
+function Get-HuellaPete([string]$que) {
+    $h = ([string]$que) -replace '\d+', 'N'
+    $h = $h -replace '\s+', ' '
+    $h = $h.Trim()
+    if ($h.Length -gt 90) { $h = $h.Substring(0, 90) }
+    return $h
+}
+function Get-PetesTexto {
+    if ($null -ne $script:petesTexto) { return $script:petesTexto }
+    $script:petesTexto = @{}
+    try {
+        $p = Get-PetesTextoPath
+        if (Test-Path -LiteralPath $p) {
+            $o = (Get-Content -LiteralPath $p -Raw -Encoding UTF8) | ConvertFrom-Json
+            foreach ($pr in $o.PSObject.Properties) { $script:petesTexto[$pr.Name] = [string]$pr.Value }
+        }
+    } catch { $script:petesTexto = @{} }
+    return $script:petesTexto
+}
+function Save-PeteTexto([string]$linea, [string]$que) {
+    if (-not $linea -or -not $que) { return }
+    $t = Get-PetesTexto
+    $hu = Get-HuellaPete $que
+    # SOLO SI ES NUEVA: esto corre en el bloque del minuto, y escribir el fichero cada vez seria
+    # disco evitable (regla 4). Una linea nueva pasa una vez en la vida.
+    if ([string]$t[$linea] -eq $hu) { return }
+    $t[$linea] = $hu
+    # Y CON TOPE, que si no crece sin fin: cada edicion del fichero estrena numeros de linea. Se
+    # tiran las claves mas bajas, que son las de las versiones mas viejas del codigo.
+    if ($t.Count -gt $PetesTextoMax) {
+        $sobran = @($t.Keys | Sort-Object { [int]($_ -replace '\D', '0') }) | Select-Object -First ($t.Count - $PetesTextoMax)
+        foreach ($k in $sobran) { [void]$t.Remove($k) }
+    }
+    try {
+        $o = New-Object PSObject
+        foreach ($k in $t.Keys) { Add-Member -InputObject $o -MemberType NoteProperty -Name $k -Value ([string]$t[$k]) }
+        Write-Atomico (Get-PetesTextoPath) (ConvertTo-Json -InputObject $o -Depth 3)
+    } catch {}
+}
+$script:petesTexto = $null
+
 function Get-PeorPeteHistorico {
     try {
         $s = Get-Estadisticas
         if (-not $s -or -not $s.dias) { return $null }
+        # EL MISMO FALLO SE CUENTA UNA VEZ, AUNQUE CAMBIE DE LINEA (2/10/2026, idea 16)
+        #
+        # EL DEFECTO, que es de esta misma funcion escrita el 1/10: agrupaba por numero de linea, y
+        # el numero de linea se mueve con cada edicion del fichero. El 2/10, el fallo de
+        # Get-QuietudMando estaba repartido en pete:17491 (14 veces), pete:17485 (8) y pete:17223
+        # (2): VEINTICUATRO apariciones del MISMO error contadas como tres fallos de 14, 8 y 2. Con
+        # el liston en 200, ninguno de los tres iba a hablar nunca. Y ya habia pasado igual con
+        # pete:979 y pete:1002, que eran el mismo File::Replace y sumaban 1.087.
+        #
+        # DE DONDE SALE EL TEXTO: el detalle que se guarda en 'recientes' lleva la clave y el mensaje
+        # ("[pete:17491]  7 veces: El termino 'Get-QuietudMando' no se reconoce..."), asi que de ahi
+        # se saca que linea corresponde a que error. Lo que se agrupa es el MENSAJE, que es lo
+        # estable; la linea sigue sirviendo para decir donde esta AHORA.
+        #
+        # Y LO QUE NO SE PUEDE: 'recientes' guarda 40 entradas, asi que de un pete viejo sin entrada
+        # reciente no se sabe el texto. Ese se queda en su propio grupo, como antes. Es una mejora,
+        # no una garantia, y conviene que quede escrito.
+        # LA TABLA PERSISTENTE PRIMERO, y 'recientes' encima: la tabla tiene memoria larga y
+        # 'recientes' trae lo de este rato, que puede ser mas fresco.
+        $textoDe = @{}
+        try {
+            foreach ($kk in @((Get-PetesTexto).Keys)) { $textoDe[[string]$kk] = [string](Get-PetesTexto)[$kk] }
+        } catch {}
+        try {
+            foreach ($ln2 in @($s.recientes)) {
+                $m2 = [regex]::Match([string]$ln2, '\[pete:([^\]]+)\]\s+\d+ veces:\s*(.+)$')
+                if ($m2.Success) {
+                    $clv = $m2.Groups[1].Value
+                    # la huella: el principio del mensaje, que es lo que no cambia. Los numeros
+                    # fuera -"7 veces" ya viene aparte, pero el mensaje puede traer su propio
+                    # contador- y a 90 caracteres, que es donde acaba el nombre del termino.
+                    $hu = ($m2.Groups[2].Value -replace '\d+', 'N')
+                    if ($hu.Length -gt 90) { $hu = $hu.Substring(0, 90) }
+                    $textoDe[$clv] = $hu
+                }
+            }
+        } catch {}
         $porLinea = @{}
         $diasDe = @{}
+        $lineasDe = @{}     # grupo -> las lineas de verdad que lo forman, para poder decirlas
         foreach ($d in @($s.dias.Keys)) {
             foreach ($k in @($s.dias[$d].Keys)) {
                 if (-not ([string]$k).StartsWith('pete:')) { continue }
                 $ln = ([string]$k).Substring(5)
-                if (-not $porLinea.ContainsKey($ln)) { $porLinea[$ln] = 0; $diasDe[$ln] = 0 }
-                $porLinea[$ln] += [int]$s.dias[$d][$k]
-                $diasDe[$ln]++
+                # el grupo es el TEXTO si se conoce, y si no la propia linea
+                $g = if ($textoDe.ContainsKey($ln)) { $textoDe[$ln] } else { $ln }
+                if (-not $porLinea.ContainsKey($g)) { $porLinea[$g] = 0; $diasDe[$g] = 0; $lineasDe[$g] = @() }
+                $porLinea[$g] += [int]$s.dias[$d][$k]
+                $diasDe[$g]++
+                if ($lineasDe[$g] -notcontains $ln) { $lineasDe[$g] += $ln }
             }
         }
         if ($porLinea.Count -eq 0) { return $null }
@@ -24470,7 +24563,17 @@ function Get-PeorPeteHistorico {
             if ([int]$porLinea[$ln] -gt $max) { $max = [int]$porLinea[$ln]; $mejor = [string]$ln }
         }
         if (-not $mejor) { return $null }
-        return @{ linea = $mejor; veces = $max; dias = [int]$diasDe[$mejor] }
+        # LA LINEA QUE SE DICE ES LA MAS ALTA del grupo, que es la del fichero de ahora: las otras
+        # son el mismo fallo en versiones anteriores y mandarian a braya a mirar una linea que ya no
+        # es esa. Se dice tambien en cuantos sitios se ha contado, porque eso explica el numero.
+        $lns = @($lineasDe[$mejor])
+        $laLinea = $mejor
+        $sitios = 1
+        if ($lns.Count -gt 0) {
+            $sitios = $lns.Count
+            $laLinea = [string](@($lns | Sort-Object { [int]($_ -replace '\D', '0') } -Descending)[0])
+        }
+        return @{ linea = $laLinea; veces = $max; dias = [int]$diasDe[$mejor]; sitios = $sitios }
     } catch { return $null }
 }
 
@@ -24482,6 +24585,10 @@ function Get-FrasePetes {
     if (-not $h) { return 'Por dentro no se me ha roto nada que yo sepa.' }
     if ([int]$h.veces -lt 10) { return 'Por dentro voy bien: lo poco que falla no se repite.' }
     $t = 'Llevo ' + [string]$h.veces + ' veces el mismo error tragado, en la linea ' + [string]$h.linea
+    # Y SI EL MISMO FALLO SE CONTO EN VARIAS LINEAS, SE DICE (2/10, idea 16): es la senal de que el
+    # codigo se ha editado por medio, y sin decirlo el numero parece venir de un solo sitio. Pasa
+    # mucho: el fallo de Get-QuietudMando salia en tres lineas distintas el mismo dia.
+    if ([int]$h.sitios -gt 1) { $t += ' (lo he contado en ' + [string]$h.sitios + ' sitios: la linea se movio al editar)' }
     if ([int]$h.dias -gt 1) { $t += ', repartidas en ' + [string]$h.dias + ' dias' }
     $t += '.'
     # Y SI ADEMAS ESTA PASANDO AHORA, se dice: una cosa es un fallo viejo y otra uno vivo.
@@ -39769,7 +39876,14 @@ while ($true) {
             $petes = Watch-ErroresTragados
             if ($petes -gt 0) {
                 $peor = Get-PeorPete
-                if ($peor) { Add-Estadistica ('pete:' + $peor.linea) ([string]$peor.veces + ' veces: ' + $peor.que) }
+                if ($peor) {
+                    Add-Estadistica ('pete:' + $peor.linea) ([string]$peor.veces + ' veces: ' + $peor.que)
+                    # Y LA HUELLA DEL TEXTO, PARA PODER AGRUPAR MANANA (2/10, idea 16). 'recientes'
+                    # solo guarda 40 entradas, asi que sin esto la agrupacion por texto se queda
+                    # ciega en dos dias: hoy mismo, de los tres petes de Get-QuietudMando solo
+                    # quedaba uno con su mensaje. Escribe UNA vez por linea nueva, no por vuelta.
+                    try { Save-PeteTexto ([string]$peor.linea) ([string]$peor.que) } catch {}
+                }
                 # Y SE DICE, QUE ES LO QUE FALTABA (1/10, idea 1 de las 20 nuevas). Ver
                 # Get-PeorPeteHistorico: 1.087 errores tragados apuntados cuatro dias y leidos por
                 # nadie. Aqui dentro porque el dato ya esta calculado y este bloque corre una vez

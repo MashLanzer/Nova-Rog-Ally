@@ -160,6 +160,54 @@ Comp '  y se apunta ANTES de mirar la suma' ($iAdd -ge 0 -and $iHist -ge 0 -and 
 # Y EL LISTON SE PUEDE MOVER SIN TOCAR EL CODIGO
 Comp 'el liston sale de config.json' ($sinCom -match "Get-Cfg 'registro' 'peteAvisaDesde'") ''
 
+
+Write-Host ''
+Write-Host '-- 7. EL MISMO FALLO, AUNQUE CAMBIE DE LINEA, ES UNO (2/10, idea 16) --'
+# EL DEFECTO ERA DE ESTA MISMA FUNCION, escrita el 1/10: agrupaba por numero de linea, y el numero
+# se mueve con cada edicion del fichero. El 2/10, el fallo de Get-QuietudMando estaba repartido en
+# pete:17491 (14 veces), pete:17485 (8) y pete:17223 (2): VEINTICUATRO apariciones del mismo error
+# contadas como tres fallos de 14, 8 y 2. Con el liston en 200 ninguno iba a hablar nunca. Y ya habia
+# pasado con pete:979 y pete:1002, que eran el mismo File::Replace y sumaban 1.087.
+$script:petesTexto = @{}
+function Get-PetesTexto { return $script:petesTexto }
+function Save-PeteTexto([string]$l, [string]$q) { $script:petesTexto[$l] = (Get-HuellaPete $q) }
+Invoke-Expression (Traer 'Get-HuellaPete')
+$elMismo = "El termino 'Get-QuietudMando' no se reconoce como nombre de un cmdlet, funcion..."
+$script:petesTexto = @{ '17491' = (Get-HuellaPete $elMismo); '17485' = (Get-HuellaPete $elMismo)
+                        '17223' = (Get-HuellaPete $elMismo) }
+$script:statsPega = @{ dias = @{
+    '2026-10-01' = @{ 'pete:17223' = 2; 'pete:17485' = 8 }
+    '2026-10-02' = @{ 'pete:17491' = 14 }
+}; recientes = @() }
+$h7 = Get-PeorPeteHistorico
+Comp 'las tres lineas suman 24, no 14' ($h7 -and [int]$h7.veces -eq 24) "$(if($h7){$h7.veces})"
+Comp '  y se dice la linea de AHORA, la mas alta' ($h7 -and [string]$h7.linea -eq '17491') "$(if($h7){$h7.linea})"
+Comp '  diciendo en cuantos sitios se conto' ($h7 -and [int]$h7.sitios -eq 3) "$(if($h7){$h7.sitios})"
+Comp '  y en cuantos dias' ($h7 -and [int]$h7.dias -eq 3) "$(if($h7){$h7.dias})"
+# DOS FALLOS DISTINTOS NO SE JUNTAN, que seria peor que no agrupar: un numero inflado mezclando cosas
+$script:petesTexto = @{ '100' = 'La ruta de acceso no tiene un formato valido.'
+                        '200' = "El termino 'Otra-Cosa' no se reconoce" }
+$script:statsPega = @{ dias = @{ '2026-10-02' = @{ 'pete:100' = 300; 'pete:200' = 50 } }; recientes = @() }
+$h8 = Get-PeorPeteHistorico
+Comp 'dos fallos distintos NO se juntan' ($h8 -and [int]$h8.veces -eq 300) "$(if($h8){$h8.veces})"
+Comp '  y gana el que mas pasa' ($h8 -and [string]$h8.linea -eq '100') "$(if($h8){$h8.linea})"
+# SIN TEXTO CONOCIDO, SE COMPORTA COMO ANTES: es una mejora, no una garantia, y no puede empeorar
+$script:petesTexto = @{}
+$script:statsPega = @{ dias = @{ '2026-10-02' = @{ 'pete:500' = 400; 'pete:600' = 20 } }; recientes = @() }
+$h9 = Get-PeorPeteHistorico
+Comp 'sin texto conocido, cada linea va por su cuenta' ($h9 -and [int]$h9.veces -eq 400 -and [string]$h9.linea -eq '500') "$(if($h9){$h9.veces}) en $(if($h9){$h9.linea})"
+# LA HUELLA: los numeros fuera, para que el mismo error con otro contador sea el mismo
+Comp 'la huella ignora los numeros' ((Get-HuellaPete 'fallo 7 veces en linea 42') -eq (Get-HuellaPete 'fallo 9 veces en linea 88')) "$(Get-HuellaPete 'fallo 7 veces en linea 42')"
+Comp '  pero no ignora las palabras' ((Get-HuellaPete 'fallo de disco') -ne (Get-HuellaPete 'fallo de red')) ''
+# Y EL CABLEADO: la huella se guarda cuando se apunta el pete
+$txtP = [IO.File]::ReadAllText($PS1)
+$sinP = (($txtP -split "`r?`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) -join "`n"
+$iApunta = $sinP.IndexOf("Add-Estadistica ('pete:' + ")
+$iGuarda = $sinP.IndexOf('Save-PeteTexto', [Math]::Max(0, $iApunta))
+Comp 'la huella se guarda al apuntar el pete' ($iApunta -ge 0 -and $iGuarda -gt $iApunta) ''
+Comp '  y protegida, que guardar no puede romper el minuto' ($sinP -match 'try \{ Save-PeteTexto [^}]+\} catch \{\}') 'regla 7'
+Comp '  y la tabla tiene tope' ($sinP -match '\$PetesTextoMax\s*=\s*\d+') ''
+
 Write-Host ''
 if ($mal -gt 0) { Write-Host ([string]$mal + ' MAL') -ForegroundColor Red; exit 1 }
 Write-Host 'Nova dice lo que se le rompe por dentro, con la linea' -ForegroundColor Green
