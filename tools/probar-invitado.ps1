@@ -143,6 +143,18 @@ $EXENTAS = @{
     # nombre. Es de la biblioteca de braya -sus habitos-, asi que la guarda la pone el unico que
     # la llama: Test-JuegoSinEstrenar sale en su primera linea si hay invitado. Ya avisado.
     'Save-Estrenos'           = 'lo llama Test-JuegoSinEstrenar, que sale en su primera linea si hay invitado'
+    # LAS SONDAS Y LAS HUELLAS DE LOS PETES SON DE LA MAQUINA, NO DE BRAYA (2/10)
+    #
+    # Save-Sonda apunta que el acelerometro o la sonda de temperatura se apagaron por lentos, con la
+    # fecha. Eso es una propiedad del hardware y de este Windows: no cambia porque quien tenga la
+    # consola en la mano sea otro, y si se bloqueara en modo invitado Nova volveria a pagar los diez
+    # segundos de las dos lecturas lentas en cada arranque mientras hubiera visita.
+    'Save-Sonda'              = 'es del hardware, no de braya: un sensor lento lo es tambien con un invitado delante'
+    # Save-PeteTexto guarda la HUELLA de un error interno de Nova (el mensaje con los numeros
+    # cambiados por N) para poder agrupar el mismo fallo cuando cambia de linea. No lleva nada de
+    # braya dentro -ni voz, ni ordenes, ni habitos-: es el diagnostico de Nova sobre si misma, y
+    # perderlo con un invitado delante seria perder justo los petes de ese rato.
+    'Save-PeteTexto'          = 'es el diagnostico de Nova sobre si misma; no lleva nada de braya dentro'
 }
 
 $fns = $ast.FindAll({ param($x) $x -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)

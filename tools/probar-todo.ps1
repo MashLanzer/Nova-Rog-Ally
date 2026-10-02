@@ -2119,6 +2119,16 @@ Titulo "2n279. Los bancos de Python que se rendian por el interprete"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n313. Por que has hecho eso, y que paso mientras no estabas (ideas 21 y 40)"
+# `grep -ci "por que has" assistant.ps1` daba CERO: Nova decidia sola todo el dia -el volumen, los
+# avisos, el motor de oido, las sondas lentas- y no podia explicar NI UNA. Y era barato, porque el
+# motivo ya estaba escrito en los QUINCE Add-Estadistica 'auto-ajuste': faltaba un cuaderno y una
+# frase. La 40 junta tres cosas que ya se guardaban y solo vivian en el registro (los avisos
+# aparcados, el pete vivo y ese cuaderno) y las cuenta al volver, con el dato que la justifica: el
+# arranque del 1/10 decia "no hay nadie desde hace 954 min".
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-por-que.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:explica lo que decide sola)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n312. Lo que Nova sabe hacer y braya no le pide (ideas 14 y 15)"
 # memoriaecordatorios.json esta VACIO y lleva 20,2 dias sin tocarse, mientras 'recordatorio' sale 67
 # veces en assistant.ps1 y tiene DOS bancos. Y se midio el POR QUE, que es lo que decidio el arreglo:

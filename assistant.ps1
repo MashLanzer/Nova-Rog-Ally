@@ -625,10 +625,31 @@ function Add-TestigoOido([string]$malo, [string]$bueno, [string]$fuente) {
     try {
         $t = Get-OidoAprendido
         $e = $t[$m]
+        # UNA CORRECCION DE BRAYA NO ES UN TESTIGO, ES LA VERDAD (2/10/2026, idea 32)
+        #
+        # Hacen falta DOS testigos independientes porque dos motores que coinciden es una prueba
+        # razonable y uno solo no. Pero cuando braya DICE la palabra -"no, he dicho sube"-, eso no es
+        # una coincidencia que haya que confirmar con otra: es el dueno de la voz diciendo cual era
+        # la palabra. Pedirle que lo repita otro dia para creerle es tratarlo como a un motor.
+        #
+        # LOS DOS LLAMADORES, Y POR ESO ESTO ES SEGURO: 'vosk' (automatico, en el repaso del oido) y
+        # 'correccion' (linea ~9182, solo cuando braya corrige a mano). Solo el segundo vale doble, y
+        # las dos guardas de arriba siguen intactas: en modo invitado no se aprende NADA -lo que diga
+        # otro no cambia como se entiende a braya- y Test-PuedeAprenderOido sigue filtrando.
+        #
+        # Y SE SIGUE PIDIENDO OTRO SI EL PRIMERO ES AUTOMATICO: esto no baja el liston, solo reconoce
+        # que una de las dos fuentes posibles es de otra categoria.
+        $valeDoble = ($fuente -eq 'correccion')
         if ($null -eq $e) {
             if ($t.Count -ge $OidoAprendidoMax) { return $false }
-            $t[$m] = @{ bueno = $b; testigos = 1; visto = (Get-Date -Format 'yyyy-MM-dd'); fuente = $fuente }
+            $arranca = if ($valeDoble) { $OidoTestigosMin } else { 1 }
+            $t[$m] = @{ bueno = $b; testigos = $arranca; visto = (Get-Date -Format 'yyyy-MM-dd'); fuente = $fuente }
             [void](Save-OidoAprendido)
+            if ($valeDoble) {
+                Log ("OIDO APRENDIDO: '" + $m + "' ya vale por '" + $b + "' (me lo corregiste tu, no hace falta otro testigo)")
+                Add-Estadistica 'oido-aprendido' ($m + ' = ' + $b + ' (correccion)')
+                return $true
+            }
             Log ("OIDO APRENDIDO: primer testigo de '" + $m + "' = '" + $b + "' (" + $fuente + "); hace falta otro")
             return $false
         }
@@ -1059,6 +1080,33 @@ function Write-Atomico([string]$ruta, [string]$texto, [bool]$bom = $false) {
         Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
         throw
     }
+}
+
+# EL CUADERNO DE LO QUE NOVA DECIDE SOLA, PARA PODER EXPLICARLO (2/10/2026, idea 21 de las 40)
+#
+# EL AGUJERO, medido antes de escribir nada: `grep -ci "por que has" assistant.ps1` daba CERO. Nova
+# decide sola todo el dia -baja el volumen por el ruido, aparca un aviso porque no hay nadie, cambia
+# de motor de oido, apaga una sonda que tarda cinco segundos, frena el repaso fino por falta de
+# datos- y no podia explicar NI UNA. Para braya eso es una maquina que hace cosas raras; con la
+# explicacion es una maquina en la que se puede confiar, y es la diferencia mas grande por el menor
+# trabajo de las cuarenta ideas.
+#
+# POR QUE ES BARATO: el motivo YA esta escrito en cada sitio -en el Log, en el aviso, en
+# Add-Estadistica 'auto-ajuste'-. Lo unico que faltaba era un sitio donde queden las ultimas y una
+# frase que las lea. No se mide nada nuevo ni se guarda nada que no estuviera ya.
+#
+# EN RAM Y NO EN DISCO, a proposito: son las decisiones de ESTA sesion, que es lo que braya va a
+# preguntar ("por que has hecho eso" se dice justo despues). Guardarlas en disco seria I/O en el
+# bucle (regla 4) para contestar algo que nadie pregunta dos dias despues.
+$PorQueMax = 12
+$script:porQue = New-Object System.Collections.ArrayList
+# Se llama desde donde se TOMA la decision, con el motivo y su numero si lo hay.
+function Add-PorQue([string]$que, [string]$porque) {
+    if (-not $que) { return }
+    try {
+        [void]$script:porQue.Add(@{ que = $que; porque = $porque; cuando = (Get-Date) })
+        while ($script:porQue.Count -gt $PorQueMax) { $script:porQue.RemoveAt(0) }
+    } catch {}
 }
 
 function Get-Distancia([string]$a, [string]$b) {
@@ -4919,6 +4967,7 @@ function Update-MiVoz([double]$f0) {
             $haciaV = if ($m -gt $base) { 'mas grave' } else { 'mas aguda' }
             Log ("MI VOZ: la referencia se ha movido de $([int]$base) a $([int]$m) Hz")
             Add-Estadistica 'auto-ajuste' "mi voz: $([int]$base) -> $([int]$m) Hz"
+            try { Add-PorQue "mi voz: $([int]$base) -> $([int]$m) Hz" '' } catch {}
             [void](Send-AvisoEntorno 'voz-deriva' ("Oye, mi idea de tu voz se ha ido moviendo: la tenia en $([int]$base) hercios y ahora la tengo en $([int]$m), $haciaV. Si no eres tu quien me habla ultimamente, dimelo, porque de esto depende que solo te haga caso a ti.") 'medio' 43200)
         }
     } catch {}
@@ -6633,6 +6682,16 @@ function Resolve-Fragment([string]$f) {
     # desde el 27/09 en estadisticas.json y no habia forma de preguntarlo.
     if ($f -match '^(?:que\s+(?:se\s+te\s+)?(?:esta\s+)?(?:rompiendo|rompe)|tienes\s+(?:algun\s+)?(?:error|errores|fallo|fallos)|va\s+todo\s+bien\s+por\s+dentro|(?:te\s+)?falla\s+algo|como\s+estas\s+por\s+dentro)\??$') {
         return @(@{ kind = 'petes'; desc = 'lo que se me rompe por dentro' })
+    }
+    # --- POR QUE HAS HECHO ESO (2/10, idea 21 de las 40) ---
+    # "por que has hecho eso", "por que lo has hecho", "a que ha venido eso", "por que".
+    # MEDIDO ANTES DE ESCRIBIRLO: `grep -ci "por que has" assistant.ps1` daba CERO. Nova decide sola
+    # todo el dia -baja el volumen, aparca un aviso, cambia de motor de oido, apaga una sonda lenta,
+    # frena el repaso fino- y no podia explicar NI UNA. Es lo que mas separa a un asistente del que
+    # te fias de uno que no, y aqui sale casi gratis: los motivos ya estan todos escritos en el
+    # registro, solo no habia forma de preguntarlos.
+    if ($f -match '^(?:(?:y\s+)?por\s+que(?:\s+(?:has|lo\s+has|la\s+has|le\s+has))?(?:\s+(?:hecho|cambiado|puesto|quitado|bajado|subido|apagado|encendido))?(?:\s+eso|\s+esto)?|a\s+que\s+(?:ha\s+)?venido\s+eso|que\s+has\s+decidido|que\s+has\s+hecho\s+por\s+tu\s+cuenta)\??$') {
+        return @(@{ kind = 'porQue'; desc = 'por que he hecho lo ultimo' })
     }
     # --- SUBTITULOS DEL AUDIO DEL JUEGO (1/10, la 17 de las 20) ---
     # "subtitula", "pon los subtitulos", "escribe lo que dicen" / "quita los subtitulos".
@@ -13483,6 +13542,7 @@ function Update-VueltaMin {
         # SE APUNTA COMO DECISION PROPIA, que es lo que permite deshacerla hablando.
         Log ("saludo de vuelta: " + ($cambio -join ' y ') + " para llegar a " + $VueltaAlDia + " al dia (medido en " + $dias + " dias)")
         try { Add-Estadistica 'auto-ajuste' ("saludo de vuelta: " + ($cambio -join ' y ')) } catch {}
+        try { Add-PorQue ("saludo de vuelta: " + ($cambio -join ' y ')) '' } catch {}
         return $true
     } catch {
         Log ('saludo de vuelta: no pude medirlo (' + $_.Exception.Message + ')')
@@ -16810,6 +16870,7 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
         $apuntadaN = Save-DecisionPropia 'escucha' 'nubeOir' $antesN 'la segunda opinion de la nube'
         Log "REVISION PROPIA: apago la segunda opinion de la nube ($($numR['nube-sirvio']) de $($numR['nube-intento']) utiles en 14 dias$(if ($inventosN -ge 1) { ", y $inventosN invento(s)" }))"
         Add-Estadistica 'auto-ajuste' "nube off: $($numR['nube-sirvio']) de $($numR['nube-intento'])"
+        try { Add-PorQue "nube off: $($numR['nube-sirvio']) de $($numR['nube-intento'])" '' } catch {}
         [void](Send-AvisoEntorno 'auto-nube' ("He apagado la segunda opinion de la nube: $(Get-DesdeCuentaTexto) la pedi $($numR['nube-intento']) veces y solo me sirvio $($numR['nube-sirvio']). Si la quieres de vuelta, dime: deshaz lo que has cambiado." + $(if (-not $apuntadaN) { ' Aunque no he podido apuntarlo: si me reinicias, vuelve sola.' } else { '' })) 'medio' 43200)
         return $true
     }
@@ -16838,6 +16899,7 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
         $apuntadaF = Save-DecisionPropia 'input' 'whisperModeloPreciso' $antesF 'mi oido fino'
         Log "REVISION PROPIA: apago el oido fino ($($numR['fino-sirvio']) aciertos menos $($numR['fino-invento']) inventos de $($numR['fino']) repasos en 14 dias)"
         Add-Estadistica 'auto-ajuste' "oido fino off: neto $netoF de $($numR['fino'])"
+        try { Add-PorQue "oido fino off: neto $netoF de $($numR['fino'])" '' } catch {}
         [void](Send-AvisoEntorno 'auto-fino' ("He apagado mi oido fino: en $($numR['fino']) repasos acerto $($numR['fino-sirvio']) veces pero se invento la orden $($numR['fino-invento']), y eso ya no compensa lo que te hace esperar. Si lo quieres de vuelta, dime: deshaz lo que has cambiado." + $(if (-not $apuntadaF) { ' Aunque no he podido apuntarlo: si me reinicias, vuelve solo.' } else { '' })) 'medio' 43200)
         return $true
     }
@@ -16906,6 +16968,7 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
         $fuenteC = if ($deRegC) { 'de mis grabaciones' } else { 'de mis cuentas' }
         Log "REVISION PROPIA: quito $mtC de la cascada de repasos ($okC ordenes de $intC repasos, $fuenteC)"
         Add-Estadistica 'auto-ajuste' "cascada sin ${mtC}: $okC de $intC $fuenteC"
+        try { Add-PorQue "cascada sin ${mtC}: $okC de $intC $fuenteC" '' } catch {}
         [void](Send-AvisoEntorno 'auto-cascada' ("He quitado $mtC de mi cascada de repasos: $(if ($deRegC) { 'mirando mis grabaciones' } else { Get-DesdeCuentaTexto }) lo use $intC veces y no saco ni una orden que yo entendiera, y mientras tanto te hacia esperar. Sigo repasando con lo demas. Si lo quieres de vuelta, dime: deshaz lo que has cambiado." + $(if (-not $apuntadaC) { ' Aunque no he podido apuntarlo: si me reinicias, vuelve solo.' } else { '' })) 'medio' 43200)
         return $true
     }
@@ -16964,6 +17027,7 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
                 $script:revisionPropiaDia = $ahora.ToString('yyyy-MM-dd')
                 Log "REVISION PROPIA: tope de la nube $antesN -> $quieroN ms (p90 de $($msN.Count) respuestas: $p90N ms)"
                 Add-Estadistica 'auto-ajuste' "nube tope: $antesN -> $quieroN"
+                try { Add-PorQue "nube tope: $antesN -> $quieroN" '' } catch {}
                 $comoN = if ($subeN) { 'se me quedaba corto' } else { 'estaba esperando de mas' }
                 [void](Send-AvisoEntorno 'auto-nube-tope' (
                         "He cambiado lo que espero a la nube de $([Math]::Round([int]$antesN / 1000.0, 1)) a $([Math]::Round($quieroN / 1000.0, 1)) segundos: $comoN. " +
@@ -17016,6 +17080,7 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
             $apuntadaC = Save-DecisionPropia 'escucha' 'confianzaMinima' $antesC 'la confianza con la que me despierto'
             Log ("REVISION PROPIA: subo la confianza minima de " + $antesC + " a " + $confSobra + " (por debajo de ahi me despertaba para nada)")
             Add-Estadistica 'auto-ajuste' ("confianza minima: " + $antesC + " -> " + $confSobra)
+            try { Add-PorQue ("confianza minima: " + $antesC + " -> " + $confSobra) '' } catch {}
             [void](Send-AvisoEntorno 'auto-confianza' ("He subido la confianza con la que me despierto de " + $antesC + " a " + $confSobra + ": por debajo de ahi casi siempre era ruido. El boton y el mando me abren igual. Si prefieres que vuelva, dime: deshaz lo que has cambiado." + $(if (-not $apuntadaC) { ' Aunque no he podido apuntarlo: si me reinicias, vuelve solo.' } else { '' })) 'medio' 43200)
             return $true
         }
@@ -17032,6 +17097,7 @@ function Test-RevisionPropia([datetime]$ahora = (Get-Date)) {
     $apuntadaR = Save-DecisionPropia 'input' 'whisperModeloUltimo' $antesR 'mi ultimo recurso del oido'
     Log "REVISION PROPIA: apago el ultimo recurso del oido ($tsR de $tR utiles en 14 dias)"
     Add-Estadistica 'auto-ajuste' "ultimo recurso off: $tsR de $tR"
+    try { Add-PorQue "ultimo recurso off: $tsR de $tR" '' } catch {}
     [void](Send-AvisoEntorno 'auto-ultimo' ("He apagado mi ultimo recurso del oido: en $tR intentos solo me sirvio $tsR veces y cada uno te hacia esperar unos 16 segundos. Si lo quieres de vuelta, dime: deshaz lo que has cambiado." + $(if (-not $apuntadaR) { ' Aunque no he podido apuntarlo: si me reinicias, vuelve solo.' } else { '' })) 'medio' 43200)
     return $true
 }
@@ -17727,6 +17793,54 @@ function Get-FraseVuelta([int]$aus, [datetime]$ahora, $ultimas, [bool]$esNoche =
     if ($libres.Count -eq 0) { $libres = $cands }   # con pocas candidatas, antes repetir que callar
     return (Get-Random -InputObject $libres)
 }
+# QUE PASO MIENTRAS BRAYA NO ESTABA (2/10/2026, idea 40 de las 40)
+#
+# NO MIDE NADA NUEVO: junta tres cosas que Nova ya guardaba y que hasta hoy solo vivian en el
+# registro, donde nadie las lee. Los avisos que se aparcaron por no haber nadie (Get-AvisoEspera),
+# los que caducaron sin decirse -167 en el contador 'aviso-caducado'- y las decisiones que tomo sola
+# (el cuaderno de la idea 21). El dato que lo justifica: el arranque del 1/10 decia "no hay nadie
+# desde hace 954 min", o sea dieciseis horas en las que pasaron cosas y braya no se enteraba de
+# ninguna.
+#
+# TRES FRENOS, porque esto es justo la clase de cosa que se vuelve insoportable:
+#  1. solo si la ausencia paso de $MientrasMin (dos horas). Volver de hacer un cafe no merece parte.
+#  2. como mucho DOS cosas, y en una frase. Una lista de ocho es una conferencia, no un resumen.
+#  3. y si no hay nada que contar, no se dice NADA -ni "no ha pasado nada"-, que es peor que callar.
+$MientrasMin = 120
+function Get-FraseMientrasNoEstabas([int]$ausenciaMin) {
+    if ($ausenciaMin -lt $MientrasMin) { return '' }
+    $trozos = @()
+    # 1) LO QUE SE APARCO: es lo mas util, porque son avisos que SIGUEN pendientes.
+    try {
+        $esperando = @(Get-AvisoEspera)
+        if ($esperando.Count -gt 0) {
+            $trozos += if ($esperando.Count -eq 1) { 'te he guardado un aviso' }
+                       else { 'te he guardado ' + [string]$esperando.Count + ' avisos' }
+        }
+    } catch {}
+    # 2) LO QUE DECIDI SOLA: lo que braya no puede adivinar mirando la pantalla.
+    try {
+        if ($script:porQue.Count -gt 0) {
+            $u = $script:porQue[$script:porQue.Count - 1]
+            $trozos += 'he cambiado algo por mi cuenta (' + [string]$u.que + ')'
+        }
+    } catch {}
+    # 3) Y SI SE ME ROMPIO ALGO GORDO, tambien: el pete vivo de esta sesion.
+    try {
+        $pv = Get-PeorPete
+        if ($pv -and [int]$pv.veces -ge 5) {
+            $trozos += 'y se me ha roto algo por dentro ' + [string]$pv.veces + ' veces'
+        }
+    } catch {}
+    if ($trozos.Count -eq 0) { return '' }
+    $horas = [int][Math]::Round($ausenciaMin / 60.0)
+    $cuanto = if ($horas -le 1) { 'en esta hora' } else { "en estas $horas horas" }
+    # DOS COMO MUCHO: ver el freno 2
+    $dos = @($trozos | Select-Object -First 2)
+    return ('Mientras no estabas, ' + $cuanto + ', ' + ($dos -join ' y ') +
+            '. Preguntame "que tienes guardado" o "por que has hecho eso" si quieres el detalle.')
+}
+
 function Test-VueltaSaludo([datetime]$ahora = (Get-Date)) {
     if (-not $VueltaOn -or -not $EntornoOn -or $script:invitado -or $script:entornoCallado) { return $false }
     # MIENTRAS DICTAS, NO. Send-Aviso ya aplaza la voz, pero la via de solo-capsula no pasa
@@ -17755,6 +17869,14 @@ function Test-VueltaSaludo([datetime]$ahora = (Get-Date)) {
                 else { ($hV -ge $nocheDesdeV -and $hV -lt $EntornoNocheHasta) }
     $ultimas = @($hbV.presencia['frases'])
     $frase = Get-FraseVuelta $aus $ahora $ultimas $esNocheV
+    # Y LO QUE PASO MIENTRAS NO ESTABAS (2/10, idea 40 de las 40). Solo si la ausencia fue LARGA y
+    # solo si hay algo que contar; va pegado al saludo que ya existe y no estrena ningun momento
+    # nuevo. Ver Get-FraseMientrasNoEstabas: junta cosas que ya se guardaban y solo vivian en el
+    # registro, y se corta a si misma para no soltar una conferencia al volver.
+    try {
+        $mn = Get-FraseMientrasNoEstabas $aus
+        if ($mn) { $frase = $frase + ' ' + $mn }
+    } catch {}
     # se apunta ANTES de decirla: si algo falla al hablar, peor es repetir la misma manana
     $hbV.presencia['saludo'] = $ahora.ToString('yyyy-MM-dd HH:mm:ss')
     $hbV.presencia['frases'] = @(@($ultimas) + $frase | Select-Object -Last 3)
@@ -19817,6 +19939,7 @@ function Invoke-FastCommand([string]$text) {
                             # mano, Nova no se la puede volver a apagar esta tarde.
                             Set-DecisionDevuelta 'escucha' 'nubeOir'
                             Add-Estadistica 'auto-ajuste' 'nube on: a mano'
+                            try { Add-PorQue 'nube on: a mano' '' } catch {}
                             $a.desc = 'Vale, vuelvo a preguntarle a la nube. No la toco en dos semanas.'
                         }
                     } else {
@@ -19830,6 +19953,7 @@ function Invoke-FastCommand([string]$text) {
                                 # cambiado" tambien valga aqui: dos salidas, no una.
                                 [void](Save-DecisionPropia 'escucha' 'nubeOir' $antesNU 'la segunda opinion de la nube')
                                 Add-Estadistica 'auto-ajuste' 'nube off: a mano'
+                                try { Add-PorQue 'nube off: a mano' '' } catch {}
                                 $a.desc = 'Hecho, se acabo la nube. Si la quieres de vuelta, dime: vuelve a usar la nube.'
                             }
                         }
@@ -21123,6 +21247,10 @@ function Invoke-FastCommand([string]$text) {
                 # tragados existe desde el 27/09 y no habia forma de leerlo hablando.
                 'petes' {
                     $a.desc = Get-FrasePetes
+                    $a.hecho = $true
+                }
+                'porQue' {
+                    $a.desc = Get-FrasePorQue
                     $a.hecho = $true
                 }
                 # SUBTITULOS DEL AUDIO DEL JUEGO (1/10, la 17 de las 20). La mas cara de las
@@ -24650,6 +24778,28 @@ function Get-PeorPeteHistorico {
 # LA FRASE, para cuando braya pregunta "que se te esta rompiendo". Dice la linea A PROPOSITO:
 # braya lee el codigo conmigo, y "la linea 979" es lo unico que convierte la queja en algo que se
 # puede arreglar. Sin el numero seria "tengo un error", que no sirve para nada.
+function Get-FrasePorQue {
+    try {
+        if ($script:porQue.Count -eq 0) {
+            return 'Desde que arranque no he decidido nada por mi cuenta: todo lo que he hecho me lo has pedido tu.'
+        }
+        $u = $script:porQue[$script:porQue.Count - 1]
+        $min = [int]((Get-Date) - [datetime]$u.cuando).TotalMinutes
+        $cuando = if ($min -le 0) { 'ahora mismo' } elseif ($min -eq 1) { 'hace un minuto' } else { "hace $min minutos" }
+        $t = "Lo ultimo que hice por mi cuenta fue $cuando" + ': ' + [string]$u.que
+        if ([string]$u.porque) { $t += '. El motivo: ' + [string]$u.porque }
+        $t += '.'
+        # Y SI HAY MAS, SE DICE CUANTAS, sin recitarlas: una lista de doce cosas no es una respuesta.
+        # Quien quiera el resto puede preguntar otra vez, que para eso se guardan.
+        if ($script:porQue.Count -gt 1) {
+            $t += ' Llevo ' + [string]$script:porQue.Count + ' decisiones mias en esta sesion; preguntame otra vez y te digo la anterior.'
+            # la siguiente vez contesta la de antes: se saca de la lista al decirla
+            $script:porQue.RemoveAt($script:porQue.Count - 1)
+        }
+        return $t
+    } catch { return 'No consigo mirar lo que he decidido.' }
+}
+
 function Get-FrasePetes {
     $h = Get-PeorPeteHistorico
     if (-not $h) { return 'Por dentro no se me ha roto nada que yo sepa.' }
@@ -25946,6 +26096,7 @@ function Invoke-CorreccionesDormidas {
              " dias de uso (" + [int]$co.frases + " frases); a dormir. Quedan " +
              @($script:cmds.correcciones.PSObject.Properties).Count)
         Add-Estadistica 'auto-ajuste' ("correcciones dormidas: " + $dormir.Count + " de " + $claves.Count)
+        try { Add-PorQue ("correcciones dormidas: " + $dormir.Count + " de " + $claves.Count) '' } catch {}
         return $dormir.Count
     } catch {
         Log ('CORRECCIONES: no pude repasarlas (' + $_.Exception.Message + ')')
@@ -31880,6 +32031,7 @@ function Add-AjustePropio([string]$clave, [double]$valor, [string]$como, [string
         $txt = $como + ': ' + [Math]::Round($valor, 2)
         if ($antes -and [double]$antes.apuntado -ne $valor) { $txt = $como + ': ' + [Math]::Round([double]$antes.apuntado, 2) + ' -> ' + [Math]::Round($valor, 2) }
         Add-Estadistica 'auto-ajuste' $txt
+        try { Add-PorQue $txt '' } catch {}
         Log ('AJUSTE PROPIO: ' + $txt + ' (' + $r.porque + ')')
         return $true
     } catch { Log ('ajuste propio: ' + $_.Exception.Message); return $false }
@@ -36884,6 +37036,7 @@ function Get-Temperatura {
                 Log ("temperatura: la sonda cuesta " + $ms + " ms (tope " + $TempTopeMs + "); la apago" +
                      ", y lo apunto para no reintentarlo hasta que pasen $AcelOlvidoDias dias")
                 try { Add-Estadistica 'auto-ajuste' ("sonda de temperatura off: " + $ms + " ms de " + $TempTopeMs) } catch {}
+                try { Add-PorQue ("sonda de temperatura off: " + $ms + " ms de " + $TempTopeMs) '' } catch {}
                 $script:tempSonda = 'no'
                 return $null
             }
@@ -36935,6 +37088,7 @@ function Get-CargaCPU {
         if ($t.ElapsedMilliseconds -gt $CargaTopeMs -or $null -eq $v) {
             Log ("carga de CPU: la sonda cuesta " + $t.ElapsedMilliseconds + " ms (tope " + $CargaTopeMs + "); la apago, la insignia se queda quieta")
             try { Add-Estadistica 'auto-ajuste' ("sonda de carga off: " + $t.ElapsedMilliseconds + " ms de " + $CargaTopeMs) } catch {}
+            try { Add-PorQue ("sonda de carga off: " + $t.ElapsedMilliseconds + " ms de " + $CargaTopeMs) '' } catch {}
             $script:cargaSonda = 'no'
             return $null
         }
@@ -37149,6 +37303,7 @@ function Update-Consumo {
         if ($msC -gt $ConsumoTopeMs) {
             Log ("consumo: la sonda cuesta " + $msC + " ms (tope " + $ConsumoTopeMs + "); la apago, dejo de medirme")
             try { Add-Estadistica 'auto-ajuste' ("sonda de consumo off: " + $msC + " ms de " + $ConsumoTopeMs) } catch {}
+            try { Add-PorQue ("sonda de consumo off: " + $msC + " ms de " + $ConsumoTopeMs) '' } catch {}
             $script:consumoSonda = 'no'
             return $false
         }

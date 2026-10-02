@@ -75,12 +75,21 @@ try {
     Write-Host ''
     Write-Host '-- 2. DOS TESTIGOS, Y DE FUENTES DISTINTAS --'
     Reset
-    Comp '2a. el primer testigo no basta' (-not (Add-TestigoOido 'haben' 'abre' 'correccion')) ''
-    Comp '2b. y lo dice' (@($script:logs | Where-Object { $_ -match 'primer testigo' }).Count -eq 1) ''
-    Comp '2c. el MISMO camino otra vez no cuenta' (-not (Add-TestigoOido 'haben' 'abre' 'correccion')) 'dos veces el mismo testigo es uno'
-    Comp '2d. otra fuente SI' (Add-TestigoOido 'haben' 'abre' 'vosk') ''
-    Comp '2e. y entonces ya vale' ((Get-VerbosAprendidos)['haben'] -eq 'abre') ''
-    Comp '2f. y se dice en el registro' (@($script:logs | Where-Object { $_ -match 'ya vale por' }).Count -eq 1) ''
+    # UNA CORRECCION DE BRAYA VALE POR LAS DOS (2/10, idea 32): cuando el dueno de la voz DICE la
+    # palabra, eso no es una coincidencia que haya que confirmar con otro motor, es la verdad.
+    # Pedirle que lo repita otro dia para creerle es tratarlo como a un motor. Solo la fuente
+    # 'correccion' tiene ese trato; 'vosk', que es el repaso automatico, sigue necesitando dos.
+    Comp '2a. una correccion de braya ya basta' (Add-TestigoOido 'haben' 'abre' 'correccion') 'el dueno de la voz no es un testigo'
+    Comp '2b. y lo dice, diciendo por que' (@($script:logs | Where-Object { $_ -match 'me lo corregiste tu' }).Count -eq 1) ($script:logs -join ' | ')
+    Comp '2c. y queda aprendido ya' ((Get-VerbosAprendidos)['haben'] -eq 'abre') ''
+    # Y EL CAMINO AUTOMATICO SIGUE PIDIENDO DOS, que es lo que esto NO cambia
+    Reset
+    Comp '2d. el primer testigo automatico no basta' (-not (Add-TestigoOido 'haben' 'abre' 'vosk')) ''
+    Comp '2e. y lo dice' (@($script:logs | Where-Object { $_ -match 'primer testigo' }).Count -eq 1) ''
+    Comp '2f. el MISMO camino otra vez no cuenta' (-not (Add-TestigoOido 'haben' 'abre' 'vosk')) 'dos veces el mismo testigo es uno'
+    Comp '2g. otra fuente SI' (Add-TestigoOido 'haben' 'abre' 'correccion') ''
+    Comp '2h. y entonces ya vale' ((Get-VerbosAprendidos)['haben'] -eq 'abre') ''
+    Comp '2i. y se dice en el registro' (@($script:logs | Where-Object { $_ -match 'ya vale por' }).Count -ge 1) ''
     # y si el segundo testigo dice OTRA cosa, no cuenta
     Reset
     $null = Add-TestigoOido 'haben' 'abre' 'correccion'
@@ -116,7 +125,10 @@ try {
     $null = Add-TestigoOido 'haben' 'abre' 'vosk'
     $script:oidoAprendido = $null          # como si Nova se reiniciara
     Comp '5a. lo aprendido se relee del disco' ((Get-VerbosAprendidos)['haben'] -eq 'abre') ''
-    Comp '5b. con sus testigos' ((Get-OidoAprendido)['haben'].testigos -eq 2) ([string](Get-OidoAprendido)['haben'].testigos)
+    # DOS O MAS, no exactamente dos (2/10): una correccion de braya arranca ya en el liston, asi que
+    # si luego el repaso automatico la confirma, la cuenta queda en tres. Exigir un 2 exacto ataba
+    # este banco al ORDEN en que llegan los testigos, que no es lo que esta seccion viene a probar.
+    Comp '5b. con sus testigos' ((Get-OidoAprendido)['haben'].testigos -ge 2) ([string](Get-OidoAprendido)['haben'].testigos)
     # el tope
     for ($i = 0; $i -lt ($OidoAprendidoMax + 10); $i++) {
         $null = Add-TestigoOido ('palabrota' + $i) 'abre' 'correccion'
