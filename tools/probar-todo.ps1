@@ -2119,6 +2119,16 @@ Titulo "2n279. Los bancos de Python que se rendian por el interprete"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n315. Deletrear, acordarse de un no, y decir lo que esta haciendo (ideas 28, 35 y 39)"
+# 28: `grep -ci deletrea` daba CERO y es de lo mas pedido a un asistente; Nova ya tenia voz, capsula y
+# OCR sin juntarlos. Va sobre todo a la capsula: oir "e-l-e-n-e" es dificil de seguir y verlo escrito
+# se entiende de un golpe. 35: el patron de "ya dije que no" existia solo para dos casos (musica-no de
+# 2 bytes y juegos-fuera); ahora hay un fichero y una funcion, para que la siguiente pregunta nazca
+# con memoria. 39: del arranque del 2/10, DIECINUEVE segundos sin que la capsula diga nada, y luego
+# 2,1 s de Whisper y 4,5 de Parakeet; tres Set-UI y ya se ve lo que esta pasando.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-tres-pequenas.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:dice lo que esta haciendo al arrancar)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n314. El que, despues de pon: pedir solo la parte que falta (idea 22 de las 40)"
 # Nova decia "No te entendi" y braya repetia LA FRASE ENTERA, aunque el verbo se hubiera oido
 # perfectamente -va al principio y sale de una lista cerrada de noventa, que es la parte que mejor se

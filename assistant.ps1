@@ -505,6 +505,102 @@ $VERBOS_LISTA = (($VERBOS -replace '^\(\?:', '') -replace '\)$', '') -split '\|'
 #
 # Y SI EL VERBO NO ESTA CLARO, LA FRASE DE SIEMPRE: inventarse un "pon que?" cuando no se oyo ningun
 # verbo seria poner palabras en la boca de braya, que es peor que admitir que no se entendio nada.
+# "YA TE LO PREGUNTE Y DIJISTE QUE NO" (2/10/2026, idea 35 de las 40)
+#
+# EL PATRON YA ESTABA EMPEZADO Y SOLO PARA DOS CASOS: 'musica-no.json' (2 bytes) y
+# 'juegos-fuera.json'. Todo lo demas que Nova pregunta -el zumbido, si un exe es un juego, si quiere
+# que mire Steam- se vuelve a preguntar desde cero cada vez, porque la respuesta no se guardaba en
+# ningun sitio. Y preguntar lo mismo que ya te dijeron que no es la forma mas rapida de que alguien
+# apague un asistente.
+#
+# UN SOLO FICHERO Y UNA SOLA FUNCION, en vez de un json por tema: asi la siguiente pregunta que se le
+# ocurra a cualquiera ya nace con memoria, sin tocar nada.
+#
+# Y CADUCA, con el mismo criterio que las sondas: un "no" de hace dos meses puede no ser el "no" de
+# hoy. El plazo es largo a proposito -tres meses- porque re-preguntar molesta mas que callarse.
+$NoQuieroDias = [int](Get-Cfg 'entorno' 'noQuieroDias' 90)
+function Get-NoQuieroPath { return (Join-Path $MemoriaDir 'no-quiero.json') }
+function Get-NoQuiero {
+    if ($null -ne $script:noQuiero) { return $script:noQuiero }
+    $script:noQuiero = @{}
+    try {
+        $p = Get-NoQuieroPath
+        if (Test-Path -LiteralPath $p) {
+            $o = (Get-Content -LiteralPath $p -Raw -Encoding UTF8) | ConvertFrom-Json
+            foreach ($pr in $o.PSObject.Properties) { $script:noQuiero[$pr.Name] = [string]$pr.Value }
+        }
+    } catch { $script:noQuiero = @{} }
+    return $script:noQuiero
+}
+# Se llama cuando braya dice que no a una pregunta de Nova.
+function Add-NoQuiero([string]$tema) {
+    if (-not $tema) { return }
+    # MODO INVITADO: el "no" de una visita no es el de braya, y aqui se decide SU futuro.
+    if ($script:invitado) { return }
+    try {
+        $t = Get-NoQuiero
+        $t[$tema] = (Get-Date).ToString('yyyy-MM-dd')
+        $o = New-Object PSObject
+        foreach ($k in $t.Keys) { Add-Member -InputObject $o -MemberType NoteProperty -Name $k -Value ([string]$t[$k]) }
+        Write-Atomico (Get-NoQuieroPath) (ConvertTo-Json -InputObject $o -Depth 3)
+    } catch {}
+}
+# $true si braya ya dijo que no a esto y el "no" sigue vigente.
+function Test-YaDijoNo([string]$tema, [datetime]$ahora = (Get-Date)) {
+    if (-not $tema -or $NoQuieroDias -le 0) { return $false }
+    try {
+        $v = [string](Get-NoQuiero)[$tema]
+        if (-not $v) { return $false }
+        $h = [datetime]::MinValue
+        if (-not [datetime]::TryParseExact($v, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture,
+                                           [Globalization.DateTimeStyles]::None, [ref]$h)) { return $false }
+        $d = [int][Math]::Floor(($ahora.Date - $h.Date).TotalDays)
+        # UNA FECHA FUTURA NO VALE, igual que en las sondas: si el reloj de la consola salta, el "no"
+        # no puede quedarse puesto para siempre.
+        if ($d -lt 0) { return $false }
+        return ($d -lt $NoQuieroDias)
+    } catch { return $false }
+}
+$script:noQuiero = $null
+
+# DELETREAR (2/10/2026, idea 28 de las 40)
+#
+# Las letras separadas por guiones, que es como se deletrea en voz alta. Dos cosas que no son obvias:
+#  - LA EÑE Y LAS TILDES SE DICEN CON NOMBRE. Un "n" por una "ñ" deja a braya escribiendo mal la
+#    palabra, que es justo lo que venia a evitar. Lo mismo las vocales con tilde.
+#  - Y LOS ESPACIOS SE DICEN, porque si no "mi casa" y "micasa" suenan igual deletreados.
+function Get-Deletreo([string]$que) {
+    if (-not $que) { return 'No me has dicho que deletrear.' }
+    $t = ([string]$que).Trim()
+    if ($t.Length -gt 40) { $t = $t.Substring(0, 40) }
+    # LAS LETRAS, POR SU CODIGO Y NO ESCRITAS: la regla 6 de la casa prohibe caracteres fuera de ASCII
+    # en un .ps1, y aqui ademas hace falta -al escribirlas a pelo, PowerShell 5.1 leyo el fichero como
+    # ANSI, cada letra acentuada se partio en dos caracteres y la tabla revento con "No se permiten
+    # claves duplicadas". Con el codigo es exacto en cualquier pagina de codigos.
+    #
+    # Y LA TABLA ES ORDINAL, QUE NO ES UN DETALLE: una tabla hash de PowerShell es INSENSIBLE A
+    # MAYUSCULAS, asi que la enie minuscula y la mayuscula colapsaban en la misma clave y ganaba la
+    # ultima que se escribiera. Comprobado al probarlo: "manana" con enie minuscula devolvia "ENE con
+    # tilde" en mayuscula. Con StringComparer::Ordinal cada una es una clave distinta.
+    $NOMBRES = New-Object System.Collections.Hashtable([System.StringComparer]::Ordinal)
+    $NOMBRES[[string][char]0xF1] = 'ene con tilde'      # n con virgulilla
+    $NOMBRES[[string][char]0xD1] = 'ENE con tilde'
+    $NOMBRES[[string][char]0xE1] = 'a con tilde'
+    $NOMBRES[[string][char]0xE9] = 'e con tilde'
+    $NOMBRES[[string][char]0xED] = 'i con tilde'
+    $NOMBRES[[string][char]0xF3] = 'o con tilde'
+    $NOMBRES[[string][char]0xFA] = 'u con tilde'
+    $NOMBRES[[string][char]0xFC] = 'u con dieresis'
+    $fuera = @()
+    foreach ($c in $t.ToCharArray()) {
+        $s = [string]$c
+        if ($s -eq ' ') { $fuera += 'espacio'; continue }
+        if ($NOMBRES.ContainsKey($s)) { $fuera += [string]$NOMBRES[$s]; continue }
+        $fuera += $s.ToUpperInvariant()
+    }
+    return ($fuera -join ' - ')
+}
+
 function Get-FraseNoEntendi([string]$orig) {
     $base = @{ ver = 'No te entendi. Repitelo.'; decir = 'No te entendi' }
     try {
@@ -6719,6 +6815,17 @@ function Resolve-Fragment([string]$f) {
     # desde el 27/09 en estadisticas.json y no habia forma de preguntarlo.
     if ($f -match '^(?:que\s+(?:se\s+te\s+)?(?:esta\s+)?(?:rompiendo|rompe)|tienes\s+(?:algun\s+)?(?:error|errores|fallo|fallos)|va\s+todo\s+bien\s+por\s+dentro|(?:te\s+)?falla\s+algo|como\s+estas\s+por\s+dentro)\??$') {
         return @(@{ kind = 'petes'; desc = 'lo que se me rompe por dentro' })
+    }
+    # --- COMO SE ESCRIBE (2/10, idea 28 de las 40) ---
+    # "como se escribe <X>", "deletreame <X>", "deletrea <X>". MEDIDO: `grep -ci deletrea` daba CERO.
+    # Deletrear es de lo mas pedido a un asistente y Nova ya tiene las tres piezas (voz, capsula y
+    # OCR) sin juntarlas nunca.
+    #
+    # Y VA SOBRE TODO A LA CAPSULA, que es la parte que importa: oir "e-l-e-n-e" letra a letra es
+    # dificil de seguir, y verlo escrito se entiende de un golpe. La voz lo dice igual, separado por
+    # guiones, para cuando braya no esta mirando.
+    if ($f -match '^(?:como\s+se\s+escribe|deletrea(?:me|lo|la)?|escribeme\s+letra\s+por\s+letra)\s+(.{1,40})$') {
+        return @(@{ kind = 'deletrea'; que = $Matches[1].Trim(); desc = ('deletrear ' + $Matches[1].Trim()) })
     }
     # --- POR QUE HAS HECHO ESO (2/10, idea 21 de las 40) ---
     # "por que has hecho eso", "por que lo has hecho", "a que ha venido eso", "por que".
@@ -16027,7 +16134,12 @@ function Watch-Entorno([int]$botones = 0) {
             # braya no quiere.
             if (-not $txtU) {
                 $fd2 = Get-FuncionDormida
-                if ($fd2) { [void](Send-AvisoEntorno ([string]$fd2.clave) ([string]$fd2.texto) 'bajo' 64800) }
+                # Y SI YA DIJO QUE NO, NO SE VUELVE A OFRECER (2/10, idea 35). La frase del aviso
+                # acaba en "si no te interesa, dimelo y no vuelvo a mencionarlo", asi que sin esto
+                # seria una promesa que Nova no puede cumplir. Ver Test-YaDijoNo.
+                if ($fd2 -and -not (Test-YaDijoNo ([string]$fd2.clave))) {
+                    [void](Send-AvisoEntorno ([string]$fd2.clave) ([string]$fd2.texto) 'bajo' 64800)
+                }
             }
         }
     } catch {}
@@ -21288,6 +21400,14 @@ function Invoke-FastCommand([string]$text) {
                 }
                 'porQue' {
                     $a.desc = Get-FrasePorQue
+                    $a.hecho = $true
+                }
+                'deletrea' {
+                    $letras = Get-Deletreo ([string]$a.que)
+                    # LA CAPSULA LO ENSENA Y LA VOZ LO DICE: verlo escrito se entiende de un golpe,
+                    # oirlo letra a letra no. Las dos vias a la vez, que es lo que pide el caso.
+                    try { Set-UI 'hablando' ([string]$a.que + '  =  ' + $letras) 12000 } catch {}
+                    $a.desc = $letras
                     $a.hecho = $true
                 }
                 # SUBTITULOS DEL AUDIO DEL JUEGO (1/10, la 17 de las 20). La mas cara de las
@@ -30781,8 +30901,21 @@ try {
 # que no puede cambiar mientras Nova corre. Y es justo el momento en que hay que vaciar la cache de
 # shaders, que es lo que se olvida.
 try { Watch-VramCambiada } catch {}
+# LA CAPSULA DICE LO QUE ESTA HACIENDO, NO SOLO EL RESULTADO (2/10, idea 39 de las 40)
+#
+# MEDIDO en el arranque del 2/10: desde "VoiceAssistant iniciado" (15:55:28) hasta "escucha continua
+# ACTIVA" pasan DIECINUEVE SEGUNDOS -dieciseis de ellos la biblioteca de Steam-, y luego Whisper tarda
+# 2,1 s mas y Parakeet 4,5. En todo ese rato la capsula no dice absolutamente nada, asi que desde
+# fuera no hay forma de saber si Nova esta arrancando o se ha quedado colgada.
+#
+# CERO FUNCIONES NUEVAS: Set-UI ya existe y ya pinta texto -es lo que usan los subtitulos-. Son tres
+# llamadas. Y van en try porque si la capsula todavia no esta, esto no puede parar el arranque
+# (regla 7); el arranque no depende de que haya nadie mirando.
+try { Set-UI 'pensando' 'preparando la voz...' 4000 } catch {}
 Initialize-Voz
+try { Set-UI 'pensando' 'cargando el oido...' 8000 } catch {}
 Initialize-Escucha
+try { Set-UI 'reposo' '' 0 } catch {}
 # LA SIEMBRA DE LA ESPERA APRENDIDA (27/09, idea 73). UNA sola vez en la vida, aqui y no en el
 # bucle: son 6 MB de registro entre los dos ficheros. Si ya se hizo, vuelve sola en seguida.
 try { [void](Seed-ReaccionesAviso) } catch { Log ('siembra de reacciones: ' + $_.Exception.Message) }
