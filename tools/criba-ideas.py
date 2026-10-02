@@ -189,6 +189,7 @@ def cargar():
             cab = nombre[len('tools/probar-'):] + ' ' + '\n'.join(txt.split('\n')[:16])
             BANCOS[nombre] = raras(cab)
     FRASES_NOVA = _catalogo_frases()
+    ORDENES[:] = _catalogo_ordenes()
 
 
 # Lo que se dice para negar que algo se use. Si una idea dice esto Y nombra una funcion con
@@ -538,6 +539,83 @@ def f8_frase_parecida(cuerpo):
     return avisos
 
 
+ORDENES = []
+
+
+def _catalogo_ordenes():
+    """Los 483 regex con los que Nova reconoce una orden. Son el catalogo EJECUTABLE de lo que
+    entiende, y por eso este filtro no puede mentir: o la frase casa o no casa.
+
+    DE DONDE SALE: el 1/10, proponiendo las 40 ideas, di por nuevas dos cosas que ya existian
+    -"que cancion suena" (linea 6008) y "donde lo deje" (linea 6093)- porque grep me devolvia UNA
+    sola mencion y lo lei como "casi no existe". Una funcion implementada una vez tiene exactamente
+    una mencion: la de su implementacion. Contar menciones no sirve; probar la frase si."""
+    fuera = []
+    for i, linea in enumerate(PS1_LIN):
+        if linea.lstrip().startswith('#'):
+            continue
+        for m in re.finditer(r"-match\s+'(\^[^']{6,400})'", linea):
+            pat = m.group(1)
+            try:
+                # PowerShell y Python comparten la sintaxis que se usa aqui: (?:...), |, \b, $.
+                rx = re.compile(pat, re.IGNORECASE)
+            except re.error:
+                continue
+            # LOS PATRONES GENERICOS NO VALEN COMO PRUEBA. En el fichero hay troceadores como
+            # '^(\\S+)\\s+(?:(el|la|lo)\\s+)?(\\S+)(.*)$' que casan con CUALQUIER par de palabras:
+            # con ellos dentro, este filtro diria que Nova ya entiende todo. Si casa con tres
+            # palabras inventadas, no distingue nada y se tira.
+            if any(rx.match(x) for x in ('zzqq wwxx vvuu', 'qqq zzz', 'xkcd plugh xyzzy')):
+                continue
+            fuera.append((i + 1, pat, rx))
+    return fuera
+
+
+def _frases_sueltas(cuerpo):
+    """Las frases que la idea pone como ejemplo de lo que braya diria: entre comillas, cortas y
+    sin signos de codigo. No se filtran por verbo de decir como en F6/F8, al contrario: aqui
+    interesan justo las que braya PEDIRIA."""
+    cand = []
+    for pat in (u'«([^»\n]{6,70})»', u'“([^”\n]{6,70})”',
+                r'\*"([^"\n]{6,70})"\*', r'"([^"\n]{6,70})"'):
+        for f in re.findall(pat, cuerpo):
+            f = f.strip().strip('?!.,;:').strip()
+            f = re.sub(u'^[¿¡]+', '', f)
+            # TIENE QUE PARECER UNA ORDEN DE BRAYA, no cualquier cosa entre comillas: sin numeros,
+            # sin markdown, sin mayusculas en medio y corta. Sin esto, el filtro le pasaba al
+            # catalogo trozos como "y lleva 20,2 dias sin tocarse" o "SORDA N s: SORDA N s".
+            if not (2 <= len(f.split()) <= 7):
+                continue
+            if re.search(r'[0-9${}()\[\]\\|=<>*:;%]', f):
+                continue
+            if re.search(r'[a-z]\s+[A-Z]', f) or f.upper() == f:
+                continue
+            if f not in cand:
+                cand.append(f)
+    return cand[:10]
+
+
+def f9_orden_ya_entendida(cuerpo):
+    """Se le pasa la frase a los 483 regex de verdad. Si alguno casa, Nova YA entiende eso."""
+    avisos = []
+    for f in _frases_sueltas(cuerpo):
+        seca = soso(f)
+        # EL COMODIN NO PRUEBA NADA, y es lo que hacia que este filtro marcara "modo susurro" o
+        # "por que has", que yo mismo acababa de comprobar con grep que NO existen. Hay patrones
+        # del tipo '^modo\s+(.+)$' que casan con cualquier "modo X": reconocen la FORMA, no esa
+        # orden. Se cambia la ultima palabra por una inventada; si sigue casando, es un comodin.
+        pal = seca.split()
+        falsa = ' '.join(pal[:-1] + ['zqwxvu'])
+        otra = ' '.join(['zqwxvu'] + pal[1:])
+        for lin, pat, rx in ORDENES:
+            if rx.match(seca) and not rx.match(falsa) and not rx.match(otra):
+                avisos.append((u'FUERTE', u'F9 orden-ya-entendida',
+                               u'Nova ya entiende "%s"' % f[:50],
+                               u'assistant.ps1:%d: %s' % (lin, pat[:96])))
+                break
+    return avisos[:3]
+
+
 def f7_banco_que_lo_cubre(titulo, cuerpo):
     """Si existe un banco del tema, existe la funcion. Con palabras RARAS: con palabras comunes,
     'probar-acuerdo-oidos' se emparejaba con casi cualquier idea."""
@@ -557,7 +635,9 @@ def criba(titulo, cuerpo):
     return (f1_numero_ya_escrito(titulo, cuerpo) + f2_dato_de_antes(cuerpo)
             + f3_si_tiene_lectores(cuerpo) + f4_quien_lo_escribe(cuerpo)
             + f5_apagado_a_proposito(cuerpo) + f6_frase_ya_dicha(cuerpo)
-            + f8_frase_parecida(cuerpo) + f7_banco_que_lo_cubre(titulo, cuerpo))
+            + f8_frase_parecida(cuerpo)
+            + f9_orden_ya_entendida(titulo + chr(10) + cuerpo)
+            + f7_banco_que_lo_cubre(titulo, cuerpo))
 
 
 def main():

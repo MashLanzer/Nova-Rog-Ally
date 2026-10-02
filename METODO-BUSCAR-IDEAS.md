@@ -25,7 +25,7 @@ comprobacion dejo de ser una instruccion y paso a ser un programa:
 python tools/criba-ideas.py IDEAS-AAAA-MM-DD.md
 ```
 
-Siete filtros, cada uno sacado de una de las nueve caidas de verdad, y cada uno obligado a pegar
+Nueve filtros, cada uno sacado de un fallo real, y cada uno obligado a pegar
 el fichero y la linea que lo justifica:
 
 | | qué comprueba | de qué caída sale |
@@ -37,6 +37,17 @@ el fichero y la linea que lo justifica:
 | F5 | el ajuste esta a **vacio/false/0** en `config.json`: se apago a mano | la 6: `nubeOir = ''` |
 | F6 | la frase que propones que Nova diga, **ya la dice** | la 14 |
 | F7 | **ya hay un banco** cuyo encabezado comparte palabras raras con la idea | ocho de las nueve |
+| F8 | la frase que propones **se parece por la raíz** a una que ya dice (*«entendido»* / *«entendiendo»*) | la 14 |
+| F9 | **le pasa la frase a los 483 patrones de orden** de `assistant.ps1` y mira si alguno la reconoce | dos de mis propias 40 del mismo día |
+
+**El filtro 9 nació el mismo día, de un error mío.** Proponiendo las 40, di por nuevas *«¿qué
+canción es esta?»* y *«¿dónde lo dejé?»*, y las dos existían (`assistant.ps1:6008` y `:6093`),
+porque usé *«`grep` devuelve pocas menciones»* como prueba de ausencia. **Una función implementada
+una vez tiene exactamente una mención: la de su implementación.** Contar menciones no prueba nada;
+ejecutar el patrón, sí. Y al calibrarlo hicieron falta dos defensas: tirar los patrones comodín
+(`'^(\S+)\s+…'` casa con cualquier par de palabras) y probar una variante absurda de la propia
+frase (para *«modo susurro»*, también *«modo zqwxvu»*: si casa, el patrón reconoce la forma `modo X`
+y no esa orden).
 
 **Y esta medida, no supuesta.** `tools\medir-criba.py` la enfrenta a esas mismas 20 ideas con el
 repo **como estaba el 30/09** —cribarlas contra el repo de hoy encuentra los arreglos que salieron
