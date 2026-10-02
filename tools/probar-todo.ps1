@@ -2119,6 +2119,16 @@ Titulo "2n279. Los bancos de Python que se rendian por el interprete"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n308. La criba de ideas: nueve de veinte ya estaban hechas y ahora se comprueba a maquina"
+# EL FALLO QUE TAPA: de las 20 ideas del 1/10, NUEVE ya estaban hechas o se apoyaban en un dato
+# falso, y METODO-BUSCAR-IDEAS.md YA DECIA "primero mira, luego propon". O sea que el metodo pedia
+# lo correcto y el que proponia -yo- creia haberlo hecho. Lo que se comprueba aqui es que la criba
+# SEPARA: con el repo del 30/09 marca las NUEVE muertas y no condena a FUERTE ninguna de las once
+# buenas. Y lleva dentro los dos numeros a la vez a proposito: un detector que marca las veinte
+# tiene el primero perfecto y no sirve de nada (su primera version marcaba 19 de 20).
+python (Join-Path $PSScriptRoot 'medir-criba.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:La criba separa)|MAL|SE ESCAPA'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n307. Esa regla ya la tienes, y las copias viejas se barren (ideas 20 y 18 de las 20)"
 # MEDIDO sobre las 609 ordenes reales: braya dicto A MANO "regla: cuando abra elden ring pon modo
 # noche" ONCE veces, y otras dos reglas cinco veces cada una. Veintiuna dictadas de TRES reglas, y

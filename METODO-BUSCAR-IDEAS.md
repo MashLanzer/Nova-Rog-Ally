@@ -10,6 +10,64 @@ leyendo el código.
 
 ---
 
+## Fase 0 — LA CRIBA, y va ANTES de todo (anadida el 1/10/2026)
+
+**Por que existe:** el 1/10 este metodo produjo 20 ideas y **nueve ya estaban hechas o se apoyaban
+en un dato falso**. Y el metodo ya decia, mas abajo, *«primero mira, luego propon»*, *«comprobar
+que no existe ya»* y *«ante la duda razonable sobre si ya existe, matarla»*. Las tres cosas
+estaban escritas y las nueve pasaron igual.
+
+**La leccion, que es incomoda:** una instruccion que depende de que el que propone se acuerde de
+cumplirla no es un metodo, es un deseo. El que propone **siempre cree que ya miro**. Asi que la
+comprobacion dejo de ser una instruccion y paso a ser un programa:
+
+```bash
+python tools/criba-ideas.py IDEAS-AAAA-MM-DD.md
+```
+
+Siete filtros, cada uno sacado de una de las nueve caidas de verdad, y cada uno obligado a pegar
+el fichero y la linea que lo justifica:
+
+| | qué comprueba | de qué caída sale |
+|---|---|---|
+| F1 | el **numero** que citas como prueba ya esta escrito en un comentario del repo, en una linea que habla de lo mismo | la 17: mis «756 lineas» estaban en `assistant.ps1:24520` |
+| F2 | el dato esta **concentrado en pocos dias y todos anteriores** al commit que toco esa zona | la 17 otra vez (dato del 26/09, arreglo del 27/09), la 13 y la 15 |
+| F3 | dices «no se usa / no decide nada» de algo que **tiene llamadores** | la 12, la 16 y la 19 |
+| F4 | **quien escribe** el contador que citas, con su comentario al lado | la 5: `parakeet-a-whisper` no son fallos, es el repaso |
+| F5 | el ajuste esta a **vacio/false/0** en `config.json`: se apago a mano | la 6: `nubeOir = ''` |
+| F6 | la frase que propones que Nova diga, **ya la dice** | la 14 |
+| F7 | **ya hay un banco** cuyo encabezado comparte palabras raras con la idea | ocho de las nueve |
+
+**Y esta medida, no supuesta.** `tools\medir-criba.py` la enfrenta a esas mismas 20 ideas con el
+repo **como estaba el 30/09** —cribarlas contra el repo de hoy encuentra los arreglos que salieron
+*de* ellas y lo marca todo: es lo primero que paso— y exige dos numeros a la vez:
+
+- marca **9 de las 9 muertas**;
+- y **0 de las 11 buenas** llegan a `FUERTE`, el nivel que mata una idea sin leerla.
+
+Es la **seccion 2n308** de la bateria, asi que si alguien afloja la criba, la bateria se pone roja.
+
+**EL HALLAZGO QUE MAS VALE DE TODO ESTO, y es casi vergonzoso:** de los siete filtros, el que
+trabaja es **el mas tonto** — *¿hay ya un banco que hable de esto?* — con **ocho de las nueve**.
+Los otros son precisos pero estrechos (F1, F6 y F8 cazan una cada uno). La razon es que en este
+proyecto **toda funcion tiene banco**, asi que los 339 ficheros de `tools\probar-*` son el indice
+real de lo que Nova sabe hacer, mucho mejor que los doce documentos de ideas. Antes de proponer
+cualquier cosa:
+
+```bash
+ls tools/probar-* | grep -i <el concepto>
+grep -il "<el concepto>" tools/probar-*.ps1 tools/probar-*.py | head
+```
+
+Y apretar el filtro para quitar ruido **no sale a cuenta**, medido: con tres palabras raras
+compartidas caza 9 muertas de 9 y marca 7 buenas de 11; con cuatro baja a 4 de 9. Cinco muertas
+por ahorrar cuatro lecturas, y la lectura es barata porque la marca trae ya el fichero y la linea.
+
+**Lo que la criba NO hace, y hay que seguir haciendo a mano:** decir si la idea vale la pena. Solo
+dice si huele a hecha.
+
+---
+
 ## El problema que resuelve
 
 En doce documentos hay ya unas **150 ideas** propuestas. Pedir «dame ideas» sin más produce
