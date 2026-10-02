@@ -1,0 +1,4 @@
+7
+# La cuenta de llamadas del arranque a algo definido mas abajo.
+# SOLO PUEDE BAJAR: ver probar-llamada-temprana.py. Si sube, alguien ha metido una
+# dependencia nueva que el arranque no puede resolver, y el catch se la va a tragar.

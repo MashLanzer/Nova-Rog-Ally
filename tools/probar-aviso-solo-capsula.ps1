@@ -130,6 +130,37 @@ Comp '  y NO se apunta como perdido' (@($script:apuntes | Where-Object { $_ -mat
 $script:tarjetaVa = $true
 
 Write-Host ''
+Write-Host '-- 3b. SI LA TARJETA NO ESTA LISTA, LA CAPSULA (2/10) --'
+# EL DATO QUE LO PIDE, y es nuevo: probar-llamada-temprana.py conto SIETE avisos del arranque que
+# llaman aqui ANTES de que Show-Popup este definida (lineas 30245 a 30278, definicion en la 30721).
+# El 1/10 se arreglo la consecuencia -que un aviso no se de por dado si no se pudo ver-; esto
+# comprueba el canal de respaldo: con la capsula viva, el aviso SE ENTREGA y no se pierde.
+#
+# Y OJO CON ESTA SECCION, que es justo por lo que hacia falta: la de arriba daba VERDE con el
+# respaldo ya escrito, porque el banco no doblaba Add-TildesVoz y el camino nuevo moria dentro de su
+# propio try. Un banco que no dobla TODO lo que la rama nueva necesita no prueba la rama nueva.
+function Add-TildesVoz([string]$s) { return $s }
+# LA TARJETA, MUERTA OTRA VEZ: la seccion anterior la "arregla" para probar que el aviso sale, asi
+# que sin esto mi camino de respaldo no se ejercia y las tres comprobaciones de aqui mentian.
+function Show-Popup([string]$t, [string]$e = 'hablando') { throw "El termino 'Show-Popup' no se reconoce" }
+$script:pintadoCapsula = ''
+function Set-UI([string]$e, [string]$t = '', [int]$m = 0) { $script:pintadoCapsula = $t }
+$script:apuntes = @()
+$script:entornoVistos = @{}
+$script:dichos = @()
+$r = Send-AvisoEntorno 'estreno-juego' 'Bajaste algo y no lo has abierto' 'bajo' 720
+Comp 'con la tarjeta muerta pero la capsula viva, el aviso vale' ($r -eq $true) "devolvio $r"
+Comp '  y se ve en la capsula' ($script:pintadoCapsula -match 'no lo has abierto') "capsula: $script:pintadoCapsula"
+Comp '  y NO se apunta como perdido' ((($script:apuntes -join ' ') -notmatch 'aviso-perdido')) ($script:apuntes -join ' ')
+Comp '  y queda dado, que es lo correcto si se vio' ($script:entornoVistos.ContainsKey('estreno-juego')) ''
+# Y SI NO HAY NINGUNO DE LOS DOS, SIGUE PERDIENDOSE: sin esto el respaldo taparia el fallo de verdad.
+function Set-UI([string]$e, [string]$t = '', [int]$m = 0) { throw 'la capsula tampoco' }
+$script:apuntes = @(); $script:entornoVistos = @{}
+$r2 = Send-AvisoEntorno 'estreno-juego' 'Bajaste algo y no lo has abierto' 'bajo' 720
+Comp 'sin tarjeta Y sin capsula, sigue contando como perdido' ($r2 -eq $false) "devolvio $r2"
+Comp '  y se apunta' ((($script:apuntes -join ' ') -match 'aviso-perdido')) ($script:apuntes -join ' ')
+
+Write-Host ''
 Write-Host '-- 4. el cableado --'
 $cuerpo = Traer 'Send-AvisoEntorno'
 $sin = (($cuerpo -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) -join "`n"

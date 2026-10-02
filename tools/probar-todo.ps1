@@ -2119,6 +2119,17 @@ Titulo "2n279. Los bancos de Python que se rendian por el interprete"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n309. Llamar a una funcion antes de que exista: el barrido de la familia"
+# DOS VECES EN DOS DIAS, y las dos las cazo el contador de petes cuatro dias tarde: Show-Popup
+# (definida en la 30721, la llaman los siete avisos del arranque) y Get-QuietudMando (estaba en la
+# 37359 y la llamaba Get-NadieMin, siete petes por arranque, y de paso Nova daba por hecho que no
+# habia nadie teniendo a braya delante con el mando). Este banco mira el MOMENTO: cuando el arranque
+# ejecuta su linea L estan definidas las funciones cuyo 'function' esta antes de L, asi que cierra
+# transitivamente desde el cuerpo principal y exige def(G) < L. Lleva trinquete en tempranas-techo.txt
+# porque el analisis es conservador: la cuenta solo puede BAJAR.
+python (Join-Path $PSScriptRoot 'probar-llamada-temprana.py') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:no llama a nada que todavia no exista)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n308. La criba de ideas: nueve de veinte ya estaban hechas y ahora se comprueba a maquina"
 # EL FALLO QUE TAPA: de las 20 ideas del 1/10, NUEVE ya estaban hechas o se apoyaban en un dato
 # falso, y METODO-BUSCAR-IDEAS.md YA DECIA "primero mira, luego propon". O sea que el metodo pedia

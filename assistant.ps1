@@ -15019,10 +15019,32 @@ function Send-AvisoEntorno([string]$clave, [string]$texto, [string]$nivel = 'med
     # en vez de un diff de dos mil quinientas en el fichero mas delicado del proyecto. La causa de
     # aquel dia era el orden de las definiciones; la consecuencia que dolia es esta, y es la que se
     # arregla.
+    # Y SI Show-Popup NO EXISTE TODAVIA, LA CAPSULA DIRECTA (2/10). El barrido de
+    # probar-llamada-temprana.py puso numero a lo que el dia 1 solo se intuia: son SIETE los avisos
+    # del arranque que llaman aqui antes de que Show-Popup este definida -Test-CostumbresPropias,
+    # Test-AnimoQueSeCuenta, Test-MemoriaIgnorada, Clear-TmpViejo, Test-JuegoSinEstrenar, me-cai y
+    # Watch-VramCambiada, lineas 30245 a 30278, con la definicion en la 30721-. El dia 1 se arreglo
+    # la CONSECUENCIA (que un aviso no se de por dado si no se pudo ver); esto arregla el canal.
+    #
+    # POR QUE ASI Y NO MOVIENDO Show-Popup: lo que esa funcion hace en el camino normal -con la
+    # interfaz nueva, que es la que corre- son exactamente estas dos lineas; y Set-UI (24004) y
+    # Add-TildesVoz (23083) SI estan definidas mucho antes que el bloque del arranque. Cuatro lineas
+    # aqui frente a mover sesenta de la funcion mas delicada del proyecto, que el dia 1 acabo con la
+    # funcion DUPLICADA y el fichero diez mil lineas mas gordo sin que la sintaxis se quejara.
     $pintada = $true
     try { Show-Popup $texto } catch {
+        # EL MENSAJE, GUARDADO AQUI Y AHORA: $_ dentro del try anidado de abajo ya no es esta
+        # excepcion, y leerlo despues contaria el fallo equivocado o ninguno.
+        $porQueNo = $_.Exception.Message
         $pintada = $false
-        Log ('aviso ' + $clave + ': no pude pintar la tarjeta (' + $_.Exception.Message + ')' + $(if ($nivel -eq 'bajo') { '; es de los que no suenan, asi que lo dejo SIN DAR para reintentarlo' } else { '; lo digo igual' }))
+        try {
+            Set-UI 'atenta' (Add-TildesVoz $texto) $PopupMs
+            $pintada = $true
+            Log ('aviso ' + $clave + ': la tarjeta no estaba lista todavia, va por la capsula')
+        } catch {}
+        if (-not $pintada) {
+            Log ('aviso ' + $clave + ': no pude pintar la tarjeta (' + $porQueNo + ')' + $(if ($nivel -eq 'bajo') { '; es de los que no suenan, asi que lo dejo SIN DAR para reintentarlo' } else { '; lo digo igual' }))
+        }
     }
     if (-not $pintada -and $nivel -eq 'bajo') {
         # SE DESHACE EL MARCADO: sin esto el aviso queda dado sin haberse entregado por ningun lado.
@@ -17475,6 +17497,36 @@ function Get-InactividadMin {
 # un catch que contestara "no hay nadie" callaria a Nova por una averia de user32.
 # Y UNA SOLA FUNCION, no la cuenta escrita en dos sitios: quien decide y quien lo escribe en el
 # log tienen que estar mirando el mismo numero, o el log mentiria justo en los once casos.
+
+# CUANTO LLEVA EL MANDO QUIETO. VIVE AQUI, Y NO CON LAS OTRAS DEL MANDO, POR UN FALLO DE VERDAD
+# (2/10/2026):
+#
+# estaba definida en la 37359 -con el resto del bloque del mando, justo antes del bucle- y
+# Get-NadieMin, que es de aqui, la llamaba. En PowerShell una funcion NO EXISTE hasta que su
+# 'function' se ejecuta, asi que durante todo el arranque la llamada fallaba con "El termino
+# 'Get-QuietudMando' no se reconoce como nombre de un cmdlet" y el catch de Get-NadieMin se lo
+# tragaba. En estadisticas.json: pete:17491 SIETE veces por arranque, mas pete:17485 y pete:17223
+# -el mismo fallo con la linea movida por mis ediciones-, veinticuatro apariciones repartidas en
+# tres contadores.
+#
+# Y NO ERA SOLO UN PETE: lo que recorta es "si el mando se movio hace un minuto, hace un minuto
+# habia alguien". Sin ese recorte Nova da por hecho que no hay nadie teniendo a braya delante con
+# el mando en la mano, que es exactamente lo que el comentario de abajo dice que esto evita, y es
+# la razon de las 4.219 lineas 'ENTORNO aparcado' del registro.
+#
+# Es la segunda vez en dos dias: la primera fue Show-Popup, definida en la 30244 y llamada por los
+# avisos del arranque. Por eso existe tambien probar-llamada-temprana.py, que barre el fichero
+# entero buscando la familia en vez de esperar a que el contador de petes la cace cuatro dias mas
+# tarde.
+#
+# NO TOCA NADA DE ARRIBA: lee $script:mandoHay y $script:mandoMovidoEn, que se declaran mas abajo,
+# pero una funcion resuelve sus variables al EJECUTARSE. Y si se la llama antes de que existan,
+# $null -le 0 es cierto en PowerShell y devuelve -1, que es justo "no lo se".
+function Get-QuietudMando {
+    if (-not $script:mandoHay -or $script:mandoMovidoEn -le 0) { return -1 }
+    return [int](($sw.ElapsedMilliseconds - $script:mandoMovidoEn) / 1000)
+}
+
 function Get-NadieMin([datetime]$ahora = (Get-Date)) {
     $a = Get-AusenciaMin $ahora
     $o = -1
@@ -37356,10 +37408,8 @@ function Add-HuecoMando([int]$segundos) {
 
 # Segundos desde que el mando se movio por ultima vez. -1 si no se ha visto moverse nunca en esta
 # sesion (recien arrancada, o el mando no esta): eso NO es quietud, es no saber.
-function Get-QuietudMando {
-    if (-not $script:mandoHay -or $script:mandoMovidoEn -le 0) { return -1 }
-    return [int](($sw.ElapsedMilliseconds - $script:mandoMovidoEn) / 1000)
-}
+# Get-QuietudMando vivia aqui y se subio junto a Get-NadieMin el 2/10: se la llamaba en el arranque,
+# veinte mil lineas antes de que esta definicion se ejecutara. Ver el comentario de alla.
 
 function Get-UmbralQuietud {
     $l = Get-HuecosMando
