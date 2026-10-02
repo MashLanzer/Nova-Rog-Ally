@@ -131,6 +131,26 @@ try {
     # EN TRY: si la capsula no esta, el arranque no se para (regla 7)
     Comp 'y en try, que el arranque no depende de que mires' ($sinCom -match "try \{ Set-UI 'pensando' 'cargando el oido[^}]+\} catch \{\}") 'regla 7'
 
+
+    Write-Host ''
+    Write-Host '-- 38. lo que entendi, a la vista, antes de hacerlo --'
+    # LA LISTA DE ACCIONES IRREVERSIBLES YA EXISTIA y yo habia escrito que faltaba "una decision de
+    # braya": son las DOCE que marcan tipo = 'peligrosa' (borrar una carpeta, borrar una lista, enviar
+    # un correo, crear una regla con la voz sin reconocer...). La capsula ya recibe que hay una
+    # confirmacion pendiente -el campo 'peligrosa' del estado- pero no QUE se va a hacer, y en algo que
+    # no se puede deshacer leerlo es mas rapido y mas seguro que oirlo: evita el "no, no eso" cuando ya
+    # es tarde.
+    $nPel = ([regex]::Matches($sinCom, "tipo = 'peligrosa'")).Count
+    $nVista = ([regex]::Matches($sinCom, "Set-UI 'atenta' \('he entendido: '")).Count
+    Comp 'hay acciones marcadas como peligrosas' ($nPel -ge 12) "$nPel sitios"
+    Comp '  y las que llevan texto lo ensenan' ($nVista -ge 12) "$nVista pintan lo entendido"
+    Comp '  y en try, que esto no puede impedir la confirmacion' ($sinCom -match "try \{ Set-UI 'atenta' \('he entendido: '[^}]+\} catch \{\}") 'regla 7'
+    # Y VA JUNTO AL PENDIENTE, no en otro sitio: si se pintara antes de marcarlo, un fallo por medio
+    # dejaria la capsula diciendo que va a hacer algo que ya no va a hacer.
+    $iPen = $sinCom.IndexOf("tipo = 'peligrosa' }")
+    $iPin = $sinCom.IndexOf("Set-UI 'atenta' ('he entendido: '", [Math]::Max(0, $iPen))
+    Comp '  y pegado al marcado del pendiente' ($iPen -ge 0 -and $iPin -gt $iPen -and ($iPin - $iPen) -lt 600) "a $($iPin - $iPen) caracteres"
+
     Write-Host ''
     if ($mal -gt 0) { Write-Host ([string]$mal + ' MAL') -ForegroundColor Red; exit 1 }
     Write-Host 'deletrea, se acuerda de un no, y dice lo que esta haciendo al arrancar' -ForegroundColor Green

@@ -19869,6 +19869,11 @@ function Invoke-FastCommand([string]$text) {
     # de un video de fondo podia crearla sin que nadie confirmara nada.
     if (-not $script:confirmado -and (ConvertTo-Plain $text) -match '^(?:cuando\s|cada\s|(?:recuerdame|avisame|recuerda|dime)\s+cada\s|todos los dias|cada dia|diariamente|a las?\s)' -and (Test-VozExtrana)) {
         $script:pendiente = @{ texto = $text; vence = 0; tipo = 'peligrosa' }
+        # LO QUE ENTENDI, A LA VISTA, ANTES DE HACERLO (2/10, idea 38 de las 40). La capsula ya recibe
+        # que hay una confirmacion pendiente -el campo 'peligrosa' del estado-, pero no QUE se va a hacer,
+        # y en una accion que no se puede deshacer leerlo es mas rapido y mas seguro que oirlo: evita el
+        # "no, no eso" cuando ya es tarde. En try porque esto no puede impedir la confirmacion (regla 7).
+        try { Set-UI 'atenta' ('he entendido: ' + [string]$script:pendiente.texto) 15000 } catch {}
         Log ("VOZ EXTRANA: no creo nada con '$text' sin confirmar ($([int]$script:ultimaF0) Hz frente a $([int](Get-VozDuena)) Hz)")
         Add-Estadistica 'voz-extrana' $text
         return "No me suena tu voz. ¿$($text)?"
@@ -20003,6 +20008,11 @@ function Invoke-FastCommand([string]$text) {
     if (-not $script:confirmado -and (Test-VozExtrana) -and
         @($acciones | Where-Object { $AccionesQueTocan -contains $_.kind }).Count -gt 0) {
         $script:pendiente = @{ texto = $text; vence = 0; tipo = 'peligrosa' }
+        # LO QUE ENTENDI, A LA VISTA, ANTES DE HACERLO (2/10, idea 38 de las 40). La capsula ya recibe
+        # que hay una confirmacion pendiente -el campo 'peligrosa' del estado-, pero no QUE se va a hacer,
+        # y en una accion que no se puede deshacer leerlo es mas rapido y mas seguro que oirlo: evita el
+        # "no, no eso" cuando ya es tarde. En try porque esto no puede impedir la confirmacion (regla 7).
+        try { Set-UI 'atenta' ('he entendido: ' + [string]$script:pendiente.texto) 15000 } catch {}
         $qv = @($acciones | ForEach-Object { $_.desc }) -join ' y '
         if (-not $qv) { $qv = $text }
         Log ("VOZ EXTRANA: $([int]$script:ultimaF0) Hz frente a $([int](Get-VozDuena)) Hz; se pregunta antes de: " + $qv)
@@ -20015,6 +20025,11 @@ function Invoke-FastCommand([string]$text) {
     # pregunta, y como una peligrosa, solo vale un si hablado (ni el plazo ni el boton).
     if (-not $script:confirmado -and $script:preguntarTraduccion -and @($acciones).Count -gt 0) {
         $script:pendiente = @{ texto = $text; vence = 0; tipo = 'peligrosa' }
+        # LO QUE ENTENDI, A LA VISTA, ANTES DE HACERLO (2/10, idea 38 de las 40). La capsula ya recibe
+        # que hay una confirmacion pendiente -el campo 'peligrosa' del estado-, pero no QUE se va a hacer,
+        # y en una accion que no se puede deshacer leerlo es mas rapido y mas seguro que oirlo: evita el
+        # "no, no eso" cuando ya es tarde. En try porque esto no puede impedir la confirmacion (regla 7).
+        try { Set-UI 'atenta' ('he entendido: ' + [string]$script:pendiente.texto) 15000 } catch {}
         $qd = @($acciones | ForEach-Object { $_.desc }) -join ' y '
         if (-not $qd) { $qd = $text }
         Log "OIDO DUDOSO: la traduccion sale de algo mal oido; se pregunta antes de: $qd"
@@ -20120,6 +20135,11 @@ function Invoke-FastCommand([string]$text) {
                     $comoSeLlama = ($a.desc -replace '^abrir\s+', '' -replace '\s+en Steam$', '')
                     if ($esJuego -and -not $script:confirmado -and ($script:juegoActivo -or $a.sinVerbo)) {
                         $script:pendiente = @{ texto = "abre $comoSeLlama en steam"; vence = 0; tipo = 'peligrosa' }
+                        # LO QUE ENTENDI, A LA VISTA, ANTES DE HACERLO (2/10, idea 38 de las 40). La capsula ya recibe
+                        # que hay una confirmacion pendiente -el campo 'peligrosa' del estado-, pero no QUE se va a hacer,
+                        # y en una accion que no se puede deshacer leerlo es mas rapido y mas seguro que oirlo: evita el
+                        # "no, no eso" cuando ya es tarde. En try porque esto no puede impedir la confirmacion (regla 7).
+                        try { Set-UI 'atenta' ('he entendido: ' + [string]$script:pendiente.texto) 15000 } catch {}
                         $a.desc = if ($script:juegoActivo) { "estas jugando a $($script:juegoActivo). ¿Abro $($comoSeLlama)?" }
                                   else { "¿Abro $($comoSeLlama)?" }
                     } else {
@@ -20795,6 +20815,11 @@ function Invoke-FastCommand([string]$text) {
                         $itP = $hallP[0]
                         $queEsP = if ($itP.PSIsContainer) { 'la carpeta' } else { 'el archivo' }
                         $script:pendiente = @{ texto = "borra la carpeta $buscaP"; vence = 0; tipo = 'peligrosa' }
+                        # LO QUE ENTENDI, A LA VISTA, ANTES DE HACERLO (2/10, idea 38 de las 40). La capsula ya recibe
+                        # que hay una confirmacion pendiente -el campo 'peligrosa' del estado-, pero no QUE se va a hacer,
+                        # y en una accion que no se puede deshacer leerlo es mas rapido y mas seguro que oirlo: evita el
+                        # "no, no eso" cuando ya es tarde. En try porque esto no puede impedir la confirmacion (regla 7).
+                        try { Set-UI 'atenta' ('he entendido: ' + [string]$script:pendiente.texto) 15000 } catch {}
                         $dondeEstaP = Split-Path -Leaf (Split-Path -Parent $itP.FullName)
                         $a.desc = "Encontre $queEsP $($itP.Name) en $dondeEstaP. La mando a la papelera?"
                     } else {
@@ -21233,6 +21258,11 @@ function Invoke-FastCommand([string]$text) {
                         # irreversible como cerrar un juego: se pregunta
                         $cuantos = @($listas[$cual]).Count
                         $script:pendiente = @{ texto = "borra la lista de $cual"; vence = 0; tipo = 'peligrosa' }
+                        # LO QUE ENTENDI, A LA VISTA, ANTES DE HACERLO (2/10, idea 38 de las 40). La capsula ya recibe
+                        # que hay una confirmacion pendiente -el campo 'peligrosa' del estado-, pero no QUE se va a hacer,
+                        # y en una accion que no se puede deshacer leerlo es mas rapido y mas seguro que oirlo: evita el
+                        # "no, no eso" cuando ya es tarde. En try porque esto no puede impedir la confirmacion (regla 7).
+                        try { Set-UI 'atenta' ('he entendido: ' + [string]$script:pendiente.texto) 15000 } catch {}
                         $a.desc = "en la lista de $cual hay $cuantos cosas. ¿La vacio?"
                     } else {
                         $listas.Remove($cual)
@@ -21867,6 +21897,11 @@ function Invoke-FastCommand([string]$text) {
                         $script:cerrarTodoPids = @($abiertas | ForEach-Object { $_.Id })
                         $textoCT = if ($excepto) { "cierra todos los programas menos $excepto" } else { 'cierra todos los programas' }
                         $script:pendiente = @{ texto = $textoCT; vence = 0; tipo = 'peligrosa' }
+                        # LO QUE ENTENDI, A LA VISTA, ANTES DE HACERLO (2/10, idea 38 de las 40). La capsula ya recibe
+                        # que hay una confirmacion pendiente -el campo 'peligrosa' del estado-, pero no QUE se va a hacer,
+                        # y en una accion que no se puede deshacer leerlo es mas rapido y mas seguro que oirlo: evita el
+                        # "no, no eso" cuando ya es tarde. En try porque esto no puede impedir la confirmacion (regla 7).
+                        try { Set-UI 'atenta' ('he entendido: ' + [string]$script:pendiente.texto) 15000 } catch {}
                         $a.desc = 'voy a cerrar ' + $nombres.Count + ': ' + ($nombres -join ', ') + '. ¿Cierro?'
                     } else {
                         $script:cerrarTodoPids = $null
@@ -21962,6 +21997,11 @@ function Invoke-FastCommand([string]$text) {
                         $totC = [Math]::Round((@($facC | ForEach-Object { $_.mb }) | Measure-Object -Sum).Sum, 0)
                         if ($facC.Count -eq 0) { $a.desc = 'no hay caches que soltar'; break }
                         $script:pendiente = @{ texto = 'limpia el disco'; vence = 0; tipo = 'peligrosa' }
+                        # LO QUE ENTENDI, A LA VISTA, ANTES DE HACERLO (2/10, idea 38 de las 40). La capsula ya recibe
+                        # que hay una confirmacion pendiente -el campo 'peligrosa' del estado-, pero no QUE se va a hacer,
+                        # y en una accion que no se puede deshacer leerlo es mas rapido y mas seguro que oirlo: evita el
+                        # "no, no eso" cuando ya es tarde. En try porque esto no puede impedir la confirmacion (regla 7).
+                        try { Set-UI 'atenta' ('he entendido: ' + [string]$script:pendiente.texto) 15000 } catch {}
                         $a.desc = "voy a borrar " + ($facC.nombre -join ', ') + ", unos $totC megas. ¿Lo hago?"
                     } else {
                         $res = Clear-CachesDisco
@@ -22121,6 +22161,11 @@ function Invoke-FastCommand([string]$text) {
                             "$($_.nombre), abierto desde hace $cuanto"
                         })
                         $script:pendiente = @{ texto = 'cierra los juegos colgados'; vence = 0; tipo = 'peligrosa' }
+                        # LO QUE ENTENDI, A LA VISTA, ANTES DE HACERLO (2/10, idea 38 de las 40). La capsula ya recibe
+                        # que hay una confirmacion pendiente -el campo 'peligrosa' del estado-, pero no QUE se va a hacer,
+                        # y en una accion que no se puede deshacer leerlo es mas rapido y mas seguro que oirlo: evita el
+                        # "no, no eso" cuando ya es tarde. En try porque esto no puede impedir la confirmacion (regla 7).
+                        try { Set-UI 'atenta' ('he entendido: ' + [string]$script:pendiente.texto) 15000 } catch {}
                         $a.desc = 'sin ventana pero gastando procesador: ' + ($lista -join '; ') + '. ¿Lo cierro?'
                     } else {
                         $n = 0
@@ -36473,6 +36518,11 @@ function Process-Texto([string]$text) {
             if ($dD.modo -eq 'preguntar') {
                 # tipo 'peligrosa': solo vale un SI hablado, ni el plazo ni el boton
                 $script:pendiente = @{ texto = $dD.texto; vence = 0; tipo = 'peligrosa' }
+                # LO QUE ENTENDI, A LA VISTA, ANTES DE HACERLO (2/10, idea 38 de las 40). La capsula ya recibe
+                # que hay una confirmacion pendiente -el campo 'peligrosa' del estado-, pero no QUE se va a hacer,
+                # y en una accion que no se puede deshacer leerlo es mas rapido y mas seguro que oirlo: evita el
+                # "no, no eso" cuando ya es tarde. En try porque esto no puede impedir la confirmacion (regla 7).
+                try { Set-UI 'atenta' ('he entendido: ' + [string]$script:pendiente.texto) 15000 } catch {}
                 $qD = "Con $nomD delante. " + $dD.texto + "?"
                 Log "DEICTICO: '$text' es una accion; pregunto antes: $qD"
                 Add-Estadistica 'deictico-preguntado' $text
@@ -36643,6 +36693,11 @@ function Process-Texto([string]$text) {
                 # pregunta en vez de hacerla. Va ANTES de la rama 'info' a proposito.
                 if (-not $script:confirmado -and (Test-VozExtrana)) {
                     $script:pendiente = @{ texto = $text; vence = 0; tipo = 'peligrosa' }
+                    # LO QUE ENTENDI, A LA VISTA, ANTES DE HACERLO (2/10, idea 38 de las 40). La capsula ya recibe
+                    # que hay una confirmacion pendiente -el campo 'peligrosa' del estado-, pero no QUE se va a hacer,
+                    # y en una accion que no se puede deshacer leerlo es mas rapido y mas seguro que oirlo: evita el
+                    # "no, no eso" cuando ya es tarde. En try porque esto no puede impedir la confirmacion (regla 7).
+                    try { Set-UI 'atenta' ('he entendido: ' + [string]$script:pendiente.texto) 15000 } catch {}
                     $preguntaVz = "No me suena tu voz. ¿$($text)?"
                     Log ("VOZ EXTRANA: no ejecuto la receta $($recEnc.receta.id) de '$text' sin confirmar")
                     Add-Estadistica 'voz-extrana' $text
@@ -36734,6 +36789,11 @@ function Process-Texto([string]$text) {
                     if ($dudosoO) {
                         Log "OTRO OIDO: '$text' no la entendi, pero otro motor oyo '$candO'; pregunto antes"
                         $script:pendiente = @{ texto = $candO; vence = 0; tipo = 'peligrosa' }
+                        # LO QUE ENTENDI, A LA VISTA, ANTES DE HACERLO (2/10, idea 38 de las 40). La capsula ya recibe
+                        # que hay una confirmacion pendiente -el campo 'peligrosa' del estado-, pero no QUE se va a hacer,
+                        # y en una accion que no se puede deshacer leerlo es mas rapido y mas seguro que oirlo: evita el
+                        # "no, no eso" cuando ya es tarde. En try porque esto no puede impedir la confirmacion (regla 7).
+                        try { Set-UI 'atenta' ('he entendido: ' + [string]$script:pendiente.texto) 15000 } catch {}
                         $preguntaO = "Entendi: $candO. ¿Lo hago?"
                         Say $preguntaO
                         Set-UI 'escuchando' $preguntaO
