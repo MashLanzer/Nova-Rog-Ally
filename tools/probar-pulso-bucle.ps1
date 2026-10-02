@@ -30,7 +30,11 @@ function Traer([string]$n) {
     if (-not $d) { Comp ('se encuentra ' + $n) $false ''; return '' }
     return $d.Extent.Text
 }
-foreach ($f in @('Get-PercentilLista', 'Get-VueltaP99', 'Add-VueltaMedida', 'Get-VueltaPeor')) {
+# Get-VueltaListonAviso entro el 2/10 (idea 5): el aviso de vuelta lenta ya no salta con el p99 a
+# secas, que se pasa el 1 % de las veces POR DEFINICION y llenaba el registro de avisos de lo
+# normal -569 de las 706 lineas del 2/10-. Sin cargarla aqui, el banco moria con 'El termino
+# Get-VueltaListonAviso no se reconoce', que desde fuera parece un fallo del codigo y era del banco.
+foreach ($f in @('Get-PercentilLista', 'Get-VueltaP99', 'Get-VueltaListonAviso', 'Add-VueltaMedida', 'Get-VueltaPeor')) {
     Invoke-Expression (Traer $f)
 }
 $txt = [IO.File]::ReadAllText($PS1)

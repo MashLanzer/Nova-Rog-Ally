@@ -160,6 +160,14 @@ memoria/correcciones-tiempos.json
 # de hoy ($JuegosCiegosPath) y nacio sin linea aqui; el banco de la idea 1 la caza.
 memoria/juegos-ciegos.json
 
+# LOS TRES DEL 2/10, que probar-memoria-ignorada cazo en cuanto se escribieron: son datos de
+# ESTA consola y de este braya, y el repositorio es publico.
+#   sondas.json      cuando se apago una sonda por lenta (de la maquina, pero dice que hardware es)
+#   petes-texto.json el texto de los errores internos, que puede llevar rutas con su nombre de usuario
+#   no-quiero.json   a que le dijo que no, que es una preferencia suya y de nadie mas
+memoria/sondas.json
+memoria/petes-texto.json
+memoria/no-quiero.json
 # 27/09: CINCO CUADERNOS NUEVOS QUE NADIE HABIA TAPADO, y el repositorio es publico
 # (idea 1 de las 121). Los estrenaron las ideas 87, 89, 102 y 69 de la tanda y nacieron sin
 # linea aqui: oido-aprendido lleva lo que Nova aprendio de su voz, firmas las palabras con

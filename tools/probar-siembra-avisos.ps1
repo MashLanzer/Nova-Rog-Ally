@@ -161,7 +161,13 @@ try {
 Write-Host ''
 Write-Host '-- 7. EL CABLEADO --'
 $sinCom = (($txt -split "`n") | Where-Object { $_.TrimStart() -notmatch '^#' }) -join "`n"
-Comp '7a. se llama al arrancar, tras Initialize-Escucha' ($sinCom -match '(?s)Initialize-Escucha\s*\r?\n\s*try \{ \[void\]\(Seed-ReaccionesAviso\)') ''
+# POR ORDEN Y NO POR ADYACENCIA (2/10). Esto exigia que Seed-ReaccionesAviso fuera la linea
+# INMEDIATAMENTE siguiente a Initialize-Escucha, y el 2/10 entro un Set-UI por medio -la idea 39, que
+# pinta en la capsula lo que esta haciendo al arrancar-: rojo con el codigo perfecto. Lo que importa es
+# que se llame DESPUES de que el oido este en marcha, no que este pegado a su linea.
+$iEsc = $sinCom.IndexOf("`nInitialize-Escucha")
+$iSeed = $sinCom.IndexOf('Seed-ReaccionesAviso', [Math]::Max(0, $iEsc))
+Comp '7a. se llama al arrancar, tras Initialize-Escucha' ($iEsc -ge 0 -and $iSeed -gt $iEsc -and ($iSeed - $iEsc) -lt 900) "escucha en $iEsc, siembra en $iSeed"
 Comp '7b. y NO desde el bucle' (@([regex]::Matches($sinCom, 'Seed-ReaccionesAviso')).Count -eq 2) 'definicion + una sola llamada'
 Comp '7c. lee el registro con ReadLines, no entero en RAM' ((Traer 'Seed-ReaccionesAviso') -match '\[System\.IO\.File\]::ReadLines') '6 MB entre los dos ficheros'
 
