@@ -2119,6 +2119,15 @@ Titulo "2n279. Los bancos de Python que se rendian por el interprete"
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-python-interprete.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:se rinde por el interprete)|MAL'
 if ($LASTEXITCODE -ne 0) { $fallos++ }
 
+Titulo "2n314. El que, despues de pon: pedir solo la parte que falta (idea 22 de las 40)"
+# Nova decia "No te entendi" y braya repetia LA FRASE ENTERA, aunque el verbo se hubiera oido
+# perfectamente -va al principio y sale de una lista cerrada de noventa, que es la parte que mejor se
+# oye-. Ahora, con verbo claro y objeto corto, pregunta solo por el objeto: "pon, que?". Y esto acerca
+# la meta del 100 % mas que cambiar de modelo, que ya se midio el 21/09 y NO mejora: no intenta oir
+# mejor, aprovecha lo que ya se oyo. Al escribir el banco salieron OCHO sitios con esa frase, no tres.
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'probar-el-que-falta.ps1') 2>>$script:errBanco | Select-String -CaseSensitive '(?i:pregunta solo por lo que falta)|MAL'
+if ($LASTEXITCODE -ne 0) { $fallos++ }
+
 Titulo "2n313. Por que has hecho eso, y que paso mientras no estabas (ideas 21 y 40)"
 # `grep -ci "por que has" assistant.ps1` daba CERO: Nova decidia sola todo el dia -el volumen, los
 # avisos, el motor de oido, las sondas lentas- y no podia explicar NI UNA. Y era barato, porque el

@@ -490,6 +490,43 @@ function Repair-Words([string]$s) {
 # Lista plana de verbos, derivada del propio $VERBOS para no duplicarla.
 $VERBOS_LISTA = (($VERBOS -replace '^\(\?:', '') -replace '\)$', '') -split '\|'
 
+# "EL QUE, DESPUES DE PON" (2/10/2026, idea 22 de las 40)
+#
+# EL AGUJERO: cuando Nova no entiende dice "No te entendi" y braya repite LA FRASE ENTERA. Pero
+# muchas veces el verbo esta clarisimo -va al principio y sale de una lista cerrada de noventa- y lo
+# que no se entiende es el objeto: "pon" mas un ruido. Pedir la frase entera es pedir trabajo de mas
+# y, peor, tirar la parte que SI se oyo.
+#
+# POR QUE ESTO ACERCA EL 100 % Y CAMBIAR DE MODELO NO: cambiar de modelo se midio el 21/09 y NO
+# mejora la comprension. Esto no intenta oir mejor, aprovecha lo que ya se oyo.
+#
+# DOS FRASES Y NO UNA, a proposito: la que se VE puede llevar el trozo entre comillas -leerlo ayuda a
+# ver donde se rompio- y la que se DICE tiene que ser corta, porque se oye encima de un juego.
+#
+# Y SI EL VERBO NO ESTA CLARO, LA FRASE DE SIEMPRE: inventarse un "pon que?" cuando no se oyo ningun
+# verbo seria poner palabras en la boca de braya, que es peor que admitir que no se entendio nada.
+function Get-FraseNoEntendi([string]$orig) {
+    $base = @{ ver = 'No te entendi. Repitelo.'; decir = 'No te entendi' }
+    try {
+        if (-not $orig) { return $base }
+        $t = (ConvertTo-Suave $orig).Trim()
+        if (-not $t) { return $base }
+        # el verbo, SOLO si esta al principio: un "pon" en medio de un ruido largo no es una orden
+        $m = [regex]::Match($t, ('^' + $VERBOS + '\b(.*)$'))
+        if (-not $m.Success) { return $base }
+        $verbo = $m.Groups[0].Value -replace '\s.*$', ''
+        $resto = $m.Groups[$m.Groups.Count - 1].Value.Trim()
+        # SI NO QUEDA NADA DETRAS, no es que no se entendiera el objeto: es que no lo dijo. Esa es
+        # otra conversacion y ya la lleva el camino de las ordenes a medias.
+        if (-not $resto) { return $base }
+        # Y SI EL RESTO ES LARGO, tampoco: con seis palabras detras lo que falla no es una palabra
+        # suelta, y preguntar "pon que?" sonaria a que no se ha escuchado nada.
+        if (@($resto -split '\s+').Count -gt 4) { return $base }
+        return @{ ver = ("Te oi `"$verbo`" pero no lo que va detras (`"$resto`"). " + $verbo + ' que?')
+                  decir = ($verbo + ', que?') }
+    } catch { return $base }
+}
+
 # VERBOS DE CABEZA QUE ESTE MICROFONO SE COME. Lista cerrada, y cada entrada
 # sale de las 20 grabaciones del 12/09, no de suponer: "pon modo noche" se oye
 # "CON el modo noche" y "pon el juego al ochenta" se oye "CON el juego al 80".
@@ -33655,8 +33692,10 @@ function Report-Reply($out) {
                 # SIGUE CONTANDO donde si tiene sentido: en el filtro de frases de dos
                 # palabras que nunca llegan al agente, que es para lo que se hizo.
             Send-UIEvento 'gesto:confuso'
-            Show-Popup "No te entendi. Repitelo." 'error'
-            Say "No te entendi"
+            # EL QUE, DESPUES DE PON (2/10, idea 22): ver Get-FraseNoEntendi.
+            $fraseNE = Get-FraseNoEntendi $text
+            Show-Popup $fraseNE.ver 'error'
+            Say $fraseNE.decir
             Open-EscuchaTrasNoEntendi
             return
         }
@@ -33709,8 +33748,10 @@ function Report-Reply($out) {
                 Add-Estadistica 'traduccion-rechazada' "$original -> $propuesta"
                 $script:seguimientoPendiente = $false
                 Send-UIEvento 'gesto:confuso'
-                Show-Popup "No te entendi. Repitelo." 'error'
-                Say "No te entendi"
+                # EL QUE, DESPUES DE PON (2/10, idea 22): ver Get-FraseNoEntendi.
+                $fraseNE = Get-FraseNoEntendi $text
+                Show-Popup $fraseNE.ver 'error'
+                Say $fraseNE.decir
                 Open-EscuchaTrasNoEntendi
                 return
             }
@@ -33855,8 +33896,10 @@ function Report-Reply($out) {
                 # palabras que nunca llegan al agente, que es para lo que se hizo.
             $script:seguimientoPendiente = $false   # un descarte no encadena: era ruido
             Send-UIEvento 'gesto:confuso'
-            Show-Popup "No te entendi. Repitelo." 'error'
-            Say "No te entendi"
+            # EL QUE, DESPUES DE PON (2/10, idea 22): ver Get-FraseNoEntendi.
+            $fraseNE = Get-FraseNoEntendi $text
+            Show-Popup $fraseNE.ver 'error'
+            Say $fraseNE.decir
             Open-EscuchaTrasNoEntendi
             return
         }
@@ -35550,8 +35593,10 @@ function Process-Texto([string]$text) {
             Add-Estadistica 'recitado' $text
             $script:seguimientoPendiente = $false
             Send-UIEvento 'gesto:confuso'
-            Show-Popup "No te entendi. Repitelo." 'error'
-            Say "No te entendi"
+            # EL QUE, DESPUES DE PON (2/10, idea 22): ver Get-FraseNoEntendi.
+            $fraseNE = Get-FraseNoEntendi $text
+            Show-Popup $fraseNE.ver 'error'
+            Say $fraseNE.decir
             Open-EscuchaTrasNoEntendi
             return
         }
@@ -36603,8 +36648,10 @@ function Process-Texto([string]$text) {
                 Add-Estadistica 'ruido' $text
                 Add-RuidoRacha
                 Send-UIEvento 'gesto:confuso'
-                Show-Popup "No te entendi. Repitelo." 'error'
-                Say "No te entendi"
+                # EL QUE, DESPUES DE PON (2/10, idea 22): ver Get-FraseNoEntendi.
+                $fraseNE = Get-FraseNoEntendi $text
+                Show-Popup $fraseNE.ver 'error'
+                Say $fraseNE.decir
                 Open-EscuchaTrasNoEntendi
                 return
             }
@@ -39475,8 +39522,12 @@ while ($true) {
                     Add-Estadistica 'turbo-nada' $orig
                     $script:seguimientoPendiente = $false
                     Send-UIEvento 'gesto:confuso'
-                    Show-Popup "No te entendi. Repitelo." 'error'
-                    Say "No te entendi"
+                    # SI EL VERBO SE OYO BIEN, SE PREGUNTA SOLO POR LO QUE FALTA (2/10, idea 22).
+                    # Ver Get-FraseNoEntendi: los tres sitios que decian "No te entendi" pasan por
+                    # ahi, porque los tres tiran igual la parte que SI se oyo.
+                    $fraseNE = Get-FraseNoEntendi $orig
+                    Show-Popup $fraseNE.ver 'error'
+                    Say $fraseNE.decir
                     Open-EscuchaTrasNoEntendi
                 } else {
                     # lo que oyo turbo, si se parece, es el mejor oido que hay: con lo primero, la
@@ -39503,8 +39554,12 @@ while ($true) {
                     Add-Estadistica 'fino-eco' $orig
                     $script:seguimientoPendiente = $false
                     Send-UIEvento 'gesto:confuso'
-                    Show-Popup "No te entendi. Repitelo." 'error'
-                    Say "No te entendi"
+                    # SI EL VERBO SE OYO BIEN, SE PREGUNTA SOLO POR LO QUE FALTA (2/10, idea 22).
+                    # Ver Get-FraseNoEntendi: los tres sitios que decian "No te entendi" pasan por
+                    # ahi, porque los tres tiran igual la parte que SI se oyo.
+                    $fraseNE = Get-FraseNoEntendi $orig
+                    Show-Popup $fraseNE.ver 'error'
+                    Say $fraseNE.decir
                     Open-EscuchaTrasNoEntendi
                 }
             } elseif ($reconocida -and ((-not $limpio) -or (ConvertTo-Plain $limpio) -eq (ConvertTo-Plain $orig) -or
@@ -39556,8 +39611,12 @@ while ($true) {
                     Add-RuidoRacha
                     $script:seguimientoPendiente = $false
                     Send-UIEvento 'gesto:confuso'
-                    Show-Popup "No te entendi. Repitelo." 'error'
-                    Say "No te entendi"
+                    # SI EL VERBO SE OYO BIEN, SE PREGUNTA SOLO POR LO QUE FALTA (2/10, idea 22).
+                    # Ver Get-FraseNoEntendi: los tres sitios que decian "No te entendi" pasan por
+                    # ahi, porque los tres tiran igual la parte que SI se oyo.
+                    $fraseNE = Get-FraseNoEntendi $orig
+                    Show-Popup $fraseNE.ver 'error'
+                    Say $fraseNE.decir
                     Open-EscuchaTrasNoEntendi
                 }
             } else {
